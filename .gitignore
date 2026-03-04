@@ -213,3 +213,17 @@ __marimo__/
 *.png
 *.backup-*.md
 .claude/
+
+# Node.js / TypeScript
+node_modules/
+*.tsbuildinfo
+.turbo/
+
+# Docker
+docker-compose.override.yml
+
+# Secrets (all keys in Bitwarden, never in repo)
+.env.local
+.env.*.local
+*.pem
+*.key
