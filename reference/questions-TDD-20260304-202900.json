@@ -1,0 +1,459 @@
+{
+  "questions": [
+    {
+      "id": 1,
+      "topic": "Calendar Integration",
+      "sections": ["17. Feature Flags and Rollout Strategy", "1.2 Scope"],
+      "question": "Which calendar service should the Phase 4 calendar integration connect to, and what data should be captured?",
+      "context": "The TDD lists calendar integration as a Phase 4 feature (F25) but provides no specification. Key unknowns: Google Calendar vs iCal vs Outlook? Should it capture calendar events as captures (meeting notes, agendas)? Should it feed upcoming meetings as context to governance sessions or weekly briefs? Or is it just a read-only input source? This affects API design, OAuth requirements, and the capture pipeline.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1695,
+        "line_end": 1695,
+        "original_text": "F25 Calendar [NEED CLARIFICATION — which calendar service? Google Calendar? What data to capture?]"
+      }
+    },
+    {
+      "id": 2,
+      "topic": "Data Encryption",
+      "sections": ["19. Security Implementation", "19.3 Sensitive Data Handling"],
+      "question": "Is at-rest encryption needed for the Postgres data on the Unraid array?",
+      "context": "Capture content is stored as plaintext in Postgres. The TDD marks this as [NEED CLARIFICATION]. Options: (A) No encryption — physical access to the server is sufficient protection for a personal tool, (B) ZFS encryption on the Unraid share backing the Postgres volume, (C) Postgres-level encryption (pgcrypto). The server is on a private LAN behind Tailscale, so the threat model is primarily physical theft of drives.",
+      "priority": "low",
+      "location": {
+        "line_start": 1686,
+        "line_end": 1686,
+        "original_text": "Postgres (plaintext) | Network-secured, not encrypted at rest [NEED CLARIFICATION]"
+      }
+    },
+    {
+      "id": 3,
+      "topic": "Monorepo vs Multi-Repo",
+      "sections": ["1.3 Technical Approach Summary", "16. Deployment"],
+      "question": "Should the project use a monorepo with shared packages, or separate repos for each service?",
+      "context": "The TDD shows a single project directory structure with src/core-api/, src/slack-bot/, src/mcp-server/, src/workers/, etc. but doesn't specify the package management strategy. Key decisions: (A) Single package.json with workspace paths (pnpm/npm workspaces), (B) Turborepo or Nx for monorepo orchestration, (C) Separate Dockerfiles per service sharing a common base. This affects build tooling, dependency management, shared code reuse, and Docker build caching.",
+      "priority": "high",
+      "location": {
+        "line_start": 63,
+        "line_end": 78,
+        "original_text": "Phase 1-4 implementation structure"
+      }
+    },
+    {
+      "id": 4,
+      "topic": "Package Manager",
+      "sections": ["2.1 Infrastructure Dependencies", "16. Deployment"],
+      "question": "Which Node.js package manager should be used — npm, pnpm, or bun?",
+      "context": "The TDD specifies Node.js 22 LTS but doesn't specify the package manager. pnpm is common for monorepos due to strict dependency isolation and disk efficiency. Bun offers speed advantages. npm is the most universal. This affects lockfile format, workspace configuration, Docker build steps, and CI setup.",
+      "priority": "medium",
+      "location": {
+        "line_start": 94,
+        "line_end": 94,
+        "original_text": "Node.js | 22 LTS | Runtime for all TypeScript services"
+      }
+    },
+    {
+      "id": 5,
+      "topic": "Dockerfile Strategy",
+      "sections": ["16. Deployment", "16.1 Docker Compose"],
+      "question": "What is the Dockerfile strategy — single multi-stage Dockerfile with targets, or separate Dockerfiles per service?",
+      "context": "The docker-compose.yml references a single Dockerfile with build targets (target: core-api, target: slack-bot, etc.), which implies a multi-stage build. But the actual Dockerfile content is not specified. Key details needed: base image (node:22-slim vs alpine), build stage for TypeScript compilation, how shared code (src/shared/) is included in each target, and whether to use distroless or slim for production images.",
+      "priority": "high",
+      "location": {
+        "line_start": 1589,
+        "line_end": 1600,
+        "original_text": "build: context: . dockerfile: Dockerfile target: core-api"
+      }
+    },
+    {
+      "id": 6,
+      "topic": "Supabase Self-Hosting",
+      "sections": ["16.1 Docker Compose", "2.2 External Service Dependencies"],
+      "question": "Which exact Supabase Docker images and versions should be pinned for the minimal stack (Postgres, Studio, Realtime)?",
+      "context": "The docker-compose.yml references supabase/postgres:16, supabase/studio:latest, and supabase/realtime:latest. Using :latest is risky for a production system — breaking changes could occur on any pull. The Supabase self-hosting guide has specific version pins and additional configuration (JWT secrets, API URLs) that may be needed even for the minimal stack. Need to determine: exact version tags to pin, whether supabase-meta container is needed for Studio, and the minimum env vars for Realtime.",
+      "priority": "high",
+      "location": {
+        "line_start": 1556,
+        "line_end": 1580,
+        "original_text": "supabase-db, supabase-studio, supabase-realtime service definitions"
+      }
+    },
+    {
+      "id": 7,
+      "topic": "Cloudflare Tunnel Routing",
+      "sections": ["16.1 Docker Compose", "7.2 MCP Server API Key"],
+      "question": "What are the exact Cloudflare Tunnel routing rules — which paths go to which internal services?",
+      "context": "The TDD mentions Cloudflare Tunnel routes external traffic from brain.k4jda.net to core-api and mcp-server, but the exact ingress rules are not defined. Questions: Does brain.k4jda.net/api/* go to core-api:3000? Does brain.k4jda.net/mcp go to mcp-server:3001? Is the web UI (Phase 4) also exposed via the tunnel? Do we need separate subdomains or path-based routing? The tunnel config YAML needs to be specified.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1638,
+        "line_end": 1648,
+        "original_text": "cloudflared service definition"
+      }
+    },
+    {
+      "id": 8,
+      "topic": "Entity Resolution Algorithm",
+      "sections": ["6.2 Service Class Specifications", "4.2 Drizzle Schema Definitions"],
+      "question": "What is the entity resolution algorithm for matching new mentions to existing entities?",
+      "context": "The PRD describes entity resolution (Tom/Tom Smith/Tom at QSR Corp → same person) via exact match, alias match, and LLM-assisted disambiguation, but the TDD doesn't specify the implementation details. Questions: What similarity threshold for fuzzy matching? How does the LLM disambiguation prompt work? When does it auto-create vs. ask for confirmation? What happens with ambiguous matches (two Toms)? This is Phase 3 but the algorithm design affects the entities schema.",
+      "priority": "medium",
+      "location": {
+        "line_start": 711,
+        "line_end": 735,
+        "original_text": "entities and entityLinks Drizzle schema"
+      }
+    },
+    {
+      "id": 9,
+      "topic": "Governance Conversational Flow",
+      "sections": ["3.2 Endpoint Specifications", "6.2 Service Class Specifications"],
+      "question": "What is the detailed conversational flow for governance sessions, and how does it differ from a traditional FSM?",
+      "context": "The TDD defines session API endpoints and a basic SessionState interface, but the actual conversational logic — the 5 questions for a quick check, how board roles participate, the anti-vagueness prompt strategy, and the assessment generation — is not detailed. The PRD says 'Slack-native conversational redesign, not FSM port' but the TDD session endpoints still reference state/steps. Need to clarify: is this a flexible LLM-driven conversation with guardrails, or a structured step sequence? How does each board role interact?",
+      "priority": "medium",
+      "location": {
+        "line_start": 470,
+        "line_end": 534,
+        "original_text": "Session creation and response endpoints"
+      }
+    },
+    {
+      "id": 10,
+      "topic": "Brain View Auto-Classification",
+      "sections": ["5.1 TypeScript Interfaces", "5.2 Validation Rules"],
+      "question": "What are the auto-classification rules for assigning captures to brain views?",
+      "context": "The TDD defines 5 brain views (career, personal, technical, work-internal, client) and notes hybrid auto-classification + manual override. The extract_metadata pipeline stage suggests brain_views_suggested in the metadata output. But the classification rules are not specified: Does the LLM classify in the extract_metadata prompt? Are there keyword-based rules in brain-views.yaml? How are suggested views reconciled with explicitly-provided views? What if the LLM suggests views not in the user's set?",
+      "priority": "medium",
+      "location": {
+        "line_start": 900,
+        "line_end": 908,
+        "original_text": "CaptureMetadata interface with brain_views_suggested"
+      }
+    },
+    {
+      "id": 11,
+      "topic": "Content Hash Deduplication",
+      "sections": ["3.2 Endpoint Specifications"],
+      "question": "What hash algorithm and normalization should be used for content-based deduplication?",
+      "context": "The TDD specifies MCP/API dedup via 'content hash + 60-second window' but doesn't define the hashing details. Questions: SHA-256 of raw content? Should content be normalized first (trim whitespace, lowercase)? Is the 60-second window based on captured_at or created_at? Where is the hash stored — as an indexed column on captures, or computed at query time? A computed-at-query-time approach won't scale, so this likely needs a content_hash column and index.",
+      "priority": "medium",
+      "location": {
+        "line_start": 207,
+        "line_end": 210,
+        "original_text": "Deduplication Logic for MCP/API: content hash within 60-second window"
+      }
+    },
+    {
+      "id": 12,
+      "topic": "Token Counting",
+      "sections": ["3.2 Endpoint Specifications", "6.2 Service Class Specifications"],
+      "question": "How should tokens be counted for the synthesize endpoint's token budget?",
+      "context": "The synthesize endpoint assembles context within a token_budget (default 50K). But token counting varies by model — Claude uses a different tokenizer than GPT. Questions: Which tokenizer for counting? Should we use a rough approximation (chars/4) or exact tokenizer? Is the budget for context only, or context + system prompt + response? The accuracy of token counting affects whether the AI call succeeds or gets truncated by the provider.",
+      "priority": "low",
+      "location": {
+        "line_start": 375,
+        "line_end": 376,
+        "original_text": "token_budget | integer | No | 50000 | Max tokens for context assembly"
+      }
+    },
+    {
+      "id": 13,
+      "topic": "Prompt Template Format",
+      "sections": ["Appendix C. Prompt Templates"],
+      "question": "What is the format and variable interpolation syntax for prompt templates?",
+      "context": "The TDD references 8 prompt templates (extract_metadata_v1.txt, intent_router_v1.txt, etc.) stored in config/prompts/ but doesn't define the template format. Questions: Plain text with {{variable}} placeholders? Handlebars/Mustache syntax? How are captures injected as context? Is there a system prompt + user prompt structure? What variables are available to each template (captures, metadata, brain_views, etc.)? Without this spec, prompt templates can't be written.",
+      "priority": "high",
+      "location": {
+        "line_start": 1692,
+        "line_end": 1700,
+        "original_text": "Prompt template listing in Appendix C"
+      }
+    },
+    {
+      "id": 14,
+      "topic": "MCP Transport Protocol",
+      "sections": ["8.7 MCP Server Tools", "7.2 MCP Server API Key"],
+      "question": "Which MCP transport should the server use — stdio, SSE, or Streamable HTTP?",
+      "context": "The TDD specifies @modelcontextprotocol/sdk but doesn't specify the transport. MCP supports stdio (for local tools like Claude Desktop), SSE (for remote servers), and the newer Streamable HTTP transport. Since the MCP server runs as a Docker container accessible via Cloudflare Tunnel, SSE or Streamable HTTP is needed for remote access, while stdio would work for local Claude Code access via Tailscale. May need to support both. This affects the server implementation significantly.",
+      "priority": "high",
+      "location": {
+        "line_start": 1472,
+        "line_end": 1472,
+        "original_text": "Protocol: Model Context Protocol via @modelcontextprotocol/sdk"
+      }
+    },
+    {
+      "id": 15,
+      "topic": "Slack Bot Library",
+      "sections": ["8.1 Slack Integration"],
+      "question": "Which Slack SDK library should be used — @slack/bolt, @slack/web-api + @slack/socket-mode, or raw API?",
+      "context": "The TDD specifies Socket Mode and lists required scopes/events but doesn't specify the Slack library. @slack/bolt is the recommended framework (handles Socket Mode, events, commands in one package). Alternatively, lower-level @slack/web-api + @slack/socket-mode gives more control. This affects the bot's initialization code, event handling patterns, and middleware structure.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1298,
+        "line_end": 1338,
+        "original_text": "Slack Integration section"
+      }
+    },
+    {
+      "id": 16,
+      "topic": "BullMQ Dashboard",
+      "sections": ["10.3 Monitoring Approach", "12. Background Jobs"],
+      "question": "Should Bull Board (BullMQ dashboard) be included as a container or embedded in the Core API?",
+      "context": "The monitoring section references 'BullMQ dashboard (Bull Board)' for queue depth monitoring but the docker-compose.yml doesn't include it. Options: (A) Embed @bull-board/hono in the Core API on an /admin/queues route, (B) Run as a separate lightweight container, (C) Skip for now and use Redis CLI. Option A is simplest for a single-user system. This is a minor UX decision but affects the core-api dependencies.",
+      "priority": "low",
+      "location": {
+        "line_start": 1684,
+        "line_end": 1684,
+        "original_text": "Queue depth | BullMQ dashboard (Bull Board) | Log warning if depth > 50"
+      }
+    },
+    {
+      "id": 17,
+      "topic": "Postgres Configuration",
+      "sections": ["16.1 Docker Compose", "2.3 Target Hardware"],
+      "question": "What are the optimal Postgres configuration parameters for the 8GB memory allocation?",
+      "context": "The TDD allocates 8GB to Postgres but doesn't specify postgresql.conf tuning. Key parameters: shared_buffers (typically 25% of RAM = 2GB), work_mem, effective_cache_size, max_connections, maintenance_work_mem. pgvector HNSW index building is memory-intensive. Also: should Postgres use the Supabase image's defaults or a custom postgresql.conf mount?",
+      "priority": "low",
+      "location": {
+        "line_start": 129,
+        "line_end": 129,
+        "original_text": "Postgres | 8GB | shared_buffers, work_mem"
+      }
+    },
+    {
+      "id": 18,
+      "topic": "Config Service Implementation",
+      "sections": ["6.2 Service Class Specifications", "12.3 Pipeline Stage Executor"],
+      "question": "How should the ConfigService work — file watcher, per-request read, or cached with TTL?",
+      "context": "The TDD says 'config re-read on each pipeline job start' and 'API reload endpoint for immediate cache clear.' But the ConfigService class is not specified. Questions: Does it parse YAML on every job (could be slow if jobs are frequent)? Does it cache with a short TTL? Does it use a file watcher (fs.watch) for auto-reload? How does the API reload endpoint signal to workers running in a separate container? If workers and core-api share the same config volume, a file watcher would work, but if config is in a different container, an IPC mechanism is needed.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1097,
+        "line_end": 1097,
+        "original_text": "private configService: ConfigService"
+      }
+    },
+    {
+      "id": 19,
+      "topic": "Document Ingestion",
+      "sections": ["1.2 Scope", "17. Feature Flags and Rollout Strategy"],
+      "question": "What is the document ingestion strategy for PDFs and DOCX files in Phase 4?",
+      "context": "Feature F23 (document ingestion) is listed in Phase 4 scope but has no specification in the TDD. Key questions: How are documents submitted (web upload, email attachment, watched folder)? How is text extracted (pdf-parse, mammoth for docx)? Are documents chunked before embedding? What chunk size and overlap? Is the original file stored or just the extracted text? How are multi-page documents represented — one capture per document or one per chunk?",
+      "priority": "low",
+      "location": {
+        "line_start": 38,
+        "line_end": 38,
+        "original_text": "Phase 4 (Polish): ... document ingestion, bookmarks, calendar"
+      }
+    },
+    {
+      "id": 20,
+      "topic": "URL/Bookmark Capture",
+      "sections": ["1.2 Scope", "17. Feature Flags and Rollout Strategy"],
+      "question": "How should URL/bookmark capture work in Phase 4?",
+      "context": "Feature F24 (URL/bookmark capture) is listed but unspecified. Questions: Does it fetch and extract page content, or just store the URL with a title? Should it use a readability parser to extract article text? How is the content embedded — full article text or just title + summary? Input method: Slack message with a URL? Web UI bookmark button? Browser extension? This is Phase 4 but the schema implications (storing URLs, extracted content) could affect earlier design.",
+      "priority": "low",
+      "location": {
+        "line_start": 38,
+        "line_end": 38,
+        "original_text": "Phase 4 (Polish): ... bookmarks"
+      }
+    },
+    {
+      "id": 21,
+      "topic": "Weekly Brief HTML Template",
+      "sections": ["8.5 SMTP Email Integration", "12.4 Scheduled Jobs"],
+      "question": "What HTML email template system should be used for weekly briefs and reports?",
+      "context": "The TDD references renderedHtmlBrief in the email integration but doesn't specify how HTML emails are generated. Options: (A) React Email (JSX-based, good DX), (B) MJML (responsive email framework), (C) Plain HTML template strings, (D) Handlebars templates. The brief needs to render correctly on iPhone Mail app and support the structured format (Headline, Wins, Blockers, Risks, etc.).",
+      "priority": "low",
+      "location": {
+        "line_start": 1443,
+        "line_end": 1444,
+        "original_text": "html: renderedHtmlBrief, text: plainTextFallback"
+      }
+    },
+    {
+      "id": 22,
+      "topic": "faster-whisper Docker Image",
+      "sections": ["8.6 faster-whisper Integration", "16.1 Docker Compose"],
+      "question": "Which faster-whisper Docker image should be used — fedirz/faster-whisper-server or a custom build?",
+      "context": "The docker-compose.yml references fedirz/faster-whisper-server:latest, but there are several community images for faster-whisper. Need to verify: (A) Does this image expose the /transcribe and /health endpoints as expected? (B) Does it support the large-v3 model with CPU int8? (C) Is it actively maintained? (D) Does the API match the fetch call in Section 8.6? If not, a custom Dockerfile wrapping the faster-whisper Python package may be needed.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1610,
+        "line_end": 1616,
+        "original_text": "faster-whisper service definition"
+      }
+    },
+    {
+      "id": 23,
+      "topic": "Startup Secret Loading",
+      "sections": ["16.4 Startup Sequence"],
+      "question": "How should secrets be loaded from Bitwarden at container startup — init script, Docker entrypoint, or sidecar?",
+      "context": "The startup sequence shows a bash script using bws CLI to extract secrets and export them, then starting Docker Compose. But this means secrets are passed as environment variables to Docker Compose. Questions: Should a docker-compose entrypoint script call bws inside each container? Or should a pre-start script generate a .env file (excluded from git) that Docker Compose reads? The current approach requires bws to be installed on the Unraid host. A more containerized approach might be preferred.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1660,
+        "line_end": 1670,
+        "original_text": "Startup sequence with bws secret retrieval"
+      }
+    },
+    {
+      "id": 24,
+      "topic": "Drizzle pgvector Support",
+      "sections": ["4.2 Drizzle Schema Definitions"],
+      "question": "Does Drizzle ORM natively support pgvector's vector type, or is a custom type extension needed?",
+      "context": "The schema uses vector('embedding', { dimensions: 768 }) from drizzle-orm/pg-core, but pgvector support in Drizzle has been evolving. As of early 2026, the drizzle-orm/pg-core package may or may not include a vector column type natively. If not, a custom column type is needed. This also affects the match_captures function — it may need to be called via sql`` template literals rather than the Drizzle query builder. Need to verify current Drizzle pgvector support.",
+      "priority": "high",
+      "location": {
+        "line_start": 672,
+        "line_end": 672,
+        "original_text": "embedding: vector('embedding', { dimensions: 768 })"
+      }
+    },
+    {
+      "id": 25,
+      "topic": "Updated Timestamp Trigger",
+      "sections": ["4.2 Drizzle Schema Definitions"],
+      "question": "How should the updated_at timestamp be automatically maintained?",
+      "context": "All tables have an updatedAt column with defaultNow(), but there's no trigger or application-level logic to update it on modification. Options: (A) Postgres trigger (CREATE TRIGGER ... BEFORE UPDATE ... SET NEW.updated_at = NOW()), (B) Application-level — set updated_at in every Drizzle update query, (C) Drizzle's .$onUpdate() helper. The trigger approach is more reliable but adds a custom migration. Application-level is simpler but error-prone if missed.",
+      "priority": "low",
+      "location": {
+        "line_start": 695,
+        "line_end": 695,
+        "original_text": "updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow()"
+      }
+    },
+    {
+      "id": 26,
+      "topic": "Voice Capture Container Integration",
+      "sections": ["16.1 Docker Compose"],
+      "question": "How will the existing voice-capture project be integrated — as a Git submodule, copied into the monorepo, or built from its own repo?",
+      "context": "The docker-compose.yml references `build: context: ../voice-capture` which assumes the voice-capture repo is a sibling directory. This works for local development but is fragile for deployment. Questions: Should voice-capture be a Git submodule? A separate Docker image pushed to a registry? Or should the relevant code be migrated into the Open Brain monorepo? This is Phase 2 but the build strategy should be decided early.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1643,
+        "line_end": 1650,
+        "original_text": "voice-capture service definition with build context ../voice-capture"
+      }
+    },
+    {
+      "id": 27,
+      "topic": "rclone Configuration",
+      "sections": ["16.1 Docker Compose"],
+      "question": "What is the rclone configuration for Google Drive voice memo sync?",
+      "context": "The docker-compose.yml includes an rclone service with a bisync command, but references config files (rclone.conf, rclone-filters.txt) that don't exist yet. Questions: Is this using rclone's bisync (which has specific requirements) or just copy/sync? What's the sync interval (the PRD says every 3 minutes)? The rclone service command shown doesn't include a schedule — it runs once and exits. Should it use a cron loop, or should Unraid's built-in scheduler trigger it?",
+      "priority": "medium",
+      "location": {
+        "line_start": 1652,
+        "line_end": 1662,
+        "original_text": "rclone service definition"
+      }
+    },
+    {
+      "id": 28,
+      "topic": "MCP Server Architecture",
+      "sections": ["8.7 MCP Server Tools", "16.1 Docker Compose"],
+      "question": "Should the MCP server be a separate container or embedded in the Core API?",
+      "context": "The TDD defines the MCP server as a separate Docker container (mcp-server on port 3001) that proxies to core-api. This adds operational complexity (another container to manage) but provides isolation. Alternative: embed the MCP tool handlers directly in the Core API as additional Hono routes. Since MCP is just translating tool calls to API calls, the proxy layer adds latency with minimal benefit. The separate container approach does allow independent scaling and API key enforcement at the container boundary.",
+      "priority": "low",
+      "location": {
+        "line_start": 1621,
+        "line_end": 1630,
+        "original_text": "mcp-server service definition"
+      }
+    },
+    {
+      "id": 29,
+      "topic": "Supabase Realtime Configuration",
+      "sections": ["13. Real-Time Features", "16.1 Docker Compose"],
+      "question": "What Supabase Realtime configuration is needed for the web dashboard, and does it work with the minimal Supabase stack?",
+      "context": "The TDD includes Supabase Realtime for Phase 4 live updates and shows React code using supabase.channel().on('postgres_changes'). However, Supabase Realtime typically depends on other Supabase services (the full stack). With the minimal stack (Postgres + Studio + Realtime, no PostgREST or Kong), it's unclear if Realtime will function correctly. The env vars for Realtime may need JWT secrets and API keys that are part of the full stack. Need to verify if Realtime works standalone.",
+      "priority": "medium",
+      "location": {
+        "line_start": 1573,
+        "line_end": 1580,
+        "original_text": "supabase-realtime service definition"
+      }
+    },
+    {
+      "id": 30,
+      "topic": "TypeScript Build Configuration",
+      "sections": ["16. Deployment", "2.1 Infrastructure Dependencies"],
+      "question": "What TypeScript build configuration should be used — tsc, esbuild, tsx, or tsup?",
+      "context": "The TDD uses TypeScript throughout but doesn't specify the build/compilation tool. Options: (A) tsc for type-checking + esbuild for bundling (fast, standard), (B) tsup (zero-config bundler built on esbuild), (C) tsx for development (run TS directly) + esbuild for production, (D) Vite for building everything. This affects tsconfig.json settings, the Dockerfile build step, dev workflow (hot reload), and whether ESM or CJS modules are used.",
+      "priority": "high",
+      "location": {
+        "line_start": 50,
+        "line_end": 50,
+        "original_text": "Language | TypeScript | Type-safe across all services, single runtime"
+      }
+    },
+    {
+      "id": 31,
+      "topic": "Session API Response Shape",
+      "sections": ["3.2 Endpoint Specifications"],
+      "question": "What is the full response shape for GET /api/v1/sessions/:id, and how does session resume work via the API?",
+      "context": "The GET /api/v1/sessions/:id endpoint says 'Get session state (for resume support)' but the response body is not specified. The PRD says sessions can be resumed via '!board resume' or by replying in the original thread, with a 30-day max pause. Questions: What fields does the response include? Does it return the full transcript? How does the Slack bot know which thread corresponds to which session? Is there a sessions list endpoint for finding paused sessions?",
+      "priority": "medium",
+      "location": {
+        "line_start": 538,
+        "line_end": 540,
+        "original_text": "GET /api/v1/sessions/:id — Description: Get session state (for resume support)."
+      }
+    },
+    {
+      "id": 32,
+      "topic": "Entities API Response Shape",
+      "sections": ["3.2 Endpoint Specifications"],
+      "question": "What are the full response shapes for the entities endpoints?",
+      "context": "The GET /api/v1/entities and GET /api/v1/entities/:id endpoints list query parameters but don't include response body examples. For implementation, we need: the entity list response shape (with linked capture counts? last seen?), the entity detail response (with full linked captures list? relationship types?), and pagination format. These are Phase 3 but the API contract should be defined now.",
+      "priority": "low",
+      "location": {
+        "line_start": 544,
+        "line_end": 554,
+        "original_text": "GET /api/v1/entities and GET /api/v1/entities/:id"
+      }
+    }
+  ],
+  "metadata": {
+    "source_document": "TDD.md",
+    "total_questions": 32,
+    "generated_at": "2026-03-04T20:29:09Z",
+    "topics_summary": [
+      "Calendar Integration",
+      "Data Encryption",
+      "Monorepo vs Multi-Repo",
+      "Package Manager",
+      "Dockerfile Strategy",
+      "Supabase Self-Hosting",
+      "Cloudflare Tunnel Routing",
+      "Entity Resolution Algorithm",
+      "Governance Conversational Flow",
+      "Brain View Auto-Classification",
+      "Content Hash Deduplication",
+      "Token Counting",
+      "Prompt Template Format",
+      "MCP Transport Protocol",
+      "Slack Bot Library",
+      "BullMQ Dashboard",
+      "Postgres Configuration",
+      "Config Service Implementation",
+      "Document Ingestion",
+      "URL/Bookmark Capture",
+      "Weekly Brief HTML Template",
+      "faster-whisper Docker Image",
+      "Startup Secret Loading",
+      "Drizzle pgvector Support",
+      "Updated Timestamp Trigger",
+      "Voice Capture Container Integration",
+      "rclone Configuration",
+      "MCP Server Architecture",
+      "Supabase Realtime Configuration",
+      "TypeScript Build Configuration",
+      "Session API Response Shape",
+      "Entities API Response Shape"
+    ]
+  }
+}

@@ -225,5 +225,6 @@ docker-compose.override.yml
 # Secrets (all keys in Bitwarden, never in repo)
 .env.local
 .env.*.local
+.env.secrets
 *.pem
 *.key
