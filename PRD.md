@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 # Open Brain — Personal AI Knowledge Infrastructure
 
-**Version**: 0.2
+**Version**: 0.3
 **Author**: Troy Davis / Claude
 **Date**: 2026-03-04
 **Status**: Draft — Questions Resolved
@@ -12,7 +12,7 @@
 
 Open Brain is a self-hosted, Docker-based personal knowledge infrastructure system that ingests information from multiple sources (voice memos, Slack messages, documents, bookmarks, calendar events), processes and embeds them for semantic search, and provides rich output through AI-powered skills — including weekly briefs, career governance sessions, pattern detection, and ad-hoc synthesis.
 
-The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in a self-hosted Supabase instance (Postgres + pgvector), and is accessible through Slack (bidirectional — capture and query), an MCP server (for Claude, ChatGPT, and other AI tools), a web dashboard, email reports, and push notifications.
+The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a web dashboard, email reports, and push notifications.
 
 Open Brain replaces and consolidates two existing projects:
 - **board-journal** — a Flutter mobile app for voice-first career governance with AI-powered board sessions, weekly briefs, and bet tracking
@@ -39,8 +39,8 @@ Build a self-hosted, extensible knowledge infrastructure with universal ingestio
 
 ### Strategic Alignment
 - **Replaces board-journal**: The career governance functionality (weekly briefs, board sessions, bet tracking) becomes output skills rather than a standalone mobile app. A conceptual reference document captures board-journal's principles (governance philosophy, anti-vagueness criteria, board role perspectives, bet tracking model) for clean-room reimplementation — no code ported.
-- **Replaces voice-capture's Notion backend**: Voice memos flow into Supabase instead of Notion, through the same proven transcription pipeline
-- **Implements the Open Brain architecture** from the companion document: Postgres + pgvector + MCP, but self-hosted rather than on Supabase cloud
+- **Replaces voice-capture's Notion backend**: Voice memos flow into Postgres via the Core API instead of Notion, captured directly from iPhone/Apple Watch via iOS Shortcut → Core API
+- **Implements the Open Brain architecture** from the companion document: Postgres + pgvector + MCP, fully self-hosted
 - **Future-proofs AI integration**: Configurable AI provider routing means no lock-in to any single model or service
 
 ### Product Principles
@@ -52,8 +52,8 @@ Build a self-hosted, extensible knowledge infrastructure with universal ingestio
 6. **The brain compounds** — every capture makes future queries smarter; the system's own outputs feed back in
 
 ### Differentiation from the Open Brain Document
-The document describes a lightweight Slack → Supabase Cloud → MCP setup. This project extends that concept significantly:
-- Self-hosted on Unraid (Docker) instead of Supabase cloud
+The document describes a lightweight Slack → cloud Postgres → MCP setup. This project extends that concept significantly:
+- Self-hosted on Unraid (Docker) with plain Postgres + pgvector
 - Voice input via existing voice-capture pipeline (Apple Watch → faster-whisper → pipeline)
 - Async processing pipeline with configurable stages (not synchronous Edge Functions)
 - Rich output skills (weekly briefs, governance sessions, pattern detection) inherited from board-journal
@@ -91,17 +91,15 @@ This is a single-user personal tool. The sole user is a senior technology execut
 
 **Trigger**: User has a thought while away from computer
 
-1. Press action button on Apple Watch → iOS Shortcut records via Just Press Record
-2. Audio saves to Google Drive `/VoiceCaptures/inbox/`
-3. rclone container syncs to Unraid (every 3 minutes)
-4. voice-capture container detects new file, creates capture record
-5. Routes audio to faster-whisper container for local transcription
-6. Claude/local LLM classifies content, extracts metadata
-7. voice-capture calls Open Brain ingest API with transcript + classification + metadata
-8. Open Brain pipeline: embed → extract entities → link relationships → evaluate triggers
-9. Pushover notification to iPhone: "Captured: idea — QSR pricing, People: Tom"
+1. Press action button on Apple Watch → iOS Shortcut records audio
+2. Shortcut sends audio directly to voice-capture HTTP endpoint (`POST /api/capture`)
+3. voice-capture routes audio to faster-whisper container for local transcription
+4. Claude/local LLM classifies content, extracts metadata
+5. voice-capture calls Open Brain ingest API with transcript + classification + metadata
+6. Open Brain pipeline: embed → extract entities → link relationships → evaluate triggers
+7. Pushover notification to iPhone: "Captured: idea — QSR pricing, People: Tom"
 
-**Total latency**: ~3-5 minutes (dominated by rclone sync interval)
+**Total latency**: ~30-90 seconds (no sync delay — direct API capture)
 
 ### Journey 2: Slack Text Capture
 
@@ -130,8 +128,8 @@ This is a single-user personal tool. The sole user is a senior technology execut
 **Trigger**: User initiates a governance session
 
 1. Type: `@Open Brain let's do a quick board check`
-2. Bot starts a stateful FSM session in a Slack thread
-3. Walks through 5-question structured audit with anti-vagueness enforcement
+2. Bot starts an LLM-driven governance session in a Slack thread
+3. LLM walks through structured audit with required topics and anti-vagueness enforcement
 4. Each answer is validated, captured, and linked to active bets/projects
 5. Session completes → generates assessment + 90-day prediction
 6. Full session captured back into brain, report delivered to email + web dashboard
@@ -140,8 +138,8 @@ This is a single-user personal tool. The sole user is a senior technology execut
 
 **Trigger**: User is working in Claude Code or ChatGPT and needs context
 
-1. AI tool calls MCP `search_thoughts` with query "QSR engagement status"
-2. MCP server calls Core API semantic search
+1. AI tool calls MCP `search_brain` with query "QSR engagement status" via Streamable HTTP
+2. MCP endpoint (embedded in Core API) performs semantic search
 3. Returns relevant captures with metadata
 4. AI tool incorporates context into its response — "Based on your notes, you decided on T&M with a $180k cap..."
 
@@ -175,11 +173,11 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | ID | Feature | Priority | Phase |
 |----|---------|----------|-------|
 | F01 | Core API (ingest, query, synthesize) | Must Have | 1 |
-| F02 | Supabase self-hosted (Postgres + pgvector) | Must Have | 1 |
+| F02 | Postgres 16 + pgvector (self-hosted) | Must Have | 1 |
 | F03 | Async processing pipeline (BullMQ + Redis) | Must Have | 1 |
 | F04 | Slack bot — capture (text) | Must Have | 1 |
 | F05 | Slack bot — query (semantic search) | Must Have | 1 |
-| F06 | MCP server (search, list, capture, stats) | Must Have | 1 |
+| F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | 1 |
 | F07 | Ollama container (local embeddings) | Must Have | 1 |
 | F08 | AI router service (provider routing) | Must Have | 1 |
 | F09 | Voice-capture integration (adapter to ingest API) | Must Have | 2 |
@@ -189,7 +187,7 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F13 | Pushover notifications | Should Have | 2 |
 | F14 | Email delivery (HTML reports) | Should Have | 2 |
 | F15 | Entity graph (people, projects, decisions) | Should Have | 3 |
-| F16 | Slack bot — interactive sessions (governance FSM) | Should Have | 3 |
+| F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | 3 |
 | F17 | Board governance skills (quick check, quarterly) | Should Have | 3 |
 | F18 | Bet tracking and evaluation | Should Have | 3 |
 | F19 | Web dashboard (Vite + React PWA) | Could Have | 4 |
@@ -208,7 +206,7 @@ This is a single-user personal tool. The sole user is a senior technology execut
 
 #### F01: Core API
 
-**Description**: Central API service that all clients (Slack bot, MCP server, web UI, voice-capture adapter) interact with. Provides endpoints for ingestion, querying, synthesis, skill management, and session management.
+**Description**: Central API service that all clients (Slack bot, MCP endpoint, web UI, voice-capture adapter) interact with. MCP is embedded in the Core API at the `/mcp` route (Streamable HTTP transport). Provides endpoints for ingestion, querying, synthesis, skill management, and session management.
 
 **Tech**: TypeScript, Hono framework, Drizzle ORM (schema-as-code, type-safe queries, drizzle-kit for migrations), runs as Docker container
 
@@ -272,11 +270,11 @@ The `pre_extracted` field allows input adapters (like voice-capture) to pass the
 
 ---
 
-#### F02: Supabase Self-Hosted
+#### F02: Postgres 16 + pgvector
 
-**Description**: Minimal self-hosted Supabase stack: Postgres 16 with pgvector, Supabase Studio dashboard, and Realtime (for Phase 4 web dashboard live updates). PostgREST, GoTrue, Kong, and Storage excluded — Core API handles all data access via Hono + Drizzle, no auth needed (single-user), no file storage via Supabase.
+**Description**: Plain Postgres 16 with pgvector extension for vector similarity search. Uses the `pgvector/pgvector:pg16` Docker image directly — no Supabase. Drizzle Studio serves as the dev database browser. Real-time updates for the Phase 4 web dashboard use SSE from the Core API with Postgres LISTEN/NOTIFY underneath.
 
-**Deployment**: Docker Compose on Unraid, using official Supabase self-hosting guide
+**Deployment**: Docker Compose on Unraid, single `postgres` container with custom `postgresql.conf` for tuned performance (shared_buffers=2GB, effective_cache_size=6GB, work_mem=64MB, maintenance_work_mem=512MB).
 
 **Database Schema**:
 
@@ -288,6 +286,7 @@ create table captures (
   -- Content
   content text not null,                          -- processed/final text
   content_raw text,                               -- original raw input (before transcription, etc.)
+  content_hash char(64),                          -- SHA-256 of normalized content (trim, collapse whitespace, lowercase) for dedup
   embedding vector(768),                          -- semantic embedding (nomic-embed-text via Ollama, 768 dimensions)
 
   -- Classification
@@ -324,6 +323,7 @@ create index on captures using gin (brain_views);
 create index on captures (created_at desc);
 create index on captures (source);
 create index on captures (pipeline_status);
+create index on captures (content_hash);
 ```
 
 **entities table** (knowledge graph — Phase 3):
@@ -350,14 +350,14 @@ create table entity_links (
 );
 ```
 
-**sessions table** (governance FSM — Phase 3):
+**sessions table** (LLM-driven governance — Phase 3):
 ```sql
 create table sessions (
   id uuid default gen_random_uuid() primary key,
   session_type text not null,                     -- quick_check, quarterly, custom
-  status text default 'active',                   -- active, completed, abandoned
-  state jsonb not null,                           -- FSM state
-  transcript jsonb default '[]'::jsonb,           -- [{role, content, timestamp}]
+  status text default 'active',                   -- active, paused, completed, abandoned
+  state jsonb not null,                           -- LLM conversation state: {turn_count, max_turns, topics_covered, topics_remaining, last_role, idle_timeout_minutes}
+  transcript jsonb default '[]'::jsonb,           -- [{role, board_role, content, timestamp}]
   config jsonb default '{}'::jsonb,               -- session-specific configuration
   result jsonb,                                   -- final output/assessment
   created_at timestamptz default now(),
@@ -445,11 +445,12 @@ $$;
 ```
 
 **Acceptance Criteria**:
-- Supabase stack runs stable on Unraid in Docker
-- Supabase Studio accessible at `supabase.k4jda.net` (or similar) via LAN/Tailscale
+- Postgres container runs stable on Unraid in Docker with tuned postgresql.conf
+- Drizzle Studio accessible for dev database browsing
 - pgvector extension enabled, HNSW index functional
-- All tables created with indexes
+- All tables created with indexes via Drizzle migrations
 - Semantic search function returns results <2 seconds for 100k+ captures
+- `set_updated_at()` trigger applied to all tables with `updated_at` column
 
 ---
 
@@ -534,7 +535,7 @@ pipelines:
 
 **Description**: Receives messages in the `#open-brain` Slack channel and ingests them as captures. Default behavior for any message without a query/command prefix.
 
-**Tech**: Slack Events API (message.channels, message.groups), Node.js container
+**Tech**: `@slack/bolt` with `socketMode: true`, Node.js container
 
 **Behavior**:
 - Any message in `#open-brain` without a recognized prefix → treat as capture
@@ -545,7 +546,7 @@ pipelines:
 - Handle audio file attachments → route to voice-capture container's HTTP endpoint for consistent classification and processing (all audio follows a single path through voice-capture regardless of source)
 
 **Slack Free Plan Constraints**:
-- 90-day message history — captures are in Supabase, so Slack history loss doesn't matter for the brain
+- 90-day message history — captures are in Postgres, so Slack history loss doesn't matter for the brain
 - 10 app integrations max — we only need 1 (Open Brain bot)
 - No shared channels — fine for single-user
 - Rate limits: 1 message per second per channel (more than sufficient)
@@ -556,7 +557,7 @@ pipelines:
 - The bot will be installed to the K4JDA workspace, invited to `#open-brain` channel
 
 **Acceptance Criteria**:
-- Text message in `#open-brain` → captured in Supabase within 10 seconds
+- Text message in `#open-brain` → captured in Postgres within 10 seconds
 - Thread reply confirms capture with type and key metadata extracted
 - Bot ignores its own messages and messages from other bots
 - Graceful handling of Slack retries (idempotency via slack_ts dedup)
@@ -609,11 +610,11 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 
 ---
 
-#### F06: MCP Server
+#### F06: MCP Endpoint (Embedded in Core API)
 
-**Description**: Model Context Protocol server that allows any MCP-compatible AI client (Claude Desktop, Claude Code, ChatGPT, Cursor, VS Code Copilot) to search, browse, capture, and get stats from the brain.
+**Description**: Model Context Protocol endpoint embedded in the Core API that allows any MCP-compatible AI client (Claude Desktop, Claude Code, ChatGPT, Cursor, VS Code Copilot) to search, browse, capture, and get stats from the brain. Uses Streamable HTTP transport — no separate container, no stdio, no SSE transport.
 
-**Tech**: @modelcontextprotocol/sdk, Hono, runs as Docker container
+**Tech**: @modelcontextprotocol/sdk, embedded in Core API at `/mcp` route
 
 **MCP Tools**:
 
@@ -636,8 +637,9 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 - All tools functional and return well-formatted text results
 - search_brain returns results within 5 seconds
 - capture_thought creates captures that go through the full pipeline
-- Works with Claude Desktop, Claude Code, and ChatGPT MCP integrations
+- Works with Claude Desktop, Claude Code, and ChatGPT MCP integrations via Streamable HTTP
 - API key required for all requests
+- No separate container — MCP runs within Core API process
 
 ---
 
@@ -765,19 +767,21 @@ providers:
 
 #### F09: Voice-Capture Integration
 
-**Description**: Modify the existing voice-capture project to act as an input adapter for Open Brain, replacing the Notion posting stage with an API call to the Core API.
+**Description**: Migrate the existing voice-capture project into the Open Brain monorepo as `packages/voice-capture/`. Replaces the Notion posting stage with an API call to the Core API. Voice memos are captured directly from iPhone/Apple Watch via iOS Shortcut → voice-capture HTTP endpoint (no Google Drive sync, no rclone for voice).
 
 **Changes to voice-capture**:
-1. **Replace Notion posting stage** with Open Brain ingest call
+1. **Migrate into monorepo** as `packages/voice-capture/`
+2. **Replace Notion posting stage** with Open Brain ingest call
    - POST to `http://open-brain-api:3000/api/v1/captures`
    - Include transcript, classification, template fields, source metadata
-2. **Swap transcription backend** from OpenAI Whisper API to local faster-whisper
-   - Point transcription service at `http://faster-whisper:8000/transcribe`
+3. **Swap transcription backend** from OpenAI Whisper API to local faster-whisper
+   - Point transcription service at `http://faster-whisper:8000/v1/audio/transcriptions`
    - Keep OpenAI Whisper API as fallback
-3. **Keep everything else**: watcher, state machine, retry logic, circuit breaker, SQLite tracking, rclone sync
+4. **Expose HTTP endpoint** for direct capture from iOS Shortcut (`POST /api/capture`)
+5. **Remove Google Drive/rclone dependency** for voice memos — direct API capture only
 
 **Acceptance Criteria**:
-- Voice memos flow from Apple Watch → Google Drive → rclone → voice-capture → Open Brain → Supabase
+- Voice memos flow from Apple Watch → iOS Shortcut → voice-capture HTTP API → Open Brain → Postgres
 - voice-capture's existing retry/circuit-breaker logic handles Open Brain API failures gracefully
 - Hard cutover from Notion to Open Brain (no parallel operation). One-time Notion backfill script available as safety net for recovery if needed
 - Classification results from voice-capture preserved in `pre_extracted` field
@@ -993,7 +997,7 @@ providers:
 ### 5.3 Feature Dependencies
 
 ```
-F02 (Supabase) ──► F01 (Core API) ──► F04 (Slack Capture)
+F02 (Postgres) ──► F01 (Core API) ──► F04 (Slack Capture)
                          │              F05 (Slack Query)
 F03 (Pipeline) ─────────┤              F06 (MCP Server)
                          │              F09 (Voice-Capture Integration)
@@ -1021,12 +1025,13 @@ F14 (Email) — independent, wire in when ready
                     │              Unraid Server               │
                     │          homeserver.k4jda.net             │
                     │                                          │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │  Slack   │  │  Core    │  │   MCP    │  │ Workers  │    │
-│  │   Bot    │  │   API    │  │  Server  │  │(scheduled│    │
-│  │          │  │  (Hono)  │  │          │  │  skills) │    │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘    │
-│       └──────────────┼────────────┘──────────────┘          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+│  │  Slack   │  │  Core    │  │ Workers  │                  │
+│  │   Bot    │  │   API    │  │(scheduled│                  │
+│  │ (@slack/ │  │  (Hono)  │  │  skills) │                  │
+│  │  bolt)   │  │  + MCP   │  │          │                  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                  │
+│       └──────────────┼─────────────┘                        │
 │                      │                                       │
 │              ┌───────▼────────┐  ┌───────────┐              │
 │              │     Redis      │  │  Ollama   │              │
@@ -1034,32 +1039,30 @@ F14 (Email) — independent, wire in when ready
 │              └───────┬────────┘  │ embeddings)│              │
 │                      │           └───────────┘              │
 │              ┌───────▼────────┐  ┌───────────┐              │
-│              │   Supabase     │  │  faster-  │              │
-│              │  (Postgres +   │  │  whisper  │              │
-│              │   pgvector +   │  │           │              │
-│              │   Studio)      │  └───────────┘              │
+│              │   Postgres     │  │  faster-  │              │
+│              │  (pgvector/    │  │  whisper  │              │
+│              │   pgvector:    │  │           │              │
+│              │   pg16)        │  └───────────┘              │
 │              └────────────────┘                              │
 │                                                              │
-│  ┌──────────┐  ┌──────────┐                                 │
-│  │  voice-  │  │  rclone  │                                 │
-│  │ capture  │  │ (GDrive  │                                 │
-│  │          │  │  sync)   │                                 │
-│  └──────────┘  └──────────┘                                 │
-│                                                              │
 │  ┌──────────┐                                               │
-│  │  Web UI  │  (Phase 4)                                    │
-│  │ (Next.js)│                                               │
+│  │  voice-  │                                               │
+│  │ capture  │                                               │
+│  └──────────┘                                               │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐                                 │
+│  │  Web UI  │  │ rclone   │  (both Phase 4)                 │
+│  │(Vite+    │  │(doc sync)│                                 │
+│  │ React)   │  └──────────┘                                 │
 │  └──────────┘                                               │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ### Docker Network Topology
 
-Two Docker networks:
-- **`supabase-internal`** — Supabase components (Postgres, Studio, Realtime). Isolated from application containers.
-- **`open-brain`** — All application containers (Core API, Slack bot, MCP server, Workers, Ollama, faster-whisper, Redis, voice-capture, rclone, Web UI). Simple DNS resolution between containers (`http://ollama:11434`, `http://redis:6379`).
-- **Postgres bridges both networks** — accessible from Supabase internals and Open Brain application containers.
-- **Host port exposure**: Only Slack bot (for Socket Mode), MCP server (via Cloudflare Tunnel), and Web UI expose ports to the host.
+Single Docker network:
+- **`open-brain`** — All containers (Core API, Slack bot, Workers, Postgres, Ollama, faster-whisper, Redis, voice-capture, Web UI). Simple DNS resolution between containers (`http://ollama:11434`, `http://redis:6379`, `http://postgres:5432`).
+- **Host port exposure**: Core API (port 3000, also serves MCP at `/mcp` via Cloudflare Tunnel), Slack bot (Socket Mode — no inbound port needed), and Web UI (Phase 4).
 
 ### Configuration File Structure
 
@@ -1083,35 +1086,19 @@ open-brain/
 │       ├── board_quick_check_v1.txt   # Phase 3
 │       └── board_quarterly_v1.txt     # Phase 3
 │       # Prompts are versioned (v1, v2, v3), hot-reloadable, and iterable based on real capture data
-├── src/
-│   ├── core-api/                   # Hono API server
-│   ├── slack-bot/                  # Slack event handler + intent router
-│   ├── mcp-server/                 # MCP server
-│   ├── workers/                    # Scheduled skill execution
-│   ├── pipeline/                   # Pipeline stage implementations
-│   │   ├── stages/
-│   │   │   ├── embed.ts
-│   │   │   ├── extract-metadata.ts
-│   │   │   ├── extract-career-signals.ts
-│   │   │   ├── link-entities.ts
-│   │   │   ├── evaluate-triggers.ts
-│   │   │   └── notify.ts
-│   │   ├── router.ts               # Pipeline selection based on source/tags
-│   │   └── executor.ts             # BullMQ job processing
-│   ├── ai-router/                  # AI provider abstraction
-│   ├── skills/                     # Output skill implementations
-│   │   ├── weekly-brief.ts
-│   │   ├── board-quick-check.ts
-│   │   ├── board-quarterly.ts
-│   │   ├── drift-monitor.ts
-│   │   └── daily-connections.ts
-│   ├── entities/                   # Entity graph logic
-│   ├── notifications/              # Pushover, email, Slack delivery
-│   └── shared/                     # DB client, types, utils
-├── web/                            # Vite + React dashboard (Phase 4)
+├── packages/                       # pnpm workspaces monorepo
+│   ├── shared/                     # DB client, types, utils, Drizzle schema
+│   ├── core-api/                   # Hono API server + embedded MCP endpoint
+│   ├── slack-bot/                  # @slack/bolt event handler + intent router
+│   ├── workers/                    # Pipeline processing + scheduled skill execution
+│   ├── voice-capture/              # Voice memo HTTP endpoint + transcription adapter
+│   └── web/                        # Vite + React dashboard (Phase 4)
+├── pnpm-workspace.yaml
+├── package.json                    # Root workspace config
+├── tsconfig.base.json              # Shared TypeScript config
 └── docs/
     ├── PRD.md                      # This document
-    ├── TDD.md                      # Technical Design Document (to be created)
+    ├── TDD.md                      # Technical Design Document
     ├── DEPLOYMENT.md               # Unraid deployment guide
     └── ARCHITECTURE.md             # Architecture decisions
 ```
@@ -1125,7 +1112,7 @@ open-brain/
 |--------|--------|
 | Text capture ingest (API response) | <500ms |
 | Full pipeline processing (text) | <30 seconds |
-| Full pipeline processing (voice, excl. rclone sync) | <90 seconds |
+| Full pipeline processing (voice, direct API capture) | <90 seconds |
 | Semantic search response | <5 seconds |
 | Synthesis query response | <30 seconds |
 | Weekly brief generation | <2 minutes |
@@ -1138,15 +1125,14 @@ open-brain/
 - Pipeline retries with patient exponential backoff (5 attempts per stage: 30s, 2m, 10m, 30m, 2h) + daily auto-retry sweep for failed stages
 - Circuit breaker on external API calls (Anthropic, OpenAI)
 - Monitoring: lean approach — Docker logs + Unraid dashboard + pipeline_log/skills_log tables + Pushover alerts for failures. No dedicated monitoring stack. Dockhand under consideration for future container management.
-- Supabase data backed up via daily pg_dump to Unraid share (7-day local retention) + weekly offsite to Google Drive via rclone (30-day cloud retention)
+- Postgres data backed up via daily pg_dump to Unraid share (7-day local retention) + weekly offsite to cloud storage via rclone (30-day cloud retention)
 
 ### Security
 - No authentication layer (single user, network-level security)
 - Access restricted to LAN + Tailscale
-- MCP server has API key authentication (for external access via Tailscale Funnel)
-- All API keys stored in Bitwarden, loaded at container startup
+- MCP endpoint has API key authentication (for external access via Cloudflare Tunnel)
+- All API keys stored in Bitwarden Secrets Manager, loaded at startup via `bws` CLI → `.env.secrets` (gitignored, chmod 600)
 - No secrets in Docker Compose or config files
-- Supabase Studio password-protected (built-in)
 
 ### Data Integrity
 - All captures immutable once created (soft delete, no hard delete)
@@ -1169,7 +1155,7 @@ open-brain/
 | Query satisfaction | Qualitative | Are search results relevant? (self-assessed) |
 | Pipeline success rate | >99% | Captures that complete pipeline without manual intervention |
 | Weekly brief generated | 100% | Brief generated every week on schedule |
-| Voice capture latency | <5 min | Time from Apple Watch recording to Pushover confirmation |
+| Voice capture latency | <2 min | Time from Apple Watch recording to Pushover confirmation (direct API, no sync delay) |
 | MCP tool usage | Growing | Number of MCP queries from Claude/ChatGPT per week |
 
 ---
@@ -1181,14 +1167,14 @@ open-brain/
 
 | Feature | Description |
 |---------|-------------|
-| F02 | Supabase self-hosted on Unraid |
+| F02 | Postgres 16 + pgvector on Unraid |
 | F07 | Ollama with embedding model |
 | F08 | AI router (basic — Ollama for embeddings, configurable for extraction) |
 | F03 | Pipeline — embed + extract_metadata stages |
 | F01 | Core API — ingest, search, list, stats endpoints |
 | F04 | Slack bot — text capture |
 | F05 | Slack bot — semantic query |
-| F06 | MCP server — search, list, capture, stats |
+| F06 | MCP endpoint (embedded in Core API) — search, list, capture, stats |
 
 **Definition of Done**: Type a thought in Slack → it's embedded and searchable → query it from Slack or Claude Desktop via MCP.
 
@@ -1212,7 +1198,7 @@ open-brain/
 | Feature | Description |
 |---------|-------------|
 | F15 | Entity graph (auto-extraction + linking) |
-| F16 | Slack interactive sessions (governance FSM) |
+| F16 | Slack interactive sessions (LLM-driven governance) |
 | F17 | Board governance skills (quick check, quarterly) |
 | F18 | Bet tracking |
 | F20 | Slack voice clip handling |
@@ -1226,7 +1212,7 @@ open-brain/
 
 | Feature | Description |
 |---------|-------------|
-| F19 | Web dashboard (Next.js PWA) |
+| F19 | Web dashboard (Vite + React PWA) |
 | F23 | Document ingestion (PDF, docx) |
 | F24 | URL/bookmark capture |
 | F25 | Calendar integration |
@@ -1245,12 +1231,12 @@ open-brain/
 | Slack free workspace (K4JDA) | Capture + query interface | Low — already created |
 | Ollama Docker image | Local embeddings + LLM | Low — well-maintained |
 | faster-whisper Docker image | Local transcription | Low — multiple maintained images |
-| Supabase self-hosted stack | Database + API + Studio | Medium — more complex Docker setup |
+| Postgres 16 + pgvector Docker image | Database + vector search | Low — standard Docker image (pgvector/pgvector:pg16) |
 | Redis | Job queues | Low — standard Docker image |
 | Anthropic API | Synthesis, governance (cloud fallback) | Low — stable, existing account |
 | OpenAI API | Fallback transcription, fallback embeddings | Low — stable, existing account |
 | Pushover | iPhone notifications | Low — existing account |
-| Google Drive + rclone | Voice capture sync chain | Low — existing and working |
+| rclone | Document sync from cloud drives (Phase 4) | Low — existing and working |
 | Apple Watch + Just Press Record | Voice capture origin | Low — existing workflow |
 
 ### Assumptions
@@ -1260,7 +1246,7 @@ open-brain/
 - The user's daily capture volume will be <50 captures/day (affects pipeline queue sizing and Ollama load)
 
 ### Constraints
-- Slack free plan: 90-day message history (not a problem — data lives in Supabase)
+- Slack free plan: 90-day message history (not a problem — data lives in Postgres)
 - Slack free plan: 10 app integrations (only need 1)
 - Ollama on CPU is slower — may need to batch-process if many captures arrive simultaneously
 - No multi-user support — single user by design, simplifies everything
@@ -1271,7 +1257,7 @@ open-brain/
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Supabase self-hosting complexity | Medium | High | Follow official Docker guide; Supabase Studio provides dashboard for debugging |
+| Postgres + pgvector setup | Low | Medium | Standard Docker image (pgvector/pgvector:pg16), Drizzle Studio for dev browsing, well-documented |
 | Ollama embedding quality insufficient | Low | Medium | Benchmark against cloud embeddings; fallback to OpenAI text-embedding-3-small |
 | Unraid resource constraints (many containers) | Medium | Medium | Monitor with Unraid dashboard; phase rollout to spread load |
 | Slack free plan limitations change | Low | Medium | Core system doesn't depend on Slack — just one input adapter |
@@ -1293,7 +1279,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | 3 | External access method | Hybrid: existing Tailscale + SWAG unchanged, Cloudflare Tunnel (free) added for brain.k4jda.net only |
 | 4 | Email delivery | SMTP via existing personal email account |
 | 5 | Slack voice clip routing | Route through voice-capture container (single audio path) |
-| 6 | Backup strategy | Daily pg_dump to Unraid share (7-day local) + weekly offsite to Google Drive via rclone (30-day) |
+| 6 | Backup strategy | Daily pg_dump to Unraid share (7-day local) + weekly offsite to cloud storage via rclone (30-day) |
 | 7 | Notion parallel migration | No — hard cutover. One-time Notion backfill script as safety net. |
 | 8 | Web UI framework | Vite + React (lightweight SPA) with Tailwind + shadcn/ui + vite-plugin-pwa |
 | 9 | Slack command interface | Both: prefix commands as baseline (Socket Mode), slash commands as enhancement once Cloudflare Tunnel is stable |
@@ -1305,7 +1291,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Brain views | 5 views: career, personal, technical, work-internal, client. Hybrid auto-classification + manual override. |
 | Intent router fallback | Prefix-only: `?` = query, `!` = command, `@Open Brain` = query, no prefix = capture |
 | Prompt templates | Phase 1: extract_metadata + intent_router. Others deferred. Versioned, hot-reloadable. |
-| Governance FSM | Slack-native conversational redesign, not FSM port. board-journal principles preserved. |
+| Governance sessions | LLM-driven conversation with guardrails (max turns, required topics checklist, 30-min idle auto-pause). Not FSM. |
 | Board role personalities | Defer to Phase 3, designed alongside conversational flow. |
 | Monitoring | Lean: Docker logs + Unraid dashboard + pipeline_log + Pushover alerts. No Prometheus/Grafana. |
 | Schema migrations | Drizzle ORM + drizzle-kit. TypeScript-native, schema-as-code. |
@@ -1313,16 +1299,30 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Synthesis endpoint | Top-20 captures, 50K token budget. Skills handle own context assembly. |
 | Container resources | Memory limits on Ollama (16GB), faster-whisper (8GB), Postgres (8GB) only. |
 | Capture types | 8 types: decision, idea, observation, task, win, blocker, question, reflection. Extensible via prompt. |
-| Config reloading | Re-read per job start + API reload endpoint. In-flight jobs keep their config. |
+| Config reloading | ConfigService: in-memory cache, explicit reload via `/api/v1/admin/config/reload`, workers re-read per job. |
 | Thread context | Redis with 1-hour TTL, keyed by thread_ts. |
 | Session persistence | Postgres + transcript replay on resume. 30-day max pause. |
 | Deduplication | Source-level only: slack_ts, filename, content hash + 60s window. No cross-source. |
-| Docker networking | Two networks: supabase-internal + open-brain. Postgres bridges both. |
+| Docker networking | Single `open-brain` network. All containers including Postgres. |
 | Embedding consistency | No fallback. Queue and retry if Ollama down. |
+| MCP architecture | Embedded in Core API at `/mcp` route. Streamable HTTP transport. No separate container. |
+| Voice capture flow | Direct API from iPhone/Apple Watch via iOS Shortcut. No Google Drive sync, no rclone for voice. |
+| Monorepo structure | pnpm workspaces: packages/shared, core-api, slack-bot, workers, voice-capture, web. |
+| Build tooling | tsx for dev (hot reload), tsup (esbuild) for production (single .mjs per service, ESM). |
+| Slack SDK | @slack/bolt with socketMode: true. |
+| Entity resolution | Three-tier matching: exact name → alias → LLM disambiguation. |
+| Content dedup | SHA-256 of normalized content, content_hash char(64) indexed column, 60-second window. |
+| Token counting | chars/4 approximation with 10% safety margin. No tokenizer dependency. |
+| Prompt template format | {{variable}} placeholders, ---SYSTEM---/---USER--- delimiters, regex replacement. |
+| Brain view classification | LLM in extract_metadata prompt. No keyword rules. |
+| BullMQ dashboard | @bull-board/hono embedded at /admin/queues in Core API. |
+| Postgres tuning | Custom postgresql.conf: shared_buffers=2GB, effective_cache_size=6GB, work_mem=64MB. |
+| Secret loading | Host-level bws CLI → .env.secrets (gitignored, chmod 600), Docker Compose env_file. |
+| Real-time updates | SSE from Core API at /api/v1/events + Postgres LISTEN/NOTIFY. No Supabase Realtime. |
 | Pipeline error recovery | 5 retries (30s, 2m, 10m, 30m, 2h) + daily auto-retry sweep. |
 | Capture timestamps | `captured_at` optional in API. Adapters pass original timestamp. |
 | board-journal migration | Conceptual reference doc only — principles, not code. Clean-room implementation. |
-| Supabase components | Postgres + pgvector + Studio + Realtime. Skip PostgREST, GoTrue, Kong, Storage. |
+| Database | Plain Postgres 16 + pgvector (pgvector/pgvector:pg16). No Supabase. Drizzle Studio for dev. SSE for real-time. |
 
 ---
 
@@ -1331,7 +1331,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Term | Definition |
 |------|-----------|
 | **Capture** | Any piece of information ingested into the brain — a voice memo transcript, Slack message, document summary, bookmark, etc. |
-| **Brain** | The entire Supabase database containing all captures, entities, and metadata |
+| **Brain** | The entire Postgres database containing all captures, entities, and metadata |
 | **Brain View** | A tag-based filter that groups captures into logical collections (career, consulting, personal) with optional distinct pipeline processing |
 | **Pipeline** | The async processing chain that transforms a raw capture into an embedded, classified, entity-linked record |
 | **Stage** | A single step in a pipeline (embed, extract_metadata, link_entities, etc.) |
@@ -1339,7 +1339,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | **Entity** | A known person, project, decision, bet, or concept that appears across multiple captures |
 | **Intent Router** | The component in the Slack bot that determines whether an incoming message is a capture, query, command, or conversation |
 | **AI Router** | The configuration layer that routes AI requests to the appropriate provider (Ollama, Claude, GPT) based on task type |
-| **Governance Session** | A structured, multi-turn interaction (FSM) for career governance — inherited from board-journal |
+| **Governance Session** | A structured, multi-turn LLM-driven conversation for career governance — inherited from board-journal principles (not FSM) |
 | **Bet** | A 90-day falsifiable prediction made during a governance session |
 | **MCP** | Model Context Protocol — open standard for AI tools to interact with external data sources |
 
@@ -1351,6 +1351,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 |------|---------|---------|
 | 2026-03-04 | 0.1 | Initial draft based on conceptual discussion |
 | 2026-03-04 | 0.2 | All 30 open questions resolved via interactive Q&A session. Key decisions: nomic-embed-text (768d) embeddings, Cloudflare Tunnel for brain.k4jda.net, Vite + React for web UI, Drizzle ORM for migrations, 5 brain views, Slack-native governance redesign, no embedding fallback, patient retry strategy with daily auto-sweep. |
+| 2026-03-04 | 0.3 | Aligned with TDD v0.2 decisions: Removed Supabase (plain Postgres+pgvector), embedded MCP in Core API (Streamable HTTP), direct voice capture via iOS Shortcut (no Google Drive/rclone for voice), pnpm monorepo, @slack/bolt, LLM-driven governance (not FSM), single Docker network, ConfigService, content_hash dedup, SSE for real-time, bws secret loading. |
 
 ---
 
@@ -1361,5 +1362,5 @@ All open questions from the initial draft have been resolved. Decisions are capt
 **Questions Resolved:** 30 of 30
 **Reference Files:**
 - Questions: `reference/questions-PRD-20260304-120000.json`
-- Answers: `answers-PRD-20260304-160000.json`
+- Answers: `reference/answers-PRD-20260304-160000.json`
 - Original backup: `PRD.backup-20260304-160000.md`
