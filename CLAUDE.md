@@ -49,10 +49,8 @@ All API keys in Bitwarden. Never in .env files or config. Use `bws` CLI to retri
 
 - `PRD.md` — Product requirements (v0.6, architectural review v2 applied)
 - `TDD.md` — Technical design document (v0.5, architectural review v2 applied)
-- `reference/answers-PRD-20260304-160000.json` — PRD decision record with rationale
-- `reference/answers-TDD-20260304-214500.json` — TDD decision record (32 questions)
-- `reference/questions-PRD-20260304-120000.json` — PRD questions extracted
-- `reference/questions-TDD-20260304-202900.json` — TDD questions extracted
+- `IMPLEMENTATION_PLAN.md` — Phased build plan, phases 1-8
+- `IMPLEMENTATION_PLAN-PHASE2.md` — Phased build plan, phases 9-16
 
 ## Conventions
 
