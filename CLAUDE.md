@@ -4,14 +4,18 @@
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: Pre-implementation. PRD (v0.3) and TDD (v0.2) complete, all architectural decisions resolved. No code written yet.
+**Status**: Pre-implementation. PRD (v0.6) and TDD (v0.5) complete, architectural review v2 applied. No code written yet.
 
 ## Key Architecture Decisions
 
 - **Runtime**: TypeScript, Hono framework, Drizzle ORM
 - **Database**: Postgres 16 + pgvector (pgvector/pgvector:pg16 image, no Supabase)
-- **Embeddings**: nomic-embed-text (768d) via Ollama. NO fallback — queue and retry if Ollama is down.
+- **LLM Gateway**: LiteLLM proxy for all LLM requests (not embeddings). Model aliases: fast, synthesis, governance, intent.
+- **Embeddings**: Configurable model via Ollama (evaluating nomic-embed-text vs Qwen3-Embedding). NO fallback — queue and retry if Ollama is down.
 - **Schema**: `vector(768)` everywhere. Do not use 1536.
+- **Search**: Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay scoring. Default temporal_weight: 0.0 (cold start), ramp up as search history builds.
+- **MCP Auth**: Authorization: Bearer header (not URL query parameter)
+- **Phases**: 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates per sub-phase
 - **Pipeline**: BullMQ + Redis, async processing stages
 - **Web UI**: Vite + React + Tailwind + shadcn/ui (NOT Next.js)
 - **Migrations**: Drizzle ORM + drizzle-kit (NOT raw SQL, NOT Prisma)
@@ -43,12 +47,10 @@ All API keys in Bitwarden. Never in .env files or config. Use `bws` CLI to retri
 
 ## Important Files
 
-- `PRD.md` — Product requirements (v0.3, all decisions resolved, Section 12)
-- `TDD.md` — Technical design document (v0.2, all 32 questions resolved)
-- `reference/answers-PRD-20260304-160000.json` — PRD decision record with rationale
-- `reference/answers-TDD-20260304-214500.json` — TDD decision record (32 questions)
-- `reference/questions-PRD-20260304-120000.json` — PRD questions extracted
-- `reference/questions-TDD-20260304-202900.json` — TDD questions extracted
+- `PRD.md` — Product requirements (v0.6, architectural review v2 applied)
+- `TDD.md` — Technical design document (v0.5, architectural review v2 applied)
+- `IMPLEMENTATION_PLAN.md` — Phased build plan, phases 1-8
+- `IMPLEMENTATION_PLAN-PHASE2.md` — Phased build plan, phases 9-16
 
 ## Conventions
 

@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD)
 # Open Brain — Personal AI Knowledge Infrastructure
 
-**Version**: 0.3
+**Version**: 0.6
 **Author**: Troy Davis / Claude
-**Date**: 2026-03-04
-**Status**: Draft — Questions Resolved
+**Date**: 2026-03-05
+**Status**: Draft — Architectural Review v2 Applied
 
 ---
 
@@ -12,7 +12,7 @@
 
 Open Brain is a self-hosted, Docker-based personal knowledge infrastructure system that ingests information from multiple sources (voice memos, Slack messages, documents, bookmarks, calendar events), processes and embeds them for semantic search, and provides rich output through AI-powered skills — including weekly briefs, career governance sessions, pattern detection, and ad-hoc synthesis.
 
-The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a web dashboard, email reports, and push notifications.
+The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and routes all AI requests through a self-hosted LiteLLM proxy for unified model management. It is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a web dashboard, email reports, and push notifications.
 
 Open Brain replaces and consolidates two existing projects:
 - **board-journal** — a Flutter mobile app for voice-first career governance with AI-powered board sessions, weekly briefs, and bet tracking
@@ -41,12 +41,12 @@ Build a self-hosted, extensible knowledge infrastructure with universal ingestio
 - **Replaces board-journal**: The career governance functionality (weekly briefs, board sessions, bet tracking) becomes output skills rather than a standalone mobile app. A conceptual reference document captures board-journal's principles (governance philosophy, anti-vagueness criteria, board role perspectives, bet tracking model) for clean-room reimplementation — no code ported.
 - **Replaces voice-capture's Notion backend**: Voice memos flow into Postgres via the Core API instead of Notion, captured directly from iPhone/Apple Watch via iOS Shortcut → Core API
 - **Implements the Open Brain architecture** from the companion document: Postgres + pgvector + MCP, fully self-hosted
-- **Future-proofs AI integration**: Configurable AI provider routing means no lock-in to any single model or service
+- **Future-proofs AI integration**: LiteLLM proxy normalizes all LLM providers behind a single OpenAI-compatible API — no lock-in to any single model or service
 
 ### Product Principles
 1. **Capture must be frictionless** — zero-thought input from the tools you already have open (Slack, Apple Watch)
 2. **Infrastructure you own** — all data on your hardware, no SaaS dependencies for core functionality
-3. **AI-agnostic** — swap between local (Ollama), Claude, GPT, or any provider without losing anything
+3. **AI-agnostic** — LiteLLM proxy normalizes all providers (local Ollama, Claude, GPT, OpenRouter) behind a single API; swap models without code changes
 4. **Pipeline-first** — every operation (ingest, process, output) flows through configurable, async pipelines
 5. **Extensible by design** — new input sources, processing stages, and output skills without touching existing code
 6. **The brain compounds** — every capture makes future queries smarter; the system's own outputs feed back in
@@ -164,6 +164,20 @@ This is a single-user personal tool. The sole user is a senior technology execut
 4. If findings exist: Pushover alert + Slack DM with summary
 5. Findings captured back into brain
 
+### Journey 8: Proactive Memory Surfacing (Semantic Trigger)
+
+**Trigger**: New capture matches a persistent semantic pattern
+
+1. Troy voices "Just heard the QSR rollout might slip to Q3" on his Apple Watch
+2. Voice-capture transcribes and ingests into Open Brain via pipeline
+3. After embedding, the `check_triggers` pipeline stage compares the new capture against active semantic triggers
+4. The capture matches Troy's "QSR timeline" trigger (similarity > threshold)
+5. System runs hybrid search for related captures — finds 3 relevant captures from the past 30 days
+6. Pushover notification: "New capture matches your 'QSR timeline' trigger — 3 related captures found"
+7. Troy can query for full context or let it sit
+
+**Value**: The brain proactively delivers relevant memories instead of waiting for you to ask.
+
 ---
 
 ## 5. Feature Specifications
@@ -172,33 +186,35 @@ This is a single-user personal tool. The sole user is a senior technology execut
 
 | ID | Feature | Priority | Phase |
 |----|---------|----------|-------|
-| F01 | Core API (ingest, query, synthesize) | Must Have | 1 |
-| F02 | Postgres 16 + pgvector (self-hosted) | Must Have | 1 |
-| F03 | Async processing pipeline (BullMQ + Redis) | Must Have | 1 |
-| F04 | Slack bot — capture (text) | Must Have | 1 |
-| F05 | Slack bot — query (semantic search) | Must Have | 1 |
-| F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | 1 |
-| F07 | Ollama container (local embeddings) | Must Have | 1 |
-| F08 | AI router service (provider routing) | Must Have | 1 |
-| F09 | Voice-capture integration (adapter to ingest API) | Must Have | 2 |
-| F10 | faster-whisper container (local STT) | Must Have | 2 |
-| F11 | Slack bot — commands (/ob stats, /ob brief) | Should Have | 2 |
-| F12 | Weekly brief output skill | Should Have | 2 |
-| F13 | Pushover notifications | Should Have | 2 |
-| F14 | Email delivery (HTML reports) | Should Have | 2 |
-| F15 | Entity graph (people, projects, decisions) | Should Have | 3 |
-| F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | 3 |
-| F17 | Board governance skills (quick check, quarterly) | Should Have | 3 |
-| F18 | Bet tracking and evaluation | Should Have | 3 |
-| F19 | Web dashboard (Vite + React PWA) | Could Have | 4 |
-| F20 | Slack voice clip processing | Could Have | 3 |
-| F21 | Daily connection/pattern detection skill | Could Have | 3 |
-| F22 | Drift monitor skill | Could Have | 3 |
-| F23 | Document ingestion (PDF, docx) | Could Have | 4 |
-| F24 | URL/bookmark capture | Could Have | 4 |
-| F25 | Calendar integration | Could Have | 4 |
+| F01 | Core API (ingest, query, synthesize) | Must Have | Phase 1A |
+| F02 | Postgres 16 + pgvector (self-hosted) | Must Have | Phase 1A |
+| F03 | Async processing pipeline (BullMQ + Redis) | Must Have | Phase 1C |
+| F04 | Slack bot — capture (text) | Must Have | Phase 1D |
+| F05 | Slack bot — query (semantic search) | Must Have | Phase 1D |
+| F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | Phase 1E |
+| F07 | Ollama container (local embeddings) | Must Have | Phase 1B |
+| F07a | LiteLLM proxy (unified LLM gateway) | Must Have | Phase 1C |
+| F08 | AI router service (LiteLLM-based provider routing) | Must Have | Phase 1C |
+| F09 | Voice-capture integration (adapter to ingest API) | Must Have | Phase 2A |
+| F10 | faster-whisper container (local STT) | Must Have | Phase 2A |
+| F11 | Slack bot — commands (/ob stats, /ob brief) | Should Have | Phase 2B |
+| F12 | Weekly brief output skill | Should Have | Phase 2B |
+| F13 | Pushover notifications | Should Have | Phase 2B |
+| F14 | Email delivery (HTML reports) | Should Have | Phase 2B |
+| F15 | Entity graph (people, projects, decisions) | Should Have | Phase 3 |
+| F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | Phase 3 |
+| F17 | Board governance skills (quick check, quarterly) | Should Have | Phase 3 |
+| F18 | Bet tracking and evaluation | Should Have | Phase 3 |
+| F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 |
+| F20 | Slack voice clip processing | Could Have | Phase 3 |
+| F21 | Daily connection/pattern detection skill | Could Have | Phase 3 |
+| F22 | Drift monitor skill | Could Have | Phase 3 |
+| F23 | Document ingestion (PDF, docx) | Could Have | Phase 4 |
+| F24 | URL/bookmark capture | Could Have | Phase 4 |
+| F25 | Calendar integration | Could Have | Phase 4 |
 | F26 | Notion output skill (optional mirror) | Won't Have | Future |
 | F27 | Screenshot/image capture (vision model) | Won't Have | Future |
+| F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C |
 
 ### 5.2 Detailed Feature Specifications
 
@@ -217,6 +233,8 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | POST | `/api/v1/captures` | Ingest a new capture |
 | GET | `/api/v1/captures` | List captures with filters (date, type, topic, person, source) |
 | GET | `/api/v1/captures/:id` | Get single capture with full detail |
+| PATCH | `/api/v1/captures/:id` | Update capture tags, brain_views, or metadata overrides |
+| DELETE | `/api/v1/captures/:id` | Soft-delete a capture |
 | POST | `/api/v1/search` | Semantic search |
 | POST | `/api/v1/synthesize` | Ad-hoc AI synthesis across captures |
 | GET | `/api/v1/stats` | Brain statistics |
@@ -254,12 +272,22 @@ This is a single-user personal tool. The sole user is a senior technology execut
 
 The `pre_extracted` field allows input adapters (like voice-capture) to pass their own classification results. The core pipeline still runs its own extraction but preserves both.
 
+**Search Endpoint** (`POST /api/v1/search`):
+- Accepts `offset` parameter (integer, default 0) for pagination of result pages
+- Combined with `limit` parameter for paged retrieval
+
 **Synthesize Endpoint Specification**:
 - Top-N retrieval with configurable token budget: default top 20 captures, 50K token budget
 - If context exceeds budget, truncate from bottom (lowest similarity scores)
 - Ad-hoc synthesis results are ephemeral — not cached, not re-captured into the brain
 - Output skills (weekly brief, governance) implement their own context assembly — they call `/api/v1/search` for captures and handle chunking/summarization internally before calling the AI router directly
 - `captured_at` is an optional field in the ingest payload — input adapters pass original timestamp (file creation time, slack_ts). Defaults to `created_at`. All time-based queries use `captured_at`.
+
+**Capture Update Endpoint**:
+- `PATCH /api/v1/captures/:id` allows updating: `tags`, `brain_views`, and a `metadata_overrides` jsonb field
+- Overrides are merged (not replaced) with pipeline-extracted metadata
+- Slack reactions can trigger brain_view updates (e.g., `:career:` reaction adds `career` brain view)
+- Updated captures are NOT re-embedded — only classification metadata changes
 
 **Acceptance Criteria**:
 - All endpoints return JSON, use standard HTTP status codes
@@ -287,7 +315,11 @@ create table captures (
   content text not null,                          -- processed/final text
   content_raw text,                               -- original raw input (before transcription, etc.)
   content_hash char(64),                          -- SHA-256 of normalized content (trim, collapse whitespace, lowercase) for dedup
-  embedding vector(768),                          -- semantic embedding (nomic-embed-text via Ollama, 768 dimensions)
+  embedding vector(768),                          -- semantic embedding (768d — compatible with nomic-embed-text native or Qwen3-Embedding Matryoshka-truncated)
+
+  -- Temporal tracking (ACT-R cognitive model for search relevance)
+  access_count int default 0,                      -- how many times this capture appeared in search results
+  last_accessed_at timestamptz,                    -- when this capture was last returned in a search
 
   -- Classification
   metadata jsonb default '{}'::jsonb,             -- extracted metadata (people, topics, type, action_items, dates)
@@ -299,12 +331,11 @@ create table captures (
   tags text[] default '{}',                       -- user-assigned or auto-assigned tags
   brain_views text[] default '{}'::text[],        -- which "brain views" this belongs to
 
-  -- Entity links (populated by entity linking stage)
-  linked_entities jsonb default '[]'::jsonb,      -- [{entity_id, entity_type, relationship}]
+  -- Entity links via entity_links table JOIN (no denormalization needed at <100K rows)
 
   -- Processing audit trail
   pipeline_status text default 'received',        -- received, processing, complete, failed, partial
-  pipeline_log jsonb default '[]'::jsonb,         -- [{stage, status, model_used, duration_ms, timestamp}]
+  -- Pipeline history in pipeline_events table (append-only, avoids JSONB rewrite)
 
   -- Timestamps
   captured_at timestamptz default now(),          -- when the thought originally occurred
@@ -320,10 +351,27 @@ create index on captures using hnsw (embedding vector_cosine_ops);
 create index on captures using gin (metadata);
 create index on captures using gin (tags);
 create index on captures using gin (brain_views);
+create index on captures using gin (to_tsvector('english', content));  -- Full-text search for hybrid retrieval (RRF)
 create index on captures (created_at desc);
 create index on captures (source);
 create index on captures (pipeline_status);
 create index on captures (content_hash);
+```
+
+**pipeline_events table** (append-only processing audit trail):
+```sql
+create table pipeline_events (
+  id uuid default gen_random_uuid() primary key,
+  capture_id uuid not null references captures(id) on delete cascade,
+  stage text not null,
+  status text not null,              -- complete | failed | skipped
+  model text,
+  duration_ms int,
+  error text,
+  retry_count int default 0,
+  created_at timestamptz default now()
+);
+create index on pipeline_events (capture_id);
 ```
 
 **entities table** (knowledge graph — Phase 3):
@@ -357,13 +405,26 @@ create table sessions (
   session_type text not null,                     -- quick_check, quarterly, custom
   status text default 'active',                   -- active, paused, completed, abandoned
   state jsonb not null,                           -- LLM conversation state: {turn_count, max_turns, topics_covered, topics_remaining, last_role, idle_timeout_minutes}
-  transcript jsonb default '[]'::jsonb,           -- [{role, board_role, content, timestamp}]
+  -- Transcript stored in session_messages table (append-only, avoids JSONB rewrite)
   config jsonb default '{}'::jsonb,               -- session-specific configuration
   result jsonb,                                   -- final output/assessment
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   completed_at timestamptz
 );
+```
+
+**session_messages table** (append-only transcript storage):
+```sql
+create table session_messages (
+  id uuid default gen_random_uuid() primary key,
+  session_id uuid not null references sessions(id) on delete cascade,
+  role text not null,                 -- system | bot | user
+  board_role text,                    -- strategist | operator | contrarian | coach | analyst
+  content text not null,
+  created_at timestamptz default now()
+);
+create index on session_messages (session_id);
 ```
 
 **bets table** (career governance — Phase 3):
@@ -393,14 +454,14 @@ create table skills_log (
   result jsonb,                                   -- output produced
   captures_queried int,                           -- how many captures were included
   ai_model_used text,
-  token_usage jsonb,                              -- {input_tokens, output_tokens, cost_estimate}
+  token_usage jsonb,                              -- {input_tokens, output_tokens} (cost from LiteLLM /spend/logs)
   created_at timestamptz default now(),
   completed_at timestamptz,
   error text
 );
 ```
 
-**Semantic search function**:
+**Semantic search function** (with ACT-R temporal decay scoring):
 ```sql
 create or replace function match_captures(
   query_embedding vector(768),
@@ -410,7 +471,8 @@ create or replace function match_captures(
   filter_tags text[] default null,
   filter_brain_views text[] default null,
   filter_after timestamptz default null,
-  filter_before timestamptz default null
+  filter_before timestamptz default null,
+  temporal_weight float default 0.0  -- 0.0 = pure semantic, 1.0 = pure temporal. Start at 0.0; increase after search history builds.
 )
 returns table (
   id uuid,
@@ -419,30 +481,54 @@ returns table (
   source text,
   tags text[],
   similarity float,
-  captured_at timestamptz,
-  linked_entities jsonb
+  temporal_score float,
+  composite_score float,
+  captured_at timestamptz
 )
 language plpgsql as $$
+-- Multiplicative boost preserves semantic ordering when temporal_weight is low
+-- and prevents high temporal scores from overriding poor semantic matches.
 begin
   return query
+  with base as (
+    select
+      c.id, c.content, c.metadata, c.source, c.tags, c.captured_at,
+      1 - (c.embedding <=> query_embedding) as semantic_sim,
+      -- ACT-R temporal activation: ln(access_count) - 0.5 * ln(hours_since_last_access)
+      case
+        when c.last_accessed_at is null then 0.0
+        else greatest(0.0, least(1.0,
+          (ln(greatest(c.access_count, 1))
+           - 0.5 * ln(greatest(extract(epoch from (now() - c.last_accessed_at)) / 3600.0, 1.0))
+          ) / 5.0 + 0.5
+        ))
+      end as temporal_act
+    from captures c
+    where c.deleted_at is null
+      and c.pipeline_status = 'complete'
+      and 1 - (c.embedding <=> query_embedding) > match_threshold
+      and (filter_source is null or c.source = filter_source)
+      and (filter_tags is null or c.tags && filter_tags)
+      and (filter_brain_views is null or c.brain_views && filter_brain_views)
+      and (filter_after is null or c.captured_at >= filter_after)
+      and (filter_before is null or c.captured_at <= filter_before)
+  )
   select
-    c.id, c.content, c.metadata, c.source, c.tags,
-    1 - (c.embedding <=> query_embedding) as similarity,
-    c.captured_at, c.linked_entities
-  from captures c
-  where c.deleted_at is null
-    and c.pipeline_status = 'complete'
-    and 1 - (c.embedding <=> query_embedding) > match_threshold
-    and (filter_source is null or c.source = filter_source)
-    and (filter_tags is null or c.tags && filter_tags)
-    and (filter_brain_views is null or c.brain_views && filter_brain_views)
-    and (filter_after is null or c.captured_at >= filter_after)
-    and (filter_before is null or c.captured_at <= filter_before)
-  order by c.embedding <=> query_embedding
+    b.id, b.content, b.metadata, b.source, b.tags,
+    b.semantic_sim as similarity,
+    b.temporal_act as temporal_score,
+    b.semantic_sim * (1.0 + temporal_weight * b.temporal_act) as composite_score,
+    b.captured_at
+  from base b
+  order by b.semantic_sim * (1.0 + temporal_weight * b.temporal_act) desc
   limit match_count;
 end;
 $$;
 ```
+
+**Hybrid search function** (full-text + vector with Reciprocal Rank Fusion):
+
+The primary search function combines pgvector cosine similarity with Postgres full-text search via RRF. This significantly improves recall for paraphrased or keyword-heavy queries. See TDD §4.3 for the full `match_captures_hybrid` function definition.
 
 **Acceptance Criteria**:
 - Postgres container runs stable on Unraid in Docker with tuned postgresql.conf
@@ -465,9 +551,10 @@ $$;
 | Stage | Purpose | Default AI | Skips When |
 |-------|---------|-----------|------------|
 | `transcribe` | Audio → text via faster-whisper | Local faster-whisper | Input is already text |
-| `embed` | Generate vector embedding | Local Ollama (nomic-embed-text or similar) | — |
-| `extract_metadata` | Extract people, topics, type, action_items, dates, brain_views | Configurable (default: local Ollama or Claude) | — |
-| `classify` | Domain classification (career signals, etc.) | Configurable | No matching brain_view pipeline |
+| `embed` | Generate vector embedding | Local Ollama (configurable model — see F07) | — |
+| `check_triggers` | Match against active semantic triggers (separate BullMQ job, not inline) | Cosine similarity (in-memory) | No active triggers (Phase 2) |
+| `extract_metadata` | Extract people, topics, type, action_items, dates, brain_views | Configurable (default: local via LiteLLM) | — |
+| `classify` | Domain classification (career signals, etc.) | Configurable via LiteLLM | No matching brain_view pipeline |
 | `link_entities` | Match and link to known entities | Local Ollama or rule-based | Phase 3 |
 | `evaluate_triggers` | Check trigger rules (drift, bet expiration, etc.) | Rule-based + AI | Phase 3 |
 | `notify` | Send confirmation to source (Slack reply, Pushover) | — | — |
@@ -478,12 +565,15 @@ pipelines:
   default:
     stages:
       - name: embed
-        provider: ollama
-        model: nomic-embed-text
+        provider: ollama           # Embeddings always go direct to Ollama (bypass LiteLLM)
+        model: ${EMBEDDING_MODEL}  # Configured in ai-routing.yaml
+
+      # check_triggers runs as a separate BullMQ job after embed completes (not an inline stage)
+      # Enqueued automatically by the embed stage handler — see TDD §12.2a
 
       - name: extract_metadata
-        provider: ollama
-        model: llama3.1:8b
+        provider: litellm          # Routes through LiteLLM proxy
+        model: fast                # LiteLLM model alias → resolves to configured model
         prompt_template: extract_metadata_v1
 
       - name: notify
@@ -495,11 +585,13 @@ pipelines:
     stages:
       - name: embed
         provider: ollama
-        model: nomic-embed-text
+        model: ${EMBEDDING_MODEL}
+
+      # check_triggers: separate BullMQ job after embed (see TDD §12.2a)
 
       - name: extract_metadata
-        provider: ollama
-        model: llama3.1:8b
+        provider: litellm
+        model: fast
         prompt_template: extract_metadata_v1
         merge_with_pre_extracted: true
 
@@ -510,14 +602,14 @@ pipelines:
     extends: default
     additional_stages:
       - name: extract_career_signals
-        provider: claude
-        model: claude-sonnet-4-6
+        provider: litellm
+        model: synthesis           # LiteLLM alias → Claude Sonnet
         prompt_template: career_signals_v1
         after: extract_metadata
 ```
 
 **Stage Execution**:
-- Each stage reads the capture record, does its work, writes results back to the record + appends to `pipeline_log`
+- Each stage reads the capture record, does its work, writes results back to the record + inserts a row into `pipeline_events`
 - Stage failure → retry with patient exponential backoff: 5 retries per stage (30s, 2m, 10m, 30m, 2h), then mark stage as failed. Pushover alert on final failure. Daily auto-retry sweep for all failed stages (one additional attempt per day). Manual retry also available via API.
 - Partial completion preserved — if `embed` succeeds but `extract_metadata` fails, the embedding is kept
 - Pipeline routing: based on `source` field and `brain_views` tags, the system selects which pipeline config to use
@@ -527,7 +619,7 @@ pipelines:
 - Individual stage failure does not block other stages (where no dependency exists)
 - Failed stages can be retried individually via API (`POST /api/v1/captures/:id/retry?stage=extract_metadata`)
 - Pipeline configuration is YAML-driven; config re-read on each pipeline job start (naturally picks up changes within seconds). API reload endpoint (`POST /admin/reload-config`) available for immediate cache clear. In-flight jobs complete with the config they started with.
-- `pipeline_log` on each capture shows: stage name, status, model used, duration, timestamp
+- `pipeline_events` rows for each capture show: stage name, status, model used, duration, timestamp
 
 ---
 
@@ -566,7 +658,7 @@ pipelines:
 
 #### F05: Slack Bot — Query
 
-**Description**: When the user asks a question (detected by prefix or intent), perform semantic search and return formatted results in Slack.
+**Description**: When the user asks a question (detected by prefix or intent), perform hybrid search (full-text + vector with Reciprocal Rank Fusion) and return temporally-weighted results in Slack. Search results are ranked by a composite score combining semantic similarity with temporal activation (recency + access frequency via ACT-R model). Recent or frequently-accessed captures rank higher than stale ones at equal similarity.
 
 **Query Triggers**:
 - `?` prefix: `? QSR pricing` → semantic search
@@ -604,7 +696,7 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 **Acceptance Criteria**:
 - Query results returned within 5 seconds
 - Results formatted with date, type, match percentage, and content preview
-- Follow-up interactions work in the same thread (thread context stored in Redis with 1-hour TTL, keyed by thread_ts; expired threads prompt a new search)
+- Follow-up interactions work in the same thread (thread context stored in Redis with 1-hour TTL, keyed by thread_ts; expired threads reply with: "This search has expired (1-hour timeout). Send a new query to search again." Does not silently fail or return errors.)
 - Synthesis queries use the configured AI model and return coherent multi-paragraph responses
 - Intent router correctly distinguishes capture vs. query >95% of the time
 
@@ -629,9 +721,10 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 | `get_weekly_brief` | Retrieve the most recent weekly brief | weeks_ago (default 0) |
 
 **Access**:
-- URL-based access with API key authentication (key passed as query parameter)
+- API key authentication via Authorization header (`Authorization: Bearer <key>`)
 - Accessible via Tailscale for remote use, or LAN for local
-- Connection URL format: `https://brain.k4jda.net/mcp?key=<access_key>` (via Cloudflare Tunnel — existing Tailscale + SWAG setup unchanged, Cloudflare Tunnel added only for brain.k4jda.net)
+- Connection URL: `https://brain.k4jda.net/mcp` (via Cloudflare Tunnel — existing Tailscale + SWAG setup unchanged, Cloudflare Tunnel added only for brain.k4jda.net)
+- Authentication: `Authorization: Bearer <access_key>` header on every request
 
 **Acceptance Criteria**:
 - All tools functional and return well-formatted text results
@@ -645,97 +738,141 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 
 #### F07: Ollama Container
 
-**Description**: Local LLM service for embeddings and lightweight AI tasks (metadata extraction, intent classification). Runs on Unraid in Docker.
+**Description**: Local embedding service for vector generation. Runs on Unraid in Docker. LLM chat/completion tasks (metadata extraction, intent classification, synthesis) route through LiteLLM instead — see F07a and F08.
 
-**Models to Install**:
-- `nomic-embed-text` — embedding model (768-dim vectors, fast, good quality). Selected for: local execution, zero API cost, sufficient quality for personal knowledge search. Schema uses vector(768) throughout. No embedding fallback — if Ollama is down, queue and retry.
-- `llama3.1:8b` — lightweight LLM for metadata extraction, intent classification, and simple synthesis
-- Optionally `llama3.1:70b` or larger for higher-quality synthesis if hardware supports it
+**Embedding Model** (configurable via `ai-routing.yaml`):
+
+The schema uses `vector(768)` throughout. The embedding model must produce 768-dimensional vectors, either natively or via Matryoshka dimension truncation.
+
+| Candidate | Params | Native Dim | 768d Quality | Context | Status |
+|-----------|--------|-----------|-------------|---------|--------|
+| `nomic-embed-text` | 137M | 768 (native) | Baseline | 8K tokens | Proven, low resource |
+| `qwen3-embedding:0.6b` | 0.6B | 1024 | Good (Matryoshka → 768) | 32K tokens | Evaluating |
+| `qwen3-embedding:4b` | 4B | 2048 | Very good (Matryoshka → 768) | 32K tokens | Evaluating |
+| `qwen3-embedding:8b` | 8B | 4096 | Excellent (Matryoshka → 768, MTEB #1 at release) | 32K tokens | Evaluating |
+
+**Qwen3-Embedding advantages**: Matryoshka dimensions (truncate to any power-of-2 with minimal quality loss), 32K context (vs 8K for nomic — significant for document ingestion in Phase 4), and instruction-following support (`Instruct: ...` prefixes for asymmetric query/document embedding).
+
+**Decision**: Final model selection after benchmarking with real capture data. Schema uses `vector(768)` regardless. Switching models requires a one-time re-embedding migration (see TDD §4.5).
+
+**No embedding fallback** — if Ollama is down, captures queue in BullMQ and retry when Ollama recovers. This prevents mixing embedding models which would degrade search quality.
 
 **API**: Ollama exposes OpenAI-compatible API on port 11434
 
 **Acceptance Criteria**:
-- Ollama container starts and loads models on Unraid
+- Ollama container starts and loads embedding model on Unraid
 - Embedding generation <1 second per capture
-- Metadata extraction <5 seconds per capture
 - GPU acceleration used if NVIDIA GPU available, CPU fallback otherwise
 - Container auto-restarts on failure
 
 ---
 
+#### F07a: LiteLLM Proxy
+
+**Description**: Self-hosted LLM gateway that provides a unified OpenAI-compatible API for all LLM providers (local Ollama models, Anthropic Claude, OpenAI GPT, OpenRouter). All LLM requests (not embeddings) route through LiteLLM. This replaces the need for a custom provider routing implementation.
+
+**Key Capabilities**:
+- **Unified API**: Single `http://litellm:4000` endpoint for all LLM calls
+- **Model aliasing**: Define logical names (`fast`, `synthesis`, `governance`) that map to specific provider/model combinations
+- **Automatic fallback**: Primary → fallback routing per model alias
+- **Budget tracking**: Built-in monthly spend tracking with soft/hard limits
+- **Request logging**: All LLM calls logged with tokens, latency, cost
+
+**Configuration** (`config/litellm-config.yaml`):
+```yaml
+model_list:
+  - model_name: "fast"
+    litellm_params:
+      model: ollama/llama3.1:8b
+      api_base: http://ollama:11434
+
+  - model_name: "synthesis"
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+
+  - model_name: "synthesis"      # fallback
+    litellm_params:
+      model: openai/gpt-4o
+
+  - model_name: "governance"
+    litellm_params:
+      model: anthropic/claude-opus-4-6
+
+  - model_name: "governance"     # fallback
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+
+  - model_name: "intent"
+    litellm_params:
+      model: ollama/llama3.1:8b
+      api_base: http://ollama:11434
+
+litellm_settings:
+  max_budget: 50             # Hard limit: $50/month
+  budget_duration: "1mo"
+  alerting:
+    - webhook                # Alert on budget thresholds
+
+general_settings:
+  master_key: "sk-ob-master" # From Bitwarden
+```
+
+**Acceptance Criteria**:
+- LiteLLM container starts and proxies requests to configured providers
+- Model aliases resolve correctly (fast → Ollama, synthesis → Claude Sonnet)
+- Fallback triggers automatically on provider failure
+- Monthly spend tracked and hard limit enforced at $50
+- Health endpoint at `http://litellm:4000/health`
+
+---
+
 #### F08: AI Router Service
 
-**Description**: A configuration layer (not necessarily a separate container — can be a module within the Core API) that routes AI requests to the appropriate provider based on task type, configured preferences, and fallback rules.
+**Description**: A thin application-layer service that maps task types to LiteLLM model aliases and handles embedding requests directly via Ollama. LiteLLM handles the heavy lifting (provider routing, fallback, budget tracking, request logging). The AI Router in the application code is responsible for: (1) mapping task types to LiteLLM model aliases, (2) routing embedding requests directly to Ollama (bypassing LiteLLM), and (3) logging usage to the `ai_audit_log` table from LiteLLM response metadata.
 
-**Configuration** (YAML):
+**Configuration** (`config/ai-routing.yaml`):
 ```yaml
 ai_routing:
+  # Embedding config — goes direct to Ollama, NOT through LiteLLM
   embedding:
-    primary:
-      provider: ollama
-      model: nomic-embed-text
-    # NO fallback for embeddings — mixing models degrades search quality.
-    # If Ollama is down, captures queue and retry when it recovers.
+    provider: ollama
+    model: nomic-embed-text     # Configurable — may switch to qwen3-embedding:8b after benchmarking
+    dimensions: 768             # Schema dimension — model must produce this (native or Matryoshka-truncated)
+    # NO fallback. Queue and retry if Ollama is down.
 
-  metadata_extraction:
-    primary:
-      provider: ollama
-      model: llama3.1:8b
-    fallback:
-      provider: anthropic
-      model: claude-haiku-4-5
+  # LLM task → LiteLLM model alias mapping
+  # LiteLLM handles provider routing and fallback internally
+  task_models:
+    metadata_extraction: fast        # → ollama/llama3.1:8b (via LiteLLM)
+    intent_classification: intent    # → ollama/llama3.1:8b (via LiteLLM); degrades to prefix-only if LiteLLM/Ollama down
+    synthesis: synthesis             # → anthropic/claude-sonnet (via LiteLLM, fallback: openai/gpt-4o)
+    governance: governance           # → anthropic/claude-opus (via LiteLLM, fallback: claude-sonnet)
+    career_signals: synthesis        # → same as synthesis
+    weekly_brief: synthesis          # → same as synthesis
+    drift_detection: fast            # → local model
 
-  synthesis:
-    primary:
-      provider: anthropic
-      model: claude-sonnet-4-6
-    fallback:
-      provider: openai
-      model: gpt-4o
+  litellm:
+    base_url: http://litellm:4000
+    # API key, budget, fallback config all in config/litellm-config.yaml
 
-  governance:
-    primary:
-      provider: anthropic
-      model: claude-opus-4-6
-    fallback:
-      provider: anthropic
-      model: claude-sonnet-4-6
-
-  intent_classification:
-    primary:
-      provider: ollama
-      model: llama3.1:8b  # model configurable — may use qwen3.5 on Jetson Orin Nano or DGX Spark
-    # no LLM fallback — degrade to prefix-only detection:
-    # '?' = query, '!' = command, '@Open Brain' = query, no prefix = capture (default-to-capture prevents data loss)
-
-providers:
   ollama:
     base_url: http://ollama:11434
-
-  anthropic:
-    api_key_env: ANTHROPIC_API_KEY
-
-  openai:
-    api_key_env: OPENAI_API_KEY
-
-  openrouter:
-    api_key_env: OPENROUTER_API_KEY
-    base_url: https://openrouter.ai/api/v1
 ```
 
 **Behavior**:
-- All AI calls in the system go through the router
-- Router selects provider based on task type
-- If primary fails (timeout, error, container down), falls back automatically (except embeddings — no fallback, queue and retry to maintain vector consistency)
-- Logs all AI calls: provider, model, task, tokens, latency, cost estimate
-- Token usage tracked per provider per day for cost awareness
-- **Monthly budget caps**: Soft limit at $30/month triggers Pushover alert. Hard limit at $50/month triggers circuit breaker — falls back to local models only. Expected normal usage: ~$15-30/month.
+- All LLM calls route through LiteLLM proxy; all embedding calls go direct to Ollama
+- Task type → model alias mapping is config-driven (change aliases without touching code)
+- LiteLLM handles fallback, budget tracking, and request logging natively
+- Application logs usage to `ai_audit_log` table for operational audit
+- **Monthly budget caps** (enforced by LiteLLM): Soft limit at $30/month triggers Pushover alert. Hard limit at $50/month triggers circuit breaker. Expected normal usage: ~$15-30/month.
+- Intent classification degrades gracefully: if LiteLLM/Ollama unavailable, fall back to prefix-only detection (`?` = query, `!` = command, default = capture)
 
 **Acceptance Criteria**:
-- All AI calls route through the router
-- Fallback triggers within 5 seconds of primary failure
+- All LLM calls route through LiteLLM; embeddings go direct to Ollama
+- Task-to-model mapping configurable via YAML
+- Fallback triggers automatically via LiteLLM (within 5 seconds)
 - Usage logging captures all calls with token counts
-- Configuration changes take effect without restart (file watch or API reload)
+- Budget enforcement works (soft alert + hard circuit breaker)
 
 ---
 
@@ -779,6 +916,7 @@ providers:
    - Keep OpenAI Whisper API as fallback
 4. **Expose HTTP endpoint** for direct capture from iOS Shortcut (`POST /api/capture`)
 5. **Remove Google Drive/rclone dependency** for voice memos — direct API capture only
+6. **Language decision**: Evaluate whether to rewrite voice-capture in TypeScript (full monorepo integration) or keep as Python service with Docker container in the monorepo. TypeScript rewrite preferred for consistency but requires porting retry/circuit-breaker logic. Decision during Phase 2A implementation planning.
 
 **Acceptance Criteria**:
 - Voice memos flow from Apple Watch → iOS Shortcut → voice-capture HTTP API → Open Brain → Postgres
@@ -997,22 +1135,59 @@ providers:
 ### 5.3 Feature Dependencies
 
 ```
-F02 (Postgres) ──► F01 (Core API) ──► F04 (Slack Capture)
-                         │              F05 (Slack Query)
-F03 (Pipeline) ─────────┤              F06 (MCP Server)
-                         │              F09 (Voice-Capture Integration)
-F07 (Ollama) ───────────┤              F11 (Slack Commands)
-                         │              F12 (Weekly Brief)
-F08 (AI Router) ────────┘              F19 (Web Dashboard)
+Phase 1A:
+F02 (Postgres) ──► F01 (Core API — CRUD, stats, health)
 
+Phase 1B:
+F07 (Ollama) ──► Search endpoints + match_captures functions
+
+Phase 1C:
+F07a (LiteLLM) ──► F08 (AI Router) ──► F03 (Pipeline)
+
+Phase 1D:
+F04 (Slack Capture) ──► F05 (Slack Query)
+
+Phase 1E:
+F06 (MCP — embedded in Core API) ──► Cloudflare Tunnel
+
+Phase 2:
 F10 (faster-whisper) ──► F09 (Voice-Capture Integration)
-                         F20 (Slack Voice Clips)
+F12 (Weekly Brief) ──► F13 (Pushover) + F14 (Email)
+F11 (Slack Commands) — depends on Core API
+F28 (Semantic Triggers) ──► F13 (Pushover) + Slack delivery
 
+Phase 3:
 F15 (Entity Graph) ──► F16-F18 (Governance)
 
-F13 (Pushover) — independent, wire in when ready
-F14 (Email) — independent, wire in when ready
+Independent (wire in when ready):
+F13 (Pushover), F14 (Email)
 ```
+
+---
+
+#### F28: Semantic Push Triggers
+
+**Description**: Persistent semantic patterns that fire Pushover/Slack notifications when new captures match. Users define triggers via Slack commands ("anything about QSR timeline", "mentions of hiring decisions"). When a new capture is ingested and its embedding semantically matches an active trigger above the threshold, a notification is sent immediately — without the user having to search. Up to 20 active triggers supported.
+
+**Trigger Lifecycle**:
+1. User creates trigger via Slack: `/ob trigger add "QSR timeline"`
+2. System generates embedding for the trigger phrase and stores it
+3. On every new capture (after embed stage), the `check_triggers` pipeline stage compares the capture's embedding against all active triggers (loaded in-memory, cached in Redis with 60s TTL)
+4. If similarity exceeds the trigger's threshold (default: 0.72) and cooldown period has elapsed: fire the trigger
+5. Firing: run hybrid search for related captures, send notification via configured channel (Pushover/Slack/both)
+
+**Slack Commands**:
+- `/ob trigger add "QSR timeline"` — create trigger with default threshold (0.72) and 60-minute cooldown
+- `/ob trigger list` — list all active triggers with last-fired time
+- `/ob trigger delete [name]` — deactivate trigger
+- `/ob trigger test "QSR timeline"` — run against existing captures, show top 5 matches (no notification)
+
+**Acceptance Criteria**:
+- Triggers can be created, listed, deleted via Slack commands
+- Pipeline checks triggers in <10ms (in-memory comparison, no vector index needed for ≤20 triggers)
+- Matching triggers fire notifications within the pipeline processing window
+- Cooldown prevents spam (default 60 minutes between fires for same trigger)
+- Trigger management also available via API (`/api/v1/triggers`)
 
 ---
 
@@ -1034,16 +1209,25 @@ F14 (Email) — independent, wire in when ready
 │       └──────────────┼─────────────┘                        │
 │                      │                                       │
 │              ┌───────▼────────┐  ┌───────────┐              │
-│              │     Redis      │  │  Ollama   │              │
-│              │   (BullMQ)     │  │ (LLM +    │              │
-│              └───────┬────────┘  │ embeddings)│              │
-│                      │           └───────────┘              │
-│              ┌───────▼────────┐  ┌───────────┐              │
-│              │   Postgres     │  │  faster-  │              │
-│              │  (pgvector/    │  │  whisper  │              │
-│              │   pgvector:    │  │           │              │
-│              │   pg16)        │  └───────────┘              │
-│              └────────────────┘                              │
+│              │     Redis      │  │  LiteLLM  │              │
+│              │   (BullMQ)     │  │  (LLM     │              │
+│              └───────┬────────┘  │  gateway)  │              │
+│                      │           └─────┬─────┘              │
+│              ┌───────▼────────┐        │  ┌───────────┐     │
+│              │   Postgres     │        ├──│  Ollama   │     │
+│              │  (pgvector/    │        │  │(embeddings│     │
+│              │   pgvector:    │        │  │  + local  │     │
+│              │   pg16)        │        │  │  LLMs)    │     │
+│              └────────────────┘        │  └───────────┘     │
+│                                        │                     │
+│                                        ├──► Anthropic API    │
+│                                        ├──► OpenAI API       │
+│                                        └──► OpenRouter       │
+│                                                              │
+│              ┌───────────┐                                   │
+│              │  faster-  │                                   │
+│              │  whisper  │                                   │
+│              └───────────┘                                   │
 │                                                              │
 │  ┌──────────┐                                               │
 │  │  voice-  │                                               │
@@ -1073,7 +1257,8 @@ open-brain/
 ├── config/
 │   ├── pipelines.yaml              # Processing pipeline definitions
 │   ├── skills.yaml                 # Output skill definitions + schedules
-│   ├── ai-routing.yaml             # AI provider routing configuration
+│   ├── ai-routing.yaml             # Embedding config + task-to-LiteLLM-alias mapping
+│   ├── litellm-config.yaml         # LiteLLM proxy config: model list, fallbacks, budget
 │   ├── notifications.yaml          # Notification preferences + targets
 │   ├── brain-views.yaml            # Brain view definitions + pipeline routing rules (5 views: career, personal, technical, work-internal, client)
 │   └── prompts/                    # AI prompt templates
@@ -1113,7 +1298,8 @@ open-brain/
 | Text capture ingest (API response) | <500ms |
 | Full pipeline processing (text) | <30 seconds |
 | Full pipeline processing (voice, direct API capture) | <90 seconds |
-| Semantic search response | <5 seconds |
+| Semantic search response (hybrid + temporal) | <5 seconds |
+| Temporal scoring overhead | <5ms |
 | Synthesis query response | <30 seconds |
 | Weekly brief generation | <2 minutes |
 | MCP tool response | <5 seconds |
@@ -1124,7 +1310,7 @@ open-brain/
 - Health checks on all containers
 - Pipeline retries with patient exponential backoff (5 attempts per stage: 30s, 2m, 10m, 30m, 2h) + daily auto-retry sweep for failed stages
 - Circuit breaker on external API calls (Anthropic, OpenAI)
-- Monitoring: lean approach — Docker logs + Unraid dashboard + pipeline_log/skills_log tables + Pushover alerts for failures. No dedicated monitoring stack. Dockhand under consideration for future container management.
+- Monitoring: lean approach — Docker logs + Unraid dashboard + pipeline_events/skills_log tables + Pushover alerts for failures. No dedicated monitoring stack. Dockhand under consideration for future container management.
 - Postgres data backed up via daily pg_dump to Unraid share (7-day local retention) + weekly offsite to cloud storage via rclone (30-day cloud retention)
 
 ### Security
@@ -1135,7 +1321,7 @@ open-brain/
 - No secrets in Docker Compose or config files
 
 ### Data Integrity
-- All captures immutable once created (soft delete, no hard delete)
+- Captures are soft-deletable via API (`DELETE /api/v1/captures/:id`). No hard delete. Recovery via direct SQL.
 - Pipeline processing is idempotent — reprocessing produces same results
 - Source-level deduplication: Slack via `slack_ts`, voice-capture via filename, MCP via content hash + 60-second window. No cross-source near-duplicate detection (rare and arguably valuable to keep both perspectives).
 - Processing audit trail on every capture
@@ -1162,38 +1348,158 @@ open-brain/
 
 ## 9. Release Planning
 
-### Phase 1: Foundation (MVP)
-**Goal**: Working capture + search loop via Slack and MCP
+### Build Philosophy
+Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-phase is independently testable and deployable. No sub-phase should take more than a focused sprint. The system grows layer by layer — confidence builds with each gate passed.
+
+### Phase 1A: Data Layer
+**Goal**: CRUD works. Captures go into Postgres and come back out.
 
 | Feature | Description |
 |---------|-------------|
-| F02 | Postgres 16 + pgvector on Unraid |
-| F07 | Ollama with embedding model |
-| F08 | AI router (basic — Ollama for embeddings, configurable for extraction) |
-| F03 | Pipeline — embed + extract_metadata stages |
-| F01 | Core API — ingest, search, list, stats endpoints |
-| F04 | Slack bot — text capture |
-| F05 | Slack bot — semantic query |
-| F06 | MCP endpoint (embedded in Core API) — search, list, capture, stats |
+| F02 | Postgres 16 + pgvector on Unraid (tuned postgresql.conf) |
+| F01 (partial) | Core API scaffold — Hono, health endpoint, Zod validation |
+| F01 (partial) | Capture CRUD: POST/GET/LIST/PATCH captures (no pipeline, no embedding) |
+| F01 (partial) | Stats endpoint (basic counts) |
 
-**Definition of Done**: Type a thought in Slack → it's embedded and searchable → query it from Slack or Claude Desktop via MCP.
+**Test Gate**:
+- Insert a capture via curl, read it back, list with filters
+- PATCH a capture's tags and brain_views, verify update persists
+- Health endpoint reports Postgres status
+- Vitest unit + Testcontainers integration tests pass
+- Captures stay at `pipeline_status: 'received'` (no pipeline yet)
 
-### Phase 2: Voice + Outputs
-**Goal**: Voice capture working, first output skill, notifications
+### Phase 1B: Embedding + Search
+**Goal**: Search works. Embedding model validated with real data.
 
 | Feature | Description |
 |---------|-------------|
-| F10 | faster-whisper container |
-| F09 | voice-capture integration (swap Notion for Core API, swap cloud Whisper for local) |
-| F12 | Weekly brief output skill |
-| F13 | Pushover notifications |
-| F14 | Email delivery |
-| F11 | Slack commands (/ob stats, /ob brief, etc.) |
+| F07 | Ollama with embedding model (benchmark nomic-embed-text vs Qwen3-Embedding here) |
+| F01 (partial) | Search endpoint: POST /api/v1/search (all three modes: hybrid, vector, fts) |
+| — | match_captures + match_captures_hybrid SQL functions deployed |
+| — | FTS GIN index on captures.content |
+| — | update_access_stats background job |
 
-**Definition of Done**: Apple Watch voice memos flow into the brain. Weekly brief generates automatically on Sunday. Pushover notification on capture and brief delivery.
+**Test Gate**:
+- Insert 20-30 test captures with known content via Phase 1A API
+- Generate embeddings via script or manual Ollama calls
+- Vector search returns relevant results (similarity > 0.7 for known matches)
+- Hybrid search improves recall on paraphrased queries vs. vector-only
+- FTS catches exact keyword matches that vector misses
+- Actual CPU embedding throughput measured and documented (update TDD Section 4.5 estimates)
+- Compare embedding model candidates with real capture data → **select embedding model**
+
+**Key Decision Point**: Embedding model selection happens here, before pipeline automation. Benchmark with real captures, not synthetic data.
+
+### Phase 1C: Pipeline + LLM Gateway
+**Goal**: Captures auto-process. LiteLLM routes LLM calls correctly.
+
+| Feature | Description |
+|---------|-------------|
+| F03 | Pipeline — BullMQ + Redis, stage executor, retry logic |
+| F07a | LiteLLM proxy with model aliases and budget tracking |
+| F08 | AI Router (thin LiteLLM wrapper + direct Ollama for embeddings) |
+| — | Pipeline stages: embed → extract_metadata → notify (stub) |
+| — | Bull Board at /admin/queues |
+
+**Test Gate**:
+- Insert capture via API → automatically embedded, metadata extracted, pipeline_status = 'complete'
+- pipeline_events shows all stages with timing
+- Simulate Ollama failure → capture queues, retries on recovery
+- LiteLLM routes "fast" alias to Ollama, "synthesis" to Claude
+- Bull Board shows job history and queue health
+- Budget tracking shows cost for LLM calls
+
+### Phase 1D: Slack Bot
+**Goal**: Capture and query via Slack. First "it feels like a product" moment.
+
+| Feature | Description |
+|---------|-------------|
+| F04 | Slack bot — text capture via @slack/bolt Socket Mode |
+| F05 | Slack bot — hybrid search query (? prefix) |
+| — | Intent router: prefix-only first (?, !, default=capture), LLM classification added after |
+| — | Thread context in Redis (1-hour TTL, follow-up interactions) |
+
+**Test Gate**:
+- Type in #open-brain → thread reply confirms capture with extracted metadata
+- `? QSR pricing` returns ranked search results with match percentages
+- Reply with number → full capture detail
+- Send same message twice → second is deduped (slack_ts)
+- Bot ignores its own messages
+
+### Phase 1E: MCP + External Access
+**Goal**: AI tools can query the brain. External access works.
+
+| Feature | Description |
+|---------|-------------|
+| F06 | MCP endpoint embedded at /mcp — all 7 tools |
+| — | API key authentication (Authorization header) |
+| — | Cloudflare Tunnel routing brain.k4jda.net |
+
+**Test Gate**:
+- Connect Claude Desktop to brain.k4jda.net/mcp
+- search_brain returns real captures
+- capture_thought creates a capture that goes through pipeline
+- Invalid API key → 401 Unauthorized
+- All 7 MCP tools functional
+
+**Phase 1 Complete**: The capture → search loop works end-to-end via Slack and MCP. This is the minimum viable brain.
+
+---
+
+### Phase 2A: Voice Pipeline
+**Goal**: Voice memos flow from Apple Watch to the brain.
+
+| Feature | Description |
+|---------|-------------|
+| F10 | faster-whisper container (large-v3, CPU int8) |
+| F09 | voice-capture integration (monorepo migration, Core API ingest) |
+
+**Test Gate**:
+- Record on Apple Watch → transcript appears as capture with correct metadata
+- Different audio lengths and formats (.m4a, .wav, .mp3) transcribe correctly
+- voice-capture retry logic handles Core API downtime gracefully
+- Pushover confirmation on successful voice capture
+
+### Phase 2B: Notifications + Output Skills
+**Goal**: System proactively delivers value. First automated output.
+
+| Feature | Description |
+|---------|-------------|
+| F13 | Pushover notifications (all priority levels) |
+| F14 | Email delivery (HTML reports via SMTP) |
+| F12 | Weekly brief output skill (scheduled Sunday 8pm) |
+| F11 | Slack commands (/ob stats, /ob brief, /ob recent, etc.) |
+
+**Test Gate**:
+- Trigger weekly brief manually → email arrives, Pushover fires, brief captured back into brain
+- `/ob stats` returns formatted brain statistics in Slack
+- `/ob brief last` shows most recent brief
+- Pushover priorities respected (low for captures, high for failures)
+
+**Prerequisite**: At least 2 weeks of real captures before the weekly brief is meaningful.
+
+### Phase 2C: Semantic Triggers
+**Goal**: Proactive memory surfacing — the brain alerts you without being asked.
+
+| Feature | Description |
+|---------|-------------|
+| F28 | Triggers table, CRUD API, check_triggers BullMQ job |
+| — | Slack trigger commands (/ob trigger add/list/delete/test) |
+| — | Pushover/Slack notification delivery on trigger match |
+
+**Test Gate**:
+- Create trigger via `/ob trigger add "QSR timeline"`
+- Ingest matching capture → notification fires within pipeline window
+- Cooldown prevents duplicate notifications (default 60 min)
+- `/ob trigger test "QSR timeline"` shows top 5 matches without firing
+- ≤20 active triggers, in-memory comparison completes in <10ms
+
+**Phase 2 Complete**: Voice capture works, weekly briefs generate, semantic triggers surface relevant memories proactively.
+
+---
 
 ### Phase 3: Intelligence
-**Goal**: Entity graph, governance sessions, pattern detection
+**Goal**: Entity graph, governance sessions, pattern detection.
 
 | Feature | Description |
 |---------|-------------|
@@ -1208,7 +1514,7 @@ open-brain/
 **Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. Drift alerts surface when projects/bets go quiet.
 
 ### Phase 4: Polish
-**Goal**: Web UI, document ingestion, additional input sources
+**Goal**: Web UI, document ingestion, additional input sources.
 
 | Feature | Description |
 |---------|-------------|
@@ -1217,7 +1523,37 @@ open-brain/
 | F24 | URL/bookmark capture |
 | F25 | Calendar integration |
 
+**Deferred Design Decision — Document Chunking**:
+The current embedding model generates a single 768-dim vector per capture. This works well for
+short-form content (voice memos, Slack messages, <2K characters). For Phase 4 document ingestion
+(PDF, docx), long documents will need a chunking strategy — a single embedding cannot represent
+a 20-page document effectively. Options to evaluate before Phase 4: fixed-size overlapping chunks,
+semantic paragraph splitting, or hierarchical embeddings. This decision is deferred until Phase 4
+planning, but the `captures` schema can represent chunks natively (each chunk = one capture, linked
+via `source_metadata.parent_document_id`).
+
 **Definition of Done**: Full web dashboard for browsing, searching, and viewing outputs. PWA installable on iPhone.
+
+### 9.1 Cold Start Plan
+
+The system has features that require accumulated data before they become useful. Plan for this:
+
+| Feature | Minimum Data Needed | When Useful |
+|---------|-------------------|-------------|
+| Semantic search | 20+ captures | Phase 1B test gate |
+| Temporal scoring | 100+ searches | ~2 weeks after Phase 1D |
+| Weekly brief | 1 week of captures | Phase 2B, after 2 weeks of real use |
+| Drift detection | 2+ weeks of captures + entities | Phase 3 |
+| Entity graph | 50+ captures mentioning people/projects | Phase 3 |
+| Semantic triggers | Active captures flowing in | Phase 2C |
+
+**Temporal weight ramp-up schedule** (config change, no code change):
+1. Phase 1A–1C: `temporal_weight: 0.0` (no search history exists)
+2. After 100 searches (~2 weeks of Phase 1D use): bump to `0.1`
+3. After 500 searches (~2 months): bump to `0.2`
+4. After 1000 searches: evaluate whether `0.3` improves results, adjust based on experience
+
+**Phase 1B seed data**: Before declaring Phase 1B complete, manually enter 50+ real captures (past voice memos, Slack thoughts, decisions) to validate search quality. Don't test search with 5 captures — it tells you nothing.
 
 ---
 
@@ -1229,7 +1565,8 @@ open-brain/
 | Unraid server with Docker | Everything | Low — already operational |
 | Tailscale | Remote access to all services | Low — already in use |
 | Slack free workspace (K4JDA) | Capture + query interface | Low — already created |
-| Ollama Docker image | Local embeddings + LLM | Low — well-maintained |
+| Ollama Docker image | Local embeddings (+ local LLM via LiteLLM) | Low — well-maintained |
+| LiteLLM Docker image | Unified LLM proxy for all providers | Low — actively maintained, wide adoption |
 | faster-whisper Docker image | Local transcription | Low — multiple maintained images |
 | Postgres 16 + pgvector Docker image | Database + vector search | Low — standard Docker image (pgvector/pgvector:pg16) |
 | Redis | Job queues | Low — standard Docker image |
@@ -1258,11 +1595,12 @@ open-brain/
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | Postgres + pgvector setup | Low | Medium | Standard Docker image (pgvector/pgvector:pg16), Drizzle Studio for dev browsing, well-documented |
-| Ollama embedding quality insufficient | Low | Medium | Benchmark against cloud embeddings; fallback to OpenAI text-embedding-3-small |
+| Embedding model selection suboptimal | Low | Medium | Schema uses vector(768) compatible with multiple models (nomic-embed-text native, Qwen3-Embedding Matryoshka-truncated). Re-embedding script available. Benchmark with real captures before committing. |
+| LiteLLM proxy as single point for LLM routing | Low | Medium | Simple container, auto-restart. Can bypass and call providers directly if needed. |
 | Unraid resource constraints (many containers) | Medium | Medium | Monitor with Unraid dashboard; phase rollout to spread load |
 | Slack free plan limitations change | Low | Medium | Core system doesn't depend on Slack — just one input adapter |
 | Pipeline stage failure cascades | Low | Medium | Circuit breakers, independent stages, retry logic |
-| Embedding model dimension mismatch | ~~Medium~~ Resolved | ~~High~~ | Decided: nomic-embed-text (768d), schema uses vector(768), no fallback to different-dimension models |
+| Embedding model dimension mismatch | ~~Medium~~ Resolved | ~~High~~ | Schema uses vector(768). Model must produce 768d (native or Matryoshka-truncated). No fallback to different-dimension models. |
 | voice-capture integration breaks existing workflow | Medium | Medium | Hard cutover with Notion backfill script as safety net |
 | Data loss on Unraid | Low | Critical | Regular Postgres backups to offsite storage |
 
@@ -1275,7 +1613,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | # | Question | Decision |
 |---|----------|----------|
 | 1 | Unraid hardware specs | Intel i7-9700, 128GB DDR4, no GPU, 32TB array (~26TB free) |
-| 2 | Embedding model | nomic-embed-text (768d) via Ollama — local, no fallback |
+| 2 | Embedding model | vector(768) schema. Model configurable — evaluating nomic-embed-text (768d native, 8K context) vs Qwen3-Embedding:8b (Matryoshka to 768d, 32K context, MTEB #1). No fallback. |
 | 3 | External access method | Hybrid: existing Tailscale + SWAG unchanged, Cloudflare Tunnel (free) added for brain.k4jda.net only |
 | 4 | Email delivery | SMTP via existing personal email account |
 | 5 | Slack voice clip routing | Route through voice-capture container (single audio path) |
@@ -1293,7 +1631,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Prompt templates | Phase 1: extract_metadata + intent_router. Others deferred. Versioned, hot-reloadable. |
 | Governance sessions | LLM-driven conversation with guardrails (max turns, required topics checklist, 30-min idle auto-pause). Not FSM. |
 | Board role personalities | Defer to Phase 3, designed alongside conversational flow. |
-| Monitoring | Lean: Docker logs + Unraid dashboard + pipeline_log + Pushover alerts. No Prometheus/Grafana. |
+| Monitoring | Lean: Docker logs + Unraid dashboard + pipeline_events + Pushover alerts. No Prometheus/Grafana. |
 | Schema migrations | Drizzle ORM + drizzle-kit. TypeScript-native, schema-as-code. |
 | AI cost management | Monthly budget: soft $30 (Pushover alert), hard $50 (circuit breaker → local only). |
 | Synthesis endpoint | Top-20 captures, 50K token budget. Skills handle own context assembly. |
@@ -1304,7 +1642,10 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Session persistence | Postgres + transcript replay on resume. 30-day max pause. |
 | Deduplication | Source-level only: slack_ts, filename, content hash + 60s window. No cross-source. |
 | Docker networking | Single `open-brain` network. All containers including Postgres. |
-| Embedding consistency | No fallback. Queue and retry if Ollama down. |
+| Embedding consistency | No fallback. Queue and retry if Ollama down. Model configurable (nomic-embed-text or Qwen3-Embedding). |
+| LLM routing | LiteLLM proxy. Budget via LiteLLM. App logs task-level audit (not cost) to ai_audit_log table. |
+| Search strategy | Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay. Default temporal_weight: 0.0 at launch (cold start), ramp up as search history builds. |
+| Semantic triggers | Persistent semantic patterns. Separate BullMQ job (not inline pipeline stage). Max 20 triggers, in-memory comparison. Phase 2C. |
 | MCP architecture | Embedded in Core API at `/mcp` route. Streamable HTTP transport. No separate container. |
 | Voice capture flow | Direct API from iPhone/Apple Watch via iOS Shortcut. No Google Drive sync, no rclone for voice. |
 | Monorepo structure | pnpm workspaces: packages/shared, core-api, slack-bot, workers, voice-capture, web. |
@@ -1323,6 +1664,10 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Capture timestamps | `captured_at` optional in API. Adapters pass original timestamp. |
 | board-journal migration | Conceptual reference doc only — principles, not code. Clean-room implementation. |
 | Database | Plain Postgres 16 + pgvector (pgvector/pgvector:pg16). No Supabase. Drizzle Studio for dev. SSE for real-time. |
+| Capture updates | PATCH /api/v1/captures/:id for tags, brain_views, metadata_overrides. Slack reactions trigger brain_view updates. No re-embedding. |
+| Phase structure | 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates per sub-phase. Smaller build/test cycles for robustness. |
+| MCP authentication | Authorization: Bearer header (not URL query parameter). Logged but not exposed in access logs. |
+| Cold start plan | temporal_weight starts at 0.0, ramped up after search history builds. 50+ seed captures for Phase 1B validation. |
 
 ---
 
@@ -1338,7 +1683,11 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | **Output Skill** | A scheduled or triggered process that queries the brain, performs AI synthesis, and delivers results (weekly brief, board session, drift alert) |
 | **Entity** | A known person, project, decision, bet, or concept that appears across multiple captures |
 | **Intent Router** | The component in the Slack bot that determines whether an incoming message is a capture, query, command, or conversation |
-| **AI Router** | The configuration layer that routes AI requests to the appropriate provider (Ollama, Claude, GPT) based on task type |
+| **AI Router** | Thin application-layer service that maps task types to LiteLLM model aliases (for LLM) and Ollama (for embeddings) |
+| **LiteLLM** | Self-hosted proxy that provides a unified OpenAI-compatible API for all LLM providers, with fallback routing and budget tracking |
+| **Semantic Trigger** | A persistent semantic pattern that fires a notification when a new capture's embedding matches it above a threshold |
+| **Hybrid Search** | Search strategy combining full-text search (Postgres tsvector) and vector similarity (pgvector) via Reciprocal Rank Fusion (RRF) |
+| **Temporal Decay (ACT-R)** | Cognitive model that boosts search ranking for captures that are accessed recently and frequently |
 | **Governance Session** | A structured, multi-turn LLM-driven conversation for career governance — inherited from board-journal principles (not FSM) |
 | **Bet** | A 90-day falsifiable prediction made during a governance session |
 | **MCP** | Model Context Protocol — open standard for AI tools to interact with external data sources |
@@ -1352,6 +1701,9 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | 2026-03-04 | 0.1 | Initial draft based on conceptual discussion |
 | 2026-03-04 | 0.2 | All 30 open questions resolved via interactive Q&A session. Key decisions: nomic-embed-text (768d) embeddings, Cloudflare Tunnel for brain.k4jda.net, Vite + React for web UI, Drizzle ORM for migrations, 5 brain views, Slack-native governance redesign, no embedding fallback, patient retry strategy with daily auto-sweep. |
 | 2026-03-04 | 0.3 | Aligned with TDD v0.2 decisions: Removed Supabase (plain Postgres+pgvector), embedded MCP in Core API (Streamable HTTP), direct voice capture via iOS Shortcut (no Google Drive/rclone for voice), pnpm monorepo, @slack/bolt, LLM-driven governance (not FSM), single Docker network, ConfigService, content_hash dedup, SSE for real-time, bws secret loading. |
+| 2026-03-05 | 0.4 | Added LiteLLM as unified LLM gateway (replaces custom AI router logic). Made embedding model configurable (evaluating Qwen3-Embedding alongside nomic-embed-text). Added cognitive retrieval: ACT-R temporal decay scoring, hybrid search with Reciprocal Rank Fusion (FTS + vector), semantic push triggers (F28). Based on analysis of MuninnDB cognitive retrieval architecture. |
+| 2026-03-05 | 0.5 | Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Added cold start plan and temporal weight ramp-up schedule. Added PATCH /api/v1/captures/:id for capture updates. Fixed check_triggers as separate BullMQ job (not inline pipeline stage). Moved MCP API key from URL to Authorization header. Clarified voice-capture migration scope. Default temporal_weight to 0.0 at launch. Added search pagination. |
+| 2026-03-05 | 0.6 | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added document chunking deferred decision, added entity resolution confidence threshold (0.8), added MCP key rotation runbook, added config validation (Zod), added scheduled skill retry policy, specified thread expiration UX, added migration-at-startup entrypoint, documented Ollama CPU benchmark requirement. |
 
 ---
 
