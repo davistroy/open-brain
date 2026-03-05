@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Based On | PRD.md v0.6, TDD.md v0.5 |
+| Based On | docs/PRD.md v0.6, docs/TDD.md v0.5 |
 | Created | 2026-03-05 |
 | Phases | 8 (this file) + 8 (IMPLEMENTATION_PLAN-PHASE2.md) = 16 total |
 | Scope | Foundation through MCP (PRD Phases 1A–1E) |
