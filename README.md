@@ -54,18 +54,16 @@ Runs on an Unraid home server. Key components:
 - **Voice capture**: Direct API from iPhone/Watch (no Google Drive sync)
 - **Monorepo**: pnpm workspaces (shared, core-api, slack-bot, workers, voice-capture)
 
-See [PRD.md](PRD.md) for complete specifications and the resolved decisions table in Section 12.
+See [docs/PRD.md](docs/PRD.md) for complete specifications and the resolved decisions table in Section 12.
 
 ## Reference Files
 
 | File | Purpose |
 |------|---------|
-| `PRD.md` | Product requirements document (v0.5) |
-| `TDD.md` | Technical design document (v0.4) |
-| `reference/questions-PRD-*.json` | Questions extracted from PRD |
-| `reference/questions-TDD-*.json` | Questions extracted from TDD |
-| `reference/answers-PRD-*.json` | PRD architectural decisions record |
-| `reference/answers-TDD-*.json` | TDD architectural decisions record |
+| `docs/PRD.md` | Product requirements document (v0.6) |
+| `docs/TDD.md` | Technical design document (v0.5) |
+| `IMPLEMENTATION_PLAN.md` | Phased build plan, phases 1-8 |
+| `IMPLEMENTATION_PLAN-PHASE2.md` | Phased build plan, phases 9-16 |
 
 ## License
 

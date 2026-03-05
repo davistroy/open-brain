@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| Based On | PRD.md v0.6, TDD.md v0.5 |
+| Based On | docs/PRD.md v0.6, docs/TDD.md v0.5 |
 | Created | 2026-03-05 |
 | Phases | 9-16 (this file). Phases 1-8 in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) |
 | Scope | Voice Pipeline through Polish (PRD Phases 2A–4) |
