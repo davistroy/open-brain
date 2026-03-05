@@ -2,21 +2,24 @@
 
 | Document Information |                                    |
 |---------------------|-------------------------------------|
-| Version             | 0.2                                 |
-| Status              | Draft — Questions Resolved          |
+| Version             | 0.5                                 |
+| Status              | Draft — Architectural Review v2 Applied |
 | Author              | Troy Davis / Claude                 |
-| Last Updated        | 2026-03-04                          |
+| Last Updated        | 2026-03-05                          |
 
 ## Document History
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 0.1 | 2026-03-04 | Troy Davis / Claude | Initial TDD based on PRD v0.2 |
 | 0.2 | 2026-03-04 | Troy Davis / Claude | All 32 open questions resolved via /ask-questions session |
+| 0.3 | 2026-03-05 | Troy Davis / Claude | LiteLLM gateway, flexible embeddings, cognitive retrieval (ACT-R, RRF, triggers) |
+| 0.4 | 2026-03-05 | Troy Davis / Claude | Architectural review: 10 sub-phases with test gates, fix Zod brain_views, Authorization header for MCP, check_triggers as separate job, standardized temporal scoring, UNIQUE constraints, cold start plan, operational runbook |
+| 0.5 | 2026-03-05 | Troy Davis / Claude | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added entity resolution confidence threshold (0.8), added MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability note, MCP in-progress capture visibility note. |
 
 ## Related Documents
 | Document | Link | Relevance |
 |----------|------|-----------|
-| PRD | [PRD.md](PRD.md) | Product requirements, all architectural decisions |
+| PRD | [PRD.md](PRD.md) | Product requirements v0.6, all architectural decisions |
 | PRD Answers | [reference/answers-PRD-20260304-160000.json](reference/answers-PRD-20260304-160000.json) | PRD decision rationale |
 | PRD Questions | [reference/questions-PRD-20260304-120000.json](reference/questions-PRD-20260304-120000.json) | PRD questions extracted |
 | TDD Answers | [reference/answers-TDD-20260304-214500.json](reference/answers-TDD-20260304-214500.json) | TDD decision rationale (32 questions) |
@@ -30,7 +33,7 @@
 
 This TDD provides implementation-ready technical specifications for Open Brain — a self-hosted personal AI knowledge infrastructure. It covers the complete system: API contracts, database schema (Drizzle ORM), async pipeline architecture, AI routing, Slack bot, MCP server, Docker Compose orchestration, and all supporting services.
 
-The system runs entirely on an Unraid home server, ingests captures from Slack and voice memos, embeds them for semantic search via local Ollama, and surfaces insights through AI-powered skills (weekly briefs, governance sessions, drift detection).
+The system runs entirely on an Unraid home server, ingests captures from Slack and voice memos, embeds them for semantic search via local Ollama, routes all LLM requests through a self-hosted LiteLLM proxy, and surfaces insights through AI-powered skills (weekly briefs, governance sessions, drift detection). Search uses hybrid retrieval (full-text + vector with Reciprocal Rank Fusion) combined with ACT-R temporal decay scoring.
 
 ### 1.2 Scope
 
@@ -59,7 +62,9 @@ The system runs entirely on an Unraid home server, ingests captures from Slack a
 | Dev Runtime | tsx | Run TypeScript directly with hot reload (tsx watch) |
 | Production Build | tsup (esbuild) | Zero-config bundler, single .mjs per service, ESM output |
 | Queue | BullMQ + Redis | Mature Node.js job queue, retries, priorities, dashboards |
-| Embeddings | nomic-embed-text (768d) via Ollama | Local, zero API cost, no fallback (consistency) |
+| LLM Proxy | LiteLLM | Unified OpenAI-compatible API for all LLM providers, with fallback and budget |
+| Embeddings | Configurable (default: nomic-embed-text 768d) via Ollama | Local, zero API cost, no fallback. Evaluating Qwen3-Embedding. Schema: vector(768) |
+| Search | Hybrid (FTS + vector + RRF) + ACT-R temporal decay | Best-of-both retrieval with recency/frequency-weighted ranking |
 | Transcription | faster-whisper (large-v3, CPU int8) | Local, accurate, no API cost |
 | Web UI | Vite + React + Tailwind + shadcn/ui | Lightweight SPA, no SSR needed |
 | Container orchestration | Docker Compose on Unraid | Simple, fits single-server deployment |
@@ -68,13 +73,29 @@ The system runs entirely on an Unraid home server, ingests captures from Slack a
 ### 1.4 Phased Implementation
 
 ```
-Phase 1: Foundation (MVP)
-  F02 Postgres+pgvector → F07 Ollama → F08 AI Router → F03 Pipeline → F01 Core API
-  → F04 Slack Capture → F05 Slack Query → F06 MCP (embedded in Core API)
+Phase 1A: Data Layer
+  F02 Postgres+pgvector → F01 Core API scaffold (CRUD, health, stats)
 
-Phase 2: Voice + Outputs
+Phase 1B: Embedding + Search
+  F07 Ollama (embedding model benchmarking) → Search endpoints (hybrid + temporal)
+
+Phase 1C: Pipeline + LLM Gateway
+  F07a LiteLLM → F08 AI Router → F03 Pipeline (embed + extract_metadata + notify)
+
+Phase 1D: Slack Bot
+  F04 Slack Capture → F05 Slack Query (intent router, thread context)
+
+Phase 1E: MCP + External Access
+  F06 MCP (embedded in Core API) → Cloudflare Tunnel
+
+Phase 2A: Voice Pipeline
   F10 faster-whisper → F09 voice-capture integration
+
+Phase 2B: Notifications + Output Skills
   F12 Weekly Brief → F13 Pushover → F14 Email → F11 Slack Commands
+
+Phase 2C: Semantic Triggers
+  F28 Triggers (check_triggers job + Slack commands)
 
 Phase 3: Intelligence
   F15 Entity Graph → F16 Slack Sessions → F17 Governance Skills
@@ -99,7 +120,8 @@ Phase 4: Polish
 | pgvector | 0.7+ | Vector similarity search | Required |
 | Redis | 7+ | Job queues (BullMQ), thread context cache | Required |
 | Node.js | 22 LTS | Runtime for all TypeScript services | Required |
-| Ollama | latest | Local LLM and embedding inference | Required |
+| LiteLLM | latest | Unified LLM proxy with routing, fallback, budget | Required |
+| Ollama | latest | Local embedding inference (+ local LLMs via LiteLLM) | Required |
 | faster-whisper | latest | Local speech-to-text | Required (Phase 2) |
 | Cloudflare Tunnel | latest | External access for brain.k4jda.net | Required (for MCP/slash commands) |
 | Tailscale | existing | Remote access to Unraid services | Required (existing) |
@@ -108,8 +130,8 @@ Phase 4: Polish
 
 | Service | Purpose | SLA | Fallback Strategy |
 |---------|---------|-----|-------------------|
-| Anthropic API | Synthesis, governance (Claude Sonnet/Opus) | 99.5% | OpenAI GPT-4o fallback |
-| OpenAI API | Fallback for synthesis | 99.5% | Queue and retry |
+| Anthropic API | Synthesis, governance (via LiteLLM) | 99.5% | OpenAI GPT-4o fallback (configured in LiteLLM) |
+| OpenAI API | Fallback for synthesis (via LiteLLM) | 99.5% | Queue and retry |
 | Slack API | Capture and query interface | 99.9% | Captures queue locally; retry on reconnect |
 | Pushover API | iPhone push notifications | 99%+ | Log notification, deliver on recovery |
 | Google Drive / OneDrive / iCloud | Document sync via rclone (Phase 4) | 99.9% | Local cache, retry sync |
@@ -131,11 +153,12 @@ Phase 4: Polish
 
 | Container | Memory Limit | Notes |
 |-----------|-------------|-------|
-| Ollama | 16GB | Hosts nomic-embed-text + llama3.1:8b |
+| Ollama | 16GB | Hosts embedding model + llama3.1:8b (Qwen3-Embedding:8b needs ~10GB if selected) |
 | faster-whisper | 8GB | large-v3 model, CPU int8 |
 | Postgres | 8GB | shared_buffers, work_mem |
+| LiteLLM | 512MB | Lightweight Python proxy |
 | All others | Unconstrained | Lightweight, typically <512MB each |
-| **Estimated total** | **~20-25GB** | Well within 128GB |
+| **Estimated total** | **~20-26GB** | Well within 128GB |
 
 ---
 
@@ -216,6 +239,11 @@ Versioning: URL path prefix /api/v1
 - Voice: reject if `source_metadata.original_filename` already exists
 - MCP/API: reject if content hash matches within 60-second window (SHA-256 of normalized content: trim, collapse whitespace, lowercase; stored as `content_hash` char(64) indexed column)
 
+**Note**: The 60-second dedup window is a startup default. If real-world usage shows false
+positives or false negatives, adjust via config (add `dedup_window_seconds` to pipelines.yaml).
+Cross-source duplicates within the window are caught; outside the window they're intentionally
+kept (captures from different sources may have different context even with identical text).
+
 ---
 
 #### GET /api/v1/captures
@@ -264,7 +292,7 @@ Versioning: URL path prefix /api/v1
 
 #### GET /api/v1/captures/:id
 
-**Description**: Get a single capture with full detail including pipeline log and linked entities.
+**Description**: Get a single capture with full detail including pipeline events and linked entities (via JOIN).
 
 **Response (200 OK)**:
 ```json
@@ -282,16 +310,68 @@ Versioning: URL path prefix /api/v1
     { "entity_id": "ent-123", "entity_type": "person", "relationship": "mentioned", "name": "Tom" }
   ],
   "pipeline_status": "complete",
-  "pipeline_log": [
-    { "stage": "embed", "status": "complete", "model": "nomic-embed-text", "duration_ms": 45, "timestamp": "..." },
-    { "stage": "extract_metadata", "status": "complete", "model": "llama3.1:8b", "duration_ms": 2100, "timestamp": "..." },
-    { "stage": "notify", "status": "complete", "duration_ms": 120, "timestamp": "..." }
+  "pipeline_events": [
+    { "stage": "embed", "status": "complete", "model": "nomic-embed-text", "duration_ms": 45, "created_at": "..." },
+    { "stage": "extract_metadata", "status": "complete", "model": "llama3.1:8b", "duration_ms": 2100, "created_at": "..." },
+    { "stage": "notify", "status": "complete", "duration_ms": 120, "created_at": "..." }
   ],
   "captured_at": "2026-03-04T14:30:00Z",
   "created_at": "2026-03-04T14:30:01Z",
   "updated_at": "2026-03-04T14:30:04Z"
 }
 ```
+
+---
+
+#### PATCH /api/v1/captures/:id
+
+**Description**: Update capture classification metadata. Does NOT re-trigger embedding or pipeline processing.
+
+**Request Body** (partial update — only included fields are changed):
+```json
+{
+  "tags": ["career", "qsr"],
+  "brain_views": ["career", "client"],
+  "metadata_overrides": {
+    "type": "decision",
+    "priority": "high"
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| tags | string[] | Replace tags entirely |
+| brain_views | string[] | Replace brain_views entirely |
+| metadata_overrides | object | Merged into existing metadata (does not replace) |
+
+**Response (200 OK)**:
+```json
+{
+  "id": "550e8400-...",
+  "tags": ["career", "qsr"],
+  "brain_views": ["career", "client"],
+  "metadata": { "type": "decision", "priority": "high", "people": ["Tom"] },
+  "updated_at": "2026-03-05T10:00:00Z"
+}
+```
+
+**Note**: `metadata_overrides` are shallow-merged with pipeline-extracted metadata. Pipeline values are preserved unless explicitly overridden. Slack reactions (e.g., `:career:` emoji) can trigger brain_view additions via the Slack bot.
+
+---
+
+#### DELETE /api/v1/captures/:id
+
+**Description**: Soft-delete a capture. Sets `deleted_at` timestamp. Capture excluded from search and list results but retained in database for recovery.
+
+**Response (204 No Content)**
+
+**Error Responses**:
+| Status | Code | Description |
+|--------|------|-------------|
+| 404 | NOT_FOUND | Capture not found |
+
+**Recovery**: Direct SQL `UPDATE captures SET deleted_at = NULL WHERE id = '...'`. No undelete API endpoint — this is an escape hatch, not a feature.
 
 ---
 
@@ -305,6 +385,8 @@ Versioning: URL path prefix /api/v1
   "query": "QSR pricing decisions",
   "limit": 10,
   "threshold": 0.5,
+  "search_mode": "hybrid",
+  "temporal_weight": 0.0,
   "filters": {
     "source": "slack",
     "tags": ["career"],
@@ -320,6 +402,9 @@ Versioning: URL path prefix /api/v1
 | query | string | Yes | — | Natural language search query |
 | limit | integer | No | 10 | Max results (1-50) |
 | threshold | float | No | 0.5 | Minimum cosine similarity (0-1) |
+| offset | integer | No | 0 | Pagination offset |
+| search_mode | string | No | "hybrid" | One of: "hybrid" (RRF), "vector" (pure pgvector), "fts" (pure text) |
+| temporal_weight | float | No | 0.0 | Weight for temporal vs semantic scoring (0.0 = pure semantic, 1.0 = pure temporal). Cold start default; ramp up per PRD Section 9.1. |
 | filters.source | string | No | — | Filter by source |
 | filters.tags | string[] | No | — | Filter by any matching tag |
 | filters.brain_views | string[] | No | — | Filter by any matching brain view |
@@ -327,9 +412,12 @@ Versioning: URL path prefix /api/v1
 | filters.before | string | No | — | Captures before this date |
 
 **Implementation**:
-1. Generate embedding for `query` via Ollama (nomic-embed-text)
-2. Call `match_captures` Postgres function with embedding + filters
-3. Return ranked results
+1. Generate embedding for `query` via Ollama (configured embedding model)
+2. If search_mode = "hybrid": call `match_captures_hybrid()` with query embedding + raw query text
+   If search_mode = "vector": call `match_captures()` with query embedding only
+   If search_mode = "fts": execute FTS-only query with temporal scoring
+3. Enqueue `update_access_stats` job for returned capture IDs (async, non-blocking)
+4. Return ranked results
 
 **Response (200 OK)**:
 ```json
@@ -342,20 +430,23 @@ Versioning: URL path prefix /api/v1
       "source": "slack",
       "tags": ["career"],
       "similarity": 0.94,
-      "captured_at": "2026-03-04T14:30:00Z",
-      "linked_entities": [...]
+      "temporal_score": 0.72,
+      "composite_score": 0.87,
+      "captured_at": "2026-03-04T14:30:00Z"
     }
   ],
   "meta": {
     "query": "QSR pricing decisions",
+    "search_mode": "hybrid",
     "embedding_ms": 42,
     "search_ms": 85,
-    "total_results": 3
+    "total_results": 3,
+    "offset": 0
   }
 }
 ```
 
-**Performance**: Target <5 seconds total (embedding generation + vector search).
+**Performance**: Target <5 seconds total (embedding generation + hybrid search + temporal scoring).
 
 ---
 
@@ -383,10 +474,10 @@ Versioning: URL path prefix /api/v1
 | filters | object | No | — | Same filter object as search |
 
 **Implementation**:
-1. Semantic search for top `max_captures` results
-2. Assemble context: sort by similarity, include captures until `token_budget` reached (token estimate: `chars / 4` with 10% safety margin — no tokenizer dependency)
-3. If context exceeds budget, truncate from bottom (lowest similarity)
-4. Send context + query to AI router (default: Claude Sonnet)
+1. Hybrid search for top `max_captures` results using `match_captures_hybrid()` (default)
+2. Assemble context: sort by composite_score, include captures until `token_budget` reached (token estimate: `chars / 4` with 10% safety margin — no tokenizer dependency)
+3. If context exceeds budget, truncate from bottom (lowest composite_score)
+4. Send context + query to LiteLLM (model alias: `synthesis` → Claude Sonnet, fallback: GPT-4o)
 5. Return synthesized response
 
 **Response (200 OK)**:
@@ -594,6 +685,7 @@ If the answer triggers anti-vagueness enforcement:
       "timestamp": "2026-03-01T10:01:15Z"
     }
   ],
+  "_note": "transcript sourced from session_messages table JOIN, same shape in API response",
   "slack_thread_ts": "1709290800.000100",
   "slack_channel_id": "D01ABC123"
 }
@@ -703,6 +795,89 @@ If the answer triggers anti-vagueness enforcement:
 
 ---
 
+#### POST /api/v1/triggers (Phase 2)
+
+**Description**: Create a new semantic trigger.
+
+**Request Body**:
+```json
+{
+  "name": "QSR timeline",
+  "query_text": "QSR timeline slipping or delay",
+  "threshold": 0.72,
+  "delivery_channel": "pushover",
+  "cooldown_minutes": 60
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| name | string | Yes | — | User-readable trigger label |
+| query_text | string | Yes | — | Natural language pattern to match |
+| threshold | float | No | 0.72 | Minimum similarity to fire |
+| delivery_channel | string | No | "pushover" | One of: pushover, slack, both |
+| cooldown_minutes | integer | No | 60 | Minimum time between fires |
+
+**Response (201 Created)**:
+```json
+{
+  "id": "trig-789",
+  "name": "QSR timeline",
+  "query_text": "QSR timeline slipping or delay",
+  "threshold": 0.72,
+  "is_active": true,
+  "delivery_channel": "pushover"
+}
+```
+
+**Implementation**: Generate embedding for `query_text` via Ollama at creation time. Store trigger with pre-computed embedding.
+
+---
+
+#### GET /api/v1/triggers (Phase 2)
+
+**Description**: List all triggers.
+
+**Response (200 OK)**:
+```json
+{
+  "triggers": [
+    {
+      "id": "trig-789",
+      "name": "QSR timeline",
+      "threshold": 0.72,
+      "is_active": true,
+      "fire_count": 3,
+      "last_fired_at": "2026-03-04T..."
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
+#### DELETE /api/v1/triggers/:id (Phase 2)
+
+**Description**: Deactivate a trigger.
+
+**Response (204 No Content)**
+
+---
+
+#### PATCH /api/v1/triggers/:id (Phase 2)
+
+**Description**: Update trigger settings.
+
+**Request Body** (partial):
+```json
+{ "is_active": false, "threshold": 0.8, "cooldown_minutes": 120 }
+```
+
+**Response (200 OK)**: Updated trigger object.
+
+---
+
 #### GET /health
 
 **Description**: Health check endpoint. Returns status of all dependent services.
@@ -714,7 +889,8 @@ If the answer triggers anti-vagueness enforcement:
   "services": {
     "postgres": { "status": "up", "latency_ms": 2 },
     "redis": { "status": "up", "latency_ms": 1 },
-    "ollama": { "status": "up", "latency_ms": 15, "models_loaded": ["nomic-embed-text", "llama3.1:8b"] }
+    "ollama": { "status": "up", "latency_ms": 15, "models_loaded": ["nomic-embed-text", "llama3.1:8b"] },
+    "litellm": { "status": "up", "latency_ms": 5, "models_available": ["fast", "synthesis", "governance"] }
   },
   "uptime_seconds": 86400,
   "version": "0.1.0"
@@ -728,7 +904,7 @@ If the answer triggers anti-vagueness enforcement:
 | VALIDATION_ERROR | 400 | Invalid request payload | Check required fields and types |
 | DUPLICATE_CAPTURE | 409 | Capture already exists (dedup) | Ignore — capture was already ingested |
 | NOT_FOUND | 404 | Resource not found | Verify ID exists |
-| PIPELINE_FAILED | 500 | Pipeline processing error | Check pipeline_log, retry via API |
+| PIPELINE_FAILED | 500 | Pipeline processing error | Check pipeline_events, retry via API |
 | SERVICE_UNAVAILABLE | 503 | Downstream service unreachable | Check health endpoint, wait for recovery |
 | AI_BUDGET_EXCEEDED | 429 | Monthly AI budget hard limit reached | Wait for budget reset or adjust limits |
 | OLLAMA_UNAVAILABLE | 503 | Ollama not responding | Check container, embeddings will queue |
@@ -745,31 +921,36 @@ If the answer triggers anti-vagueness enforcement:
 │   captures   │────<│ entity_links │>────│   entities   │
 │              │     └──────────────┘     │              │
 │ id (PK)      │                          │ id (PK)      │
-│ content      │                          │ entity_type  │
-│ embedding    │     ┌──────────────┐     │ name         │
-│ metadata     │     │   sessions   │     │ aliases      │
-│ source       │     │              │     └──────────────┘
-│ tags[]       │     │ id (PK)      │
-│ brain_views[]│     │ session_type │     ┌──────────────┐
-│ pipeline_*   │     │ state        │     │    bets      │
-│ captured_at  │     │ transcript   │     │              │
-└──────────────┘     │ result       │────<│ id (PK)      │
-                     └──────────────┘     │ session_id   │
-┌──────────────┐                          │ commitment   │
-│  skills_log  │                          │ criteria     │
-│              │                          │ due_date     │
-│ id (PK)      │                          └──────────────┘
-│ skill_name   │
-│ status       │     ┌──────────────┐
-│ result       │     │  ai_usage    │
-│ token_usage  │     │              │
-└──────────────┘     │ id (PK)      │
-                     │ provider     │
-                     │ model        │
-                     │ tokens_in    │
-                     │ tokens_out   │
-                     │ cost         │
-                     └──────────────┘
+│ content      │     ┌──────────────┐     │ entity_type  │
+│ embedding    │────<│pipeline_events│    │ name         │
+│ metadata     │     │              │     │ aliases      │
+│ source       │     │ id (PK)      │     └──────────────┘
+│ tags[]       │     │ capture_id   │
+│ brain_views[]│     │ stage        │     ┌──────────────┐
+│ access_count │     │ status       │     │   sessions   │
+│ last_accessed│     │ model        │     │              │
+│ pipeline_*   │     │ duration_ms  │     │ id (PK)      │
+│ captured_at  │     └──────────────┘     │ session_type │
+└──────────────┘                          │ state        │
+                     ┌──────────────┐     │ result       │────<┌──────────────┐
+┌──────────────┐     │session_       │     └──────────────┘     │    bets      │
+│  skills_log  │     │ messages     │                          │              │
+│              │     │              │     ┌──────────────┐     │ id (PK)      │
+│ id (PK)      │     │ id (PK)      │     │   triggers   │     │ session_id   │
+│ skill_name   │     │ session_id   │     │   (Phase 2)  │     │ commitment   │
+│ status       │     │ role         │     │              │     │ criteria     │
+│ result       │     │ board_role   │     │ id (PK)      │     │ due_date     │
+│ token_usage  │     │ content      │     │ name         │     └──────────────┘
+└──────────────┘     └──────────────┘     │ query_text   │
+                                          │ query_embed  │     ┌──────────────┐
+                                          │ threshold    │     │ai_audit_log  │
+                                          │ is_active    │     │              │
+                                          │ fire_count   │     │ id (PK)      │
+                                          │ cooldown_min │     │ provider     │
+                                          └──────────────┘     │ model        │
+                                                               │ tokens_in    │
+                                                               │ tokens_out   │
+                                                               └──────────────┘
 ```
 
 ### 4.2 Drizzle Schema Definitions
@@ -787,7 +968,11 @@ export const captures = pgTable('captures', {
   content: text('content').notNull(),
   contentRaw: text('content_raw'),
   contentHash: char('content_hash', { length: 64 }), // SHA-256 of normalized content (trim, collapse whitespace, lowercase) for dedup
-  embedding: vector('embedding', { dimensions: 768 }), // pgvector — use customType shim if Drizzle lacks native support
+  embedding: vector('embedding', { dimensions: 768 }), // 768d — compatible with nomic-embed-text (native) or qwen3-embedding (Matryoshka truncated)
+
+  // Temporal tracking (ACT-R cognitive model for search relevance)
+  accessCount: integer('access_count').default(0),
+  lastAccessedAt: timestamp('last_accessed_at', { withTimezone: true }),
 
   // Classification
   metadata: jsonb('metadata').default({}).$type<CaptureMetadata>(),
@@ -799,13 +984,11 @@ export const captures = pgTable('captures', {
   tags: text('tags').array().default([]),
   brainViews: text('brain_views').array().default([]),
 
-  // Entity links (denormalized for read performance; canonical in entity_links table)
-  linkedEntities: jsonb('linked_entities').default([]).$type<LinkedEntity[]>(),
+  // Entity links via entity_links table JOIN (no denormalization needed at <100K rows)
 
   // Processing audit trail
   pipelineStatus: text('pipeline_status').default('received'),
     // received | processing | complete | failed | partial
-  pipelineLog: jsonb('pipeline_log').default([]).$type<PipelineLogEntry[]>(),
 
   // Timestamps
   capturedAt: timestamp('captured_at', { withTimezone: true }).defaultNow(),
@@ -819,11 +1002,32 @@ export const captures = pgTable('captures', {
   index('idx_captures_metadata').using('gin', table.metadata),
   index('idx_captures_tags').using('gin', table.tags),
   index('idx_captures_brain_views').using('gin', table.brainViews),
+  // FTS index for hybrid retrieval (RRF) — requires custom SQL migration
+  // index('idx_captures_fts').using('gin', sql`to_tsvector('english', content)`),
   index('idx_captures_created_at').on(table.createdAt),
   index('idx_captures_captured_at').on(table.capturedAt),
   index('idx_captures_source').on(table.source),
   index('idx_captures_pipeline_status').on(table.pipelineStatus),
   index('idx_captures_content_hash').on(table.contentHash), // Dedup lookups: matching hash within 60-second window
+]);
+```
+
+```typescript
+// src/shared/schema/pipeline-events.ts
+// Append-only processing audit trail — replaces former JSONB pipeline_log column.
+// Avoids JSONB rewrite on each stage completion; enables efficient per-stage queries.
+export const pipelineEvents = pgTable('pipeline_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  captureId: uuid('capture_id').notNull().references(() => captures.id, { onDelete: 'cascade' }),
+  stage: text('stage').notNull(),
+  status: text('status').notNull(), // complete | failed | skipped
+  model: text('model'),
+  durationMs: integer('duration_ms'),
+  error: text('error'),
+  retryCount: integer('retry_count').default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index('idx_pipeline_events_capture').on(table.captureId),
 ]);
 ```
 
@@ -840,12 +1044,14 @@ export const entities = pgTable('entities', {
   mentionCount: integer('mention_count').default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('idx_entities_name_type').on(table.name, table.entityType),
+]);
 
 export const entityLinks = pgTable('entity_links', {
   id: uuid('id').defaultRandom().primaryKey(),
-  captureId: uuid('capture_id').references(() => captures.id),
-  entityId: uuid('entity_id').references(() => entities.id),
+  captureId: uuid('capture_id').references(() => captures.id, { onDelete: 'cascade' }),
+  entityId: uuid('entity_id').references(() => entities.id, { onDelete: 'cascade' }),
   relationship: text('relationship'), // mentioned | decided | blocked_by | etc.
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
@@ -861,7 +1067,7 @@ export const sessions = pgTable('sessions', {
   sessionType: text('session_type').notNull(), // quick_check | quarterly | custom
   status: text('status').default('active'), // active | completed | abandoned | paused
   state: jsonb('state').notNull().$type<SessionState>(),
-  transcript: jsonb('transcript').default([]).$type<TranscriptEntry[]>(),
+  // Transcript stored in session_messages table (append-only, avoids JSONB rewrite)
   config: jsonb('config').default({}).$type<SessionConfig>(),
   result: jsonb('result').$type<SessionResult>(),
   pausedAt: timestamp('paused_at', { withTimezone: true }),
@@ -869,6 +1075,21 @@ export const sessions = pgTable('sessions', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });
+```
+
+```typescript
+// src/shared/schema/session-messages.ts
+// Append-only transcript storage — replaces former JSONB transcript column on sessions.
+export const sessionMessages = pgTable('session_messages', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sessionId: uuid('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(), // system | bot | user
+  boardRole: text('board_role'), // strategist | operator | contrarian | coach | analyst
+  content: text('content').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index('idx_session_messages_session').on(table.sessionId),
+]);
 ```
 
 ```typescript
@@ -906,28 +1127,55 @@ export const skillsLog = pgTable('skills_log', {
 ```
 
 ```typescript
-// src/shared/schema/ai-usage.ts
-export const aiUsage = pgTable('ai_usage', {
+// src/shared/schema/ai-audit-log.ts
+// ai_audit_log tracks application-level audit data: which task triggered which model,
+// how long it took, and whether it succeeded. This is an operational audit trail.
+// Cost/spend tracking is EXCLUSIVELY via LiteLLM's /spend/logs endpoint.
+// Do NOT add cost fields here — LiteLLM is the single source of truth for budget.
+export const aiAuditLog = pgTable('ai_audit_log', {
   id: uuid('id').defaultRandom().primaryKey(),
   provider: text('provider').notNull(), // ollama | anthropic | openai | openrouter
   model: text('model').notNull(),
   taskType: text('task_type').notNull(), // embedding | metadata_extraction | synthesis | governance | intent
   tokensIn: integer('tokens_in').default(0),
   tokensOut: integer('tokens_out').default(0),
-  costEstimate: real('cost_estimate').default(0),
   latencyMs: integer('latency_ms'),
   success: boolean('success').default(true),
   error: text('error'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
-  index('idx_ai_usage_created').on(table.createdAt),
-  index('idx_ai_usage_provider').on(table.provider),
+  index('idx_ai_audit_log_created').on(table.createdAt),
+  index('idx_ai_audit_log_provider').on(table.provider),
 ]);
 ```
 
-### 4.3 Semantic Search Function
+```typescript
+// src/shared/schema/triggers.ts (Phase 2)
+export const triggers = pgTable('triggers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),                    // User-readable label: "QSR timeline"
+  queryText: text('query_text').notNull(),          // Natural language pattern
+  queryEmbedding: vector('query_embedding', { dimensions: 768 }), // Pre-computed at creation
+  threshold: real('threshold').default(0.72),        // Minimum similarity to fire
+  deliveryChannel: text('delivery_channel').notNull().default('pushover'), // pushover | slack | both
+  isActive: boolean('is_active').default(true),
+  lastFiredAt: timestamp('last_fired_at', { withTimezone: true }),
+  fireCount: integer('fire_count').default(0),
+  cooldownMinutes: integer('cooldown_minutes').default(60),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index('idx_triggers_active').on(table.isActive),
+  uniqueIndex('idx_triggers_name').on(table.name),
+  // No HNSW index on trigger embeddings — max 20 triggers, brute-force cosine is fine
+]);
+```
 
-Deployed as a raw SQL migration via Drizzle custom migration:
+### 4.3 Semantic Search Functions
+
+Deployed as raw SQL migrations via Drizzle custom migration.
+
+#### Vector-only search with temporal scoring
 
 ```sql
 -- Custom migration: 0001_match_captures_function.sql
@@ -935,6 +1183,84 @@ create or replace function match_captures(
   query_embedding vector(768),
   match_threshold float default 0.5,
   match_count int default 10,
+  filter_source text default null,
+  filter_tags text[] default null,
+  filter_brain_views text[] default null,
+  filter_after timestamptz default null,
+  filter_before timestamptz default null,
+  temporal_weight float default 0.0  -- 0.0 = pure semantic, 1.0 = pure temporal. Start at 0.0; increase after search history builds.
+)
+returns table (
+  id uuid,
+  content text,
+  metadata jsonb,
+  source text,
+  tags text[],
+  similarity float,
+  temporal_score float,
+  composite_score float,
+  captured_at timestamptz
+)
+language plpgsql as $$
+begin
+  return query
+  with base as (
+    select
+      c.id, c.content, c.metadata, c.source, c.tags, c.captured_at,
+      1 - (c.embedding <=> query_embedding) as semantic_sim,
+      -- ACT-R temporal activation: ln(access_count) - 0.5 * ln(hours_since_last_access)
+      -- Normalized to [0,1] range
+      case
+        when c.last_accessed_at is null then 0.0
+        else greatest(0.0, least(1.0,
+          (ln(greatest(c.access_count, 1))
+           - 0.5 * ln(greatest(extract(epoch from (now() - c.last_accessed_at)) / 3600.0, 1.0))
+          ) / 5.0 + 0.5
+        ))
+      end as temporal_act
+    from captures c
+    where c.deleted_at is null
+      and c.pipeline_status = 'complete'
+      and 1 - (c.embedding <=> query_embedding) > match_threshold
+      and (filter_source is null or c.source = filter_source)
+      and (filter_tags is null or c.tags && filter_tags)
+      and (filter_brain_views is null or c.brain_views && filter_brain_views)
+      and (filter_after is null or c.captured_at >= filter_after)
+      and (filter_before is null or c.captured_at <= filter_before)
+  )
+  select
+    b.id, b.content, b.metadata, b.source, b.tags,
+    b.semantic_sim as similarity,
+    b.temporal_act as temporal_score,
+    b.semantic_sim * (1.0 + temporal_weight * b.temporal_act) as composite_score,
+    b.captured_at
+  from base b
+  order by b.semantic_sim * (1.0 + temporal_weight * b.temporal_act) desc
+  limit match_count;
+end;
+$$;
+```
+
+#### Full-text search index
+
+```sql
+-- Custom migration: 0003_fts_index.sql
+CREATE INDEX idx_captures_fts ON captures USING gin(to_tsvector('english', content));
+```
+
+#### Hybrid search with Reciprocal Rank Fusion (RRF)
+
+The primary search function. Runs vector similarity and full-text search in parallel within a single SQL CTE chain, fuses results via RRF, then applies temporal scoring.
+
+```sql
+-- Custom migration: 0004_match_captures_hybrid.sql
+create or replace function match_captures_hybrid(
+  query_embedding vector(768),
+  query_text text,
+  match_threshold float default 0.3,
+  match_count int default 20,
+  rrf_k int default 60,
+  temporal_weight float default 0.0,  -- Start at 0.0; increase after search history builds
   filter_source text default null,
   filter_tags text[] default null,
   filter_brain_views text[] default null,
@@ -948,26 +1274,86 @@ returns table (
   source text,
   tags text[],
   similarity float,
-  captured_at timestamptz,
-  linked_entities jsonb
+  temporal_score float,
+  rrf_score float,
+  composite_score float,
+  captured_at timestamptz
 )
 language plpgsql as $$
 begin
   return query
+  with
+  -- Arm 1: Vector similarity search (top 100 candidates)
+  vector_ranked as (
+    select
+      c.id,
+      row_number() over (order by c.embedding <=> query_embedding) as rank,
+      1 - (c.embedding <=> query_embedding) as semantic_sim
+    from captures c
+    where c.deleted_at is null
+      and c.pipeline_status = 'complete'
+      and 1 - (c.embedding <=> query_embedding) > match_threshold
+      and (filter_source is null or c.source = filter_source)
+      and (filter_tags is null or c.tags && filter_tags)
+      and (filter_brain_views is null or c.brain_views && filter_brain_views)
+      and (filter_after is null or c.captured_at >= filter_after)
+      and (filter_before is null or c.captured_at <= filter_before)
+    order by c.embedding <=> query_embedding
+    limit 100
+  ),
+  -- Arm 2: Full-text search (top 100 candidates)
+  fts_ranked as (
+    select
+      c.id,
+      row_number() over (
+        order by ts_rank_cd(to_tsvector('english', c.content), plainto_tsquery('english', query_text)) desc
+      ) as rank
+    from captures c
+    where c.deleted_at is null
+      and c.pipeline_status = 'complete'
+      and to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      and (filter_source is null or c.source = filter_source)
+      and (filter_tags is null or c.tags && filter_tags)
+      and (filter_brain_views is null or c.brain_views && filter_brain_views)
+      and (filter_after is null or c.captured_at >= filter_after)
+      and (filter_before is null or c.captured_at <= filter_before)
+    limit 100
+  ),
+  -- RRF fusion: combine ranked lists
+  fused as (
+    select
+      coalesce(v.id, f.id) as id,
+      coalesce(v.semantic_sim, 0.0) as semantic_sim,
+      coalesce(1.0 / (rrf_k + v.rank), 0.0) + coalesce(1.0 / (rrf_k + f.rank), 0.0) as rrf_score
+    from vector_ranked v
+    full outer join fts_ranked f on v.id = f.id
+  ),
+  -- Join with full capture data and apply temporal scoring
+  scored as (
+    select
+      c.id, c.content, c.metadata, c.source, c.tags, c.captured_at,
+      f.semantic_sim,
+      f.rrf_score,
+      case
+        when c.last_accessed_at is null then 0.0
+        else greatest(0.0, least(1.0,
+          (ln(greatest(c.access_count, 1))
+           - 0.5 * ln(greatest(extract(epoch from (now() - c.last_accessed_at)) / 3600.0, 1.0))
+          ) / 5.0 + 0.5
+        ))
+      end as temporal_act
+    from fused f
+    join captures c on c.id = f.id
+  )
   select
-    c.id, c.content, c.metadata, c.source, c.tags,
-    1 - (c.embedding <=> query_embedding) as similarity,
-    c.captured_at, c.linked_entities
-  from captures c
-  where c.deleted_at is null
-    and c.pipeline_status = 'complete'
-    and 1 - (c.embedding <=> query_embedding) > match_threshold
-    and (filter_source is null or c.source = filter_source)
-    and (filter_tags is null or c.tags && filter_tags)
-    and (filter_brain_views is null or c.brain_views && filter_brain_views)
-    and (filter_after is null or c.captured_at >= filter_after)
-    and (filter_before is null or c.captured_at <= filter_before)
-  order by c.embedding <=> query_embedding
+    s.id, s.content, s.metadata, s.source, s.tags,
+    s.semantic_sim as similarity,
+    s.temporal_act as temporal_score,
+    s.rrf_score,
+    s.rrf_score * (1.0 + temporal_weight * s.temporal_act) as composite_score,
+    s.captured_at
+  from scored s
+  order by s.rrf_score * (1.0 + temporal_weight * s.temporal_act) desc
   limit match_count;
 end;
 $$;
@@ -985,9 +1371,10 @@ $$;
 | captures | idx_captures_captured_at | captured_at DESC | B-tree | Time-based queries use captured_at |
 | captures | idx_captures_source | source | B-tree | Filter by source |
 | captures | idx_captures_pipeline_status | pipeline_status | B-tree | Find pending/failed captures |
+| captures | idx_captures_fts | `to_tsvector('english', content)` | GIN | Full-text search arm of hybrid retrieval (RRF) |
 | entity_links | idx_entity_links_capture | capture_id | B-tree | Join from captures |
 | entity_links | idx_entity_links_entity | entity_id | B-tree | Join from entities |
-| ai_usage | idx_ai_usage_created | created_at | B-tree | Budget calculation queries |
+| ai_audit_log | idx_ai_audit_log_created | created_at | B-tree | Audit trail queries |
 
 ### 4.5 Migration Strategy
 
@@ -1008,7 +1395,9 @@ Migrations stored in `drizzle/` directory, version-controlled, applied automatic
 
 **Custom Migrations**:
 
-1. **`match_captures` function** — Semantic search (see Section 4.3)
+1. **`match_captures` function** — Vector search with temporal scoring (see Section 4.3)
+1a. **`fts_index`** — Full-text search GIN index for hybrid retrieval
+1b. **`match_captures_hybrid` function** — Hybrid search with RRF (see Section 4.3)
 2. **`set_updated_at` trigger** — Automatic `updated_at` maintenance on all tables:
 
 ```sql
@@ -1042,6 +1431,32 @@ const vector = customType<{ data: number[]; config: { dimensions: number } }>({
 
 Similarity queries use `sql` template literals for cosine distance (`<=>`) — pgvector operators are too specialized for the Drizzle query builder.
 
+**Embedding Model Re-embedding Migration**:
+
+Switching embedding models (e.g., from nomic-embed-text to Qwen3-Embedding) requires re-embedding all captures. Run as a one-time BullMQ job:
+
+```typescript
+// Migration job: re-embed all captures with new model
+// 1. Query all captures with existing embeddings
+// 2. For each capture: generate new embedding via Ollama (new model)
+// 3. Batch update in groups of 50
+// Estimated time on CPU:
+//   nomic-embed-text (137M): ~1 capture/sec → 10K captures ≈ 3 hours
+//   qwen3-embedding:0.6b: ~2 captures/sec → 10K captures ≈ 1.5 hours
+//   qwen3-embedding:4b: ~0.2 captures/sec → 10K captures ≈ 14 hours
+//   qwen3-embedding:8b: ~0.1 captures/sec → 10K captures ≈ 28 hours
+// Consider running overnight for large re-embedding migrations with 8b model.
+// If Qwen3-Embedding supports instruction prefixes, use document prefix for stored captures
+// and query prefix at search time (asymmetric embedding).
+//
+// **CPU Performance Caveat**: The timing estimates above are theoretical. On the i7-9700 (no AVX-512),
+// actual throughput may be 2-3x slower than advertised. Phase 1B MUST include a benchmark step:
+//   1. Measure actual embeddings/second for each candidate model on this hardware
+//   2. Test with warm model (already loaded) and cold model (first request after pull)
+//   3. Record results and update these estimates with measured values
+//   4. Factor into re-embedding migration planning (run overnight for 8b models)
+```
+
 ---
 
 ## 5. Data Models and Types
@@ -1062,14 +1477,17 @@ interface CaptureMetadata {
   action_items?: string[];
   dates?: string[];
   sentiment?: 'positive' | 'neutral' | 'negative';
-  brain_views_suggested?: BrainView[]; // LLM-classified in extract_metadata prompt
+  brain_views_suggested?: BrainView[]; // LLM-classified in extract_metadata prompt. Validated against brain-views.yaml config.
 }
 
 type CaptureType =
   | 'decision' | 'idea' | 'observation' | 'task'
   | 'win' | 'blocker' | 'question' | 'reflection';
 
-type BrainView = 'career' | 'personal' | 'technical' | 'work-internal' | 'client';
+/** Brain views are config-driven (brain-views.yaml), not hardcoded.
+ *  Validated at runtime by CaptureService against loaded config.
+ *  Default views: career, personal, technical, work-internal, client. */
+type BrainView = string;
 
 type CaptureSource = 'slack' | 'voice' | 'web' | 'api' | 'email' | 'document';
 
@@ -1105,7 +1523,7 @@ interface PipelineLogEntry {
   retry_count?: number;
 }
 
-/** Linked entity reference (denormalized on capture) */
+/** Linked entity reference (populated from entity_links JOIN, not a captures column) */
 interface LinkedEntity {
   entity_id: string;
   entity_type: string;
@@ -1129,6 +1547,7 @@ interface SessionState {
   idle_timeout_minutes: number; // 30 min → auto-pause
 }
 
+/** Maps to session_messages rows. Returned from GET sessions/:id via JOIN. */
 interface TranscriptEntry {
   role: 'system' | 'bot' | 'user';
   board_role?: 'strategist' | 'operator' | 'contrarian' | 'coach' | 'analyst';
@@ -1151,7 +1570,7 @@ interface SessionResult {
 interface TokenUsage {
   input_tokens: number;
   output_tokens: number;
-  cost_estimate: number;
+  // Cost data from LiteLLM /spend/logs, not stored in application DB.
 }
 
 type AITaskType =
@@ -1163,6 +1582,33 @@ type AITaskType =
   | 'career_signals'
   | 'weekly_brief'
   | 'drift_detection';
+```
+
+```typescript
+// src/shared/types/search.ts
+
+interface SearchOptions {
+  query: string;
+  limit?: number;                  // default: 10
+  threshold?: number;              // default: 0.5
+  searchMode?: 'hybrid' | 'vector' | 'fts';  // default: 'hybrid'
+  temporalWeight?: number;         // 0.0–1.0, default: 0.0 (cold start; ramp up per PRD Section 9.1)
+  filters?: SearchFilters;
+}
+
+interface SearchResult {
+  id: string;
+  content: string;
+  metadata: CaptureMetadata;
+  source: string;
+  tags: string[];
+  similarity: number;              // Cosine similarity score
+  temporalScore: number;           // ACT-R temporal activation score
+  compositeScore: number;          // Final ranking score (semantic + temporal, or RRF + temporal)
+  rrfScore?: number;               // Present when search_mode = 'hybrid'
+  capturedAt: string;
+  linkedEntities: LinkedEntity[]; // Populated from entity_links JOIN on detail endpoint; omitted from search/list results
+}
 ```
 
 ### 5.2 Validation Rules
@@ -1179,7 +1625,7 @@ export const createCaptureSchema = z.object({
   source_metadata: z.record(z.unknown()).optional().default({}),
   pre_extracted: z.record(z.unknown()).optional().default({}),
   tags: z.array(z.string().max(100)).optional().default([]),
-  brain_views: z.array(z.enum(['career', 'personal', 'technical', 'work-internal', 'client']))
+  brain_views: z.array(z.string().max(50))  // Validated against brain-views.yaml config at service layer, not hardcoded
     .optional().default([]),
   captured_at: z.string().datetime().optional(),
 });
@@ -1188,6 +1634,8 @@ export const searchSchema = z.object({
   query: z.string().min(1).max(2000),
   limit: z.number().int().min(1).max(50).optional().default(10),
   threshold: z.number().min(0).max(1).optional().default(0.5),
+  search_mode: z.enum(['hybrid', 'vector', 'fts']).optional().default('hybrid'),
+  temporal_weight: z.number().min(0).max(1).optional().default(0.0), // Cold start: 0.0. Ramp up per cold start schedule (PRD Section 9.1).
   filters: z.object({
     source: z.enum(['slack', 'voice', 'web', 'api', 'email', 'document']).optional(),
     tags: z.array(z.string()).optional(),
@@ -1280,19 +1728,24 @@ class CaptureService {
 /**
  * SearchService
  *
- * Handles semantic search via pgvector.
+ * Handles hybrid search (FTS + vector with RRF) and temporal scoring.
  */
 class SearchService {
   constructor(
     private db: DrizzleClient,
     private embeddingService: EmbeddingService,
+    private queue: Queue, // for update_access_stats jobs
   ) {}
 
-  /** Semantic search: embed query → pgvector similarity → ranked results */
-  async search(input: SearchInput): Promise<SearchResult[]>
-    // 1. Generate embedding for query via EmbeddingService
-    // 2. Call match_captures Postgres function
-    // 3. Return ranked results with similarity scores
+  /** Hybrid search: embed query → match_captures_hybrid (RRF + temporal) → ranked results */
+  async search(input: SearchOptions): Promise<SearchResult[]>
+    // 1. Generate embedding for query via EmbeddingService (type: 'query')
+    // 2. Based on search_mode:
+    //    hybrid → call match_captures_hybrid() with embedding + raw text
+    //    vector → call match_captures() with embedding only
+    //    fts    → FTS-only query with temporal scoring
+    // 3. Enqueue update_access_stats job for returned capture IDs (async, non-blocking)
+    // 4. Return ranked results with similarity, temporal_score, composite_score
 }
 ```
 
@@ -1301,19 +1754,30 @@ class SearchService {
  * EmbeddingService
  *
  * Generates embeddings via Ollama. No fallback — queue and retry.
+ * Model is configurable via ai-routing.yaml (default: nomic-embed-text).
+ * Supports instruction prefixes for models that use asymmetric embedding (e.g., Qwen3-Embedding).
  */
 class EmbeddingService {
   constructor(
     private ollamaClient: OllamaClient,
+    private configService: ConfigService,
   ) {}
 
-  /** Generate 768-dim embedding for text */
-  async embed(text: string): Promise<number[]>
-    // POST to Ollama /api/embeddings with model: nomic-embed-text
-    // Throws OllamaUnavailableError if Ollama is down (caller retries)
+  /** Generate 768-dim embedding for text.
+   *  Applies appropriate prefix if model supports instruction-following
+   *  (e.g., Qwen3-Embedding: "Instruct: ..." prefix for queries vs documents). */
+  async embed(text: string, type: 'document' | 'query' = 'document'): Promise<number[]>
+    // 1. Read model config from ai-routing.yaml (embedding.model, embedding.dimensions)
+    // 2. If model supports instruction prefixes, prepend appropriate prefix
+    // 3. POST to Ollama /api/embeddings with configured model
+    // 4. If model produces >768 dimensions (Matryoshka), truncate to 768
+    // 5. Throws OllamaUnavailableError if Ollama is down (caller retries)
 
   /** Batch embed multiple texts */
-  async embedBatch(texts: string[]): Promise<number[][]>
+  async embedBatch(texts: string[], type: 'document' | 'query' = 'document'): Promise<number[][]>
+
+  /** Get current embedding model info */
+  async getModelInfo(): Promise<{ model: string; dimensions: number; maxContext: number; supportsInstructions: boolean }>
 }
 ```
 
@@ -1321,30 +1785,28 @@ class EmbeddingService {
 /**
  * AIRouterService
  *
- * Routes AI requests to the appropriate provider based on task type.
- * Implements fallback, budget tracking, and circuit breaking.
+ * Thin wrapper that maps task types to LiteLLM model aliases.
+ * LiteLLM handles provider routing, fallback, and budget enforcement.
+ * Embeddings go direct to Ollama (bypass LiteLLM).
  */
 class AIRouterService {
   constructor(
     private configService: ConfigService,
-    private db: DrizzleClient, // for ai_usage logging
+    private db: DrizzleClient,       // for ai_audit_log logging
+    private litellmClient: OpenAI,   // OpenAI SDK pointed at https://llm.k4jda.net
   ) {}
 
-  /** Route a completion request based on task type */
+  /** Route a completion request via LiteLLM based on task type */
   async complete(taskType: AITaskType, prompt: string, options?: AIOptions): Promise<AIResponse>
-    // 1. Look up provider config for taskType
-    // 2. Check monthly budget (soft/hard limits)
-    // 3. Try primary provider
-    // 4. On failure, try fallback (except embeddings — no fallback)
-    // 5. Log usage to ai_usage table
-    // 6. Return response
+    // 1. Look up LiteLLM model alias for taskType from ai-routing.yaml
+    // 2. Call litellmClient.chat.completions.create({ model: alias, ... })
+    //    LiteLLM handles: provider routing, fallback, budget enforcement
+    // 3. Log usage to ai_audit_log table (from response headers/metadata)
+    // 4. Return response
+    // Note: Embedding tasks should NOT go through this method — use EmbeddingService directly
 
-  /** Get current month's spending */
+  /** Get current month's spending (queries LiteLLM /spend/logs endpoint) */
   async getMonthlySpend(): Promise<{ total: number; by_provider: Record<string, number> }>
-
-  /** Check if budget allows the request */
-  private async checkBudget(taskType: AITaskType): Promise<BudgetStatus>
-    // Returns: ok | soft_limit_warning | hard_limit_exceeded
 }
 ```
 
@@ -1388,15 +1850,24 @@ class PipelineService {
 class ConfigService {
   private cache: Map<string, unknown> = new Map();
 
-  /** Load all config files from config/ directory */
+  /** Load all config files from config/ directory.
+   *  Each YAML file is validated against its Zod schema on load.
+   *  Invalid config → throw ConfigError (fail fast on startup, log warning on reload). */
   async loadAll(): Promise<void>
+    // Parse YAML, validate against schema, cache
+    // Log: config file hash + validation status
 
   /** Get a typed config value */
   get<T>(filename: string): T
 
-  /** Force reload all config (called by admin endpoint and per-job in workers) */
-  async reload(): Promise<string[]> // returns list of reloaded files
+  /** Force reload all config. Returns list of reloaded files.
+   *  If validation fails: log error, keep previous cached version, return error in list. */
+  async reload(): Promise<ReloadResult[]>
 }
+
+// Config Zod schemas defined per file: pipelinesConfigSchema, aiRoutingConfigSchema,
+// brainViewsConfigSchema, skillsConfigSchema, notificationsConfigSchema.
+// Validation ensures typos or malformed YAML don't silently break workers.
 ```
 
 ```typescript
@@ -1416,12 +1887,18 @@ class EntityResolutionService {
     private aiRouter: AIRouterService,
   ) {}
 
-  /** Resolve a mention to an existing entity or create new */
+  /** Resolve a mention to an existing entity or create new.
+   *  LLM disambiguation confidence threshold: 0.8.
+   *  >= 0.8 → auto-link to existing entity
+   *  < 0.8 → create new entity (avoid false merges; user can merge later via Slack command) */
   async resolve(mention: string, context: string): Promise<{ entityId: string; action: 'linked' | 'created' }>
     // 1. Exact match: SELECT FROM entities WHERE name = mention
     // 2. Alias match: SELECT FROM entities WHERE mention = ANY(aliases)
-    // 3. LLM disambiguation: prompt with candidates, context, ask "is this the same entity?"
-    // 4. No match: INSERT new entity, return 'created'
+    // 3. LLM disambiguation: prompt with candidates, context
+    //    Response includes confidence score (0.0-1.0)
+    //    If confidence >= 0.8 → link to candidate
+    //    If confidence < 0.8 → create new entity
+    // 4. No candidates at all: INSERT new entity, return 'created'
 
   /** Merge two entities (Slack command: !entity merge Tom Tom Smith) */
   async merge(sourceId: string, targetId: string): Promise<void>
@@ -1436,43 +1913,45 @@ class EntityResolutionService {
 **Capture Flow (Slack → Pipeline → Stored)**:
 
 ```
-User          SlackBot       CoreAPI      CaptureService    BullMQ     PipelineWorker    Ollama       Postgres
- │               │              │              │              │              │              │            │
- │──message──────►│              │              │              │              │              │            │
- │               │──POST /captures─►            │              │              │              │            │
- │               │              │──create()────►│              │              │              │            │
- │               │              │              │──dedup check──────────────────────────────────────────►│
- │               │              │              │◄─────────────no dup──────────────────────────────────── │
- │               │              │              │──INSERT capture────────────────────────────────────────►│
- │               │              │              │──enqueue()───►│              │              │            │
- │               │              │◄─201 {id}────│              │              │              │            │
- │               │◄─ack─────────│              │              │              │              │            │
- │               │              │              │              │──process()──►│              │            │
- │               │              │              │              │              │──embed()────►│            │
- │               │              │              │              │              │◄─vector[768]─│            │
- │               │              │              │              │              │──UPDATE embedding────────►│
- │               │              │              │              │              │──extract()──►│            │
- │               │              │              │              │              │◄─metadata────│            │
- │               │              │              │              │              │──UPDATE metadata─────────►│
- │               │              │              │              │              │──UPDATE status=complete──►│
- │◄─thread reply─│◄────────────notify stage────│              │              │              │            │
+User          SlackBot       CoreAPI      CaptureService    BullMQ     PipelineWorker    Ollama    LiteLLM    Postgres
+ │               │              │              │              │              │              │          │          │
+ │──message──────►│              │              │              │              │              │          │          │
+ │               │──POST /captures─►            │              │              │              │          │          │
+ │               │              │──create()────►│              │              │              │          │          │
+ │               │              │              │──dedup check────────────────────────────────────────────────────►│
+ │               │              │              │◄────────────no dup──────────────────────────────────────────────│
+ │               │              │              │──INSERT capture──────────────────────────────────────────────────►│
+ │               │              │              │──enqueue()───►│              │              │          │          │
+ │               │              │◄─201 {id}────│              │              │              │          │          │
+ │               │◄─ack─────────│              │              │              │              │          │          │
+ │               │              │              │              │──process()──►│              │          │          │
+ │               │              │              │              │              │──embed()────►│          │          │
+ │               │              │              │              │              │◄─vector[768]─│          │          │
+ │               │              │              │              │              │──UPDATE embedding──────────────────►│
+ │               │              │              │              │              │──check_triggers (in-memory)────────►│
+ │               │              │              │              │              │──extract()───────────────►│         │
+ │               │              │              │              │              │◄─metadata─────────────────│         │
+ │               │              │              │              │              │──UPDATE metadata───────────────────►│
+ │               │              │              │              │              │──UPDATE status=complete────────────►│
+ │◄─thread reply─│◄────────────notify stage────│              │              │              │          │          │
 ```
 
-**Search Flow**:
+**Search Flow (Hybrid + Temporal)**:
 
 ```
-User       SlackBot     CoreAPI    SearchService   EmbeddingService   Ollama    Postgres
- │            │            │            │                │              │          │
- │──? query──►│            │            │                │              │          │
- │            │──POST /search─►         │                │              │          │
- │            │            │──search()─►│                │              │          │
- │            │            │            │──embed(query)─►│              │          │
- │            │            │            │                │──POST /api/embeddings──►│
- │            │            │            │                │◄─vector[768]─│          │
- │            │            │            │──match_captures(vector)──────────────────►│
- │            │            │            │◄─ranked results──────────────────────────│
- │            │◄─results───│◄───────────│                │              │          │
- │◄─formatted─│            │            │                │              │          │
+User       SlackBot     CoreAPI    SearchService   EmbeddingService   Ollama    Postgres       BullMQ
+ │            │            │            │                │              │          │              │
+ │──? query──►│            │            │                │              │          │              │
+ │            │──POST /search─►         │                │              │          │              │
+ │            │            │──search()─►│                │              │          │              │
+ │            │            │            │──embed(query)─►│              │          │              │
+ │            │            │            │                │──POST /api/embeddings──►│              │
+ │            │            │            │                │◄─vector[768]─│          │              │
+ │            │            │            │──match_captures_hybrid(vector, text)────►│              │
+ │            │            │            │◄─ranked results (RRF + temporal)────────│              │
+ │            │            │            │──enqueue(update_access_stats)────────────────────────►│
+ │            │◄─results───│◄───────────│                │              │          │              │
+ │◄─formatted─│            │            │                │              │          │              │
 ```
 
 ---
@@ -1494,13 +1973,14 @@ Open Brain is a single-user system. There is no authentication or authorization 
 The MCP server is the only endpoint exposed externally via Cloudflare Tunnel. It requires an API key:
 
 ```
-Connection URL: https://brain.k4jda.net/mcp?key=<access_key>
+Connection URL: https://brain.k4jda.net/mcp
+Authentication: Authorization: Bearer <access_key>
 ```
 
 - API key stored in Bitwarden, loaded at container startup
-- Key validated on every request as query parameter
+- Key validated on every request via Authorization header
 - Invalid key → 401 Unauthorized
-- Key rotation: generate new key in Bitwarden, restart MCP container
+- Key rotation: see Operational Runbook — MCP API key rotation
 
 ### 7.3 Drizzle Studio (Development)
 
@@ -1539,13 +2019,19 @@ function classifyIntent(message: string): 'capture' | 'query' | 'command' {
   if (message.startsWith('!')) return 'command';
   if (message.startsWith('@Open Brain')) return 'query';
 
-  // LLM-based classification (when Ollama available)
+  // LLM-based classification (via LiteLLM → intent model alias)
   // Uses intent_router_v1 prompt template
-  // Falls back to prefix-only if Ollama is down (default-to-capture)
+  // Falls back to prefix-only if LiteLLM/Ollama is down (default-to-capture)
 
   return 'capture'; // Default: treat as capture (prevents data loss)
 }
 ```
+
+**Trigger Commands** (Phase 2):
+- `/ob trigger add "QSR timeline"` — create trigger with default threshold (0.72) and 60-minute cooldown
+- `/ob trigger list` — list all active triggers with last-fired time and fire count
+- `/ob trigger delete [name or id]` — deactivate trigger
+- `/ob trigger test "QSR timeline"` — run against existing captures, show top 5 matches (no notification sent)
 
 **Thread Context**: Redis with 1-hour TTL, keyed by Slack `thread_ts`. Enables multi-turn query refinement within a thread. Expired threads prompt a new search.
 
@@ -1556,55 +2042,49 @@ function classifyIntent(message: string): 'capture' | 'query' | 'command' {
 
 ### 8.2 Ollama Integration
 
-**Purpose**: Local embeddings (nomic-embed-text) and lightweight LLM tasks (llama3.1:8b)
+**Purpose**: Local embedding generation. LLM chat/completion tasks route through LiteLLM (see §8.7), even when using Ollama-hosted models like llama3.1:8b.
+
+**Embedding Model**: Configurable via `ai-routing.yaml`. Supports any Ollama-hosted model that produces 768d vectors (native or Matryoshka-truncated). Qwen3-Embedding models support instruction prefixes (`Instruct: ...`) for asymmetric query/document embedding — the EmbeddingService adds appropriate prefixes when the configured model supports it.
 
 **API**: OpenAI-compatible REST API
 
 ```typescript
-// Embedding generation
+// Embedding generation (direct to Ollama — bypasses LiteLLM)
+const model = configService.get('ai-routing').embedding.model; // e.g., 'nomic-embed-text' or 'qwen3-embedding:8b'
 const response = await fetch('http://ollama:11434/api/embeddings', {
   method: 'POST',
   body: JSON.stringify({
-    model: 'nomic-embed-text',
-    prompt: captureContent,
+    model: model,
+    prompt: captureContent,  // With instruction prefix if model supports it
   }),
 });
-// response.embedding → number[768]
-
-// Chat completion
-const response = await fetch('http://ollama:11434/api/chat', {
-  method: 'POST',
-  body: JSON.stringify({
-    model: 'llama3.1:8b',
-    messages: [{ role: 'user', content: prompt }],
-    stream: false,
-  }),
-});
+// response.embedding → number[768] (truncated if Matryoshka model produces more)
 ```
 
 **Error Handling**:
 - Embeddings: NO fallback. If Ollama is down, captures queue in BullMQ and retry when Ollama recovers. This prevents mixing embedding models which would degrade search quality.
-- LLM tasks: Fall back to Anthropic Claude Haiku if Ollama unavailable.
+- LLM tasks: Routed through LiteLLM, which handles fallback to cloud providers.
 
-### 8.3 Anthropic API Integration
+### 8.3 Anthropic API Integration (via LiteLLM)
 
 **Purpose**: Synthesis, governance sessions, career signal extraction, weekly briefs
 
-**Authentication**: API key from Bitwarden (`ANTHROPIC_API_KEY`)
+**Authentication**: Virtual API key stored in Bitwarden. Application code never touches provider API keys directly — all requests go through the shared LiteLLM proxy at `https://llm.k4jda.net`.
 
-**Models Used**:
+**Models Used** (accessed via LiteLLM model aliases):
 
-| Task | Model | Estimated Cost |
-|------|-------|----------------|
-| Synthesis | claude-sonnet-4-6 | ~$0.03-0.10/query |
-| Governance | claude-opus-4-6 | ~$0.15-0.50/session |
-| Career signals | claude-sonnet-4-6 | ~$0.01/capture |
-| Weekly brief | claude-sonnet-4-6 | ~$0.10/brief |
+| Task | LiteLLM Alias | Resolves To | Estimated Cost |
+|------|---------------|-------------|----------------|
+| Synthesis | `synthesis` | claude-sonnet-4-6 (fallback: gpt-4o) | ~$0.03-0.10/query |
+| Governance | `governance` | claude-opus-4-6 (fallback: claude-sonnet) | ~$0.15-0.50/session |
+| Career signals | `synthesis` | claude-sonnet-4-6 | ~$0.01/capture |
+| Weekly brief | `synthesis` | claude-sonnet-4-6 | ~$0.10/brief |
 
-**Budget Controls**:
-- Soft limit: $30/month → Pushover alert
-- Hard limit: $50/month → Circuit breaker (local models only)
+**Budget Controls** (enforced by LiteLLM):
+- Soft limit: $30/month → Pushover alert (via LiteLLM webhook alerting)
+- Hard limit: $50/month → Circuit breaker (LiteLLM rejects requests, app falls back to local-only)
 - Expected usage: ~$15-30/month
+- Spend tracking: LiteLLM `/spend/logs` endpoint (source of truth for cost). Operational audit in `ai_audit_log` table.
 
 ### 8.4 Pushover Integration
 
@@ -1682,7 +2162,46 @@ const response = await fetch('http://faster-whisper:8000/transcribe', {
 
 **Configuration**: `large-v3` model, CPU int8, English default
 
-### 8.7 MCP Server Tools
+### 8.7 LiteLLM Integration
+
+**Purpose**: Unified LLM gateway for all non-embedding AI requests. Provides model aliasing, automatic fallback, budget tracking, and request logging.
+
+**Deployment**: External shared service at `https://llm.k4jda.net`. Managed independently of Open Brain — not a container in Open Brain's Docker Compose stack. Model aliases (fast, synthesis, governance, intent) and provider routing are configured on the external server.
+
+**Required model aliases** (must be configured on the external LiteLLM instance):
+
+| Alias | Target | Fallback | Timeout |
+|-------|--------|----------|---------|
+| `fast` | ollama/llama3.1:8b (homeserver) | — | 30s |
+| `intent` | ollama/llama3.1:8b (homeserver) | — | 10s |
+| `synthesis` | anthropic/claude-sonnet-4-6 | openai/gpt-4o | 60s |
+| `governance` | anthropic/claude-opus-4-6 | claude-sonnet-4-6 | 120s |
+
+**Application Connection**:
+
+```typescript
+import OpenAI from 'openai';
+
+// All LLM calls use OpenAI SDK pointed at external LiteLLM
+const litellm = new OpenAI({
+  baseURL: 'https://llm.k4jda.net',
+  apiKey: process.env.LITELLM_API_KEY, // Virtual key from Bitwarden: dev/open-brain/litellm-api-key
+});
+
+// Usage: model name = LiteLLM alias
+const response = await litellm.chat.completions.create({
+  model: 'synthesis',  // Resolves to claude-sonnet, fallback: gpt-4o
+  messages: [{ role: 'user', content: prompt }],
+});
+```
+
+**Health Check**: `GET https://llm.k4jda.net/health` — returns model availability status.
+
+**Spend Tracking**: `GET https://llm.k4jda.net/spend/logs` — returns detailed per-model spend for budget monitoring.
+
+---
+
+### 8.8 MCP Server Tools
 
 **Purpose**: Allow Claude Desktop, Claude Code, ChatGPT, and other MCP clients to interact with the brain
 
@@ -1763,6 +2282,11 @@ const tools = [
   },
 ];
 ```
+
+**Visibility of in-progress captures**: The `search_brain` tool filters on `pipeline_status = 'complete'`,
+so captures currently processing are invisible to search. The `list_captures` tool shows all statuses.
+Consider adding a `processing_count` field to the `brain_stats` response so MCP users know captures
+are in-flight. Not a launch blocker — add if MCP users report confusion.
 
 ---
 
@@ -1887,9 +2411,9 @@ After 5 failures:
 
 | Table | What It Tracks |
 |-------|---------------|
-| `captures.pipeline_log` | Per-capture processing history (stage, status, model, duration) |
+| `pipeline_events` table | Per-capture processing history (stage, status, model, duration) — append-only |
 | `skills_log` | Skill execution history (trigger, result, token usage) |
-| `ai_usage` | Every AI API call (provider, model, tokens, cost, latency) |
+| `ai_audit_log` | Every AI API call (provider, model, tokens, latency, success). Cost tracking via LiteLLM only. |
 
 ### 10.3 Monitoring Approach
 
@@ -1899,7 +2423,7 @@ No dedicated monitoring stack (no Prometheus, no Grafana). Instead:
 |--------|--------|-------|
 | Container health | Docker healthchecks + Unraid dashboard | Unraid notification |
 | Pipeline failures | `pipeline_status = 'failed'` count | Pushover (high priority) |
-| AI budget | `ai_usage` table aggregate | Pushover at $30 soft, circuit breaker at $50 |
+| AI budget | LiteLLM `/spend/logs` endpoint | Pushover at $30 soft, circuit breaker at $50 |
 | Ollama down | Health endpoint check | Pushover (emergency) |
 | Postgres down | Health endpoint check | Pushover (emergency) |
 | Queue depth | BullMQ dashboard (Bull Board) | Log warning if depth > 50 |
@@ -1961,6 +2485,11 @@ async function getThreadContext(threadTs: string): Promise<ThreadContext | null>
 async function setThreadContext(threadTs: string, context: ThreadContext): Promise<void> {
   await redis.set(`thread:${threadTs}`, JSON.stringify(context), 'EX', THREAD_TTL);
 }
+
+// In Slack query handler:
+// If thread context is expired (getThreadContext returns null for a reply in a search thread):
+// Reply: "This search has expired (1-hour timeout). Send a new query to search again."
+// Do NOT treat as a capture — the user's intent was clearly a follow-up.
 ```
 
 ---
@@ -2001,13 +2530,58 @@ async function setThreadContext(threadTs: string, context: ThreadContext): Promi
 | Job Name | Queue | Priority | Timeout | Retries | Backoff |
 |----------|-------|----------|---------|---------|---------|
 | capture-pipeline | capture-pipeline | 5 (normal) | 5 min | 5 | Patient: 30s, 2m, 10m, 30m, 2h |
-| weekly-brief | skill-execution | 3 | 5 min | 3 | Exponential: 1m, 5m, 15m |
+| update-access-stats | access-stats | 1 (low) | 10s | 1 | — |
+| check-triggers | triggers | 5 (normal) | 10s | 1 | — |
+| weekly-brief | skill-execution | 3 | 5 min | 3 | Exponential: 1m, 5m, 15m. On final failure: Pushover alert (high priority). Does not silently skip. |
 | drift-monitor | skill-execution | 3 | 2 min | 3 | Exponential |
 | daily-connections | skill-execution | 3 | 2 min | 3 | Exponential |
 | daily-sweep | daily-sweep | 1 (low) | 30 min | 1 | — |
 | pushover | notification | 7 (high) | 30s | 3 | Fixed: 5s |
 | email | notification | 5 | 60s | 3 | Fixed: 30s |
 | slack-reply | notification | 7 (high) | 10s | 3 | Fixed: 2s |
+
+### 12.2a New Job Types
+
+```typescript
+// Job type: update_access_stats
+// Triggered by: search result return (async, non-blocking)
+// Priority: low (background)
+interface UpdateAccessStatsJob {
+  captureIds: string[];
+  accessedAt: string; // ISO 8601
+}
+// Handler: increment access_count, set last_accessed_at for each ID
+// Batch update in single SQL: UPDATE captures SET access_count = access_count + 1,
+//   last_accessed_at = $1 WHERE id = ANY($2::uuid[])
+//
+// Note: If two searches return overlapping capture IDs and their access stats jobs
+// execute concurrently, access_count is safe (atomic increment) but last_accessed_at
+// could be set to a slightly earlier timestamp by a slower job. Acceptable for single-user.
+//
+// Failure handling: Log WARN on failure (temporal scoring degrades silently if stats
+// aren't updated). Do not retry aggressively — stats are eventually consistent.
+
+// Job type: check_triggers (Phase 2C)
+// Architecture: Separate BullMQ job, NOT an inline pipeline stage.
+// Triggered by: embed stage handler enqueues this job after successful embedding.
+// This decouples trigger checking from the main pipeline — trigger failures don't affect capture processing.
+// Priority: normal
+interface CheckTriggersJob {
+  captureId: string;
+}
+// Handler:
+//   1. Load all active triggers from Redis cache (60s TTL, refresh from DB)
+//   2. Get capture embedding from DB
+//   3. For each active trigger not in cooldown:
+//      a. Compute similarity: 1 - (capture.embedding <=> trigger.queryEmbedding)
+//      b. If similarity >= trigger.threshold: fire trigger
+//   4. Firing a trigger:
+//      a. Run match_captures_hybrid() for the trigger query (limit 5, related captures)
+//      b. Send Pushover/Slack notification with: trigger name, new capture summary, related captures
+//      c. Update trigger: lastFiredAt = now(), fireCount++
+//   5. All trigger checks run in parallel (Promise.all)
+//   6. No trigger match = no-op; worker completes successfully
+```
 
 ### 12.3 Pipeline Stage Executor
 
@@ -2031,8 +2605,8 @@ async function executePipeline(captureId: string, stages: StageDefinition[]): Pr
     try {
       await executeStage(capture, stage);
 
-      // Append to pipeline_log
-      await appendPipelineLog(captureId, {
+      // Insert pipeline event (append-only table)
+      await insertPipelineEvent(captureId, {
         stage: stage.name,
         status: 'complete',
         model: stage.model,
@@ -2040,7 +2614,7 @@ async function executePipeline(captureId: string, stages: StageDefinition[]): Pr
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
-      await appendPipelineLog(captureId, {
+      await insertPipelineEvent(captureId, {
         stage: stage.name,
         status: 'failed',
         duration_ms: Date.now() - startTime,
@@ -2058,7 +2632,7 @@ async function executePipeline(captureId: string, stages: StageDefinition[]): Pr
   }
 
   // Mark pipeline complete (or partial if any stage failed)
-  const hasFailures = /* check pipeline_log for failed stages */;
+  const hasFailures = /* check pipeline_events for failed stages */;
   await updatePipelineStatus(captureId, hasFailures ? 'partial' : 'complete');
 }
 ```
@@ -2088,6 +2662,14 @@ await skillQueue.add('daily-connections', {}, {
 await sweepQueue.add('daily-sweep', {}, {
   repeat: { pattern: '0 3 * * *' }, // cron: Daily 3 AM
 });
+
+// Scheduled skill retry policy:
+// If a scheduled skill fails (e.g., weekly brief on Sunday 8pm):
+//   - BullMQ retries 3x with exponential backoff (1m, 5m, 15m) — already in job definition
+//   - After 3 failures: Pushover alert (high priority) with error details
+//   - Skill does NOT silently skip — it either succeeds or alerts
+//   - Next scheduled run proceeds normally (the cron schedule is not affected by failures)
+//   - Manual trigger always available: POST /api/v1/skills/:name/trigger
 ```
 
 ---
@@ -2276,32 +2858,39 @@ describe('CaptureService', () => {
 ```typescript
 // src/ai-router/__tests__/ai-router.test.ts
 describe('AIRouterService', () => {
-  it('should fall back to secondary provider on primary failure', async () => {
-    const router = new AIRouterService(mockConfig, mockDb);
-    mockOllama.mockRejectedValue(new Error('connection refused'));
+  it('should route task type to correct LiteLLM model alias', async () => {
+    const router = new AIRouterService(mockConfig, mockDb, mockLitellm);
 
-    const result = await router.complete('metadata_extraction', 'classify this text');
+    await router.complete('synthesis', 'summarize everything');
 
-    expect(result.provider).toBe('anthropic');
-    expect(result.model).toBe('claude-haiku-4-5');
+    expect(mockLitellm.chat.completions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'synthesis' }) // LiteLLM handles provider routing
+    );
   });
 
-  it('should NOT fall back for embedding tasks', async () => {
-    const router = new AIRouterService(mockConfig, mockDb);
-    mockOllama.mockRejectedValue(new Error('connection refused'));
+  it('should map metadata_extraction to fast alias', async () => {
+    const router = new AIRouterService(mockConfig, mockDb, mockLitellm);
 
-    await expect(
-      router.complete('embedding', 'embed this text')
-    ).rejects.toThrow(ServiceUnavailableError);
+    await router.complete('metadata_extraction', 'classify this text');
+
+    expect(mockLitellm.chat.completions.create).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'fast' })
+    );
   });
 
-  it('should trigger circuit breaker at hard budget limit', async () => {
-    const router = new AIRouterService(mockConfig, mockDb);
-    mockDb.getMonthlySpend.mockResolvedValue({ total: 51.00 });
+  it('should log usage to ai_audit_log table after completion', async () => {
+    const router = new AIRouterService(mockConfig, mockDb, mockLitellm);
+    mockLitellm.chat.completions.create.mockResolvedValue({
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+    });
 
-    await expect(
-      router.complete('synthesis', 'summarize everything')
-    ).rejects.toThrow(AIBudgetExceededError);
+    await router.complete('synthesis', 'summarize');
+
+    expect(mockDb.insert).toHaveBeenCalledWith(expect.objectContaining({
+      provider: expect.any(String),
+      tokensIn: 100,
+      tokensOut: 50,
+    }));
   });
 });
 ```
@@ -2369,7 +2958,10 @@ describe('Captures API Integration', () => {
 | MCP search | 1. Create captures, 2. Call search_brain via MCP, 3. Verify results | Relevant results returned |
 | Pipeline retry | 1. Create capture, 2. Simulate Ollama failure, 3. Restart Ollama, 4. Wait for retry | Capture eventually completes |
 | Deduplication | 1. Send same slack_ts twice | Second attempt returns 409 |
-| Budget circuit breaker | 1. Exhaust budget, 2. Attempt synthesis | Returns 429 |
+| Budget circuit breaker | 1. Exhaust budget via LiteLLM, 2. Attempt synthesis | Returns 429 |
+| Hybrid search recall | 1. Create capture with specific keywords, 2. Search with paraphrased query, 3. Search with exact keywords | Both find the capture (RRF fuses both arms) |
+| Temporal scoring | 1. Create two similar captures, 2. Search to access one, 3. Search again | Previously-accessed capture ranks higher |
+| Semantic trigger fire | 1. Create trigger "QSR timeline", 2. Ingest matching capture | Pushover fires within pipeline window |
 
 ---
 
@@ -2448,6 +3040,8 @@ services:
         limits:
           memory: 16G
 
+  # LiteLLM is an external shared service at https://llm.k4jda.net — no container here.
+
   faster-whisper:
     image: fedirz/faster-whisper-server:0.4.1  # Pin version — verify API compat during Phase 2
     restart: unless-stopped
@@ -2474,6 +3068,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: core-api
+    # Entrypoint runs: npx drizzle-kit migrate && node dist/server.mjs
+    # Migrations are automatic on container start — no manual step needed.
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -2482,6 +3078,8 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/open_brain
       REDIS_URL: redis://redis:6379
       OLLAMA_URL: http://ollama:11434
+      LITELLM_URL: https://llm.k4jda.net
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
       MCP_API_KEY: ${MCP_API_KEY}  # MCP embedded at /mcp route
     volumes:
       - ./config:/app/config:ro
@@ -2510,6 +3108,8 @@ services:
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
       CORE_API_URL: http://core-api:3000
       REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net      # Shared external LiteLLM proxy
+      LITELLM_API_KEY: ${LITELLM_API_KEY}     # Virtual key from Bitwarden
     networks:
       - open-brain
     depends_on:
@@ -2528,7 +3128,8 @@ services:
       REDIS_URL: redis://redis:6379
       CORE_API_URL: http://core-api:3000
       OLLAMA_URL: http://ollama:11434
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      LITELLM_URL: https://llm.k4jda.net
+      LITELLM_API_KEY: ${LITELLM_API_KEY}
       PUSHOVER_APP_TOKEN: ${PUSHOVER_APP_TOKEN}
       PUSHOVER_USER_KEY: ${PUSHOVER_USER_KEY}
       SMTP_HOST: ${SMTP_HOST}
@@ -2601,17 +3202,17 @@ services:
 
 ```
 open-brain (single network)
-┌────────────────────────────────────────────────────┐
-│                                                    │
-│  postgres     redis       ollama      faster-whisper│
-│  core-api     slack-bot   workers     voice-capture │
-│  web-ui       cloudflared                          │
-│                                                    │
-└────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│  postgres     redis       ollama      faster-whisper     │
+│  litellm      core-api    slack-bot   workers            │
+│  voice-capture web-ui     cloudflared                    │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
 ```
 
 - Single `open-brain` network — no Supabase, no multi-network complexity
-- Only `core-api` (:3000) and `web-ui` (:3002) expose host ports
+- Only `core-api` (:3000) and `web-ui` (:3002) expose host ports — LiteLLM is external at `https://llm.k4jda.net`
 - MCP embedded in core-api at `/mcp` — no separate container
 - `cloudflared` routes external traffic from `brain.k4jda.net` to `core-api` (path-based: `/mcp` for MCP, `/` for Web UI in Phase 4)
 
@@ -2623,10 +3224,8 @@ open-brain (single network)
 # Database
 POSTGRES_PASSWORD=  # From Bitwarden: dev/open-brain/postgres
 
-# AI Providers — retrieve from Bitwarden
-ANTHROPIC_API_KEY=  # bws get dev/open-brain/anthropic-api-key
-OPENAI_API_KEY=     # bws get dev/open-brain/openai-api-key
-OPENROUTER_API_KEY= # bws get dev/open-brain/openrouter-api-key
+# LiteLLM (external shared proxy at https://llm.k4jda.net)
+LITELLM_API_KEY=    # bws get dev/open-brain/litellm-api-key  (virtual key issued by shared LiteLLM instance)
 
 # Slack — retrieve from Bitwarden
 SLACK_BOT_TOKEN=    # bws get dev/open-brain/slack-bot-token
@@ -2665,13 +3264,15 @@ docker compose up -d postgres redis
 # 3. Wait for healthy
 docker compose exec postgres pg_isready
 
-# 4. Run migrations
-docker compose run --rm core-api npx drizzle-kit migrate
+# 4. Migrations run automatically via core-api entrypoint script (no manual step needed)
 
 # 5. Pull and preload Ollama models
 docker compose up -d ollama
-docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull nomic-embed-text  # Or: qwen3-embedding:8b (if selected after benchmarking)
 docker compose exec ollama ollama pull llama3.1:8b
+
+# 5a. Verify external LiteLLM proxy is reachable
+curl https://llm.k4jda.net/health  # External shared LiteLLM — not managed by this stack
 
 # 6. Start application stack
 docker compose up -d
@@ -2708,29 +3309,76 @@ No feature flag service — single user, phased deployment. Features enabled by:
 
 ### 17.2 Phase Rollout Checklist
 
-**Phase 1: Foundation**
+**Phase 1A: Data Layer**
 - [ ] Postgres (pgvector/pgvector:pg16) running, pgvector enabled, postgresql.conf tuned
-- [ ] Drizzle migrations applied (captures table)
-- [ ] Ollama running with nomic-embed-text + llama3.1:8b
-- [ ] Core API endpoints functional (captures, search, stats)
-- [ ] Pipeline processing: embed + extract_metadata + notify
-- [ ] Slack bot: capture and query working in #open-brain
-- [ ] MCP server: search_brain, list_captures, capture_thought, brain_stats
-- [ ] Health endpoint checking all services
-- [ ] Cloudflare Tunnel routing to core-api (path-based: /mcp for MCP)
+- [ ] Drizzle schema applied (captures table with access_count, last_accessed_at, content_hash)
+- [ ] Core API scaffold: Hono app, health endpoint, Zod validation
+- [ ] Capture CRUD: POST, GET, LIST, PATCH, DELETE endpoints functional
+- [ ] DELETE capture soft-deletes, excluded from search/list results
+- [ ] Stats endpoint returning capture counts
+- [ ] Health endpoint reporting Postgres status
+- [ ] Vitest unit + Testcontainers integration tests passing
 
-**Phase 2: Voice + Outputs**
+**Phase 1B: Embedding + Search**
+- [ ] Ollama running with candidate embedding model(s)
+- [ ] Actual CPU embedding throughput measured and documented (update TDD Section 4.5 estimates)
+- [ ] Embedding model benchmarked with 50+ real captures → model selected
+- [ ] match_captures (vector + temporal) function deployed
+- [ ] FTS GIN index created on captures.content
+- [ ] match_captures_hybrid (RRF) function deployed
+- [ ] Search endpoint functional (all three modes: hybrid, vector, fts)
+- [ ] update_access_stats background job working
+
+**Phase 1C: Pipeline + LLM Gateway**
+- [ ] Redis running
+- [ ] LiteLLM running with model aliases (fast, synthesis, governance, intent) and budget
+- [ ] AI Router routing embeddings to Ollama, LLM to LiteLLM
+- [ ] Pipeline stages: embed → extract_metadata → notify (stub)
+- [ ] Pipeline retry logic: patient backoff (30s, 2m, 10m, 30m, 2h)
+- [ ] Bull Board at /admin/queues functional
+- [ ] Captures auto-process to pipeline_status = 'complete'
+
+**Phase 1D: Slack Bot**
+- [ ] Slack bot connected via Socket Mode
+- [ ] Text capture: message → Core API → pipeline → thread reply
+- [ ] Query: ? prefix → hybrid search → formatted results
+- [ ] Intent router: prefix-only classification working
+- [ ] Thread context: Redis TTL, follow-up interactions
+- [ ] Deduplication: duplicate slack_ts rejected
+- [ ] LLM intent classification added (via LiteLLM)
+
+**Phase 1E: MCP + External Access**
+- [ ] MCP embedded at /mcp with all 7 tools functional
+- [ ] Authorization: Bearer header authentication working
+- [ ] Cloudflare Tunnel routing brain.k4jda.net → core-api
+- [ ] Claude Desktop connects and queries successfully
+- [ ] Invalid API key returns 401
+
+**Phase 2A: Voice Pipeline**
 - [ ] faster-whisper container running, transcription working
-- [ ] voice-capture migrated to monorepo (packages/voice-capture/), posting to Core API
-- [ ] Weekly brief skill generating on schedule
-- [ ] Pushover notifications for captures and briefs
-- [ ] Email delivery for weekly briefs
-- [ ] Slack commands (!stats, !brief, !recent, etc.)
+- [ ] voice-capture migrated to monorepo, posting to Core API
+- [ ] iOS Shortcut → voice-capture → brain pipeline functional
+- [ ] Audio formats tested: .m4a, .wav, .mp3
+
+**Phase 2B: Notifications + Output Skills**
+- [ ] Pushover notifications for all priority levels
+- [ ] Email delivery for weekly briefs (HTML + plain text)
+- [ ] Weekly brief skill generating on schedule (Sunday 8pm)
+- [ ] Slack commands: !stats, !brief, !recent, !help functional
+- [ ] Brief captured back into brain for searchability
+
+**Phase 2C: Semantic Triggers**
+- [ ] Triggers table created, CRUD API functional
+- [ ] check_triggers BullMQ job: fires after embed stage
+- [ ] Trigger notifications via Pushover/Slack
+- [ ] Slack commands: /ob trigger add/list/delete/test
+- [ ] Cooldown enforcement (default 60 min)
+- [ ] In-memory trigger comparison <10ms for ≤20 triggers
 
 **Phase 3: Intelligence**
-- [ ] Entity graph (entities, entity_links tables)
-- [ ] Entity auto-extraction from captures
-- [ ] Governance sessions (sessions table, conversational flow)
+- [ ] Entity graph (entities, entity_links tables with UNIQUE constraints)
+- [ ] Entity auto-extraction from captures (3-tier resolution)
+- [ ] Governance sessions (sessions table, LLM-driven flow)
 - [ ] Bet tracking (bets table, expiration alerts)
 - [ ] Drift monitor skill
 - [ ] Daily connections skill
@@ -2739,10 +3387,9 @@ No feature flag service — single user, phased deployment. Features enabled by:
 - [ ] Web dashboard (all pages functional)
 - [ ] PWA installable on iPhone
 - [ ] SSE from Core API for live updates (Postgres LISTEN/NOTIFY)
-- [ ] Document ingestion (PDF, docx)
+- [ ] Document ingestion (PDF, docx via rclone)
 - [ ] URL/bookmark capture
-- [ ] Calendar integration — multi-calendar via iCal feeds, config-driven (calendars.yaml), per-calendar brain view assignment. Provider-specific API adapters (Google, Microsoft Graph) can be added later for richer metadata.
-- [ ] Document ingestion via rclone sync (OneDrive, Google Drive, iCloud Drive) — config-driven folder selection (document-sources.yaml), BullMQ worker, ~1000-token chunks with 100-token overlap
+- [ ] Calendar integration (iCal feeds, config-driven)
 
 ---
 
@@ -2768,8 +3415,10 @@ No feature flag service — single user, phased deployment. Features enabled by:
 | Area | Strategy | Details |
 |------|----------|---------|
 | Embedding | Single model, no fallback | Consistent vector space, no mixing |
+| Search | Hybrid retrieval (FTS + vector + RRF) | Best-of-both recall; FTS catches keyword matches, vector catches paraphrases |
+| Search | ACT-R temporal scoring | Recency + frequency signals computed from indexed columns (<5ms overhead) |
 | Database | HNSW index for vectors | Approximate nearest neighbor, faster than IVFFlat at query time |
-| Database | GIN indexes on jsonb/arrays | Fast filtered queries on metadata, tags, brain_views |
+| Database | GIN indexes on jsonb/arrays/tsvector | Fast filtered queries on metadata, tags, brain_views, and full-text search |
 | Pipeline | Async processing | API returns immediately, pipeline runs in background |
 | Pipeline | Stage independence | Failed stages don't block others (except embed) |
 | Search | Configurable threshold | Skip low-similarity results, reduce result set |
@@ -2792,6 +3441,27 @@ SET hnsw.ef_search = 40; -- default, increase for better recall
 For the expected scale (<100K captures), default HNSW parameters should be sufficient. Re-tune if:
 - Search recall drops below 95% on manual testing
 - Search latency exceeds 2 seconds
+
+## 18.5 Capacity Planning
+
+Expected scale for a single-user personal knowledge system.
+
+| Resource | Current Estimate | Worry Threshold | Action at Threshold |
+|----------|-----------------|----------------|-------------------|
+| Captures | 50/day, ~18K/year | 100K total | Re-tune HNSW (increase m, ef_construction). Consider IVFFlat if HNSW build time grows. |
+| Postgres disk | ~4KB/capture (1KB content + 3KB embedding) | 1GB (~250K captures) | Non-issue for 32TB array. Add table partitioning by year if queries slow. |
+| Redis memory | ~100 bytes/job, ~1KB/thread context | 1GB | Non-issue. Check for orphaned BullMQ jobs if memory grows unexpectedly. |
+| Ollama memory | 1-16GB depending on model | 16GB limit | Swap to smaller model or increase limit. Only one model loaded at a time for embeddings. |
+| Embedding generation | 1/sec (137M) to 0.1/sec (8B) | >20 captures/minute sustained | Batch embedding endpoint, or queue accepts latency. Unlikely for single user. |
+| LiteLLM | <100 requests/day | 1000/day | Non-issue. LiteLLM handles thousands of RPM. |
+| Postgres connections | ~5 active (API + workers + bot) | 20 (max_connections) | Increase max_connections. Consider PgBouncer if services scale. |
+| Backup size | ~70MB/year | 1GB | Non-issue. Compressed backups are small. |
+
+**HNSW Index Tuning Reference**:
+- Default params (`m=16, ef_construction=64`) good to ~100K vectors
+- At 100K: increase to `m=24, ef_construction=128` for better recall
+- `ef_search` (query-time): start at 40, increase to 100 if recall drops below 95%
+- Rebuild index: `REINDEX INDEX idx_captures_embedding;` (~10 min at 100K)
 
 ---
 
@@ -2817,7 +3487,7 @@ Single-user system — security is network-level, not application-level.
 | Input validation | Zod schemas on all API inputs |
 | SQL injection | Drizzle ORM parameterized queries (never raw string interpolation) |
 | Secret management | Bitwarden → env vars at startup, never in config files |
-| API key rotation | Generate new key in Bitwarden, restart MCP container |
+| API key rotation | See Operational Runbook — MCP API key rotation |
 | Container isolation | Single Docker network, minimal host port exposure |
 | Data integrity | Soft delete only, immutable captures, pipeline audit trail |
 
@@ -2829,7 +3499,7 @@ Single-user system — security is network-level, not application-level.
 | API keys (Anthropic, OpenAI, etc.) | Bitwarden | Loaded as env vars, never logged |
 | Slack tokens | Bitwarden | Loaded as env vars |
 | Embeddings | Postgres (vector column) | Same protection as capture content |
-| Pipeline logs | Postgres (jsonb) | May contain model names, not secrets |
+| Pipeline events | Postgres (pipeline_events table) | May contain model names, not secrets |
 
 ### 19.4 Security Checklist
 
@@ -2858,7 +3528,11 @@ Single-user system — security is network-level, not application-level.
 | Output Skill | Scheduled/triggered AI synthesis process (weekly brief, governance) |
 | Entity | Known person, project, decision, bet, or concept |
 | Intent Router | Slack message classifier (capture vs. query vs. command) |
-| AI Router | Provider routing layer (Ollama, Claude, GPT) |
+| AI Router | Thin application service mapping task types to LiteLLM model aliases (LLM) and Ollama (embeddings) |
+| LiteLLM | Self-hosted proxy providing unified OpenAI-compatible API for all LLM providers |
+| Hybrid Search | FTS + vector search fused via Reciprocal Rank Fusion (RRF) |
+| ACT-R Temporal Decay | Cognitive model scoring captures by access recency and frequency |
+| Semantic Trigger | Persistent pattern that fires notifications when new captures match semantically |
 | Governance Session | Structured multi-turn career review interaction |
 | Bet | 90-day falsifiable prediction from governance sessions |
 | MCP | Model Context Protocol — open standard for AI tool integration |
@@ -2867,7 +3541,9 @@ Single-user system — security is network-level, not application-level.
 
 **pipelines.yaml** — Pipeline stage definitions per source/view. See PRD Section 5.2 (F03) for full spec.
 
-**ai-routing.yaml** — Provider routing per task type. See PRD Section 5.2 (F08).
+**ai-routing.yaml** — Embedding config + task-to-LiteLLM-alias mapping. See PRD Section 5.2 (F08).
+
+**litellm-config.yaml** — LiteLLM proxy config: model list with provider/fallback, budget limits, alerting. See TDD §8.7.
 
 **skills.yaml** — Output skill definitions, schedules, delivery targets.
 
@@ -2913,6 +3589,74 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 |------|--------|--------|
 | 2026-03-04 | Initial TDD based on PRD v0.2 | Troy Davis / Claude |
 | 2026-03-04 | All 32 questions resolved, Supabase removed, MCP embedded, rclone deferred | Troy Davis / Claude |
+| 2026-03-05 | v0.3: Added LiteLLM as unified LLM gateway (simplified AIRouterService). Made embedding model configurable (evaluating Qwen3-Embedding). Added cognitive retrieval: ACT-R temporal decay scoring (access_count/last_accessed_at columns), hybrid search with RRF (FTS GIN index + match_captures_hybrid function), semantic push triggers (triggers table, check_triggers pipeline stage, Slack commands). Based on MuninnDB cognitive retrieval analysis. | Troy Davis / Claude |
+| 2026-03-05 | v0.4: Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Fixed: Zod brain_views validation (config-driven, not hardcoded), MCP auth (Authorization header), slack-bot LiteLLM access, check_triggers as separate BullMQ job, temporal scoring standardized (multiplicative boost), entity/trigger UNIQUE constraints, entity_links ON DELETE CASCADE. Added: PATCH captures endpoint, search pagination, cold start temporal_weight (default 0.0), operational runbook, capacity planning. | Troy Davis / Claude |
+| 2026-03-05 | v0.5: Architectural review v2. Fixed composite score formula (multiplicative boost in PRD), extracted pipeline_log→pipeline_events table, session transcript→session_messages table, removed linked_entities denorm from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), BrainView→config-driven string, ai_usage→ai_audit_log (dropped cost_estimate), entity resolution confidence threshold (0.8), MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability, MCP in-progress capture visibility note. | Troy Davis / Claude |
+
+### E. Operational Runbook
+
+Common failure scenarios and resolution steps.
+
+**Ollama down (embeddings queuing)**
+1. Check container: `docker compose logs ollama`
+2. Restart: `docker compose restart ollama`
+3. Verify model loaded: `docker compose exec ollama ollama list`
+4. Captures will auto-retry via BullMQ backoff. Check Bull Board for queue depth.
+5. If model corrupted: `docker compose exec ollama ollama pull <model-name>`
+
+**LiteLLM can't reach providers**
+1. Check container: `docker compose logs litellm`
+2. Verify health: `curl http://localhost:4000/health`
+3. Check API keys: `bws secret list --access-token $TROY | grep open-brain`
+4. LiteLLM auto-falls back (synthesis → gpt-4o, governance → claude-sonnet)
+5. If all providers down: LLM tasks queue in BullMQ. Local Ollama tasks (fast, intent) still work.
+
+**Pipeline queue depth > 100**
+1. Check Bull Board at `/admin/queues`
+2. Most likely cause: Ollama is slow or down
+3. Check Ollama health: `curl http://ollama:11434/`
+4. If Ollama healthy but slow: captures are just queued, they'll process eventually
+5. If persistent: check for a stuck job — remove it via Bull Board
+
+**Embedding model swap**
+1. Update `config/ai-routing.yaml` → `embedding.model`
+2. Pull new model: `docker compose exec ollama ollama pull <new-model>`
+3. Run re-embedding job: trigger via API or custom script
+4. Monitor progress via Bull Board — estimated times in Section 4.5
+5. Search quality may be degraded during re-embedding (mixed embeddings)
+6. Recommendation: run overnight, verify completeness the next morning
+
+**Database restore from backup**
+1. Stop application: `docker compose stop core-api slack-bot workers`
+2. Restore: `gunzip -c /mnt/user/backups/open-brain/open_brain_YYYYMMDD.sql.gz | docker compose exec -T postgres psql -U postgres open_brain`
+3. Run migrations: `docker compose run --rm core-api npx drizzle-kit migrate`
+4. Restart: `docker compose up -d`
+5. Verify: `curl http://localhost:3000/health`
+
+**Redis data loss (BullMQ jobs lost)**
+1. In-flight jobs are lost but captures are already in Postgres
+2. Find captures with pipeline_status != 'complete': `SELECT id FROM captures WHERE pipeline_status IN ('received', 'processing')`
+3. Re-trigger pipeline: `POST /api/v1/captures/:id/retry` for each
+4. Or wait for daily sweep (3:00 AM) to auto-retry
+
+**Monthly AI budget exceeded**
+1. LiteLLM enforces hard limit — LLM requests return 429
+2. Local tasks (fast, intent via Ollama) still work
+3. Captures still ingested and embedded (Ollama, not LiteLLM)
+4. Synthesis and governance blocked until budget resets
+5. Override: update `max_budget` in `config/litellm-config.yaml`, restart LiteLLM
+
+**MCP API key rotation**
+1. Generate new key: `bws secret edit dev/open-brain/mcp-api-key --value "new-key-here"`
+2. Regenerate .env.secrets: run the bws extraction script (Section 16.4, step 1)
+3. Restart core-api: `docker compose restart core-api`
+4. Verify: `curl -H "Authorization: Bearer <new-key>" https://brain.k4jda.net/mcp` (should not return 401)
+5. Update MCP clients:
+   - Claude Desktop: Settings → MCP Servers → brain → update key
+   - Claude Code: Update MCP config in settings
+   - Any other MCP clients
+6. Old key is immediately invalid after restart (no grace period)
+7. Startup log includes: `MCP API key loaded (hash: <first-8-chars-of-sha256>)` for verification without exposing the key.
 
 ---
 
