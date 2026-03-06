@@ -42,6 +42,10 @@ const KNOWN_SKILLS: Record<string, { schedule: string; description: string }> = 
     schedule: '0 18 * * *', // Daily 6pm
     description: 'Surface non-obvious connections between recent captures',
   },
+  'pipeline-health': {
+    schedule: '0 * * * *', // Every hour
+    description: 'Check BullMQ queue stats and recent pipeline failures; alert via Pushover if thresholds exceeded',
+  },
 }
 
 /**

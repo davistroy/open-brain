@@ -54,6 +54,17 @@ function makeClient(overrides: Partial<CoreApiClient> = {}): CoreApiClient {
   } as unknown as CoreApiClient
 }
 
+/** Build a voice-capture API success response */
+function makeVoiceCaptureResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    ok: true,
+    capture: { id: 'cap-voice-xyz', capture_type: 'observation', brain_view: 'personal' },
+    transcription: { text: 'Need to follow up on the QSR contract by Friday.', language: 'en', duration: 4.2 },
+    classification: { template: 'observation', confidence: 0.91 },
+    ...overrides,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -224,29 +235,101 @@ describe('handleCapture()', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Audio attachment routing
+  // Audio attachment routing (Phase 14.4)
   // -------------------------------------------------------------------------
 
   describe('audio attachment routing', () => {
-    it('sends audio-routing message when audio file is attached', async () => {
-      const msg = {
+    // Helper: build message with audio attachment
+    function makeAudioMessage(overrides: Record<string, unknown> = {}): GenericMessageEvent {
+      return {
         ...makeMessage(),
-        files: [{ mimetype: 'audio/mp4', name: 'voice-memo.m4a' }],
+        files: [
+          {
+            mimetype: 'audio/mp4',
+            name: 'voice-memo.m4a',
+            url_private: 'https://files.slack.com/files-pri/T1/F1/voice-memo.m4a',
+          },
+        ],
+        ...overrides,
       } as unknown as GenericMessageEvent
+    }
 
-      await handleCapture(msg, say, client)
-      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
-      expect(call.text).toContain('Audio message received')
-    })
+    // Mocks for fetch (Slack download + voice-capture POST)
+    function mockFetchSuccess(response = makeVoiceCaptureResponse()) {
+      return vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          // First call: Slack download
+          new Response(new ArrayBuffer(1024), {
+            status: 200,
+            headers: { 'content-type': 'audio/mp4' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          // Second call: voice-capture POST
+          new Response(JSON.stringify(response), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+    }
 
     it('does not call captures_create for audio messages', async () => {
-      const msg = {
-        ...makeMessage(),
-        files: [{ mimetype: 'audio/wav', name: 'recording.wav' }],
-      } as unknown as GenericMessageEvent
-
-      await handleCapture(msg, say, client)
+      mockFetchSuccess()
+      const msg = makeAudioMessage()
+      await handleCapture(msg, say, client, 'xoxb-test-token', 'http://voice-capture:3001')
       expect(client.captures_create).not.toHaveBeenCalled()
+    })
+
+    it('sends acknowledgement reply before transcribing', async () => {
+      mockFetchSuccess()
+      const msg = makeAudioMessage({ ts: '5555555555.000001' })
+      await handleCapture(msg, say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      // First say() call should be the ack
+      const firstCall = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string; thread_ts: string }
+      expect(firstCall.text).toContain('Transcribing')
+      expect(firstCall.thread_ts).toBe('5555555555.000001')
+    })
+
+    it('replies in thread with transcription result', async () => {
+      mockFetchSuccess()
+      const msg = makeAudioMessage({ ts: '6666666666.000001' })
+      await handleCapture(msg, say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      // Second say() call should contain transcription
+      const secondCall = (say as ReturnType<typeof vi.fn>).mock.calls[1][0] as { text: string; thread_ts: string }
+      expect(secondCall.text).toContain('Need to follow up on the QSR contract by Friday.')
+      expect(secondCall.thread_ts).toBe('6666666666.000001')
+    })
+
+    it('reply includes capture type from classification', async () => {
+      mockFetchSuccess(makeVoiceCaptureResponse({
+        classification: { template: 'decision', confidence: 0.95 },
+      }))
+      await handleCapture(makeAudioMessage(), say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      const secondCall = (say as ReturnType<typeof vi.fn>).mock.calls[1][0] as { text: string }
+      expect(secondCall.text).toContain('decision')
+    })
+
+    it('downloads audio from Slack with Authorization header', async () => {
+      const fetchSpy = mockFetchSuccess()
+      const msg = makeAudioMessage()
+      await handleCapture(msg, say, client, 'xoxb-test-bot-token', 'http://voice-capture:3001')
+
+      // First fetch call is the Slack download
+      const [downloadUrl, downloadInit] = fetchSpy.mock.calls[0] as [string, RequestInit]
+      expect(downloadUrl).toBe('https://files.slack.com/files-pri/T1/F1/voice-memo.m4a')
+      const authHeader = (downloadInit.headers as Record<string, string>)['Authorization']
+      expect(authHeader).toBe('Bearer xoxb-test-bot-token')
+    })
+
+    it('POSTs to voice-capture /api/capture endpoint', async () => {
+      const fetchSpy = mockFetchSuccess()
+      await handleCapture(makeAudioMessage(), say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      const [vcUrl] = fetchSpy.mock.calls[1] as [string, RequestInit]
+      expect(vcUrl).toBe('http://voice-capture:3001/api/capture')
     })
 
     it('does not route non-audio file attachments to voice handler', async () => {
@@ -258,6 +341,97 @@ describe('handleCapture()', () => {
       await handleCapture(msg, say, client)
       // Non-audio → should still call captures_create
       expect(client.captures_create).toHaveBeenCalled()
+    })
+
+    it('reports error in thread if SLACK_BOT_TOKEN is not configured', async () => {
+      // No token, no env var
+      delete process.env.SLACK_BOT_TOKEN
+      const msg = makeAudioMessage({ ts: '7777777777.000001' })
+      await handleCapture(msg, say, client, undefined, 'http://voice-capture:3001')
+
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string; thread_ts: string }
+      expect(call.text).toContain(':warning:')
+      expect(call.text).toContain('SLACK_BOT_TOKEN')
+      expect(call.thread_ts).toBe('7777777777.000001')
+    })
+
+    it('reports error in thread if VOICE_CAPTURE_URL is not configured', async () => {
+      delete process.env.VOICE_CAPTURE_URL
+      const msg = makeAudioMessage({ ts: '8888888888.000001' })
+      await handleCapture(msg, say, client, 'xoxb-test-token', undefined)
+
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string; thread_ts: string }
+      expect(call.text).toContain(':warning:')
+      expect(call.text).toContain('VOICE_CAPTURE_URL')
+      expect(call.thread_ts).toBe('8888888888.000001')
+    })
+
+    it('reports error in thread if Slack download fails', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response('Forbidden', { status: 403 }),
+      )
+      const msg = makeAudioMessage({ ts: '9999999999.000001' })
+      await handleCapture(msg, say, client, 'xoxb-bad-token', 'http://voice-capture:3001')
+
+      // First say() = ack, second = error
+      const errorCall = (say as ReturnType<typeof vi.fn>).mock.calls[1][0] as { text: string }
+      expect(errorCall.text).toContain(':warning:')
+      expect(errorCall.text).toContain('Voice capture failed')
+    })
+
+    it('reports error in thread if voice-capture service returns error', async () => {
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          // Slack download succeeds
+          new Response(new ArrayBuffer(512), { status: 200 }),
+        )
+        .mockResolvedValueOnce(
+          // Voice-capture returns error
+          new Response(JSON.stringify({ error: 'Transcription timed out', code: 'TRANSCRIPTION_ERROR' }), {
+            status: 502,
+            headers: { 'content-type': 'application/json' },
+          }),
+        )
+
+      const msg = makeAudioMessage({ ts: '1010101010.000001' })
+      await handleCapture(msg, say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      const errorCall = (say as ReturnType<typeof vi.fn>).mock.calls[1][0] as { text: string }
+      expect(errorCall.text).toContain(':warning:')
+      expect(errorCall.text).toContain('Voice capture failed')
+    })
+
+    it('reports error if url_private is missing on audio file', async () => {
+      const msg = {
+        ...makeMessage({ ts: '1212121212.000001' }),
+        files: [{ mimetype: 'audio/mp4', name: 'voice.m4a' }],  // no url_private
+      } as unknown as GenericMessageEvent
+
+      await handleCapture(msg, say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+      expect(call.text).toContain('url_private')
+    })
+
+    it('sends slack_ts as form field to voice-capture', async () => {
+      const fetchSpy = mockFetchSuccess()
+      const msg = makeAudioMessage({ ts: '5432198760.000001' })
+      await handleCapture(msg, say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      // Second fetch call is the voice-capture POST — body is FormData
+      const [, vcInit] = fetchSpy.mock.calls[1] as [string, RequestInit]
+      const formData = vcInit.body as FormData
+      expect(formData.get('slack_ts')).toBe('5432198760.000001')
+    })
+
+    it('sends device=slack to voice-capture', async () => {
+      const fetchSpy = mockFetchSuccess()
+      await handleCapture(makeAudioMessage(), say, client, 'xoxb-test-token', 'http://voice-capture:3001')
+
+      const [, vcInit] = fetchSpy.mock.calls[1] as [string, RequestInit]
+      const formData = vcInit.body as FormData
+      expect(formData.get('device')).toBe('slack')
     })
   })
 

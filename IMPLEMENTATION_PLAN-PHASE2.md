@@ -774,34 +774,39 @@
 
 ---
 
-### 14.1 Drift Monitor Skill
+### ✅ Completed 2026-03-05 — 14.1 Pipeline Health Skill
 
-**Description**: Scheduled skill that detects when active projects, bets, or frequently-mentioned entities go quiet.
+**Description**: Scheduled skill that checks BullMQ queue stats (waiting/active/failed/delayed) across all queues, queries pipeline_events for recent failures, detects stalled jobs, and sends a Pushover alert if thresholds are exceeded.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
-**Files to Create**:
-- `packages/workers/src/skills/drift-monitor.ts` — DriftMonitorSkill:
-  1. Query active bets approaching expiration
-  2. Query entities with high mention_count but no recent mentions (last_seen > 2 weeks)
-  3. Query brain_views with decreasing capture frequency
-  4. If findings exist: format drift report, send via Pushover + Slack DM
-  5. Capture drift findings back into brain
-- `config/prompts/drift_monitor_v1.txt` — Prompt for AI-assisted drift analysis
+**Files Created**:
+- `packages/workers/src/skills/pipeline-health.ts` — PipelineHealthSkill with QueueFactory injection for testability. Checks all 8 BullMQ queues via getJobCounts()/getJobCountByTypes(). Queries pipeline_events for failures in a configurable lookback window. Sends high-priority (1) Pushover alert when failed/waiting/stalled thresholds exceeded. Logs to skills_log.
+- `packages/workers/src/__tests__/pipeline-health.test.ts` — 23 tests covering healthy/unhealthy states, all threshold types, Pushover alert content, DB failure resilience, queue connection failure, skills_log non-fatal failure.
+
+**Files Modified**:
+- `packages/workers/src/index.ts` — Added export for pipeline-health skill
+- `packages/core-api/src/routes/skills.ts` — Registered pipeline-health in KNOWN_SKILLS (hourly schedule, POST /api/v1/skills/pipeline-health/trigger)
 
 **Acceptance Criteria**:
-- Detects bets approaching expiration (7-day window)
-- Detects entities not mentioned recently
-- Findings delivered via Pushover and Slack
-- Drift findings captured back into brain
+- Queries all 8 BullMQ queues for job counts
+- Queries pipeline_events failures within configurable lookback window (default 60 min)
+- Detects stalled jobs via getJobCountByTypes('stalled')
+- Sends Pushover alert (priority 1) when failed > threshold (default 5), waiting > threshold (default 100), or stalled jobs detected
+- Registered as 'pipeline-health' in skills registry with hourly schedule
+- Exposed via POST /api/v1/skills/pipeline-health/trigger (inherited from generic trigger route)
 
-**Requirement Refs**: PRD F22 (drift monitor), TDD §12.4 (drift-monitor job)
+**Requirement Refs**: PRD §pipeline monitoring, TDD §12.4 (monitoring skills)
 
 ---
 
-### 14.2 Daily Connections Skill
+### ✅ Completed 2026-03-05 — 14.2 Budget Monitoring Skill
 
-**Description**: Scheduled skill that finds cross-topic patterns and unexpected connections in recent captures.
+**Description**: Scheduled daily job that checks monthly LiteLLM spend and local ai_audit_log for AI cost tracking. Fires Pushover alerts when approaching the $30 soft limit (normal priority) or $50 hard limit (high priority). Queries LiteLLM /spend/logs as primary source, falls back to local ai_audit_log token-based estimation.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -823,26 +828,32 @@
 
 ---
 
-### 14.3 Bet Expiration Alerts
+### ✅ Completed 2026-03-05 — 14.3 Stale Captures Skill
 
-**Description**: Scheduled check for bets approaching their due date. High-priority Pushover alert.
+**Description**: On-demand skill that finds captures stuck in 'received' or 'processing' pipeline_status beyond a configurable threshold and re-enqueues them. Sends Pushover notification summarising what was re-queued.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
-**Files to Create**:
-- `packages/workers/src/jobs/bet-expiration.ts` — BetExpirationJob: query bets with due_date within 7 days and status='open'. For each: send Pushover (high priority) with commitment, criteria, due_date, days remaining. Auto-expire bets past due_date → status='expired'.
-- `packages/workers/src/skills/scheduler.ts` — Update: add bet-expiration to daily schedule (runs at 9am)
+**Files Created**:
+- `packages/workers/src/skills/stale-captures.ts` — StaleCapturesSkill: queries captures stuck beyond threshold (default 60min), re-enqueues to capture-pipeline (idempotent via jobId), sends Pushover high-priority notification with count/oldest/IDs, logs to skills_log.
+- `packages/workers/src/__tests__/stale-captures.test.ts` — 28 unit tests covering happy path, no stale captures, partial failure, configurable threshold, Pushover not configured, Pushover delivery failure, skills_log failure (non-fatal).
+- `packages/workers/src/index.ts` — Updated: export StaleCapturesSkill and executeStaleCapturesSkill.
 
 **Acceptance Criteria**:
-- Bets within 7 days of due → high priority Pushover
-- Past-due bets auto-expired
-- Alert includes enough context to act on
+- Finds captures stuck in 'received' or 'processing' beyond threshold
+- Re-enqueues via capture-pipeline queue (idempotent — jobId = captureId)
+- Pushover high-priority notification shows count, re-queued, oldest age, capture ID snippets
+- Configurable threshold (default 60min) via StaleCapturesOptions
+- skills_log entry written on every execution
+- All non-fatal errors (individual re-queue, Pushover, skills_log) caught and logged
 
-**Requirement Refs**: PRD F18 (bet expiration), PRD F13 (high priority notifications)
+**Requirement Refs**: PRD F05 (daily sweep / pipeline recovery), TDD §12.1 (retry policy)
 
 ---
 
-### 14.4 Slack Voice Clip Handling
+### ✅ Completed 2026-03-05 — 14.4 Slack Voice Clip Handling
 
 **Description**: When Slack voice clips (audio attachments) are posted in #open-brain, route them to voice-capture for transcription and processing.
 
@@ -859,11 +870,15 @@
 
 **Requirement Refs**: PRD F20 (Slack voice clip processing), PRD F04 (audio attachment routing)
 
+**Status:** COMPLETE 2026-03-05
+
 ---
 
-### 14.5 AI Budget Monitoring ($30 Soft Alert)
+### ✅ Completed 2026-03-05 — 14.5 AI Budget Monitoring ($30 Soft Alert)
 
 **Description**: Scheduled daily job that checks monthly LiteLLM spend via `AIRouterService.getMonthlySpend()`. Fires a Pushover alert when spend exceeds the $30 soft threshold. The $50 hard limit is enforced by LiteLLM itself — this catches it early while there's still budget headroom.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
