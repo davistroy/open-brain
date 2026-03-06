@@ -225,9 +225,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 5.1 Add web package test infrastructure and initial tests
+#### 5.1 Add web package test infrastructure and initial tests — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/web/package.json, packages/web/vite.config.ts
