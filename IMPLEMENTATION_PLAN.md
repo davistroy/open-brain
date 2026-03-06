@@ -117,7 +117,7 @@
 
 ---
 
-### 1.4 Dockerfile (Multi-Stage, Multi-Target)
+### 1.4 Dockerfile (Multi-Stage, Multi-Target) ✅ Completed 2026-03-05
 
 **Description**: Single multi-stage Dockerfile that builds all TypeScript packages. Uses targets for each service (core-api, slack-bot, workers, voice-capture). Production builds via tsup → single .mjs per service.
 
@@ -133,6 +133,8 @@
 - Image size < 200MB (alpine + minimal deps)
 
 **Requirement Refs**: TDD §16.1 (Docker Compose services), TDD §1.3 (tsup production build)
+
+**Status**: COMPLETE 2026-03-05
 
 ---
 
