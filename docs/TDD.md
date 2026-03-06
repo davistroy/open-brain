@@ -33,12 +33,12 @@
 
 This TDD provides implementation-ready technical specifications for Open Brain — a self-hosted personal AI knowledge infrastructure. It covers the complete system: API contracts, database schema (Drizzle ORM), async pipeline architecture, AI routing, Slack bot, MCP server, Docker Compose orchestration, and all supporting services.
 
-The system runs entirely on an Unraid home server, ingests captures from Slack and voice memos, embeds them for semantic search via local Ollama, routes all LLM requests through a self-hosted LiteLLM proxy, and surfaces insights through AI-powered skills (weekly briefs, governance sessions, drift detection). Search uses hybrid retrieval (full-text + vector with Reciprocal Rank Fusion) combined with ACT-R temporal decay scoring.
+The system runs entirely on an Unraid home server, ingests captures from Slack and voice memos, embeds them for semantic search via the external LiteLLM proxy (jetson-embeddings alias → Qwen3-Embedding-4B-Q4_K_M on Jetson), routes all LLM inference through the same external LiteLLM proxy at llm.k4jda.net, and surfaces insights through AI-powered skills (weekly briefs, governance sessions, drift detection). Search uses hybrid retrieval (full-text + vector with Reciprocal Rank Fusion) combined with ACT-R temporal decay scoring.
 
 ### 1.2 Scope
 
 **In Scope (this document)**:
-- Phase 1 (Foundation/MVP): Core API, Postgres+pgvector, Pipeline, Slack capture/query, MCP (embedded in Core API), Ollama, AI router
+- Phase 1 (Foundation/MVP): Core API, Postgres+pgvector, Pipeline, Slack capture/query, MCP (embedded in Core API), AI router (via external LiteLLM)
 - Phase 2 (Voice + Outputs): faster-whisper, voice-capture integration, weekly brief skill, notifications, email
 - Phase 3 (Intelligence): Entity graph, governance sessions, bet tracking, drift detection
 - Phase 4 (Polish): Web dashboard (Vite + React PWA), document ingestion, bookmarks, calendar
@@ -63,7 +63,7 @@ The system runs entirely on an Unraid home server, ingests captures from Slack a
 | Production Build | tsup (esbuild) | Zero-config bundler, single .mjs per service, ESM output |
 | Queue | BullMQ + Redis | Mature Node.js job queue, retries, priorities, dashboards |
 | LLM Proxy | LiteLLM | Unified OpenAI-compatible API for all LLM providers, with fallback and budget |
-| Embeddings | Configurable (default: nomic-embed-text 768d) via Ollama | Local, zero API cost, no fallback. Evaluating Qwen3-Embedding. Schema: vector(768) |
+| Embeddings | Qwen3-Embedding-4B-Q4_K_M via `jetson-embeddings` alias on LiteLLM | Runs on Jetson device, routed through llm.k4jda.net. OpenAI embeddings API. No fallback — queue and retry. Schema: vector(768) |
 | Search | Hybrid (FTS + vector + RRF) + ACT-R temporal decay | Best-of-both retrieval with recency/frequency-weighted ranking |
 | Transcription | faster-whisper (large-v3, CPU int8) | Local, accurate, no API cost |
 | Web UI | Vite + React + Tailwind + shadcn/ui | Lightweight SPA, no SSR needed |
@@ -77,7 +77,7 @@ Phase 1A: Data Layer
   F02 Postgres+pgvector → F01 Core API scaffold (CRUD, health, stats)
 
 Phase 1B: Embedding + Search
-  F07 Ollama (embedding model benchmarking) → Search endpoints (hybrid + temporal)
+  F07 EmbeddingService (via LiteLLM jetson-embeddings) → Search endpoints (hybrid + temporal)
 
 Phase 1C: Pipeline + LLM Gateway
   F07a LiteLLM → F08 AI Router → F03 Pipeline (embed + extract_metadata + notify)
@@ -121,7 +121,7 @@ Phase 4: Polish
 | Redis | 7+ | Job queues (BullMQ), thread context cache | Required |
 | Node.js | 22 LTS | Runtime for all TypeScript services | Required |
 | LiteLLM | latest | Unified LLM proxy with routing, fallback, budget | Required |
-| Ollama | latest | Local embedding inference (+ local LLMs via LiteLLM) | Required |
+| LiteLLM (external) | latest | Embeddings (jetson-embeddings) + all LLM inference — external shared service at llm.k4jda.net | Required |
 | faster-whisper | latest | Local speech-to-text | Required (Phase 2) |
 | Cloudflare Tunnel | latest | External access for brain.k4jda.net | Required (for MCP/slash commands) |
 | Tailscale | existing | Remote access to Unraid services | Required (existing) |
@@ -153,12 +153,10 @@ Phase 4: Polish
 
 | Container | Memory Limit | Notes |
 |-----------|-------------|-------|
-| Ollama | 16GB | Hosts embedding model + llama3.1:8b (Qwen3-Embedding:8b needs ~10GB if selected) |
 | faster-whisper | 8GB | large-v3 model, CPU int8 |
 | Postgres | 8GB | shared_buffers, work_mem |
-| LiteLLM | 512MB | Lightweight Python proxy |
 | All others | Unconstrained | Lightweight, typically <512MB each |
-| **Estimated total** | **~20-26GB** | Well within 128GB |
+| **Estimated total** | **~10-12GB** | Well within 128GB. Ollama not needed — embeddings and inference via external LiteLLM. |
 
 ---
 
@@ -412,7 +410,7 @@ kept (captures from different sources may have different context even with ident
 | filters.before | string | No | — | Captures before this date |
 
 **Implementation**:
-1. Generate embedding for `query` via Ollama (configured embedding model)
+1. Generate embedding for `query` via LiteLLM (jetson-embeddings alias)
 2. If search_mode = "hybrid": call `match_captures_hybrid()` with query embedding + raw query text
    If search_mode = "vector": call `match_captures()` with query embedding only
    If search_mode = "fts": execute FTS-only query with temporal scoring
@@ -830,7 +828,7 @@ If the answer triggers anti-vagueness enforcement:
 }
 ```
 
-**Implementation**: Generate embedding for `query_text` via Ollama at creation time. Store trigger with pre-computed embedding.
+**Implementation**: Generate embedding for `query_text` via LiteLLM (jetson-embeddings alias) at creation time. Store trigger with pre-computed embedding.
 
 ---
 
@@ -889,7 +887,7 @@ If the answer triggers anti-vagueness enforcement:
   "services": {
     "postgres": { "status": "up", "latency_ms": 2 },
     "redis": { "status": "up", "latency_ms": 1 },
-    "ollama": { "status": "up", "latency_ms": 15, "models_loaded": ["nomic-embed-text", "llama3.1:8b"] },
+    "litellm": { "status": "up", "latency_ms": 12, "models_available": ["jetson-embeddings", "fast", "synthesis", "governance"] },
     "litellm": { "status": "up", "latency_ms": 5, "models_available": ["fast", "synthesis", "governance"] }
   },
   "uptime_seconds": 86400,
@@ -907,7 +905,7 @@ If the answer triggers anti-vagueness enforcement:
 | PIPELINE_FAILED | 500 | Pipeline processing error | Check pipeline_events, retry via API |
 | SERVICE_UNAVAILABLE | 503 | Downstream service unreachable | Check health endpoint, wait for recovery |
 | AI_BUDGET_EXCEEDED | 429 | Monthly AI budget hard limit reached | Wait for budget reset or adjust limits |
-| OLLAMA_UNAVAILABLE | 503 | Ollama not responding | Check container, embeddings will queue |
+| EMBEDDING_UNAVAILABLE | 503 | LiteLLM/Jetson embedding unavailable | Embeddings will queue and retry via BullMQ |
 | CONFIG_ERROR | 500 | YAML config parse error | Fix config file syntax |
 
 ---
@@ -1134,7 +1132,7 @@ export const skillsLog = pgTable('skills_log', {
 // Do NOT add cost fields here — LiteLLM is the single source of truth for budget.
 export const aiAuditLog = pgTable('ai_audit_log', {
   id: uuid('id').defaultRandom().primaryKey(),
-  provider: text('provider').notNull(), // ollama | anthropic | openai | openrouter
+  provider: text('provider').notNull(), // litellm | anthropic | openai | openrouter
   model: text('model').notNull(),
   taskType: text('task_type').notNull(), // embedding | metadata_extraction | synthesis | governance | intent
   tokensIn: integer('tokens_in').default(0),
@@ -1438,7 +1436,7 @@ Switching embedding models (e.g., from nomic-embed-text to Qwen3-Embedding) requ
 ```typescript
 // Migration job: re-embed all captures with new model
 // 1. Query all captures with existing embeddings
-// 2. For each capture: generate new embedding via Ollama (new model)
+// 2. For each capture: generate new embedding via LiteLLM (jetson-embeddings alias)
 // 3. Batch update in groups of 50
 // Estimated time on CPU:
 //   nomic-embed-text (137M): ~1 capture/sec → 10K captures ≈ 3 hours
@@ -1753,31 +1751,31 @@ class SearchService {
 /**
  * EmbeddingService
  *
- * Generates embeddings via Ollama. No fallback — queue and retry.
- * Model is configurable via ai-routing.yaml (default: nomic-embed-text).
- * Supports instruction prefixes for models that use asymmetric embedding (e.g., Qwen3-Embedding).
+ * Generates embeddings via LiteLLM (https://llm.k4jda.net) using the OpenAI embeddings API.
+ * Model alias: 'jetson-embeddings' → Qwen3-Embedding-4B-Q4_K_M on Jetson device.
+ * No fallback — throws EmbeddingUnavailableError if LiteLLM/Jetson is unreachable; BullMQ retries.
+ * Uses same LITELLM_URL / LITELLM_API_KEY as AIRouterService (no separate OLLAMA_URL).
  */
 class EmbeddingService {
   constructor(
-    private ollamaClient: OllamaClient,
+    private litellmClient: OpenAI,  // OpenAI SDK pointed at https://llm.k4jda.net
     private configService: ConfigService,
   ) {}
 
   /** Generate 768-dim embedding for text.
-   *  Applies appropriate prefix if model supports instruction-following
-   *  (e.g., Qwen3-Embedding: "Instruct: ..." prefix for queries vs documents). */
+   *  Applies Qwen3 instruction prefix for query vs document type if supported. */
   async embed(text: string, type: 'document' | 'query' = 'document'): Promise<number[]>
-    // 1. Read model config from ai-routing.yaml (embedding.model, embedding.dimensions)
-    // 2. If model supports instruction prefixes, prepend appropriate prefix
-    // 3. POST to Ollama /api/embeddings with configured model
-    // 4. If model produces >768 dimensions (Matryoshka), truncate to 768
-    // 5. Throws OllamaUnavailableError if Ollama is down (caller retries)
+    // 1. Read model alias from ai-routing.yaml (embedding.model = 'jetson-embeddings')
+    // 2. If model supports instruction prefixes, prepend appropriate prefix for type
+    // 3. Call litellmClient.embeddings.create({ model: alias, input: text })
+    // 4. Return embedding vector (Qwen3-Embedding-4B configured for 768d on LiteLLM server)
+    // 5. Throws EmbeddingUnavailableError if LiteLLM is unreachable (caller/BullMQ retries)
 
   /** Batch embed multiple texts */
   async embedBatch(texts: string[], type: 'document' | 'query' = 'document'): Promise<number[][]>
 
   /** Get current embedding model info */
-  async getModelInfo(): Promise<{ model: string; dimensions: number; maxContext: number; supportsInstructions: boolean }>
+  async getModelInfo(): Promise<{ model: string; dimensions: number; supportsInstructions: boolean }>
 }
 ```
 
@@ -1787,7 +1785,7 @@ class EmbeddingService {
  *
  * Thin wrapper that maps task types to LiteLLM model aliases.
  * LiteLLM handles provider routing, fallback, and budget enforcement.
- * Embeddings go direct to Ollama (bypass LiteLLM).
+ * Embeddings go through EmbeddingService which also calls LiteLLM (jetson-embeddings alias).
  */
 class AIRouterService {
   constructor(
@@ -1913,45 +1911,45 @@ class EntityResolutionService {
 **Capture Flow (Slack → Pipeline → Stored)**:
 
 ```
-User          SlackBot       CoreAPI      CaptureService    BullMQ     PipelineWorker    Ollama    LiteLLM    Postgres
- │               │              │              │              │              │              │          │          │
- │──message──────►│              │              │              │              │              │          │          │
- │               │──POST /captures─►            │              │              │              │          │          │
- │               │              │──create()────►│              │              │              │          │          │
- │               │              │              │──dedup check────────────────────────────────────────────────────►│
- │               │              │              │◄────────────no dup──────────────────────────────────────────────│
- │               │              │              │──INSERT capture──────────────────────────────────────────────────►│
- │               │              │              │──enqueue()───►│              │              │          │          │
- │               │              │◄─201 {id}────│              │              │              │          │          │
- │               │◄─ack─────────│              │              │              │              │          │          │
- │               │              │              │              │──process()──►│              │          │          │
- │               │              │              │              │              │──embed()────►│          │          │
- │               │              │              │              │              │◄─vector[768]─│          │          │
- │               │              │              │              │              │──UPDATE embedding──────────────────►│
- │               │              │              │              │              │──check_triggers (in-memory)────────►│
- │               │              │              │              │              │──extract()───────────────►│         │
- │               │              │              │              │              │◄─metadata─────────────────│         │
- │               │              │              │              │              │──UPDATE metadata───────────────────►│
- │               │              │              │              │              │──UPDATE status=complete────────────►│
- │◄─thread reply─│◄────────────notify stage────│              │              │              │          │          │
+User          SlackBot       CoreAPI      CaptureService    BullMQ     PipelineWorker    LiteLLM(embed)  LiteLLM(llm)    Postgres
+ │               │              │              │              │              │                   │               │          │
+ │──message──────►│              │              │              │              │                   │               │          │
+ │               │──POST /captures─►            │              │              │                   │               │          │
+ │               │              │──create()────►│              │              │                   │               │          │
+ │               │              │              │──dedup check──────────────────────────────────────────────────────────────►│
+ │               │              │              │◄────────────no dup────────────────────────────────────────────────────────│
+ │               │              │              │──INSERT capture────────────────────────────────────────────────────────────►│
+ │               │              │              │──enqueue()───►│              │                   │               │          │
+ │               │              │◄─201 {id}────│              │              │                   │               │          │
+ │               │◄─ack─────────│              │              │              │                   │               │          │
+ │               │              │              │              │──process()──►│                   │               │          │
+ │               │              │              │              │              │──embed()──────────►│               │          │
+ │               │              │              │              │              │◄─vector[768]───────│               │          │
+ │               │              │              │              │              │──UPDATE embedding──────────────────────────────►│
+ │               │              │              │              │              │──check_triggers (in-memory)────────────────────►│
+ │               │              │              │              │              │──extract()────────────────────────►│           │
+ │               │              │              │              │              │◄─metadata──────────────────────────│           │
+ │               │              │              │              │              │──UPDATE metadata───────────────────────────────►│
+ │               │              │              │              │              │──UPDATE status=complete────────────────────────►│
+ │◄─thread reply─│◄────────────notify stage────│              │              │                   │               │          │
 ```
 
 **Search Flow (Hybrid + Temporal)**:
 
 ```
-User       SlackBot     CoreAPI    SearchService   EmbeddingService   Ollama    Postgres       BullMQ
- │            │            │            │                │              │          │              │
- │──? query──►│            │            │                │              │          │              │
- │            │──POST /search─►         │                │              │          │              │
- │            │            │──search()─►│                │              │          │              │
- │            │            │            │──embed(query)─►│              │          │              │
- │            │            │            │                │──POST /api/embeddings──►│              │
- │            │            │            │                │◄─vector[768]─│          │              │
- │            │            │            │──match_captures_hybrid(vector, text)────►│              │
- │            │            │            │◄─ranked results (RRF + temporal)────────│              │
- │            │            │            │──enqueue(update_access_stats)────────────────────────►│
- │            │◄─results───│◄───────────│                │              │          │              │
- │◄─formatted─│            │            │                │              │          │              │
+User       SlackBot     CoreAPI    SearchService   EmbeddingService   LiteLLM    Postgres       BullMQ
+ │            │            │            │                │                 │          │              │
+ │──? query──►│            │            │                │                 │          │              │
+ │            │──POST /search─►         │                │                 │          │              │
+ │            │            │──search()─►│                │                 │          │              │
+ │            │            │            │──embed(query)─►│                 │          │              │
+ │            │            │            │                │──POST /embeddings──────────►│              │
+ │            │            │            │                │◄─vector[768]────│           │              │
+ │            │            │            │──match_captures_hybrid(vector, text)─────────►│              │
+ │            │            │            │◄─ranked results (RRF + temporal)─────────────│              │
+ │            │            │            │──enqueue(update_access_stats)───────────────────────────►│
+ │            │◄─results───│◄───────────│                │                 │          │              │
+ │◄─formatted─│            │            │                │                 │          │              │
 ```
 
 ---
@@ -2021,7 +2019,7 @@ function classifyIntent(message: string): 'capture' | 'query' | 'command' {
 
   // LLM-based classification (via LiteLLM → intent model alias)
   // Uses intent_router_v1 prompt template
-  // Falls back to prefix-only if LiteLLM/Ollama is down (default-to-capture)
+  // Falls back to prefix-only if LiteLLM is unreachable (default-to-capture)
 
   return 'capture'; // Default: treat as capture (prevents data loss)
 }
@@ -2040,29 +2038,28 @@ function classifyIntent(message: string): 'capture' | 'query' | 'command' {
 - Socket Mode reconnection: Automatic with exponential backoff
 - Bot ignores its own messages and other bot messages
 
-### 8.2 Ollama Integration
+### 8.2 Embedding Service (via LiteLLM)
 
-**Purpose**: Local embedding generation. LLM chat/completion tasks route through LiteLLM (see §8.7), even when using Ollama-hosted models like llama3.1:8b.
+**Purpose**: Embedding generation for all captures, triggers, and search queries. Routes exclusively through external LiteLLM at llm.k4jda.net using the `jetson-embeddings` alias (Qwen3-Embedding-4B-Q4_K_M on Jetson device). LLM inference also routes through LiteLLM — see §8.7.
 
-**Embedding Model**: Configurable via `ai-routing.yaml`. Supports any Ollama-hosted model that produces 768d vectors (native or Matryoshka-truncated). Qwen3-Embedding models support instruction prefixes (`Instruct: ...`) for asymmetric query/document embedding — the EmbeddingService adds appropriate prefixes when the configured model supports it.
+**Embedding Model**: `jetson-embeddings` alias on LiteLLM → Qwen3-Embedding-4B-Q4_K_M running on Jetson device. Configured to produce 768d vectors. Supports instruction prefixes for asymmetric query/document embedding — EmbeddingService adds appropriate prefix based on type.
 
-**API**: OpenAI-compatible REST API
+**API**: OpenAI embeddings API via LiteLLM (same endpoint as LLM inference)
 
 ```typescript
-// Embedding generation (direct to Ollama — bypasses LiteLLM)
-const model = configService.get('ai-routing').embedding.model; // e.g., 'nomic-embed-text' or 'qwen3-embedding:8b'
-const response = await fetch('http://ollama:11434/api/embeddings', {
-  method: 'POST',
-  body: JSON.stringify({
-    model: model,
-    prompt: captureContent,  // With instruction prefix if model supports it
-  }),
+// Embedding generation via LiteLLM (OpenAI SDK — same client as AIRouterService)
+import OpenAI from 'openai';
+const litellm = new OpenAI({ baseURL: 'https://llm.k4jda.net', apiKey: process.env.LITELLM_API_KEY });
+const model = configService.get('ai-routing').embedding.model; // 'jetson-embeddings'
+const response = await litellm.embeddings.create({
+  model: model,
+  input: captureContent,  // With instruction prefix if model supports it
 });
-// response.embedding → number[768] (truncated if Matryoshka model produces more)
+// response.data[0].embedding → number[768]
 ```
 
 **Error Handling**:
-- Embeddings: NO fallback. If Ollama is down, captures queue in BullMQ and retry when Ollama recovers. This prevents mixing embedding models which would degrade search quality.
+- Embeddings: NO fallback. If LiteLLM/Jetson is unreachable, captures queue in BullMQ and retry. This prevents mixing embedding models which would degrade search quality.
 - LLM tasks: Routed through LiteLLM, which handles fallback to cloud providers.
 
 ### 8.3 Anthropic API Integration (via LiteLLM)
@@ -2172,8 +2169,8 @@ const response = await fetch('http://faster-whisper:8000/transcribe', {
 
 | Alias | Target | Fallback | Timeout |
 |-------|--------|----------|---------|
-| `fast` | ollama/llama3.1:8b (homeserver) | — | 30s |
-| `intent` | ollama/llama3.1:8b (homeserver) | — | 10s |
+| `fast` | TBD (local LLM via LiteLLM) | — | 30s |
+| `intent` | TBD (local LLM via LiteLLM) | — | 10s |
 | `synthesis` | anthropic/claude-sonnet-4-6 | openai/gpt-4o | 60s |
 | `governance` | anthropic/claude-opus-4-6 | claude-sonnet-4-6 | 120s |
 
@@ -2373,7 +2370,7 @@ After 5 failures:
 - Capture's pipeline_status set to `partial` (if other stages succeeded) or `failed`
 - Pushover alert sent (high priority)
 
-**Daily auto-retry sweep**: A scheduled job runs daily, finds all captures with failed stages, and retries each failed stage once. This catches transient issues (Ollama restart, network blip) that resolved after the initial retry window.
+**Daily auto-retry sweep**: A scheduled job runs daily, finds all captures with failed stages, and retries each failed stage once. This catches transient issues (LiteLLM/Jetson unreachable, network blip) that resolved after the initial retry window.
 
 **Manual retry**: `POST /api/v1/captures/:id/retry?stage=extract_metadata`
 
@@ -2403,7 +2400,7 @@ After 5 failures:
 | Level | Usage |
 |-------|-------|
 | ERROR | Service failures, unhandled exceptions, pipeline stage final failures |
-| WARN | Ollama temporary unavailability, budget soft limit, retry attempts |
+| WARN | LiteLLM/Jetson embedding unavailability, budget soft limit, retry attempts |
 | INFO | Capture ingested, pipeline complete, skill executed, search performed |
 | DEBUG | Embedding generation timing, AI router decisions, config reload |
 
@@ -2424,11 +2421,11 @@ No dedicated monitoring stack (no Prometheus, no Grafana). Instead:
 | Container health | Docker healthchecks + Unraid dashboard | Unraid notification |
 | Pipeline failures | `pipeline_status = 'failed'` count | Pushover (high priority) |
 | AI budget | LiteLLM `/spend/logs` endpoint | Pushover at $30 soft, circuit breaker at $50 |
-| Ollama down | Health endpoint check | Pushover (emergency) |
+| LiteLLM/Jetson down | Health endpoint check | Pushover (emergency) |
 | Postgres down | Health endpoint check | Pushover (emergency) |
 | Queue depth | BullMQ dashboard (Bull Board) | Log warning if depth > 50 |
 
-**Health Endpoint**: `GET /health` checks Postgres, Redis, and Ollama connectivity.
+**Health Endpoint**: `GET /health` checks Postgres, Redis, and LiteLLM connectivity.
 
 **Future**: Dockhand under consideration for container lifecycle management.
 
@@ -2460,7 +2457,7 @@ No dedicated monitoring stack (no Prometheus, no Grafana). Instead:
 | `thread:{thread_ts}` | `thread:1709312456.123456` | 1 hour | Auto-expire |
 | `config:{filename}` | `config:pipelines.yaml` | Until reload | `POST /admin/reload-config` or per-job re-read |
 | `budget:{month}` | `budget:2026-03` | 5 minutes | Refreshed on AI call |
-| `health:{service}` | `health:ollama` | 30 seconds | Auto-expire |
+| `health:{service}` | `health:litellm` | 30 seconds | Auto-expire |
 
 ### 11.3 Thread Context Implementation
 
@@ -2811,7 +2808,7 @@ export default defineConfig({
 
 - **Test runner**: Vitest (fast, Vite-native, TypeScript-first)
 - **Database**: Testcontainers (Postgres + pgvector) for integration tests
-- **Mocking**: Vitest built-in mocks for Ollama, Slack, external APIs
+- **Mocking**: Vitest built-in mocks for LiteLLM, Slack, external APIs
 
 ### 15.3 Unit Test Examples
 
@@ -2956,7 +2953,7 @@ describe('Captures API Integration', () => {
 |----------|-------|-----------------|
 | Slack capture → searchable | 1. Send message to #open-brain, 2. Wait for pipeline, 3. Search via API | Capture found with >0.8 similarity |
 | MCP search | 1. Create captures, 2. Call search_brain via MCP, 3. Verify results | Relevant results returned |
-| Pipeline retry | 1. Create capture, 2. Simulate Ollama failure, 3. Restart Ollama, 4. Wait for retry | Capture eventually completes |
+| Pipeline retry | 1. Create capture, 2. Simulate LiteLLM/Jetson unavailability, 3. Restore LiteLLM connectivity, 4. Wait for retry | Capture eventually completes |
 | Deduplication | 1. Send same slack_ts twice | Second attempt returns 409 |
 | Budget circuit breaker | 1. Exhaust budget via LiteLLM, 2. Attempt synthesis | Returns 429 |
 | Hybrid search recall | 1. Create capture with specific keywords, 2. Search with paraphrased query, 3. Search with exact keywords | Both find the capture (RRF fuses both arms) |
@@ -3023,23 +3020,7 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    restart: unless-stopped
-    volumes:
-      - ./data/ollama:/root/.ollama
-    networks:
-      - open-brain
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 16G
-
+  # Ollama: NOT in Open Brain stack. Embeddings (jetson-embeddings) and LLM inference both route through external LiteLLM at https://llm.k4jda.net.
   # LiteLLM is an external shared service at https://llm.k4jda.net — no container here.
 
   faster-whisper:
@@ -3077,7 +3058,6 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/open_brain
       REDIS_URL: redis://redis:6379
-      OLLAMA_URL: http://ollama:11434
       LITELLM_URL: https://llm.k4jda.net
       LITELLM_API_KEY: ${LITELLM_API_KEY}
       MCP_API_KEY: ${MCP_API_KEY}  # MCP embedded at /mcp route
@@ -3127,7 +3107,6 @@ services:
       DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/open_brain
       REDIS_URL: redis://redis:6379
       CORE_API_URL: http://core-api:3000
-      OLLAMA_URL: http://ollama:11434
       LITELLM_URL: https://llm.k4jda.net
       LITELLM_API_KEY: ${LITELLM_API_KEY}
       PUSHOVER_APP_TOKEN: ${PUSHOVER_APP_TOKEN}
@@ -3204,8 +3183,8 @@ services:
 open-brain (single network)
 ┌──────────────────────────────────────────────────────────┐
 │                                                          │
-│  postgres     redis       ollama      faster-whisper     │
-│  litellm      core-api    slack-bot   workers            │
+│  postgres     redis       faster-whisper                 │
+│  core-api     slack-bot   workers                        │
 │  voice-capture web-ui     cloudflared                    │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
@@ -3255,7 +3234,7 @@ LOG_LEVEL=info
 
 ```bash
 # 1. Retrieve secrets from Bitwarden → .env.secrets (gitignored, chmod 600)
-bws secret list --access-token $TROY | jq -r '.[] | select(.key | startswith("dev/open-brain/")) | "\(.key | split("/") | last | ascii_upcase | gsub("-";"_"))=\(.value)"' > .env.secrets
+bws secret list | jq -r '.[] | select(.key | startswith("dev/open-brain/")) | "\(.key | split("/") | last | ascii_upcase | gsub("-";"_"))=\(.value)"' > .env.secrets
 chmod 600 .env.secrets
 
 # 2. Start infrastructure
@@ -3266,12 +3245,7 @@ docker compose exec postgres pg_isready
 
 # 4. Migrations run automatically via core-api entrypoint script (no manual step needed)
 
-# 5. Pull and preload Ollama models
-docker compose up -d ollama
-docker compose exec ollama ollama pull nomic-embed-text  # Or: qwen3-embedding:8b (if selected after benchmarking)
-docker compose exec ollama ollama pull llama3.1:8b
-
-# 5a. Verify external LiteLLM proxy is reachable
+# 5. Verify external LiteLLM proxy is reachable and jetson-embeddings alias works
 curl https://llm.k4jda.net/health  # External shared LiteLLM — not managed by this stack
 
 # 6. Start application stack
@@ -3320,9 +3294,9 @@ No feature flag service — single user, phased deployment. Features enabled by:
 - [ ] Vitest unit + Testcontainers integration tests passing
 
 **Phase 1B: Embedding + Search**
-- [ ] Ollama running with candidate embedding model(s)
-- [ ] Actual CPU embedding throughput measured and documented (update TDD Section 4.5 estimates)
-- [ ] Embedding model benchmarked with 50+ real captures → model selected
+- [ ] LiteLLM jetson-embeddings alias reachable and returning 768d vectors
+- [ ] Actual embedding throughput measured and documented (update TDD Section 4.5 estimates)
+- [ ] Embedding quality validated with 50+ real captures
 - [ ] match_captures (vector + temporal) function deployed
 - [ ] FTS GIN index created on captures.content
 - [ ] match_captures_hybrid (RRF) function deployed
@@ -3331,8 +3305,8 @@ No feature flag service — single user, phased deployment. Features enabled by:
 
 **Phase 1C: Pipeline + LLM Gateway**
 - [ ] Redis running
-- [ ] LiteLLM running with model aliases (fast, synthesis, governance, intent) and budget
-- [ ] AI Router routing embeddings to Ollama, LLM to LiteLLM
+- [ ] External LiteLLM reachable with model aliases (fast, synthesis, governance, intent) and budget configured
+- [ ] AI Router routing all requests (embeddings + LLM) through external LiteLLM
 - [ ] Pipeline stages: embed → extract_metadata → notify (stub)
 - [ ] Pipeline retry logic: patient backoff (30s, 2m, 10m, 30m, 2h)
 - [ ] Bull Board at /admin/queues functional
@@ -3407,7 +3381,7 @@ No feature flag service — single user, phased deployment. Features enabled by:
 | Weekly brief generation | <2 min | Skill execution time |
 | MCP tool response | <5s | Tool execution time |
 | Web dashboard page load | <2s | Time to interactive |
-| Embedding generation | <1s | Ollama API call |
+| Embedding generation | <2s | LiteLLM API call to Jetson |
 | Metadata extraction | <5s | LLM completion time |
 
 ### 18.2 Optimization Strategies
@@ -3451,7 +3425,7 @@ Expected scale for a single-user personal knowledge system.
 | Captures | 50/day, ~18K/year | 100K total | Re-tune HNSW (increase m, ef_construction). Consider IVFFlat if HNSW build time grows. |
 | Postgres disk | ~4KB/capture (1KB content + 3KB embedding) | 1GB (~250K captures) | Non-issue for 32TB array. Add table partitioning by year if queries slow. |
 | Redis memory | ~100 bytes/job, ~1KB/thread context | 1GB | Non-issue. Check for orphaned BullMQ jobs if memory grows unexpectedly. |
-| Ollama memory | 1-16GB depending on model | 16GB limit | Swap to smaller model or increase limit. Only one model loaded at a time for embeddings. |
+| Jetson (external) | N/A — managed on Jetson device | N/A | If Jetson is overloaded, embeddings queue in BullMQ. Monitor via LiteLLM dashboard. |
 | Embedding generation | 1/sec (137M) to 0.1/sec (8B) | >20 captures/minute sustained | Batch embedding endpoint, or queue accepts latency. Unlikely for single user. |
 | LiteLLM | <100 requests/day | 1000/day | Non-issue. LiteLLM handles thousands of RPM. |
 | Postgres connections | ~5 active (API + workers + bot) | 20 (max_connections) | Increase max_connections. Consider PgBouncer if services scale. |
@@ -3528,8 +3502,8 @@ Single-user system — security is network-level, not application-level.
 | Output Skill | Scheduled/triggered AI synthesis process (weekly brief, governance) |
 | Entity | Known person, project, decision, bet, or concept |
 | Intent Router | Slack message classifier (capture vs. query vs. command) |
-| AI Router | Thin application service mapping task types to LiteLLM model aliases (LLM) and Ollama (embeddings) |
-| LiteLLM | Self-hosted proxy providing unified OpenAI-compatible API for all LLM providers |
+| AI Router | Thin application service mapping task types to LiteLLM model aliases — both LLM inference and embeddings route through external LiteLLM |
+| LiteLLM | External shared proxy at llm.k4jda.net providing unified OpenAI-compatible API for embeddings and all LLM providers |
 | Hybrid Search | FTS + vector search fused via Reciprocal Rank Fusion (RRF) |
 | ACT-R Temporal Decay | Cognitive model scoring captures by access recency and frequency |
 | Semantic Trigger | Persistent pattern that fires notifications when new captures match semantically |
@@ -3542,8 +3516,6 @@ Single-user system — security is network-level, not application-level.
 **pipelines.yaml** — Pipeline stage definitions per source/view. See PRD Section 5.2 (F03) for full spec.
 
 **ai-routing.yaml** — Embedding config + task-to-LiteLLM-alias mapping. See PRD Section 5.2 (F08).
-
-**litellm-config.yaml** — LiteLLM proxy config: model list with provider/fallback, budget limits, alerting. See TDD §8.7.
 
 **skills.yaml** — Output skill definitions, schedules, delivery targets.
 
@@ -3597,30 +3569,29 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 
 Common failure scenarios and resolution steps.
 
-**Ollama down (embeddings queuing)**
-1. Check container: `docker compose logs ollama`
-2. Restart: `docker compose restart ollama`
-3. Verify model loaded: `docker compose exec ollama ollama list`
+**LiteLLM/Jetson embedding unavailable (embeddings queuing)**
+1. Check LiteLLM health: `curl https://llm.k4jda.net/health`
+2. Check jetson-embeddings alias: `curl -H "Authorization: Bearer $LITELLM_API_KEY" https://llm.k4jda.net/v1/models`
+3. If Jetson device is down, wait for it to recover — embeddings queue in BullMQ with patient backoff
 4. Captures will auto-retry via BullMQ backoff. Check Bull Board for queue depth.
-5. If model corrupted: `docker compose exec ollama ollama pull <model-name>`
+5. If LiteLLM configuration issue, check LiteLLM admin panel at llm.k4jda.net
 
-**LiteLLM can't reach providers**
-1. Check container: `docker compose logs litellm`
-2. Verify health: `curl http://localhost:4000/health`
-3. Check API keys: `bws secret list --access-token $TROY | grep open-brain`
-4. LiteLLM auto-falls back (synthesis → gpt-4o, governance → claude-sonnet)
-5. If all providers down: LLM tasks queue in BullMQ. Local Ollama tasks (fast, intent) still work.
+**LiteLLM can't reach LLM providers**
+1. Check LiteLLM health: `curl https://llm.k4jda.net/health`
+2. Check API keys configured on external LiteLLM server
+3. LiteLLM auto-falls back (synthesis → gpt-4o, governance → claude-sonnet)
+4. If all providers down: LLM tasks queue in BullMQ. Captures still ingested; embeddings still work (Jetson path).
 
 **Pipeline queue depth > 100**
 1. Check Bull Board at `/admin/queues`
-2. Most likely cause: Ollama is slow or down
-3. Check Ollama health: `curl http://ollama:11434/`
-4. If Ollama healthy but slow: captures are just queued, they'll process eventually
+2. Most likely cause: LiteLLM/Jetson is slow or unreachable for embeddings
+3. Check LiteLLM health: `curl https://llm.k4jda.net/health`
+4. If LiteLLM healthy but Jetson slow: captures are just queued, they'll process eventually
 5. If persistent: check for a stuck job — remove it via Bull Board
 
-**Embedding model swap**
-1. Update `config/ai-routing.yaml` → `embedding.model`
-2. Pull new model: `docker compose exec ollama ollama pull <new-model>`
+**Embedding model swap (reconfigure on LiteLLM)**
+1. Update `jetson-embeddings` alias on external LiteLLM to point to new model
+2. Update `config/ai-routing.yaml` → `embedding.model` to match new alias
 3. Run re-embedding job: trigger via API or custom script
 4. Monitor progress via Bull Board — estimated times in Section 4.5
 5. Search quality may be degraded during re-embedding (mixed embeddings)
@@ -3641,10 +3612,9 @@ Common failure scenarios and resolution steps.
 
 **Monthly AI budget exceeded**
 1. LiteLLM enforces hard limit — LLM requests return 429
-2. Local tasks (fast, intent via Ollama) still work
-3. Captures still ingested and embedded (Ollama, not LiteLLM)
-4. Synthesis and governance blocked until budget resets
-5. Override: update `max_budget` in `config/litellm-config.yaml`, restart LiteLLM
+2. Captures still ingested; embeddings may also be blocked depending on LiteLLM budget scope
+3. Synthesis and governance blocked until budget resets
+4. Override: update `max_budget` in LiteLLM admin on external server (llm.k4jda.net), no local restart needed
 
 **MCP API key rotation**
 1. Generate new key: `bws secret edit dev/open-brain/mcp-api-key --value "new-key-here"`
@@ -3665,7 +3635,4 @@ Common failure scenarios and resolution steps.
 *This document was completed on 2026-03-04 using `/finish-document`.*
 
 **Questions Resolved:** 32 of 32
-**Reference Files:**
-- Questions: `reference/questions-TDD-20260304-202900.json`
-- Answers: `reference/answers-TDD-20260304-214500.json`
 - Original backup: `TDD.backup-20260304-221000.md`
