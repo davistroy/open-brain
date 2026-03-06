@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import type { Hono } from 'hono'
 import type { CaptureService } from '../services/capture.js'
 import type { SearchService } from '../services/search.js'
+import type { EntityService } from '../services/entity.js'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { validateMcpAuth } from './auth.js'
 import { registerMcpTools } from './tools/index.js'
@@ -13,6 +14,7 @@ interface McpServerDeps {
   searchService: SearchService
   configService: ConfigService
   db: Database
+  entityService?: EntityService
 }
 
 /**
@@ -25,7 +27,7 @@ interface McpServerDeps {
  * This is the correct approach for Hono/edge environments and avoids shared state.
  */
 export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
-  const { captureService, searchService, configService, db } = deps
+  const { captureService, searchService, configService, db, entityService } = deps
 
   app.all('/mcp', async (c) => {
     // Auth check — fail closed on missing/invalid token
@@ -39,7 +41,7 @@ export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
       version: '0.1.0',
     })
 
-    registerMcpTools({ server, captureService, searchService, configService, db })
+    registerMcpTools({ server, captureService, searchService, configService, db, entityService })
 
     // WebStandardStreamableHTTPServerTransport works natively with Hono (web-standard Request/Response)
     const transport = new WebStandardStreamableHTTPServerTransport({

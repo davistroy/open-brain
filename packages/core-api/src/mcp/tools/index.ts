@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CaptureService } from '../../services/capture.js'
 import type { SearchService } from '../../services/search.js'
+import type { EntityService } from '../../services/entity.js'
 import type { ConfigService } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 
@@ -18,10 +19,11 @@ interface RegisterToolsDeps {
   searchService: SearchService
   configService: ConfigService
   db: Database
+  entityService?: EntityService
 }
 
 export function registerMcpTools(deps: RegisterToolsDeps): void {
-  const { server, captureService, searchService, configService, db } = deps
+  const { server, captureService, searchService, configService, db, entityService } = deps
 
   // Tool 1: search_brain — semantic + FTS hybrid search
   server.tool(
@@ -73,7 +75,7 @@ export function registerMcpTools(deps: RegisterToolsDeps): void {
     'Look up a specific entity (person, organization, project) by name or ID and see recent related captures.',
     getEntitySchema.shape,
     async (input) => {
-      const result = await getEntityTool(input as any, db)
+      const result = await getEntityTool(input as any, db, entityService)
       return { content: [{ type: 'text', text: result }] }
     },
   )
@@ -84,7 +86,7 @@ export function registerMcpTools(deps: RegisterToolsDeps): void {
     'List entities (people, organizations, projects) extracted from your captures, sorted by mention count or last seen date.',
     listEntitiesSchema.shape,
     async (input) => {
-      const result = await listEntitiesTool(input as any, db)
+      const result = await listEntitiesTool(input as any, db, entityService)
       return { content: [{ type: 'text', text: result }] }
     },
   )

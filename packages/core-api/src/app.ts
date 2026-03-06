@@ -11,11 +11,13 @@ import { registerStatsRoutes } from './routes/stats.js'
 import { registerSearchRoutes } from './routes/search.js'
 import { registerSkillRoutes } from './routes/skills.js'
 import { registerTriggerRoutes } from './routes/triggers.js'
+import { registerEntityRoutes } from './routes/entities.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
 import type { PipelineService } from './services/pipeline.js'
 import type { TriggerService } from './services/trigger.js'
+import type { EntityService } from './services/entity.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -30,11 +32,13 @@ interface AppDependencies {
   skillQueue?: Queue
   /** Trigger service — required for semantic trigger CRUD + test endpoints */
   triggerService?: TriggerService
+  /** Entity service — required for entity CRUD + merge/split endpoints */
+  entityService?: EntityService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -68,9 +72,14 @@ export function createApp(deps: AppDependencies = {}): Hono {
     registerTriggerRoutes(app, triggerService)
   }
 
+  // Entities API
+  if (entityService) {
+    registerEntityRoutes(app, entityService)
+  }
+
   // MCP endpoint — requires all services to be available
   if (captureService && searchService && configService && db) {
-    mountMcpServer(app, { captureService, searchService, configService, db })
+    mountMcpServer(app, { captureService, searchService, configService, db, entityService })
   }
 
   return app

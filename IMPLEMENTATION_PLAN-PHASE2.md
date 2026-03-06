@@ -477,9 +477,11 @@
 
 ---
 
-### 12.1 EntityResolutionService
+### ✅ Completed 2026-03-05 — 12.1 EntityResolutionService
 
 **Description**: Three-tier entity matching: exact name → alias → LLM disambiguation. Creates new entities when no confident match found.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -529,9 +531,11 @@
 
 ---
 
-### 12.3 Entity API Endpoints
+### ✅ 12.3 Entity API Endpoints — Completed 2026-03-05
 
 **Description**: CRUD endpoints for entities and entity detail views.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 

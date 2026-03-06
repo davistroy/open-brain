@@ -9,6 +9,7 @@ import { logger } from '../lib/logger.js'
 import { EMBED_BACKOFF_DELAYS_MS } from '../queues/embed-capture.js'
 import type { EmbedCaptureJobData } from '../queues/embed-capture.js'
 import type { CheckTriggersJobData } from '../queues/check-triggers.js'
+import type { ExtractEntitiesQueue } from '../queues/extract-entities.js'
 
 /**
  * Custom BullMQ backoff strategy for patient embed retry delays.
@@ -40,6 +41,7 @@ export async function processEmbedCaptureJob(
   db: Database,
   embeddingService: EmbeddingService,
   checkTriggersQueue?: Queue<CheckTriggersJobData>,
+  extractEntitiesQueue?: ExtractEntitiesQueue,
 ): Promise<void> {
   const { captureId } = data
 
@@ -164,6 +166,22 @@ export async function processEmbedCaptureJob(
       logger.warn({ captureId, err: msg }, '[embed] failed to enqueue check-triggers job — continuing')
     }
   }
+
+  // ── Enqueue extract-entities job after successful embedding ───────────────
+  if (extractEntitiesQueue) {
+    try {
+      await extractEntitiesQueue.add(
+        'extract-entities',
+        { captureId },
+        { jobId: `extract-entities:${captureId}` },
+      )
+      logger.debug({ captureId }, '[embed] extract-entities job enqueued')
+    } catch (err) {
+      // Non-fatal: entity extraction failure must not block pipeline completion
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.warn({ captureId, err: msg }, '[embed] failed to enqueue extract-entities job — continuing')
+    }
+  }
 }
 
 /**
@@ -177,13 +195,14 @@ export function createEmbedCaptureWorker(
   litellmBaseUrl: string,
   litellmApiKey: string,
   checkTriggersQueue?: Queue<CheckTriggersJobData>,
+  extractEntitiesQueue?: ExtractEntitiesQueue,
 ): Worker<EmbedCaptureJobData> {
   const embeddingService = new EmbeddingService(litellmBaseUrl, litellmApiKey, configService)
 
   const worker = new Worker<EmbedCaptureJobData>(
     'embed-capture',
     async (job) => {
-      await processEmbedCaptureJob(job.data, db, embeddingService, checkTriggersQueue)
+      await processEmbedCaptureJob(job.data, db, embeddingService, checkTriggersQueue, extractEntitiesQueue)
     },
     {
       connection,
