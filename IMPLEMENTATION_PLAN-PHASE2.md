@@ -961,9 +961,11 @@
 
 ---
 
-### 15.3 Search Page
+### ✅ Completed 2026-03-05 — 15.3 Search Page
 
 **Description**: Full semantic search interface with filters, results display, and capture detail view.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -1005,9 +1007,11 @@
 
 ---
 
-### 15.5 Briefs, Board, Voice, Settings Pages
+### ✅ Completed 2026-03-05 — 15.5 Briefs, Board, Voice, Settings Pages
 
 **Description**: Remaining pages: weekly brief history, governance sessions, browser voice capture, and settings.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -1027,9 +1031,11 @@
 
 ---
 
-### 15.6 PWA + Docker + SSE
+### ✅ Completed 2026-03-05 — 15.6 PWA + Docker + SSE
 
 **Description**: PWA configuration for installability, Docker Compose service, and SSE integration for real-time updates.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 

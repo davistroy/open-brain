@@ -14,6 +14,7 @@ import { registerTriggerRoutes } from './routes/triggers.js'
 import { registerEntityRoutes } from './routes/entities.js'
 import { registerBetRoutes } from './routes/bets.js'
 import { registerSessionRoutes } from './routes/sessions.js'
+import { registerEventsRoutes } from './routes/events.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -58,6 +59,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
 
   // Routes
   registerHealthRoutes(app)
+  registerEventsRoutes(app)
 
   if (configService) {
     const adminRouter = createAdminRouter({ configService, redisConnection })
