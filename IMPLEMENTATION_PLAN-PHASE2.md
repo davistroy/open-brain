@@ -588,7 +588,9 @@
 
 ---
 
-### 12.5 Entity Tests
+### ✅ Completed 2026-03-05 — 12.5 Entity Tests
+
+**Status:** COMPLETE 2026-03-05
 
 **Description**: Tests for entity resolution, pipeline stage, and API endpoints.
 
