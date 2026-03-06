@@ -94,9 +94,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 1.6 Fix wildcard CORS and document temp file cleanup
+#### 1.6 Fix wildcard CORS and document temp file cleanup — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/core-api/src/app.ts
