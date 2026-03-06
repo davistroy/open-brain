@@ -7,16 +7,19 @@ import { registerHealthRoutes } from './routes/health.js'
 import { createAdminRouter } from './routes/admin.js'
 import { registerCaptureRoutes } from './routes/captures.js'
 import { registerStatsRoutes } from './routes/stats.js'
+import { registerSearchRoutes } from './routes/search.js'
 import type { CaptureService } from './services/capture.js'
+import type { SearchService } from './services/search.js'
 
 interface AppDependencies {
   configService?: ConfigService
   captureService?: CaptureService
+  searchService?: SearchService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService } = deps
+  const { configService, captureService, searchService } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -34,6 +37,10 @@ export function createApp(deps: AppDependencies = {}): Hono {
   if (captureService && configService) {
     registerCaptureRoutes(app, captureService, configService)
     registerStatsRoutes(app, captureService)
+  }
+
+  if (searchService) {
+    registerSearchRoutes(app, searchService)
   }
 
   return app

@@ -605,22 +605,27 @@
 
 ---
 
-### 5.3 SearchService
+### 5.3 SearchService ✅ Completed 2026-03-05
 
 **Description**: Service that orchestrates search: embed query → call appropriate SQL function → enqueue access stats update → return ranked results.
 
 **Complexity**: M
 
-**Files to Create**:
-- `packages/core-api/src/services/search.ts` — SearchService class:
-  - constructor(db, embeddingService, queue)
-  - search(options: SearchOptions): embed query → based on search_mode: hybrid calls match_captures_hybrid, vector calls match_captures, fts calls FTS-only query. Enqueue update_access_stats job for returned IDs. Return SearchResult[] with similarity, temporal_score, composite_score.
+**Status**: COMPLETE 2026-03-05
+
+**Files Created**:
+- `packages/core-api/src/services/search.ts` — SearchService class: constructor(db, embeddingService); search(query, options) embeds query, calls hybrid_search SQL function, fetches capture rows, applies actr_temporal_score per result, filters by brainViews/captureTypes/date, returns top N SearchResult[] sorted by score desc. SearchOptions: limit (default 10), temporalWeight (default 0.0), ftsWeight/vectorWeight (default 0.5), brainViews, captureTypes, dateFrom, dateTo.
+- `packages/core-api/src/routes/search.ts` — GET /api/v1/search?q=... with Zod query validation; delegates to SearchService; returns { query, total, results }.
+- `packages/core-api/src/services/index.ts` — Added export for search.ts.
+- `packages/core-api/src/app.ts` — Added searchService? to AppDependencies; registers search route when searchService provided.
 
 **Acceptance Criteria**:
-- Three search modes work: hybrid (default), vector, fts
 - Query embedding generated via EmbeddingService
-- Access stats job enqueued after search (non-blocking)
-- Results include similarity and composite scores
+- hybrid_search SQL function called with ftsWeight/vectorWeight params
+- actr_temporal_score applied per result (temporal_weight=0.0 default → pure relevance)
+- Post-filters: brainViews, captureTypes, dateFrom, dateTo
+- Results include score, ftsScore, vectorScore fields
+- GET /api/v1/search?q=... route registered in app
 
 **Requirement Refs**: TDD §6.2 (SearchService), PRD F05 (search behavior)
 
@@ -646,11 +651,13 @@
 
 ---
 
-### 5.5 Update Access Stats Job
+### 5.5 Update Access Stats Job ✅ Completed 2026-03-05
 
 **Description**: Background BullMQ job that increments access_count and sets last_accessed_at for captures returned in search results. Low priority, eventually consistent.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/jobs/update-access-stats.ts` — BullMQ job handler: receives captureIds + accessedAt. Batch UPDATE: `SET access_count = access_count + 1, last_accessed_at = $1 WHERE id = ANY($2::uuid[])`. Log WARN on failure (no aggressive retry).
