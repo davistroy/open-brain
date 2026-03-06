@@ -53,9 +53,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 1.3 Fix N+1 in SearchService
+#### 1.3 Fix N+1 in SearchService — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/core-api/src/services/search.ts fully

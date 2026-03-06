@@ -29,13 +29,44 @@ interface HybridSearchRow {
 }
 
 /**
+ * Applies ACT-R-inspired temporal decay to a base similarity score.
+ *
+ * Matches the SQL actr_temporal_score function exactly:
+ *   - if temporalWeight === 0.0 → returns baseScore unchanged (cold-start safe)
+ *   - otherwise:
+ *       hoursSince = max((now - createdAt) / 3600000, 0)
+ *       decay      = exp(-0.01 * sqrt(hoursSince))
+ *       result     = baseScore * decay * temporalWeight
+ *                  + baseScore * (1 - temporalWeight)
+ *
+ * decay_rate is fixed at 0.01 (gentle decay; a capture from 1 week ago
+ * retains ~85% of its decay factor; from 1 year ago ~27%).
+ */
+export function applyTemporalDecay(
+  rrfScore: number,
+  createdAt: Date | string,
+  temporalWeight: number,
+): number {
+  if (temporalWeight === 0.0) {
+    return rrfScore
+  }
+
+  const DECAY_RATE = 0.01
+  const createdAtMs = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime()
+  const hoursSince = Math.max((Date.now() - createdAtMs) / 3_600_000, 0)
+  const decay = Math.exp(-DECAY_RATE * Math.sqrt(hoursSince))
+
+  return rrfScore * decay * temporalWeight + rrfScore * (1 - temporalWeight)
+}
+
+/**
  * SearchService orchestrates hybrid search over captures.
  *
  * Flow:
  *   1. Embed the query string via EmbeddingService
  *   2. Call hybrid_search SQL function (FTS + vector RRF)
  *   3. Fetch matching capture rows
- *   4. Apply actr_temporal_score to each result
+ *   4. Apply ACT-R temporal decay in-memory (no per-row DB round-trip)
  *   5. Filter by brainViews / captureTypes / date range if provided
  *   6. Return top N results sorted by final score descending
  */
@@ -65,7 +96,6 @@ export class SearchService {
     const fetchCount = Math.min(limit * 5, 200)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hybridRows = await this.db.execute<any>(sql`
       SELECT capture_id::text, rrf_score, fts_score, vector_score
       FROM hybrid_search(
@@ -85,7 +115,6 @@ export class SearchService {
 
     // Step 3: fetch capture rows for all returned IDs in one query
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const captureRows = await this.db.execute<any>(sql`
       SELECT *
       FROM captures
@@ -97,24 +126,14 @@ export class SearchService {
       captureMap.set(row.id, row as unknown as CaptureRecord)
     }
 
-    // Step 4: apply actr_temporal_score and build SearchResult list
+    // Step 4: apply ACT-R temporal decay in-memory — zero extra DB round-trips
     const results: SearchResult[] = []
 
-    for (const hybridRow of hybridRows.rows) {
+    for (const hybridRow of hybridRows.rows as HybridSearchRow[]) {
       const capture = captureMap.get(hybridRow.capture_id)
       if (!capture) continue
 
-      // Apply ACT-R temporal decay via SQL function
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const scoreResult = await this.db.execute<any>(sql`
-        SELECT actr_temporal_score(
-          ${hybridRow.rrf_score}::float,
-          ${capture.created_at instanceof Date ? capture.created_at.toISOString() : capture.created_at}::timestamptz,
-          ${temporalWeight}::float
-        ) AS final_score
-      `)
-
-      const finalScore = scoreResult.rows[0]?.final_score ?? hybridRow.rrf_score
+      const finalScore = applyTemporalDecay(hybridRow.rrf_score, capture.created_at, temporalWeight)
 
       results.push({
         capture,
