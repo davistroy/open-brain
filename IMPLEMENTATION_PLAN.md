@@ -675,11 +675,13 @@
 
 ---
 
-### 5.6 Search Tests
+### 5.6 Search Tests ✅ Completed 2026-03-05
 
 **Description**: Search integration and unit tests. Embeddings go through LiteLLM (`jetson-embeddings` alias) — no local Ollama container needed in the Open Brain stack.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/__tests__/search.test.ts` — Integration tests (Testcontainers for Postgres): pre-insert captures with known embeddings → vector search returns relevant results, hybrid search improves recall, FTS catches keywords, temporal_weight affects ranking, filters work. Use pre-computed embedding vectors (no live LiteLLM call in tests).
