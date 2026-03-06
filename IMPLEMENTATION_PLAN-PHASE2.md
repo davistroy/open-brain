@@ -390,7 +390,7 @@
 
 ---
 
-### 11.3 Check Triggers BullMQ Job
+### ✅ Completed 2026-03-05 — 11.3 Check Triggers BullMQ Job
 
 **Description**: Background job that checks new captures against active triggers. Fires notifications when similarity exceeds threshold and cooldown has elapsed.
 
@@ -414,11 +414,13 @@
 - Trigger cache refreshed from DB every 60 seconds
 - No trigger match → job completes silently
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: TDD §12.2a (CheckTriggersJob), PRD F28 (trigger behavior)
 
 ---
 
-### 11.4 Slack Trigger Commands
+### ✅ Completed 2026-03-05 — 11.4 Slack Trigger Commands
 
 **Description**: Slack commands for trigger management via ! prefix.
 
@@ -437,11 +439,13 @@
 - Trigger list shows all active triggers with status
 - Trigger test shows matches without firing
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F28 (Slack trigger commands)
 
 ---
 
-### 11.5 Commands + Triggers Tests
+### ✅ Completed 2026-03-05 — 11.5 Commands + Triggers Tests
 
 **Description**: Tests for Slack commands and trigger system.
 
@@ -456,6 +460,8 @@
 - All command dispatch tests pass
 - Trigger lifecycle tests pass (create, match, fire, cooldown)
 - Cache refresh behavior verified
+
+**Status:** COMPLETE 2026-03-05
 
 **Requirement Refs**: PRD Phase 2B/2C test gates
 
