@@ -4,14 +4,26 @@
  */
 
 import type { App } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/bolt'
 import type { CoreApiClient } from './lib/core-api-client.js'
 import { logger } from './lib/logger.js'
+import { IntentRouter } from './intent/router.js'
+import { handleCapture } from './handlers/capture.js'
 
 /**
  * Register all message/event handlers on the Bolt app.
- * Handlers for capture, query, command, etc. will be added here as phases 7.2–7.4 are implemented.
  */
-function registerHandlers(app: App, _coreApiClient: CoreApiClient): void {
+function registerHandlers(app: App, coreApiClient: CoreApiClient): void {
+  // Build IntentRouter from environment — falls back to CAPTURE if LiteLLM unavailable
+  const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
+  const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
+  const intentRouter = new IntentRouter({
+    litellm_url: litellmUrl,
+    litellm_api_key: litellmApiKey,
+    intent_model: 'intent',
+    llm_timeout_ms: 5_000,
+  })
+
   // Ignore bot messages globally — prevents feedback loops
   app.message(async ({ message, next }) => {
     if ('subtype' in message && message.subtype === 'bot_message') {
@@ -23,25 +35,63 @@ function registerHandlers(app: App, _coreApiClient: CoreApiClient): void {
     await next()
   })
 
-  // Placeholder message handler — logs all user messages.
-  // Phases 7.2–7.4 will replace this with intent routing.
+  // Primary message handler — routes via IntentRouter
   app.message(async ({ message, say }) => {
     if (!('text' in message) || !message.text) return
 
-    const text = message.text
-    const channel = 'channel' in message ? message.channel : 'unknown'
-    const ts = 'ts' in message ? message.ts : 'unknown'
+    const genericMessage = message as GenericMessageEvent
+    const text = genericMessage.text ?? ''
+    const channel = genericMessage.channel
+    const ts = genericMessage.ts
 
     logger.info({ channel, ts, textLen: text.length }, 'Received message')
 
-    // Echo acknowledgment for now — intent router wires in Phase 7.2
-    await say({
-      text: '_Open Brain received your message. Intent routing coming in Phase 7.2._',
-      thread_ts: ts,
+    // Classify intent
+    const intentResult = await intentRouter.classify(text, {
+      channel_id: channel,
+      is_thread_reply: 'thread_ts' in message && !!message.thread_ts,
+      is_mention: false,
     })
+
+    logger.debug(
+      { intent: intentResult.intent, confidence: intentResult.confidence, method: intentResult.method },
+      'Intent classified',
+    )
+
+    switch (intentResult.intent) {
+      case 'capture':
+        await handleCapture(genericMessage, say, coreApiClient)
+        break
+
+      case 'query':
+        // Phase 7.4 — query handler
+        await say({
+          text: '_Query routing coming in Phase 7.4._',
+          thread_ts: ts,
+        })
+        break
+
+      case 'command':
+        // Phase 7.4 — command handler
+        await say({
+          text: '_Command handling coming in Phase 7.4._',
+          thread_ts: ts,
+        })
+        break
+
+      case 'conversation':
+        // Conversational messages acknowledged but not captured
+        logger.debug({ channel, ts }, 'Conversational message — no action taken')
+        break
+
+      default:
+        // Safety net — treat unknown intents as capture
+        await handleCapture(genericMessage, say, coreApiClient)
+        break
+    }
   })
 
-  // App mention handler — `@Open Brain ...`
+  // App mention handler — `@Open Brain ...` → treated as QUERY (Phase 7.4)
   app.event('app_mention', async ({ event, say }) => {
     logger.info({ channel: event.channel, ts: event.ts }, 'App mention received')
 

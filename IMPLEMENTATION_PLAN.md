@@ -937,11 +937,13 @@
 
 ---
 
-### 7.3 Capture Handler
+### 7.3 Capture Handler — COMPLETE 2026-03-05
 
 **Description**: Processes incoming messages classified as CAPTURE. Calls Core API to create capture, replies in thread with confirmation.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/slack-bot/src/handlers/capture.ts` — handleCapture(message, say):
@@ -961,9 +963,11 @@
 
 ---
 
-### 7.4 Query Handler + Thread Context
+### 7.4 Query Handler + Thread Context ✅ Completed 2026-03-05
 
 **Description**: Processes QUERY intents. Performs search, formats results, manages thread context in Redis for follow-up interactions.
+
+**Status**: COMPLETE 2026-03-05
 
 **Complexity**: M
 
