@@ -170,11 +170,13 @@
 
 ---
 
-### 2.1 Drizzle Schema — Core Tables
+### 2.1 Drizzle Schema — Core Tables ✅ Completed 2026-03-05
 
 **Description**: Drizzle ORM table definitions for captures, pipeline_events, and ai_audit_log. These are the Phase 1 tables needed for CRUD and pipeline.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/schema/captures.ts` — captures table with all columns (id, content, content_raw, content_hash, embedding vector(768), access_count, last_accessed_at, metadata, source, source_metadata, pre_extracted, tags, brain_views, pipeline_status, captured_at, created_at, updated_at, deleted_at) + all indexes (HNSW, GIN on metadata/tags/brain_views, FTS, created_at, source, pipeline_status, content_hash, captured_at)
@@ -237,11 +239,13 @@
 
 ---
 
-### 2.4 TypeScript Interfaces & Type Definitions
+### 2.4 TypeScript Interfaces & Type Definitions ✅ Completed 2026-03-05
 
 **Description**: All TypeScript interfaces referenced by the Drizzle schema $type annotations and used across packages.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/types/capture.ts` — CaptureMetadata (people, topics, type, action_items, dates, brain_views_suggested), SourceMetadata (slack_ts, device, duration_seconds, original_filename, url, channel, user), PreExtracted (template, confidence, fields, transcript_raw). CreateCaptureInput, CaptureFilters, CaptureRecord.
