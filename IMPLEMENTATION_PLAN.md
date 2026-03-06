@@ -524,11 +524,13 @@
 
 ---
 
-### 4.5 Capture CRUD Tests
+### 4.5 Capture CRUD Tests ✅ Completed 2026-03-05
 
 **Description**: Comprehensive tests for capture lifecycle — unit tests for CaptureService, integration tests for endpoints.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/__tests__/capture-service.test.ts` — Unit tests: create with dedup, list with filters, update merge, soft delete exclusion, stats counts
