@@ -1,5 +1,5 @@
 import { Worker } from 'bullmq'
-import { eq } from 'drizzle-orm'
+import { eq, sql, and } from 'drizzle-orm'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import OpenAI from 'openai'
@@ -96,24 +96,19 @@ async function resolveOrCreateEntity(
 
   const lowerName = normalizedName.toLowerCase()
 
-  // Fetch all entities of this type — entity tables are small; in-JS matching
-  // avoids needing a case-insensitive index on aliases.
-  const candidates = await db
-    .select({
-      id: entities.id,
-      name: entities.name,
-      canonical_name: entities.canonical_name,
-      aliases: entities.aliases,
-    })
+  // Tier 1: Exact case-insensitive name or canonical_name match via indexed lower() lookup.
+  // Uses (entity_type, lower(name)) and (entity_type, lower(canonical_name)) indexes.
+  const [byName] = await db
+    .select({ id: entities.id })
     .from(entities)
-    .where(eq(entities.entity_type, entityType))
+    .where(
+      and(
+        eq(entities.entity_type, entityType),
+        sql`(lower(${entities.name}) = ${lowerName} OR lower(${entities.canonical_name}) = ${lowerName})`,
+      ),
+    )
+    .limit(1)
 
-  // 1. Exact name or canonical_name match (case-insensitive)
-  const byName = candidates.find(
-    (c) =>
-      c.name.toLowerCase() === lowerName ||
-      c.canonical_name.toLowerCase() === lowerName,
-  )
   if (byName) {
     await db
       .update(entities)
@@ -122,10 +117,19 @@ async function resolveOrCreateEntity(
     return byName.id
   }
 
-  // 2. Alias match
-  const byAlias = candidates.find((c) =>
-    (c.aliases as string[]).some((alias) => alias.toLowerCase() === lowerName),
-  )
+  // Tier 2: Alias match using Postgres array contains operator (@>).
+  // Checks whether the aliases array column contains the lowercased mention.
+  const [byAlias] = await db
+    .select({ id: entities.id })
+    .from(entities)
+    .where(
+      and(
+        eq(entities.entity_type, entityType),
+        sql`${entities.aliases} @> ARRAY[${lowerName}]::text[]`,
+      ),
+    )
+    .limit(1)
+
   if (byAlias) {
     await db
       .update(entities)

@@ -41,11 +41,21 @@ function insertChain(returnedRows: unknown[] = []) {
 }
 
 /**
- * Build a mock Drizzle DB. Accepts per-call select rows and insert return rows.
+ * Build a mock Drizzle DB for the new targeted-query pattern.
+ *
+ * Entity resolution now issues two targeted SELECT calls per mention:
+ *   - Tier 1: exact case-insensitive name/canonical_name match (LIMIT 1)
+ *   - Tier 2: alias array contains check (LIMIT 1)
+ *
+ * `tier1Hit` and `tier2Hit` control what those targeted queries return.
+ * When null/undefined the tier returns an empty array (no match).
  */
 function makeMockDb(options: {
   captureRow?: Record<string, unknown> | null
+  /** @deprecated Use tier1Hit / tier2Hit instead */
   entityCandidates?: Record<string, unknown>[]
+  tier1Hit?: { id: string } | null
+  tier2Hit?: { id: string } | null
   insertedEntity?: { id: string } | null
 } = {}) {
   const {
@@ -55,6 +65,8 @@ function makeMockDb(options: {
       pipeline_status: 'embedded',
     },
     entityCandidates = [],
+    tier1Hit = null,
+    tier2Hit = null,
     insertedEntity = { id: 'ent-new-1' },
   } = options
 
@@ -64,12 +76,23 @@ function makeMockDb(options: {
 
   db.select = vi.fn().mockImplementation(() => {
     selectCallCount++
-    // Call 1: fetch capture
+    // Call 1: fetch capture row
     if (selectCallCount === 1) {
       return selectChain(captureRow === null ? [] : [captureRow])
     }
-    // Call 2+: fetch entity candidates for each entity type
-    return selectChain(entityCandidates)
+    // Subsequent calls alternate: odd = Tier 1 name match, even = Tier 2 alias match.
+    // Both return at most one row (LIMIT 1 semantics).
+    // Legacy entityCandidates support: if provided and no tier hits set, treat as Tier 1 hits
+    // so old-style tests keep working for the "no candidates" (empty array) case.
+    const tierIndex = selectCallCount - 2 // 0-based index of entity resolution calls
+    const isTier1 = tierIndex % 2 === 0
+    if (isTier1) {
+      const hit = tier1Hit ?? (entityCandidates.length > 0 ? entityCandidates[0] : null)
+      return selectChain(hit ? [hit] : [])
+    } else {
+      const hit = tier2Hit
+      return selectChain(hit ? [hit] : [])
+    }
   })
 
   const insertChainObj = insertChain(insertedEntity ? [insertedEntity] : [])
@@ -181,29 +204,16 @@ describe('processExtractEntitiesJob', () => {
       projects: [],
     })
 
-    const existingEntity = {
-      id: 'ent-existing-1',
-      name: 'Alice',
-      canonical_name: 'Alice',
-      aliases: [],
-    }
-
-    const db = makeMockDb({ entityCandidates: [existingEntity] }) as any
+    // Tier 1 (name/canonical_name match) returns a hit — Tier 2 never reached.
+    const db = makeMockDb({ tier1Hit: { id: 'ent-existing-1' } }) as any
     const client = makeMockLitellmClient(llmResponse)
 
     await processExtractEntitiesJob(jobData, db, client, synthesisModel, promptsDir)
 
     // update should have been called to bump last_seen_at on the existing entity
     expect(db.update).toHaveBeenCalled()
-    // insert for new entity should NOT have been called (reuse existing)
+    // pipeline_events: 2 (started + success), entity_links: 1 → no entity INSERT
     const insertCalls = (db.insert as ReturnType<typeof vi.fn>).mock.calls
-    // Only pipeline_events inserts (started + success) — no entity row insert
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const entityInserts = (insertCalls as any[]).filter(
-      ([table]: [any]) => table !== undefined && String(table).includes !== undefined,
-    )
-    // All insert calls go to insert() — we verify by counting
-    // pipeline_events: 2 (started + success), entity_links: 1 → no entities INSERT
     expect(insertCalls.length).toBeGreaterThanOrEqual(2)
   })
 
@@ -216,14 +226,8 @@ describe('processExtractEntitiesJob', () => {
       projects: [],
     })
 
-    const existingEntity = {
-      id: 'ent-existing-2',
-      name: 'Thomas Smith',
-      canonical_name: 'Thomas Smith',
-      aliases: ['Tom', 'Tom Smith'],
-    }
-
-    const db = makeMockDb({ entityCandidates: [existingEntity] }) as any
+    // Tier 1 returns no match; Tier 2 (alias array contains) returns a hit.
+    const db = makeMockDb({ tier1Hit: null, tier2Hit: { id: 'ent-existing-2' } }) as any
     const client = makeMockLitellmClient(llmResponse)
 
     await processExtractEntitiesJob(jobData, db, client, synthesisModel, promptsDir)

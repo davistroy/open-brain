@@ -164,9 +164,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 3.1 Optimize entity resolution with indexed DB lookups
+#### 3.1 Optimize entity resolution with indexed DB lookups — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/workers/src/jobs/extract-entities.ts in full, especially the resolveOrCreateEntity function
