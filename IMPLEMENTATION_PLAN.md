@@ -888,11 +888,13 @@
 
 ---
 
-### 7.1 Slack Bot Setup
+### 7.1 Slack Bot Setup ✅ Completed 2026-03-05
 
 **Description**: @slack/bolt application with Socket Mode. Connects to Slack workspace, listens for messages in #open-brain and @mentions.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/slack-bot/src/app.ts` — Bolt App initialization with socketMode: true. Environment: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, CORE_API_URL, REDIS_URL, LITELLM_URL.
@@ -910,11 +912,13 @@
 
 ---
 
-### 7.2 Intent Router
+### 7.2 Intent Router — COMPLETE 2026-03-05
 
 **Description**: Classifies incoming Slack messages as CAPTURE, QUERY, COMMAND, or CONVERSATION. Prefix-based first (always works), LLM classification layered on top.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/slack-bot/src/intent/router.ts` — IntentRouter class:
