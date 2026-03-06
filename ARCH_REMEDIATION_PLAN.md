@@ -18,9 +18,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 1.1 Wire all services in core-api index.ts
+#### 1.1 Wire all services in core-api index.ts — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/core-api/src/index.ts and packages/core-api/src/app.ts fully
