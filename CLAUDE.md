@@ -10,8 +10,9 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 
 - **Runtime**: TypeScript, Hono framework, Drizzle ORM
 - **Database**: Postgres 16 + pgvector (pgvector/pgvector:pg16 image, no Supabase)
-- **LLM Gateway**: LiteLLM proxy for all LLM requests (not embeddings). Model aliases: fast, synthesis, governance, intent.
-- **Embeddings**: Configurable model via Ollama (evaluating nomic-embed-text vs Qwen3-Embedding). NO fallback — queue and retry if Ollama is down.
+- **LLM Gateway**: LiteLLM at https://llm.k4jda.net for ALL AI requests — both embeddings and LLM inference. No Ollama container in Open Brain stack.
+- **Embeddings**: Qwen3-Embedding-4B-Q4_K_M via `jetson-embeddings` alias on LiteLLM (Jetson device). OpenAI embeddings API. NO fallback — queue and retry if LiteLLM/Jetson is down.
+- **LLM Inference**: Model aliases fast, synthesis, governance, intent — all through LiteLLM. Backing providers TBD (configure on llm.k4jda.net before Phase 6).
 - **Schema**: `vector(768)` everywhere. Do not use 1536.
 - **Search**: Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay scoring. Default temporal_weight: 0.0 (cold start), ramp up as search history builds.
 - **MCP Auth**: Authorization: Bearer header (not URL query parameter)

@@ -309,12 +309,12 @@
 
 ### 3.2 Health Endpoint
 
-**Description**: GET /health endpoint that checks connectivity to Postgres and Redis (and later Ollama, LiteLLM). Returns overall status and per-service status.
+**Description**: GET /health endpoint that checks connectivity to Postgres, Redis, and LiteLLM. Returns overall status and per-service status.
 
 **Complexity**: S
 
 **Files to Create**:
-- `packages/core-api/src/routes/health.ts` — GET /health: checks Postgres (SELECT 1), Redis (PING). Returns `{ status: "healthy"|"degraded"|"unhealthy", services: { postgres: "up"|"down", redis: "up"|"down", ollama: "unconfigured", litellm: "unconfigured" }, version: string, uptime: number }`
+- `packages/core-api/src/routes/health.ts` — GET /health: checks Postgres (SELECT 1), Redis (PING), LiteLLM (GET https://llm.k4jda.net/health). Returns `{ status: "healthy"|"degraded"|"unhealthy", services: { postgres: "up"|"down", redis: "up"|"down", litellm: "up"|"down" }, version: string, uptime: number }`
 
 **Acceptance Criteria**:
 - Returns 200 with status "healthy" when all services are up
@@ -508,36 +508,37 @@
 
 ## Phase 5: Embedding + Search
 
-**Goal**: Semantic search works. Ollama generates embeddings. Hybrid search (FTS + vector + RRF) with ACT-R temporal scoring returns ranked results.
+**Goal**: Semantic search works. LiteLLM routes embeddings to Jetson (Qwen3-Embedding-4B-Q4_K_M). Hybrid search (FTS + vector + RRF) with ACT-R temporal scoring returns ranked results.
 
 **Dependencies**: Phase 4 (captures exist in database)
 
-**Test Gate (PRD 1B)**: Insert 20-30 test captures, generate embeddings, vector search returns relevant results (>0.7 similarity), hybrid search improves recall on paraphrased queries, FTS catches exact keywords. CPU embedding throughput documented.
+**Test Gate (PRD 1B)**: Insert 20-30 test captures, generate embeddings, vector search returns relevant results (>0.7 similarity), hybrid search improves recall on paraphrased queries, FTS catches exact keywords. Embedding throughput via LiteLLM documented.
 
 ---
 
 ### 5.1 EmbeddingService
 
-**Description**: Service that generates 768-dimensional embeddings via Ollama. Supports instruction prefixes for Qwen3-Embedding. No fallback — throws OllamaUnavailableError if Ollama is down.
+**Description**: Service that generates 768-dimensional embeddings via LiteLLM (external at https://llm.k4jda.net). Uses the `jetson-embeddings` alias which routes to Qwen3-Embedding-4B-Q4_K_M on the Jetson. OpenAI-compatible embeddings API. No fallback — throws EmbeddingUnavailableError if LiteLLM/Jetson is unreachable; BullMQ retries with patient backoff.
 
 **Complexity**: M
 
 **Files to Create**:
 - `packages/shared/src/services/embedding.ts` — EmbeddingService class:
-  - constructor(ollamaBaseUrl, configService)
-  - embed(text, type: 'document'|'query'): POST to Ollama /api/embeddings, truncate to 768d if Matryoshka model, return number[]. Applies instruction prefix for query vs document if model supports it.
-  - embedBatch(texts, type): Sequential embed calls (Ollama doesn't batch)
-  - getModelInfo(): Returns model name, dimensions, context length, instruction support
-  - Throws OllamaUnavailableError on connection failure
-- `packages/shared/src/__tests__/embedding.test.ts` — Unit tests with mocked Ollama: correct API call, dimension truncation, error on unavailable
+  - constructor(litellmBaseUrl, litellmApiKey, configService)
+  - Uses OpenAI SDK: `new OpenAI({ baseURL: litellmUrl, apiKey: litellmApiKey })`
+  - embed(text, type: 'document'|'query'): `openai.embeddings.create({ model: 'jetson-embeddings', input: text })` → returns number[768]. Applies instruction prefix for Qwen3 query vs document type if supported.
+  - embedBatch(texts, type): Sequential embed calls, returns number[][768]
+  - getModelInfo(): Returns model alias, dimensions (768), source from ai-routing.yaml
+  - Throws EmbeddingUnavailableError on connection failure or non-200 response
+- `packages/shared/src/__tests__/embedding.test.ts` — Unit tests with mocked OpenAI client: correct API call, correct model alias, error on unavailable
 
 **Acceptance Criteria**:
-- Generates 768-dim embeddings from Ollama
-- Handles Matryoshka truncation (if model returns >768 dims, truncate)
-- Model configurable via ai-routing.yaml (configService)
-- OllamaUnavailableError thrown cleanly on failure (no hanging)
+- Generates 768-dim embeddings via LiteLLM `jetson-embeddings` alias
+- Model alias configurable via ai-routing.yaml (no hardcoding)
+- EmbeddingUnavailableError thrown cleanly on failure (no hanging, timeout 30s)
+- Same LITELLM_URL/LITELLM_API_KEY env vars as AIRouterService (no separate OLLAMA_URL)
 
-**Requirement Refs**: TDD §6.2 (EmbeddingService), PRD F07 (Ollama), TDD §8.2 (Ollama integration)
+**Requirement Refs**: TDD §6.2 (EmbeddingService), TDD §8.7 (LiteLLM integration)
 
 ---
 
@@ -623,24 +624,23 @@
 
 ---
 
-### 5.6 Search Tests + Docker Ollama
+### 5.6 Search Tests
 
-**Description**: Search integration tests and Ollama container in Docker Compose.
+**Description**: Search integration and unit tests. Embeddings go through LiteLLM (`jetson-embeddings` alias) — no local Ollama container needed in the Open Brain stack.
 
 **Complexity**: M
 
-**Files to Create/Modify**:
-- `docker-compose.yml` — Add ollama service (ollama/ollama:latest, 16GB memory, volume, healthcheck, open-brain network)
-- `packages/core-api/src/__tests__/search.test.ts` — Integration tests: insert captures with embeddings → vector search returns relevant results, hybrid search improves recall, FTS catches keywords, temporal_weight affects ranking, filters work
-- `packages/core-api/src/__tests__/search-service.test.ts` — Unit tests with mocked embedding: search modes, access stats enqueue
+**Files to Create**:
+- `packages/core-api/src/__tests__/search.test.ts` — Integration tests (Testcontainers for Postgres): pre-insert captures with known embeddings → vector search returns relevant results, hybrid search improves recall, FTS catches keywords, temporal_weight affects ranking, filters work. Use pre-computed embedding vectors (no live LiteLLM call in tests).
+- `packages/core-api/src/__tests__/search-service.test.ts` — Unit tests with mocked EmbeddingService: search modes, access stats enqueue
 
 **Acceptance Criteria**:
-- Ollama container starts and loads embedding model
-- Search returns results with >0.7 similarity for known matches
+- Search returns results with >0.7 similarity for known embedding matches
 - Hybrid search outperforms vector-only on paraphrased queries
-- Tests pass with Testcontainers
+- All three search modes (hybrid, vector, fts) tested
+- Tests pass without external LiteLLM dependency (embeddings mocked or pre-computed)
 
-**Requirement Refs**: PRD Phase 1B test gate, TDD §8.2 (Ollama integration)
+**Requirement Refs**: PRD Phase 1B test gate, TDD §6.2 (SearchService)
 
 ---
 
@@ -650,7 +650,7 @@
 
 **Dependencies**: Phase 5 (embeddings work, search works)
 
-**Test Gate (PRD 1C)**: Insert capture via API → automatically embedded, metadata extracted, pipeline_status = 'complete'. pipeline_events shows all stages with timing. Simulate Ollama failure → capture queues, retries on recovery. LiteLLM routes aliases correctly. Bull Board accessible.
+**Test Gate (PRD 1C)**: Insert capture via API → automatically embedded, metadata extracted, pipeline_status = 'complete'. pipeline_events shows all stages with timing. Simulate LiteLLM embedding failure → capture queues, retries on recovery. LiteLLM routes aliases correctly. Bull Board accessible.
 
 ---
 
@@ -709,16 +709,17 @@
 - `packages/shared/src/services/ai-router.ts` — AIRouterService class:
   - constructor(configService, db, litellmBaseUrl, litellmApiKey)
   - complete(taskType, prompt, options?): lookup model alias from ai-routing.yaml → call OpenAI SDK pointed at LiteLLM → log to ai_audit_log → return response
-  - getMonthlySpend(): GET LiteLLM /spend/logs endpoint
-  - Uses OpenAI SDK (`new OpenAI({ baseURL: litellmUrl, apiKey })`)
-- `config/ai-routing.yaml` — Full config: embedding (provider: ollama, model: nomic-embed-text, dimensions: 768), task_models (metadata_extraction: fast, intent_classification: intent, synthesis: synthesis, governance: governance, career_signals: synthesis, weekly_brief: synthesis, drift_detection: fast), litellm (base_url), ollama (base_url)
-- `config/litellm-config.yaml` — Model list: fast (ollama/llama3.1:8b), synthesis (anthropic/claude-sonnet-4-6, fallback: openai/gpt-4o), governance (anthropic/claude-opus-4-6, fallback: claude-sonnet), intent (ollama/llama3.1:8b). Budget: $50/month hard, alerting webhook.
+  - getMonthlySpend(): GET LiteLLM /spend/logs endpoint — returns { total, by_model }
+  - Uses OpenAI SDK (`new OpenAI({ baseURL: litellmUrl, apiKey })`) — same client as EmbeddingService
+- `config/ai-routing.yaml` — Full config: embedding (model: jetson-embeddings, dimensions: 768, note: Qwen3-Embedding-4B-Q4_K_M via Jetson through LiteLLM), task_models (metadata_extraction: fast, intent_classification: intent, synthesis: synthesis, governance: governance, career_signals: synthesis, weekly_brief: synthesis, drift_detection: fast). Note: all aliases resolve on external LiteLLM at https://llm.k4jda.net. LLM provider for fast/intent/synthesis/governance is TBD — configure aliases on server before Phase 6.
+
+**NOTE — no `config/litellm-config.yaml` in this repo**: LiteLLM is an external shared service at https://llm.k4jda.net. Its model list, provider config, and budget are managed on that server. Required aliases that must be pre-configured there before Phase 6: `jetson-embeddings` (Qwen3-Embedding-4B-Q4_K_M on Jetson), `fast` (TBD local LLM), `intent` (TBD local LLM), `synthesis` (cloud LLM TBD), `governance` (cloud LLM TBD).
 
 **Acceptance Criteria**:
-- Task type → LiteLLM alias mapping works from config
+- Task type → LiteLLM alias mapping works from ai-routing.yaml config
 - ai_audit_log entries created for every LLM call
 - OpenAI SDK calls route through LiteLLM correctly
-- Monthly spend queryable
+- Monthly spend queryable via getMonthlySpend()
 
 **Requirement Refs**: TDD §6.2 (AIRouterService), PRD F08 (AI Router), TDD §8.7 (LiteLLM)
 
@@ -752,14 +753,14 @@
 
 **Files to Create/Modify**:
 - `packages/core-api/src/routes/admin.ts` — Mount @bull-board/hono at /admin/queues. Register all queues.
-- `docker-compose.yml` — Add core-api service definition (build target, ports, env_file .env.secrets, env vars for DATABASE_URL/REDIS_URL/OLLAMA_URL/LITELLM_URL=https://llm.k4jda.net/MCP_API_KEY, config volume, depends on postgres+redis, healthcheck)
-- `docker-compose.yml` — Add workers service definition (build target, env vars including LITELLM_URL=https://llm.k4jda.net, config volume, depends on postgres+redis)
+- `docker-compose.yml` — Add core-api service definition (build target, ports, env_file .env.secrets, env vars for DATABASE_URL/REDIS_URL/LITELLM_URL=https://llm.k4jda.net/LITELLM_API_KEY/MCP_API_KEY, config volume, depends on postgres+redis, healthcheck). No OLLAMA_URL — embeddings and LLM inference both route through LiteLLM.
+- `docker-compose.yml` — Add workers service definition (build target, env vars for DATABASE_URL/REDIS_URL/LITELLM_URL=https://llm.k4jda.net/LITELLM_API_KEY/CORE_API_URL, config volume, depends on postgres+redis)
 
 **Acceptance Criteria**:
 - Bull Board UI accessible at /admin/queues
 - Core API and Workers containers build and start
 - `curl https://llm.k4jda.net/health` returns healthy from within containers
-- LiteLLM routes "fast" alias to Ollama, "synthesis" to Claude
+- LiteLLM routes `jetson-embeddings` and inference aliases correctly
 
 **Requirement Refs**: PRD F03 (Bull Board), PRD F07a (LiteLLM), TDD §16.1 (Docker Compose)
 
@@ -786,6 +787,27 @@
 - Pipeline health visible at /admin/queues
 
 **Requirement Refs**: PRD Phase 1C test gate, TDD §6.2 (PipelineService)
+
+---
+
+### 6.7 Daily Sweep Worker
+
+**Description**: Scheduled BullMQ job that runs at 3:00 AM daily, finds captures stuck in `received` or `processing` status, and re-enqueues them for pipeline processing. Catches transient failures (LiteLLM blip, Redis restart) that outlasted the initial retry window.
+
+**Complexity**: S
+
+**Files to Create**:
+- `packages/workers/src/jobs/daily-sweep.ts` — DailySweepJob: queries `SELECT id FROM captures WHERE pipeline_status IN ('received', 'processing') AND created_at < NOW() - INTERVAL '1 hour'`. For each found capture, enqueue a capture-pipeline job (idempotent — BullMQ deduplicates by jobId=captureId). Log count of captures re-queued.
+- `packages/workers/src/scheduler.ts` — BullMQ repeatable job setup: `dailySweepQueue.add('daily-sweep', {}, { repeat: { cron: '0 3 * * *' }, jobId: 'daily-sweep-recurring' })`. Called on worker startup.
+
+**Acceptance Criteria**:
+- Repeatable job registered at startup with cron `0 3 * * *`
+- Queries captures older than 1 hour stuck in received/processing
+- Re-enqueues each as a capture-pipeline job with jobId=captureId (dedup safe)
+- Logs number of captures swept
+- No-op when all captures are complete
+
+**Requirement Refs**: PRD F03 (daily auto-retry sweep), TDD §2376 (daily auto-retry sweep), TDD §12.2 (daily-sweep job)
 
 ---
 
@@ -1005,7 +1027,7 @@
 **Complexity**: S
 
 **Files to Create/Modify**:
-- `docker-compose.yml` — Add cloudflared service (cloudflare/cloudflared:latest, restart: unless-stopped, TUNNEL_TOKEN env, open-brain network, depends on core-api). Routing: brain.k4jda.net/mcp → core-api:3000/mcp, brain.k4jda.net/ → core-api:3000 (web-ui in Phase 15)
+- `docker-compose.yml` — Add cloudflared service (cloudflare/cloudflared:latest, restart: unless-stopped, TUNNEL_TOKEN env, open-brain network, depends on core-api). Routing: brain.k4jda.net/mcp → core-api:3000/mcp, brain.k4jda.net/ → core-api:3000 (updated to web:80 in Phase 15)
 
 **Acceptance Criteria**:
 - Cloudflared container starts and connects to Cloudflare
@@ -1066,9 +1088,9 @@
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Ollama embedding model performance on CPU | Medium | Medium | Phase 5 includes benchmarking step. nomic-embed-text (137M) should be fast. Qwen3-Embedding:8b may be too slow for real-time. |
+| LiteLLM embedding latency (Jetson) | Low | Medium | Qwen3-Embedding-4B-Q4_K_M on Jetson via llm.k4jda.net. If latency is too high, embeddings queue asynchronously — no user-facing impact. |
 | pgvector HNSW index build time | Low | Low | <100K captures at launch. Default params sufficient. |
-| LiteLLM proxy stability | Low | Medium | External shared service at llm.k4jda.net — managed independently. Failure degrades LLM tasks but not ingestion/embedding. |
+| LiteLLM proxy stability | Low | High | External shared service at llm.k4jda.net — manages all embeddings AND inference. Failure queues captures for retry (patient backoff). Daily sweep recovers any stragglers. |
 | Drizzle ORM limitations with custom SQL | Medium | Low | Custom SQL migrations for search functions and FTS index. Well-documented pattern. |
 | BullMQ job loss on Redis restart | Low | Medium | Redis persistence (RDB snapshots). Pipeline retries recover from lost jobs. |
 
@@ -1094,7 +1116,8 @@
 | Pipeline (BullMQ) | PRD F03, TDD §12 | 6 | 6.1-6.6 |
 | LiteLLM proxy | PRD F07a, TDD §8.7 | External | 6.3 (integration), 6.5 (env config) |
 | AI Router | PRD F08, TDD §6.2 | 6 | 6.3 |
-| Ollama embeddings | PRD F07, TDD §8.2 | 5, 6 | 5.1, 5.6 |
+| LiteLLM embeddings (Jetson) | TDD §8.7, TDD §6.2 | 5, 6 | 5.1, 5.6 |
+| Daily sweep recovery | PRD F03, TDD §12.2 | 6 | 6.7 |
 | Slack capture | PRD F04, TDD §8.1 | 7 | 7.1-7.5 |
 | Slack query | PRD F05, TDD §8.1 | 7 | 7.2, 7.4 |
 | MCP endpoint | PRD F06, TDD §8.8 | 8 | 8.1-8.5 |

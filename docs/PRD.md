@@ -58,7 +58,7 @@ The document describes a lightweight Slack → cloud Postgres → MCP setup. Thi
 - Async processing pipeline with configurable stages (not synchronous Edge Functions)
 - Rich output skills (weekly briefs, governance sessions, pattern detection) inherited from board-journal
 - Bidirectional Slack interface (capture + query + commands + interactive sessions)
-- Local AI (Ollama for embeddings, faster-whisper for transcription)
+- Local AI (LiteLLM/Jetson for embeddings, faster-whisper for transcription)
 - Entity graph (people, projects, decisions) on top of vector search
 - Web dashboard for browsing, searching, and viewing skill outputs
 
@@ -192,7 +192,7 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F04 | Slack bot — capture (text) | Must Have | Phase 1D |
 | F05 | Slack bot — query (semantic search) | Must Have | Phase 1D |
 | F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | Phase 1E |
-| F07 | Ollama container (local embeddings) | Must Have | Phase 1B |
+| F07 | EmbeddingService via LiteLLM (jetson-embeddings alias) | Must Have | Phase 1B |
 | F07a | LiteLLM proxy (unified LLM gateway) | Must Have | Phase 1C |
 | F08 | AI router service (LiteLLM-based provider routing) | Must Have | Phase 1C |
 | F09 | Voice-capture integration (adapter to ingest API) | Must Have | Phase 2A |
@@ -294,7 +294,7 @@ The `pre_extracted` field allows input adapters (like voice-capture) to pass the
 - Ingest endpoint accepts captures and returns capture ID + status within 500ms (queues async processing)
 - Search endpoint returns results within 5 seconds
 - API is unauthenticated (single user, network-level security via Tailscale/LAN)
-- Health endpoint returns status of all dependent services (DB, Redis, Ollama)
+- Health endpoint returns status of all dependent services (DB, Redis, LiteLLM)
 
 ---
 
@@ -551,11 +551,11 @@ The primary search function combines pgvector cosine similarity with Postgres fu
 | Stage | Purpose | Default AI | Skips When |
 |-------|---------|-----------|------------|
 | `transcribe` | Audio → text via faster-whisper | Local faster-whisper | Input is already text |
-| `embed` | Generate vector embedding | Local Ollama (configurable model — see F07) | — |
+| `embed` | Generate vector embedding | LiteLLM jetson-embeddings alias (see F07) | — |
 | `check_triggers` | Match against active semantic triggers (separate BullMQ job, not inline) | Cosine similarity (in-memory) | No active triggers (Phase 2) |
 | `extract_metadata` | Extract people, topics, type, action_items, dates, brain_views | Configurable (default: local via LiteLLM) | — |
 | `classify` | Domain classification (career signals, etc.) | Configurable via LiteLLM | No matching brain_view pipeline |
-| `link_entities` | Match and link to known entities | Local Ollama or rule-based | Phase 3 |
+| `link_entities` | Match and link to known entities | LiteLLM or rule-based | Phase 3 |
 | `evaluate_triggers` | Check trigger rules (drift, bet expiration, etc.) | Rule-based + AI | Phase 3 |
 | `notify` | Send confirmation to source (Slack reply, Pushover) | — | — |
 
@@ -565,8 +565,8 @@ pipelines:
   default:
     stages:
       - name: embed
-        provider: ollama           # Embeddings always go direct to Ollama (bypass LiteLLM)
-        model: ${EMBEDDING_MODEL}  # Configured in ai-routing.yaml
+        provider: litellm          # Embeddings route through LiteLLM (jetson-embeddings alias)
+        model: ${EMBEDDING_MODEL}  # Configured in ai-routing.yaml (jetson-embeddings)
 
       # check_triggers runs as a separate BullMQ job after embed completes (not an inline stage)
       # Enqueued automatically by the embed stage handler — see TDD §12.2a
@@ -736,139 +736,97 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 
 ---
 
-#### F07: Ollama Container
+#### F07: Embedding Service (via LiteLLM)
 
-**Description**: Local embedding service for vector generation. Runs on Unraid in Docker. LLM chat/completion tasks (metadata extraction, intent classification, synthesis) route through LiteLLM instead — see F07a and F08.
+**Description**: Vector embedding generation for all captures, triggers, and search queries. Routes through external LiteLLM at `https://llm.k4jda.net` via the `jetson-embeddings` alias, which runs Qwen3-Embedding-4B-Q4_K_M on a Jetson device. LLM inference also routes through the same external LiteLLM — see F07a and F08.
 
-**Embedding Model** (configurable via `ai-routing.yaml`):
+**Embedding Model**: Qwen3-Embedding-4B-Q4_K_M (selected, configured on external LiteLLM)
 
-The schema uses `vector(768)` throughout. The embedding model must produce 768-dimensional vectors, either natively or via Matryoshka dimension truncation.
+The schema uses `vector(768)` throughout. Qwen3-Embedding-4B-Q4_K_M is configured via Matryoshka dimension truncation to produce 768d vectors.
 
-| Candidate | Params | Native Dim | 768d Quality | Context | Status |
-|-----------|--------|-----------|-------------|---------|--------|
-| `nomic-embed-text` | 137M | 768 (native) | Baseline | 8K tokens | Proven, low resource |
-| `qwen3-embedding:0.6b` | 0.6B | 1024 | Good (Matryoshka → 768) | 32K tokens | Evaluating |
-| `qwen3-embedding:4b` | 4B | 2048 | Very good (Matryoshka → 768) | 32K tokens | Evaluating |
-| `qwen3-embedding:8b` | 8B | 4096 | Excellent (Matryoshka → 768, MTEB #1 at release) | 32K tokens | Evaluating |
+**Qwen3-Embedding advantages**: Matryoshka dimensions (truncate to any power-of-2 with minimal quality loss), 32K context (significant for document ingestion in Phase 4), instruction-following support (`Instruct: ...` prefixes for asymmetric query/document embedding), and MTEB top performance at release.
 
-**Qwen3-Embedding advantages**: Matryoshka dimensions (truncate to any power-of-2 with minimal quality loss), 32K context (vs 8K for nomic — significant for document ingestion in Phase 4), and instruction-following support (`Instruct: ...` prefixes for asymmetric query/document embedding).
+**No embedding fallback** — if LiteLLM or Jetson is unreachable, captures queue in BullMQ and retry when service recovers. This prevents mixing embedding models which would degrade search quality.
 
-**Decision**: Final model selection after benchmarking with real capture data. Schema uses `vector(768)` regardless. Switching models requires a one-time re-embedding migration (see TDD §4.5).
-
-**No embedding fallback** — if Ollama is down, captures queue in BullMQ and retry when Ollama recovers. This prevents mixing embedding models which would degrade search quality.
-
-**API**: Ollama exposes OpenAI-compatible API on port 11434
+**API**: OpenAI embeddings API (`POST /v1/embeddings`) via LiteLLM — same client as LLM inference, using `jetson-embeddings` model alias.
 
 **Acceptance Criteria**:
-- Ollama container starts and loads embedding model on Unraid
-- Embedding generation <1 second per capture
-- GPU acceleration used if NVIDIA GPU available, CPU fallback otherwise
-- Container auto-restarts on failure
+- `jetson-embeddings` alias on external LiteLLM returns 768d vectors
+- Embedding generation <2 seconds per capture (network + Jetson inference)
+- EmbeddingUnavailableError thrown on failure → BullMQ retry
+- Embeddings queue gracefully when LiteLLM/Jetson unreachable
 
 ---
 
 #### F07a: LiteLLM Proxy
 
-**Description**: Self-hosted LLM gateway that provides a unified OpenAI-compatible API for all LLM providers (local Ollama models, Anthropic Claude, OpenAI GPT, OpenRouter). All LLM requests (not embeddings) route through LiteLLM. This replaces the need for a custom provider routing implementation.
+**Description**: External shared LLM gateway at `https://llm.k4jda.net` that provides a unified OpenAI-compatible API for all AI requests — both embeddings (jetson-embeddings alias → Qwen3-Embedding-4B-Q4_K_M on Jetson) and all LLM inference. Managed independently of Open Brain's Docker stack. Model aliases, provider routing, fallbacks, and budget limits are configured on the external server.
 
 **Key Capabilities**:
-- **Unified API**: Single `http://litellm:4000` endpoint for all LLM calls
-- **Model aliasing**: Define logical names (`fast`, `synthesis`, `governance`) that map to specific provider/model combinations
+- **Unified API**: Single `https://llm.k4jda.net` endpoint for all AI calls (embeddings + LLM)
+- **Model aliasing**: Logical names (`jetson-embeddings`, `fast`, `synthesis`, `governance`, `intent`) configured on external server
 - **Automatic fallback**: Primary → fallback routing per model alias
-- **Budget tracking**: Built-in monthly spend tracking with soft/hard limits
-- **Request logging**: All LLM calls logged with tokens, latency, cost
+- **Budget tracking**: Built-in monthly spend tracking with soft/hard limits ($30 soft alert, $50 hard limit)
+- **Request logging**: All AI calls logged with tokens, latency, cost
 
-**Configuration** (`config/litellm-config.yaml`):
-```yaml
-model_list:
-  - model_name: "fast"
-    litellm_params:
-      model: ollama/llama3.1:8b
-      api_base: http://ollama:11434
+**Required model aliases** (configured on external LiteLLM server — not managed by this project):
 
-  - model_name: "synthesis"
-    litellm_params:
-      model: anthropic/claude-sonnet-4-6
-
-  - model_name: "synthesis"      # fallback
-    litellm_params:
-      model: openai/gpt-4o
-
-  - model_name: "governance"
-    litellm_params:
-      model: anthropic/claude-opus-4-6
-
-  - model_name: "governance"     # fallback
-    litellm_params:
-      model: anthropic/claude-sonnet-4-6
-
-  - model_name: "intent"
-    litellm_params:
-      model: ollama/llama3.1:8b
-      api_base: http://ollama:11434
-
-litellm_settings:
-  max_budget: 50             # Hard limit: $50/month
-  budget_duration: "1mo"
-  alerting:
-    - webhook                # Alert on budget thresholds
-
-general_settings:
-  master_key: "sk-ob-master" # From Bitwarden
-```
+| Alias | Purpose | Fallback |
+|-------|---------|---------|
+| `jetson-embeddings` | Qwen3-Embedding-4B-Q4_K_M on Jetson (768d) | None — queue and retry |
+| `fast` | Local LLM inference (TBD) | — |
+| `intent` | Intent classification (TBD) | — |
+| `synthesis` | Anthropic Claude Sonnet | openai/gpt-4o |
+| `governance` | Anthropic Claude Opus | claude-sonnet |
 
 **Acceptance Criteria**:
-- LiteLLM container starts and proxies requests to configured providers
-- Model aliases resolve correctly (fast → Ollama, synthesis → Claude Sonnet)
+- External LiteLLM reachable at `https://llm.k4jda.net/health`
+- Model aliases resolve correctly (jetson-embeddings → 768d vectors, synthesis → Claude Sonnet)
 - Fallback triggers automatically on provider failure
-- Monthly spend tracked and hard limit enforced at $50
-- Health endpoint at `http://litellm:4000/health`
+- Monthly spend tracked and hard limit enforced at $50 (configured on external server)
 
 ---
 
 #### F08: AI Router Service
 
-**Description**: A thin application-layer service that maps task types to LiteLLM model aliases and handles embedding requests directly via Ollama. LiteLLM handles the heavy lifting (provider routing, fallback, budget tracking, request logging). The AI Router in the application code is responsible for: (1) mapping task types to LiteLLM model aliases, (2) routing embedding requests directly to Ollama (bypassing LiteLLM), and (3) logging usage to the `ai_audit_log` table from LiteLLM response metadata.
+**Description**: A thin application-layer service that maps task types to LiteLLM model aliases. LiteLLM handles all AI requests — both embeddings (jetson-embeddings alias) and LLM inference. The AI Router in application code is responsible for: (1) mapping task types to LiteLLM model aliases, (2) routing embedding requests to the `jetson-embeddings` alias through the same LiteLLM client, and (3) logging usage to the `ai_audit_log` table from LiteLLM response metadata.
 
 **Configuration** (`config/ai-routing.yaml`):
 ```yaml
 ai_routing:
-  # Embedding config — goes direct to Ollama, NOT through LiteLLM
+  # Embedding config — routes through LiteLLM (jetson-embeddings alias)
   embedding:
-    provider: ollama
-    model: nomic-embed-text     # Configurable — may switch to qwen3-embedding:8b after benchmarking
-    dimensions: 768             # Schema dimension — model must produce this (native or Matryoshka-truncated)
-    # NO fallback. Queue and retry if Ollama is down.
+    provider: litellm
+    model: jetson-embeddings    # Alias on external LiteLLM → Qwen3-Embedding-4B-Q4_K_M on Jetson
+    dimensions: 768             # Schema dimension — model produces 768d vectors
+    # NO fallback. Queue and retry if LiteLLM/Jetson is unreachable.
 
   # LLM task → LiteLLM model alias mapping
   # LiteLLM handles provider routing and fallback internally
   task_models:
-    metadata_extraction: fast        # → ollama/llama3.1:8b (via LiteLLM)
-    intent_classification: intent    # → ollama/llama3.1:8b (via LiteLLM); degrades to prefix-only if LiteLLM/Ollama down
+    metadata_extraction: fast        # → TBD local LLM (via LiteLLM)
+    intent_classification: intent    # → TBD local LLM (via LiteLLM); degrades to prefix-only if LiteLLM down
     synthesis: synthesis             # → anthropic/claude-sonnet (via LiteLLM, fallback: openai/gpt-4o)
     governance: governance           # → anthropic/claude-opus (via LiteLLM, fallback: claude-sonnet)
     career_signals: synthesis        # → same as synthesis
     weekly_brief: synthesis          # → same as synthesis
-    drift_detection: fast            # → local model
+    drift_detection: fast            # → TBD local model
 
   litellm:
-    base_url: http://litellm:4000
-    # API key, budget, fallback config all in config/litellm-config.yaml
-
-  ollama:
-    base_url: http://ollama:11434
+    base_url: https://llm.k4jda.net
+    # API key stored in Bitwarden as open-brain-litellm-api-key (ai-work project)
 ```
 
 **Behavior**:
-- All LLM calls route through LiteLLM proxy; all embedding calls go direct to Ollama
+- All AI calls (embeddings + LLM inference) route through external LiteLLM at llm.k4jda.net
 - Task type → model alias mapping is config-driven (change aliases without touching code)
 - LiteLLM handles fallback, budget tracking, and request logging natively
 - Application logs usage to `ai_audit_log` table for operational audit
 - **Monthly budget caps** (enforced by LiteLLM): Soft limit at $30/month triggers Pushover alert. Hard limit at $50/month triggers circuit breaker. Expected normal usage: ~$15-30/month.
-- Intent classification degrades gracefully: if LiteLLM/Ollama unavailable, fall back to prefix-only detection (`?` = query, `!` = command, default = capture)
+- Intent classification degrades gracefully: if LiteLLM unavailable, fall back to prefix-only detection (`?` = query, `!` = command, default = capture)
 
 **Acceptance Criteria**:
-- All LLM calls route through LiteLLM; embeddings go direct to Ollama
+- All AI calls (embeddings + LLM) route through external LiteLLM at llm.k4jda.net
 - Task-to-model mapping configurable via YAML
 - Fallback triggers automatically via LiteLLM (within 5 seconds)
 - Usage logging captures all calls with token counts
@@ -1005,7 +963,7 @@ ai_routing:
 | Drift alert | Normal (0) | When drift monitor detects gaps |
 | Bet expiring | High (1) | When a bet is within 7 days of due date |
 | Pipeline failure | High (1) | When a capture fails processing after all retries |
-| System health issue | Emergency (2) | When a critical service (DB, Ollama) is unreachable |
+| System health issue | Emergency (2) | When a critical service (DB, LiteLLM) is unreachable |
 
 **Tech**: Reuse Pushover integration pattern from voice-capture project
 
@@ -1139,7 +1097,7 @@ Phase 1A:
 F02 (Postgres) ──► F01 (Core API — CRUD, stats, health)
 
 Phase 1B:
-F07 (Ollama) ──► Search endpoints + match_captures functions
+F07 (EmbeddingService/LiteLLM) ──► Search endpoints + match_captures functions
 
 Phase 1C:
 F07a (LiteLLM) ──► F08 (AI Router) ──► F03 (Pipeline)
@@ -1213,16 +1171,12 @@ F13 (Pushover), F14 (Email)
 │              │   (BullMQ)     │  │  (LLM     │              │
 │              └───────┬────────┘  │  gateway)  │              │
 │                      │           └─────┬─────┘              │
-│              ┌───────▼────────┐        │  ┌───────────┐     │
-│              │   Postgres     │        ├──│  Ollama   │     │
-│              │  (pgvector/    │        │  │(embeddings│     │
-│              │   pgvector:    │        │  │  + local  │     │
-│              │   pg16)        │        │  │  LLMs)    │     │
-│              └────────────────┘        │  └───────────┘     │
-│                                        │                     │
-│                                        ├──► Anthropic API    │
-│                                        ├──► OpenAI API       │
-│                                        └──► OpenRouter       │
+│              ┌───────▼────────┐        │                     │
+│              │   Postgres     │        ├──► Anthropic API    │
+│              │  (pgvector/    │        ├──► OpenAI API       │
+│              │   pgvector:    │        ├──► OpenRouter       │
+│              │   pg16)        │        └──► Jetson(embeddings)│
+│              └────────────────┘                              │
 │                                                              │
 │              ┌───────────┐                                   │
 │              │  faster-  │                                   │
@@ -1245,7 +1199,7 @@ F13 (Pushover), F14 (Email)
 ### Docker Network Topology
 
 Single Docker network:
-- **`open-brain`** — All containers (Core API, Slack bot, Workers, Postgres, Ollama, faster-whisper, Redis, voice-capture, Web UI). Simple DNS resolution between containers (`http://ollama:11434`, `http://redis:6379`, `http://postgres:5432`).
+- **`open-brain`** — All containers (Core API, Slack bot, Workers, Postgres, faster-whisper, Redis, voice-capture, Web UI). Simple DNS resolution between containers (`http://redis:6379`, `http://postgres:5432`). LiteLLM is external at `https://llm.k4jda.net` — not in this network.
 - **Host port exposure**: Core API (port 3000, also serves MCP at `/mcp` via Cloudflare Tunnel), Slack bot (Socket Mode — no inbound port needed), and Web UI (Phase 4).
 
 ### Configuration File Structure
@@ -1258,7 +1212,6 @@ open-brain/
 │   ├── pipelines.yaml              # Processing pipeline definitions
 │   ├── skills.yaml                 # Output skill definitions + schedules
 │   ├── ai-routing.yaml             # Embedding config + task-to-LiteLLM-alias mapping
-│   ├── litellm-config.yaml         # LiteLLM proxy config: model list, fallbacks, budget
 │   ├── notifications.yaml          # Notification preferences + targets
 │   ├── brain-views.yaml            # Brain view definitions + pipeline routing rules (5 views: career, personal, technical, work-internal, client)
 │   └── prompts/                    # AI prompt templates
@@ -1373,7 +1326,7 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 
 | Feature | Description |
 |---------|-------------|
-| F07 | Ollama with embedding model (benchmark nomic-embed-text vs Qwen3-Embedding here) |
+| F07 | EmbeddingService via LiteLLM (jetson-embeddings alias → Qwen3-Embedding-4B-Q4_K_M) |
 | F01 (partial) | Search endpoint: POST /api/v1/search (all three modes: hybrid, vector, fts) |
 | — | match_captures + match_captures_hybrid SQL functions deployed |
 | — | FTS GIN index on captures.content |
@@ -1381,7 +1334,7 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 
 **Test Gate**:
 - Insert 20-30 test captures with known content via Phase 1A API
-- Generate embeddings via script or manual Ollama calls
+- Generate embeddings via EmbeddingService (calls LiteLLM jetson-embeddings alias)
 - Vector search returns relevant results (similarity > 0.7 for known matches)
 - Hybrid search improves recall on paraphrased queries vs. vector-only
 - FTS catches exact keyword matches that vector misses
@@ -1397,15 +1350,15 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 |---------|-------------|
 | F03 | Pipeline — BullMQ + Redis, stage executor, retry logic |
 | F07a | LiteLLM proxy with model aliases and budget tracking |
-| F08 | AI Router (thin LiteLLM wrapper + direct Ollama for embeddings) |
+| F08 | AI Router (thin LiteLLM wrapper — embeddings + LLM all through external LiteLLM) |
 | — | Pipeline stages: embed → extract_metadata → notify (stub) |
 | — | Bull Board at /admin/queues |
 
 **Test Gate**:
 - Insert capture via API → automatically embedded, metadata extracted, pipeline_status = 'complete'
 - pipeline_events shows all stages with timing
-- Simulate Ollama failure → capture queues, retries on recovery
-- LiteLLM routes "fast" alias to Ollama, "synthesis" to Claude
+- Simulate LiteLLM/Jetson unavailability → capture queues, retries on recovery
+- LiteLLM routes "fast" alias to local LLM (TBD), "synthesis" to Claude
 - Bull Board shows job history and queue health
 - Budget tracking shows cost for LLM calls
 
@@ -1565,7 +1518,7 @@ The system has features that require accumulated data before they become useful.
 | Unraid server with Docker | Everything | Low — already operational |
 | Tailscale | Remote access to all services | Low — already in use |
 | Slack free workspace (K4JDA) | Capture + query interface | Low — already created |
-| Ollama Docker image | Local embeddings (+ local LLM via LiteLLM) | Low — well-maintained |
+| External LiteLLM (llm.k4jda.net) | Embeddings (jetson-embeddings) + all LLM inference | Low — already running, shared service |
 | LiteLLM Docker image | Unified LLM proxy for all providers | Low — actively maintained, wide adoption |
 | faster-whisper Docker image | Local transcription | Low — multiple maintained images |
 | Postgres 16 + pgvector Docker image | Database + vector search | Low — standard Docker image (pgvector/pgvector:pg16) |
@@ -1577,15 +1530,15 @@ The system has features that require accumulated data before they become useful.
 | Apple Watch + Just Press Record | Voice capture origin | Low — existing workflow |
 
 ### Assumptions
-- Unraid server: Intel Core i7-9700 (8C/8T, 3.0GHz/4.7GHz turbo), 128GB DDR4 RAM, no dedicated GPU, 32TB array (~26TB free). Memory limits on heavy containers: Ollama 16GB, faster-whisper 8GB, Postgres 8GB. Lightweight containers unconstrained. Total estimated footprint ~20-25GB.
+- Unraid server: Intel Core i7-9700 (8C/8T, 3.0GHz/4.7GHz turbo), 128GB DDR4 RAM, no dedicated GPU, 32TB array (~26TB free). Memory limits on heavy containers: faster-whisper 8GB, Postgres 8GB. Lightweight containers unconstrained. Total estimated footprint ~10-12GB (no Ollama — embeddings and LLM via external LiteLLM).
 - Tailscale is configured and the server is accessible remotely
 - Bitwarden Secrets Manager is accessible for API key retrieval
-- The user's daily capture volume will be <50 captures/day (affects pipeline queue sizing and Ollama load)
+- The user's daily capture volume will be <50 captures/day (affects pipeline queue sizing and LiteLLM/Jetson embedding load)
 
 ### Constraints
 - Slack free plan: 90-day message history (not a problem — data lives in Postgres)
 - Slack free plan: 10 app integrations (only need 1)
-- Ollama on CPU is slower — may need to batch-process if many captures arrive simultaneously
+- Jetson embedding throughput may be slower than local CPU for burst ingestion — BullMQ queue handles this gracefully
 - No multi-user support — single user by design, simplifies everything
 
 ---
@@ -1635,14 +1588,14 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Schema migrations | Drizzle ORM + drizzle-kit. TypeScript-native, schema-as-code. |
 | AI cost management | Monthly budget: soft $30 (Pushover alert), hard $50 (circuit breaker → local only). |
 | Synthesis endpoint | Top-20 captures, 50K token budget. Skills handle own context assembly. |
-| Container resources | Memory limits on Ollama (16GB), faster-whisper (8GB), Postgres (8GB) only. |
+| Container resources | Memory limits on faster-whisper (8GB), Postgres (8GB) only. No Ollama container — embeddings via external LiteLLM. |
 | Capture types | 8 types: decision, idea, observation, task, win, blocker, question, reflection. Extensible via prompt. |
 | Config reloading | ConfigService: in-memory cache, explicit reload via `/api/v1/admin/config/reload`, workers re-read per job. |
 | Thread context | Redis with 1-hour TTL, keyed by thread_ts. |
 | Session persistence | Postgres + transcript replay on resume. 30-day max pause. |
 | Deduplication | Source-level only: slack_ts, filename, content hash + 60s window. No cross-source. |
 | Docker networking | Single `open-brain` network. All containers including Postgres. |
-| Embedding consistency | No fallback. Queue and retry if Ollama down. Model configurable (nomic-embed-text or Qwen3-Embedding). |
+| Embedding consistency | No fallback. Queue and retry if LiteLLM/Jetson unreachable. Model: Qwen3-Embedding-4B-Q4_K_M via jetson-embeddings alias. |
 | LLM routing | LiteLLM proxy. Budget via LiteLLM. App logs task-level audit (not cost) to ai_audit_log table. |
 | Search strategy | Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay. Default temporal_weight: 0.0 at launch (cold start), ramp up as search history builds. |
 | Semantic triggers | Persistent semantic patterns. Separate BullMQ job (not inline pipeline stage). Max 20 triggers, in-memory comparison. Phase 2C. |
@@ -1683,8 +1636,8 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | **Output Skill** | A scheduled or triggered process that queries the brain, performs AI synthesis, and delivers results (weekly brief, board session, drift alert) |
 | **Entity** | A known person, project, decision, bet, or concept that appears across multiple captures |
 | **Intent Router** | The component in the Slack bot that determines whether an incoming message is a capture, query, command, or conversation |
-| **AI Router** | Thin application-layer service that maps task types to LiteLLM model aliases (for LLM) and Ollama (for embeddings) |
-| **LiteLLM** | Self-hosted proxy that provides a unified OpenAI-compatible API for all LLM providers, with fallback routing and budget tracking |
+| **AI Router** | Thin application-layer service that maps task types to LiteLLM model aliases — all AI (embeddings + LLM) routes through external LiteLLM |
+| **LiteLLM** | External shared proxy at llm.k4jda.net providing unified OpenAI-compatible API for all AI requests — embeddings (jetson-embeddings) and LLM inference |
 | **Semantic Trigger** | A persistent semantic pattern that fires a notification when a new capture's embedding matches it above a threshold |
 | **Hybrid Search** | Search strategy combining full-text search (Postgres tsvector) and vector similarity (pgvector) via Reciprocal Rank Fusion (RRF) |
 | **Temporal Decay (ACT-R)** | Cognitive model that boosts search ranking for captures that are accessed recently and frequently |
