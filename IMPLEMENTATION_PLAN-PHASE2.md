@@ -211,9 +211,11 @@
 
 ---
 
-### 10.3 Pipeline Notify Stage (Real Implementation)
+### ✅ Completed 2026-03-05 — 10.3 Pipeline Notify Stage (Real Implementation)
 
 **Description**: Replace the stub notify stage from Phase 6 with real notification delivery. Sends Pushover, Slack replies, or both based on capture source and pipeline config.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -257,9 +259,11 @@
 
 ---
 
-### 10.5 Weekly Brief Skill
+### ✅ Completed 2026-03-05 — 10.5 Weekly Brief Skill
 
 **Description**: The first real output skill. Queries last 7 days of captures, synthesizes via AI, delivers via email + Pushover + captures back into brain.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
