@@ -38,11 +38,13 @@
 
 ---
 
-### 1.1 Root Workspace Configuration
+### 1.1 Root Workspace Configuration ✅ Completed 2026-03-05
 
 **Description**: Create the pnpm workspace root with package.json, pnpm-workspace.yaml, and shared TypeScript configuration. ESM throughout.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `package.json` — Root workspace config (name: open-brain, private: true, scripts: build, dev, test, lint, clean)
@@ -90,11 +92,13 @@
 
 ---
 
-### 1.3 Docker Compose — Infrastructure Services
+### 1.3 Docker Compose — Infrastructure Services ✅ Completed 2026-03-05
 
 **Description**: Docker Compose with Postgres (pgvector/pgvector:pg16) and Redis for Phase 1A. Other containers added in later phases. Single `open-brain` network.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `docker-compose.yml` — postgres (pgvector/pgvector:pg16, 8GB memory limit, healthcheck, volume, custom postgresql.conf) + redis (7-alpine, healthcheck, volume) + open-brain network
@@ -130,11 +134,13 @@
 
 ---
 
-### 1.5 Environment and Git Configuration
+### 1.5 Environment and Git Configuration ✅ Completed 2026-03-05
 
 **Description**: .env template with Bitwarden placeholders, .gitignore updates, and startup script for secret loading.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create/Modify**:
 - `.env` — All env vars with Bitwarden retrieval comments (POSTGRES_PASSWORD, LITELLM_API_KEY, Slack tokens, MCP_API_KEY, Pushover, SMTP, Cloudflare). Non-sensitive defaults (NODE_ENV, LOG_LEVEL, LITELLM_URL=https://llm.k4jda.net).
