@@ -191,9 +191,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 4.1 Add deleted_at column and replace pipeline_status soft delete
+#### 4.1 Add deleted_at column and replace pipeline_status soft delete — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/shared/src/schema/core.ts captures table definition

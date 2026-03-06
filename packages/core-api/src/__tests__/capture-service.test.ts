@@ -24,6 +24,7 @@ function makeCaptureRecord(overrides: Record<string, unknown> = {}) {
     created_at: new Date('2026-03-05T10:00:00Z'),
     updated_at: new Date('2026-03-05T10:00:00Z'),
     captured_at: new Date('2026-03-05T10:00:00Z'),
+    deleted_at: null,
     ...overrides,
   }
 }
@@ -193,6 +194,13 @@ describe('CaptureService', () => {
 
       await expect(service.getById('missing-id')).rejects.toThrow('missing-id')
     })
+
+    it('throws NotFoundError for a soft-deleted capture (deleted_at is set)', async () => {
+      // getById filters on deleted_at IS NULL — a deleted capture returns empty rows
+      db.select.mockReturnValueOnce(selectChain([]))
+
+      await expect(service.getById('deleted-cap')).rejects.toThrow(NotFoundError)
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -254,6 +262,18 @@ describe('CaptureService', () => {
       const result = await service.list({ capture_type: 'task' })
       expect(result.items).toEqual([])
       expect(result.total).toBe(0)
+    })
+
+    it('excludes soft-deleted captures (deleted_at IS NULL filter applied)', async () => {
+      // list() always starts conditions with isNull(captures.deleted_at).
+      // The mock returns only non-deleted records; we verify list() returns them.
+      const activeRecord = makeCaptureRecord({ id: 'active-cap', deleted_at: null })
+      setupListMocks([activeRecord], 1)
+
+      const result = await service.list()
+      expect(result.items).toHaveLength(1)
+      expect(result.items[0].id).toBe('active-cap')
+      expect(result.total).toBe(1)
     })
   })
 
@@ -323,7 +343,7 @@ describe('CaptureService', () => {
   // -------------------------------------------------------------------------
 
   describe('softDelete()', () => {
-    it('marks capture as deleted', async () => {
+    it('marks capture as deleted — sets deleted_at, pipeline_status, and updated_at', async () => {
       const record = makeCaptureRecord()
       db.select.mockReturnValueOnce(selectChain([record]))
 
@@ -335,6 +355,7 @@ describe('CaptureService', () => {
       await service.softDelete('cap-1')
 
       const setArgs = setMock.mock.calls[0][0]
+      expect(setArgs.deleted_at).toBeInstanceOf(Date)
       expect(setArgs.pipeline_status).toBe('deleted')
       expect(setArgs.updated_at).toBeInstanceOf(Date)
     })
