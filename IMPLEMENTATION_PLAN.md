@@ -1055,11 +1055,13 @@
 
 ---
 
-### 8.2 MCP Tools — Search & Browse
+### 8.2 MCP Tools — Search & Browse ✅ Completed 2026-03-05
 
 **Description**: search_brain, list_captures, and brain_stats MCP tools.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/mcp/tools/search-brain.ts` — search_brain tool: params (query, limit, threshold, source_filter, tag_filter, brain_view, days). Calls SearchService.search(). Returns formatted text results.
@@ -1076,11 +1078,13 @@
 
 ---
 
-### 8.3 MCP Tools — Capture & Entity
+### 8.3 MCP Tools — Capture & Entity ✅ Completed 2026-03-05
 
 **Description**: capture_thought, get_entity, list_entities, and get_weekly_brief MCP tools.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/mcp/tools/capture-thought.ts` — capture_thought tool: params (content, tags, brain_views). Calls CaptureService.create(). Returns confirmation with capture ID.
