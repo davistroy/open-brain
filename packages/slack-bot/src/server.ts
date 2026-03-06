@@ -12,6 +12,7 @@ import { IntentRouter } from './intent/router.js'
 import { handleCapture } from './handlers/capture.js'
 import { handleQuery } from './handlers/query.js'
 import { handleCommand } from './handlers/command.js'
+import { handleSessionThreadReply, getSessionThread } from './handlers/session.js'
 
 /**
  * Register all message/event handlers on the Bolt app.
@@ -46,8 +47,22 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
     const text = genericMessage.text ?? ''
     const channel = genericMessage.channel
     const ts = genericMessage.ts
+    const threadTs = ('thread_ts' in message && message.thread_ts) ? message.thread_ts as string : null
 
     logger.info({ channel, ts, textLen: text.length }, 'Received message')
+
+    // If this is a thread reply, check whether it belongs to an active governance session.
+    // Thread replies to governance sessions bypass IntentRouter and go straight to the
+    // session handler — unless the user typed a top-level !board command.
+    if (threadTs && threadTs !== ts) {
+      const sessionId = await getSessionThread(redis, threadTs)
+      if (sessionId) {
+        // Governance thread reply — but still allow !board <pause|done|abandon> through
+        logger.debug({ threadTs, sessionId }, 'Routing to governance session handler')
+        await handleSessionThreadReply(genericMessage, say, coreApiClient, redis, sessionId)
+        return
+      }
+    }
 
     // Classify intent
     const intentResult = await intentRouter.classify(text, {
@@ -71,7 +86,7 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
         break
 
       case 'command':
-        await handleCommand(genericMessage, say, coreApiClient)
+        await handleCommand(genericMessage, say, coreApiClient, redis)
         break
 
       case 'conversation':

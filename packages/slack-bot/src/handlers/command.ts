@@ -10,8 +10,14 @@
  *   !entity <name>          — entity detail by name
  *   !entity merge <name1> <name2> — merge two entities by name
  *   !entity split <name> <alias>  — split alias into new entity
- *   !board quick            — start quick board check (Phase 13 stub)
- *   !board quarterly        — start quarterly review (Phase 13 stub)
+ *   !board quick            — start quick board check governance session
+ *   !board quarterly        — start quarterly review governance session
+ *   !board resume <id>      — resume a paused session in a new thread
+ *   !board status           — list active/paused sessions
+ *   !bet list [status]      — list bets (optional: pending|correct|incorrect|ambiguous)
+ *   !bet add <statement>    — create a new bet (prompts for confidence)
+ *   !bet expiring [N]       — bets expiring in next N days (default 7)
+ *   !bet resolve <id> <outcome> [evidence] — resolve a bet
  *   !pipeline status        — pipeline health from Bull Board data
  *   !retry <capture_id>     — retry failed capture
  *   !trigger add "text"     — create semantic trigger
@@ -22,6 +28,7 @@
  */
 
 import type { GenericMessageEvent, SayFn } from '@slack/bolt'
+import type { Redis } from 'ioredis'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import {
   formatStats,
@@ -33,8 +40,17 @@ import {
   formatPipelineStatus,
   formatTriggerList,
   formatTriggerTestResults,
+  formatSessionList,
+  formatSessionStart,
+  formatSessionPause,
+  formatSessionComplete,
+  formatBetList,
+  formatBetCreate,
+  formatBetsExpiring,
+  formatBetResolve,
   formatError,
 } from '../lib/formatters.js'
+import { setSessionThread } from './session.js'
 import { logger } from '../lib/logger.js'
 
 const HELP_TEXT = `*Open Brain — Available Commands*
@@ -63,9 +79,21 @@ const HELP_TEXT = `*Open Brain — Available Commands*
 *Pipeline*
   \`!pipeline status\`    — pipeline queue health
 
-*Governance* (Phase 13)
-  \`!board quick\`        — start quick board check
-  \`!board quarterly\`    — start quarterly review
+*Governance Sessions*
+  \`!board quick\`           — start quick board check (reply in thread to continue)
+  \`!board quarterly\`       — start quarterly review (reply in thread to continue)
+  \`!board resume <id>\`     — resume a paused session
+  \`!board status\`          — list active/paused sessions
+  (In session thread) \`!board pause\`    — pause session
+  (In session thread) \`!board done\`     — complete + generate summary
+  (In session thread) \`!board abandon\`  — abandon session
+
+*Bet Tracking*
+  \`!bet list [status]\`              — list bets (pending/correct/incorrect/ambiguous)
+  \`!bet add <conf> <statement>\`     — create bet (conf = 0.0–1.0)
+  \`!bet expiring [N]\`              — bets expiring in next N days (default 7)
+  \`!bet resolve <id> <outcome>\`    — resolve: correct | incorrect | ambiguous
+  \`!bet resolve <id> <outcome> <evidence>\` — resolve with evidence
 
   \`!help\`               — this message`
 
@@ -107,11 +135,13 @@ function extractQuotedArg(subCmd: string, rest: string): string {
  * @param message       - Slack GenericMessageEvent
  * @param say           - Bolt's say() function scoped to the current channel
  * @param coreApiClient - Initialized CoreApiClient
+ * @param redis         - ioredis client (optional — required for !board session commands)
  */
 export async function handleCommand(
   message: GenericMessageEvent,
   say: SayFn,
   coreApiClient: CoreApiClient,
+  redis?: Redis,
 ): Promise<void> {
   if (!('text' in message) || !message.text) {
     logger.debug({ ts: message.ts }, 'handleCommand: empty text, skipping')
@@ -182,17 +212,12 @@ export async function handleCommand(
 
     // -------------------------------------------------------------------------
     case 'board':
-      if (subCmd === 'quick' || subCmd === 'quarterly') {
-        await say({
-          text: `_Board ${subCmd} review is coming in Phase 13 (Governance Sessions)._`,
-          thread_ts: ts,
-        })
-      } else {
-        await say({
-          text: ':warning: Usage: `!board quick` or `!board quarterly`',
-          thread_ts: ts,
-        })
-      }
+      await handleBoardCommand(ts, say, coreApiClient, redis, subCmd, subCmdRaw, args)
+      break
+
+    // -------------------------------------------------------------------------
+    case 'bet':
+      await handleBetCommand(ts, say, coreApiClient, subCmd, subCmdRaw, args)
       break
 
     // -------------------------------------------------------------------------
@@ -473,6 +498,261 @@ async function handleRetry(ts: string, say: SayFn, client: CoreApiClient, captur
     await say({ text: formatError('Retry failed', err), thread_ts: ts })
   }
 }
+
+// =============================================================================
+// Board (Governance Session) command handler
+// =============================================================================
+
+async function handleBoardCommand(
+  ts: string,
+  say: SayFn,
+  client: CoreApiClient,
+  redis: Redis | undefined,
+  subCmd: string,
+  subCmdRaw: string,
+  args: string,
+): Promise<void> {
+  switch (subCmd) {
+    // -------------------------------------------------------------------------
+    // !board quick — start a quick board check session
+    // -------------------------------------------------------------------------
+    case 'quick': {
+      if (!redis) {
+        await say({ text: ':warning: Redis unavailable — governance sessions require Redis.', thread_ts: ts })
+        return
+      }
+      try {
+        const result = await client.sessions_create('governance')
+        // Map the current message ts → session id so thread replies are routed
+        await setSessionThread(redis, ts, result.session.id)
+        await say({
+          text: formatSessionStart(result.session.id, 'quick board check', result.first_message),
+          thread_ts: ts,
+        })
+      } catch (err) {
+        logger.error({ err }, 'handleCommand: sessions_create(governance) failed')
+        await say({ text: formatError('Could not start governance session', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    // !board quarterly — start a quarterly review session
+    // -------------------------------------------------------------------------
+    case 'quarterly': {
+      if (!redis) {
+        await say({ text: ':warning: Redis unavailable — governance sessions require Redis.', thread_ts: ts })
+        return
+      }
+      try {
+        const result = await client.sessions_create('review')
+        await setSessionThread(redis, ts, result.session.id)
+        await say({
+          text: formatSessionStart(result.session.id, 'quarterly review', result.first_message),
+          thread_ts: ts,
+        })
+      } catch (err) {
+        logger.error({ err }, 'handleCommand: sessions_create(review) failed')
+        await say({ text: formatError('Could not start quarterly review session', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    // !board resume <id> — resume a paused session
+    // -------------------------------------------------------------------------
+    case 'resume': {
+      // After parseCommand: cmd='board', subCmd='resume', subCmdRaw='resume', args=<session-id...>
+      // The session ID is the first token of args.
+      const resolvedId = args.trim().split(/\s+/)[0] ?? ''
+      if (!resolvedId) {
+        await say({ text: ':warning: Usage: `!board resume <session-id>`', thread_ts: ts })
+        return
+      }
+      if (!redis) {
+        await say({ text: ':warning: Redis unavailable — governance sessions require Redis.', thread_ts: ts })
+        return
+      }
+      try {
+        const result = await client.sessions_resume(resolvedId)
+        // Map the new thread (this message's ts) to the resumed session
+        await setSessionThread(redis, ts, resolvedId)
+        await say({
+          text: [
+            `:arrow_forward: *Session resumed* (\`${resolvedId.slice(0, 8)}\`)`,
+            '',
+            `*Board:* ${result.context_message}`,
+          ].join('\n'),
+          thread_ts: ts,
+        })
+      } catch (err) {
+        logger.error({ err, sessionId: resolvedId }, 'handleCommand: sessions_resume failed')
+        await say({ text: formatError('Could not resume session', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    // !board status — list active/paused sessions
+    // -------------------------------------------------------------------------
+    case 'status': {
+      try {
+        // Fetch both active and paused sessions
+        const [active, paused] = await Promise.all([
+          client.sessions_list('active', 10),
+          client.sessions_list('paused', 10),
+        ])
+        const combined = [...active.items, ...paused.items]
+        await say({ text: formatSessionList(combined), thread_ts: ts })
+      } catch (err) {
+        logger.error({ err }, 'handleCommand: sessions_list failed')
+        await say({ text: formatError('Could not retrieve sessions', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    default:
+      await say({
+        text: ':warning: Usage: `!board quick`, `!board quarterly`, `!board resume <id>`, `!board status`',
+        thread_ts: ts,
+      })
+      break
+  }
+}
+
+// =============================================================================
+// Bet command handler
+// =============================================================================
+
+async function handleBetCommand(
+  ts: string,
+  say: SayFn,
+  client: CoreApiClient,
+  subCmd: string,
+  _subCmdRaw: string,
+  args: string,
+): Promise<void> {
+  switch (subCmd) {
+    // -------------------------------------------------------------------------
+    // !bet list [status]
+    // -------------------------------------------------------------------------
+    case 'list': {
+      const validStatuses = ['pending', 'correct', 'incorrect', 'ambiguous']
+      const status = args.trim().split(/\s+/)[0] ?? ''
+      const statusFilter = validStatuses.includes(status) ? status : undefined
+      try {
+        const result = await client.bets_list(statusFilter, 20)
+        await say({ text: formatBetList(result.items, statusFilter), thread_ts: ts })
+      } catch (err) {
+        logger.error({ err }, 'handleCommand: bets_list failed')
+        await say({ text: formatError('Could not list bets', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    // !bet add <confidence> <statement>
+    // Example: !bet add 0.8 QSR deal closes by Q2
+    // -------------------------------------------------------------------------
+    case 'add': {
+      const parts = args.trim().split(/\s+/)
+      const confidenceRaw = parts[0] ?? ''
+      const confidence = parseFloat(confidenceRaw)
+      const statement = parts.slice(1).join(' ').trim()
+
+      if (Number.isNaN(confidence) || confidence < 0 || confidence > 1) {
+        await say({
+          text: ':warning: Usage: `!bet add <confidence 0.0-1.0> <statement>`\nExample: `!bet add 0.8 QSR deal closes by Q2 2026`',
+          thread_ts: ts,
+        })
+        return
+      }
+
+      if (!statement) {
+        await say({
+          text: ':warning: A statement is required. Usage: `!bet add <confidence> <statement>`',
+          thread_ts: ts,
+        })
+        return
+      }
+
+      try {
+        const bet = await client.bets_create({ statement, confidence })
+        await say({ text: formatBetCreate(bet), thread_ts: ts })
+      } catch (err) {
+        logger.error({ err, statement }, 'handleCommand: bets_create failed')
+        await say({ text: formatError('Could not create bet', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    // !bet expiring [N]
+    // -------------------------------------------------------------------------
+    case 'expiring': {
+      const daysRaw = args.trim().split(/\s+/)[0] ?? ''
+      const days = daysRaw ? parseInt(daysRaw, 10) : 7
+      const resolvedDays = Number.isNaN(days) || days < 1 ? 7 : days
+      try {
+        const result = await client.bets_expiring(resolvedDays)
+        await say({ text: formatBetsExpiring(result.items, result.days_ahead), thread_ts: ts })
+      } catch (err) {
+        logger.error({ err, days: resolvedDays }, 'handleCommand: bets_expiring failed')
+        await say({ text: formatError('Could not retrieve expiring bets', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    // !bet resolve <id> <outcome> [evidence...]
+    // Example: !bet resolve abc12345 correct Revenue target confirmed in Q2 report
+    // -------------------------------------------------------------------------
+    case 'resolve': {
+      const parts = args.trim().split(/\s+/)
+      const betId = parts[0] ?? ''
+      const outcome = (parts[1] ?? '').toLowerCase()
+      const evidence = parts.slice(2).join(' ').trim()
+
+      const validOutcomes = ['correct', 'incorrect', 'ambiguous']
+      if (!betId) {
+        await say({ text: ':warning: Usage: `!bet resolve <id> <correct|incorrect|ambiguous> [evidence]`', thread_ts: ts })
+        return
+      }
+      if (!validOutcomes.includes(outcome)) {
+        await say({
+          text: `:warning: Invalid outcome \`${outcome}\`. Must be: correct, incorrect, or ambiguous`,
+          thread_ts: ts,
+        })
+        return
+      }
+
+      try {
+        const updated = await client.bets_resolve(betId, {
+          resolution: outcome as 'correct' | 'incorrect' | 'ambiguous',
+          evidence: evidence || undefined,
+        })
+        await say({ text: formatBetResolve(updated), thread_ts: ts })
+      } catch (err) {
+        logger.error({ err, betId, outcome }, 'handleCommand: bets_resolve failed')
+        await say({ text: formatError('Could not resolve bet', err), thread_ts: ts })
+      }
+      break
+    }
+
+    // -------------------------------------------------------------------------
+    default:
+      await say({
+        text: ':warning: Unknown bet subcommand. Use: `!bet list`, `!bet add`, `!bet expiring`, `!bet resolve`',
+        thread_ts: ts,
+      })
+      break
+  }
+}
+
+// =============================================================================
+// Trigger command handler
+// =============================================================================
 
 async function handleTriggerCommand(
   ts: string,

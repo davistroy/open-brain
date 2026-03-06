@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SayFn, GenericMessageEvent } from '@slack/bolt'
 import { handleCommand } from '../handlers/command.js'
-import type { CoreApiClient, BrainStats, TriggerRecord, TriggerMatch, EntityMergeResult, EntitySplitResult } from '../lib/core-api-client.js'
+import type { CoreApiClient, BrainStats, TriggerRecord, TriggerMatch, EntityMergeResult, EntitySplitResult, SessionRecord, BetRecord } from '../lib/core-api-client.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +64,45 @@ function makeTrigger(overrides: Partial<TriggerRecord> = {}): TriggerRecord {
   }
 }
 
+function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
+  return {
+    id: 'sess-abc-12345678',
+    session_type: 'governance',
+    status: 'active',
+    config: null,
+    summary: null,
+    created_at: '2026-03-05T10:00:00Z',
+    updated_at: '2026-03-05T10:00:00Z',
+    completed_at: null,
+    ...overrides,
+  }
+}
+
+function makeBet(overrides: Partial<BetRecord> = {}): BetRecord {
+  return {
+    id: 'bet-xyz-12345678',
+    statement: 'QSR deal closes by Q2 2026',
+    confidence: 0.75,
+    domain: 'business',
+    resolution_date: '2026-06-30T00:00:00Z',
+    resolution: null,
+    resolution_notes: null,
+    session_id: null,
+    created_at: '2026-03-05T10:00:00Z',
+    updated_at: '2026-03-05T10:00:00Z',
+    ...overrides,
+  }
+}
+
+// Minimal Redis mock (only the methods session handler uses)
+function makeRedis() {
+  return {
+    set: vi.fn().mockResolvedValue('OK'),
+    get: vi.fn().mockResolvedValue(null),
+    del: vi.fn().mockResolvedValue(1),
+  }
+}
+
 function makeClient(overrides: Partial<CoreApiClient> = {}): CoreApiClient {
   return {
     stats_get: vi.fn().mockResolvedValue(makeStats()),
@@ -122,6 +161,29 @@ function makeClient(overrides: Partial<CoreApiClient> = {}): CoreApiClient {
         { id: 'cap-001', content: 'QSR deal timeline updated.', capture_type: 'decision', brain_view: 'work', created_at: '2026-03-04T10:00:00Z', similarity: 0.87 } as TriggerMatch,
       ],
     }),
+    sessions_create: vi.fn().mockResolvedValue({
+      session: makeSession(),
+      first_message: 'Let\'s begin the quick board check. What are you working on right now?',
+    }),
+    sessions_list: vi.fn().mockResolvedValue({ items: [makeSession()], total: 1, limit: 10, offset: 0 }),
+    sessions_respond: vi.fn().mockResolvedValue({
+      session: makeSession(),
+      bot_message: 'Good. What decisions did you make this week?',
+    }),
+    sessions_pause: vi.fn().mockResolvedValue({ session: makeSession({ status: 'paused' }) }),
+    sessions_resume: vi.fn().mockResolvedValue({
+      session: makeSession({ status: 'active' }),
+      context_message: 'Welcome back. We were discussing priorities.',
+    }),
+    sessions_complete: vi.fn().mockResolvedValue({
+      session: makeSession({ status: 'complete' }),
+      summary: 'Session summary: strong week, key decisions on pricing.',
+    }),
+    sessions_abandon: vi.fn().mockResolvedValue({ session: makeSession({ status: 'abandoned' }) }),
+    bets_list: vi.fn().mockResolvedValue({ items: [makeBet()], total: 1, limit: 10, offset: 0 }),
+    bets_create: vi.fn().mockResolvedValue(makeBet()),
+    bets_expiring: vi.fn().mockResolvedValue({ items: [makeBet()], days_ahead: 7 }),
+    bets_resolve: vi.fn().mockResolvedValue(makeBet({ resolution: 'correct', resolution_notes: 'Confirmed in Q2 report' })),
     ...overrides,
   } as unknown as CoreApiClient
 }
@@ -440,26 +502,307 @@ describe('handleCommand()', () => {
   })
 
   // -------------------------------------------------------------------------
-  // !board
+  // !board quick / quarterly (governance sessions)
   // -------------------------------------------------------------------------
 
-  describe('!board', () => {
-    it('responds to !board quick with Phase 13 stub message', async () => {
+  describe('!board quick', () => {
+    let redis: ReturnType<typeof makeRedis>
+
+    beforeEach(() => {
+      redis = makeRedis()
+    })
+
+    it('calls sessions_create with governance type', async () => {
+      await handleCommand(makeMessage('!board quick'), say, client, redis as never)
+      expect(client.sessions_create).toHaveBeenCalledWith('governance')
+    })
+
+    it('stores session thread mapping in Redis', async () => {
+      await handleCommand(makeMessage('!board quick'), say, client, redis as never)
+      expect(redis.set).toHaveBeenCalled()
+    })
+
+    it('replies with session start message containing first bot message', async () => {
+      await handleCommand(makeMessage('!board quick'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('quick board check')
+      expect(call.text).toContain('Board:')
+    })
+
+    it('replies in thread', async () => {
+      const msg = makeMessage('!board quick', { ts: '9999.0002' })
+      await handleCommand(msg, say, client, redis as never)
+      expect(say).toHaveBeenCalledWith(expect.objectContaining({ thread_ts: '9999.0002' }))
+    })
+
+    it('warns when Redis unavailable', async () => {
       await handleCommand(makeMessage('!board quick'), say, client)
       const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
-      expect(call.text).toContain('Phase 13')
+      expect(call.text).toContain('Redis unavailable')
     })
 
-    it('responds to !board quarterly with Phase 13 stub message', async () => {
-      await handleCommand(makeMessage('!board quarterly'), say, client)
+    it('handles sessions_create failure gracefully', async () => {
+      ;(client.sessions_create as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'))
+      await handleCommand(makeMessage('!board quick'), say, client, redis as never)
       const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
-      expect(call.text).toContain('Phase 13')
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!board quarterly', () => {
+    let redis: ReturnType<typeof makeRedis>
+
+    beforeEach(() => {
+      redis = makeRedis()
     })
 
+    it('calls sessions_create with review type', async () => {
+      await handleCommand(makeMessage('!board quarterly'), say, client, redis as never)
+      expect(client.sessions_create).toHaveBeenCalledWith('review')
+    })
+
+    it('replies with session start message', async () => {
+      await handleCommand(makeMessage('!board quarterly'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('quarterly review')
+    })
+  })
+
+  describe('!board status', () => {
+    let redis: ReturnType<typeof makeRedis>
+
+    beforeEach(() => {
+      redis = makeRedis()
+    })
+
+    it('calls sessions_list for both active and paused', async () => {
+      await handleCommand(makeMessage('!board status'), say, client, redis as never)
+      expect(client.sessions_list).toHaveBeenCalledWith('active', 10)
+      expect(client.sessions_list).toHaveBeenCalledWith('paused', 10)
+    })
+
+    it('shows session info in reply', async () => {
+      await handleCommand(makeMessage('!board status'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Governance Sessions')
+    })
+
+    it('shows empty state when no sessions', async () => {
+      ;(client.sessions_list as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0, limit: 10, offset: 0 })
+      await handleCommand(makeMessage('!board status'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('No active')
+    })
+
+    it('handles sessions_list failure gracefully', async () => {
+      ;(client.sessions_list as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'))
+      await handleCommand(makeMessage('!board status'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!board resume', () => {
+    let redis: ReturnType<typeof makeRedis>
+
+    beforeEach(() => {
+      redis = makeRedis()
+    })
+
+    it('calls sessions_resume with provided id', async () => {
+      await handleCommand(makeMessage('!board resume sess-abc-12345678'), say, client, redis as never)
+      expect(client.sessions_resume).toHaveBeenCalledWith('sess-abc-12345678')
+    })
+
+    it('replies with resume context message', async () => {
+      await handleCommand(makeMessage('!board resume sess-abc-12345678'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('resumed')
+    })
+
+    it('warns when no id provided', async () => {
+      await handleCommand(makeMessage('!board resume'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Usage')
+    })
+
+    it('handles sessions_resume failure gracefully', async () => {
+      ;(client.sessions_resume as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('404'))
+      await handleCommand(makeMessage('!board resume bad-id'), say, client, redis as never)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!board unknown subcommand', () => {
     it('warns on unknown board subcommand', async () => {
       await handleCommand(makeMessage('!board unknown'), say, client)
       const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
       expect(call.text).toContain('Usage')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // !bet commands
+  // -------------------------------------------------------------------------
+
+  describe('!bet list', () => {
+    it('calls bets_list with no status filter by default', async () => {
+      await handleCommand(makeMessage('!bet list'), say, client)
+      expect(client.bets_list).toHaveBeenCalledWith(undefined, 20)
+    })
+
+    it('calls bets_list with status filter when provided', async () => {
+      await handleCommand(makeMessage('!bet list pending'), say, client)
+      expect(client.bets_list).toHaveBeenCalledWith('pending', 20)
+    })
+
+    it('shows bet statement in reply', async () => {
+      await handleCommand(makeMessage('!bet list'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('QSR deal closes')
+    })
+
+    it('shows empty state when no bets', async () => {
+      ;(client.bets_list as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], total: 0, limit: 10, offset: 0 })
+      await handleCommand(makeMessage('!bet list'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('No bets found')
+    })
+
+    it('ignores invalid status filter', async () => {
+      await handleCommand(makeMessage('!bet list badstatus'), say, client)
+      expect(client.bets_list).toHaveBeenCalledWith(undefined, 20)
+    })
+
+    it('handles bets_list failure gracefully', async () => {
+      ;(client.bets_list as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'))
+      await handleCommand(makeMessage('!bet list'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!bet add', () => {
+    it('calls bets_create with confidence and statement', async () => {
+      await handleCommand(makeMessage('!bet add 0.75 QSR deal closes by Q2 2026'), say, client)
+      expect(client.bets_create).toHaveBeenCalledWith(
+        expect.objectContaining({ confidence: 0.75, statement: 'QSR deal closes by Q2 2026' }),
+      )
+    })
+
+    it('shows bet creation confirmation', async () => {
+      await handleCommand(makeMessage('!bet add 0.75 QSR deal closes by Q2 2026'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Bet recorded')
+    })
+
+    it('warns when confidence is missing or invalid', async () => {
+      await handleCommand(makeMessage('!bet add bad statement here'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Usage')
+    })
+
+    it('warns when confidence is out of range', async () => {
+      await handleCommand(makeMessage('!bet add 1.5 Some statement'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Usage')
+    })
+
+    it('warns when statement is missing', async () => {
+      await handleCommand(makeMessage('!bet add 0.8'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('statement is required')
+    })
+
+    it('handles bets_create failure gracefully', async () => {
+      ;(client.bets_create as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('422'))
+      await handleCommand(makeMessage('!bet add 0.8 Some statement'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!bet expiring', () => {
+    it('calls bets_expiring with default 7 days', async () => {
+      await handleCommand(makeMessage('!bet expiring'), say, client)
+      expect(client.bets_expiring).toHaveBeenCalledWith(7)
+    })
+
+    it('calls bets_expiring with custom days', async () => {
+      await handleCommand(makeMessage('!bet expiring 14'), say, client)
+      expect(client.bets_expiring).toHaveBeenCalledWith(14)
+    })
+
+    it('shows expiring bets in reply', async () => {
+      await handleCommand(makeMessage('!bet expiring'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Expiring')
+    })
+
+    it('shows empty state when no expiring bets', async () => {
+      ;(client.bets_expiring as ReturnType<typeof vi.fn>).mockResolvedValue({ items: [], days_ahead: 7 })
+      await handleCommand(makeMessage('!bet expiring'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('No bets expiring')
+    })
+
+    it('handles bets_expiring failure gracefully', async () => {
+      ;(client.bets_expiring as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'))
+      await handleCommand(makeMessage('!bet expiring'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!bet resolve', () => {
+    it('calls bets_resolve with id and outcome', async () => {
+      await handleCommand(makeMessage('!bet resolve bet-xyz-12345678 correct'), say, client)
+      expect(client.bets_resolve).toHaveBeenCalledWith(
+        'bet-xyz-12345678',
+        expect.objectContaining({ resolution: 'correct' }),
+      )
+    })
+
+    it('calls bets_resolve with evidence when provided', async () => {
+      await handleCommand(makeMessage('!bet resolve bet-xyz-12345678 incorrect Revenue missed by 20%'), say, client)
+      expect(client.bets_resolve).toHaveBeenCalledWith(
+        'bet-xyz-12345678',
+        expect.objectContaining({ resolution: 'incorrect', evidence: 'Revenue missed by 20%' }),
+      )
+    })
+
+    it('shows resolution confirmation', async () => {
+      await handleCommand(makeMessage('!bet resolve bet-xyz-12345678 correct'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('resolved')
+    })
+
+    it('warns when no id provided', async () => {
+      await handleCommand(makeMessage('!bet resolve'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Usage')
+    })
+
+    it('warns on invalid outcome', async () => {
+      await handleCommand(makeMessage('!bet resolve bet-xyz-12345678 maybe'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Invalid outcome')
+    })
+
+    it('handles bets_resolve failure gracefully', async () => {
+      ;(client.bets_resolve as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('404'))
+      await handleCommand(makeMessage('!bet resolve bad-id correct'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  describe('!bet unknown subcommand', () => {
+    it('warns on unknown bet subcommand', async () => {
+      await handleCommand(makeMessage('!bet blah'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Unknown bet subcommand')
     })
   })
 
@@ -699,6 +1042,8 @@ describe('handleCommand()', () => {
       expect(call.text).toContain('!pipeline')
       expect(call.text).toContain('merge')
       expect(call.text).toContain('split')
+      expect(call.text).toContain('!board quick')
+      expect(call.text).toContain('!bet list')
     })
 
     it('replies in thread', async () => {
