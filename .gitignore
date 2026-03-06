@@ -228,3 +228,4 @@ docker-compose.override.yml
 .env.secrets
 *.pem
 *.key
+.implement-plan-state.json
