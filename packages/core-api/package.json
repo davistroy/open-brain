@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.11",
+    "@hono/zod-validator": "^0.7.6",
     "@open-brain/shared": "workspace:*",
     "@types/pg": "^8.18.0",
     "drizzle-orm": "^0.45.1",

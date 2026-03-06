@@ -477,7 +477,7 @@
 
 ---
 
-### 4.3 Capture Routes
+### 4.3 Capture Routes ✅ Completed 2026-03-05
 
 **Description**: Hono route handlers for all capture endpoints. Thin layer: validate input (Zod), call CaptureService, format response.
 
@@ -497,6 +497,8 @@
 - GET /:id includes pipeline_events array and linked_entities (empty until Phase 6/12)
 - PATCH merges metadata_overrides
 - DELETE returns 204 No Content
+
+**Status**: COMPLETE 2026-03-05
 
 **Requirement Refs**: PRD F01 (all endpoints), TDD §3.2 (endpoint specs)
 
