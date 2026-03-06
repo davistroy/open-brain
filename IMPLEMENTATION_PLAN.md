@@ -707,11 +707,13 @@
 
 ---
 
-### 6.1 BullMQ Queue Setup
+### 6.1 BullMQ Queue Setup ✅ Completed 2026-03-05
 
 **Description**: Redis-backed BullMQ queues for capture pipeline, skill execution, notifications, access stats, and daily sweep. Queue definitions with priorities, timeouts, and retry policies.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/queues/index.ts` — Queue factory: creates all queues from Redis connection. Exports: capturePipeline, skillExecution, notification, accessStats, dailySweep.
@@ -752,11 +754,13 @@
 
 ---
 
-### 6.3 AIRouterService + LiteLLM Integration
+### 6.3 AIRouterService + LiteLLM Integration — COMPLETE 2026-03-05
 
 **Description**: Thin wrapper that maps task types to LiteLLM model aliases. Logs usage to ai_audit_log. LiteLLM handles provider routing, fallback, and budget.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/services/ai-router.ts` — AIRouterService class:

@@ -21,7 +21,9 @@
   "dependencies": {
     "@open-brain/shared": "workspace:*",
     "bullmq": "^5.0.0",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.1",
+    "ioredis": "^5.10.0",
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
