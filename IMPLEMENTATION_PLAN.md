@@ -430,7 +430,7 @@
 
 ---
 
-### 4.1 CaptureService
+### 4.1 CaptureService ✅ Completed 2026-03-05
 
 **Description**: Service class handling capture creation with deduplication, retrieval with pipeline_events JOIN, listing with filters, updates, and soft deletes.
 
@@ -453,9 +453,11 @@
 
 **Requirement Refs**: PRD F01 (capture CRUD), TDD §6.2 (CaptureService), TDD §5.2 (dedup logic)
 
+**Status**: COMPLETE 2026-03-05
+
 ---
 
-### 4.2 Capture Zod Schemas
+### 4.2 Capture Zod Schemas ✅ Completed 2026-03-05
 
 **Description**: Zod validation schemas for all capture-related API inputs.
 
@@ -470,6 +472,8 @@
 - brain_views validated against ConfigService loaded brain views (runtime, not hardcoded)
 
 **Requirement Refs**: TDD §5.2 (validation rules), PRD F01 (ingest payload)
+
+**Status**: COMPLETE 2026-03-05
 
 ---
 
@@ -498,7 +502,7 @@
 
 ---
 
-### 4.4 Stats Endpoint
+### 4.4 Stats Endpoint ✅ Completed 2026-03-05
 
 **Description**: GET /api/v1/stats returning brain statistics — capture counts by source, type, view, pipeline health.
 
@@ -513,6 +517,8 @@
 - Response < 500ms
 
 **Requirement Refs**: PRD F01 (stats endpoint), TDD §3.2 (GET /api/v1/stats)
+
+**Status**: COMPLETE 2026-03-05
 
 ---
 

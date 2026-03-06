@@ -22,10 +22,12 @@
     "@hono/node-server": "^1.19.11",
     "@open-brain/shared": "workspace:*",
     "@types/pg": "^8.18.0",
+    "drizzle-orm": "^0.45.1",
     "hono": "^4.12.5",
     "ioredis": "^5.10.0",
     "pg": "^8.20.0",
-    "pino": "^10.3.1"
+    "pino": "^10.3.1",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/ioredis": "^5.0.0",
