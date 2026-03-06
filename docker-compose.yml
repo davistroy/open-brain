@@ -102,3 +102,25 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+
+  slack-bot:
+    build:
+      context: .
+      target: slack-bot
+    container_name: open-brain-slack-bot
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      CORE_API_URL: http://core-api:3000
+      REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net
+      # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
+      # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
+      # LITELLM_API_KEY: set in .env.secrets
+    depends_on:
+      core-api:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped

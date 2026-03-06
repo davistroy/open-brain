@@ -997,11 +997,13 @@
 
 ---
 
-### 7.5 Slack Bot Tests + Docker
+### 7.5 Slack Bot Tests + Docker — COMPLETE 2026-03-05
 
 **Description**: Tests for intent router and handlers. Slack bot Docker Compose service.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create/Modify**:
 - `docker-compose.yml` — Add slack-bot service (build target, env vars for SLACK_BOT_TOKEN, SLACK_APP_TOKEN, CORE_API_URL, REDIS_URL, LITELLM_URL=https://llm.k4jda.net, depends on core-api only — LiteLLM is external)
