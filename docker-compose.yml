@@ -5,6 +5,7 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  whisper_model_cache:
 
 services:
   postgres:
@@ -121,6 +122,28 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  faster-whisper:
+    image: fedirz/faster-whisper-server:0.4.1
+    container_name: open-brain-faster-whisper
+    environment:
+      WHISPER__MODEL: large-v3
+      WHISPER__DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+    ports:
+      - "10300:8000"
+    volumes:
+      - whisper_model_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    mem_limit: 8g
     networks:
       - open-brain
     restart: unless-stopped

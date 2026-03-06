@@ -2,26 +2,31 @@
   "name": "@open-brain/voice-capture",
   "version": "0.1.0",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "build": "tsup src/server.ts --format esm --dts",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@open-brain/shared": "workspace:*"
+    "@hono/node-server": "^1.19.11",
+    "@open-brain/shared": "workspace:*",
+    "hono": "^4.12.5",
+    "openai": "^4.98.0",
+    "pino": "^10.3.1"
   },
   "devDependencies": {
+    "@types/node": "^25.3.5",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",

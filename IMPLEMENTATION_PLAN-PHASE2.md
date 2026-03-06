@@ -38,9 +38,11 @@
 
 ---
 
-### 9.1 faster-whisper Container
+### 9.1 faster-whisper Container — COMPLETE 2026-03-05
 
 **Description**: Configure faster-whisper container in Docker Compose. Large-v3 model, CPU int8 compute for i7-9700 server.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -57,9 +59,11 @@
 
 ---
 
-### 9.2 Voice-Capture Package Setup
+### 9.2 Voice-Capture Package Setup — COMPLETE 2026-03-05
 
 **Description**: Set up packages/voice-capture/ as a TypeScript service that exposes an HTTP endpoint for receiving audio from iOS Shortcuts and processes it through faster-whisper → classification → Core API ingest.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
