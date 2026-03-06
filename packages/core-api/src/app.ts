@@ -12,12 +12,16 @@ import { registerSearchRoutes } from './routes/search.js'
 import { registerSkillRoutes } from './routes/skills.js'
 import { registerTriggerRoutes } from './routes/triggers.js'
 import { registerEntityRoutes } from './routes/entities.js'
+import { registerBetRoutes } from './routes/bets.js'
+import { registerSessionRoutes } from './routes/sessions.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
 import type { PipelineService } from './services/pipeline.js'
 import type { TriggerService } from './services/trigger.js'
 import type { EntityService } from './services/entity.js'
+import type { BetService } from './services/bet.js'
+import type { SessionService } from './services/session.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -34,11 +38,15 @@ interface AppDependencies {
   triggerService?: TriggerService
   /** Entity service — required for entity CRUD + merge/split endpoints */
   entityService?: EntityService
+  /** Bet service — required for bet tracking CRUD + resolution endpoints */
+  betService?: BetService
+  /** Session service — required for governance session lifecycle endpoints */
+  sessionService?: SessionService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -75,6 +83,16 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Entities API
   if (entityService) {
     registerEntityRoutes(app, entityService)
+  }
+
+  // Bets API
+  if (betService) {
+    registerBetRoutes(app, betService)
+  }
+
+  // Sessions API
+  if (sessionService) {
+    registerSessionRoutes(app, sessionService)
   }
 
   // MCP endpoint — requires all services to be available

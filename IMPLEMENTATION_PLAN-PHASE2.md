@@ -621,7 +621,9 @@
 
 ---
 
-### 13.1 Session Management
+### 13.1 Session Management ✅ Completed 2026-03-05
+
+**Status:** COMPLETE 2026-03-05
 
 **Description**: Session lifecycle management — create, respond, pause, resume, complete, abandon. Transcript stored in session_messages table.
 
@@ -682,9 +684,11 @@
 
 ---
 
-### 13.3 Bet Tracking
+### ✅ 13.3 Bet Tracking — Completed 2026-03-05
 
 **Description**: Bet CRUD, expiration alerts, and resolution. Bets created from governance sessions with falsifiable criteria.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
