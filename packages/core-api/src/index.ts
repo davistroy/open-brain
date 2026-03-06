@@ -3,6 +3,8 @@ import { join } from 'node:path'
 import { ConfigService, createDb } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
+import { LLMGatewayService } from './services/llm-gateway.js'
+import { GovernanceEngine } from './services/governance-engine.js'
 import { logger } from './lib/logger.js'
 
 // Load config
@@ -25,7 +27,22 @@ const redisConnection = {
   ...(redisUrlObj.password ? { password: redisUrlObj.password } : {}),
 }
 
-const app = createApp({ configService, captureService, db, redisConnection })
+// LLM Gateway + Governance Engine
+// LITELLM_URL and LITELLM_API_KEY come from environment (set via bws secrets at startup)
+const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
+const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
+const promptsDir = join(configDir, 'prompts')
+
+let governanceEngine: GovernanceEngine | undefined
+if (litellmApiKey) {
+  const llmGateway = new LLMGatewayService(litellmUrl, litellmApiKey, configService, db, promptsDir)
+  governanceEngine = new GovernanceEngine(llmGateway, promptsDir)
+  logger.info('GovernanceEngine initialized')
+} else {
+  logger.warn('LITELLM_API_KEY not set — GovernanceEngine disabled (session responds will use fallback)')
+}
+
+const app = createApp({ configService, captureService, db, redisConnection, governanceEngine })
 const port = Number(process.env.PORT ?? 3000)
 
 serve({ fetch: app.fetch, port }, () => {

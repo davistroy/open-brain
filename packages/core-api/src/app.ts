@@ -22,6 +22,7 @@ import type { TriggerService } from './services/trigger.js'
 import type { EntityService } from './services/entity.js'
 import type { BetService } from './services/bet.js'
 import type { SessionService } from './services/session.js'
+import type { GovernanceEngine } from './services/governance-engine.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -42,11 +43,13 @@ interface AppDependencies {
   betService?: BetService
   /** Session service — required for governance session lifecycle endpoints */
   sessionService?: SessionService
+  /** Governance engine — injected into SessionService to drive LLM conversation */
+  governanceEngine?: GovernanceEngine
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, governanceEngine } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -90,8 +93,15 @@ export function createApp(deps: AppDependencies = {}): Hono {
     registerBetRoutes(app, betService)
   }
 
-  // Sessions API
+  // Sessions API — inject GovernanceEngine if both are provided
   if (sessionService) {
+    if (governanceEngine) {
+      // Wire the engine into the session service via the optional dependency slot
+      // SessionService accepts governanceEngine as its third constructor arg; since the
+      // service is already constructed here we attach it via the internal property.
+      // The duck-typed interface is: { processResponse(session, transcript, userMessage) }
+      ;(sessionService as any).governanceEngine = governanceEngine
+    }
     registerSessionRoutes(app, sessionService)
   }
 
