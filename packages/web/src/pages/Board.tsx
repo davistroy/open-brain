@@ -65,15 +65,6 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${res.status}: ${text}`);
-  }
-  return res.json() as Promise<T>;
-}
-
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 const ROLE_COLORS: Record<string, string> = {

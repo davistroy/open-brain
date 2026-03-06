@@ -22,7 +22,11 @@ export interface BetRecord {
 
 export interface CreateBetInput {
   /** Falsifiable prediction statement */
-  statement: string
+  statement?: string
+  /** Commitment phrasing (governance engine alias for statement) */
+  commitment?: string
+  /** Criteria for resolution */
+  criteria?: string
   /** Confidence 0.0–1.0 */
   confidence: number
   /** Optional domain/category (e.g. 'technical', 'business', 'personal') */
@@ -31,6 +35,10 @@ export interface CreateBetInput {
   due_date?: Date
   /** Session that originated this bet (optional) */
   session_id?: string
+  /** Source that created this bet */
+  source?: string
+  /** Tags associated with this bet */
+  tags?: string[]
 }
 
 export interface ResolveBetInput {
@@ -71,7 +79,7 @@ export class BetService {
     const [created] = await this.db
       .insert(bets)
       .values({
-        statement: input.statement,
+        statement: input.commitment ?? input.statement ?? '',
         confidence: input.confidence,
         domain: input.domain ?? null,
         resolution_date: input.due_date ?? null,

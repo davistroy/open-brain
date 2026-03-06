@@ -104,7 +104,8 @@ export async function parseDocument(
 
 async function parsePdf(filePath: string): Promise<SimpleParseResult> {
   // Dynamic import to avoid module-level side effects from pdf-parse
-  const pdfParse = await import('pdf-parse').then(m => m.default ?? m)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pdfParse = await import('pdf-parse').then((m: any) => m.default ?? m)
 
   logger.debug({ filePath }, '[document-parser] parsing PDF')
 

@@ -1,14 +1,7 @@
 import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
-import { customType } from 'drizzle-orm/pg-core'
 import { captures } from './core.js'
-
-// pgvector custom type — reuse same definition as core.ts
-const vector = customType<{ data: number[]; driverData: string }>({
-  dataType() { return 'vector(768)' },
-  toDriver(value: number[]): string { return `[${value.join(',')}]` },
-  fromDriver(value: string): number[] { return value.slice(1, -1).split(',').map(Number) },
-})
+import { vector } from './types.js'
 
 // ============================================================
 // entities table

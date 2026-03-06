@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { SayFn, GenericMessageEvent } from '@slack/bolt'
+import type { SayFn } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import { handleCommand } from '../handlers/command.js'
 import type { CoreApiClient, BrainStats, TriggerRecord, TriggerMatch, EntityMergeResult, EntitySplitResult, SessionRecord, BetRecord } from '../lib/core-api-client.js'
 

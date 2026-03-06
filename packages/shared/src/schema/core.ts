@@ -1,22 +1,6 @@
 import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
-import { customType } from 'drizzle-orm/pg-core'
-
-// pgvector custom type — vector(768)
-const vector = customType<{ data: number[]; driverData: string }>({
-  dataType() {
-    return 'vector(768)'
-  },
-  toDriver(value: number[]): string {
-    return `[${value.join(',')}]`
-  },
-  fromDriver(value: string): number[] {
-    return value
-      .slice(1, -1)
-      .split(',')
-      .map(Number)
-  },
-})
+import { vector } from './types.js'
 
 // ============================================================
 // captures table
@@ -41,6 +25,7 @@ export const captures = pgTable(
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     captured_at: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
+    deleted_at: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => ({
     content_hash_idx: uniqueIndex('captures_content_hash_idx').on(table.content_hash),
@@ -49,6 +34,8 @@ export const captures = pgTable(
     source_idx: index('captures_source_idx').on(table.source),
     pipeline_status_idx: index('captures_pipeline_status_idx').on(table.pipeline_status),
     created_at_idx: index('captures_created_at_idx').on(table.created_at),
+    // Partial index for active (non-deleted) captures — WHERE deleted_at IS NULL
+    // Created via custom SQL migration (Drizzle cannot generate partial indexes natively)
     // HNSW index for vector similarity search — created via custom SQL migration (Drizzle cannot generate this natively)
     // GIN index for full-text search — also created via custom SQL migration
   }),

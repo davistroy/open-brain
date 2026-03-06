@@ -187,7 +187,8 @@ function parseHtmlSections(html: string, plainText: string): DocumentSection[] {
 
 async function parsePdf(fileBuffer: Buffer, filePath: string): Promise<ParsedDocument> {
   // Dynamic import keeps pdf-parse out of the module scope so tests can mock it
-  const pdfParse = (await import('pdf-parse')).default
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pdfParse = ((await import('pdf-parse')) as any).default
 
   const result = await pdfParse(fileBuffer)
   const text = result.text.trim()

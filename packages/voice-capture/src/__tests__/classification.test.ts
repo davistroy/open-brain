@@ -21,7 +21,7 @@ async function getMockCreate() {
   const openaiModule = await import('openai')
   // The mock instance is created per ClassificationService constructor call;
   // we need to grab it from the mock implementation
-  const OpenAIMock = openaiModule.default as ReturnType<typeof vi.fn>
+  const OpenAIMock = openaiModule.default as unknown as ReturnType<typeof vi.fn>
   const instance = OpenAIMock.mock.results[OpenAIMock.mock.results.length - 1]?.value
   return instance?.chat?.completions?.create as ReturnType<typeof vi.fn>
 }

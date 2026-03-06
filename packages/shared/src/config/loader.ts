@@ -31,12 +31,12 @@ function parseYaml(filePath: string): unknown {
   return yaml.load(content)
 }
 
-function loadOne<T>(filePath: string, schema: z.ZodType<T>): T {
+function loadOne<S extends z.ZodTypeAny>(filePath: string, schema: S): z.output<S> {
   if (!existsSync(filePath)) {
     throw new Error(`Config file not found: ${filePath}`)
   }
   const raw = parseYaml(filePath)
-  return schema.parse(raw)
+  return schema.parse(raw) as z.output<S>
 }
 
 export class ConfigService {
@@ -73,7 +73,7 @@ export class ConfigService {
 
     for (const { key, file, schema } of files) {
       try {
-        const value = loadOne(join(this.configDir, file), schema as z.ZodType)
+        const value = loadOne(join(this.configDir, file), schema as z.ZodTypeAny)
         if (this.configs) {
           // @ts-ignore — dynamic key assignment
           this.configs[key] = value

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SearchService } from '../services/search.js'
+import { SearchService, applyTemporalDecay } from '../services/search.js'
 import { EmbeddingUnavailableError } from '../services/embedding.js'
 import type { CaptureRecord } from '@open-brain/shared'
 
@@ -51,12 +51,12 @@ function makeMockEmbeddingService(vector = makeUnitVector()) {
  * Build a mock db where:
  *  - First execute() call returns hybridRows (hybrid_search result)
  *  - Second execute() call returns captureRows (SELECT * FROM captures)
- *  - Subsequent execute() calls return actr_temporal_score results (one per hybrid row)
+ *
+ * No further execute() calls — temporal decay is now computed in-memory.
  */
 function makeMockDb(
   hybridRows: Array<{ capture_id: string; rrf_score: number; fts_score: number; vector_score: number }>,
   captureRows: CaptureRecord[],
-  temporalScore = 0.85,
 ) {
   const execute = vi.fn()
 
@@ -66,13 +66,52 @@ function makeMockDb(
   // Call 2: SELECT * FROM captures
   execute.mockResolvedValueOnce({ rows: captureRows })
 
-  // Calls 3..N: actr_temporal_score for each hybrid row
-  for (let i = 0; i < hybridRows.length; i++) {
-    execute.mockResolvedValueOnce({ rows: [{ final_score: temporalScore - i * 0.01 }] })
-  }
-
   return { execute }
 }
+
+// ---------------------------------------------------------------------------
+// applyTemporalDecay unit tests
+// ---------------------------------------------------------------------------
+
+describe('applyTemporalDecay()', () => {
+  it('returns baseScore unchanged when temporalWeight === 0', () => {
+    const createdAt = new Date(Date.now() - 24 * 3_600_000) // 24 hours ago
+    expect(applyTemporalDecay(0.8, createdAt, 0.0)).toBe(0.8)
+  })
+
+  it('returns baseScore unchanged when temporalWeight === 0 regardless of age', () => {
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 3_600_000)
+    expect(applyTemporalDecay(0.5, oneYearAgo, 0.0)).toBe(0.5)
+  })
+
+  it('applies decay when temporalWeight > 0 and capture has age', () => {
+    // 100 hours ago → decay = exp(-0.01 * sqrt(100)) = exp(-0.1) ≈ 0.9048
+    const createdAt = new Date(Date.now() - 100 * 3_600_000)
+    const score = applyTemporalDecay(1.0, createdAt, 1.0)
+    // At temporalWeight=1.0: result = 1.0 * decay * 1.0 + 1.0 * (1 - 1.0) = decay
+    expect(score).toBeCloseTo(Math.exp(-0.01 * Math.sqrt(100)), 5)
+  })
+
+  it('blends base and decayed score proportionally at intermediate temporalWeight', () => {
+    // A brand-new capture (0 hours) has decay = exp(0) = 1.0 → score is unchanged regardless of temporalWeight
+    const now = new Date()
+    const score = applyTemporalDecay(0.8, now, 0.5)
+    expect(score).toBeCloseTo(0.8, 4)
+  })
+
+  it('produces a lower score for older captures than for newer ones (same baseScore, same temporalWeight)', () => {
+    const recent = new Date(Date.now() - 1 * 3_600_000)    // 1 hour ago
+    const old = new Date(Date.now() - 8760 * 3_600_000)    // 1 year ago
+    const scoreRecent = applyTemporalDecay(0.8, recent, 0.5)
+    const scoreOld = applyTemporalDecay(0.8, old, 0.5)
+    expect(scoreRecent).toBeGreaterThan(scoreOld)
+  })
+
+  it('accepts a string createdAt value', () => {
+    const score = applyTemporalDecay(0.7, '2026-03-05T10:00:00Z', 0.0)
+    expect(score).toBe(0.7)
+  })
+})
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -138,16 +177,16 @@ describe('SearchService', () => {
       expect(results[0].vectorScore).toBe(0.9)
     })
 
-    it('applies actr_temporal_score to compute the final score', async () => {
+    it('uses rrf_score as final score when temporalWeight=0 (cold start default)', async () => {
       const capture = makeCaptureRecord()
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
-      const db = makeMockDb(hybridRows, [capture], 0.75)
+      const db = makeMockDb(hybridRows, [capture])
       const service = new SearchService(db as any, embeddingService as any)
 
+      // No temporalWeight → defaults to 0.0 → applyTemporalDecay returns rrf_score unchanged
       const results = await service.search('query')
 
-      // Final score comes from actr_temporal_score mock = 0.75
-      expect(results[0].score).toBe(0.75)
+      expect(results[0].score).toBe(0.8)
     })
 
     it('sorts results by final score descending', async () => {
@@ -162,12 +201,10 @@ describe('SearchService', () => {
       const execute = vi.fn()
       execute.mockResolvedValueOnce({ rows: hybridRows })
       execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
-      // actr_temporal_score: cap-1 gets 0.6, cap-2 gets 0.9
-      execute.mockResolvedValueOnce({ rows: [{ final_score: 0.6 }] })
-      execute.mockResolvedValueOnce({ rows: [{ final_score: 0.9 }] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
 
+      // temporalWeight=0 → scores are rrf_score values (0.6 and 0.9)
       const results = await service.search('multi-result query')
 
       expect(results).toHaveLength(2)
@@ -188,10 +225,6 @@ describe('SearchService', () => {
       const execute = vi.fn()
       execute.mockResolvedValueOnce({ rows: hybridRows })
       execute.mockResolvedValueOnce({ rows: captures })
-      // One actr call per row
-      for (let i = 0; i < 5; i++) {
-        execute.mockResolvedValueOnce({ rows: [{ final_score: 0.9 - i * 0.05 }] })
-      }
 
       const service = new SearchService({ execute } as any, embeddingService as any)
 
@@ -200,51 +233,67 @@ describe('SearchService', () => {
       expect(results).toHaveLength(3)
     })
 
-    it('falls back to rrf_score when actr_temporal_score returns no rows', async () => {
-      const capture = makeCaptureRecord()
-      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.77, fts_score: 0.6, vector_score: 0.85 }]
+    it('issues exactly 2 db.execute() calls per search (no per-row round-trips)', async () => {
+      const captures = [makeCaptureRecord({ id: 'cap-1' }), makeCaptureRecord({ id: 'cap-2' })]
+      const hybridRows = captures.map((c, i) => ({
+        capture_id: c.id!,
+        rrf_score: 0.9 - i * 0.1,
+        fts_score: 0.8,
+        vector_score: 0.85,
+      }))
 
-      const execute = vi.fn()
-      execute.mockResolvedValueOnce({ rows: hybridRows })
-      execute.mockResolvedValueOnce({ rows: [capture] })
-      execute.mockResolvedValueOnce({ rows: [] }) // no final_score row
+      const db = makeMockDb(hybridRows, captures)
+      const service = new SearchService(db as any, embeddingService as any)
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      await service.search('n+1 check')
 
-      const results = await service.search('fallback test')
-
-      expect(results[0].score).toBe(0.77) // falls back to rrf_score
+      // Exactly 2: hybrid_search + SELECT captures — no per-row actr calls
+      expect(db.execute).toHaveBeenCalledTimes(2)
     })
   })
 
   // -------------------------------------------------------------------------
-  // temporalWeight = 0.0 (cold start) vs non-zero
+  // temporalWeight behaviour
   // -------------------------------------------------------------------------
 
   describe('temporalWeight', () => {
-    it('passes temporalWeight=0.0 (cold start default) to the actr SQL call', async () => {
+    it('returns rrf_score as score when temporalWeight=0.0 (cold start default)', async () => {
       const capture = makeCaptureRecord()
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
       const db = makeMockDb(hybridRows, [capture])
       const service = new SearchService(db as any, embeddingService as any)
 
-      await service.search('cold start query') // no temporalWeight option = default 0.0
+      const results = await service.search('cold start query') // no temporalWeight = default 0.0
 
-      // The third execute call is actr_temporal_score — we can't easily inspect
-      // sql template args directly, but we verify the call count is correct
-      expect(db.execute).toHaveBeenCalledTimes(3) // hybrid + captures + actr
+      expect(results[0].score).toBe(0.8)
+      // Only 2 DB calls — no extra round-trips
+      expect(db.execute).toHaveBeenCalledTimes(2)
     })
 
-    it('accepts non-zero temporalWeight and still returns results', async () => {
-      const capture = makeCaptureRecord()
+    it('applies decay and returns a lower score for an old capture when temporalWeight > 0', async () => {
+      // Create a capture that is 1 year old
+      const oneYearAgo = new Date(Date.now() - 365 * 24 * 3_600_000)
+      const capture = makeCaptureRecord({ created_at: oneYearAgo })
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
-      const db = makeMockDb(hybridRows, [capture], 0.65)
+      const db = makeMockDb(hybridRows, [capture])
       const service = new SearchService(db as any, embeddingService as any)
 
-      const results = await service.search('temporal weighted query', { temporalWeight: 0.3 })
+      const results = await service.search('temporal weighted query', { temporalWeight: 1.0 })
 
+      // With full temporal weight and a 1-year-old capture, score must be less than rrf_score
       expect(results).toHaveLength(1)
-      expect(results[0].score).toBe(0.65) // from mock
+      expect(results[0].score).toBeLessThan(0.8)
+    })
+
+    it('still issues exactly 2 db.execute() calls when temporalWeight > 0', async () => {
+      const capture = makeCaptureRecord({ created_at: new Date(Date.now() - 100 * 3_600_000) })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      await service.search('no extra db calls', { temporalWeight: 0.5 })
+
+      expect(db.execute).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -270,10 +319,6 @@ describe('SearchService', () => {
       const execute = vi.fn()
       execute.mockResolvedValueOnce({ rows: hybridRows })
       execute.mockResolvedValueOnce({ rows: captures })
-      // actr calls — assign descending scores
-      captures.forEach((_, i) => {
-        execute.mockResolvedValueOnce({ rows: [{ final_score: 0.9 - i * 0.1 }] })
-      })
 
       return { execute, captures }
     }

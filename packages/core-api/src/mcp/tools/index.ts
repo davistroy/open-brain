@@ -9,7 +9,7 @@ import { searchBrainSchema, searchBrainTool } from './search-brain.js'
 import { listCapturesSchema, listCapturesTool } from './list-captures.js'
 import { brainStatsSchema, brainStatsTool } from './brain-stats.js'
 import { captureThoughtSchema, captureThoughtTool } from './capture-thought.js'
-import { getEntitySchema, getEntityTool } from './get-entity.js'
+import { getEntitySchema, getEntitySchemaShape, getEntityTool } from './get-entity.js'
 import { listEntitiesSchema, listEntitiesTool } from './list-entities.js'
 import { getWeeklyBriefSchema, getWeeklyBriefTool } from './get-weekly-brief.js'
 
@@ -73,7 +73,7 @@ export function registerMcpTools(deps: RegisterToolsDeps): void {
   server.tool(
     'get_entity',
     'Look up a specific entity (person, organization, project) by name or ID and see recent related captures.',
-    getEntitySchema.shape,
+    getEntitySchemaShape,
     async (input) => {
       const result = await getEntityTool(input as any, db, entityService)
       return { content: [{ type: 'text', text: result }] }

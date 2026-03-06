@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, gte, lte } from 'drizzle-orm'
+import { eq, and, desc, sql, gte, lte, isNull } from 'drizzle-orm'
 import { captures } from '@open-brain/shared'
 import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
@@ -90,7 +90,7 @@ export class CaptureService {
     const rows = await this.db
       .select()
       .from(captures)
-      .where(and(eq(captures.id, id)))
+      .where(and(eq(captures.id, id), isNull(captures.deleted_at)))
       .limit(1)
 
     if (rows.length === 0) {
@@ -101,7 +101,7 @@ export class CaptureService {
   }
 
   async list(filter: CaptureFilter = {}, limit = 20, offset = 0): Promise<{ items: CaptureRecord[]; total: number }> {
-    const conditions = []
+    const conditions = [isNull(captures.deleted_at)]
 
     if (filter.brain_view) conditions.push(eq(captures.brain_view, filter.brain_view))
     if (filter.capture_type) conditions.push(eq(captures.capture_type, filter.capture_type))
@@ -163,11 +163,10 @@ export class CaptureService {
 
   async softDelete(id: string): Promise<void> {
     await this.getById(id)
-    // Soft delete by setting pipeline_status to 'deleted' and updating updated_at
-    // Note: schema doesn't have deleted_at column yet — use pipeline_status='deleted' as marker
+    const now = new Date()
     await this.db
       .update(captures)
-      .set({ pipeline_status: 'deleted', updated_at: new Date() })
+      .set({ deleted_at: now, pipeline_status: 'deleted', updated_at: now })
       .where(eq(captures.id, id))
   }
 
@@ -175,21 +174,22 @@ export class CaptureService {
     const [bySource, byType, byView, pipelineHealth] = await Promise.all([
       this.db.select({ source: captures.source, count: sql<string>`count(*)` })
         .from(captures)
-        .where(sql`${captures.pipeline_status} != 'deleted'`)
+        .where(isNull(captures.deleted_at))
         .groupBy(captures.source),
 
       this.db.select({ capture_type: captures.capture_type, count: sql<string>`count(*)` })
         .from(captures)
-        .where(sql`${captures.pipeline_status} != 'deleted'`)
+        .where(isNull(captures.deleted_at))
         .groupBy(captures.capture_type),
 
       this.db.select({ brain_view: captures.brain_view, count: sql<string>`count(*)` })
         .from(captures)
-        .where(sql`${captures.pipeline_status} != 'deleted'`)
+        .where(isNull(captures.deleted_at))
         .groupBy(captures.brain_view),
 
       this.db.select({ pipeline_status: captures.pipeline_status, count: sql<string>`count(*)` })
         .from(captures)
+        .where(isNull(captures.deleted_at))
         .groupBy(captures.pipeline_status),
     ])
 

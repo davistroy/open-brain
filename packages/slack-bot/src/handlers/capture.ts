@@ -17,7 +17,7 @@
  * - Non-audio files fall through to normal text capture path
  */
 
-import type { GenericMessageEvent } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import type { SayFn } from '@slack/bolt'
 import type { CoreApiClient, CaptureResult } from '../lib/core-api-client.js'
 import { formatCaptureConfirmation, formatError } from '../lib/formatters.js'
@@ -33,10 +33,6 @@ interface SlackFile {
   name?: string
   url_private?: string
   filetype?: string
-}
-
-interface MessageWithFiles extends GenericMessageEvent {
-  files?: SlackFile[]
 }
 
 /** Voice-capture API response shape */
@@ -241,17 +237,17 @@ function formatVoiceCaptureReply(result: VoiceCaptureResponse): string {
  * @param voiceCaptureUrl - Voice-capture service URL (default: env VOICE_CAPTURE_URL)
  */
 export async function handleCapture(
-  message: MessageWithFiles,
+  message: GenericMessageEvent,
   say: SayFn,
   coreApiClient: CoreApiClient,
   slackBotToken?: string,
   voiceCaptureUrl?: string,
 ): Promise<void> {
-  const msgFiles = (message as MessageWithFiles).files
+  const msgFiles = (message.files as SlackFile[] | undefined)
 
   // --- Audio attachment routing ---
   if (hasAudioAttachment(msgFiles)) {
-    await handleAudioCapture(message as MessageWithFiles, say, slackBotToken, voiceCaptureUrl)
+    await handleAudioCapture(message, say, slackBotToken, voiceCaptureUrl)
     return
   }
 
@@ -345,7 +341,7 @@ export async function handleCapture(
  * Errors are caught and reported as thread replies; never throws.
  */
 async function handleAudioCapture(
-  message: MessageWithFiles,
+  message: GenericMessageEvent,
   say: SayFn,
   slackBotToken?: string,
   voiceCaptureUrl?: string,
@@ -354,7 +350,7 @@ async function handleAudioCapture(
   const channel = message.channel
   const user = 'user' in message ? (message.user ?? 'unknown') : 'unknown'
 
-  const audioFile = findAudioFile(message.files)
+  const audioFile = findAudioFile(message.files as SlackFile[] | undefined)
   if (!audioFile) {
     // Should not happen since hasAudioAttachment() returned true, but guard anyway
     logger.warn({ ts, channel }, 'handleAudioCapture: audio file not found in files array')
