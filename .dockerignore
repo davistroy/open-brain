@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+**/.git
+dist
+**/dist
+.env
+.env.*
+!.env.example
+*.log
+coverage
+.turbo
+**/*.tsbuildinfo
+.implement-plan-state.json

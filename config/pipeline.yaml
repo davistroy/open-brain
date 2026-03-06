@@ -1,0 +1,23 @@
+stages:
+  - name: classify
+    enabled: true
+    timeout_ms: 30000
+  - name: embed
+    enabled: true
+    timeout_ms: 60000
+  - name: extract
+    enabled: true
+    timeout_ms: 30000
+  - name: link_entities
+    enabled: true
+    timeout_ms: 30000
+  - name: check_triggers
+    enabled: true
+    timeout_ms: 15000
+  - name: notify
+    enabled: true
+    timeout_ms: 15000
+retry:
+  max_attempts: 5
+  backoff_ms: [30000, 120000, 600000, 1800000, 7200000]
+daily_sweep_cron: "0 3 * * *"

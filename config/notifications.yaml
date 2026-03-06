@@ -1,0 +1,7 @@
+pushover:
+  enabled: false
+  # user_key and app_token retrieved from Bitwarden at runtime
+weekly_brief:
+  enabled: true
+  cron: "0 8 * * 1"
+  brain_views: [career, personal, technical, work-internal, client]
