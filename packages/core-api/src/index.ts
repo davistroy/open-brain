@@ -25,7 +25,7 @@ const redisConnection = {
   ...(redisUrlObj.password ? { password: redisUrlObj.password } : {}),
 }
 
-const app = createApp({ configService, captureService, redisConnection })
+const app = createApp({ configService, captureService, db, redisConnection })
 const port = Number(process.env.PORT ?? 3000)
 
 serve({ fetch: app.fetch, port }, () => {

@@ -124,3 +124,20 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: open-brain-cloudflared
+    command: tunnel --no-autoupdate --config /etc/cloudflared/tunnel.yaml run
+    environment:
+      # CLOUDFLARE_TUNNEL_TOKEN: set in .env.secrets
+      # Retrieve from Bitwarden before starting: bws secret get <open-brain-cloudflare-tunnel-token>
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    volumes:
+      - ./config/cloudflare/tunnel.yaml:/etc/cloudflared/tunnel.yaml:ro
+    depends_on:
+      core-api:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped

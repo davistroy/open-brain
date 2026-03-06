@@ -1033,11 +1033,13 @@
 
 ---
 
-### 8.1 MCP Server Setup
+### 8.1 MCP Server Setup ✅ Completed 2026-03-05
 
 **Description**: @modelcontextprotocol/sdk server embedded in Core API at /mcp route using Streamable HTTP transport.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/mcp/server.ts` — MCP server setup using @modelcontextprotocol/sdk. Create server with name "open-brain", version from package.json. Register all tools. Mount at /mcp route in Hono app using Streamable HTTP transport.
@@ -1097,14 +1099,17 @@
 
 ---
 
-### 8.4 Cloudflare Tunnel Configuration
+### 8.4 Cloudflare Tunnel Configuration ✅ Completed 2026-03-05
 
 **Description**: Cloudflare Tunnel container routing brain.k4jda.net to Core API.
 
 **Complexity**: S
 
+**Status**: COMPLETE 2026-03-05
+
 **Files to Create/Modify**:
 - `docker-compose.yml` — Add cloudflared service (cloudflare/cloudflared:latest, restart: unless-stopped, TUNNEL_TOKEN env, open-brain network, depends on core-api). Routing: brain.k4jda.net/mcp → core-api:3000/mcp, brain.k4jda.net/ → core-api:3000 (updated to web:80 in Phase 15)
+- `config/cloudflare/tunnel.yaml` — Ingress rules: /mcp path → core-api:3000, catch-all → core-api:3000, 404 for unmatched hostnames
 
 **Acceptance Criteria**:
 - Cloudflared container starts and connects to Cloudflare
