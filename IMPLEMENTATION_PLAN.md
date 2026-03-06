@@ -306,11 +306,13 @@
 
 ---
 
-### 3.1 Hono Application Setup
+### 3.1 Hono Application Setup ✅ Completed 2026-03-05
 
 **Description**: Core API entry point with Hono app, middleware stack (logger, error handler, CORS), and server startup.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/server.ts` — Hono app creation, middleware registration, route mounting, server start (port 3000). Entrypoint for Docker.
@@ -346,11 +348,13 @@
 
 ---
 
-### 3.3 ConfigService with Zod Validation
+### 3.3 ConfigService with Zod Validation ✅ Completed 2026-03-05
 
 **Description**: In-memory YAML config loader with per-file Zod validation. Loads config/ directory on startup, caches indefinitely, explicit reload via admin endpoint.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/services/config.ts` — ConfigService class: loadAll() parses YAML files from config/ dir, validates each against its Zod schema, caches in Map. get<T>(filename) returns typed config. reload() re-reads all files, keeps previous on validation failure, returns ReloadResult[]. Logs file hash + validation status.
