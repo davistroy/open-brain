@@ -125,9 +125,11 @@
 
 ---
 
-### 9.5 Voice Pipeline Tests
+### ✅ 9.5 Voice Pipeline Tests — Completed 2026-03-05
 
 **Description**: Tests for voice-capture transcription, classification, and ingest flow.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -135,12 +137,18 @@
 - `packages/voice-capture/src/__tests__/transcription.test.ts` — Unit tests with mocked faster-whisper: successful transcription, format handling, error handling
 - `packages/voice-capture/src/__tests__/ingest.test.ts` — Unit tests with mocked Core API: successful ingest, retry on failure, pre_extracted metadata preserved
 - `packages/voice-capture/vitest.config.ts` — Vitest config
+- `packages/voice-capture/src/__tests__/classification.test.ts` — Unit tests for ClassificationService with mocked OpenAI SDK: all 8 capture types, JSON fallback to observation, confidence clamping, request construction
+- `packages/voice-capture/src/__tests__/notification.test.ts` — Unit tests for NotificationService: isConfigured, send (URL/headers/body), notifyCaptureSuccess (topics, snippets, ellipsis, priority)
+- `packages/voice-capture/src/__tests__/server.test.ts` — HTTP integration tests via Hono app.request() with all 4 services mocked: health endpoint, success pipeline, missing file, unsupported format, transcription error, empty transcript, classification error, ingest retry failure
 
 **Acceptance Criteria**:
-- All tests pass
+- All tests pass (77 tests across 5 test files)
 - Transcription service correctly calls faster-whisper API
 - Ingest retry logic verified (3 attempts)
 - Error scenarios handled (faster-whisper down, Core API down)
+- ClassificationService fallback to observation on invalid LLM JSON
+- NotificationService silently skips when not configured
+- Full HTTP pipeline flow verified end-to-end with mocked services
 
 **Requirement Refs**: PRD Phase 2A test gate, TDD §15.3
 
