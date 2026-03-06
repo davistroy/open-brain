@@ -53,7 +53,7 @@ interface AppDependencies {
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, governanceEngine, documentPipelineQueue } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -99,15 +99,8 @@ export function createApp(deps: AppDependencies = {}): Hono {
     registerBetRoutes(app, betService)
   }
 
-  // Sessions API — inject GovernanceEngine if both are provided
+  // Sessions API — GovernanceEngine is passed via SessionService constructor in index.ts
   if (sessionService) {
-    if (governanceEngine) {
-      // Wire the engine into the session service via the optional dependency slot
-      // SessionService accepts governanceEngine as its third constructor arg; since the
-      // service is already constructed here we attach it via the internal property.
-      // The duck-typed interface is: { processResponse(session, transcript, userMessage) }
-      ;(sessionService as any).governanceEngine = governanceEngine
-    }
     registerSessionRoutes(app, sessionService)
   }
 

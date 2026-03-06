@@ -121,9 +121,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 2.1 Type SessionService constructor and remove as-any wiring
+#### 2.1 Type SessionService constructor and remove as-any wiring — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/core-api/src/services/session.ts in full
@@ -137,9 +137,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 2.2 Split slack-bot command.ts into per-command-group files
+#### 2.2 Split slack-bot command.ts into per-command-group files — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/slack-bot/src/handlers/command.ts in full (836 lines)
