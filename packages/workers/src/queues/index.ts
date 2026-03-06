@@ -1,6 +1,7 @@
 import type { ConnectionOptions } from 'bullmq'
 import { createAccessStatsQueue } from './access-stats.js'
 import { createCapturePipelineQueue } from './capture-pipeline.js'
+import { createCheckTriggersQueue } from './check-triggers.js'
 import { createEmbedCaptureQueue } from './embed-capture.js'
 import { createNotificationQueue } from './notification.js'
 import { createSkillExecutionQueue } from './skill-execution.js'
@@ -8,6 +9,7 @@ import { createSkillExecutionQueue } from './skill-execution.js'
 export interface AllQueues {
   capturePipeline: ReturnType<typeof createCapturePipelineQueue>
   embedCapture: ReturnType<typeof createEmbedCaptureQueue>
+  checkTriggers: ReturnType<typeof createCheckTriggersQueue>
   skillExecution: ReturnType<typeof createSkillExecutionQueue>
   notification: ReturnType<typeof createNotificationQueue>
   accessStats: ReturnType<typeof createAccessStatsQueue>
@@ -21,6 +23,7 @@ export function createAllQueues(connection: ConnectionOptions): AllQueues {
   return {
     capturePipeline: createCapturePipelineQueue(connection),
     embedCapture: createEmbedCaptureQueue(connection),
+    checkTriggers: createCheckTriggersQueue(connection),
     skillExecution: createSkillExecutionQueue(connection),
     notification: createNotificationQueue(connection),
     accessStats: createAccessStatsQueue(connection),
@@ -29,6 +32,7 @@ export function createAllQueues(connection: ConnectionOptions): AllQueues {
 
 export * from './access-stats.js'
 export * from './capture-pipeline.js'
+export * from './check-triggers.js'
 export * from './embed-capture.js'
 export * from './notification.js'
 export * from './skill-execution.js'

@@ -327,9 +327,11 @@
 
 ---
 
-### 11.1 Slack Command Handler
+### ✅ Completed 2026-03-05 — 11.1 Slack Command Handler
 
 **Description**: ! prefix commands for system interaction. Dispatches to appropriate Core API endpoints.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -358,7 +360,7 @@
 
 ---
 
-### 11.2 Triggers Table + CRUD API
+### ✅ 11.2 Triggers Table + CRUD API — Completed 2026-03-05
 
 **Description**: Trigger management API endpoints. Triggers table already exists from Phase 2 schema.
 
@@ -381,6 +383,8 @@
 - Max 20 active triggers enforced
 - Default threshold 0.72, cooldown 60 minutes
 - Test endpoint returns matches without firing
+
+**Status:** COMPLETE 2026-03-05
 
 **Requirement Refs**: PRD F28 (semantic triggers), TDD §4.2 (triggers schema), TDD §12.2a (check_triggers)
 

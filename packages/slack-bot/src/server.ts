@@ -5,15 +5,18 @@
 
 import type { App } from '@slack/bolt'
 import type { GenericMessageEvent } from '@slack/bolt'
+import { Redis } from 'ioredis'
 import type { CoreApiClient } from './lib/core-api-client.js'
 import { logger } from './lib/logger.js'
 import { IntentRouter } from './intent/router.js'
 import { handleCapture } from './handlers/capture.js'
+import { handleQuery } from './handlers/query.js'
+import { handleCommand } from './handlers/command.js'
 
 /**
  * Register all message/event handlers on the Bolt app.
  */
-function registerHandlers(app: App, coreApiClient: CoreApiClient): void {
+function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis): void {
   // Build IntentRouter from environment — falls back to CAPTURE if LiteLLM unavailable
   const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
   const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
@@ -64,19 +67,11 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient): void {
         break
 
       case 'query':
-        // Phase 7.4 — query handler
-        await say({
-          text: '_Query routing coming in Phase 7.4._',
-          thread_ts: ts,
-        })
+        await handleQuery(genericMessage, say, coreApiClient, redis)
         break
 
       case 'command':
-        // Phase 7.4 — command handler
-        await say({
-          text: '_Command handling coming in Phase 7.4._',
-          thread_ts: ts,
-        })
+        await handleCommand(genericMessage, say, coreApiClient)
         break
 
       case 'conversation':
@@ -91,14 +86,22 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient): void {
     }
   })
 
-  // App mention handler — `@Open Brain ...` → treated as QUERY (Phase 7.4)
+  // App mention handler — `@Open Brain ...` → treated as QUERY
   app.event('app_mention', async ({ event, say }) => {
     logger.info({ channel: event.channel, ts: event.ts }, 'App mention received')
 
-    await say({
-      text: '_Open Brain received your mention. Query handling coming in Phase 7.4._',
-      thread_ts: event.ts,
-    })
+    // Construct a synthetic GenericMessageEvent for the query handler
+    const syntheticMessage = {
+      type: 'message' as const,
+      subtype: undefined,
+      channel: event.channel,
+      ts: event.ts,
+      text: event.text,
+      user: event.user,
+      thread_ts: event.thread_ts,
+    } as unknown as GenericMessageEvent
+
+    await handleQuery(syntheticMessage, say, coreApiClient, redis)
   })
 
   logger.info('Slack bot handlers registered')
@@ -108,7 +111,11 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient): void {
  * Start the Bolt app and connect via Socket Mode.
  */
 export async function startServer(app: App, coreApiClient: CoreApiClient): Promise<void> {
-  registerHandlers(app, coreApiClient)
+  // Build Redis client for thread context storage
+  const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
+  const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 3 })
+
+  registerHandlers(app, coreApiClient, redis)
 
   await app.start()
   logger.info('Slack bot connected via Socket Mode')

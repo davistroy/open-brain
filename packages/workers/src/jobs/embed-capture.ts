@@ -1,4 +1,4 @@
-import { Worker, UnrecoverableError } from 'bullmq'
+import { Worker, UnrecoverableError, Queue } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import { eq } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
@@ -8,6 +8,7 @@ import type { ConfigService } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import { EMBED_BACKOFF_DELAYS_MS } from '../queues/embed-capture.js'
 import type { EmbedCaptureJobData } from '../queues/embed-capture.js'
+import type { CheckTriggersJobData } from '../queues/check-triggers.js'
 
 /**
  * Custom BullMQ backoff strategy for patient embed retry delays.
@@ -38,6 +39,7 @@ export async function processEmbedCaptureJob(
   data: EmbedCaptureJobData,
   db: Database,
   embeddingService: EmbeddingService,
+  checkTriggersQueue?: Queue<CheckTriggersJobData>,
 ): Promise<void> {
   const { captureId } = data
 
@@ -146,6 +148,22 @@ export async function processEmbedCaptureJob(
   })
 
   logger.info({ captureId, duration_ms: embedDurationMs }, '[embed] embedding complete')
+
+  // ── Enqueue check-triggers job after successful embedding ─────────────────
+  if (checkTriggersQueue) {
+    try {
+      await checkTriggersQueue.add(
+        'check-triggers',
+        { captureId },
+        { jobId: `check-triggers:${captureId}:${Date.now()}` },
+      )
+      logger.debug({ captureId }, '[embed] check-triggers job enqueued')
+    } catch (err) {
+      // Non-fatal: trigger check failure must not block pipeline completion
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.warn({ captureId, err: msg }, '[embed] failed to enqueue check-triggers job — continuing')
+    }
+  }
 }
 
 /**
@@ -158,13 +176,14 @@ export function createEmbedCaptureWorker(
   configService: ConfigService,
   litellmBaseUrl: string,
   litellmApiKey: string,
+  checkTriggersQueue?: Queue<CheckTriggersJobData>,
 ): Worker<EmbedCaptureJobData> {
   const embeddingService = new EmbeddingService(litellmBaseUrl, litellmApiKey, configService)
 
   const worker = new Worker<EmbedCaptureJobData>(
     'embed-capture',
     async (job) => {
-      await processEmbedCaptureJob(job.data, db, embeddingService)
+      await processEmbedCaptureJob(job.data, db, embeddingService, checkTriggersQueue)
     },
     {
       connection,
