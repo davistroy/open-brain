@@ -148,6 +148,39 @@ services:
       - open-brain
     restart: unless-stopped
 
+  voice-capture:
+    build:
+      context: .
+      target: voice-capture
+    container_name: open-brain-voice-capture
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      CORE_API_URL: http://core-api:3000
+      WHISPER_URL: http://faster-whisper:8000
+      LITELLM_URL: https://llm.k4jda.net
+      # LITELLM_API_KEY: set in .env.secrets
+      # PUSHOVER_TOKEN: set in .env.secrets
+      # PUSHOVER_USER: set in .env.secrets
+    ports:
+      - "3001:3001"
+    depends_on:
+      core-api:
+        condition: service_healthy
+      faster-whisper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - open-brain
+    restart: unless-stopped
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: open-brain-cloudflared

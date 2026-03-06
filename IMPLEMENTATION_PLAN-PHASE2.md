@@ -82,9 +82,11 @@
 
 ---
 
-### 9.3 Voice-Capture → Core API Ingest
+### ✅ 9.3 Voice-Capture → Core API Ingest — Completed 2026-03-05
 
 **Description**: After transcription and classification, voice-capture posts the capture to Core API with full metadata.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -102,9 +104,11 @@
 
 ---
 
-### 9.4 Voice-Capture Docker + iOS Shortcut
+### ✅ Completed 2026-03-05 — 9.4 Voice-Capture Docker + iOS Shortcut
 
 **Description**: Docker Compose service for voice-capture. Document iOS Shortcut configuration.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 

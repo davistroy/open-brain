@@ -4,6 +4,8 @@ import { logger as honoLogger } from 'hono/logger'
 import pino from 'pino'
 import { TranscriptionService } from './services/transcription.js'
 import { ClassificationService } from './services/classification.js'
+import { IngestService } from './services/ingest.js'
+import { NotificationService } from './services/notification.js'
 
 const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
 
@@ -11,6 +13,8 @@ const SUPPORTED_FORMATS = new Set(['m4a', 'wav', 'mp3', 'ogg'])
 
 const transcriptionService = new TranscriptionService()
 const classificationService = new ClassificationService()
+const ingestService = new IngestService()
+const notificationService = new NotificationService()
 
 const app = new Hono()
 
@@ -90,13 +94,13 @@ app.post('/api/capture', async (c) => {
     return c.json({ error: `Classification failed: ${message}`, code: 'CLASSIFICATION_ERROR' }, 502)
   }
 
-  // Step 3: POST to Core API
-  const coreApiUrl = process.env.CORE_API_URL ?? 'http://core-api:3000'
+  // Step 3: POST to Core API via IngestService (handles retry)
   const ingestPayload = {
     content: transcription.text,
     capture_type: classification.template,
     brain_view: brainView,
-    source: 'voice',
+    source: 'voice' as const,
+    tags: ['voice'],
     metadata: {
       source_metadata: {
         device,
@@ -113,66 +117,41 @@ app.post('/api/capture', async (c) => {
     },
   }
 
-  const MAX_ATTEMPTS = 3
-  const BACKOFF_BASE_MS = 2_000
-
-  let lastError: string | undefined
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const res = await fetch(`${coreApiUrl}/api/v1/captures`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ingestPayload),
-        signal: AbortSignal.timeout(15_000),
-      })
-
-      if (res.ok) {
-        const created = await res.json()
-        log.info(
-          { captureId: (created as { id?: string }).id, template: classification.template },
-          'Capture created in Core API',
-        )
-        return c.json({
-          ok: true,
-          capture: created,
-          transcription: {
-            text: transcription.text,
-            language: transcription.language,
-            duration: transcription.duration,
-          },
-          classification: {
-            template: classification.template,
-            confidence: classification.confidence,
-          },
-        })
-      }
-
-      const errorBody = await res.text().catch(() => '')
-      lastError = `Core API returned HTTP ${res.status}: ${errorBody}`
-
-      // 4xx errors are not retryable
-      if (res.status >= 400 && res.status < 500) {
-        log.error({ status: res.status, errorBody }, 'Core API rejected capture — not retrying')
-        return c.json({ error: lastError, code: 'INGEST_ERROR' }, 502)
-      }
-
-      log.warn({ attempt, status: res.status }, 'Core API error — will retry')
-    } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err)
-      log.warn({ attempt, err }, 'Core API request failed — will retry')
-    }
-
-    if (attempt < MAX_ATTEMPTS) {
-      const delayMs = BACKOFF_BASE_MS * 2 ** (attempt - 1)
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
-    }
+  let created
+  try {
+    created = await ingestService.ingest(ingestPayload)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    log.error({ err }, 'Core API ingest failed after all attempts')
+    return c.json({ error: message, code: 'INGEST_ERROR' }, 502)
   }
 
-  log.error({ lastError }, 'Core API ingest failed after all attempts')
-  return c.json(
-    { error: `Failed to ingest capture after ${MAX_ATTEMPTS} attempts: ${lastError}`, code: 'INGEST_ERROR' },
-    502,
-  )
+  // Step 4: Pushover notification (non-blocking, failure is non-fatal)
+  const topicsField = classification.fields.find((f) => f.name === 'topics')
+  const topics = topicsField?.value ?? ''
+  const snippet = transcription.text.slice(0, 120)
+
+  await notificationService.notifyCaptureSuccess({
+    captureId: created.id,
+    captureType: classification.template,
+    brainView,
+    topics,
+    snippet,
+  })
+
+  return c.json({
+    ok: true,
+    capture: created,
+    transcription: {
+      text: transcription.text,
+      language: transcription.language,
+      duration: transcription.duration,
+    },
+    classification: {
+      template: classification.template,
+      confidence: classification.confidence,
+    },
+  })
 })
 
 // Unknown routes
