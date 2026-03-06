@@ -290,7 +290,7 @@
 
 ---
 
-### 10.6 Skills API + Notification Tests
+### ✅ Completed 2026-03-05 — 10.6 Skills API + Notification Tests
 
 **Description**: API endpoints for skill management and tests for notification + skill framework.
 
@@ -310,6 +310,8 @@
 - POST /api/v1/skills/:name/trigger enqueues execution
 - All notification tests pass
 - Weekly brief test verifies full flow
+
+**Status:** COMPLETE 2026-03-05
 
 **Requirement Refs**: PRD F01 (skills endpoints), PRD Phase 2B test gate
 
