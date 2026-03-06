@@ -803,6 +803,27 @@
 
 ---
 
+### 14.5 AI Budget Monitoring ($30 Soft Alert)
+
+**Description**: Scheduled daily job that checks monthly LiteLLM spend via `AIRouterService.getMonthlySpend()`. Fires a Pushover alert when spend exceeds the $30 soft threshold. The $50 hard limit is enforced by LiteLLM itself — this catches it early while there's still budget headroom.
+
+**Complexity**: S
+
+**Files to Create/Modify**:
+- `packages/workers/src/jobs/budget-check.ts` — BudgetCheckJob: calls `GET https://llm.k4jda.net/spend/logs` with LITELLM_API_KEY. Parses current month total spend. If spend > $30 (BUDGET_SOFT_LIMIT env var, default 30): send Pushover alert (normal priority) with "AI spend is $X.XX this month ($30 soft limit)". Logs spend regardless. No alert if under threshold.
+- `packages/workers/src/scheduler.ts` — Update: add budget-check to daily schedule (runs at 8:00 AM, cron: `0 8 * * *`).
+
+**Acceptance Criteria**:
+- Runs daily at 8:00 AM
+- Fetches current month spend from LiteLLM `/spend/logs`
+- Pushover alert fires when spend > $30 (configurable via BUDGET_SOFT_LIMIT)
+- No alert when under threshold (just logs)
+- BUDGET_SOFT_LIMIT defaults to 30, overridable via env var
+
+**Requirement Refs**: PRD §AI budget ($30 soft alert, $50 hard limit), TDD §8.7 (LiteLLM spend tracking)
+
+---
+
 ## Phase 15: Web Dashboard
 
 **Goal**: Vite + React PWA for browsing, searching, and viewing skill outputs. Installable on iPhone home screen.
@@ -826,7 +847,7 @@
 - `packages/web/tailwind.config.ts` — Tailwind config with shadcn/ui preset
 - `packages/web/src/main.tsx` — React entry point
 - `packages/web/src/App.tsx` — Root component with React Router (lazy-loaded pages)
-- `packages/web/src/lib/api.ts` — API client for Core API (evaluate reuse of existing packages/web-ui/src/lib/api-client.ts, update to match v0.6 schema)
+- `packages/web/src/lib/api.ts` — API client for Core API: typed fetch wrappers for all Core API endpoints, matching v0.6 schema
 - `packages/web/src/lib/types.ts` — Frontend type definitions (import from @open-brain/shared where possible)
 - `packages/web/index.html` — HTML entry
 - `packages/web/src/index.css` — Tailwind directives
@@ -937,14 +958,14 @@
 - `packages/web/src/lib/sse.ts` — SSE client connecting to Core API /api/v1/events. Listens for: capture_created, pipeline_complete, skill_complete, bet_expiring. Updates Zustand store.
 - `packages/core-api/src/routes/events.ts` — GET /api/v1/events (SSE endpoint). Uses Postgres LISTEN/NOTIFY for capture_created and pipeline_complete events. Keeps connection alive with heartbeat.
 - `packages/core-api/src/lib/pg-notify.ts` — Postgres LISTEN/NOTIFY helper: subscribe to channels, emit events to SSE connections.
-- `docker-compose.yml` — Add web-ui service (build from packages/web, nginx, port 3002, depends on core-api). Update cloudflared routing: brain.k4jda.net/ → web-ui:80.
+- `docker-compose.yml` — Add web service (build from packages/web, nginx, port 3002, service name: web, depends on core-api). Update cloudflared routing: brain.k4jda.net/ → web:80.
 - `packages/web/Dockerfile` — Nginx-based: build Vite → copy to nginx, proxy /api to core-api
 
 **Acceptance Criteria**:
 - PWA installable on iPhone home screen
 - SSE updates dashboard in real-time (new captures appear, pipeline status updates)
 - Docker container serves static assets via nginx
-- Cloudflare Tunnel routes brain.k4jda.net/ to web-ui
+- Cloudflare Tunnel routes brain.k4jda.net/ to web (nginx)
 
 **Requirement Refs**: PRD F19 (PWA), TDD §13.1 (SSE), TDD §14.2 (PWA config), TDD §16.1 (web-ui Docker)
 
