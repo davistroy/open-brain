@@ -829,11 +829,13 @@
 
 ---
 
-### 6.6 Pipeline Integration + Capture Auto-Processing
+### 6.6 Pipeline Integration + Capture Auto-Processing — COMPLETE 2026-03-05
 
 **Description**: Wire pipeline into capture creation — when CaptureService.create() is called, automatically enqueue pipeline job. Update CaptureService and routes to trigger pipeline.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Modify**:
 - `packages/core-api/src/services/capture.ts` — Update create(): after insert, enqueue pipeline job via PipelineService. Select pipeline based on source + brain_views (ConfigService lookup).
@@ -853,11 +855,13 @@
 
 ---
 
-### 6.7 Daily Sweep Worker
+### 6.7 Daily Sweep Worker — COMPLETE 2026-03-05
 
 **Description**: Scheduled BullMQ job that runs at 3:00 AM daily, finds captures stuck in `received` or `processing` status, and re-enqueues them for pipeline processing. Catches transient failures (LiteLLM blip, Redis restart) that outlasted the initial retry window.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/jobs/daily-sweep.ts` — DailySweepJob: queries `SELECT id FROM captures WHERE pipeline_status IN ('received', 'processing') AND created_at < NOW() - INTERVAL '1 hour'`. For each found capture, enqueue a capture-pipeline job (idempotent — BullMQ deduplicates by jobId=captureId). Log count of captures re-queued.

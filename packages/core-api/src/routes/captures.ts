@@ -7,11 +7,13 @@ import {
   updateCaptureSchema,
   listCapturesSchema,
 } from '../schemas/capture.js'
+import type { PipelineService } from '../services/pipeline.js'
 
 export function registerCaptureRoutes(
   app: Hono,
   captureService: CaptureService,
   configService: ConfigService,
+  pipelineService?: PipelineService,
 ): void {
   // POST /api/v1/captures — create a new capture
   app.post('/api/v1/captures', zValidator('json', createCaptureSchema), async (c) => {
@@ -96,5 +98,29 @@ export function registerCaptureRoutes(
     const id = c.req.param('id')
     await captureService.softDelete(id)
     return new Response(null, { status: 204 })
+  })
+
+  // POST /api/v1/captures/:id/retry — retry failed pipeline stages
+  app.post('/api/v1/captures/:id/retry', async (c) => {
+    const id = c.req.param('id')
+
+    // Verify the capture exists (throws NotFoundError → 404 if missing)
+    const capture = await captureService.getById(id)
+
+    if (!pipelineService) {
+      return c.json({ error: 'Pipeline service not configured' }, 503)
+    }
+
+    // Parse optional ?stage= query param (reserved for future per-stage retry)
+    const stage = c.req.query('stage')
+
+    await pipelineService.enqueue(id)
+
+    return c.json({
+      id: capture.id,
+      pipeline_status: capture.pipeline_status,
+      retried_at: new Date().toISOString(),
+      ...(stage ? { stage } : {}),
+    })
   })
 }

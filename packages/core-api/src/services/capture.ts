@@ -3,6 +3,7 @@ import { captures } from '@open-brain/shared'
 import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CreateCaptureInput, CaptureFilter, CaptureRecord } from '@open-brain/shared'
+import type { PipelineService } from './pipeline.js'
 
 const DEDUP_WINDOW_MS = 60_000 // 60 seconds
 
@@ -27,7 +28,10 @@ export interface UpdateCaptureInput {
 }
 
 export class CaptureService {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private pipelineService?: PipelineService,
+  ) {}
 
   async create(input: CreateCaptureInput): Promise<CaptureRecord> {
     const hash = contentHash(input.content)
@@ -66,6 +70,18 @@ export class CaptureService {
         captured_at: capturedAt,
       })
       .returning()
+
+    // Auto-enqueue pipeline job after successful insert
+    if (this.pipelineService) {
+      try {
+        await this.pipelineService.enqueue(created.id)
+      } catch (err) {
+        // Pipeline enqueue failure must not fail the capture creation.
+        // The daily sweep will re-enqueue captures stuck in 'pending' status.
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[CaptureService] Failed to enqueue pipeline for capture ${created.id}: ${msg}`)
+      }
+    }
 
     return created as CaptureRecord
   }

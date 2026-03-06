@@ -26,13 +26,14 @@ export async function processDailySweepJob(
 ): Promise<void> {
   logger.info({ triggeredAt: data.triggeredAt }, '[daily-sweep] starting sweep')
 
-  // Query captures stuck for > 2 hours — past the full patient backoff window
+  // Query captures stuck for > 1 hour — catches transient failures that
+  // outlasted the initial retry window (LiteLLM blip, Redis restart, etc.)
   const stuck = await db.execute<{ id: string }>(
     sql.raw(`
       SELECT id
       FROM captures
-      WHERE pipeline_status IN ('pending', 'processing')
-        AND updated_at < NOW() - INTERVAL '2 hours'
+      WHERE pipeline_status IN ('received', 'processing')
+        AND created_at < NOW() - INTERVAL '1 hour'
     `),
   )
 

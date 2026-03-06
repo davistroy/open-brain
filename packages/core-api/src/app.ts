@@ -11,18 +11,20 @@ import { registerStatsRoutes } from './routes/stats.js'
 import { registerSearchRoutes } from './routes/search.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
+import type { PipelineService } from './services/pipeline.js'
 
 interface AppDependencies {
   configService?: ConfigService
   captureService?: CaptureService
   searchService?: SearchService
+  pipelineService?: PipelineService
   /** Redis connection for Bull Board queue monitoring */
   redisConnection?: ConnectionOptions
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, redisConnection } = deps
+  const { configService, captureService, searchService, pipelineService, redisConnection } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -38,7 +40,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   }
 
   if (captureService && configService) {
-    registerCaptureRoutes(app, captureService, configService)
+    registerCaptureRoutes(app, captureService, configService, pipelineService)
     registerStatsRoutes(app, captureService)
   }
 
