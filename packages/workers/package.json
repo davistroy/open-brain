@@ -23,13 +23,16 @@
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.10.0",
+    "mammoth": "^1.11.0",
     "nodemailer": "^8.0.1",
     "openai": "^4.98.0",
+    "pdf-parse": "^2.4.5",
     "pino": "^10.3.1",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/nodemailer": "^6.4.23",
+    "@types/pdf-parse": "^1.1.5",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",

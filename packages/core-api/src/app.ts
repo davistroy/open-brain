@@ -15,6 +15,7 @@ import { registerEntityRoutes } from './routes/entities.js'
 import { registerBetRoutes } from './routes/bets.js'
 import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEventsRoutes } from './routes/events.js'
+import { registerDocumentRoutes } from './routes/documents.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -46,11 +47,13 @@ interface AppDependencies {
   sessionService?: SessionService
   /** Governance engine — injected into SessionService to drive LLM conversation */
   governanceEngine?: GovernanceEngine
+  /** Document pipeline queue — required for POST /api/v1/documents upload endpoint */
+  documentPipelineQueue?: Queue
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, governanceEngine } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, governanceEngine, documentPipelineQueue } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -69,6 +72,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   if (captureService && configService) {
     registerCaptureRoutes(app, captureService, configService, pipelineService)
     registerStatsRoutes(app, captureService)
+    registerDocumentRoutes(app, captureService, configService, documentPipelineQueue as any)
   }
 
   if (searchService) {

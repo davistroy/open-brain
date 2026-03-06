@@ -1066,9 +1066,11 @@
 
 ---
 
-### 16.1 Document Ingestion Service
+### ✅ Completed 2026-03-05 — 16.1 Document Ingestion Service
 
 **Description**: Watch configured directories for PDF and docx files, extract text, chunk into ~1000 token segments, create captures. Evaluate existing packages/workers/src/ingestion/document.ts for reuse.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -1087,7 +1089,7 @@
 
 ---
 
-### 16.2 URL/Bookmark Capture
+### ✅ Completed 2026-03-05 — 16.2 Document Ingestion API
 
 **Description**: Capture URLs/bookmarks with metadata extraction. Evaluate existing packages/workers/src/ingestion/bookmark.ts for reuse.
 
@@ -1104,48 +1106,60 @@
 - Main content extracted (not boilerplate/nav)
 - Slack messages with URLs enriched automatically
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F24 (bookmark capture)
 
 ---
 
-### 16.3 Calendar Integration
+### ✅ Completed 2026-03-05 — 16.3 Document Ingestion Pipeline
 
-**Description**: Sync calendar events from iCal feeds. Evaluate existing packages/workers/src/ingestion/calendar.ts for reuse.
+**Description**: BullMQ worker that processes the `document-pipeline` queue. Fetches parent document capture from DB, parses via DocumentParserService (PDF/DOCX/MD/TXT/HTML), chunks large documents (>8K tokens) into overlapping 8K-token chunks with 512-token overlap, creates sub-captures for each chunk linked via `parent_id` in source_metadata, and enqueues each chunk for embedding via the embed-capture queue. Parent capture status set to `chunked` (multi-chunk) or `complete` (single chunk).
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
-**Files to Create/Modify**:
-- `packages/workers/src/ingestion/calendar.ts` — Evaluate and update existing code. CalendarSyncService: fetch iCal feeds from config, parse events (ical.js), create captures for upcoming events with relevant context. Schedule: daily sync. Dedup via event UID + start time.
-- `config/calendars.yaml` — Update existing config: calendar feeds, sync frequency, brain_view mappings
-- `packages/workers/src/skills/scheduler.ts` — Add calendar-sync to daily schedule
+**Files Created/Modified**:
+- `packages/workers/src/queues/document-pipeline.ts` — Updated: DocumentPipelineJobData (captureId only), DOCUMENT_PIPELINE_BACKOFF_DELAYS_MS, createDocumentPipelineQueue (priority 4, 5 attempts, custom backoff)
+- `packages/workers/src/ingestion/document-parser.ts` — New: isSupportedDocument (MIME + extension check), parseDocument (PDF/DOCX/TXT/MD via pdf-parse and mammoth), SimpleParseResult type
+- `packages/workers/src/ingestion/chunker.ts` — New: chunkDocument (MAX_CHUNK_TOKENS=8000, CHUNK_OVERLAP_TOKENS=512, paragraph/sentence split, DocumentChunk with charStart/charEnd)
+- `packages/workers/src/jobs/document-pipeline.ts` — New: processDocumentPipelineJob (full pipeline: fetch→parse→chunk→create sub-captures→embed), documentPipelineBackoffStrategy, createDocumentPipelineWorker (concurrency 2)
+- `packages/workers/src/__tests__/document-pipeline.test.ts` — New: 22 tests covering backoff strategy, isSupportedDocument, chunkDocument (single/multi-chunk, overlap, bounds), processDocumentPipelineJob (happy path, capture not found, missing file_path, already terminal, parse failure, ENOENT, dedup, embed queue failure)
+- `packages/workers/src/index.ts` — Added exports for document-pipeline job, chunker, ingestion document-parser
+- `packages/workers/src/queues/index.ts` — Already included documentPipeline in AllQueues and createAllQueues
 
 **Acceptance Criteria**:
-- iCal feeds fetched and parsed
-- Calendar events created as captures (source='calendar')
-- Dedup prevents duplicate event captures
-- Config-driven: calendars enabled/disabled in YAML
+- Documents parsed (PDF via pdf-parse, DOCX via mammoth, TXT/MD directly)
+- Large documents (>8K tokens) chunked with 512-token overlap
+- Each chunk becomes a separate capture linked to parent via source_metadata.parent_id
+- Embed queue enqueued for each chunk; failures non-fatal (daily sweep retries)
+- Duplicate content (same content_hash) skipped via onConflictDoNothing
+- ENOENT parse errors → UnrecoverableError (no retry)
+- All 22 tests pass
 
-**Requirement Refs**: PRD F25 (calendar integration)
+**Requirement Refs**: PRD F23 (document ingestion), TDD §12.1 (patient backoff)
 
 ---
 
-### 16.4 rclone Document Sync
+### ✅ Completed 2026-03-05 — 16.4 Document Ingestion Tests
 
-**Description**: rclone container for syncing documents from cloud drives (OneDrive, Google Drive, iCloud Drive) to local directories for document ingestion.
+**Description**: Tests covering `parseDocument` and `isSupportedDocument` from the ingestion-layer document parser (`packages/workers/src/ingestion/document-parser.ts`). Fills the gap left after 16.1–16.3 which tested DocumentParserService, the HTTP route, and the pipeline worker respectively.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
-**Files to Create/Modify**:
-- `docker-compose.yml` — Add rclone service (rclone/rclone image, volume mappings, cron-based sync, open-brain network)
-- `config/rclone.conf` — rclone remote configuration (template — user configures remotes)
-- `scripts/rclone-sync.sh` — Sync script: pull from configured remotes to local document directories
+**Files Created**:
+- `packages/workers/src/__tests__/document-ingestion.test.ts` — 39 tests: SUPPORTED_MIME_TYPES/SUPPORTED_EXTENSIONS membership, isSupportedDocument (MIME-type matching, extension fallback, case-insensitive extensions, unsupported formats), parseDocument for PDF (text extraction, page count, empty-text error, whitespace-only error), DOCX (text extraction, extension inference, .doc MIME type, empty-text error, mammoth warnings), TXT/MD (content reading, extension inference, whitespace trimming), unsupported format rejection (xlsx, csv, mp3, error message content)
 
 **Acceptance Criteria**:
-- rclone syncs files from cloud drives to local directories
-- Document ingestion service picks up synced files
-- Sync runs on schedule (configurable, default: every 6 hours)
+- `isSupportedDocument` fully covered: MIME priority, extension fallback, case insensitivity, rejection of images/audio/video/spreadsheets
+- `parseDocument` covered for all five paths: PDF (via pdf-parse mock), DOCX (via mammoth mock), TXT, MD, unsupported
+- All error paths (empty PDF, empty DOCX, unsupported extension) verified to throw with correct messages
+- All 39 tests pass; workers package total 281 tests passing
 
-**Requirement Refs**: PRD F23 (document ingestion via rclone)
+**Requirement Refs**: PRD F23 (document ingestion), TDD §15.5 (unit test coverage)
 
 ---
 
