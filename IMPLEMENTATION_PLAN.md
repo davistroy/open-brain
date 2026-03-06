@@ -218,7 +218,7 @@
 
 ---
 
-### 2.3 Schema Index, DB Client & Migrations
+### 2.3 Schema Index, DB Client & Migrations ✅ Completed 2026-03-05
 
 **Description**: Barrel export for all schemas, Drizzle database client factory, drizzle.config.ts for migration management, and the set_updated_at trigger.
 
@@ -238,6 +238,8 @@
 - FTS GIN index created successfully
 
 **Requirement Refs**: PRD F02 (set_updated_at trigger), TDD §4.2, TDD §4.4 (indexing strategy)
+
+**Status**: COMPLETE 2026-03-05
 
 ---
 
