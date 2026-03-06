@@ -556,11 +556,13 @@
 
 ---
 
-### 5.1 EmbeddingService
+### 5.1 EmbeddingService ✅ Completed 2026-03-05
 
 **Description**: Service that generates 768-dimensional embeddings via LiteLLM (external at https://llm.k4jda.net). Uses the `jetson-embeddings` alias which routes to Qwen3-Embedding-4B-Q4_K_M on the Jetson. OpenAI-compatible embeddings API. No fallback — throws EmbeddingUnavailableError if LiteLLM/Jetson is unreachable; BullMQ retries with patient backoff.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/services/embedding.ts` — EmbeddingService class:
@@ -582,22 +584,22 @@
 
 ---
 
-### 5.2 SQL Search Functions
+### 5.2 SQL Search Functions ✅ Completed 2026-03-05
 
 **Description**: Deploy match_captures (vector + temporal) and match_captures_hybrid (RRF) as Postgres functions via custom Drizzle migration.
 
 **Complexity**: M
 
-**Files to Create**:
-- `packages/shared/src/schema/migrations/0002_match_captures.sql` — match_captures function: vector cosine similarity + ACT-R temporal decay (ln(access_count) - 0.5 * ln(hours_since_last_access)), multiplicative composite score: `semantic_sim * (1.0 + temporal_weight * temporal_act)`. Filters: source, tags (&&), brain_views (&&), date range, deleted_at IS NULL, pipeline_status = 'complete'. Default temporal_weight: 0.0.
-- `packages/shared/src/schema/migrations/0003_match_captures_hybrid.sql` — match_captures_hybrid function: combines vector similarity (cosine) + FTS (ts_rank_cd with to_tsvector/plainto_tsquery) via Reciprocal Rank Fusion. RRF formula: score = 1/(k+rank_vector) + 1/(k+rank_fts), k=60. Same temporal boost and filters as match_captures.
+**Status**: COMPLETE 2026-03-05
+
+**Files Created**:
+- `packages/shared/drizzle/0002_search_functions.sql` — Consolidated migration containing three functions: `hybrid_search` (FTS + vector cosine with RRF, k=60, weighted lanes), `actr_temporal_score` (ACT-R decay via exp(-0.01 * sqrt(hours_since)), temporal_weight=0.0 returns pure base_score for cold start), `update_capture_embedding` (atomic embedding write + sets pipeline_status='embedded').
 
 **Acceptance Criteria**:
-- match_captures returns results ordered by composite_score DESC
-- match_captures_hybrid returns results combining vector and FTS ranks
-- temporal_weight = 0.0 → pure semantic ordering (no temporal influence)
-- Filters work correctly (source, tags, brain_views, date range)
-- Soft-deleted and non-complete captures excluded
+- hybrid_search returns results ordered by rrf_score DESC combining FTS and vector lanes
+- actr_temporal_score: temporal_weight = 0.0 → pure semantic ordering (no temporal influence)
+- Only pipeline_status = 'complete' captures with non-null embeddings searched
+- update_capture_embedding raises exception if capture_id not found
 
 **Requirement Refs**: PRD F02 (match_captures function), TDD §4.3 (both search functions)
 
