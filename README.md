@@ -1,69 +1,210 @@
 # Open Brain
 
-A self-hosted, Docker-based personal AI knowledge infrastructure that ingests information from multiple sources (voice memos, Slack messages, documents, bookmarks), processes and embeds them for semantic search, and provides rich output through AI-powered skills.
+Self-hosted personal AI knowledge infrastructure running on an Unraid home server. Ingests information from voice memos (Apple Watch/iPhone), Slack, and documents; stores everything in Postgres with pgvector; provides semantic search, AI synthesis, weekly briefs, governance sessions, and entity tracking — all routed through a shared LiteLLM proxy.
 
 ## Status
 
-**Pre-implementation** — PRD (v0.5) and TDD (v0.4) complete, architectural review applied. No code yet.
+**Implementation complete** — all 16 phases (83 work items across ~11,100 LOC) shipped 2026-03-05.
+
+---
 
 ## Architecture
 
-Runs on an Unraid home server. Key components:
+Single `open-brain` Docker network. All services defined in `docker-compose.yml`.
 
-| Component | Tech | Purpose |
-|-----------|------|---------|
-| Core API | Hono + Drizzle (TypeScript) | Central API for ingest, search, synthesis |
-| Database | Postgres 16 + pgvector (pgvector/pgvector:pg16) | Storage + semantic search |
-| Pipeline | BullMQ + Redis | Async processing (embed, extract metadata, classify) |
-| Embeddings | Ollama (configurable model, 768d) | Local vector embeddings |
-| LLM Gateway | LiteLLM Proxy | Unified API for all LLM providers |
-| Transcription | faster-whisper (large-v3, CPU) | Local speech-to-text |
-| Slack Bot | @slack/bolt (Socket Mode) | Capture + query + commands |
-| MCP Endpoint | @modelcontextprotocol/sdk (embedded in Core API) | AI tool integration (Streamable HTTP) |
-| Web UI | Vite + React + shadcn/ui | Dashboard (Phase 4) |
+| Container | Image / Build | Purpose |
+|-----------|---------------|---------|
+| `open-brain-postgres` | pgvector/pgvector:pg16 | Postgres 16 + pgvector (vector(768) schema) |
+| `open-brain-redis` | redis:7-alpine | BullMQ job queue backing store |
+| `open-brain-core-api` | build: target=core-api | Hono API — capture CRUD, search, MCP, governance, entities |
+| `open-brain-workers` | build: target=workers | BullMQ workers — embed, classify, extract entities, triggers, skills |
+| `open-brain-slack-bot` | build: target=slack-bot | @slack/bolt Socket Mode — capture + query + commands |
+| `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
+| `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.4.1 | Speech-to-text (large-v3, CPU int8) |
+| `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
+| `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.k4jda.net |
 
-## Phased Rollout
+**External dependency**: LiteLLM proxy at `https://llm.k4jda.net` handles ALL AI — both embeddings (Qwen3-Embedding-4B-Q4_K_M via `jetson-embeddings` alias, 768d) and LLM inference (aliases: `fast`, `synthesis`, `governance`, `intent`). Not part of this stack.
 
-10 sub-phases with explicit test gates at each step:
+### Monorepo Layout
 
-1. **Foundation** (5 sub-phases)
-   - **1A** Data Layer — Postgres+pgvector, capture CRUD
-   - **1B** Embedding + Search — Ollama, hybrid search, model benchmarking
-   - **1C** Pipeline + LLM Gateway — BullMQ, LiteLLM, auto-processing
-   - **1D** Slack Bot — capture + query via Slack
-   - **1E** MCP + External Access — AI tool integration, Cloudflare Tunnel
-2. **Voice + Outputs** (3 sub-phases)
-   - **2A** Voice Pipeline — faster-whisper, Apple Watch capture
-   - **2B** Notifications + Skills — weekly briefs, Pushover, email
-   - **2C** Semantic Triggers — proactive memory surfacing
-3. **Intelligence** — Entity graph, governance sessions, drift detection
-4. **Polish** — Web dashboard, document ingestion, calendar integration
+```
+packages/
+  shared/          # Drizzle schema, types, DB client, utilities
+  core-api/        # Hono app — routes, services, MCP endpoint
+  workers/         # BullMQ jobs, pipeline stages, skills
+  slack-bot/       # Slack bot (@slack/bolt, Socket Mode)
+  voice-capture/   # Voice ingestion HTTP server
+  web/             # Vite + React dashboard (nginx Docker)
+config/
+  ai-routing.yaml  # LiteLLM model aliases + budget limits
+  brain-views.yaml # Five views: career/personal/technical/work-internal/client
+  pipelines.yaml   # Pipeline stage definitions
+  pipeline.yaml    # Pipeline retry/backoff settings
+  notifications.yaml
+  prompts/         # Versioned prompt templates
+  cloudflare/      # Tunnel config
+  postgres/        # postgresql.conf
+scripts/
+  load-secrets.sh  # Bitwarden Secrets Manager integration
+  migrate.sh       # Drizzle migration runner
+  e2e-phase1.sh    # End-to-end test suite (Phase 1)
+  e2e-full.sh      # End-to-end test suite (all phases)
+docs/
+  PRD.md           # Product requirements (v0.6)
+  TDD.md           # Technical design (v0.5)
+  ios-shortcut.md  # iOS Shortcut setup guide for voice capture
+```
 
-## Key Decisions
+### Data Flow
 
-- **Embeddings**: Configurable model via Ollama (768d vectors), no fallback (consistency over availability)
-- **LLM Gateway**: Self-hosted LiteLLM proxy for all LLM requests (embeddings bypass, go direct to Ollama)
-- **Search**: Hybrid retrieval (vector + full-text) with Reciprocal Rank Fusion and ACT-R temporal decay
-- **External access**: Cloudflare Tunnel for `brain.k4jda.net` only, existing Tailscale+SWAG unchanged
-- **Web framework**: Vite + React (lightweight SPA), not Next.js
-- **Schema migrations**: Drizzle ORM + drizzle-kit
-- **Brain views**: 5 views (career, personal, technical, work-internal, client) with auto-classification
+```
+Voice (iPhone/Watch)
+  → iOS Shortcut → voice-capture :3001
+    → faster-whisper (transcription)
+    → core-api POST /api/v1/captures
+
+Slack message / command
+  → slack-bot (Socket Mode)
+    → intent router → core-api
+
+Document upload
+  → core-api POST /api/v1/documents/ingest
+    → workers: document-pipeline job
+
+All captures hit the same pipeline:
+  embed-capture → extract-entities → link-entities → check-triggers → notify
+
+Search (hybrid):
+  FTS + pgvector cosine → Reciprocal Rank Fusion → ACT-R temporal decay
+
+AI calls:
+  all services → LiteLLM at https://llm.k4jda.net
+    → jetson-embeddings (Qwen3 768d)
+    → fast / synthesis / governance / intent (provider TBD in LiteLLM)
+```
+
+### Key Design Decisions
+
+- **No Ollama container** — embeddings and inference both run through external LiteLLM; no AI in this stack
+- **vector(768)** everywhere, no fallback if LiteLLM/Jetson is down — queue and retry
+- **Hybrid search**: FTS + vector with RRF + ACT-R temporal decay (default `temporal_weight: 0.0` at launch, ramp as history builds)
+- **MCP embedded** in core-api at `/mcp` route (Streamable HTTP, `Authorization: Bearer` header)
 - **Governance**: LLM-driven conversation with guardrails, not FSM
-- **Database**: Plain Postgres+pgvector, no Supabase
-- **MCP**: Embedded in Core API (Streamable HTTP), no separate container
-- **Voice capture**: Direct API from iPhone/Watch (no Google Drive sync)
-- **Monorepo**: pnpm workspaces (shared, core-api, slack-bot, workers, voice-capture)
+- **Brain views**: 5 views auto-classified at ingest — `career`, `personal`, `technical`, `work-internal`, `client`
+- **Capture types**: 8 types — `decision`, `idea`, `observation`, `task`, `win`, `blocker`, `question`, `reflection`
+- **AI budget**: soft $30/month (alert via Pushover), hard $50 (circuit breaker)
+- **Pipeline retry**: 5 attempts, patient backoff (30s, 2m, 10m, 30m, 2h) + daily auto-sweep
+- **Secrets**: Bitwarden Secrets Manager only — never `.env` files
 
-See [docs/PRD.md](docs/PRD.md) for complete specifications and the resolved decisions table in Section 12.
+---
 
-## Reference Files
+## Quick Start
+
+### Prerequisites
+
+- Docker + Docker Compose
+- `bws` CLI v2.0.0 at `~/bin/bws.exe` with `BWS_ACCESS_TOKEN` set
+- LiteLLM proxy running at `https://llm.k4jda.net` with model aliases configured
+- Bitwarden secrets populated for the `ai-work` project (see `scripts/load-secrets.sh`)
+
+### 1. Clone and install
+
+```bash
+git clone <repo> open-brain
+cd open-brain
+pnpm install
+```
+
+### 2. Load secrets from Bitwarden
+
+Secrets are never stored in `.env` files. Load them into a `.env.secrets` file that Docker reads at startup:
+
+```bash
+# Retrieve your secrets from Bitwarden and write to .env.secrets (git-ignored)
+# Required keys:
+#   LITELLM_API_KEY       — virtual key for LiteLLM proxy
+#   MCP_API_KEY           — bearer token for MCP endpoint
+#   POSTGRES_PASSWORD     — Postgres password (default: openbrain_dev for local)
+#   SLACK_BOT_TOKEN       — xoxb-... Slack bot token
+#   SLACK_APP_TOKEN       — xapp-... Slack app-level token
+#   PUSHOVER_TOKEN        — Pushover application token
+#   PUSHOVER_USER         — Pushover user key
+#   SMTP_HOST / SMTP_USER / SMTP_PASS  — email delivery
+#   CLOUDFLARE_TUNNEL_TOKEN  — Cloudflare tunnel token
+source ./scripts/load-secrets.sh
+```
+
+### 3. Run database migrations
+
+```bash
+./scripts/migrate.sh
+```
+
+### 4. Start the full stack
+
+```bash
+docker compose up -d
+```
+
+This starts all 9 containers. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+
+### 5. Verify
+
+```bash
+# Core API health
+curl http://localhost:3000/health
+
+# Voice capture health
+curl http://localhost:3001/health
+
+# Web dashboard
+open http://localhost:5173
+
+# Bull Board (queue monitor)
+curl http://localhost:3000/admin/queues
+```
+
+### 6. Connect Claude (MCP)
+
+Add to your Claude MCP config:
+
+```json
+{
+  "mcpServers": {
+    "open-brain": {
+      "url": "https://brain.k4jda.net/mcp",
+      "headers": {
+        "Authorization": "Bearer <MCP_API_KEY>"
+      }
+    }
+  }
+}
+```
+
+### Cloudflare Tunnel (remote access)
+
+Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, then set `CLOUDFLARE_TUNNEL_TOKEN` in Bitwarden. The `cloudflared` container starts automatically with the stack.
+
+---
+
+## Reference
 
 | File | Purpose |
 |------|---------|
-| `docs/PRD.md` | Product requirements document (v0.6) |
-| `docs/TDD.md` | Technical design document (v0.5) |
-| `IMPLEMENTATION_PLAN.md` | Phased build plan, phases 1-8 |
-| `IMPLEMENTATION_PLAN-PHASE2.md` | Phased build plan, phases 9-16 |
+| `docs/PRD.md` | Product requirements (v0.6) |
+| `docs/TDD.md` | Technical design (v0.5) |
+| `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
+| `IMPLEMENTATION_PLAN.md` | Phases 1–8 (Foundation) — all complete |
+| `IMPLEMENTATION_PLAN-PHASE2.md` | Phases 9–16 (Voice through Polish) — all complete |
+| `LEARNINGS.md` | Implementation notes and learnings |
+| `config/ai-routing.yaml` | LiteLLM model aliases and budget thresholds |
+| `config/brain-views.yaml` | Brain view definitions |
+| `config/pipelines.yaml` | Pipeline stage configuration |
+
+## Hardware
+
+Intel i7-9700 (8C/8T), 128GB DDR4, no GPU, 32TB array. Unraid OS. faster-whisper runs CPU int8 — transcription is slower than GPU but fully local. Container memory limits: faster-whisper 8GB, Postgres 8GB.
 
 ## License
 
