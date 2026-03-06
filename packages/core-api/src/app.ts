@@ -12,7 +12,7 @@ export function createApp(configService?: ConfigService): Hono {
   // Global middleware
   app.use('*', honoLogger())
   app.use('*', cors({ origin: '*' }))
-  app.use('*', errorHandler())
+  app.onError(errorHandler())
 
   // Routes
   registerHealthRoutes(app)

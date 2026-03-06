@@ -397,9 +397,11 @@
 
 ---
 
-### 3.5 Core API Tests
+### 3.5 Core API Tests ✅ Completed 2026-03-05
 
 **Description**: Unit and integration tests for the API scaffold.
+
+**Status**: COMPLETE 2026-03-05
 
 **Complexity**: S
 
