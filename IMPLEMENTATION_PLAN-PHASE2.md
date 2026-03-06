@@ -166,9 +166,11 @@
 
 ---
 
-### 10.1 Pushover Notification Service
+### ✅ 10.1 Pushover Notification Service — Completed 2026-03-05
 
 **Description**: Pushover integration for iPhone push notifications. All priority levels. Reuse patterns from voice-capture's existing Pushover code.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -186,9 +188,11 @@
 
 ---
 
-### 10.2 Email Delivery Service
+### ✅ Completed 2026-03-05 — 10.2 Email Delivery Service
 
 **Description**: SMTP email delivery for HTML reports and digests.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -230,9 +234,11 @@
 
 ---
 
-### 10.4 Skill Execution Framework
+### ✅ Completed 2026-03-05 — 10.4 Skill Execution Framework
 
 **Description**: BullMQ-based skill execution framework. Skills are scheduled (cron) or triggered manually. Each skill queries captures, runs AI synthesis, and delivers results.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 

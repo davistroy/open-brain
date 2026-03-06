@@ -194,10 +194,16 @@ importers:
       ioredis:
         specifier: ^5.10.0
         version: 5.10.0
+      nodemailer:
+        specifier: ^8.0.1
+        version: 8.0.1
       pino:
         specifier: ^10.3.1
         version: 10.3.1
     devDependencies:
+      '@types/nodemailer':
+        specifier: ^6.4.23
+        version: 6.4.23
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
@@ -1153,6 +1159,9 @@ packages:
   '@types/node@25.3.5':
     resolution: {integrity: sha512-oX8xrhvpiyRCQkG1MFchB09f+cXftgIXb3a7UUa4Y3wpmZPw5tyZGTLWhlESOLq1Rq6oDlc8npVU2/9xiCuXMA==}
 
+  '@types/nodemailer@6.4.23':
+    resolution: {integrity: sha512-aFV3/NsYFLSx9mbb5gtirBSXJnAlrusoKNuPbxsASWc7vrKLmIrTQRpdcxNcSFL3VW2A2XpeLEavwb2qMi6nlQ==}
+
   '@types/pg@8.18.0':
     resolution: {integrity: sha512-gT+oueVQkqnj6ajGJXblFR4iavIXWsGAFCk3dP4Kki5+a9R4NMt0JARdk6s8cUKcfUoqP5dAtDSLU8xYUTFV+Q==}
 
@@ -2104,6 +2113,10 @@ packages:
   node-gyp-build-optional-packages@5.2.2:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
     hasBin: true
+
+  nodemailer@8.0.1:
+    resolution: {integrity: sha512-5kcldIXmaEjZcHR6F28IKGSgpmZHaF1IXLWFTG+Xh3S+Cce4MiakLtWY+PlBU69fLbRa8HlaGIrC/QolUpHkhg==}
+    engines: {node: '>=6.0.0'}
 
   npm-run-path@5.3.0:
     resolution: {integrity: sha512-ppwTtiJZq0O/ai0z7yfudtBpWIoxM8yE6nHi1X47eFR2EWORqfbu6CnPlNsjeN683eT0qG6H/Pyf9fCcvjnnnQ==}
@@ -3441,6 +3454,10 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
+  '@types/nodemailer@6.4.23':
+    dependencies:
+      '@types/node': 25.3.5
+
   '@types/pg@8.18.0':
     dependencies:
       '@types/node': 25.3.5
@@ -4456,6 +4473,8 @@ snapshots:
     dependencies:
       detect-libc: 2.1.2
     optional: true
+
+  nodemailer@8.0.1: {}
 
   npm-run-path@5.3.0:
     dependencies:
