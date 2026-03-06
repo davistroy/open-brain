@@ -27,7 +27,8 @@
  *   !help                   — list all commands
  */
 
-import type { GenericMessageEvent, SayFn } from '@slack/bolt'
+import type { SayFn } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import type { Redis } from 'ioredis'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import {

@@ -77,9 +77,8 @@ export class EntityService {
       : sql``
 
     // Derive mention_count from entity_links at query time for accuracy
-    const rows = await this.db.execute<
-      EntityRecord & { mention_count: number }
-    >(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = await this.db.execute<any>(
       sql`SELECT
             e.id::text,
             e.name,
@@ -100,7 +99,8 @@ export class EntityService {
           LIMIT ${limit} OFFSET ${offset}`,
     )
 
-    const countRows = await this.db.execute<{ total: string }>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const countRows = await this.db.execute<any>(
       type_filter
         ? sql`SELECT COUNT(*)::text AS total FROM entities WHERE entity_type = ${type_filter}`
         : sql`SELECT COUNT(*)::text AS total FROM entities`,
@@ -113,7 +113,8 @@ export class EntityService {
   }
 
   async getById(id: string): Promise<EntityDetail> {
-    const entityRows = await this.db.execute<EntityRecord>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entityRows = await this.db.execute<any>(
       sql`SELECT
             id::text, name, entity_type, canonical_name, aliases,
             metadata, first_seen_at, last_seen_at, created_at, updated_at,
@@ -130,7 +131,8 @@ export class EntityService {
     const entity = entityRows.rows[0] as unknown as EntityRecord
 
     // Fetch up to 20 most recent linked captures
-    const captureRows = await this.db.execute<LinkedCapture>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const captureRows = await this.db.execute<any>(
       sql`SELECT
             c.id::text,
             c.content,
@@ -154,7 +156,8 @@ export class EntityService {
   }
 
   async getByName(name: string): Promise<EntityRecord | null> {
-    const rows = await this.db.execute<EntityRecord>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = await this.db.execute<any>(
       sql`SELECT
             id::text, name, entity_type, canonical_name, aliases,
             metadata, first_seen_at, last_seen_at, created_at, updated_at,

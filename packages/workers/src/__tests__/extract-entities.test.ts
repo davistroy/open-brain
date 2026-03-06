@@ -198,8 +198,9 @@ describe('processExtractEntitiesJob', () => {
     // insert for new entity should NOT have been called (reuse existing)
     const insertCalls = (db.insert as ReturnType<typeof vi.fn>).mock.calls
     // Only pipeline_events inserts (started + success) — no entity row insert
-    const entityInserts = insertCalls.filter(
-      ([table]: [unknown]) => table !== undefined && String(table).includes !== undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entityInserts = (insertCalls as any[]).filter(
+      ([table]: [any]) => table !== undefined && String(table).includes !== undefined,
     )
     // All insert calls go to insert() — we verify by counting
     // pipeline_events: 2 (started + success), entity_links: 1 → no entities INSERT

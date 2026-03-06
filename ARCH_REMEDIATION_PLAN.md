@@ -40,9 +40,9 @@ Generated from /review-arch findings. Addresses confirmed bugs, performance issu
 
 ---
 
-#### 1.2 Align Zod to v3 across all packages
+#### 1.2 Align Zod to v3 across all packages — COMPLETE 2026-03-06
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-06
 
 **Tasks:**
 - Read packages/shared/package.json

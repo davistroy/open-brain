@@ -15,7 +15,8 @@
  * 5. If reply is anything else: treat as a new query
  */
 
-import type { GenericMessageEvent, SayFn } from '@slack/bolt'
+import type { SayFn } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import type { Redis } from 'ioredis'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import { formatSearchResults, formatCapture, formatError } from '../lib/formatters.js'

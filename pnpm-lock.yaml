@@ -88,13 +88,13 @@ importers:
         version: 4.1.1
       openai:
         specifier: ^4.98.0
-        version: 4.104.0(ws@8.19.0)(zod@4.3.6)
+        version: 4.104.0(ws@8.19.0)(zod@3.25.76)
       pg:
         specifier: ^8.20.0
         version: 8.20.0
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@types/js-yaml':
         specifier: ^4.0.9
@@ -133,6 +133,9 @@ importers:
         specifier: ^13.1.3
         version: 13.1.3
     devDependencies:
+      '@slack/types':
+        specifier: ^2.20.0
+        version: 2.20.0
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
@@ -5017,9 +5020,6 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
-
   zustand@5.0.11:
     resolution: {integrity: sha512-fdZY+dk7zn/vbWNCYmzZULHRrss0jx5pPFiOuMZ/5HJN6Yv3u+1Wswy/4MpZEkEGhtNH+pwxZB8OKgUBPzYAGg==}
     engines: {node: '>=12.20.0'}
@@ -8543,21 +8543,6 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
-  openai@4.104.0(ws@8.19.0)(zod@4.3.6):
-    dependencies:
-      '@types/node': 18.19.130
-      '@types/node-fetch': 2.6.13
-      abort-controller: 3.0.0
-      agentkeepalive: 4.6.0
-      form-data-encoder: 1.7.2
-      formdata-node: 4.4.1
-      node-fetch: 2.7.0
-    optionalDependencies:
-      ws: 8.19.0
-      zod: 4.3.6
-    transitivePeerDependencies:
-      - encoding
-
   option@0.2.4: {}
 
   own-keys@1.0.1:
@@ -9854,8 +9839,6 @@ snapshots:
       zod: 3.25.76
 
   zod@3.25.76: {}
-
-  zod@4.3.6: {}
 
   zustand@5.0.11(@types/react@18.3.28)(react@18.3.1):
     optionalDependencies:

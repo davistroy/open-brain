@@ -3,12 +3,17 @@ import type { Database } from '@open-brain/shared'
 import { sql } from 'drizzle-orm'
 import type { EntityService } from '../../services/entity.js'
 
-export const getEntitySchema = z.object({
+const getEntityBaseSchema = z.object({
   name: z.string().optional().describe('Entity name to look up'),
   id: z.string().uuid().optional().describe('Entity UUID'),
-}).refine(d => d.name !== undefined || d.id !== undefined, {
+})
+
+export const getEntitySchema = getEntityBaseSchema.refine(d => d.name !== undefined || d.id !== undefined, {
   message: 'Either name or id must be provided',
 })
+
+/** Raw ZodObject shape (without refine) for use with MCP server.tool() */
+export const getEntitySchemaShape = getEntityBaseSchema.shape
 
 export type GetEntityInput = z.infer<typeof getEntitySchema>
 
@@ -81,12 +86,14 @@ export async function getEntityTool(
 
   try {
     if (input.id) {
-      const result = await db.execute<EntityRow>(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await db.execute<any>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at, metadata FROM entities WHERE id = ${input.id}::uuid LIMIT 1`,
       )
       rows = result.rows
     } else {
-      const result = await db.execute<EntityRow>(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await db.execute<any>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at, metadata FROM entities WHERE lower(name) = lower(${input.name!}) LIMIT 1`,
       )
       rows = result.rows

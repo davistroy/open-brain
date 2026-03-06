@@ -1,4 +1,4 @@
-import { App } from '@slack/bolt'
+import { App, LogLevel } from '@slack/bolt'
 import { logger } from './lib/logger.js'
 import { CoreApiClient } from './lib/core-api-client.js'
 
@@ -30,7 +30,7 @@ export function createBoltApp(config: BotConfig): { app: App; coreApiClient: Cor
       warn: (...args) => logger.warn(args, 'bolt'),
       error: (...args) => logger.error(args, 'bolt'),
       setLevel: () => {},
-      getLevel: () => 'info',
+      getLevel: () => LogLevel.INFO,
       setName: () => {},
     },
   })

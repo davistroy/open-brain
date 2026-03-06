@@ -64,7 +64,9 @@ export class SearchService {
     // Step 2: call hybrid_search — fetch more than `limit` so post-filters have candidates
     const fetchCount = Math.min(limit * 5, 200)
 
-    const hybridRows = await this.db.execute<HybridSearchRow>(sql`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hybridRows = await this.db.execute<any>(sql`
       SELECT capture_id::text, rrf_score, fts_score, vector_score
       FROM hybrid_search(
         ${query},
@@ -82,7 +84,9 @@ export class SearchService {
     const captureIds = hybridRows.rows.map(r => r.capture_id)
 
     // Step 3: fetch capture rows for all returned IDs in one query
-    const captureRows = await this.db.execute<CaptureRecord & { id: string }>(sql`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const captureRows = await this.db.execute<any>(sql`
       SELECT *
       FROM captures
       WHERE id = ANY(${captureIds}::uuid[])
@@ -101,7 +105,8 @@ export class SearchService {
       if (!capture) continue
 
       // Apply ACT-R temporal decay via SQL function
-      const scoreResult = await this.db.execute<{ final_score: number }>(sql`
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const scoreResult = await this.db.execute<any>(sql`
         SELECT actr_temporal_score(
           ${hybridRow.rrf_score}::float,
           ${capture.created_at instanceof Date ? capture.created_at.toISOString() : capture.created_at}::timestamptz,
