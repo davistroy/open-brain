@@ -16,7 +16,16 @@ const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrai
 const db = createDb(postgresUrl)
 const captureService = new CaptureService(db)
 
-const app = createApp({ configService, captureService })
+// Redis connection for Bull Board queue monitoring
+const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const redisUrlObj = new URL(redisUrl)
+const redisConnection = {
+  host: redisUrlObj.hostname,
+  port: Number(redisUrlObj.port) || 6379,
+  ...(redisUrlObj.password ? { password: redisUrlObj.password } : {}),
+}
+
+const app = createApp({ configService, captureService, redisConnection })
 const port = Number(process.env.PORT ?? 3000)
 
 serve({ fetch: app.fetch, port }, () => {

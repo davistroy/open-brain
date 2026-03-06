@@ -730,11 +730,13 @@
 
 ---
 
-### 6.2 Pipeline Stage Executor
+### 6.2 Pipeline Stage Executor — COMPLETE 2026-03-05
 
 **Description**: Core pipeline execution engine. Reads pipeline config, executes stages in order, records results to pipeline_events table, handles failures per stage.
 
 **Complexity**: L
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/pipeline/executor.ts` — executePipeline(captureId, stages): for each stage, execute → insert pipeline_event. Embed failure blocks all subsequent stages (throw to BullMQ retry). Other stage failures → continue, mark status 'partial'. Final status: 'complete' or 'partial'.
@@ -782,11 +784,13 @@
 
 ---
 
-### 6.4 Pipeline Configuration Files
+### 6.4 Pipeline Configuration Files — COMPLETE 2026-03-05
 
 **Description**: Full pipeline YAML configuration and prompt templates for Phase 1 stages.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `config/pipelines.yaml` — Full config: default pipeline (embed → extract_metadata → notify), voice pipeline (embed → extract_metadata with merge_with_pre_extracted → notify with pushover), career pipeline (extends default + extract_career_signals after extract_metadata)
@@ -802,11 +806,13 @@
 
 ---
 
-### 6.5 Bull Board + Docker Services
+### 6.5 Bull Board + Docker Services — COMPLETE 2026-03-05
 
 **Description**: Bull Board UI at /admin/queues for queue monitoring. Core API and Workers Docker Compose service definitions. LiteLLM is external at https://llm.k4jda.net — no container needed.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create/Modify**:
 - `packages/core-api/src/routes/admin.ts` — Mount @bull-board/hono at /admin/queues. Register all queues.

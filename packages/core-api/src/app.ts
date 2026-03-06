@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { logger as honoLogger } from 'hono/logger'
 import { cors } from 'hono/cors'
+import type { ConnectionOptions } from 'bullmq'
 import type { ConfigService } from '@open-brain/shared'
 import { errorHandler } from './middleware/error-handler.js'
 import { registerHealthRoutes } from './routes/health.js'
@@ -15,11 +16,13 @@ interface AppDependencies {
   configService?: ConfigService
   captureService?: CaptureService
   searchService?: SearchService
+  /** Redis connection for Bull Board queue monitoring */
+  redisConnection?: ConnectionOptions
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService } = deps
+  const { configService, captureService, searchService, redisConnection } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -30,7 +33,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   registerHealthRoutes(app)
 
   if (configService) {
-    const adminRouter = createAdminRouter(configService)
+    const adminRouter = createAdminRouter({ configService, redisConnection })
     app.route('/api/v1/admin', adminRouter)
   }
 

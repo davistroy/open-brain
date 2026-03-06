@@ -1,11 +1,13 @@
 // @open-brain/workers — entry point
 export * from './queues/access-stats.js'
 export * from './queues/capture-pipeline.js'
+export * from './queues/embed-capture.js'
 export * from './queues/notification.js'
 export * from './queues/skill-execution.js'
 export * from './queues/index.js'
 export * from './jobs/update-access-stats.js'
 export * from './jobs/ingestion-worker.js'
+export * from './jobs/embed-capture.js'
 export * from './jobs/daily-sweep.js'
 export * from './scheduler.js'
 export * from './lib/logger.js'

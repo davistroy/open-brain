@@ -43,3 +43,62 @@ services:
       retries: 5
     networks:
       - open-brain
+
+  core-api:
+    build:
+      context: .
+      target: core-api
+    container_name: open-brain-core-api
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
+      REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net
+      # LITELLM_API_KEY: set in .env.secrets
+      # MCP_API_KEY: set in .env.secrets
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  workers:
+    build:
+      context: .
+      target: workers
+    container_name: open-brain-workers
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
+      REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net
+      CORE_API_URL: http://core-api:3000
+      # LITELLM_API_KEY: set in .env.secrets
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped

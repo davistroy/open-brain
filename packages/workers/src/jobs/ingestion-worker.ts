@@ -6,6 +6,7 @@ import { captures, pipeline_events } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
+import type { EmbedCaptureQueue } from '../queues/embed-capture.js'
 
 /**
  * Advance a capture's pipeline_status and record a pipeline_events row.
@@ -64,6 +65,7 @@ async function recordStageEvent(
 export async function processIngestionJob(
   data: CapturePipelineJobData,
   db: Database,
+  embedCaptureQueue: EmbedCaptureQueue,
 ): Promise<void> {
   const { captureId } = data
 
@@ -125,6 +127,14 @@ export async function processIngestionJob(
     await recordStageEvent(db, captureId, 'extract', 'success', extractDurationMs, undefined, 'extracted')
 
     logger.info({ captureId, duration_ms: extractDurationMs }, '[ingestion] extract stage complete (stub)')
+
+    // Enqueue embed-capture job — jobId = captureId for idempotency
+    await embedCaptureQueue.add(
+      'embed',
+      { captureId },
+      { jobId: `embed:${captureId}` },
+    )
+    logger.info({ captureId }, '[ingestion] embed-capture job enqueued')
   } catch (err) {
     const extractDurationMs = Date.now() - extractStart
     const errMsg = err instanceof Error ? err.message : String(err)
@@ -162,11 +172,12 @@ export function pipelineBackoffStrategy(attemptsMade: number): number {
 export function createIngestionWorker(
   connection: ConnectionOptions,
   db: Database,
+  embedCaptureQueue: EmbedCaptureQueue,
 ): Worker<CapturePipelineJobData> {
   const worker = new Worker<CapturePipelineJobData>(
     'capture-pipeline',
     async (job) => {
-      await processIngestionJob(job.data, db)
+      await processIngestionJob(job.data, db, embedCaptureQueue)
     },
     {
       connection,
