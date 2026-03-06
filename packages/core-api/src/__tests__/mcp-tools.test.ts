@@ -59,7 +59,7 @@ const mockDb = {
 // ---------- Tests ----------
 
 describe('search_brain tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns formatted results', async () => {
     const result = await searchBrainTool(
@@ -103,7 +103,7 @@ describe('search_brain tool', () => {
 })
 
 describe('list_captures tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns formatted capture list', async () => {
     const result = await listCapturesTool({ limit: 20 }, mockCaptureService as any)
@@ -127,7 +127,7 @@ describe('list_captures tool', () => {
 })
 
 describe('brain_stats tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns formatted statistics', async () => {
     const result = await brainStatsTool({ period: 'all' }, mockCaptureService as any)
@@ -145,7 +145,7 @@ describe('brain_stats tool', () => {
 })
 
 describe('capture_thought tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('creates a capture and returns confirmation', async () => {
     const result = await captureThoughtTool(
@@ -182,7 +182,7 @@ describe('capture_thought tool', () => {
 })
 
 describe('get_entity tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns entity not available message when entities table missing', async () => {
     mockDb.execute.mockRejectedValue(new Error('relation "entities" does not exist'))
@@ -214,7 +214,7 @@ describe('get_entity tool', () => {
 })
 
 describe('list_entities tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns not available message when entities table missing', async () => {
     mockDb.execute.mockRejectedValue(new Error('relation "entities" does not exist'))
@@ -230,7 +230,7 @@ describe('list_entities tool', () => {
 })
 
 describe('get_weekly_brief tool', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('returns not available message when skills_log table missing', async () => {
     mockDb.execute.mockRejectedValue(new Error('relation "skills_log" does not exist'))

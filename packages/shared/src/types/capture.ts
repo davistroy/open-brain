@@ -8,7 +8,7 @@ export type CaptureType =
   | 'question'
   | 'reflection'
 
-export type CaptureSource = 'slack' | 'voice' | 'api' | 'document'
+export type CaptureSource = 'slack' | 'voice' | 'api' | 'document' | 'mcp'
 
 // BrainView is a string — validated against config at runtime, not a hardcoded enum
 export type BrainView = string
@@ -72,4 +72,5 @@ export interface CaptureRecord {
   created_at: Date
   updated_at: Date
   captured_at: Date
+  deleted_at?: Date | null
 }

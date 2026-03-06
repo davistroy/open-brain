@@ -5,7 +5,8 @@
  * and calls Core API POST /api/v1/synthesize, then replies with the AI-generated response.
  */
 
-import type { GenericMessageEvent, SayFn } from '@slack/bolt'
+import type { SayFn } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import { formatError } from '../lib/formatters.js'
 import { logger } from '../lib/logger.js'

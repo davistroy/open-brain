@@ -219,7 +219,8 @@ export class WeeklyBriefSkill {
    * Does not use SearchService — we want all captures, not semantically ranked ones.
    */
   private async queryCaptures(from: Date, to: Date): Promise<CaptureRecord[]> {
-    const rows = await this.db.execute<CaptureRecord>(sql`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = await this.db.execute<any>(sql`
       SELECT id, content, capture_type, brain_view, source, tags, captured_at, created_at, updated_at,
              pipeline_status, pipeline_attempts, content_hash
       FROM captures

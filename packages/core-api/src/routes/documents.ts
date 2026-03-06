@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os'
-import { writeFile, mkdir } from 'node:fs/promises'
+import { writeFile, mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Hono } from 'hono'
@@ -139,77 +139,81 @@ export function registerDocumentRoutes(
     const filePath = join(uploadDir, `${uploadId}${ext}`)
 
     try {
-      await mkdir(uploadDir, { recursive: true })
-      const buffer = await file.arrayBuffer()
-      await writeFile(filePath, Buffer.from(buffer))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      logger.error({ filename: originalFilename, err: msg }, '[documents] failed to save uploaded file')
-      throw new Error(`Failed to store uploaded file: ${msg}`)
-    }
-
-    // ── Derive capture content (title or filename) ──────────────────────────
-    const documentName = titleOverride
-      ?? originalFilename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
-    const captureContent = `[Document] ${documentName}`
-
-    // ── Create the capture ──────────────────────────────────────────────────
-    // source='document'; actual text is extracted async.
-    const capture = await captureService.create({
-      content: captureContent,
-      capture_type: 'observation',
-      brain_view: brainView,
-      source: 'document',
-      metadata: {
-        source_metadata: {
-          filename: originalFilename,
-          mime_type: mimeType,
-          title: documentName,
-          file_path: filePath,
-          upload_status: 'pending_extraction',
-        },
-        tags,
-      },
-    })
-
-    // ── Enqueue document-pipeline job ───────────────────────────────────────
-    if (documentPipelineQueue) {
       try {
-        await documentPipelineQueue.add(
-          'document-pipeline',
-          { captureId: capture.id },
-          { jobId: `document:${capture.id}` },
-        )
-        logger.info(
-          { captureId: capture.id, filename: originalFilename, filePath },
-          '[documents] document-pipeline job enqueued',
-        )
+        await mkdir(uploadDir, { recursive: true })
+        const buffer = await file.arrayBuffer()
+        await writeFile(filePath, Buffer.from(buffer))
       } catch (err) {
-        // Enqueue failure must not fail the upload — daily sweep or manual retry
-        // can re-trigger the pipeline. The capture and file are already persisted.
         const msg = err instanceof Error ? err.message : String(err)
+        logger.error({ filename: originalFilename, err: msg }, '[documents] failed to save uploaded file')
+        throw new Error(`Failed to store uploaded file: ${msg}`)
+      }
+
+      // ── Derive capture content (title or filename) ──────────────────────────
+      const documentName = titleOverride
+        ?? originalFilename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+      const captureContent = `[Document] ${documentName}`
+
+      // ── Create the capture ──────────────────────────────────────────────────
+      // source='document'; actual text is extracted async.
+      const capture = await captureService.create({
+        content: captureContent,
+        capture_type: 'observation',
+        brain_view: brainView,
+        source: 'document',
+        metadata: {
+          source_metadata: {
+            filename: originalFilename,
+            mime_type: mimeType,
+            title: documentName,
+            file_path: filePath,
+            upload_status: 'pending_extraction',
+          },
+          tags,
+        },
+      })
+
+      // ── Enqueue document-pipeline job ───────────────────────────────────────
+      if (documentPipelineQueue) {
+        try {
+          await documentPipelineQueue.add(
+            'document-pipeline',
+            { captureId: capture.id },
+            { jobId: `document:${capture.id}` },
+          )
+          logger.info(
+            { captureId: capture.id, filename: originalFilename, filePath },
+            '[documents] document-pipeline job enqueued',
+          )
+        } catch (err) {
+          // Enqueue failure must not fail the upload — daily sweep or manual retry
+          // can re-trigger the pipeline. The capture and file are already persisted.
+          const msg = err instanceof Error ? err.message : String(err)
+          logger.warn(
+            { captureId: capture.id, filename: originalFilename, err: msg },
+            '[documents] failed to enqueue document-pipeline job — capture created, pipeline pending',
+          )
+        }
+      } else {
         logger.warn(
-          { captureId: capture.id, filename: originalFilename, err: msg },
-          '[documents] failed to enqueue document-pipeline job — capture created, pipeline pending',
+          { captureId: capture.id },
+          '[documents] document-pipeline queue not configured — capture created without pipeline job',
         )
       }
-    } else {
-      logger.warn(
-        { captureId: capture.id },
-        '[documents] document-pipeline queue not configured — capture created without pipeline job',
-      )
-    }
 
-    return c.json(
-      {
-        capture_id: capture.id,
-        filename: originalFilename,
-        mime_type: mimeType,
-        pipeline_status: capture.pipeline_status,
-        brain_view: capture.brain_view,
-        tags: capture.tags,
-      },
-      201,
-    )
+      return c.json(
+        {
+          capture_id: capture.id,
+          filename: originalFilename,
+          mime_type: mimeType,
+          pipeline_status: capture.pipeline_status,
+          brain_view: capture.brain_view,
+          tags: capture.tags,
+        },
+        201,
+      )
+    } finally {
+      await unlink(filePath).catch(() => {})
+    }
   })
 }

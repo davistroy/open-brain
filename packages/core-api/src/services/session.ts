@@ -3,6 +3,7 @@ import { sessions, session_messages } from '@open-brain/shared'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CaptureService } from './capture.js'
+import type { GovernanceEngine } from './governance-engine.js'
 import { logger } from '../lib/logger.js'
 
 // ---------------------------------------------------------------------------
@@ -107,13 +108,7 @@ export class SessionService {
   constructor(
     private db: Database,
     private captureService?: CaptureService,
-    private governanceEngine?: {
-      processResponse(
-        session: SessionRecord,
-        transcript: SessionMessageRecord[],
-        userMessage: string,
-      ): Promise<{ bot_message: string; context_capture_ids?: string[] }>
-    },
+    private governanceEngine?: GovernanceEngine,
   ) {}
 
   // -------------------------------------------------------------------------

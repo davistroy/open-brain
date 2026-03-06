@@ -63,12 +63,14 @@ export async function listEntitiesTool(
         : sql`name ASC`
 
     if (input.type_filter) {
-      const result = await db.execute<EntityRow>(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await db.execute<any>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at FROM entities WHERE entity_type = ${input.type_filter} ORDER BY ${orderCol} LIMIT ${input.limit}`,
       )
       rows = result.rows
     } else {
-      const result = await db.execute<EntityRow>(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await db.execute<any>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at FROM entities ORDER BY ${orderCol} LIMIT ${input.limit}`,
       )
       rows = result.rows

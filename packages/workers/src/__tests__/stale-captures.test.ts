@@ -203,7 +203,7 @@ describe('StaleCapturesSkill', () => {
       await skill.execute()
 
       expect(pushover.send).toHaveBeenCalledOnce()
-      const sendCall = (pushover.send as ReturnType<typeof vi.spyOn>).mock.calls[0][0]
+      const sendCall = (pushover.send as unknown as ReturnType<typeof vi.spyOn>).mock.calls[0][0] as any
       expect(sendCall.title).toBe('Open Brain: Stale Captures Re-queued')
       expect(sendCall.priority).toBe(1) // high priority
       expect(sendCall.message).toContain('2 stale captures')
@@ -214,7 +214,7 @@ describe('StaleCapturesSkill', () => {
 
       await skill.execute()
 
-      const message = (pushover.send as ReturnType<typeof vi.spyOn>).mock.calls[0][0].message
+      const message = ((pushover.send as unknown as ReturnType<typeof vi.spyOn>).mock.calls[0][0] as any).message
       expect(message).toContain('Re-queued: 2')
     })
 
@@ -223,7 +223,7 @@ describe('StaleCapturesSkill', () => {
 
       await skill.execute()
 
-      const message = (pushover.send as ReturnType<typeof vi.spyOn>).mock.calls[0][0].message
+      const message = ((pushover.send as unknown as ReturnType<typeof vi.spyOn>).mock.calls[0][0] as any).message
       expect(message).toContain('120min') // oldest is 120min
     })
 
@@ -232,7 +232,7 @@ describe('StaleCapturesSkill', () => {
 
       await skill.execute()
 
-      const message = (pushover.send as ReturnType<typeof vi.spyOn>).mock.calls[0][0].message
+      const message = ((pushover.send as unknown as ReturnType<typeof vi.spyOn>).mock.calls[0][0] as any).message
       // First 8 chars of STALE_RECEIVED.id = 'cap-aaaa'
       expect(message).toContain('cap-aaaa')
     })
@@ -347,7 +347,7 @@ describe('StaleCapturesSkill', () => {
 
       await skill.execute()
 
-      const message = (pushover.send as ReturnType<typeof vi.spyOn>).mock.calls[0][0].message
+      const message = ((pushover.send as unknown as ReturnType<typeof vi.spyOn>).mock.calls[0][0] as any).message
       expect(message).toContain('Failed to re-queue: 1')
     })
 

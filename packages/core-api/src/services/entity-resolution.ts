@@ -59,7 +59,8 @@ export class EntityResolutionService {
     // ----------------------------------------------------------------
     // Tier 1: exact name match (case-insensitive)
     // ----------------------------------------------------------------
-    const exactRows = await this.db.execute<EntityRow>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const exactRows = await this.db.execute<any>(
       sql`SELECT id::text, name, entity_type, canonical_name, aliases
           FROM entities
           WHERE lower(name) = ${mentionLower}
@@ -74,7 +75,8 @@ export class EntityResolutionService {
     // ----------------------------------------------------------------
     // Tier 2: alias match — mention is contained in any entity's aliases array
     // ----------------------------------------------------------------
-    const aliasRows = await this.db.execute<EntityRow>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aliasRows = await this.db.execute<any>(
       sql`SELECT id::text, name, entity_type, canonical_name, aliases
           FROM entities
           WHERE lower(${mentionLower}) = ANY(SELECT lower(a) FROM unnest(aliases) AS a)
@@ -89,7 +91,8 @@ export class EntityResolutionService {
     // ----------------------------------------------------------------
     // Tier 3: LLM disambiguation — find candidates with similar names
     // ----------------------------------------------------------------
-    const candidateRows = await this.db.execute<EntityRow>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const candidateRows = await this.db.execute<any>(
       sql`SELECT id::text, name, entity_type, canonical_name, aliases
           FROM entities
           WHERE entity_type = ${entityType}
@@ -153,11 +156,12 @@ Use match_index null if none of the entities match or confidence < 0.8.`
    */
   async merge(sourceId: string, targetId: string): Promise<void> {
     // Verify both exist
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [sourceRows, targetRows] = await Promise.all([
-      this.db.execute<{ id: string; aliases: string[]; name: string }>(
+      this.db.execute<any>(
         sql`SELECT id::text, aliases, name FROM entities WHERE id = ${sourceId}::uuid LIMIT 1`,
       ),
-      this.db.execute<{ id: string; aliases: string[]; name: string }>(
+      this.db.execute<any>(
         sql`SELECT id::text, aliases, name FROM entities WHERE id = ${targetId}::uuid LIMIT 1`,
       ),
     ])
@@ -204,7 +208,8 @@ Use match_index null if none of the entities match or confidence < 0.8.`
    * (Manual curation via Slack commands covers reassigning links.)
    */
   async split(entityId: string, alias: string): Promise<{ new_entity_id: string }> {
-    const existingRows = await this.db.execute<EntityRow>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existingRows = await this.db.execute<any>(
       sql`SELECT id::text, name, entity_type, canonical_name, aliases FROM entities WHERE id = ${entityId}::uuid LIMIT 1`,
     )
 
@@ -214,8 +219,8 @@ Use match_index null if none of the entities match or confidence < 0.8.`
     const aliasLower = alias.trim().toLowerCase()
 
     // Remove alias from source entity's aliases array
-    const updatedAliases = (existing.aliases ?? []).filter(
-      a => a.toLowerCase() !== aliasLower,
+    const updatedAliases = ((existing.aliases ?? []) as string[]).filter(
+      (a: string) => a.toLowerCase() !== aliasLower,
     )
 
     await this.db.execute(

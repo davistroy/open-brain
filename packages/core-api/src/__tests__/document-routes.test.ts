@@ -28,6 +28,7 @@ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }))
 vi.mock('node:fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
   writeFile: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
 }))
 
 // ---------------------------------------------------------------------------

@@ -47,7 +47,7 @@ function makeMockDb(overrides: {
       if (executeCallCount === 2) return executeChain(aliasRows)
       if (executeCallCount === 3) return executeChain(candidateRows)
       // Subsequent calls: merge/split operations
-      return executeChain(updateResult)
+      return executeChain(updateResult as unknown[])
     }),
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({

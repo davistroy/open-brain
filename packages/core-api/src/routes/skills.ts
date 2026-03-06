@@ -67,7 +67,8 @@ export function registerSkillRoutes(
   app.get('/api/v1/skills', async (c) => {
     // Pull the most recent skills_log row per skill_name so we can surface
     // last-run metadata without requiring the skills.yaml config at runtime.
-    const rows = await db.execute<SkillsLogRow>(sql`
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = await db.execute<any>(sql`
       SELECT DISTINCT ON (skill_name)
         id,
         skill_name,

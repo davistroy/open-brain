@@ -2,7 +2,6 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Search as SearchIcon, X, ChevronLeft } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import CaptureCard from '@/components/CaptureCard';
 import CaptureDetail from '@/components/CaptureDetail';
 import SearchFiltersPanel from '@/components/SearchFilters';

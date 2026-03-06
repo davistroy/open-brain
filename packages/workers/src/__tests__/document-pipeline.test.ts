@@ -239,7 +239,7 @@ describe('chunkDocument — chunking large documents', () => {
 // ---------------------------------------------------------------------------
 
 describe('processDocumentPipelineJob — single-chunk document', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('parses document and creates sub-capture + enqueues embed', async () => {
     const db = makeMockDb()

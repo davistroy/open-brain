@@ -4,7 +4,7 @@
  */
 
 import type { App } from '@slack/bolt'
-import type { GenericMessageEvent } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import { Redis } from 'ioredis'
 import type { CoreApiClient } from './lib/core-api-client.js'
 import { logger } from './lib/logger.js'

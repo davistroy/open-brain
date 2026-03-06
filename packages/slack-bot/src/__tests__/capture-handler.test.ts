@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { SayFn } from '@slack/bolt'
-import type { GenericMessageEvent } from '@slack/bolt'
+import type { GenericMessageEvent } from '@slack/types'
 import { handleCapture } from '../handlers/capture.js'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 
