@@ -1,0 +1,224 @@
+networks:
+  open-brain:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  whisper_model_cache:
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: open-brain-postgres
+    environment:
+      POSTGRES_DB: openbrain
+      POSTGRES_USER: openbrain
+      POSTGRES_PASSWORD: openbrain_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openbrain -d openbrain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - open-brain
+
+  redis:
+    image: redis:7-alpine
+    container_name: open-brain-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - open-brain
+
+  core-api:
+    build:
+      context: .
+      target: core-api
+    container_name: open-brain-core-api
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
+      REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net
+      # LITELLM_API_KEY: set in .env.secrets
+      # MCP_API_KEY: set in .env.secrets
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  workers:
+    build:
+      context: .
+      target: workers
+    container_name: open-brain-workers
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
+      REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net
+      CORE_API_URL: http://core-api:3000
+      # LITELLM_API_KEY: set in .env.secrets
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  slack-bot:
+    build:
+      context: .
+      target: slack-bot
+    container_name: open-brain-slack-bot
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      CORE_API_URL: http://core-api:3000
+      REDIS_URL: redis://redis:6379
+      LITELLM_URL: https://llm.k4jda.net
+      # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
+      # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
+      # LITELLM_API_KEY: set in .env.secrets
+    depends_on:
+      core-api:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  faster-whisper:
+    image: fedirz/faster-whisper-server:0.4.1
+    container_name: open-brain-faster-whisper
+    environment:
+      WHISPER__MODEL: large-v3
+      WHISPER__DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+    ports:
+      - "10300:8000"
+    volumes:
+      - whisper_model_cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    mem_limit: 8g
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  voice-capture:
+    build:
+      context: .
+      target: voice-capture
+    container_name: open-brain-voice-capture
+    env_file:
+      - .env.secrets
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      CORE_API_URL: http://core-api:3000
+      WHISPER_URL: http://faster-whisper:8000
+      LITELLM_URL: https://llm.k4jda.net
+      # LITELLM_API_KEY: set in .env.secrets
+      # PUSHOVER_TOKEN: set in .env.secrets
+      # PUSHOVER_USER: set in .env.secrets
+    ports:
+      - "3001:3001"
+    depends_on:
+      core-api:
+        condition: service_healthy
+      faster-whisper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+    container_name: open-brain-web
+    environment:
+      # No secrets needed — nginx serves static files and proxies /api to core-api
+      NGINX_ENVSUBST_TEMPLATE_SUFFIX: ""
+    ports:
+      - "5173:80"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health.txt || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: open-brain-cloudflared
+    command: tunnel --no-autoupdate --config /etc/cloudflared/tunnel.yaml run
+    environment:
+      # CLOUDFLARE_TUNNEL_TOKEN: set in .env.secrets
+      # Retrieve from Bitwarden before starting: bws secret get <open-brain-cloudflare-tunnel-token>
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    volumes:
+      - ./config/cloudflare/tunnel.yaml:/etc/cloudflared/tunnel.yaml:ro
+    depends_on:
+      core-api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped

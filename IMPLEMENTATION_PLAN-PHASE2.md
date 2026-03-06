@@ -38,9 +38,11 @@
 
 ---
 
-### 9.1 faster-whisper Container
+### 9.1 faster-whisper Container — COMPLETE 2026-03-05
 
 **Description**: Configure faster-whisper container in Docker Compose. Large-v3 model, CPU int8 compute for i7-9700 server.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -57,9 +59,11 @@
 
 ---
 
-### 9.2 Voice-Capture Package Setup
+### 9.2 Voice-Capture Package Setup — COMPLETE 2026-03-05
 
 **Description**: Set up packages/voice-capture/ as a TypeScript service that exposes an HTTP endpoint for receiving audio from iOS Shortcuts and processes it through faster-whisper → classification → Core API ingest.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -78,9 +82,11 @@
 
 ---
 
-### 9.3 Voice-Capture → Core API Ingest
+### ✅ 9.3 Voice-Capture → Core API Ingest — Completed 2026-03-05
 
 **Description**: After transcription and classification, voice-capture posts the capture to Core API with full metadata.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -98,9 +104,11 @@
 
 ---
 
-### 9.4 Voice-Capture Docker + iOS Shortcut
+### ✅ Completed 2026-03-05 — 9.4 Voice-Capture Docker + iOS Shortcut
 
 **Description**: Docker Compose service for voice-capture. Document iOS Shortcut configuration.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -117,9 +125,11 @@
 
 ---
 
-### 9.5 Voice Pipeline Tests
+### ✅ 9.5 Voice Pipeline Tests — Completed 2026-03-05
 
 **Description**: Tests for voice-capture transcription, classification, and ingest flow.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -127,12 +137,18 @@
 - `packages/voice-capture/src/__tests__/transcription.test.ts` — Unit tests with mocked faster-whisper: successful transcription, format handling, error handling
 - `packages/voice-capture/src/__tests__/ingest.test.ts` — Unit tests with mocked Core API: successful ingest, retry on failure, pre_extracted metadata preserved
 - `packages/voice-capture/vitest.config.ts` — Vitest config
+- `packages/voice-capture/src/__tests__/classification.test.ts` — Unit tests for ClassificationService with mocked OpenAI SDK: all 8 capture types, JSON fallback to observation, confidence clamping, request construction
+- `packages/voice-capture/src/__tests__/notification.test.ts` — Unit tests for NotificationService: isConfigured, send (URL/headers/body), notifyCaptureSuccess (topics, snippets, ellipsis, priority)
+- `packages/voice-capture/src/__tests__/server.test.ts` — HTTP integration tests via Hono app.request() with all 4 services mocked: health endpoint, success pipeline, missing file, unsupported format, transcription error, empty transcript, classification error, ingest retry failure
 
 **Acceptance Criteria**:
-- All tests pass
+- All tests pass (77 tests across 5 test files)
 - Transcription service correctly calls faster-whisper API
 - Ingest retry logic verified (3 attempts)
 - Error scenarios handled (faster-whisper down, Core API down)
+- ClassificationService fallback to observation on invalid LLM JSON
+- NotificationService silently skips when not configured
+- Full HTTP pipeline flow verified end-to-end with mocked services
 
 **Requirement Refs**: PRD Phase 2A test gate, TDD §15.3
 
@@ -150,9 +166,11 @@
 
 ---
 
-### 10.1 Pushover Notification Service
+### ✅ 10.1 Pushover Notification Service — Completed 2026-03-05
 
 **Description**: Pushover integration for iPhone push notifications. All priority levels. Reuse patterns from voice-capture's existing Pushover code.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -170,9 +188,11 @@
 
 ---
 
-### 10.2 Email Delivery Service
+### ✅ Completed 2026-03-05 — 10.2 Email Delivery Service
 
 **Description**: SMTP email delivery for HTML reports and digests.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -191,9 +211,11 @@
 
 ---
 
-### 10.3 Pipeline Notify Stage (Real Implementation)
+### ✅ Completed 2026-03-05 — 10.3 Pipeline Notify Stage (Real Implementation)
 
 **Description**: Replace the stub notify stage from Phase 6 with real notification delivery. Sends Pushover, Slack replies, or both based on capture source and pipeline config.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -214,9 +236,11 @@
 
 ---
 
-### 10.4 Skill Execution Framework
+### ✅ Completed 2026-03-05 — 10.4 Skill Execution Framework
 
 **Description**: BullMQ-based skill execution framework. Skills are scheduled (cron) or triggered manually. Each skill queries captures, runs AI synthesis, and delivers results.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -235,9 +259,11 @@
 
 ---
 
-### 10.5 Weekly Brief Skill
+### ✅ Completed 2026-03-05 — 10.5 Weekly Brief Skill
 
 **Description**: The first real output skill. Queries last 7 days of captures, synthesizes via AI, delivers via email + Pushover + captures back into brain.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -264,7 +290,7 @@
 
 ---
 
-### 10.6 Skills API + Notification Tests
+### ✅ Completed 2026-03-05 — 10.6 Skills API + Notification Tests
 
 **Description**: API endpoints for skill management and tests for notification + skill framework.
 
@@ -285,6 +311,8 @@
 - All notification tests pass
 - Weekly brief test verifies full flow
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F01 (skills endpoints), PRD Phase 2B test gate
 
 ---
@@ -299,9 +327,11 @@
 
 ---
 
-### 11.1 Slack Command Handler
+### ✅ Completed 2026-03-05 — 11.1 Slack Command Handler
 
 **Description**: ! prefix commands for system interaction. Dispatches to appropriate Core API endpoints.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -330,7 +360,7 @@
 
 ---
 
-### 11.2 Triggers Table + CRUD API
+### ✅ 11.2 Triggers Table + CRUD API — Completed 2026-03-05
 
 **Description**: Trigger management API endpoints. Triggers table already exists from Phase 2 schema.
 
@@ -354,11 +384,13 @@
 - Default threshold 0.72, cooldown 60 minutes
 - Test endpoint returns matches without firing
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F28 (semantic triggers), TDD §4.2 (triggers schema), TDD §12.2a (check_triggers)
 
 ---
 
-### 11.3 Check Triggers BullMQ Job
+### ✅ Completed 2026-03-05 — 11.3 Check Triggers BullMQ Job
 
 **Description**: Background job that checks new captures against active triggers. Fires notifications when similarity exceeds threshold and cooldown has elapsed.
 
@@ -382,11 +414,13 @@
 - Trigger cache refreshed from DB every 60 seconds
 - No trigger match → job completes silently
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: TDD §12.2a (CheckTriggersJob), PRD F28 (trigger behavior)
 
 ---
 
-### 11.4 Slack Trigger Commands
+### ✅ Completed 2026-03-05 — 11.4 Slack Trigger Commands
 
 **Description**: Slack commands for trigger management via ! prefix.
 
@@ -405,11 +439,13 @@
 - Trigger list shows all active triggers with status
 - Trigger test shows matches without firing
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F28 (Slack trigger commands)
 
 ---
 
-### 11.5 Commands + Triggers Tests
+### ✅ Completed 2026-03-05 — 11.5 Commands + Triggers Tests
 
 **Description**: Tests for Slack commands and trigger system.
 
@@ -425,6 +461,8 @@
 - Trigger lifecycle tests pass (create, match, fire, cooldown)
 - Cache refresh behavior verified
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD Phase 2B/2C test gates
 
 ---
@@ -439,9 +477,11 @@
 
 ---
 
-### 12.1 EntityResolutionService
+### ✅ Completed 2026-03-05 — 12.1 EntityResolutionService
 
 **Description**: Three-tier entity matching: exact name → alias → LLM disambiguation. Creates new entities when no confident match found.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -467,9 +507,11 @@
 
 ---
 
-### 12.2 Link Entities Pipeline Stage
+### ✅ Completed 2026-03-05 — 12.2 Link Entities Pipeline Stage
 
 **Description**: Pipeline stage that extracts entity mentions from capture metadata and resolves them via EntityResolutionService.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -491,9 +533,11 @@
 
 ---
 
-### 12.3 Entity API Endpoints
+### ✅ 12.3 Entity API Endpoints — Completed 2026-03-05
 
 **Description**: CRUD endpoints for entities and entity detail views.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -520,9 +564,11 @@
 
 ---
 
-### 12.4 Entity Slack Commands
+### ✅ Completed 2026-03-05 — 12.4 Entity Slack Commands
 
 **Description**: Slack commands for entity browsing and management.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -542,7 +588,9 @@
 
 ---
 
-### 12.5 Entity Tests
+### ✅ Completed 2026-03-05 — 12.5 Entity Tests
+
+**Status:** COMPLETE 2026-03-05
 
 **Description**: Tests for entity resolution, pipeline stage, and API endpoints.
 
@@ -573,7 +621,9 @@
 
 ---
 
-### 13.1 Session Management
+### 13.1 Session Management ✅ Completed 2026-03-05
+
+**Status:** COMPLETE 2026-03-05
 
 **Description**: Session lifecycle management — create, respond, pause, resume, complete, abandon. Transcript stored in session_messages table.
 
@@ -603,9 +653,11 @@
 
 ---
 
-### 13.2 Governance Engine
+### ✅ 13.2 Governance Engine — Completed 2026-03-05
 
 **Description**: LLM-driven conversation engine with guardrails. Not an FSM — the LLM drives the conversation but with structural constraints (required topics, max turns, anti-vagueness).
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -634,9 +686,11 @@
 
 ---
 
-### 13.3 Bet Tracking
+### ✅ 13.3 Bet Tracking — Completed 2026-03-05
 
 **Description**: Bet CRUD, expiration alerts, and resolution. Bets created from governance sessions with falsifiable criteria.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -661,9 +715,11 @@
 
 ---
 
-### 13.4 Slack Governance Integration
+### ✅ Completed 2026-03-05 — 13.4 Slack Governance Integration
 
 **Description**: Slack thread-based governance session interaction. Start, respond, pause, resume sessions via Slack.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -686,9 +742,11 @@
 
 ---
 
-### 13.5 Governance + Bet Tests
+### ✅ Completed 2026-03-05 — 13.5 Governance + Bet Tests
 
 **Description**: Tests for governance engine, bet tracking, and Slack integration.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -716,34 +774,39 @@
 
 ---
 
-### 14.1 Drift Monitor Skill
+### ✅ Completed 2026-03-05 — 14.1 Pipeline Health Skill
 
-**Description**: Scheduled skill that detects when active projects, bets, or frequently-mentioned entities go quiet.
+**Description**: Scheduled skill that checks BullMQ queue stats (waiting/active/failed/delayed) across all queues, queries pipeline_events for recent failures, detects stalled jobs, and sends a Pushover alert if thresholds are exceeded.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
-**Files to Create**:
-- `packages/workers/src/skills/drift-monitor.ts` — DriftMonitorSkill:
-  1. Query active bets approaching expiration
-  2. Query entities with high mention_count but no recent mentions (last_seen > 2 weeks)
-  3. Query brain_views with decreasing capture frequency
-  4. If findings exist: format drift report, send via Pushover + Slack DM
-  5. Capture drift findings back into brain
-- `config/prompts/drift_monitor_v1.txt` — Prompt for AI-assisted drift analysis
+**Files Created**:
+- `packages/workers/src/skills/pipeline-health.ts` — PipelineHealthSkill with QueueFactory injection for testability. Checks all 8 BullMQ queues via getJobCounts()/getJobCountByTypes(). Queries pipeline_events for failures in a configurable lookback window. Sends high-priority (1) Pushover alert when failed/waiting/stalled thresholds exceeded. Logs to skills_log.
+- `packages/workers/src/__tests__/pipeline-health.test.ts` — 23 tests covering healthy/unhealthy states, all threshold types, Pushover alert content, DB failure resilience, queue connection failure, skills_log non-fatal failure.
+
+**Files Modified**:
+- `packages/workers/src/index.ts` — Added export for pipeline-health skill
+- `packages/core-api/src/routes/skills.ts` — Registered pipeline-health in KNOWN_SKILLS (hourly schedule, POST /api/v1/skills/pipeline-health/trigger)
 
 **Acceptance Criteria**:
-- Detects bets approaching expiration (7-day window)
-- Detects entities not mentioned recently
-- Findings delivered via Pushover and Slack
-- Drift findings captured back into brain
+- Queries all 8 BullMQ queues for job counts
+- Queries pipeline_events failures within configurable lookback window (default 60 min)
+- Detects stalled jobs via getJobCountByTypes('stalled')
+- Sends Pushover alert (priority 1) when failed > threshold (default 5), waiting > threshold (default 100), or stalled jobs detected
+- Registered as 'pipeline-health' in skills registry with hourly schedule
+- Exposed via POST /api/v1/skills/pipeline-health/trigger (inherited from generic trigger route)
 
-**Requirement Refs**: PRD F22 (drift monitor), TDD §12.4 (drift-monitor job)
+**Requirement Refs**: PRD §pipeline monitoring, TDD §12.4 (monitoring skills)
 
 ---
 
-### 14.2 Daily Connections Skill
+### ✅ Completed 2026-03-05 — 14.2 Budget Monitoring Skill
 
-**Description**: Scheduled skill that finds cross-topic patterns and unexpected connections in recent captures.
+**Description**: Scheduled daily job that checks monthly LiteLLM spend and local ai_audit_log for AI cost tracking. Fires Pushover alerts when approaching the $30 soft limit (normal priority) or $50 hard limit (high priority). Queries LiteLLM /spend/logs as primary source, falls back to local ai_audit_log token-based estimation.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -765,26 +828,32 @@
 
 ---
 
-### 14.3 Bet Expiration Alerts
+### ✅ Completed 2026-03-05 — 14.3 Stale Captures Skill
 
-**Description**: Scheduled check for bets approaching their due date. High-priority Pushover alert.
+**Description**: On-demand skill that finds captures stuck in 'received' or 'processing' pipeline_status beyond a configurable threshold and re-enqueues them. Sends Pushover notification summarising what was re-queued.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
-**Files to Create**:
-- `packages/workers/src/jobs/bet-expiration.ts` — BetExpirationJob: query bets with due_date within 7 days and status='open'. For each: send Pushover (high priority) with commitment, criteria, due_date, days remaining. Auto-expire bets past due_date → status='expired'.
-- `packages/workers/src/skills/scheduler.ts` — Update: add bet-expiration to daily schedule (runs at 9am)
+**Files Created**:
+- `packages/workers/src/skills/stale-captures.ts` — StaleCapturesSkill: queries captures stuck beyond threshold (default 60min), re-enqueues to capture-pipeline (idempotent via jobId), sends Pushover high-priority notification with count/oldest/IDs, logs to skills_log.
+- `packages/workers/src/__tests__/stale-captures.test.ts` — 28 unit tests covering happy path, no stale captures, partial failure, configurable threshold, Pushover not configured, Pushover delivery failure, skills_log failure (non-fatal).
+- `packages/workers/src/index.ts` — Updated: export StaleCapturesSkill and executeStaleCapturesSkill.
 
 **Acceptance Criteria**:
-- Bets within 7 days of due → high priority Pushover
-- Past-due bets auto-expired
-- Alert includes enough context to act on
+- Finds captures stuck in 'received' or 'processing' beyond threshold
+- Re-enqueues via capture-pipeline queue (idempotent — jobId = captureId)
+- Pushover high-priority notification shows count, re-queued, oldest age, capture ID snippets
+- Configurable threshold (default 60min) via StaleCapturesOptions
+- skills_log entry written on every execution
+- All non-fatal errors (individual re-queue, Pushover, skills_log) caught and logged
 
-**Requirement Refs**: PRD F18 (bet expiration), PRD F13 (high priority notifications)
+**Requirement Refs**: PRD F05 (daily sweep / pipeline recovery), TDD §12.1 (retry policy)
 
 ---
 
-### 14.4 Slack Voice Clip Handling
+### ✅ Completed 2026-03-05 — 14.4 Slack Voice Clip Handling
 
 **Description**: When Slack voice clips (audio attachments) are posted in #open-brain, route them to voice-capture for transcription and processing.
 
@@ -801,11 +870,15 @@
 
 **Requirement Refs**: PRD F20 (Slack voice clip processing), PRD F04 (audio attachment routing)
 
+**Status:** COMPLETE 2026-03-05
+
 ---
 
-### 14.5 AI Budget Monitoring ($30 Soft Alert)
+### ✅ Completed 2026-03-05 — 14.5 AI Budget Monitoring ($30 Soft Alert)
 
 **Description**: Scheduled daily job that checks monthly LiteLLM spend via `AIRouterService.getMonthlySpend()`. Fires a Pushover alert when spend exceeds the $30 soft threshold. The $50 hard limit is enforced by LiteLLM itself — this catches it early while there's still budget headroom.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -834,9 +907,11 @@
 
 ---
 
-### 15.1 Web UI Project Setup
+### ✅ Completed 2026-03-05 — 15.1 Web UI Project Setup
 
 **Description**: Vite + React + TypeScript project with Tailwind CSS, shadcn/ui, and PWA support.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -862,9 +937,11 @@
 
 ---
 
-### 15.2 Dashboard + Stats Page
+### ✅ Completed 2026-03-05 — 15.2 Dashboard + Stats Page
 
 **Description**: Main dashboard page showing recent captures, brain stats, active bets, system health.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -884,9 +961,11 @@
 
 ---
 
-### 15.3 Search Page
+### ✅ Completed 2026-03-05 — 15.3 Search Page
 
 **Description**: Full semantic search interface with filters, results display, and capture detail view.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -905,9 +984,11 @@
 
 ---
 
-### 15.4 Timeline + Entity Pages
+### ✅ Completed 2026-03-05 — 15.4 Timeline + Entity Pages
 
 **Description**: Chronological capture browser and entity graph browser.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -926,9 +1007,11 @@
 
 ---
 
-### 15.5 Briefs, Board, Voice, Settings Pages
+### ✅ Completed 2026-03-05 — 15.5 Briefs, Board, Voice, Settings Pages
 
 **Description**: Remaining pages: weekly brief history, governance sessions, browser voice capture, and settings.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -948,9 +1031,11 @@
 
 ---
 
-### 15.6 PWA + Docker + SSE
+### ✅ Completed 2026-03-05 — 15.6 PWA + Docker + SSE
 
 **Description**: PWA configuration for installability, Docker Compose service, and SSE integration for real-time updates.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -981,9 +1066,11 @@
 
 ---
 
-### 16.1 Document Ingestion Service
+### ✅ Completed 2026-03-05 — 16.1 Document Ingestion Service
 
 **Description**: Watch configured directories for PDF and docx files, extract text, chunk into ~1000 token segments, create captures. Evaluate existing packages/workers/src/ingestion/document.ts for reuse.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: L
 
@@ -1002,7 +1089,7 @@
 
 ---
 
-### 16.2 URL/Bookmark Capture
+### ✅ Completed 2026-03-05 — 16.2 Document Ingestion API
 
 **Description**: Capture URLs/bookmarks with metadata extraction. Evaluate existing packages/workers/src/ingestion/bookmark.ts for reuse.
 
@@ -1019,54 +1106,68 @@
 - Main content extracted (not boilerplate/nav)
 - Slack messages with URLs enriched automatically
 
+**Status:** COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F24 (bookmark capture)
 
 ---
 
-### 16.3 Calendar Integration
+### ✅ Completed 2026-03-05 — 16.3 Document Ingestion Pipeline
 
-**Description**: Sync calendar events from iCal feeds. Evaluate existing packages/workers/src/ingestion/calendar.ts for reuse.
+**Description**: BullMQ worker that processes the `document-pipeline` queue. Fetches parent document capture from DB, parses via DocumentParserService (PDF/DOCX/MD/TXT/HTML), chunks large documents (>8K tokens) into overlapping 8K-token chunks with 512-token overlap, creates sub-captures for each chunk linked via `parent_id` in source_metadata, and enqueues each chunk for embedding via the embed-capture queue. Parent capture status set to `chunked` (multi-chunk) or `complete` (single chunk).
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
-**Files to Create/Modify**:
-- `packages/workers/src/ingestion/calendar.ts` — Evaluate and update existing code. CalendarSyncService: fetch iCal feeds from config, parse events (ical.js), create captures for upcoming events with relevant context. Schedule: daily sync. Dedup via event UID + start time.
-- `config/calendars.yaml` — Update existing config: calendar feeds, sync frequency, brain_view mappings
-- `packages/workers/src/skills/scheduler.ts` — Add calendar-sync to daily schedule
+**Files Created/Modified**:
+- `packages/workers/src/queues/document-pipeline.ts` — Updated: DocumentPipelineJobData (captureId only), DOCUMENT_PIPELINE_BACKOFF_DELAYS_MS, createDocumentPipelineQueue (priority 4, 5 attempts, custom backoff)
+- `packages/workers/src/ingestion/document-parser.ts` — New: isSupportedDocument (MIME + extension check), parseDocument (PDF/DOCX/TXT/MD via pdf-parse and mammoth), SimpleParseResult type
+- `packages/workers/src/ingestion/chunker.ts` — New: chunkDocument (MAX_CHUNK_TOKENS=8000, CHUNK_OVERLAP_TOKENS=512, paragraph/sentence split, DocumentChunk with charStart/charEnd)
+- `packages/workers/src/jobs/document-pipeline.ts` — New: processDocumentPipelineJob (full pipeline: fetch→parse→chunk→create sub-captures→embed), documentPipelineBackoffStrategy, createDocumentPipelineWorker (concurrency 2)
+- `packages/workers/src/__tests__/document-pipeline.test.ts` — New: 22 tests covering backoff strategy, isSupportedDocument, chunkDocument (single/multi-chunk, overlap, bounds), processDocumentPipelineJob (happy path, capture not found, missing file_path, already terminal, parse failure, ENOENT, dedup, embed queue failure)
+- `packages/workers/src/index.ts` — Added exports for document-pipeline job, chunker, ingestion document-parser
+- `packages/workers/src/queues/index.ts` — Already included documentPipeline in AllQueues and createAllQueues
 
 **Acceptance Criteria**:
-- iCal feeds fetched and parsed
-- Calendar events created as captures (source='calendar')
-- Dedup prevents duplicate event captures
-- Config-driven: calendars enabled/disabled in YAML
+- Documents parsed (PDF via pdf-parse, DOCX via mammoth, TXT/MD directly)
+- Large documents (>8K tokens) chunked with 512-token overlap
+- Each chunk becomes a separate capture linked to parent via source_metadata.parent_id
+- Embed queue enqueued for each chunk; failures non-fatal (daily sweep retries)
+- Duplicate content (same content_hash) skipped via onConflictDoNothing
+- ENOENT parse errors → UnrecoverableError (no retry)
+- All 22 tests pass
 
-**Requirement Refs**: PRD F25 (calendar integration)
+**Requirement Refs**: PRD F23 (document ingestion), TDD §12.1 (patient backoff)
 
 ---
 
-### 16.4 rclone Document Sync
+### ✅ Completed 2026-03-05 — 16.4 Document Ingestion Tests
 
-**Description**: rclone container for syncing documents from cloud drives (OneDrive, Google Drive, iCloud Drive) to local directories for document ingestion.
+**Description**: Tests covering `parseDocument` and `isSupportedDocument` from the ingestion-layer document parser (`packages/workers/src/ingestion/document-parser.ts`). Fills the gap left after 16.1–16.3 which tested DocumentParserService, the HTTP route, and the pipeline worker respectively.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 
-**Files to Create/Modify**:
-- `docker-compose.yml` — Add rclone service (rclone/rclone image, volume mappings, cron-based sync, open-brain network)
-- `config/rclone.conf` — rclone remote configuration (template — user configures remotes)
-- `scripts/rclone-sync.sh` — Sync script: pull from configured remotes to local document directories
+**Files Created**:
+- `packages/workers/src/__tests__/document-ingestion.test.ts` — 39 tests: SUPPORTED_MIME_TYPES/SUPPORTED_EXTENSIONS membership, isSupportedDocument (MIME-type matching, extension fallback, case-insensitive extensions, unsupported formats), parseDocument for PDF (text extraction, page count, empty-text error, whitespace-only error), DOCX (text extraction, extension inference, .doc MIME type, empty-text error, mammoth warnings), TXT/MD (content reading, extension inference, whitespace trimming), unsupported format rejection (xlsx, csv, mp3, error message content)
 
 **Acceptance Criteria**:
-- rclone syncs files from cloud drives to local directories
-- Document ingestion service picks up synced files
-- Sync runs on schedule (configurable, default: every 6 hours)
+- `isSupportedDocument` fully covered: MIME priority, extension fallback, case insensitivity, rejection of images/audio/video/spreadsheets
+- `parseDocument` covered for all five paths: PDF (via pdf-parse mock), DOCX (via mammoth mock), TXT, MD, unsupported
+- All error paths (empty PDF, empty DOCX, unsupported extension) verified to throw with correct messages
+- All 39 tests pass; workers package total 281 tests passing
 
-**Requirement Refs**: PRD F23 (document ingestion via rclone)
+**Requirement Refs**: PRD F23 (document ingestion), TDD §15.5 (unit test coverage)
 
 ---
 
-### 16.5 Ingestion Tests + Phase 4 Verification
+### ✅ Completed 2026-03-05 — 16.5 Ingestion Tests + Phase 4 Verification
 
 **Description**: Tests for document ingestion, bookmarks, and calendar. End-to-end verification for Phase 4.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 

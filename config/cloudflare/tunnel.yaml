@@ -1,0 +1,25 @@
+# Cloudflare Tunnel Configuration — Open Brain
+#
+# Routes brain.k4jda.net to the Core API container on the open-brain Docker network.
+# HTTPS terminates at Cloudflare; the tunnel carries plain HTTP internally.
+#
+# Tunnel token is supplied via CLOUDFLARE_TUNNEL_TOKEN env var (retrieved from Bitwarden
+# at runtime — never stored in this file or in .env).
+#
+# NOTE: When Phase 15 (Web Dashboard) is complete, update the catch-all ingress rule
+# from core-api:3000 to web:80. The /mcp route stays pinned to core-api throughout.
+
+tunnel: brain-k4jda-net
+
+ingress:
+  # MCP endpoint — always routes to Core API
+  - hostname: brain.k4jda.net
+    path: /mcp
+    service: http://core-api:3000
+
+  # All other traffic — Core API (updated to web:80 in Phase 15)
+  - hostname: brain.k4jda.net
+    service: http://core-api:3000
+
+  # Catch-all required by cloudflared — returns 404 for unmatched hostnames
+  - service: http_status:404

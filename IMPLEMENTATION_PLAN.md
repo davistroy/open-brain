@@ -38,11 +38,13 @@
 
 ---
 
-### 1.1 Root Workspace Configuration
+### 1.1 Root Workspace Configuration ✅ Completed 2026-03-05
 
 **Description**: Create the pnpm workspace root with package.json, pnpm-workspace.yaml, and shared TypeScript configuration. ESM throughout.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `package.json` — Root workspace config (name: open-brain, private: true, scripts: build, dev, test, lint, clean)
@@ -58,11 +60,13 @@
 
 ---
 
-### 1.2 Package Scaffolds
+### 1.2 Package Scaffolds ✅ Completed 2026-03-05
 
 **Description**: Create empty package scaffolds for all 5 workspace packages with package.json and tsconfig.json. Each package gets a minimal src/index.ts entry point.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/package.json` — @open-brain/shared (exports: ./dist/index.js, types)
@@ -90,11 +94,13 @@
 
 ---
 
-### 1.3 Docker Compose — Infrastructure Services
+### 1.3 Docker Compose — Infrastructure Services ✅ Completed 2026-03-05
 
 **Description**: Docker Compose with Postgres (pgvector/pgvector:pg16) and Redis for Phase 1A. Other containers added in later phases. Single `open-brain` network.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `docker-compose.yml` — postgres (pgvector/pgvector:pg16, 8GB memory limit, healthcheck, volume, custom postgresql.conf) + redis (7-alpine, healthcheck, volume) + open-brain network
@@ -111,7 +117,7 @@
 
 ---
 
-### 1.4 Dockerfile (Multi-Stage, Multi-Target)
+### 1.4 Dockerfile (Multi-Stage, Multi-Target) ✅ Completed 2026-03-05
 
 **Description**: Single multi-stage Dockerfile that builds all TypeScript packages. Uses targets for each service (core-api, slack-bot, workers, voice-capture). Production builds via tsup → single .mjs per service.
 
@@ -128,13 +134,17 @@
 
 **Requirement Refs**: TDD §16.1 (Docker Compose services), TDD §1.3 (tsup production build)
 
+**Status**: COMPLETE 2026-03-05
+
 ---
 
-### 1.5 Environment and Git Configuration
+### 1.5 Environment and Git Configuration ✅ Completed 2026-03-05
 
 **Description**: .env template with Bitwarden placeholders, .gitignore updates, and startup script for secret loading.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create/Modify**:
 - `.env` — All env vars with Bitwarden retrieval comments (POSTGRES_PASSWORD, LITELLM_API_KEY, Slack tokens, MCP_API_KEY, Pushover, SMTP, Cloudflare). Non-sensitive defaults (NODE_ENV, LOG_LEVEL, LITELLM_URL=https://llm.k4jda.net).
@@ -160,11 +170,13 @@
 
 ---
 
-### 2.1 Drizzle Schema — Core Tables
+### 2.1 Drizzle Schema — Core Tables ✅ Completed 2026-03-05
 
 **Description**: Drizzle ORM table definitions for captures, pipeline_events, and ai_audit_log. These are the Phase 1 tables needed for CRUD and pipeline.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/schema/captures.ts` — captures table with all columns (id, content, content_raw, content_hash, embedding vector(768), access_count, last_accessed_at, metadata, source, source_metadata, pre_extracted, tags, brain_views, pipeline_status, captured_at, created_at, updated_at, deleted_at) + all indexes (HNSW, GIN on metadata/tags/brain_views, FTS, created_at, source, pipeline_status, content_hash, captured_at)
@@ -181,11 +193,13 @@
 
 ---
 
-### 2.2 Drizzle Schema — Supporting Tables
+### 2.2 Drizzle Schema — Supporting Tables ✅ Completed 2026-03-05
 
 **Description**: Remaining table schemas. These tables are created now but populated in later phases (entities in Phase 12, sessions in Phase 13, triggers in Phase 11).
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/schema/entities.ts` — entities table (id, entity_type, name, aliases, metadata, first_seen, last_seen, mention_count, created_at, updated_at) + UNIQUE(name, entity_type). entity_links table (id, capture_id FK, entity_id FK, relationship, created_at) + indexes.
@@ -204,7 +218,7 @@
 
 ---
 
-### 2.3 Schema Index, DB Client & Migrations
+### 2.3 Schema Index, DB Client & Migrations ✅ Completed 2026-03-05
 
 **Description**: Barrel export for all schemas, Drizzle database client factory, drizzle.config.ts for migration management, and the set_updated_at trigger.
 
@@ -225,13 +239,17 @@
 
 **Requirement Refs**: PRD F02 (set_updated_at trigger), TDD §4.2, TDD §4.4 (indexing strategy)
 
+**Status**: COMPLETE 2026-03-05
+
 ---
 
-### 2.4 TypeScript Interfaces & Type Definitions
+### 2.4 TypeScript Interfaces & Type Definitions ✅ Completed 2026-03-05
 
 **Description**: All TypeScript interfaces referenced by the Drizzle schema $type annotations and used across packages.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/types/capture.ts` — CaptureMetadata (people, topics, type, action_items, dates, brain_views_suggested), SourceMetadata (slack_ts, device, duration_seconds, original_filename, url, channel, user), PreExtracted (template, confidence, fields, transcript_raw). CreateCaptureInput, CaptureFilters, CaptureRecord.
@@ -251,11 +269,13 @@
 
 ---
 
-### 2.5 Shared Utilities
+### 2.5 Shared Utilities ✅ Completed 2026-03-05
 
 **Description**: Utility functions used across packages: content hashing, token estimation, and common helpers.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/utils/content-hash.ts` — contentHash(text): normalize (trim, collapse whitespace, lowercase) → SHA-256 hex string (char(64))
@@ -286,11 +306,13 @@
 
 ---
 
-### 3.1 Hono Application Setup
+### 3.1 Hono Application Setup ✅ Completed 2026-03-05
 
 **Description**: Core API entry point with Hono app, middleware stack (logger, error handler, CORS), and server startup.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/server.ts` — Hono app creation, middleware registration, route mounting, server start (port 3000). Entrypoint for Docker.
@@ -307,11 +329,13 @@
 
 ---
 
-### 3.2 Health Endpoint
+### 3.2 Health Endpoint ✅ Completed 2026-03-05
 
 **Description**: GET /health endpoint that checks connectivity to Postgres, Redis, and LiteLLM. Returns overall status and per-service status.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/routes/health.ts` — GET /health: checks Postgres (SELECT 1), Redis (PING), LiteLLM (GET https://llm.k4jda.net/health). Returns `{ status: "healthy"|"degraded"|"unhealthy", services: { postgres: "up"|"down", redis: "up"|"down", litellm: "up"|"down" }, version: string, uptime: number }`
@@ -326,11 +350,13 @@
 
 ---
 
-### 3.3 ConfigService with Zod Validation
+### 3.3 ConfigService with Zod Validation ✅ Completed 2026-03-05
 
 **Description**: In-memory YAML config loader with per-file Zod validation. Loads config/ directory on startup, caches indefinitely, explicit reload via admin endpoint.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/services/config.ts` — ConfigService class: loadAll() parses YAML files from config/ dir, validates each against its Zod schema, caches in Map. get<T>(filename) returns typed config. reload() re-reads all files, keeps previous on validation failure, returns ReloadResult[]. Logs file hash + validation status.
@@ -352,11 +378,13 @@
 
 ---
 
-### 3.4 Admin Endpoints
+### 3.4 Admin Endpoints ✅ Completed 2026-03-05
 
 **Description**: Admin routes for config reload and future Bull Board mounting point.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/routes/admin.ts` — POST /api/v1/admin/config/reload → calls ConfigService.reload(), returns ReloadResult[]. Placeholder route for /admin/queues (Bull Board, Phase 6).
@@ -369,9 +397,11 @@
 
 ---
 
-### 3.5 Core API Tests
+### 3.5 Core API Tests ✅ Completed 2026-03-05
 
 **Description**: Unit and integration tests for the API scaffold.
+
+**Status**: COMPLETE 2026-03-05
 
 **Complexity**: S
 
@@ -400,7 +430,7 @@
 
 ---
 
-### 4.1 CaptureService
+### 4.1 CaptureService ✅ Completed 2026-03-05
 
 **Description**: Service class handling capture creation with deduplication, retrieval with pipeline_events JOIN, listing with filters, updates, and soft deletes.
 
@@ -423,9 +453,11 @@
 
 **Requirement Refs**: PRD F01 (capture CRUD), TDD §6.2 (CaptureService), TDD §5.2 (dedup logic)
 
+**Status**: COMPLETE 2026-03-05
+
 ---
 
-### 4.2 Capture Zod Schemas
+### 4.2 Capture Zod Schemas ✅ Completed 2026-03-05
 
 **Description**: Zod validation schemas for all capture-related API inputs.
 
@@ -441,9 +473,11 @@
 
 **Requirement Refs**: TDD §5.2 (validation rules), PRD F01 (ingest payload)
 
+**Status**: COMPLETE 2026-03-05
+
 ---
 
-### 4.3 Capture Routes
+### 4.3 Capture Routes ✅ Completed 2026-03-05
 
 **Description**: Hono route handlers for all capture endpoints. Thin layer: validate input (Zod), call CaptureService, format response.
 
@@ -464,11 +498,13 @@
 - PATCH merges metadata_overrides
 - DELETE returns 204 No Content
 
+**Status**: COMPLETE 2026-03-05
+
 **Requirement Refs**: PRD F01 (all endpoints), TDD §3.2 (endpoint specs)
 
 ---
 
-### 4.4 Stats Endpoint
+### 4.4 Stats Endpoint ✅ Completed 2026-03-05
 
 **Description**: GET /api/v1/stats returning brain statistics — capture counts by source, type, view, pipeline health.
 
@@ -484,13 +520,17 @@
 
 **Requirement Refs**: PRD F01 (stats endpoint), TDD §3.2 (GET /api/v1/stats)
 
+**Status**: COMPLETE 2026-03-05
+
 ---
 
-### 4.5 Capture CRUD Tests
+### 4.5 Capture CRUD Tests ✅ Completed 2026-03-05
 
 **Description**: Comprehensive tests for capture lifecycle — unit tests for CaptureService, integration tests for endpoints.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/__tests__/capture-service.test.ts` — Unit tests: create with dedup, list with filters, update merge, soft delete exclusion, stats counts
@@ -516,11 +556,13 @@
 
 ---
 
-### 5.1 EmbeddingService
+### 5.1 EmbeddingService ✅ Completed 2026-03-05
 
 **Description**: Service that generates 768-dimensional embeddings via LiteLLM (external at https://llm.k4jda.net). Uses the `jetson-embeddings` alias which routes to Qwen3-Embedding-4B-Q4_K_M on the Jetson. OpenAI-compatible embeddings API. No fallback — throws EmbeddingUnavailableError if LiteLLM/Jetson is unreachable; BullMQ retries with patient backoff.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/services/embedding.ts` — EmbeddingService class:
@@ -542,53 +584,60 @@
 
 ---
 
-### 5.2 SQL Search Functions
+### 5.2 SQL Search Functions ✅ Completed 2026-03-05
 
 **Description**: Deploy match_captures (vector + temporal) and match_captures_hybrid (RRF) as Postgres functions via custom Drizzle migration.
 
 **Complexity**: M
 
-**Files to Create**:
-- `packages/shared/src/schema/migrations/0002_match_captures.sql` — match_captures function: vector cosine similarity + ACT-R temporal decay (ln(access_count) - 0.5 * ln(hours_since_last_access)), multiplicative composite score: `semantic_sim * (1.0 + temporal_weight * temporal_act)`. Filters: source, tags (&&), brain_views (&&), date range, deleted_at IS NULL, pipeline_status = 'complete'. Default temporal_weight: 0.0.
-- `packages/shared/src/schema/migrations/0003_match_captures_hybrid.sql` — match_captures_hybrid function: combines vector similarity (cosine) + FTS (ts_rank_cd with to_tsvector/plainto_tsquery) via Reciprocal Rank Fusion. RRF formula: score = 1/(k+rank_vector) + 1/(k+rank_fts), k=60. Same temporal boost and filters as match_captures.
+**Status**: COMPLETE 2026-03-05
+
+**Files Created**:
+- `packages/shared/drizzle/0002_search_functions.sql` — Consolidated migration containing three functions: `hybrid_search` (FTS + vector cosine with RRF, k=60, weighted lanes), `actr_temporal_score` (ACT-R decay via exp(-0.01 * sqrt(hours_since)), temporal_weight=0.0 returns pure base_score for cold start), `update_capture_embedding` (atomic embedding write + sets pipeline_status='embedded').
 
 **Acceptance Criteria**:
-- match_captures returns results ordered by composite_score DESC
-- match_captures_hybrid returns results combining vector and FTS ranks
-- temporal_weight = 0.0 → pure semantic ordering (no temporal influence)
-- Filters work correctly (source, tags, brain_views, date range)
-- Soft-deleted and non-complete captures excluded
+- hybrid_search returns results ordered by rrf_score DESC combining FTS and vector lanes
+- actr_temporal_score: temporal_weight = 0.0 → pure semantic ordering (no temporal influence)
+- Only pipeline_status = 'complete' captures with non-null embeddings searched
+- update_capture_embedding raises exception if capture_id not found
 
 **Requirement Refs**: PRD F02 (match_captures function), TDD §4.3 (both search functions)
 
 ---
 
-### 5.3 SearchService
+### 5.3 SearchService ✅ Completed 2026-03-05
 
 **Description**: Service that orchestrates search: embed query → call appropriate SQL function → enqueue access stats update → return ranked results.
 
 **Complexity**: M
 
-**Files to Create**:
-- `packages/core-api/src/services/search.ts` — SearchService class:
-  - constructor(db, embeddingService, queue)
-  - search(options: SearchOptions): embed query → based on search_mode: hybrid calls match_captures_hybrid, vector calls match_captures, fts calls FTS-only query. Enqueue update_access_stats job for returned IDs. Return SearchResult[] with similarity, temporal_score, composite_score.
+**Status**: COMPLETE 2026-03-05
+
+**Files Created**:
+- `packages/core-api/src/services/search.ts` — SearchService class: constructor(db, embeddingService); search(query, options) embeds query, calls hybrid_search SQL function, fetches capture rows, applies actr_temporal_score per result, filters by brainViews/captureTypes/date, returns top N SearchResult[] sorted by score desc. SearchOptions: limit (default 10), temporalWeight (default 0.0), ftsWeight/vectorWeight (default 0.5), brainViews, captureTypes, dateFrom, dateTo.
+- `packages/core-api/src/routes/search.ts` — GET /api/v1/search?q=... with Zod query validation; delegates to SearchService; returns { query, total, results }.
+- `packages/core-api/src/services/index.ts` — Added export for search.ts.
+- `packages/core-api/src/app.ts` — Added searchService? to AppDependencies; registers search route when searchService provided.
 
 **Acceptance Criteria**:
-- Three search modes work: hybrid (default), vector, fts
 - Query embedding generated via EmbeddingService
-- Access stats job enqueued after search (non-blocking)
-- Results include similarity and composite scores
+- hybrid_search SQL function called with ftsWeight/vectorWeight params
+- actr_temporal_score applied per result (temporal_weight=0.0 default → pure relevance)
+- Post-filters: brainViews, captureTypes, dateFrom, dateTo
+- Results include score, ftsScore, vectorScore fields
+- GET /api/v1/search?q=... route registered in app
 
 **Requirement Refs**: TDD §6.2 (SearchService), PRD F05 (search behavior)
 
 ---
 
-### 5.4 Search Endpoint + Zod Schema
+### 5.4 Search Endpoint + Zod Schema ✅ Completed 2026-03-05
 
 **Description**: POST /api/v1/search endpoint with Zod validation.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/schemas/search.ts` — searchSchema: query (string, required), limit (int, default 10, max 50), threshold (float, default 0.5), source (string optional), tags (string[] optional), brain_views (string[] optional), start_date (ISO optional), end_date (ISO optional), temporal_weight (float, default 0.0), search_mode (enum: hybrid|vector|fts, default hybrid), offset (int, default 0)
@@ -604,11 +653,13 @@
 
 ---
 
-### 5.5 Update Access Stats Job
+### 5.5 Update Access Stats Job ✅ Completed 2026-03-05
 
 **Description**: Background BullMQ job that increments access_count and sets last_accessed_at for captures returned in search results. Low priority, eventually consistent.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/jobs/update-access-stats.ts` — BullMQ job handler: receives captureIds + accessedAt. Batch UPDATE: `SET access_count = access_count + 1, last_accessed_at = $1 WHERE id = ANY($2::uuid[])`. Log WARN on failure (no aggressive retry).
@@ -624,11 +675,13 @@
 
 ---
 
-### 5.6 Search Tests
+### 5.6 Search Tests ✅ Completed 2026-03-05
 
 **Description**: Search integration and unit tests. Embeddings go through LiteLLM (`jetson-embeddings` alias) — no local Ollama container needed in the Open Brain stack.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/__tests__/search.test.ts` — Integration tests (Testcontainers for Postgres): pre-insert captures with known embeddings → vector search returns relevant results, hybrid search improves recall, FTS catches keywords, temporal_weight affects ranking, filters work. Use pre-computed embedding vectors (no live LiteLLM call in tests).
@@ -654,11 +707,13 @@
 
 ---
 
-### 6.1 BullMQ Queue Setup
+### 6.1 BullMQ Queue Setup ✅ Completed 2026-03-05
 
 **Description**: Redis-backed BullMQ queues for capture pipeline, skill execution, notifications, access stats, and daily sweep. Queue definitions with priorities, timeouts, and retry policies.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/queues/index.ts` — Queue factory: creates all queues from Redis connection. Exports: capturePipeline, skillExecution, notification, accessStats, dailySweep.
@@ -675,11 +730,13 @@
 
 ---
 
-### 6.2 Pipeline Stage Executor
+### 6.2 Pipeline Stage Executor — COMPLETE 2026-03-05
 
 **Description**: Core pipeline execution engine. Reads pipeline config, executes stages in order, records results to pipeline_events table, handles failures per stage.
 
 **Complexity**: L
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/pipeline/executor.ts` — executePipeline(captureId, stages): for each stage, execute → insert pipeline_event. Embed failure blocks all subsequent stages (throw to BullMQ retry). Other stage failures → continue, mark status 'partial'. Final status: 'complete' or 'partial'.
@@ -699,11 +756,13 @@
 
 ---
 
-### 6.3 AIRouterService + LiteLLM Integration
+### 6.3 AIRouterService + LiteLLM Integration — COMPLETE 2026-03-05
 
 **Description**: Thin wrapper that maps task types to LiteLLM model aliases. Logs usage to ai_audit_log. LiteLLM handles provider routing, fallback, and budget.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/services/ai-router.ts` — AIRouterService class:
@@ -725,11 +784,13 @@
 
 ---
 
-### 6.4 Pipeline Configuration Files
+### 6.4 Pipeline Configuration Files — COMPLETE 2026-03-05
 
 **Description**: Full pipeline YAML configuration and prompt templates for Phase 1 stages.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `config/pipelines.yaml` — Full config: default pipeline (embed → extract_metadata → notify), voice pipeline (embed → extract_metadata with merge_with_pre_extracted → notify with pushover), career pipeline (extends default + extract_career_signals after extract_metadata)
@@ -745,11 +806,13 @@
 
 ---
 
-### 6.5 Bull Board + Docker Services
+### 6.5 Bull Board + Docker Services — COMPLETE 2026-03-05
 
 **Description**: Bull Board UI at /admin/queues for queue monitoring. Core API and Workers Docker Compose service definitions. LiteLLM is external at https://llm.k4jda.net — no container needed.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create/Modify**:
 - `packages/core-api/src/routes/admin.ts` — Mount @bull-board/hono at /admin/queues. Register all queues.
@@ -766,11 +829,13 @@
 
 ---
 
-### 6.6 Pipeline Integration + Capture Auto-Processing
+### 6.6 Pipeline Integration + Capture Auto-Processing — COMPLETE 2026-03-05
 
 **Description**: Wire pipeline into capture creation — when CaptureService.create() is called, automatically enqueue pipeline job. Update CaptureService and routes to trigger pipeline.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Modify**:
 - `packages/core-api/src/services/capture.ts` — Update create(): after insert, enqueue pipeline job via PipelineService. Select pipeline based on source + brain_views (ConfigService lookup).
@@ -790,11 +855,13 @@
 
 ---
 
-### 6.7 Daily Sweep Worker
+### 6.7 Daily Sweep Worker — COMPLETE 2026-03-05
 
 **Description**: Scheduled BullMQ job that runs at 3:00 AM daily, finds captures stuck in `received` or `processing` status, and re-enqueues them for pipeline processing. Catches transient failures (LiteLLM blip, Redis restart) that outlasted the initial retry window.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/workers/src/jobs/daily-sweep.ts` — DailySweepJob: queries `SELECT id FROM captures WHERE pipeline_status IN ('received', 'processing') AND created_at < NOW() - INTERVAL '1 hour'`. For each found capture, enqueue a capture-pipeline job (idempotent — BullMQ deduplicates by jobId=captureId). Log count of captures re-queued.
@@ -821,11 +888,13 @@
 
 ---
 
-### 7.1 Slack Bot Setup
+### 7.1 Slack Bot Setup ✅ Completed 2026-03-05
 
 **Description**: @slack/bolt application with Socket Mode. Connects to Slack workspace, listens for messages in #open-brain and @mentions.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/slack-bot/src/app.ts` — Bolt App initialization with socketMode: true. Environment: SLACK_BOT_TOKEN, SLACK_APP_TOKEN, CORE_API_URL, REDIS_URL, LITELLM_URL.
@@ -843,11 +912,13 @@
 
 ---
 
-### 7.2 Intent Router
+### 7.2 Intent Router — COMPLETE 2026-03-05
 
 **Description**: Classifies incoming Slack messages as CAPTURE, QUERY, COMMAND, or CONVERSATION. Prefix-based first (always works), LLM classification layered on top.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/slack-bot/src/intent/router.ts` — IntentRouter class:
@@ -866,11 +937,13 @@
 
 ---
 
-### 7.3 Capture Handler
+### 7.3 Capture Handler — COMPLETE 2026-03-05
 
 **Description**: Processes incoming messages classified as CAPTURE. Calls Core API to create capture, replies in thread with confirmation.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/slack-bot/src/handlers/capture.ts` — handleCapture(message, say):
@@ -890,9 +963,11 @@
 
 ---
 
-### 7.4 Query Handler + Thread Context
+### 7.4 Query Handler + Thread Context ✅ Completed 2026-03-05
 
 **Description**: Processes QUERY intents. Performs search, formats results, manages thread context in Redis for follow-up interactions.
+
+**Status**: COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -922,11 +997,13 @@
 
 ---
 
-### 7.5 Slack Bot Tests + Docker
+### 7.5 Slack Bot Tests + Docker — COMPLETE 2026-03-05
 
 **Description**: Tests for intent router and handlers. Slack bot Docker Compose service.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create/Modify**:
 - `docker-compose.yml` — Add slack-bot service (build target, env vars for SLACK_BOT_TOKEN, SLACK_APP_TOKEN, CORE_API_URL, REDIS_URL, LITELLM_URL=https://llm.k4jda.net, depends on core-api only — LiteLLM is external)
@@ -956,11 +1033,13 @@
 
 ---
 
-### 8.1 MCP Server Setup
+### 8.1 MCP Server Setup ✅ Completed 2026-03-05
 
 **Description**: @modelcontextprotocol/sdk server embedded in Core API at /mcp route using Streamable HTTP transport.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/mcp/server.ts` — MCP server setup using @modelcontextprotocol/sdk. Create server with name "open-brain", version from package.json. Register all tools. Mount at /mcp route in Hono app using Streamable HTTP transport.
@@ -976,11 +1055,13 @@
 
 ---
 
-### 8.2 MCP Tools — Search & Browse
+### 8.2 MCP Tools — Search & Browse ✅ Completed 2026-03-05
 
 **Description**: search_brain, list_captures, and brain_stats MCP tools.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/mcp/tools/search-brain.ts` — search_brain tool: params (query, limit, threshold, source_filter, tag_filter, brain_view, days). Calls SearchService.search(). Returns formatted text results.
@@ -997,11 +1078,13 @@
 
 ---
 
-### 8.3 MCP Tools — Capture & Entity
+### 8.3 MCP Tools — Capture & Entity ✅ Completed 2026-03-05
 
 **Description**: capture_thought, get_entity, list_entities, and get_weekly_brief MCP tools.
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/mcp/tools/capture-thought.ts` — capture_thought tool: params (content, tags, brain_views). Calls CaptureService.create(). Returns confirmation with capture ID.
@@ -1020,14 +1103,17 @@
 
 ---
 
-### 8.4 Cloudflare Tunnel Configuration
+### 8.4 Cloudflare Tunnel Configuration ✅ Completed 2026-03-05
 
 **Description**: Cloudflare Tunnel container routing brain.k4jda.net to Core API.
 
 **Complexity**: S
 
+**Status**: COMPLETE 2026-03-05
+
 **Files to Create/Modify**:
 - `docker-compose.yml` — Add cloudflared service (cloudflare/cloudflared:latest, restart: unless-stopped, TUNNEL_TOKEN env, open-brain network, depends on core-api). Routing: brain.k4jda.net/mcp → core-api:3000/mcp, brain.k4jda.net/ → core-api:3000 (updated to web:80 in Phase 15)
+- `config/cloudflare/tunnel.yaml` — Ingress rules: /mcp path → core-api:3000, catch-all → core-api:3000, 404 for unmatched hostnames
 
 **Acceptance Criteria**:
 - Cloudflared container starts and connects to Cloudflare
@@ -1038,7 +1124,7 @@
 
 ---
 
-### 8.5 MCP Tests + End-to-End Verification
+### 8.5 MCP Tests + End-to-End Verification ✅ Completed 2026-03-05
 
 **Description**: Tests for MCP tools and full Phase 1 end-to-end verification.
 
@@ -1061,6 +1147,8 @@
 - Auth correctly blocks unauthenticated requests
 - E2E script verifies full capture → pipeline → search → MCP flow
 - Phase 1 test gates satisfied (all 5 sub-phases)
+
+**Status**: COMPLETE 2026-03-05
 
 **Requirement Refs**: PRD Phase 1E test gate, TDD §15.5 (E2E scenarios)
 

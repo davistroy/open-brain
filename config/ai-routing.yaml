@@ -1,0 +1,10 @@
+litellm_url: "https://llm.k4jda.net"
+models:
+  fast: "fast"
+  synthesis: "synthesis"
+  governance: "governance"
+  intent: "intent"
+  embedding: "jetson-embeddings"
+monthly_budget:
+  soft_limit_usd: 30
+  hard_limit_usd: 50

@@ -1,0 +1,16 @@
+views:
+  - name: career
+    description: Professional development, job search, career decisions
+    default_capture_types: [decision, idea, observation, reflection]
+  - name: personal
+    description: Personal life, health, relationships, hobbies
+    default_capture_types: [decision, reflection, task]
+  - name: technical
+    description: Technical learning, architecture, tools, experiments
+    default_capture_types: [idea, observation, question, decision]
+  - name: work-internal
+    description: Internal work items, meeting notes, action items
+    default_capture_types: [task, decision, blocker, observation]
+  - name: client
+    description: Client-facing work, deliverables, feedback
+    default_capture_types: [decision, task, observation, win]
