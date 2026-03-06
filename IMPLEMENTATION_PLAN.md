@@ -1124,7 +1124,7 @@
 
 ---
 
-### 8.5 MCP Tests + End-to-End Verification
+### 8.5 MCP Tests + End-to-End Verification ✅ Completed 2026-03-05
 
 **Description**: Tests for MCP tools and full Phase 1 end-to-end verification.
 
@@ -1147,6 +1147,8 @@
 - Auth correctly blocks unauthenticated requests
 - E2E script verifies full capture → pipeline → search → MCP flow
 - Phase 1 test gates satisfied (all 5 sub-phases)
+
+**Status**: COMPLETE 2026-03-05
 
 **Requirement Refs**: PRD Phase 1E test gate, TDD §15.5 (E2E scenarios)
 
