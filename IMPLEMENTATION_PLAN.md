@@ -193,11 +193,13 @@
 
 ---
 
-### 2.2 Drizzle Schema — Supporting Tables
+### 2.2 Drizzle Schema — Supporting Tables ✅ Completed 2026-03-05
 
 **Description**: Remaining table schemas. These tables are created now but populated in later phases (entities in Phase 12, sessions in Phase 13, triggers in Phase 11).
 
 **Complexity**: M
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/schema/entities.ts` — entities table (id, entity_type, name, aliases, metadata, first_seen, last_seen, mention_count, created_at, updated_at) + UNIQUE(name, entity_type). entity_links table (id, capture_id FK, entity_id FK, relationship, created_at) + indexes.
@@ -265,11 +267,13 @@
 
 ---
 
-### 2.5 Shared Utilities
+### 2.5 Shared Utilities ✅ Completed 2026-03-05
 
 **Description**: Utility functions used across packages: content hashing, token estimation, and common helpers.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/shared/src/utils/content-hash.ts` — contentHash(text): normalize (trim, collapse whitespace, lowercase) → SHA-256 hex string (char(64))

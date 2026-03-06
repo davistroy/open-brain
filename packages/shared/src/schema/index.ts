@@ -1,2 +1,2 @@
 export * from './core.js'
-// Supporting tables will be added in 2.2
+export * from './supporting.js'
