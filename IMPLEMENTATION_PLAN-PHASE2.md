@@ -937,9 +937,11 @@
 
 ---
 
-### 15.2 Dashboard + Stats Page
+### ✅ Completed 2026-03-05 — 15.2 Dashboard + Stats Page
 
 **Description**: Main dashboard page showing recent captures, brain stats, active bets, system health.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -980,9 +982,11 @@
 
 ---
 
-### 15.4 Timeline + Entity Pages
+### ✅ Completed 2026-03-05 — 15.4 Timeline + Entity Pages
 
 **Description**: Chronological capture browser and entity graph browser.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
