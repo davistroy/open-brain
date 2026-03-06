@@ -329,11 +329,13 @@
 
 ---
 
-### 3.2 Health Endpoint
+### 3.2 Health Endpoint ✅ Completed 2026-03-05
 
 **Description**: GET /health endpoint that checks connectivity to Postgres, Redis, and LiteLLM. Returns overall status and per-service status.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/routes/health.ts` — GET /health: checks Postgres (SELECT 1), Redis (PING), LiteLLM (GET https://llm.k4jda.net/health). Returns `{ status: "healthy"|"degraded"|"unhealthy", services: { postgres: "up"|"down", redis: "up"|"down", litellm: "up"|"down" }, version: string, uptime: number }`
@@ -376,11 +378,13 @@
 
 ---
 
-### 3.4 Admin Endpoints
+### 3.4 Admin Endpoints ✅ Completed 2026-03-05
 
 **Description**: Admin routes for config reload and future Bull Board mounting point.
 
 **Complexity**: S
+
+**Status**: COMPLETE 2026-03-05
 
 **Files to Create**:
 - `packages/core-api/src/routes/admin.ts` — POST /api/v1/admin/config/reload → calls ConfigService.reload(), returns ReloadResult[]. Placeholder route for /admin/queues (Bull Board, Phase 6).
