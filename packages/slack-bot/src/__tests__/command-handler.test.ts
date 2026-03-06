@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { SayFn, GenericMessageEvent } from '@slack/bolt'
 import { handleCommand } from '../handlers/command.js'
-import type { CoreApiClient, BrainStats, TriggerRecord, TriggerMatch } from '../lib/core-api-client.js'
+import type { CoreApiClient, BrainStats, TriggerRecord, TriggerMatch, EntityMergeResult, EntitySplitResult } from '../lib/core-api-client.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,6 +95,17 @@ function makeClient(overrides: Partial<CoreApiClient> = {}): CoreApiClient {
       ],
       total: 1,
     }),
+    entities_merge: vi.fn().mockResolvedValue({
+      message: 'Entity ent-001 merged into ent-002',
+      source_id: 'ent-001',
+      target_id: 'ent-002',
+    } as EntityMergeResult),
+    entities_split: vi.fn().mockResolvedValue({
+      message: 'Alias "QSR" split into new entity',
+      source_entity_id: 'ent-001',
+      new_entity_id: 'ent-new-001',
+      alias: 'QSR',
+    } as EntitySplitResult),
     pipeline_health: vi.fn().mockResolvedValue({
       queues: {
         'ingest': { waiting: 2, active: 1, completed: 100, failed: 0, delayed: 0 },
@@ -306,6 +317,125 @@ describe('handleCommand()', () => {
       await handleCommand(makeMessage('!entity Nonexistent'), say, client)
       const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
       expect(call.text).toContain('No entity found')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // !entity merge
+  // -------------------------------------------------------------------------
+
+  describe('!entity merge', () => {
+    it('resolves both names and calls entities_merge', async () => {
+      // entities_search returns ent-001 for first call, ent-002 for second
+      ;(client.entities_search as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: ['QSR'], capture_count: 12 }], total: 1 })
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-002', name: 'QSR Corporation', type: 'organization', aliases: [], capture_count: 3 }], total: 1 })
+      await handleCommand(makeMessage('!entity merge QSR Corp, QSR Corporation'), say, client)
+      expect(client.entities_search).toHaveBeenCalledTimes(2)
+      expect(client.entities_merge).toHaveBeenCalledWith('ent-001', 'ent-002')
+    })
+
+    it('confirms merge in reply', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: [], capture_count: 5 }], total: 1 })
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-002', name: 'QSR Corporation', type: 'organization', aliases: [], capture_count: 3 }], total: 1 })
+      await handleCommand(makeMessage('!entity merge QSR Corp, QSR Corporation'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Merge Complete')
+      expect(call.text).toContain('ent-001')
+      expect(call.text).toContain('ent-002')
+    })
+
+    it('warns when first entity name not found', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>).mockResolvedValue({ entities: [], total: 0 })
+      await handleCommand(makeMessage('!entity merge Unknown, Other'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('No entity found')
+    })
+
+    it('warns when second entity name not found', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: [], capture_count: 5 }], total: 1 })
+        .mockResolvedValueOnce({ entities: [], total: 0 })
+      await handleCommand(makeMessage('!entity merge QSR Corp, Unknown'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('No entity found')
+    })
+
+    it('warns when both names resolve to the same entity', async () => {
+      const sameEntity = { id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: [], capture_count: 5 }
+      ;(client.entities_search as ReturnType<typeof vi.fn>)
+        .mockResolvedValue({ entities: [sameEntity], total: 1 })
+      await handleCommand(makeMessage('!entity merge QSR Corp, QSR Corp'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('same entity')
+    })
+
+    it('warns when no args provided', async () => {
+      await handleCommand(makeMessage('!entity merge'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Usage')
+    })
+
+    it('handles entities_merge failure gracefully', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: [], capture_count: 5 }], total: 1 })
+        .mockResolvedValueOnce({ entities: [{ id: 'ent-002', name: 'Other', type: 'organization', aliases: [], capture_count: 1 }], total: 1 })
+      ;(client.entities_merge as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('500'))
+      await handleCommand(makeMessage('!entity merge QSR Corp, Other'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // !entity split
+  // -------------------------------------------------------------------------
+
+  describe('!entity split', () => {
+    it('resolves entity name and calls entities_split with alias', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: ['QSR'], capture_count: 12 }],
+        total: 1,
+      })
+      await handleCommand(makeMessage('!entity split QSR Corp QSR'), say, client)
+      expect(client.entities_search).toHaveBeenCalledWith('QSR Corp')
+      expect(client.entities_split).toHaveBeenCalledWith('ent-001', 'QSR')
+    })
+
+    it('confirms split in reply', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: ['QSR'], capture_count: 12 }],
+        total: 1,
+      })
+      await handleCommand(makeMessage('!entity split QSR Corp QSR'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Split Complete')
+      expect(call.text).toContain('ent-new-001')
+    })
+
+    it('warns when no args provided', async () => {
+      await handleCommand(makeMessage('!entity split'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('Usage')
+    })
+
+    it('warns when entity name not found', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>).mockResolvedValue({ entities: [], total: 0 })
+      await handleCommand(makeMessage('!entity split Unknown Alias'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain('No entity found')
+    })
+
+    it('handles entities_split failure gracefully', async () => {
+      ;(client.entities_search as ReturnType<typeof vi.fn>).mockResolvedValue({
+        entities: [{ id: 'ent-001', name: 'QSR Corp', type: 'organization', aliases: ['QSR'], capture_count: 12 }],
+        total: 1,
+      })
+      ;(client.entities_split as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('422'))
+      await handleCommand(makeMessage('!entity split QSR Corp QSR'), say, client)
+      const call = (say as ReturnType<typeof vi.fn>).mock.calls[0][0] as { text: string }
+      expect(call.text).toContain(':warning:')
     })
   })
 
@@ -567,6 +697,8 @@ describe('handleCommand()', () => {
       expect(call.text).toContain('!trigger')
       expect(call.text).toContain('!recent')
       expect(call.text).toContain('!pipeline')
+      expect(call.text).toContain('merge')
+      expect(call.text).toContain('split')
     })
 
     it('replies in thread', async () => {

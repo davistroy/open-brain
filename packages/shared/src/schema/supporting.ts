@@ -55,6 +55,40 @@ export const entity_links = pgTable(
 )
 
 // ============================================================
+// entity_relationships table — co-occurrence graph between entities
+//
+// When two or more entities appear in the same capture (via entity_links),
+// a relationship row is created or strengthened between each pair.
+// Relationships are undirected: entity_id_a < entity_id_b (UUID lexicographic)
+// enforces a canonical ordering so (A,B) and (B,A) never duplicate.
+//
+// co_occurrence_count — incremented each time both entities appear in the same capture.
+// weight — derived score used for graph traversal (co_occurrence_count normalized
+//          against entity frequency; updated by the link-entities pipeline stage).
+// last_seen_at — timestamp of the most recent co-occurring capture.
+// ============================================================
+export const entity_relationships = pgTable(
+  'entity_relationships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    entity_id_a: uuid('entity_id_a').notNull().references(() => entities.id, { onDelete: 'cascade' }),
+    entity_id_b: uuid('entity_id_b').notNull().references(() => entities.id, { onDelete: 'cascade' }),
+    co_occurrence_count: integer('co_occurrence_count').notNull().default(1),
+    weight: real('weight').notNull().default(1.0),
+    last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    // Canonical pair ordering enforced at insert time (entity_id_a < entity_id_b)
+    entity_pair_idx: uniqueIndex('entity_relationships_pair_idx').on(table.entity_id_a, table.entity_id_b),
+    entity_id_a_idx: index('entity_relationships_entity_id_a_idx').on(table.entity_id_a),
+    entity_id_b_idx: index('entity_relationships_entity_id_b_idx').on(table.entity_id_b),
+    last_seen_at_idx: index('entity_relationships_last_seen_at_idx').on(table.last_seen_at),
+  }),
+)
+
+// ============================================================
 // sessions table — governance and review sessions
 // ============================================================
 export const sessions = pgTable(

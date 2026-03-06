@@ -507,9 +507,11 @@
 
 ---
 
-### 12.2 Link Entities Pipeline Stage
+### ✅ Completed 2026-03-05 — 12.2 Link Entities Pipeline Stage
 
 **Description**: Pipeline stage that extracts entity mentions from capture metadata and resolves them via EntityResolutionService.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: M
 
@@ -562,9 +564,11 @@
 
 ---
 
-### 12.4 Entity Slack Commands
+### ✅ Completed 2026-03-05 — 12.4 Entity Slack Commands
 
 **Description**: Slack commands for entity browsing and management.
+
+**Status:** COMPLETE 2026-03-05
 
 **Complexity**: S
 

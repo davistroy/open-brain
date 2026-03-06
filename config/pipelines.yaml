@@ -15,7 +15,7 @@
 pipelines:
 
   # ── default ─────────────────────────────────────────────────────────────────
-  # Standard text capture pipeline: embed → extract metadata → check triggers → notify.
+  # Standard text capture pipeline: embed → extract metadata → link entities → check triggers → notify.
   # Used for Slack captures, manual entries, and any source without a specific pipeline.
   default:
     stages:
@@ -28,6 +28,13 @@ pipelines:
         options:
           prompt_template: extract_metadata
           model_alias: fast
+      - name: link_entities
+        enabled: true
+        timeout_ms: 30000
+        # Stage failure is non-blocking: logged and recorded but does not
+        # set pipeline_status to 'failed'. The pipeline continues to check_triggers.
+        options:
+          on_failure: continue
       - name: check_triggers
         enabled: true
         timeout_ms: 15000
@@ -53,6 +60,11 @@ pipelines:
           prompt_template: extract_metadata
           model_alias: fast
           merge_with_pre_extracted: true
+      - name: link_entities
+        enabled: true
+        timeout_ms: 30000
+        options:
+          on_failure: continue
       - name: check_triggers
         enabled: true
         timeout_ms: 15000
@@ -85,6 +97,11 @@ pipelines:
           prompt_template: extract_metadata
           model_alias: fast
           focus: career
+      - name: link_entities
+        enabled: true
+        timeout_ms: 30000
+        options:
+          on_failure: continue
       - name: check_triggers
         enabled: true
         timeout_ms: 15000
