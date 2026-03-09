@@ -16,6 +16,7 @@ import { createPushoverWorker } from './jobs/pushover.js'
 import { createEmailWorker } from './jobs/email.js'
 import { createAccessStatsWorker } from './jobs/update-access-stats.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
+import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { registerScheduledJobs } from './scheduler.js'
 import { logger } from './lib/logger.js'
 import type { Worker } from 'bullmq'
@@ -78,6 +79,12 @@ async function main() {
     userKey: pushoverUserKey,
     litellmUrl,
     litellmApiKey,
+  }))
+  workers.push(createSkillExecutionWorker(connection, db, {
+    litellmUrl,
+    litellmApiKey,
+    promptsDir,
+    coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
   }))
 
   logger.info({ count: workers.length }, 'All workers registered')
