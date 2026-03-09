@@ -1,21 +1,20 @@
 # Cloudflare Tunnel Configuration — Open Brain
 #
-# HTTPS terminates at Cloudflare; the tunnel carries plain HTTP internally.
+# Public domain: brain.troy-davis.com
+# HTTPS terminates at Cloudflare; tunnel carries plain HTTP internally.
 # Tunnel identity comes from CLOUDFLARE_TUNNEL_TOKEN env var (from Bitwarden).
 # This file controls ingress routing only — no credentials stored here.
 #
 # Routing:
-#   /mcp  → core-api:3000  (MCP endpoint, direct — bypasses nginx)
-#   /*    → web:80          (nginx proxies /api/* to core-api internally)
+#   /*    → web:80       (nginx proxies /api/* and /mcp to core-api internally)
+#
+# MCP access: Claude Desktop connects to https://llm.troy-davis.com/mcp
+# (LiteLLM MCP gateway — proxies to this stack's core-api:3000/mcp)
+# No need for a separate /mcp tunnel route.
 
 ingress:
-  # MCP endpoint — routes directly to Core API (nginx doesn't proxy /mcp)
-  - hostname: brain.k4jda.net
-    path: /mcp
-    service: http://core-api:3000
-
-  # All other traffic — Web UI (nginx proxies /api/* to core-api internally)
-  - hostname: brain.k4jda.net
+  # All traffic — Web UI (nginx proxies /api/* and /mcp to core-api internally)
+  - hostname: brain.troy-davis.com
     service: http://web:80
 
   # Catch-all required by cloudflared — returns 404 for unmatched hostnames

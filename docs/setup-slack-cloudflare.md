@@ -172,17 +172,34 @@ The bot understands three interaction styles in any channel it's in:
 
 ## Cloudflare Tunnel Setup
 
-Gives you `https://brain.k4jda.net` — HTTPS, public internet, no port forwarding needed.
+Gives you `https://brain.troy-davis.com` — HTTPS, public internet, no port forwarding.
+
+MCP access goes through LiteLLM at `https://llm.troy-davis.com/mcp` rather than directly through the tunnel. LiteLLM's MCP gateway is already live and tested — it just needs Open Brain registered as a source.
+
+### Architecture
+
+```
+Claude Desktop ──▶ https://llm.troy-davis.com/mcp  (LiteLLM MCP gateway)
+                        └─ proxies to ──▶ https://brain.troy-davis.com/mcp
+                                              └─ cloudflared ──▶ web:80 (nginx)
+                                                                    └─ /mcp ──▶ core-api:3000
+
+Browser ──▶ https://brain.troy-davis.com
+                └─ cloudflared ──▶ web:80 (nginx)
+                                    ├─ /api/*  ──▶ core-api:3000
+                                    ├─ /mcp    ──▶ core-api:3000
+                                    └─ /*      ──▶ Vite React SPA
+```
 
 ### 1. Create the Tunnel
 
 Go to **Cloudflare Dashboard** (dash.cloudflare.com) → your account → **Zero Trust** → **Networks** → **Tunnels** → **Create a tunnel**.
 
 - Connector: **Cloudflared**
-- Tunnel name: `brain-k4jda-net`
+- Tunnel name: `open-brain`
 - Click **Save tunnel**
 
-On the next screen (connector install), **ignore the install steps** — cloudflared runs in Docker. Copy the tunnel token — it's the long base64 string shown in the `--token` argument:
+On the next screen (connector install), **ignore the install steps** — cloudflared runs in Docker. Copy the tunnel token — the long base64 string in the `--token` argument:
 
 ```
 eyJhIjoiMGU5ZjI3...very long...
@@ -190,45 +207,31 @@ eyJhIjoiMGU5ZjI3...very long...
 
 Click **Next**.
 
-### 2. Configure Public Hostnames
+### 2. Configure Public Hostname
 
-On the **Public Hostnames** tab, add two routes:
-
-**Route 1 — Web Dashboard (catch-all):**
+On the **Public Hostnames** tab, add one route:
 
 | Field | Value |
 |-------|-------|
 | Subdomain | `brain` |
-| Domain | `k4jda.net` |
+| Domain | `troy-davis.com` |
 | Path | _(leave blank)_ |
 | Type | `HTTP` |
 | URL | `web:80` |
 
-**Route 2 — MCP Endpoint:**
-
-| Field | Value |
-|-------|-------|
-| Subdomain | `brain` |
-| Domain | `k4jda.net` |
-| Path | `/mcp` |
-| Type | `HTTP` |
-| URL | `core-api:3000` |
-
-> The config file at `config/cloudflare/tunnel.yaml` defines these same routes for the Docker container. Dashboard routes and YAML routes both work — dashboard takes precedence if both are set.
+> The config file at `config/cloudflare/tunnel.yaml` already defines this route for the Docker container. Dashboard routes and YAML routes both work — dashboard takes precedence if both are set.
 
 Click **Save tunnel**.
 
 ### 3. Store the Token
 
-On homeserver, update `.env.secrets`:
+On homeserver, update both files:
 
-```
+```bash
+# /mnt/user/appdata/open-brain/.env.secrets
 CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiMGU5ZjI3...
-```
 
-And update `.env` (docker-compose variable substitution — change from `placeholder`):
-
-```
+# /mnt/user/appdata/open-brain/.env  (change from "placeholder")
 CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiMGU5ZjI3...
 ```
 
@@ -244,32 +247,67 @@ Store in Bitwarden:
 ssh root@homeserver.k4jda.net
 cd /mnt/user/appdata/open-brain
 git pull
-docker compose up -d cloudflared
+docker compose build web   # picks up the nginx /mcp proxy fix
+docker compose up -d web cloudflared
 docker logs open-brain-cloudflared --follow
 # Expected:
 #   Registered tunnel connection connIndex=0
 #   Connection registered connIndex=0 location=...
 ```
 
-### 5. Verify
+### 5. Verify the Tunnel
 
-From your dev machine (not the homeserver):
+From your dev machine:
 
 ```bash
 # Web dashboard
-curl -I https://brain.k4jda.net
+curl -I https://brain.troy-davis.com
 # Expected: HTTP/2 200
 
-# Core API health (via nginx proxy)
-curl https://brain.k4jda.net/health
+# API health via tunnel
+curl https://brain.troy-davis.com/api/v1/health
 # Expected: {"status":"healthy",...}
 
-# MCP endpoint (use MCP_API_KEY from .env.secrets)
-curl -H "Authorization: Bearer <MCP_API_KEY>" https://brain.k4jda.net/mcp
-# Expected: MCP capabilities response (JSON)
+# MCP endpoint via tunnel (use MCP_API_KEY from .env.secrets)
+curl -X POST https://brain.troy-davis.com/mcp \
+  -H "Authorization: Bearer <MCP_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+# Expected: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05",...}}
 ```
 
-### 6. Connect Claude Desktop to MCP
+### 6. Register Open Brain in LiteLLM's MCP Gateway
+
+> **Why**: `llm.troy-davis.com/mcp` is already a working LiteLLM MCP gateway (tested). Adding Open Brain there means Claude Desktop connects to one endpoint that can aggregate multiple MCP servers over time.
+
+On the machine running LiteLLM, edit the LiteLLM `config.yaml` — add an `mcp_servers` section:
+
+```yaml
+mcp_servers:
+  open-brain:
+    url: "https://brain.troy-davis.com/mcp"
+    transport: "streamable_http"
+    auth_type: "bearer_token"
+    auth_value: "<MCP_API_KEY>"        # value from Open Brain's .env.secrets
+```
+
+Then restart LiteLLM to pick up the config.
+
+Verify Open Brain's tools appear in the LiteLLM MCP server:
+
+```bash
+curl -X POST https://llm.troy-davis.com/mcp/ \
+  -H "Authorization: Bearer <YOUR_LITELLM_KEY>" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+# Expected: tools array containing search, get_capture, create_capture, etc.
+```
+
+### 7. Connect Claude Desktop
+
+> **MCP_API_KEY** is in Open Brain's `.env.secrets` on the homeserver (`open-brain-mcp-dev-key`). Rotate it first with `openssl rand -hex 32` if you haven't.
 
 Add to your Claude Desktop config:
 
@@ -280,23 +318,18 @@ Add to your Claude Desktop config:
 {
   "mcpServers": {
     "open-brain": {
-      "url": "https://brain.k4jda.net/mcp",
+      "url": "https://llm.troy-davis.com/mcp",
       "headers": {
-        "Authorization": "Bearer <MCP_API_KEY>"
+        "Authorization": "Bearer <YOUR_LITELLM_KEY>"
       }
     }
   }
 }
 ```
 
-`MCP_API_KEY` is the value in `.env.secrets` on the homeserver (currently `open-brain-mcp-dev-key`). Rotate it before connecting external clients:
+Note: you authenticate with your **LiteLLM key** here (not the Open Brain MCP key directly). LiteLLM holds the Open Brain MCP key in its server-side config and handles the downstream auth for you.
 
-```bash
-# On homeserver — generate a strong key and update .env.secrets
-openssl rand -hex 32
-```
-
-Restart Claude Desktop. The `open-brain` MCP server will appear in the tools list. You can then ask Claude things like:
+Restart Claude Desktop. You can then ask Claude things like:
 
 > *"Search my brain for decisions about database architecture"*
 > *"What was my last weekly brief?"*
@@ -304,22 +337,24 @@ Restart Claude Desktop. The `open-brain` MCP server will appear in the tools lis
 
 ---
 
-## Traffic Routing Summary
+## Full Traffic Routing Summary
 
 ```
-Internet
-  └─ https://brain.k4jda.net
+Internet — Browser
+  └─ https://brain.troy-davis.com
        └─ cloudflared ──▶ web:80 (nginx)
                             ├─ /api/*  ──proxy──▶ core-api:3000
-                            ├─ /mcp   ──direct──▶ core-api:3000
-                            └─ /*     ──serves──▶ Vite React SPA
+                            ├─ /mcp    ──proxy──▶ core-api:3000
+                            └─ /*      ──serves──▶ Vite React SPA
+
+Internet — Claude Desktop (MCP)
+  └─ https://llm.troy-davis.com/mcp
+       └─ LiteLLM MCP gateway
+            └─ open-brain upstream ──▶ https://brain.troy-davis.com/mcp
+                                          └─ cloudflared ──▶ core-api:3000
 
 Slack workspace
   └─ @Open Brain <message>
        └─ Socket Mode ──▶ slack-bot container
                             └─ http://core-api:3000 (internal Docker network)
-
-Claude Desktop
-  └─ MCP tool call
-       └─ https://brain.k4jda.net/mcp ──▶ cloudflared ──▶ core-api:3000
 ```

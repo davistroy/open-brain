@@ -22,7 +22,7 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
 | `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.4.1 | Speech-to-text (large-v3, CPU int8) |
 | `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
-| `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.k4jda.net |
+| `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
 
 **External dependency**: LiteLLM proxy at `https://llm.k4jda.net` handles ALL AI — both embeddings (`spark-qwen3-embedding-4b` alias → Qwen3-Embedding-4B, returns 2560d Matryoshka-truncated to 768d in the embedding service) and LLM inference (aliases: `fast`, `synthesis`, `governance`, `intent`). Not part of this stack.
 
@@ -175,7 +175,7 @@ Add to your Claude MCP config:
 {
   "mcpServers": {
     "open-brain": {
-      "url": "https://brain.k4jda.net/mcp",
+      "url": "https://llm.troy-davis.com/mcp",
       "headers": {
         "Authorization": "Bearer <MCP_API_KEY>"
       }

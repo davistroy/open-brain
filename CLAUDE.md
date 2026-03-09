@@ -20,7 +20,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 - **Pipeline**: BullMQ + Redis, async processing stages
 - **Web UI**: Vite + React + Tailwind + shadcn/ui (NOT Next.js)
 - **Migrations**: Drizzle ORM + drizzle-kit (NOT raw SQL, NOT Prisma)
-- **External access**: Cloudflare Tunnel for brain.k4jda.net only
+- **External access**: Cloudflare Tunnel → brain.troy-davis.com (web dashboard); MCP via LiteLLM gateway at llm.troy-davis.com/mcp
 - **Docker networking**: Single `open-brain` network for all containers
 - **MCP**: Embedded in Core API at `/mcp` route (Streamable HTTP, no separate container)
 - **Monorepo**: pnpm workspaces (packages: shared, core-api, slack-bot, workers, voice-capture)
