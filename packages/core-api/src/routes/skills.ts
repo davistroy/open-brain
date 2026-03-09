@@ -182,6 +182,7 @@ export function registerSkillRoutes(
         capture_id::text,
         input_summary,
         output_summary,
+        result,
         duration_ms,
         created_at
       FROM skills_log
@@ -196,6 +197,7 @@ export function registerSkillRoutes(
       capture_id: string | null
       input_summary: string | null
       output_summary: string | null
+      result: Record<string, unknown> | null
       duration_ms: number | null
       created_at: Date | string
     }>).map((row) => ({
@@ -207,6 +209,7 @@ export function registerSkillRoutes(
       completed_at: row.created_at,
       duration_ms: row.duration_ms,
       output: row.output_summary,
+      result: row.result ?? null,
     }))
 
     return c.json({ data })
