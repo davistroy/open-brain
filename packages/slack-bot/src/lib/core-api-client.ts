@@ -232,7 +232,9 @@ export class CoreApiClient {
     if (params?.source) query.set('source', params.source)
     if (params?.capture_type) query.set('capture_type', params.capture_type)
     const qs = query.toString()
-    return this.request<{ total: number; captures: RecentCapture[] }>(`/api/v1/captures${qs ? `?${qs}` : ''}`)
+    // API returns { items, total, limit, offset } — map items → captures
+    const raw = await this.request<{ total: number; items: RecentCapture[] }>(`/api/v1/captures${qs ? `?${qs}` : ''}`)
+    return { total: raw.total, captures: raw.items ?? [] }
   }
 
   async captures_retry(id: string): Promise<void> {
