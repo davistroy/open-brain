@@ -201,6 +201,7 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/TEST_RESULTS_2026-03-09.md` | Integration test results (all passing) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
+| `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
 | `docs/ARCH_REMEDIATION_PLAN.md` | Architecture review remediation log (all items complete) |
 | `IMPLEMENTATION_PLAN.md` | Phases 1–8 (Foundation) — all complete |
 | `IMPLEMENTATION_PLAN-PHASE2.md` | Phases 9–16 (Voice through Polish) — all complete |
