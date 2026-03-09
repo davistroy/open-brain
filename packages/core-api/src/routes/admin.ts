@@ -74,12 +74,61 @@ export function createAdminRouter({ configService, redisConnection }: AdminRoute
     router.route('/queues', bullBoardApp)
 
     logger.info('[admin] Bull Board mounted at /api/v1/admin/queues')
+
+    // GET /pipeline/health — returns BullMQ queue counts in PipelineStatus format
+    router.get('/pipeline/health', async (ctx) => {
+      type QueueCounts = { waiting: number; active: number; completed: number; failed: number; delayed: number }
+      const counts: Array<{ name: string } & QueueCounts> = await Promise.all(
+        queues.map(async (q) => {
+          const result = await q.getJobCounts('active', 'waiting', 'completed', 'failed', 'delayed') as QueueCounts
+          return { name: q.name, ...result }
+        }),
+      )
+
+      const queueMap: Record<string, QueueCounts> = {}
+      let totalPending = 0
+      let totalProcessing = 0
+      let totalComplete = 0
+      let totalFailed = 0
+
+      for (const q of counts) {
+        queueMap[q.name] = {
+          waiting: q.waiting ?? 0,
+          active: q.active ?? 0,
+          completed: q.completed ?? 0,
+          failed: q.failed ?? 0,
+          delayed: q.delayed ?? 0,
+        }
+        totalPending += (q.waiting ?? 0) + (q.delayed ?? 0)
+        totalProcessing += q.active ?? 0
+        totalComplete += q.completed ?? 0
+        totalFailed += q.failed ?? 0
+      }
+
+      return ctx.json({
+        queues: queueMap,
+        overall: {
+          pending: totalPending,
+          processing: totalProcessing,
+          complete: totalComplete,
+          failed: totalFailed,
+        },
+      })
+    })
   } else {
     // Placeholder until Redis connection is wired at startup
     router.get('/queues', (c) => {
       return c.json({
         message: 'Bull Board requires a Redis connection — pass redisConnection to createAdminRouter()',
         queues: QUEUE_NAMES,
+      })
+    })
+
+    router.get('/pipeline/health', (c) => {
+      return c.json({
+        message: 'Pipeline health requires a Redis connection',
+        queues: {},
+        overall: { pending: 0, processing: 0, complete: 0, failed: 0 },
       })
     })
   }
