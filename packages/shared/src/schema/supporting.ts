@@ -159,6 +159,7 @@ export const skills_log = pgTable(
     session_id: uuid('session_id').references(() => sessions.id, { onDelete: 'set null' }),
     input_summary: text('input_summary'),
     output_summary: text('output_summary'),
+    result: jsonb('result'),
     duration_ms: integer('duration_ms'),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
