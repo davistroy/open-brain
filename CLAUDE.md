@@ -4,19 +4,19 @@
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: Pre-implementation. PRD (v0.6) and TDD (v0.5) complete, architectural review v2 applied. No code written yet.
+**Status**: Implementation complete. All 16 phases (83 work items, ~11,100 LOC) shipped 2026-03-05. Integration-tested on homeserver 2026-03-09.
 
 ## Key Architecture Decisions
 
 - **Runtime**: TypeScript, Hono framework, Drizzle ORM
 - **Database**: Postgres 16 + pgvector (pgvector/pgvector:pg16 image, no Supabase)
 - **LLM Gateway**: LiteLLM at https://llm.k4jda.net for ALL AI requests — both embeddings and LLM inference. No Ollama container in Open Brain stack.
-- **Embeddings**: Qwen3-Embedding-4B-Q4_K_M via `jetson-embeddings` alias on LiteLLM (Jetson device). OpenAI embeddings API. NO fallback — queue and retry if LiteLLM/Jetson is down.
-- **LLM Inference**: Model aliases fast, synthesis, governance, intent — all through LiteLLM. Backing providers TBD (configure on llm.k4jda.net before Phase 6).
+- **Embeddings**: Qwen3-Embedding-4B via `spark-qwen3-embedding-4b` alias on LiteLLM (Spark/cloud). OpenAI embeddings API format. Returns 2560 dims — Matryoshka-truncated to 768 in embedding service. NO fallback — queue and retry if LiteLLM is down.
+- **LLM Inference**: Model aliases fast, synthesis, governance, intent — all through LiteLLM (`spark-qwen3.5-35b` for all four, configured in `config/ai-routing.yaml`).
 - **Schema**: `vector(768)` everywhere. Do not use 1536.
 - **Search**: Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay scoring. Default temporal_weight: 0.0 (cold start), ramp up as search history builds.
 - **MCP Auth**: Authorization: Bearer header (not URL query parameter)
-- **Phases**: 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates per sub-phase
+- **Phases**: 16 phases complete (see IMPLEMENTATION_PLAN.md and IMPLEMENTATION_PLAN-PHASE2.md)
 - **Pipeline**: BullMQ + Redis, async processing stages
 - **Web UI**: Vite + React + Tailwind + shadcn/ui (NOT Next.js)
 - **Migrations**: Drizzle ORM + drizzle-kit (NOT raw SQL, NOT Prisma)
@@ -32,7 +32,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 ## Target Hardware
 
 Intel i7-9700 (8C/8T), 128GB DDR4, no GPU, 32TB array. Unraid OS.
-Container memory limits: Ollama 16GB, faster-whisper 8GB, Postgres 8GB.
+Container memory limits: faster-whisper 8GB, Postgres 8GB.
 
 ## Brain Views
 

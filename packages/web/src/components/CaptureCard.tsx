@@ -26,13 +26,12 @@ const SOURCE_LABELS: Record<string, string> = {
   calendar: 'Calendar',
 };
 
-const PIPELINE_STAGE_COLORS: Record<string, string> = {
+const PIPELINE_STATUS_COLORS: Record<string, string> = {
   complete: 'bg-green-100 text-green-700',
   failed: 'bg-red-100 text-red-700',
-  classify: 'bg-yellow-100 text-yellow-700',
-  extract: 'bg-yellow-100 text-yellow-700',
-  embed: 'bg-yellow-100 text-yellow-700',
-  notify: 'bg-yellow-100 text-yellow-700',
+  processing: 'bg-yellow-100 text-yellow-700',
+  pending: 'bg-gray-100 text-gray-700',
+  partial: 'bg-orange-100 text-orange-700',
 };
 
 interface CaptureCardProps {
@@ -46,7 +45,12 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const typeColor = CAPTURE_TYPE_COLORS[capture.capture_type] ?? 'bg-gray-100 text-gray-800 border-gray-200';
-  const stageColor = PIPELINE_STAGE_COLORS[capture.pipeline_stage] ?? 'bg-gray-100 text-gray-700';
+  const statusColor = PIPELINE_STATUS_COLORS[capture.pipeline_status] ?? 'bg-gray-100 text-gray-700';
+
+  const tags = capture.tags ?? [];
+  const topics = capture.topics ?? [];
+  const entities = capture.entities ?? [];
+  const pipelineEvents = capture.pipeline_events ?? [];
 
   return (
     <Card
@@ -78,8 +82,8 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
           <Badge variant="secondary" className="text-xs">
             {SOURCE_LABELS[capture.source] ?? capture.source}
           </Badge>
-          <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', stageColor)}>
-            {capture.pipeline_stage}
+          <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', statusColor)}>
+            {capture.pipeline_status}
           </span>
           {similarity !== undefined && (
             <span className="text-xs text-muted-foreground font-mono">
@@ -95,14 +99,14 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
         {expanded && (
           <div className="mt-3 ml-6 space-y-3 border-t pt-3">
             {/* Tags & Topics */}
-            {(capture.tags.length > 0 || capture.topics.length > 0) && (
+            {(tags.length > 0 || topics.length > 0) && (
               <div className="flex flex-wrap gap-1">
-                {capture.tags.map((tag) => (
+                {tags.map((tag) => (
                   <Badge key={tag} variant="outline" className="text-xs">
                     #{tag}
                   </Badge>
                 ))}
-                {capture.topics.map((topic) => (
+                {topics.map((topic) => (
                   <Badge key={topic} variant="secondary" className="text-xs">
                     {topic}
                   </Badge>
@@ -111,11 +115,11 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
             )}
 
             {/* Entities */}
-            {capture.entities.length > 0 && (
+            {entities.length > 0 && (
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Entities</p>
                 <div className="flex flex-wrap gap-1">
-                  {capture.entities.map((e) => (
+                  {entities.map((e) => (
                     <span
                       key={e.id}
                       className="inline-flex items-center gap-1 rounded bg-accent px-1.5 py-0.5 text-xs"
@@ -129,11 +133,11 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
             )}
 
             {/* Pipeline events */}
-            {capture.pipeline_events.length > 0 && (
+            {pipelineEvents.length > 0 && (
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Pipeline</p>
                 <div className="space-y-0.5">
-                  {capture.pipeline_events.map((ev, i) => (
+                  {pipelineEvents.map((ev, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
                       <span
                         className={cn(

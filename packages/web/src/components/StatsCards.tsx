@@ -55,10 +55,11 @@ export default function StatsCards({ stats }: StatsCardsProps) {
   const maxByType = Math.max(...Object.values(stats.by_type), 1);
   const maxByView = Math.max(...Object.values(stats.by_view), 1);
 
+  const failedJobs = stats.pipeline_health.failed ?? 0;
   const healthStatus =
-    stats.pipeline_health.failed_jobs === 0
+    failedJobs === 0
       ? 'healthy'
-      : stats.pipeline_health.failed_jobs < 5
+      : failedJobs < 5
       ? 'degraded'
       : 'critical';
 
@@ -75,7 +76,7 @@ export default function StatsCards({ stats }: StatsCardsProps) {
         <CardContent>
           <div className="text-3xl font-bold">{totalCaptures.toLocaleString()}</div>
           <p className="text-xs text-muted-foreground mt-1">
-            {(stats.embeddings_coverage * 100).toFixed(0)}% embedded
+            {stats.pipeline_health.complete} complete
           </p>
         </CardContent>
       </Card>
@@ -102,9 +103,9 @@ export default function StatsCards({ stats }: StatsCardsProps) {
             {healthStatus}
           </div>
           <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
-            <p>Queue: {stats.pipeline_health.queue_depth} pending</p>
-            <p>Failed: {stats.pipeline_health.failed_jobs} jobs</p>
-            <p>Avg: {stats.pipeline_health.avg_processing_ms}ms</p>
+            <p>Pending: {stats.pipeline_health.pending}</p>
+            <p>Failed: {failedJobs} jobs</p>
+            <p>Processing: {stats.pipeline_health.processing}</p>
           </div>
         </CardContent>
       </Card>

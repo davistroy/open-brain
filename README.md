@@ -24,7 +24,7 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.k4jda.net |
 
-**External dependency**: LiteLLM proxy at `https://llm.k4jda.net` handles ALL AI — both embeddings (Qwen3-Embedding-4B-Q4_K_M via `jetson-embeddings` alias, 768d) and LLM inference (aliases: `fast`, `synthesis`, `governance`, `intent`). Not part of this stack.
+**External dependency**: LiteLLM proxy at `https://llm.k4jda.net` handles ALL AI — both embeddings (`spark-qwen3-embedding-4b` alias → Qwen3-Embedding-4B, returns 2560d Matryoshka-truncated to 768d in the embedding service) and LLM inference (aliases: `fast`, `synthesis`, `governance`, `intent`). Not part of this stack.
 
 ### Monorepo Layout
 
@@ -74,20 +74,22 @@ Document upload
 
 All captures hit the same pipeline:
   embed-capture → extract-entities → link-entities → check-triggers → notify
+  Status flow: pending → processing → extracted → embedded
 
-Search (hybrid):
-  FTS + pgvector cosine → Reciprocal Rank Fusion → ACT-R temporal decay
+Search:
+  Hybrid (default): FTS + pgvector cosine → Reciprocal Rank Fusion → ACT-R temporal decay
+  FTS-only (?search_mode=fts): bypasses embedding, works when LiteLLM is unavailable
 
 AI calls:
   all services → LiteLLM at https://llm.k4jda.net
-    → jetson-embeddings (Qwen3 768d)
-    → fast / synthesis / governance / intent (provider TBD in LiteLLM)
+    → spark-qwen3-embedding-4b (Qwen3 2560d → truncated to 768d)
+    → fast / synthesis / governance / intent (Spark Qwen3.5-35B)
 ```
 
 ### Key Design Decisions
 
 - **No Ollama container** — embeddings and inference both run through external LiteLLM; no AI in this stack
-- **vector(768)** everywhere, no fallback if LiteLLM/Jetson is down — queue and retry
+- **vector(768)** everywhere, no fallback if LiteLLM is down — queue and retry
 - **Hybrid search**: FTS + vector with RRF + ACT-R temporal decay (default `temporal_weight: 0.0` at launch, ramp as history builds)
 - **MCP embedded** in core-api at `/mcp` route (Streamable HTTP, `Authorization: Bearer` header)
 - **Governance**: LLM-driven conversation with guardrails, not FSM
@@ -192,12 +194,16 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 
 | File | Purpose |
 |------|---------|
+| `CHANGELOG.md` | Version history and recent changes |
+| `LEARNINGS.md` | Implementation notes and post-mortems |
 | `docs/PRD.md` | Product requirements (v0.6) |
 | `docs/TDD.md` | Technical design (v0.5) |
+| `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
+| `docs/TEST_RESULTS_2026-03-09.md` | Integration test results (all passing) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
+| `docs/ARCH_REMEDIATION_PLAN.md` | Architecture review remediation log (all items complete) |
 | `IMPLEMENTATION_PLAN.md` | Phases 1–8 (Foundation) — all complete |
 | `IMPLEMENTATION_PLAN-PHASE2.md` | Phases 9–16 (Voice through Polish) — all complete |
-| `LEARNINGS.md` | Implementation notes and learnings |
 | `config/ai-routing.yaml` | LiteLLM model aliases and budget thresholds |
 | `config/brain-views.yaml` | Brain view definitions |
 | `config/pipelines.yaml` | Pipeline stage configuration |

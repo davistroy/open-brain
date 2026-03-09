@@ -548,7 +548,7 @@
 
 ## Phase 5: Embedding + Search
 
-**Goal**: Semantic search works. LiteLLM routes embeddings to Jetson (Qwen3-Embedding-4B-Q4_K_M). Hybrid search (FTS + vector + RRF) with ACT-R temporal scoring returns ranked results.
+**Goal**: Semantic search works. LiteLLM routes embeddings via spark-qwen3-embedding-4b (Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d)). Hybrid search (FTS + vector + RRF) with ACT-R temporal scoring returns ranked results.
 
 **Dependencies**: Phase 4 (captures exist in database)
 
@@ -558,7 +558,7 @@
 
 ### 5.1 EmbeddingService ✅ Completed 2026-03-05
 
-**Description**: Service that generates 768-dimensional embeddings via LiteLLM (external at https://llm.k4jda.net). Uses the `jetson-embeddings` alias which routes to Qwen3-Embedding-4B-Q4_K_M on the Jetson. OpenAI-compatible embeddings API. No fallback — throws EmbeddingUnavailableError if LiteLLM/Jetson is unreachable; BullMQ retries with patient backoff.
+**Description**: Service that generates 768-dimensional embeddings via LiteLLM (external at https://llm.k4jda.net). Uses the `spark-qwen3-embedding-4b` alias (Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d)). OpenAI-compatible embeddings API. No fallback — throws EmbeddingUnavailableError if LiteLLM is unreachable; BullMQ retries with patient backoff.
 
 **Complexity**: M
 
@@ -568,14 +568,14 @@
 - `packages/shared/src/services/embedding.ts` — EmbeddingService class:
   - constructor(litellmBaseUrl, litellmApiKey, configService)
   - Uses OpenAI SDK: `new OpenAI({ baseURL: litellmUrl, apiKey: litellmApiKey })`
-  - embed(text, type: 'document'|'query'): `openai.embeddings.create({ model: 'jetson-embeddings', input: text })` → returns number[768]. Applies instruction prefix for Qwen3 query vs document type if supported.
+  - embed(text, type: 'document'|'query'): `openai.embeddings.create({ model: 'spark-qwen3-embedding-4b', input: text })` → returns number[768]. Applies instruction prefix for Qwen3 query vs document type if supported.
   - embedBatch(texts, type): Sequential embed calls, returns number[][768]
   - getModelInfo(): Returns model alias, dimensions (768), source from ai-routing.yaml
   - Throws EmbeddingUnavailableError on connection failure or non-200 response
 - `packages/shared/src/__tests__/embedding.test.ts` — Unit tests with mocked OpenAI client: correct API call, correct model alias, error on unavailable
 
 **Acceptance Criteria**:
-- Generates 768-dim embeddings via LiteLLM `jetson-embeddings` alias
+- Generates 768-dim embeddings via LiteLLM `spark-qwen3-embedding-4b` alias
 - Model alias configurable via ai-routing.yaml (no hardcoding)
 - EmbeddingUnavailableError thrown cleanly on failure (no hanging, timeout 30s)
 - Same LITELLM_URL/LITELLM_API_KEY env vars as AIRouterService (no separate OLLAMA_URL)
@@ -677,7 +677,7 @@
 
 ### 5.6 Search Tests ✅ Completed 2026-03-05
 
-**Description**: Search integration and unit tests. Embeddings go through LiteLLM (`jetson-embeddings` alias) — no local Ollama container needed in the Open Brain stack.
+**Description**: Search integration and unit tests. Embeddings go through LiteLLM (`spark-qwen3-embedding-4b` alias) — no local Ollama container needed in the Open Brain stack.
 
 **Complexity**: M
 
@@ -770,9 +770,9 @@
   - complete(taskType, prompt, options?): lookup model alias from ai-routing.yaml → call OpenAI SDK pointed at LiteLLM → log to ai_audit_log → return response
   - getMonthlySpend(): GET LiteLLM /spend/logs endpoint — returns { total, by_model }
   - Uses OpenAI SDK (`new OpenAI({ baseURL: litellmUrl, apiKey })`) — same client as EmbeddingService
-- `config/ai-routing.yaml` — Full config: embedding (model: jetson-embeddings, dimensions: 768, note: Qwen3-Embedding-4B-Q4_K_M via Jetson through LiteLLM), task_models (metadata_extraction: fast, intent_classification: intent, synthesis: synthesis, governance: governance, career_signals: synthesis, weekly_brief: synthesis, drift_detection: fast). Note: all aliases resolve on external LiteLLM at https://llm.k4jda.net. LLM provider for fast/intent/synthesis/governance is TBD — configure aliases on server before Phase 6.
+- `config/ai-routing.yaml` — Full config: embedding (model: spark-qwen3-embedding-4b, dimensions: 768, note: Qwen3-Embedding-4B via LiteLLM, Matryoshka-truncated to 768d), task_models (metadata_extraction: fast, intent_classification: intent, synthesis: synthesis, governance: governance, career_signals: synthesis, weekly_brief: synthesis, drift_detection: fast). Note: all aliases resolve on external LiteLLM at https://llm.k4jda.net. LLM provider for fast/intent/synthesis/governance is TBD — configure aliases on server before Phase 6.
 
-**NOTE — no `config/litellm-config.yaml` in this repo**: LiteLLM is an external shared service at https://llm.k4jda.net. Its model list, provider config, and budget are managed on that server. Required aliases that must be pre-configured there before Phase 6: `jetson-embeddings` (Qwen3-Embedding-4B-Q4_K_M on Jetson), `fast` (TBD local LLM), `intent` (TBD local LLM), `synthesis` (cloud LLM TBD), `governance` (cloud LLM TBD).
+**NOTE — no `config/litellm-config.yaml` in this repo**: LiteLLM is an external shared service at https://llm.k4jda.net. Its model list, provider config, and budget are managed on that server. Required aliases that must be pre-configured there before Phase 6: `spark-qwen3-embedding-4b` (Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d)), `fast` (TBD local LLM), `intent` (TBD local LLM), `synthesis` (cloud LLM TBD), `governance` (cloud LLM TBD).
 
 **Acceptance Criteria**:
 - Task type → LiteLLM alias mapping works from ai-routing.yaml config
@@ -823,7 +823,7 @@
 - Bull Board UI accessible at /admin/queues
 - Core API and Workers containers build and start
 - `curl https://llm.k4jda.net/health` returns healthy from within containers
-- LiteLLM routes `jetson-embeddings` and inference aliases correctly
+- LiteLLM routes `spark-qwen3-embedding-4b` and inference aliases correctly
 
 **Requirement Refs**: PRD F03 (Bull Board), PRD F07a (LiteLLM), TDD §16.1 (Docker Compose)
 
@@ -1176,7 +1176,7 @@
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| LiteLLM embedding latency (Jetson) | Low | Medium | Qwen3-Embedding-4B-Q4_K_M on Jetson via llm.k4jda.net. If latency is too high, embeddings queue asynchronously — no user-facing impact. |
+| LiteLLM embedding latency | Low | Medium | Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d) via llm.k4jda.net. If latency is too high, embeddings queue asynchronously — no user-facing impact. |
 | pgvector HNSW index build time | Low | Low | <100K captures at launch. Default params sufficient. |
 | LiteLLM proxy stability | Low | High | External shared service at llm.k4jda.net — manages all embeddings AND inference. Failure queues captures for retry (patient backoff). Daily sweep recovers any stragglers. |
 | Drizzle ORM limitations with custom SQL | Medium | Low | Custom SQL migrations for search functions and FTS index. Well-documented pattern. |
@@ -1204,7 +1204,7 @@
 | Pipeline (BullMQ) | PRD F03, TDD §12 | 6 | 6.1-6.6 |
 | LiteLLM proxy | PRD F07a, TDD §8.7 | External | 6.3 (integration), 6.5 (env config) |
 | AI Router | PRD F08, TDD §6.2 | 6 | 6.3 |
-| LiteLLM embeddings (Jetson) | TDD §8.7, TDD §6.2 | 5, 6 | 5.1, 5.6 |
+| LiteLLM embeddings (spark-qwen3-embedding-4b) | TDD §8.7, TDD §6.2 | 5, 6 | 5.1, 5.6 |
 | Daily sweep recovery | PRD F03, TDD §12.2 | 6 | 6.7 |
 | Slack capture | PRD F04, TDD §8.1 | 7 | 7.1-7.5 |
 | Slack query | PRD F05, TDD §8.1 | 7 | 7.2, 7.4 |

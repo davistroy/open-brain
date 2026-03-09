@@ -162,19 +162,19 @@ function SkillsSection({ skills, loading, error, onTrigger }: {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium font-mono">{skill.name}</span>
-                  {skill.last_run_status && (
-                    skill.last_run_status === 'success'
+                  {(skill.last_run_status ?? (skill.last_run ? 'success' : undefined)) && (
+                    (skill.last_run_status ?? 'success') === 'success'
                       ? <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
                       : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
                   <span>Schedule: <span className="font-mono">{skill.schedule}</span></span>
-                  {skill.last_run_at && (
-                    <span>Last: {new Date(skill.last_run_at).toLocaleString()}</span>
+                  {(skill.last_run_at ?? skill.last_run) && (
+                    <span>Last: {new Date((skill.last_run_at ?? skill.last_run)!).toLocaleString()}</span>
                   )}
-                  {skill.next_run_at && (
-                    <span>Next: {new Date(skill.next_run_at).toLocaleString()}</span>
+                  {(skill.next_run_at ?? skill.next_run) && (
+                    <span>Next: {new Date((skill.next_run_at ?? skill.next_run)!).toLocaleString()}</span>
                   )}
                 </div>
               </div>
@@ -300,16 +300,20 @@ function TriggersSection({ triggers, loading, error, onAdd, onDelete }: {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">{trigger.name}</span>
-                  <Badge variant={trigger.is_active ? 'default' : 'secondary'} className="text-xs">
-                    {trigger.is_active ? 'active' : 'inactive'}
+                  <Badge variant={(trigger.is_active ?? trigger.enabled) ? 'default' : 'secondary'} className="text-xs">
+                    {(trigger.is_active ?? trigger.enabled) ? 'active' : 'inactive'}
                   </Badge>
-                  <Badge variant="outline" className="text-xs capitalize">{trigger.delivery_channel}</Badge>
+                  {trigger.delivery_channel && (
+                    <Badge variant="outline" className="text-xs capitalize">{trigger.delivery_channel}</Badge>
+                  )}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate">{trigger.query_text}</p>
+                {trigger.query_text && (
+                  <p className="text-xs text-muted-foreground mt-0.5 font-mono truncate">{trigger.query_text}</p>
+                )}
                 <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
-                  <span>Threshold: {trigger.threshold}</span>
-                  <span>Cooldown: {trigger.cooldown_minutes}m</span>
-                  <span>Fired: {trigger.fire_count}x</span>
+                  {trigger.threshold !== undefined && <span>Threshold: {trigger.threshold}</span>}
+                  {trigger.cooldown_minutes !== undefined && <span>Cooldown: {trigger.cooldown_minutes}m</span>}
+                  {trigger.fire_count !== undefined && <span>Fired: {trigger.fire_count}x</span>}
                   {trigger.last_fired_at && (
                     <span>Last: {new Date(trigger.last_fired_at).toLocaleString()}</span>
                   )}

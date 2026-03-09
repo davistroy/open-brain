@@ -3,7 +3,7 @@ import { ServiceUnavailableError } from '../utils/errors.js'
 import type { ConfigService } from '../config/loader.js'
 
 /**
- * Thrown when LiteLLM/Jetson is unreachable or returns a non-200 response.
+ * Thrown when LiteLLM is unreachable or returns a non-200 response.
  * BullMQ retries with patient backoff; no fallback is attempted.
  */
 export class EmbeddingUnavailableError extends ServiceUnavailableError {
@@ -14,7 +14,7 @@ export class EmbeddingUnavailableError extends ServiceUnavailableError {
 }
 
 const EMBEDDING_DIMENSIONS = 768
-const EMBEDDING_TIMEOUT_MS = 30_000
+const EMBEDDING_TIMEOUT_MS = 60_000  // 60s to handle LiteLLM cold-start / slow model load
 
 /**
  * Normalizes a vector to unit length (L2 normalization) for cosine similarity.
@@ -27,8 +27,9 @@ function normalizeVector(vec: number[]): number[] {
 
 /**
  * EmbeddingService generates 768-dimensional embeddings via LiteLLM proxy.
- * Routes to Qwen3-Embedding-4B-Q4_K_M on the Jetson device via the
- * `jetson-embeddings` alias configured on the LiteLLM instance.
+ * Routes to Qwen3-Embedding-4B via the `spark-qwen3-embedding-4b` alias.
+ * The model returns 2560-dimensional Matryoshka vectors; this service
+ * truncates to 768d via slice(0, EMBEDDING_DIMENSIONS).
  *
  * Lives in @open-brain/shared so both core-api and workers can import it
  * without a circular dependency.
@@ -44,6 +45,7 @@ export class EmbeddingService {
       baseURL: litellmBaseUrl,
       apiKey: litellmApiKey,
       timeout: EMBEDDING_TIMEOUT_MS,
+      maxRetries: 0,  // BullMQ handles retries with patient backoff; no SDK-level retries
     })
     this.configService = configService
   }
@@ -69,13 +71,15 @@ export class EmbeddingService {
         input: text,
       })
 
-      const embedding = response.data[0]?.embedding
-      if (!embedding || embedding.length !== EMBEDDING_DIMENSIONS) {
+      const raw = response.data[0]?.embedding
+      if (!raw || raw.length < EMBEDDING_DIMENSIONS) {
         throw new EmbeddingUnavailableError(
-          `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${embedding?.length ?? 0}`,
+          `Expected at least ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${raw?.length ?? 0}`,
         )
       }
 
+      // Matryoshka truncation: take first N dims (Qwen3-Embedding trained for this)
+      const embedding = raw.length > EMBEDDING_DIMENSIONS ? raw.slice(0, EMBEDDING_DIMENSIONS) : raw
       return normalizeVector(embedding)
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) throw err
@@ -108,12 +112,16 @@ export class EmbeddingService {
       }
 
       return sorted.map(item => {
-        if (!item.embedding || item.embedding.length !== EMBEDDING_DIMENSIONS) {
+        if (!item.embedding || item.embedding.length < EMBEDDING_DIMENSIONS) {
           throw new EmbeddingUnavailableError(
-            `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding at index ${item.index}, got ${item.embedding?.length ?? 0}`,
+            `Expected at least ${EMBEDDING_DIMENSIONS}-dimensional embedding at index ${item.index}, got ${item.embedding?.length ?? 0}`,
           )
         }
-        return normalizeVector(item.embedding)
+        // Matryoshka truncation
+        const truncated = item.embedding.length > EMBEDDING_DIMENSIONS
+          ? item.embedding.slice(0, EMBEDDING_DIMENSIONS)
+          : item.embedding
+        return normalizeVector(truncated)
       })
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) throw err

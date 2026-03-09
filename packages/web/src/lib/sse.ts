@@ -60,6 +60,45 @@ export function createSSEConnection(
   }
 }
 
+// Re-export for tests
+export type SseEvent = SSEEvent
+
+/**
+ * Singleton SSE client with start/stop/on semantics
+ */
+class SseClient {
+  private es: EventSource | null = null
+  private handlers: Set<SSEEventHandler> = new Set()
+
+  start() {
+    if (this.es) return
+    this.es = new EventSource('/api/v1/events')
+    const eventTypes = ['capture_created', 'pipeline_complete', 'skill_complete', 'bet_expiring']
+    for (const eventType of eventTypes) {
+      this.es.addEventListener(eventType, (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data)
+          for (const handler of this.handlers) handler({ type: eventType, data })
+        } catch { /* ignore parse errors */ }
+      })
+    }
+  }
+
+  stop() {
+    if (this.es) {
+      this.es.close()
+      this.es = null
+    }
+  }
+
+  on(handler: SSEEventHandler): () => void {
+    this.handlers.add(handler)
+    return () => { this.handlers.delete(handler) }
+  }
+}
+
+export const sseClient = new SseClient()
+
 /**
  * React hook for SSE connection (to be used with useState/useEffect)
  * Usage:

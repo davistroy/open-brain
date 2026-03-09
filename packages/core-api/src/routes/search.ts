@@ -4,23 +4,31 @@ import { z } from 'zod'
 import type { SearchService } from '../services/search.js'
 import { searchSchema } from '../schemas/search.js'
 
+const csvToArray = z
+  .string()
+  .transform(v => v.split(',').map(s => s.trim()).filter(Boolean))
+  .optional()
+
 const searchQuerySchema = z.object({
   q: z.string().min(1, 'Query string is required'),
   limit: z.coerce.number().int().min(1).max(50).default(10),
   temporal_weight: z.coerce.number().min(0).max(1).default(0.0),
   fts_weight: z.coerce.number().min(0).max(1).default(0.5),
   vector_weight: z.coerce.number().min(0).max(1).default(0.5),
-  brain_views: z
-    .string()
-    .transform(v => v.split(',').map(s => s.trim()).filter(Boolean))
-    .optional(),
-  capture_types: z
-    .string()
-    .transform(v => v.split(',').map(s => s.trim()).filter(Boolean))
-    .optional(),
+  search_mode: z.enum(['hybrid', 'vector', 'fts']).default('hybrid'),
+  // Accept both singular and plural forms for convenience
+  brain_views: csvToArray,
+  brain_view: csvToArray,
+  capture_types: csvToArray,
+  capture_type: csvToArray,
   date_from: z.string().datetime().optional(),
   date_to: z.string().datetime().optional(),
-})
+}).transform(data => ({
+  ...data,
+  // Merge singular/plural: prefer plural if both provided
+  brain_views: data.brain_views ?? data.brain_view,
+  capture_types: data.capture_types ?? data.capture_type,
+}))
 
 export function registerSearchRoutes(app: Hono, searchService: SearchService): void {
   // GET /api/v1/search?q=... — hybrid semantic + FTS search over captures
@@ -32,6 +40,7 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
       temporalWeight: query.temporal_weight,
       ftsWeight: query.fts_weight,
       vectorWeight: query.vector_weight,
+      searchMode: query.search_mode as 'hybrid' | 'vector' | 'fts',
       brainViews: query.brain_views,
       captureTypes: query.capture_types as string[] | undefined,
       dateFrom: query.date_from ? new Date(query.date_from) : undefined,
@@ -54,6 +63,7 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
       temporalWeight: body.temporal_weight,
       ftsWeight: body.fts_weight,
       vectorWeight: body.vector_weight,
+      searchMode: body.search_mode,
       brainViews: body.brain_views,
       captureTypes: undefined, // capture_type filter not in POST schema; extend SearchOptions if needed
       dateFrom: body.start_date ? new Date(body.start_date) : undefined,

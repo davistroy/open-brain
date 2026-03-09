@@ -17,7 +17,7 @@ export const captures = pgTable(
     source_metadata: jsonb('source_metadata'),
     tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
     embedding: vector('embedding'),
-    pipeline_status: text('pipeline_status').notNull().default('pending'), // pending | processing | complete | failed
+    pipeline_status: text('pipeline_status').notNull().default('pending'), // pending | processing | extracted | embedded | chunked | complete | failed
     pipeline_attempts: integer('pipeline_attempts').notNull().default(0),
     pipeline_error: text('pipeline_error'),
     pipeline_completed_at: timestamp('pipeline_completed_at', { withTimezone: true }),

@@ -27,7 +27,7 @@ export function embedBackoffStrategy(attemptsMade: number): number {
  * Core embed job handler.
  *
  * Reads capture content from DB, generates a 768-dim embedding via
- * EmbeddingService (LiteLLM → Jetson), and atomically writes the embedding
+ * EmbeddingService (LiteLLM → spark-qwen3-embedding-4b, Matryoshka 2560d→768d), and atomically writes the embedding
  * + sets pipeline_status = 'embedded' via update_capture_embedding().
  *
  * Failures:
@@ -157,7 +157,7 @@ export async function processEmbedCaptureJob(
       await checkTriggersQueue.add(
         'check-triggers',
         { captureId },
-        { jobId: `check-triggers:${captureId}:${Date.now()}` },
+        { jobId: `check-triggers_${captureId}_${Date.now()}` },
       )
       logger.debug({ captureId }, '[embed] check-triggers job enqueued')
     } catch (err) {
@@ -173,7 +173,7 @@ export async function processEmbedCaptureJob(
       await extractEntitiesQueue.add(
         'extract-entities',
         { captureId },
-        { jobId: `extract-entities:${captureId}` },
+        { jobId: `extract-entities_${captureId}` },
       )
       logger.debug({ captureId }, '[embed] extract-entities job enqueued')
     } catch (err) {
@@ -206,7 +206,7 @@ export function createEmbedCaptureWorker(
     },
     {
       connection,
-      concurrency: 2, // embedding calls can run in parallel; Jetson handles batching
+      concurrency: 2, // embedding calls can run in parallel; LiteLLM handles batching
       settings: {
         backoffStrategy: embedBackoffStrategy,
       },

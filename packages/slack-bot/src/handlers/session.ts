@@ -17,9 +17,7 @@ import type { GenericMessageEvent } from '@slack/types'
 import type { Redis } from 'ioredis'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import {
-  formatSessionResponse,
   formatSessionPause,
-  formatSessionComplete,
   formatError,
 } from '../lib/formatters.js'
 import { logger } from '../lib/logger.js'
@@ -113,7 +111,7 @@ export async function handleSessionThreadReply(
   // Submit user reply to governance engine
   try {
     const result = await client.sessions_respond(sessionId, text)
-    await say({ text: formatSessionResponse(result.bot_message), thread_ts: ts })
+    await say({ text: `*Board:* ${result.bot_message}`, thread_ts: ts })
 
     // If session auto-completed (engine decided it's done), clean up thread mapping
     if (result.session.status === 'complete' || result.session.status === 'abandoned') {
@@ -164,7 +162,7 @@ async function handleSessionComplete(
   try {
     const result = await client.sessions_complete(sessionId)
     await deleteSessionThread(redis, threadTs)
-    await say({ text: formatSessionComplete(result.summary), thread_ts: ts })
+    await say({ text: `:white_check_mark: *Session Complete*\n\n${result.summary}`, thread_ts: ts })
   } catch (err) {
     logger.error({ err, sessionId }, '[session-handler] sessions_complete failed')
     await say({ text: formatError('Could not complete session', err), thread_ts: ts })

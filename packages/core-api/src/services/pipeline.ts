@@ -37,19 +37,26 @@ export class PipelineService {
   /**
    * Enqueues a capture-pipeline job for the given capture.
    *
-   * Uses jobId = `pipeline:${captureId}` so duplicate enqueue calls
-   * (e.g., from retry or daily sweep) are safely deduplicated by BullMQ.
+   * Uses jobId = `pipeline_${captureId}` so duplicate enqueue calls
+   * are safely deduplicated by BullMQ (e.g., rapid double-submit).
+   *
+   * For explicit retries, pass `forceRetry: true` to bypass deduplication
+   * (uses a timestamp-suffixed jobId so it always creates a new job).
    *
    * @param captureId   UUID of the capture to process
    * @param pipelineName  Pipeline to use (default: 'default')
+   * @param forceRetry  If true, bypass BullMQ dedup (for explicit retry)
    */
-  async enqueue(captureId: string, pipelineName = 'default'): Promise<void> {
+  async enqueue(captureId: string, pipelineName = 'default', forceRetry = false): Promise<void> {
+    const jobId = forceRetry
+      ? `pipeline_${captureId}_retry_${Date.now()}`
+      : `pipeline_${captureId}`
     await this.queue.add(
       'capture-pipeline',
       { captureId, pipelineName },
-      { jobId: `pipeline:${captureId}` },
+      { jobId },
     )
-    logger.info({ captureId, pipelineName }, '[pipeline] job enqueued')
+    logger.info({ captureId, pipelineName, forceRetry }, '[pipeline] job enqueued')
   }
 
   /**

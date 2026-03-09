@@ -45,7 +45,7 @@ export function truncate(text: string, maxLen = 150): string {
 /**
  * Get relative time (e.g., "2 hours ago")
  */
-export function relativeTime(isoDate: string): string {
+export function relativeTime(isoDate: string | Date): string {
   const date = new Date(isoDate)
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
@@ -75,3 +75,8 @@ export function toTitleCase(str: string): string {
     .replace(/[-_]/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
 }
+
+/**
+ * Alias for relativeTime — used by CaptureCard, CaptureDetail
+ */
+export const formatRelativeTime = relativeTime

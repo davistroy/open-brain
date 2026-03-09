@@ -74,9 +74,9 @@ function CaptureCard({ capture }: { capture: Capture }) {
 
         <p className="text-sm leading-relaxed line-clamp-3">{capture.content}</p>
 
-        {capture.entities.length > 0 && (
+        {(capture.entities ?? []).length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5">
-            {capture.entities.slice(0, 5).map((e) => (
+            {(capture.entities ?? []).slice(0, 5).map((e) => (
               <Link
                 key={e.id}
                 to={`/entities/${e.id}`}
@@ -88,9 +88,9 @@ function CaptureCard({ capture }: { capture: Capture }) {
           </div>
         )}
 
-        {capture.tags.length > 0 && (
+        {(capture.tags ?? []).length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
-            {capture.tags.slice(0, 6).map((t) => (
+            {(capture.tags ?? []).slice(0, 6).map((t) => (
               <span key={t} className="text-xs text-muted-foreground">#{t}</span>
             ))}
           </div>

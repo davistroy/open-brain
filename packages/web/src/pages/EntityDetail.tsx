@@ -65,7 +65,7 @@ function EntityCard({ entity }: { entity: Entity }) {
       <CardContent>
         <div className="grid grid-cols-3 gap-4 text-center">
           <div>
-            <div className="text-2xl font-bold">{entity.mention_count}</div>
+            <div className="text-2xl font-bold">{entity.mention_count ?? entity.capture_count}</div>
             <div className="text-xs text-muted-foreground">mentions</div>
           </div>
           <div>
@@ -106,7 +106,7 @@ function CoOccurrencePanel({ captures }: { captures: Capture[] }) {
   const countMap = new Map<string, { entity: { id: string; name: string; type: string }; count: number }>();
 
   for (const capture of captures) {
-    for (const e of capture.entities) {
+    for (const e of (capture.entities ?? [])) {
       const existing = countMap.get(e.id);
       if (existing) {
         existing.count += 1;
@@ -293,7 +293,13 @@ export default function EntityDetail() {
     setLoadingEntity(true);
     entitiesApi
       .get(id)
-      .then(setEntity)
+      .then((res) => {
+        setEntity(res);
+        if (res.captures) {
+          setCaptures(res.captures);
+          setLoadingCaptures(false);
+        }
+      })
       .catch((e) => setError(e instanceof Error ? e.message : 'Entity not found'))
       .finally(() => setLoadingEntity(false));
 
@@ -301,7 +307,7 @@ export default function EntityDetail() {
     entitiesApi
       .getCaptures(id)
       .then((res) => setCaptures(res.data))
-      .catch(() => setCaptures([]))
+      .catch(() => {/* captures may come from get() instead */})
       .finally(() => setLoadingCaptures(false));
   }, [id]);
 

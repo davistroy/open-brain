@@ -132,7 +132,7 @@ export async function processIngestionJob(
     await embedCaptureQueue.add(
       'embed',
       { captureId },
-      { jobId: `embed:${captureId}` },
+      { jobId: `embed_${captureId}` },
     )
     logger.info({ captureId }, '[ingestion] embed-capture job enqueued')
   } catch (err) {
