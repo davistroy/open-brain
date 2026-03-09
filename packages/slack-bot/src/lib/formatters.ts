@@ -7,7 +7,7 @@ import type { SearchResult, CaptureResult, BrainStats, TriggerRecord, TriggerMat
 
 // Date formatting helper
 function formatDate(isoDate: string): string {
-  const date = new Date(isoDate)
+  const date = new Date(isoDate.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'))
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -47,7 +47,7 @@ export function formatSearchResults(
     const pct = `${Math.round(r.score * 100)}%`
     const date = formatDate(r.created_at)
     const topics = r.pre_extracted?.topics?.slice(0, 3).join(', ') || ''
-    const content = truncate(r.content)
+    const content = truncate(r.content ?? '')
 
     let line = `${num}. *[${r.capture_type}]* ${date} — ${pct} match\n`
     line += `> ${content}`
@@ -210,7 +210,7 @@ export function formatEntityDetails(entity: EntityRecord & { captures?: CaptureR
 
   const captureList = (entity.captures ?? []).slice(0, 5).map(c => {
     const date = formatDate(c.created_at)
-    return `• [${c.capture_type}] ${truncate(c.content, 80)} — ${date}`
+    return `• [${c.capture_type}] ${truncate(c.content ?? '', 80)} — ${date}`
   }).join('\n')
 
   return `${header}${aliases}\n*Recent Captures:*\n${captureList || '(none)'}`
@@ -299,7 +299,7 @@ export function formatRecentCaptures(captures: RecentCapture[]): string {
   const header = `:inbox_tray: *Recent Captures*\n\n`
   const lines = captures.map((c, i) => {
     const date = formatDate(c.created_at)
-    return `${i + 1}. [${c.capture_type}] ${truncate(c.content, 80)} — ${date}`
+    return `${i + 1}. [${c.capture_type}] ${truncate(c.content ?? '', 80)} — ${date}`
   })
 
   return header + lines.join('\n')
