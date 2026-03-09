@@ -33,7 +33,7 @@ services:
     image: redis:7-alpine
     container_name: open-brain-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -61,7 +61,7 @@ services:
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - ./config:/app/config:ro
     depends_on:
