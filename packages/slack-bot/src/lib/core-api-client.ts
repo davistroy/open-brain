@@ -321,19 +321,20 @@ export class CoreApiClient {
   async entities_list(params?: { limit?: number }): Promise<{ total: number; entities: EntityRecord[] }> {
     const query = params?.limit ? `?limit=${params.limit}` : ''
     // API returns { items, total, limit, offset } — map items → entities
-    // API uses mention_count; map to capture_count for formatter compatibility
-    type RawEntity = Omit<EntityRecord, 'capture_count'> & { mention_count: number }
+    // API uses mention_count (not capture_count) and entity_type (not type)
+    type RawEntity = Omit<EntityRecord, 'capture_count' | 'type'> & { mention_count: number; entity_type: string }
     const raw = await this.request<{ total: number; items: RawEntity[] }>(`/api/v1/entities${query}`)
-    const entities = (raw.items ?? []).map(e => ({ ...e, capture_count: e.mention_count }))
+    const entities = (raw.items ?? []).map(e => ({ ...e, capture_count: e.mention_count, type: e.entity_type }))
     return { total: raw.total, entities }
   }
 
   async entities_search(name: string): Promise<{ total: number; entities: EntityRecord[] }> {
     // API uses ?name= param; returns { entity } (single) or 404
+    // API uses mention_count (not capture_count) and entity_type (not type)
     try {
-      type RawEntity = Omit<EntityRecord, 'capture_count'> & { mention_count: number }
+      type RawEntity = Omit<EntityRecord, 'capture_count' | 'type'> & { mention_count: number; entity_type: string }
       const raw = await this.request<{ entity: RawEntity }>(`/api/v1/entities?name=${encodeURIComponent(name)}`)
-      const entity = { ...raw.entity, capture_count: raw.entity.mention_count }
+      const entity = { ...raw.entity, capture_count: raw.entity.mention_count, type: raw.entity.entity_type }
       return { total: 1, entities: [entity] }
     } catch (err) {
       // 404 = entity not found — return empty list so callers can show "no match" message
@@ -345,7 +346,10 @@ export class CoreApiClient {
   }
 
   async entities_get(id: string): Promise<EntityRecord & { captures: CaptureResult[] }> {
-    return this.request<EntityRecord & { captures: CaptureResult[] }>(`/api/v1/entities/${id}`)
+    // API uses entity_type (not type) — map for formatter compatibility
+    type RawResult = Omit<EntityRecord, 'type'> & { entity_type: string; captures: CaptureResult[] }
+    const raw = await this.request<RawResult>(`/api/v1/entities/${id}`)
+    return { ...raw, type: raw.entity_type }
   }
 
   async entities_merge(sourceId: string, targetId: string): Promise<EntityMergeResult> {
