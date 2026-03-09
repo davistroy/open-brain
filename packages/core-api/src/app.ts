@@ -16,6 +16,7 @@ import { registerBetRoutes } from './routes/bets.js'
 import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEventsRoutes } from './routes/events.js'
 import { registerDocumentRoutes } from './routes/documents.js'
+import { registerSynthesizeRoutes } from './routes/synthesize.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -25,6 +26,7 @@ import type { EntityService } from './services/entity.js'
 import type { BetService } from './services/bet.js'
 import type { SessionService } from './services/session.js'
 import type { GovernanceEngine } from './services/governance-engine.js'
+import type { LLMGatewayService } from './services/llm-gateway.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -49,11 +51,13 @@ interface AppDependencies {
   governanceEngine?: GovernanceEngine
   /** Document pipeline queue — required for POST /api/v1/documents upload endpoint */
   documentPipelineQueue?: Queue
+  /** LLM Gateway — required for POST /api/v1/synthesize */
+  llmGateway?: LLMGatewayService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway } = deps
 
   // Global middleware
   app.use('*', honoLogger())
@@ -77,6 +81,11 @@ export function createApp(deps: AppDependencies = {}): Hono {
 
   if (searchService) {
     registerSearchRoutes(app, searchService)
+  }
+
+  // Synthesize API
+  if (searchService && llmGateway) {
+    registerSynthesizeRoutes(app, searchService, llmGateway)
   }
 
   // Skills API
