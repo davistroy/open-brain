@@ -1,5 +1,51 @@
 # Open Brain — AI Assistant Context
 
+## Operational Rules — Learning Capture
+
+**These rules apply in every session. Do not skip them.**
+
+### When a bug, failure, or deployment issue is diagnosed and fixed
+
+After any non-trivial finding during deployment, testing, or debugging:
+
+1. **Update `CLAUDE.md`** (this file) — add or update a bullet in the relevant section with the operational rule. This is the always-loaded, always-enforced file.
+2. **Update the memory file** — write a detailed entry in `C:\Users\Troy Davis\.claude\projects\C--Users-Troy-Davis-dev-personal-open-brain\memory\` in the appropriate topic file. Include the root cause, the fix, and what to watch for.
+3. **Update `MEMORY.md`** — add a concise bullet + link to the topic file so it survives context compaction.
+
+### What counts as a "non-trivial finding"
+
+- Any container startup failure, crash, or silent failure with a non-obvious root cause
+- Any Docker Compose or networking quirk (port conflicts, healthcheck failures, bridge behavior)
+- Any LiteLLM/embedding/pipeline behavior surprise (retry logic, vector dimensions, queue wiring)
+- Any Slack bot routing behavior (intent classification, @mention vs plain message handling)
+- Any fix that took more than one attempt to get right
+
+### Learning file locations
+
+| File | Purpose | When to write |
+|------|---------|---------------|
+| `CLAUDE.md` (this file) | Operational rules, always enforced | Every session with new learnings |
+| `memory/MEMORY.md` | Concise index, survives compaction | After each new topic file entry |
+| `memory/deployment-learnings.md` | Docker, infra, container startup issues | Any deployment/container finding |
+| `memory/pipeline-learnings.md` | BullMQ pipeline behavior, retry, job wiring | Pipeline/worker findings |
+| `memory/embedding-learnings.md` | Vector dimensions, LiteLLM embedding quirks | Embedding/search findings |
+| `memory/integration-test-findings.md` | Bug patterns from full e2e runs | Test/run bugs |
+
+### Verified operational rules (do not repeat these mistakes)
+
+- **Healthchecks must use `127.0.0.1`, not `localhost`** — Alpine Linux resolves `localhost` to `::1` (IPv6); `wget` cannot connect to IPv6 and healthchecks fail silently. Affects core-api, voice-capture, and web containers.
+- **Docker Compose `ports` lists are appended, not replaced in override files** — `docker-compose.override.yml` with a different port mapping adds a second binding, not a replacement. Set correct ports directly in `docker-compose.yml`.
+- **voice-capture entry point is `dist/server.js`, not `dist/index.js`** — the package builds from `server.ts`. Dockerfile CMD must be `node packages/voice-capture/dist/server.js`.
+- **`postgresql.conf` must set `listen_addresses = '*'`** — without it, Postgres defaults to `localhost` only and blocks all container-to-container connections.
+- **Matryoshka truncation check must use `< 768`, not `!== 768`** — the embedding service slices `raw.slice(0, 768)`. A `!== 768` guard would reject the full 2560-dim vector before slicing.
+- **LiteLLM MCP server names cannot contain `-`** — use `_` instead (e.g., `open_brain` not `open-brain`). Hyphens cause a startup validation exception.
+- **LiteLLM MCP transport must be `http`, not `streamable_http`** — v1.81 accepts only `http`, `sse`, or `stdio`. `streamable_http` causes a Pydantic validation error and crashes startup.
+- **`/health` is Docker-internal only** — nginx does not proxy `/health` externally. Use `/api/v1/captures?limit=1` for external health checks and tunnel verification.
+- **Slack `app_mention` events always route to `handleQuery`** — do not document @mention as a way to trigger captures or commands. Captures and `!commands` require plain channel messages routed through IntentRouter.
+- **`SLACK_SIGNING_SECRET` is not needed for Socket Mode** — signing secrets are for HTTP webhook verification only. Socket Mode only needs `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`.
+
+---
+
 ## What This Is
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
