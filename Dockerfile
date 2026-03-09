@@ -92,4 +92,4 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/voice-capture/dist ./packages/voice-capture/dist
 ENV NODE_ENV=production
 EXPOSE 3001
-CMD ["node", "packages/voice-capture/dist/index.js"]
+CMD ["node", "packages/voice-capture/dist/server.js"]
