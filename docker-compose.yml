@@ -14,7 +14,7 @@ services:
     environment:
       POSTGRES_DB: openbrain
       POSTGRES_USER: openbrain
-      POSTGRES_PASSWORD: openbrain_dev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openbrain_dev}
     ports:
       - "5432:5432"
     volumes:
@@ -127,7 +127,7 @@ services:
     restart: unless-stopped
 
   faster-whisper:
-    image: fedirz/faster-whisper-server:0.4.1
+    image: fedirz/faster-whisper-server:0.5.0-cpu
     container_name: open-brain-faster-whisper
     environment:
       WHISPER__MODEL: large-v3
