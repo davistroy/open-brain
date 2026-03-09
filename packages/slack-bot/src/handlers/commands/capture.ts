@@ -16,7 +16,7 @@ export async function handleStats(ts: string, say: SayFn, client: CoreApiClient)
 export async function handleRecent(ts: string, say: SayFn, client: CoreApiClient, limit: number): Promise<void> {
   try {
     const result = await client.captures_list({ limit })
-    await say({ text: formatRecentCaptures(result.captures, limit), thread_ts: ts })
+    await say({ text: formatRecentCaptures(result.captures), thread_ts: ts })
   } catch (err) {
     logger.error({ err }, 'handleCommand: captures_list failed')
     await say({ text: formatError('Could not retrieve recent captures', err), thread_ts: ts })
