@@ -41,27 +41,41 @@ function makeCaptureResult() {
 }
 
 function makeSearchResponse() {
+  // API returns nested { capture: {...}, score, ftsScore, vectorScore } format.
+  // search_query() maps this to the flat SearchResult interface.
   return {
     query: 'QSR pricing',
     total: 2,
     results: [
       {
-        id: 'cap-1',
-        content: 'Tiered pricing decision for QSR',
-        capture_type: 'decision',
-        brain_view: 'work-internal',
-        source: 'slack',
+        capture: {
+          id: 'cap-1',
+          content: 'Tiered pricing decision for QSR',
+          capture_type: 'decision',
+          brain_view: 'work-internal',
+          source: 'slack',
+          pipeline_status: 'embedded',
+          tags: [],
+          created_at: '2026-03-01T09:00:00Z',
+        },
         score: 0.92,
-        created_at: '2026-03-01T09:00:00Z',
+        ftsScore: 0.5,
+        vectorScore: 0.92,
       },
       {
-        id: 'cap-2',
-        content: 'QSR pricing analysis notes',
-        capture_type: 'observation',
-        brain_view: 'work-internal',
-        source: 'api',
+        capture: {
+          id: 'cap-2',
+          content: 'QSR pricing analysis notes',
+          capture_type: 'observation',
+          brain_view: 'work-internal',
+          source: 'api',
+          pipeline_status: 'embedded',
+          tags: [],
+          created_at: '2026-02-28T15:30:00Z',
+        },
         score: 0.78,
-        created_at: '2026-02-28T15:30:00Z',
+        ftsScore: 0.3,
+        vectorScore: 0.78,
       },
     ],
   }

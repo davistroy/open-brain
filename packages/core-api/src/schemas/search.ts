@@ -16,7 +16,7 @@ export const searchSchema = z.object({
   brain_views: z.array(z.string()).optional(),
   start_date: z.string().datetime().optional(),
   end_date: z.string().datetime().optional(),
-  temporal_weight: z.number().min(0).max(1).default(0.0),
+  temporal_weight: z.number().min(0).max(1).default(0.1),
   search_mode: z.enum(SEARCH_MODES).default('hybrid'),
   fts_weight: z.number().min(0).max(1).default(0.5),
   vector_weight: z.number().min(0).max(1).default(0.5),
