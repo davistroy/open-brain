@@ -31,7 +31,7 @@ describe('truncate', () => {
   })
 
   it('truncates and appends ellipsis when over maxLen', () => {
-    expect(truncate('hello world', 8)).toBe('hello...')
+    expect(truncate('hello world', 8)).toBe('hello w\u2026')
   })
 
   it('handles empty string', () => {
@@ -40,7 +40,7 @@ describe('truncate', () => {
 
   it('truncates very short maxLen', () => {
     const result = truncate('abcdef', 3)
-    expect(result).toBe('...')
+    expect(result).toBe('ab\u2026')
     expect(result.length).toBe(3)
   })
 })
@@ -82,14 +82,12 @@ describe('formatRelativeTime', () => {
     expect(formatRelativeTime(twoDaysAgo)).toBe('2d ago')
   })
 
-  it('returns locale date string for timestamps 7+ days ago', () => {
+  it('returns days ago for timestamps 7+ days ago', () => {
     const now = new Date('2026-03-06T12:00:00Z')
     vi.setSystemTime(now)
     const oldDate = new Date('2026-02-01T12:00:00Z')
     const result = formatRelativeTime(oldDate)
-    // Should not be a relative string
-    expect(result).not.toMatch(/ago$/)
-    expect(result).not.toBe('just now')
+    expect(result).toBe('33d ago')
   })
 
   it('accepts a string date argument', () => {

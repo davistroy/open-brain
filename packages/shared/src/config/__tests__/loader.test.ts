@@ -34,7 +34,7 @@ models:
   synthesis: synthesis
   governance: governance
   intent: intent
-  embedding: jetson-embeddings
+  embedding: spark-qwen3-embedding-4b
 monthly_budget:
   soft_limit_usd: 30
   hard_limit_usd: 50

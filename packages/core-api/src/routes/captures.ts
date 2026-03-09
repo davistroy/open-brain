@@ -114,7 +114,7 @@ export function registerCaptureRoutes(
     // Parse optional ?stage= query param (reserved for future per-stage retry)
     const stage = c.req.query('stage')
 
-    await pipelineService.enqueue(id)
+    await pipelineService.enqueue(id, 'default', true)
 
     return c.json({
       id: capture.id,

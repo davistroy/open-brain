@@ -264,12 +264,15 @@ export async function processExtractEntitiesJob(
     const prompt = readFileSync(templatePath, 'utf8').replaceAll('{{content}}', capture.content)
 
     // ── Call LiteLLM synthesis alias ─────────────────────────────────────────
+    // Disable thinking/reasoning mode for structured JSON output (Qwen3.5 etc.)
     const response = await litellmClient.chat.completions.create({
       model: synthesisModel,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_tokens: 1024,
-    })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      extra_body: { chat_template_kwargs: { enable_thinking: false } },
+    } as any)
 
     const rawText = response.choices[0]?.message?.content ?? ''
     logger.debug({ captureId, rawText }, '[extract-entities] LLM response received')

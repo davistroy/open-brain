@@ -304,12 +304,15 @@ export class WeeklyBriefSkill {
 
     logger.debug({ modelAlias, promptLength: prompt.length }, '[weekly-brief] calling LLM')
 
+    // Disable thinking/reasoning mode for structured JSON output (Qwen3.5 etc.)
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
       max_tokens: 2048,
-    })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      extra_body: { chat_template_kwargs: { enable_thinking: false } },
+    } as any)
 
     const text = response.choices[0]?.message?.content ?? ''
     const usage = response.usage

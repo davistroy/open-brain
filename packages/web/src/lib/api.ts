@@ -86,17 +86,23 @@ export const entitiesApi = {
     return request<Entity & { captures: Capture[] }>(`/entities/${id}`)
   },
 
-  merge: (sourceIds: string[], targetName: string) => {
+  getCaptures: (id: string) => {
+    return request<{ data: Capture[] }>(`/entities/${id}/captures`)
+  },
+
+  merge: (sourceIds: string | string[], targetName: string) => {
+    const ids = Array.isArray(sourceIds) ? sourceIds : [sourceIds]
     return request<{ merged_entity_id: string; merged_count: number }>('/entities/merge', {
       method: 'POST',
-      body: JSON.stringify({ source_ids: sourceIds, target_name: targetName }),
+      body: JSON.stringify({ source_ids: ids, target_name: targetName }),
     })
   },
 
-  split: (entityId: string, newNames: string[]) => {
-    return request<{ new_entities: string[] }>(`/entities/${entityId}/split`, {
+  split: (entityId: string, newNames: string | string[]) => {
+    const names = Array.isArray(newNames) ? newNames : [newNames]
+    return request<Entity>(`/entities/${entityId}/split`, {
       method: 'POST',
-      body: JSON.stringify({ new_names: newNames }),
+      body: JSON.stringify({ new_names: names }),
     })
   },
 }
@@ -105,7 +111,7 @@ export const entitiesApi = {
 
 export const skillsApi = {
   list: () => {
-    return request<Skill[]>('/skills')
+    return request<{ data: Skill[] }>('/skills')
   },
 
   run: (skillName: string, params?: Record<string, unknown>) => {
@@ -115,8 +121,19 @@ export const skillsApi = {
     })
   },
 
+  trigger: (skillName: string) => {
+    return request<{ job_id: string }>(`/skills/${skillName}/run`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+  },
+
   logs: (skillName: string) => {
     return request<SkillLog[]>(`/skills/${skillName}/logs`)
+  },
+
+  getLogs: (skillName: string) => {
+    return request<{ data: SkillLog[] }>(`/skills/${skillName}/logs`)
   },
 
   latestBrief: () => {
@@ -128,17 +145,30 @@ export const skillsApi = {
 
 export const triggersApi = {
   list: () => {
-    return request<Trigger[]>('/triggers')
+    return request<{ data: Trigger[] }>('/triggers')
   },
 
   get: (id: string) => {
     return request<Trigger>(`/triggers/${id}`)
   },
 
+  create: (name: string, queryText: string) => {
+    return request<Trigger>('/triggers', {
+      method: 'POST',
+      body: JSON.stringify({ name, query_text: queryText }),
+    })
+  },
+
   toggle: (id: string, enabled: boolean) => {
     return request<Trigger>(`/triggers/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ enabled }),
+    })
+  },
+
+  delete: (id: string) => {
+    return request<void>(`/triggers/${id}`, {
+      method: 'DELETE',
     })
   },
 }

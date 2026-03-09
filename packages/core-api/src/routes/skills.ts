@@ -147,7 +147,7 @@ export function registerSkillRoutes(
       {
         // Manual triggers run at slightly higher priority than scheduled runs
         priority: 2,
-        jobId: `manual:${name}:${Date.now()}`,
+        jobId: `manual_${name}_${Date.now()}`,
       },
     )
 

@@ -53,11 +53,12 @@ function StringList({ items, label }: { items?: string[]; label: string }) {
 
 function BriefCard({ log }: { log: SkillLog }) {
   const [expanded, setExpanded] = useState(false);
-  const brief = log.result ? parseBriefResult(log.result) : null;
+  const brief = log.result ? parseBriefResult(log.result as Record<string, unknown>) : null;
   const runDate = new Date(log.started_at).toLocaleDateString('en-US', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
   });
-  const durationSec = log.duration_ms ? (log.duration_ms / 1000).toFixed(1) : null;
+  const durationMs = log.duration_ms ?? (log.completed_at && log.started_at ? new Date(log.completed_at).getTime() - new Date(log.started_at).getTime() : undefined);
+  const durationSec = durationMs ? (durationMs / 1000).toFixed(1) : null;
 
   return (
     <div className="rounded-lg border bg-card">
@@ -70,7 +71,7 @@ function BriefCard({ log }: { log: SkillLog }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm font-medium">{runDate}</span>
-            <Badge variant={log.status === 'success' ? 'default' : 'destructive'} className="text-xs">
+            <Badge variant={(log.status === 'success' || log.status === 'completed') ? 'default' : 'destructive'} className="text-xs">
               {log.status}
             </Badge>
             {durationSec && (
@@ -135,9 +136,11 @@ export default function Briefs() {
         skillsApi.list(),
         skillsApi.getLogs(BRIEF_SKILL),
       ]);
-      const found = skillsRes.data.find((s) => s.name === BRIEF_SKILL) ?? null;
+      const skillsList = skillsRes.data ?? skillsRes;
+      const found = (skillsList as Skill[]).find((s: Skill) => s.name === BRIEF_SKILL) ?? null;
       setSkill(found);
-      setLogs(logsRes.data);
+      const logsList = logsRes.data ?? logsRes;
+      setLogs(logsList as SkillLog[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load briefs');
     } finally {
@@ -169,9 +172,9 @@ export default function Briefs() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Weekly Briefs</h1>
-          {skill?.next_run_at && (
+          {(skill?.next_run_at ?? skill?.next_run) && (
             <p className="text-sm text-muted-foreground mt-0.5">
-              Next scheduled: {new Date(skill.next_run_at).toLocaleString()}
+              Next scheduled: {new Date((skill!.next_run_at ?? skill!.next_run)!).toLocaleString()}
             </p>
           )}
         </div>
@@ -204,11 +207,11 @@ export default function Briefs() {
       {skill && (
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           <span>Schedule: <span className="font-mono text-foreground">{skill.schedule}</span></span>
-          {skill.last_run_at && (
+          {(skill.last_run_at ?? skill.last_run) && (
             <>
               <span>|</span>
               <span>
-                Last run: {new Date(skill.last_run_at).toLocaleString()}
+                Last run: {new Date((skill.last_run_at ?? skill.last_run)!).toLocaleString()}
                 {skill.last_run_status && (
                   <Badge
                     variant={skill.last_run_status === 'success' ? 'default' : 'destructive'}

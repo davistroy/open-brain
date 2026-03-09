@@ -11,7 +11,7 @@ The Open Brain project has completed all 16 implementation phases (~11,100 lines
 Before testing, ensure:
 
 - [ ] Bitwarden secrets loaded: `source ./scripts/load-secrets.sh`
-- [ ] LiteLLM proxy running at `https://llm.k4jda.net` with `jetson-embeddings` alias working
+- [ ] LiteLLM proxy running at `https://llm.k4jda.net` with `spark-qwen3-embedding-4b` alias working
 - [ ] Database migrations applied: `./scripts/migrate.sh`
 - [ ] All containers started: `docker compose up -d`
 - [ ] Wait 30-60 seconds for services to initialize
@@ -30,7 +30,7 @@ docker compose ps
 ```bash
 # Core API
 curl http://localhost:3000/health
-# Expected: {"status":"ok","services":{"database":"connected","redis":"connected"}}
+# Expected: {"status":"healthy","services":{"postgres":{"status":"healthy"},"redis":{"status":"healthy"},"litellm":{"status":"healthy"}}}
 
 # Voice Capture
 curl http://localhost:3001/health
@@ -54,8 +54,8 @@ open http://localhost:3000/admin/queues
 curl -X POST https://llm.k4jda.net/embeddings \
   -H "Authorization: Bearer $LITELLM_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model":"jetson-embeddings","input":"test embedding"}'
-# Expected: 768-dimensional embedding vector
+  -d '{"model":"spark-qwen3-embedding-4b","input":"test embedding"}'
+# Expected: 2560-dimensional embedding vector (Matryoshka-truncated to 768d in the application)
 ```
 
 ---
@@ -69,9 +69,9 @@ curl -X POST http://localhost:3000/api/v1/captures \
   -H "Content-Type: application/json" \
   -d '{
     "content": "Testing API capture: Decided to use Drizzle ORM instead of Prisma for better TypeScript integration",
-    "type": "decision",
+    "capture_type": "decision",
     "brain_view": "technical",
-    "source": "api-test"
+    "source": "api"
   }'
 # Expected: 201 Created with capture ID
 # Save the ID: export CAPTURE_ID=<returned-id>
@@ -92,7 +92,7 @@ Create one capture of each type:
 | `observation` | "LiteLLM latency averaging 200ms" |
 | `task` | "Need to set up weekly brief email template" |
 | `win` | "Successfully completed all 16 implementation phases" |
-| `blocker` | "Waiting on Jetson device for embedding service" |
+| `blocker` | "Waiting on LiteLLM spark embedding service to come back online" |
 | `question` | "Should we add OAuth for MCP endpoint?" |
 | `reflection` | "Building this system helped clarify my workflow patterns" |
 
@@ -113,17 +113,19 @@ Create captures for each view:
 ### 3.1 Monitor Pipeline Status
 After creating captures, verify pipeline processing:
 ```bash
-# Check capture moved to 'complete' status
+# Check capture pipeline_status
 curl http://localhost:3000/api/v1/captures/$CAPTURE_ID | jq '.pipeline_status'
-# Expected: "complete" (may take 10-30 seconds)
+# Expected status flow: pending → processing → extracted → embedded
+# Final healthy state: "embedded" (may take 10-30 seconds depending on LiteLLM latency)
 
-# If status is 'pending' or 'processing', wait and retry
+# If stuck at 'pending' or 'processing' after 60s, check worker logs:
+# docker logs open-brain-workers
 ```
 
 ### 3.2 Verify Embedding Generated
 ```bash
 curl http://localhost:3000/api/v1/captures/$CAPTURE_ID | jq '.embedding | length'
-# Expected: 768 (vector dimension)
+# Expected: 768 (stored after Matryoshka truncation from model's 2560-dim output)
 ```
 
 ### 3.3 Check Pipeline Events (Audit Trail)
@@ -153,19 +155,31 @@ curl -X POST http://localhost:3000/api/v1/search \
 ```bash
 curl -X POST http://localhost:3000/api/v1/search \
   -H "Content-Type: application/json" \
-  -d '{"query": "goals", "brain_view": "career"}'
+  -d '{"query": "goals", "brain_views": ["career"]}'
 # Expected: Only career-related captures
 ```
 
 ### 4.3 Filtered Search (by type)
 ```bash
-curl -X POST http://localhost:3000/api/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "goals", "type": "decision"}'
+# Use GET with query params for capture_type filtering
+curl "http://localhost:3000/api/v1/search?q=goals&capture_type=decision"
 # Expected: Only decision-type captures
 ```
 
-### 4.4 Search via Web Dashboard
+### 4.4 FTS-Only Search (embedding-bypass mode)
+```bash
+# Use search_mode=fts for full-text search that bypasses embedding service
+# Useful when LiteLLM is down or for fast keyword lookups
+curl "http://localhost:3000/api/v1/search?q=database&search_mode=fts"
+# Expected: Results in <50ms, searches all captures including those not yet embedded
+
+# Also works in POST body:
+curl -X POST http://localhost:3000/api/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "database", "search_mode": "fts"}'
+```
+
+### 4.5 Search via Web Dashboard
 1. Open http://localhost:5173
 2. Use search box to query "implementation phases"
 3. Verify results display with match percentages
@@ -293,7 +307,7 @@ curl -X POST http://localhost:3000/api/v1/entities/merge \
 
 ### 9.1 Manual Weekly Brief Generation
 ```bash
-curl -X POST http://localhost:3000/api/v1/skills/weekly-brief/execute
+curl -X POST http://localhost:3000/api/v1/skills/weekly-brief/trigger
 # Expected: 202 Accepted, brief generation queued
 ```
 
@@ -313,7 +327,7 @@ curl http://localhost:3000/api/v1/briefs?limit=1
 # Start a governance session
 curl -X POST http://localhost:3000/api/v1/sessions \
   -H "Content-Type: application/json" \
-  -d '{"type": "governance", "brain_view": "career"}'
+  -d '{"type": "governance", "config": {"focus_brain_views": ["career"]}}'
 # Expected: Session created with initial LLM message
 ```
 
@@ -328,9 +342,9 @@ curl http://localhost:3000/api/v1/bets
 curl -X POST http://localhost:3000/api/v1/bets \
   -H "Content-Type: application/json" \
   -d '{
-    "description": "Complete user testing by end of March 2026",
-    "due_date": "2026-03-31",
-    "brain_view": "career"
+    "statement": "Complete user testing by end of March 2026",
+    "confidence": 0.8,
+    "due_date": "2026-03-31"
   }'
 ```
 
@@ -340,9 +354,13 @@ curl -X POST http://localhost:3000/api/v1/bets \
 
 ### 10.1 MCP Health Check
 ```bash
-curl http://localhost:3000/mcp \
-  -H "Authorization: Bearer $MCP_BEARER_TOKEN"
-# Expected: MCP protocol response
+# NOTE: MCP Streamable HTTP requires Accept header with both content types
+curl -X POST http://localhost:3000/mcp \
+  -H "Authorization: Bearer $MCP_BEARER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
+# Expected: SSE response with MCP initialize result
 ```
 
 ### 10.2 Claude Desktop Integration
@@ -415,13 +433,13 @@ curl -X POST http://localhost:3000/api/v1/admin/test-email
 # Empty content
 curl -X POST http://localhost:3000/api/v1/captures \
   -H "Content-Type: application/json" \
-  -d '{"content": "", "type": "decision"}'
+  -d '{"content": "", "capture_type": "decision"}'
 # Expected: 400 Bad Request
 
 # Invalid type
 curl -X POST http://localhost:3000/api/v1/captures \
   -H "Content-Type: application/json" \
-  -d '{"content": "test", "type": "invalid-type"}'
+  -d '{"content": "test", "capture_type": "invalid-type"}'
 # Expected: 400 Bad Request
 ```
 
@@ -452,7 +470,7 @@ time curl -X POST http://localhost:3000/api/v1/search \
 ```bash
 time curl -X POST http://localhost:3000/api/v1/captures \
   -H "Content-Type: application/json" \
-  -d '{"content": "latency test", "type": "observation"}'
+  -d '{"content": "latency test", "capture_type": "observation"}'
 # Expected: <1 second for API response (pipeline runs async)
 ```
 
@@ -494,19 +512,26 @@ This automates basic health + capture + search + pipeline verification.
 
 ### Common Issues
 
-1. **Pipeline stuck in 'pending'**
-   - Check LiteLLM connectivity
-   - Review worker logs: `docker logs workers`
-   - Check Bull Board for failed jobs
+1. **Pipeline stuck in 'pending' or 'embedded' (never reaching next stage)**
+   - Check LiteLLM connectivity: `curl -s http://localhost:3000/health | jq '.services.litellm'`
+   - Review worker logs: `docker logs open-brain-workers`
+   - Check Bull Board for failed jobs at http://localhost:3000/admin/queues
+   - Manually retry: `curl -X POST http://localhost:3000/api/v1/captures/$ID/retry`
 
-2. **Slack bot not responding**
-   - Verify socket mode connected: `docker logs slack-bot`
+2. **LiteLLM embedding service unavailable**
+   - Captures queue up with patient retry backoff (30s, 2m, 10m, 30m, 2h) — no data lost
+   - Use FTS search as a workaround: `GET /api/v1/search?q=...&search_mode=fts`
+   - When LiteLLM recovers, retry all pending: query for `pipeline_status=pending` and POST `/retry` for each
+
+3. **Slack bot not responding**
+   - Verify socket mode connected: `docker logs open-brain-slack-bot`
    - Check Slack app permissions
 
-3. **Search returns no results**
-   - Ensure captures have `pipeline_status: complete`
-   - Verify embeddings generated (768-dim vector present)
+4. **Search returns no results**
+   - Ensure captures have `pipeline_status: embedded` (the final successful state)
+   - For keyword search before embedding completes, use `?search_mode=fts`
+   - Verify embeddings generated (768-dim vector present in capture response)
 
-4. **Voice capture fails**
-   - Check faster-whisper logs: `docker logs faster-whisper`
+5. **Voice capture fails**
+   - Check faster-whisper logs: `docker logs open-brain-faster-whisper`
    - Verify audio format compatibility (m4a, wav, mp3)

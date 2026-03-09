@@ -52,8 +52,12 @@ async function checkRedis(url: string): Promise<ServiceCheck> {
 
 async function checkLiteLLM(baseUrl: string): Promise<ServiceCheck> {
   const start = Date.now()
+  const apiKey = process.env.LITELLM_API_KEY
   try {
-    const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(3000) })
+    // Use /v1/models — virtual keys can only access LLM API routes, not /health
+    const headers: Record<string, string> = {}
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
+    const res = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(3000), headers })
     if (res.ok) {
       return { status: 'healthy', latency_ms: Date.now() - start }
     }

@@ -55,21 +55,35 @@ export class CaptureService {
     const metadata = input.metadata ?? {}
     const capturedAt = metadata.captured_at ? new Date(metadata.captured_at) : new Date()
 
-    const [created] = await this.db
-      .insert(captures)
-      .values({
-        content: input.content,
-        content_hash: hash,
-        capture_type: input.capture_type,
-        brain_view: input.brain_view,
-        source: input.source,
-        source_metadata: metadata.source_metadata ?? null,
-        tags: metadata.tags ?? [],
-        pipeline_status: 'pending',
-        pre_extracted: metadata.pre_extracted ?? null,
-        captured_at: capturedAt,
-      })
-      .returning()
+    let created: typeof captures.$inferSelect
+    try {
+      const [row] = await this.db
+        .insert(captures)
+        .values({
+          content: input.content,
+          content_hash: hash,
+          capture_type: input.capture_type,
+          brain_view: input.brain_view,
+          source: input.source,
+          source_metadata: metadata.source_metadata ?? null,
+          tags: metadata.tags ?? [],
+          pipeline_status: 'pending',
+          pre_extracted: metadata.pre_extracted ?? null,
+          captured_at: capturedAt,
+        })
+        .returning()
+      created = row
+    } catch (err: unknown) {
+      // Handle DB-level unique constraint violation on content_hash
+      // Drizzle wraps pg errors — check message and cause chain
+      const errStr = err instanceof Error ? err.message : String(err)
+      const causeStr = err instanceof Error && err.cause instanceof Error ? err.cause.message : ''
+      if (errStr.includes('content_hash') || causeStr.includes('content_hash') ||
+          errStr.includes('23505') || causeStr.includes('23505')) {
+        throw new ConflictError('Duplicate capture: content already exists')
+      }
+      throw err
+    }
 
     // Auto-enqueue pipeline job after successful insert
     if (this.pipelineService) {
