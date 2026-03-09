@@ -12,7 +12,7 @@ const csvToArray = z
 const searchQuerySchema = z.object({
   q: z.string().min(1, 'Query string is required'),
   limit: z.coerce.number().int().min(1).max(50).default(10),
-  temporal_weight: z.coerce.number().min(0).max(1).default(0.0),
+  temporal_weight: z.coerce.number().min(0).max(1).default(0.1),
   fts_weight: z.coerce.number().min(0).max(1).default(0.5),
   vector_weight: z.coerce.number().min(0).max(1).default(0.5),
   search_mode: z.enum(['hybrid', 'vector', 'fts']).default('hybrid'),
