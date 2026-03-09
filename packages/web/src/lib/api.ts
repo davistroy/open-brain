@@ -125,8 +125,20 @@ export const entitiesApi = {
 // Skills API
 
 export const skillsApi = {
-  list: () => {
-    return request<{ data: Skill[] }>('/skills')
+  list: async () => {
+    // API returns { skills: [...] } — normalize to { data: Skill[] }
+    type RawSkill = { name: string; schedule: string | null; description: string | null; last_run_at: string | null; last_run_status?: string | null }
+    const raw = await request<{ skills: RawSkill[] }>('/skills')
+    const data: Skill[] = (raw.skills ?? []).map(s => ({
+      id: s.name,
+      name: s.name,
+      description: s.description ?? '',
+      enabled: true,
+      schedule: s.schedule ?? undefined,
+      last_run_at: s.last_run_at ?? undefined,
+      last_run_status: s.last_run_status ?? undefined,
+    }))
+    return { data }
   },
 
   run: (skillName: string, params?: Record<string, unknown>) => {
@@ -137,7 +149,7 @@ export const skillsApi = {
   },
 
   trigger: (skillName: string) => {
-    return request<{ job_id: string }>(`/skills/${skillName}/run`, {
+    return request<{ job_id: string }>(`/skills/${skillName}/trigger`, {
       method: 'POST',
       body: JSON.stringify({}),
     })
