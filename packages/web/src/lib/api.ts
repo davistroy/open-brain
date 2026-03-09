@@ -141,13 +141,6 @@ export const skillsApi = {
     return { data }
   },
 
-  run: (skillName: string, params?: Record<string, unknown>) => {
-    return request<{ job_id: string }>(`/skills/${skillName}/run`, {
-      method: 'POST',
-      body: JSON.stringify(params ?? {}),
-    })
-  },
-
   trigger: (skillName: string) => {
     return request<{ job_id: string }>(`/skills/${skillName}/trigger`, {
       method: 'POST',
