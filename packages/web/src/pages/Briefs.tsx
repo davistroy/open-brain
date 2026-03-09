@@ -6,7 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { skillsApi } from '@/lib/api';
 import type { Skill, SkillLog } from '@/lib/types';
 
-const BRIEF_SKILL = 'weekly_brief';
+const BRIEF_SKILL = 'weekly-brief';
 
 interface BriefContent {
   headline?: string;
