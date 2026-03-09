@@ -92,7 +92,15 @@ services:
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://llm.k4jda.net
       CORE_API_URL: http://core-api:3000
+      OPEN_BRAIN_API_URL: http://core-api:3000
       # LITELLM_API_KEY: set in .env.secrets
+      # PUSHOVER_APP_TOKEN: set in .env.secrets
+      # PUSHOVER_USER_KEY: set in .env.secrets
+      # SMTP_HOST: set in .env.secrets
+      # SMTP_PORT: set in .env.secrets (default 587)
+      # SMTP_USER: set in .env.secrets
+      # SMTP_PASS: set in .env.secrets
+      # SMTP_FROM: set in .env.secrets
     volumes:
       - ./config:/app/config:ro
     depends_on:

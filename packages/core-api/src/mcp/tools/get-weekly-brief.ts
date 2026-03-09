@@ -22,7 +22,7 @@ export async function getWeeklyBriefTool(input: GetWeeklyBriefInput, db: Databas
     if (input.weeks_ago === 0) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await db.execute<any>(
-        sql`SELECT id::text, skill_name, output, created_at FROM skills_log WHERE skill_name = 'weekly-brief' ORDER BY created_at DESC LIMIT 1`,
+        sql`SELECT id::text, skill_name, output_summary AS output, created_at FROM skills_log WHERE skill_name = 'weekly-brief' ORDER BY created_at DESC LIMIT 1`,
       )
       rows = result.rows
     } else {
@@ -30,7 +30,7 @@ export async function getWeeklyBriefTool(input: GetWeeklyBriefInput, db: Databas
       const targetDate = new Date(Date.now() - input.weeks_ago * 7 * 24 * 60 * 60 * 1000)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await db.execute<any>(
-        sql`SELECT id::text, skill_name, output, created_at FROM skills_log WHERE skill_name = 'weekly-brief' AND created_at <= ${targetDate.toISOString()}::timestamptz ORDER BY created_at DESC LIMIT 1`,
+        sql`SELECT id::text, skill_name, output_summary AS output, created_at FROM skills_log WHERE skill_name = 'weekly-brief' AND created_at <= ${targetDate.toISOString()}::timestamptz ORDER BY created_at DESC LIMIT 1`,
       )
       rows = result.rows
     }
