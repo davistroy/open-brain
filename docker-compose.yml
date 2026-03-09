@@ -70,7 +70,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3000/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -138,7 +138,7 @@ services:
     volumes:
       - whisper_model_cache:/root/.cache/huggingface
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -172,7 +172,7 @@ services:
       faster-whisper:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3001/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

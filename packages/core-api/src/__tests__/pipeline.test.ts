@@ -109,7 +109,7 @@ describe('PipelineService', () => {
       expect(name).toBe('capture-pipeline')
       expect(data.captureId).toBe('cap-123')
       expect(data.pipelineName).toBe('default')
-      expect(opts.jobId).toBe('pipeline:cap-123')
+      expect(opts.jobId).toBe('pipeline_cap-123')
     })
 
     it('uses custom pipelineName when provided', async () => {
@@ -123,7 +123,7 @@ describe('PipelineService', () => {
       await service.enqueue('cap-789')
 
       const [, , opts] = mockQueue.add.mock.calls[0]
-      expect(opts.jobId).toBe('pipeline:cap-789')
+      expect(opts.jobId).toBe('pipeline_cap-789')
     })
   })
 
@@ -193,7 +193,7 @@ describe('CaptureService with PipelineService', () => {
     expect(mockQueue.add).toHaveBeenCalledOnce()
     const [, data, opts] = mockQueue.add.mock.calls[0]
     expect(data.captureId).toBe('cap-pipeline-1')
-    expect(opts.jobId).toBe('pipeline:cap-pipeline-1')
+    expect(opts.jobId).toBe('pipeline_cap-pipeline-1')
   })
 
   it('does not fail capture creation when pipeline enqueue throws', async () => {
@@ -294,7 +294,7 @@ describe('POST /api/v1/captures/:id/retry', () => {
     const body = await res.json() as Record<string, unknown>
     expect(body.id).toBe('cap-pipeline-1')
     expect(body.retried_at).toBeDefined()
-    expect(pipelineService.enqueue).toHaveBeenCalledWith('cap-pipeline-1')
+    expect(pipelineService.enqueue).toHaveBeenCalledWith('cap-pipeline-1', 'default', true)
   })
 
   it('returns 404 when capture does not exist', async () => {

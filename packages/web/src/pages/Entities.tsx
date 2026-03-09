@@ -57,10 +57,10 @@ function EntityRow({ entity }: { entity: Entity }) {
 
         <div className="text-right shrink-0">
           <div className="text-sm font-semibold text-foreground">
-            {entity.mention_count}
+            {entity.mention_count ?? entity.capture_count}
           </div>
           <div className="text-xs text-muted-foreground">
-            {entity.mention_count === 1 ? 'mention' : 'mentions'}
+            {(entity.mention_count ?? entity.capture_count) === 1 ? 'mention' : 'mentions'}
           </div>
         </div>
 

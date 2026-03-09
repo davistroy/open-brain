@@ -1,8 +1,9 @@
 /**
  * Thread context management for Slack conversations.
- * Stores search state, session IDs, and pagination info per thread.
+ * Stores search state, session IDs, and pagination info per thread in Redis.
  */
 
+import type { Redis } from 'ioredis'
 import type { SearchResult } from './core-api-client.js'
 
 export interface ThreadContext {
@@ -14,66 +15,33 @@ export interface ThreadContext {
   page?: number
   /** Active governance session ID */
   sessionId?: string
-  /** Timestamp of last activity */
-  lastActivity: number
 }
 
-// In-memory store keyed by `channel:thread_ts`
-const store = new Map<string, ThreadContext>()
+const THREAD_CTX_TTL = 3600  // 1 hour in seconds
 
-// Context expiry time (1 hour)
-const CONTEXT_TTL_MS = 60 * 60 * 1000
-
-function makeKey(channel: string, threadTs: string): string {
-  return `${channel}:${threadTs}`
+function makeKey(threadTs: string): string {
+  return `open-brain:thread-ctx:${threadTs}`
 }
 
 /**
- * Get thread context. Returns undefined if not found or expired.
+ * Get thread context from Redis. Returns null if not found or expired.
  */
-export function getThreadContext(channel: string, threadTs: string): ThreadContext | undefined {
-  const key = makeKey(channel, threadTs)
-  const ctx = store.get(key)
-  if (!ctx) return undefined
-
-  // Check expiry
-  if (Date.now() - ctx.lastActivity > CONTEXT_TTL_MS) {
-    store.delete(key)
-    return undefined
-  }
-
-  return ctx
+export async function getThreadContext(redis: Redis, threadTs: string): Promise<ThreadContext | null> {
+  const raw = await redis.get(makeKey(threadTs))
+  if (!raw) return null
+  return JSON.parse(raw) as ThreadContext
 }
 
 /**
- * Set or update thread context.
+ * Set or update thread context in Redis with 1-hour TTL.
  */
-export function setThreadContext(channel: string, threadTs: string, ctx: Partial<ThreadContext>): void {
-  const key = makeKey(channel, threadTs)
-  const existing = store.get(key) ?? { lastActivity: Date.now() }
-  store.set(key, {
-    ...existing,
-    ...ctx,
-    lastActivity: Date.now(),
-  })
+export async function setThreadContext(redis: Redis, threadTs: string, ctx: ThreadContext): Promise<void> {
+  await redis.set(makeKey(threadTs), JSON.stringify(ctx), 'EX', THREAD_CTX_TTL)
 }
 
 /**
- * Clear thread context.
+ * Clear thread context from Redis.
  */
-export function clearThreadContext(channel: string, threadTs: string): void {
-  const key = makeKey(channel, threadTs)
-  store.delete(key)
-}
-
-/**
- * Periodic cleanup of expired contexts (call from scheduler).
- */
-export function cleanupExpiredContexts(): void {
-  const now = Date.now()
-  for (const [key, ctx] of store.entries()) {
-    if (now - ctx.lastActivity > CONTEXT_TTL_MS) {
-      store.delete(key)
-    }
-  }
+export async function clearThreadContext(redis: Redis, threadTs: string): Promise<void> {
+  await redis.del(makeKey(threadTs))
 }

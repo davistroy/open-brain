@@ -282,7 +282,7 @@ export async function processDocumentPipelineJob(
         await embedCaptureQueue.add(
           'embed',
           { captureId: chunkCaptureId },
-          { jobId: `embed:${chunkCaptureId}` },
+          { jobId: `embed_${chunkCaptureId}` },
         )
         embeddedCount++
         logger.debug(

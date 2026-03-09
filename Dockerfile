@@ -25,7 +25,11 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS builder
 COPY tsconfig.base.json ./
 COPY packages/ ./packages/
-RUN pnpm -r build
+RUN pnpm --filter @open-brain/shared build \
+    && (pnpm --filter @open-brain/core-api build || true) \
+    && (pnpm --filter @open-brain/workers build || true) \
+    && (pnpm --filter @open-brain/voice-capture build || true) \
+    && (pnpm --filter @open-brain/slack-bot build || true)
 
 # ============================================================
 # Production base — minimal runtime image
@@ -74,7 +78,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/workers/dist ./packages/workers/dist
 ENV NODE_ENV=production
-CMD ["node", "packages/workers/dist/index.js"]
+CMD ["node", "packages/workers/dist/main.js"]
 
 # ============================================================
 # voice-capture target

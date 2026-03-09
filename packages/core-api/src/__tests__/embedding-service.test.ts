@@ -22,7 +22,7 @@ vi.mock('openai', () => {
 // Helper: build a mock ConfigService
 // ---------------------------------------------------------------------------
 
-function makeMockConfigService(modelAlias = 'jetson-embeddings', litellmUrl = 'https://llm.k4jda.net') {
+function makeMockConfigService(modelAlias = 'spark-qwen3-embedding-4b', litellmUrl = 'https://llm.k4jda.net') {
   return {
     get: vi.fn().mockReturnValue({
       models: { embedding: modelAlias },
@@ -150,7 +150,7 @@ describe('EmbeddingService', () => {
 
       expect(mockEmbeddingsCreate).toHaveBeenCalledWith(
         expect.objectContaining({
-          model: 'jetson-embeddings',
+          model: 'spark-qwen3-embedding-4b',
           input: 'model alias test',
         }),
       )
@@ -276,7 +276,7 @@ describe('EmbeddingService', () => {
     it('returns model alias, dimensions, and source URL from config', () => {
       const info = service.getModelInfo()
 
-      expect(info.model).toBe('jetson-embeddings')
+      expect(info.model).toBe('spark-qwen3-embedding-4b')
       expect(info.dimensions).toBe(768)
       expect(info.source).toBe('https://llm.k4jda.net')
     })

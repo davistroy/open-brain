@@ -20,6 +20,12 @@ const PIPELINE_STAGE_DOT: Record<string, string> = {
 };
 
 export default function CaptureDetail({ capture, similarity, onClose }: CaptureDetailProps) {
+  const tags = capture.tags ?? [];
+  const topics = capture.topics ?? [];
+  const entities = capture.entities ?? [];
+  const pipelineEvents = capture.pipeline_events ?? [];
+  const sourceMetadata = capture.source_metadata ?? {};
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
@@ -59,23 +65,23 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
           </div>
           <div>
             <p className="text-muted-foreground">Updated</p>
-            <p>{formatRelativeTime(capture.updated_at)}</p>
+            <p>{capture.updated_at ? formatRelativeTime(capture.updated_at) : '—'}</p>
           </div>
         </div>
 
         {/* Tags & Topics */}
-        {(capture.tags.length > 0 || capture.topics.length > 0) && (
+        {(tags.length > 0 || topics.length > 0) && (
           <>
             <Separator />
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Tags &amp; Topics</p>
               <div className="flex flex-wrap gap-1">
-                {capture.tags.map((tag) => (
+                {tags.map((tag) => (
                   <Badge key={tag} variant="outline" className="text-xs">
                     #{tag}
                   </Badge>
                 ))}
-                {capture.topics.map((topic) => (
+                {topics.map((topic) => (
                   <Badge key={topic} variant="secondary" className="text-xs">
                     {topic}
                   </Badge>
@@ -86,13 +92,13 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
         )}
 
         {/* Entities */}
-        {capture.entities.length > 0 && (
+        {entities.length > 0 && (
           <>
             <Separator />
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Entities</p>
               <div className="space-y-1">
-                {capture.entities.map((e) => (
+                {entities.map((e) => (
                   <div key={e.id} className="flex items-center gap-2 text-sm">
                     <span className="text-xs text-muted-foreground w-20 shrink-0">{e.type}</span>
                     <span>{e.name}</span>
@@ -104,13 +110,13 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
         )}
 
         {/* Pipeline Events */}
-        {capture.pipeline_events.length > 0 && (
+        {pipelineEvents.length > 0 && (
           <>
             <Separator />
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Pipeline History</p>
               <div className="space-y-2">
-                {capture.pipeline_events.map((ev, i) => (
+                {pipelineEvents.map((ev, i) => (
                   <div key={i} className="flex items-start gap-2 text-xs">
                     <span
                       className={cn(
@@ -143,13 +149,13 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
         )}
 
         {/* Source Metadata */}
-        {Object.keys(capture.source_metadata).length > 0 && (
+        {Object.keys(sourceMetadata).length > 0 && (
           <>
             <Separator />
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Source Metadata</p>
               <pre className="text-[10px] font-mono bg-secondary rounded p-2 overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(capture.source_metadata, null, 2)}
+                {JSON.stringify(sourceMetadata, null, 2)}
               </pre>
             </div>
           </>

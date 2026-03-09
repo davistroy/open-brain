@@ -179,7 +179,7 @@ export function registerDocumentRoutes(
           await documentPipelineQueue.add(
             'document-pipeline',
             { captureId: capture.id },
-            { jobId: `document:${capture.id}` },
+            { jobId: `document_${capture.id}` },
           )
           logger.info(
             { captureId: capture.id, filename: originalFilename, filePath },

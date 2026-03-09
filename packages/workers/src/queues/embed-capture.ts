@@ -10,7 +10,7 @@ export interface EmbedCaptureJobData {
  * attempt 1 → 30s, 2 → 2m, 3 → 10m, 4 → 30m, 5 → 2h
  *
  * Embedding failures are non-recoverable within the job — BullMQ retries
- * with patient backoff until the LiteLLM/Jetson service is available again.
+ * with patient backoff until the LiteLLM service is available again.
  * NO fallback is attempted per architecture decision.
  */
 export const EMBED_BACKOFF_DELAYS_MS = [30_000, 120_000, 600_000, 1_800_000, 7_200_000]

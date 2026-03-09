@@ -33,7 +33,7 @@
 
 This TDD provides implementation-ready technical specifications for Open Brain — a self-hosted personal AI knowledge infrastructure. It covers the complete system: API contracts, database schema (Drizzle ORM), async pipeline architecture, AI routing, Slack bot, MCP server, Docker Compose orchestration, and all supporting services.
 
-The system runs entirely on an Unraid home server, ingests captures from Slack and voice memos, embeds them for semantic search via the external LiteLLM proxy (jetson-embeddings alias → Qwen3-Embedding-4B-Q4_K_M on Jetson), routes all LLM inference through the same external LiteLLM proxy at llm.k4jda.net, and surfaces insights through AI-powered skills (weekly briefs, governance sessions, drift detection). Search uses hybrid retrieval (full-text + vector with Reciprocal Rank Fusion) combined with ACT-R temporal decay scoring.
+The system runs entirely on an Unraid home server, ingests captures from Slack and voice memos, embeds them for semantic search via the external LiteLLM proxy (spark-qwen3-embedding-4b alias → Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d)), routes all LLM inference through the same external LiteLLM proxy at llm.k4jda.net, and surfaces insights through AI-powered skills (weekly briefs, governance sessions, drift detection). Search uses hybrid retrieval (full-text + vector with Reciprocal Rank Fusion) combined with ACT-R temporal decay scoring.
 
 ### 1.2 Scope
 
@@ -63,7 +63,7 @@ The system runs entirely on an Unraid home server, ingests captures from Slack a
 | Production Build | tsup (esbuild) | Zero-config bundler, single .mjs per service, ESM output |
 | Queue | BullMQ + Redis | Mature Node.js job queue, retries, priorities, dashboards |
 | LLM Proxy | LiteLLM | Unified OpenAI-compatible API for all LLM providers, with fallback and budget |
-| Embeddings | Qwen3-Embedding-4B-Q4_K_M via `jetson-embeddings` alias on LiteLLM | Runs on Jetson device, routed through llm.k4jda.net. OpenAI embeddings API. No fallback — queue and retry. Schema: vector(768) |
+| Embeddings | Qwen3-Embedding-4B via `spark-qwen3-embedding-4b` alias on LiteLLM | Routed through llm.k4jda.net. OpenAI embeddings API. Matryoshka 2560d → 768d truncation in the embedding service. No fallback — queue and retry. Schema: vector(768) |
 | Search | Hybrid (FTS + vector + RRF) + ACT-R temporal decay | Best-of-both retrieval with recency/frequency-weighted ranking |
 | Transcription | faster-whisper (large-v3, CPU int8) | Local, accurate, no API cost |
 | Web UI | Vite + React + Tailwind + shadcn/ui | Lightweight SPA, no SSR needed |
@@ -77,7 +77,7 @@ Phase 1A: Data Layer
   F02 Postgres+pgvector → F01 Core API scaffold (CRUD, health, stats)
 
 Phase 1B: Embedding + Search
-  F07 EmbeddingService (via LiteLLM jetson-embeddings) → Search endpoints (hybrid + temporal)
+  F07 EmbeddingService (via LiteLLM spark-qwen3-embedding-4b) → Search endpoints (hybrid + temporal)
 
 Phase 1C: Pipeline + LLM Gateway
   F07a LiteLLM → F08 AI Router → F03 Pipeline (embed + extract_metadata + notify)
@@ -121,7 +121,7 @@ Phase 4: Polish
 | Redis | 7+ | Job queues (BullMQ), thread context cache | Required |
 | Node.js | 22 LTS | Runtime for all TypeScript services | Required |
 | LiteLLM | latest | Unified LLM proxy with routing, fallback, budget | Required |
-| LiteLLM (external) | latest | Embeddings (jetson-embeddings) + all LLM inference — external shared service at llm.k4jda.net | Required |
+| LiteLLM (external) | latest | Embeddings (spark-qwen3-embedding-4b) + all LLM inference — external shared service at llm.k4jda.net | Required |
 | faster-whisper | latest | Local speech-to-text | Required (Phase 2) |
 | Cloudflare Tunnel | latest | External access for brain.k4jda.net | Required (for MCP/slash commands) |
 | Tailscale | existing | Remote access to Unraid services | Required (existing) |
@@ -410,7 +410,7 @@ kept (captures from different sources may have different context even with ident
 | filters.before | string | No | — | Captures before this date |
 
 **Implementation**:
-1. Generate embedding for `query` via LiteLLM (jetson-embeddings alias)
+1. Generate embedding for `query` via LiteLLM (spark-qwen3-embedding-4b alias)
 2. If search_mode = "hybrid": call `match_captures_hybrid()` with query embedding + raw query text
    If search_mode = "vector": call `match_captures()` with query embedding only
    If search_mode = "fts": execute FTS-only query with temporal scoring
@@ -828,7 +828,7 @@ If the answer triggers anti-vagueness enforcement:
 }
 ```
 
-**Implementation**: Generate embedding for `query_text` via LiteLLM (jetson-embeddings alias) at creation time. Store trigger with pre-computed embedding.
+**Implementation**: Generate embedding for `query_text` via LiteLLM (spark-qwen3-embedding-4b alias) at creation time. Store trigger with pre-computed embedding.
 
 ---
 
@@ -887,7 +887,7 @@ If the answer triggers anti-vagueness enforcement:
   "services": {
     "postgres": { "status": "up", "latency_ms": 2 },
     "redis": { "status": "up", "latency_ms": 1 },
-    "litellm": { "status": "up", "latency_ms": 12, "models_available": ["jetson-embeddings", "fast", "synthesis", "governance"] },
+    "litellm": { "status": "up", "latency_ms": 12, "models_available": ["spark-qwen3-embedding-4b", "fast", "synthesis", "governance"] },
     "litellm": { "status": "up", "latency_ms": 5, "models_available": ["fast", "synthesis", "governance"] }
   },
   "uptime_seconds": 86400,
@@ -905,7 +905,7 @@ If the answer triggers anti-vagueness enforcement:
 | PIPELINE_FAILED | 500 | Pipeline processing error | Check pipeline_events, retry via API |
 | SERVICE_UNAVAILABLE | 503 | Downstream service unreachable | Check health endpoint, wait for recovery |
 | AI_BUDGET_EXCEEDED | 429 | Monthly AI budget hard limit reached | Wait for budget reset or adjust limits |
-| EMBEDDING_UNAVAILABLE | 503 | LiteLLM/Jetson embedding unavailable | Embeddings will queue and retry via BullMQ |
+| EMBEDDING_UNAVAILABLE | 503 | LiteLLM embedding unavailable | Embeddings will queue and retry via BullMQ |
 | CONFIG_ERROR | 500 | YAML config parse error | Fix config file syntax |
 
 ---
@@ -1436,7 +1436,7 @@ Switching embedding models (e.g., from nomic-embed-text to Qwen3-Embedding) requ
 ```typescript
 // Migration job: re-embed all captures with new model
 // 1. Query all captures with existing embeddings
-// 2. For each capture: generate new embedding via LiteLLM (jetson-embeddings alias)
+// 2. For each capture: generate new embedding via LiteLLM (spark-qwen3-embedding-4b alias)
 // 3. Batch update in groups of 50
 // Estimated time on CPU:
 //   nomic-embed-text (137M): ~1 capture/sec → 10K captures ≈ 3 hours
@@ -1752,8 +1752,8 @@ class SearchService {
  * EmbeddingService
  *
  * Generates embeddings via LiteLLM (https://llm.k4jda.net) using the OpenAI embeddings API.
- * Model alias: 'jetson-embeddings' → Qwen3-Embedding-4B-Q4_K_M on Jetson device.
- * No fallback — throws EmbeddingUnavailableError if LiteLLM/Jetson is unreachable; BullMQ retries.
+ * Model alias: 'spark-qwen3-embedding-4b' → Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d).
+ * No fallback — throws EmbeddingUnavailableError if LiteLLM is unreachable; BullMQ retries.
  * Uses same LITELLM_URL / LITELLM_API_KEY as AIRouterService (no separate OLLAMA_URL).
  */
 class EmbeddingService {
@@ -1765,7 +1765,7 @@ class EmbeddingService {
   /** Generate 768-dim embedding for text.
    *  Applies Qwen3 instruction prefix for query vs document type if supported. */
   async embed(text: string, type: 'document' | 'query' = 'document'): Promise<number[]>
-    // 1. Read model alias from ai-routing.yaml (embedding.model = 'jetson-embeddings')
+    // 1. Read model alias from ai-routing.yaml (embedding.model = 'spark-qwen3-embedding-4b')
     // 2. If model supports instruction prefixes, prepend appropriate prefix for type
     // 3. Call litellmClient.embeddings.create({ model: alias, input: text })
     // 4. Return embedding vector (Qwen3-Embedding-4B configured for 768d on LiteLLM server)
@@ -1785,7 +1785,7 @@ class EmbeddingService {
  *
  * Thin wrapper that maps task types to LiteLLM model aliases.
  * LiteLLM handles provider routing, fallback, and budget enforcement.
- * Embeddings go through EmbeddingService which also calls LiteLLM (jetson-embeddings alias).
+ * Embeddings go through EmbeddingService which also calls LiteLLM (spark-qwen3-embedding-4b alias).
  */
 class AIRouterService {
   constructor(
@@ -2040,9 +2040,9 @@ function classifyIntent(message: string): 'capture' | 'query' | 'command' {
 
 ### 8.2 Embedding Service (via LiteLLM)
 
-**Purpose**: Embedding generation for all captures, triggers, and search queries. Routes exclusively through external LiteLLM at llm.k4jda.net using the `jetson-embeddings` alias (Qwen3-Embedding-4B-Q4_K_M on Jetson device). LLM inference also routes through LiteLLM — see §8.7.
+**Purpose**: Embedding generation for all captures, triggers, and search queries. Routes exclusively through external LiteLLM at llm.k4jda.net using the `spark-qwen3-embedding-4b` alias. LLM inference also routes through LiteLLM — see §8.7.
 
-**Embedding Model**: `jetson-embeddings` alias on LiteLLM → Qwen3-Embedding-4B-Q4_K_M running on Jetson device. Configured to produce 768d vectors. Supports instruction prefixes for asymmetric query/document embedding — EmbeddingService adds appropriate prefix based on type.
+**Embedding Model**: `spark-qwen3-embedding-4b` alias on LiteLLM → Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d). Returns 2560d Matryoshka vectors, truncated to 768d in the embedding service. Supports instruction prefixes for asymmetric query/document embedding — EmbeddingService adds appropriate prefix based on type.
 
 **API**: OpenAI embeddings API via LiteLLM (same endpoint as LLM inference)
 
@@ -2050,7 +2050,7 @@ function classifyIntent(message: string): 'capture' | 'query' | 'command' {
 // Embedding generation via LiteLLM (OpenAI SDK — same client as AIRouterService)
 import OpenAI from 'openai';
 const litellm = new OpenAI({ baseURL: 'https://llm.k4jda.net', apiKey: process.env.LITELLM_API_KEY });
-const model = configService.get('ai-routing').embedding.model; // 'jetson-embeddings'
+const model = configService.get('ai-routing').embedding.model; // 'spark-qwen3-embedding-4b'
 const response = await litellm.embeddings.create({
   model: model,
   input: captureContent,  // With instruction prefix if model supports it
@@ -2059,7 +2059,7 @@ const response = await litellm.embeddings.create({
 ```
 
 **Error Handling**:
-- Embeddings: NO fallback. If LiteLLM/Jetson is unreachable, captures queue in BullMQ and retry. This prevents mixing embedding models which would degrade search quality.
+- Embeddings: NO fallback. If LiteLLM is unreachable, captures queue in BullMQ and retry. This prevents mixing embedding models which would degrade search quality.
 - LLM tasks: Routed through LiteLLM, which handles fallback to cloud providers.
 
 ### 8.3 Anthropic API Integration (via LiteLLM)
@@ -2370,7 +2370,7 @@ After 5 failures:
 - Capture's pipeline_status set to `partial` (if other stages succeeded) or `failed`
 - Pushover alert sent (high priority)
 
-**Daily auto-retry sweep**: A scheduled job runs daily, finds all captures with failed stages, and retries each failed stage once. This catches transient issues (LiteLLM/Jetson unreachable, network blip) that resolved after the initial retry window.
+**Daily auto-retry sweep**: A scheduled job runs daily, finds all captures with failed stages, and retries each failed stage once. This catches transient issues (LiteLLM unreachable, network blip) that resolved after the initial retry window.
 
 **Manual retry**: `POST /api/v1/captures/:id/retry?stage=extract_metadata`
 
@@ -2400,7 +2400,7 @@ After 5 failures:
 | Level | Usage |
 |-------|-------|
 | ERROR | Service failures, unhandled exceptions, pipeline stage final failures |
-| WARN | LiteLLM/Jetson embedding unavailability, budget soft limit, retry attempts |
+| WARN | LiteLLM embedding unavailability, budget soft limit, retry attempts |
 | INFO | Capture ingested, pipeline complete, skill executed, search performed |
 | DEBUG | Embedding generation timing, AI router decisions, config reload |
 
@@ -2421,7 +2421,7 @@ No dedicated monitoring stack (no Prometheus, no Grafana). Instead:
 | Container health | Docker healthchecks + Unraid dashboard | Unraid notification |
 | Pipeline failures | `pipeline_status = 'failed'` count | Pushover (high priority) |
 | AI budget | LiteLLM `/spend/logs` endpoint | Pushover at $30 soft, circuit breaker at $50 |
-| LiteLLM/Jetson down | Health endpoint check | Pushover (emergency) |
+| LiteLLM down | Health endpoint check | Pushover (emergency) |
 | Postgres down | Health endpoint check | Pushover (emergency) |
 | Queue depth | BullMQ dashboard (Bull Board) | Log warning if depth > 50 |
 
@@ -2953,7 +2953,7 @@ describe('Captures API Integration', () => {
 |----------|-------|-----------------|
 | Slack capture → searchable | 1. Send message to #open-brain, 2. Wait for pipeline, 3. Search via API | Capture found with >0.8 similarity |
 | MCP search | 1. Create captures, 2. Call search_brain via MCP, 3. Verify results | Relevant results returned |
-| Pipeline retry | 1. Create capture, 2. Simulate LiteLLM/Jetson unavailability, 3. Restore LiteLLM connectivity, 4. Wait for retry | Capture eventually completes |
+| Pipeline retry | 1. Create capture, 2. Simulate LiteLLM unavailability, 3. Restore LiteLLM connectivity, 4. Wait for retry | Capture eventually completes |
 | Deduplication | 1. Send same slack_ts twice | Second attempt returns 409 |
 | Budget circuit breaker | 1. Exhaust budget via LiteLLM, 2. Attempt synthesis | Returns 429 |
 | Hybrid search recall | 1. Create capture with specific keywords, 2. Search with paraphrased query, 3. Search with exact keywords | Both find the capture (RRF fuses both arms) |
@@ -3020,7 +3020,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # Ollama: NOT in Open Brain stack. Embeddings (jetson-embeddings) and LLM inference both route through external LiteLLM at https://llm.k4jda.net.
+  # Ollama: NOT in Open Brain stack. Embeddings (spark-qwen3-embedding-4b) and LLM inference both route through external LiteLLM at https://llm.k4jda.net.
   # LiteLLM is an external shared service at https://llm.k4jda.net — no container here.
 
   faster-whisper:
@@ -3245,7 +3245,7 @@ docker compose exec postgres pg_isready
 
 # 4. Migrations run automatically via core-api entrypoint script (no manual step needed)
 
-# 5. Verify external LiteLLM proxy is reachable and jetson-embeddings alias works
+# 5. Verify external LiteLLM proxy is reachable and spark-qwen3-embedding-4b alias works
 curl https://llm.k4jda.net/health  # External shared LiteLLM — not managed by this stack
 
 # 6. Start application stack
@@ -3294,7 +3294,7 @@ No feature flag service — single user, phased deployment. Features enabled by:
 - [ ] Vitest unit + Testcontainers integration tests passing
 
 **Phase 1B: Embedding + Search**
-- [ ] LiteLLM jetson-embeddings alias reachable and returning 768d vectors
+- [ ] LiteLLM spark-qwen3-embedding-4b alias reachable; raw response is 2560d, truncated to 768d in the embedding service
 - [ ] Actual embedding throughput measured and documented (update TDD Section 4.5 estimates)
 - [ ] Embedding quality validated with 50+ real captures
 - [ ] match_captures (vector + temporal) function deployed
@@ -3381,7 +3381,7 @@ No feature flag service — single user, phased deployment. Features enabled by:
 | Weekly brief generation | <2 min | Skill execution time |
 | MCP tool response | <5s | Tool execution time |
 | Web dashboard page load | <2s | Time to interactive |
-| Embedding generation | <2s | LiteLLM API call to Jetson |
+| Embedding generation | ~700ms | LiteLLM API call (spark-qwen3-embedding-4b) |
 | Metadata extraction | <5s | LLM completion time |
 
 ### 18.2 Optimization Strategies
@@ -3425,7 +3425,7 @@ Expected scale for a single-user personal knowledge system.
 | Captures | 50/day, ~18K/year | 100K total | Re-tune HNSW (increase m, ef_construction). Consider IVFFlat if HNSW build time grows. |
 | Postgres disk | ~4KB/capture (1KB content + 3KB embedding) | 1GB (~250K captures) | Non-issue for 32TB array. Add table partitioning by year if queries slow. |
 | Redis memory | ~100 bytes/job, ~1KB/thread context | 1GB | Non-issue. Check for orphaned BullMQ jobs if memory grows unexpectedly. |
-| Jetson (external) | N/A — managed on Jetson device | N/A | If Jetson is overloaded, embeddings queue in BullMQ. Monitor via LiteLLM dashboard. |
+| Embedding (LiteLLM) | N/A — managed via LiteLLM | N/A | If LiteLLM embedding is slow, embeddings queue in BullMQ. Monitor via LiteLLM dashboard. |
 | Embedding generation | 1/sec (137M) to 0.1/sec (8B) | >20 captures/minute sustained | Batch embedding endpoint, or queue accepts latency. Unlikely for single user. |
 | LiteLLM | <100 requests/day | 1000/day | Non-issue. LiteLLM handles thousands of RPM. |
 | Postgres connections | ~5 active (API + workers + bot) | 20 (max_connections) | Increase max_connections. Consider PgBouncer if services scale. |
@@ -3569,29 +3569,29 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 
 Common failure scenarios and resolution steps.
 
-**LiteLLM/Jetson embedding unavailable (embeddings queuing)**
+**LiteLLM embedding unavailable (embeddings queuing)**
 1. Check LiteLLM health: `curl https://llm.k4jda.net/health`
-2. Check jetson-embeddings alias: `curl -H "Authorization: Bearer $LITELLM_API_KEY" https://llm.k4jda.net/v1/models`
-3. If Jetson device is down, wait for it to recover — embeddings queue in BullMQ with patient backoff
-4. Captures will auto-retry via BullMQ backoff. Check Bull Board for queue depth.
-5. If LiteLLM configuration issue, check LiteLLM admin panel at llm.k4jda.net
+2. Check spark-qwen3-embedding-4b alias: `curl -H "Authorization: Bearer $LITELLM_API_KEY" https://llm.k4jda.net/v1/models`
+3. Captures will auto-retry via BullMQ backoff. Check Bull Board for queue depth.
+4. If LiteLLM connectivity issue, check network and LiteLLM admin panel at llm.k4jda.net
+5. Once LiteLLM recovers, BullMQ will automatically process the queued embedding jobs
 
 **LiteLLM can't reach LLM providers**
 1. Check LiteLLM health: `curl https://llm.k4jda.net/health`
 2. Check API keys configured on external LiteLLM server
 3. LiteLLM auto-falls back (synthesis → gpt-4o, governance → claude-sonnet)
-4. If all providers down: LLM tasks queue in BullMQ. Captures still ingested; embeddings still work (Jetson path).
+4. If all providers down: LLM tasks queue in BullMQ. Captures still ingested; embeddings queue in BullMQ until LiteLLM recovers.
 
 **Pipeline queue depth > 100**
 1. Check Bull Board at `/admin/queues`
-2. Most likely cause: LiteLLM/Jetson is slow or unreachable for embeddings
+2. Most likely cause: LiteLLM is slow or unreachable for embeddings
 3. Check LiteLLM health: `curl https://llm.k4jda.net/health`
-4. If LiteLLM healthy but Jetson slow: captures are just queued, they'll process eventually
+4. If LiteLLM healthy but slow: captures are just queued, they'll process eventually
 5. If persistent: check for a stuck job — remove it via Bull Board
 
-**Embedding model swap (reconfigure on LiteLLM)**
-1. Update `jetson-embeddings` alias on external LiteLLM to point to new model
-2. Update `config/ai-routing.yaml` → `embedding.model` to match new alias
+**Embedding model swap**
+1. Update `embedding` model in `config/ai-routing.yaml` to switch models; no LiteLLM config change required
+2. Ensure the new model alias is available on LiteLLM at llm.k4jda.net
 3. Run re-embedding job: trigger via API or custom script
 4. Monitor progress via Bull Board — estimated times in Section 4.5
 5. Search quality may be degraded during re-embedding (mixed embeddings)

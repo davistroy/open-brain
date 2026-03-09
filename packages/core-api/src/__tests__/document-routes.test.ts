@@ -217,7 +217,7 @@ describe('POST /api/v1/documents', () => {
     expect(documentPipelineQueue.add).toHaveBeenCalledWith(
       'document-pipeline',
       { captureId: 'doc-cap-abc-123' },
-      { jobId: 'document:doc-cap-abc-123' },
+      { jobId: 'document_doc-cap-abc-123' },
     )
   })
 

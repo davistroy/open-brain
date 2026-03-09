@@ -193,12 +193,15 @@ export class LLMGatewayService {
     const startMs = Date.now()
 
     try {
+      // Disable thinking/reasoning mode for structured output (Qwen3.5 etc.)
       const response = await this.client.chat.completions.create({
         model,
         messages: [{ role: 'user', content: prompt }],
         temperature: options.temperature ?? 0.2,
         max_tokens: options.maxTokens ?? 2048,
-      })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        extra_body: { chat_template_kwargs: { enable_thinking: false } },
+      } as any)
 
       const durationMs = Date.now() - startMs
       const usage = response.usage

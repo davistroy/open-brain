@@ -49,7 +49,7 @@ export function formatSearchResults(
     const topics = r.pre_extracted?.topics?.slice(0, 3).join(', ') || ''
     const content = truncate(r.content)
 
-    let line = `*${num}.* [${r.capture_type}] ${date} — ${pct} match\n`
+    let line = `${num}. *[${r.capture_type}]* ${date} — ${pct} match\n`
     line += `> ${content}`
     if (topics) {
       line += `\n_Topics: ${topics}_`
@@ -154,8 +154,8 @@ export function formatTriggerList(triggers: TriggerRecord[]): string {
 
   const header = `:zap: *Active Triggers* (${triggers.length})\n\n`
   const lines = triggers.map((t, i) => {
-    const status = t.enabled ? ':green_circle:' : ':red_circle:'
-    return `${i + 1}. ${status} *${t.name}* — ${t.description || '(no description)'}`
+    const status = t.is_active ? ':green_circle:' : ':red_circle:'
+    return `${i + 1}. ${status} *${t.name}* — threshold: ${t.threshold}`
   })
 
   return header + lines.join('\n')
@@ -163,31 +163,34 @@ export function formatTriggerList(triggers: TriggerRecord[]): string {
 
 /**
  * Format trigger test results.
+ * @param queryText - the query that was tested
+ * @param matches - capture matches returned by the API
  */
-export function formatTriggerTestResults(matches: TriggerMatch[]): string {
+export function formatTriggerTestResults(queryText: string, matches: TriggerMatch[]): string {
   if (matches.length === 0) {
-    return ':zap: No triggers matched this capture'
+    return `:zap: *Trigger Test* — \`${queryText}\`\n\nNo matches found (no notification fired)`
   }
 
-  const header = `:zap: *Trigger Test Results*\n\n`
-  const lines = matches.map(m => {
-    const icon = m.matched ? ':white_check_mark:' : ':x:'
-    const pct = `${Math.round(m.confidence * 100)}%`
-    return `${icon} *${m.trigger_name}* — ${pct} confidence`
+  const header = `:zap: *Trigger Test* — \`${queryText}\` (${matches.length} match${matches.length === 1 ? '' : 'es'}, no notification fired)\n\n`
+  const lines = matches.map((m, i) => {
+    const pct = `${Math.round(m.similarity * 100)}%`
+    const date = formatDate(m.created_at)
+    return `${i + 1}. *[${m.capture_type}]* ${date} — ${pct}\n> ${truncate(m.content, 120)}`
   })
 
-  return header + lines.join('\n')
+  return header + lines.join('\n\n')
 }
 
 /**
  * Format entity list.
  */
-export function formatEntityList(entities: EntityRecord[], total: number): string {
+export function formatEntityList(entities: EntityRecord[], total?: number): string {
   if (entities.length === 0) {
     return ':busts_in_silhouette: No entities found'
   }
 
-  const header = `:busts_in_silhouette: *Entities* (${total} total)\n\n`
+  const displayTotal = total ?? entities.length
+  const header = `:busts_in_silhouette: *Entities* (${displayTotal} total)\n\n`
   const lines = entities.map((e, i) => {
     const aliases = e.aliases.length > 0 ? ` (aka: ${e.aliases.slice(0, 2).join(', ')})` : ''
     return `${i + 1}. *${e.name}*${aliases} — ${e.capture_count} captures`
@@ -199,13 +202,13 @@ export function formatEntityList(entities: EntityRecord[], total: number): strin
 /**
  * Format entity details.
  */
-export function formatEntityDetails(entity: EntityRecord & { captures: CaptureResult[] }): string {
+export function formatEntityDetails(entity: EntityRecord & { captures?: CaptureResult[] }): string {
   const header = `:bust_in_silhouette: *${entity.name}* (${entity.type})\n`
   const aliases = entity.aliases.length > 0
     ? `_Also known as: ${entity.aliases.join(', ')}_\n`
     : ''
 
-  const captureList = entity.captures.slice(0, 5).map(c => {
+  const captureList = (entity.captures ?? []).slice(0, 5).map(c => {
     const date = formatDate(c.created_at)
     return `• [${c.capture_type}] ${truncate(c.content, 80)} — ${date}`
   }).join('\n')
@@ -217,38 +220,33 @@ export function formatEntityDetails(entity: EntityRecord & { captures: CaptureRe
  * Format session info.
  */
 export function formatSessionInfo(session: SessionRecord): string {
-  const messageCount = session.messages.length
-  const lastMsg = session.messages[session.messages.length - 1]
-  const preview = lastMsg ? truncate(lastMsg.content, 100) : '(no messages)'
-
-  return `:speech_balloon: *Session ${session.id.slice(0, 8)}...* (${session.type})
+  return `:speech_balloon: *Session ${session.id.slice(0, 8)}...* (${session.session_type})
 *Status:* ${session.status}
-*View:* ${session.brain_view}
-*Messages:* ${messageCount}
-*Last:* ${preview}`
+*Created:* ${formatDate(session.created_at)}`
 }
 
 /**
  * Format session response (assistant message).
+ * @deprecated Use the bot_message string directly from sessions_respond result.
  */
-export function formatSessionResponse(session: SessionRecord): string {
-  const lastAssistant = [...session.messages].reverse().find(m => m.role === 'assistant')
-  return lastAssistant?.content || '(no response)'
+export function formatSessionResponse(botMessage: string): string {
+  return botMessage || '(no response)'
 }
 
 /**
  * Format bet list.
  */
-export function formatBetList(bets: BetRecord[]): string {
+export function formatBetList(bets: BetRecord[], _statusFilter?: string): string {
   if (bets.length === 0) {
-    return ':dart: No active bets'
+    return ':dart: No bets found'
   }
 
-  const header = `:dart: *Active Bets*\n\n`
+  const header = `:dart: *Bets* (${bets.length})\n\n`
   const lines = bets.map((b, i) => {
-    const due = formatDate(b.due_date)
-    const status = b.status === 'open' ? ':hourglass:' : b.status === 'won' ? ':trophy:' : ':x:'
-    return `${i + 1}. ${status} *${truncate(b.description, 60)}*\n   Due: ${due} | View: ${b.brain_view}`
+    const due = formatDate(b.resolution_date)
+    const icon = b.resolution ? (b.resolution === 'correct' ? ':trophy:' : ':x:') : ':hourglass:'
+    const conf = `${Math.round(b.confidence * 100)}%`
+    return `${i + 1}. ${icon} *${truncate(b.statement, 60)}*\n   Confidence: ${conf} | Due: ${due}`
   })
 
   return header + lines.join('\n')
@@ -258,42 +256,36 @@ export function formatBetList(bets: BetRecord[]): string {
  * Format bet details.
  */
 export function formatBetDetails(bet: BetRecord): string {
-  const due = formatDate(bet.due_date)
+  const due = formatDate(bet.resolution_date)
   const created = formatDate(bet.created_at)
-  const statusIcon = bet.status === 'open' ? ':hourglass:' : bet.status === 'won' ? ':trophy:' : ':x:'
+  const icon = bet.resolution ? (bet.resolution === 'correct' ? ':trophy:' : ':x:') : ':hourglass:'
 
-  return `${statusIcon} *Bet Details*
+  return `${icon} *Bet Details*
 
-*Description:* ${bet.description}
+*Statement:* ${bet.statement}
+*Confidence:* ${Math.round(bet.confidence * 100)}%
 *Due:* ${due}
-*View:* ${bet.brain_view}
-*Status:* ${bet.status}
 *Created:* ${created}
-${bet.outcome ? `*Outcome:* ${bet.outcome}` : ''}`
+${bet.resolution ? `*Resolution:* ${bet.resolution}` : ''}
+${bet.resolution_notes ? `*Notes:* ${bet.resolution_notes}` : ''}`
 }
 
 /**
  * Format pipeline status.
  */
 export function formatPipelineStatus(status: PipelineStatus): string {
-  const q = status.queue_depth
-  const failedList = status.failed_jobs.slice(0, 3).map(j =>
-    `• \`${j.id.slice(0, 8)}...\` — ${j.failed_reason}`
+  const queueLines = Object.entries(status.queues).map(([name, q]) =>
+    `• *${name}*: waiting ${q.waiting} | active ${q.active} | failed ${q.failed}`
   ).join('\n')
 
+  const o = status.overall
   return `:gear: *Pipeline Status*
 
-*Queue Depth:*
-• pending: ${q.pending}
-• active: ${q.active}
-• completed: ${q.completed}
-• failed: ${q.failed}
-• delayed: ${q.delayed}
+*Queues:*
+${queueLines || '(none)'}
 
-*Stale Captures:* ${status.stale_count}
-
-*Recent Failures:*
-${failedList || '(none)'}`
+*Overall:*
+• pending: ${o.pending} | processing: ${o.processing} | complete: ${o.complete} | failed: ${o.failed}`
 }
 
 /**
@@ -319,16 +311,15 @@ export const formatEntityDetail = formatEntityDetails
 /**
  * Format entity merge result.
  */
-export function formatEntityMerge(result: { merged_entity_id: string; merged_count: number }): string {
-  return `:link: *Entities Merged*\nNew entity ID: \`${result.merged_entity_id}\`\nMerged ${result.merged_count} entities`
+export function formatEntityMerge(result: { message: string; source_id: string; target_id: string }): string {
+  return `:link: *Merge Complete*\n${result.message}\nSource: \`${result.source_id.slice(0, 8)}...\` → Target: \`${result.target_id.slice(0, 8)}...\``
 }
 
 /**
  * Format entity split result.
  */
-export function formatEntitySplit(result: { new_entities: string[] }): string {
-  const list = result.new_entities.map(id => `• \`${id}\``).join('\n')
-  return `:scissors: *Entity Split*\nCreated ${result.new_entities.length} new entities:\n${list}`
+export function formatEntitySplit(result: { message: string; source_entity_id: string; new_entity_id: string; alias: string }): string {
+  return `:scissors: *Split Complete*\n${result.message}\nNew entity: \`${result.new_entity_id}\``
 }
 
 /**
@@ -342,8 +333,7 @@ export function formatSessionPause(session: SessionRecord): string {
  * Format session completion message.
  */
 export function formatSessionComplete(session: SessionRecord): string {
-  const messageCount = session.messages.length
-  return `:white_check_mark: Session \`${session.id.slice(0, 8)}...\` completed with ${messageCount} messages.`
+  return `:white_check_mark: Session \`${session.id.slice(0, 8)}...\` completed.`
 }
 
 /**
@@ -351,13 +341,13 @@ export function formatSessionComplete(session: SessionRecord): string {
  */
 export function formatSessionList(sessions: SessionRecord[]): string {
   if (sessions.length === 0) {
-    return ':speech_balloon: No active sessions'
+    return ':speech_balloon: No active governance sessions'
   }
 
-  const header = `:speech_balloon: *Sessions*\n\n`
+  const header = `:speech_balloon: *Governance Sessions* (${sessions.length})\n\n`
   const lines = sessions.map((s, i) => {
     const status = s.status === 'active' ? ':green_circle:' : ':white_circle:'
-    return `${i + 1}. ${status} *${s.type}* (${s.brain_view}) — ${s.messages.length} messages`
+    return `${i + 1}. ${status} *${s.session_type}* — ${s.status} | \`${s.id.slice(0, 8)}...\``
   })
 
   return header + lines.join('\n')
@@ -365,33 +355,35 @@ export function formatSessionList(sessions: SessionRecord[]): string {
 
 /**
  * Format session start message.
+ * @param sessionId - the new session's ID
+ * @param sessionType - human-readable session type (e.g. "quick board check")
+ * @param firstMessage - the bot's opening message
  */
-export function formatSessionStart(session: SessionRecord): string {
-  const firstAssistant = session.messages.find(m => m.role === 'assistant')
-  const intro = firstAssistant?.content || 'Session started.'
-  return `:speech_balloon: *${session.type} session started* (${session.brain_view})\n\n${intro}`
+export function formatSessionStart(sessionId: string, sessionType: string, firstMessage: string): string {
+  return `:speech_balloon: *Starting ${sessionType}* (\`${sessionId.slice(0, 8)}...\`)\n\n*Board:* ${firstMessage}`
 }
 
 /**
  * Format bet creation confirmation.
  */
 export function formatBetCreate(bet: BetRecord): string {
-  const due = formatDate(bet.due_date)
-  return `:dart: *Bet Created*\n${bet.description}\n_Due: ${due} | View: ${bet.brain_view}_`
+  const due = formatDate(bet.resolution_date)
+  const conf = `${Math.round(bet.confidence * 100)}%`
+  return `:dart: *Bet recorded* (${conf} confidence)\n${bet.statement}\n_Due: ${due}_`
 }
 
 /**
  * Format expiring bets warning.
  */
-export function formatBetsExpiring(bets: BetRecord[]): string {
+export function formatBetsExpiring(bets: BetRecord[], daysAhead?: number): string {
   if (bets.length === 0) {
     return ':dart: No bets expiring soon'
   }
 
-  const header = `:warning: *Bets Expiring Soon*\n\n`
+  const header = `:warning: *Bets Expiring${daysAhead ? ` in ${daysAhead} days` : ' Soon'}*\n\n`
   const lines = bets.map((b, i) => {
-    const due = formatDate(b.due_date)
-    return `${i + 1}. *${truncate(b.description, 60)}* — Due: ${due}`
+    const due = formatDate(b.resolution_date)
+    return `${i + 1}. *${truncate(b.statement, 60)}* — Due: ${due}`
   })
 
   return header + lines.join('\n')
@@ -401,6 +393,6 @@ export function formatBetsExpiring(bets: BetRecord[]): string {
  * Format bet resolution confirmation.
  */
 export function formatBetResolve(bet: BetRecord): string {
-  const icon = bet.outcome === 'won' ? ':trophy:' : ':x:'
-  return `${icon} *Bet Resolved*\n${bet.description}\n_Outcome: ${bet.outcome}_`
+  const icon = bet.resolution === 'correct' ? ':trophy:' : ':x:'
+  return `${icon} *Bet resolved*\n${bet.statement}\n_Resolution: ${bet.resolution}_`
 }

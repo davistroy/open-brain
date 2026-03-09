@@ -11,9 +11,9 @@
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --external drizzle-orm --external bullmq --external ioredis",
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "build": "tsup src/index.ts --format esm --dts --external drizzle-orm --external bullmq --external ioredis && tsup src/main.ts --format esm --external drizzle-orm --external bullmq --external ioredis",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
     "test": "vitest run --passWithNoTests",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"

@@ -12,6 +12,7 @@ export interface SearchOptions {
   captureTypes?: string[]
   dateFrom?: Date
   dateTo?: Date
+  searchMode?: 'hybrid' | 'vector' | 'fts'
 }
 
 export interface SearchResult {
@@ -86,39 +87,55 @@ export class SearchService {
       captureTypes,
       dateFrom,
       dateTo,
+      searchMode = 'hybrid',
     } = options
 
-    // Step 1: embed the query
-    const queryVector = await this.embeddingService.embed(query)
-    const vectorLiteral = `[${queryVector.join(',')}]`
-
-    // Step 2: call hybrid_search — fetch more than `limit` so post-filters have candidates
     const fetchCount = Math.min(limit * 5, 200)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hybridRows = await this.db.execute<any>(sql`
-      SELECT capture_id::text, rrf_score, fts_score, vector_score
-      FROM hybrid_search(
-        ${query},
-        ${vectorLiteral}::vector(768),
-        ${fetchCount},
-        ${ftsWeight},
-        ${vectorWeight}
-      )
-    `)
+    let hybridRows: { rows: { capture_id: string; rrf_score: number; fts_score: number; vector_score: number }[] }
+
+    if (searchMode === 'fts') {
+      // FTS-only path: no embedding call, works even when LiteLLM is down,
+      // searches captures regardless of whether they have embeddings yet.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      hybridRows = await this.db.execute<any>(sql`
+        SELECT capture_id::text, rrf_score, fts_score, vector_score
+        FROM fts_only_search(${query}, ${fetchCount})
+      `)
+    } else {
+      // Step 1: embed the query (throws EmbeddingUnavailableError if LiteLLM is down)
+      const queryVector = await this.embeddingService.embed(query)
+      const vectorLiteral = `[${queryVector.join(',')}]`
+
+      // Step 2: call hybrid_search — fetch more than `limit` so post-filters have candidates
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      hybridRows = await this.db.execute<any>(sql`
+        SELECT capture_id::text, rrf_score, fts_score, vector_score
+        FROM hybrid_search(
+          ${query},
+          ${vectorLiteral}::vector(768),
+          ${fetchCount},
+          ${ftsWeight},
+          ${vectorWeight}
+        )
+      `)
+    }
 
     if (hybridRows.rows.length === 0) {
       return []
     }
 
-    const captureIds = hybridRows.rows.map(r => r.capture_id)
+    const captureIds = hybridRows.rows.map(r => r.capture_id) as string[]
 
     // Step 3: fetch capture rows for all returned IDs in one query
+    // Pass as PostgreSQL array literal — Drizzle's sql`` sends JS arrays as
+    // record tuples ($1,$2) which cannot be cast to uuid[].
+    const pgArrayLiteral = `{${captureIds.join(',')}}`
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const captureRows = await this.db.execute<any>(sql`
       SELECT *
       FROM captures
-      WHERE id = ANY(${captureIds}::uuid[])
+      WHERE id = ANY(${pgArrayLiteral}::uuid[])
     `)
 
     const captureMap = new Map<string, CaptureRecord>()

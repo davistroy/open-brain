@@ -10,7 +10,7 @@ function makeMockEmbeddingService(embedding: number[] = new Array(768).fill(0.1)
   return {
     embed: vi.fn().mockResolvedValue(embedding),
     embedBatch: vi.fn().mockResolvedValue([embedding]),
-    getModelInfo: vi.fn().mockReturnValue({ model: 'jetson-embeddings', dimensions: 768, source: 'https://llm.k4jda.net' }),
+    getModelInfo: vi.fn().mockReturnValue({ model: 'spark-qwen3-embedding-4b', dimensions: 768, source: 'https://llm.k4jda.net' }),
   }
 }
 

@@ -233,16 +233,17 @@ function BetRow({ bet, onResolve }: { bet: Bet; onResolve: (id: string, outcome:
     }
   }
 
-  const dueDate = new Date(bet.resolution_date).toLocaleDateString('en-US', {
+  const dueDateStr = bet.resolution_date ?? bet.due_date;
+  const dueDate = new Date(dueDateStr).toLocaleDateString('en-US', {
     month: 'short', day: 'numeric', year: 'numeric',
   });
-  const isPast = new Date(bet.resolution_date) < new Date();
+  const isPast = new Date(dueDateStr) < new Date();
 
   return (
     <div className="rounded-lg border bg-card px-4 py-3 space-y-2">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium leading-snug">{bet.statement}</p>
+          <p className="text-sm font-medium leading-snug">{bet.statement ?? bet.description}</p>
           {bet.rationale && (
             <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{bet.rationale}</p>
           )}
@@ -256,9 +257,9 @@ function BetRow({ bet, onResolve }: { bet: Bet; onResolve: (id: string, outcome:
         <span className={isPast && isOpen ? 'text-destructive font-medium' : ''}>
           Due {dueDate}{isPast && isOpen ? ' (overdue)' : ''}
         </span>
-        {bet.tags.length > 0 && (
+        {(bet.tags ?? []).length > 0 && (
           <span className="flex gap-1">
-            {bet.tags.map((t) => (
+            {(bet.tags ?? []).map((t: string) => (
               <Badge key={t} variant="secondary" className="text-xs">{t}</Badge>
             ))}
           </span>

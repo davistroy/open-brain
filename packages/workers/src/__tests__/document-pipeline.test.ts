@@ -264,7 +264,7 @@ describe('processDocumentPipelineJob — single-chunk document', () => {
     expect(embedQueue.add).toHaveBeenCalledWith(
       'embed',
       expect.objectContaining({ captureId: expect.any(String) }),
-      expect.objectContaining({ jobId: expect.stringContaining('embed:') }),
+      expect.objectContaining({ jobId: expect.stringContaining('embed_') }),
     )
   })
 })

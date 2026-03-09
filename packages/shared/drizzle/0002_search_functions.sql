@@ -8,7 +8,7 @@
 --    Reciprocal Rank Fusion (RRF).
 --
 --    Algorithm:
---      - FTS lane: rank rows by ts_rank_cd(to_tsvector('english', content), to_tsquery('english', query_text))
+--      - FTS lane: rank rows by ts_rank_cd(to_tsvector('english', content), plainto_tsquery('english', query_text))
 --      - Vector lane: rank rows by (embedding <=> query_embedding) ASC (cosine distance)
 --      - RRF fusion: rrf_score = 1/(k + rank_fts) + 1/(k + rank_vector), k=60
 --      - Return top match_count rows ordered by rrf_score DESC
@@ -21,11 +21,10 @@
 --      vector_weight   — multiplier applied to the vector RRF lane (default 1.0)
 --
 --    Notes:
---      - Only captures with pipeline_status = 'complete' and embedding IS NOT NULL are searched.
---      - Soft-deleted captures (deleted_at IS NOT NULL) are excluded if the column exists;
---        current schema has no deleted_at — filter is omitted but can be added here later.
---      - to_tsquery is used (not plainto_tsquery) so callers can pass boolean FTS expressions.
---        Callers should sanitise / websearch_to_tsquery upstream if accepting raw user input.
+--      - Only captures with embedding IS NOT NULL and deleted_at IS NULL are searched.
+--        We do NOT filter on pipeline_status so that captures in 'embedded' state
+--        (before entity extraction completes) are still searchable.
+--      - plainto_tsquery is used for safe handling of plain-text user queries.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION hybrid_search(
   query_text      text,
@@ -52,19 +51,19 @@ BEGIN
       c.id AS capture_id,
       ts_rank_cd(
         to_tsvector('english', c.content),
-        to_tsquery('english', query_text)
+        plainto_tsquery('english', query_text)
       )::float AS fts_score,
       ROW_NUMBER() OVER (
         ORDER BY ts_rank_cd(
           to_tsvector('english', c.content),
-          to_tsquery('english', query_text)
+          plainto_tsquery('english', query_text)
         ) DESC
       ) AS fts_rank
     FROM captures c
     WHERE
-      c.pipeline_status = 'complete'
-      AND c.embedding IS NOT NULL
-      AND to_tsvector('english', c.content) @@ to_tsquery('english', query_text)
+      c.embedding IS NOT NULL
+      AND c.deleted_at IS NULL
+      AND to_tsvector('english', c.content) @@ plainplainto_tsquery('english', query_text)
   ),
   vector_ranked AS (
     SELECT
@@ -75,8 +74,8 @@ BEGIN
       ) AS vector_rank
     FROM captures c
     WHERE
-      c.pipeline_status = 'complete'
-      AND c.embedding IS NOT NULL
+      c.embedding IS NOT NULL
+      AND c.deleted_at IS NULL
   ),
   fused AS (
     SELECT
