@@ -413,7 +413,7 @@ describe('POST /api/v1/search', () => {
     expect(body.total).toBe(0)
   })
 
-  it('uses default values for optional fields (limit=10, offset=0, temporal_weight=0)', async () => {
+  it('uses default values for optional fields (limit=10, offset=0, temporal_weight=0.1)', async () => {
     const app = createApp({ searchService: searchService as any })
     await app.request('/api/v1/search', {
       method: 'POST',
@@ -425,7 +425,7 @@ describe('POST /api/v1/search', () => {
       'defaults test',
       expect.objectContaining({
         limit: 10,
-        temporalWeight: 0.0,
+        temporalWeight: 0.1,
       }),
     )
   })
