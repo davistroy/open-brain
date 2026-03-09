@@ -203,6 +203,7 @@ export class WeeklyBriefSkill {
       outputSummary: `headline: "${brief.headline}" | wins:${brief.wins.length} blockers:${brief.blockers.length} risks:${brief.risks.length} | email:${emailSent}`,
       durationMs,
       captureId: savedCaptureId ?? undefined,
+      result: brief,
     })
 
     logger.info({ captureCount, durationMs, savedCaptureId }, '[weekly-brief] execution complete')
@@ -648,6 +649,7 @@ export class WeeklyBriefSkill {
     outputSummary: string
     durationMs: number
     captureId?: string
+    result?: WeeklyBriefOutput
   }): Promise<void> {
     try {
       await this.db.insert(skills_log).values({
@@ -655,6 +657,7 @@ export class WeeklyBriefSkill {
         capture_id: params.captureId ?? null,
         input_summary: params.inputSummary,
         output_summary: params.outputSummary,
+        result: params.result ?? null,
         duration_ms: params.durationMs,
       })
     } catch (err) {
