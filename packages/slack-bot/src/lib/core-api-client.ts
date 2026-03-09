@@ -321,15 +321,20 @@ export class CoreApiClient {
   async entities_list(params?: { limit?: number }): Promise<{ total: number; entities: EntityRecord[] }> {
     const query = params?.limit ? `?limit=${params.limit}` : ''
     // API returns { items, total, limit, offset } — map items → entities
-    const raw = await this.request<{ total: number; items: EntityRecord[] }>(`/api/v1/entities${query}`)
-    return { total: raw.total, entities: raw.items ?? [] }
+    // API uses mention_count; map to capture_count for formatter compatibility
+    type RawEntity = Omit<EntityRecord, 'capture_count'> & { mention_count: number }
+    const raw = await this.request<{ total: number; items: RawEntity[] }>(`/api/v1/entities${query}`)
+    const entities = (raw.items ?? []).map(e => ({ ...e, capture_count: e.mention_count }))
+    return { total: raw.total, entities }
   }
 
   async entities_search(name: string): Promise<{ total: number; entities: EntityRecord[] }> {
     // API uses ?name= param; returns { entity } (single) or 404
     try {
-      const raw = await this.request<{ entity: EntityRecord }>(`/api/v1/entities?name=${encodeURIComponent(name)}`)
-      return { total: 1, entities: [raw.entity] }
+      type RawEntity = Omit<EntityRecord, 'capture_count'> & { mention_count: number }
+      const raw = await this.request<{ entity: RawEntity }>(`/api/v1/entities?name=${encodeURIComponent(name)}`)
+      const entity = { ...raw.entity, capture_count: raw.entity.mention_count }
+      return { total: 1, entities: [entity] }
     } catch (err) {
       // 404 = entity not found — return empty list so callers can show "no match" message
       if (err instanceof Error && err.message.startsWith('HTTP 404')) {
