@@ -163,4 +163,52 @@ export function registerSkillRoutes(
       202,
     )
   })
+
+  // -----------------------------------------------------------------------
+  // GET /api/v1/skills/:name/logs
+  // Returns the most recent skills_log entries for a given skill.
+  // Used by the Briefs page to display run history.
+  // -----------------------------------------------------------------------
+  app.get('/api/v1/skills/:name/logs', async (c) => {
+    const name = c.req.param('name')
+    const limitParam = c.req.query('limit')
+    const limit = Math.min(parseInt(limitParam ?? '20', 10) || 20, 100)
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = await db.execute<any>(sql`
+      SELECT
+        id::text,
+        skill_name,
+        capture_id::text,
+        input_summary,
+        output_summary,
+        duration_ms,
+        created_at
+      FROM skills_log
+      WHERE skill_name = ${name}
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `)
+
+    const data = (rows.rows as Array<{
+      id: string
+      skill_name: string
+      capture_id: string | null
+      input_summary: string | null
+      output_summary: string | null
+      duration_ms: number | null
+      created_at: Date | string
+    }>).map((row) => ({
+      id: row.id,
+      skill_name: row.skill_name,
+      capture_id: row.capture_id,
+      status: 'completed',
+      started_at: row.created_at,
+      completed_at: row.created_at,
+      duration_ms: row.duration_ms,
+      output: row.output_summary,
+    }))
+
+    return c.json({ data })
+  })
 }
