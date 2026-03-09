@@ -1,6 +1,6 @@
 # Slack Bot & Cloudflare Tunnel Setup
 
-Setup guide for the two optional-but-recommended services: the Slack bot and the Cloudflare tunnel (`brain.k4jda.net`).
+Setup guide for the two optional-but-recommended services: the Slack bot and the Cloudflare tunnel (`brain.troy-davis.com`).
 
 ---
 
@@ -102,23 +102,25 @@ In your Slack workspace, invite the bot to a channel:
 /invite @Open Brain
 ```
 
-Try a capture:
+Try a capture (plain message in the channel, no @mention — the bot listens to all messages):
 ```
-@Open Brain Decided to use Tailscale for remote access instead of a VPN
+Decided to use Tailscale for remote access instead of a VPN
 ```
 → Bot replies confirming the capture was saved.
 
-Try a search:
+Try a search via @mention (`@Open Brain` mentions always route to the query handler):
 ```
-@Open Brain ? what decisions have I made about infrastructure
+@Open Brain what decisions have I made about infrastructure?
 ```
 → Bot replies with search results.
 
-Try a command:
+Try a command (plain message or DM — commands use `!` prefix without @mention):
 ```
-@Open Brain !help
+!help
 ```
-→ Full command list.
+→ Full command list in a thread reply.
+
+> **Note on @mention vs plain message**: `@Open Brain` mentions are always treated as queries/searches. For captures and commands, send plain messages in the channel (the bot listens to all channel messages) or use DMs. The bot won't double-respond to mentions.
 
 ---
 
@@ -209,19 +211,9 @@ Click **Next**.
 
 ### 2. Configure Public Hostname
 
-On the **Public Hostnames** tab, add one route:
+On the **Public Hostnames** tab you can skip adding routes here — the `config/cloudflare/tunnel.yaml` file already defines the routing and cloudflared reads it at startup. Dashboard-configured hostnames and YAML-configured ingress are two ways to do the same thing; the YAML file is what's active in this stack.
 
-| Field | Value |
-|-------|-------|
-| Subdomain | `brain` |
-| Domain | `troy-davis.com` |
-| Path | _(leave blank)_ |
-| Type | `HTTP` |
-| URL | `web:80` |
-
-> The config file at `config/cloudflare/tunnel.yaml` already defines this route for the Docker container. Dashboard routes and YAML routes both work — dashboard takes precedence if both are set.
-
-Click **Save tunnel**.
+Click **Save tunnel** and proceed — you only need the token from this step.
 
 ### 3. Store the Token
 
@@ -260,22 +252,24 @@ docker logs open-brain-cloudflared --follow
 From your dev machine:
 
 ```bash
-# Web dashboard
+# Web dashboard loads
 curl -I https://brain.troy-davis.com
-# Expected: HTTP/2 200
+# Expected: HTTP/2 200, Content-Type: text/html
 
-# API health via tunnel
-curl https://brain.troy-davis.com/api/v1/health
-# Expected: {"status":"healthy",...}
+# API via tunnel — nginx proxies /api/* to core-api
+curl https://brain.troy-davis.com/api/v1/captures?limit=1
+# Expected: {"captures":[...],"total":...}
 
-# MCP endpoint via tunnel (use MCP_API_KEY from .env.secrets)
+# MCP via tunnel — nginx proxies /mcp to core-api (use MCP_API_KEY from .env.secrets)
 curl -X POST https://brain.troy-davis.com/mcp \
   -H "Authorization: Bearer <MCP_API_KEY>" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
-# Expected: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05",...}}
+# Expected: event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05",...}}
 ```
+
+> `/health` is only served on the internal Docker network (`localhost:3002/health`). External health checks use `/api/v1/captures?limit=1` or the LiteLLM health endpoint directly.
 
 ### 6. Register Open Brain in LiteLLM's MCP Gateway
 
