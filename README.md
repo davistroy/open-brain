@@ -164,7 +164,7 @@ curl http://localhost:3001/health
 open http://localhost:5173
 
 # Bull Board (queue monitor)
-curl http://localhost:3000/admin/queues
+open http://localhost:3002/api/v1/admin/queues
 ```
 
 ### 6. Connect Claude (MCP)
