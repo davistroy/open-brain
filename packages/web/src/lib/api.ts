@@ -38,9 +38,11 @@ function buildQueryString(params: Record<string, unknown>): string {
 // Captures API
 
 export const capturesApi = {
-  list: (params?: { limit?: number; offset?: number; source?: string; capture_type?: string; brain_view?: string }) => {
+  list: async (params?: { limit?: number; offset?: number; source?: string; capture_type?: string; brain_view?: string }) => {
     const qs = buildQueryString(params ?? {})
-    return request<{ data: Capture[]; total: number; limit: number; offset: number }>(`/captures${qs}`)
+    // API returns { items, total, limit, offset } — normalize to { data, total, limit, offset }
+    const raw = await request<{ items: Capture[]; total: number; limit: number; offset: number }>(`/captures${qs}`)
+    return { data: raw.items ?? [], total: raw.total, limit: raw.limit, offset: raw.offset }
   },
 
   get: (id: string) => {
@@ -77,9 +79,22 @@ export const searchApi = {
 // Entities API
 
 export const entitiesApi = {
-  list: (params?: { type?: string; sort?: string; limit?: number }) => {
+  list: async (params?: { type?: string; sort?: string; limit?: number }) => {
     const qs = buildQueryString(params ?? {})
-    return request<{ data: Entity[]; total: number }>(`/entities${qs}`)
+    // API returns { items, total } — normalize to { data, total }
+    // API uses entity_type (not type) and mention_count (not capture_count)
+    type RawEntity = Omit<Entity, 'type' | 'capture_count' | 'first_seen' | 'last_seen'> & {
+      entity_type: string; mention_count: number; first_seen_at?: string; last_seen_at?: string
+    }
+    const raw = await request<{ items: RawEntity[]; total: number }>(`/entities${qs}`)
+    const data = (raw.items ?? []).map(e => ({
+      ...e,
+      type: e.entity_type as Entity['type'],
+      capture_count: e.mention_count,
+      first_seen: e.first_seen_at ?? '',
+      last_seen: e.last_seen_at ?? '',
+    }))
+    return { data, total: raw.total }
   },
 
   get: (id: string) => {
@@ -144,8 +159,10 @@ export const skillsApi = {
 // Triggers API
 
 export const triggersApi = {
-  list: () => {
-    return request<{ data: Trigger[] }>('/triggers')
+  list: async () => {
+    // API returns { triggers: TriggerRecord[] } — normalize to { data: Trigger[] }
+    const raw = await request<{ triggers: Trigger[] }>('/triggers')
+    return { data: raw.triggers ?? [] }
   },
 
   get: (id: string) => {
@@ -177,7 +194,8 @@ export const triggersApi = {
 
 export const pipelineApi = {
   health: () => {
-    return request<PipelineHealth>('/pipeline/health')
+    // Endpoint is under /admin/pipeline/health
+    return request<PipelineHealth>('/admin/pipeline/health')
   },
 
   retry: (captureId: string) => {
@@ -190,9 +208,11 @@ export const pipelineApi = {
 // Bets API
 
 export const betsApi = {
-  list: (params?: { status?: string }) => {
+  list: async (params?: { status?: string }) => {
     const qs = buildQueryString(params ?? {})
-    return request<{ data: Bet[]; total: number }>(`/bets${qs}`)
+    // API returns { items, total } — normalize to { data, total }
+    const raw = await request<{ items: Bet[]; total: number }>(`/bets${qs}`)
+    return { data: raw.items ?? [], total: raw.total }
   },
 
   get: (id: string) => {
