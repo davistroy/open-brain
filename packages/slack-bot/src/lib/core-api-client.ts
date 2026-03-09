@@ -320,12 +320,23 @@ export class CoreApiClient {
 
   async entities_list(params?: { limit?: number }): Promise<{ total: number; entities: EntityRecord[] }> {
     const query = params?.limit ? `?limit=${params.limit}` : ''
-    return this.request<{ total: number; entities: EntityRecord[] }>(`/api/v1/entities${query}`)
+    // API returns { items, total, limit, offset } — map items → entities
+    const raw = await this.request<{ total: number; items: EntityRecord[] }>(`/api/v1/entities${query}`)
+    return { total: raw.total, entities: raw.items ?? [] }
   }
 
   async entities_search(name: string): Promise<{ total: number; entities: EntityRecord[] }> {
-    const query = encodeURIComponent(name)
-    return this.request<{ total: number; entities: EntityRecord[] }>(`/api/v1/entities/search?q=${query}`)
+    // API uses ?name= param; returns { entity } (single) or 404
+    try {
+      const raw = await this.request<{ entity: EntityRecord }>(`/api/v1/entities?name=${encodeURIComponent(name)}`)
+      return { total: 1, entities: [raw.entity] }
+    } catch (err) {
+      // 404 = entity not found — return empty list so callers can show "no match" message
+      if (err instanceof Error && err.message.startsWith('HTTP 404')) {
+        return { total: 0, entities: [] }
+      }
+      throw err
+    }
   }
 
   async entities_get(id: string): Promise<EntityRecord & { captures: CaptureResult[] }> {
