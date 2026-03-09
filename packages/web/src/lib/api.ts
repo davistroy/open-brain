@@ -195,6 +195,17 @@ export const triggersApi = {
   },
 }
 
+// Admin API
+
+export const adminApi = {
+  resetData: () => {
+    return request<{ cleared: string[]; preserved: string[]; wiped_at: string }>('/admin/reset-data', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: 'WIPE ALL DATA' }),
+    })
+  },
+}
+
 // Pipeline API
 
 export const pipelineApi = {

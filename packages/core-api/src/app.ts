@@ -69,7 +69,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   registerEventsRoutes(app)
 
   if (configService) {
-    const adminRouter = createAdminRouter({ configService, redisConnection })
+    const adminRouter = createAdminRouter({ configService, redisConnection, db })
     app.route('/api/v1/admin', adminRouter)
   }
 
