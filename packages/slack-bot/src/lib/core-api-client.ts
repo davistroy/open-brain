@@ -242,10 +242,24 @@ export class CoreApiClient {
   // Search
 
   async search_query(payload: SearchPayload): Promise<SearchResponse> {
-    return this.request<SearchResponse>('/api/v1/search', {
+    const raw = await this.request<{ query: string; total: number; results: Array<{ capture: CaptureResult; score: number }> }>('/api/v1/search', {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+    return {
+      query: raw.query,
+      total: raw.total,
+      results: (raw.results ?? []).map(r => ({
+        id: r.capture.id,
+        content: r.capture.content,
+        capture_type: r.capture.capture_type,
+        brain_view: r.capture.brain_view,
+        source: r.capture.source,
+        score: r.score,
+        created_at: r.capture.created_at,
+        pre_extracted: r.capture.pre_extracted,
+      })),
+    }
   }
 
   // Synthesize
