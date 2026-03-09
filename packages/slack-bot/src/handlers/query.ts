@@ -80,7 +80,7 @@ async function runSearch(
       query: queryText,
       limit: SEARCH_LIMIT,
       search_mode: 'hybrid',
-      temporal_weight: 0.0,
+      temporal_weight: 0.1,
     })
   } catch (err) {
     logger.error({ err, query: queryText }, 'handleQuery: search_query failed')
