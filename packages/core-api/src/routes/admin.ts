@@ -5,7 +5,8 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter'
 import { HonoAdapter } from '@bull-board/hono'
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import type { ConfigService } from '@open-brain/shared'
+import { sql } from 'drizzle-orm'
+import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 
 /**
@@ -24,6 +25,8 @@ export interface AdminRouterOptions {
   configService: ConfigService
   /** Redis connection for Bull Board queue monitoring. Optional — if omitted, /queues returns a placeholder. */
   redisConnection?: ConnectionOptions
+  /** Database instance — required for POST /reset-data */
+  db?: Database
 }
 
 /**
@@ -36,7 +39,7 @@ export interface AdminRouterOptions {
  * Bull Board path: /api/v1/admin/queues
  * (app.ts mounts this router at /api/v1/admin)
  */
-export function createAdminRouter({ configService, redisConnection }: AdminRouterOptions): Hono {
+export function createAdminRouter({ configService, redisConnection, db }: AdminRouterOptions): Hono {
   const router = new Hono()
 
   // POST /config/reload — hot-reload YAML config files
@@ -50,6 +53,63 @@ export function createAdminRouter({ configService, redisConnection }: AdminRoute
       results,
       reloaded_at: new Date().toISOString(),
     }, allSuccess ? 200 : 207)
+  })
+
+  // POST /reset-data — truncate all user data tables, preserve schema + migration history
+  // Requires body: { confirm: "WIPE ALL DATA" }
+  // Preserves: triggers (user config), schema, __drizzle_migrations
+  router.post('/reset-data', async (c) => {
+    if (!db) {
+      return c.json({ error: 'Database not configured for reset endpoint' }, 503)
+    }
+
+    let body: Record<string, unknown> | null = null
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Request body must be JSON with { "confirm": "WIPE ALL DATA" }' }, 400)
+    }
+
+    if (!body || body.confirm !== 'WIPE ALL DATA') {
+      return c.json(
+        { error: 'Confirmation required. Send { "confirm": "WIPE ALL DATA" } in the request body.' },
+        400,
+      )
+    }
+
+    logger.warn('[admin] Data reset initiated — wiping all user data')
+
+    // Tables ordered to avoid FK constraint errors; CASCADE handles any remainder.
+    // Triggers are intentionally preserved (user configuration, not test data).
+    // __drizzle_migrations is a system table and is never touched.
+    await db.execute(sql`
+      TRUNCATE
+        skills_log,
+        ai_audit_log,
+        session_messages,
+        bets,
+        sessions,
+        entity_links,
+        entity_relationships,
+        entities,
+        pipeline_events,
+        captures
+      CASCADE
+    `)
+
+    const clearedTables = [
+      'captures', 'pipeline_events', 'entities', 'entity_links',
+      'entity_relationships', 'sessions', 'session_messages',
+      'bets', 'skills_log', 'ai_audit_log',
+    ]
+
+    logger.warn({ clearedTables }, '[admin] Data reset complete')
+
+    return c.json({
+      cleared: clearedTables,
+      preserved: ['triggers', '__drizzle_migrations', 'schema'],
+      wiped_at: new Date().toISOString(),
+    })
   })
 
   if (redisConnection) {
