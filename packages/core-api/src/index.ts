@@ -56,12 +56,13 @@ const entityService = new EntityService(db)
 const betService = new BetService(db)
 
 let governanceEngine: GovernanceEngine | undefined
+let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
 if (litellmApiKey) {
-  const llmGateway = new LLMGatewayService(litellmUrl, litellmApiKey, configService, db, promptsDir)
+  llmGateway = new LLMGatewayService(litellmUrl, litellmApiKey, configService, db, promptsDir)
   governanceEngine = new GovernanceEngine(llmGateway, promptsDir)
   logger.info('GovernanceEngine initialized')
 } else {
-  logger.warn('LITELLM_API_KEY not set — GovernanceEngine disabled (session responds will use fallback)')
+  logger.warn('LITELLM_API_KEY not set — GovernanceEngine and synthesize endpoint disabled')
 }
 
 const sessionService = new SessionService(db, captureService, governanceEngine)
@@ -80,6 +81,7 @@ const app = createApp({
   sessionService,
   governanceEngine,
   documentPipelineQueue,
+  llmGateway,
 })
 const port = Number(process.env.PORT ?? 3000)
 
