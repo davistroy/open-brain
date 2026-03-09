@@ -217,6 +217,48 @@ describe('IntentRouter', () => {
       expect(result.intent).toBe('command')
     })
 
+    it('classifies !recent as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!recent 5')
+      expect(result.intent).toBe('command')
+    })
+
+    it('classifies !board as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!board quick')
+      expect(result.intent).toBe('command')
+    })
+
+    it('classifies !pipeline as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!pipeline status')
+      expect(result.intent).toBe('command')
+    })
+
+    it('classifies !entities as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!entities')
+      expect(result.intent).toBe('command')
+    })
+
+    it('classifies !bet as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!bet list')
+      expect(result.intent).toBe('command')
+    })
+
+    it('classifies !trigger as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!trigger list')
+      expect(result.intent).toBe('command')
+    })
+
+    it('classifies !retry as command', async () => {
+      global.fetch = vi.fn()
+      const result = await router.classify('!retry abc-123')
+      expect(result.intent).toBe('command')
+    })
+
     it('returns confidence 1.0 for known ! command', async () => {
       global.fetch = vi.fn()
       const result = await router.classify('!stats')
