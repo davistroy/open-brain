@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
-import type { EmbeddingService } from './embedding.js'
+import type { EmbeddingService } from '@open-brain/shared'
 
 export interface SearchOptions {
   limit?: number

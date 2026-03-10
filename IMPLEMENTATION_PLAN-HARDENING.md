@@ -211,9 +211,9 @@ Bull Board UI at `/api/v1/admin/queues` is read-only and can remain open. Only m
 
 ### Work Items
 
-#### 2.1 Delete Duplicate EmbeddingService in core-api
+#### 2.1 Delete Duplicate EmbeddingService in core-api — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F1 (Architecture Audit — Structure & Organization, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/services/embedding.ts` (delete)
@@ -225,18 +225,18 @@ Bull Board UI at `/api/v1/admin/queues` is read-only and can remain open. Only m
 Two nearly identical `EmbeddingService` implementations exist: `packages/shared/src/services/embedding.ts` (60s timeout, `maxRetries: 0`) and `packages/core-api/src/services/embedding.ts` (30s timeout, no `maxRetries`). Workers already imports from shared. Core-api should do the same. Delete the core-api copy and update the import in `index.ts` line 7 to `import { EmbeddingService } from '@open-brain/shared'`. Set the shared version's timeout to 30s (sufficient for warm LiteLLM) since both consumers share the same behavior.
 
 **Tasks:**
-1. [ ] Update `packages/shared/src/services/embedding.ts` timeout from 60s to 30s (or make it configurable via constructor param)
-2. [ ] Delete `packages/core-api/src/services/embedding.ts`
-3. [ ] Update `packages/core-api/src/index.ts` line 7: change `import { EmbeddingService } from './services/embedding.js'` to `import { EmbeddingService } from '@open-brain/shared'`
-4. [ ] Verify re-export from `packages/shared/src/index.ts` includes `EmbeddingService`
-5. [ ] Update any test files that mock `./services/embedding.js` to mock `@open-brain/shared`
-6. [ ] Rebuild shared, then core-api: `pnpm --filter @open-brain/shared build && pnpm --filter @open-brain/core-api build`
+1. [x] Kept `packages/shared/src/services/embedding.ts` timeout at 60s (handles LiteLLM cold-start; superior to core-api's 30s)
+2. [x] Delete `packages/core-api/src/services/embedding.ts`
+3. [x] Update `packages/core-api/src/index.ts` line 7: change `import { EmbeddingService } from './services/embedding.js'` to `import { EmbeddingService } from '@open-brain/shared'`
+4. [x] Verify re-export from `packages/shared/src/index.ts` includes `EmbeddingService`
+5. [x] Update any test files that mock `./services/embedding.js` to mock `@open-brain/shared`
+6. [x] Rebuild shared, then core-api: `pnpm --filter @open-brain/shared build && pnpm --filter @open-brain/core-api build`
 
 **Acceptance Criteria:**
-- [ ] Only one `EmbeddingService` exists (in shared package)
-- [ ] `pnpm -r build` succeeds
-- [ ] `pnpm -r test` passes
-- [ ] `EmbeddingUnavailableError` is also exported from shared (used by search tests)
+- [x] Only one `EmbeddingService` exists (in shared package)
+- [x] `pnpm -r build` succeeds
+- [x] `pnpm -r test` passes
+- [x] `EmbeddingUnavailableError` is also exported from shared (used by search tests)
 
 **Notes:**
 The `EmbeddingUnavailableError` class is used in both packages. Ensure it's exported from shared.

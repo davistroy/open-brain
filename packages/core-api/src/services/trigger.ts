@@ -2,7 +2,7 @@ import { eq, desc, sql } from 'drizzle-orm'
 import { triggers, captures } from '@open-brain/shared'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import type { EmbeddingService } from './embedding.js'
+import type { EmbeddingService } from '@open-brain/shared'
 
 const MAX_ACTIVE_TRIGGERS = 20
 const DEFAULT_THRESHOLD = 0.72
