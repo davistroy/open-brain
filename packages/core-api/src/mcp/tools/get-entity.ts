@@ -86,14 +86,12 @@ export async function getEntityTool(
 
   try {
     if (input.id) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await db.execute<any>(
+      const result = await db.execute<EntityRow>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at, metadata FROM entities WHERE id = ${input.id}::uuid LIMIT 1`,
       )
       rows = result.rows
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await db.execute<any>(
+      const result = await db.execute<EntityRow>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at, metadata FROM entities WHERE lower(name) = lower(${input.name!}) LIMIT 1`,
       )
       rows = result.rows

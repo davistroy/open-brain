@@ -487,9 +487,9 @@ This is a refactor, not a rewrite. The behavior must be identical. Preserve all 
 
 ### Work Items
 
-#### 4.1 Migrate EntityService to Typed Queries
+#### 4.1 Migrate EntityService to Typed Queries — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F6 (Architecture Audit — Code Quality, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/services/entity.ts` (modify)
@@ -499,26 +499,26 @@ This is a refactor, not a rewrite. The behavior must be identical. Preserve all 
 EntityService uses `db.execute<any>()` with raw SQL for list, get, merge, split, and relationship queries (~10 sites). Replace with Drizzle query builder where possible. For complex queries that genuinely need raw SQL (e.g., GROUP BY with aggregate), define explicit row-type interfaces and validate with runtime checks.
 
 **Tasks:**
-1. [ ] Identify all `db.execute<any>()` calls in entity.ts
-2. [ ] For simple queries (single-table SELECT, INSERT, UPDATE), convert to Drizzle query builder API (`db.select().from(entities).where(...)`)
-3. [ ] For complex queries (JOINs with aggregates), define explicit row interfaces (e.g., `interface EntityListRow { ... }`) and replace `<any>` with the typed interface
-4. [ ] Remove all `as unknown as EntityRecord` casts
-5. [ ] Update tests to work with new query patterns
+1. [x] Identify all `db.execute<any>()` calls in entity.ts
+2. [x] For simple queries (single-table SELECT, INSERT, UPDATE), convert to Drizzle query builder API (`db.select().from(entities).where(...)`)
+3. [x] For complex queries (JOINs with aggregates), define explicit row interfaces (e.g., `interface EntityListRow { ... }`) and replace `<any>` with the typed interface
+4. [x] Remove all `as unknown as EntityRecord` casts
+5. [x] Update tests to work with new query patterns
 
 **Acceptance Criteria:**
-- [ ] Zero `db.execute<any>()` calls remain in entity.ts
-- [ ] Zero `as unknown as` casts remain in entity.ts
-- [ ] All entity API endpoints return identical data
-- [ ] All entity tests pass
+- [x] Zero `db.execute<any>()` calls remain in entity.ts
+- [x] Zero `as unknown as` casts remain in entity.ts
+- [x] All entity API endpoints return identical data
+- [x] All entity tests pass
 
 **Notes:**
 Drizzle's `db.select()` supports `.leftJoin()`, `.groupBy()`, and aggregate functions. Use those where possible before falling back to typed raw SQL.
 
 ---
 
-#### 4.2 Migrate EntityResolutionService to Typed Queries
+#### 4.2 Migrate EntityResolutionService to Typed Queries — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F6 (Architecture Audit — Code Quality, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/services/entity-resolution.ts` (modify)
@@ -544,9 +544,9 @@ EntityResolutionService is called by EntityService — ensure the interface cont
 
 ---
 
-#### 4.3 Migrate MCP Tools to Typed Queries
+#### 4.3 Migrate MCP Tools to Typed Queries — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F6 (Architecture Audit — Code Quality, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/mcp/tools/*.ts` (modify — all tool files with raw SQL)

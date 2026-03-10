@@ -14,19 +14,31 @@ function makeMockLLM(response: string) {
 
 // ---------------------------------------------------------------------------
 // Mock Database helpers
+//
+// The service now uses a mix of:
+// - Drizzle query builder: db.select().from().where().limit() → returns array directly
+// - Raw SQL: db.execute<EntityRow>(sql`...`) → returns { rows: EntityRow[] }
+// - Drizzle mutations: db.insert().values().returning(), db.update().set().where(),
+//   db.delete().where()
 // ---------------------------------------------------------------------------
 
-function executeChain(rows: unknown[]) {
-  return Promise.resolve({ rows })
+/** Builds a mock that chains .from().where().limit() and resolves to the given rows array. */
+function selectChain(rows: unknown[]) {
+  return {
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue(rows),
+      }),
+    }),
+  }
 }
 
 function makeMockDb(overrides: {
-  exactRows?: unknown[]
-  aliasRows?: unknown[]
-  candidateRows?: unknown[]
+  exactRows?: unknown[]    // Tier 1: Drizzle select → array
+  aliasRows?: unknown[]    // Tier 2: db.execute → { rows }
+  candidateRows?: unknown[] // Tier 3: db.execute → { rows }
   insertRow?: unknown
   updateResult?: unknown
-  deleteResult?: unknown
 } = {}) {
   const {
     exactRows = [],
@@ -34,20 +46,18 @@ function makeMockDb(overrides: {
     candidateRows = [],
     insertRow = null,
     updateResult = [],
-    deleteResult = [],
   } = overrides
 
   let executeCallCount = 0
 
   return {
+    select: vi.fn().mockReturnValue(selectChain(exactRows)),
     execute: vi.fn().mockImplementation(() => {
       executeCallCount++
-      // Calls in resolve(): 1=exact, 2=alias, 3=candidates
-      if (executeCallCount === 1) return executeChain(exactRows)
-      if (executeCallCount === 2) return executeChain(aliasRows)
-      if (executeCallCount === 3) return executeChain(candidateRows)
-      // Subsequent calls: merge/split operations
-      return executeChain(updateResult as unknown[])
+      // Calls in resolve(): 1=alias, 2=candidates (exact match uses Drizzle select now)
+      if (executeCallCount === 1) return Promise.resolve({ rows: aliasRows })
+      if (executeCallCount === 2) return Promise.resolve({ rows: candidateRows })
+      return Promise.resolve({ rows: [] })
     }),
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
@@ -58,6 +68,9 @@ function makeMockDb(overrides: {
       set: vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(updateResult),
       }),
+    }),
+    delete: vi.fn().mockReturnValue({
+      where: vi.fn().mockResolvedValue([]),
     }),
   }
 }
@@ -81,7 +94,8 @@ const SAMPLE_ENTITY = {
 describe('EntityResolutionService.resolve — exact match', () => {
   it('returns exact_match when name matches case-insensitively', async () => {
     const db = {
-      execute: vi.fn().mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),
+      select: vi.fn().mockReturnValue(selectChain([SAMPLE_ENTITY])),
+      execute: vi.fn(),
       insert: vi.fn(),
     }
 
@@ -91,13 +105,15 @@ describe('EntityResolutionService.resolve — exact match', () => {
     expect(result.outcome).toBe('exact_match')
     expect(result.entity_id).toBe('entity-uuid-1')
     expect(result.confidence).toBe(1.0)
-    // Should only call execute once (exact match found)
-    expect(db.execute).toHaveBeenCalledTimes(1)
+    // Should only call select once (exact match found), no execute calls
+    expect(db.select).toHaveBeenCalledTimes(1)
+    expect(db.execute).not.toHaveBeenCalled()
   })
 
   it('returns exact_match for case-insensitive comparison', async () => {
     const db = {
-      execute: vi.fn().mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),
+      select: vi.fn().mockReturnValue(selectChain([SAMPLE_ENTITY])),
+      execute: vi.fn(),
       insert: vi.fn(),
     }
 
@@ -115,8 +131,8 @@ describe('EntityResolutionService.resolve — exact match', () => {
 describe('EntityResolutionService.resolve — alias match', () => {
   it('returns alias_match when mention is in aliases array', async () => {
     const db = {
+      select: vi.fn().mockReturnValue(selectChain([])),  // exact: no match
       execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })  // exact: no match
         .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),  // alias: match
       insert: vi.fn(),
     }
@@ -127,7 +143,8 @@ describe('EntityResolutionService.resolve — alias match', () => {
     expect(result.outcome).toBe('alias_match')
     expect(result.entity_id).toBe('entity-uuid-1')
     expect(result.confidence).toBe(0.95)
-    expect(db.execute).toHaveBeenCalledTimes(2)
+    expect(db.select).toHaveBeenCalledTimes(1)  // exact check via Drizzle
+    expect(db.execute).toHaveBeenCalledTimes(1) // alias check via raw SQL
   })
 })
 
@@ -144,8 +161,8 @@ describe('EntityResolutionService.resolve — LLM match', () => {
     })
 
     const db = {
+      select: vi.fn().mockReturnValue(selectChain([])),  // exact: no match
       execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })  // exact: no match
         .mockResolvedValueOnce({ rows: [] })  // alias: no match
         .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),  // candidates
       insert: vi.fn(),
@@ -171,9 +188,9 @@ describe('EntityResolutionService.resolve — LLM match', () => {
 
     const insertedEntity = { id: 'new-entity-uuid' }
     const db = {
+      select: vi.fn().mockReturnValue(selectChain([])),  // exact: no match
       execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })  // exact
-        .mockResolvedValueOnce({ rows: [] })  // alias
+        .mockResolvedValueOnce({ rows: [] })  // alias: no match
         .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),  // candidates
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
@@ -201,10 +218,10 @@ describe('EntityResolutionService.resolve — LLM match', () => {
 
     const insertedEntity = { id: 'new-entity-uuid-2' }
     const db = {
+      select: vi.fn().mockReturnValue(selectChain([])),  // exact: no match
       execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),
+        .mockResolvedValueOnce({ rows: [] })  // alias: no match
+        .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),  // candidates
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
           returning: vi.fn().mockResolvedValue([insertedEntity]),
@@ -230,9 +247,9 @@ describe('EntityResolutionService.resolve — new entity creation', () => {
   it('creates new entity when no candidates exist', async () => {
     const insertedEntity = { id: 'brand-new-entity' }
     const db = {
+      select: vi.fn().mockReturnValue(selectChain([])),  // exact: no match
       execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })  // exact
-        .mockResolvedValueOnce({ rows: [] })  // alias
+        .mockResolvedValueOnce({ rows: [] })  // alias: no match
         .mockResolvedValueOnce({ rows: [] }),  // candidates: empty
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
@@ -252,10 +269,10 @@ describe('EntityResolutionService.resolve — new entity creation', () => {
   it('falls back to creating entity when LLM fails', async () => {
     const insertedEntity = { id: 'fallback-entity' }
     const db = {
+      select: vi.fn().mockReturnValue(selectChain([])),  // exact: no match
       execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [] })
-        .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),
+        .mockResolvedValueOnce({ rows: [] })  // alias: no match
+        .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),  // candidates
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
           returning: vi.fn().mockResolvedValue([insertedEntity]),
@@ -284,35 +301,45 @@ describe('EntityResolutionService.merge', () => {
     const sourceEntity = { id: 'source-id', name: 'Tom', aliases: ['Tommy'], entity_type: 'person' }
     const targetEntity = { id: 'target-id', name: 'Tom Smith', aliases: ['Thomas'], entity_type: 'person' }
 
-    let executeCallCount = 0
+    let selectCallCount = 0
     const db = {
-      execute: vi.fn().mockImplementation(() => {
-        executeCallCount++
-        if (executeCallCount === 1) return Promise.resolve({ rows: [sourceEntity] })  // source lookup
-        if (executeCallCount === 2) return Promise.resolve({ rows: [targetEntity] })  // target lookup
-        return Promise.resolve({ rows: [] })  // INSERT links, DELETE
+      select: vi.fn().mockImplementation(() => {
+        selectCallCount++
+        if (selectCallCount === 1) return selectChain([sourceEntity])  // source lookup
+        return selectChain([targetEntity])  // target lookup
       }),
+      execute: vi.fn().mockResolvedValue({ rows: [] }),  // INSERT...SELECT links
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockResolvedValue([]),
         }),
+      }),
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
       }),
     }
 
     const service = new EntityResolutionService(db as any)
     await service.merge('source-id', 'target-id')
 
-    // execute: 2 lookups + INSERT links + DELETE source = 4 calls
-    // update: aliases update via Drizzle chain = 1 call
-    expect(db.execute).toHaveBeenCalledTimes(4)
+    // select: 2 lookups (source + target)
+    expect(db.select).toHaveBeenCalledTimes(2)
+    // execute: INSERT...SELECT links = 1 call
+    expect(db.execute).toHaveBeenCalledTimes(1)
+    // update: aliases merge = 1 call
     expect(db.update).toHaveBeenCalledOnce()
+    // delete: remove source entity = 1 call
+    expect(db.delete).toHaveBeenCalledOnce()
   })
 
   it('throws NotFoundError when source entity does not exist', async () => {
+    let selectCallCount = 0
     const db = {
-      execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [] })  // source: not found
-        .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] }),  // target: found
+      select: vi.fn().mockImplementation(() => {
+        selectCallCount++
+        if (selectCallCount === 1) return selectChain([])  // source: not found
+        return selectChain([SAMPLE_ENTITY])  // target: found
+      }),
     }
 
     const service = new EntityResolutionService(db as any)
@@ -320,10 +347,13 @@ describe('EntityResolutionService.merge', () => {
   })
 
   it('throws NotFoundError when target entity does not exist', async () => {
+    let selectCallCount = 0
     const db = {
-      execute: vi.fn()
-        .mockResolvedValueOnce({ rows: [SAMPLE_ENTITY] })  // source: found
-        .mockResolvedValueOnce({ rows: [] }),  // target: not found
+      select: vi.fn().mockImplementation(() => {
+        selectCallCount++
+        if (selectCallCount === 1) return selectChain([SAMPLE_ENTITY])  // source: found
+        return selectChain([])  // target: not found
+      }),
     }
 
     const service = new EntityResolutionService(db as any)
@@ -341,7 +371,7 @@ describe('EntityResolutionService.split', () => {
     const newEntity = { id: 'split-entity-uuid' }
 
     const db = {
-      execute: vi.fn().mockResolvedValueOnce({ rows: [entityWithAlias] }),  // entity lookup
+      select: vi.fn().mockReturnValue(selectChain([entityWithAlias])),  // entity lookup via Drizzle
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockResolvedValue([]),
@@ -359,13 +389,13 @@ describe('EntityResolutionService.split', () => {
 
     expect(result.new_entity_id).toBe('split-entity-uuid')
     expect(db.insert).toHaveBeenCalledOnce()
-    expect(db.execute).toHaveBeenCalledOnce()  // entity lookup
+    expect(db.select).toHaveBeenCalledOnce()  // entity lookup via Drizzle
     expect(db.update).toHaveBeenCalledOnce()   // aliases update via Drizzle chain
   })
 
   it('throws NotFoundError when entity does not exist', async () => {
     const db = {
-      execute: vi.fn().mockResolvedValueOnce({ rows: [] }),
+      select: vi.fn().mockReturnValue(selectChain([])),  // not found
       insert: vi.fn(),
     }
 
