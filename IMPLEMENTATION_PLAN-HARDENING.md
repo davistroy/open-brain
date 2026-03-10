@@ -381,9 +381,9 @@ The workers `main.ts` likely has a similar issue — check and fix there too if 
 
 ### Work Items
 
-#### 3.1 Extract Shared Prompt Template Utility
+#### 3.1 Extract Shared Prompt Template Utility — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F7 (Architecture Audit — Code Quality, LOW)
 **Files Affected:**
 - `packages/shared/src/lib/prompt-template.ts` (create)
@@ -396,31 +396,31 @@ The workers `main.ts` likely has a similar issue — check and fix there too if 
 Three separate implementations of `{{variable}}` template substitution exist: LLMGatewayService (lines 271-278), GovernanceEngine (lines 406-415), and WeeklyBriefSkill (lines 332-351). All read from `config/prompts/`, iterate key/value pairs, and call `replaceAll()`. Extract a `renderPromptTemplate(promptsDir, templateName, variables)` function into `@open-brain/shared`.
 
 **Tasks:**
-1. [ ] Create `packages/shared/src/lib/prompt-template.ts` with:
+1. [x] Create `packages/shared/src/lib/prompt-template.ts` with:
    - `loadPromptTemplate(promptsDir: string, templateName: string): string` — reads file, throws if not found
    - `renderPromptTemplate(template: string, vars: Record<string, string>): string` — replaces `{{key}}` with values
-   - `loadAndRender(promptsDir: string, templateName: string, vars: Record<string, string>): string` — convenience
-2. [ ] Export from `packages/shared/src/index.ts`
-3. [ ] Replace template logic in `LLMGatewayService.completeWithPromptTemplate()` with shared utility
-4. [ ] Replace template logic in `GovernanceEngine` with shared utility
-5. [ ] Replace template logic in `WeeklyBriefSkill` with shared utility
-6. [ ] Add unit tests for the shared utility (edge cases: missing template, missing variable, empty vars)
+   - `loadAndRenderPromptTemplate(promptsDir: string, templateName: string, vars: Record<string, string>): string` — convenience
+2. [x] Export from `packages/shared/src/index.ts`
+3. [x] Replace template logic in `LLMGatewayService.completeWithPromptTemplate()` with shared utility
+4. [x] Replace template logic in `GovernanceEngine` with shared utility
+5. [x] Replace template logic in `WeeklyBriefSkill` with shared utility
+6. [x] Add unit tests for the shared utility (edge cases: missing template, missing variable, empty vars)
 
 **Acceptance Criteria:**
-- [ ] Single implementation of prompt template rendering in shared package
-- [ ] All three consumers delegate to shared utility
-- [ ] Prompt rendering behavior unchanged (same output for same inputs)
-- [ ] Unit tests cover: normal rendering, missing file, missing variable key (left as `{{key}}`)
-- [ ] All existing tests pass
+- [x] Single implementation of prompt template rendering in shared package
+- [x] All three consumers delegate to shared utility
+- [x] Prompt rendering behavior unchanged (same output for same inputs)
+- [x] Unit tests cover: normal rendering, missing file, missing variable key (left as `{{key}}`)
+- [x] All existing tests pass
 
 **Notes:**
 Keep the API simple. Don't over-engineer with caching or watch mode — just file read + string replace.
 
 ---
 
-#### 3.2 Decompose WeeklyBriefSkill into Focused Modules
+#### 3.2 Decompose WeeklyBriefSkill into Focused Modules — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F4 (Architecture Audit — Code Quality, MEDIUM)
 **Files Affected:**
 - `packages/workers/src/skills/weekly-brief.ts` (modify — reduce to orchestrator)
@@ -993,6 +993,97 @@ Documentation only — no code changes. Keep the roadmap concise — bullet poin
 - [ ] All work items complete
 - [ ] Documentation reviewed for accuracy
 - [ ] No code changes made (documentation only)
+
+---
+
+## Phase 8: Final Validation, Cleanup & Ship
+
+**Depends on:** All previous phases (1-7)
+**Estimated effort:** 1-2 hours
+
+### 8.1 Full Test Suite Validation
+
+**Priority:** CRITICAL
+**Estimated effort:** 30 min
+**Status:** PENDING
+
+**Tasks:**
+- [ ] Run `/test-all` across the entire project
+- [ ] Fix any failing tests, lint issues, or type errors discovered
+- [ ] Re-run until all checks pass clean
+
+**Acceptance Criteria:**
+- [ ] All unit tests pass
+- [ ] All regression tests pass
+- [ ] All automatable USER_TEST_PLAN.md tests pass
+- [ ] Zero lint errors
+- [ ] Clean type-check across all packages
+
+---
+
+### 8.2 Repository Cleanup
+
+**Priority:** HIGH
+**Estimated effort:** 20 min
+**Status:** PENDING
+
+**Tasks:**
+- [ ] Run `/personal-plugin:clean-repo` to clean, organize, and refresh documentation
+- [ ] Review and accept cleanup changes
+- [ ] Verify no functional code was altered by cleanup
+
+**Acceptance Criteria:**
+- [ ] Repository is clean and well-organized
+- [ ] Documentation is up to date
+- [ ] No orphaned or stale files remain
+
+---
+
+### 8.3 Ship (PR, Review, Merge)
+
+**Priority:** HIGH
+**Estimated effort:** 15 min
+**Status:** PENDING
+
+**Tasks:**
+- [ ] Create PR with comprehensive summary of all hardening work
+- [ ] Run `/personal-plugin:ship` to finalize
+- [ ] Merge to main
+
+**Acceptance Criteria:**
+- [ ] PR created with full summary of changes
+- [ ] All CI checks pass
+- [ ] Merged to main
+
+---
+
+### 8.4 Final Summary Report
+
+**Priority:** MEDIUM
+**Estimated effort:** 5 min
+**Status:** PENDING
+
+**Tasks:**
+- [ ] Produce a 40-line-or-less summary of everything done
+- [ ] Include: phases completed, work items shipped, key metrics, current project state
+
+**Acceptance Criteria:**
+- [ ] Summary is concise (≤40 lines)
+- [ ] Covers all phases and key changes
+- [ ] States current project health and readiness
+
+### Phase 8 Testing Requirements
+
+- [ ] `/test-all` passes with zero failures
+- [ ] Repository cleanup introduces no regressions
+- [ ] PR merges cleanly to main
+
+### Phase 8 Completion Checklist
+
+- [ ] All work items complete
+- [ ] All tests passing
+- [ ] PR merged
+- [ ] Summary delivered to user
 
 <!-- END PHASES -->
 

@@ -1,5 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { loadPromptTemplate, renderPromptTemplate } from '@open-brain/shared'
 import type { LLMGatewayService } from './llm-gateway.js'
 import type { SearchService } from './search.js'
 import type { BetService } from './bet.js'
@@ -404,27 +403,10 @@ export class GovernanceEngine {
   // -------------------------------------------------------------------------
 
   private renderPrompt(vars: Record<string, string>): string {
-    const template = this.loadPromptTemplate()
-    let rendered = template
-
-    for (const [key, value] of Object.entries(vars)) {
-      rendered = rendered.replaceAll(`{{${key}}}`, value)
+    if (!this.promptTemplate) {
+      this.promptTemplate = loadPromptTemplate(this.promptsDir, 'governance_v1.txt')
     }
-
-    return rendered
-  }
-
-  private loadPromptTemplate(): string {
-    if (this.promptTemplate) return this.promptTemplate
-
-    const templatePath = join(this.promptsDir, 'governance_v1.txt')
-
-    if (!existsSync(templatePath)) {
-      throw new Error(`Governance prompt template not found: ${templatePath}`)
-    }
-
-    this.promptTemplate = readFileSync(templatePath, 'utf8')
-    return this.promptTemplate
+    return renderPromptTemplate(this.promptTemplate, vars)
   }
 
   // -------------------------------------------------------------------------

@@ -1,7 +1,5 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
 import OpenAI from 'openai'
-import { ServiceUnavailableError, ai_audit_log } from '@open-brain/shared'
+import { ServiceUnavailableError, ai_audit_log, loadAndRenderPromptTemplate } from '@open-brain/shared'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 
@@ -265,18 +263,18 @@ export class LLMGatewayService {
     modelAlias: string,
     options: LLMCompleteOptions = {},
   ): Promise<string> {
-    const templatePath = join(this.promptsDir, `${templateName}.v1.txt`)
-
-    if (!existsSync(templatePath)) {
-      throw new LLMGatewayError(`Prompt template not found: ${templatePath}`)
+    try {
+      const rendered = loadAndRenderPromptTemplate(
+        this.promptsDir,
+        `${templateName}.v1.txt`,
+        vars,
+      )
+      return this.complete(rendered, modelAlias as LLMModelAlias, options)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Prompt template not found')) {
+        throw new LLMGatewayError(err.message)
+      }
+      throw err
     }
-
-    let template = readFileSync(templatePath, 'utf8')
-
-    for (const [key, value] of Object.entries(vars)) {
-      template = template.replaceAll(`{{${key}}}`, value)
-    }
-
-    return this.complete(template, modelAlias as LLMModelAlias, options)
   }
 }
