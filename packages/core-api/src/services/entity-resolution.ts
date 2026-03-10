@@ -186,12 +186,10 @@ Use match_index null if none of the entities match or confidence < 0.8.`
       new Set([...(target.aliases ?? []), source.name, ...(source.aliases ?? [])]),
     ).filter(a => a.toLowerCase() !== target.name.toLowerCase())
 
-    await this.db.execute(
-      sql`UPDATE entities
-          SET aliases = ${mergedAliases}::text[],
-              updated_at = now()
-          WHERE id = ${targetId}::uuid`,
-    )
+    await this.db
+      .update(entities)
+      .set({ aliases: mergedAliases, updated_at: new Date() })
+      .where(eq(entities.id, targetId))
 
     // Delete source entity (entity_links cascade via FK onDelete: cascade)
     await this.db.execute(
@@ -223,12 +221,10 @@ Use match_index null if none of the entities match or confidence < 0.8.`
       (a: string) => a.toLowerCase() !== aliasLower,
     )
 
-    await this.db.execute(
-      sql`UPDATE entities
-          SET aliases = ${updatedAliases}::text[],
-              updated_at = now()
-          WHERE id = ${entityId}::uuid`,
-    )
+    await this.db
+      .update(entities)
+      .set({ aliases: updatedAliases, updated_at: new Date() })
+      .where(eq(entities.id, entityId))
 
     // Create new entity for the alias
     const result = await this.createEntity(alias.trim(), existing.entity_type)

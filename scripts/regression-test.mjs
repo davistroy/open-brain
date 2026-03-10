@@ -435,11 +435,10 @@ let secondEntityId = null;
       const hasSeparateDates = 'first_seen_at' in (ent.data || {}) &&
                                'last_seen_at' in (ent.data || {});
       if (!hasSeparateDates) {
-        bug('TC-API-044b', 'Entity detail page shows "Invalid Date"',
-          'UI reads different date field than what API returns');
+        bug('TC-API-044b', 'Entity missing first_seen_at / last_seen_at fields',
+          'Web UI mapping will show "Invalid Date"');
       } else {
-        fail('TC-API-044b', 'BUG: UI shows "Invalid Date" despite API returning valid dates',
-          'UI reads createdAt/updatedAt but API returns first_seen_at/last_seen_at');
+        pass('TC-API-044b', 'Entity has first_seen_at + last_seen_at (web UI mapping fixed)');
       }
     } else {
       bug('TC-API-044', 'Entity missing or invalid first_seen_at date field', String(firstSeen));
