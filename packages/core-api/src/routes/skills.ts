@@ -29,18 +29,11 @@ interface SkillExecutionJobData {
  * Mirrors config/skills.yaml. Will be replaced by config-driven lookup
  * once skills.yaml is loaded via ConfigService (Phase 11+).
  */
+// Deferred: drift-monitor, daily-connections — implement when PRD F21/F22 are prioritized
 const KNOWN_SKILLS: Record<string, { schedule: string; description: string }> = {
   'weekly-brief': {
     schedule: '0 20 * * 0', // Sunday 8pm
     description: 'Generate a weekly synthesis of all captures and deliver via email + Pushover',
-  },
-  'drift-monitor': {
-    schedule: '0 9 * * 1', // Monday 9am
-    description: 'Detect topic drift and attention gaps across brain views',
-  },
-  'daily-connections': {
-    schedule: '0 18 * * *', // Daily 6pm
-    description: 'Surface non-obvious connections between recent captures',
   },
   'pipeline-health': {
     schedule: '0 * * * *', // Every hour

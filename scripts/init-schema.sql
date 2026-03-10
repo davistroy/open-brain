@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS captures (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
+  deleted_at TIMESTAMPTZ,
+  access_count INTEGER NOT NULL DEFAULT 0,
+  last_accessed_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS captures_content_hash_idx ON captures(content_hash);
 CREATE INDEX IF NOT EXISTS captures_capture_type_idx ON captures(capture_type);

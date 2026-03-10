@@ -52,9 +52,9 @@ The plan is ordered by risk reduction: critical runtime failures and security ga
 
 ### Work Items
 
-#### 1.1 Add `access_count` and `last_accessed_at` Columns to Captures Schema
+#### 1.1 Add `access_count` and `last_accessed_at` Columns to Captures Schema — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** C1 (Intent Review — Schema Divergence, CRITICAL)
 **Files Affected:**
 - `packages/shared/src/schema/core.ts` (modify)
@@ -84,9 +84,9 @@ The SearchService (`packages/core-api/src/services/search.ts`) uses `created_at`
 
 ---
 
-#### 1.2 Remove Unimplemented Skills from KNOWN_SKILLS
+#### 1.2 Remove Unimplemented Skills from KNOWN_SKILLS — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** C2 (Intent Review — Partial Implementation, CRITICAL)
 **Files Affected:**
 - `packages/core-api/src/routes/skills.ts` (modify — lines 37-44)
@@ -95,24 +95,24 @@ The SearchService (`packages/core-api/src/services/search.ts`) uses `created_at`
 `KNOWN_SKILLS` at `packages/core-api/src/routes/skills.ts:32-49` advertises `drift-monitor` and `daily-connections` skills. No handler code exists in `packages/workers/src/skills/`. Triggering these skills via `POST /api/v1/skills/:name/trigger` enqueues a BullMQ job that cannot execute. Remove both entries from KNOWN_SKILLS and add a code comment noting they are deferred to a future phase.
 
 **Tasks:**
-1. [ ] Remove `'drift-monitor'` entry (lines 37-40) from KNOWN_SKILLS in `packages/core-api/src/routes/skills.ts`
-2. [ ] Remove `'daily-connections'` entry (lines 41-44) from KNOWN_SKILLS
-3. [ ] Add comment: `// Deferred: drift-monitor, daily-connections — implement when PRD F21/F22 are prioritized`
-4. [ ] Update any tests that reference these skill names
+1. [x] Remove `'drift-monitor'` entry (lines 37-40) from KNOWN_SKILLS in `packages/core-api/src/routes/skills.ts`
+2. [x] Remove `'daily-connections'` entry (lines 41-44) from KNOWN_SKILLS
+3. [x] Add comment: `// Deferred: drift-monitor, daily-connections — implement when PRD F21/F22 are prioritized`
+4. [x] Update any tests that reference these skill names
 
 **Acceptance Criteria:**
-- [ ] GET /api/v1/skills no longer returns `drift-monitor` or `daily-connections`
-- [ ] POST /api/v1/skills/drift-monitor/trigger returns 404
-- [ ] All existing tests pass
+- [x] GET /api/v1/skills no longer returns `drift-monitor` or `daily-connections`
+- [x] POST /api/v1/skills/drift-monitor/trigger returns 404
+- [x] All existing tests pass
 
 **Notes:**
 These skills are documented in PRD F21 and F22. When prioritized, create handler files in `packages/workers/src/skills/` and re-add to KNOWN_SKILLS.
 
 ---
 
-#### 1.3 Remove `|| true` from Dockerfile Build Commands
+#### 1.3 Remove `|| true` from Dockerfile Build Commands — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F9 (Architecture Audit — Dependency Management, HIGH)
 **Files Affected:**
 - `Dockerfile` (modify — lines 28-32)
