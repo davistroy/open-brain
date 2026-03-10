@@ -112,6 +112,9 @@ async function slackGetThreadReplies(ts) {
 // Track created IDs for cleanup
 const cleanup = { captureIds: [], sessionIds: [], betIds: [], triggerIds: [] };
 
+// Use a unique run ID to prevent duplicate-content 409s across test runs
+const RUN_ID = Date.now().toString(36);
+
 // ═════════════════════════════════════════════════════════════════════════════
 // SECTION 1: Health & Stats
 // ═════════════════════════════════════════════════════════════════════════════
@@ -818,7 +821,7 @@ section('10. Admin');
 section('11. MCP');
 
 {
-  const MCP_API_KEY = 'c34ac05d9a5d07a7512ad4ef66f7ab481435c6c613c408128df91d3b21fa210d';
+  const MCP_API_KEY = process.env.OPEN_BRAIN_MCP_API_KEY || '';
 
   // Initialize call first (Streamable HTTP MCP protocol)
   const initRes = await fetch(`${BASE}/mcp`, {
