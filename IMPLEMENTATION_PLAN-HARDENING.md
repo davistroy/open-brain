@@ -148,9 +148,9 @@ The `|| true` was likely added to work around tsup `--dts` failures on Alpine. I
 
 ---
 
-#### 1.4 Add Bearer Token Authentication to Admin Endpoints
+#### 1.4 Add Bearer Token Authentication to Admin Endpoints — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F14 (Architecture Audit — Security, HIGH)
 **Files Affected:**
 - `packages/core-api/src/routes/admin.ts` (modify)
