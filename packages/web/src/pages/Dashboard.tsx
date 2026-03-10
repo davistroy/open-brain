@@ -25,7 +25,7 @@ function PipelineHealthBanner({ health }: { health: PipelineHealth }) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
         <span className="inline-block w-2 h-2 rounded-full bg-green-500" />
-        Pipeline healthy — {totalActive} active, {totalWaiting} queued
+        Queue healthy — {totalActive} active, {totalWaiting} queued
       </div>
     );
   }
@@ -33,7 +33,7 @@ function PipelineHealthBanner({ health }: { health: PipelineHealth }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-sm text-yellow-800">
       <AlertCircle className="h-4 w-4 shrink-0" />
-      Pipeline: {totalFailed} failed, {totalWaiting} waiting, {totalActive} active
+      Queue: {totalFailed} jobs failed, {totalWaiting} waiting, {totalActive} active
     </div>
   );
 }
@@ -108,6 +108,8 @@ export default function Dashboard() {
         body: JSON.stringify({
           content,
           source: QUICK_CAPTURE_SOURCE,
+          capture_type: 'observation',
+          brain_view: 'personal',
         }),
       }).then((r) => {
         if (!r.ok) throw new Error(`API ${r.status}`);

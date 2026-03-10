@@ -290,15 +290,22 @@ describe('EntityResolutionService.merge', () => {
         executeCallCount++
         if (executeCallCount === 1) return Promise.resolve({ rows: [sourceEntity] })  // source lookup
         if (executeCallCount === 2) return Promise.resolve({ rows: [targetEntity] })  // target lookup
-        return Promise.resolve({ rows: [] })  // INSERT links, UPDATE aliases, DELETE
+        return Promise.resolve({ rows: [] })  // INSERT links, DELETE
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]),
+        }),
       }),
     }
 
     const service = new EntityResolutionService(db as any)
     await service.merge('source-id', 'target-id')
 
-    // Should call execute 5 times: 2 lookups + insert links + update aliases + delete
-    expect(db.execute).toHaveBeenCalledTimes(5)
+    // execute: 2 lookups + INSERT links + DELETE source = 4 calls
+    // update: aliases update via Drizzle chain = 1 call
+    expect(db.execute).toHaveBeenCalledTimes(4)
+    expect(db.update).toHaveBeenCalledOnce()
   })
 
   it('throws NotFoundError when source entity does not exist', async () => {
@@ -333,12 +340,12 @@ describe('EntityResolutionService.split', () => {
     const entityWithAlias = { ...SAMPLE_ENTITY, aliases: ['Tom', 'Tommy'] }
     const newEntity = { id: 'split-entity-uuid' }
 
-    let executeCallCount = 0
     const db = {
-      execute: vi.fn().mockImplementation(() => {
-        executeCallCount++
-        if (executeCallCount === 1) return Promise.resolve({ rows: [entityWithAlias] })  // entity lookup
-        return Promise.resolve({ rows: [] })  // UPDATE aliases
+      execute: vi.fn().mockResolvedValueOnce({ rows: [entityWithAlias] }),  // entity lookup
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue([]),
+        }),
       }),
       insert: vi.fn().mockReturnValue({
         values: vi.fn().mockReturnValue({
@@ -352,7 +359,8 @@ describe('EntityResolutionService.split', () => {
 
     expect(result.new_entity_id).toBe('split-entity-uuid')
     expect(db.insert).toHaveBeenCalledOnce()
-    expect(db.execute).toHaveBeenCalledTimes(2)  // lookup + update aliases
+    expect(db.execute).toHaveBeenCalledOnce()  // entity lookup
+    expect(db.update).toHaveBeenCalledOnce()   // aliases update via Drizzle chain
   })
 
   it('throws NotFoundError when entity does not exist', async () => {
