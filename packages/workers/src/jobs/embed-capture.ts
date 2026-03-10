@@ -149,7 +149,18 @@ export async function processEmbedCaptureJob(
     duration_ms: embedDurationMs,
   })
 
-  logger.info({ captureId, duration_ms: embedDurationMs }, '[embed] embedding complete')
+  // Advance pipeline to 'complete' — extract-entities is non-blocking enrichment
+  // and must not gate pipeline completion per architecture decision.
+  await db
+    .update(captures)
+    .set({
+      pipeline_status: 'complete',
+      pipeline_completed_at: new Date(),
+      updated_at: new Date(),
+    })
+    .where(eq(captures.id, captureId))
+
+  logger.info({ captureId, duration_ms: embedDurationMs }, '[embed] embedding complete, pipeline status → complete')
 
   // ── Enqueue check-triggers job after successful embedding ─────────────────
   if (checkTriggersQueue) {

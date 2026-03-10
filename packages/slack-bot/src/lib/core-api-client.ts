@@ -136,7 +136,7 @@ export interface BetRecord {
   statement: string
   confidence: number
   domain: string
-  resolution_date: string
+  resolution_date: string | null
   resolution: string | null
   resolution_notes: string | null
   session_id: string | null
@@ -289,7 +289,21 @@ export class CoreApiClient {
   }
 
   async skills_last_run(skillName: string): Promise<SkillLastRun | null> {
-    return this.request<SkillLastRun | null>(`/api/v1/skills/${skillName}/last-run`)
+    // Use the logs endpoint (no dedicated last-run route exists)
+    const res = await this.request<{ data: Array<{
+      skill_name: string; status: string; completed_at: string | Date;
+      duration_ms: number | null; output: string | null; result: Record<string, unknown> | null
+    }> }>(`/api/v1/skills/${skillName}/logs?limit=1`)
+    const row = res.data?.[0]
+    if (!row) return null
+    return {
+      skill_name: row.skill_name,
+      status: row.status,
+      completed_at: String(row.completed_at),
+      duration_ms: row.duration_ms ?? 0,
+      captures_queried: (row.result as { captures_queried?: number } | null)?.captures_queried ?? 0,
+      result_summary: row.output ?? '',
+    }
   }
 
   // Triggers
@@ -370,7 +384,7 @@ export class CoreApiClient {
 
   async sessions_list(status: string, limit: number): Promise<{ items: SessionRecord[]; total: number; limit: number; offset: number }> {
     return this.request<{ items: SessionRecord[]; total: number; limit: number; offset: number }>(
-      `/api/v1/sessions?status=${status}&limit=${limit}`
+      `/api/v1/sessions?status_filter=${status}&limit=${limit}`
     )
   }
 
@@ -425,8 +439,8 @@ export class CoreApiClient {
   }
 
   async bets_resolve(id: string, payload: { resolution: 'correct' | 'incorrect' | 'ambiguous'; evidence?: string }): Promise<BetRecord> {
-    return this.request<BetRecord>(`/api/v1/bets/${id}/resolve`, {
-      method: 'POST',
+    return this.request<BetRecord>(`/api/v1/bets/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(payload),
     })
   }

@@ -243,7 +243,7 @@ export function formatBetList(bets: BetRecord[], _statusFilter?: string): string
 
   const header = `:dart: *Bets* (${bets.length})\n\n`
   const lines = bets.map((b, i) => {
-    const due = formatDate(b.resolution_date)
+    const due = b.resolution_date ? formatDate(b.resolution_date) : '—'
     const icon = b.resolution ? (b.resolution === 'correct' ? ':trophy:' : ':x:') : ':hourglass:'
     const conf = `${Math.round(b.confidence * 100)}%`
     return `${i + 1}. ${icon} *${truncate(b.statement, 60)}*\n   Confidence: ${conf} | Due: ${due}`
@@ -256,7 +256,7 @@ export function formatBetList(bets: BetRecord[], _statusFilter?: string): string
  * Format bet details.
  */
 export function formatBetDetails(bet: BetRecord): string {
-  const due = formatDate(bet.resolution_date)
+  const due = bet.resolution_date ? formatDate(bet.resolution_date) : '—'
   const created = formatDate(bet.created_at)
   const icon = bet.resolution ? (bet.resolution === 'correct' ? ':trophy:' : ':x:') : ':hourglass:'
 

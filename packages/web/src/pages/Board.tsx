@@ -39,15 +39,25 @@ interface Session {
   board_role?: string;
 }
 
-interface SessionResponse {
-  id?: string;
-  session_type?: SessionType;
-  status: SessionStatus;
-  state: SessionState;
-  prompt?: string;
-  board_role?: string;
-  transcript?: SessionMessage[];
-  created_at?: string;
+// Actual API response shape for POST /sessions
+interface SessionCreateResponse {
+  session: {
+    id: string;
+    session_type: string;
+    status: string;
+    config: Record<string, unknown> | null;
+    created_at: string;
+  };
+  first_message: string;
+}
+
+// Actual API response shape for POST /sessions/:id/respond
+interface SessionRespondResponse {
+  session: {
+    id: string;
+    status: string;
+  };
+  bot_message: string;
 }
 
 const BASE = import.meta.env.VITE_API_URL ?? '';
@@ -303,7 +313,7 @@ export default function Board() {
   // Add bet form
   const [addingBet, setAddingBet] = useState(false);
   const [betStatement, setBetStatement] = useState('');
-  const [betRationale, setBetRationale] = useState('');
+  const [betConfidence, setBetConfidence] = useState('0.7');
   const [betDue, setBetDue] = useState('');
   const [betSubmitting, setBetSubmitting] = useState(false);
   const [betError, setBetError] = useState<string | null>(null);
@@ -330,25 +340,20 @@ export default function Board() {
     setSessionLoading(true);
     setSessionError(null);
     try {
-      const res = await apiPost<SessionResponse>('/api/v1/sessions', {
-        session_type,
-        config: {
-          board_roles: ['strategist', 'operator', 'contrarian', 'coach', 'analyst'],
-        },
-      });
-      // Build initial transcript from first prompt if present
-      const transcript: SessionMessage[] = res.prompt
-        ? [{ role: 'bot', board_role: res.board_role, content: res.prompt, timestamp: new Date().toISOString() }]
+      // Map UI session type to API type field
+      const apiType = session_type === 'quick_check' ? 'governance' : 'review';
+      const res = await apiPost<SessionCreateResponse>('/api/v1/sessions', { type: apiType });
+      // Build initial transcript from first_message
+      const transcript: SessionMessage[] = res.first_message
+        ? [{ role: 'bot', content: res.first_message, timestamp: new Date().toISOString() }]
         : [];
       setSession({
-        id: res.id!,
-        session_type: res.session_type ?? session_type,
-        status: res.status,
-        state: res.state,
+        id: res.session.id,
+        session_type: (res.session.session_type as SessionType) ?? session_type,
+        status: res.session.status as SessionStatus,
+        state: { turn_count: 0, max_turns: 20, topics_covered: [], topics_remaining: [], last_role: null, idle_timeout_minutes: 30 },
         transcript,
-        created_at: res.created_at ?? new Date().toISOString(),
-        prompt: res.prompt,
-        board_role: res.board_role,
+        created_at: res.session.created_at ?? new Date().toISOString(),
       });
     } catch (err) {
       setSessionError(err instanceof Error ? err.message : 'Failed to start session');
@@ -363,21 +368,23 @@ export default function Board() {
     const userMsg: SessionMessage = { role: 'user', content: text, timestamp: new Date().toISOString() };
     setSession((s) => s ? { ...s, transcript: [...s.transcript, userMsg] } : s);
 
-    const res = await apiPost<SessionResponse>(`/api/v1/sessions/${session.id}/respond`, { response: text });
+    const res = await apiPost<SessionRespondResponse>(`/api/v1/sessions/${session.id}/respond`, { message: text });
 
-    const botMsg: SessionMessage = res.prompt
-      ? { role: 'bot', board_role: res.board_role, content: res.prompt, timestamp: new Date().toISOString() }
-      : null as unknown as SessionMessage;
+    const botMsg: SessionMessage | null = res.bot_message
+      ? { role: 'bot', content: res.bot_message, timestamp: new Date().toISOString() }
+      : null;
 
     setSession((s) => {
       if (!s) return s;
       const newTranscript = botMsg ? [...s.transcript, botMsg] : s.transcript;
-      return { ...s, state: res.state, status: res.status, transcript: newTranscript };
+      const turn_count = Math.floor(newTranscript.filter(m => m.role === 'user').length);
+      return {
+        ...s,
+        status: res.session.status as SessionStatus,
+        state: { ...s.state, turn_count },
+        transcript: newTranscript,
+      };
     });
-
-    if (res.status === 'complete') {
-      // Keep session visible but mark complete — user can dismiss
-    }
   }
 
   async function handleResolveBet(id: string, outcome: 'won' | 'lost' | 'cancelled') {
@@ -388,17 +395,18 @@ export default function Board() {
   async function handleAddBet(e: React.FormEvent) {
     e.preventDefault();
     const stmt = betStatement.trim();
-    if (!stmt || !betDue) return;
+    const confidence = parseFloat(betConfidence);
+    if (!stmt || isNaN(confidence) || confidence < 0 || confidence > 1) return;
     setBetSubmitting(true);
     setBetError(null);
     try {
-      await apiPost('/api/v1/bets', {
+      await betsApi.create({
         statement: stmt,
-        rationale: betRationale.trim() || undefined,
-        resolution_date: betDue,
+        confidence,
+        due_date: betDue || undefined,
       });
       setBetStatement('');
-      setBetRationale('');
+      setBetConfidence('0.7');
       setBetDue('');
       setAddingBet(false);
       await loadBets();
@@ -496,24 +504,33 @@ export default function Board() {
               placeholder="Statement (e.g. QSR proposal accepted by March 15)"
               required
             />
-            <Input
-              value={betRationale}
-              onChange={(e) => setBetRationale(e.target.value)}
-              placeholder="Rationale (optional)"
-            />
-            <div className="flex gap-2 items-center">
-              <label className="text-sm text-muted-foreground whitespace-nowrap">Due date:</label>
-              <Input
-                type="date"
-                value={betDue}
-                onChange={(e) => setBetDue(e.target.value)}
-                required
-                className="w-auto"
-              />
+            <div className="flex gap-3">
+              <div className="flex gap-2 items-center">
+                <label className="text-sm text-muted-foreground whitespace-nowrap">Confidence (0–1):</label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={betConfidence}
+                  onChange={(e) => setBetConfidence(e.target.value)}
+                  required
+                  className="w-24"
+                />
+              </div>
+              <div className="flex gap-2 items-center">
+                <label className="text-sm text-muted-foreground whitespace-nowrap">Due date:</label>
+                <Input
+                  type="date"
+                  value={betDue}
+                  onChange={(e) => setBetDue(e.target.value)}
+                  className="w-auto"
+                />
+              </div>
             </div>
             {betError && <p className="text-xs text-destructive">{betError}</p>}
             <div className="flex gap-2">
-              <Button type="submit" size="sm" disabled={betSubmitting || !betStatement.trim() || !betDue}>
+              <Button type="submit" size="sm" disabled={betSubmitting || !betStatement.trim()}>
                 {betSubmitting ? 'Adding...' : 'Add'}
               </Button>
               <Button type="button" size="sm" variant="ghost" onClick={() => setAddingBet(false)}>

@@ -96,7 +96,7 @@ export default function Entities() {
     setLoading(true);
     setError(null);
     entitiesApi
-      .list({ type: typeFilter || undefined, sort, limit: 200 })
+      .list({ type_filter: typeFilter || undefined, sort_by: sort, limit: 200 })
       .then((res) => {
         setEntities(res.data);
         setTotal(res.total);
