@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import type { AccessStatsJobData } from '../queues/access-stats.js'
+import { logger } from '../lib/logger.js'
 
 /**
  * Processes an access-stats job: increments access_count and sets
@@ -58,8 +59,9 @@ export function createAccessStatsWorker(
 
   worker.on('failed', (job, err) => {
     const ids = job?.data?.captureIds ?? []
-    console.warn(
-      `[access-stats] job ${job?.id ?? 'unknown'} failed for ${ids.length} capture(s): ${err.message}`,
+    logger.warn(
+      { jobId: job?.id, captureCount: ids.length, err: err.message },
+      `access-stats job ${job?.id ?? 'unknown'} failed for ${ids.length} capture(s)`,
     )
   })
 

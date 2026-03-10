@@ -243,9 +243,9 @@ The `EmbeddingUnavailableError` class is used in both packages. Ensure it's expo
 
 ---
 
-#### 2.2 Replace console.warn/error with Pino Logger
+#### 2.2 Replace console.warn/error with Pino Logger — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F5 (Architecture Audit — Code Quality, LOW)
 **Files Affected:**
 - `packages/core-api/src/services/llm-gateway.ts` (modify — ~3 sites)
@@ -272,9 +272,9 @@ Approximately 10 call sites bypass the structured pino logger with `console.warn
 
 ---
 
-#### 2.3 Remove Unnecessary `@types/ioredis` DevDependency
+#### 2.3 Remove Unnecessary `@types/ioredis` DevDependency — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F8 (Architecture Audit — Dependency Management, LOW)
 **Files Affected:**
 - `packages/core-api/package.json` (modify)
@@ -297,9 +297,9 @@ Trivial change, zero risk.
 
 ---
 
-#### 2.4 Parallelize EntityService.list() Queries
+#### 2.4 Parallelize EntityService.list() Queries — completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F21 (Architecture Audit — Performance, LOW)
 **Files Affected:**
 - `packages/core-api/src/services/entity.ts` (modify — lines 81-112)

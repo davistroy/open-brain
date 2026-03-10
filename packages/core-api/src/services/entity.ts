@@ -77,34 +77,36 @@ export class EntityService {
       : sql``
 
     // Derive mention_count from entity_links at query time for accuracy
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await this.db.execute<any>(
-      sql`SELECT
-            e.id::text,
-            e.name,
-            e.entity_type,
-            e.canonical_name,
-            e.aliases,
-            e.metadata,
-            e.first_seen_at,
-            e.last_seen_at,
-            e.created_at,
-            e.updated_at,
-            COUNT(el.id)::int AS mention_count
-          FROM entities e
-          LEFT JOIN entity_links el ON el.entity_id = e.id
-          ${typeClause}
-          GROUP BY e.id
-          ORDER BY ${orderExpr}
-          LIMIT ${limit} OFFSET ${offset}`,
-    )
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const countRows = await this.db.execute<any>(
-      type_filter
-        ? sql`SELECT COUNT(*)::text AS total FROM entities WHERE entity_type = ${type_filter}`
-        : sql`SELECT COUNT(*)::text AS total FROM entities`,
-    )
+    // Run data + count queries in parallel (they are independent)
+    const [rows, countRows] = await Promise.all([
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.db.execute<any>(
+        sql`SELECT
+              e.id::text,
+              e.name,
+              e.entity_type,
+              e.canonical_name,
+              e.aliases,
+              e.metadata,
+              e.first_seen_at,
+              e.last_seen_at,
+              e.created_at,
+              e.updated_at,
+              COUNT(el.id)::int AS mention_count
+            FROM entities e
+            LEFT JOIN entity_links el ON el.entity_id = e.id
+            ${typeClause}
+            GROUP BY e.id
+            ORDER BY ${orderExpr}
+            LIMIT ${limit} OFFSET ${offset}`,
+      ),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.db.execute<any>(
+        type_filter
+          ? sql`SELECT COUNT(*)::text AS total FROM entities WHERE entity_type = ${type_filter}`
+          : sql`SELECT COUNT(*)::text AS total FROM entities`,
+      ),
+    ])
 
     return {
       items: rows.rows as unknown as EntityRecord[],
