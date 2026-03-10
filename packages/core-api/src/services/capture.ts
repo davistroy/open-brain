@@ -1,5 +1,5 @@
 import { eq, and, desc, sql, gte, lte, isNull } from 'drizzle-orm'
-import { captures } from '@open-brain/shared'
+import { captures, entities } from '@open-brain/shared'
 import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CreateCaptureInput, CaptureFilter, CaptureRecord } from '@open-brain/shared'
@@ -185,7 +185,7 @@ export class CaptureService {
   }
 
   async getStats(): Promise<CaptureStats> {
-    const [bySource, byType, byView, pipelineHealth] = await Promise.all([
+    const [bySource, byType, byView, pipelineHealth, entityCountRows] = await Promise.all([
       this.db.select({ source: captures.source, count: sql<string>`count(*)` })
         .from(captures)
         .where(isNull(captures.deleted_at))
@@ -205,6 +205,8 @@ export class CaptureService {
         .from(captures)
         .where(isNull(captures.deleted_at))
         .groupBy(captures.pipeline_status),
+
+      this.db.select({ count: sql<string>`count(*)` }).from(entities),
     ])
 
     const total = bySource.reduce((sum, r) => sum + Number(r.count), 0)
@@ -224,7 +226,7 @@ export class CaptureService {
       by_type: Object.fromEntries(byType.map(r => [r.capture_type, Number(r.count)])),
       by_view: Object.fromEntries(byView.map(r => [r.brain_view, Number(r.count)])),
       pipeline_health: health,
-      total_entities: 0, // populated in Phase 12
+      total_entities: Number(entityCountRows[0]?.count ?? 0),
     }
   }
 }
