@@ -43,7 +43,7 @@ async function main() {
   const promptsDir = process.env.PROMPTS_DIR ?? `${configDir}/prompts`
 
   // Database
-  const db = createDb(postgresUrl)
+  const { db, pool } = createDb(postgresUrl)
   logger.info('Postgres connected')
 
   // Config
@@ -101,7 +101,9 @@ async function main() {
     logger.info({ signal }, 'Shutting down workers...')
     await Promise.allSettled(workers.map(w => w.close()))
     await Promise.allSettled(Object.values(queues).map(q => q.close()))
-    logger.info('All workers closed')
+    logger.info('All workers and queues closed')
+    await pool.end()
+    logger.info('Postgres pool closed')
     process.exit(0)
   }
 

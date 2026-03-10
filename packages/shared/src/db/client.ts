@@ -2,9 +2,14 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import * as schema from '../schema/index.js'
 
-export type Database = ReturnType<typeof createDb>
+export interface DbConnection {
+  db: ReturnType<typeof drizzle>
+  pool: Pool
+}
 
-export function createDb(connectionString: string): ReturnType<typeof drizzle> {
+export type Database = DbConnection['db']
+
+export function createDb(connectionString: string): DbConnection {
   const pool = new Pool({
     connectionString,
     max: 20,
@@ -12,5 +17,5 @@ export function createDb(connectionString: string): ReturnType<typeof drizzle> {
     connectionTimeoutMillis: 5000,
   })
 
-  return drizzle(pool, { schema })
+  return { db: drizzle(pool, { schema }), pool }
 }

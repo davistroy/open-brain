@@ -322,9 +322,9 @@ Follow the `CaptureService.list()` pattern at `packages/core-api/src/services/ca
 
 ---
 
-#### 2.5 Close DB Pool and BullMQ Queues on Graceful Shutdown
+#### 2.5 Close DB Pool and BullMQ Queues on Graceful Shutdown — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE 2026-03-10**
 **Recommendation Ref:** F19 (Architecture Audit — Performance, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/index.ts` (modify — lines 28, 100-107)
