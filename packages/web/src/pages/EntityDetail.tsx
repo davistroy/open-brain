@@ -320,8 +320,10 @@ export default function EntityDetail() {
 
   const handleSplit = async (alias: string) => {
     if (!entity) return;
-    const updated = await entitiesApi.split(entity.id, alias);
-    setEntity(updated);
+    await entitiesApi.split(entity.id, alias);
+    // Reload the entity after split (alias removed from current entity)
+    const refreshed = await entitiesApi.get(entity.id);
+    setEntity(refreshed);
   };
 
   if (loadingEntity) {

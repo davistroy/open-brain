@@ -83,10 +83,10 @@ describe('entitiesApi.list', () => {
     const payload = { data: [], total: 0 }
     vi.mocked(fetch).mockResolvedValueOnce(mockResponse(payload))
 
-    await entitiesApi.list({ type: 'person', sort: 'mentions', limit: 10 })
+    await entitiesApi.list({ type_filter: 'person', sort_by: 'mentions', limit: 10 })
     const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('type=person')
-    expect(url).toContain('sort=mentions')
+    expect(url).toContain('type_filter=person')
+    expect(url).toContain('sort_by=mentions')
     expect(url).toContain('limit=10')
   })
 })

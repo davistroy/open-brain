@@ -78,46 +78,55 @@ export const searchApi = {
 
 // Entities API
 
+type RawEntity = Omit<Entity, 'type' | 'capture_count' | 'first_seen' | 'last_seen'> & {
+  entity_type: string; mention_count: number; first_seen_at?: string; last_seen_at?: string
+  linked_captures?: Capture[]
+}
+
+function mapRawEntity(e: RawEntity): Entity {
+  return {
+    ...e,
+    type: e.entity_type as Entity['type'],
+    capture_count: e.mention_count,
+    first_seen: e.first_seen_at ?? '',
+    last_seen: e.last_seen_at ?? '',
+    captures: e.linked_captures ?? (e as unknown as { captures?: Capture[] }).captures ?? [],
+  }
+}
+
 export const entitiesApi = {
-  list: async (params?: { type?: string; sort?: string; limit?: number }) => {
+  list: async (params?: { type_filter?: string; sort_by?: string; limit?: number }) => {
     const qs = buildQueryString(params ?? {})
     // API returns { items, total } — normalize to { data, total }
-    // API uses entity_type (not type) and mention_count (not capture_count)
-    type RawEntity = Omit<Entity, 'type' | 'capture_count' | 'first_seen' | 'last_seen'> & {
-      entity_type: string; mention_count: number; first_seen_at?: string; last_seen_at?: string
-    }
+    // API uses entity_type (not type), mention_count (not capture_count), first/last_seen_at
     const raw = await request<{ items: RawEntity[]; total: number }>(`/entities${qs}`)
-    const data = (raw.items ?? []).map(e => ({
-      ...e,
-      type: e.entity_type as Entity['type'],
-      capture_count: e.mention_count,
-      first_seen: e.first_seen_at ?? '',
-      last_seen: e.last_seen_at ?? '',
-    }))
+    const data = (raw.items ?? []).map(mapRawEntity)
     return { data, total: raw.total }
   },
 
-  get: (id: string) => {
-    return request<Entity & { captures: Capture[] }>(`/entities/${id}`)
+  get: async (id: string): Promise<Entity & { captures: Capture[] }> => {
+    // API returns entity_type, first_seen_at, last_seen_at, linked_captures — remap to Entity shape
+    const raw = await request<RawEntity>(`/entities/${id}`)
+    const entity = mapRawEntity(raw)
+    return entity as Entity & { captures: Capture[] }
   },
 
-  getCaptures: (id: string) => {
-    return request<{ data: Capture[] }>(`/entities/${id}/captures`)
+  getCaptures: (_id: string) => {
+    // No dedicated endpoint — captures are included in get(). Returns empty to avoid 404.
+    return Promise.resolve({ data: [] as Capture[] })
   },
 
-  merge: (sourceIds: string | string[], targetName: string) => {
-    const ids = Array.isArray(sourceIds) ? sourceIds : [sourceIds]
-    return request<{ merged_entity_id: string; merged_count: number }>('/entities/merge', {
+  merge: (sourceId: string, targetId: string) => {
+    return request<{ message: string; source_id: string; target_id: string }>(`/entities/${sourceId}/merge`, {
       method: 'POST',
-      body: JSON.stringify({ source_ids: ids, target_name: targetName }),
+      body: JSON.stringify({ target_id: targetId }),
     })
   },
 
-  split: (entityId: string, newNames: string | string[]) => {
-    const names = Array.isArray(newNames) ? newNames : [newNames]
-    return request<Entity>(`/entities/${entityId}/split`, {
+  split: (entityId: string, alias: string) => {
+    return request<{ message: string; source_entity_id: string; new_entity_id: string; alias: string }>(`/entities/${entityId}/split`, {
       method: 'POST',
-      body: JSON.stringify({ new_names: names }),
+      body: JSON.stringify({ alias }),
     })
   },
 }
@@ -221,31 +230,70 @@ export const pipelineApi = {
   },
 }
 
-// Bets API
+// Bets API — API uses statement/confidence/resolution; web uses description/status/due_date
+
+interface RawBetRecord {
+  id: string
+  statement: string
+  confidence: number
+  domain: string | null
+  resolution_date: string | null
+  resolution: 'correct' | 'incorrect' | 'ambiguous' | null
+  resolution_notes: string | null
+  session_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+function mapRawBet(b: RawBetRecord): Bet {
+  const status: Bet['status'] =
+    b.resolution === 'correct' ? 'won' :
+    b.resolution === 'incorrect' ? 'lost' :
+    b.resolution === 'ambiguous' ? 'cancelled' :
+    'open'
+  return {
+    id: b.id,
+    description: b.statement,
+    statement: b.statement,
+    due_date: b.resolution_date ?? '',
+    resolution_date: b.resolution_date ?? undefined,
+    brain_view: 'technical' as Bet['brain_view'], // API doesn't store brain_view on bets
+    status,
+    outcome: b.resolution ?? undefined,
+    created_at: b.created_at,
+    resolved_at: b.resolution ? b.updated_at : undefined,
+  }
+}
 
 export const betsApi = {
   list: async (params?: { status?: string }) => {
     const qs = buildQueryString(params ?? {})
-    // API returns { items, total } — normalize to { data, total }
-    const raw = await request<{ items: Bet[]; total: number }>(`/bets${qs}`)
-    return { data: raw.items ?? [], total: raw.total }
+    // API returns { items, total } — map API fields to web Bet shape
+    const raw = await request<{ items: RawBetRecord[]; total: number }>(`/bets${qs}`)
+    const data = (raw.items ?? []).map(mapRawBet)
+    return { data, total: raw.total }
   },
 
-  get: (id: string) => {
-    return request<Bet>(`/bets/${id}`)
+  get: async (id: string): Promise<Bet> => {
+    const raw = await request<RawBetRecord>(`/bets/${id}`)
+    return mapRawBet(raw)
   },
 
-  create: (payload: { description: string; due_date: string; brain_view: string }) => {
-    return request<Bet>('/bets', {
+  create: (payload: { statement: string; confidence: number; due_date?: string }) => {
+    return request<RawBetRecord>('/bets', {
       method: 'POST',
       body: JSON.stringify(payload),
-    })
+    }).then(mapRawBet)
   },
 
-  resolve: (id: string, outcome: string) => {
-    return request<Bet>(`/bets/${id}/resolve`, {
-      method: 'POST',
-      body: JSON.stringify({ outcome }),
-    })
+  resolve: (id: string, outcome: 'won' | 'lost' | 'cancelled') => {
+    // Map web outcome to API resolution value
+    const resolution =
+      outcome === 'won' ? 'correct' :
+      outcome === 'lost' ? 'incorrect' : 'ambiguous'
+    return request<RawBetRecord>(`/bets/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ resolution }),
+    }).then(mapRawBet)
   },
 }
