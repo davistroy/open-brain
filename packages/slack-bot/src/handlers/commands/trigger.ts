@@ -32,7 +32,7 @@ export async function handleTriggerCommand(
         return
       }
       try {
-        const trigger = await client.triggers_create({ name: queryText, query_text: queryText })
+        const trigger = await client.triggers_create({ name: queryText, queryText })
         await say({
           text: `Trigger created: *${trigger.name}*\nThreshold: ${trigger.threshold}  |  Cooldown: ${trigger.cooldown_minutes}min`,
           thread_ts: ts,

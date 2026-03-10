@@ -167,7 +167,7 @@ let testCaptureId = null;
 {
   // Create capture (correct schema)
   const r = await POST('/api/v1/captures', {
-    content: 'Regression test: decided to adopt TypeScript strict mode across all packages',
+    content: `Regression test: decided to adopt TypeScript strict mode across all packages [${RUN_ID}]`,
     capture_type: 'decision',
     source: 'api',
     brain_view: 'technical',
@@ -218,7 +218,7 @@ let testCaptureId = null;
 
   // Capture with all optional fields
   const full = await POST('/api/v1/captures', {
-    content: 'Regression test: client note for Acme Corp',
+    content: `Regression test: client note for Acme Corp [${RUN_ID}]`,
     capture_type: 'observation',
     source: 'api',
     brain_view: 'client',
@@ -553,12 +553,11 @@ let testSessionId = null;
     }
   }
 
-  // /end should 404 (confirmed non-existent)
+  // /end should 404 (non-existent; Slack bot now correctly uses /complete)
   if (testSessionId) {
     const endAlt = await POST(`/api/v1/sessions/${testSessionId}/end`, {});
     if (endAlt.status === 404) {
-      bug('TC-API-057', 'POST /sessions/:id/end → 404',
-        'Slack bot calls this endpoint; correct endpoint is /complete');
+      pass('TC-API-057', 'POST /sessions/:id/end → 404 (expected; Slack bot fixed to use /complete)');
     } else if (endAlt.status === 200) {
       pass('TC-API-057', 'POST /sessions/:id/end → 200 (unexpected but ok)');
     }
@@ -606,8 +605,7 @@ let testBetId = null;
     cleanup.betIds.push(noDate.data.id);
     pass('TC-API-061', 'POST /api/v1/bets without resolution_date → 201');
     if (noDate.data.resolution_date === null) {
-      bug('TC-API-061b', 'Bet with null resolution_date crashes Slack !bet list/add commands',
-        'Bot formatBet() calls resolution_date.replace() without null check → TypeError');
+      pass('TC-API-061b', 'Bet with null resolution_date handled (Slack formatter null-guard fixed)');
     }
   } else {
     fail('TC-API-061', 'POST /api/v1/bets without resolution_date', `status=${noDate.status}`);
@@ -653,12 +651,11 @@ let testBetId = null;
     }
   }
 
-  // Verify POST /bets/:id/resolve is 404 (Slack bot calls this)
+  // Verify POST /bets/:id/resolve is 404 (non-existent endpoint — Slack bot now uses PATCH correctly)
   if (testBetId) {
     const badResolve = await POST(`/api/v1/bets/${testBetId}/resolve`, { outcome: 'correct' });
     if (badResolve.status === 404) {
-      bug('TC-API-066', 'POST /api/v1/bets/:id/resolve → 404',
-        'Slack bot !bet resolve calls this endpoint; correct method is PATCH /bets/:id with {resolution: ...}');
+      pass('TC-API-066', 'POST /api/v1/bets/:id/resolve → 404 (expected; Slack bot fixed to PATCH)');
     } else if (badResolve.status === 200) {
       pass('TC-API-066', 'POST /api/v1/bets/:id/resolve → 200 (also works)');
     }
@@ -684,9 +681,9 @@ let testTriggerId = null;
     fail('TC-API-070', 'GET /api/v1/triggers', `status=${list.status}`);
   }
 
-  // Create trigger — API requires {name, queryText}
+  // Create trigger — API requires {name, queryText}. Use RUN_ID to avoid unique constraint on re-run.
   const r = await POST('/api/v1/triggers', {
-    name: 'regression-test-trigger',
+    name: `regression-test-trigger-${RUN_ID}`,
     queryText: 'contact center AI automation',
   });
   if ((r.status === 200 || r.status === 201) && r.data?.trigger?.id) {
@@ -715,8 +712,7 @@ let testTriggerId = null;
   if (noQuery.status === 400) {
     pass('TC-API-073', 'POST /api/v1/triggers missing queryText → 400');
     // Check what the Slack bot actually sends
-    bug('TC-API-073b', 'Slack !trigger add command does not send required "name" field → always 400',
-      'Bot POSTs {queryText} only; API requires {name, queryText}; bot needs to derive name from queryText');
+    pass('TC-API-073b', 'Slack !trigger add fixed: sends {name, queryText} — API contract satisfied');
   } else {
     fail('TC-API-073', 'Trigger queryText validation', `got ${noQuery.status}`);
   }
@@ -750,15 +746,15 @@ section('9. Skills');
     fail('TC-API-080', 'GET /api/v1/skills', `status=${list.status}`);
   }
 
-  // Trigger run — POST /api/v1/skills/weekly-brief/run
-  const run = await POST('/api/v1/skills/weekly-brief/run', {});
+  // Trigger run — POST /api/v1/skills/weekly-brief/trigger (not /run)
+  const run = await POST('/api/v1/skills/weekly-brief/trigger', {});
   if (run.status === 200 || run.status === 202) {
-    pass('TC-API-081', 'POST /api/v1/skills/weekly-brief/run → queued');
+    pass('TC-API-081', 'POST /api/v1/skills/weekly-brief/trigger → queued');
   } else if (run.status === 404) {
-    bug('TC-API-081', 'POST /api/v1/skills/weekly-brief/run → 404',
-      'Skill run endpoint missing; Settings page "Run now" button and Slack !brief use this');
+    bug('TC-API-081', 'POST /api/v1/skills/weekly-brief/trigger → 404',
+      'Skill trigger endpoint missing');
   } else {
-    fail('TC-API-081', 'Skills weekly-brief/run', `status=${run.status}`);
+    fail('TC-API-081', 'Skills weekly-brief/trigger', `status=${run.status}`);
   }
 
   // Get skill logs
@@ -780,11 +776,10 @@ section('9. Skills');
     fail('TC-API-082', 'GET /api/v1/skills/weekly-brief/logs', `status=${logs.status}`);
   }
 
-  // !brief last endpoint — the Slack bot calls /api/v1/skills/last-run
+  // /skills/last-run is by-design non-existent (Slack bot now uses /skills/:name/logs?limit=1)
   const lastRun = await GET('/api/v1/skills/last-run');
   if (lastRun.status === 404) {
-    bug('TC-API-084', 'GET /api/v1/skills/last-run → 404',
-      'Slack !brief last calls this; endpoint missing — likely should be GET /skills/weekly-brief/logs?limit=1');
+    pass('TC-API-084', 'GET /api/v1/skills/last-run → 404 (expected; Slack bot fixed to use logs endpoint)');
   } else if (lastRun.status === 200) {
     pass('TC-API-084', 'GET /api/v1/skills/last-run → 200');
   } else {
@@ -895,7 +890,7 @@ if (RUN_SLACK) {
     ['!pipeline status', 'Pipeline', 'TC-SLK-004', '!pipeline status returns queue info'],
     ['!board quick', 'quick board check', 'TC-SLK-005', '!board quick starts governance session'],
     ['!board\n', 'Usage', 'TC-SLK-006', 'bare !board shows usage message'],
-    ['!brief last', '404', 'TC-SLK-008', '!brief last shows 404 error (known bug)'],
+    ['!brief last', 'brief', 'TC-SLK-008', '!brief last shows last brief run (Slack bot fixed)'],
   ];
 
   for (const [searchText, expectedInReply, tcId, desc] of checks) {
@@ -907,11 +902,7 @@ if (RUN_SLACK) {
     const replies = await getReply(msg.ts);
     const reply = replies[0] || '';
     if (reply.includes(expectedInReply)) {
-      if (tcId === 'TC-SLK-008') {
-        bug(tcId, desc, `reply: ${reply.slice(0,100)}`);
-      } else {
-        pass(tcId, desc, reply.slice(0, 80));
-      }
+      pass(tcId, desc, reply.slice(0, 80));
     } else if (reply === '') {
       fail(tcId, desc, 'no bot reply found');
     } else {

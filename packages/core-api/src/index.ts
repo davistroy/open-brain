@@ -8,6 +8,7 @@ import { EmbeddingService } from './services/embedding.js'
 import { SearchService } from './services/search.js'
 import { TriggerService } from './services/trigger.js'
 import { EntityService } from './services/entity.js'
+import { EntityResolutionService } from './services/entity-resolution.js'
 import { BetService } from './services/bet.js'
 import { SessionService } from './services/session.js'
 import { PipelineService } from './services/pipeline.js'
@@ -52,7 +53,8 @@ const captureService = new CaptureService(db, pipelineService)
 const embeddingService = new EmbeddingService(litellmUrl, litellmApiKey, configService)
 const searchService = new SearchService(db, embeddingService)
 const triggerService = new TriggerService(db, embeddingService)
-const entityService = new EntityService(db)
+const entityResolutionService = new EntityResolutionService(db)
+const entityService = new EntityService(db, entityResolutionService)
 const betService = new BetService(db)
 
 let governanceEngine: GovernanceEngine | undefined
