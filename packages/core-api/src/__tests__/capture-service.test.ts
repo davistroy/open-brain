@@ -401,6 +401,7 @@ describe('CaptureService', () => {
           { pipeline_status: 'complete', count: '4' },
           { pipeline_status: 'failed', count: '1' },
         ]))
+        .mockReturnValueOnce(statChain([{ count: '42' }]))
     }
 
     it('returns aggregated stats', async () => {
@@ -416,7 +417,7 @@ describe('CaptureService', () => {
       expect(stats.pipeline_health.complete).toBe(4)
       expect(stats.pipeline_health.failed).toBe(1)
       expect(stats.pipeline_health.processing).toBe(0)
-      expect(stats.total_entities).toBe(0) // Phase 12 placeholder
+      expect(stats.total_entities).toBe(42)
     })
 
     it('handles empty database gracefully', async () => {
@@ -437,6 +438,7 @@ describe('CaptureService', () => {
       }
 
       db.select
+        .mockReturnValueOnce(emptyChain())
         .mockReturnValueOnce(emptyChain())
         .mockReturnValueOnce(emptyChain())
         .mockReturnValueOnce(emptyChain())

@@ -99,6 +99,6 @@ describe('pipelineApi.health', () => {
     const result = await pipelineApi.health()
     expect(result).toEqual(health)
     const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
-    expect(url).toContain('/api/v1/pipeline/health')
+    expect(url).toContain('/api/v1/admin/pipeline/health')
   })
 })

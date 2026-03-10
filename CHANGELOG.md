@@ -77,7 +77,7 @@ Initial complete implementation of all 16 phases.
 **Phase 9–16 — Polish**
 - Web dashboard (Vite + React + shadcn/ui + nginx, PWA)
 - Real-time updates via SSE
-- Cloudflare Tunnel for `brain.k4jda.net`
+- Cloudflare Tunnel for `brain.troy-davis.com`
 - Bull Board queue monitor at `/admin/queues`
 - Health endpoint with LiteLLM latency reporting
 - Architecture review remediation (11 items)
@@ -87,9 +87,9 @@ Initial complete implementation of all 16 phases.
 - No embedding fallback — queue and retry preserves vector space consistency
 - `vector(768)` everywhere — Matryoshka truncation from larger models
 - MCP embedded in core-api (not a separate container)
-- Pre-built `dist/` committed to git for Alpine Docker builds
+- Builder stage in Dockerfile compiles all packages from source; `dist/` is gitignored and not committed
 
 ---
 
-[Unreleased]: https://github.com/davistroy/open-brain/compare/HEAD...main
+[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/davistroy/open-brain/releases/tag/v1.0.0

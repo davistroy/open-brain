@@ -14,6 +14,8 @@ interface ServiceCheck {
 interface HealthResponse {
   status: ServiceStatus
   timestamp: string
+  version?: string
+  uptime_s?: number
   services: {
     postgres: ServiceCheck
     redis: ServiceCheck
@@ -68,27 +70,38 @@ async function checkLiteLLM(baseUrl: string): Promise<ServiceCheck> {
   }
 }
 
+async function buildHealthResponse(): Promise<HealthResponse> {
+  const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
+  const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
+  const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
+
+  const [postgres, redis, litellm] = await Promise.all([
+    checkPostgres(postgresUrl),
+    checkRedis(redisUrl),
+    checkLiteLLM(litellmUrl),
+  ])
+
+  return {
+    status: postgres.status === 'unhealthy' ? 'unhealthy' : (
+      redis.status === 'unhealthy' || litellm.status === 'degraded' ? 'degraded' : 'healthy'
+    ),
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version,
+    uptime_s: Math.floor(process.uptime()),
+    services: { postgres, redis, litellm },
+  }
+}
+
 export function registerHealthRoutes(app: Hono): void {
+  // Docker-internal healthcheck endpoint
   app.get('/health', async (c) => {
-    const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
-    const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
-    const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
+    const response = await buildHealthResponse()
+    return c.json(response, response.status === 'unhealthy' ? 503 : 200)
+  })
 
-    const [postgres, redis, litellm] = await Promise.all([
-      checkPostgres(postgresUrl),
-      checkRedis(redisUrl),
-      checkLiteLLM(litellmUrl),
-    ])
-
-    const response: HealthResponse = {
-      status: postgres.status === 'unhealthy' ? 'unhealthy' : (
-        redis.status === 'unhealthy' || litellm.status === 'degraded' ? 'degraded' : 'healthy'
-      ),
-      timestamp: new Date().toISOString(),
-      services: { postgres, redis, litellm },
-    }
-
-    // Only 503 when Postgres is down (critical)
+  // Versioned alias — used by the web UI Settings page
+  app.get('/api/v1/health', async (c) => {
+    const response = await buildHealthResponse()
     return c.json(response, response.status === 'unhealthy' ? 503 : 200)
   })
 }

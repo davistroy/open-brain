@@ -155,7 +155,7 @@ This starts all 9 containers. First run downloads the faster-whisper `large-v3` 
 
 ```bash
 # Core API health
-curl http://localhost:3000/health
+curl http://localhost:3002/health
 
 # Voice capture health
 curl http://localhost:3001/health
