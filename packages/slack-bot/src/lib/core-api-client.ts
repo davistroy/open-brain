@@ -312,7 +312,7 @@ export class CoreApiClient {
     return this.request<{ triggers: TriggerRecord[] }>('/api/v1/triggers')
   }
 
-  async triggers_create(payload: { name: string; query_text: string; threshold?: number; cooldown_minutes?: number }): Promise<TriggerRecord> {
+  async triggers_create(payload: { name: string; queryText: string; threshold?: number; cooldown_minutes?: number }): Promise<TriggerRecord> {
     return this.request<TriggerRecord>('/api/v1/triggers', {
       method: 'POST',
       body: JSON.stringify(payload),

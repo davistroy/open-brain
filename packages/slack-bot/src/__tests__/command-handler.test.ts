@@ -877,14 +877,14 @@ describe('handleCommand()', () => {
     it('calls triggers_create with quoted trigger text', async () => {
       await handleCommand(makeMessage('!trigger add "QSR timeline"'), say, client)
       expect(client.triggers_create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: 'QSR timeline', query_text: 'QSR timeline' }),
+        expect.objectContaining({ name: 'QSR timeline', queryText: 'QSR timeline' }),
       )
     })
 
     it('calls triggers_create with unquoted trigger text', async () => {
       await handleCommand(makeMessage('!trigger add QSR timeline'), say, client)
       expect(client.triggers_create).toHaveBeenCalledWith(
-        expect.objectContaining({ query_text: 'QSR timeline' }),
+        expect.objectContaining({ queryText: 'QSR timeline' }),
       )
     })
 
