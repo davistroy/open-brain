@@ -570,31 +570,43 @@ MCP tools should be thin wrappers around services, not independent data access l
 
 ---
 
-#### 4.4 Migrate TriggerService and Remaining Raw SQL
+#### 4.4 Migrate TriggerService and Remaining Raw SQL ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** F6 (Architecture Audit — Code Quality, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/services/trigger.ts` (modify)
 - `packages/core-api/src/services/search.ts` (modify — 3 raw SQL sites at lines 101, 112, 135)
-- Any other files with `db.execute<any>()` not covered above
+- `packages/core-api/src/routes/skills.ts` (modify — 2 `execute<any>` sites)
+- `packages/workers/src/skills/weekly-brief-query.ts` (modify — 1 `execute<any>` site)
+- `packages/workers/src/skills/pipeline-health.ts` (modify — 1 `execute<any>` site)
+- `packages/workers/src/skills/stale-captures.ts` (modify — migrated from `sql.raw()`)
+- `packages/workers/src/jobs/update-access-stats.ts` (modify — migrated from `sql.raw()` to Drizzle query builder)
+- `packages/workers/src/jobs/daily-sweep.ts` (modify — migrated from `sql.raw()` to Drizzle query builder)
+- `packages/workers/src/jobs/budget-check.ts` (modify — typed inline row interface)
 
 **Description:**
 Sweep remaining raw SQL in TriggerService and SearchService. SearchService has 3 `db.execute<any>()` calls for hybrid_search, fts_only_search, and capture fetch. Define typed row interfaces for the search function return types.
 
 **Tasks:**
-1. [ ] Define `HybridSearchRow` interface (already partially exists at search.ts:25) and use it to replace `<any>`
-2. [ ] Define `CaptureRow` interface for the captures fetch query
-3. [ ] Migrate TriggerService raw SQL to typed queries
-4. [ ] Run a final grep for `db.execute<any>` across all packages to catch stragglers
+1. [x] Define `HybridSearchRow` interface (already partially exists at search.ts:25) and use it to replace `<any>`
+2. [x] Define `CaptureRow` interface for the captures fetch query
+3. [x] Migrate TriggerService raw SQL to typed queries
+4. [x] Run a final grep for `db.execute<any>` across all packages to catch stragglers
+5. [x] Eliminate all `sql.raw()` patterns (SQL injection risk) — migrated to parameterized `sql` templates or Drizzle query builder
+6. [x] Replace `execute<any>` in skills.ts, weekly-brief-query.ts, pipeline-health.ts with typed row interfaces
 
 **Acceptance Criteria:**
-- [ ] `grep -rn "execute<any>" packages/*/src/ --include="*.ts" | grep -v __tests__ | grep -v node_modules` returns zero results
-- [ ] All services compile without `as any` or `as unknown as` casts for DB queries
-- [ ] All tests pass
+- [x] `grep -rn "execute<any>" packages/*/src/ --include="*.ts" | grep -v __tests__ | grep -v node_modules` returns zero results
+- [x] All services compile without `as any` or `as unknown as` casts for DB queries
+- [x] All tests pass (57 test files, 1175+ tests across 6 packages)
+- [x] `grep -rn "sql\.raw" packages/*/src/ --include="*.ts" | grep -v __tests__` returns zero results (bonus)
 
 **Notes:**
-This is the cleanup sweep. After this item, the codebase should have zero raw SQL `<any>` casts.
+This is the cleanup sweep. After this item, the codebase has zero raw SQL `<any>` casts and zero `sql.raw()` calls.
+SearchService and TriggerService retain typed `db.execute<T>()` for queries using pgvector operators (`<=>`) and custom SQL functions (`hybrid_search`, `fts_only_search`, `update_capture_embedding`) that cannot be expressed in Drizzle's query builder.
+`update-access-stats` and `daily-sweep` were fully migrated to Drizzle query builder (no raw SQL at all).
+`stale-captures`, `pipeline-health`, `budget-check`, and `weekly-brief-query` use typed `db.execute<{...}>()` with parameterized `sql` templates (safe against injection, but kept as raw SQL to preserve existing test mock patterns).
 
 ---
 

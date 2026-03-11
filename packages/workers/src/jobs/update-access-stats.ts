@@ -1,7 +1,8 @@
 import { Worker } from 'bullmq'
-import { sql } from 'drizzle-orm'
+import { sql, inArray } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
+import { captures } from '@open-brain/shared'
 import type { AccessStatsJobData } from '../queues/access-stats.js'
 import { logger } from '../lib/logger.js'
 
@@ -22,20 +23,13 @@ export async function processAccessStatsJob(
     return
   }
 
-  // Drizzle's sql`` tag lets us issue parameterised-style raw SQL via the
-  // existing connection pool without bundling a raw pg client.
-  // ARRAY[...] with explicit ::uuid[] cast avoids any type inference ambiguity.
-  const idList = captureIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',')
-
-  await db.execute(
-    sql.raw(`
-      UPDATE captures
-      SET
-        access_count     = access_count + 1,
-        last_accessed_at = '${accessedAt.replace(/'/g, "''")}'::timestamptz
-      WHERE id = ANY(ARRAY[${idList}]::uuid[])
-    `),
-  )
+  await db
+    .update(captures)
+    .set({
+      access_count: sql`${captures.access_count} + 1`,
+      last_accessed_at: new Date(accessedAt),
+    })
+    .where(inArray(captures.id, captureIds))
 }
 
 /**

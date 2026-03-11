@@ -66,8 +66,21 @@ export async function queryCaptures(
   from: Date,
   to: Date,
 ): Promise<CaptureRecord[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = await db.execute<any>(sql`
+  /** Typed row shape matching the SELECT columns for weekly brief capture query */
+  const rows = await db.execute<{
+    id: string
+    content: string
+    capture_type: string
+    brain_view: string
+    source: string
+    tags: string[]
+    captured_at: string
+    created_at: string
+    updated_at: string
+    pipeline_status: string
+    pipeline_attempts: number
+    content_hash: string
+  }>(sql`
     SELECT id, content, capture_type, brain_view, source, tags, captured_at, created_at, updated_at,
            pipeline_status, pipeline_attempts, content_hash
     FROM captures
@@ -76,7 +89,7 @@ export async function queryCaptures(
       AND pipeline_status = 'complete'
     ORDER BY brain_view ASC, captured_at DESC
   `)
-  return rows.rows as CaptureRecord[]
+  return rows.rows as unknown as CaptureRecord[]
 }
 
 // ============================================================

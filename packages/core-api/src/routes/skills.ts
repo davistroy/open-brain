@@ -1,7 +1,8 @@
 import type { Hono } from 'hono'
-import { sql } from 'drizzle-orm'
+import { desc, eq, sql } from 'drizzle-orm'
 import type { Queue } from 'bullmq'
 import type { Database } from '@open-brain/shared'
+import { skills_log } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 
 /**
@@ -12,6 +13,20 @@ interface SkillsLogRow {
   skill_name: string
   input_summary: string | null
   output_summary: string | null
+  duration_ms: number | null
+  created_at: Date | string
+}
+
+/**
+ * Extended row shape for the per-skill logs endpoint (includes result + capture_id).
+ */
+interface SkillsLogDetailRow {
+  id: string
+  skill_name: string
+  capture_id: string | null
+  input_summary: string | null
+  output_summary: string | null
+  result: Record<string, unknown> | null
   duration_ms: number | null
   created_at: Date | string
 }
@@ -60,10 +75,10 @@ export function registerSkillRoutes(
   app.get('/api/v1/skills', async (c) => {
     // Pull the most recent skills_log row per skill_name so we can surface
     // last-run metadata without requiring the skills.yaml config at runtime.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await db.execute<any>(sql`
+    // DISTINCT ON isn't expressible in Drizzle query builder, so we use typed raw SQL.
+    const rows = await db.execute<SkillsLogRow>(sql`
       SELECT DISTINCT ON (skill_name)
-        id,
+        id::text,
         skill_name,
         input_summary,
         output_summary,
@@ -75,7 +90,7 @@ export function registerSkillRoutes(
 
     // Build a map of skill_name → last log entry for O(1) lookup
     const lastRunBySkill = new Map<string, SkillsLogRow>()
-    for (const row of rows.rows as SkillsLogRow[]) {
+    for (const row of rows.rows) {
       if (!lastRunBySkill.has(row.skill_name)) {
         lastRunBySkill.set(row.skill_name, row)
       }
@@ -84,7 +99,7 @@ export function registerSkillRoutes(
     // Merge known skills with any that appear in the log but aren't in KNOWN_SKILLS
     const allSkillNames = new Set([
       ...Object.keys(KNOWN_SKILLS),
-      ...(rows.rows as SkillsLogRow[]).map((r) => r.skill_name),
+      ...rows.rows.map((r) => r.skill_name),
     ])
 
     const skills = Array.from(allSkillNames).map((name) => {
@@ -167,8 +182,7 @@ export function registerSkillRoutes(
     const limitParam = c.req.query('limit')
     const limit = Math.min(parseInt(limitParam ?? '20', 10) || 20, 100)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await db.execute<any>(sql`
+    const rows = await db.execute<SkillsLogDetailRow>(sql`
       SELECT
         id::text,
         skill_name,
@@ -184,16 +198,7 @@ export function registerSkillRoutes(
       LIMIT ${limit}
     `)
 
-    const data = (rows.rows as Array<{
-      id: string
-      skill_name: string
-      capture_id: string | null
-      input_summary: string | null
-      output_summary: string | null
-      result: Record<string, unknown> | null
-      duration_ms: number | null
-      created_at: Date | string
-    }>).map((row) => ({
+    const data = rows.rows.map((row) => ({
       id: row.id,
       skill_name: row.skill_name,
       capture_id: row.capture_id,

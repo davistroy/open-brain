@@ -1,7 +1,8 @@
 import { Worker, Queue } from 'bullmq'
-import { sql } from 'drizzle-orm'
+import { sql, and, inArray, lt } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
+import { captures } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 
@@ -28,16 +29,17 @@ export async function processDailySweepJob(
 
   // Query captures stuck for > 1 hour — catches transient failures that
   // outlasted the initial retry window (LiteLLM blip, Redis restart, etc.)
-  const stuck = await db.execute<{ id: string }>(
-    sql.raw(`
-      SELECT id
-      FROM captures
-      WHERE pipeline_status IN ('received', 'processing')
-        AND created_at < NOW() - INTERVAL '1 hour'
-    `),
-  )
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
 
-  const stuckCaptures = stuck.rows as Array<{ id: string }>
+  const stuckCaptures = await db
+    .select({ id: captures.id })
+    .from(captures)
+    .where(
+      and(
+        inArray(captures.pipeline_status, ['received', 'processing']),
+        lt(captures.created_at, oneHourAgo),
+      ),
+    )
 
   if (stuckCaptures.length === 0) {
     logger.info('[daily-sweep] no stuck captures found')

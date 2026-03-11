@@ -32,6 +32,16 @@ export interface TriggerTestMatch {
   created_at: Date
 }
 
+/** Row shape returned by the pgvector cosine similarity query in TriggerService.test() */
+interface TriggerTestQueryRow {
+  id: string
+  content: string
+  capture_type: string
+  brain_view: string
+  created_at: Date
+  similarity: number
+}
+
 export interface CreateTriggerInput {
   name: string
   queryText: string
@@ -177,14 +187,8 @@ export class TriggerService {
     const queryEmbedding = await this.embeddingService.embed(queryText)
 
     // Use pgvector cosine similarity to find top matches across all captures with embeddings
-    const rows = await this.db.execute<{
-      id: string
-      content: string
-      capture_type: string
-      brain_view: string
-      created_at: Date
-      similarity: number
-    }>(sql`
+    // pgvector <=> operator isn't expressible in Drizzle query builder — typed raw SQL required
+    const rows = await this.db.execute<TriggerTestQueryRow>(sql`
       SELECT
         id::text,
         content,
