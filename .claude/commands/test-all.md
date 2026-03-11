@@ -45,14 +45,14 @@ The packages and their test files are:
 
 Run via SSH on the homeserver. The regression test hits the live API at http://127.0.0.1:3002.
 
-Retrieve the MCP API key from Bitwarden:
+Retrieve the MCP API key from Bitwarden (use python3 for JSON parsing — `grep -P` fails on Windows/MSYS2):
 ```bash
-bws secret list 2>/dev/null | grep -i "open.brain\|mcp" | head -5
+MCP_KEY=$(bws secret list 2>/dev/null | python3 -c "import sys,json; data=json.load(sys.stdin); print(next(s['value'] for s in data if s['key'] == 'open-brain-mcp-api-key'))")
 ```
 
 Then run the regression test:
 ```bash
-ssh root@homeserver.k4jda.net "OPEN_BRAIN_MCP_API_KEY='<KEY>' node /mnt/user/appdata/open-brain/scripts/regression-test.mjs --base-url http://127.0.0.1:3002 --verbose 2>&1"
+ssh root@homeserver.k4jda.net "OPEN_BRAIN_MCP_API_KEY='${MCP_KEY}' node /mnt/user/appdata/open-brain/scripts/regression-test.mjs --base-url http://127.0.0.1:3002 --verbose 2>&1"
 ```
 
 The script covers 13 sections: Health/Stats, Captures CRUD, Pipeline, Search/Synthesize, Entities, Sessions, Bets, Triggers, Skills, Admin, MCP, Slack verification, Cleanup.
