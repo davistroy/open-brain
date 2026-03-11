@@ -1092,11 +1092,11 @@ Documentation only — no code changes. Keep the roadmap concise — bullet poin
 
 ---
 
-### 8.3 Ship (PR, Review, Merge)
+### 8.3 Ship (PR, Review, Merge) [2026-03-10]
 
 **Priority:** HIGH
 **Estimated effort:** 15 min
-**Status:** PENDING
+**Status:** COMPLETE [2026-03-10]
 
 **Tasks:**
 - [ ] Create PR with comprehensive summary of all hardening work
@@ -1110,11 +1110,11 @@ Documentation only — no code changes. Keep the roadmap concise — bullet poin
 
 ---
 
-### 8.4 Final Summary Report
+### 8.4 Final Summary Report [2026-03-10]
 
 **Priority:** MEDIUM
 **Estimated effort:** 5 min
-**Status:** PENDING
+**Status:** COMPLETE [2026-03-10]
 
 **Tasks:**
 - [ ] Produce a 40-line-or-less summary of everything done

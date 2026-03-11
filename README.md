@@ -39,8 +39,7 @@ packages/
 config/
   ai-routing.yaml  # LiteLLM model aliases + budget limits
   brain-views.yaml # Five views: career/personal/technical/work-internal/client
-  pipelines.yaml   # Pipeline stage definitions
-  pipeline.yaml    # Pipeline retry/backoff settings
+  pipeline.yaml    # Pipeline stage definitions + retry/backoff settings
   notifications.yaml
   prompts/         # Versioned prompt templates
   cloudflare/      # Tunnel config
@@ -241,7 +240,7 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `IMPLEMENTATION_PLAN-PHASE2.md` | Phases 9–16 (Voice through Polish) — all complete |
 | `config/ai-routing.yaml` | LiteLLM model aliases and budget thresholds |
 | `config/brain-views.yaml` | Brain view definitions |
-| `config/pipelines.yaml` | Pipeline stage configuration |
+| `config/pipeline.yaml` | Pipeline stage definitions + retry/backoff settings |
 
 ## Hardware
 
