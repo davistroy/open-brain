@@ -43,6 +43,13 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **`/health` is Docker-internal only** — nginx does not proxy `/health` externally. Use `/api/v1/captures?limit=1` for external health checks and tunnel verification.
 - **Slack `app_mention` events always route to `handleQuery`** — do not document @mention as a way to trigger captures or commands. Captures and `!commands` require plain channel messages routed through IntentRouter.
 - **`SLACK_SIGNING_SECRET` is not needed for Socket Mode** — signing secrets are for HTTP webhook verification only. Socket Mode only needs `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`.
+- **`CREATE TRIGGER` is not idempotent** — PostgreSQL has no `CREATE OR REPLACE TRIGGER`. Always add `DROP TRIGGER IF EXISTS <name> ON <table>;` before each `CREATE TRIGGER`. Affects `scripts/init-schema.sql` which is re-applied by integration tests.
+- **Drizzle ORM does not emit `AS` aliases for computed SELECT columns** — `sql<number>\`COUNT(...)\`` in a `.select({mention_count: sql\`...\`})` maps only to JS property names, not SQL aliases. `ORDER BY mention_count` fails with "column does not exist". Use the full expression in ORDER BY: `desc(sql\`COUNT(${entity_links.id})\`)`.
+- **Captures table has no `tsv` column** — FTS uses an expression-based GIN index on `to_tsvector('english', content)`. Inserts are immediately FTS-searchable. Do not try to update a `tsv` column.
+- **`POST /api/v1/captures` returns `{id, pipeline_status, created_at}` only** — not the full capture object. Use `GET /api/v1/captures/:id` for the full record.
+- **Integration tests must use `pnpm exec`, not `npx`** — `npx vitest` on the server pulls a different version that can't resolve TS configs. Use `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts`.
+- **Integration test config filename is `vitest.config.integration.ts`** — not `vitest.integration.config.ts`. The word order matters.
+- **Integration tests need rate limit bypass** — all test helpers send `X-Open-Brain-Caller: integration-test` header. The rate limit middleware skips enforcement for this caller key. Without it, strict tier (20 req/min) exhausts during test runs.
 
 ---
 
