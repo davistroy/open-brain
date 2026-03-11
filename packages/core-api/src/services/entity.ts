@@ -74,7 +74,7 @@ export class EntityService {
     // so we use sql template for it; others reference Drizzle column refs.
     const orderByExpr =
       sort_by === 'mention_count'
-        ? desc(sql`mention_count`)
+        ? desc(sql`COUNT(${entity_links.id})`)
         : sort_by === 'last_seen'
           ? sql`${entities.last_seen_at} DESC NULLS LAST`
           : asc(entities.name)
