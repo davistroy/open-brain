@@ -203,4 +203,84 @@ describe('rateLimit middleware', () => {
       limiter.dispose()
     }
   })
+
+  it('uses X-Open-Brain-Caller header for internal service identification', async () => {
+    const limiter = new RateLimiter({ maxRequests: 1, windowMs: 60_000 })
+    const app = new Hono()
+    app.use('/api/*', rateLimit(limiter))
+    app.get('/api/test', (c) => c.json({ ok: true }))
+
+    try {
+      // slack-bot gets its own bucket
+      const res1 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: { 'X-Open-Brain-Caller': 'slack-bot' },
+        }),
+      )
+      expect(res1.status).toBe(200)
+
+      // slack-bot over limit
+      const res2 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: { 'X-Open-Brain-Caller': 'slack-bot' },
+        }),
+      )
+      expect(res2.status).toBe(429)
+
+      // workers gets its own bucket — still allowed
+      const res3 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: { 'X-Open-Brain-Caller': 'workers' },
+        }),
+      )
+      expect(res3.status).toBe(200)
+
+      // default-client (no headers) also has its own bucket
+      const res4 = await app.request(new Request('http://localhost/api/test'))
+      expect(res4.status).toBe(200)
+    } finally {
+      limiter.dispose()
+    }
+  })
+
+  it('X-Open-Brain-Caller takes priority over X-Forwarded-For', async () => {
+    const limiter = new RateLimiter({ maxRequests: 1, windowMs: 60_000 })
+    const app = new Hono()
+    app.use('/api/*', rateLimit(limiter))
+    app.get('/api/test', (c) => c.json({ ok: true }))
+
+    try {
+      // Both headers present — caller header wins
+      const res1 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'slack-bot',
+            'X-Forwarded-For': '10.0.0.1',
+          },
+        }),
+      )
+      expect(res1.status).toBe(200)
+
+      // Same caller over limit, but forwarded-for IP is separate bucket
+      const res2 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'slack-bot',
+            'X-Forwarded-For': '10.0.0.1',
+          },
+        }),
+      )
+      expect(res2.status).toBe(429)
+
+      // Same forwarded-for IP without caller header — different bucket, allowed
+      const res3 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: { 'X-Forwarded-For': '10.0.0.1' },
+        }),
+      )
+      expect(res3.status).toBe(200)
+    } finally {
+      limiter.dispose()
+    }
+  })
 })

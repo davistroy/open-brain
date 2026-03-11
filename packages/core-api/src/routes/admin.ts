@@ -133,6 +133,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
     serverAdapter.setBasePath('/api/v1/admin/queues')
 
     const bullBoardApp = serverAdapter.registerPlugin()
+    router.use('/queues/*', adminAuth())
     router.route('/queues', bullBoardApp)
 
     logger.info('[admin] Bull Board mounted at /api/v1/admin/queues')

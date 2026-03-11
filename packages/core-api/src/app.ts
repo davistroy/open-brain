@@ -64,7 +64,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
 
   // Global middleware
   app.use('*', honoLogger())
-  app.use('*', cors({ origin: ['https://brain.k4jda.net', 'http://localhost:5173', 'http://localhost:3000'] }))
+  app.use('*', cors({ origin: ['https://brain.k4jda.net', 'https://brain.troy-davis.com', 'http://localhost:5173', 'http://localhost:3000'] }))
   app.onError(errorHandler())
 
   // Rate limiting — tiered by endpoint group

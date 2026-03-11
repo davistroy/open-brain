@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { MiddlewareHandler } from 'hono'
 import { logger } from '../lib/logger.js'
 
@@ -45,7 +45,9 @@ export const adminAuth = (): MiddlewareHandler => async (c, next) => {
     return c.json({ error: 'Unauthorized', message: 'Admin API key not configured on server' }, 401)
   }
 
-  if (providedToken !== expectedToken) {
+  const providedBuf = Buffer.from(providedToken)
+  const expectedBuf = Buffer.from(expectedToken)
+  if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
     logger.warn({ tokenHash }, 'Admin auth: invalid token')
     return c.json({ error: 'Unauthorized', message: 'Invalid bearer token' }, 401)
   }
