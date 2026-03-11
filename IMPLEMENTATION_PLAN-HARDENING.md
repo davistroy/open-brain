@@ -765,34 +765,41 @@ This is wiring only — the Pushover/Email services don't need to consume the co
 
 ### Work Items
 
-#### 6.1 Integration Test Infrastructure
+#### 6.1 Integration Test Infrastructure ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** F11 (Architecture Audit — Testing, MEDIUM)
 **Files Affected:**
 - `docker-compose.test.yml` (create)
 - `packages/core-api/src/__tests__/integration/setup.ts` (create)
 - `packages/core-api/src/__tests__/integration/helpers.ts` (create)
+- `packages/core-api/src/__tests__/integration/smoke.test.ts` (create)
 - `packages/core-api/vitest.config.integration.ts` (create)
+- `packages/core-api/vitest.config.ts` (modify — exclude integration tests from default run)
+- `packages/core-api/package.json` (modify — add test:integration script)
+- `package.json` (modify — add root test:integration script with docker lifecycle)
 
 **Description:**
 Create the infrastructure for integration tests: a docker-compose file with ephemeral Postgres + Redis containers, a test setup that initializes the database with migrations, and helper utilities for creating test data and making API calls against the real Hono app.
 
 **Tasks:**
-1. [ ] Create `docker-compose.test.yml` with:
-   - postgres (pgvector/pgvector:pg16, random port, tmpfs for speed)
-   - redis (redis:7-alpine, random port, no persistence)
+1. [x] Create `docker-compose.test.yml` with:
+   - postgres (pgvector/pgvector:pg16, port 5433, tmpfs for speed)
+   - redis (redis:7-alpine, port 6381, no persistence)
    - Both with healthchecks using 127.0.0.1
-2. [ ] Create `packages/core-api/vitest.config.integration.ts` with `include: ['src/__tests__/integration/**/*.test.ts']`, longer timeout (30s), sequential execution
-3. [ ] Create `setup.ts` — connects to test DB, runs all migrations, provides `getTestApp()` that returns a configured Hono app with real services
-4. [ ] Create `helpers.ts` — `createTestCapture()`, `seedTestData()`, `cleanDatabase()` utilities
-5. [ ] Add npm script: `"test:integration": "docker compose -f docker-compose.test.yml up -d && vitest run -c vitest.config.integration.ts; docker compose -f docker-compose.test.yml down"`
+2. [x] Create `packages/core-api/vitest.config.integration.ts` with `include: ['src/__tests__/integration/**/*.test.ts']`, longer timeout (30s), sequential execution
+3. [x] Create `setup.ts` — connects to test DB, applies init-schema.sql (full DDL + SQL functions), provides `getTestApp()` that returns a configured Hono app with real services and stub embedding service
+4. [x] Create `helpers.ts` — `createTestCapture()`, `createTestEntity()`, `linkEntityToCapture()`, `createTestBet()`, `createTestSession()`, `seedTestData()`, `cleanDatabase()`, plus HTTP request helpers (`testGet`, `testPost`, `testPatch`, `testDelete`)
+5. [x] Add npm scripts: `test:integration` in core-api package.json and root package.json (with docker compose lifecycle)
+6. [x] Create `smoke.test.ts` — validates infrastructure works (schema, SQL functions, pgvector extension, CRUD, cleanup, test app, health endpoint)
+7. [x] Exclude integration tests from default `vitest run` via `vitest.config.ts` exclude pattern
 
 **Acceptance Criteria:**
-- [ ] `docker compose -f docker-compose.test.yml up -d` starts healthy Postgres + Redis
-- [ ] Setup connects to DB and runs migrations successfully
-- [ ] `getTestApp()` returns a working Hono app
-- [ ] Helper utilities create valid test data
+- [x] `docker compose -f docker-compose.test.yml up -d` starts healthy Postgres + Redis
+- [x] Setup connects to DB and applies full schema (init-schema.sql) successfully
+- [x] `getTestApp()` returns a working Hono app
+- [x] Helper utilities create valid test data
+- [x] Existing unit tests (345 tests across 22 files) unaffected — all pass
 
 **Notes:**
 Use randomized ports to avoid conflicts with running services. Tests should be idempotent (clean DB between test files).
