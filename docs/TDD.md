@@ -41,14 +41,15 @@ The system runs entirely on an Unraid home server, ingests captures from Slack a
 **In Scope (this document)**:
 - Phase 1 (Foundation/MVP): Core API, Postgres+pgvector, Pipeline, Slack capture/query, MCP (embedded in Core API), AI router (via external LiteLLM)
 - Phase 2 (Voice + Outputs): faster-whisper, voice-capture integration, weekly brief skill, notifications, email
-- Phase 3 (Intelligence): Entity graph, governance sessions, bet tracking, drift detection
-- Phase 4 (Polish): Web dashboard (Vite + React PWA), document ingestion, bookmarks, calendar
+- Phase 3 (Intelligence): Entity graph, governance sessions, bet tracking
+- Phase 4 (Polish): Web dashboard (Vite + React PWA), document ingestion
+- Phase 5 (Proactive Intelligence + URL Capture): Daily connections, drift monitor, URL/bookmark capture
 
 **Out of Scope**:
 - Multi-user support, authentication system
 - Mobile native apps
 - Notion output skill (deferred to "Future")
-- Screenshot/image capture via vision models
+- Screenshot/image capture via vision models (F27 — documented in PRD, deferred pending vision model availability on LiteLLM)
 
 ### 1.3 Technical Approach Summary
 
@@ -100,10 +101,17 @@ Phase 2C: Semantic Triggers
 
 Phase 3: Intelligence
   F15 Entity Graph → F16 Slack Sessions → F17 Governance Skills
-  → F18 Bet Tracking → F20 Slack Voice → F21 Daily Connections → F22 Drift Monitor
+  → F18 Bet Tracking → F20 Slack Voice
 
 Phase 4: Polish
-  F19 Web Dashboard → F23 Document Ingestion → F24 Bookmarks → F25 Calendar
+  F19 Web Dashboard → F23 Document Ingestion
+
+Phase 5A: Proactive Intelligence
+  F21 Daily Connections → F22 Drift Monitor
+  (builds on: F12 skills framework, F15 entity graph, F18 bets)
+
+Phase 5B: URL Capture
+  F24 URL/Bookmark Capture → existing pipeline
 ```
 
 ---
@@ -2941,8 +2949,8 @@ async function setThreadContext(threadTs: string, context: ThreadContext): Promi
 | update-access-stats | access-stats | 1 (low) | 10s | 1 | — |
 | check-triggers | triggers | 5 (normal) | 10s | 1 | — |
 | weekly-brief | skill-execution | 3 | 5 min | 3 | Exponential: 1m, 5m, 15m. On final failure: Pushover alert (high priority). Does not silently skip. |
-| drift-monitor | skill-execution | 3 | 2 min | 3 | Exponential |
-| daily-connections | skill-execution | 3 | 2 min | 3 | Exponential |
+| drift-monitor | skill-execution | 3 | 2 min | 3 | Exponential: 1m, 5m, 15m. Queries pending bets, entity frequency, governance commitments. Alerts via Pushover on severity > medium. |
+| daily-connections | skill-execution | 3 | 3 min | 3 | Exponential: 1m, 5m, 15m. Queries 7-day captures, entity co-occurrence, embedding clusters. Delivers via Pushover + saves capture. |
 | stale-captures | skill-execution | 3 | 2 min | 3 | Exponential. On-demand re-queue of stuck captures. Sends Pushover summary. |
 | pipeline-health | skill-execution | 3 | 1 min | 3 | Exponential. Hourly BullMQ queue stats check; alerts via Pushover if thresholds exceeded. |
 | daily-sweep | daily-sweep | 1 (low) | 30 min | 1 | — |
@@ -3028,6 +3036,160 @@ interface StaleCapturesResult {
 
 **Implementation**: `packages/workers/src/skills/stale-captures.ts`
 
+### 12.2c Daily Connections Skill (F21)
+
+> **Phase 5A** -- Proactive intelligence skill that surfaces non-obvious cross-domain patterns across recent captures.
+
+**Purpose**: Queries captures from the last N days, builds entity co-occurrence data and embedding-based clusters, then uses LLM synthesis to surface connections the user might miss. Delivered via Pushover and saved as a searchable capture.
+
+**Trigger**: Scheduled daily at 9:00 PM via BullMQ repeatable job. Manual via `POST /api/v1/skills/daily-connections/trigger` or Slack `!connections [days]`.
+
+**Algorithm**:
+1. Query captures from last N days (default: 7), ordered by `created_at DESC`
+2. Query `entity_links` to build co-occurrence matrix: which entities appear together across captures
+3. Group captures by embedding similarity (cosine > 0.75) to find thematic clusters
+4. Assemble context within token budget (default: 30K tokens), grouped by brain view
+5. Call LLM (`synthesis` alias) with `daily_connections_v1.txt` prompt template
+6. Parse JSON output into `DailyConnectionsOutput`
+7. Deliver via Pushover (top 3 connections, truncated)
+8. Save output as capture (`capture_type: 'reflection'`, `source: 'system'`, tags: `['connections', 'skill-output']`)
+9. Log to `skills_log` with structured `result` JSONB
+
+**Options**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| windowDays | integer | 7 | How many days of captures to analyze |
+| tokenBudget | integer | 30000 | Max tokens for LLM context assembly |
+| modelAlias | string | synthesis | LLM model alias for synthesis |
+
+**Result**:
+```typescript
+interface DailyConnectionsOutput {
+  connections: Array<{
+    theme: string          // Short title for the connection
+    captures: string[]     // IDs of captures involved
+    brain_views: string[]  // Which views are connected
+    entities: string[]     // Entities that bridge the connection
+    insight: string        // Why this connection matters
+    confidence: number     // 0.0-1.0 confidence in the connection
+  }>
+  meta: {
+    captures_analyzed: number
+    entities_found: number
+    clusters_detected: number
+    window_days: number
+  }
+}
+```
+
+**Failure handling**: LLM call failure propagates to BullMQ retry (3 attempts). Pushover and skills_log failures are caught and logged (non-fatal).
+
+**Implementation**: `packages/workers/src/skills/daily-connections.ts`
+
+### 12.2d Drift Monitor Skill (F22)
+
+> **Phase 5A** -- Proactive intelligence skill that detects when tracked commitments, bets, or projects go quiet.
+
+**Purpose**: Compares active bets, governance commitments, and entity mention frequency against capture recency to surface potential drift. Alerts the user to items that may need attention before they slip.
+
+**Trigger**: Scheduled daily at 8:00 AM via BullMQ repeatable job. Manual via `POST /api/v1/skills/drift-monitor/trigger` or Slack `!drift`.
+
+**Algorithm**:
+1. Load all pending bets from `bets` table (resolution = 'pending')
+2. For each bet: query captures mentioning the bet's statement/entities in the last 14 days
+3. Load governance session outputs from last 30 days; extract commitments (action items, decisions)
+4. For each commitment: check for follow-up captures (semantic match via `hybrid_search()`)
+5. Query entity mention frequency: compare last 7 days vs. previous 7 days using `entity_links` join on `captures.created_at`
+6. Flag drift items:
+   - Pending bet with resolution_date within 30 days AND zero related captures in 14 days → HIGH
+   - Pending bet with declining mention frequency → MEDIUM
+   - Governance commitment with zero follow-up captures → MEDIUM
+   - Entity mention frequency dropped >50% week-over-week → LOW
+7. Call LLM (`synthesis` alias) with `drift_monitor_v1.txt` prompt template
+8. Parse JSON output into `DriftMonitorOutput`
+9. Deliver via Pushover only if any items have severity ≥ MEDIUM
+10. Save output as capture (`capture_type: 'reflection'`, `source: 'system'`, tags: `['drift', 'skill-output']`)
+11. Log to `skills_log`
+
+**Options**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| silenceThresholdDays | integer | 14 | Days of no activity before flagging |
+| entityDeclineThreshold | number | 0.5 | Week-over-week mention frequency decline ratio |
+| modelAlias | string | synthesis | LLM model alias |
+
+**Result**:
+```typescript
+interface DriftMonitorOutput {
+  drift_items: Array<{
+    item: string           // What is drifting
+    type: 'bet' | 'commitment' | 'entity' | 'project'
+    last_activity: string  // ISO date of last related capture
+    days_silent: number    // Days since last activity
+    severity: 'high' | 'medium' | 'low'
+    suggested_action: string
+    related_captures: string[]  // IDs of relevant captures
+  }>
+  summary: string         // LLM-generated drift summary
+  meta: {
+    bets_checked: number
+    commitments_checked: number
+    entities_checked: number
+    total_drift_items: number
+  }
+}
+```
+
+**Failure handling**: Same as daily-connections — LLM failure retried by BullMQ; delivery/logging non-fatal.
+
+**Implementation**: `packages/workers/src/skills/drift-monitor.ts`
+
+### 12.2e URL Content Extraction Service (F24)
+
+> **Phase 5B** -- Lightweight URL-to-text extraction for bookmark captures.
+
+**Purpose**: Fetches a web page by URL, extracts readable content using Mozilla Readability, and returns structured metadata for capture creation.
+
+**Dependencies**: `@mozilla/readability` (content extraction), `linkedom` (DOM parsing without browser).
+
+**Service**:
+```typescript
+// packages/shared/src/services/url-extractor.ts
+
+interface UrlExtractionResult {
+  title: string
+  content: string        // Readable text (Readability output)
+  excerpt: string        // First ~200 chars
+  siteName: string | null
+  byline: string | null
+  url: string
+  fetchedAt: string      // ISO timestamp
+}
+
+class UrlExtractorService {
+  /**
+   * Fetch URL and extract readable content.
+   * 1. HTTP GET with 10s timeout, User-Agent header
+   * 2. Parse HTML with linkedom
+   * 3. Extract with Readability
+   * 4. Fallback: strip HTML tags if Readability fails
+   * 5. Truncate content to 50K chars
+   */
+  async extract(url: string): Promise<UrlExtractionResult>
+}
+```
+
+**API Integration**: `POST /api/v1/captures` accepts `source: 'bookmark'`. When `source_metadata.url` is present and `content` is empty/missing, the capture route calls `UrlExtractorService.extract(url)` to populate content before pipeline processing.
+
+**Slack Integration**: New `!bookmark <url>` command in IntentRouter. Handler:
+1. Parse URL from message text
+2. Call Core API `POST /captures` with `{ source: 'bookmark', source_metadata: { url }, capture_type: 'observation', brain_view: 'technical' }`
+3. Reply in thread with title, excerpt, and capture ID
+
+**Implementation**: `packages/shared/src/services/url-extractor.ts`
+
 ### 12.3 Pipeline Stage Executor
 
 ```typescript
@@ -3093,14 +3255,14 @@ await skillQueue.add('weekly-brief', {}, {
   repeat: { pattern: '0 20 * * 0' }, // cron: Sunday 8 PM
 });
 
-// Drift monitor — Monday 9:00 AM
+// Drift monitor — Daily 8:00 AM (morning awareness alert)
 await skillQueue.add('drift-monitor', {}, {
-  repeat: { pattern: '0 9 * * 1' }, // cron: Monday 9 AM
+  repeat: { pattern: '0 8 * * *' }, // cron: Daily 8 AM
 });
 
-// Daily connections — Daily 7:00 AM
+// Daily connections — Daily 9:00 PM (after day's captures are in)
 await skillQueue.add('daily-connections', {}, {
-  repeat: { pattern: '0 7 * * *' }, // cron: Daily 7 AM
+  repeat: { pattern: '0 21 * * *' }, // cron: Daily 9 PM
 });
 
 // Daily sweep (retry failed stages) — Daily 3:00 AM
@@ -4049,6 +4211,7 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 | 2026-03-05 | v0.4: Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Fixed: Zod brain_views validation (config-driven, not hardcoded), MCP auth (Authorization header), slack-bot LiteLLM access, check_triggers as separate BullMQ job, temporal scoring standardized (multiplicative boost), entity/trigger UNIQUE constraints, entity_links ON DELETE CASCADE. Added: PATCH captures endpoint, search pagination, cold start temporal_weight (default 0.0), operational runbook, capacity planning. | Troy Davis / Claude |
 | 2026-03-05 | v0.5: Architectural review v2. Fixed composite score formula (multiplicative boost in PRD), extracted pipeline_log→pipeline_events table, session transcript→session_messages table, removed linked_entities denorm from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), BrainView→config-driven string, ai_usage→ai_audit_log (dropped cost_estimate), entity resolution confidence threshold (0.8), MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability, MCP in-progress capture visibility note. | Troy Davis / Claude |
 | 2026-03-10 | v0.6: Hardening 7.2 — Replaced speculative SQL functions with as-built implementations (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search). Updated synthesize endpoint to match simplified implementation. Updated all cross-references. | Troy Davis / Claude |
+| 2026-03-11 | v0.7: Phase 5 — Added technical design for F21 (daily connections skill), F22 (drift monitor skill), F24 (URL/bookmark capture). New TDD sections: 12.2c (daily connections), 12.2d (drift monitor), 12.2e (URL extraction service). Updated scope, phased implementation, job definitions, scheduled jobs. F27 (image capture) documented in PRD but deferred from TDD. | Troy Davis / Claude |
 
 ### E. Operational Runbook
 

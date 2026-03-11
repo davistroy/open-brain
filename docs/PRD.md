@@ -207,13 +207,13 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F18 | Bet tracking and evaluation | Should Have | Phase 3 | Implemented |
 | F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 | Implemented |
 | F20 | Slack voice clip processing | Could Have | Phase 3 | Implemented |
-| F21 | Daily connection/pattern detection skill | Could Have | Phase 3 | **DEFERRED** |
-| F22 | Drift monitor skill | Could Have | Phase 3 | **DEFERRED** |
+| F21 | Daily connection/pattern detection skill | Should Have | Phase 5A | Planned |
+| F22 | Drift monitor skill | Should Have | Phase 5A | Planned |
 | F23 | Document ingestion (PDF, docx) | Could Have | Phase 4 | Implemented |
-| F24 | URL/bookmark capture | Could Have | Phase 4 | **DEFERRED** |
+| F24 | URL/bookmark capture | Should Have | Phase 5B | Planned |
 | F25 | Calendar integration | Could Have | Phase 4 | **DEFERRED** |
 | F26 | Notion output skill (optional mirror) | Won't Have | Future | **DEFERRED** |
-| F27 | Screenshot/image capture (vision model) | Won't Have | Future | **DEFERRED** |
+| F27 | Screenshot/image capture (vision model) | Could Have | Future | **DEFERRED** |
 | F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C | Implemented |
 
 ### 5.2 Detailed Feature Specifications
@@ -1117,6 +1117,14 @@ F28 (Semantic Triggers) ──► F13 (Pushover) + Slack delivery
 Phase 3:
 F15 (Entity Graph) ──► F16-F18 (Governance)
 
+Phase 5A:
+F21 (Daily Connections) ──► F22 (Drift Monitor)
+  Depends on: F12 (Skills framework), F15 (Entity Graph), F18 (Bets)
+
+Phase 5B:
+F24 (URL/Bookmark Capture) ──► existing pipeline
+  Depends on: F01 (Core API), F03 (Pipeline)
+
 Independent (wire in when ready):
 F13 (Pushover), F14 (Email)
 ```
@@ -1146,6 +1154,126 @@ F13 (Pushover), F14 (Email)
 - Matching triggers fire notifications within the pipeline processing window
 - Cooldown prevents spam (default 60 minutes between fires for same trigger)
 - Trigger management also available via API (`/api/v1/triggers`)
+
+---
+
+#### F21: Daily Connection/Pattern Detection Skill
+
+**Description**: Scheduled skill that surfaces non-obvious connections and emerging patterns across captures. Queries the last 7 days of captures, groups by brain view and entity co-occurrence, then uses LLM synthesis to identify cross-domain connections the user might not see themselves. The output is a concise "connections brief" delivered via Pushover and saved as a capture for future search.
+
+**Tech**: Follows the WeeklyBriefSkill pattern — class-based skill with BullMQ execution, prompt template, `skills_log` audit. Reuses existing `EmbeddingService` for similarity clustering and `hybrid_search()` for related-capture retrieval.
+
+**Algorithm**:
+1. Query captures from the last N days (default: 7), grouped by brain view
+2. Build entity co-occurrence matrix (which entities appear together across captures)
+3. Identify capture clusters via embedding similarity (group captures with cosine similarity > 0.75)
+4. Assemble context within token budget (same pattern as weekly-brief)
+5. Call LLM with `daily_connections_v1.txt` prompt — instruct to find non-obvious cross-domain patterns, recurring themes, and potential blind spots
+6. Parse structured JSON output (connections array with: theme, captures involved, insight, confidence)
+7. Deliver via Pushover (summary) + save as capture (type: `reflection`, source: `system`)
+8. Log to `skills_log` with structured result
+
+**Schedule**: Daily at 9:00 PM (after day's captures are processed)
+
+**Slack Command**: `!connections` — trigger on-demand, optionally with `!connections 14` for custom day window
+
+**Acceptance Criteria**:
+- Skill runs daily and produces meaningful connections (not just topic summaries)
+- Cross-domain connections surfaced (e.g., a pattern from `technical` that relates to `client` work)
+- Entity co-occurrence highlighted (people/projects that appear together but haven't been explicitly linked)
+- Output saved as searchable capture for future retrieval
+- Pushover notification includes top 3 connections with brief context
+- Manual trigger via Slack or API works with custom day window
+
+---
+
+#### F22: Drift Monitor Skill
+
+**Description**: Scheduled skill that detects when tracked projects, bets, or stated commitments go silent — surfacing potential drift before it becomes a problem. Compares active bets, recent governance session commitments, and entity activity against capture recency to identify topics that have gone quiet. Alerts the user to items that may need attention.
+
+**Tech**: Same skill framework as F21 (class-based, BullMQ, prompt template). Queries bets (pending), recent governance session outputs, and entity mention frequency. Uses time-decay analysis — not just "has this been mentioned" but "is the mention frequency declining."
+
+**Algorithm**:
+1. Load all pending bets with resolution dates
+2. Load governance session commitments from last 30 days (parsed from session outputs)
+3. Query entity mention frequency over rolling 7-day windows (current vs. previous)
+4. Flag items where:
+   - Pending bet has no related captures in last 14 days
+   - Entity mention frequency dropped >50% week-over-week
+   - Governance commitment has zero follow-up captures
+5. Call LLM with `drift_monitor_v1.txt` prompt — assess severity, suggest specific actions
+6. Parse structured JSON (drift_items array with: item, type, last_activity, severity, suggested_action)
+7. Deliver via Pushover (items with severity > medium) + save as capture
+8. Log to `skills_log`
+
+**Schedule**: Daily at 8:00 AM (morning awareness alert)
+
+**Slack Command**: `!drift` — trigger on-demand drift check
+
+**Acceptance Criteria**:
+- Bets approaching resolution date with no recent activity flagged as high severity
+- Entity mention frequency decline detected and reported
+- Governance commitments without follow-through surfaced
+- No false positives on intentionally quiet topics (uses 14-day minimum silence threshold)
+- Pushover alert only fires when drift items with severity > medium exist
+- Manual trigger via Slack or API works
+
+---
+
+#### F24: URL/Bookmark Capture
+
+**Description**: Capture web page content by URL — extracts readable text from the page, stores it as a capture, and processes through the standard pipeline (embed, extract entities, check triggers). Entry points: Slack command, web UI, and API. Uses Mozilla Readability for content extraction (same library behind Firefox Reader View) — no headless browser needed.
+
+**Tech**: `@mozilla/readability` + `linkedom` (DOM parser for Node.js without browser). Lightweight, fast, handles most article-style pages. Falls back to raw HTML text extraction if Readability fails.
+
+**Capture Flow**:
+1. Receive URL from any entry point (Slack `!bookmark <url>`, web UI, API)
+2. Fetch page HTML via `fetch()` with 10-second timeout and user-agent header
+3. Parse HTML with `linkedom`, extract with `@mozilla/readability`
+4. Store extracted content as capture with:
+   - `content`: Readability text output (title + body, truncated to 50K chars)
+   - `capture_type`: `observation` (default, pipeline may reclassify)
+   - `source`: `bookmark`
+   - `source_metadata`: `{ url, title, excerpt, siteName, byline, fetchedAt }`
+   - `tags`: `['bookmark']` + auto-extracted domain tag (e.g., `nytimes.com`)
+5. Process through standard pipeline (embed → extract entities → check triggers)
+
+**Entry Points**:
+- **Slack**: `!bookmark <url>` or `!bookmark <url> #tag1 #tag2` — captures the URL, replies with confirmation
+- **Web UI**: URL input field on Dashboard Quick Capture (toggle between text/URL mode)
+- **API**: `POST /api/v1/captures` with `source: 'bookmark'` and URL in `source_metadata.url`
+
+**Acceptance Criteria**:
+- URLs from major sites (news articles, blog posts, documentation) extract readable content
+- Extracted content includes title and body text, not nav/footer/ad content
+- Pages that fail Readability extraction fall back to stripped HTML text
+- Non-HTML responses (PDF URLs, images) return clear error message
+- Duplicate URL detection: same URL within 24 hours is deduplicated via content_hash
+- Slack command responds with page title and excerpt within 10 seconds
+- Captured URL content is searchable via semantic search
+
+---
+
+#### F27: Screenshot/Image Capture (Vision Model)
+
+> **Status: DEFERRED** — Documented for future implementation. Requires vision model configuration on LiteLLM proxy and new pipeline pre-processing stage.
+
+**Description**: Capture images (screenshots, whiteboard photos, diagrams) by extracting text and context via a vision-capable LLM. The extracted description becomes the capture content, processed through the standard pipeline. Entry points: Slack image attachment, web UI upload, API multipart endpoint.
+
+**Tech**: Vision model via LiteLLM (e.g., `qwen-vl` or `gpt-4o`). New `vision` model alias in `ai-routing.yaml`. Image stored in filesystem or object storage; extracted text stored in `content` field.
+
+**Deferred Design Decisions**:
+- Vision model selection (depends on LiteLLM provider availability and cost)
+- Image storage strategy (filesystem vs. base64 in `source_metadata` vs. dedicated `media` table)
+- Maximum image size and supported formats
+- Whether to embed extracted text or the image embedding (or both)
+
+**Acceptance Criteria** (for future implementation):
+- Images from Slack auto-detected and processed (similar to audio attachment flow)
+- Vision model extracts meaningful text description from screenshots and photos
+- Extracted content searchable via standard semantic search
+- Web UI provides image upload interface
+- Non-image files rejected with clear error
 
 ---
 
@@ -1461,10 +1589,10 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 | F17 | Board governance skills (quick check, quarterly) | Implemented |
 | F18 | Bet tracking | Implemented |
 | F20 | Slack voice clip handling | Implemented |
-| F21 | Daily connection finder | **DEFERRED** — no handler code; removed from KNOWN_SKILLS |
-| F22 | Drift monitor | **DEFERRED** — no handler code; removed from KNOWN_SKILLS |
+| F21 | Daily connection finder | Moved to Phase 5A |
+| F22 | Drift monitor | Moved to Phase 5A |
 
-**Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. ~~Drift alerts surface when projects/bets go quiet~~ (F21/F22 deferred).
+**Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. F21/F22 moved to Phase 5A.
 
 ### Phase 4: Polish
 **Goal**: Web UI, document ingestion, additional input sources.
@@ -1473,7 +1601,7 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 |---------|-------------|--------|
 | F19 | Web dashboard (Vite + React PWA) | Implemented |
 | F23 | Document ingestion (PDF, docx) | Implemented |
-| F24 | URL/bookmark capture | **DEFERRED** — test stubs only, no service implementation |
+| F24 | URL/bookmark capture | Moved to Phase 5B |
 | F25 | Calendar integration | **DEFERRED** — test stubs only, no service implementation |
 
 **Deferred Design Decision — Document Chunking**:
@@ -1487,6 +1615,45 @@ via `source_metadata.parent_document_id`).
 
 **Definition of Done**: Full web dashboard for browsing, searching, and viewing outputs. PWA installable on iPhone.
 
+### Phase 5A: Intelligence Skills
+**Goal**: Proactive intelligence — daily pattern detection and drift monitoring.
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| F21 | Daily connection/pattern detection skill | Planned |
+| F22 | Drift monitor skill | Planned |
+
+**Test Gate**:
+- Daily connections skill runs on schedule and surfaces non-obvious cross-domain patterns
+- Drift monitor flags pending bets with no recent activity
+- Both skills deliver via Pushover and save output as searchable captures
+- Manual trigger via Slack (`!connections`, `!drift`) and API works
+- Skills log shows structured results with duration tracking
+
+### Phase 5B: URL Capture
+**Goal**: Capture web content by URL from Slack, web UI, and API.
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| F24 | URL/bookmark capture (Readability extraction) | Planned |
+
+**Test Gate**:
+- `!bookmark <url>` in Slack extracts page content and creates capture
+- Web UI URL input on Dashboard creates capture
+- Extracted content is searchable via semantic search
+- Duplicate URLs within 24 hours are deduplicated
+- Non-extractable pages fall back to stripped HTML text
+
+**Phase 5 Complete**: Brain proactively surfaces patterns and drift. Web content capturable by URL.
+
+---
+
+### Future: Image Capture (Deferred)
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| F27 | Screenshot/image capture (vision model) | **DEFERRED** — requires vision model on LiteLLM |
+
 ### 9.1 Cold Start Plan
 
 The system has features that require accumulated data before they become useful. Plan for this:
@@ -1496,7 +1663,8 @@ The system has features that require accumulated data before they become useful.
 | Semantic search | 20+ captures | Phase 1B test gate |
 | Temporal scoring | 100+ searches | ~2 weeks after Phase 1D |
 | Weekly brief | 1 week of captures | Phase 2B, after 2 weeks of real use |
-| Drift detection | 2+ weeks of captures + entities | Phase 3 |
+| Drift detection | 2+ weeks of captures + entities + pending bets | Phase 5A |
+| Daily connections | 50+ captures across multiple brain views | Phase 5A |
 | Entity graph | 50+ captures mentioning people/projects | Phase 3 |
 | Semantic triggers | Active captures flowing in | Phase 2C |
 
@@ -1656,6 +1824,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | 2026-03-04 | 0.3 | Aligned with TDD v0.2 decisions: Removed Supabase (plain Postgres+pgvector), embedded MCP in Core API (Streamable HTTP), direct voice capture via iOS Shortcut (no Google Drive/rclone for voice), pnpm monorepo, @slack/bolt, LLM-driven governance (not FSM), single Docker network, ConfigService, content_hash dedup, SSE for real-time, bws secret loading. |
 | 2026-03-05 | 0.4 | Added LiteLLM as unified LLM gateway (replaces custom AI router logic). Made embedding model configurable (evaluating Qwen3-Embedding alongside nomic-embed-text). Added cognitive retrieval: ACT-R temporal decay scoring, hybrid search with Reciprocal Rank Fusion (FTS + vector), semantic push triggers (F28). Based on analysis of MuninnDB cognitive retrieval architecture. |
 | 2026-03-05 | 0.5 | Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Added cold start plan and temporal weight ramp-up schedule. Added PATCH /api/v1/captures/:id for capture updates. Fixed check_triggers as separate BullMQ job (not inline pipeline stage). Moved MCP API key from URL to Authorization header. Clarified voice-capture migration scope. Default temporal_weight to 0.0 at launch. Added search pagination. |
+| 2026-03-11 | 0.7 | Added Phase 5: F21 (daily connections), F22 (drift monitor), F24 (URL/bookmark capture) with full specs. F27 (image capture) documented but deferred. Updated feature overview table, release planning, dependency graph, cold start plan. |
 | 2026-03-05 | 0.6 | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added document chunking deferred decision, added entity resolution confidence threshold (0.8), added MCP key rotation runbook, added config validation (Zod), added scheduled skill retry policy, specified thread expiration UX, added migration-at-startup entrypoint, documented Ollama CPU benchmark requirement. |
 
 ---
