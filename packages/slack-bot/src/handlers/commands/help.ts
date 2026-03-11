@@ -25,6 +25,7 @@ export const HELP_TEXT = `*Open Brain — Available Commands*
 
 *Intelligence*
   \`!connections [days]\`  — run daily connections analysis (default: 7 days)
+  \`!drift\`               — run drift analysis (silent bets, declining topics)
 
 *Pipeline*
   \`!pipeline status\`    — pipeline queue health

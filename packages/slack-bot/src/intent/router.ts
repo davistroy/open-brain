@@ -54,6 +54,7 @@ const COMMAND_NAMES = new Set([
   'stats', 'status', 'help', 'brief', 'budget', 'views', 'types', 'ping',
   'recent', 'retry', 'entities', 'entity', 'trigger', 'pipeline', 'board', 'bet',
   'connections',
+  'drift',
 ])
 
 /**

@@ -204,8 +204,8 @@ Unit tests for the daily connections skill covering data queries, LLM output par
 
 ### Work Items
 
-#### 18.1 Prompt Template + Skill Class
-**Status: PENDING**
+#### 18.1 Prompt Template + Skill Class ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22, TDD §12.2d
 **Files Affected:**
 - `config/prompts/drift_monitor_v1.txt` (create)
@@ -268,8 +268,8 @@ Register the drift-monitor skill in the worker dispatcher, add to KNOWN_SKILLS, 
 
 ---
 
-#### 18.3 Slack `!drift` Command
-**Status: PENDING**
+#### 18.3 Slack `!drift` Command ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22
 **Files Affected:**
 - `packages/slack-bot/src/handlers/command.ts` (modify)
