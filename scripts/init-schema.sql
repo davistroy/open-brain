@@ -194,10 +194,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS set_captures_updated_at ON captures;
 CREATE TRIGGER set_captures_updated_at BEFORE UPDATE ON captures FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS set_entities_updated_at ON entities;
 CREATE TRIGGER set_entities_updated_at BEFORE UPDATE ON entities FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS set_sessions_updated_at ON sessions;
 CREATE TRIGGER set_sessions_updated_at BEFORE UPDATE ON sessions FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS set_bets_updated_at ON bets;
 CREATE TRIGGER set_bets_updated_at BEFORE UPDATE ON bets FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS set_triggers_updated_at ON triggers;
 CREATE TRIGGER set_triggers_updated_at BEFORE UPDATE ON triggers FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- Search functions (matches migration chain: 0002 + 0006 + 0009)
