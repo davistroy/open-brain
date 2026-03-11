@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { GovernanceEngine } from '../services/governance-engine.js'
 import { AntiVaguenessGate } from '../services/anti-vagueness.js'
 
@@ -200,7 +202,8 @@ describe('AntiVaguenessGate', () => {
 // ---------------------------------------------------------------------------
 
 describe('GovernanceEngine', () => {
-  const PROMPTS_DIR = 'C:/Users/Troy Davis/dev/personal/open-brain/config/prompts'
+  // Resolve relative to this test file so it works on both Windows and Linux (GH Actions)
+  const PROMPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../config/prompts')
 
   // -------------------------------------------------------------------------
   // processResponse — basic flow
