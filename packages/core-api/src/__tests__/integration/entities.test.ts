@@ -289,9 +289,10 @@ describe('POST /api/v1/entities/:id/merge', () => {
     expect(targetBody.linked_captures).toHaveLength(1)
     expect(targetBody.linked_captures[0].content).toBe('JS framework comparison')
 
-    // Target should have merged aliases (source name + source aliases)
+    // Target should have source name as alias; source alias 'javascript'
+    // is excluded because it matches target name 'JavaScript' (case-insensitive)
     expect(targetBody.aliases).toContain('JS')
-    expect(targetBody.aliases).toContain('javascript')
+    expect(targetBody.aliases).not.toContain('javascript')
   })
 
   it('returns 400 when target_id is missing', async () => {
