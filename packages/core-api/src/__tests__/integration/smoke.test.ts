@@ -224,8 +224,9 @@ describe('getTestApp', () => {
     })
     expect(res.status).toBe(201)
     const body = await res.json()
-    expect(body.content).toBe('Created via API')
+    // POST response returns { id, pipeline_status, created_at } — not the full capture
     expect(body.id).toBeDefined()
     expect(body.pipeline_status).toBe('pending')
+    expect(body.created_at).toBeDefined()
   })
 })
