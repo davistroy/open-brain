@@ -228,19 +228,17 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | File | Purpose |
 |------|---------|
 | `CHANGELOG.md` | Version history and recent changes |
-| `LEARNINGS.md` | Implementation notes and post-mortems |
+| `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
 | `docs/PRD.md` | Product requirements (v0.6) |
 | `docs/TDD.md` | Technical design (v0.5) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
-| `docs/TEST_RESULTS_2026-03-09.md` | Integration test results (all passing) |
+| `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
 | `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
-| `docs/ARCH_REMEDIATION_PLAN.md` | Architecture review remediation log (all items complete) |
-| `IMPLEMENTATION_PLAN.md` | Phases 1–8 (Foundation) — all complete |
-| `IMPLEMENTATION_PLAN-PHASE2.md` | Phases 9–16 (Voice through Polish) — all complete |
 | `config/ai-routing.yaml` | LiteLLM model aliases and budget thresholds |
 | `config/brain-views.yaml` | Brain view definitions |
 | `config/pipeline.yaml` | Pipeline stage definitions + retry/backoff settings |
+| `docs/archived/` | Completed implementation plans and historical test results |
 
 ## Hardware
 

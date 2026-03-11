@@ -8,15 +8,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.1.0] — 2026-03-11
+
+### Added
+- **DailyConnectionsSkill** (F21): Identifies recurring entity co-occurrences across captures, surfaces cross-domain relationship patterns. Scheduled daily via BullMQ.
+- **DriftMonitorSkill** (F22): Detects silent bets, declining entities, and stale governance commitments. Pushover notifications for medium+ severity drift.
+- **Intelligence dashboard tab**: New `/intelligence` route with ConnectionsCard, DriftCard, and SkillHistoryCard components.
+- **Intelligence API**: 6 new endpoints under `/api/v1/intelligence/` (summary, connections/drift latest+history, skill trigger).
+- **Slack commands**: `!connections`, `!connections detail`, `!drift`, `!drift history`.
+- Prompt templates: `daily_connections_v1.txt`, `drift_monitor_v1.txt`.
+- Regression test script (`scripts/regression-test.mjs`) — 83 test cases covering all API endpoints.
+- Integration tests: 87 tests across captures, entities, search, and smoke suites.
+
 ### Changed
-- Embedding model switched from `jetson-embeddings` to `spark-qwen3-embedding-4b` (Matryoshka 2560d → 768d truncation)
-- All documentation and code comments updated to reflect spark model
+- Embedding model switched from `jetson-embeddings` to `spark-qwen3-embedding-4b` (Matryoshka 2560d → 768d truncation).
+- Intelligence trigger endpoint allowlists accepted override keys per skill (prevents arbitrary data in Redis).
+- Numeric skill params clamped: windowDays/tokenBudget in DailyConnections, betActivityDays/commitmentDays/entityWindowDays in DriftMonitor (max 365 days).
 
 ### Fixed
-- SQL typo `plainplainto_tsquery` → `plainto_tsquery` in `hybrid_search` function (migration 0006)
-- `search_mode: 'fts'` parameter was accepted but silently ignored — now routes to `fts_only_search()` which bypasses embedding entirely
-- Web dashboard stale source files (14 files synced to homeserver)
-- Embedding service strict dimension check (`!== 768`) replaced with Matryoshka-aware check (`< 768`) with truncation
+- SQL typo `plainplainto_tsquery` → `plainto_tsquery` in `hybrid_search` function (migration 0006).
+- `search_mode: 'fts'` parameter was accepted but silently ignored — now routes to `fts_only_search()`.
+- Web dashboard stale source files (14 files synced to homeserver).
+- Embedding service strict dimension check (`!== 768`) replaced with Matryoshka-aware check (`< 768`) with truncation.
+- Rate limiter: per-service buckets via `X-Open-Brain-Caller` header.
+- Bull Board: `adminAuth()` middleware added.
+- CORS: `brain.troy-davis.com` added to allowed origins.
+- Token comparison: `timingSafeEqual()` in both admin-auth and MCP auth.
+- Board "Invalid Date" on bets with null `resolution_date`.
+- Health endpoint version reads from correct relative path in Docker.
+
+### Security
+- SQL injection: type-safe Drizzle queries replacing raw string interpolation in 4 modules.
+- Rate limiting middleware: tiered (strict 20/min, moderate 60/min, relaxed 200/min).
+- `timingSafeEqual` for all token/secret comparisons.
 
 ---
 
@@ -91,5 +117,6 @@ Initial complete implementation of all 16 phases.
 
 ---
 
-[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/davistroy/open-brain/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/davistroy/open-brain/releases/tag/v1.0.0

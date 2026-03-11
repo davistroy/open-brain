@@ -57,7 +57,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: Implementation complete. All 16 phases (83 work items, ~11,100 LOC) shipped 2026-03-05. Integration-tested on homeserver 2026-03-09.
+**Status**: v1.1.0 — All 20 phases complete (Phases 1-16 shipped 2026-03-05, hardening PR #25 merged 2026-03-11, Phase 5 intelligence features PR #27 merged 2026-03-11). 1,357 unit tests + 83 regression tests passing. Deployed to homeserver.
 
 ## Key Architecture Decisions
 
@@ -103,8 +103,8 @@ All API keys in Bitwarden. Never in .env files or config. Use `bws` CLI to retri
 
 - `docs/PRD.md` — Product requirements (v0.6, architectural review v2 applied)
 - `docs/TDD.md` — Technical design document (v0.5, architectural review v2 applied)
-- `IMPLEMENTATION_PLAN.md` — Phased build plan, phases 1-8
-- `IMPLEMENTATION_PLAN-PHASE2.md` — Phased build plan, phases 9-16
+- `IMPLEMENTATION_PLAN-PHASE5.md` — Phases 17-20 (Intelligence features) — complete
+- `docs/archived/` — Completed plans (phases 1-16, hardening) and historical test results
 
 ## Conventions
 
