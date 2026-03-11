@@ -806,9 +806,9 @@ Use randomized ports to avoid conflicts with running services. Tests should be i
 
 ---
 
-#### 6.2 API Integration Tests
+#### 6.2 API Integration Tests ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** F11 (Architecture Audit — Testing, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/__tests__/integration/captures.test.ts` (create)
@@ -819,16 +819,16 @@ Use randomized ports to avoid conflicts with running services. Tests should be i
 Write integration tests that exercise the API against a real database. Target the bugs found during manual integration testing: entity count accuracy, date handling, capture CRUD validation, search result ranking.
 
 **Tasks:**
-1. [ ] Write captures integration test: POST create → GET list → GET by ID → PATCH update → verify data roundtrips correctly
-2. [ ] Write search integration test: create captures with known content → search → verify results and ranking
-3. [ ] Write entities integration test: create captures → run entity extraction mock → verify entity count and relationships
-4. [ ] Test date handling: create capture with specific `captured_at` → verify no "Invalid Date" in responses
-5. [ ] Test pagination: create 20+ captures → verify limit/offset works correctly
+1. [x] Write captures integration test: POST create → GET list → GET by ID → PATCH update → verify data roundtrips correctly
+2. [x] Write search integration test: create captures with known content → search → verify results and ranking
+3. [x] Write entities integration test: create captures → run entity extraction mock → verify entity count and relationships
+4. [x] Test date handling: create capture with specific `captured_at` → verify no "Invalid Date" in responses
+5. [x] Test pagination: create 20+ captures → verify limit/offset works correctly
 
 **Acceptance Criteria:**
-- [ ] All integration tests pass against real Postgres
-- [ ] Tests verify the bugs documented in MEMORY.md (entity count, Invalid Date) cannot recur
-- [ ] Tests run in < 60 seconds
+- [x] All integration tests pass against real Postgres
+- [x] Tests verify the bugs documented in MEMORY.md (entity count, Invalid Date) cannot recur
+- [x] Tests run in < 60 seconds
 
 **Notes:**
 Embedding-dependent tests should mock the embedding service (LiteLLM won't be available in CI). Focus on data layer correctness.
