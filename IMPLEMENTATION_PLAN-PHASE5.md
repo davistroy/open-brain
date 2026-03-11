@@ -348,8 +348,8 @@ Unit tests for the drift monitor skill covering bet queries, entity frequency an
 
 ### Work Items
 
-#### 19.1 URL Extractor Service
-**Status: PENDING**
+#### 19.1 URL Extractor Service ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24, TDD §12.2e
 **Files Affected:**
 - `packages/shared/src/services/url-extractor.ts` (create)
@@ -383,8 +383,8 @@ Create a lightweight URL content extraction service using `@mozilla/readability`
 
 ---
 
-#### 19.2 API Integration
-**Status: PENDING**
+#### 19.2 API Integration ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24, TDD §12.2e
 **Files Affected:**
 - `packages/core-api/src/schemas/capture.ts` (modify — add 'bookmark' source)
@@ -416,8 +416,8 @@ Extend the capture creation flow to support `source: 'bookmark'`. When a capture
 
 ---
 
-#### 19.3 Slack `!bookmark` Command
-**Status: PENDING**
+#### 19.3 Slack `!bookmark` Command ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24
 **Files Affected:**
 - `packages/slack-bot/src/handlers/command.ts` (modify)
@@ -449,8 +449,8 @@ Add `!bookmark <url>` command to the Slack bot. Parses the URL from the message,
 
 ---
 
-#### 19.4 Web UI URL Input
-**Status: PENDING**
+#### 19.4 Web UI URL Input ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24
 **Files Affected:**
 - `packages/web/src/pages/Dashboard.tsx` (modify — add URL capture mode)
@@ -481,8 +481,8 @@ Add a URL capture mode to the Dashboard's Quick Capture form. Users toggle betwe
 
 ---
 
-#### 19.5 Tests
-**Status: PENDING**
+#### 19.5 Tests ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24
 **Files Affected:**
 - `packages/shared/src/__tests__/url-extractor.test.ts` (create)

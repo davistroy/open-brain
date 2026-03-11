@@ -8,6 +8,7 @@ import { logger } from '../lib/logger.js'
  * Shape of a skills_log row returned by intelligence queries.
  */
 interface IntelligenceLogRow {
+  [key: string]: unknown
   id: string
   skill_name: string
   capture_id: string | null
