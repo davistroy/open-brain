@@ -832,6 +832,58 @@ section('9. Skills');
     }
   }
 
+  // Verify drift-monitor appears in skills list
+  {
+    const skillsList2 = await GET('/api/v1/skills');
+    const skills2 = skillsList2.data?.skills || skillsList2.data?.items || skillsList2.data;
+    const dmSkill = Array.isArray(skills2) ? skills2.find(s => s.name === 'drift-monitor' || s.skill_name === 'drift-monitor') : null;
+    if (dmSkill) {
+      pass('TC-API-089', 'drift-monitor skill listed in GET /api/v1/skills',
+        `schedule=${dmSkill.schedule || 'none'}`);
+    } else {
+      fail('TC-API-089', 'drift-monitor skill missing from skills list');
+    }
+  }
+
+  // Trigger drift-monitor skill
+  {
+    const dmTrigger = await POST('/api/v1/skills/drift-monitor/trigger', {});
+    if (dmTrigger.status === 200 || dmTrigger.status === 202) {
+      pass('TC-API-089b', 'POST /api/v1/skills/drift-monitor/trigger → queued');
+    } else if (dmTrigger.status === 404) {
+      bug('TC-API-089b', 'POST /api/v1/skills/drift-monitor/trigger → 404',
+        'Skill trigger endpoint missing for drift-monitor');
+    } else {
+      fail('TC-API-089b', 'Skills drift-monitor/trigger', `status=${dmTrigger.status}`);
+    }
+  }
+
+  // Wait for drift-monitor to process, then check logs
+  await sleep(12000);
+
+  {
+    const dmLogs = await GET('/api/v1/skills/drift-monitor/logs');
+    if (dmLogs.status === 200 && dmLogs.data?.data) {
+      const entries = dmLogs.data.data;
+      pass('TC-API-089c', 'GET /api/v1/skills/drift-monitor/logs → {data:[...]}',
+        `count=${entries.length}`);
+      const latest = entries[0];
+      if (!latest) {
+        skip('TC-API-089d', 'drift-monitor has no log entries yet');
+      } else if (latest?.output?.includes('no ') || latest?.output?.includes('Skipped')) {
+        skip('TC-API-089d', 'drift-monitor skipped — insufficient data',
+          'Expected on fresh deployment');
+      } else if (latest?.result || latest?.output) {
+        pass('TC-API-089d', 'drift-monitor ran and produced output',
+          (latest.output ?? '').slice(0, 80));
+      } else {
+        fail('TC-API-089d', 'drift-monitor log entry has no output', JSON.stringify(latest)?.slice(0,80));
+      }
+    } else {
+      fail('TC-API-089c', 'GET /api/v1/skills/drift-monitor/logs', `status=${dmLogs.status}`);
+    }
+  }
+
   // /skills/last-run is by-design non-existent (Slack bot now uses /skills/:name/logs?limit=1)
   const lastRun = await GET('/api/v1/skills/last-run');
   if (lastRun.status === 404) {
@@ -948,6 +1000,7 @@ if (RUN_SLACK) {
     ['!board\n', 'Usage', 'TC-SLK-006', 'bare !board shows usage message'],
     ['!brief last', 'brief', 'TC-SLK-008', '!brief last shows last brief run (Slack bot fixed)'],
     ['!connections', 'connections', 'TC-SLK-011', '!connections triggers daily connections skill'],
+    ['!drift', 'drift', 'TC-SLK-012', '!drift triggers drift monitor skill'],
   ];
 
   for (const [searchText, expectedInReply, tcId, desc] of checks) {

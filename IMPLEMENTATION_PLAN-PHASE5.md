@@ -289,8 +289,8 @@ Add `!drift` to the Slack bot command handler. Triggers the drift-monitor skill 
 
 ---
 
-#### 18.4 Unit Tests
-**Status: PENDING**
+#### 18.4 Unit Tests ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22
 **Files Affected:**
 - `packages/workers/src/__tests__/drift-monitor.test.ts` (create)
