@@ -12,6 +12,8 @@ export { handleEntities, handleEntityDetail, handleEntityMerge, handleEntitySpli
 export { handleBoardCommand } from './board.js'
 export { handleBetCommand } from './bet.js'
 export { handleTriggerCommand } from './trigger.js'
+export { handleConnectionsCommand } from './connections.js'
+export { handleDriftCommand } from './drift.js'
 export { handlePipelineStatus } from './pipeline.js'
 export { handleHelp, HELP_TEXT } from './help.js'
 

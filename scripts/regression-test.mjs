@@ -780,6 +780,110 @@ section('9. Skills');
     fail('TC-API-082', 'GET /api/v1/skills/weekly-brief/logs', `status=${logs.status}`);
   }
 
+  // Verify daily-connections appears in skills list
+  {
+    const skillsList = await GET('/api/v1/skills');
+    const skills = skillsList.data?.skills || skillsList.data?.items || skillsList.data;
+    const dcSkill = Array.isArray(skills) ? skills.find(s => s.name === 'daily-connections' || s.skill_name === 'daily-connections') : null;
+    if (dcSkill) {
+      pass('TC-API-085', 'daily-connections skill listed in GET /api/v1/skills',
+        `schedule=${dcSkill.schedule || 'none'}`);
+    } else {
+      fail('TC-API-085', 'daily-connections skill missing from skills list');
+    }
+  }
+
+  // Trigger daily-connections skill
+  {
+    const dcTrigger = await POST('/api/v1/skills/daily-connections/trigger', {});
+    if (dcTrigger.status === 200 || dcTrigger.status === 202) {
+      pass('TC-API-086', 'POST /api/v1/skills/daily-connections/trigger → queued');
+    } else if (dcTrigger.status === 404) {
+      bug('TC-API-086', 'POST /api/v1/skills/daily-connections/trigger → 404',
+        'Skill trigger endpoint missing for daily-connections');
+    } else {
+      fail('TC-API-086', 'Skills daily-connections/trigger', `status=${dcTrigger.status}`);
+    }
+  }
+
+  // Wait for daily-connections to process, then check logs
+  await sleep(12000);
+
+  {
+    const dcLogs = await GET('/api/v1/skills/daily-connections/logs');
+    if (dcLogs.status === 200 && dcLogs.data?.data) {
+      const entries = dcLogs.data.data;
+      pass('TC-API-087', 'GET /api/v1/skills/daily-connections/logs → {data:[...]}',
+        `count=${entries.length}`);
+      const latest = entries[0];
+      if (!latest) {
+        skip('TC-API-088', 'daily-connections has no log entries yet');
+      } else if (latest?.output === 'Skipped — no captures' || latest?.output?.includes('no captures')) {
+        skip('TC-API-088', 'daily-connections skipped — no captures in window',
+          'Expected on fresh deployment');
+      } else if (latest?.result || latest?.output) {
+        pass('TC-API-088', 'daily-connections ran and produced output',
+          (latest.output ?? '').slice(0, 80));
+      } else {
+        fail('TC-API-088', 'daily-connections log entry has no output', JSON.stringify(latest)?.slice(0,80));
+      }
+    } else {
+      fail('TC-API-087', 'GET /api/v1/skills/daily-connections/logs', `status=${dcLogs.status}`);
+    }
+  }
+
+  // Verify drift-monitor appears in skills list
+  {
+    const skillsList2 = await GET('/api/v1/skills');
+    const skills2 = skillsList2.data?.skills || skillsList2.data?.items || skillsList2.data;
+    const dmSkill = Array.isArray(skills2) ? skills2.find(s => s.name === 'drift-monitor' || s.skill_name === 'drift-monitor') : null;
+    if (dmSkill) {
+      pass('TC-API-089', 'drift-monitor skill listed in GET /api/v1/skills',
+        `schedule=${dmSkill.schedule || 'none'}`);
+    } else {
+      fail('TC-API-089', 'drift-monitor skill missing from skills list');
+    }
+  }
+
+  // Trigger drift-monitor skill
+  {
+    const dmTrigger = await POST('/api/v1/skills/drift-monitor/trigger', {});
+    if (dmTrigger.status === 200 || dmTrigger.status === 202) {
+      pass('TC-API-089b', 'POST /api/v1/skills/drift-monitor/trigger → queued');
+    } else if (dmTrigger.status === 404) {
+      bug('TC-API-089b', 'POST /api/v1/skills/drift-monitor/trigger → 404',
+        'Skill trigger endpoint missing for drift-monitor');
+    } else {
+      fail('TC-API-089b', 'Skills drift-monitor/trigger', `status=${dmTrigger.status}`);
+    }
+  }
+
+  // Wait for drift-monitor to process, then check logs
+  await sleep(12000);
+
+  {
+    const dmLogs = await GET('/api/v1/skills/drift-monitor/logs');
+    if (dmLogs.status === 200 && dmLogs.data?.data) {
+      const entries = dmLogs.data.data;
+      pass('TC-API-089c', 'GET /api/v1/skills/drift-monitor/logs → {data:[...]}',
+        `count=${entries.length}`);
+      const latest = entries[0];
+      if (!latest) {
+        skip('TC-API-089d', 'drift-monitor has no log entries yet');
+      } else if (latest?.output?.includes('no ') || latest?.output?.includes('Skipped')) {
+        skip('TC-API-089d', 'drift-monitor skipped — insufficient data',
+          'Expected on fresh deployment');
+      } else if (latest?.result || latest?.output) {
+        pass('TC-API-089d', 'drift-monitor ran and produced output',
+          (latest.output ?? '').slice(0, 80));
+      } else {
+        fail('TC-API-089d', 'drift-monitor log entry has no output', JSON.stringify(latest)?.slice(0,80));
+      }
+    } else {
+      fail('TC-API-089c', 'GET /api/v1/skills/drift-monitor/logs', `status=${dmLogs.status}`);
+    }
+  }
+
   // /skills/last-run is by-design non-existent (Slack bot now uses /skills/:name/logs?limit=1)
   const lastRun = await GET('/api/v1/skills/last-run');
   if (lastRun.status === 404) {
@@ -788,6 +892,77 @@ section('9. Skills');
     pass('TC-API-084', 'GET /api/v1/skills/last-run → 200');
   } else {
     skip('TC-API-084', 'Skills last-run endpoint', `status=${lastRun.status}`);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION 9b: Intelligence API
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('9b. Intelligence API');
+
+{
+  // Summary endpoint
+  const summary = await GET('/api/v1/intelligence/summary');
+  if (summary.status === 200 && summary.data) {
+    pass('TC-API-100', 'GET /api/v1/intelligence/summary → 200',
+      `keys=${Object.keys(summary.data).join(',')}`);
+    if ('connections' in summary.data && 'drift' in summary.data) {
+      pass('TC-API-100b', 'Summary includes connections + drift sections');
+    } else {
+      fail('TC-API-100b', 'Summary missing expected sections', Object.keys(summary.data).join(','));
+    }
+  } else {
+    fail('TC-API-100', 'GET /api/v1/intelligence/summary', `status=${summary.status}`);
+  }
+
+  // Connections latest
+  const connLatest = await GET('/api/v1/intelligence/connections/latest');
+  if (connLatest.status === 200) {
+    pass('TC-API-101', 'GET /api/v1/intelligence/connections/latest → 200');
+  } else {
+    fail('TC-API-101', 'Intelligence connections latest', `status=${connLatest.status}`);
+  }
+
+  // Connections history
+  const connHistory = await GET('/api/v1/intelligence/connections/history');
+  if (connHistory.status === 200 && Array.isArray(connHistory.data?.data || connHistory.data)) {
+    pass('TC-API-102', 'GET /api/v1/intelligence/connections/history → 200 with array');
+  } else {
+    fail('TC-API-102', 'Intelligence connections history', `status=${connHistory.status}`);
+  }
+
+  // Drift latest
+  const driftLatest = await GET('/api/v1/intelligence/drift/latest');
+  if (driftLatest.status === 200) {
+    pass('TC-API-103', 'GET /api/v1/intelligence/drift/latest → 200');
+  } else {
+    fail('TC-API-103', 'Intelligence drift latest', `status=${driftLatest.status}`);
+  }
+
+  // Drift history
+  const driftHistory = await GET('/api/v1/intelligence/drift/history');
+  if (driftHistory.status === 200 && Array.isArray(driftHistory.data?.data || driftHistory.data)) {
+    pass('TC-API-104', 'GET /api/v1/intelligence/drift/history → 200 with array');
+  } else {
+    fail('TC-API-104', 'Intelligence drift history', `status=${driftHistory.status}`);
+  }
+
+  // Trigger — valid skill
+  const triggerConn = await POST('/api/v1/intelligence/daily-connections/trigger', {});
+  if (triggerConn.status === 200 || triggerConn.status === 202) {
+    pass('TC-API-105', 'POST /api/v1/intelligence/daily-connections/trigger → queued');
+  } else {
+    fail('TC-API-105', 'Intelligence trigger daily-connections', `status=${triggerConn.status}`);
+  }
+
+  // Trigger — invalid skill should 400/404
+  const triggerBad = await POST('/api/v1/intelligence/fake-skill/trigger', {});
+  if (triggerBad.status === 400 || triggerBad.status === 404) {
+    pass('TC-API-106', 'POST /api/v1/intelligence/fake-skill/trigger → rejected',
+      `status=${triggerBad.status}`);
+  } else {
+    fail('TC-API-106', 'Intelligence trigger invalid skill should reject', `status=${triggerBad.status}`);
   }
 }
 
@@ -895,6 +1070,8 @@ if (RUN_SLACK) {
     ['!board quick', 'quick board check', 'TC-SLK-005', '!board quick starts governance session'],
     ['!board\n', 'Usage', 'TC-SLK-006', 'bare !board shows usage message'],
     ['!brief last', 'brief', 'TC-SLK-008', '!brief last shows last brief run (Slack bot fixed)'],
+    ['!connections', 'connections', 'TC-SLK-011', '!connections triggers daily connections skill'],
+    ['!drift', 'drift', 'TC-SLK-012', '!drift triggers drift monitor skill'],
   ];
 
   for (const [searchText, expectedInReply, tcId, desc] of checks) {

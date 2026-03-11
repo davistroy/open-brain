@@ -4,10 +4,13 @@ import { logger } from './lib/logger.js'
 import type { DailySweepJobData } from './jobs/daily-sweep.js'
 import { createBudgetCheckQueue } from './jobs/budget-check.js'
 import type { BudgetCheckJobData } from './jobs/budget-check.js'
+import { createSkillExecutionQueue } from './queues/skill-execution.js'
+import type { SkillExecutionJobData } from './queues/skill-execution.js'
 
 export interface ScheduledQueues {
   dailySweep: Queue<DailySweepJobData>
   budgetCheck: Queue<BudgetCheckJobData>
+  skillExecution: Queue<SkillExecutionJobData>
 }
 
 /**
@@ -16,6 +19,7 @@ export interface ScheduledQueues {
  * Jobs registered:
  * - daily-sweep: 3:00 AM daily (cron: 0 3 * * *) — re-queues stuck pipeline captures
  * - budget-check: 8:00 AM daily (cron: 0 8 * * *) — checks monthly AI spend vs thresholds
+ * - daily-connections: 9:00 PM daily (cron: 0 21 * * *) — cross-domain pattern detection skill
  *
  * jobId values are stable — BullMQ treats a repeat job with the same jobId as
  * an upsert, so calling this on every startup is safe.
@@ -72,5 +76,45 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: budgetCron }, '[scheduler] budget-check repeatable job registered')
 
-  return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue }
+  // --------------------------------------------------------
+  // Daily connections skill (9:00 PM)
+  // --------------------------------------------------------
+  const connectionsCron = '0 21 * * *'
+
+  const skillExecutionQueue = createSkillExecutionQueue(connection)
+
+  await skillExecutionQueue.add(
+    'daily-connections',
+    {
+      skillName: 'daily-connections',
+      input: {},
+    },
+    {
+      repeat: { pattern: connectionsCron },
+      jobId: 'scheduled_daily-connections',
+    },
+  )
+
+  logger.info({ cron: connectionsCron }, '[scheduler] daily-connections repeatable job registered')
+
+  // --------------------------------------------------------
+  // Drift monitor skill (8:00 AM)
+  // --------------------------------------------------------
+  const driftCron = '0 8 * * *'
+
+  await skillExecutionQueue.add(
+    'drift-monitor',
+    {
+      skillName: 'drift-monitor',
+      input: {},
+    },
+    {
+      repeat: { pattern: driftCron },
+      jobId: 'scheduled_drift-monitor',
+    },
+  )
+
+  logger.info({ cron: driftCron }, '[scheduler] drift-monitor repeatable job registered')
+
+  return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

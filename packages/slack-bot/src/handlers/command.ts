@@ -18,6 +18,8 @@ import {
   handleBoardCommand,
   handleBetCommand,
   handleTriggerCommand,
+  handleConnectionsCommand,
+  handleDriftCommand,
   handlePipelineStatus,
   handleHelp,
   HELP_TEXT,
@@ -119,6 +121,14 @@ export async function handleCommand(
 
     case 'trigger':
       await handleTriggerCommand(ts, say, coreApiClient, subCmd, args)
+      break
+
+    case 'connections':
+      await handleConnectionsCommand(ts, say, coreApiClient, subCmd)
+      break
+
+    case 'drift':
+      await handleDriftCommand(ts, say, coreApiClient)
       break
 
     case 'help':
