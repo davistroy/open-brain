@@ -67,11 +67,14 @@ export class DriftMonitorSkill {
 
   async execute(options: DriftMonitorOptions = {}): Promise<DriftMonitorResult> {
     const {
-      betActivityDays = DEFAULT_BET_ACTIVITY_DAYS,
-      commitmentDays = DEFAULT_COMMITMENT_DAYS,
-      entityWindowDays = DEFAULT_ENTITY_WINDOW_DAYS,
+      betActivityDays: rawBetDays = DEFAULT_BET_ACTIVITY_DAYS,
+      commitmentDays: rawCommitDays = DEFAULT_COMMITMENT_DAYS,
+      entityWindowDays: rawEntityDays = DEFAULT_ENTITY_WINDOW_DAYS,
       modelAlias = 'synthesis',
     } = options
+    const betActivityDays = Math.max(1, Math.min(rawBetDays, 365))
+    const commitmentDays = Math.max(1, Math.min(rawCommitDays, 365))
+    const entityWindowDays = Math.max(1, Math.min(rawEntityDays, 365))
 
     const startMs = Date.now()
     const now = new Date()

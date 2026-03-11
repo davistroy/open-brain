@@ -219,11 +219,22 @@ export function registerIntelligenceRoutes(
     }
 
     // Parse optional body for override options (e.g., windowDays)
+    // Allowlist accepted keys per skill to prevent arbitrary data in Redis
+    const ALLOWED_OVERRIDES: Record<string, Set<string>> = {
+      'daily-connections': new Set(['windowDays', 'tokenBudget', 'modelAlias']),
+      'drift-monitor': new Set(['betActivityDays', 'commitmentDays', 'entityWindowDays', 'modelAlias']),
+      'weekly-brief': new Set(['windowDays', 'tokenBudget', 'modelAlias', 'emailTo']),
+    }
     let overrides: Record<string, unknown> = {}
     try {
       const body = await c.req.json().catch(() => null)
       if (body && typeof body === 'object') {
-        overrides = body as Record<string, unknown>
+        const allowed = ALLOWED_OVERRIDES[skill] ?? new Set<string>()
+        for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+          if (allowed.has(key)) {
+            overrides[key] = value
+          }
+        }
       }
     } catch {
       // Body is optional — ignore parse errors

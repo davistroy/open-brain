@@ -61,10 +61,12 @@ export class DailyConnectionsSkill {
 
   async execute(options: DailyConnectionsOptions = {}): Promise<DailyConnectionsResult> {
     const {
-      windowDays = DEFAULT_WINDOW_DAYS,
-      tokenBudget = DEFAULT_TOKEN_BUDGET,
+      windowDays: rawWindowDays = DEFAULT_WINDOW_DAYS,
+      tokenBudget: rawTokenBudget = DEFAULT_TOKEN_BUDGET,
       modelAlias = 'synthesis',
     } = options
+    const windowDays = Math.max(1, Math.min(rawWindowDays, 365))
+    const tokenBudget = Math.max(1_000, Math.min(rawTokenBudget, 100_000))
 
     const startMs = Date.now()
     const now = new Date()
