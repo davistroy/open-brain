@@ -780,6 +780,58 @@ section('9. Skills');
     fail('TC-API-082', 'GET /api/v1/skills/weekly-brief/logs', `status=${logs.status}`);
   }
 
+  // Verify daily-connections appears in skills list
+  {
+    const skillsList = await GET('/api/v1/skills');
+    const skills = skillsList.data?.skills || skillsList.data?.items || skillsList.data;
+    const dcSkill = Array.isArray(skills) ? skills.find(s => s.name === 'daily-connections' || s.skill_name === 'daily-connections') : null;
+    if (dcSkill) {
+      pass('TC-API-085', 'daily-connections skill listed in GET /api/v1/skills',
+        `schedule=${dcSkill.schedule || 'none'}`);
+    } else {
+      fail('TC-API-085', 'daily-connections skill missing from skills list');
+    }
+  }
+
+  // Trigger daily-connections skill
+  {
+    const dcTrigger = await POST('/api/v1/skills/daily-connections/trigger', {});
+    if (dcTrigger.status === 200 || dcTrigger.status === 202) {
+      pass('TC-API-086', 'POST /api/v1/skills/daily-connections/trigger → queued');
+    } else if (dcTrigger.status === 404) {
+      bug('TC-API-086', 'POST /api/v1/skills/daily-connections/trigger → 404',
+        'Skill trigger endpoint missing for daily-connections');
+    } else {
+      fail('TC-API-086', 'Skills daily-connections/trigger', `status=${dcTrigger.status}`);
+    }
+  }
+
+  // Wait for daily-connections to process, then check logs
+  await sleep(12000);
+
+  {
+    const dcLogs = await GET('/api/v1/skills/daily-connections/logs');
+    if (dcLogs.status === 200 && dcLogs.data?.data) {
+      const entries = dcLogs.data.data;
+      pass('TC-API-087', 'GET /api/v1/skills/daily-connections/logs → {data:[...]}',
+        `count=${entries.length}`);
+      const latest = entries[0];
+      if (!latest) {
+        skip('TC-API-088', 'daily-connections has no log entries yet');
+      } else if (latest?.output === 'Skipped — no captures' || latest?.output?.includes('no captures')) {
+        skip('TC-API-088', 'daily-connections skipped — no captures in window',
+          'Expected on fresh deployment');
+      } else if (latest?.result || latest?.output) {
+        pass('TC-API-088', 'daily-connections ran and produced output',
+          (latest.output ?? '').slice(0, 80));
+      } else {
+        fail('TC-API-088', 'daily-connections log entry has no output', JSON.stringify(latest)?.slice(0,80));
+      }
+    } else {
+      fail('TC-API-087', 'GET /api/v1/skills/daily-connections/logs', `status=${dcLogs.status}`);
+    }
+  }
+
   // /skills/last-run is by-design non-existent (Slack bot now uses /skills/:name/logs?limit=1)
   const lastRun = await GET('/api/v1/skills/last-run');
   if (lastRun.status === 404) {
@@ -895,6 +947,7 @@ if (RUN_SLACK) {
     ['!board quick', 'quick board check', 'TC-SLK-005', '!board quick starts governance session'],
     ['!board\n', 'Usage', 'TC-SLK-006', 'bare !board shows usage message'],
     ['!brief last', 'brief', 'TC-SLK-008', '!brief last shows last brief run (Slack bot fixed)'],
+    ['!connections', 'connections', 'TC-SLK-011', '!connections triggers daily connections skill'],
   ];
 
   for (const [searchText, expectedInReply, tcId, desc] of checks) {

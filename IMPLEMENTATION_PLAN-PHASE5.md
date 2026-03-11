@@ -145,8 +145,8 @@ Add `!connections` (and `!connections <days>`) to the Slack bot command handler.
 
 ---
 
-#### 17.4 Unit Tests
-**Status: PENDING**
+#### 17.4 Unit Tests ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21
 **Files Affected:**
 - `packages/workers/src/__tests__/daily-connections.test.ts` (create)
