@@ -19,7 +19,6 @@ import {
   initTestDatabase,
   teardownTestDatabase,
   getTestApp,
-  getTestPool,
   type TestAppContext,
 } from './setup.js'
 import {
@@ -61,14 +60,9 @@ beforeEach(async () => {
 async function createSearchableCapture(
   overrides: Parameters<typeof createTestCapture>[0] = {},
 ): Promise<Record<string, unknown>> {
-  const capture = await createTestCapture(overrides)
-  // Force tsvector update — the trigger should handle it, but be explicit
-  const pool = getTestPool()
-  await pool.query(
-    `UPDATE captures SET tsv = to_tsvector('english', content) WHERE id = $1`,
-    [capture.id],
-  )
-  return capture
+  // No separate tsv column — the GIN index on to_tsvector('english', content)
+  // is computed inline, so inserts are immediately searchable via FTS.
+  return createTestCapture(overrides)
 }
 
 // ---------------------------------------------------------------------------
