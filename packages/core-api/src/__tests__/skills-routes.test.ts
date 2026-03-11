@@ -112,7 +112,7 @@ describe('GET /api/v1/skills', () => {
     expect(skillNames).toContain('weekly-brief')
     expect(skillNames).toContain('pipeline-health')
     expect(skillNames).toContain('daily-connections')
-    expect(skillNames).not.toContain('drift-monitor')
+    expect(skillNames).toContain('drift-monitor')
   })
 
   it('includes schedule and description for known skills', async () => {

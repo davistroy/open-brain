@@ -4,6 +4,7 @@ import type { Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
 import { executeDailyConnections } from '../skills/daily-connections.js'
+import { executeDriftMonitor } from '../skills/drift-monitor.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 
 /**
@@ -62,6 +63,21 @@ export function createSkillExecutionWorker(
           logger.info(
             { skillName, captureCount: result.captureCount, connectionCount: result.output.connections.length, durationMs: result.durationMs },
             '[skill-execution] daily-connections complete',
+          )
+          break
+        }
+
+        case 'drift-monitor': {
+          const result = await executeDriftMonitor(db, {
+            betActivityDays: typeof input?.betActivityDays === 'number' ? input.betActivityDays : undefined,
+            commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
+            entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
+            modelAlias: typeof input?.modelAlias === 'string' ? input.modelAlias : undefined,
+          })
+
+          logger.info(
+            { skillName, driftItemCount: result.output.drift_items.length, overallHealth: result.output.overall_health, notificationSent: result.notificationSent, durationMs: result.durationMs },
+            '[skill-execution] drift-monitor complete',
           )
           break
         }

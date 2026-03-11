@@ -97,5 +97,24 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: connectionsCron }, '[scheduler] daily-connections repeatable job registered')
 
+  // --------------------------------------------------------
+  // Drift monitor skill (8:00 AM)
+  // --------------------------------------------------------
+  const driftCron = '0 8 * * *'
+
+  await skillExecutionQueue.add(
+    'drift-monitor',
+    {
+      skillName: 'drift-monitor',
+      input: {},
+    },
+    {
+      repeat: { pattern: driftCron },
+      jobId: 'scheduled_drift-monitor',
+    },
+  )
+
+  logger.info({ cron: driftCron }, '[scheduler] drift-monitor repeatable job registered')
+
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }
