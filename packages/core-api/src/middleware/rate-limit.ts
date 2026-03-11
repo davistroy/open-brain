@@ -126,15 +126,22 @@ export class RateLimiter {
 
 /**
  * Extracts a rate-limit key from the request.
- * Uses X-Forwarded-For (first hop) if present, falls back to
- * the connecting IP, or 'unknown' as a last resort.
+ *
+ * Priority:
+ * 1. X-Open-Brain-Caller — set by internal Docker services (slack-bot, workers)
+ *    to get their own rate-limit bucket instead of sharing 'default-client'.
+ * 2. X-Forwarded-For (first hop) — set by reverse proxies / Cloudflare Tunnel.
+ * 3. 'default-client' — fallback when neither header is present.
  */
 function getClientKey(headers: Headers): string {
+  const caller = headers.get('x-open-brain-caller')
+  if (caller) {
+    return `internal:${caller}`
+  }
   const forwarded = headers.get('x-forwarded-for')
   if (forwarded) {
     return forwarded.split(',')[0]!.trim()
   }
-  // Hono's c.req.header doesn't expose remoteAddress; use a fallback
   return 'default-client'
 }
 

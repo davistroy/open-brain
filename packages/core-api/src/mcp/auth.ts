@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { logger } from '../lib/logger.js'
 
 /**
@@ -42,7 +42,9 @@ export function validateMcpAuth(request: Request): Response | null {
     })
   }
 
-  if (providedToken !== expectedToken) {
+  const providedBuf = Buffer.from(providedToken)
+  const expectedBuf = Buffer.from(expectedToken)
+  if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
     logger.warn({ tokenHash }, 'MCP auth: invalid token')
     return new Response(JSON.stringify({ error: 'Unauthorized', message: 'Invalid bearer token' }), {
       status: 401,
