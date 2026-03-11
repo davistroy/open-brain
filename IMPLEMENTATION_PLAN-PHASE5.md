@@ -587,17 +587,19 @@ Create dedicated Intelligence API endpoints that the web dashboard Intelligence 
 
 ---
 
-#### 20.3 Connections + Drift Cards
-**Status: PENDING**
+#### 20.3 Connections + Drift Cards [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
 **Files Affected:**
+- `packages/web/src/components/ConnectionsCard.tsx` (create)
+- `packages/web/src/components/DriftCard.tsx` (create)
 - `packages/web/src/pages/Intelligence.tsx` (modify)
 
 ---
 
-#### 20.4 Curiosity Prompts Card + Manual Trigger
-**Status: PENDING**
+#### 20.4 Curiosity Prompts Card + Manual Trigger [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
 **Files Affected:**
-- `packages/web/src/pages/Intelligence.tsx` (modify)
+- `packages/web/src/components/SkillHistoryCard.tsx` (create)
 
 ---
 

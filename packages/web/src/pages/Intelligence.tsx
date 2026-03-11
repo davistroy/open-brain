@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Separator } from '@/components/ui/separator';
 import { intelligenceApi } from '@/lib/api';
 import type { IntelligenceSummary } from '@/lib/api';
+import ConnectionsCard from '@/components/ConnectionsCard';
+import DriftCard from '@/components/DriftCard';
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso);
@@ -156,10 +158,7 @@ export default function Intelligence() {
                   </Badge>
                   <span>{formatRelativeTime(connectionsEntry.created_at)}</span>
                 </div>
-                {connectionsEntry.output_summary && (
-                  <p className="text-sm line-clamp-4">{connectionsEntry.output_summary}</p>
-                )}
-                {/* Placeholder: 19.3 will render structured result cards here */}
+                <ConnectionsCard entry={connectionsEntry} />
               </div>
             ) : (
               <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
@@ -204,10 +203,7 @@ export default function Intelligence() {
                   </Badge>
                   <span>{formatRelativeTime(driftEntry.created_at)}</span>
                 </div>
-                {driftEntry.output_summary && (
-                  <p className="text-sm line-clamp-4">{driftEntry.output_summary}</p>
-                )}
-                {/* Placeholder: 19.3 will render structured drift items here */}
+                <DriftCard entry={driftEntry} />
               </div>
             ) : (
               <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
