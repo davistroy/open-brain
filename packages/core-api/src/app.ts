@@ -26,7 +26,6 @@ import type { TriggerService } from './services/trigger.js'
 import type { EntityService } from './services/entity.js'
 import type { BetService } from './services/bet.js'
 import type { SessionService } from './services/session.js'
-import type { GovernanceEngine } from './services/governance-engine.js'
 import type { LLMGatewayService } from './services/llm-gateway.js'
 
 interface AppDependencies {
@@ -48,8 +47,6 @@ interface AppDependencies {
   betService?: BetService
   /** Session service — required for governance session lifecycle endpoints */
   sessionService?: SessionService
-  /** Governance engine — injected into SessionService to drive LLM conversation */
-  governanceEngine?: GovernanceEngine
   /** Document pipeline queue — required for POST /api/v1/documents upload endpoint */
   documentPipelineQueue?: Queue
   /** LLM Gateway — required for POST /api/v1/synthesize */

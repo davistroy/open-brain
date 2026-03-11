@@ -11,3 +11,21 @@ coverage
 .turbo
 **/*.tsbuildinfo
 .implement-plan-state.json
+
+# Documentation and planning (not needed in Docker image)
+*.md
+!packages/*/README.md
+docs/
+reference/
+.claude/
+.github/
+scripts/
+
+# Test files (not needed in production image)
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/vitest.config.ts
+**/vitest.config.*.ts
+docker-compose*.yml

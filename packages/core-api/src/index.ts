@@ -81,7 +81,6 @@ const app = createApp({
   entityService,
   betService,
   sessionService,
-  governanceEngine,
   documentPipelineQueue,
   llmGateway,
 })

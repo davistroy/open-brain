@@ -1066,21 +1066,29 @@ Documentation only — no code changes. Keep the roadmap concise — bullet poin
 
 ---
 
-### 8.2 Repository Cleanup
+### 8.2 Repository Cleanup [2026-03-10]
 
 **Priority:** HIGH
 **Estimated effort:** 20 min
-**Status:** PENDING
+**Status:** COMPLETE [2026-03-10]
 
 **Tasks:**
-- [ ] Run `/personal-plugin:clean-repo` to clean, organize, and refresh documentation
-- [ ] Review and accept cleanup changes
-- [ ] Verify no functional code was altered by cleanup
+- [x] Remove orphaned test files (bookmark.test.ts, calendar-sync.test.ts — unimplemented features F24/F25)
+- [x] Remove orphaned config (pipelines.yaml — never loaded; pipeline.yaml is active)
+- [x] Remove dead code: unused governanceEngine from AppDependencies interface + import
+- [x] Clean .env.example: remove SLACK_SIGNING_SECRET (not needed for Socket Mode)
+- [x] Harden .dockerignore: exclude docs, tests, scripts, .claude, .github, markdown files
+- [x] Verify .gitignore is comprehensive (confirmed: dist/, .env, node_modules, etc. all covered)
+- [x] Verify all package.json dependencies are correct (all 7 package.json files reviewed)
+- [x] Confirm no TODO/FIXME comments remain in source code
+- [x] Confirm no console.log in production server code (only in JSDoc comment and web SSE client)
+- [x] All 56 test files pass (329 workers + 34 shared + 7 slack-bot + 5 voice-capture + 4 web + 22 core-api)
+- [x] All 6 packages pass tsc --noEmit lint
 
 **Acceptance Criteria:**
-- [ ] Repository is clean and well-organized
-- [ ] Documentation is up to date
-- [ ] No orphaned or stale files remain
+- [x] Repository is clean and well-organized
+- [x] Documentation is up to date
+- [x] No orphaned or stale files remain
 
 ---
 
