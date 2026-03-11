@@ -8,7 +8,7 @@ import { logger } from '../lib/logger.js'
 /**
  * A row from the skills_log table (only the columns we query here).
  */
-interface SkillsLogRow {
+type SkillsLogRow = {
   id: string
   skill_name: string
   input_summary: string | null
@@ -20,7 +20,7 @@ interface SkillsLogRow {
 /**
  * Extended row shape for the per-skill logs endpoint (includes result + capture_id).
  */
-interface SkillsLogDetailRow {
+type SkillsLogDetailRow = {
   id: string
   skill_name: string
   capture_id: string | null

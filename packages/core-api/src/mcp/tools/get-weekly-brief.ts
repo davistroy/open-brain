@@ -8,7 +8,7 @@ export const getWeeklyBriefSchema = z.object({
 
 export type GetWeeklyBriefInput = z.infer<typeof getWeeklyBriefSchema>
 
-interface SkillsLogRow {
+type SkillsLogRow = {
   id: string
   skill_name: string
   output: unknown

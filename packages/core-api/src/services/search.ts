@@ -22,7 +22,7 @@ export interface SearchResult {
   vectorScore?: number
 }
 
-interface HybridSearchRow {
+type HybridSearchRow = {
   capture_id: string
   rrf_score: number
   fts_score: number
@@ -30,7 +30,7 @@ interface HybridSearchRow {
 }
 
 /** Row shape returned by SELECT * FROM captures WHERE id = ANY(...) */
-interface CaptureQueryRow {
+type CaptureQueryRow = {
   id: string
   content: string
   content_hash: string

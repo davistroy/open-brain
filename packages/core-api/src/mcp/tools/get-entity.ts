@@ -17,7 +17,7 @@ export const getEntitySchemaShape = getEntityBaseSchema.shape
 
 export type GetEntityInput = z.infer<typeof getEntitySchema>
 
-interface EntityRow {
+type EntityRow = {
   id: string
   name: string
   entity_type: string

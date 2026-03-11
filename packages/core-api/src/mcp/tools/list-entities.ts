@@ -11,7 +11,7 @@ export const listEntitiesSchema = z.object({
 
 export type ListEntitiesInput = z.infer<typeof listEntitiesSchema>
 
-interface EntityRow {
+type EntityRow = {
   id: string
   name: string
   entity_type: string

@@ -1030,23 +1030,39 @@ Documentation only — no code changes. Keep the roadmap concise — bullet poin
 **Depends on:** All previous phases (1-7)
 **Estimated effort:** 1-2 hours
 
-### 8.1 Full Test Suite Validation
+### 8.1 Full Test Suite Validation [2026-03-10]
 
 **Priority:** CRITICAL
 **Estimated effort:** 30 min
-**Status:** PENDING
+**Status:** COMPLETE [2026-03-10]
 
 **Tasks:**
-- [ ] Run `/test-all` across the entire project
-- [ ] Fix any failing tests, lint issues, or type errors discovered
-- [ ] Re-run until all checks pass clean
+- [x] Run `/test-all` across the entire project
+- [x] Fix any failing tests, lint issues, or type errors discovered
+- [x] Re-run until all checks pass clean
+
+**Final Results (6 packages, 58 test files, 1,193 tests — all pass):**
+- shared: 4 files, 34 tests
+- voice-capture: 5 files, 77 tests
+- slack-bot: 7 files, 327 tests
+- web: 4 files, 32 tests
+- core-api: 22 files, 345 tests
+- workers: 16 files, 378 tests
+- TypeScript type-check: zero errors
+- Builds: all 6 packages succeed
+
+**Fixes applied:**
+- Removed dead `export * from './embedding.js'` in core-api services/index.ts (module deleted in 2.1)
+- Converted 8 raw-SQL row `interface` declarations to `type` aliases to satisfy Drizzle `execute<T>` constraint (`Record<string, unknown>`)
+- Added null guards for optional `ThreadContext` fields (`results`, `page`, `query`) in slack-bot query handler
+- Added null guards for `BetRecord.resolution_date` (string | null) in slack-bot formatters
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] All regression tests pass
-- [ ] All automatable USER_TEST_PLAN.md tests pass
-- [ ] Zero lint errors
-- [ ] Clean type-check across all packages
+- [x] All unit tests pass
+- [x] All regression tests pass
+- [x] All automatable USER_TEST_PLAN.md tests pass
+- [x] Zero lint errors
+- [x] Clean type-check across all packages
 
 ---
 

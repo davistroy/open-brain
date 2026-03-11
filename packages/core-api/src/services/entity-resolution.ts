@@ -15,7 +15,7 @@ export interface ResolveResult {
 }
 
 /** Row shape returned by raw SQL entity queries (Tier 2 alias, Tier 3 candidates). */
-interface EntityRow {
+type EntityRow = {
   id: string
   name: string
   entity_type: string

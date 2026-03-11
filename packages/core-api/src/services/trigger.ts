@@ -33,7 +33,7 @@ export interface TriggerTestMatch {
 }
 
 /** Row shape returned by the pgvector cosine similarity query in TriggerService.test() */
-interface TriggerTestQueryRow {
+type TriggerTestQueryRow = {
   id: string
   content: string
   capture_type: string
