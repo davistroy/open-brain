@@ -307,6 +307,13 @@ export async function seedTestData(): Promise<SeedDataResult> {
 // HTTP request helpers — make requests against the Hono test app
 // ---------------------------------------------------------------------------
 
+/** Default headers for integration test requests. Uses X-Open-Brain-Caller
+ *  so each test run gets its own rate-limit bucket (avoids 429s). */
+const DEFAULT_HEADERS: Record<string, string> = {
+  'Content-Type': 'application/json',
+  'X-Open-Brain-Caller': 'integration-test',
+}
+
 /**
  * Make a GET request to the test app.
  */
@@ -317,7 +324,7 @@ export async function testGet(
 ): Promise<Response> {
   const req = new Request(`http://localhost${path}`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { ...DEFAULT_HEADERS, ...headers },
   })
   return app.fetch(req)
 }
@@ -333,7 +340,7 @@ export async function testPost(
 ): Promise<Response> {
   const req = new Request(`http://localhost${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { ...DEFAULT_HEADERS, ...headers },
     body: JSON.stringify(body),
   })
   return app.fetch(req)
@@ -350,7 +357,7 @@ export async function testPatch(
 ): Promise<Response> {
   const req = new Request(`http://localhost${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { ...DEFAULT_HEADERS, ...headers },
     body: JSON.stringify(body),
   })
   return app.fetch(req)
@@ -366,7 +373,7 @@ export async function testDelete(
 ): Promise<Response> {
   const req = new Request(`http://localhost${path}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...headers },
+    headers: { ...DEFAULT_HEADERS, ...headers },
   })
   return app.fetch(req)
 }
