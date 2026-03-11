@@ -6,11 +6,12 @@ import { logger } from '../lib/logger.js'
 /**
  * Register bet tracking API routes.
  *
- * GET   /api/v1/bets          — list bets (optional ?status= filter, ?limit=, ?offset=)
- * POST  /api/v1/bets          — create a new bet
- * GET   /api/v1/bets/expiring — bets due within the next N days (default 7)
- * GET   /api/v1/bets/:id      — get a single bet
- * PATCH /api/v1/bets/:id      — resolve a bet (resolution + evidence)
+ * GET    /api/v1/bets          — list bets (optional ?status= filter, ?limit=, ?offset=)
+ * POST   /api/v1/bets          — create a new bet
+ * GET    /api/v1/bets/expiring — bets due within the next N days (default 7)
+ * GET    /api/v1/bets/:id      — get a single bet
+ * PATCH  /api/v1/bets/:id      — resolve a bet (resolution + evidence)
+ * DELETE /api/v1/bets/:id      — hard-delete a bet
  *
  * Valid resolution values: correct | incorrect | ambiguous
  * Valid status filter values: pending | correct | incorrect | ambiguous
@@ -167,5 +168,15 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
     logger.info({ betId: id, resolution }, '[bets-api] bet resolved')
 
     return c.json(updated)
+  })
+
+  // -------------------------------------------------------------------------
+  // DELETE /api/v1/bets/:id
+  // Hard-delete a bet (used for regression test cleanup).
+  // -------------------------------------------------------------------------
+  app.delete('/api/v1/bets/:id', async (c) => {
+    const id = c.req.param('id')
+    await betService.delete(id)
+    return c.body(null, 204)
   })
 }

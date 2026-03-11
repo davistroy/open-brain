@@ -238,14 +238,17 @@ interface RawBetRecord {
   confidence: number
   domain: string | null
   resolution_date: string | null
-  resolution: 'correct' | 'incorrect' | 'ambiguous' | null
+  resolution: 'correct' | 'incorrect' | 'ambiguous' | 'pending' | null
   resolution_notes: string | null
   session_id: string | null
   created_at: string
   updated_at: string
 }
 
+const RESOLVED_VALUES = new Set(['correct', 'incorrect', 'ambiguous'])
+
 function mapRawBet(b: RawBetRecord): Bet {
+  const isResolved = b.resolution !== null && RESOLVED_VALUES.has(b.resolution)
   const status: Bet['status'] =
     b.resolution === 'correct' ? 'won' :
     b.resolution === 'incorrect' ? 'lost' :
@@ -261,7 +264,7 @@ function mapRawBet(b: RawBetRecord): Bet {
     status,
     outcome: b.resolution ?? undefined,
     created_at: b.created_at,
-    resolved_at: b.resolution ? b.updated_at : undefined,
+    resolved_at: isResolved ? b.updated_at : undefined,
   }
 }
 

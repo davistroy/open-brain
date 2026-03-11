@@ -195,6 +195,20 @@ export class BetService {
   }
 
   // --------------------------------------------------------------------------
+  // delete — hard-delete a bet by ID (used for regression test cleanup)
+  // --------------------------------------------------------------------------
+  async delete(id: string): Promise<void> {
+    const [deleted] = await this.db
+      .delete(bets)
+      .where(eq(bets.id, id))
+      .returning({ id: bets.id })
+
+    if (!deleted) {
+      throw new NotFoundError(`Bet not found: ${id}`)
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // _captureResolution — private: insert a capture for the bet resolution.
   // Uses capture_type 'reflection' (outcome of a prediction fits reflection
   // better than decision). capture_type could be 'decision' for bets that
