@@ -29,6 +29,30 @@ interface HybridSearchRow {
   vector_score: number
 }
 
+/** Row shape returned by SELECT * FROM captures WHERE id = ANY(...) */
+interface CaptureQueryRow {
+  id: string
+  content: string
+  content_hash: string
+  capture_type: string
+  brain_view: string
+  source: string
+  source_metadata: Record<string, unknown> | null
+  tags: string[]
+  embedding: number[] | null
+  pipeline_status: string
+  pipeline_attempts: number
+  pipeline_error: string | null
+  pipeline_completed_at: Date | null
+  pre_extracted: Record<string, unknown> | null
+  created_at: Date
+  updated_at: Date
+  captured_at: Date
+  deleted_at: Date | null
+  access_count: number
+  last_accessed_at: Date | null
+}
+
 /**
  * Applies ACT-R-inspired temporal decay to a base similarity score.
  *
@@ -97,8 +121,7 @@ export class SearchService {
     if (searchMode === 'fts') {
       // FTS-only path: no embedding call, works even when LiteLLM is down,
       // searches captures regardless of whether they have embeddings yet.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      hybridRows = await this.db.execute<any>(sql`
+      hybridRows = await this.db.execute<HybridSearchRow>(sql`
         SELECT capture_id::text, rrf_score, fts_score, vector_score
         FROM fts_only_search(${query}, ${fetchCount})
       `)
@@ -108,8 +131,7 @@ export class SearchService {
       const vectorLiteral = `[${queryVector.join(',')}]`
 
       // Step 2: call hybrid_search — fetch more than `limit` so post-filters have candidates
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      hybridRows = await this.db.execute<any>(sql`
+      hybridRows = await this.db.execute<HybridSearchRow>(sql`
         SELECT capture_id::text, rrf_score, fts_score, vector_score
         FROM hybrid_search(
           ${query},
@@ -131,8 +153,7 @@ export class SearchService {
     // Pass as PostgreSQL array literal — Drizzle's sql`` sends JS arrays as
     // record tuples ($1,$2) which cannot be cast to uuid[].
     const pgArrayLiteral = `{${captureIds.join(',')}}`
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const captureRows = await this.db.execute<any>(sql`
+    const captureRows = await this.db.execute<CaptureQueryRow>(sql`
       SELECT *
       FROM captures
       WHERE id = ANY(${pgArrayLiteral}::uuid[])
