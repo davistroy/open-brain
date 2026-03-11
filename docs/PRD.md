@@ -184,37 +184,37 @@ This is a single-user personal tool. The sole user is a senior technology execut
 
 ### 5.1 Feature Overview
 
-| ID | Feature | Priority | Phase |
-|----|---------|----------|-------|
-| F01 | Core API (ingest, query, synthesize) | Must Have | Phase 1A |
-| F02 | Postgres 16 + pgvector (self-hosted) | Must Have | Phase 1A |
-| F03 | Async processing pipeline (BullMQ + Redis) | Must Have | Phase 1C |
-| F04 | Slack bot — capture (text) | Must Have | Phase 1D |
-| F05 | Slack bot — query (semantic search) | Must Have | Phase 1D |
-| F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | Phase 1E |
-| F07 | EmbeddingService via LiteLLM (spark-qwen3-embedding-4b alias) | Must Have | Phase 1B |
-| F07a | LiteLLM proxy (unified LLM gateway) | Must Have | Phase 1C |
-| F08 | AI router service (LiteLLM-based provider routing) | Must Have | Phase 1C |
-| F09 | Voice-capture integration (adapter to ingest API) | Must Have | Phase 2A |
-| F10 | faster-whisper container (local STT) | Must Have | Phase 2A |
-| F11 | Slack bot — commands (/ob stats, /ob brief) | Should Have | Phase 2B |
-| F12 | Weekly brief output skill | Should Have | Phase 2B |
-| F13 | Pushover notifications | Should Have | Phase 2B |
-| F14 | Email delivery (HTML reports) | Should Have | Phase 2B |
-| F15 | Entity graph (people, projects, decisions) | Should Have | Phase 3 |
-| F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | Phase 3 |
-| F17 | Board governance skills (quick check, quarterly) | Should Have | Phase 3 |
-| F18 | Bet tracking and evaluation | Should Have | Phase 3 |
-| F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 |
-| F20 | Slack voice clip processing | Could Have | Phase 3 |
-| F21 | Daily connection/pattern detection skill | Could Have | Phase 3 |
-| F22 | Drift monitor skill | Could Have | Phase 3 |
-| F23 | Document ingestion (PDF, docx) | Could Have | Phase 4 |
-| F24 | URL/bookmark capture | Could Have | Phase 4 |
-| F25 | Calendar integration | Could Have | Phase 4 |
-| F26 | Notion output skill (optional mirror) | Won't Have | Future |
-| F27 | Screenshot/image capture (vision model) | Won't Have | Future |
-| F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C |
+| ID | Feature | Priority | Phase | Status |
+|----|---------|----------|-------|--------|
+| F01 | Core API (ingest, query, synthesize) | Must Have | Phase 1A | Implemented |
+| F02 | Postgres 16 + pgvector (self-hosted) | Must Have | Phase 1A | Implemented |
+| F03 | Async processing pipeline (BullMQ + Redis) | Must Have | Phase 1C | Implemented |
+| F04 | Slack bot — capture (text) | Must Have | Phase 1D | Implemented |
+| F05 | Slack bot — query (semantic search) | Must Have | Phase 1D | Implemented |
+| F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | Phase 1E | Implemented |
+| F07 | EmbeddingService via LiteLLM (spark-qwen3-embedding-4b alias) | Must Have | Phase 1B | Implemented |
+| F07a | LiteLLM proxy (unified LLM gateway) | Must Have | Phase 1C | Implemented |
+| F08 | AI router service (LiteLLM-based provider routing) | Must Have | Phase 1C | Implemented |
+| F09 | Voice-capture integration (adapter to ingest API) | Must Have | Phase 2A | Implemented |
+| F10 | faster-whisper container (local STT) | Must Have | Phase 2A | Implemented |
+| F11 | Slack bot — commands (/ob stats, /ob brief) | Should Have | Phase 2B | Implemented |
+| F12 | Weekly brief output skill | Should Have | Phase 2B | Implemented |
+| F13 | Pushover notifications | Should Have | Phase 2B | Implemented |
+| F14 | Email delivery (HTML reports) | Should Have | Phase 2B | Implemented |
+| F15 | Entity graph (people, projects, decisions) | Should Have | Phase 3 | Implemented |
+| F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | Phase 3 | Implemented |
+| F17 | Board governance skills (quick check, quarterly) | Should Have | Phase 3 | Implemented |
+| F18 | Bet tracking and evaluation | Should Have | Phase 3 | Implemented |
+| F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 | Implemented |
+| F20 | Slack voice clip processing | Could Have | Phase 3 | Implemented |
+| F21 | Daily connection/pattern detection skill | Could Have | Phase 3 | **DEFERRED** |
+| F22 | Drift monitor skill | Could Have | Phase 3 | **DEFERRED** |
+| F23 | Document ingestion (PDF, docx) | Could Have | Phase 4 | Implemented |
+| F24 | URL/bookmark capture | Could Have | Phase 4 | **DEFERRED** |
+| F25 | Calendar integration | Could Have | Phase 4 | **DEFERRED** |
+| F26 | Notion output skill (optional mirror) | Won't Have | Future | **DEFERRED** |
+| F27 | Screenshot/image capture (vision model) | Won't Have | Future | **DEFERRED** |
+| F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C | Implemented |
 
 ### 5.2 Detailed Feature Specifications
 
@@ -1454,27 +1454,27 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 ### Phase 3: Intelligence
 **Goal**: Entity graph, governance sessions, pattern detection.
 
-| Feature | Description |
-|---------|-------------|
-| F15 | Entity graph (auto-extraction + linking) |
-| F16 | Slack interactive sessions (LLM-driven governance) |
-| F17 | Board governance skills (quick check, quarterly) |
-| F18 | Bet tracking |
-| F20 | Slack voice clip handling |
-| F21 | Daily connection finder |
-| F22 | Drift monitor |
+| Feature | Description | Status |
+|---------|-------------|--------|
+| F15 | Entity graph (auto-extraction + linking) | Implemented |
+| F16 | Slack interactive sessions (LLM-driven governance) | Implemented |
+| F17 | Board governance skills (quick check, quarterly) | Implemented |
+| F18 | Bet tracking | Implemented |
+| F20 | Slack voice clip handling | Implemented |
+| F21 | Daily connection finder | **DEFERRED** — no handler code; removed from KNOWN_SKILLS |
+| F22 | Drift monitor | **DEFERRED** — no handler code; removed from KNOWN_SKILLS |
 
-**Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. Drift alerts surface when projects/bets go quiet.
+**Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. ~~Drift alerts surface when projects/bets go quiet~~ (F21/F22 deferred).
 
 ### Phase 4: Polish
 **Goal**: Web UI, document ingestion, additional input sources.
 
-| Feature | Description |
-|---------|-------------|
-| F19 | Web dashboard (Vite + React PWA) |
-| F23 | Document ingestion (PDF, docx) |
-| F24 | URL/bookmark capture |
-| F25 | Calendar integration |
+| Feature | Description | Status |
+|---------|-------------|--------|
+| F19 | Web dashboard (Vite + React PWA) | Implemented |
+| F23 | Document ingestion (PDF, docx) | Implemented |
+| F24 | URL/bookmark capture | **DEFERRED** — test stubs only, no service implementation |
+| F25 | Calendar integration | **DEFERRED** — test stubs only, no service implementation |
 
 **Deferred Design Decision — Document Chunking**:
 The current embedding model generates a single 768-dim vector per capture. This works well for

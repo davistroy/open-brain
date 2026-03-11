@@ -51,11 +51,9 @@ export function createSkillExecutionWorker(
           break
         }
 
-        case 'drift-monitor':
-        case 'daily-connections':
         case 'pipeline-health': {
-          // These skills are defined in KNOWN_SKILLS for scheduling visibility
-          // but not yet implemented. Log and skip gracefully.
+          // Defined in KNOWN_SKILLS for scheduling visibility but not yet implemented.
+          // Log and skip gracefully.
           logger.warn({ skillName }, '[skill-execution] skill not yet implemented — skipping')
           break
         }

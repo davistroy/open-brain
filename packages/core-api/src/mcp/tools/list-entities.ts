@@ -11,7 +11,7 @@ export const listEntitiesSchema = z.object({
 
 export type ListEntitiesInput = z.infer<typeof listEntitiesSchema>
 
-interface EntityRow {
+type EntityRow = {
   id: string
   name: string
   entity_type: string
@@ -63,14 +63,12 @@ export async function listEntitiesTool(
         : sql`name ASC`
 
     if (input.type_filter) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await db.execute<any>(
+      const result = await db.execute<EntityRow>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at FROM entities WHERE entity_type = ${input.type_filter} ORDER BY ${orderCol} LIMIT ${input.limit}`,
       )
       rows = result.rows
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = await db.execute<any>(
+      const result = await db.execute<EntityRow>(
         sql`SELECT id::text, name, entity_type, mention_count, last_seen_at FROM entities ORDER BY ${orderCol} LIMIT ${input.limit}`,
       )
       rows = result.rows

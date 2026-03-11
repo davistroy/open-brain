@@ -1,8 +1,7 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
 import OpenAI from 'openai'
-import { ServiceUnavailableError, ai_audit_log } from '@open-brain/shared'
+import { ServiceUnavailableError, ai_audit_log, loadAndRenderPromptTemplate } from '@open-brain/shared'
 import type { ConfigService, Database } from '@open-brain/shared'
+import { logger } from '../lib/logger.js'
 
 /**
  * Thrown when the LLM gateway is over budget (hard limit).
@@ -139,8 +138,9 @@ export class LLMGatewayService {
     }
 
     if (total >= soft_limit_usd) {
-      console.warn(
-        `[LLMGateway] WARNING: Monthly LLM spend $${total.toFixed(2)} has reached the soft limit of $${soft_limit_usd}`,
+      logger.warn(
+        { spend: total, softLimit: soft_limit_usd },
+        `Monthly LLM spend $${total.toFixed(2)} has reached the soft limit of $${soft_limit_usd}`,
       )
     }
   }
@@ -173,7 +173,7 @@ export class LLMGatewayService {
       })
     } catch (err) {
       // Audit log failures must not break the caller
-      console.error('[LLMGateway] Failed to write audit log:', err)
+      logger.error({ err }, 'Failed to write audit log')
     }
   }
 
@@ -222,8 +222,9 @@ export class LLMGatewayService {
       if (usage?.total_tokens) {
         const estimatedCost = estimateCostUsd(modelAlias, usage.total_tokens)
         if (estimatedCost > 0.10) {
-          console.warn(
-            `[LLMGateway] Single call estimated cost $${estimatedCost.toFixed(4)} for alias '${modelAlias}' (${usage.total_tokens} tokens)`,
+          logger.warn(
+            { estimatedCost, modelAlias, totalTokens: usage.total_tokens },
+            `Single call estimated cost $${estimatedCost.toFixed(4)} for alias '${modelAlias}' (${usage.total_tokens} tokens)`,
           )
         }
       }
@@ -262,18 +263,18 @@ export class LLMGatewayService {
     modelAlias: string,
     options: LLMCompleteOptions = {},
   ): Promise<string> {
-    const templatePath = join(this.promptsDir, `${templateName}.v1.txt`)
-
-    if (!existsSync(templatePath)) {
-      throw new LLMGatewayError(`Prompt template not found: ${templatePath}`)
+    try {
+      const rendered = loadAndRenderPromptTemplate(
+        this.promptsDir,
+        `${templateName}.v1.txt`,
+        vars,
+      )
+      return this.complete(rendered, modelAlias as LLMModelAlias, options)
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Prompt template not found')) {
+        throw new LLMGatewayError(err.message)
+      }
+      throw err
     }
-
-    let template = readFileSync(templatePath, 'utf8')
-
-    for (const [key, value] of Object.entries(vars)) {
-      template = template.replaceAll(`{{${key}}}`, value)
-    }
-
-    return this.complete(template, modelAlias as LLMModelAlias, options)
   }
 }

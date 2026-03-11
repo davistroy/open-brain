@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { CaptureService } from '../../services/capture.js'
 import type { ConfigService } from '@open-brain/shared'
+import type { CaptureType } from '@open-brain/shared'
 
 export const captureThoughtSchema = z.object({
   content: z.string().min(1).describe('The thought, idea, decision, or note to capture'),
@@ -23,7 +24,7 @@ export async function captureThoughtTool(
 
   const capture = await captureService.create({
     content: input.content,
-    capture_type: (input.capture_type as any) ?? 'observation',
+    capture_type: (input.capture_type as CaptureType | undefined) ?? 'observation',
     brain_view: brainView,
     source: 'mcp',
     metadata: {

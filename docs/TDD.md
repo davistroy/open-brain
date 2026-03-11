@@ -2,10 +2,10 @@
 
 | Document Information |                                    |
 |---------------------|-------------------------------------|
-| Version             | 0.5                                 |
-| Status              | Draft — Architectural Review v2 Applied |
+| Version             | 0.6                                 |
+| Status              | Draft — Hardening Documentation Sync |
 | Author              | Troy Davis / Claude                 |
-| Last Updated        | 2026-03-05                          |
+| Last Updated        | 2026-03-10                          |
 
 ## Document History
 | Version | Date | Author | Changes |
@@ -15,6 +15,7 @@
 | 0.3 | 2026-03-05 | Troy Davis / Claude | LiteLLM gateway, flexible embeddings, cognitive retrieval (ACT-R, RRF, triggers) |
 | 0.4 | 2026-03-05 | Troy Davis / Claude | Architectural review: 10 sub-phases with test gates, fix Zod brain_views, Authorization header for MCP, check_triggers as separate job, standardized temporal scoring, UNIQUE constraints, cold start plan, operational runbook |
 | 0.5 | 2026-03-05 | Troy Davis / Claude | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added entity resolution confidence threshold (0.8), added MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability note, MCP in-progress capture visibility note. |
+| 0.6 | 2026-03-10 | Troy Davis / Claude | Hardening 7.2: Replaced speculative SQL functions (match_captures, match_captures_hybrid) with actual as-built functions (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search) matching init-schema.sql. Updated synthesize endpoint contract to match implementation ({query, limit} request, {response, capture_count} response). Updated all cross-references to old function names. |
 
 ## Related Documents
 | Document | Link | Relevance |
@@ -411,11 +412,12 @@ kept (captures from different sources may have different context even with ident
 
 **Implementation**:
 1. Generate embedding for `query` via LiteLLM (spark-qwen3-embedding-4b alias)
-2. If search_mode = "hybrid": call `match_captures_hybrid()` with query embedding + raw query text
-   If search_mode = "vector": call `match_captures()` with query embedding only
-   If search_mode = "fts": execute FTS-only query with temporal scoring
-3. Enqueue `update_access_stats` job for returned capture IDs (async, non-blocking)
-4. Return ranked results
+2. If search_mode = "hybrid": call `hybrid_search()` with query embedding + raw query text
+   If search_mode = "vector": call `vector_search()` with query embedding only
+   If search_mode = "fts": call `fts_only_search()` with query text only (no embedding required)
+3. Apply `actr_temporal_score()` to results if `temporal_weight > 0`
+4. Enqueue `update_access_stats` job for returned capture IDs (async, non-blocking)
+5. Return ranked results
 
 **Response (200 OK)**:
 ```json
@@ -450,49 +452,46 @@ kept (captures from different sources may have different context even with ident
 
 #### POST /api/v1/synthesize
 
-**Description**: Ad-hoc AI synthesis across captures. Retrieves relevant captures, assembles context within token budget, and sends to configured AI model.
+**Description**: Ad-hoc AI synthesis across captures. Runs a hybrid search over captures, then asks the LLM to synthesize a coherent answer grounded in those results. Falls back to FTS-only search if embedding is unavailable.
 
 **Request Body**:
 ```json
 {
   "query": "Summarize everything about the QSR engagement",
-  "max_captures": 20,
-  "token_budget": 50000,
-  "filters": {
-    "brain_views": ["client"]
-  }
+  "limit": 10
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| query | string | Yes | — | Synthesis prompt |
-| max_captures | integer | No | 20 | Max captures to include as context |
-| token_budget | integer | No | 50000 | Max tokens for context assembly |
-| filters | object | No | — | Same filter object as search |
+| query | string | Yes | — | Synthesis prompt (1-2000 chars) |
+| limit | integer | No | 10 | Max captures to include as context (1-30) |
 
-**Implementation**:
-1. Hybrid search for top `max_captures` results using `match_captures_hybrid()` (default)
-2. Assemble context: sort by composite_score, include captures until `token_budget` reached (token estimate: `chars / 4` with 10% safety margin — no tokenizer dependency)
-3. If context exceeds budget, truncate from bottom (lowest composite_score)
-4. Send context + query to LiteLLM (model alias: `synthesis` → Claude Sonnet, fallback: GPT-4o)
-5. Return synthesized response
+**Implementation** (see `packages/core-api/src/routes/synthesize.ts`):
+1. Validate request body via Zod schema (`synthesizeBodySchema`)
+2. Run `SearchService.search(query, { limit, searchMode: 'hybrid' })` — falls back to `searchMode: 'fts'` if embedding service is unavailable
+3. If no results found, return a "no captures found" message with `capture_count: 0`
+4. Build context block: each capture formatted as `[n] (capture_type, brain_view, date)\ncontent`
+5. Send context + query to LiteLLM via `LLMGatewayService.complete()` (model alias: `synthesis`, maxTokens: 1024, temperature: 0.2)
+6. Return synthesized response
 
 **Response (200 OK)**:
 ```json
 {
-  "synthesis": "Based on your captures over the past month, the QSR engagement...",
-  "captures_used": 15,
-  "model": "claude-sonnet-4-6",
-  "token_usage": {
-    "input_tokens": 12500,
-    "output_tokens": 850,
-    "cost_estimate": 0.042
-  }
+  "response": "Based on your captures over the past month, the QSR engagement...",
+  "capture_count": 15
 }
 ```
 
-**Note**: Synthesis results are ephemeral — not cached, not re-captured into the brain. Output skills (weekly brief, governance) implement their own context assembly.
+**Response (200 OK, no results)**:
+```json
+{
+  "response": "I couldn't find any captures in your brain that are relevant to this query. Try capturing more notes first.",
+  "capture_count": 0
+}
+```
+
+**Simplification rationale**: The original TDD specified `max_captures`, `token_budget`, and `filters` parameters with a detailed `{synthesis, captures_used, model, token_usage}` response. The implementation intentionally simplified this: `limit` replaces `max_captures`, token budgeting is not needed at current scale (context fits within LLM context window), filters are deferred (search already handles filtering), and the response omits model/token metadata to keep the endpoint lightweight. The Slack bot `!brain ask` command is the primary consumer.
 
 ---
 
@@ -540,7 +539,7 @@ kept (captures from different sources may have different context even with ident
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| name | string | Skill name: `weekly_brief`, `drift_monitor`, `daily_connections`, `board_quick_check`, `board_quarterly` |
+| name | string | Skill name: `weekly-brief`, `pipeline-health`, `stale-captures`. Deferred: `drift-monitor`, `daily-connections` |
 
 **Request Body** (optional):
 ```json
@@ -895,6 +894,188 @@ If the answer triggers anti-vagueness enforcement:
 }
 ```
 
+---
+
+#### GET /api/v1/events
+
+> **Unplanned addition** -- implemented during Phase 4 (web dashboard) to support real-time UI updates.
+
+**Description**: Server-Sent Events (SSE) endpoint. Streams real-time events to connected clients via Postgres LISTEN/NOTIFY. Used by the web dashboard for live updates.
+
+**Headers**:
+- `Content-Type: text/event-stream`
+- `Cache-Control: no-cache`
+- `Connection: keep-alive`
+- `X-Accel-Buffering: no` (disables nginx response buffering)
+
+**Event Types**:
+
+| Event Name | Trigger | Payload |
+|------------|---------|---------|
+| `connected` | On initial connection | `{ "ts": "<ISO 8601>" }` |
+| `capture_created` | New capture persisted | Capture summary object |
+| `pipeline_complete` | Pipeline finishes processing | `{ "captureId": "...", "status": "complete" }` |
+| `skill_complete` | Skill execution finishes | `{ "skill": "...", "duration_ms": ... }` |
+| `bet_expiring` | Bet approaching due date | `{ "betId": "...", "due_date": "..." }` |
+
+**Heartbeat**: Comment-only heartbeat (`: heartbeat <timestamp>`) every 30 seconds to keep the connection alive through reverse proxies.
+
+**Implementation**: `packages/core-api/src/routes/events.ts` uses Hono `stream()` helper. The `PgNotify` singleton (`lib/pg-notify.ts`) manages a dedicated `pg.Client` connection that LISTENs on four Postgres channels (`capture_created`, `pipeline_complete`, `skill_complete`, `bet_expiring`). Subscribers receive parsed JSON payloads. Cleanup (unsubscribe + clear heartbeat interval) runs on client disconnect via `stream.onAbort()`.
+
+---
+
+#### POST /api/v1/admin/reset-data
+
+> **Unplanned addition** -- added for development and testing workflows to reset user data without rebuilding the database.
+
+**Description**: Truncates all user data tables. Preserves schema, migration history, and trigger configuration. Requires admin authentication (Bearer token) and an explicit confirmation body.
+
+**Authentication**: `Authorization: Bearer <ADMIN_API_KEY>` (falls back to `MCP_BEARER_TOKEN`)
+
+**Request Body**:
+```json
+{
+  "confirm": "WIPE ALL DATA"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "cleared": [
+    "captures", "pipeline_events", "entities", "entity_links",
+    "entity_relationships", "sessions", "session_messages",
+    "bets", "skills_log", "ai_audit_log"
+  ],
+  "preserved": ["triggers", "__drizzle_migrations", "schema"],
+  "wiped_at": "2026-03-10T12:00:00Z"
+}
+```
+
+**Error Responses**:
+- `400` -- Missing or incorrect confirmation body
+- `401` -- Missing or invalid admin Bearer token
+- `503` -- Database not configured for this endpoint
+
+**Implementation**: `packages/core-api/src/routes/admin.ts`. Uses a single `TRUNCATE ... CASCADE` statement. Tables are ordered to respect FK constraints. The `triggers` table is intentionally preserved (user configuration, not test data). `__drizzle_migrations` is never touched.
+
+---
+
+#### GET /api/v1/admin/pipeline/health
+
+> **Unplanned addition** -- added alongside Bull Board to provide a machine-readable pipeline status endpoint.
+
+**Description**: Returns BullMQ queue job counts for all registered queues. Used by the dashboard Settings page and monitoring scripts.
+
+**Response (200 OK)**:
+```json
+{
+  "queues": {
+    "capture-pipeline": { "waiting": 0, "active": 1, "completed": 42, "failed": 0, "delayed": 0 },
+    "skill-execution": { "waiting": 0, "active": 0, "completed": 12, "failed": 0, "delayed": 0 },
+    "notification": { "waiting": 0, "active": 0, "completed": 15, "failed": 0, "delayed": 0 },
+    "access-stats": { "waiting": 0, "active": 0, "completed": 100, "failed": 0, "delayed": 0 },
+    "daily-sweep": { "waiting": 0, "active": 0, "completed": 3, "failed": 0, "delayed": 0 }
+  },
+  "overall": {
+    "pending": 0,
+    "processing": 1,
+    "complete": 172,
+    "failed": 0
+  }
+}
+```
+
+**Implementation**: `packages/core-api/src/routes/admin.ts`. Returns a placeholder response with zero counts when Redis connection is not configured.
+
+---
+
+#### POST /api/v1/documents
+
+> **Unplanned addition** -- implemented during Phase 4 for document ingestion (PDF, DOCX, MD, TXT, HTML).
+
+**Description**: Upload a document for ingestion into the brain. Accepts multipart form data. Creates a capture with `source: 'document'` and enqueues a document-pipeline job for async text extraction.
+
+**Request**: `Content-Type: multipart/form-data`
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| file | File | Yes | -- | PDF, DOCX, DOC, MD, TXT, or HTML file |
+| brain_view | string | No | `technical` | Brain view classification |
+| tags | string | No | -- | Comma-separated tag list |
+| title | string | No | Derived from filename | Title override for the document |
+
+**Supported MIME Types**: `application/pdf`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/msword`, `text/markdown`, `text/plain`, `text/html`
+
+**Response (201 Created)**:
+```json
+{
+  "capture_id": "uuid",
+  "filename": "strategy-doc.pdf",
+  "mime_type": "application/pdf",
+  "pipeline_status": "received",
+  "brain_view": "technical",
+  "tags": ["strategy"]
+}
+```
+
+**Implementation**: `packages/core-api/src/routes/documents.ts`. The uploaded file is saved to a temp directory (`open-brain-uploads/<id>.<ext>`) and referenced via `source_metadata.file_path`. The document-pipeline worker reads the file for text extraction. If the pipeline queue is unavailable, the capture is still created (daily sweep or manual retry can re-trigger).
+
+---
+
+#### Bet Tracking Endpoints
+
+> **Unplanned addition** -- implemented during Phase 3 (Intelligence) for bet tracking from governance sessions.
+
+**GET /api/v1/bets** -- List bets with optional filtering.
+
+| Parameter | Type | Location | Default | Description |
+|-----------|------|----------|---------|-------------|
+| status | string | query | -- | Filter: `pending`, `correct`, `incorrect`, `ambiguous` |
+| limit | integer | query | 20 | Page size |
+| offset | integer | query | 0 | Pagination offset |
+
+**Response (200 OK)**:
+```json
+{
+  "items": [{ "id": "uuid", "statement": "...", "confidence": 0.8, "status": "pending" }],
+  "total": 5,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+**POST /api/v1/bets** -- Create a new bet.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| statement | string | Yes | The falsifiable prediction |
+| confidence | float | Yes | 0.0-1.0 confidence level |
+| domain | string | No | Domain context (e.g., "QSR", "career") |
+| due_date | string | No | ISO 8601 date when the bet should be evaluated |
+| session_id | string | No | Link to originating governance session |
+
+**Response (201 Created)**: Full bet object.
+
+**GET /api/v1/bets/expiring** -- Bets due within the next N days.
+
+| Parameter | Type | Location | Default | Description |
+|-----------|------|----------|---------|-------------|
+| days | integer | query | 7 | Look-ahead window |
+
+**GET /api/v1/bets/:id** -- Get a single bet by ID.
+
+**PATCH /api/v1/bets/:id** -- Resolve a bet.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| resolution | string | Yes | `correct`, `incorrect`, or `ambiguous` |
+| evidence | string | No | Supporting evidence for the resolution |
+
+**Implementation**: `packages/core-api/src/routes/bets.ts` with `BetService` handling persistence and validation.
+
+---
+
 ### 3.3 API Error Code Catalog
 
 | Error Code | HTTP Status | Description | Resolution |
@@ -951,410 +1132,636 @@ If the answer triggers anti-vagueness enforcement:
                                                                └──────────────┘
 ```
 
-### 4.2 Drizzle Schema Definitions
+### 4.2 Drizzle Schema Definitions (As-Built)
 
-All schemas defined in TypeScript using Drizzle ORM. Migrations generated via `drizzle-kit generate` and applied via `drizzle-kit migrate`.
+> **Updated 2026-03-10** — This section reflects the actual implemented schema in
+> `packages/shared/src/schema/` (Drizzle ORM source of truth). Key divergences from
+> the original TDD design are noted inline.
+
+All schemas defined in TypeScript using Drizzle ORM. Schema files live in
+`packages/shared/src/schema/` and are split into `core.ts` (captures, pipeline_events,
+ai_audit_log) and `supporting.ts` (entities, entity_links, entity_relationships,
+sessions, session_messages, bets, skills_log, triggers). A custom `vector` type is
+defined in `types.ts`. Migrations generated via `drizzle-kit generate` and applied via
+`drizzle-kit migrate`; several custom SQL migrations handle features Drizzle cannot
+generate natively (HNSW indexes, FTS indexes, partial indexes, SQL functions, triggers).
 
 ```typescript
-// src/shared/schema/captures.ts
-import { pgTable, uuid, text, jsonb, timestamp, index, vector } from 'drizzle-orm/pg-core';
-
+// packages/shared/src/schema/core.ts — captures
 export const captures = pgTable('captures', {
-  id: uuid('id').defaultRandom().primaryKey(),
-
-  // Content
+  id: uuid('id').primaryKey().defaultRandom(),
   content: text('content').notNull(),
-  contentRaw: text('content_raw'),
-  contentHash: char('content_hash', { length: 64 }), // SHA-256 of normalized content (trim, collapse whitespace, lowercase) for dedup
-  embedding: vector('embedding', { dimensions: 768 }), // 768d — compatible with nomic-embed-text (native) or qwen3-embedding (Matryoshka truncated)
-
-  // Temporal tracking (ACT-R cognitive model for search relevance)
-  accessCount: integer('access_count').default(0),
-  lastAccessedAt: timestamp('last_accessed_at', { withTimezone: true }),
-
-  // Classification
-  metadata: jsonb('metadata').default({}).$type<CaptureMetadata>(),
-  source: text('source').notNull(), // slack | voice | web | api | email | document
-  sourceMetadata: jsonb('source_metadata').default({}).$type<SourceMetadata>(),
-  preExtracted: jsonb('pre_extracted').default({}).$type<PreExtracted>(),
-
-  // Organization
-  tags: text('tags').array().default([]),
-  brainViews: text('brain_views').array().default([]),
-
-  // Entity links via entity_links table JOIN (no denormalization needed at <100K rows)
-
-  // Processing audit trail
-  pipelineStatus: text('pipeline_status').default('received'),
-    // received | processing | complete | failed | partial
-
-  // Timestamps
-  capturedAt: timestamp('captured_at', { withTimezone: true }).defaultNow(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-
-  // Soft delete
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
-}, (table) => [
-  index('idx_captures_embedding').using('hnsw', table.embedding.op('vector_cosine_ops')),
-  index('idx_captures_metadata').using('gin', table.metadata),
-  index('idx_captures_tags').using('gin', table.tags),
-  index('idx_captures_brain_views').using('gin', table.brainViews),
-  // FTS index for hybrid retrieval (RRF) — requires custom SQL migration
-  // index('idx_captures_fts').using('gin', sql`to_tsvector('english', content)`),
-  index('idx_captures_created_at').on(table.createdAt),
-  index('idx_captures_captured_at').on(table.capturedAt),
-  index('idx_captures_source').on(table.source),
-  index('idx_captures_pipeline_status').on(table.pipelineStatus),
-  index('idx_captures_content_hash').on(table.contentHash), // Dedup lookups: matching hash within 60-second window
-]);
+  content_hash: text('content_hash').notNull(),         // text NOT NULL (not char(64) — simpler, same purpose)
+  capture_type: text('capture_type').notNull(),          // decision | idea | observation | task | win | blocker | question | reflection
+  brain_view: text('brain_view').notNull(),              // Single text, NOT array — intentional simplification (one view per capture)
+  source: text('source').notNull(),                      // slack | voice | api | document
+  source_metadata: jsonb('source_metadata'),
+  tags: text('tags').array().notNull().default("'{}'::text[]"),
+  embedding: vector('embedding'),                        // vector(768) — custom type, Matryoshka-truncated from 2560d Qwen3-Embedding
+  pipeline_status: text('pipeline_status').notNull().default('pending'),
+    // pending | processing | extracted | embedded | chunked | complete | failed
+  pipeline_attempts: integer('pipeline_attempts').notNull().default(0),
+  pipeline_error: text('pipeline_error'),
+  pipeline_completed_at: timestamp('pipeline_completed_at', { withTimezone: true }),
+  pre_extracted: jsonb('pre_extracted'),                 // entities/topics extracted by ingestion source
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  captured_at: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
+  deleted_at: timestamp('deleted_at', { withTimezone: true }),                        // soft delete
+  access_count: integer('access_count').notNull().default(0),                         // ACT-R temporal decay
+  last_accessed_at: timestamp('last_accessed_at', { withTimezone: true }),             // ACT-R temporal decay
+}, (table) => ({
+  content_hash_idx: uniqueIndex('captures_content_hash_idx').on(table.content_hash),
+  capture_type_idx: index('captures_capture_type_idx').on(table.capture_type),
+  brain_view_idx: index('captures_brain_view_idx').on(table.brain_view),
+  source_idx: index('captures_source_idx').on(table.source),
+  pipeline_status_idx: index('captures_pipeline_status_idx').on(table.pipeline_status),
+  created_at_idx: index('captures_created_at_idx').on(table.created_at),
+  // Custom SQL migration indexes (not expressible in Drizzle):
+  //   captures_embedding_hnsw_idx  — HNSW (vector_cosine_ops, m=16, ef_construction=64)
+  //   captures_content_fts_idx     — GIN on to_tsvector('english', content)
+  //   captures_deleted_at_idx      — partial index WHERE deleted_at IS NULL
+}));
 ```
 
+**Design notes — captures divergences from original TDD:**
+- `brain_view` is a single `text NOT NULL` column, not a `text[]` array. One view per capture; intentional simplification.
+- `capture_type` is a dedicated column (not inside a `metadata` JSONB). The `metadata` JSONB column was removed in favor of explicit typed columns (`capture_type`, `brain_view`, `tags`).
+- `content_hash` is `text NOT NULL`, not `char(64)`. No functional difference for dedup.
+- `content_raw` column was not implemented.
+- `pipeline_status` values: `pending | processing | extracted | embedded | chunked | complete | failed` (not `received | processing | complete | failed | partial`).
+- `pipeline_attempts`, `pipeline_error`, `pipeline_completed_at` added for retry tracking.
+- `source` values: `slack | voice | api | document` (not `web | email`).
+
 ```typescript
-// src/shared/schema/pipeline-events.ts
-// Append-only processing audit trail — replaces former JSONB pipeline_log column.
-// Avoids JSONB rewrite on each stage completion; enables efficient per-stage queries.
-export const pipelineEvents = pgTable('pipeline_events', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  captureId: uuid('capture_id').notNull().references(() => captures.id, { onDelete: 'cascade' }),
-  stage: text('stage').notNull(),
-  status: text('status').notNull(), // complete | failed | skipped
-  model: text('model'),
-  durationMs: integer('duration_ms'),
+// packages/shared/src/schema/core.ts — pipeline_events
+// Append-only processing audit trail per pipeline stage.
+export const pipeline_events = pgTable('pipeline_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  capture_id: uuid('capture_id').notNull().references(() => captures.id, { onDelete: 'cascade' }),
+  stage: text('stage').notNull(),        // classify | embed | extract | link_entities | check_triggers | notify
+  status: text('status').notNull(),      // started | success | failed
+  duration_ms: integer('duration_ms'),
   error: text('error'),
-  retryCount: integer('retry_count').default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-}, (table) => [
-  index('idx_pipeline_events_capture').on(table.captureId),
-]);
+  metadata: jsonb('metadata'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  capture_id_idx: index('pipeline_events_capture_id_idx').on(table.capture_id),
+  stage_idx: index('pipeline_events_stage_idx').on(table.stage),
+  created_at_idx: index('pipeline_events_created_at_idx').on(table.created_at),
+}));
 ```
 
+**Design notes — pipeline_events divergences:**
+- `status` values: `started | success | failed` (not `complete | failed | skipped`).
+- `model` and `retry_count` columns were not implemented; `metadata` JSONB column added instead.
+- Additional indexes on `stage` and `created_at`.
+
 ```typescript
-// src/shared/schema/entities.ts
+// packages/shared/src/schema/supporting.ts — entities
 export const entities = pgTable('entities', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  entityType: text('entity_type').notNull(), // person | project | decision | concept | bet
+  id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  aliases: text('aliases').array().default([]),
-  metadata: jsonb('metadata').default({}).$type<EntityMetadata>(),
-  firstSeen: timestamp('first_seen', { withTimezone: true }).defaultNow(),
-  lastSeen: timestamp('last_seen', { withTimezone: true }).defaultNow(),
-  mentionCount: integer('mention_count').default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-}, (table) => [
-  uniqueIndex('idx_entities_name_type').on(table.name, table.entityType),
-]);
+  entity_type: text('entity_type').notNull(),     // person | org | project | concept | place | tool
+  canonical_name: text('canonical_name').notNull(),
+  aliases: text('aliases').array().notNull().default("'{}'::text[]"),
+  metadata: jsonb('metadata'),
+  first_seen_at: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  name_type_idx: uniqueIndex('entities_name_type_idx').on(table.name, table.entity_type),
+  entity_type_idx: index('entities_entity_type_idx').on(table.entity_type),
+  canonical_name_idx: index('entities_canonical_name_idx').on(table.canonical_name),
+  // Custom SQL migration indexes:
+  //   entities_entity_type_lower_name_idx      — (entity_type, lower(name))
+  //   entities_entity_type_lower_canonical_idx  — (entity_type, lower(canonical_name))
+}));
+```
 
-export const entityLinks = pgTable('entity_links', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  captureId: uuid('capture_id').references(() => captures.id, { onDelete: 'cascade' }),
-  entityId: uuid('entity_id').references(() => entities.id, { onDelete: 'cascade' }),
-  relationship: text('relationship'), // mentioned | decided | blocked_by | etc.
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-}, (table) => [
-  index('idx_entity_links_capture').on(table.captureId),
-  index('idx_entity_links_entity').on(table.entityId),
-]);
+**Design notes — entities divergences:**
+- `entity_type` values: `person | org | project | concept | place | tool` (not `person | project | decision | concept | bet`).
+- Added `canonical_name text NOT NULL` for case-normalized entity resolution.
+- `first_seen_at` / `last_seen_at` instead of `first_seen` / `last_seen` (naming consistency with timestamptz convention).
+- `mention_count` column was not implemented; occurrence counts are derived from `entity_links` joins.
+- Additional indexes on `entity_type` and `canonical_name`.
+
+```typescript
+// packages/shared/src/schema/supporting.ts — entity_links
+export const entity_links = pgTable('entity_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  entity_id: uuid('entity_id').notNull().references(() => entities.id, { onDelete: 'cascade' }),
+  capture_id: uuid('capture_id').notNull().references(() => captures.id, { onDelete: 'cascade' }),
+  relationship: text('relationship'),              // mentioned | authored | referenced | decided_about
+  confidence: real('confidence'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  entity_id_idx: index('entity_links_entity_id_idx').on(table.entity_id),
+  capture_id_idx: index('entity_links_capture_id_idx').on(table.capture_id),
+  entity_capture_idx: uniqueIndex('entity_links_entity_capture_idx').on(table.entity_id, table.capture_id),
+}));
+```
+
+**Design notes — entity_links divergences:**
+- Both `entity_id` and `capture_id` are `NOT NULL` (original TDD had them nullable).
+- Added `confidence real` column for extraction confidence scores.
+- Added unique index on `(entity_id, capture_id)` to prevent duplicate links.
+
+```typescript
+// packages/shared/src/schema/supporting.ts — entity_relationships (NEW TABLE)
+// Co-occurrence graph between entities. Undirected: entity_id_a < entity_id_b
+// (UUID lexicographic) enforces canonical ordering. Not in original TDD — added
+// during Phase 12 (entity graph relationships).
+export const entity_relationships = pgTable('entity_relationships', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  entity_id_a: uuid('entity_id_a').notNull().references(() => entities.id, { onDelete: 'cascade' }),
+  entity_id_b: uuid('entity_id_b').notNull().references(() => entities.id, { onDelete: 'cascade' }),
+  co_occurrence_count: integer('co_occurrence_count').notNull().default(1),
+  weight: real('weight').notNull().default(1.0),
+  last_seen_at: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  entity_pair_idx: uniqueIndex('entity_relationships_pair_idx').on(table.entity_id_a, table.entity_id_b),
+  entity_id_a_idx: index('entity_relationships_entity_id_a_idx').on(table.entity_id_a),
+  entity_id_b_idx: index('entity_relationships_entity_id_b_idx').on(table.entity_id_b),
+  last_seen_at_idx: index('entity_relationships_last_seen_at_idx').on(table.last_seen_at),
+}));
 ```
 
 ```typescript
-// src/shared/schema/sessions.ts
+// packages/shared/src/schema/supporting.ts — sessions
 export const sessions = pgTable('sessions', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  sessionType: text('session_type').notNull(), // quick_check | quarterly | custom
-  status: text('status').default('active'), // active | completed | abandoned | paused
-  state: jsonb('state').notNull().$type<SessionState>(),
-  // Transcript stored in session_messages table (append-only, avoids JSONB rewrite)
-  config: jsonb('config').default({}).$type<SessionConfig>(),
-  result: jsonb('result').$type<SessionResult>(),
-  pausedAt: timestamp('paused_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-  completedAt: timestamp('completed_at', { withTimezone: true }),
-});
+  id: uuid('id').primaryKey().defaultRandom(),
+  session_type: text('session_type').notNull(),    // governance | review | planning
+  status: text('status').notNull().default('active'), // active | paused | complete | abandoned
+  config: jsonb('config'),
+  context_capture_ids: text('context_capture_ids').array().notNull().default("'{}'::text[]"),
+  summary: text('summary'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  completed_at: timestamp('completed_at', { withTimezone: true }),
+}, (table) => ({
+  session_type_idx: index('sessions_session_type_idx').on(table.session_type),
+  status_idx: index('sessions_status_idx').on(table.status),
+  created_at_idx: index('sessions_created_at_idx').on(table.created_at),
+}));
 ```
 
+**Design notes — sessions divergences:**
+- `session_type` values: `governance | review | planning` (not `quick_check | quarterly | custom`).
+- `status` values: `active | paused | complete | abandoned` (not `active | completed | abandoned | paused`).
+- `state` JSONB column was not implemented; replaced by `context_capture_ids text[]` and `summary text`.
+- `result` JSONB and `paused_at` columns were not implemented.
+- Added indexes on `session_type`, `status`, and `created_at`.
+
 ```typescript
-// src/shared/schema/session-messages.ts
-// Append-only transcript storage — replaces former JSONB transcript column on sessions.
-export const sessionMessages = pgTable('session_messages', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  sessionId: uuid('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
-  role: text('role').notNull(), // system | bot | user
-  boardRole: text('board_role'), // strategist | operator | contrarian | coach | analyst
+// packages/shared/src/schema/supporting.ts — session_messages
+export const session_messages = pgTable('session_messages', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  session_id: uuid('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  role: text('role').notNull(),                    // user | assistant
   content: text('content').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-}, (table) => [
-  index('idx_session_messages_session').on(table.sessionId),
-]);
+  metadata: jsonb('metadata'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  session_id_idx: index('session_messages_session_id_idx').on(table.session_id),
+  created_at_idx: index('session_messages_created_at_idx').on(table.created_at),
+}));
 ```
 
+**Design notes — session_messages divergences:**
+- `role` values: `user | assistant` (not `system | bot | user`).
+- `board_role` column was not implemented; board persona is handled in conversation logic, not stored per-message.
+- Added `metadata` JSONB column and `created_at` index.
+
 ```typescript
-// src/shared/schema/bets.ts
+// packages/shared/src/schema/supporting.ts — bets
 export const bets = pgTable('bets', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  commitment: text('commitment').notNull(),
-  falsifiableCriteria: text('falsifiable_criteria').notNull(),
-  status: text('status').default('open'), // open | correct | wrong | expired
-  dueDate: date('due_date').notNull(),
-  sessionId: uuid('session_id').references(() => sessions.id),
-  evidence: jsonb('evidence').default([]).$type<BetEvidence[]>(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
-});
+  id: uuid('id').primaryKey().defaultRandom(),
+  statement: text('statement').notNull(),
+  confidence: real('confidence').notNull(),        // 0.0-1.0
+  domain: text('domain'),
+  resolution_date: timestamp('resolution_date', { withTimezone: true }),
+  resolution: text('resolution'),                  // correct | incorrect | ambiguous | pending
+  resolution_notes: text('resolution_notes'),
+  session_id: uuid('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  domain_idx: index('bets_domain_idx').on(table.domain),
+  resolution_idx: index('bets_resolution_idx').on(table.resolution),
+  resolution_date_idx: index('bets_resolution_date_idx').on(table.resolution_date),
+}));
 ```
 
-```typescript
-// src/shared/schema/skills-log.ts
-export const skillsLog = pgTable('skills_log', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  skillName: text('skill_name').notNull(),
-  triggerType: text('trigger_type').notNull(), // scheduled | manual | event
-  status: text('status').default('running'), // running | completed | failed
-  config: jsonb('config').$type<SkillConfig>(),
-  result: jsonb('result').$type<SkillResult>(),
-  capturesQueried: integer('captures_queried'),
-  aiModelUsed: text('ai_model_used'),
-  tokenUsage: jsonb('token_usage').$type<TokenUsage>(),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  completedAt: timestamp('completed_at', { withTimezone: true }),
-  error: text('error'),
-});
-```
+**Design notes — bets divergences (substantial redesign):**
+- `statement` replaces `commitment` + `falsifiable_criteria` (single text field for the prediction).
+- `confidence real NOT NULL` (0.0-1.0 scale) instead of structured criteria.
+- `domain text` added for categorization.
+- `resolution` / `resolution_notes` / `resolution_date` replace `status` / `evidence` / `due_date` / `resolved_at`.
+- `resolution_date` is `timestamptz` (not `date`).
+- Session FK uses `onDelete: 'set null'` (not unconstrained).
 
 ```typescript
-// src/shared/schema/ai-audit-log.ts
-// ai_audit_log tracks application-level audit data: which task triggered which model,
-// how long it took, and whether it succeeded. This is an operational audit trail.
-// Cost/spend tracking is EXCLUSIVELY via LiteLLM's /spend/logs endpoint.
-// Do NOT add cost fields here — LiteLLM is the single source of truth for budget.
-export const aiAuditLog = pgTable('ai_audit_log', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  provider: text('provider').notNull(), // litellm | anthropic | openai | openrouter
+// packages/shared/src/schema/supporting.ts — skills_log
+export const skills_log = pgTable('skills_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  skill_name: text('skill_name').notNull(),
+  capture_id: uuid('capture_id').references(() => captures.id, { onDelete: 'set null' }),
+  session_id: uuid('session_id').references(() => sessions.id, { onDelete: 'set null' }),
+  input_summary: text('input_summary'),
+  output_summary: text('output_summary'),
+  result: jsonb('result'),
+  duration_ms: integer('duration_ms'),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  skill_name_idx: index('skills_log_skill_name_idx').on(table.skill_name),
+  created_at_idx: index('skills_log_created_at_idx').on(table.created_at),
+}));
+```
+
+**Design notes — skills_log divergences (substantial redesign):**
+- Simplified to an append-only log. No `trigger_type`, `status`, `config`, `captures_queried`, `ai_model_used`, `token_usage`, `completed_at`, or `error` columns.
+- Added `capture_id` and `session_id` FKs for traceability.
+- Added `input_summary`, `output_summary` text columns and `result` JSONB for structured output storage.
+
+```typescript
+// packages/shared/src/schema/core.ts — ai_audit_log
+// Tracks all LLM/embedding calls. Cost tracking is via LiteLLM /spend/logs (not here).
+export const ai_audit_log = pgTable('ai_audit_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  task_type: text('task_type').notNull(),         // classify | embed | synthesize | govern | intent
   model: text('model').notNull(),
-  taskType: text('task_type').notNull(), // embedding | metadata_extraction | synthesis | governance | intent
-  tokensIn: integer('tokens_in').default(0),
-  tokensOut: integer('tokens_out').default(0),
-  latencyMs: integer('latency_ms'),
-  success: boolean('success').default(true),
+  prompt_tokens: integer('prompt_tokens'),
+  completion_tokens: integer('completion_tokens'),
+  total_tokens: integer('total_tokens'),
+  duration_ms: integer('duration_ms'),
+  capture_id: uuid('capture_id').references(() => captures.id, { onDelete: 'set null' }),
+  session_id: uuid('session_id'),                 // forward ref to sessions
   error: text('error'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-}, (table) => [
-  index('idx_ai_audit_log_created').on(table.createdAt),
-  index('idx_ai_audit_log_provider').on(table.provider),
-]);
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  task_type_idx: index('ai_audit_log_task_type_idx').on(table.task_type),
+  created_at_idx: index('ai_audit_log_created_at_idx').on(table.created_at),
+  capture_id_idx: index('ai_audit_log_capture_id_idx').on(table.capture_id),
+}));
 ```
 
+**Design notes — ai_audit_log divergences:**
+- No `provider` or `success` columns. All calls go through LiteLLM so provider is implicit.
+- Token columns: `prompt_tokens`, `completion_tokens`, `total_tokens` (not `tokens_in`/`tokens_out`).
+- Added `capture_id` and `session_id` FK columns for traceability.
+
 ```typescript
-// src/shared/schema/triggers.ts (Phase 2)
+// packages/shared/src/schema/supporting.ts — triggers
 export const triggers = pgTable('triggers', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: text('name').notNull(),                    // User-readable label: "QSR timeline"
-  queryText: text('query_text').notNull(),          // Natural language pattern
-  queryEmbedding: vector('query_embedding', { dimensions: 768 }), // Pre-computed at creation
-  threshold: real('threshold').default(0.72),        // Minimum similarity to fire
-  deliveryChannel: text('delivery_channel').notNull().default('pushover'), // pushover | slack | both
-  isActive: boolean('is_active').default(true),
-  lastFiredAt: timestamp('last_fired_at', { withTimezone: true }),
-  fireCount: integer('fire_count').default(0),
-  cooldownMinutes: integer('cooldown_minutes').default(60),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-}, (table) => [
-  index('idx_triggers_active').on(table.isActive),
-  uniqueIndex('idx_triggers_name').on(table.name),
-  // No HNSW index on trigger embeddings — max 20 triggers, brute-force cosine is fine
-]);
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  description: text('description'),
+  condition_text: text('condition_text').notNull(),     // Natural language condition
+  embedding: vector('embedding'),                       // vector(768) for semantic matching
+  threshold: real('threshold').notNull().default(0.8),
+  action: text('action').notNull(),                     // notify | log | create_capture
+  action_config: jsonb('action_config'),
+  enabled: boolean('enabled').notNull().default(true),
+  last_triggered_at: timestamp('last_triggered_at', { withTimezone: true }),
+  trigger_count: integer('trigger_count').notNull().default(0),
+  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  name_idx: uniqueIndex('triggers_name_idx').on(table.name),
+  enabled_idx: index('triggers_enabled_idx').on(table.enabled),
+  // Custom SQL migration: HNSW index on triggers.embedding (vector_cosine_ops, m=16, ef_construction=64)
+}));
 ```
+
+**Design notes — triggers divergences:**
+- `condition_text` replaces `query_text`; `embedding` replaces `query_embedding`.
+- `action` + `action_config` replace `delivery_channel` (more extensible action model).
+- `description` column added.
+- `enabled` replaces `is_active`; `last_triggered_at` replaces `last_fired_at`; `trigger_count` replaces `fire_count`.
+- `cooldown_minutes` column was not implemented.
+- Default `threshold` is `0.8` (not `0.72`).
+
+#### Custom SQL Migrations (Not Expressible in Drizzle)
+
+The following objects are created via custom SQL migration files in `packages/shared/drizzle/`:
+
+| Migration | Object | Description |
+|-----------|--------|-------------|
+| 0001 | `pgvector` extension | `CREATE EXTENSION IF NOT EXISTS vector` |
+| 0001 | `captures_embedding_hnsw_idx` | HNSW index on `captures.embedding` (vector_cosine_ops, m=16, ef_construction=64) |
+| 0001 | `triggers_embedding_hnsw_idx` | HNSW index on `triggers.embedding` (same params) |
+| 0001 | `captures_content_fts_idx` | GIN index on `to_tsvector('english', content)` |
+| 0001 | `set_updated_at()` function | Trigger function that sets `updated_at = NOW()` on UPDATE |
+| 0001 | `set_*_updated_at` triggers | Applied to captures, entities, sessions, bets, triggers |
+| 0004 | `entities_entity_type_lower_name_idx` | Composite index `(entity_type, lower(name))` for case-insensitive lookup |
+| 0004 | `entities_entity_type_lower_canonical_idx` | Composite index `(entity_type, lower(canonical_name))` |
+| 0005 | `captures_deleted_at_idx` | Partial index on `deleted_at WHERE deleted_at IS NULL` |
 
 ### 4.3 Semantic Search Functions
 
-Deployed as raw SQL migrations via Drizzle custom migration.
+Deployed as raw SQL migrations via Drizzle custom migration (0002, 0006, 0009). The as-built functions differ from the original TDD design: `match_captures()` / `match_captures_hybrid()` were replaced by `hybrid_search()`, `fts_only_search()`, `vector_search()`, and `fts_search()` during implementation. Key simplifications: temporal scoring is handled by a separate `actr_temporal_score()` scalar function (applied by `SearchService` in TypeScript) rather than being inlined in the search CTEs, and filter parameters are pushed into SQL WHERE clauses (migration 0009) instead of post-filtering in memory.
 
-#### Vector-only search with temporal scoring
+#### hybrid_search — Primary search function (FTS + vector with RRF)
+
+The main search path. Runs full-text search and vector cosine similarity in parallel CTE arms, fuses results via Reciprocal Rank Fusion (k=60), and returns the top `match_count` rows. Temporal scoring is applied separately by `SearchService` using `actr_temporal_score()`.
 
 ```sql
--- Custom migration: 0001_match_captures_function.sql
-create or replace function match_captures(
-  query_embedding vector(768),
-  match_threshold float default 0.5,
-  match_count int default 10,
-  filter_source text default null,
-  filter_tags text[] default null,
-  filter_brain_views text[] default null,
-  filter_after timestamptz default null,
-  filter_before timestamptz default null,
-  temporal_weight float default 0.0  -- 0.0 = pure semantic, 1.0 = pure temporal. Start at 0.0; increase after search history builds.
+-- Migrations: 0002 (initial), 0006 (typo fix), 0009 (add filter params)
+CREATE OR REPLACE FUNCTION hybrid_search(
+  query_text             text,
+  query_embedding        vector(768),
+  match_count            int,
+  fts_weight             float DEFAULT 1.0,
+  vector_weight          float DEFAULT 1.0,
+  filter_brain_views     text[] DEFAULT NULL,
+  filter_capture_types   text[] DEFAULT NULL,
+  filter_date_from       timestamptz DEFAULT NULL,
+  filter_date_to         timestamptz DEFAULT NULL
 )
-returns table (
+RETURNS TABLE (
+  capture_id   uuid,
+  rrf_score    float,
+  fts_score    float,
+  vector_score float
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  k int := 60;
+BEGIN
+  RETURN QUERY
+  WITH fts_ranked AS (
+    SELECT
+      c.id AS capture_id,
+      ts_rank_cd(
+        to_tsvector('english', c.content),
+        plainto_tsquery('english', query_text)
+      )::float AS fts_score,
+      ROW_NUMBER() OVER (
+        ORDER BY ts_rank_cd(
+          to_tsvector('english', c.content),
+          plainto_tsquery('english', query_text)
+        ) DESC
+      ) AS fts_rank
+    FROM captures c
+    WHERE
+      c.embedding IS NOT NULL
+      AND c.deleted_at IS NULL
+      AND to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
+      AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
+      AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
+  ),
+  vector_ranked AS (
+    SELECT
+      c.id AS capture_id,
+      (1.0 - (c.embedding <=> query_embedding))::float AS vector_score,
+      ROW_NUMBER() OVER (
+        ORDER BY c.embedding <=> query_embedding ASC
+      ) AS vector_rank
+    FROM captures c
+    WHERE
+      c.embedding IS NOT NULL
+      AND c.deleted_at IS NULL
+      AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
+      AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
+      AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
+  ),
+  fused AS (
+    SELECT
+      COALESCE(f.capture_id, v.capture_id) AS capture_id,
+      (
+        COALESCE(fts_weight    * (1.0 / (k + COALESCE(f.fts_rank,    2147483647))), 0.0) +
+        COALESCE(vector_weight * (1.0 / (k + COALESCE(v.vector_rank, 2147483647))), 0.0)
+      )::float AS rrf_score,
+      COALESCE(f.fts_score,    0.0)::float AS fts_score,
+      COALESCE(v.vector_score, 0.0)::float AS vector_score
+    FROM fts_ranked    f
+    FULL OUTER JOIN vector_ranked v USING (capture_id)
+  )
+  SELECT
+    fused.capture_id,
+    fused.rrf_score,
+    fused.fts_score,
+    fused.vector_score
+  FROM fused
+  ORDER BY fused.rrf_score DESC
+  LIMIT match_count;
+END;
+$$;
+```
+
+**Design notes:**
+- Only captures with `embedding IS NOT NULL` and `deleted_at IS NULL` are searched. No `pipeline_status` filter — captures in `'embedded'` state (before entity extraction completes) are still searchable.
+- `plainto_tsquery` is used for safe handling of plain-text user queries.
+- Filters (brain_view, capture_type, date range) are pushed into SQL WHERE clauses so Postgres indexes do the work. The original implementation post-filtered in TypeScript after overfetching 5x rows; migration 0009 fixed this.
+- Missing ranks for a lane use `2147483647` (INT_MAX) as a sentinel, giving that capture zero contribution from the missing lane.
+
+#### fts_only_search — FTS fallback when embeddings are unavailable
+
+Used when `search_mode = 'fts'` or when the embedding service is down. Does NOT require embeddings — searches all non-deleted captures including those without embeddings yet.
+
+```sql
+-- Migrations: 0006 (initial), 0009 (add filter params)
+CREATE OR REPLACE FUNCTION fts_only_search(
+  query_text             text,
+  match_count            int,
+  filter_brain_views     text[] DEFAULT NULL,
+  filter_capture_types   text[] DEFAULT NULL,
+  filter_date_from       timestamptz DEFAULT NULL,
+  filter_date_to         timestamptz DEFAULT NULL
+)
+RETURNS TABLE (
+  capture_id   uuid,
+  rrf_score    float,
+  fts_score    float,
+  vector_score float
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  k int := 60;
+BEGIN
+  RETURN QUERY
+  WITH fts_ranked AS (
+    SELECT
+      c.id AS capture_id,
+      ts_rank_cd(
+        to_tsvector('english', c.content),
+        plainto_tsquery('english', query_text)
+      )::float AS fts_score,
+      ROW_NUMBER() OVER (
+        ORDER BY ts_rank_cd(
+          to_tsvector('english', c.content),
+          plainto_tsquery('english', query_text)
+        ) DESC
+      ) AS fts_rank
+    FROM captures c
+    WHERE
+      c.deleted_at IS NULL
+      AND to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
+      AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
+      AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
+  )
+  SELECT
+    fts_ranked.capture_id,
+    (1.0 / (k + fts_ranked.fts_rank))::float AS rrf_score,
+    fts_ranked.fts_score,
+    0.0::float AS vector_score
+  FROM fts_ranked
+  ORDER BY fts_ranked.fts_score DESC
+  LIMIT match_count;
+END;
+$$;
+```
+
+**Design notes:**
+- Returns the same `(capture_id, rrf_score, fts_score, vector_score)` shape as `hybrid_search()` so `SearchService` can handle both uniformly. `vector_score` is always `0.0`.
+- `rrf_score` is computed as `1/(k + fts_rank)` for compatibility with the RRF scoring pattern, even though only one lane is active.
+
+#### actr_temporal_score — ACT-R temporal decay scoring
+
+A scalar function that applies ACT-R-inspired temporal decay to a base similarity score. Called by `SearchService` in TypeScript after retrieving search results — not inlined in the search CTEs.
+
+```sql
+-- Migration: 0002
+CREATE OR REPLACE FUNCTION actr_temporal_score(
+  base_score      float,
+  created_at      timestamptz,
+  temporal_weight float DEFAULT 0.0
+)
+RETURNS float
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  decay_rate    float := 0.01;
+  hours_since   float;
+  decay         float;
+BEGIN
+  IF temporal_weight = 0.0 THEN
+    RETURN base_score;
+  END IF;
+  hours_since := GREATEST(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0, 0.0);
+  decay := EXP(-decay_rate * SQRT(hours_since));
+  RETURN base_score * decay * temporal_weight + base_score * (1.0 - temporal_weight);
+END;
+$$;
+```
+
+**Design notes:**
+- `decay_rate = 0.01` gives gentle decay: a capture from 1 week ago retains ~85% of its decay factor; from 1 year ago ~27%.
+- `temporal_weight = 0.0` (the default) short-circuits to return `base_score` unchanged — cold-start safe.
+- Formula: `result = base_score * decay * temporal_weight + base_score * (1 - temporal_weight)`. This blends pure-semantic and temporally-decayed scores. At `temporal_weight = 1.0`, the result is `base_score * decay`; at `0.0`, the result is `base_score`.
+
+#### update_capture_embedding — Atomic embedding write
+
+Atomically writes an embedding vector and marks the capture as `'embedded'` (intermediate pipeline status between `'processing'` and `'complete'`).
+
+```sql
+-- Migration: 0002
+CREATE OR REPLACE FUNCTION update_capture_embedding(
+  capture_id uuid,
+  embedding  vector(768)
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  UPDATE captures
+  SET
+    embedding       = update_capture_embedding.embedding,
+    pipeline_status = 'embedded',
+    updated_at      = NOW()
+  WHERE id = update_capture_embedding.capture_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'capture not found: %', capture_id;
+  END IF;
+END;
+$$;
+```
+
+#### vector_search — Pure vector similarity search
+
+Standalone vector-only search function. Returns captures ranked by cosine similarity with a configurable threshold. Used for direct vector queries where RRF fusion is not needed.
+
+```sql
+-- Defined in init-schema.sql (consolidation of migration chain)
+CREATE OR REPLACE FUNCTION vector_search(
+  query_embedding vector(768),
+  match_limit integer DEFAULT 20,
+  similarity_threshold real DEFAULT 0.0
+)
+RETURNS TABLE (
   id uuid,
   content text,
-  metadata jsonb,
+  capture_type text,
+  brain_view text,
   source text,
   tags text[],
-  similarity float,
-  temporal_score float,
-  composite_score float,
-  captured_at timestamptz
+  created_at timestamptz,
+  captured_at timestamptz,
+  similarity real
+) AS $$
+  SELECT c.id, c.content, c.capture_type, c.brain_view, c.source, c.tags,
+    c.created_at, c.captured_at,
+    (1 - (c.embedding <=> query_embedding))::real AS similarity
+  FROM captures c
+  WHERE c.embedding IS NOT NULL AND c.deleted_at IS NULL
+    AND (1 - (c.embedding <=> query_embedding)) >= similarity_threshold
+  ORDER BY c.embedding <=> query_embedding
+  LIMIT match_limit;
+$$ LANGUAGE sql STABLE;
+```
+
+#### fts_search — Pure full-text search
+
+Standalone FTS function. Returns captures ranked by `ts_rank`. Used for direct text queries where RRF fusion is not needed.
+
+```sql
+-- Defined in init-schema.sql (consolidation of migration chain)
+CREATE OR REPLACE FUNCTION fts_search(
+  query_text text,
+  match_limit integer DEFAULT 20
 )
-language plpgsql as $$
-begin
-  return query
-  with base as (
-    select
-      c.id, c.content, c.metadata, c.source, c.tags, c.captured_at,
-      1 - (c.embedding <=> query_embedding) as semantic_sim,
-      -- ACT-R temporal activation: ln(access_count) - 0.5 * ln(hours_since_last_access)
-      -- Normalized to [0,1] range
-      case
-        when c.last_accessed_at is null then 0.0
-        else greatest(0.0, least(1.0,
-          (ln(greatest(c.access_count, 1))
-           - 0.5 * ln(greatest(extract(epoch from (now() - c.last_accessed_at)) / 3600.0, 1.0))
-          ) / 5.0 + 0.5
-        ))
-      end as temporal_act
-    from captures c
-    where c.deleted_at is null
-      and c.pipeline_status = 'complete'
-      and 1 - (c.embedding <=> query_embedding) > match_threshold
-      and (filter_source is null or c.source = filter_source)
-      and (filter_tags is null or c.tags && filter_tags)
-      and (filter_brain_views is null or c.brain_views && filter_brain_views)
-      and (filter_after is null or c.captured_at >= filter_after)
-      and (filter_before is null or c.captured_at <= filter_before)
-  )
-  select
-    b.id, b.content, b.metadata, b.source, b.tags,
-    b.semantic_sim as similarity,
-    b.temporal_act as temporal_score,
-    b.semantic_sim * (1.0 + temporal_weight * b.temporal_act) as composite_score,
-    b.captured_at
-  from base b
-  order by b.semantic_sim * (1.0 + temporal_weight * b.temporal_act) desc
-  limit match_count;
-end;
-$$;
+RETURNS TABLE (
+  id uuid,
+  content text,
+  capture_type text,
+  brain_view text,
+  source text,
+  tags text[],
+  created_at timestamptz,
+  captured_at timestamptz,
+  rank real
+) AS $$
+  SELECT c.id, c.content, c.capture_type, c.brain_view, c.source, c.tags,
+    c.created_at, c.captured_at,
+    ts_rank(to_tsvector('english', c.content), plainto_tsquery('english', query_text))::real AS rank
+  FROM captures c
+  WHERE to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+    AND c.deleted_at IS NULL
+  ORDER BY rank DESC
+  LIMIT match_limit;
+$$ LANGUAGE sql STABLE;
 ```
 
 #### Full-text search index
 
 ```sql
--- Custom migration: 0003_fts_index.sql
-CREATE INDEX idx_captures_fts ON captures USING gin(to_tsvector('english', content));
-```
-
-#### Hybrid search with Reciprocal Rank Fusion (RRF)
-
-The primary search function. Runs vector similarity and full-text search in parallel within a single SQL CTE chain, fuses results via RRF, then applies temporal scoring.
-
-```sql
--- Custom migration: 0004_match_captures_hybrid.sql
-create or replace function match_captures_hybrid(
-  query_embedding vector(768),
-  query_text text,
-  match_threshold float default 0.3,
-  match_count int default 20,
-  rrf_k int default 60,
-  temporal_weight float default 0.0,  -- Start at 0.0; increase after search history builds
-  filter_source text default null,
-  filter_tags text[] default null,
-  filter_brain_views text[] default null,
-  filter_after timestamptz default null,
-  filter_before timestamptz default null
-)
-returns table (
-  id uuid,
-  content text,
-  metadata jsonb,
-  source text,
-  tags text[],
-  similarity float,
-  temporal_score float,
-  rrf_score float,
-  composite_score float,
-  captured_at timestamptz
-)
-language plpgsql as $$
-begin
-  return query
-  with
-  -- Arm 1: Vector similarity search (top 100 candidates)
-  vector_ranked as (
-    select
-      c.id,
-      row_number() over (order by c.embedding <=> query_embedding) as rank,
-      1 - (c.embedding <=> query_embedding) as semantic_sim
-    from captures c
-    where c.deleted_at is null
-      and c.pipeline_status = 'complete'
-      and 1 - (c.embedding <=> query_embedding) > match_threshold
-      and (filter_source is null or c.source = filter_source)
-      and (filter_tags is null or c.tags && filter_tags)
-      and (filter_brain_views is null or c.brain_views && filter_brain_views)
-      and (filter_after is null or c.captured_at >= filter_after)
-      and (filter_before is null or c.captured_at <= filter_before)
-    order by c.embedding <=> query_embedding
-    limit 100
-  ),
-  -- Arm 2: Full-text search (top 100 candidates)
-  fts_ranked as (
-    select
-      c.id,
-      row_number() over (
-        order by ts_rank_cd(to_tsvector('english', c.content), plainto_tsquery('english', query_text)) desc
-      ) as rank
-    from captures c
-    where c.deleted_at is null
-      and c.pipeline_status = 'complete'
-      and to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
-      and (filter_source is null or c.source = filter_source)
-      and (filter_tags is null or c.tags && filter_tags)
-      and (filter_brain_views is null or c.brain_views && filter_brain_views)
-      and (filter_after is null or c.captured_at >= filter_after)
-      and (filter_before is null or c.captured_at <= filter_before)
-    limit 100
-  ),
-  -- RRF fusion: combine ranked lists
-  fused as (
-    select
-      coalesce(v.id, f.id) as id,
-      coalesce(v.semantic_sim, 0.0) as semantic_sim,
-      coalesce(1.0 / (rrf_k + v.rank), 0.0) + coalesce(1.0 / (rrf_k + f.rank), 0.0) as rrf_score
-    from vector_ranked v
-    full outer join fts_ranked f on v.id = f.id
-  ),
-  -- Join with full capture data and apply temporal scoring
-  scored as (
-    select
-      c.id, c.content, c.metadata, c.source, c.tags, c.captured_at,
-      f.semantic_sim,
-      f.rrf_score,
-      case
-        when c.last_accessed_at is null then 0.0
-        else greatest(0.0, least(1.0,
-          (ln(greatest(c.access_count, 1))
-           - 0.5 * ln(greatest(extract(epoch from (now() - c.last_accessed_at)) / 3600.0, 1.0))
-          ) / 5.0 + 0.5
-        ))
-      end as temporal_act
-    from fused f
-    join captures c on c.id = f.id
-  )
-  select
-    s.id, s.content, s.metadata, s.source, s.tags,
-    s.semantic_sim as similarity,
-    s.temporal_act as temporal_score,
-    s.rrf_score,
-    s.rrf_score * (1.0 + temporal_weight * s.temporal_act) as composite_score,
-    s.captured_at
-  from scored s
-  order by s.rrf_score * (1.0 + temporal_weight * s.temporal_act) desc
-  limit match_count;
-end;
-$$;
+-- GIN index on captures.content for FTS
+CREATE INDEX IF NOT EXISTS captures_content_fts_idx
+  ON captures USING gin (to_tsvector('english', content));
 ```
 
 ### 4.4 Database Indexing Strategy
@@ -1393,9 +1800,12 @@ Migrations stored in `drizzle/` directory, version-controlled, applied automatic
 
 **Custom Migrations**:
 
-1. **`match_captures` function** — Vector search with temporal scoring (see Section 4.3)
-1a. **`fts_index`** — Full-text search GIN index for hybrid retrieval
-1b. **`match_captures_hybrid` function** — Hybrid search with RRF (see Section 4.3)
+1. **`hybrid_search` function** — FTS + vector with RRF fusion (see Section 4.3)
+1a. **`fts_only_search` function** — FTS fallback when embeddings are unavailable (see Section 4.3)
+1b. **`actr_temporal_score` function** — ACT-R temporal decay scoring (see Section 4.3)
+1c. **`update_capture_embedding` function** — Atomic embedding write (see Section 4.3)
+1d. **`vector_search` / `fts_search` functions** — Standalone search helpers (see Section 4.3)
+1e. **FTS GIN index** — `captures_content_fts_idx` on `to_tsvector('english', content)`
 2. **`set_updated_at` trigger** — Automatic `updated_at` maintenance on all tables:
 
 ```sql
@@ -1735,15 +2145,16 @@ class SearchService {
     private queue: Queue, // for update_access_stats jobs
   ) {}
 
-  /** Hybrid search: embed query → match_captures_hybrid (RRF + temporal) → ranked results */
+  /** Hybrid search: embed query → hybrid_search (RRF) + actr_temporal_score → ranked results */
   async search(input: SearchOptions): Promise<SearchResult[]>
     // 1. Generate embedding for query via EmbeddingService (type: 'query')
     // 2. Based on search_mode:
-    //    hybrid → call match_captures_hybrid() with embedding + raw text
-    //    vector → call match_captures() with embedding only
-    //    fts    → FTS-only query with temporal scoring
-    // 3. Enqueue update_access_stats job for returned capture IDs (async, non-blocking)
-    // 4. Return ranked results with similarity, temporal_score, composite_score
+    //    hybrid → call hybrid_search() with embedding + raw text
+    //    vector → call vector_search() with embedding only
+    //    fts    → call fts_only_search() (no embedding required)
+    // 3. Apply actr_temporal_score() if temporal_weight > 0
+    // 4. Enqueue update_access_stats job for returned capture IDs (async, non-blocking)
+    // 5. Return ranked results with rrf_score, fts_score, vector_score
 }
 ```
 
@@ -1945,8 +2356,8 @@ User       SlackBot     CoreAPI    SearchService   EmbeddingService   LiteLLM   
  │            │            │            │──embed(query)─►│                 │          │              │
  │            │            │            │                │──POST /embeddings──────────►│              │
  │            │            │            │                │◄─vector[768]────│           │              │
- │            │            │            │──match_captures_hybrid(vector, text)─────────►│              │
- │            │            │            │◄─ranked results (RRF + temporal)─────────────│              │
+ │            │            │            │──hybrid_search(text, vector)─────────────────►│              │
+ │            │            │            │◄─ranked results (RRF scores)─────────────────│              │
  │            │            │            │──enqueue(update_access_stats)───────────────────────────►│
  │            │◄─results───│◄───────────│                │                 │          │              │
  │◄─formatted─│            │            │                │                 │          │              │
@@ -2532,6 +2943,8 @@ async function setThreadContext(threadTs: string, context: ThreadContext): Promi
 | weekly-brief | skill-execution | 3 | 5 min | 3 | Exponential: 1m, 5m, 15m. On final failure: Pushover alert (high priority). Does not silently skip. |
 | drift-monitor | skill-execution | 3 | 2 min | 3 | Exponential |
 | daily-connections | skill-execution | 3 | 2 min | 3 | Exponential |
+| stale-captures | skill-execution | 3 | 2 min | 3 | Exponential. On-demand re-queue of stuck captures. Sends Pushover summary. |
+| pipeline-health | skill-execution | 3 | 1 min | 3 | Exponential. Hourly BullMQ queue stats check; alerts via Pushover if thresholds exceeded. |
 | daily-sweep | daily-sweep | 1 (low) | 30 min | 1 | — |
 | pushover | notification | 7 (high) | 30s | 3 | Fixed: 5s |
 | email | notification | 5 | 60s | 3 | Fixed: 30s |
@@ -2573,12 +2986,47 @@ interface CheckTriggersJob {
 //      a. Compute similarity: 1 - (capture.embedding <=> trigger.queryEmbedding)
 //      b. If similarity >= trigger.threshold: fire trigger
 //   4. Firing a trigger:
-//      a. Run match_captures_hybrid() for the trigger query (limit 5, related captures)
+//      a. Run hybrid_search() for the trigger query (limit 5, related captures)
 //      b. Send Pushover/Slack notification with: trigger name, new capture summary, related captures
 //      c. Update trigger: lastFiredAt = now(), fireCount++
 //   5. All trigger checks run in parallel (Promise.all)
 //   6. No trigger match = no-op; worker completes successfully
 ```
+
+### 12.2b Stale Captures Skill
+
+> **Unplanned addition** -- on-demand complement to the nightly daily-sweep job for investigating pipeline issues during the day.
+
+**Purpose**: Finds captures stuck in `received` or `processing` pipeline status for longer than a configurable threshold and re-enqueues them to the capture-pipeline BullMQ queue. Unlike the daily-sweep (which runs silently at 3 AM), this skill sends a Pushover notification summarizing what was re-queued.
+
+**Trigger**: `POST /api/v1/skills/stale-captures/trigger` (via SkillExecutor framework). No cron schedule -- manual/on-demand only.
+
+**Algorithm**:
+1. Query captures where `pipeline_status IN ('received', 'processing')` AND `created_at < (now - threshold)`
+2. For each stale capture, re-enqueue to `capture-pipeline` queue with `jobId = captureId` (BullMQ deduplicates -- if already queued, the add is a no-op)
+3. Send Pushover notification (priority 1 / high) with count, oldest capture age, and up to 3 capture IDs
+4. Log execution to `skills_log` table
+
+**Options**:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| thresholdMinutes | integer | 60 | How old a capture must be before it is considered stale |
+
+**Result**:
+```typescript
+interface StaleCapturesResult {
+  found: number       // total stale captures detected
+  requeued: number    // successfully re-enqueued
+  failed: number      // re-enqueue failures (non-fatal)
+  staleCaptures: StaleCapture[]
+  durationMs: number
+}
+```
+
+**Failure handling**: Individual re-enqueue failures, Pushover delivery failures, and skills_log write failures are all caught and logged -- the skill does not throw on partial failure.
+
+**Implementation**: `packages/workers/src/skills/stale-captures.ts`
 
 ### 12.3 Pipeline Stage Executor
 
@@ -2673,32 +3121,66 @@ await sweepQueue.add('daily-sweep', {}, {
 
 ## 13. Real-Time Features
 
-### 13.1 SSE from Core API (Phase 4)
+### 13.1 SSE from Core API
 
-For the web dashboard, Server-Sent Events (SSE) from the Core API provide live updates. Postgres LISTEN/NOTIFY triggers SSE broadcasts when captures are inserted or updated.
+> **As-built** -- the original TDD sketched a `streamSSE` / `db.listen` pattern. The actual implementation uses a `PgNotify` singleton with Hono `stream()` and multi-channel subscription. Updated below to match.
 
-**Server (Hono SSE route)**:
+For the web dashboard, Server-Sent Events (SSE) from the Core API provide live updates. A dedicated `PgNotify` singleton maintains a persistent Postgres connection and LISTENs on multiple channels. SSE clients subscribe to the singleton and receive parsed JSON payloads for each NOTIFY event.
+
+**Architecture**:
+
+```
+                                  ┌──────────────────────┐
+  Postgres NOTIFY ──────────────> │  PgNotify singleton   │
+  (capture_created,               │  (lib/pg-notify.ts)   │
+   pipeline_complete,             │  - pg.Client LISTEN   │
+   skill_complete,                │  - subscriber Set     │
+   bet_expiring)                  └──────────┬───────────┘
+                                             │ fan-out
+                              ┌──────────────┼──────────────┐
+                              ▼              ▼              ▼
+                         SSE client 1   SSE client 2   SSE client N
+                         (dashboard)    (monitoring)
+```
+
+**Server (Hono stream route)**:
 ```typescript
-// src/core-api/routes/events.ts
-import { streamSSE } from 'hono/streaming';
+// packages/core-api/src/routes/events.ts
+import { stream } from 'hono/streaming'
+import { pgNotify } from '../lib/pg-notify.js'
 
 app.get('/api/v1/events', (c) => {
-  return streamSSE(c, async (stream) => {
-    // Subscribe to Postgres NOTIFY channel
-    const pgListener = await db.listen('capture_changes');
+  c.header('Content-Type', 'text/event-stream')
+  c.header('Cache-Control', 'no-cache')
+  c.header('Connection', 'keep-alive')
+  c.header('X-Accel-Buffering', 'no')
 
-    pgListener.on('notification', async (msg) => {
-      const payload = JSON.parse(msg.payload);
-      await stream.writeSSE({
-        event: payload.event, // 'capture_created' | 'pipeline_complete' | 'session_update'
-        data: JSON.stringify(payload.data),
-      });
-    });
+  return stream(c, async (s) => {
+    // Initial connection confirmation
+    await s.write(`event: connected\ndata: {"ts":"${new Date().toISOString()}"}\n\n`)
 
-    stream.onAbort(() => pgListener.unlisten());
-  });
-});
+    // Subscribe to all Postgres NOTIFY channels
+    const unsub = pgNotify.subscribe(async (payload) => {
+      const data = JSON.stringify(payload.data)
+      await s.write(`event: ${payload.channel}\ndata: ${data}\n\n`)
+    })
+
+    // 30s heartbeat keeps connection alive through proxies
+    const heartbeat = setInterval(() => s.write(`: heartbeat ${Date.now()}\n\n`), 30_000)
+
+    s.onAbort(() => { clearInterval(heartbeat); unsub() })
+    await new Promise<void>((resolve) => s.onAbort(resolve))
+  })
+})
 ```
+
+**PgNotify singleton** (`lib/pg-notify.ts`):
+- Uses a dedicated `pg.Client` (not the Drizzle pool) for LISTEN
+- LISTENs on channels: `capture_created`, `pipeline_complete`, `skill_complete`, `bet_expiring`
+- Fan-out to all registered subscribers via `Set<Subscriber>`
+- `subscribe()` returns an unsubscribe function for cleanup
+- `notify(channel, data)` sends NOTIFY from the application side (used by pipeline stages)
+- `stop()` closes the client and clears all subscribers (called on graceful shutdown)
 
 **Client (React hook)**:
 ```typescript
@@ -2722,6 +3204,7 @@ This is used for:
 - Dashboard: Live capture feed
 - Pipeline status: Live processing indicators
 - Session updates: Governance session progress
+- Bet expiration alerts
 
 ---
 
@@ -3297,9 +3780,10 @@ No feature flag service — single user, phased deployment. Features enabled by:
 - [ ] LiteLLM spark-qwen3-embedding-4b alias reachable; raw response is 2560d, truncated to 768d in the embedding service
 - [ ] Actual embedding throughput measured and documented (update TDD Section 4.5 estimates)
 - [ ] Embedding quality validated with 50+ real captures
-- [ ] match_captures (vector + temporal) function deployed
+- [ ] hybrid_search (RRF) function deployed
+- [ ] fts_only_search (FTS fallback) function deployed
+- [ ] actr_temporal_score + update_capture_embedding functions deployed
 - [ ] FTS GIN index created on captures.content
-- [ ] match_captures_hybrid (RRF) function deployed
 - [ ] Search endpoint functional (all three modes: hybrid, vector, fts)
 - [ ] update_access_stats background job working
 
@@ -3564,6 +4048,7 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 | 2026-03-05 | v0.3: Added LiteLLM as unified LLM gateway (simplified AIRouterService). Made embedding model configurable (evaluating Qwen3-Embedding). Added cognitive retrieval: ACT-R temporal decay scoring (access_count/last_accessed_at columns), hybrid search with RRF (FTS GIN index + match_captures_hybrid function), semantic push triggers (triggers table, check_triggers pipeline stage, Slack commands). Based on MuninnDB cognitive retrieval analysis. | Troy Davis / Claude |
 | 2026-03-05 | v0.4: Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Fixed: Zod brain_views validation (config-driven, not hardcoded), MCP auth (Authorization header), slack-bot LiteLLM access, check_triggers as separate BullMQ job, temporal scoring standardized (multiplicative boost), entity/trigger UNIQUE constraints, entity_links ON DELETE CASCADE. Added: PATCH captures endpoint, search pagination, cold start temporal_weight (default 0.0), operational runbook, capacity planning. | Troy Davis / Claude |
 | 2026-03-05 | v0.5: Architectural review v2. Fixed composite score formula (multiplicative boost in PRD), extracted pipeline_log→pipeline_events table, session transcript→session_messages table, removed linked_entities denorm from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), BrainView→config-driven string, ai_usage→ai_audit_log (dropped cost_estimate), entity resolution confidence threshold (0.8), MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability, MCP in-progress capture visibility note. | Troy Davis / Claude |
+| 2026-03-10 | v0.6: Hardening 7.2 — Replaced speculative SQL functions with as-built implementations (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search). Updated synthesize endpoint to match simplified implementation. Updated all cross-references. | Troy Davis / Claude |
 
 ### E. Operational Runbook
 

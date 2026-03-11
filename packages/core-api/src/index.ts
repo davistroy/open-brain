@@ -4,7 +4,7 @@ import { Queue } from 'bullmq'
 import { ConfigService, createDb } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
-import { EmbeddingService } from './services/embedding.js'
+import { EmbeddingService } from '@open-brain/shared'
 import { SearchService } from './services/search.js'
 import { TriggerService } from './services/trigger.js'
 import { EntityService } from './services/entity.js'
@@ -25,7 +25,7 @@ logger.info('Config loaded successfully')
 
 // Initialize DB
 const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
-const db = createDb(postgresUrl)
+const { db, pool } = createDb(postgresUrl)
 
 // Redis connection for Bull Board queue monitoring and BullMQ queues
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
@@ -81,7 +81,6 @@ const app = createApp({
   entityService,
   betService,
   sessionService,
-  governanceEngine,
   documentPipelineQueue,
   llmGateway,
 })
@@ -97,9 +96,28 @@ const server = serve({ fetch: app.fetch, port }, () => {
 })
 
 // Graceful shutdown
+let shuttingDown = false
 const shutdown = async () => {
+  if (shuttingDown) return
+  shuttingDown = true
   logger.info('Shutting down...')
+
+  // 1. Close BullMQ queues (stop accepting new jobs)
+  await Promise.allSettled([
+    capturePipelineQueue.close(),
+    skillQueue.close(),
+    documentPipelineQueue.close(),
+  ])
+  logger.info('BullMQ queues closed')
+
+  // 2. Stop Postgres LISTEN/NOTIFY
   await pgNotify.stop()
+
+  // 3. Close Postgres connection pool
+  await pool.end()
+  logger.info('Postgres pool closed')
+
+  // 4. Close HTTP server
   server.close()
   process.exit(0)
 }

@@ -14,7 +14,8 @@ export interface ResolveResult {
   confidence?: number
 }
 
-interface EntityRow {
+/** Row shape returned by raw SQL entity queries (Tier 2 alias, Tier 3 candidates). */
+type EntityRow = {
   id: string
   name: string
   entity_type: string
@@ -57,26 +58,30 @@ export class EntityResolutionService {
     const mentionLower = mention.trim().toLowerCase()
 
     // ----------------------------------------------------------------
-    // Tier 1: exact name match (case-insensitive)
+    // Tier 1: exact name match (case-insensitive) — Drizzle query builder
     // ----------------------------------------------------------------
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const exactRows = await this.db.execute<any>(
-      sql`SELECT id::text, name, entity_type, canonical_name, aliases
-          FROM entities
-          WHERE lower(name) = ${mentionLower}
-          LIMIT 1`,
-    )
+    const exactRows = await this.db
+      .select({
+        id: entities.id,
+        name: entities.name,
+        entity_type: entities.entity_type,
+        canonical_name: entities.canonical_name,
+        aliases: entities.aliases,
+      })
+      .from(entities)
+      .where(sql`lower(${entities.name}) = ${mentionLower}`)
+      .limit(1)
 
-    if (exactRows.rows.length > 0) {
-      logger.debug({ mention, entityId: exactRows.rows[0].id }, '[entity-resolution] exact match')
-      return { entity_id: exactRows.rows[0].id, outcome: 'exact_match', confidence: 1.0 }
+    if (exactRows.length > 0) {
+      logger.debug({ mention, entityId: exactRows[0].id }, '[entity-resolution] exact match')
+      return { entity_id: exactRows[0].id, outcome: 'exact_match', confidence: 1.0 }
     }
 
     // ----------------------------------------------------------------
     // Tier 2: alias match — mention is contained in any entity's aliases array
+    // Uses unnest + lower() which isn't expressible in Drizzle query builder
     // ----------------------------------------------------------------
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const aliasRows = await this.db.execute<any>(
+    const aliasRows = await this.db.execute<EntityRow>(
       sql`SELECT id::text, name, entity_type, canonical_name, aliases
           FROM entities
           WHERE lower(${mentionLower}) = ANY(SELECT lower(a) FROM unnest(aliases) AS a)
@@ -90,9 +95,9 @@ export class EntityResolutionService {
 
     // ----------------------------------------------------------------
     // Tier 3: LLM disambiguation — find candidates with similar names
+    // Uses pg_trgm similarity() which isn't expressible in Drizzle query builder
     // ----------------------------------------------------------------
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const candidateRows = await this.db.execute<any>(
+    const candidateRows = await this.db.execute<EntityRow>(
       sql`SELECT id::text, name, entity_type, canonical_name, aliases
           FROM entities
           WHERE entity_type = ${entityType}
@@ -155,24 +160,36 @@ Use match_index null if none of the entities match or confidence < 0.8.`
    * Merge source entity into target: move all entity_links, merge aliases, delete source.
    */
   async merge(sourceId: string, targetId: string): Promise<void> {
-    // Verify both exist
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [sourceRows, targetRows] = await Promise.all([
-      this.db.execute<any>(
-        sql`SELECT id::text, aliases, name FROM entities WHERE id = ${sourceId}::uuid LIMIT 1`,
-      ),
-      this.db.execute<any>(
-        sql`SELECT id::text, aliases, name FROM entities WHERE id = ${targetId}::uuid LIMIT 1`,
-      ),
+    // Verify both exist — Drizzle typed queries
+    const [sourceEntities, targetEntities] = await Promise.all([
+      this.db
+        .select({
+          id: entities.id,
+          name: entities.name,
+          aliases: entities.aliases,
+        })
+        .from(entities)
+        .where(eq(entities.id, sourceId))
+        .limit(1),
+      this.db
+        .select({
+          id: entities.id,
+          name: entities.name,
+          aliases: entities.aliases,
+        })
+        .from(entities)
+        .where(eq(entities.id, targetId))
+        .limit(1),
     ])
 
-    if (sourceRows.rows.length === 0) throw new NotFoundError(`Source entity not found: ${sourceId}`)
-    if (targetRows.rows.length === 0) throw new NotFoundError(`Target entity not found: ${targetId}`)
+    if (sourceEntities.length === 0) throw new NotFoundError(`Source entity not found: ${sourceId}`)
+    if (targetEntities.length === 0) throw new NotFoundError(`Target entity not found: ${targetId}`)
 
-    const source = sourceRows.rows[0]
-    const target = targetRows.rows[0]
+    const source = sourceEntities[0]
+    const target = targetEntities[0]
 
     // Move entity_links from source to target (skip if duplicate — unique constraint on entity_id+capture_id)
+    // INSERT...SELECT with ON CONFLICT isn't expressible in Drizzle query builder
     await this.db.execute(
       sql`INSERT INTO entity_links (entity_id, capture_id, relationship, confidence, created_at)
           SELECT ${targetId}::uuid, capture_id, relationship, confidence, created_at
@@ -191,10 +208,10 @@ Use match_index null if none of the entities match or confidence < 0.8.`
       .set({ aliases: mergedAliases, updated_at: new Date() })
       .where(eq(entities.id, targetId))
 
-    // Delete source entity (entity_links cascade via FK onDelete: cascade)
-    await this.db.execute(
-      sql`DELETE FROM entities WHERE id = ${sourceId}::uuid`,
-    )
+    // Delete source entity (entity_links cascade via FK onDelete: cascade) — Drizzle query builder
+    await this.db
+      .delete(entities)
+      .where(eq(entities.id, sourceId))
 
     logger.info({ sourceId, targetId }, '[entity-resolution] merge complete')
   }
@@ -206,18 +223,26 @@ Use match_index null if none of the entities match or confidence < 0.8.`
    * (Manual curation via Slack commands covers reassigning links.)
    */
   async split(entityId: string, alias: string): Promise<{ new_entity_id: string }> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const existingRows = await this.db.execute<any>(
-      sql`SELECT id::text, name, entity_type, canonical_name, aliases FROM entities WHERE id = ${entityId}::uuid LIMIT 1`,
-    )
+    // Drizzle typed query
+    const existingRows = await this.db
+      .select({
+        id: entities.id,
+        name: entities.name,
+        entity_type: entities.entity_type,
+        canonical_name: entities.canonical_name,
+        aliases: entities.aliases,
+      })
+      .from(entities)
+      .where(eq(entities.id, entityId))
+      .limit(1)
 
-    if (existingRows.rows.length === 0) throw new NotFoundError(`Entity not found: ${entityId}`)
+    if (existingRows.length === 0) throw new NotFoundError(`Entity not found: ${entityId}`)
 
-    const existing = existingRows.rows[0]
+    const existing = existingRows[0]
     const aliasLower = alias.trim().toLowerCase()
 
     // Remove alias from source entity's aliases array
-    const updatedAliases = ((existing.aliases ?? []) as string[]).filter(
+    const updatedAliases = (existing.aliases ?? []).filter(
       (a: string) => a.toLowerCase() !== aliasLower,
     )
 

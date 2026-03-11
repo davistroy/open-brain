@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createApp } from '../app.js'
-import { EmbeddingUnavailableError } from '../services/embedding.js'
+import { EmbeddingUnavailableError } from '@open-brain/shared'
 import type { SearchResult } from '../services/search.js'
 import type { CaptureRecord } from '@open-brain/shared'
 

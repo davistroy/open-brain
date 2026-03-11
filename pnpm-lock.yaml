@@ -56,9 +56,6 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
     devDependencies:
-      '@types/ioredis':
-        specifier: ^5.0.0
-        version: 5.0.0
       '@types/node':
         specifier: ^25.3.5
         version: 25.3.5
@@ -322,6 +319,12 @@ importers:
       '@types/pdf-parse':
         specifier: ^1.1.5
         version: 1.1.5
+      '@types/pg':
+        specifier: ^8.18.0
+        version: 8.18.0
+      pg:
+        specifier: ^8.20.0
+        version: 8.20.0
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
@@ -2323,10 +2326,6 @@ packages:
 
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
-
-  '@types/ioredis@5.0.0':
-    resolution: {integrity: sha512-zJbJ3FVE17CNl5KXzdeSPtdltc4tMT3TzC6fxQS0sQngkbFZ6h+0uTafsRqu+eSLIugf6Yb0Ea0SUuRr42Nk9g==}
-    deprecated: This is a stub types definition. ioredis provides its own type definitions, so you do not need this installed.
 
   '@types/js-yaml@4.0.9':
     resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
@@ -6994,12 +6993,6 @@ snapshots:
       '@types/serve-static': 2.2.0
 
   '@types/http-errors@2.0.5': {}
-
-  '@types/ioredis@5.0.0':
-    dependencies:
-      ioredis: 5.10.0
-    transitivePeerDependencies:
-      - supports-color
 
   '@types/js-yaml@4.0.9': {}
 

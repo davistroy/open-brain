@@ -6,6 +6,7 @@
     "build": "pnpm -r build",
     "dev": "echo 'Run dev from individual packages'",
     "test": "pnpm -r test",
+    "test:integration": "docker compose -f docker-compose.test.yml up -d --wait && pnpm --filter @open-brain/core-api test:integration; docker compose -f docker-compose.test.yml down -v",
     "lint": "pnpm -r lint",
     "clean": "pnpm -r clean"
   },
