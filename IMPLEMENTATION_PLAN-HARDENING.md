@@ -897,9 +897,9 @@ Tests placed in workers package (not core-api) to avoid cross-package rootDir vi
 
 ### Work Items
 
-#### 7.1 Update TDD Section 4.2 — As-Built Schema
+#### 7.1 Update TDD Section 4.2 — As-Built Schema [2026-03-10]
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** W3 (Intent Review — Schema Divergence, WARNING)
 **Files Affected:**
 - `docs/TDD.md` (modify — Section 4.2 Database Schema)
@@ -908,27 +908,27 @@ Tests placed in workers package (not core-api) to avoid cross-package rootDir vi
 The TDD specifies a schema that differs from implementation in several ways: `brain_views` (array) vs `brain_view` (single text), different pipeline_status values, different session types, different bet columns, missing `canonical_name` on entities, missing `entity_relationships` table. Update TDD Section 4.2 to match the as-built schema.
 
 **Tasks:**
-1. [ ] Change `brain_views text[]` to `brain_view text NOT NULL` and add note: "Single view per capture — intentional simplification"
-2. [ ] Update pipeline_status values to: `pending | processing | extracted | embedded | chunked | complete | failed`
-3. [ ] Update sessions table: `session_type` values to `governance | review | planning`
-4. [ ] Update bets table columns to match implementation: `statement`, `confidence`, `domain`
-5. [ ] Add `canonical_name text` column to entities table
-6. [ ] Add `entity_relationships` table definition
-7. [ ] Add `access_count` and `last_accessed_at` columns (from Phase 1 work)
-8. [ ] Add `deleted_at timestamptz` column to captures (soft delete)
+1. [x] Change `brain_views text[]` to `brain_view text NOT NULL` and add note: "Single view per capture — intentional simplification"
+2. [x] Update pipeline_status values to: `pending | processing | extracted | embedded | chunked | complete | failed`
+3. [x] Update sessions table: `session_type` values to `governance | review | planning`
+4. [x] Update bets table columns to match implementation: `statement`, `confidence`, `domain`
+5. [x] Add `canonical_name text` column to entities table
+6. [x] Add `entity_relationships` table definition
+7. [x] Add `access_count` and `last_accessed_at` columns (from Phase 1 work)
+8. [x] Add `deleted_at timestamptz` column to captures (soft delete)
 
 **Acceptance Criteria:**
-- [ ] TDD Section 4.2 matches the Drizzle schema in `packages/shared/src/schema/`
-- [ ] All intentional simplifications are noted with rationale
+- [x] TDD Section 4.2 matches the Drizzle schema in `packages/shared/src/schema/`
+- [x] All intentional simplifications are noted with rationale
 
 **Notes:**
 This is documentation only — no code changes.
 
 ---
 
-#### 7.2 Update TDD Sections 4.3 and 3.2 — SQL Functions and Synthesize Endpoint
+#### 7.2 Update TDD Sections 4.3 and 3.2 — SQL Functions and Synthesize Endpoint — COMPLETE 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** W4, S4 (Intent Review — Documentation Drift, WARNING)
 **Files Affected:**
 - `docs/TDD.md` (modify — Sections 3.2 and 4.3)
@@ -950,9 +950,9 @@ Documentation only — no code changes.
 
 ---
 
-#### 7.3 Document Unplanned Additions
+#### 7.3 Document Unplanned Additions [2026-03-10]
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** S1, S2, S3 (Intent Review — Scope Addition, SUGGESTION)
 **Files Affected:**
 - `docs/TDD.md` (modify — add sections for SSE, admin reset, stale-captures)
@@ -961,23 +961,24 @@ Documentation only — no code changes.
 Three features were added during implementation that aren't in the TDD: SSE events (Postgres LISTEN/NOTIFY), admin data reset endpoint, and stale-captures monitoring skill. Add documentation for each.
 
 **Tasks:**
-1. [ ] Add SSE events endpoint documentation to TDD Section 3 (API Endpoints): `GET /api/v1/events` — SSE stream via Postgres LISTEN/NOTIFY with heartbeat
-2. [ ] Add admin reset endpoint documentation: `POST /api/v1/admin/reset-data` — TRUNCATEs user data tables (requires Bearer auth as of Phase 1)
-3. [ ] Add stale-captures skill documentation to the skills section: detects and re-queues stuck pipeline captures
-4. [ ] Add each to the feature list in the PRD or TDD feature matrix
+1. [x] Add SSE events endpoint documentation to TDD Section 3 (API Endpoints): `GET /api/v1/events` — SSE stream via Postgres LISTEN/NOTIFY with heartbeat
+2. [x] Add admin reset endpoint documentation: `POST /api/v1/admin/reset-data` — TRUNCATEs user data tables (requires Bearer auth as of Phase 1)
+3. [x] Add stale-captures skill documentation to the skills section: detects and re-queues stuck pipeline captures
+4. [x] Add each to the feature list in the PRD or TDD feature matrix — also documented additional undiscovered unplanned additions: `POST /api/v1/documents`, bet tracking endpoints, `GET /api/v1/admin/pipeline/health`
 
 **Acceptance Criteria:**
-- [ ] All three unplanned features are documented in TDD
-- [ ] Documentation matches actual implementation behavior
+- [x] All three unplanned features are documented in TDD
+- [x] Documentation matches actual implementation behavior
+- [x] Additional undocumented features discovered and documented: document upload, bet tracking CRUD, pipeline health
 
 **Notes:**
 Documentation only — no code changes.
 
 ---
 
-#### 7.4 Mark Deferred Features and Update README Roadmap
+#### 7.4 Mark Deferred Features and Update README Roadmap — COMPLETE [2026-03-10]
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** W1, W2, W5 (Intent Review — Missing Features, WARNING/SUGGESTION)
 **Files Affected:**
 - `README.md` (modify — add Roadmap section)
@@ -986,20 +987,24 @@ Documentation only — no code changes.
 **Description:**
 Three PRD features were not implemented and should be explicitly marked as deferred rather than silently missing: bookmarks ingestion (F24), calendar integration (F25), and Slack voice messages (F20). Add a roadmap section to README and mark these in the PRD.
 
+**Findings:** F20 (Slack voice clips) is actually fully implemented — audio attachments in Slack are detected and routed to voice-capture for transcription. Only F21, F22, F24, F25, F26, F27 are truly deferred.
+
 **Tasks:**
-1. [ ] Add a "Roadmap / Deferred Features" section to README.md:
+1. [x] Add a "Roadmap / Deferred Features" section to README.md:
    - Bookmarks ingestion (PRD F24) — browser bookmark import
    - Calendar integration (PRD F25) — calendar event sync via rclone
-   - Slack voice messages (PRD F20) — audio in Slack DM → transcription
+   - ~~Slack voice messages (PRD F20)~~ — actually implemented
    - Drift monitor skill (PRD F21) — topic drift detection
    - Daily connections skill (PRD F22) — cross-capture connection surfacing
-2. [ ] In docs/PRD.md, add "Status: DEFERRED" annotation to F20, F21, F22, F24, F25
-3. [ ] Note the primary voice capture path (iOS Shortcut → voice-capture endpoint) as the active implementation
+   - Notion output skill (PRD F26) — Won't Have
+   - Screenshot/image capture (PRD F27) — Won't Have
+2. [x] In docs/PRD.md, add "Status" column to feature table (F01-F28) with DEFERRED annotations for F21, F22, F24, F25, F26, F27; also annotated Phase 3 and Phase 4 roadmap tables
+3. [x] Note the primary voice capture path (iOS Shortcut → voice-capture endpoint) as the active implementation
 
 **Acceptance Criteria:**
-- [ ] README has a clear roadmap section listing deferred features
-- [ ] PRD features are annotated with their status
-- [ ] No ambiguity about what is and isn't implemented
+- [x] README has a clear roadmap section listing deferred features
+- [x] PRD features are annotated with their status
+- [x] No ambiguity about what is and isn't implemented
 
 **Notes:**
 Documentation only — no code changes. Keep the roadmap concise — bullet points, not paragraphs.

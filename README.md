@@ -4,7 +4,7 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 ## Status
 
-**Implementation complete** — all 16 phases (83 work items across ~11,100 LOC) shipped 2026-03-05.
+**Implementation complete** — all 16 phases (83 work items across ~11,100 LOC) shipped 2026-03-05. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) are deferred — see [Roadmap](#roadmap) below.
 
 ---
 
@@ -98,6 +98,40 @@ AI calls:
 - **AI budget**: soft $30/month (alert via Pushover), hard $50 (circuit breaker)
 - **Pipeline retry**: 5 attempts, patient backoff (30s, 2m, 10m, 30m, 2h) + daily auto-sweep
 - **Secrets**: Bitwarden Secrets Manager only — never `.env` files
+
+---
+
+## Roadmap
+
+### Implemented (Shipped 2026-03-05)
+
+All core features across the 16-phase build are complete:
+
+- **Capture**: Voice memos (iOS Shortcut), Slack messages, Slack voice clips, document upload (PDF/docx/txt/md), MCP, direct API
+- **Pipeline**: Async BullMQ stages — embed, classify, extract entities, link entities, check triggers, notify
+- **Search**: Hybrid retrieval (FTS + pgvector cosine + RRF) with ACT-R temporal decay
+- **AI Skills**: Weekly brief, board governance (quick check, quarterly), bet tracking, semantic push triggers
+- **Output**: Pushover notifications, HTML email delivery, Slack responses
+- **Governance**: LLM-driven interactive sessions via Slack with guardrails
+- **Entity Graph**: Auto-extraction, 3-tier resolution, relationship tracking
+- **Web Dashboard**: Vite + React + shadcn/ui — timeline, search, entities, board, briefs, voice, documents, settings
+- **MCP**: Embedded Streamable HTTP endpoint at `/mcp` for Claude, ChatGPT, and other AI tools
+- **Infrastructure**: Postgres 16 + pgvector, Redis, faster-whisper (CPU), Cloudflare Tunnel, SSE live updates
+
+### Deferred Features
+
+These PRD features were planned but not implemented. They remain candidates for future development:
+
+| Feature | PRD Ref | Description | Notes |
+|---------|---------|-------------|-------|
+| Daily connections skill | F21 | Cross-capture pattern detection — surfaces connections between unrelated topics | Removed from KNOWN_SKILLS; no handler code |
+| Drift monitor skill | F22 | Alerts when tracked projects/bets go quiet | Removed from KNOWN_SKILLS; no handler code |
+| URL/bookmark capture | F24 | Browser bookmark import with content extraction (readability/cheerio) | Test stubs exist; no service implementation |
+| Calendar integration | F25 | iCal feed sync — creates captures from calendar events | Test stubs exist; no service implementation |
+| Notion output skill | F26 | Mirror outputs (briefs, governance) to Notion | Classified as "Won't Have" in PRD |
+| Screenshot/image capture | F27 | Image ingestion via vision models | Classified as "Won't Have" in PRD |
+
+**Note**: The primary voice capture path is the iOS Shortcut to the voice-capture HTTP endpoint. Slack voice clips (F20) are also fully implemented — audio attachments in Slack are detected and routed to the voice-capture container for transcription.
 
 ---
 
