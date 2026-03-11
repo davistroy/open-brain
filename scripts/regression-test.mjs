@@ -966,18 +966,29 @@ if (RUN_SLACK) {
 section('13. Cleanup');
 
 {
-  let cleaned = 0;
+  let triggers = 0, sessions = 0, captures = 0, bets = 0;
   for (const id of cleanup.triggerIds) {
     const r = await DEL(`/api/v1/triggers/${id}`);
-    if (r.status === 200 || r.status === 204) cleaned++;
+    if (r.status === 200 || r.status === 204) triggers++;
   }
   // Complete any open sessions
   for (const id of cleanup.sessionIds) {
-    await POST(`/api/v1/sessions/${id}/complete`, {});
+    const r = await POST(`/api/v1/sessions/${id}/complete`, {});
+    if (r.status === 200) sessions++;
+  }
+  // Soft-delete test captures
+  for (const id of cleanup.captureIds) {
+    const r = await DEL(`/api/v1/captures/${id}`);
+    if (r.status === 204 || r.status === 200) captures++;
+  }
+  // Delete test bets
+  for (const id of cleanup.betIds) {
+    const r = await DEL(`/api/v1/bets/${id}`);
+    if (r.status === 204 || r.status === 200) bets++;
   }
   pass('TC-CLEANUP-001', `Cleanup complete`,
-    `${cleanup.triggerIds.length} triggers, ${cleanup.sessionIds.length} sessions, ` +
-    `${cleanup.betIds.length} bets (resolved in place), ${cleanup.captureIds.length} captures (kept as test data)`);
+    `${triggers}/${cleanup.triggerIds.length} triggers, ${sessions}/${cleanup.sessionIds.length} sessions, ` +
+    `${captures}/${cleanup.captureIds.length} captures, ${bets}/${cleanup.betIds.length} bets`);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

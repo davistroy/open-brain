@@ -1,7 +1,18 @@
 import type { Hono } from 'hono'
 import { Pool } from 'pg'
 import { Redis } from 'ioredis'
+import { readFileSync } from 'node:fs'
 import { logger } from '../lib/logger.js'
+
+// Read version at startup — works in Docker where npm_package_version is unset
+const APP_VERSION = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'))
+    return pkg.version as string
+  } catch {
+    return process.env.npm_package_version ?? 'unknown'
+  }
+})()
 
 type ServiceStatus = 'healthy' | 'degraded' | 'unhealthy'
 
@@ -86,7 +97,7 @@ async function buildHealthResponse(): Promise<HealthResponse> {
       redis.status === 'unhealthy' || litellm.status === 'degraded' ? 'degraded' : 'healthy'
     ),
     timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version,
+    version: APP_VERSION,
     uptime_s: Math.floor(process.uptime()),
     services: { postgres, redis, litellm },
   }

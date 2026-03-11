@@ -245,10 +245,11 @@ function BetRow({ bet, onResolve }: { bet: Bet; onResolve: (id: string, outcome:
 
   const dueDateStr = bet.resolution_date ?? bet.due_date;
   const dueDateObj = dueDateStr ? new Date(dueDateStr) : null;
-  const dueDate = dueDateObj
+  const isValidDate = dueDateObj !== null && !isNaN(dueDateObj.getTime());
+  const dueDate = isValidDate
     ? dueDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : 'No due date';
-  const isPast = dueDateObj !== null && dueDateObj < new Date();
+    : null;
+  const isPast = isValidDate && dueDateObj < new Date();
 
   return (
     <div className="rounded-lg border bg-card px-4 py-3 space-y-2">
@@ -266,7 +267,7 @@ function BetRow({ bet, onResolve }: { bet: Bet; onResolve: (id: string, outcome:
 
       <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span className={isPast && isOpen ? 'text-destructive font-medium' : ''}>
-          {dueDate !== 'No due date' ? `Due ${dueDate}` : dueDate}{isPast && isOpen ? ' (overdue)' : ''}
+          {dueDate ? `Due ${dueDate}` : 'No due date'}{isPast && isOpen ? ' (overdue)' : ''}
         </span>
         {(bet.tags ?? []).length > 0 && (
           <span className="flex gap-1">
