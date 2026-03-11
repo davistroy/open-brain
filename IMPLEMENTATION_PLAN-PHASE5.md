@@ -603,10 +603,13 @@ Create dedicated Intelligence API endpoints that the web dashboard Intelligence 
 
 ---
 
-#### 20.5 Unit Tests for Intelligence Tab
-**Status: PENDING**
+#### 20.5 Unit Tests for Intelligence Tab [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
 **Files Affected:**
 - `packages/web/src/pages/__tests__/Intelligence.test.tsx` (create)
+- `packages/web/src/components/__tests__/ConnectionsCard.test.tsx` (create)
+- `packages/web/src/components/__tests__/DriftCard.test.tsx` (create)
+- `packages/web/src/components/__tests__/SkillHistoryCard.test.tsx` (create)
 
 ---
 

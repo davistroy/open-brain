@@ -896,6 +896,77 @@ section('9. Skills');
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SECTION 9b: Intelligence API
+// ═════════════════════════════════════════════════════════════════════════════
+
+section('9b. Intelligence API');
+
+{
+  // Summary endpoint
+  const summary = await GET('/api/v1/intelligence/summary');
+  if (summary.status === 200 && summary.data) {
+    pass('TC-API-100', 'GET /api/v1/intelligence/summary → 200',
+      `keys=${Object.keys(summary.data).join(',')}`);
+    if ('connections' in summary.data && 'drift' in summary.data) {
+      pass('TC-API-100b', 'Summary includes connections + drift sections');
+    } else {
+      fail('TC-API-100b', 'Summary missing expected sections', Object.keys(summary.data).join(','));
+    }
+  } else {
+    fail('TC-API-100', 'GET /api/v1/intelligence/summary', `status=${summary.status}`);
+  }
+
+  // Connections latest
+  const connLatest = await GET('/api/v1/intelligence/connections/latest');
+  if (connLatest.status === 200) {
+    pass('TC-API-101', 'GET /api/v1/intelligence/connections/latest → 200');
+  } else {
+    fail('TC-API-101', 'Intelligence connections latest', `status=${connLatest.status}`);
+  }
+
+  // Connections history
+  const connHistory = await GET('/api/v1/intelligence/connections/history');
+  if (connHistory.status === 200 && Array.isArray(connHistory.data?.data || connHistory.data)) {
+    pass('TC-API-102', 'GET /api/v1/intelligence/connections/history → 200 with array');
+  } else {
+    fail('TC-API-102', 'Intelligence connections history', `status=${connHistory.status}`);
+  }
+
+  // Drift latest
+  const driftLatest = await GET('/api/v1/intelligence/drift/latest');
+  if (driftLatest.status === 200) {
+    pass('TC-API-103', 'GET /api/v1/intelligence/drift/latest → 200');
+  } else {
+    fail('TC-API-103', 'Intelligence drift latest', `status=${driftLatest.status}`);
+  }
+
+  // Drift history
+  const driftHistory = await GET('/api/v1/intelligence/drift/history');
+  if (driftHistory.status === 200 && Array.isArray(driftHistory.data?.data || driftHistory.data)) {
+    pass('TC-API-104', 'GET /api/v1/intelligence/drift/history → 200 with array');
+  } else {
+    fail('TC-API-104', 'Intelligence drift history', `status=${driftHistory.status}`);
+  }
+
+  // Trigger — valid skill
+  const triggerConn = await POST('/api/v1/intelligence/daily-connections/trigger', {});
+  if (triggerConn.status === 200 || triggerConn.status === 202) {
+    pass('TC-API-105', 'POST /api/v1/intelligence/daily-connections/trigger → queued');
+  } else {
+    fail('TC-API-105', 'Intelligence trigger daily-connections', `status=${triggerConn.status}`);
+  }
+
+  // Trigger — invalid skill should 400/404
+  const triggerBad = await POST('/api/v1/intelligence/fake-skill/trigger', {});
+  if (triggerBad.status === 400 || triggerBad.status === 404) {
+    pass('TC-API-106', 'POST /api/v1/intelligence/fake-skill/trigger → rejected',
+      `status=${triggerBad.status}`);
+  } else {
+    fail('TC-API-106', 'Intelligence trigger invalid skill should reject', `status=${triggerBad.status}`);
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // SECTION 10: Admin
 // ═════════════════════════════════════════════════════════════════════════════
 
