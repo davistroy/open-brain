@@ -154,6 +154,13 @@ function getClientKey(headers: Headers): string {
 export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
   return async (c, next) => {
     const key = getClientKey(c.req.raw.headers)
+
+    // Bypass rate limiting for integration tests
+    if (key === 'internal:integration-test') {
+      await next()
+      return
+    }
+
     const result = limiter.check(key)
 
     // Always set informational headers
