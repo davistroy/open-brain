@@ -835,29 +835,34 @@ Embedding-dependent tests should mock the embedding service (LiteLLM won't be av
 
 ---
 
-#### 6.3 Pipeline Smoke Tests
+#### 6.3 Pipeline Smoke Tests ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** F11 (Architecture Audit — Testing, MEDIUM)
 **Files Affected:**
-- `packages/core-api/src/__tests__/integration/pipeline.test.ts` (create)
+- `packages/workers/src/__tests__/integration/pipeline.test.ts` (create)
+- `packages/workers/src/__tests__/integration/setup.ts` (create)
+- `packages/workers/src/__tests__/integration/helpers.ts` (create)
+- `packages/workers/vitest.config.integration.ts` (create)
+- `packages/workers/vitest.config.ts` (modify — exclude integration dir)
+- `packages/workers/package.json` (modify — add test:integration script, pg devDep)
 
 **Description:**
 Write smoke tests that verify the BullMQ pipeline flow: capture creation enqueues a job, job transitions through stages, pipeline_status updates correctly. Use real Redis for queue operations.
 
 **Tasks:**
-1. [ ] Create a test that: POST capture → verify BullMQ job created in capture-pipeline queue → process job (mock LLM) → verify pipeline_status transitions: pending → processing → complete
-2. [ ] Test retry behavior: simulate a stage failure → verify job retries with correct backoff
-3. [ ] Test idempotency: process same capture twice → verify no duplicate entities or embeddings
+1. [x] Create a test that: POST capture → verify BullMQ job created in capture-pipeline queue → process job (mock LLM) → verify pipeline_status transitions: pending → processing → extracted → complete
+2. [x] Test retry behavior: simulate a stage failure → verify job retries with correct backoff
+3. [x] Test idempotency: process same capture twice → verify no duplicate entities or embeddings
 
 **Acceptance Criteria:**
-- [ ] Pipeline flow test passes with real Redis queue
-- [ ] Stage transitions are verified end-to-end
-- [ ] Retry and idempotency tests pass
-- [ ] Tests clean up jobs after completion
+- [x] Pipeline flow test passes with real Redis queue
+- [x] Stage transitions are verified end-to-end
+- [x] Retry and idempotency tests pass
+- [x] Tests clean up jobs after completion
 
 **Notes:**
-Use BullMQ's `Worker` in tests to process jobs synchronously. Mock LLM and embedding calls.
+Tests placed in workers package (not core-api) to avoid cross-package rootDir violations. Uses BullMQ Workers in tests to process jobs via real Redis. LLM and embedding calls stubbed. 12 tests across 4 describe blocks: Pipeline Flow (4), Retry Behavior (4), Idempotency (3), Queue Cleanup (1).
 
 ---
 
