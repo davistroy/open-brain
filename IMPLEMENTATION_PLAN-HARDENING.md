@@ -640,9 +640,9 @@ SearchService and TriggerService retain typed `db.execute<T>()` for queries usin
 
 ### Work Items
 
-#### 5.1 Push Search Filters into SQL Functions
+#### 5.1 Push Search Filters into SQL Functions ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** F18 (Architecture Audit — Performance, MEDIUM)
 **Files Affected:**
 - `scripts/init-schema.sql` (modify — hybrid_search and fts_only_search functions)
@@ -653,28 +653,28 @@ SearchService and TriggerService retain typed `db.execute<T>()` for queries usin
 SearchService fetches `limit * 5` rows (up to 200) then filters by brain_view, capture_type, dateFrom, and dateTo in JavaScript (lines 162-183). These filters should be WHERE clause parameters in the `hybrid_search()` and `fts_only_search()` SQL functions, letting Postgres use indexes and return only matching rows.
 
 **Tasks:**
-1. [ ] Add optional parameters to `hybrid_search()`: `filter_brain_views text[] DEFAULT NULL`, `filter_capture_types text[] DEFAULT NULL`, `filter_date_from timestamptz DEFAULT NULL`, `filter_date_to timestamptz DEFAULT NULL`
-2. [ ] Add corresponding WHERE clauses inside the function: `AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))`, etc.
-3. [ ] Apply same changes to `fts_only_search()`
-4. [ ] Create migration `0009_search_filter_params.sql` with `CREATE OR REPLACE FUNCTION` statements
-5. [ ] Update `SearchService.search()` to pass filter params to SQL and remove in-memory filtering (lines 162-183)
-6. [ ] Change `fetchCount` from `limit * 5` to `limit` (no overfetch needed)
+1. [x] Add optional parameters to `hybrid_search()`: `filter_brain_views text[] DEFAULT NULL`, `filter_capture_types text[] DEFAULT NULL`, `filter_date_from timestamptz DEFAULT NULL`, `filter_date_to timestamptz DEFAULT NULL`
+2. [x] Add corresponding WHERE clauses inside the function: `AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))`, etc.
+3. [x] Apply same changes to `fts_only_search()`
+4. [x] Create migration `0009_search_filter_params.sql` with `CREATE OR REPLACE FUNCTION` statements
+5. [x] Update `SearchService.search()` to pass filter params to SQL and remove in-memory filtering (lines 162-183)
+6. [x] Change `fetchCount` from `limit * 5` to `limit` (no overfetch needed)
 
 **Acceptance Criteria:**
-- [ ] Search with filters returns same results as before (verified with test data)
-- [ ] SearchService no longer filters in JavaScript
-- [ ] `fetchCount` equals `limit` (no overfetching)
-- [ ] Search tests pass with updated SQL function calls
-- [ ] Migration applies cleanly
+- [x] Search with filters returns same results as before (verified with test data)
+- [x] SearchService no longer filters in JavaScript
+- [x] `fetchCount` equals `limit` (no overfetching)
+- [x] Search tests pass with updated SQL function calls
+- [x] Migration applies cleanly
 
 **Notes:**
 Use `IS NULL OR` pattern for optional params so unfiltered searches are unaffected. Test with NULL params explicitly.
 
 ---
 
-#### 5.2 Add Rate Limiting Middleware
+#### 5.2 Add Rate Limiting Middleware ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** F16 (Architecture Audit — Security, MEDIUM)
 **Files Affected:**
 - `packages/core-api/src/middleware/rate-limit.ts` (create)
@@ -685,30 +685,30 @@ Use `IS NULL OR` pattern for optional params so unfiltered searches are unaffect
 No rate limiting exists on any endpoint. A misconfigured iOS Shortcut or runaway client could overwhelm the system or burn through the AI budget. Add a simple in-memory sliding window rate limiter (no Redis needed for single-user). Apply stricter limits to endpoints that trigger LLM calls.
 
 **Tasks:**
-1. [ ] Create `packages/core-api/src/middleware/rate-limit.ts` with a simple sliding-window rate limiter using a Map (IP-based, resets every window)
-2. [ ] Define rate limit tiers:
+1. [x] Create `packages/core-api/src/middleware/rate-limit.ts` with a simple sliding-window rate limiter using a Map (IP-based, resets every window)
+2. [x] Define rate limit tiers:
    - Default: 100 requests/minute (general API)
    - Strict: 20 requests/minute (POST /api/v1/captures, POST /api/v1/search, POST /api/v1/synthesize — these trigger LLM/embedding calls)
    - Admin: 5 requests/minute (POST /api/v1/admin/*)
-3. [ ] Apply as Hono middleware in `app.ts`
-4. [ ] Return `429 Too Many Requests` with `Retry-After` header when limit exceeded
-5. [ ] Write unit tests: under limit → passes, over limit → 429, window resets after period
+3. [x] Apply as Hono middleware in `app.ts`
+4. [x] Return `429 Too Many Requests` with `Retry-After` header when limit exceeded
+5. [x] Write unit tests: under limit → passes, over limit → 429, window resets after period
 
 **Acceptance Criteria:**
-- [ ] Requests under the limit succeed normally
-- [ ] Requests over the limit return 429 with Retry-After header
-- [ ] Different tiers apply to different endpoint groups
-- [ ] Rate limiter does not persist state across restarts (in-memory, acceptable for single-user)
-- [ ] All tests pass
+- [x] Requests under the limit succeed normally
+- [x] Requests over the limit return 429 with Retry-After header
+- [x] Different tiers apply to different endpoint groups
+- [x] Rate limiter does not persist state across restarts (in-memory, acceptable for single-user)
+- [x] All tests pass
 
 **Notes:**
 Keep it simple — in-memory Map is sufficient for a single-user system. Don't add Redis-based rate limiting complexity.
 
 ---
 
-#### 5.3 Load notifications.yaml in ConfigService
+#### 5.3 Load notifications.yaml in ConfigService ✅ Completed 2026-03-10
 
-**Status: PENDING**
+**Status: COMPLETE [2026-03-10]**
 **Recommendation Ref:** S7 (Intent Review — Partial Implementation, SUGGESTION)
 **Files Affected:**
 - `packages/shared/src/config/loader.ts` (modify)

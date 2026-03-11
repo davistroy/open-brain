@@ -89,11 +89,13 @@ export function applyTemporalDecay(
  *
  * Flow:
  *   1. Embed the query string via EmbeddingService
- *   2. Call hybrid_search SQL function (FTS + vector RRF)
+ *   2. Call hybrid_search SQL function (FTS + vector RRF) with filter params
  *   3. Fetch matching capture rows
  *   4. Apply ACT-R temporal decay in-memory (no per-row DB round-trip)
- *   5. Filter by brainViews / captureTypes / date range if provided
- *   6. Return top N results sorted by final score descending
+ *   5. Return top N results sorted by final score descending
+ *
+ * Filters (brainViews, captureTypes, dateFrom, dateTo) are pushed into the
+ * SQL functions as WHERE clause parameters — no in-memory post-filtering.
  */
 export class SearchService {
   constructor(
@@ -114,7 +116,13 @@ export class SearchService {
       searchMode = 'hybrid',
     } = options
 
-    const fetchCount = Math.min(limit * 5, 200)
+    // Build filter params — NULL means "no filter" in the SQL functions
+    const pgBrainViews = brainViews && brainViews.length > 0
+      ? `{${brainViews.join(',')}}` : null
+    const pgCaptureTypes = captureTypes && captureTypes.length > 0
+      ? `{${captureTypes.join(',')}}` : null
+    const pgDateFrom = dateFrom ? dateFrom.toISOString() : null
+    const pgDateTo = dateTo ? dateTo.toISOString() : null
 
     let hybridRows: { rows: { capture_id: string; rrf_score: number; fts_score: number; vector_score: number }[] }
 
@@ -123,22 +131,33 @@ export class SearchService {
       // searches captures regardless of whether they have embeddings yet.
       hybridRows = await this.db.execute<HybridSearchRow>(sql`
         SELECT capture_id::text, rrf_score, fts_score, vector_score
-        FROM fts_only_search(${query}, ${fetchCount})
+        FROM fts_only_search(
+          ${query},
+          ${limit},
+          ${pgBrainViews}::text[],
+          ${pgCaptureTypes}::text[],
+          ${pgDateFrom}::timestamptz,
+          ${pgDateTo}::timestamptz
+        )
       `)
     } else {
       // Step 1: embed the query (throws EmbeddingUnavailableError if LiteLLM is down)
       const queryVector = await this.embeddingService.embed(query)
       const vectorLiteral = `[${queryVector.join(',')}]`
 
-      // Step 2: call hybrid_search — fetch more than `limit` so post-filters have candidates
+      // Step 2: call hybrid_search with filters — Postgres applies WHERE clauses
       hybridRows = await this.db.execute<HybridSearchRow>(sql`
         SELECT capture_id::text, rrf_score, fts_score, vector_score
         FROM hybrid_search(
           ${query},
           ${vectorLiteral}::vector(768),
-          ${fetchCount},
+          ${limit},
           ${ftsWeight},
-          ${vectorWeight}
+          ${vectorWeight},
+          ${pgBrainViews}::text[],
+          ${pgCaptureTypes}::text[],
+          ${pgDateFrom}::timestamptz,
+          ${pgDateTo}::timestamptz
         )
       `)
     }
@@ -181,29 +200,9 @@ export class SearchService {
       })
     }
 
-    // Step 5: apply optional post-filters
-    let filtered = results
-
-    if (brainViews && brainViews.length > 0) {
-      const viewSet = new Set(brainViews)
-      filtered = filtered.filter(r => viewSet.has(r.capture.brain_view))
-    }
-
-    if (captureTypes && captureTypes.length > 0) {
-      const typeSet = new Set(captureTypes)
-      filtered = filtered.filter(r => typeSet.has(r.capture.capture_type))
-    }
-
-    if (dateFrom) {
-      filtered = filtered.filter(r => new Date(r.capture.captured_at) >= dateFrom)
-    }
-
-    if (dateTo) {
-      filtered = filtered.filter(r => new Date(r.capture.captured_at) <= dateTo)
-    }
-
-    // Step 6: sort by final score descending and return top N
-    filtered.sort((a, b) => b.score - a.score)
-    return filtered.slice(0, limit)
+    // Step 5: sort by final score descending and return
+    // No in-memory filtering needed — filters are applied in SQL
+    results.sort((a, b) => b.score - a.score)
+    return results.slice(0, limit)
   }
 }

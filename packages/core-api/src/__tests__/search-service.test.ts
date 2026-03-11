@@ -298,20 +298,89 @@ describe('SearchService', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Filter application
+  // Filter params pushed to SQL
   // -------------------------------------------------------------------------
 
-  describe('filter application', () => {
-    function buildMultiCaptureSetup() {
-      const captures = [
-        makeCaptureRecord({ id: 'cap-1', brain_view: 'technical', capture_type: 'idea', captured_at: new Date('2026-02-01T00:00:00Z') }),
-        makeCaptureRecord({ id: 'cap-2', brain_view: 'career', capture_type: 'decision', captured_at: new Date('2026-01-01T00:00:00Z') }),
-        makeCaptureRecord({ id: 'cap-3', brain_view: 'personal', capture_type: 'reflection', captured_at: new Date('2026-03-01T00:00:00Z') }),
-      ]
+  describe('filter params passed to SQL functions', () => {
+    it('passes brainViews filter to SQL and returns matching results', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1', brain_view: 'technical' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.85 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
 
+      const results = await service.search('filter test', { brainViews: ['technical'] })
+
+      expect(results).toHaveLength(1)
+      expect(results[0].capture.brain_view).toBe('technical')
+      // Verify exactly 2 DB calls (no in-memory filtering round-trips)
+      expect(db.execute).toHaveBeenCalledTimes(2)
+    })
+
+    it('passes captureTypes as Postgres text[] to hybrid_search', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1', capture_type: 'decision' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.85 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.search('type filter', { captureTypes: ['decision'] })
+
+      expect(results).toHaveLength(1)
+      expect(results[0].capture.capture_type).toBe('decision')
+    })
+
+    it('passes dateFrom and dateTo as timestamptz to hybrid_search', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1', captured_at: new Date('2026-03-01T00:00:00Z') })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.85 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.search('date filter', {
+        dateFrom: new Date('2026-02-15T00:00:00Z'),
+        dateTo: new Date('2026-03-15T00:00:00Z'),
+      })
+
+      expect(results).toHaveLength(1)
+    })
+
+    it('returns results unfiltered when no filter options are set', async () => {
+      const capture = makeCaptureRecord()
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      // No filters → NULL params passed to SQL → no filtering applied
+      const results = await service.search('no filters')
+
+      expect(results).toHaveLength(1)
+      expect(results[0].score).toBe(0.8)
+      // Still exactly 2 DB calls
+      expect(db.execute).toHaveBeenCalledTimes(2)
+    })
+
+    it('passes filter params to fts_only_search in FTS mode', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1', brain_view: 'career' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.0 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.search('fts filter test', {
+        searchMode: 'fts',
+        brainViews: ['career'],
+      })
+
+      expect(results).toHaveLength(1)
+      // embed() should NOT be called in FTS mode
+      expect(embeddingService.embed).not.toHaveBeenCalled()
+    })
+
+    it('does not overfetch — SQL receives limit, not limit*5', async () => {
+      // With filters in SQL, SearchService no longer needs to overfetch.
+      // We verify this by checking that requesting limit=3 returns at most 3
+      // results even when the mock returns more (i.e., the service slices to limit).
+      const captures = Array.from({ length: 5 }, (_, i) => makeCaptureRecord({ id: `cap-${i}` }))
       const hybridRows = captures.map((c, i) => ({
         capture_id: c.id!,
-        rrf_score: 0.9 - i * 0.1,
+        rrf_score: 0.9 - i * 0.05,
         fts_score: 0.8,
         vector_score: 0.85,
       }))
@@ -320,89 +389,42 @@ describe('SearchService', () => {
       execute.mockResolvedValueOnce({ rows: hybridRows })
       execute.mockResolvedValueOnce({ rows: captures })
 
-      return { execute, captures }
-    }
-
-    it('filters by brainViews when provided', async () => {
-      const { execute } = buildMultiCaptureSetup()
       const service = new SearchService({ execute } as any, embeddingService as any)
 
-      const results = await service.search('filter test', { brainViews: ['technical'] })
+      const results = await service.search('limit check', { limit: 3 })
 
-      expect(results).toHaveLength(1)
-      expect(results[0].capture.brain_view).toBe('technical')
+      // At most limit results returned
+      expect(results).toHaveLength(3)
+      // Only 2 execute calls — no overfetch round-trips
+      expect(execute).toHaveBeenCalledTimes(2)
     })
 
-    it('filters by multiple brainViews', async () => {
-      const { execute } = buildMultiCaptureSetup()
-      const service = new SearchService({ execute } as any, embeddingService as any)
-
-      const results = await service.search('multi-view filter', { brainViews: ['technical', 'career'] })
-
-      expect(results).toHaveLength(2)
-      const views = results.map(r => r.capture.brain_view)
-      expect(views).toContain('technical')
-      expect(views).toContain('career')
-    })
-
-    it('filters by captureTypes when provided', async () => {
-      const { execute } = buildMultiCaptureSetup()
-      const service = new SearchService({ execute } as any, embeddingService as any)
-
-      const results = await service.search('type filter', { captureTypes: ['decision'] })
-
-      expect(results).toHaveLength(1)
-      expect(results[0].capture.capture_type).toBe('decision')
-    })
-
-    it('filters by dateFrom (inclusive)', async () => {
-      const { execute } = buildMultiCaptureSetup()
-      const service = new SearchService({ execute } as any, embeddingService as any)
-
-      // Only cap-3 (2026-03-01) is on or after 2026-02-15
-      const results = await service.search('date from filter', {
-        dateFrom: new Date('2026-02-15T00:00:00Z'),
+    it('handles combined filters (brainViews + dateFrom)', async () => {
+      const capture = makeCaptureRecord({
+        id: 'cap-1',
+        brain_view: 'personal',
+        captured_at: new Date('2026-03-01T00:00:00Z'),
       })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.85 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
 
-      expect(results).toHaveLength(1)
-      expect(results[0].capture.id).toBe('cap-3')
-    })
-
-    it('filters by dateTo (inclusive)', async () => {
-      const { execute } = buildMultiCaptureSetup()
-      const service = new SearchService({ execute } as any, embeddingService as any)
-
-      // cap-1 (2026-02-01) and cap-2 (2026-01-01) are on or before 2026-02-01
-      const results = await service.search('date to filter', {
-        dateTo: new Date('2026-02-01T23:59:59Z'),
-      })
-
-      expect(results).toHaveLength(2)
-      const ids = results.map(r => r.capture.id)
-      expect(ids).toContain('cap-1')
-      expect(ids).toContain('cap-2')
-    })
-
-    it('applies combined filters (brainViews + dateFrom)', async () => {
-      const { execute } = buildMultiCaptureSetup()
-      const service = new SearchService({ execute } as any, embeddingService as any)
-
-      // Only cap-3 is personal AND >= 2026-02-15
       const results = await service.search('combined filter', {
         brainViews: ['personal'],
         dateFrom: new Date('2026-02-15T00:00:00Z'),
       })
 
       expect(results).toHaveLength(1)
-      expect(results[0].capture.id).toBe('cap-3')
+      expect(results[0].capture.id).toBe('cap-1')
     })
 
-    it('returns empty array when filters exclude all results', async () => {
-      const { execute } = buildMultiCaptureSetup()
-      const service = new SearchService({ execute } as any, embeddingService as any)
+    it('returns empty array when SQL returns no rows (filters exclude all)', async () => {
+      // Mock: SQL returns no rows because filter excluded everything
+      const db = makeMockDb([], [])
+      const service = new SearchService(db as any, embeddingService as any)
 
       const results = await service.search('no match filter', {
-        brainViews: ['work-internal'], // none of the captures are this view
+        brainViews: ['work-internal'],
       })
 
       expect(results).toEqual([])

@@ -4,6 +4,7 @@ import { cors } from 'hono/cors'
 import type { ConnectionOptions, Queue } from 'bullmq'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { errorHandler } from './middleware/error-handler.js'
+import { RateLimiter, RATE_LIMIT_TIERS, rateLimit } from './middleware/rate-limit.js'
 import { registerHealthRoutes } from './routes/health.js'
 import { createAdminRouter } from './routes/admin.js'
 import { registerCaptureRoutes } from './routes/captures.js'
@@ -59,12 +60,30 @@ export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
   const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway } = deps
 
+  // Rate limiter instances (in-memory, no persistence needed for single-user)
+  const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
+  const strictLimiter = new RateLimiter(RATE_LIMIT_TIERS.strict)
+  const adminLimiter = new RateLimiter(RATE_LIMIT_TIERS.admin)
+
   // Global middleware
   app.use('*', honoLogger())
   app.use('*', cors({ origin: ['https://brain.k4jda.net', 'http://localhost:5173', 'http://localhost:3000'] }))
   app.onError(errorHandler())
 
-  // Routes
+  // Rate limiting — tiered by endpoint group
+  // Strict tier: endpoints that trigger LLM/embedding calls
+  app.use('/api/v1/captures', rateLimit(strictLimiter))
+  app.use('/api/v1/captures/*', rateLimit(strictLimiter))
+  app.use('/api/v1/search', rateLimit(strictLimiter))
+  app.use('/api/v1/synthesize', rateLimit(strictLimiter))
+
+  // Admin tier: destructive/config endpoints
+  app.use('/api/v1/admin/*', rateLimit(adminLimiter))
+
+  // Default tier: everything else under /api/v1
+  app.use('/api/v1/*', rateLimit(defaultLimiter))
+
+  // Routes (health + events are outside /api/v1, intentionally not rate-limited)
   registerHealthRoutes(app)
   registerEventsRoutes(app)
 
