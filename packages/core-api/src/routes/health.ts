@@ -4,14 +4,16 @@ import { Redis } from 'ioredis'
 import { readFileSync } from 'node:fs'
 import { logger } from '../lib/logger.js'
 
-// Read version at startup — works in Docker where npm_package_version is unset
+// Read version at startup — works in Docker where npm_package_version is unset.
+// tsup bundles into dist/index.js, so ../package.json reaches packages/core-api/package.json.
 const APP_VERSION = (() => {
-  try {
-    const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'))
-    return pkg.version as string
-  } catch {
-    return process.env.npm_package_version ?? 'unknown'
+  for (const rel of ['../package.json', '../../package.json']) {
+    try {
+      const pkg = JSON.parse(readFileSync(new URL(rel, import.meta.url), 'utf-8'))
+      if (pkg.version) return pkg.version as string
+    } catch { /* try next */ }
   }
+  return process.env.npm_package_version ?? 'unknown'
 })()
 
 type ServiceStatus = 'healthy' | 'degraded' | 'unhealthy'
