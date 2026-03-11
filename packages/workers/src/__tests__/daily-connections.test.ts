@@ -534,7 +534,7 @@ describe('DailyConnectionsSkill', () => {
         }),
       )
       // Verify message contains summary and connection themes
-      const sendCall = (pushover.send as MockInstance).mock.calls[0][0]
+      const sendCall = (pushover.send as unknown as MockInstance).mock.calls[0][0]
       expect(sendCall.message).toContain(SAMPLE_CONNECTIONS_OUTPUT.summary)
       expect(sendCall.message).toContain('Client-Infrastructure Convergence')
     })

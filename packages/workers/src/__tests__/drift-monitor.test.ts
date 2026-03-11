@@ -741,7 +741,7 @@ describe('DriftMonitorSkill', () => {
         }),
       )
       // Verify message contains summary and drift item lines
-      const sendCall = (pushover.send as MockInstance).mock.calls[0][0]
+      const sendCall = (pushover.send as unknown as MockInstance).mock.calls[0][0]
       expect(sendCall.message).toContain(SAMPLE_DRIFT_OUTPUT.summary)
       expect(sendCall.message).toContain('HIGH')
       expect(sendCall.message).toContain('NovaBurger')
