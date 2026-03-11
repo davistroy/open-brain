@@ -60,6 +60,7 @@ services:
       LITELLM_URL: https://llm.k4jda.net
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
+      # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
     ports:
       - "3002:3000"
     volumes:

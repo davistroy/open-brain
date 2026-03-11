@@ -138,13 +138,15 @@ export async function handleQuery(
     }
 
     const followUp = parseFollowUp(rawText)
+    const results = ctx.results ?? []
+    const query = ctx.query ?? ''
 
     if (followUp.type === 'select') {
       // User wants full detail for result N (1-based)
-      const selected = ctx.results[followUp.index - 1]
+      const selected = results[followUp.index - 1]
       if (!selected) {
         await say({
-          text: `No result #${followUp.index}. There are ${ctx.results.length} results.`,
+          text: `No result #${followUp.index}. There are ${results.length} results.`,
           thread_ts: ts,
         })
         return
@@ -163,16 +165,17 @@ export async function handleQuery(
 
     if (followUp.type === 'more') {
       // Advance to next page
-      const nextPage = ctx.page + 1
+      const currentPage = ctx.page ?? 1
+      const nextPage = currentPage + 1
       const offset = (nextPage - 1) * PAGE_SIZE
-      if (offset >= ctx.results.length) {
+      if (offset >= results.length) {
         await say({ text: 'No more results.', thread_ts: ts })
         return
       }
 
       // Update stored page
       await setThreadContext(redis, threadTs, { ...ctx, page: nextPage })
-      const formatted = formatSearchResults(ctx.results, ctx.query, nextPage, PAGE_SIZE)
+      const formatted = formatSearchResults(results, query, nextPage, PAGE_SIZE)
       await say({ text: formatted, thread_ts: ts })
       return
     }

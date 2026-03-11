@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { EmbeddingService, EmbeddingUnavailableError } from '../services/embedding.js'
+import { EmbeddingService, EmbeddingUnavailableError } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Mock the OpenAI client constructor so no real HTTP calls are made.

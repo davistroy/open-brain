@@ -2,7 +2,7 @@ import { eq, desc, sql } from 'drizzle-orm'
 import { triggers, captures } from '@open-brain/shared'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import type { EmbeddingService } from './embedding.js'
+import type { EmbeddingService } from '@open-brain/shared'
 
 const MAX_ACTIVE_TRIGGERS = 20
 const DEFAULT_THRESHOLD = 0.72
@@ -30,6 +30,16 @@ export interface TriggerTestMatch {
   capture_type: string
   brain_view: string
   created_at: Date
+}
+
+/** Row shape returned by the pgvector cosine similarity query in TriggerService.test() */
+type TriggerTestQueryRow = {
+  id: string
+  content: string
+  capture_type: string
+  brain_view: string
+  created_at: Date
+  similarity: number
 }
 
 export interface CreateTriggerInput {
@@ -177,14 +187,8 @@ export class TriggerService {
     const queryEmbedding = await this.embeddingService.embed(queryText)
 
     // Use pgvector cosine similarity to find top matches across all captures with embeddings
-    const rows = await this.db.execute<{
-      id: string
-      content: string
-      capture_type: string
-      brain_view: string
-      created_at: Date
-      similarity: number
-    }>(sql`
+    // pgvector <=> operator isn't expressible in Drizzle query builder — typed raw SQL required
+    const rows = await this.db.execute<TriggerTestQueryRow>(sql`
       SELECT
         id::text,
         content,

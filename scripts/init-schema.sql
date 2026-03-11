@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS captures (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
+  deleted_at TIMESTAMPTZ,
+  access_count INTEGER NOT NULL DEFAULT 0,
+  last_accessed_at TIMESTAMPTZ
 );
 CREATE UNIQUE INDEX IF NOT EXISTS captures_content_hash_idx ON captures(content_hash);
 CREATE INDEX IF NOT EXISTS captures_capture_type_idx ON captures(capture_type);
@@ -198,50 +200,137 @@ CREATE TRIGGER set_sessions_updated_at BEFORE UPDATE ON sessions FOR EACH ROW EX
 CREATE TRIGGER set_bets_updated_at BEFORE UPDATE ON bets FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER set_triggers_updated_at BEFORE UPDATE ON triggers FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
--- Search functions from 0002_search_functions.sql
+-- Search functions (matches migration chain: 0002 + 0006 + 0009)
 CREATE OR REPLACE FUNCTION hybrid_search(
-  query_embedding vector(768),
-  query_text text,
-  match_limit integer DEFAULT 20,
-  vector_weight real DEFAULT 0.6,
-  fts_weight real DEFAULT 0.4,
-  temporal_weight real DEFAULT 0.0
+  query_text             text,
+  query_embedding        vector(768),
+  match_count            int,
+  fts_weight             float DEFAULT 1.0,
+  vector_weight          float DEFAULT 1.0,
+  filter_brain_views     text[] DEFAULT NULL,
+  filter_capture_types   text[] DEFAULT NULL,
+  filter_date_from       timestamptz DEFAULT NULL,
+  filter_date_to         timestamptz DEFAULT NULL
 )
 RETURNS TABLE (
-  id uuid,
-  content text,
-  capture_type text,
-  brain_view text,
-  source text,
-  tags text[],
-  created_at timestamptz,
-  captured_at timestamptz,
-  rrf_score real
-) AS $$
-WITH vector_results AS (
-  SELECT c.id, 1.0 / (60 + rank() OVER (ORDER BY c.embedding <=> query_embedding)) AS score
-  FROM captures c
-  WHERE c.embedding IS NOT NULL AND c.deleted_at IS NULL
-  ORDER BY c.embedding <=> query_embedding
-  LIMIT match_limit * 2
-),
-fts_results AS (
-  SELECT c.id, 1.0 / (60 + rank() OVER (ORDER BY ts_rank(to_tsvector('english', c.content), plainto_tsquery('english', query_text)) DESC)) AS score
-  FROM captures c
-  WHERE to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text) AND c.deleted_at IS NULL
-  ORDER BY ts_rank(to_tsvector('english', c.content), plainto_tsquery('english', query_text)) DESC
-  LIMIT match_limit * 2
-),
-combined AS (
-  SELECT COALESCE(v.id, f.id) AS id,
-    (COALESCE(v.score, 0) * vector_weight + COALESCE(f.score, 0) * fts_weight)::real AS rrf_score
-  FROM vector_results v FULL OUTER JOIN fts_results f ON v.id = f.id
+  capture_id   uuid,
+  rrf_score    float,
+  fts_score    float,
+  vector_score float
 )
-SELECT c.id, c.content, c.capture_type, c.brain_view, c.source, c.tags, c.created_at, c.captured_at, combined.rrf_score
-FROM combined JOIN captures c ON c.id = combined.id
-ORDER BY combined.rrf_score DESC
-LIMIT match_limit;
-$$ LANGUAGE sql STABLE;
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  k int := 60;
+BEGIN
+  RETURN QUERY
+  WITH fts_ranked AS (
+    SELECT
+      c.id AS capture_id,
+      ts_rank_cd(
+        to_tsvector('english', c.content),
+        plainto_tsquery('english', query_text)
+      )::float AS fts_score,
+      ROW_NUMBER() OVER (
+        ORDER BY ts_rank_cd(
+          to_tsvector('english', c.content),
+          plainto_tsquery('english', query_text)
+        ) DESC
+      ) AS fts_rank
+    FROM captures c
+    WHERE
+      c.embedding IS NOT NULL
+      AND c.deleted_at IS NULL
+      AND to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
+      AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
+      AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
+  ),
+  vector_ranked AS (
+    SELECT
+      c.id AS capture_id,
+      (1.0 - (c.embedding <=> query_embedding))::float AS vector_score,
+      ROW_NUMBER() OVER (
+        ORDER BY c.embedding <=> query_embedding ASC
+      ) AS vector_rank
+    FROM captures c
+    WHERE
+      c.embedding IS NOT NULL
+      AND c.deleted_at IS NULL
+      AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
+      AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
+      AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
+  ),
+  fused AS (
+    SELECT
+      COALESCE(f.capture_id, v.capture_id) AS capture_id,
+      (
+        COALESCE(fts_weight    * (1.0 / (k + COALESCE(f.fts_rank,    2147483647))), 0.0) +
+        COALESCE(vector_weight * (1.0 / (k + COALESCE(v.vector_rank, 2147483647))), 0.0)
+      )::float AS rrf_score,
+      COALESCE(f.fts_score,    0.0)::float AS fts_score,
+      COALESCE(v.vector_score, 0.0)::float AS vector_score
+    FROM fts_ranked    f
+    FULL OUTER JOIN vector_ranked v USING (capture_id)
+  )
+  SELECT
+    fused.capture_id,
+    fused.rrf_score,
+    fused.fts_score,
+    fused.vector_score
+  FROM fused
+  ORDER BY fused.rrf_score DESC
+  LIMIT match_count;
+END;
+$$;
+
+-- actr_temporal_score
+CREATE OR REPLACE FUNCTION actr_temporal_score(
+  base_score      float,
+  created_at      timestamptz,
+  temporal_weight float DEFAULT 0.0
+)
+RETURNS float
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  decay_rate    float := 0.01;
+  hours_since   float;
+  decay         float;
+BEGIN
+  IF temporal_weight = 0.0 THEN
+    RETURN base_score;
+  END IF;
+  hours_since := GREATEST(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0, 0.0);
+  decay := EXP(-decay_rate * SQRT(hours_since));
+  RETURN base_score * decay * temporal_weight + base_score * (1.0 - temporal_weight);
+END;
+$$;
+
+-- update_capture_embedding
+CREATE OR REPLACE FUNCTION update_capture_embedding(
+  capture_id uuid,
+  embedding  vector(768)
+)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  UPDATE captures
+  SET
+    embedding       = update_capture_embedding.embedding,
+    pipeline_status = 'embedded',
+    updated_at      = NOW()
+  WHERE id = update_capture_embedding.capture_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'capture not found: %', capture_id;
+  END IF;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION vector_search(
   query_embedding vector(768),
@@ -289,5 +378,60 @@ RETURNS TABLE (
   ORDER BY rank DESC
   LIMIT match_limit;
 $$ LANGUAGE sql STABLE;
+
+-- fts_only_search (for search_mode='fts', no embedding required)
+CREATE OR REPLACE FUNCTION fts_only_search(
+  query_text             text,
+  match_count            int,
+  filter_brain_views     text[] DEFAULT NULL,
+  filter_capture_types   text[] DEFAULT NULL,
+  filter_date_from       timestamptz DEFAULT NULL,
+  filter_date_to         timestamptz DEFAULT NULL
+)
+RETURNS TABLE (
+  capture_id   uuid,
+  rrf_score    float,
+  fts_score    float,
+  vector_score float
+)
+LANGUAGE plpgsql
+STABLE
+AS $$
+DECLARE
+  k int := 60;
+BEGIN
+  RETURN QUERY
+  WITH fts_ranked AS (
+    SELECT
+      c.id AS capture_id,
+      ts_rank_cd(
+        to_tsvector('english', c.content),
+        plainto_tsquery('english', query_text)
+      )::float AS fts_score,
+      ROW_NUMBER() OVER (
+        ORDER BY ts_rank_cd(
+          to_tsvector('english', c.content),
+          plainto_tsquery('english', query_text)
+        ) DESC
+      ) AS fts_rank
+    FROM captures c
+    WHERE
+      c.deleted_at IS NULL
+      AND to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
+      AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
+      AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
+      AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
+  )
+  SELECT
+    fts_ranked.capture_id,
+    (1.0 / (k + fts_ranked.fts_rank))::float AS rrf_score,
+    fts_ranked.fts_score,
+    0.0::float AS vector_score
+  FROM fts_ranked
+  ORDER BY fts_ranked.fts_score DESC
+  LIMIT match_count;
+END;
+$$;
 
 SELECT 'Schema initialization complete' AS result;

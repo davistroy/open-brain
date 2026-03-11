@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql, desc, asc, ne } from 'drizzle-orm'
 import { entities, entity_links, captures } from '@open-brain/shared'
 import { NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
@@ -65,110 +65,128 @@ export class EntityService {
   async list(filter: EntityListFilter = {}): Promise<EntityListResult> {
     const { type_filter, sort_by = 'mention_count', limit = 20, offset = 0 } = filter
 
-    const orderExpr =
-      sort_by === 'mention_count'
-        ? sql`mention_count DESC`
-        : sort_by === 'last_seen'
-          ? sql`last_seen_at DESC NULLS LAST`
-          : sql`name ASC`
+    // Build WHERE condition for optional type filter
+    const whereCondition = type_filter
+      ? eq(entities.entity_type, type_filter)
+      : undefined
 
-    const typeClause = type_filter
-      ? sql`WHERE e.entity_type = ${type_filter}`
-      : sql``
+    // Build ORDER BY expression — mention_count is a computed aggregate alias,
+    // so we use sql template for it; others reference Drizzle column refs.
+    const orderByExpr =
+      sort_by === 'mention_count'
+        ? desc(sql`mention_count`)
+        : sort_by === 'last_seen'
+          ? sql`${entities.last_seen_at} DESC NULLS LAST`
+          : asc(entities.name)
 
     // Derive mention_count from entity_links at query time for accuracy
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await this.db.execute<any>(
-      sql`SELECT
-            e.id::text,
-            e.name,
-            e.entity_type,
-            e.canonical_name,
-            e.aliases,
-            e.metadata,
-            e.first_seen_at,
-            e.last_seen_at,
-            e.created_at,
-            e.updated_at,
-            COUNT(el.id)::int AS mention_count
-          FROM entities e
-          LEFT JOIN entity_links el ON el.entity_id = e.id
-          ${typeClause}
-          GROUP BY e.id
-          ORDER BY ${orderExpr}
-          LIMIT ${limit} OFFSET ${offset}`,
-    )
+    // Run data + count queries in parallel (they are independent)
+    const [dataRows, countRows] = await Promise.all([
+      this.db
+        .select({
+          id: sql<string>`${entities.id}::text`,
+          name: entities.name,
+          entity_type: entities.entity_type,
+          canonical_name: entities.canonical_name,
+          aliases: entities.aliases,
+          metadata: entities.metadata,
+          first_seen_at: entities.first_seen_at,
+          last_seen_at: entities.last_seen_at,
+          created_at: entities.created_at,
+          updated_at: entities.updated_at,
+          mention_count: sql<number>`COUNT(${entity_links.id})::int`,
+        })
+        .from(entities)
+        .leftJoin(entity_links, eq(entity_links.entity_id, entities.id))
+        .where(whereCondition)
+        .groupBy(entities.id)
+        .orderBy(orderByExpr)
+        .limit(limit)
+        .offset(offset),
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const countRows = await this.db.execute<any>(
-      type_filter
-        ? sql`SELECT COUNT(*)::text AS total FROM entities WHERE entity_type = ${type_filter}`
-        : sql`SELECT COUNT(*)::text AS total FROM entities`,
-    )
+      this.db
+        .select({ total: sql<string>`count(*)` })
+        .from(entities)
+        .where(whereCondition),
+    ])
 
     return {
-      items: rows.rows as unknown as EntityRecord[],
-      total: Number(countRows.rows[0]?.total ?? 0),
+      items: dataRows as EntityRecord[],
+      total: Number(countRows[0]?.total ?? 0),
     }
   }
 
   async getById(id: string): Promise<EntityDetail> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const entityRows = await this.db.execute<any>(
-      sql`SELECT
-            id::text, name, entity_type, canonical_name, aliases,
-            metadata, first_seen_at, last_seen_at, created_at, updated_at,
-            (SELECT COUNT(*)::int FROM entity_links WHERE entity_id = ${id}::uuid) AS mention_count
-          FROM entities
-          WHERE id = ${id}::uuid
-          LIMIT 1`,
-    )
+    const entityRows = await this.db
+      .select({
+        id: sql<string>`${entities.id}::text`,
+        name: entities.name,
+        entity_type: entities.entity_type,
+        canonical_name: entities.canonical_name,
+        aliases: entities.aliases,
+        metadata: entities.metadata,
+        first_seen_at: entities.first_seen_at,
+        last_seen_at: entities.last_seen_at,
+        created_at: entities.created_at,
+        updated_at: entities.updated_at,
+        mention_count: sql<number>`(SELECT COUNT(*)::int FROM entity_links WHERE entity_id = ${id}::uuid)`,
+      })
+      .from(entities)
+      .where(sql`${entities.id} = ${id}::uuid`)
+      .limit(1)
 
-    if (entityRows.rows.length === 0) {
+    if (entityRows.length === 0) {
       throw new NotFoundError(`Entity not found: ${id}`)
     }
 
-    const entity = entityRows.rows[0] as unknown as EntityRecord
+    const entity = entityRows[0] as EntityRecord
 
     // Fetch up to 20 most recent linked captures
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const captureRows = await this.db.execute<any>(
-      sql`SELECT
-            c.id::text,
-            c.content,
-            c.capture_type,
-            c.brain_view,
-            el.relationship,
-            el.confidence,
-            c.created_at
-          FROM entity_links el
-          JOIN captures c ON c.id = el.capture_id
-          WHERE el.entity_id = ${id}::uuid
-            AND c.pipeline_status != 'deleted'
-          ORDER BY c.created_at DESC
-          LIMIT 20`,
-    )
+    const linkedCaptures = await this.db
+      .select({
+        id: sql<string>`${captures.id}::text`,
+        content: captures.content,
+        capture_type: captures.capture_type,
+        brain_view: captures.brain_view,
+        relationship: entity_links.relationship,
+        confidence: entity_links.confidence,
+        created_at: captures.created_at,
+      })
+      .from(entity_links)
+      .innerJoin(captures, eq(captures.id, entity_links.capture_id))
+      .where(
+        sql`${entity_links.entity_id} = ${id}::uuid AND ${captures.pipeline_status} != 'deleted'`,
+      )
+      .orderBy(desc(captures.created_at))
+      .limit(20)
 
     return {
       ...entity,
-      linked_captures: captureRows.rows as unknown as LinkedCapture[],
+      linked_captures: linkedCaptures as LinkedCapture[],
     }
   }
 
   async getByName(name: string): Promise<EntityRecord | null> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await this.db.execute<any>(
-      sql`SELECT
-            id::text, name, entity_type, canonical_name, aliases,
-            metadata, first_seen_at, last_seen_at, created_at, updated_at,
-            (SELECT COUNT(*)::int FROM entity_links WHERE entity_id = entities.id) AS mention_count
-          FROM entities
-          WHERE lower(name) = lower(${name})
-          LIMIT 1`,
-    )
+    const rows = await this.db
+      .select({
+        id: sql<string>`${entities.id}::text`,
+        name: entities.name,
+        entity_type: entities.entity_type,
+        canonical_name: entities.canonical_name,
+        aliases: entities.aliases,
+        metadata: entities.metadata,
+        first_seen_at: entities.first_seen_at,
+        last_seen_at: entities.last_seen_at,
+        created_at: entities.created_at,
+        updated_at: entities.updated_at,
+        mention_count: sql<number>`(SELECT COUNT(*)::int FROM entity_links WHERE entity_id = ${entities.id})`,
+      })
+      .from(entities)
+      .where(sql`lower(${entities.name}) = lower(${name})`)
+      .limit(1)
 
-    if (rows.rows.length === 0) return null
-    return rows.rows[0] as unknown as EntityRecord
+    if (rows.length === 0) return null
+    return rows[0] as EntityRecord
   }
 
   /**
@@ -194,15 +212,16 @@ export class EntityService {
   }
 
   /**
-   * Update last_seen_at and increment mention_count for an entity.
+   * Update last_seen_at for an entity.
    * Called by the link-entities pipeline stage.
    */
   async recordMention(entityId: string): Promise<void> {
-    await this.db.execute(
-      sql`UPDATE entities
-          SET last_seen_at = now(),
-              updated_at   = now()
-          WHERE id = ${entityId}::uuid`,
-    )
+    await this.db
+      .update(entities)
+      .set({
+        last_seen_at: new Date(),
+        updated_at: new Date(),
+      })
+      .where(sql`${entities.id} = ${entityId}::uuid`)
   }
 }

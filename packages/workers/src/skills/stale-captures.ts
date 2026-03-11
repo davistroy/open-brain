@@ -161,30 +161,28 @@ export class StaleCapturesSkill {
    * had a chance to process it.
    */
   private async queryStaleCaptures(thresholdMinutes: number): Promise<StaleCapture[]> {
+    const threshold = new Date(Date.now() - thresholdMinutes * 60 * 1000)
+
     const rows = await this.db.execute<{
       id: string
       pipeline_status: string
       created_at: string
       age_minutes: number
-    }>(
-      sql.raw(`
-        SELECT id, pipeline_status, created_at,
-               EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS age_minutes
-        FROM captures
-        WHERE pipeline_status IN ('received', 'processing')
-          AND created_at < NOW() - INTERVAL '${thresholdMinutes} minutes'
-        ORDER BY created_at ASC
-      `),
-    )
+    }>(sql`
+      SELECT id, pipeline_status, created_at,
+             EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS age_minutes
+      FROM captures
+      WHERE pipeline_status IN ('received', 'processing')
+        AND created_at < ${threshold.toISOString()}::timestamptz
+      ORDER BY created_at ASC
+    `)
 
-    return (rows.rows as Array<{ id: string; pipeline_status: string; created_at: string; age_minutes: number }>).map(
-      (row) => ({
-        id: row.id,
-        pipeline_status: row.pipeline_status,
-        created_at: new Date(row.created_at),
-        age_minutes: Math.round(Number(row.age_minutes)),
-      }),
-    )
+    return rows.rows.map((row) => ({
+      id: row.id,
+      pipeline_status: row.pipeline_status,
+      created_at: new Date(row.created_at),
+      age_minutes: Math.round(Number(row.age_minutes)),
+    }))
   }
 
   // ----------------------------------------------------------

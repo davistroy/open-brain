@@ -61,9 +61,9 @@ const SAMPLE_SKILLS_LOG = [
   },
   {
     id: 'log-2',
-    skill_name: 'drift-monitor',
-    input_summary: '82 captures across 5 views',
-    output_summary: 'No significant drift detected',
+    skill_name: 'pipeline-health',
+    input_summary: 'Hourly queue stats check',
+    output_summary: 'All queues healthy',
     duration_ms: 3200,
     created_at: '2026-02-23T09:01:00Z',
   },
@@ -110,8 +110,9 @@ describe('GET /api/v1/skills', () => {
 
     const skillNames = body.skills.map((s: { name: string }) => s.name)
     expect(skillNames).toContain('weekly-brief')
-    expect(skillNames).toContain('drift-monitor')
-    expect(skillNames).toContain('daily-connections')
+    expect(skillNames).toContain('pipeline-health')
+    expect(skillNames).not.toContain('drift-monitor')
+    expect(skillNames).not.toContain('daily-connections')
   })
 
   it('includes schedule and description for known skills', async () => {
@@ -258,29 +259,29 @@ describe('POST /api/v1/skills/:name/trigger', () => {
       skillQueue: skillQueue as any,
     })
 
-    const res = await app.request('/api/v1/skills/daily-connections/trigger', {
+    const res = await app.request('/api/v1/skills/pipeline-health/trigger', {
       method: 'POST',
     })
 
     expect(res.status).toBe(202)
     const body = await res.json()
-    expect(body.skill).toBe('daily-connections')
+    expect(body.skill).toBe('pipeline-health')
   })
 
-  it('works for any valid skill name including drift-monitor', async () => {
+  it('works for any valid skill name including custom ones', async () => {
     const app = createApp({
       db: db as any,
       skillQueue: skillQueue as any,
     })
 
-    const res = await app.request('/api/v1/skills/drift-monitor/trigger', {
+    const res = await app.request('/api/v1/skills/pipeline-health/trigger', {
       method: 'POST',
     })
 
     expect(res.status).toBe(202)
     expect(skillQueue.add).toHaveBeenCalledWith(
-      'drift-monitor',
-      expect.objectContaining({ skillName: 'drift-monitor' }),
+      'pipeline-health',
+      expect.objectContaining({ skillName: 'pipeline-health' }),
       expect.any(Object),
     )
   })

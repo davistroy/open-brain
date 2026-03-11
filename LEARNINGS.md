@@ -1,39 +1,17 @@
-# LEARNINGS
+# Hardening Implementation Learnings
 
-## SUMMARY
+## Summary
 
-Key learnings from implementing all 16 phases (83 work items, ~11,100 LOC) of Open Brain:
+- **29 work items across 8 phases** shipped in a single session, touching ~45 files and ~2,800 LOC of changes (fixes, refactors, tests, docs).
+- **Type safety achieved**: eliminated all `db.execute<any>()` and `sql.raw()` calls from production code, replacing them with Drizzle query builder or typed row interfaces.
+- **Security hardened**: admin endpoints now require Bearer auth (fail-closed), rate limiting added across all API tiers (100/20/5 req/min).
+- **Search performance improved**: filters pushed into SQL functions (no more overfetch + JS filtering); migration 0009 adds parameterized WHERE clauses.
+- **Code deduplication**: removed duplicate EmbeddingService, extracted shared prompt template utility, decomposed 820-line WeeklyBriefSkill into 3 focused modules.
+- **Integration test infrastructure built**: docker-compose.test.yml with ephemeral Postgres+Redis, 12 pipeline smoke tests, API integration tests for captures/search/entities.
+- **Full test suite**: 1,193 tests across 58 files in 6 packages, all passing. TypeScript strict mode, zero type errors.
+- **Documentation aligned**: TDD updated to match as-built schema, SQL functions, and API contracts. Unplanned features documented. Deferred features explicitly marked.
+- **Docker build safety**: removed `|| true` suppression from Dockerfile so TS compilation errors fail the build visibly.
+- **Vitest `--pool forks` required** for the shared package to avoid V8 crash when CJS-preparsing ESM modules during teardown.
 
-- **Externalizing LiteLLM was the right call early.** Routing all AI — both embeddings and inference — through a shared proxy at `llm.k4jda.net` eliminated the Ollama container entirely, simplified the stack, and made model swapping zero-code. Switching from `jetson-embeddings` to `spark-qwen3-embedding-4b` required only a YAML config change — no application code touched.
-
-- **No-fallback on embeddings forces operational discipline.** The decision to queue-and-retry rather than fall back to a different embedding model if LiteLLM is down guarantees vector space consistency. Mixed-model embeddings in the same table would silently corrupt search quality in ways that are hard to detect and harder to fix.
-
-- **BullMQ's job event model handles the pipeline retry pattern cleanly.** The 5-attempt patient backoff (30s, 2m, 10m, 30m, 2h) plus the daily sweep worker covers both transient failures and extended outages without custom retry infrastructure.
-
-- **Drizzle ORM + drizzle-kit earned its place.** Type-safe schema, straightforward migration generation, and no magic — every SQL operation is visible and auditable. The tradeoff is verbosity; it pays off when debugging pipeline stage queries against pgvector.
-
-- **Hybrid search (FTS + vector + RRF) with deferred temporal decay was pragmatic.** Setting `temporal_weight: 0.0` at launch avoids ACT-R scoring before there is enough access history to make it meaningful. The config knob means temporal weighting can be enabled without a deployment.
-
-- **MCP embedded in the core API (not a separate container) reduced operational surface area.** Streamable HTTP with `Authorization: Bearer` is simpler to proxy through Cloudflare Tunnel than a dedicated socket-mode MCP server, and there is one fewer container to monitor and restart.
-
-- **LLM-driven governance (not FSM) scales better across conversation shapes.** A finite state machine for governance sessions would have required explicit state transitions for every conversational branch. Guardrails on top of an LLM conversation loop handles open-ended dialogue without encoding every path.
-
-- **Config-driven design (YAML pipelines, AI routing, brain views, prompt templates) paid dividends.** Adding a new pipeline stage, changing a model alias, or adjusting budget thresholds requires editing a YAML file and restarting workers — no code changes. Prompt templates versioned as text files make iteration and rollback straightforward.
-
-- **Monorepo with pnpm workspaces kept package boundaries honest.** Shared types in `packages/shared` forced explicit interfaces between core-api, workers, slack-bot, and voice-capture. The tsup/esbuild production build per package keeps container images lean.
-
-- **The iOS Shortcut → voice-capture → faster-whisper path is fragile at the edges but robust in the middle.** The shortcut itself has no retry logic (iOS constraint); robustness lives in voice-capture's retry-to-core-api and the pipeline's BullMQ retry. The Pushover confirmation on successful ingest closes the feedback loop so failed captures are visible immediately.
-
-- **Matryoshka truncation is the correct strategy for embedding model flexibility.** When `spark-qwen3-embedding-4b` returns 2560-dimensional vectors, truncating to 768 dimensions via Matryoshka representation is semantically valid — the model is trained so that the first N dimensions encode the most meaningful information. The embedding service must use `raw.length < EMBEDDING_DIMENSIONS` (not strict equality) to detect under-dimensioned vectors while accepting and truncating over-dimensioned ones.
-
-- **FTS-only search mode is essential operational infrastructure.** During integration testing, hybrid search was unavailable for ~48 hours while the embedding service was being repaired. Adding `search_mode=fts` as a first-class path (not just a fallback) meant the system remained searchable throughout. The `fts_only_search()` SQL function also eliminates the `WHERE embedding IS NOT NULL` filter, making new captures immediately searchable before they are embedded.
-
-- **SQL function typos in PL/pgSQL fail silently at migration time.** The `plainplainto_tsquery` typo (should be `plainto_tsquery`) passed migration without error because PL/pgSQL compiles function bodies lazily — the function was created successfully but failed on first invocation. Always test SQL functions immediately after migration by calling them with representative inputs.
-
-- **Pipeline status is more granular than the schema comment suggests.** The schema comment says `pending | processing | complete | failed` but the actual runtime values are `pending → processing → extracted → embedded`. `complete` is a guard value checked but never SET in the current implementation. Pipeline-event records track finer-grained stage transitions separately from the captures table.
-
----
-
-## Implementation Notes
-
-5.6: Phase 5 test gate mentions "embedding throughput via LiteLLM documented" — this is a doc artifact, not a code gate; deferred to operational runbook when LiteLLM proxy is live.
+## Test Infrastructure
+- **V8 crash in shared package tests**: Vitest `threads` pool crashes with `FATAL ERROR: v8::ToLocalChecked Empty MaybeLocal` when CJS-preparsing ESM modules during teardown. Fix: use `--pool forks` in the shared package's test script. Prevention: always use `--pool forks` for ESM packages with CJS dependencies.

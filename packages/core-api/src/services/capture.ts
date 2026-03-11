@@ -4,6 +4,7 @@ import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CreateCaptureInput, CaptureFilter, CaptureRecord } from '@open-brain/shared'
 import type { PipelineService } from './pipeline.js'
+import { logger } from '../lib/logger.js'
 
 const DEDUP_WINDOW_MS = 60_000 // 60 seconds
 
@@ -93,7 +94,7 @@ export class CaptureService {
         // Pipeline enqueue failure must not fail the capture creation.
         // The daily sweep will re-enqueue captures stuck in 'pending' status.
         const msg = err instanceof Error ? err.message : String(err)
-        console.warn(`[CaptureService] Failed to enqueue pipeline for capture ${created.id}: ${msg}`)
+        logger.warn({ captureId: created.id, err: msg }, `Failed to enqueue pipeline for capture ${created.id}`)
       }
     }
 

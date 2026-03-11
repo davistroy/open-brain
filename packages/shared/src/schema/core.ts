@@ -26,6 +26,8 @@ export const captures = pgTable(
     updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     captured_at: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
     deleted_at: timestamp('deleted_at', { withTimezone: true }),
+    access_count: integer('access_count').notNull().default(0),
+    last_accessed_at: timestamp('last_accessed_at', { withTimezone: true }),
   },
   (table) => ({
     content_hash_idx: uniqueIndex('captures_content_hash_idx').on(table.content_hash),

@@ -8,6 +8,7 @@ import type { ConnectionOptions } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
+import { adminAuth } from '../middleware/admin-auth.js'
 
 /**
  * Queue names that Bull Board registers for monitoring.
@@ -42,8 +43,8 @@ export interface AdminRouterOptions {
 export function createAdminRouter({ configService, redisConnection, db }: AdminRouterOptions): Hono {
   const router = new Hono()
 
-  // POST /config/reload — hot-reload YAML config files
-  router.post('/config/reload', async (c) => {
+  // POST /config/reload — hot-reload YAML config files (auth required)
+  router.post('/config/reload', adminAuth(), async (c) => {
     logger.info('Config reload requested via admin API')
     const results = configService.reload()
     const allSuccess = results.every(r => r.success)
@@ -58,7 +59,8 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
   // POST /reset-data — truncate all user data tables, preserve schema + migration history
   // Requires body: { confirm: "WIPE ALL DATA" }
   // Preserves: triggers (user config), schema, __drizzle_migrations
-  router.post('/reset-data', async (c) => {
+  // Auth required — destructive endpoint
+  router.post('/reset-data', adminAuth(), async (c) => {
     if (!db) {
       return c.json({ error: 'Database not configured for reset endpoint' }, 503)
     }

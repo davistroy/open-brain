@@ -1,7 +1,6 @@
 export * from './anti-vagueness.js'
 export * from './bet.js'
 export * from './capture.js'
-export * from './embedding.js'
 export * from './entity-resolution.js'
 export * from './entity.js'
 export * from './governance-engine.js'

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { CaptureService } from '../../services/capture.js'
+import type { CaptureType, CaptureSource } from '@open-brain/shared'
 
 export const listCapturesSchema = z.object({
   limit: z.number().int().min(1).max(100).default(20).describe('Number of captures to return'),
@@ -17,8 +18,8 @@ export async function listCapturesTool(input: ListCapturesInput, captureService:
 
   const { items, total } = await captureService.list(
     {
-      capture_type: input.type as any,
-      source: input.source as any,
+      capture_type: input.type as CaptureType | undefined,
+      source: input.source as CaptureSource | undefined,
       date_from: dateFrom,
     },
     input.limit,

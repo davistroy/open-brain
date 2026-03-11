@@ -305,8 +305,12 @@ export class PipelineHealthSkill {
     const since = new Date(Date.now() - lookbackMinutes * 60 * 1000)
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rows = await this.db.execute<any>(sql`
+      const rows = await this.db.execute<{
+        capture_id: string
+        stage: string
+        error: string | null
+        created_at: string
+      }>(sql`
         SELECT capture_id, stage, error, created_at
         FROM pipeline_events
         WHERE status = 'failed'

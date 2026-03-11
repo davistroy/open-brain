@@ -112,6 +112,36 @@ describe('ConfigService', () => {
     expect(service.getBrainViews()).toEqual(['career', 'personal'])
   })
 
+  it('getNotificationsConfig returns parsed notifications config', () => {
+    writeValidConfigs(tmpDir)
+    const service = new ConfigService(tmpDir)
+    service.load()
+    const config = service.getNotificationsConfig()
+    expect(config.pushover.enabled).toBe(false)
+    expect(config.weekly_brief.enabled).toBe(true)
+    expect(config.weekly_brief.cron).toBe('0 8 * * 1')
+  })
+
+  it('reload reloads notifications.yaml', () => {
+    writeValidConfigs(tmpDir)
+    const service = new ConfigService(tmpDir)
+    service.load()
+    expect(service.getNotificationsConfig().pushover.enabled).toBe(false)
+
+    // Update notifications.yaml
+    writeFileSync(join(tmpDir, 'notifications.yaml'), `
+pushover:
+  enabled: true
+weekly_brief:
+  enabled: false
+`)
+    const results = service.reload()
+    const notifResult = results.find(r => r.file === 'notifications.yaml')
+    expect(notifResult?.success).toBe(true)
+    expect(service.getNotificationsConfig().pushover.enabled).toBe(true)
+    expect(service.getNotificationsConfig().weekly_brief.enabled).toBe(false)
+  })
+
   it('throws if get() called before load()', () => {
     const service = new ConfigService(tmpDir)
     expect(() => service.get('brainViews')).toThrow('not loaded')

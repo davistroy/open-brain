@@ -367,7 +367,7 @@ export function formatSessionStart(sessionId: string, sessionType: string, first
  * Format bet creation confirmation.
  */
 export function formatBetCreate(bet: BetRecord): string {
-  const due = formatDate(bet.resolution_date)
+  const due = bet.resolution_date ? formatDate(bet.resolution_date) : '—'
   const conf = `${Math.round(bet.confidence * 100)}%`
   return `:dart: *Bet recorded* (${conf} confidence)\n${bet.statement}\n_Due: ${due}_`
 }
@@ -382,7 +382,7 @@ export function formatBetsExpiring(bets: BetRecord[], daysAhead?: number): strin
 
   const header = `:warning: *Bets Expiring${daysAhead ? ` in ${daysAhead} days` : ' Soon'}*\n\n`
   const lines = bets.map((b, i) => {
-    const due = formatDate(b.resolution_date)
+    const due = b.resolution_date ? formatDate(b.resolution_date) : '—'
     return `${i + 1}. *${truncate(b.statement, 60)}* — Due: ${due}`
   })
 

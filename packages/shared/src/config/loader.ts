@@ -101,4 +101,8 @@ export class ConfigService {
   getBrainViews(): string[] {
     return this.get('brainViews').views.map(v => v.name)
   }
+
+  getNotificationsConfig(): NotificationConfig {
+    return this.get('notifications')
+  }
 }

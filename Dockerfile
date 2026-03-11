@@ -26,10 +26,16 @@ FROM deps AS builder
 COPY tsconfig.base.json ./
 COPY packages/ ./packages/
 RUN pnpm --filter @open-brain/shared build \
-    && (pnpm --filter @open-brain/core-api build || true) \
-    && (pnpm --filter @open-brain/workers build || true) \
-    && (pnpm --filter @open-brain/voice-capture build || true) \
-    && (pnpm --filter @open-brain/slack-bot build || true)
+    && pnpm --filter @open-brain/core-api build \
+    && pnpm --filter @open-brain/workers build \
+    && pnpm --filter @open-brain/voice-capture build \
+    && pnpm --filter @open-brain/slack-bot build
+
+# Verify expected build outputs exist
+RUN test -f packages/core-api/dist/index.js \
+    && test -f packages/workers/dist/main.js \
+    && test -f packages/voice-capture/dist/server.js \
+    && test -f packages/slack-bot/dist/index.js
 
 # ============================================================
 # Production base — minimal runtime image
