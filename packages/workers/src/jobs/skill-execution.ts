@@ -3,6 +3,7 @@ import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
+import { executeDailyConnections } from '../skills/daily-connections.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 
 /**
@@ -47,6 +48,20 @@ export function createSkillExecutionWorker(
           logger.info(
             { skillName, captureCount: result.captureCount, durationMs: result.durationMs },
             '[skill-execution] weekly-brief complete',
+          )
+          break
+        }
+
+        case 'daily-connections': {
+          const result = await executeDailyConnections(db, {
+            windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
+            tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
+            modelAlias: typeof input?.modelAlias === 'string' ? input.modelAlias : undefined,
+          })
+
+          logger.info(
+            { skillName, captureCount: result.captureCount, connectionCount: result.output.connections.length, durationMs: result.durationMs },
+            '[skill-execution] daily-connections complete',
           )
           break
         }

@@ -111,8 +111,8 @@ describe('GET /api/v1/skills', () => {
     const skillNames = body.skills.map((s: { name: string }) => s.name)
     expect(skillNames).toContain('weekly-brief')
     expect(skillNames).toContain('pipeline-health')
+    expect(skillNames).toContain('daily-connections')
     expect(skillNames).not.toContain('drift-monitor')
-    expect(skillNames).not.toContain('daily-connections')
   })
 
   it('includes schedule and description for known skills', async () => {

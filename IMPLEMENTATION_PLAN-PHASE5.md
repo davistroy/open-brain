@@ -90,8 +90,8 @@ The query module handles data assembly: capture retrieval by date range, entity 
 
 ---
 
-#### 17.2 Worker Integration + Scheduling
-**Status: PENDING**
+#### 17.2 Worker Integration + Scheduling ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21, TDD §12.2c, §12.4
 **Files Affected:**
 - `packages/workers/src/jobs/skill-execution.ts` (modify)
