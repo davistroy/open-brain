@@ -23,6 +23,9 @@ export const HELP_TEXT = `*Open Brain — Available Commands*
   \`!trigger delete <n>\` — deactivate a trigger by name/id
   \`!trigger test "text"\`— test query against existing captures
 
+*Intelligence*
+  \`!connections [days]\`  — run daily connections analysis (default: 7 days)
+
 *Pipeline*
   \`!pipeline status\`    — pipeline queue health
 

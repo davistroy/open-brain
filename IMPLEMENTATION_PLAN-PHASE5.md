@@ -51,8 +51,8 @@ Phases are ordered by dependency and architectural similarity:
 
 ### Work Items
 
-#### 17.1 Prompt Template + Skill Class
-**Status: PENDING**
+#### 17.1 Prompt Template + Skill Class ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21, TDD §12.2c
 **Files Affected:**
 - `config/prompts/daily_connections_v1.txt` (create)
@@ -117,8 +117,8 @@ Register the daily-connections skill in the worker dispatcher, add to KNOWN_SKIL
 
 ---
 
-#### 17.3 Slack `!connections` Command
-**Status: PENDING**
+#### 17.3 Slack `!connections` Command ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21
 **Files Affected:**
 - `packages/slack-bot/src/handlers/command.ts` (modify)
