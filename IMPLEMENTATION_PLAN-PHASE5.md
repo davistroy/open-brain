@@ -578,8 +578,8 @@ Create dedicated Intelligence API endpoints that the web dashboard Intelligence 
 
 ---
 
-#### 20.2 Intelligence Tab React Component Shell
-**Status: PENDING**
+#### 20.2 Intelligence Tab React Component Shell [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
 **Files Affected:**
 - `packages/web/src/pages/Intelligence.tsx` (create)
 - `packages/web/src/App.tsx` (modify — add route)

@@ -6,6 +6,7 @@ import {
   Users,
   FileText,
   Gavel,
+  Lightbulb,
   Mic,
   Settings,
   Brain,
@@ -26,6 +27,7 @@ const navItems: NavItem[] = [
   { to: '/entities', label: 'Entities', icon: Users },
   { to: '/briefs', label: 'Briefs', icon: FileText },
   { to: '/board', label: 'Board', icon: Gavel },
+  { to: '/intelligence', label: 'Intelligence', icon: Lightbulb },
   { to: '/voice', label: 'Voice', icon: Mic },
 ];
 
