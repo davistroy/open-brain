@@ -18,6 +18,7 @@ import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEventsRoutes } from './routes/events.js'
 import { registerDocumentRoutes } from './routes/documents.js'
 import { registerSynthesizeRoutes } from './routes/synthesize.js'
+import { registerIntelligenceRoutes } from './routes/intelligence.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -107,6 +108,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Skills API
   if (db && skillQueue) {
     registerSkillRoutes(app, db, skillQueue)
+    registerIntelligenceRoutes(app, db, skillQueue)
   }
 
   // Triggers API

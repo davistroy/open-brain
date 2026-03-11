@@ -530,6 +530,93 @@ Unit tests for URL extraction and Slack command, plus regression test update for
 - [ ] Regression test updated and passing
 - [ ] No regressions in existing tests
 
+---
+
+## Phase 20: Intelligence Web Dashboard
+
+**Estimated Complexity:** M (~6 files, ~500 LOC)
+**Dependencies:** Phase 17 (daily-connections), Phase 18 (drift-monitor) — skills must exist in skills_log
+**Parallelizable:** Yes — work items 20.2–20.4 can start concurrently after 20.1
+
+### Goals
+
+- Add Intelligence API endpoints to core-api for optimized dashboard access to daily-connections and drift-monitor results
+- Build an Intelligence tab in the web dashboard showing latest connections, drift alerts, and manual trigger controls
+- Provide combined summary endpoint for efficient initial page load
+
+### Work Items
+
+#### 20.1 Intelligence API Endpoints in Core API ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
+**Requirement Refs:** PRD F21, F22 (web dashboard surface)
+**Files Affected:**
+- `packages/core-api/src/routes/intelligence.ts` (create)
+- `packages/core-api/src/app.ts` (modify — register routes)
+- `packages/web/src/lib/api.ts` (modify — add intelligenceApi client)
+- `packages/core-api/src/__tests__/intelligence-routes.test.ts` (create)
+
+**Description:**
+Create dedicated Intelligence API endpoints that the web dashboard Intelligence tab calls to fetch daily-connections and drift-monitor results from skills_log. Includes a combined summary endpoint for efficient initial load, per-skill latest/history endpoints, and manual trigger support. Also adds the `intelligenceApi` client to the web frontend API module.
+
+**Tasks:**
+1. [x] Create `intelligence.ts` route file with 6 endpoints: summary, connections/latest, connections/history, drift/latest, drift/history, :skill/trigger
+2. [x] Register routes in `app.ts` alongside existing skill routes (same db + skillQueue dependencies)
+3. [x] Add `intelligenceApi` client object to `packages/web/src/lib/api.ts` with typed methods
+4. [x] Implement INTELLIGENCE_SKILLS allowlist to restrict trigger endpoint to daily-connections and drift-monitor only
+5. [x] Write comprehensive unit tests (17 tests covering all endpoints, empty states, validation, 404 when not wired)
+
+**Acceptance Criteria:**
+- [x] `GET /api/v1/intelligence/summary` returns latest result for both skills in one call
+- [x] `GET /api/v1/intelligence/connections/latest` returns most recent daily-connections log entry
+- [x] `GET /api/v1/intelligence/connections/history?limit=N` returns paginated history
+- [x] `GET /api/v1/intelligence/drift/latest` returns most recent drift-monitor log entry
+- [x] `GET /api/v1/intelligence/drift/history?limit=N` returns paginated history
+- [x] `POST /api/v1/intelligence/:skill/trigger` queues skill and returns 202 (only for daily-connections, drift-monitor)
+- [x] Invalid skill names return 400 with VALIDATION_ERROR
+- [x] All 366 core-api tests pass including 17 new intelligence route tests
+- [x] All 32 web tests pass with updated api.ts
+
+---
+
+#### 20.2 Intelligence Tab React Component Shell
+**Status: PENDING**
+**Files Affected:**
+- `packages/web/src/pages/Intelligence.tsx` (create)
+- `packages/web/src/App.tsx` (modify — add route)
+- `packages/web/src/components/Layout.tsx` (modify — add nav link)
+
+---
+
+#### 20.3 Connections + Drift Cards
+**Status: PENDING**
+**Files Affected:**
+- `packages/web/src/pages/Intelligence.tsx` (modify)
+
+---
+
+#### 20.4 Curiosity Prompts Card + Manual Trigger
+**Status: PENDING**
+**Files Affected:**
+- `packages/web/src/pages/Intelligence.tsx` (modify)
+
+---
+
+#### 20.5 Unit Tests for Intelligence Tab
+**Status: PENDING**
+**Files Affected:**
+- `packages/web/src/pages/__tests__/Intelligence.test.tsx` (create)
+
+---
+
+### Phase 20 Completion Checklist
+
+- [ ] All work items complete
+- [ ] All tests passing
+- [ ] Intelligence API endpoints functional
+- [ ] Intelligence tab renders in web dashboard
+- [ ] Manual trigger from web UI works
+- [ ] No regressions in existing tests
+
 <!-- END PHASES -->
 
 ---
