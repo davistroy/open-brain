@@ -51,8 +51,8 @@ Phases are ordered by dependency and architectural similarity:
 
 ### Work Items
 
-#### 17.1 Prompt Template + Skill Class
-**Status: PENDING**
+#### 17.1 Prompt Template + Skill Class ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21, TDD §12.2c
 **Files Affected:**
 - `config/prompts/daily_connections_v1.txt` (create)
@@ -90,8 +90,8 @@ The query module handles data assembly: capture retrieval by date range, entity 
 
 ---
 
-#### 17.2 Worker Integration + Scheduling
-**Status: PENDING**
+#### 17.2 Worker Integration + Scheduling ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21, TDD §12.2c, §12.4
 **Files Affected:**
 - `packages/workers/src/jobs/skill-execution.ts` (modify)
@@ -117,8 +117,8 @@ Register the daily-connections skill in the worker dispatcher, add to KNOWN_SKIL
 
 ---
 
-#### 17.3 Slack `!connections` Command
-**Status: PENDING**
+#### 17.3 Slack `!connections` Command ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21
 **Files Affected:**
 - `packages/slack-bot/src/handlers/command.ts` (modify)
@@ -145,8 +145,8 @@ Add `!connections` (and `!connections <days>`) to the Slack bot command handler.
 
 ---
 
-#### 17.4 Unit Tests
-**Status: PENDING**
+#### 17.4 Unit Tests ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F21
 **Files Affected:**
 - `packages/workers/src/__tests__/daily-connections.test.ts` (create)
@@ -204,8 +204,8 @@ Unit tests for the daily connections skill covering data queries, LLM output par
 
 ### Work Items
 
-#### 18.1 Prompt Template + Skill Class
-**Status: PENDING**
+#### 18.1 Prompt Template + Skill Class ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22, TDD §12.2d
 **Files Affected:**
 - `config/prompts/drift_monitor_v1.txt` (create)
@@ -245,8 +245,8 @@ The key difference from daily-connections is the data sources: this skill reads 
 
 ---
 
-#### 18.2 Worker Integration + Scheduling
-**Status: PENDING**
+#### 18.2 Worker Integration + Scheduling ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22, TDD §12.2d, §12.4
 **Files Affected:**
 - `packages/workers/src/jobs/skill-execution.ts` (modify)
@@ -268,8 +268,8 @@ Register the drift-monitor skill in the worker dispatcher, add to KNOWN_SKILLS, 
 
 ---
 
-#### 18.3 Slack `!drift` Command
-**Status: PENDING**
+#### 18.3 Slack `!drift` Command ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22
 **Files Affected:**
 - `packages/slack-bot/src/handlers/command.ts` (modify)
@@ -289,8 +289,8 @@ Add `!drift` to the Slack bot command handler. Triggers the drift-monitor skill 
 
 ---
 
-#### 18.4 Unit Tests
-**Status: PENDING**
+#### 18.4 Unit Tests ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F22
 **Files Affected:**
 - `packages/workers/src/__tests__/drift-monitor.test.ts` (create)
@@ -348,8 +348,8 @@ Unit tests for the drift monitor skill covering bet queries, entity frequency an
 
 ### Work Items
 
-#### 19.1 URL Extractor Service
-**Status: PENDING**
+#### 19.1 URL Extractor Service ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24, TDD §12.2e
 **Files Affected:**
 - `packages/shared/src/services/url-extractor.ts` (create)
@@ -383,8 +383,8 @@ Create a lightweight URL content extraction service using `@mozilla/readability`
 
 ---
 
-#### 19.2 API Integration
-**Status: PENDING**
+#### 19.2 API Integration ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24, TDD §12.2e
 **Files Affected:**
 - `packages/core-api/src/schemas/capture.ts` (modify — add 'bookmark' source)
@@ -416,8 +416,8 @@ Extend the capture creation flow to support `source: 'bookmark'`. When a capture
 
 ---
 
-#### 19.3 Slack `!bookmark` Command
-**Status: PENDING**
+#### 19.3 Slack `!bookmark` Command ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24
 **Files Affected:**
 - `packages/slack-bot/src/handlers/command.ts` (modify)
@@ -449,8 +449,8 @@ Add `!bookmark <url>` command to the Slack bot. Parses the URL from the message,
 
 ---
 
-#### 19.4 Web UI URL Input
-**Status: PENDING**
+#### 19.4 Web UI URL Input ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24
 **Files Affected:**
 - `packages/web/src/pages/Dashboard.tsx` (modify — add URL capture mode)
@@ -481,8 +481,8 @@ Add a URL capture mode to the Dashboard's Quick Capture form. Users toggle betwe
 
 ---
 
-#### 19.5 Tests
-**Status: PENDING**
+#### 19.5 Tests ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F24
 **Files Affected:**
 - `packages/shared/src/__tests__/url-extractor.test.ts` (create)
@@ -528,6 +528,98 @@ Unit tests for URL extraction and Slack command, plus regression test update for
 - [ ] Slack command functional
 - [ ] Web UI URL input functional
 - [ ] Regression test updated and passing
+- [ ] No regressions in existing tests
+
+---
+
+## Phase 20: Intelligence Web Dashboard
+
+**Estimated Complexity:** M (~6 files, ~500 LOC)
+**Dependencies:** Phase 17 (daily-connections), Phase 18 (drift-monitor) — skills must exist in skills_log
+**Parallelizable:** Yes — work items 20.2–20.4 can start concurrently after 20.1
+
+### Goals
+
+- Add Intelligence API endpoints to core-api for optimized dashboard access to daily-connections and drift-monitor results
+- Build an Intelligence tab in the web dashboard showing latest connections, drift alerts, and manual trigger controls
+- Provide combined summary endpoint for efficient initial page load
+
+### Work Items
+
+#### 20.1 Intelligence API Endpoints in Core API ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
+**Requirement Refs:** PRD F21, F22 (web dashboard surface)
+**Files Affected:**
+- `packages/core-api/src/routes/intelligence.ts` (create)
+- `packages/core-api/src/app.ts` (modify — register routes)
+- `packages/web/src/lib/api.ts` (modify — add intelligenceApi client)
+- `packages/core-api/src/__tests__/intelligence-routes.test.ts` (create)
+
+**Description:**
+Create dedicated Intelligence API endpoints that the web dashboard Intelligence tab calls to fetch daily-connections and drift-monitor results from skills_log. Includes a combined summary endpoint for efficient initial load, per-skill latest/history endpoints, and manual trigger support. Also adds the `intelligenceApi` client to the web frontend API module.
+
+**Tasks:**
+1. [x] Create `intelligence.ts` route file with 6 endpoints: summary, connections/latest, connections/history, drift/latest, drift/history, :skill/trigger
+2. [x] Register routes in `app.ts` alongside existing skill routes (same db + skillQueue dependencies)
+3. [x] Add `intelligenceApi` client object to `packages/web/src/lib/api.ts` with typed methods
+4. [x] Implement INTELLIGENCE_SKILLS allowlist to restrict trigger endpoint to daily-connections and drift-monitor only
+5. [x] Write comprehensive unit tests (17 tests covering all endpoints, empty states, validation, 404 when not wired)
+
+**Acceptance Criteria:**
+- [x] `GET /api/v1/intelligence/summary` returns latest result for both skills in one call
+- [x] `GET /api/v1/intelligence/connections/latest` returns most recent daily-connections log entry
+- [x] `GET /api/v1/intelligence/connections/history?limit=N` returns paginated history
+- [x] `GET /api/v1/intelligence/drift/latest` returns most recent drift-monitor log entry
+- [x] `GET /api/v1/intelligence/drift/history?limit=N` returns paginated history
+- [x] `POST /api/v1/intelligence/:skill/trigger` queues skill and returns 202 (only for daily-connections, drift-monitor)
+- [x] Invalid skill names return 400 with VALIDATION_ERROR
+- [x] All 366 core-api tests pass including 17 new intelligence route tests
+- [x] All 32 web tests pass with updated api.ts
+
+---
+
+#### 20.2 Intelligence Tab React Component Shell [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
+**Files Affected:**
+- `packages/web/src/pages/Intelligence.tsx` (create)
+- `packages/web/src/App.tsx` (modify — add route)
+- `packages/web/src/components/Layout.tsx` (modify — add nav link)
+
+---
+
+#### 20.3 Connections + Drift Cards [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
+**Files Affected:**
+- `packages/web/src/components/ConnectionsCard.tsx` (create)
+- `packages/web/src/components/DriftCard.tsx` (create)
+- `packages/web/src/pages/Intelligence.tsx` (modify)
+
+---
+
+#### 20.4 Curiosity Prompts Card + Manual Trigger [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
+**Files Affected:**
+- `packages/web/src/components/SkillHistoryCard.tsx` (create)
+
+---
+
+#### 20.5 Unit Tests for Intelligence Tab [2026-03-11]
+**Status: COMPLETE [2026-03-11]**
+**Files Affected:**
+- `packages/web/src/pages/__tests__/Intelligence.test.tsx` (create)
+- `packages/web/src/components/__tests__/ConnectionsCard.test.tsx` (create)
+- `packages/web/src/components/__tests__/DriftCard.test.tsx` (create)
+- `packages/web/src/components/__tests__/SkillHistoryCard.test.tsx` (create)
+
+---
+
+### Phase 20 Completion Checklist
+
+- [ ] All work items complete
+- [ ] All tests passing
+- [ ] Intelligence API endpoints functional
+- [ ] Intelligence tab renders in web dashboard
+- [ ] Manual trigger from web UI works
 - [ ] No regressions in existing tests
 
 <!-- END PHASES -->

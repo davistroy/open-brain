@@ -230,6 +230,64 @@ export const pipelineApi = {
   },
 }
 
+// Intelligence API — daily-connections and drift-monitor skill results
+
+export interface IntelligenceEntry {
+  id: string
+  skill_name: string
+  capture_id: string | null
+  input_summary: string | null
+  output_summary: string | null
+  result: Record<string, unknown> | null
+  duration_ms: number | null
+  created_at: string
+}
+
+export interface IntelligenceSummary {
+  connections: IntelligenceEntry | null
+  drift: IntelligenceEntry | null
+}
+
+export const intelligenceApi = {
+  /** Fetch latest results for both daily-connections and drift-monitor in one call */
+  summary: () => {
+    return request<IntelligenceSummary>('/intelligence/summary')
+  },
+
+  /** Fetch latest daily-connections result */
+  connectionsLatest: () => {
+    return request<{ data: IntelligenceEntry | null }>('/intelligence/connections/latest')
+  },
+
+  /** Fetch daily-connections run history */
+  connectionsHistory: (limit?: number) => {
+    const qs = buildQueryString({ limit })
+    return request<{ data: IntelligenceEntry[] }>(`/intelligence/connections/history${qs}`)
+  },
+
+  /** Fetch latest drift-monitor result */
+  driftLatest: () => {
+    return request<{ data: IntelligenceEntry | null }>('/intelligence/drift/latest')
+  },
+
+  /** Fetch drift-monitor run history */
+  driftHistory: (limit?: number) => {
+    const qs = buildQueryString({ limit })
+    return request<{ data: IntelligenceEntry[] }>(`/intelligence/drift/history${qs}`)
+  },
+
+  /** Manually trigger an intelligence skill */
+  trigger: (skill: 'daily-connections' | 'drift-monitor', overrides?: Record<string, unknown>) => {
+    return request<{ skill: string; job_id: string; status: string; message: string }>(
+      `/intelligence/${skill}/trigger`,
+      {
+        method: 'POST',
+        body: JSON.stringify(overrides ?? {}),
+      },
+    )
+  },
+}
+
 // Bets API — API uses statement/confidence/resolution; web uses description/status/due_date
 
 interface RawBetRecord {
