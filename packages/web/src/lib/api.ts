@@ -157,6 +157,13 @@ export const skillsApi = {
     })
   },
 
+  updateSchedule: (skillName: string, schedule: string) => {
+    return request<{ name: string; schedule: string; updated_at: string }>(`/skills/${skillName}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ schedule }),
+    })
+  },
+
   logs: (skillName: string) => {
     return request<SkillLog[]>(`/skills/${skillName}/logs`)
   },

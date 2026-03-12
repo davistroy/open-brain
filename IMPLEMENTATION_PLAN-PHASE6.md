@@ -297,8 +297,8 @@ The theme must be applied before React renders to avoid a flash of wrong theme (
 
 ### Work Items
 
-#### 23.1 PATCH /api/v1/skills/:name Endpoint (F31 — Backend)
-**Status: PENDING**
+#### 23.1 PATCH /api/v1/skills/:name Endpoint (F31 — Backend) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F31, TDD §3.2 (PATCH /api/v1/skills/:name)
 **Files Affected:**
 - `packages/core-api/src/routes/skills.ts` (modify — add PATCH route, add skills.yaml write-back)
@@ -315,25 +315,25 @@ Currently, `KNOWN_SKILLS` is a hardcoded `const` in `skills.ts`. The approach:
 The scheduler in the workers package uses BullMQ repeatable jobs. Changing a schedule in `skills.yaml` alone won't update repeatable jobs — the scheduler needs to remove the old repeatable and add a new one. This requires either a config reload hook in the scheduler or a restart. For v1, document that schedule changes take effect after the next container restart (or after the scheduler's startup re-registration, which uses stable jobIds to upsert).
 
 **Tasks:**
-1. [ ] Add `cron-parser` dependency (for validation) and `js-yaml` dependency (for YAML write-back) to `packages/core-api/package.json`
-2. [ ] Convert `KNOWN_SKILLS` from a frozen `const` to a mutable record (or a `Map`)
-3. [ ] Add `PATCH /api/v1/skills/:name` route:
+1. [x] Add `cron-parser` dependency (for validation) and `js-yaml` dependency (for YAML write-back) to `packages/core-api/package.json`
+2. [x] Convert `KNOWN_SKILLS` from a frozen `const` to a mutable record (or a `Map`)
+3. [x] Add `PATCH /api/v1/skills/:name` route:
    - Validate skill name exists in `KNOWN_SKILLS` — return 404 if not
    - Parse body for `schedule` field (required string)
    - Validate cron expression with `cron-parser.parseExpression(schedule)` — return 400 if invalid
    - Update `KNOWN_SKILLS[name].schedule`
    - Write updated skills config to `config/skills.yaml` (read existing, merge, write)
    - Return `{ name, schedule, updated_at }`
-4. [ ] Add `loadSkillsFromYaml()` function that reads `config/skills.yaml` and merges into `KNOWN_SKILLS` — call this at startup to initialize from persisted config
-5. [ ] Handle missing `config/skills.yaml` gracefully — use hardcoded defaults if file doesn't exist
+4. [x] Add `loadSkillsFromYaml()` function that reads `config/skills.yaml` and merges into `KNOWN_SKILLS` — call this at startup to initialize from persisted config
+5. [x] Handle missing `config/skills.yaml` gracefully — use hardcoded defaults if file doesn't exist
 
 **Acceptance Criteria:**
-- [ ] `PATCH /api/v1/skills/weekly-brief` with `{ "schedule": "0 19 * * 0" }` returns 200 with updated schedule
-- [ ] Invalid cron expressions return 400 with descriptive error
-- [ ] Unknown skill names return 404
-- [ ] Updated schedule persists to `config/skills.yaml`
-- [ ] `GET /api/v1/skills` reflects the updated schedule
-- [ ] Existing skills.yaml (if present) is read on startup
+- [x] `PATCH /api/v1/skills/weekly-brief` with `{ "schedule": "0 19 * * 0" }` returns 200 with updated schedule
+- [x] Invalid cron expressions return 400 with descriptive error
+- [x] Unknown skill names return 404
+- [x] Updated schedule persists to `config/skills.yaml`
+- [x] `GET /api/v1/skills` reflects the updated schedule
+- [x] Existing skills.yaml (if present) is read on startup
 
 **Notes:**
 - `config/skills.yaml` does not currently exist — the `config/` directory has `ai-routing.yaml`, `brain-views.yaml`, `notifications.yaml`, and `pipeline.yaml` but no `skills.yaml`. This endpoint creates it on first write.
@@ -342,8 +342,8 @@ The scheduler in the workers package uses BullMQ repeatable jobs. Changing a sch
 
 ---
 
-#### 23.2 Inline Schedule Editing UI (F31 — Frontend)
-**Status: PENDING**
+#### 23.2 Inline Schedule Editing UI (F31 — Frontend) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F31
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — add edit mode to `SkillsSection` schedule display)
@@ -380,10 +380,10 @@ On save, call the new PATCH endpoint. On success, exit edit mode and show the up
 
 ### Phase 23 Testing Requirements
 
-- [ ] Unit test: `PATCH /api/v1/skills/:name` with valid cron, invalid cron, unknown skill name
-- [ ] Unit test: `loadSkillsFromYaml()` with existing file, missing file, malformed YAML
+- [x] Unit test: `PATCH /api/v1/skills/:name` with valid cron, invalid cron, unknown skill name
+- [x] Unit test: `loadSkillsFromYaml()` with existing file, missing file, malformed YAML
 - [ ] Manual test: edit schedule in UI, verify persistence, refresh page, verify schedule is updated
-- [ ] All existing unit tests pass (`pnpm test`)
+- [x] All existing unit tests pass (`pnpm test`)
 
 ### Phase 23 Completion Checklist
 
