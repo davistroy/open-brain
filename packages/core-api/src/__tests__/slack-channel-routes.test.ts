@@ -182,13 +182,15 @@ describe('Slack Channel Routes — with SLACK_USER_TOKEN', () => {
   })
 })
 
-describe('Slack Channel Routes — without SLACK_USER_TOKEN', () => {
+describe('Slack Channel Routes — without any Slack token', () => {
   let app: Hono
-  const originalEnv = process.env.SLACK_USER_TOKEN
+  const originalUserToken = process.env.SLACK_USER_TOKEN
+  const originalBotToken = process.env.SLACK_BOT_TOKEN
 
   beforeEach(async () => {
     vi.clearAllMocks()
     delete process.env.SLACK_USER_TOKEN
+    delete process.env.SLACK_BOT_TOKEN
     vi.resetModules()
 
     // Re-mock after resetModules
@@ -226,22 +228,27 @@ describe('Slack Channel Routes — without SLACK_USER_TOKEN', () => {
   })
 
   afterEach(() => {
-    if (originalEnv !== undefined) {
-      process.env.SLACK_USER_TOKEN = originalEnv
+    if (originalUserToken !== undefined) {
+      process.env.SLACK_USER_TOKEN = originalUserToken
     } else {
       delete process.env.SLACK_USER_TOKEN
     }
+    if (originalBotToken !== undefined) {
+      process.env.SLACK_BOT_TOKEN = originalBotToken
+    } else {
+      delete process.env.SLACK_BOT_TOKEN
+    }
   })
 
-  it('GET /admin/slack/channels returns 503 when token is missing', async () => {
+  it('GET /admin/slack/channels returns 503 when no token is available', async () => {
     const res = await app.request('/api/v1/admin/slack/channels')
     expect(res.status).toBe(503)
     const body = await res.json()
     expect(body.error).toBe('Service unavailable')
-    expect(body.message).toContain('SLACK_USER_TOKEN')
+    expect(body.message).toContain('Slack token')
   })
 
-  it('POST /admin/slack/channels/:id/archive returns 503 when token is missing', async () => {
+  it('POST /admin/slack/channels/:id/archive returns 503 when no token is available', async () => {
     const res = await app.request('/api/v1/admin/slack/channels/C001/archive', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -250,6 +257,6 @@ describe('Slack Channel Routes — without SLACK_USER_TOKEN', () => {
     expect(res.status).toBe(503)
     const body = await res.json()
     expect(body.error).toBe('Service unavailable')
-    expect(body.message).toContain('SLACK_USER_TOKEN')
+    expect(body.message).toContain('Slack token')
   })
 })

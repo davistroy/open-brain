@@ -20,8 +20,8 @@ export interface ArchiveResult {
 
 /**
  * Service for listing and archiving Slack channels.
- * Uses a Slack user token (xoxp-...) which requires scopes:
- *   channels:read, channels:history, channels:write (for archive)
+ * Accepts either a user token (xoxp-...) or bot token (xoxb-...).
+ * Bot tokens may not have access to history for channels the bot isn't in.
  */
 export class SlackChannelService {
   private client: WebClient
