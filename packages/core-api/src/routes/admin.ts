@@ -9,6 +9,7 @@ import { sql } from 'drizzle-orm'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import { adminAuth } from '../middleware/admin-auth.js'
+import { SlackChannelService } from '../services/slack-channel.js'
 
 /**
  * Queue names that Bull Board registers for monitoring.
@@ -273,6 +274,61 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
       return c.json({
         error: 'Service unavailable',
         message: 'Queue management requires a Redis connection',
+      }, 503)
+    })
+  }
+
+  // ─── Slack Channel Management ──────────────────────────────────────────────
+  // GET  /slack/channels              — list channels with activity metadata
+  // POST /slack/channels/:id/archive  — archive a channel by ID
+  // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method
+  // for archive and the admin rate limiter on /api/v1/admin/*.
+
+  const slackUserToken = process.env.SLACK_USER_TOKEN
+  if (slackUserToken) {
+    const slackChannelService = new SlackChannelService(slackUserToken)
+
+    router.get('/slack/channels', async (c) => {
+      try {
+        const channels = await slackChannelService.listChannels()
+        return c.json({ channels })
+      } catch (err) {
+        logger.error({ err }, '[admin] Failed to list Slack channels')
+        const message = err instanceof Error ? err.message : 'Unknown error listing Slack channels'
+        return c.json({ error: 'Failed to list Slack channels', message }, 500)
+      }
+    })
+
+    router.post('/slack/channels/:id/archive', async (c) => {
+      const channelId = c.req.param('id')
+      if (!channelId) {
+        return c.json({ error: 'Bad request', message: 'Channel ID is required' }, 400)
+      }
+
+      try {
+        const result = await slackChannelService.archiveChannel(channelId)
+        logger.info({ channelId }, '[admin] Slack channel archived')
+        return c.json(result)
+      } catch (err) {
+        logger.error({ err, channelId }, '[admin] Failed to archive Slack channel')
+        const message = err instanceof Error ? err.message : 'Unknown error archiving Slack channel'
+        return c.json({ error: 'Failed to archive Slack channel', message }, 500)
+      }
+    })
+
+    logger.info('[admin] Slack channel management routes registered')
+  } else {
+    router.get('/slack/channels', (c) => {
+      return c.json({
+        error: 'Service unavailable',
+        message: 'SLACK_USER_TOKEN environment variable is not configured. Set it to a Slack user token (xoxp-...) with channels:read, channels:history, and channels:write scopes.',
+      }, 503)
+    })
+
+    router.post('/slack/channels/:id/archive', (c) => {
+      return c.json({
+        error: 'Service unavailable',
+        message: 'SLACK_USER_TOKEN environment variable is not configured.',
       }, 503)
     })
   }
