@@ -4,7 +4,7 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 ## Status
 
-**Implementation complete** — all 16 phases (83 work items across ~11,100 LOC) shipped 2026-03-05. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) are deferred — see [Roadmap](#roadmap) below.
+**Implementation complete** — 25 phases shipped across three implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
 ---
 
@@ -102,9 +102,9 @@ AI calls:
 
 ## Roadmap
 
-### Implemented (Shipped 2026-03-05)
+### Implemented
 
-All core features across the 16-phase build are complete:
+**Core Infrastructure (Phases 1-16, shipped 2026-03-05)**
 
 - **Capture**: Voice memos (iOS Shortcut), Slack messages, Slack voice clips, document upload (PDF/docx/txt/md), MCP, direct API
 - **Pipeline**: Async BullMQ stages — embed, classify, extract entities, link entities, check triggers, notify
@@ -116,6 +116,21 @@ All core features across the 16-phase build are complete:
 - **Web Dashboard**: Vite + React + shadcn/ui — timeline, search, entities, board, briefs, voice, documents, settings
 - **MCP**: Embedded Streamable HTTP endpoint at `/mcp` for Claude, ChatGPT, and other AI tools
 - **Infrastructure**: Postgres 16 + pgvector, Redis, faster-whisper (CPU), Cloudflare Tunnel, SSE live updates
+
+**Intelligence Features (Phases 17-20, shipped 2026-03-11)**
+
+- Entity detail pages, relationship graph visualization, entity merge/split
+- Advanced search filters (date range, brain view, capture type, entity)
+- Capture detail view with entity links and pipeline status
+
+**UX Polish + Admin Tools (Phases 21-25, shipped 2026-03-12)**
+
+- Trigger delete fix and Settings page reorganization into focused sections
+- Queue management UI (per-queue clear buttons for failed jobs)
+- Dark mode toggle with system preference detection and localStorage persistence
+- Skill schedule editing (inline cron editing with YAML write-back)
+- In-app help page with tabbed markdown rendering and table of contents
+- Slack channel management (listing with activity metadata, channel archiving)
 
 ### Deferred Features
 
@@ -229,8 +244,9 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 |------|---------|
 | `CHANGELOG.md` | Version history and recent changes |
 | `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
-| `docs/PRD.md` | Product requirements (v0.6) |
-| `docs/TDD.md` | Technical design (v0.5) |
+| `IMPLEMENTATION_PLAN-PHASE6.md` | Phases 21–25 (UX polish + admin tools) — complete |
+| `docs/PRD.md` | Product requirements (v0.8) |
+| `docs/TDD.md` | Technical design (v0.7) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
