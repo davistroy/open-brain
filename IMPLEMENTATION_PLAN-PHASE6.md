@@ -559,8 +559,8 @@ Wire the Help page into the app's routing and navigation.
 
 ### Work Items
 
-#### 25.1 Add @slack/web-api Dependency and Slack User Token
-**Status: PENDING**
+#### 25.1 Add @slack/web-api Dependency and Slack User Token ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F35, TDD §3.2 (POST /api/v1/admin/cleanup-slack-channel)
 **Files Affected:**
 - `packages/core-api/package.json` (modify — add `@slack/web-api` dependency)
@@ -576,16 +576,16 @@ This is a new secret that needs to be:
 3. Passed to the core-api container as `SLACK_USER_TOKEN` environment variable
 
 **Tasks:**
-1. [ ] Add `@slack/web-api` dependency: `pnpm --filter @open-brain/core-api add @slack/web-api`
-2. [ ] Document the Slack app configuration change needed: add User Token Scopes `channels:history`, `chat:write`
-3. [ ] Store the user token in Bitwarden: `dev/open-brain/slack-user-token`
-4. [ ] Add `SLACK_USER_TOKEN` to `docker-compose.yml` for the core-api service (placeholder, actual value from Bitwarden)
-5. [ ] Add `SLACK_USER_TOKEN` to the `.env.example` with a placeholder comment
+1. [x] Add `@slack/web-api` dependency: `pnpm --filter @open-brain/core-api add @slack/web-api`
+2. [x] Document the Slack app configuration change needed: add User Token Scopes `channels:history`, `chat:write`
+3. [ ] Store the user token in Bitwarden: `dev/open-brain/slack-user-token` *(manual step — requires Slack app config UI)*
+4. [x] Add `SLACK_USER_TOKEN` to `docker-compose.yml` for the core-api service (placeholder, actual value from Bitwarden)
+5. [x] Add `SLACK_USER_TOKEN` to the `.env.example` with a placeholder comment
 
 **Acceptance Criteria:**
-- [ ] `@slack/web-api` is importable from core-api package
-- [ ] `SLACK_USER_TOKEN` is available as an environment variable in the core-api container
-- [ ] Token has the necessary Slack scopes for channel history read and message delete
+- [x] `@slack/web-api` is importable from core-api package
+- [x] `SLACK_USER_TOKEN` is available as an environment variable in the core-api container
+- [ ] Token has the necessary Slack scopes for channel history read and message delete *(requires manual Slack app config — scopes documented in .env.example and docker-compose.yml)*
 
 **Notes:**
 - The existing slack-bot package uses `@slack/bolt` which includes `@slack/web-api` as a dependency. However, core-api is a separate package and needs its own dependency. Alternatively, we could move this feature to the slack-bot package and expose it via an internal API, but that adds complexity. Direct dependency in core-api is simpler.
@@ -649,8 +649,8 @@ Implement the Slack channel cleanup as a two-part system:
 
 ---
 
-#### 25.3 Slack Cleanup UI in Settings Danger Zone
-**Status: PENDING**
+#### 25.3 Slack Cleanup UI in Settings Danger Zone ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F35
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — add cleanup section to DangerZoneSection)

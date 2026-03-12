@@ -8,6 +8,7 @@ import {
   Gavel,
   Lightbulb,
   Mic,
+  Hash,
   Settings,
   HelpCircle,
   Brain,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { to: '/slack-cleanup', label: 'Slack Cleanup', icon: Hash },
   { to: '/help', label: 'Help', icon: HelpCircle },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];

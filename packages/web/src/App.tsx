@@ -12,6 +12,7 @@ const Board = lazy(() => import('@/pages/Board'));
 const Voice = lazy(() => import('@/pages/Voice'));
 const Intelligence = lazy(() => import('@/pages/Intelligence'));
 const Help = lazy(() => import('@/pages/Help'));
+const SlackCleanup = lazy(() => import('@/pages/SlackCleanup'));
 const Settings = lazy(() => import('@/pages/Settings'));
 
 function PageLoader() {
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="voice" element={<Voice />} />
           <Route path="intelligence" element={<Intelligence />} />
           <Route path="help" element={<Help />} />
+          <Route path="slack-cleanup" element={<SlackCleanup />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

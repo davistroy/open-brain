@@ -251,6 +251,19 @@ export const triggersApi = {
 
 // Admin API
 
+// Slack channel types used by admin API
+
+export interface SlackChannel {
+  id: string
+  name: string
+  member_count: number
+  last_activity: string | null
+  days_inactive: number
+  topic?: string
+  purpose?: string
+  is_archived: boolean
+}
+
 export const adminApi = {
   resetData: () => {
     return request<{ cleared: string[]; preserved: string[]; wiped_at: string }>('/admin/reset-data', {
@@ -265,6 +278,22 @@ export const adminApi = {
       {
         method: 'POST',
         body: JSON.stringify({ state }),
+      },
+    )
+  },
+
+  /** List all Slack channels with activity metadata */
+  getSlackChannels: () => {
+    return request<{ channels: SlackChannel[] }>('/admin/slack/channels')
+  },
+
+  /** Archive a Slack channel by ID */
+  archiveSlackChannel: (channelId: string) => {
+    return request<{ ok: boolean; channel_id: string; archived_at: string }>(
+      `/admin/slack/channels/${encodeURIComponent(channelId)}/archive`,
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
       },
     )
   },
