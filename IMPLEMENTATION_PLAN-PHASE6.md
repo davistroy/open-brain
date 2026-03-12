@@ -190,8 +190,8 @@ No `adminAuth` middleware — follows the same pattern as `POST /reset-data` (we
 
 ---
 
-#### 22.2 Queue Clear Buttons in Settings UI (F29 — Frontend)
-**Status: PENDING**
+#### 22.2 Queue Clear Buttons in Settings UI (F29 — Frontend) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F29
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — add clear button rendering and handler in `QueueStatusSection`)
@@ -201,18 +201,18 @@ No `adminAuth` middleware — follows the same pattern as `POST /reset-data` (we
 Wire the "Clear Failed" buttons into the `QueueStatusSection` component created in Phase 21 (work item 21.2). Each queue row shows a small "Clear" button when `failed > 0`. Clicking it calls the new endpoint and refreshes queue counts.
 
 **Tasks:**
-1. [ ] Add `clearQueue(queueName: string)` method to `adminApi` in `api.ts` — calls `POST /api/v1/admin/queues/${name}/clear` with `{ state: 'failed' }`
-2. [ ] In `QueueStatusSection`, render a `<Button size="sm" variant="ghost">` with text "Clear" next to the failed count when `q.failed > 0`
-3. [ ] Add click handler that calls `onClearQueue(queueName)`, shows a brief loading state, and displays the cleared count
-4. [ ] In the main `Settings` component, implement `handleClearQueue` function that calls `adminApi.clearQueue(name)` and then calls `loadHealth()` to refresh counts
-5. [ ] Pass `handleClearQueue` as the `onClearQueue` prop to `QueueStatusSection`
+1. [x] Add `clearQueue(queueName: string)` method to `adminApi` in `api.ts` — calls `POST /api/v1/admin/queues/${name}/clear` with `{ state: 'failed' }`
+2. [x] In `QueueStatusSection`, render a `<Button size="sm" variant="ghost">` with text "Clear" next to the failed count when `q.failed > 0`
+3. [x] Add click handler that calls `onClearQueue(queueName)`, shows a brief loading state, and displays the cleared count
+4. [x] In the main `Settings` component, implement `handleClearQueue` function that calls `adminApi.clearQueue(name)` and then calls `loadHealth()` to refresh counts
+5. [x] Pass `handleClearQueue` as the `onClearQueue` prop to `QueueStatusSection`
 
 **Acceptance Criteria:**
-- [ ] "Clear" button appears next to each queue's failed count only when failed > 0
-- [ ] Clicking "Clear" removes failed jobs and the count updates to 0
-- [ ] Success feedback shows the number of cleared jobs
-- [ ] Button shows loading state during the API call
-- [ ] No button appears when a queue has 0 failed jobs
+- [x] "Clear" button appears next to each queue's failed count only when failed > 0
+- [x] Clicking "Clear" removes failed jobs and the count updates to 0
+- [x] Success feedback shows the number of cleared jobs
+- [x] Button shows loading state during the API call
+- [x] No button appears when a queue has 0 failed jobs
 
 **Notes:**
 - The clear button should be small and unobtrusive — `variant="ghost"` with `text-destructive` color. Don't want accidental clicks.

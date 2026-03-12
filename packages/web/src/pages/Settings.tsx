@@ -135,8 +135,26 @@ function QueueStatusSection({ queues, loading, onClearQueue }: {
   loading: boolean;
   onClearQueue?: (queueName: string) => Promise<void>;
 }) {
-  // onClearQueue will be wired up in Phase 22 (F29)
-  void onClearQueue;
+  const [clearing, setClearing] = useState<string | null>(null);
+  const [clearResult, setClearResult] = useState<Record<string, { success: boolean; message: string }>>({});
+
+  async function handleClear(queueName: string) {
+    if (!onClearQueue) return;
+    setClearing(queueName);
+    setClearResult((prev) => { const next = { ...prev }; delete next[queueName]; return next; });
+    try {
+      await onClearQueue(queueName);
+      setClearResult((prev) => ({ ...prev, [queueName]: { success: true, message: 'Cleared' } }));
+      setTimeout(() => setClearResult((prev) => { const next = { ...prev }; delete next[queueName]; return next; }), 4000);
+    } catch (err) {
+      setClearResult((prev) => ({
+        ...prev,
+        [queueName]: { success: false, message: err instanceof Error ? err.message : 'Clear failed' },
+      }));
+    } finally {
+      setClearing(null);
+    }
+  }
 
   return (
     <section className="space-y-3">
@@ -158,9 +176,29 @@ function QueueStatusSection({ queues, loading, onClearQueue }: {
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {q.waiting > 0 && <span>{q.waiting} waiting</span>}
-                {q.active > 0 && <span className="text-blue-600">{q.active} active</span>}
-                {q.failed > 0 && <span className="text-destructive">{q.failed} failed</span>}
-                {q.waiting === 0 && q.active === 0 && q.failed === 0 && <span className="text-green-600">idle</span>}
+                {q.active > 0 && <span className="text-blue-600 dark:text-blue-400">{q.active} active</span>}
+                {q.failed > 0 && (
+                  <>
+                    <span className="text-destructive">{q.failed} failed</span>
+                    {onClearQueue && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 px-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                        disabled={clearing === name}
+                        onClick={() => handleClear(name)}
+                      >
+                        {clearing === name ? 'Clearing...' : 'Clear'}
+                      </Button>
+                    )}
+                  </>
+                )}
+                {clearResult[name] && (
+                  <span className={clearResult[name].success ? 'text-green-600 dark:text-green-400' : 'text-destructive'}>
+                    {clearResult[name].message}
+                  </span>
+                )}
+                {q.waiting === 0 && q.active === 0 && q.failed === 0 && !clearResult[name] && <span className="text-green-600 dark:text-green-400">idle</span>}
               </div>
             </div>
           ))}
@@ -637,6 +675,11 @@ export default function Settings() {
     await loadTriggers();
   }
 
+  async function handleClearQueue(queueName: string) {
+    await adminApi.clearQueue(queueName);
+    await loadHealth();
+  }
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -667,6 +710,7 @@ export default function Settings() {
       <QueueStatusSection
         queues={health?.queues}
         loading={healthLoading}
+        onClearQueue={handleClearQueue}
       />
 
       <Separator />

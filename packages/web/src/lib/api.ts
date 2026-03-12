@@ -251,6 +251,16 @@ export const adminApi = {
       body: JSON.stringify({ confirm: 'WIPE ALL DATA' }),
     })
   },
+
+  clearQueue: (queueName: string, state: 'failed' | 'completed' | 'delayed' = 'failed') => {
+    return request<{ queue: string; state: string; cleared_count: number; cleared_at: string }>(
+      `/admin/queues/${encodeURIComponent(queueName)}/clear`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ state }),
+      },
+    )
+  },
 }
 
 // Pipeline API
