@@ -135,11 +135,13 @@ let statsData = null;
   if (statsData?.pipeline_health) {
     const ph = statsData.pipeline_health;
     pass('TC-API-002', 'Stats includes pipeline_health', JSON.stringify(ph));
-    if (ph.complete === 0 && ph.failed >= 0) {
+    if (ph.complete === 0 && statsData.total_captures > 0) {
+      // Only flag as bug if there ARE captures but none are complete
       bug('TC-API-003', 'Captures never reach pipeline_status=complete',
-        'Workers run ingest→embed→extract but no stage marks capture complete; weekly-brief always skips');
+        'Workers run ingest→embed→extract but no stage marks capture complete');
     } else {
-      pass('TC-API-003', `pipeline_health.complete=${ph.complete}`);
+      pass('TC-API-003', `pipeline_health.complete=${ph.complete}`,
+        ph.complete > 0 ? 'pipeline processing verified' : 'no captures yet');
     }
   }
 
@@ -1148,6 +1150,9 @@ section('10b. Slack Channel Management');
   } else if (archiveRes.status === 200) {
     // Unlikely with a fake ID, but the endpoint works
     pass('TC-API-121', 'POST /admin/slack/channels/:id/archive → 200');
+  } else if (archiveRes.status === 429) {
+    skip('TC-API-121', 'POST /admin/slack/channels/:id/archive → 429',
+      'Rate limited during test run — endpoint exists but throttled');
   } else {
     fail('TC-API-121', 'POST /admin/slack/channels/:id/archive',
       `status=${archiveRes.status} ${JSON.stringify(archiveRes.data)?.slice(0,100)}`);
