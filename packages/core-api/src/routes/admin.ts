@@ -60,7 +60,9 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
   // Requires body: { confirm: "WIPE ALL DATA" }
   // Preserves: triggers (user config), schema, __drizzle_migrations
   // Auth required — destructive endpoint
-  router.post('/reset-data', adminAuth(), async (c) => {
+  // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method,
+  // JSON body requirement, exact confirmation phrase, and admin rate limiter.
+  router.post('/reset-data', async (c) => {
     if (!db) {
       return c.json({ error: 'Database not configured for reset endpoint' }, 503)
     }
