@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
+import ThemeToggle from '@/components/ThemeToggle';
 
 interface NavItem {
   to: string;
@@ -82,6 +83,7 @@ export default function Layout() {
           {bottomNavItems.map((item) => (
             <NavItemLink key={item.to} item={item} />
           ))}
+          <ThemeToggle />
         </div>
       </aside>
 

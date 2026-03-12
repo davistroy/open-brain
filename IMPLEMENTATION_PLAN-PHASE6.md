@@ -157,8 +157,8 @@ The visual hierarchy follows the PRD: version/uptime at top, then services, then
 
 ### Work Items
 
-#### 22.1 Queue Clear API Endpoint (F29 — Backend)
-**Status: PENDING**
+#### 22.1 Queue Clear API Endpoint (F29 — Backend) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F29, TDD §3.2 (POST /api/v1/admin/queues/:name/clear)
 **Files Affected:**
 - `packages/core-api/src/routes/admin.ts` (modify — add POST route inside the `if (redisConnection)` block)
@@ -171,18 +171,18 @@ The endpoint lives inside the existing `if (redisConnection)` block in `createAd
 No `adminAuth` middleware — follows the same pattern as `POST /reset-data` (web UI cannot send Bearer tokens). Protected by POST method requirement and queue name validation.
 
 **Tasks:**
-1. [ ] Add `POST /queues/:name/clear` route inside the `if (redisConnection)` block
-2. [ ] Validate queue name against `QUEUE_NAMES` constant — return 404 if not recognized
-3. [ ] Parse optional body for `state` (default: `'failed'`) and `grace_period_ms` (default: `0`)
-4. [ ] Call `queue.clean(gracePeriodMs, limit, state)` — use limit of 1000 (BullMQ's `clean()` returns the list of removed job IDs)
-5. [ ] Return `{ queue: name, state, cleared_count: removedIds.length, cleared_at: ISO string }`
-6. [ ] Add a placeholder route in the `else` block (no Redis) that returns 503
+1. [x] Add `POST /queues/:name/clear` route inside the `if (redisConnection)` block
+2. [x] Validate queue name against `QUEUE_NAMES` constant — return 404 if not recognized
+3. [x] Parse optional body for `state` (default: `'failed'`) and `grace_period_ms` (default: `0`)
+4. [x] Call `queue.clean(gracePeriodMs, limit, state)` — use limit of 1000 (BullMQ's `clean()` returns the list of removed job IDs)
+5. [x] Return `{ queue: name, state, cleared_count: removedIds.length, cleared_at: ISO string }`
+6. [x] Add a placeholder route in the `else` block (no Redis) that returns 503
 
 **Acceptance Criteria:**
-- [ ] `POST /api/v1/admin/queues/capture-pipeline/clear` clears failed jobs and returns count
-- [ ] Invalid queue names return 404
-- [ ] Optional `state` parameter works for `failed`, `completed`, `delayed`
-- [ ] Works without adminAuth (same pattern as reset-data)
+- [x] `POST /api/v1/admin/queues/capture-pipeline/clear` clears failed jobs and returns count
+- [x] Invalid queue names return 404
+- [x] Optional `state` parameter works for `failed`, `completed`, `delayed`
+- [x] Works without adminAuth (same pattern as reset-data)
 
 **Notes:**
 - BullMQ `Queue.clean()` signature: `clean(grace: number, limit: number, type: string)`. The `type` parameter maps to job state. Grace period of 0 means "all jobs regardless of age."
@@ -219,8 +219,8 @@ Wire the "Clear Failed" buttons into the `QueueStatusSection` component created 
 
 ---
 
-#### 22.3 Dark Mode Toggle (F32)
-**Status: PENDING**
+#### 22.3 Dark Mode Toggle (F32) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F32
 **Files Affected:**
 - `packages/web/src/components/ThemeToggle.tsx` (create)
@@ -238,28 +238,28 @@ Implementation:
 The theme must be applied before React renders to avoid a flash of wrong theme (FOWT). This is handled by an inline `<script>` in `index.html` or by calling the theme initializer at module load time in `theme.ts`.
 
 **Tasks:**
-1. [ ] Create `packages/web/src/lib/theme.ts` with:
+1. [x] Create `packages/web/src/lib/theme.ts` with:
    - `getTheme()`: returns `'light' | 'dark' | 'system'` from localStorage (key: `ob-theme`), defaults to `'system'`
    - `setTheme(theme)`: saves to localStorage and applies `.dark` class
    - `applyTheme()`: reads preference, resolves `system` via `matchMedia('(prefers-color-scheme: dark)')`, applies `.dark` class
    - `initTheme()`: called at module load — applies theme immediately
-2. [ ] Create `packages/web/src/components/ThemeToggle.tsx`:
+2. [x] Create `packages/web/src/components/ThemeToggle.tsx`:
    - Renders a `<Button variant="ghost" size="sm">` with `Sun` or `Moon` icon from lucide-react
    - Cycles through: system -> light -> dark -> system (or simple light/dark toggle)
    - Calls `setTheme()` and updates local state
-3. [ ] Modify `packages/web/src/components/Layout.tsx`:
+3. [x] Modify `packages/web/src/components/Layout.tsx`:
    - Import `ThemeToggle`
    - Add `<ThemeToggle />` in the sidebar footer `<div>` alongside the Settings nav link
-4. [ ] Add theme initialization: import `theme.ts` in the app entry point so `initTheme()` runs before first render
-5. [ ] Add `<script>` block in `index.html` for instant theme application before React loads (prevents flash)
+4. [x] Add theme initialization: import `theme.ts` in the app entry point so `initTheme()` runs before first render
+5. [x] Add `<script>` block in `index.html` for instant theme application before React loads (prevents flash)
 
 **Acceptance Criteria:**
-- [ ] Toggle visible in the sidebar footer area
-- [ ] Clicking toggles between light and dark mode with instant visual switch
-- [ ] Preference persists across page refreshes
-- [ ] First visit defaults to system preference (`prefers-color-scheme`)
-- [ ] No flash of wrong theme on page load
-- [ ] All existing UI elements render correctly in both modes (test: dashboard, search, settings, entities)
+- [x] Toggle visible in the sidebar footer area
+- [x] Clicking toggles between light and dark mode with instant visual switch
+- [x] Preference persists across page refreshes
+- [x] First visit defaults to system preference (`prefers-color-scheme`)
+- [x] No flash of wrong theme on page load
+- [x] All existing UI elements render correctly in both modes (test: dashboard, search, settings, entities)
 
 **Notes:**
 - Simple two-state toggle (light/dark) is cleaner than a three-state (light/dark/system). System preference is only used for the initial default. Once the user clicks the toggle, their explicit choice overrides.

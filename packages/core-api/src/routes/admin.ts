@@ -22,6 +22,10 @@ const QUEUE_NAMES = [
   'daily-sweep',
 ] as const
 
+/** Job states that can be cleared via POST /queues/:name/clear */
+const CLEARABLE_STATES = ['failed', 'completed', 'delayed'] as const
+type ClearableState = typeof CLEARABLE_STATES[number]
+
 export interface AdminRouterOptions {
   configService: ConfigService
   /** Redis connection for Bull Board queue monitoring. Optional — if omitted, /queues returns a placeholder. */
@@ -34,8 +38,10 @@ export interface AdminRouterOptions {
  * Creates the admin router.
  *
  * Mounts:
- *   POST /config/reload  — hot-reload YAML config files
- *   GET  /queues/*       — Bull Board UI (when redisConnection is provided)
+ *   POST /config/reload            — hot-reload YAML config files
+ *   GET  /queues/*                  — Bull Board UI (when redisConnection is provided)
+ *   POST /queues/:name/clear        — clear jobs from a named BullMQ queue
+ *   GET  /pipeline/health           — BullMQ queue counts
  *
  * Bull Board path: /api/v1/admin/queues
  * (app.ts mounts this router at /api/v1/admin)
@@ -135,6 +141,71 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
     serverAdapter.setBasePath('/api/v1/admin/queues')
 
     const bullBoardApp = serverAdapter.registerPlugin()
+
+    // POST /queues/:name/clear — clear jobs from a named BullMQ queue
+    // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method
+    // and queue name validation against the QUEUE_NAMES whitelist.
+    // Registered BEFORE the Bull Board wildcard middleware so it's handled directly.
+    router.post('/queues/:name/clear', async (c) => {
+      const queueName = c.req.param('name')
+
+      // Validate queue name against whitelist
+      if (!QUEUE_NAMES.includes(queueName as typeof QUEUE_NAMES[number])) {
+        return c.json({
+          error: 'Not found',
+          message: `Unknown queue "${queueName}". Valid queues: ${QUEUE_NAMES.join(', ')}`,
+        }, 404)
+      }
+
+      // Parse optional body for state and grace_period_ms
+      let state: ClearableState = 'failed'
+      let gracePeriodMs = 0
+
+      try {
+        const body = await c.req.json() as Record<string, unknown>
+        if (body.state !== undefined) {
+          if (!CLEARABLE_STATES.includes(body.state as ClearableState)) {
+            return c.json({
+              error: 'Bad request',
+              message: `Invalid state "${body.state}". Valid states: ${CLEARABLE_STATES.join(', ')}`,
+            }, 400)
+          }
+          state = body.state as ClearableState
+        }
+        if (body.grace_period_ms !== undefined) {
+          const parsed = Number(body.grace_period_ms)
+          if (Number.isNaN(parsed) || parsed < 0) {
+            return c.json({
+              error: 'Bad request',
+              message: 'grace_period_ms must be a non-negative number',
+            }, 400)
+          }
+          gracePeriodMs = parsed
+        }
+      } catch {
+        // No body or invalid JSON — use defaults (state: 'failed', grace: 0)
+      }
+
+      const queue = queues.find((q) => q.name === queueName)!
+
+      logger.info({ queue: queueName, state, gracePeriodMs }, '[admin] Queue clear requested')
+
+      const removedIds = await queue.clean(gracePeriodMs, 1000, state)
+
+      logger.info(
+        { queue: queueName, state, cleared_count: removedIds.length },
+        '[admin] Queue clear complete',
+      )
+
+      return c.json({
+        queue: queueName,
+        state,
+        cleared_count: removedIds.length,
+        cleared_at: new Date().toISOString(),
+      })
+    })
+
+    // Bull Board UI — protected by adminAuth (requires Bearer token)
     router.use('/queues/*', adminAuth())
     router.route('/queues', bullBoardApp)
 
@@ -180,6 +251,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
         },
       })
     })
+
   } else {
     // Placeholder until Redis connection is wired at startup
     router.get('/queues', (c) => {
@@ -195,6 +267,13 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
         queues: {},
         overall: { pending: 0, processing: 0, complete: 0, failed: 0 },
       })
+    })
+
+    router.post('/queues/:name/clear', (c) => {
+      return c.json({
+        error: 'Service unavailable',
+        message: 'Queue management requires a Redis connection',
+      }, 503)
     })
   }
 
