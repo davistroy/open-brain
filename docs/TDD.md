@@ -1084,6 +1084,114 @@ If the answer triggers anti-vagueness enforcement:
 
 ---
 
+#### POST /api/v1/admin/queues/:name/clear
+
+> **Phase 6** — Queue management from web UI.
+
+**Description**: Clear failed jobs from a specific BullMQ queue. Uses `Queue.clean()` with `failed` state.
+
+**Path Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| name | string | Queue name: `capture-pipeline`, `skill-execution`, `notification`, `access-stats`, `daily-sweep` |
+
+**Request Body** (optional):
+```json
+{
+  "state": "failed",
+  "grace_period_ms": 0
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| state | string | `failed` | Job state to clear: `failed`, `completed`, `delayed` |
+| grace_period_ms | number | 0 | Only clear jobs older than this (ms) |
+
+**Response (200)**:
+```json
+{
+  "queue": "skill-execution",
+  "state": "failed",
+  "cleared_count": 9,
+  "cleared_at": "2026-03-11T23:00:00Z"
+}
+```
+
+**Error Responses**: 404 if queue name not recognized.
+
+**Implementation**: `packages/core-api/src/routes/admin.ts`. No adminAuth (same pattern as reset-data — web UI cannot send Bearer tokens). Requires Redis connection.
+
+---
+
+#### PATCH /api/v1/skills/:name
+
+> **Phase 6** — Skill schedule editing from web UI.
+
+**Description**: Update a skill's cron schedule. Validates the cron expression and persists to `config/skills.yaml`. Takes effect on next scheduler tick.
+
+**Request Body**:
+```json
+{
+  "schedule": "0 20 * * 0"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| schedule | string | Yes | Valid cron expression (5-field) |
+
+**Response (200)**:
+```json
+{
+  "name": "weekly-brief",
+  "schedule": "0 20 * * 0",
+  "updated_at": "2026-03-11T23:00:00Z"
+}
+```
+
+**Error Responses**: 400 if cron expression is invalid. 404 if skill name not recognized.
+
+**Implementation**: `packages/core-api/src/routes/skills.ts`. Validates with a cron parser library. Updates `config/skills.yaml` and triggers ConfigService hot-reload.
+
+---
+
+#### POST /api/v1/admin/cleanup-slack-channel
+
+> **Phase 6** — Slack channel message cleanup.
+
+**Description**: Bulk-delete messages from the #open-brain Slack channel. Long-running operation — queued as a BullMQ job. Requires `SLACK_USER_TOKEN` environment variable (workspace admin's user token for full deletion scope).
+
+**Request Body**:
+```json
+{
+  "confirm": "DELETE_ALL_MESSAGES",
+  "channel_name": "open-brain",
+  "dry_run": false
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| confirm | string | Yes | — | Must be `"DELETE_ALL_MESSAGES"` |
+| channel_name | string | No | `open-brain` | Channel to clean (hardcoded default) |
+| dry_run | boolean | No | false | If true, count messages only |
+
+**Response (202 Accepted)**:
+```json
+{
+  "job_id": "cleanup-abc123",
+  "status": "queued",
+  "channel": "open-brain",
+  "dry_run": false
+}
+```
+
+**Implementation**: `packages/core-api/src/routes/admin.ts`. Uses `@slack/web-api` WebClient. Paginates `conversations.history`, calls `chat.delete` per message with 1s rate limit. Returns results via job status polling.
+
+---
+
 ### 3.3 API Error Code Catalog
 
 | Error Code | HTTP Status | Description | Resolution |
