@@ -39,7 +39,7 @@ function formatUptime(seconds?: number): string {
   return `${m}m`;
 }
 
-// ─── System Health section ────────────────────────────────────────────────────
+// ─── Shared ──────────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: 'up' | 'down' | 'degraded' | 'healthy' | 'unhealthy' | undefined }) {
   if (status === 'up' || status === 'healthy') return <span className="inline-block w-2 h-2 rounded-full bg-green-500" />;
@@ -47,10 +47,17 @@ function StatusDot({ status }: { status: 'up' | 'down' | 'degraded' | 'healthy' 
   return <span className="inline-block w-2 h-2 rounded-full bg-red-500" />;
 }
 
-function SystemHealthSection({ health, loading, error }: { health: SystemHealth | null; loading: boolean; error: string | null }) {
+// ─── Version & Uptime section ────────────────────────────────────────────────
+
+function VersionUptimeSection({ version, uptime_s, loading, error }: {
+  version?: string;
+  uptime_s?: number;
+  loading: boolean;
+  error: string | null;
+}) {
   return (
     <section className="space-y-3">
-      <h2 className="text-base font-semibold">System Health</h2>
+      <h2 className="text-base font-semibold">Version & Uptime</h2>
 
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -59,26 +66,47 @@ function SystemHealthSection({ health, loading, error }: { health: SystemHealth 
         </div>
       )}
 
-      {loading && !health && (
+      {loading && version === undefined && (
         <div className="space-y-2">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
         </div>
       )}
 
-      {health && (
+      {version !== undefined && (
         <div className="rounded-lg border bg-card divide-y">
-          {/* Version / uptime */}
           <div className="px-4 py-3 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Version</span>
-            <span className="font-mono">{health.version ?? '—'}</span>
+            <span className="font-mono">{version ?? '—'}</span>
           </div>
           <div className="px-4 py-3 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Uptime</span>
-            <span>{formatUptime(health.uptime_s)}</span>
+            <span>{formatUptime(uptime_s)}</span>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
-          {/* Connected services */}
-          {health.services && Object.entries(health.services).map(([name, svc]) => (
+// ─── Service Health section ──────────────────────────────────────────────────
+
+function ServiceHealthSection({ services, loading }: {
+  services?: Record<string, { status: 'up' | 'down' | 'degraded'; latency_ms?: number; models_available?: string[] }>;
+  loading: boolean;
+}) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-base font-semibold">Service Health</h2>
+
+      {loading && !services && (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      )}
+
+      {services && Object.keys(services).length > 0 ? (
+        <div className="rounded-lg border bg-card divide-y">
+          {Object.entries(services).map(([name, svc]) => (
             <div key={name} className="px-4 py-3 flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <StatusDot status={svc.status} />
@@ -92,9 +120,37 @@ function SystemHealthSection({ health, loading, error }: { health: SystemHealth 
               </div>
             </div>
           ))}
+        </div>
+      ) : !loading && (
+        <p className="text-sm text-muted-foreground">No service data available.</p>
+      )}
+    </section>
+  );
+}
 
-          {/* Queue health */}
-          {health.queues && Object.entries(health.queues).map(([name, q]) => (
+// ─── Queue Status section ────────────────────────────────────────────────────
+
+function QueueStatusSection({ queues, loading, onClearQueue }: {
+  queues?: Record<string, { waiting: number; active: number; failed: number }>;
+  loading: boolean;
+  onClearQueue?: (queueName: string) => Promise<void>;
+}) {
+  // onClearQueue will be wired up in Phase 22 (F29)
+  void onClearQueue;
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-base font-semibold">Queue Status</h2>
+
+      {loading && !queues && (
+        <div className="space-y-2">
+          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      )}
+
+      {queues && Object.keys(queues).length > 0 ? (
+        <div className="rounded-lg border bg-card divide-y">
+          {Object.entries(queues).map(([name, q]) => (
             <div key={name} className="px-4 py-3 flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <Activity className="h-3.5 w-3.5 text-muted-foreground" />
@@ -109,6 +165,8 @@ function SystemHealthSection({ health, loading, error }: { health: SystemHealth 
             </div>
           ))}
         </div>
+      ) : !loading && (
+        <p className="text-sm text-muted-foreground">No queue data available.</p>
       )}
     </section>
   );
@@ -590,7 +648,26 @@ export default function Settings() {
         </Button>
       </div>
 
-      <SystemHealthSection health={health} loading={healthLoading} error={healthError} />
+      <VersionUptimeSection
+        version={health?.version}
+        uptime_s={health?.uptime_s}
+        loading={healthLoading}
+        error={healthError}
+      />
+
+      <Separator />
+
+      <ServiceHealthSection
+        services={health?.services}
+        loading={healthLoading}
+      />
+
+      <Separator />
+
+      <QueueStatusSection
+        queues={health?.queues}
+        loading={healthLoading}
+      />
 
       <Separator />
 

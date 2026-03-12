@@ -172,22 +172,60 @@ export const skillsApi = {
 
 // Triggers API
 
+/** Raw trigger record shape returned by the backend API */
+type RawTrigger = {
+  id: string
+  name: string
+  description: string | null
+  condition_text: string
+  threshold: number
+  action: string
+  action_config: Record<string, unknown> | null
+  enabled: boolean
+  last_triggered_at: string | null
+  trigger_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** Map backend trigger fields to frontend Trigger shape */
+function mapRawTrigger(t: RawTrigger): Trigger {
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description ?? undefined,
+    enabled: t.enabled,
+    is_active: t.enabled,
+    query_text: t.condition_text,
+    threshold: t.threshold,
+    cooldown_minutes: typeof t.action_config?.cooldown_minutes === 'number' ? t.action_config.cooldown_minutes : undefined,
+    delivery_channel: typeof t.action_config?.delivery_channel === 'string' ? t.action_config.delivery_channel : undefined,
+    fire_count: t.trigger_count,
+    last_fired_at: t.last_triggered_at ?? undefined,
+    created_at: t.created_at,
+  }
+}
+
 export const triggersApi = {
   list: async () => {
-    // API returns { triggers: TriggerRecord[] } — normalize to { data: Trigger[] }
-    const raw = await request<{ triggers: Trigger[] }>('/triggers')
-    return { data: raw.triggers ?? [] }
+    // API returns { triggers: RawTrigger[] } — normalize and map fields to frontend Trigger shape
+    const raw = await request<{ triggers: RawTrigger[] }>('/triggers')
+    const data = (raw.triggers ?? []).map(mapRawTrigger)
+    return { data }
   },
 
-  get: (id: string) => {
-    return request<Trigger>(`/triggers/${id}`)
+  get: async (id: string) => {
+    const raw = await request<RawTrigger>(`/triggers/${id}`)
+    return mapRawTrigger(raw)
   },
 
   create: (name: string, queryText: string) => {
-    return request<Trigger>('/triggers', {
+    // Backend expects camelCase `queryText`, not snake_case `query_text`
+    // Backend returns { trigger: RawTrigger }
+    return request<{ trigger: RawTrigger }>('/triggers', {
       method: 'POST',
-      body: JSON.stringify({ name, query_text: queryText }),
-    })
+      body: JSON.stringify({ name, queryText }),
+    }).then(res => mapRawTrigger(res.trigger))
   },
 
   toggle: (id: string, enabled: boolean) => {

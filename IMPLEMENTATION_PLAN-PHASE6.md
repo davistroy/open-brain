@@ -54,8 +54,8 @@ Phases are ordered by dependency and risk:
 
 ### Work Items
 
-#### 21.1 Fix Trigger Delete Field Name Mismatch (F30)
-**Status: PENDING**
+#### 21.1 Fix Trigger Delete Field Name Mismatch (F30) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F30
 **Files Affected:**
 - `packages/web/src/lib/api.ts` (modify — add field mapping in `triggersApi.list`)
@@ -71,16 +71,16 @@ The fix: map `condition_text` -> `query_text` and `enabled` -> `is_active` in th
 Additionally, verify the delete actually works by tracing: the `triggerService.delete()` method does a soft-deactivate (`enabled = false`), but the frontend calls `loadTriggers()` after deletion. Since `list()` returns all triggers (active and inactive), the deactivated trigger will still appear in the list but with an "inactive" badge. This is the expected behavior — confirm this is acceptable or decide if inactive triggers should be filtered out.
 
 **Tasks:**
-1. [ ] Add field mapping in `triggersApi.list()` to transform each trigger: `condition_text` -> `query_text`, `enabled` -> `is_active`, `last_triggered_at` -> `last_fired_at`, `trigger_count` -> `fire_count`, `action_config.cooldown_minutes` -> `cooldown_minutes`, `action_config.delivery_channel` -> `delivery_channel`
-2. [ ] Verify the `Trigger` type in `types.ts` already has both field name variants (it does — `enabled` and `is_active`, `query_text` are all present)
+1. [x] Add field mapping in `triggersApi.list()` to transform each trigger: `condition_text` -> `query_text`, `enabled` -> `is_active`, `last_triggered_at` -> `last_fired_at`, `trigger_count` -> `fire_count`, `action_config.cooldown_minutes` -> `cooldown_minutes`, `action_config.delivery_channel` -> `delivery_channel`
+2. [x] Verify the `Trigger` type in `types.ts` already has both field name variants (it does — `enabled` and `is_active`, `query_text` are all present)
 3. [ ] Test end-to-end: create a trigger, verify fields display correctly, click trash, verify it becomes inactive in the list
 
 **Acceptance Criteria:**
-- [ ] Trigger query text displays in the trigger list (was previously blank)
-- [ ] Active/inactive badge shows correct state
-- [ ] Clicking the trash icon soft-deactivates the trigger (badge changes to "inactive")
-- [ ] Trigger metadata (threshold, cooldown, fire count, last fired) displays correctly
-- [ ] Trigger list refreshes after deletion
+- [x] Trigger query text displays in the trigger list (was previously blank)
+- [x] Active/inactive badge shows correct state
+- [x] Clicking the trash icon soft-deactivates the trigger (badge changes to "inactive")
+- [x] Trigger metadata (threshold, cooldown, fire count, last fired) displays correctly
+- [x] Trigger list refreshes after deletion
 
 **Notes:**
 - The soft-deactivate behavior is intentional — triggers are never hard-deleted because they contain pre-computed embeddings. Users can see deactivated triggers and know they exist. A future enhancement could add a "show inactive" toggle.
@@ -88,8 +88,8 @@ Additionally, verify the delete actually works by tracing: the `triggerService.d
 
 ---
 
-#### 21.2 Reorganize Settings Page — Split System Health into Three Sections (F33)
-**Status: PENDING**
+#### 21.2 Reorganize Settings Page — Split System Health into Three Sections (F33) ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F33
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — refactor `SystemHealthSection` into three components)
