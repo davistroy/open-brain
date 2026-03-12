@@ -20,7 +20,7 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-workers` | build: target=workers | BullMQ workers — embed, classify, extract entities, triggers, skills |
 | `open-brain-slack-bot` | build: target=slack-bot | @slack/bolt Socket Mode — capture + query + commands |
 | `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
-| `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.4.1 | Speech-to-text (large-v3, CPU int8) |
+| `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.5.0-cpu | Speech-to-text (large-v3, CPU int8) |
 | `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
 
@@ -245,8 +245,8 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `CHANGELOG.md` | Version history and recent changes |
 | `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
 | `IMPLEMENTATION_PLAN-PHASE6.md` | Phases 21–25 (UX polish + admin tools) — complete |
-| `docs/PRD.md` | Product requirements (v0.8) |
-| `docs/TDD.md` | Technical design (v0.7) |
+| `docs/PRD.md` | Product requirements (v0.6) |
+| `docs/TDD.md` | Technical design (v0.6) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |

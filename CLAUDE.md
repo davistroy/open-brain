@@ -60,7 +60,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: v1.1.0 — All 20 phases complete (Phases 1-16 shipped 2026-03-05, hardening PR #25 merged 2026-03-11, Phase 5 intelligence features PR #27 merged 2026-03-11). 1,357 unit tests + 83 regression tests passing. Deployed to homeserver.
+**Status**: v1.2.0 — All 25 phases complete (Phases 1-16 shipped 2026-03-05, hardening PR #25 merged 2026-03-11, Phase 5 intelligence features PR #27 merged 2026-03-11, Phase 6 UX polish PR #28 merged 2026-03-12). 1,407 unit tests + 95 regression tests passing. Deployed to homeserver.
 
 ## Key Architecture Decisions
 

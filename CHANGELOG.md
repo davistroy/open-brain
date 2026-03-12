@@ -10,6 +10,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.0] — 2026-03-12
+
+### Added
+- **Queue management UI**: Per-queue clear buttons for failed jobs (`POST /admin/queues/:name/clear`).
+- **Skill schedule editing**: Inline cron editing with YAML write-back (`PATCH /api/v1/skills/:name`).
+- **In-app help page**: Tabbed markdown rendering with table of contents at `/help`.
+- **Slack channel cleanup**: Channel listing with activity metadata and archive capability (`GET/POST /admin/slack/channels`).
+- **Dark mode toggle**: System preference detection with `localStorage` persistence.
+- **Settings page reorganization**: Focused sections for system health, skills, triggers, and danger zone.
+- **Trigger delete fix**: Delete button now works on Settings page.
+- 13 new regression test cases covering Phase 6 endpoints (queue management, skill schedules, Slack channels).
+
+---
+
 ## [1.1.0] — 2026-03-11
 
 ### Added
@@ -117,6 +131,7 @@ Initial complete implementation of all 16 phases.
 
 ---
 
-[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/davistroy/open-brain/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/davistroy/open-brain/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/davistroy/open-brain/releases/tag/v1.0.0
