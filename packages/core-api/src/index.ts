@@ -14,6 +14,7 @@ import { SessionService } from './services/session.js'
 import { PipelineService } from './services/pipeline.js'
 import { LLMGatewayService } from './services/llm-gateway.js'
 import { GovernanceEngine } from './services/governance-engine.js'
+import { loadSkillsFromYaml } from './routes/skills.js'
 import { logger } from './lib/logger.js'
 import { pgNotify } from './lib/pg-notify.js'
 
@@ -22,6 +23,9 @@ const configDir = join(process.cwd(), 'config')
 const configService = new ConfigService(configDir)
 configService.load()
 logger.info('Config loaded successfully')
+
+// Load skill schedule overrides from config/skills.yaml (if present)
+loadSkillsFromYaml()
 
 // Initialize DB
 const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'

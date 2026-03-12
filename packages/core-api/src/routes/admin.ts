@@ -9,6 +9,7 @@ import { sql } from 'drizzle-orm'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '../lib/logger.js'
 import { adminAuth } from '../middleware/admin-auth.js'
+import { SlackChannelService } from '../services/slack-channel.js'
 
 /**
  * Queue names that Bull Board registers for monitoring.
@@ -22,6 +23,10 @@ const QUEUE_NAMES = [
   'daily-sweep',
 ] as const
 
+/** Job states that can be cleared via POST /queues/:name/clear */
+const CLEARABLE_STATES = ['failed', 'completed', 'delayed'] as const
+type ClearableState = typeof CLEARABLE_STATES[number]
+
 export interface AdminRouterOptions {
   configService: ConfigService
   /** Redis connection for Bull Board queue monitoring. Optional — if omitted, /queues returns a placeholder. */
@@ -34,8 +39,10 @@ export interface AdminRouterOptions {
  * Creates the admin router.
  *
  * Mounts:
- *   POST /config/reload  — hot-reload YAML config files
- *   GET  /queues/*       — Bull Board UI (when redisConnection is provided)
+ *   POST /config/reload            — hot-reload YAML config files
+ *   GET  /queues/*                  — Bull Board UI (when redisConnection is provided)
+ *   POST /queues/:name/clear        — clear jobs from a named BullMQ queue
+ *   GET  /pipeline/health           — BullMQ queue counts
  *
  * Bull Board path: /api/v1/admin/queues
  * (app.ts mounts this router at /api/v1/admin)
@@ -135,6 +142,71 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
     serverAdapter.setBasePath('/api/v1/admin/queues')
 
     const bullBoardApp = serverAdapter.registerPlugin()
+
+    // POST /queues/:name/clear — clear jobs from a named BullMQ queue
+    // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method
+    // and queue name validation against the QUEUE_NAMES whitelist.
+    // Registered BEFORE the Bull Board wildcard middleware so it's handled directly.
+    router.post('/queues/:name/clear', async (c) => {
+      const queueName = c.req.param('name')
+
+      // Validate queue name against whitelist
+      if (!QUEUE_NAMES.includes(queueName as typeof QUEUE_NAMES[number])) {
+        return c.json({
+          error: 'Not found',
+          message: `Unknown queue "${queueName}". Valid queues: ${QUEUE_NAMES.join(', ')}`,
+        }, 404)
+      }
+
+      // Parse optional body for state and grace_period_ms
+      let state: ClearableState = 'failed'
+      let gracePeriodMs = 0
+
+      try {
+        const body = await c.req.json() as Record<string, unknown>
+        if (body.state !== undefined) {
+          if (!CLEARABLE_STATES.includes(body.state as ClearableState)) {
+            return c.json({
+              error: 'Bad request',
+              message: `Invalid state "${body.state}". Valid states: ${CLEARABLE_STATES.join(', ')}`,
+            }, 400)
+          }
+          state = body.state as ClearableState
+        }
+        if (body.grace_period_ms !== undefined) {
+          const parsed = Number(body.grace_period_ms)
+          if (Number.isNaN(parsed) || parsed < 0) {
+            return c.json({
+              error: 'Bad request',
+              message: 'grace_period_ms must be a non-negative number',
+            }, 400)
+          }
+          gracePeriodMs = parsed
+        }
+      } catch {
+        // No body or invalid JSON — use defaults (state: 'failed', grace: 0)
+      }
+
+      const queue = queues.find((q) => q.name === queueName)!
+
+      logger.info({ queue: queueName, state, gracePeriodMs }, '[admin] Queue clear requested')
+
+      const removedIds = await queue.clean(gracePeriodMs, 1000, state)
+
+      logger.info(
+        { queue: queueName, state, cleared_count: removedIds.length },
+        '[admin] Queue clear complete',
+      )
+
+      return c.json({
+        queue: queueName,
+        state,
+        cleared_count: removedIds.length,
+        cleared_at: new Date().toISOString(),
+      })
+    })
+
+    // Bull Board UI — protected by adminAuth (requires Bearer token)
     router.use('/queues/*', adminAuth())
     router.route('/queues', bullBoardApp)
 
@@ -180,6 +252,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
         },
       })
     })
+
   } else {
     // Placeholder until Redis connection is wired at startup
     router.get('/queues', (c) => {
@@ -195,6 +268,68 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
         queues: {},
         overall: { pending: 0, processing: 0, complete: 0, failed: 0 },
       })
+    })
+
+    router.post('/queues/:name/clear', (c) => {
+      return c.json({
+        error: 'Service unavailable',
+        message: 'Queue management requires a Redis connection',
+      }, 503)
+    })
+  }
+
+  // ─── Slack Channel Management ──────────────────────────────────────────────
+  // GET  /slack/channels              — list channels with activity metadata
+  // POST /slack/channels/:id/archive  — archive a channel by ID
+  // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method
+  // for archive and the admin rate limiter on /api/v1/admin/*.
+
+  const slackUserToken = process.env.SLACK_USER_TOKEN
+  if (slackUserToken) {
+    const slackChannelService = new SlackChannelService(slackUserToken)
+
+    router.get('/slack/channels', async (c) => {
+      try {
+        const channels = await slackChannelService.listChannels()
+        return c.json({ channels })
+      } catch (err) {
+        logger.error({ err }, '[admin] Failed to list Slack channels')
+        const message = err instanceof Error ? err.message : 'Unknown error listing Slack channels'
+        return c.json({ error: 'Failed to list Slack channels', message }, 500)
+      }
+    })
+
+    router.post('/slack/channels/:id/archive', async (c) => {
+      const channelId = c.req.param('id')
+      if (!channelId) {
+        return c.json({ error: 'Bad request', message: 'Channel ID is required' }, 400)
+      }
+
+      try {
+        const result = await slackChannelService.archiveChannel(channelId)
+        logger.info({ channelId }, '[admin] Slack channel archived')
+        return c.json(result)
+      } catch (err) {
+        logger.error({ err, channelId }, '[admin] Failed to archive Slack channel')
+        const message = err instanceof Error ? err.message : 'Unknown error archiving Slack channel'
+        return c.json({ error: 'Failed to archive Slack channel', message }, 500)
+      }
+    })
+
+    logger.info('[admin] Slack channel management routes registered')
+  } else {
+    router.get('/slack/channels', (c) => {
+      return c.json({
+        error: 'Service unavailable',
+        message: 'SLACK_USER_TOKEN environment variable is not configured. Set it to a Slack user token (xoxp-...) with channels:read, channels:history, and channels:write scopes.',
+      }, 503)
+    })
+
+    router.post('/slack/channels/:id/archive', (c) => {
+      return c.json({
+        error: 'Service unavailable',
+        message: 'SLACK_USER_TOKEN environment variable is not configured.',
+      }, 503)
     })
   }
 

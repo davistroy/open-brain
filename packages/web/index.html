@@ -9,6 +9,16 @@
     <title>Open Brain</title>
   </head>
   <body>
+    <script>
+      // Prevent flash of wrong theme — runs before React loads
+      (function() {
+        try {
+          var t = localStorage.getItem('ob-theme');
+          var dark = t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch(e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

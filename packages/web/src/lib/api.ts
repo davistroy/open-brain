@@ -157,6 +157,13 @@ export const skillsApi = {
     })
   },
 
+  updateSchedule: (skillName: string, schedule: string) => {
+    return request<{ name: string; schedule: string; updated_at: string }>(`/skills/${skillName}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ schedule }),
+    })
+  },
+
   logs: (skillName: string) => {
     return request<SkillLog[]>(`/skills/${skillName}/logs`)
   },
@@ -172,22 +179,60 @@ export const skillsApi = {
 
 // Triggers API
 
+/** Raw trigger record shape returned by the backend API */
+type RawTrigger = {
+  id: string
+  name: string
+  description: string | null
+  condition_text: string
+  threshold: number
+  action: string
+  action_config: Record<string, unknown> | null
+  enabled: boolean
+  last_triggered_at: string | null
+  trigger_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** Map backend trigger fields to frontend Trigger shape */
+function mapRawTrigger(t: RawTrigger): Trigger {
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description ?? undefined,
+    enabled: t.enabled,
+    is_active: t.enabled,
+    query_text: t.condition_text,
+    threshold: t.threshold,
+    cooldown_minutes: typeof t.action_config?.cooldown_minutes === 'number' ? t.action_config.cooldown_minutes : undefined,
+    delivery_channel: typeof t.action_config?.delivery_channel === 'string' ? t.action_config.delivery_channel : undefined,
+    fire_count: t.trigger_count,
+    last_fired_at: t.last_triggered_at ?? undefined,
+    created_at: t.created_at,
+  }
+}
+
 export const triggersApi = {
   list: async () => {
-    // API returns { triggers: TriggerRecord[] } — normalize to { data: Trigger[] }
-    const raw = await request<{ triggers: Trigger[] }>('/triggers')
-    return { data: raw.triggers ?? [] }
+    // API returns { triggers: RawTrigger[] } — normalize and map fields to frontend Trigger shape
+    const raw = await request<{ triggers: RawTrigger[] }>('/triggers')
+    const data = (raw.triggers ?? []).map(mapRawTrigger)
+    return { data }
   },
 
-  get: (id: string) => {
-    return request<Trigger>(`/triggers/${id}`)
+  get: async (id: string) => {
+    const raw = await request<RawTrigger>(`/triggers/${id}`)
+    return mapRawTrigger(raw)
   },
 
   create: (name: string, queryText: string) => {
-    return request<Trigger>('/triggers', {
+    // Backend expects camelCase `queryText`, not snake_case `query_text`
+    // Backend returns { trigger: RawTrigger }
+    return request<{ trigger: RawTrigger }>('/triggers', {
       method: 'POST',
-      body: JSON.stringify({ name, query_text: queryText }),
-    })
+      body: JSON.stringify({ name, queryText }),
+    }).then(res => mapRawTrigger(res.trigger))
   },
 
   toggle: (id: string, enabled: boolean) => {
@@ -206,12 +251,51 @@ export const triggersApi = {
 
 // Admin API
 
+// Slack channel types used by admin API
+
+export interface SlackChannel {
+  id: string
+  name: string
+  member_count: number
+  last_activity: string | null
+  days_inactive: number
+  topic?: string
+  purpose?: string
+  is_archived: boolean
+}
+
 export const adminApi = {
   resetData: () => {
     return request<{ cleared: string[]; preserved: string[]; wiped_at: string }>('/admin/reset-data', {
       method: 'POST',
       body: JSON.stringify({ confirm: 'WIPE ALL DATA' }),
     })
+  },
+
+  clearQueue: (queueName: string, state: 'failed' | 'completed' | 'delayed' = 'failed') => {
+    return request<{ queue: string; state: string; cleared_count: number; cleared_at: string }>(
+      `/admin/queues/${encodeURIComponent(queueName)}/clear`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ state }),
+      },
+    )
+  },
+
+  /** List all Slack channels with activity metadata */
+  getSlackChannels: () => {
+    return request<{ channels: SlackChannel[] }>('/admin/slack/channels')
+  },
+
+  /** Archive a Slack channel by ID */
+  archiveSlackChannel: (channelId: string) => {
+    return request<{ ok: boolean; channel_id: string; archived_at: string }>(
+      `/admin/slack/channels/${encodeURIComponent(channelId)}/archive`,
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
+      },
+    )
   },
 }
 

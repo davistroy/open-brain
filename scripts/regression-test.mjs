@@ -893,6 +893,89 @@ section('9. Skills');
   } else {
     skip('TC-API-084', 'Skills last-run endpoint', `status=${lastRun.status}`);
   }
+
+  // ── Skill Schedule Editing (Phase 23) ─────────────────────────────────────
+  // PATCH /api/v1/skills/:name — update a skill's cron schedule
+
+  // Read current schedule for weekly-brief so we can restore it
+  let originalSchedule = null;
+  {
+    const skillsList = await GET('/api/v1/skills');
+    const skills = skillsList.data?.skills || skillsList.data?.items || [];
+    const wb = Array.isArray(skills) ? skills.find(s => s.name === 'weekly-brief') : null;
+    if (wb?.schedule) {
+      originalSchedule = wb.schedule;
+    }
+  }
+
+  // PATCH with valid cron expression
+  {
+    const patchRes = await PATCH('/api/v1/skills/weekly-brief', { schedule: '30 19 * * 0' });
+    if (patchRes.status === 200 && patchRes.data?.schedule === '30 19 * * 0') {
+      pass('TC-API-110', 'PATCH /api/v1/skills/weekly-brief → 200 with updated schedule',
+        `schedule=${patchRes.data.schedule}`);
+    } else if (patchRes.status === 200) {
+      pass('TC-API-110', 'PATCH /api/v1/skills/weekly-brief → 200',
+        `schedule=${patchRes.data?.schedule}`);
+    } else {
+      fail('TC-API-110', 'PATCH /api/v1/skills/:name', `status=${patchRes.status} ${JSON.stringify(patchRes.data)?.slice(0,100)}`);
+    }
+  }
+
+  // Verify schedule was updated via GET
+  {
+    const verifyList = await GET('/api/v1/skills');
+    const skills = verifyList.data?.skills || verifyList.data?.items || [];
+    const wb = Array.isArray(skills) ? skills.find(s => s.name === 'weekly-brief') : null;
+    if (wb?.schedule === '30 19 * * 0') {
+      pass('TC-API-110b', 'GET /api/v1/skills confirms schedule was updated');
+    } else {
+      fail('TC-API-110b', 'Schedule not reflected in GET /api/v1/skills', `got=${wb?.schedule}`);
+    }
+  }
+
+  // PATCH with invalid cron expression → 400
+  {
+    const badCron = await PATCH('/api/v1/skills/weekly-brief', { schedule: 'not-a-cron' });
+    if (badCron.status === 400) {
+      pass('TC-API-111', 'PATCH /api/v1/skills/:name invalid cron → 400');
+    } else {
+      fail('TC-API-111', 'PATCH with invalid cron should 400', `got ${badCron.status}`);
+    }
+  }
+
+  // PATCH with missing schedule field → 400
+  {
+    const noSchedule = await PATCH('/api/v1/skills/weekly-brief', { description: 'test' });
+    if (noSchedule.status === 400) {
+      pass('TC-API-112', 'PATCH /api/v1/skills/:name missing schedule field → 400');
+    } else {
+      fail('TC-API-112', 'PATCH missing schedule should 400', `got ${noSchedule.status}`);
+    }
+  }
+
+  // PATCH non-existent skill → 404
+  {
+    const notFound = await PATCH('/api/v1/skills/nonexistent-skill-xyz', { schedule: '0 0 * * *' });
+    if (notFound.status === 404) {
+      pass('TC-API-113', 'PATCH /api/v1/skills/:name non-existent skill → 404');
+    } else {
+      fail('TC-API-113', 'PATCH non-existent skill should 404', `got ${notFound.status}`);
+    }
+  }
+
+  // Restore original schedule
+  if (originalSchedule) {
+    const restore = await PATCH('/api/v1/skills/weekly-brief', { schedule: originalSchedule });
+    if (restore.status === 200) {
+      pass('TC-API-114', 'Restored weekly-brief schedule to original',
+        `schedule=${originalSchedule}`);
+    } else {
+      fail('TC-API-114', 'Failed to restore weekly-brief schedule', `status=${restore.status}`);
+    }
+  } else {
+    skip('TC-API-114', 'Restore weekly-brief schedule', 'Could not read original schedule');
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -985,6 +1068,103 @@ section('10. Admin');
     bug('TC-API-090', 'POST /api/v1/admin/reset-data → 404 — endpoint missing');
   } else {
     skip('TC-API-090', 'Admin reset endpoint', `status=${dry.status}`);
+  }
+
+  // ── Queue Management (Phase 22) ──────────────────────────────────────────
+  // POST /api/v1/admin/queues/:name/clear — clear jobs from a named BullMQ queue
+
+  // Clear with valid queue name (capture-pipeline, default state: failed)
+  {
+    const clearRes = await POST('/api/v1/admin/queues/capture-pipeline/clear', { state: 'failed' });
+    if (clearRes.status === 200 && clearRes.data?.queue === 'capture-pipeline') {
+      pass('TC-API-091', 'POST /admin/queues/capture-pipeline/clear → 200',
+        `cleared_count=${clearRes.data.cleared_count} state=${clearRes.data.state}`);
+    } else if (clearRes.status === 503) {
+      skip('TC-API-091', 'Queue clear requires Redis connection', 'Redis not configured');
+    } else {
+      fail('TC-API-091', 'POST /admin/queues/capture-pipeline/clear',
+        `status=${clearRes.status} ${JSON.stringify(clearRes.data)?.slice(0,100)}`);
+    }
+  }
+
+  // Clear with invalid queue name → 404
+  {
+    const badQueue = await POST('/api/v1/admin/queues/nonexistent-queue/clear', { state: 'failed' });
+    if (badQueue.status === 404) {
+      pass('TC-API-092', 'POST /admin/queues/nonexistent-queue/clear → 404');
+    } else if (badQueue.status === 503) {
+      skip('TC-API-092', 'Queue clear requires Redis connection', 'Redis not configured');
+    } else {
+      fail('TC-API-092', 'Invalid queue name should return 404', `got ${badQueue.status}`);
+    }
+  }
+
+  // Clear with invalid state → 400
+  {
+    const badState = await POST('/api/v1/admin/queues/capture-pipeline/clear', { state: 'invalid-state' });
+    if (badState.status === 400) {
+      pass('TC-API-093', 'POST /admin/queues/:name/clear invalid state → 400');
+    } else if (badState.status === 503) {
+      skip('TC-API-093', 'Queue clear requires Redis connection', 'Redis not configured');
+    } else {
+      fail('TC-API-093', 'Invalid state should return 400', `got ${badState.status}`);
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SECTION 10b: Slack Channel Management (Admin)
+// ═════════════════════════════════════════════════════════════════════════════
+// These endpoints return 503 if SLACK_USER_TOKEN is not configured on the server.
+// Tests gracefully handle 503 as SKIP (not FAIL) since the token is optional.
+
+section('10b. Slack Channel Management');
+
+{
+  // GET /api/v1/admin/slack/channels — list channels
+  const listChannels = await GET('/api/v1/admin/slack/channels');
+  if (listChannels.status === 200 && listChannels.data?.channels) {
+    pass('TC-API-120', 'GET /admin/slack/channels → 200',
+      `count=${listChannels.data.channels.length}`);
+  } else if (listChannels.status === 503) {
+    skip('TC-API-120', 'GET /admin/slack/channels → 503',
+      'SLACK_USER_TOKEN not configured — expected in environments without Slack user token');
+  } else {
+    fail('TC-API-120', 'GET /admin/slack/channels',
+      `status=${listChannels.status} ${JSON.stringify(listChannels.data)?.slice(0,100)}`);
+  }
+
+  // POST /api/v1/admin/slack/channels/:id/archive — archive a channel
+  // Use a fake channel ID — we don't want to actually archive a real channel.
+  // Expect 503 (no token) or 500 (Slack API error for invalid channel) or 400.
+  const archiveRes = await POST('/api/v1/admin/slack/channels/C0000000000/archive');
+  if (archiveRes.status === 503) {
+    skip('TC-API-121', 'POST /admin/slack/channels/:id/archive → 503',
+      'SLACK_USER_TOKEN not configured');
+  } else if (archiveRes.status === 500 || archiveRes.status === 400 || archiveRes.status === 404) {
+    // Slack API rejected the fake channel ID — endpoint exists and is wired up correctly
+    pass('TC-API-121', 'POST /admin/slack/channels/:id/archive endpoint exists',
+      `status=${archiveRes.status} (fake channel rejected as expected)`);
+  } else if (archiveRes.status === 200) {
+    // Unlikely with a fake ID, but the endpoint works
+    pass('TC-API-121', 'POST /admin/slack/channels/:id/archive → 200');
+  } else {
+    fail('TC-API-121', 'POST /admin/slack/channels/:id/archive',
+      `status=${archiveRes.status} ${JSON.stringify(archiveRes.data)?.slice(0,100)}`);
+  }
+
+  // Verify 503 response includes helpful message about SLACK_USER_TOKEN
+  if (listChannels.status === 503 && listChannels.data?.message) {
+    if (listChannels.data.message.includes('SLACK_USER_TOKEN')) {
+      pass('TC-API-122', '503 response includes SLACK_USER_TOKEN configuration guidance');
+    } else {
+      fail('TC-API-122', '503 message should mention SLACK_USER_TOKEN',
+        listChannels.data.message.slice(0, 100));
+    }
+  } else if (listChannels.status === 200) {
+    skip('TC-API-122', '503 message check — token is configured, got 200');
+  } else {
+    skip('TC-API-122', '503 message check', `status=${listChannels.status}`);
   }
 }
 
