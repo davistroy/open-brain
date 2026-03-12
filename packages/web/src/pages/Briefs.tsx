@@ -89,29 +89,37 @@ function BriefCard({ log }: { log: SkillLog }) {
         )}
       </button>
 
-      {expanded && brief && (
+      {expanded && (
         <div className="px-4 pb-4 space-y-4">
           <Separator />
-          {brief.headline && (
-            <div>
-              <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">Headline</h4>
-              <p className="text-sm">{brief.headline}</p>
-            </div>
-          )}
-          <StringList items={brief.wins} label="Wins" />
-          <StringList items={brief.blockers} label="Blockers" />
-          <StringList items={brief.risks} label="Risks" />
-          <StringList items={brief.open_loops} label="Open Loops" />
-          <StringList items={brief.next_week_focus} label="Next Week Focus" />
-          <StringList items={brief.avoided_decisions} label="Avoided Decisions" />
-          <StringList items={brief.drift_alerts} label="Drift Alerts" />
-          <StringList items={brief.connections} label="Connections" />
-          {log.model_used && (
-            <p className="text-xs text-muted-foreground">
-              Model: {log.model_used}
-              {log.input_tokens && log.output_tokens
-                ? ` — ${log.input_tokens.toLocaleString()} in / ${log.output_tokens.toLocaleString()} out`
-                : ''}
+          {brief ? (
+            <>
+              {brief.headline && (
+                <div>
+                  <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-1">Headline</h4>
+                  <p className="text-sm">{brief.headline}</p>
+                </div>
+              )}
+              <StringList items={brief.wins} label="Wins" />
+              <StringList items={brief.blockers} label="Blockers" />
+              <StringList items={brief.risks} label="Risks" />
+              <StringList items={brief.open_loops} label="Open Loops" />
+              <StringList items={brief.next_week_focus} label="Next Week Focus" />
+              <StringList items={brief.avoided_decisions} label="Avoided Decisions" />
+              <StringList items={brief.drift_alerts} label="Drift Alerts" />
+              <StringList items={brief.connections} label="Connections" />
+              {log.model_used && (
+                <p className="text-xs text-muted-foreground">
+                  Model: {log.model_used}
+                  {log.input_tokens && log.output_tokens
+                    ? ` — ${log.input_tokens.toLocaleString()} in / ${log.output_tokens.toLocaleString()} out`
+                    : ''}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">
+              {log.output || 'No brief content available.'}
             </p>
           )}
         </div>

@@ -41,8 +41,8 @@ function formatUptime(seconds?: number): string {
 
 // ─── System Health section ────────────────────────────────────────────────────
 
-function StatusDot({ status }: { status: 'up' | 'down' | 'degraded' | undefined }) {
-  if (status === 'up') return <span className="inline-block w-2 h-2 rounded-full bg-green-500" />;
+function StatusDot({ status }: { status: 'up' | 'down' | 'degraded' | 'healthy' | 'unhealthy' | undefined }) {
+  if (status === 'up' || status === 'healthy') return <span className="inline-block w-2 h-2 rounded-full bg-green-500" />;
   if (status === 'degraded') return <span className="inline-block w-2 h-2 rounded-full bg-yellow-500" />;
   return <span className="inline-block w-2 h-2 rounded-full bg-red-500" />;
 }
@@ -453,6 +453,13 @@ function DangerZoneSection() {
                 onKeyDown={(e) => e.key === 'Escape' && handleClose()}
               />
             </div>
+
+            {result && !result.success && (
+              <div className="flex items-center gap-2 rounded px-3 py-2 text-sm border bg-destructive/10 text-destructive border-destructive/30">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {result.message}
+              </div>
+            )}
 
             <div className="flex gap-2 justify-end pt-1">
               <Button variant="ghost" size="sm" onClick={handleClose} disabled={wiping}>
