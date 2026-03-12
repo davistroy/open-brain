@@ -50,6 +50,9 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Integration tests must use `pnpm exec`, not `npx`** — `npx vitest` on the server pulls a different version that can't resolve TS configs. Use `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts`.
 - **Integration test config filename is `vitest.config.integration.ts`** — not `vitest.integration.config.ts`. The word order matters.
 - **Integration tests need rate limit bypass** — all test helpers send `X-Open-Brain-Caller: integration-test` header. The rate limit middleware skips enforcement for this caller key. Without it, strict tier (20 req/min) exhausts during test runs.
+- **Health API returns `'healthy'`/`'unhealthy'`, not `'up'`/`'down'`** — web UI StatusDot must accept both naming conventions. The health route uses `ServiceStatus = 'healthy' | 'degraded' | 'unhealthy'`.
+- **`POST /admin/reset-data` has no adminAuth** — web UI cannot send Bearer tokens. Protected by POST method, JSON body confirmation phrase, and admin rate limiter. Do not re-add `adminAuth()` without a web UI auth mechanism.
+- **PWA service worker can cache stale JS bundles** — after deploying web container changes, users may need a hard refresh (Ctrl+Shift+R) to pick up new Vite-hashed bundles.
 
 ---
 
