@@ -8,11 +8,14 @@ import {
   Gavel,
   Lightbulb,
   Mic,
+  Hash,
   Settings,
+  HelpCircle,
   Brain,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
+import ThemeToggle from '@/components/ThemeToggle';
 
 interface NavItem {
   to: string;
@@ -32,6 +35,8 @@ const navItems: NavItem[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { to: '/slack-cleanup', label: 'Slack Cleanup', icon: Hash },
+  { to: '/help', label: 'Help', icon: HelpCircle },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -82,6 +87,7 @@ export default function Layout() {
           {bottomNavItems.map((item) => (
             <NavItemLink key={item.to} item={item} />
           ))}
+          <ThemeToggle />
         </div>
       </aside>
 

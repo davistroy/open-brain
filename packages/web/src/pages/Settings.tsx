@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity, Pencil, Check, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -39,7 +39,7 @@ function formatUptime(seconds?: number): string {
   return `${m}m`;
 }
 
-// ─── System Health section ────────────────────────────────────────────────────
+// ─── Shared ──────────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: 'up' | 'down' | 'degraded' | 'healthy' | 'unhealthy' | undefined }) {
   if (status === 'up' || status === 'healthy') return <span className="inline-block w-2 h-2 rounded-full bg-green-500" />;
@@ -47,10 +47,17 @@ function StatusDot({ status }: { status: 'up' | 'down' | 'degraded' | 'healthy' 
   return <span className="inline-block w-2 h-2 rounded-full bg-red-500" />;
 }
 
-function SystemHealthSection({ health, loading, error }: { health: SystemHealth | null; loading: boolean; error: string | null }) {
+// ─── Version & Uptime section ────────────────────────────────────────────────
+
+function VersionUptimeSection({ version, uptime_s, loading, error }: {
+  version?: string;
+  uptime_s?: number;
+  loading: boolean;
+  error: string | null;
+}) {
   return (
     <section className="space-y-3">
-      <h2 className="text-base font-semibold">System Health</h2>
+      <h2 className="text-base font-semibold">Version & Uptime</h2>
 
       {error && (
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -59,26 +66,47 @@ function SystemHealthSection({ health, loading, error }: { health: SystemHealth 
         </div>
       )}
 
-      {loading && !health && (
+      {loading && version === undefined && (
         <div className="space-y-2">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
         </div>
       )}
 
-      {health && (
+      {version !== undefined && (
         <div className="rounded-lg border bg-card divide-y">
-          {/* Version / uptime */}
           <div className="px-4 py-3 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Version</span>
-            <span className="font-mono">{health.version ?? '—'}</span>
+            <span className="font-mono">{version ?? '—'}</span>
           </div>
           <div className="px-4 py-3 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Uptime</span>
-            <span>{formatUptime(health.uptime_s)}</span>
+            <span>{formatUptime(uptime_s)}</span>
           </div>
+        </div>
+      )}
+    </section>
+  );
+}
 
-          {/* Connected services */}
-          {health.services && Object.entries(health.services).map(([name, svc]) => (
+// ─── Service Health section ──────────────────────────────────────────────────
+
+function ServiceHealthSection({ services, loading }: {
+  services?: Record<string, { status: 'up' | 'down' | 'degraded'; latency_ms?: number; models_available?: string[] }>;
+  loading: boolean;
+}) {
+  return (
+    <section className="space-y-3">
+      <h2 className="text-base font-semibold">Service Health</h2>
+
+      {loading && !services && (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      )}
+
+      {services && Object.keys(services).length > 0 ? (
+        <div className="rounded-lg border bg-card divide-y">
+          {Object.entries(services).map(([name, svc]) => (
             <div key={name} className="px-4 py-3 flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <StatusDot status={svc.status} />
@@ -92,9 +120,55 @@ function SystemHealthSection({ health, loading, error }: { health: SystemHealth 
               </div>
             </div>
           ))}
+        </div>
+      ) : !loading && (
+        <p className="text-sm text-muted-foreground">No service data available.</p>
+      )}
+    </section>
+  );
+}
 
-          {/* Queue health */}
-          {health.queues && Object.entries(health.queues).map(([name, q]) => (
+// ─── Queue Status section ────────────────────────────────────────────────────
+
+function QueueStatusSection({ queues, loading, onClearQueue }: {
+  queues?: Record<string, { waiting: number; active: number; failed: number }>;
+  loading: boolean;
+  onClearQueue?: (queueName: string) => Promise<void>;
+}) {
+  const [clearing, setClearing] = useState<string | null>(null);
+  const [clearResult, setClearResult] = useState<Record<string, { success: boolean; message: string }>>({});
+
+  async function handleClear(queueName: string) {
+    if (!onClearQueue) return;
+    setClearing(queueName);
+    setClearResult((prev) => { const next = { ...prev }; delete next[queueName]; return next; });
+    try {
+      await onClearQueue(queueName);
+      setClearResult((prev) => ({ ...prev, [queueName]: { success: true, message: 'Cleared' } }));
+      setTimeout(() => setClearResult((prev) => { const next = { ...prev }; delete next[queueName]; return next; }), 4000);
+    } catch (err) {
+      setClearResult((prev) => ({
+        ...prev,
+        [queueName]: { success: false, message: err instanceof Error ? err.message : 'Clear failed' },
+      }));
+    } finally {
+      setClearing(null);
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-base font-semibold">Queue Status</h2>
+
+      {loading && !queues && (
+        <div className="space-y-2">
+          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      )}
+
+      {queues && Object.keys(queues).length > 0 ? (
+        <div className="rounded-lg border bg-card divide-y">
+          {Object.entries(queues).map(([name, q]) => (
             <div key={name} className="px-4 py-3 flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <Activity className="h-3.5 w-3.5 text-muted-foreground" />
@@ -102,28 +176,125 @@ function SystemHealthSection({ health, loading, error }: { health: SystemHealth 
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {q.waiting > 0 && <span>{q.waiting} waiting</span>}
-                {q.active > 0 && <span className="text-blue-600">{q.active} active</span>}
-                {q.failed > 0 && <span className="text-destructive">{q.failed} failed</span>}
-                {q.waiting === 0 && q.active === 0 && q.failed === 0 && <span className="text-green-600">idle</span>}
+                {q.active > 0 && <span className="text-blue-600 dark:text-blue-400">{q.active} active</span>}
+                {q.failed > 0 && (
+                  <>
+                    <span className="text-destructive">{q.failed} failed</span>
+                    {onClearQueue && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-5 px-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                        disabled={clearing === name}
+                        onClick={() => handleClear(name)}
+                      >
+                        {clearing === name ? 'Clearing...' : 'Clear'}
+                      </Button>
+                    )}
+                  </>
+                )}
+                {clearResult[name] && (
+                  <span className={clearResult[name].success ? 'text-green-600 dark:text-green-400' : 'text-destructive'}>
+                    {clearResult[name].message}
+                  </span>
+                )}
+                {q.waiting === 0 && q.active === 0 && q.failed === 0 && !clearResult[name] && <span className="text-green-600 dark:text-green-400">idle</span>}
               </div>
             </div>
           ))}
         </div>
+      ) : !loading && (
+        <p className="text-sm text-muted-foreground">No queue data available.</p>
       )}
     </section>
   );
 }
 
+// ─── Cron validation ──────────────────────────────────────────────────────────
+
+/**
+ * Basic client-side cron expression validation.
+ * Accepts standard 5-field cron: minute hour day-of-month month day-of-week
+ * Does not validate value ranges exhaustively — the backend does full validation.
+ */
+function isValidCron(expr: string): boolean {
+  const trimmed = expr.trim();
+  if (!trimmed) return false;
+  const fields = trimmed.split(/\s+/);
+  if (fields.length !== 5) return false;
+  // Each field must be: number, *, */n, n-n, n,n, or combinations
+  const fieldPattern = /^(\*|[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)(\/([0-9]+))?$/;
+  return fields.every((f) => fieldPattern.test(f));
+}
+
+/**
+ * Convert a cron expression to a simple human-readable description.
+ * Covers common patterns without pulling in a full library like cronstrue.
+ */
+function describeCron(expr: string): string | null {
+  const trimmed = expr.trim();
+  const fields = trimmed.split(/\s+/);
+  if (fields.length !== 5) return null;
+
+  const [minute, hour, dom, month, dow] = fields;
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  // Every hour: "0 * * * *"
+  if (minute.match(/^\d+$/) && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    return `Every hour at minute ${minute}`;
+  }
+
+  // Daily at specific time: "M H * * *"
+  if (minute.match(/^\d+$/) && hour.match(/^\d+$/) && dom === '*' && month === '*' && dow === '*') {
+    const h = parseInt(hour, 10);
+    const m = parseInt(minute, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    return `Daily at ${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+  }
+
+  // Weekly: "M H * * D"
+  if (minute.match(/^\d+$/) && hour.match(/^\d+$/) && dom === '*' && month === '*' && dow.match(/^\d$/)) {
+    const h = parseInt(hour, 10);
+    const m = parseInt(minute, 10);
+    const d = parseInt(dow, 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+    const dayName = dayNames[d] ?? `day ${d}`;
+    return `Every ${dayName} at ${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+  }
+
+  // Every N minutes: "*/N * * * *"
+  if (minute.startsWith('*/') && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    return `Every ${minute.slice(2)} minutes`;
+  }
+
+  // Every N hours: "0 */N * * *"
+  if (minute === '0' && hour.startsWith('*/') && dom === '*' && month === '*' && dow === '*') {
+    return `Every ${hour.slice(2)} hours`;
+  }
+
+  return null;
+}
+
 // ─── Skills section ───────────────────────────────────────────────────────────
 
-function SkillsSection({ skills, loading, error, onTrigger }: {
+function SkillsSection({ skills, loading, error, onTrigger, onScheduleUpdate }: {
   skills: Skill[];
   loading: boolean;
   error: string | null;
   onTrigger: (name: string) => Promise<void>;
+  onScheduleUpdate: (name: string, schedule: string) => Promise<void>;
 }) {
   const [triggering, setTriggering] = useState<string | null>(null);
   const [triggerMsg, setTriggerMsg] = useState<Record<string, string>>({});
+
+  // Schedule editing state
+  const [editingSkill, setEditingSkill] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
   async function handleTrigger(name: string) {
     setTriggering(name);
@@ -135,6 +306,52 @@ function SkillsSection({ skills, loading, error, onTrigger }: {
       setTriggerMsg((m) => ({ ...m, [name]: err instanceof Error ? err.message : 'Failed' }));
     } finally {
       setTriggering(null);
+    }
+  }
+
+  function handleEditClick(skillName: string, currentSchedule: string) {
+    setEditingSkill(skillName);
+    setEditValue(currentSchedule);
+    setEditError(null);
+    setSaveSuccess(null);
+  }
+
+  function handleCancel() {
+    setEditingSkill(null);
+    setEditValue('');
+    setEditError(null);
+  }
+
+  async function handleSave(skillName: string) {
+    const trimmed = editValue.trim();
+
+    if (!isValidCron(trimmed)) {
+      setEditError('Invalid cron expression. Expected 5 fields: minute hour day month weekday');
+      return;
+    }
+
+    setSaving(true);
+    setEditError(null);
+    try {
+      await onScheduleUpdate(skillName, trimmed);
+      setEditingSkill(null);
+      setEditValue('');
+      setSaveSuccess(skillName);
+      setTimeout(() => setSaveSuccess((prev) => prev === skillName ? null : prev), 3000);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update schedule');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent, skillName: string) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSave(skillName);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleCancel();
     }
   }
 
@@ -157,43 +374,105 @@ function SkillsSection({ skills, loading, error, onTrigger }: {
         <p className="text-sm text-muted-foreground">No skills configured.</p>
       ) : (
         <div className="rounded-lg border bg-card divide-y">
-          {skills.map((skill) => (
-            <div key={skill.name} className="px-4 py-3 flex items-center justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium font-mono">{skill.name}</span>
-                  {(skill.last_run_status ?? (skill.last_run ? 'success' : undefined)) && (
-                    (skill.last_run_status ?? 'success') === 'success'
-                      ? <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                      : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                  )}
+          {skills.map((skill) => {
+            const isEditing = editingSkill === skill.name;
+            const justSaved = saveSuccess === skill.name;
+
+            return (
+              <div key={skill.name} className="px-4 py-3 flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium font-mono">{skill.name}</span>
+                    {(skill.last_run_status ?? (skill.last_run ? 'success' : undefined)) && (
+                      (skill.last_run_status ?? 'success') === 'success'
+                        ? <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                        : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                    )}
+                    {justSaved && (
+                      <span className="text-xs text-green-600 dark:text-green-400">Schedule updated</span>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
+                    {isEditing ? (
+                      <div className="mt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground shrink-0">Schedule:</span>
+                          <Input
+                            value={editValue}
+                            onChange={(e) => { setEditValue(e.target.value); setEditError(null); }}
+                            onKeyDown={(e) => handleKeyDown(e, skill.name)}
+                            className="w-48 h-6 px-2 font-mono text-xs"
+                            placeholder="0 20 * * 0"
+                            autoFocus
+                            disabled={saving}
+                          />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950"
+                            onClick={() => handleSave(skill.name)}
+                            disabled={saving}
+                            aria-label="Save schedule"
+                          >
+                            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                            onClick={handleCancel}
+                            disabled={saving}
+                            aria-label="Cancel editing"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        {editValue.trim() && describeCron(editValue.trim()) && (
+                          <p className="text-xs text-muted-foreground ml-[4.5rem]">{describeCron(editValue.trim())}</p>
+                        )}
+                        {editError && (
+                          <p className="text-xs text-destructive ml-[4.5rem]">{editError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <span
+                        className="inline-flex items-center gap-1 group cursor-pointer hover:text-foreground transition-colors"
+                        onClick={() => handleEditClick(skill.name, skill.schedule ?? '')}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleEditClick(skill.name, skill.schedule ?? ''); }}
+                        title="Click to edit schedule"
+                      >
+                        Schedule: <span className="font-mono">{skill.schedule ?? '—'}</span>
+                        <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                      </span>
+                    )}
+                    {!isEditing && (skill.last_run_at ?? skill.last_run) && (
+                      <span>Last: {new Date((skill.last_run_at ?? skill.last_run)!).toLocaleString()}</span>
+                    )}
+                    {!isEditing && (skill.next_run_at ?? skill.next_run) && (
+                      <span>Next: {new Date((skill.next_run_at ?? skill.next_run)!).toLocaleString()}</span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
-                  <span>Schedule: <span className="font-mono">{skill.schedule}</span></span>
-                  {(skill.last_run_at ?? skill.last_run) && (
-                    <span>Last: {new Date((skill.last_run_at ?? skill.last_run)!).toLocaleString()}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {triggerMsg[skill.name] && (
+                    <span className="text-xs text-muted-foreground">{triggerMsg[skill.name]}</span>
                   )}
-                  {(skill.next_run_at ?? skill.next_run) && (
-                    <span>Next: {new Date((skill.next_run_at ?? skill.next_run)!).toLocaleString()}</span>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={triggering === skill.name}
+                    onClick={() => handleTrigger(skill.name)}
+                    className="text-xs"
+                  >
+                    {triggering === skill.name ? 'Queuing...' : 'Run now'}
+                  </Button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {triggerMsg[skill.name] && (
-                  <span className="text-xs text-muted-foreground">{triggerMsg[skill.name]}</span>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={triggering === skill.name}
-                  onClick={() => handleTrigger(skill.name)}
-                  className="text-xs"
-                >
-                  {triggering === skill.name ? 'Queuing...' : 'Run now'}
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
@@ -569,6 +848,11 @@ export default function Settings() {
     await skillsApi.trigger(name);
   }
 
+  async function handleScheduleUpdate(name: string, schedule: string) {
+    await skillsApi.updateSchedule(name, schedule);
+    await loadSkills();
+  }
+
   async function handleAddTrigger(name: string, queryText: string) {
     await triggersApi.create(name, queryText);
     await loadTriggers();
@@ -577,6 +861,11 @@ export default function Settings() {
   async function handleDeleteTrigger(id: string) {
     await triggersApi.delete(id);
     await loadTriggers();
+  }
+
+  async function handleClearQueue(queueName: string) {
+    await adminApi.clearQueue(queueName);
+    await loadHealth();
   }
 
   return (
@@ -590,7 +879,27 @@ export default function Settings() {
         </Button>
       </div>
 
-      <SystemHealthSection health={health} loading={healthLoading} error={healthError} />
+      <VersionUptimeSection
+        version={health?.version}
+        uptime_s={health?.uptime_s}
+        loading={healthLoading}
+        error={healthError}
+      />
+
+      <Separator />
+
+      <ServiceHealthSection
+        services={health?.services}
+        loading={healthLoading}
+      />
+
+      <Separator />
+
+      <QueueStatusSection
+        queues={health?.queues}
+        loading={healthLoading}
+        onClearQueue={handleClearQueue}
+      />
 
       <Separator />
 
@@ -599,6 +908,7 @@ export default function Settings() {
         loading={skillsLoading}
         error={skillsError}
         onTrigger={handleTriggerSkill}
+        onScheduleUpdate={handleScheduleUpdate}
       />
 
       <Separator />

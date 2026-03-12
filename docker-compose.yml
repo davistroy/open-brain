@@ -61,6 +61,7 @@ services:
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
+      # SLACK_USER_TOKEN: set in .env.secrets (xoxp-... user token for channel cleanup — requires channels:history, chat:write scopes)
     ports:
       - "3002:3000"
     volumes:
