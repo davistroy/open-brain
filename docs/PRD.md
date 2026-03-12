@@ -207,14 +207,21 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F18 | Bet tracking and evaluation | Should Have | Phase 3 | Implemented |
 | F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 | Implemented |
 | F20 | Slack voice clip processing | Could Have | Phase 3 | Implemented |
-| F21 | Daily connection/pattern detection skill | Should Have | Phase 5A | Planned |
-| F22 | Drift monitor skill | Should Have | Phase 5A | Planned |
+| F21 | Daily connection/pattern detection skill | Should Have | Phase 5A | Implemented |
+| F22 | Drift monitor skill | Should Have | Phase 5A | Implemented |
 | F23 | Document ingestion (PDF, docx) | Could Have | Phase 4 | Implemented |
 | F24 | URL/bookmark capture | Should Have | Phase 5B | Planned |
 | F25 | Calendar integration | Could Have | Phase 4 | **DEFERRED** |
 | F26 | Notion output skill (optional mirror) | Won't Have | Future | **DEFERRED** |
 | F27 | Screenshot/image capture (vision model) | Could Have | Future | **DEFERRED** |
 | F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C | Implemented |
+| F29 | Queue management UI (clear/drain per queue) | Should Have | Phase 6 | Planned |
+| F30 | Trigger delete fix (field name mismatch) | Must Have | Phase 6 | Planned |
+| F31 | Skill schedule editing (PATCH endpoint + UI) | Should Have | Phase 6 | Planned |
+| F32 | Dark mode toggle | Could Have | Phase 6 | Planned |
+| F33 | Settings page reorganization (3 sections) | Should Have | Phase 6 | Planned |
+| F34 | In-app help/documentation viewer | Should Have | Phase 6 | Planned |
+| F35 | Slack channel cleanup (admin action) | Should Have | Phase 6 | Planned |
 
 ### 5.2 Detailed Feature Specifications
 
@@ -1277,6 +1284,100 @@ F13 (Pushover), F14 (Email)
 
 ---
 
+#### F29: Queue Management UI
+
+**Description**: Add per-queue "Clear Failed" buttons to the Settings page, allowing the user to drain failed jobs from any BullMQ queue without navigating to Bull Board or running manual commands. Each queue row shows its current counts and a clear action when failed > 0.
+
+**Tech**: New `POST /api/v1/admin/queues/:name/clear` endpoint. Uses BullMQ `Queue.clean()` method to remove failed jobs. Web UI adds a button next to each queue's failed count.
+
+**Acceptance Criteria**:
+- Each queue row on Settings page shows a "Clear" button when failed count > 0
+- Clicking "Clear" removes all failed jobs for that queue
+- Success toast shows count of cleared jobs
+- Queue counts refresh after clearing
+
+---
+
+#### F30: Trigger Delete Fix
+
+**Description**: Fix the trigger delete (trash icon) button on the Settings page. The code chain is wired correctly but there may be a field name mismatch between backend (`condition_text`, `enabled`) and frontend (`query_text`, `is_active`). Verify and fix the full chain so trigger deletion works end-to-end.
+
+**Acceptance Criteria**:
+- Clicking the trash icon on a trigger removes it from the list
+- Trigger list refreshes after deletion
+- Both ID-based and name-based deletion work
+
+---
+
+#### F31: Skill Schedule Editing
+
+**Description**: Allow users to edit cron schedules for skills from the Settings page. Currently, schedules are read-only and hardcoded in `KNOWN_SKILLS`. Add a PATCH endpoint and inline-editable schedule fields in the UI.
+
+**Tech**: New `PATCH /api/v1/skills/:name` endpoint. Schedules stored in `config/skills.yaml` and hot-reloaded. UI shows an editable input field next to each schedule with save/cancel actions.
+
+**Acceptance Criteria**:
+- Each skill row shows an editable cron expression field
+- Valid cron expressions are accepted and persisted to skills.yaml
+- Invalid expressions show an error message
+- Schedule changes take effect on the next cron tick (no container restart)
+
+---
+
+#### F32: Dark Mode Toggle
+
+**Description**: Add a dark mode toggle to the UI. The dark mode CSS infrastructure is fully in place (Tailwind `darkMode: ['class']`, complete `.dark` CSS variables in `index.css`). Only needs a toggle component and localStorage persistence.
+
+**Tech**: Toggle component in the sidebar/header. Adds/removes `.dark` class on `<html>`. Persists choice in `localStorage`. Respects system preference via `prefers-color-scheme` as default.
+
+**Acceptance Criteria**:
+- Toggle visible in the UI (sidebar footer or header)
+- Clicking toggles between light and dark mode instantly
+- Preference persists across page refreshes (localStorage)
+- Defaults to system preference on first visit
+
+---
+
+#### F33: Settings Page Reorganization
+
+**Description**: Split the current monolithic System Health section into three distinct sections: (1) Version & Uptime, (2) Service Health (Postgres, Redis, LiteLLM), (3) Queue Status. Improves readability and makes each concern independently scannable.
+
+**Acceptance Criteria**:
+- Three separate card sections with their own headings
+- Queue status section includes per-queue clear buttons (F29)
+- Visual hierarchy: version/uptime at top, then services, then queues
+
+---
+
+#### F34: In-App Help/Documentation Viewer
+
+**Description**: Add a Help page accessible from the UI that renders `USER_QUICK_START.md` and `USER_GUIDE.md` in a nicely formatted, scrollable view. Users can switch between the quick start and full guide.
+
+**Tech**: New `/help` route. Markdown files bundled at build time (Vite raw import) or fetched from the API. Rendered with a markdown-to-React library (e.g., `react-markdown` + `remark-gfm`). Tab or sidebar navigation between quick start and full guide.
+
+**Acceptance Criteria**:
+- Help link visible in the sidebar navigation
+- Quick Start and Full Guide are both accessible via tabs or toggle
+- Markdown renders with proper headings, tables, code blocks, and links
+- Content is scrollable with a table of contents or sticky navigation
+- Internal anchor links work for jumping between sections
+
+---
+
+#### F35: Slack Channel Cleanup
+
+**Description**: Admin action to bulk-delete messages from the #open-brain Slack channel. Useful for clearing out test data and bot responses. Accessible from the Settings page Danger Zone section.
+
+**Tech**: New `POST /api/v1/admin/cleanup-slack-channel` endpoint. Uses Slack Web API (`conversations.history` + `chat.delete`) with rate-limiting (1 delete/second per Slack workspace limits). Requires a Slack user token (`SLACK_USER_TOKEN`) for full message deletion. Channel name hardcoded to `#open-brain`. Confirmation phrase required, similar to Wipe All Data.
+
+**Acceptance Criteria**:
+- Button in Settings Danger Zone with confirmation modal
+- Dry-run mode shows count of messages that would be deleted
+- Full run deletes all messages with progress indication
+- Respects Slack API rate limits (1/sec)
+- Results shown: deleted count, failed count, duration
+
+---
+
 ## 6. Information Architecture
 
 ### System Architecture (Docker Containers)
@@ -1825,6 +1926,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | 2026-03-05 | 0.4 | Added LiteLLM as unified LLM gateway (replaces custom AI router logic). Made embedding model configurable (evaluating Qwen3-Embedding alongside nomic-embed-text). Added cognitive retrieval: ACT-R temporal decay scoring, hybrid search with Reciprocal Rank Fusion (FTS + vector), semantic push triggers (F28). Based on analysis of MuninnDB cognitive retrieval architecture. |
 | 2026-03-05 | 0.5 | Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Added cold start plan and temporal weight ramp-up schedule. Added PATCH /api/v1/captures/:id for capture updates. Fixed check_triggers as separate BullMQ job (not inline pipeline stage). Moved MCP API key from URL to Authorization header. Clarified voice-capture migration scope. Default temporal_weight to 0.0 at launch. Added search pagination. |
 | 2026-03-11 | 0.7 | Added Phase 5: F21 (daily connections), F22 (drift monitor), F24 (URL/bookmark capture) with full specs. F27 (image capture) documented but deferred. Updated feature overview table, release planning, dependency graph, cold start plan. |
+| 2026-03-11 | 0.8 | Phase 6 features: F29 (queue management UI), F30 (trigger delete fix), F31 (skill schedule editing), F32 (dark mode), F33 (settings reorganization), F34 (help page), F35 (Slack cleanup). Updated F21/F22 status to Implemented. |
 | 2026-03-05 | 0.6 | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added document chunking deferred decision, added entity resolution confidence threshold (0.8), added MCP key rotation runbook, added config validation (Zod), added scheduled skill retry policy, specified thread expiration UX, added migration-at-startup entrypoint, documented Ollama CPU benchmark requirement. |
 
 ---
