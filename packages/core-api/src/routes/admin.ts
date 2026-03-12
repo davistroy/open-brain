@@ -284,9 +284,9 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
   // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method
   // for archive and the admin rate limiter on /api/v1/admin/*.
 
-  const slackUserToken = process.env.SLACK_USER_TOKEN
-  if (slackUserToken) {
-    const slackChannelService = new SlackChannelService(slackUserToken)
+  const slackToken = process.env.SLACK_USER_TOKEN || process.env.SLACK_BOT_TOKEN
+  if (slackToken) {
+    const slackChannelService = new SlackChannelService(slackToken)
 
     router.get('/slack/channels', async (c) => {
       try {
@@ -321,14 +321,14 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
     router.get('/slack/channels', (c) => {
       return c.json({
         error: 'Service unavailable',
-        message: 'SLACK_USER_TOKEN environment variable is not configured. Set it to a Slack user token (xoxp-...) with channels:read, channels:history, and channels:write scopes.',
+        message: 'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
       }, 503)
     })
 
     router.post('/slack/channels/:id/archive', (c) => {
       return c.json({
         error: 'Service unavailable',
-        message: 'SLACK_USER_TOKEN environment variable is not configured.',
+        message: 'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
       }, 503)
     })
   }
