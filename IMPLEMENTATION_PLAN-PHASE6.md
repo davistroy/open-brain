@@ -410,8 +410,8 @@ On save, call the new PATCH endpoint. On success, exit edit mode and show the up
 
 ### Work Items
 
-#### 24.1 Add react-markdown Dependency and Vite Raw Import Config
-**Status: PENDING**
+#### 24.1 Add react-markdown Dependency and Vite Raw Import Config ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F34
 **Files Affected:**
 - `packages/web/package.json` (modify — add `react-markdown`, `remark-gfm`, `rehype-slug`, `rehype-autolink-headings` dependencies)
@@ -449,8 +449,8 @@ Dependencies:
 
 ---
 
-#### 24.2 Help Page Component with Tabbed Markdown Viewer
-**Status: PENDING**
+#### 24.2 Help Page Component with Tabbed Markdown Viewer ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F34
 **Files Affected:**
 - `packages/web/src/pages/Help.tsx` (create)
@@ -499,8 +499,8 @@ Markdown content is imported at build time using Vite raw imports — no API cal
 
 ---
 
-#### 24.3 Add Help Route and Navigation Link
-**Status: PENDING**
+#### 24.3 Add Help Route and Navigation Link ✅ Completed 2026-03-11
+**Status: COMPLETE [2026-03-11]**
 **Requirement Refs:** PRD F34
 **Files Affected:**
 - `packages/web/src/App.tsx` (modify — add `/help` route)

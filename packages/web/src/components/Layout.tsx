@@ -9,6 +9,7 @@ import {
   Lightbulb,
   Mic,
   Settings,
+  HelpCircle,
   Brain,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
 ];
 
 const bottomNavItems: NavItem[] = [
+  { to: '/help', label: 'Help', icon: HelpCircle },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
