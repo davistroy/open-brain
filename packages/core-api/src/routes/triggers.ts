@@ -71,18 +71,18 @@ export function registerTriggerRoutes(app: Hono, triggerService: TriggerService)
 
   // -----------------------------------------------------------------------
   // DELETE /api/v1/triggers/:id
-  // Soft-deactivates a trigger (sets enabled = false). Accepts name or UUID.
+  // Hard-deletes a trigger. Accepts name or UUID.
   // -----------------------------------------------------------------------
   app.delete('/api/v1/triggers/:id', async (c) => {
     const id = c.req.param('id')
 
-    logger.info({ id }, '[triggers-api] deactivating trigger')
+    logger.info({ id }, '[triggers-api] deleting trigger')
 
     await triggerService.delete(id)
 
-    logger.info({ id }, '[triggers-api] trigger deactivated')
+    logger.info({ id }, '[triggers-api] trigger deleted')
 
-    return c.json({ message: `Trigger '${id}' deactivated` })
+    return c.json({ message: `Trigger '${id}' deleted` })
   })
 
   // -----------------------------------------------------------------------

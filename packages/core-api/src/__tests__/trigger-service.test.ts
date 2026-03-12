@@ -234,13 +234,11 @@ describe('TriggerService.list', () => {
 // ---------------------------------------------------------------------------
 
 describe('TriggerService.delete', () => {
-  it('soft-deactivates trigger by ID (sets enabled = false)', async () => {
+  it('hard-deletes trigger by ID', async () => {
     const db = {
       select: vi.fn().mockImplementation(() => selectChain([{ id: 'trigger-1' }])),
-      update: vi.fn().mockReturnValue({
-        set: vi.fn().mockReturnValue({
-          where: vi.fn().mockResolvedValue([]),
-        }),
+      delete: vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue([]),
       }),
       insert: vi.fn(),
       execute: vi.fn().mockResolvedValue({ rows: [] }),
@@ -251,7 +249,7 @@ describe('TriggerService.delete', () => {
 
     await service.delete('trigger-1')
 
-    expect(db.update).toHaveBeenCalled()
+    expect(db.delete).toHaveBeenCalled()
   })
 
   it('throws NotFoundError when trigger does not exist', async () => {
