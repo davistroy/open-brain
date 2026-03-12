@@ -150,7 +150,7 @@ export class TriggerService {
   }
 
   /**
-   * Soft-deactivate a trigger by name or ID (sets enabled = false).
+   * Hard-delete a trigger by name or ID.
    */
   async delete(nameOrId: string): Promise<void> {
     // Try by ID first, then by name
@@ -173,8 +173,7 @@ export class TriggerService {
     }
 
     await this.db
-      .update(triggers)
-      .set({ enabled: false, updated_at: new Date() })
+      .delete(triggers)
       .where(eq(triggers.id, byName.id))
   }
 
