@@ -3,7 +3,7 @@
 # ============================================================
 # Base stage — pnpm + node setup
 # ============================================================
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
@@ -40,7 +40,7 @@ RUN test -f packages/core-api/dist/index.js \
 # ============================================================
 # Production base — minimal runtime image
 # ============================================================
-FROM node:20-alpine AS prod-base
+FROM node:22-alpine AS prod-base
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 RUN apk add --no-cache bash
