@@ -8,6 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Docker web build failure**: Moved `USER_QUICK_START.md` and `USER_GUIDE.md` from `docs/` into `packages/web/src/content/` to fix Vite `?raw` imports that escaped the package boundary and failed in Docker where `.dockerignore` excludes `docs/`.
+
+### Changed
+- **Docker base images upgraded to Node 22 LTS** (from Node 20, EOL April 2026). Applies to both `Dockerfile` (core-api, workers, slack-bot, voice-capture) and `packages/web/Dockerfile`.
+
 ---
 
 ## [1.2.0] — 2026-03-12

@@ -53,6 +53,8 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Health API returns `'healthy'`/`'unhealthy'`, not `'up'`/`'down'`** — web UI StatusDot must accept both naming conventions. The health route uses `ServiceStatus = 'healthy' | 'degraded' | 'unhealthy'`.
 - **`POST /admin/reset-data` has no adminAuth** — web UI cannot send Bearer tokens. Protected by POST method, JSON body confirmation phrase, and admin rate limiter. Do not re-add `adminAuth()` without a web UI auth mechanism.
 - **PWA service worker can cache stale JS bundles** — after deploying web container changes, users may need a hard refresh (Ctrl+Shift+R) to pick up new Vite-hashed bundles.
+- **Web package must be self-contained for Docker build** — Vite `?raw` imports that escape `packages/web/` (e.g., `../../../../docs/`) work locally but fail in Docker where `.dockerignore` excludes `docs/` and the Dockerfile only copies `packages/web/`. User-facing content (markdown docs rendered in the UI) must live inside `packages/web/src/content/`.
+- **Docker base images: Node 22 LTS** — upgraded from Node 20 (EOL April 2026). Both `Dockerfile` and `packages/web/Dockerfile` use `node:22-alpine`.
 
 ---
 
