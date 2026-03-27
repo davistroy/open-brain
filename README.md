@@ -36,6 +36,7 @@ packages/
   slack-bot/       # Slack bot (@slack/bolt, Socket Mode)
   voice-capture/   # Voice ingestion HTTP server
   web/             # Vite + React dashboard (nginx Docker)
+    src/content/   # User-facing docs rendered in Help page
 config/
   ai-routing.yaml  # LiteLLM model aliases + budget limits
   brain-views.yaml # Five views: career/personal/technical/work-internal/client
@@ -249,6 +250,8 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `docs/TDD.md` | Technical design (v0.6) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
+| `packages/web/src/content/USER_QUICK_START.md` | User quick start guide (rendered in Help page) |
+| `packages/web/src/content/USER_GUIDE.md` | Detailed user guide (rendered in Help page) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
 | `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
 | `config/ai-routing.yaml` | LiteLLM model aliases and budget thresholds |
