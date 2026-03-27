@@ -9,8 +9,8 @@ import rehypeAutolinkHeadings from 'rehype-autolink-headings';
 import type { Components } from 'react-markdown';
 
 // Raw markdown imports (build-time, no runtime fetch)
-import quickStartMd from '../../../../docs/USER_QUICK_START.md?raw';
-import fullGuideMd from '../../../../docs/USER_GUIDE.md?raw';
+import quickStartMd from '@/content/USER_QUICK_START.md?raw';
+import fullGuideMd from '@/content/USER_GUIDE.md?raw';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
