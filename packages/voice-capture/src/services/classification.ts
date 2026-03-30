@@ -90,7 +90,7 @@ export class ClassificationService {
       model: CLASSIFICATION_MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
-      max_tokens: 512,
+      max_completion_tokens: 512,
     })
 
     const raw = response.choices[0]?.message?.content ?? ''

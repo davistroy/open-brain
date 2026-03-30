@@ -172,7 +172,7 @@ export class DriftMonitorSkill {
       model: modelAlias,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
-      max_tokens: 2048,
+      max_completion_tokens: 2048,
     })
 
     const text = response.choices[0]?.message?.content ?? ''

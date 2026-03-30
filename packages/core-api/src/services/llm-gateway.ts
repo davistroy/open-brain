@@ -190,7 +190,7 @@ export class LLMGatewayService {
         model,
         messages: [{ role: 'user', content: prompt }],
         temperature: options.temperature ?? 0.2,
-        max_tokens: options.maxTokens ?? 2048,
+        max_completion_tokens: options.maxTokens ?? 2048,
       })
 
       const durationMs = Date.now() - startMs
