@@ -54,16 +54,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ALERTS=$(gh api repos/${{ github.repository }}/dependabot/alerts?state=open\&per_page=100 2>/dev/null || echo "[]")
-          TOTAL=$(echo "$ALERTS" | jq 'length')
-          CRITICAL=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "critical")] | length')
-          HIGH=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "high")] | length')
-          MEDIUM=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "medium")] | length')
-          LOW=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "low")] | length')
+          ALERTS=$(gh api "repos/${{ github.repository }}/dependabot/alerts?state=open&per_page=100" 2>/dev/null || echo "[]")
+          TOTAL=$(echo "$ALERTS" | jq -r 'length')
+          CRITICAL=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "critical")] | length')
+          HIGH=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "high")] | length')
+          MEDIUM=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "medium")] | length')
+          LOW=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "low")] | length')
 
-          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
-          echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
-          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          printf 'total=%s\n' "$TOTAL" >> "$GITHUB_OUTPUT"
+          printf 'critical=%s\n' "$CRITICAL" >> "$GITHUB_OUTPUT"
+          printf 'high=%s\n' "$HIGH" >> "$GITHUB_OUTPUT"
 
           echo "### Dependabot Alerts: $TOTAL open" >> "$GITHUB_STEP_SUMMARY"
           echo "Critical: $CRITICAL | High: $HIGH | Medium: $MEDIUM | Low: $LOW" >> "$GITHUB_STEP_SUMMARY"
