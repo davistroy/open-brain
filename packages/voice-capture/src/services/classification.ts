@@ -3,7 +3,7 @@ import { createLogger, createLiteLLMClient } from '@open-brain/shared'
 
 const logger = createLogger('voice-classification')
 
-const CLASSIFICATION_MODEL = 'fast' // LiteLLM alias
+const CLASSIFICATION_MODEL = process.env.CLASSIFICATION_MODEL || 'gpt-5.4'
 
 export type CaptureType =
   | 'decision'
