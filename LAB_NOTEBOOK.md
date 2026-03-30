@@ -2,7 +2,7 @@
 
 **Project:** Self-hosted personal AI knowledge infrastructure — voice memos, Slack, documents → Postgres+pgvector → semantic search, AI synthesis, weekly briefs, governance sessions, entity tracking
 **Started:** 2026-03-30
-**Systems:** Homeserver (Unraid, Docker Compose — 9 containers), DGX Spark (LLM inference via LiteLLM proxy), laptop (development)
+**Systems:** Homeserver (Unraid, Docker Compose — 9 containers), OpenAI API (gpt-5.4 + text-embedding-3-large), laptop (development)
 
 ---
 
@@ -11,8 +11,8 @@
 | # | Decision | Date | Status | Entry | Alternatives Considered |
 |---|----------|------|--------|-------|------------------------|
 | D1 | Hono + Drizzle ORM (not Express + Prisma) | 2026-02 | ACTIVE | PRD/TDD | Express: heavier; Prisma: less control over pgvector queries |
-| D2 | LiteLLM proxy for ALL AI (not direct API calls) | 2026-02 | ACTIVE | Architecture | Direct calls: no model aliasing, no cost tracking, no failover |
-| D3 | Matryoshka truncation 2560→768 (not full dims) | 2026-03 | ACTIVE | CLAUDE.md | Full 2560: 3.3x storage/compute cost for marginal intra-domain gain |
+| D2 | ~~LiteLLM proxy for ALL AI~~ | 2026-02 | SUPERSEDED by D10 | Architecture | Replaced by direct OpenAI API calls (2026-03-30) |
+| D3 | ~~Matryoshka truncation 2560→768~~ | 2026-03 | SUPERSEDED by D10 | CLAUDE.md | OpenAI text-embedding-3-large uses `dimensions: 768` API param (trained MRL) |
 | D4 | Socket Mode for Slack (not HTTP webhooks) | 2026-02 | ACTIVE | Architecture | HTTP webhooks: need signing secret, public endpoint, more config |
 | D5 | BullMQ pipeline (not synchronous processing) | 2026-02 | ACTIVE | TDD | Synchronous: blocks API, no retry, no observability |
 | D6 | Node 22 LTS (upgraded from Node 20) | 2026-03-30 | ACTIVE | CHANGELOG | Node 20: EOL April 2026 |
@@ -20,6 +20,9 @@
 | D8 | Healthchecks use 127.0.0.1 (not localhost) | 2026-03 | ACTIVE | CLAUDE.md | localhost: Alpine resolves to ::1 (IPv6), wget fails silently |
 | D9 | No auto-migration on startup — manual schema apply required | 2026-03-30 | ACTIVE | Entry 002 | Auto-migrate: risk of data loss if wrong migration runs; Docker entrypoint scripts are brittle |
 | D10 | Switch to OpenAI API (gpt-5.4 + text-embedding-3-large) | 2026-03-30 | ACTIVE | Entry 003 | Claude: no embeddings, 3-4x more expensive; Qwen local: free but lower quality, requires Spark |
+| D11 | Web UI exempt from rate limiting via nginx header | 2026-03-30 | ACTIVE | Entry 005 | Higher rate limit: still hits under rapid browsing; no bypass: blocks owner from own dashboard |
+| D12 | Monthly maintenance: homeserver cron + GitHub Action split | 2026-03-30 | ACTIVE | Entry 006 | All-in-one script: pnpm/gh not on homeserver; all-GitHub: can't docker compose |
+| D13 | CI actions v5 (Node 24-compatible) | 2026-03-30 | ACTIVE | Entry 006 | pnpm/action-setup still v4 — no v5 available yet, but works under Node 24 |
 
 ## Action Items
 
@@ -37,6 +40,11 @@
 | A0b | Phase 6: UX polish, admin tools, Slack channel cleanup | 2026-03 | 2026-03-12 | IMPL_PLAN_PHASE6 |
 | A0c | Phase 7: Architectural consolidation (shared utils, decomposition) | 2026-03 | 2026-03-30 | IMPL_PLAN_PHASE7 |
 | A0d | DGX Spark LLM throughput optimization (13→49 tok/s) | 2026-03-29 | 2026-03-30 | (See ../spark/LAB_NOTEBOOK.md) |
+| A0e | Run prod test suite, fix issues | 2026-03-30 | 2026-03-30 | Entry 002 |
+| A0f | Switch to OpenAI API (gpt-5.4 + text-embedding-3-large) | 2026-03-30 | 2026-03-30 | Entry 003 |
+| A0g | Dashboard UI review — search fix, rate-limit bypass | 2026-03-30 | 2026-03-30 | Entry 004-005 |
+| A0h | Monthly maintenance script + GitHub Action | 2026-03-30 | 2026-03-30 | Entry 006 |
+| A0i | Repo cleanup: archive plans, update README + CHANGELOG | 2026-03-30 | 2026-03-30 | Entry 007 |
 
 ---
 
@@ -66,13 +74,14 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Version | v1.2.0 + Phase 7 | 26 commits on main |
+| Version | v1.2.0 + Phase 7 + OpenAI migration | 42 commits on main |
 | Containers | 9 in docker-compose.yml | core-api, workers, slack-bot, voice-capture, faster-whisper, web, postgres, redis, cloudflared |
-| Tests | 1,407 unit + 95 regression | All passing |
-| LLM backend | DGX Spark via LiteLLM | 48.6 tok/s (Qwen3.5-35B), embeddings on :8001 |
+| Tests | 1,407 unit + 95 regression | All passing (CI green) |
+| LLM backend | OpenAI API | gpt-5.4 (all aliases), text-embedding-3-large (768d) |
 | Database | Postgres 16 + pgvector | vector(768) schema |
 | External access | brain.troy-davis.com | Cloudflare Tunnel |
-| Deployment | Phase 7 code needs deploy | A1 — merged but not on homeserver yet |
+| Deployment | Fully deployed | All code on homeserver, 100% regression pass rate |
+| Maintenance | Automated | Homeserver cron (1st/month) + GitHub Action (monthly-audit.yml) |
 
 ---
 
@@ -204,6 +213,96 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 3. Health check URL construction — double `/v1/` prefix
 
 **Decision:** D10 — Switched to OpenAI API (gpt-5.4 + text-embedding-3-large). Estimated cost: $2-3/month. Rationale: higher quality outputs for synthesis/governance, managed embedding service, no dependency on DGX Spark uptime. Alternatives considered: Claude (no embedding model, 3-4x more expensive), keep Qwen (free but lower quality).
+
+---
+
+### Entry 004 — Dashboard UI review [web] [debug]
+**Date:** 2026-03-30
+**Duration:** ~30 minutes
+**Environment:** Chrome → brain.troy-davis.com (Cloudflare Tunnel) → homeserver
+**Status:** COMPLETED
+
+**Objective:** Systematically review every page and function of the web dashboard after OpenAI migration.
+
+**Hypothesis:** All 10 pages should render correctly. Some may have issues from the migration or stale cached JS.
+
+**Rollback Plan:** N/A — read-only review + targeted fixes.
+
+**Actions & Results:**
+
+1. **Dashboard page** — initially showed "Failed to load dashboard data" (502). Root cause: Cloudflare tunnel's DNS cache was stale after container recreation. Fixed by restarting cloudflared. Deeper root cause: nginx also had stale cached IP for core-api. Fixed with `resolver 127.0.0.11` + variable upstream in nginx.conf.
+
+2. **Search page** — 400 error: `query` field undefined. Root cause: `SearchFilters` type used `q` but API expects `query`. Fixed in types.ts, Search.tsx, and api.test.ts.
+
+3. **All other pages reviewed** (Timeline, Entities, Briefs, Board, Intelligence, Voice, Help, Settings, Slack Cleanup) — all functional, no errors.
+
+4. **PWA caching** — Service worker aggressively cached old JS bundles. Required manual SW unregistration + cache clearing to pick up new code. Confirmed new Search chunk (`Search-CCZ_4BM7.js`) contains `query:` not `q:`.
+
+**What Worked:** All 10 pages render correctly. Dashboard stats, capture creation, entity listing, governance sessions all functional through the tunnel.
+
+---
+
+### Entry 005 — Web UI rate-limit bypass [api] [config]
+**Date:** 2026-03-30
+**Duration:** ~10 minutes
+**Environment:** Homeserver
+**Status:** COMPLETED
+
+**Objective:** Fix 429 rate limiting when browsing the dashboard normally.
+
+**Hypothesis:** Rapid page navigation (each page makes 1-2 API calls) exhausts the 20 req/min strict tier. The web UI is a first-party client and should be exempt.
+
+**Rollback Plan:** Revert nginx.conf and rate-limit.ts changes.
+
+**Actions & Results:**
+- Added `proxy_set_header X-Open-Brain-Caller "web-ui"` to nginx's `/api/` and `/api/v1/events` locations
+- Added `internal:web-ui` to rate limiter bypass list alongside `internal:integration-test`
+- Deployed and verified — Settings page "Clear" buttons work without 429
+
+**Decision:** D11 — Web UI exempt from rate limiting. Safe because the header is injected by nginx inside the Docker network; external API callers without the header are still rate-limited.
+
+---
+
+### Entry 006 — Monthly maintenance system [deploy] [config]
+**Date:** 2026-03-30
+**Duration:** ~30 minutes
+**Environment:** Homeserver + GitHub Actions
+**Status:** COMPLETED
+
+**Objective:** Create automated monthly maintenance with reporting to Slack and dashboard.
+
+**Actions & Results:**
+
+1. **Admin banner API** — `POST/GET/DELETE /api/v1/admin/banner`, Redis-backed with 30-day TTL. Dashboard.tsx fetches and renders above queue health banner. Hit ioredis import type issue — fixed with named import + `unknown` cast.
+
+2. **Maintenance script** (`scripts/monthly-maintenance.sh`) — 5 checks: docker rebuild, dependency count, GitHub alerts, error log scan, health check. Posts to Slack + banner. Handles missing tools (pnpm, gh) gracefully.
+
+3. **Homeserver cron** — Installed on `claude` user: `0 6 1 * *` (1st of month, 6 AM ET). Runs docker rebuild, error logs, health. Log at `/tmp/open-brain-maintenance.log`.
+
+4. **GitHub Action** (`monthly-audit.yml`) — Scheduled `0 10 1 * *` (1st of month, 10 AM UTC). Runs `pnpm outdated` + Dependabot alert check, posts to Slack. Hit GITHUB_OUTPUT format issue and Dependabot API permission issue — both fixed with graceful fallbacks.
+
+5. **CI fixes** — 3 test failures from the session's changes: api.test.ts `q→query`, intent-router.test.ts `max_tokens→max_completion_tokens`, Dashboard.test.tsx missing `adminApi` mock. All fixed. CI green.
+
+6. **CI actions bumped** — checkout v4→v5, setup-node v4→v5, cache v4→v5 (Node 24-compatible). pnpm/action-setup v4 has no v5 yet — their problem, deadline June 2026.
+
+**Decision:** D12 — Split maintenance between homeserver (docker/logs/health) and GitHub (deps/security). D13 — CI actions v5.
+
+---
+
+### Entry 007 — Repository cleanup [documentation]
+**Date:** 2026-03-30
+**Duration:** ~10 minutes
+**Environment:** Laptop
+**Status:** COMPLETED
+
+**Objective:** Clean up repository structure and sync documentation after today's session.
+
+**Actions & Results:**
+- Archived 4 completed docs to `docs/archived/`: IMPLEMENTATION_PLAN-PHASE5/6/7.md, TEST_RESULTS_2026-03-09.md
+- Updated README.md: LiteLLM/Qwen references → OpenAI API; added regression-test.mjs and monthly-maintenance.sh to scripts listing
+- Updated CHANGELOG.md [Unreleased]: 3 Added, 3 Changed, 6 Fixed
+- No artifacts found (no temp files, no OS artifacts)
+- No stale branches, .gitignore comprehensive
 
 ---
 
