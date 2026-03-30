@@ -53,7 +53,7 @@ export default function Search() {
       setError(null);
 
       try {
-        const result = await searchApi.search({ ...f, q: q.trim() });
+        const result = await searchApi.search({ ...f, query: q.trim() });
         setResults(result.captures);
         setTotal(result.total);
         setSearched(true);
