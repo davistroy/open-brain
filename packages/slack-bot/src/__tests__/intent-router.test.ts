@@ -315,13 +315,13 @@ describe('IntentRouter', () => {
       expect((init.headers as Record<string, string>)['Authorization']).toBe('Bearer test-key')
     })
 
-    it('sends max_tokens: 10 and temperature: 0 for efficiency', async () => {
+    it('sends max_completion_tokens: 10 and temperature: 0 for efficiency', async () => {
       const mockFetch = mockFetchOk('capture')
       global.fetch = mockFetch
       await router.classify('Some text without clear intent')
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit]
       const body = JSON.parse(init.body as string)
-      expect(body.max_tokens).toBe(10)
+      expect(body.max_completion_tokens).toBe(10)
       expect(body.temperature).toBe(0)
     })
 
