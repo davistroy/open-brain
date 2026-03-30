@@ -25,7 +25,7 @@ Find your homeserver's Tailscale IP in the Tailscale app on any connected device
    - Method: `POST`
    - Request Body: **Form**
    - Add field:
-     - Key: `audio`
+     - Key: `file`
      - Value: the recorded audio from the previous action (file reference)
      - Type: **File**
 
@@ -55,7 +55,7 @@ If omitted, the service auto-classifies the capture's brain view from the transc
 | URL | `http://<tailscale-ip>:3001/api/capture` |
 | Method | `POST` |
 | Content-Type | `multipart/form-data` |
-| Field name | `audio` |
+| Field name | `file` |
 | Supported formats | `.m4a` (default from iPhone/Watch), `.wav`, `.mp3`, `.ogg` |
 
 **Response (success, HTTP 202)**:
@@ -124,7 +124,7 @@ This Pushover notification is separate from the optional Shortcut "Show Result" 
    - URL: http://100.64.x.x:3001/api/capture
    - Method: POST
    - Request Body: Form
-   - [+] audio = Recorded Audio (File)
+   - [+] file = Recorded Audio (File)
 
 3. Get Dictionary Value
    - Key: message
