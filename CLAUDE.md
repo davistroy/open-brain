@@ -205,14 +205,21 @@ When starting a new session, add a session boundary marker before your first ent
 
 Read the Decision Log and Open Action Items before starting work.
 
+### Rule 11: Log Before You Commit
+
+**BLOCKING PRECONDITION on `git commit`:** Before every commit that touches application code (not just docs), the LAB_NOTEBOOK.md must have a current entry covering what you're about to commit. If the entry doesn't exist yet, create it before staging files. One entry can cover multiple related commits, but the entry must be written BEFORE the first commit in that sequence, not after.
+
+This is the rule that prevents batching. It's easy to skip a "log results" step. It's harder to skip when the log IS the commit workflow.
+
 ### Enforcement
 
 These rules are BLOCKING PRECONDITIONS, not suggestions. The mechanical process is:
-1. Create/update entry with Hypothesis + Rollback Plan
+1. Create/update LAB_NOTEBOOK.md entry with Hypothesis + Rollback Plan
 2. Execute the action
 3. Log the result immediately
-4. Update Decision Log and Action Items if applicable
-5. Repeat
+4. **Before `git commit`: verify the notebook entry exists and covers this change**
+5. Update Decision Log and Action Items if applicable
+6. Repeat
 
 No exceptions for "quick" changes, "obvious" fixes, or "simple" tests.
 
