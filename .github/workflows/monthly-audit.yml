@@ -54,26 +54,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          ALERTS=$(gh api "repos/${{ github.repository }}/dependabot/alerts?state=open&per_page=100" 2>/dev/null || echo "[]")
-          TOTAL=$(echo "$ALERTS" | jq -r 'length')
-          CRITICAL=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "critical")] | length')
-          HIGH=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "high")] | length')
-          MEDIUM=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "medium")] | length')
-          LOW=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "low")] | length')
+          ALERTS=$(gh api "repos/${{ github.repository }}/dependabot/alerts?state=open&per_page=100" 2>/dev/null || echo "null")
+
+          # Verify we got a JSON array (API may return error object or require different permissions)
+          IS_ARRAY=$(echo "$ALERTS" | jq -r 'if type == "array" then "yes" else "no" end' 2>/dev/null || echo "no")
+
+          if [ "$IS_ARRAY" = "yes" ]; then
+            TOTAL=$(echo "$ALERTS" | jq -r 'length')
+            CRITICAL=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "critical")] | length')
+            HIGH=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "high")] | length')
+            MEDIUM=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "medium")] | length')
+            LOW=$(echo "$ALERTS" | jq -r '[.[] | select(.security_vulnerability.severity == "low")] | length')
+
+            echo "### Dependabot Alerts: $TOTAL open" >> "$GITHUB_STEP_SUMMARY"
+            echo "Critical: $CRITICAL | High: $HIGH | Medium: $MEDIUM | Low: $LOW" >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$TOTAL" -gt 0 ]; then
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              echo "$ALERTS" | jq -r '.[] | "[\(.security_vulnerability.severity)] \(.security_advisory.summary // .dependency.package.name)"' | head -10 >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            TOTAL=0; CRITICAL=0; HIGH=0
+            echo "### Dependabot Alerts: unable to fetch" >> "$GITHUB_STEP_SUMMARY"
+            echo "API may require additional permissions or Dependabot is not enabled." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           printf 'total=%s\n' "$TOTAL" >> "$GITHUB_OUTPUT"
           printf 'critical=%s\n' "$CRITICAL" >> "$GITHUB_OUTPUT"
           printf 'high=%s\n' "$HIGH" >> "$GITHUB_OUTPUT"
-
-          echo "### Dependabot Alerts: $TOTAL open" >> "$GITHUB_STEP_SUMMARY"
-          echo "Critical: $CRITICAL | High: $HIGH | Medium: $MEDIUM | Low: $LOW" >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$TOTAL" -gt 0 ]; then
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "$ALERTS" | jq -r '.[] | "[\(.security_vulnerability.severity)] \(.security_advisory.summary // .dependency.package.name)"' | head -10 >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-          fi
 
       - name: Post to Slack
         if: always()
