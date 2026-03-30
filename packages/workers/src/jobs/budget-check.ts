@@ -2,8 +2,7 @@ import { Worker, Queue } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
+import { logger, PushoverService } from '@open-brain/shared'
 
 // ============================================================
 // Types
@@ -334,7 +333,7 @@ export function createBudgetCheckWorker(
     hardLimit?: number
   },
 ): Worker<BudgetCheckJobData> {
-  const pushover = new PushoverService(opts?.appToken, opts?.userKey)
+  const pushover = new PushoverService({ appToken: opts?.appToken, userKey: opts?.userKey, onError: 'throw' })
 
   const worker = new Worker<BudgetCheckJobData>(
     'budget-check',

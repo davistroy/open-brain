@@ -1,10 +1,9 @@
-import { loadPromptTemplate, renderPromptTemplate } from '@open-brain/shared'
+import { logger, TemplateCache } from '@open-brain/shared'
 import type { LLMGatewayService } from './llm-gateway.js'
 import type { SearchService } from './search.js'
 import type { BetService } from './bet.js'
 import type { SessionRecord, SessionMessageRecord } from './session.js'
 import { AntiVaguenessGate } from './anti-vagueness.js'
-import { logger } from '../lib/logger.js'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -52,7 +51,7 @@ const MAX_VAGUENESS_SKIPS_PER_TOPIC = 2
 // ---------------------------------------------------------------------------
 
 export interface GovernanceEngineConfig {
-  promptsDir: string
+  templateCache: TemplateCache
 }
 
 export interface GovernanceState {
@@ -110,14 +109,17 @@ export interface GovernanceAssessment {
  */
 export class GovernanceEngine {
   private antiVaguenessGate: AntiVaguenessGate
-  private promptTemplate: string | null = null
+  private templateCache: TemplateCache
 
   constructor(
     private llmGateway: LLMGatewayService,
-    private promptsDir: string,
+    templateCacheOrDir: TemplateCache | string,
     private searchService?: SearchService,
     private betService?: BetService,
   ) {
+    this.templateCache = typeof templateCacheOrDir === 'string'
+      ? new TemplateCache(templateCacheOrDir)
+      : templateCacheOrDir
     this.antiVaguenessGate = new AntiVaguenessGate(llmGateway)
   }
 
@@ -403,10 +405,7 @@ export class GovernanceEngine {
   // -------------------------------------------------------------------------
 
   private renderPrompt(vars: Record<string, string>): string {
-    if (!this.promptTemplate) {
-      this.promptTemplate = loadPromptTemplate(this.promptsDir, 'governance_v1.txt')
-    }
-    return renderPromptTemplate(this.promptTemplate, vars)
+    return this.templateCache.render('governance_v1.txt', vars)
   }
 
   // -------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import { entities, entity_links } from '@open-brain/shared'
 import { NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { LLMGatewayService } from './llm-gateway.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /** Return value from resolve() describing what happened. */
 export type ResolveOutcome = 'exact_match' | 'alias_match' | 'llm_match' | 'created'

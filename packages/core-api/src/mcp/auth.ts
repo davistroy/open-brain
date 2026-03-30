@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Validates the MCP Bearer token from the Authorization header.

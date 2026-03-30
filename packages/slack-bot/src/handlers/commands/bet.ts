@@ -7,7 +7,7 @@ import {
   formatBetResolve,
   formatError,
 } from '../../lib/formatters.js'
-import { logger } from '../../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 export async function handleBetCommand(
   ts: string,

@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { TriggerService } from '../services/trigger.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Register trigger management API routes.

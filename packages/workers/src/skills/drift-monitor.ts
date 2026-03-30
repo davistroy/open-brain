@@ -1,9 +1,7 @@
 import { join } from 'node:path'
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type { Database } from '@open-brain/shared'
-import { skills_log, loadAndRenderPromptTemplate } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
+import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
 import {
   queryPendingBets,
   queryBetActivity,
@@ -28,8 +26,6 @@ import type {
 // Re-export types so consumers can import from this file
 export type { DriftMonitorOutput, DriftMonitorResult, DriftMonitorOptions } from './drift-monitor-query.js'
 
-const LLM_TIMEOUT_MS = 120_000
-
 /**
  * DriftMonitorSkill — detects when tracked commitments, bets, or projects go silent.
  *
@@ -41,9 +37,9 @@ const LLM_TIMEOUT_MS = 120_000
  */
 export class DriftMonitorSkill {
   private db: Database
-  private litellmClient: OpenAI
+  private litellmClient: OpenAI | null
   private pushover: PushoverService
-  private promptsDir: string
+  private templates: TemplateCache
   private coreApiUrl: string
 
   constructor(opts: {
@@ -53,15 +49,17 @@ export class DriftMonitorSkill {
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
+    templates?: TemplateCache
   }) {
     this.db = opts.db
-    this.litellmClient = new OpenAI({
-      baseURL: opts.litellmBaseUrl ?? process.env.LITELLM_URL ?? 'https://llm.k4jda.net',
-      apiKey: opts.litellmApiKey ?? process.env.LITELLM_API_KEY ?? 'no-key',
-      timeout: LLM_TIMEOUT_MS,
+    this.litellmClient = createLiteLLMClient({
+      baseUrl: opts.litellmBaseUrl,
+      apiKey: opts.litellmApiKey,
+      timeout: 'extended',
+      maxRetries: 0,
     })
-    this.pushover = opts.pushover ?? new PushoverService()
-    this.promptsDir = opts.promptsDir ?? join(process.cwd(), 'config', 'prompts')
+    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
+    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
   }
 
@@ -161,7 +159,8 @@ export class DriftMonitorSkill {
     analysisDate: string,
     modelAlias: string,
   ): Promise<string> {
-    const prompt = loadAndRenderPromptTemplate(this.promptsDir, 'drift_monitor_v1.txt', {
+    if (!this.litellmClient) throw new Error('[drift-monitor] LiteLLM client not configured — LITELLM_API_KEY missing')
+    const prompt = this.templates.render('drift_monitor_v1.txt', {
       analysis_date: analysisDate,
       pending_bets: pendingBetsText,
       governance_commitments: commitmentsText,

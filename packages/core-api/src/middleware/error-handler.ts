@@ -1,6 +1,6 @@
 import type { Context, ErrorHandler, MiddlewareHandler } from 'hono'
 import { AppError } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 function handleError(err: Error | unknown, c: Context) {
   if (err instanceof AppError) {

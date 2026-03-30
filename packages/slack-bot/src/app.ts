@@ -1,5 +1,5 @@
 import { App, LogLevel } from '@slack/bolt'
-import { logger } from './lib/logger.js'
+import { logger } from '@open-brain/shared'
 import { CoreApiClient } from './lib/core-api-client.js'
 
 export interface BotConfig {

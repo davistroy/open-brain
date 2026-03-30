@@ -1,11 +1,8 @@
 import OpenAI from 'openai'
-import pino from 'pino'
+import { createLogger, createLiteLLMClient } from '@open-brain/shared'
 
-const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const logger = createLogger('voice-classification')
 
-const LITELLM_URL = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
-const LITELLM_API_KEY = process.env.LITELLM_API_KEY ?? ''
-const CLASSIFICATION_TIMEOUT_MS = 30_000
 const CLASSIFICATION_MODEL = 'fast' // LiteLLM alias
 
 export type CaptureType =
@@ -75,10 +72,12 @@ export class ClassificationService {
   private client: OpenAI
 
   constructor() {
-    this.client = new OpenAI({
-      baseURL: LITELLM_URL,
-      apiKey: LITELLM_API_KEY,
-      timeout: CLASSIFICATION_TIMEOUT_MS,
+    // Prefer shared LiteLLM client factory (reads LITELLM_URL / LITELLM_API_KEY from env).
+    // Falls back to a direct OpenAI construction for test compatibility (tests vi.mock('openai')).
+    this.client = createLiteLLMClient({ timeout: 'fast' }) ?? new OpenAI({
+      baseURL: process.env.LITELLM_URL ?? 'https://llm.k4jda.net',
+      apiKey: process.env.LITELLM_API_KEY || 'unconfigured',
+      timeout: 30_000,
     })
   }
 

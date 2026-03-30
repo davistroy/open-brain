@@ -18,7 +18,7 @@ import { createAccessStatsWorker } from './jobs/update-access-stats.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
 import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { registerScheduledJobs } from './scheduler.js'
-import { logger } from './lib/logger.js'
+import { logger, TemplateCache, PushoverService } from '@open-brain/shared'
 import type { Worker } from 'bullmq'
 
 function parseRedisUrl(url: string) {
@@ -41,6 +41,21 @@ async function main() {
   const pushoverUserKey = process.env.PUSHOVER_USER_KEY
   const configDir = process.env.CONFIG_DIR ?? '/app/config'
   const promptsDir = process.env.PROMPTS_DIR ?? `${configDir}/prompts`
+
+  // LITELLM_API_KEY check
+  if (!litellmApiKey) {
+    logger.warn('LITELLM_API_KEY not set — embedding, entity extraction, and skill execution will fail')
+  }
+
+  // Template cache (shared across all workers that load prompt templates)
+  const templates = new TemplateCache(promptsDir)
+
+  // Pushover service (shared, throws on error for BullMQ retry)
+  const pushover = new PushoverService({
+    appToken: pushoverAppToken,
+    userKey: pushoverUserKey,
+    onError: 'throw',
+  })
 
   // Database
   const { db, pool } = createDb(postgresUrl)
@@ -68,7 +83,7 @@ async function main() {
     queues.checkTriggers, queues.extractEntities,
   ))
   workers.push(createCheckTriggersWorker(connection, db, pushoverAppToken, pushoverUserKey))
-  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, promptsDir))
+  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates))
   workers.push(createDocumentPipelineWorker(connection, db, configService, litellmUrl, litellmApiKey, queues.embedCapture))
   workers.push(createDailySweepWorker(connection, db, queues.capturePipeline))
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))

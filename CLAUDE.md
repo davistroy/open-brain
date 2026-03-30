@@ -55,6 +55,12 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **PWA service worker can cache stale JS bundles** — after deploying web container changes, users may need a hard refresh (Ctrl+Shift+R) to pick up new Vite-hashed bundles.
 - **Web package must be self-contained for Docker build** — Vite `?raw` imports that escape `packages/web/` (e.g., `../../../../docs/`) work locally but fail in Docker where `.dockerignore` excludes `docs/` and the Dockerfile only copies `packages/web/`. User-facing content (markdown docs rendered in the UI) must live inside `packages/web/src/content/`.
 - **Docker base images: Node 22 LTS** — upgraded from Node 20 (EOL April 2026). Both `Dockerfile` and `packages/web/Dockerfile` use `node:22-alpine`.
+- **Shared utilities live in `@open-brain/shared`** — logger (`createLogger`/`logger`), LiteLLM client factory (`createLiteLLMClient`), PushoverService, HTTP helpers (`assertOk`/`HttpError`), and TemplateCache. Do NOT create duplicate logger/pushover/OpenAI client instances in consumer packages.
+- **`createLiteLLMClient()` returns `null` when API key is empty** — callers must check for null and disable LLM features accordingly (following core-api governance engine pattern). Do not pass empty strings to `new OpenAI()`.
+- **TemplateCache replaces `loadPromptTemplate()` on hot paths** — prompt templates are loaded from disk once and cached in memory. Use `TemplateCache.render()` in services, not `loadAndRenderPromptTemplate()`. The old functions still exist for backward compat but should not be used in new code.
+- **Entity resolution is in `workers/src/lib/entity-resolver.ts`** — shared by both `extract-entities.ts` and `link-entities.ts`. Uses indexed SQL queries (not in-memory filtering). Do not duplicate entity resolution logic.
+- **pg-notify has automatic reconnection** — exponential backoff (1s→30s, 5 attempts) when Postgres connection drops. Re-registers all LISTEN channels after reconnect. SSE events resume automatically.
+- **CI uses Node 22** — matches Docker images. `package.json` engines field is `>=22`.
 
 ---
 
@@ -62,7 +68,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: v1.2.0 — All 25 phases complete (Phases 1-16 shipped 2026-03-05, hardening PR #25 merged 2026-03-11, Phase 5 intelligence features PR #27 merged 2026-03-11, Phase 6 UX polish PR #28 merged 2026-03-12). 1,407 unit tests + 95 regression tests passing. Deployed to homeserver.
+**Status**: v1.2.0 — All 25 phases + Phase 7 architectural consolidation complete. 1,407 unit tests + 95 regression tests passing. Deployed to homeserver.
 
 ## Key Architecture Decisions
 

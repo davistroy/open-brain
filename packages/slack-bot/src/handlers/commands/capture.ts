@@ -1,7 +1,7 @@
 import type { SayFn } from '@slack/bolt'
 import type { CoreApiClient } from '../../lib/core-api-client.js'
 import { formatStats, formatRecentCaptures, formatError } from '../../lib/formatters.js'
-import { logger } from '../../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 export async function handleStats(ts: string, say: SayFn, client: CoreApiClient): Promise<void> {
   try {

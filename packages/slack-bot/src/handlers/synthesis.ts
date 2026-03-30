@@ -9,7 +9,7 @@ import type { SayFn } from '@slack/bolt'
 import type { GenericMessageEvent } from '@slack/types'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import { formatError } from '../lib/formatters.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /** Patterns that indicate synthesis intent rather than a plain search */
 const SYNTHESIS_PATTERNS = [

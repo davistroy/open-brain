@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Simple parse result from the ingestion document parser.

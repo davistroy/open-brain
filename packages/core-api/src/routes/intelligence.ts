@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import { sql } from 'drizzle-orm'
 import type { Queue } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Shape of a skills_log row returned by intelligence queries.

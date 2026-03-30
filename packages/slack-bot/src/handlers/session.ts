@@ -20,7 +20,7 @@ import {
   formatSessionPause,
   formatError,
 } from '../lib/formatters.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 const SESSION_THREAD_PREFIX = 'session_thread:'
 const SESSION_THREAD_TTL = 60 * 60 * 6  // 6 hours — governance sessions don't run longer

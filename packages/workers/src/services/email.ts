@@ -1,5 +1,5 @@
 import nodemailer from 'nodemailer'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 export interface EmailSendOptions {
   to: string

@@ -1,18 +1,5 @@
-import pino from 'pino'
-
-const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
-
-const PUSHOVER_API_URL = 'https://api.pushover.net/1/messages.json'
-const PUSHOVER_TIMEOUT_MS = 10_000
-
-export interface PushoverOptions {
-  title: string
-  message: string
-  /** Priority: -2 silent, -1 low, 0 normal, 1 high. Default: -1 (low — capture confirmed). */
-  priority?: -2 | -1 | 0 | 1
-  url?: string
-  url_title?: string
-}
+import { PushoverService } from '@open-brain/shared'
+import type { PushoverSendOptions } from '@open-brain/shared'
 
 export interface CaptureNotificationContext {
   captureId: string
@@ -25,57 +12,40 @@ export interface CaptureNotificationContext {
 }
 
 /**
- * NotificationService sends Pushover push notifications on successful captures.
- * Silently skips if PUSHOVER_TOKEN or PUSHOVER_USER are not set — Pushover is optional.
+ * Voice-capture-specific Pushover options (subset — no emergency priority needed here).
+ */
+export interface PushoverOptions {
+  title: string
+  message: string
+  priority?: -2 | -1 | 0 | 1
+  url?: string
+  url_title?: string
+}
+
+/**
+ * NotificationService wraps shared PushoverService with voice-capture-specific
+ * convenience methods. Uses `onError: 'swallow'` so notification failures never
+ * propagate — captures are already saved by the time we notify.
+ *
+ * Constructor accepts optional token/user for backward compatibility with tests.
  */
 export class NotificationService {
-  private token: string | undefined
-  private user: string | undefined
+  private pushover: PushoverService
 
   constructor(token?: string, user?: string) {
-    this.token = token ?? process.env.PUSHOVER_TOKEN
-    this.user = user ?? process.env.PUSHOVER_USER
+    this.pushover = new PushoverService({
+      appToken: token ?? process.env.PUSHOVER_TOKEN,
+      userKey: user ?? process.env.PUSHOVER_USER,
+      onError: 'swallow',
+    })
   }
 
   get isConfigured(): boolean {
-    return Boolean(this.token && this.user)
+    return this.pushover.isConfigured
   }
 
   async send(opts: PushoverOptions): Promise<void> {
-    if (!this.isConfigured) {
-      logger.debug('Pushover not configured — skipping notification')
-      return
-    }
-
-    const body = new URLSearchParams({
-      token: this.token!,
-      user: this.user!,
-      title: opts.title,
-      message: opts.message,
-      priority: String(opts.priority ?? -1),
-      ...(opts.url ? { url: opts.url } : {}),
-      ...(opts.url_title ? { url_title: opts.url_title } : {}),
-    })
-
-    try {
-      const res = await fetch(PUSHOVER_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-        signal: AbortSignal.timeout(PUSHOVER_TIMEOUT_MS),
-      })
-
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => '')
-        logger.warn({ status: res.status, errorText }, 'Pushover notification failed')
-        return
-      }
-
-      logger.info({ title: opts.title }, 'Pushover notification sent')
-    } catch (err) {
-      // Notification failures must not propagate — capture is already saved
-      logger.warn({ err }, 'Pushover notification error (non-fatal)')
-    }
+    await this.pushover.send(opts as PushoverSendOptions)
   }
 
   /**
@@ -92,7 +62,7 @@ export class NotificationService {
       topicsLine,
     ].filter(Boolean)
 
-    await this.send({
+    await this.pushover.send({
       title: 'Voice memo captured',
       message: messageParts.join('\n'),
       priority: -1,

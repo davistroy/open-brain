@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // ============================================================
 // Types (defined here to avoid circular imports)

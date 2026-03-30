@@ -1,6 +1,6 @@
-import pino from 'pino'
+import { createLogger } from '@open-brain/shared'
 
-const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const logger = createLogger('voice-ingest')
 
 const CORE_API_URL = process.env.CORE_API_URL ?? 'http://core-api:3000'
 const MAX_ATTEMPTS = 3

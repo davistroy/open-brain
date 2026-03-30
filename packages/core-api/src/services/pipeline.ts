@@ -1,5 +1,5 @@
 import type { Queue } from 'bullmq'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Job data for the capture-pipeline BullMQ queue.

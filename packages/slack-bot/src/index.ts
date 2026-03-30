@@ -2,7 +2,7 @@
 
 import { createBoltApp } from './app.js'
 import { startServer } from './server.js'
-import { logger } from './lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // Validate required environment variables
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN

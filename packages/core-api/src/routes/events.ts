@@ -7,7 +7,7 @@
 import type { Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { pgNotify } from '../lib/pg-notify.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 export function registerEventsRoutes(app: Hono): void {
   app.get('/api/v1/events', (c) => {

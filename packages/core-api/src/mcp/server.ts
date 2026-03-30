@@ -7,7 +7,7 @@ import type { EntityService } from '../services/entity.js'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { validateMcpAuth } from './auth.js'
 import { registerMcpTools } from './tools/index.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 interface McpServerDeps {
   captureService: CaptureService

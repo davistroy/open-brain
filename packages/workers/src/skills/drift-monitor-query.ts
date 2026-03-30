@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // ============================================================
 // Types

@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { join } from 'node:path'
 import { Queue } from 'bullmq'
-import { ConfigService, createDb } from '@open-brain/shared'
+import { ConfigService, createDb, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
 import { EmbeddingService } from '@open-brain/shared'
@@ -14,8 +14,8 @@ import { SessionService } from './services/session.js'
 import { PipelineService } from './services/pipeline.js'
 import { LLMGatewayService } from './services/llm-gateway.js'
 import { GovernanceEngine } from './services/governance-engine.js'
-import { loadSkillsFromYaml } from './routes/skills.js'
-import { logger } from './lib/logger.js'
+import { SkillConfigService, initSkillConfigSingleton } from './services/skill-config.js'
+import { logger } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
 
 // Load config
@@ -25,7 +25,9 @@ configService.load()
 logger.info('Config loaded successfully')
 
 // Load skill schedule overrides from config/skills.yaml (if present)
-loadSkillsFromYaml()
+const skillConfigService = new SkillConfigService(join(configDir, 'skills.yaml'))
+skillConfigService.load()
+initSkillConfigSingleton(skillConfigService)
 
 // Initialize DB
 const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
@@ -45,6 +47,7 @@ const redisConnection = {
 const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
 const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
 const promptsDir = join(configDir, 'prompts')
+const templateCache = new TemplateCache(promptsDir)
 
 // BullMQ queues
 const capturePipelineQueue = new Queue('capture-pipeline', { connection: redisConnection })
@@ -63,9 +66,10 @@ const betService = new BetService(db)
 
 let governanceEngine: GovernanceEngine | undefined
 let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
-if (litellmApiKey) {
-  llmGateway = new LLMGatewayService(litellmUrl, litellmApiKey, configService, db, promptsDir)
-  governanceEngine = new GovernanceEngine(llmGateway, promptsDir)
+const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
+if (litellmClient) {
+  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache)
+  governanceEngine = new GovernanceEngine(llmGateway, templateCache)
   logger.info('GovernanceEngine initialized')
 } else {
   logger.warn('LITELLM_API_KEY not set — GovernanceEngine and synthesize endpoint disabled')

@@ -3,7 +3,7 @@ import { sql, and, inArray, lt } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 
 export interface DailySweepJobData {

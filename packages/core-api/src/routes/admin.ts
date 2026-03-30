@@ -7,7 +7,7 @@ import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import type { ConfigService, Database } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 import { adminAuth } from '../middleware/admin-auth.js'
 import { SlackChannelService } from '../services/slack-channel.js'
 

@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { NotFoundError } from '@open-brain/shared'
 import type { BetService } from '../services/bet.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Register bet tracking API routes.

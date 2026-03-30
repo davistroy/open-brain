@@ -1,7 +1,8 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { captures, entities, entity_links, entity_relationships, pipeline_events } from '@open-brain/shared'
-import { logger } from '../../lib/logger.js'
+import { captures, pipeline_events } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
+import { resolveOrCreateEntity, linkEntityToCapture, upsertEntityRelationship, dedup } from '../../lib/entity-resolver.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,140 +29,6 @@ interface ResolvedEntity {
 }
 
 // ---------------------------------------------------------------------------
-// Entity resolution (lightweight two-tier path for pipeline batch processing)
-//
-// Full three-tier LLM disambiguation lives in EntityResolutionService (12.1).
-// The pipeline stage uses the fast path: exact name/canonical_name → alias.
-// New entities are created on first mention. This keeps pipeline latency low
-// and avoids LLM calls during the synchronous pipeline run.
-// ---------------------------------------------------------------------------
-
-async function resolveOrCreateEntityForStage(
-  db: Database,
-  name: string,
-  entityType: string,
-): Promise<string> {
-  const normalized = name.trim()
-  if (!normalized) throw new Error('Entity name must not be empty')
-
-  const lower = normalized.toLowerCase()
-
-  const candidates = await db
-    .select({
-      id: entities.id,
-      name: entities.name,
-      canonical_name: entities.canonical_name,
-      aliases: entities.aliases,
-    })
-    .from(entities)
-    .where(eq(entities.entity_type, entityType))
-
-  // 1. Exact name or canonical_name match (case-insensitive)
-  const byName = candidates.find(
-    (c) =>
-      c.name.toLowerCase() === lower ||
-      c.canonical_name.toLowerCase() === lower,
-  )
-  if (byName) {
-    await db
-      .update(entities)
-      .set({ last_seen_at: new Date(), updated_at: new Date() })
-      .where(eq(entities.id, byName.id))
-    return byName.id
-  }
-
-  // 2. Alias match
-  const byAlias = candidates.find((c) =>
-    (c.aliases as string[]).some((alias) => alias.toLowerCase() === lower),
-  )
-  if (byAlias) {
-    await db
-      .update(entities)
-      .set({ last_seen_at: new Date(), updated_at: new Date() })
-      .where(eq(entities.id, byAlias.id))
-    return byAlias.id
-  }
-
-  // 3. Create new entity
-  const [inserted] = await db
-    .insert(entities)
-    .values({
-      name: normalized,
-      entity_type: entityType,
-      canonical_name: normalized,
-      aliases: [],
-      metadata: null,
-    })
-    .returning({ id: entities.id })
-
-  if (!inserted) {
-    throw new Error(
-      `[link-entities] INSERT entity failed for name="${normalized}" type="${entityType}"`,
-    )
-  }
-
-  logger.debug(
-    { entityId: inserted.id, name: normalized, entityType },
-    '[link-entities] new entity created',
-  )
-
-  return inserted.id
-}
-
-// ---------------------------------------------------------------------------
-// entity_links upsert — idempotent
-// ---------------------------------------------------------------------------
-
-async function upsertEntityLink(
-  db: Database,
-  entityId: string,
-  captureId: string,
-  relationship: string,
-  confidence: number,
-): Promise<void> {
-  await db
-    .insert(entity_links)
-    .values({ entity_id: entityId, capture_id: captureId, relationship, confidence })
-    .onConflictDoNothing()
-}
-
-// ---------------------------------------------------------------------------
-// entity_relationships upsert — co-occurrence graph
-//
-// Canonical ordering: entity_id_a is the lexicographically smaller UUID.
-// On conflict (pair already exists): increment co_occurrence_count, bump
-// last_seen_at and updated_at.  weight is set to co_occurrence_count so
-// downstream graph queries can filter by relationship strength without a
-// separate normalization pass.
-// ---------------------------------------------------------------------------
-
-async function upsertEntityRelationship(
-  db: Database,
-  idA: string,
-  idB: string,
-): Promise<void> {
-  if (idA === idB) return // self-loops are meaningless
-
-  // Enforce canonical ordering so (A,B) and (B,A) are the same row.
-  const [smaller, larger] = idA < idB ? [idA, idB] : [idB, idA]
-
-  await db.execute(
-    sql`
-      INSERT INTO entity_relationships
-        (id, entity_id_a, entity_id_b, co_occurrence_count, weight, last_seen_at, created_at, updated_at)
-      VALUES
-        (gen_random_uuid(), ${smaller}::uuid, ${larger}::uuid, 1, 1.0, now(), now(), now())
-      ON CONFLICT (entity_id_a, entity_id_b)
-      DO UPDATE SET
-        co_occurrence_count = entity_relationships.co_occurrence_count + 1,
-        weight              = entity_relationships.co_occurrence_count + 1,
-        last_seen_at        = now(),
-        updated_at          = now()
-    `,
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main stage handler
 // ---------------------------------------------------------------------------
 
@@ -176,7 +43,7 @@ async function upsertEntityRelationship(
  * Algorithm:
  * 1. Load capture + source_metadata (populated by extract_metadata stage)
  * 2. Collect mentions: metadata.people → 'person', metadata.topics → 'concept'
- * 3. For each mention: resolveOrCreateEntityForStage() → entity_links upsert
+ * 3. For each mention: resolveOrCreateEntity() → linkEntityToCapture()
  * 4. For each pair of resolved entity IDs: upsertEntityRelationship()
  * 5. Record pipeline_events stage result
  *
@@ -251,8 +118,8 @@ export async function processLinkEntitiesStage(
 
     for (const name of peopleMentions) {
       try {
-        const entityId = await resolveOrCreateEntityForStage(db, name, 'person')
-        await upsertEntityLink(db, entityId, captureId, 'mentioned', 0.9)
+        const entityId = await resolveOrCreateEntity(db, name, 'person')
+        await linkEntityToCapture(db, entityId, captureId, 'mentioned', 0.9)
         resolved.push({ id: entityId, entityType: 'person', name })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -265,8 +132,8 @@ export async function processLinkEntitiesStage(
 
     for (const topic of topicMentions) {
       try {
-        const entityId = await resolveOrCreateEntityForStage(db, topic, 'concept')
-        await upsertEntityLink(db, entityId, captureId, 'mentioned', 0.85)
+        const entityId = await resolveOrCreateEntity(db, topic, 'concept')
+        await linkEntityToCapture(db, entityId, captureId, 'mentioned', 0.85)
         resolved.push({ id: entityId, entityType: 'concept', name: topic })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -339,25 +206,4 @@ export async function processLinkEntitiesStage(
     logger.error({ captureId, err }, '[link-entities] stage failed')
     throw err
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Deduplicate an array of strings case-insensitively, preserving the first
- * occurrence's original casing.
- */
-function dedup(items: string[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const item of items) {
-    const key = item.trim().toLowerCase()
-    if (key && !seen.has(key)) {
-      seen.add(key)
-      result.push(item.trim())
-    }
-  }
-  return result
 }

@@ -3,8 +3,7 @@ import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { skills_log } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
+import { logger, PushoverService } from '@open-brain/shared'
 
 // ============================================================
 // Types
