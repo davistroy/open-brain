@@ -264,7 +264,17 @@ export interface SlackChannel {
   is_archived: boolean
 }
 
+export interface AdminBanner {
+  message: string
+  level: 'info' | 'success' | 'warning'
+  created_at: string
+}
+
 export const adminApi = {
+  getBanner: () => {
+    return request<{ banner: AdminBanner | null }>('/admin/banner')
+  },
+
   resetData: () => {
     return request<{ cleared: string[]; preserved: string[]; wiped_at: string }>('/admin/reset-data', {
       method: 'POST',

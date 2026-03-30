@@ -5,6 +5,7 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter'
 import { HonoAdapter } from '@bull-board/hono'
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
+import Redis from 'ioredis'
 import { sql } from 'drizzle-orm'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
@@ -34,6 +35,16 @@ export interface AdminRouterOptions {
   /** Database instance — required for POST /reset-data */
   db?: Database
 }
+
+/** Banner stored in Redis — displayed at top of dashboard */
+interface AdminBanner {
+  message: string
+  level: 'info' | 'success' | 'warning'
+  created_at: string
+}
+
+const BANNER_REDIS_KEY = 'admin:banner'
+const BANNER_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 /**
  * Creates the admin router.
@@ -330,6 +341,49 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
         error: 'Service unavailable',
         message: 'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
       }, 503)
+    })
+  }
+
+  // ── Admin Banner (Redis-backed, 30-day TTL) ──────────────────────────────
+  // GET  /banner — read current banner (or null)
+  // POST /banner — set banner message { message, level }
+  // DELETE /banner — clear banner
+
+  if (redisConnection) {
+    const bannerRedis = new Redis(redisConnection as import('ioredis').RedisOptions)
+
+    router.get('/banner', async (c) => {
+      const raw = await bannerRedis.get(BANNER_REDIS_KEY)
+      if (!raw) return c.json({ banner: null })
+      try {
+        return c.json({ banner: JSON.parse(raw) as AdminBanner })
+      } catch {
+        return c.json({ banner: null })
+      }
+    })
+
+    router.post('/banner', async (c) => {
+      const body = await c.req.json<{ message?: string; level?: string }>()
+      if (!body.message || typeof body.message !== 'string') {
+        return c.json({ error: 'message is required' }, 400)
+      }
+      const level = (['info', 'success', 'warning'] as const).includes(body.level as any)
+        ? (body.level as AdminBanner['level'])
+        : 'info'
+      const banner: AdminBanner = {
+        message: body.message.slice(0, 500),
+        level,
+        created_at: new Date().toISOString(),
+      }
+      await bannerRedis.set(BANNER_REDIS_KEY, JSON.stringify(banner), 'EX', BANNER_TTL_SECONDS)
+      logger.info({ banner }, '[admin] Banner set')
+      return c.json({ banner })
+    })
+
+    router.delete('/banner', async (c) => {
+      await bannerRedis.del(BANNER_REDIS_KEY)
+      logger.info('[admin] Banner cleared')
+      return c.json({ cleared: true })
     })
   }
 
