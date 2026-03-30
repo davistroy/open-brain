@@ -61,7 +61,7 @@ export interface BrainStats {
 }
 
 export interface SearchFilters {
-  q?: string
+  query?: string
   capture_type?: CaptureType
   brain_view?: BrainView
   source?: CaptureSource
