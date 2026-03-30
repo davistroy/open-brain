@@ -68,13 +68,13 @@ describe('searchApi.search', () => {
     const searchResult = { captures: [], total: 0, query: 'hello', hybrid: true }
     vi.mocked(fetch).mockResolvedValueOnce(mockResponse(searchResult))
 
-    const result = await searchApi.search({ q: 'hello', hybrid: true })
+    const result = await searchApi.search({ query: 'hello', hybrid: true })
     expect(result).toEqual(searchResult)
 
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
     expect(url).toContain('/api/v1/search')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(init.body as string)).toMatchObject({ q: 'hello', hybrid: true })
+    expect(JSON.parse(init.body as string)).toMatchObject({ query: 'hello', hybrid: true })
   })
 })
 
