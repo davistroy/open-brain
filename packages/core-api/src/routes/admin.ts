@@ -5,7 +5,7 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter'
 import { HonoAdapter } from '@bull-board/hono'
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import Redis from 'ioredis'
+import { Redis } from 'ioredis'
 import { sql } from 'drizzle-orm'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
@@ -350,7 +350,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
   // DELETE /banner — clear banner
 
   if (redisConnection) {
-    const bannerRedis = new Redis(redisConnection as import('ioredis').RedisOptions)
+    const bannerRedis = new Redis(redisConnection as unknown as import('ioredis').RedisOptions)
 
     router.get('/banner', async (c) => {
       const raw = await bannerRedis.get(BANNER_REDIS_KEY)
