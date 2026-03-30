@@ -8,11 +8,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Fixed
-- **Docker web build failure**: Moved `USER_QUICK_START.md` and `USER_GUIDE.md` from `docs/` into `packages/web/src/content/` to fix Vite `?raw` imports that escaped the package boundary and failed in Docker where `.dockerignore` excludes `docs/`.
-
 ### Changed
-- **Docker base images upgraded to Node 22 LTS** (from Node 20, EOL April 2026). Applies to both `Dockerfile` (core-api, workers, slack-bot, voice-capture) and `packages/web/Dockerfile`.
+- **Switched from local Qwen to OpenAI API**: All LLM inference now uses `gpt-5.4` (via `config/ai-routing.yaml`). Embeddings use `text-embedding-3-large` with `dimensions: 768` API parameter (trained MRL, not naive truncation). Removes dependency on DGX Spark / LiteLLM proxy.
+- **Docker base images upgraded to Node 22 LTS** (from Node 20, EOL April 2026).
+- **CI actions upgraded**: checkout v5, setup-node v5, cache v5 (Node 24-compatible).
+
+### Added
+- **Monthly maintenance script** (`scripts/monthly-maintenance.sh`): Runs 5 checks (docker rebuild, dependency audit, GitHub security alerts, error log scan, health check). Posts results to Slack + dashboard admin banner.
+- **Monthly audit GitHub Action** (`monthly-audit.yml`): Scheduled workflow for `pnpm outdated` + Dependabot alert check, posts to Slack.
+- **Admin banner API** (`POST/GET/DELETE /api/v1/admin/banner`): Redis-backed banner with 30-day TTL, displayed at top of dashboard.
+- **Web UI rate-limit bypass**: nginx adds `X-Open-Brain-Caller: web-ui` header; rate limiter exempts it alongside `integration-test`.
+
+### Fixed
+- **Search broken in web UI**: `SearchFilters` sent `q` field but API expected `query`. Renamed across types, component, and tests.
+- **OpenAI API compatibility**: Removed Qwen/vLLM-specific `extra_body` params (5 call sites), changed `max_tokens` to `max_completion_tokens` (7 call sites).
+- **Health check 404**: Fixed double `/v1/v1/models` URL when `LITELLM_URL` ends with `/v1`.
+- **nginx stale DNS**: Added `resolver 127.0.0.11` + variable upstream to prevent cached IPs after container recreation.
+- **Docker web build failure**: Moved user docs into `packages/web/src/content/` to fix Vite `?raw` import boundary violation.
+- **e2e test scripts**: Added rate-limit bypass header, MCP SSE response parsing, bash arithmetic fix, document title uniqueness.
 
 ---
 
