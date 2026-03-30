@@ -212,7 +212,7 @@ export class IntentRouter {
             { role: 'system', content: INTENT_SYSTEM_PROMPT },
             { role: 'user', content: text },
           ],
-          max_tokens: 10,
+          max_completion_tokens: 10,
           temperature: 0,
         }),
         signal: controller.signal,
