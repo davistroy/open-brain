@@ -1,7 +1,6 @@
-import OpenAI from 'openai'
-import { ServiceUnavailableError, ai_audit_log, loadAndRenderPromptTemplate } from '@open-brain/shared'
-import type { ConfigService, Database } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import type OpenAI from 'openai'
+import { ServiceUnavailableError, ai_audit_log, logger } from '@open-brain/shared'
+import type { ConfigService, Database, TemplateCache } from '@open-brain/shared'
 
 /**
  * Thrown when the LLM gateway is over budget (hard limit).
@@ -22,8 +21,6 @@ export class LLMGatewayError extends ServiceUnavailableError {
     this.name = 'LLMGatewayError'
   }
 }
-
-const LLM_TIMEOUT_MS = 60_000
 
 /**
  * Approximate cost per 1K tokens by model alias (USD).
@@ -67,23 +64,18 @@ export class LLMGatewayService {
   private client: OpenAI
   private configService: ConfigService
   private db: Database
-  private promptsDir: string
+  private templateCache: TemplateCache
 
   constructor(
-    litellmBaseUrl: string,
-    litellmApiKey: string,
+    client: OpenAI,
     configService: ConfigService,
     db: Database,
-    promptsDir: string,
+    templateCache: TemplateCache,
   ) {
-    this.client = new OpenAI({
-      baseURL: litellmBaseUrl,
-      apiKey: litellmApiKey,
-      timeout: LLM_TIMEOUT_MS,
-    })
+    this.client = client
     this.configService = configService
     this.db = db
-    this.promptsDir = promptsDir
+    this.templateCache = templateCache
   }
 
   /**
@@ -264,11 +256,7 @@ export class LLMGatewayService {
     options: LLMCompleteOptions = {},
   ): Promise<string> {
     try {
-      const rendered = loadAndRenderPromptTemplate(
-        this.promptsDir,
-        `${templateName}.v1.txt`,
-        vars,
-      )
+      const rendered = this.templateCache.render(`${templateName}.v1.txt`, vars)
       return this.complete(rendered, modelAlias as LLMModelAlias, options)
     } catch (err) {
       if (err instanceof Error && err.message.includes('Prompt template not found')) {

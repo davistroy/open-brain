@@ -21,7 +21,7 @@ import type { Redis } from 'ioredis'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import { formatSearchResults, formatCapture, formatError } from '../lib/formatters.js'
 import { getThreadContext, setThreadContext } from '../lib/thread-context.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 const SEARCH_LIMIT = 20   // Fetch up to 20 results; paginate 5 per page
 const PAGE_SIZE = 5

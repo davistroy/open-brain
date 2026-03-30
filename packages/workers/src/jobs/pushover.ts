@@ -1,8 +1,7 @@
 import { Worker } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
-import type { PushoverPriority } from '../services/pushover.js'
+import { logger, PushoverService } from '@open-brain/shared'
+import type { PushoverPriority } from '@open-brain/shared'
 
 /**
  * Job payload for Pushover notifications.
@@ -67,7 +66,7 @@ export function createPushoverWorker(
   appToken?: string,
   userKey?: string,
 ): Worker<PushoverJobData> {
-  const pushoverService = new PushoverService(appToken, userKey)
+  const pushoverService = new PushoverService({ appToken, userKey, onError: 'throw' })
 
   const worker = new Worker<PushoverJobData>(
     'pushover',

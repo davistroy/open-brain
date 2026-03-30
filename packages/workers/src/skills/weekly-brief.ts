@@ -1,9 +1,7 @@
 import { join } from 'node:path'
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type { Database } from '@open-brain/shared'
-import { skills_log, loadAndRenderPromptTemplate } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
+import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { queryCaptures, assembleContext, fmtDate, CHARS_PER_TOKEN } from './weekly-brief-query.js'
 import type { WeeklyBriefOutput, WeeklyBriefResult, WeeklyBriefOptions } from './weekly-brief-query.js'
@@ -14,7 +12,6 @@ export type { WeeklyBriefOutput, WeeklyBriefResult, WeeklyBriefOptions } from '.
 
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_TOKEN_BUDGET = 50_000
-const LLM_TIMEOUT_MS = 120_000
 
 /**
  * WeeklyBriefSkill — orchestrator that coordinates query, LLM, rendering, and delivery.
@@ -22,25 +19,27 @@ const LLM_TIMEOUT_MS = 120_000
  */
 export class WeeklyBriefSkill {
   private db: Database
-  private litellmClient: OpenAI
+  private litellmClient: OpenAI | null
   private pushover: PushoverService
   private email: EmailService
-  private promptsDir: string
+  private templates: TemplateCache
   private coreApiUrl: string
 
   constructor(opts: {
     db: Database; litellmBaseUrl?: string; litellmApiKey?: string
     pushover?: PushoverService; email?: EmailService; promptsDir?: string; coreApiUrl?: string
+    templates?: TemplateCache
   }) {
     this.db = opts.db
-    this.litellmClient = new OpenAI({
-      baseURL: opts.litellmBaseUrl ?? process.env.LITELLM_URL ?? 'https://llm.k4jda.net',
-      apiKey: opts.litellmApiKey ?? process.env.LITELLM_API_KEY ?? 'no-key',
-      timeout: LLM_TIMEOUT_MS,
+    this.litellmClient = createLiteLLMClient({
+      baseUrl: opts.litellmBaseUrl,
+      apiKey: opts.litellmApiKey,
+      timeout: 'extended',
+      maxRetries: 0,
     })
-    this.pushover = opts.pushover ?? new PushoverService()
+    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.email = opts.email ?? new EmailService()
-    this.promptsDir = opts.promptsDir ?? join(process.cwd(), 'config', 'prompts')
+    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
   }
 
@@ -83,7 +82,8 @@ export class WeeklyBriefSkill {
   }
 
   private async callLLM(contextText: string, dateRange: string, captureCount: number, modelAlias: string): Promise<string> {
-    const prompt = loadAndRenderPromptTemplate(this.promptsDir, 'weekly_brief_v1.txt', {
+    if (!this.litellmClient) throw new Error('[weekly-brief] LiteLLM client not configured — LITELLM_API_KEY missing')
+    const prompt = this.templates.render('weekly_brief_v1.txt', {
       date_range: dateRange, capture_count: String(captureCount), captures: contextText,
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[weekly-brief] calling LLM')

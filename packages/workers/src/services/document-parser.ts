@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // ────────────────────────────────────────────────────────────────────────────
 // Types

@@ -4,7 +4,7 @@ import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures } from '@open-brain/shared'
 import type { AccessStatsJobData } from '../queues/access-stats.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Processes an access-stats job: increments access_count and sets

@@ -1,6 +1,6 @@
-import pino from 'pino'
+import { createLogger } from '@open-brain/shared'
 
-const logger = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const logger = createLogger('voice-transcription')
 
 const WHISPER_URL = process.env.WHISPER_URL ?? 'http://faster-whisper:10300'
 const TRANSCRIPTION_TIMEOUT_MS = 120_000 // 2 minutes — large-v3 CPU can be slow

@@ -55,3 +55,55 @@ export function loadAndRenderPromptTemplate(
   const template = loadPromptTemplate(promptsDir, templateName)
   return renderPromptTemplate(template, vars)
 }
+
+/**
+ * TemplateCache loads prompt templates from disk on first access and
+ * serves subsequent reads from an in-memory Map. Templates are static
+ * at runtime, so this eliminates all hot-path disk I/O.
+ *
+ * Use `preload()` at startup for fail-fast validation, or rely on
+ * lazy loading via `get()` / `render()`.
+ */
+export class TemplateCache {
+  private cache = new Map<string, string>()
+  private promptsDir: string
+
+  constructor(promptsDir: string) {
+    this.promptsDir = promptsDir
+  }
+
+  /**
+   * Returns the raw template string, loading from disk on first access.
+   * Throws if the template file does not exist.
+   */
+  get(templateName: string): string {
+    const cached = this.cache.get(templateName)
+    if (cached !== undefined) return cached
+
+    const content = loadPromptTemplate(this.promptsDir, templateName)
+    this.cache.set(templateName, content)
+    return content
+  }
+
+  /**
+   * Loads a template (from cache or disk) and renders it with the given variables.
+   */
+  render(templateName: string, vars: Record<string, string>): string {
+    const template = this.get(templateName)
+    return renderPromptTemplate(template, vars)
+  }
+
+  /**
+   * Eagerly loads templates into cache. Call at startup for fail-fast validation.
+   */
+  preload(...names: string[]): void {
+    for (const name of names) {
+      this.get(name)
+    }
+  }
+
+  /** Clears the cache (for hot-reload in development). */
+  invalidate(): void {
+    this.cache.clear()
+  }
+}

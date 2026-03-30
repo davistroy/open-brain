@@ -4,7 +4,7 @@ import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CreateCaptureInput, CaptureFilter, CaptureRecord } from '@open-brain/shared'
 import type { PipelineService } from './pipeline.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 const DEDUP_WINDOW_MS = 60_000 // 60 seconds
 

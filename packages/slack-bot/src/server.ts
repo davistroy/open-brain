@@ -7,13 +7,14 @@ import type { App } from '@slack/bolt'
 import type { GenericMessageEvent } from '@slack/types'
 import { Redis } from 'ioredis'
 import type { CoreApiClient } from './lib/core-api-client.js'
-import { logger } from './lib/logger.js'
+import { logger } from '@open-brain/shared'
 import { IntentRouter } from './intent/router.js'
 import { handleCapture } from './handlers/capture.js'
 import { handleQuery } from './handlers/query.js'
 import { handleCommand } from './handlers/command.js'
 import { handleSessionThreadReply, getSessionThread } from './handlers/session.js'
 import { getThreadContext } from './lib/thread-context.js'
+import { safeHandle } from './lib/safe-handle.js'
 
 /**
  * Register all message/event handlers on the Bolt app.
@@ -45,68 +46,71 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
     if (!('text' in message) || !message.text) return
 
     const genericMessage = message as GenericMessageEvent
-    const text = genericMessage.text ?? ''
-    const channel = genericMessage.channel
     const ts = genericMessage.ts
-    const threadTs = ('thread_ts' in message && message.thread_ts) ? message.thread_ts as string : null
 
-    logger.info({ channel, ts, textLen: text.length }, 'Received message')
+    await safeHandle(async () => {
+      const text = genericMessage.text ?? ''
+      const channel = genericMessage.channel
+      const threadTs = ('thread_ts' in message && message.thread_ts) ? message.thread_ts as string : null
 
-    // If this is a thread reply, check whether it belongs to an active governance session
-    // or an existing search thread. Both bypass IntentRouter entirely.
-    if (threadTs && threadTs !== ts) {
-      const sessionId = await getSessionThread(redis, threadTs)
-      if (sessionId) {
-        // Governance thread reply — but still allow !board <pause|done|abandon> through
-        logger.debug({ threadTs, sessionId }, 'Routing to governance session handler')
-        await handleSessionThreadReply(genericMessage, say, coreApiClient, redis, sessionId)
-        return
+      logger.info({ channel, ts, textLen: text.length }, 'Received message')
+
+      // If this is a thread reply, check whether it belongs to an active governance session
+      // or an existing search thread. Both bypass IntentRouter entirely.
+      if (threadTs && threadTs !== ts) {
+        const sessionId = await getSessionThread(redis, threadTs)
+        if (sessionId) {
+          // Governance thread reply — but still allow !board <pause|done|abandon> through
+          logger.debug({ threadTs, sessionId }, 'Routing to governance session handler')
+          await handleSessionThreadReply(genericMessage, say, coreApiClient, redis, sessionId)
+          return
+        }
+
+        // Check if this is a reply to a search thread (has stored query context)
+        const queryCtx = await getThreadContext(redis, threadTs)
+        if (queryCtx?.query !== undefined) {
+          logger.debug({ threadTs }, 'Routing to query handler (search thread follow-up)')
+          await handleQuery(genericMessage, say, coreApiClient, redis)
+          return
+        }
       }
 
-      // Check if this is a reply to a search thread (has stored query context)
-      const queryCtx = await getThreadContext(redis, threadTs)
-      if (queryCtx?.query !== undefined) {
-        logger.debug({ threadTs }, 'Routing to query handler (search thread follow-up)')
-        await handleQuery(genericMessage, say, coreApiClient, redis)
-        return
+      // Classify intent
+      const intentResult = await intentRouter.classify(text, {
+        channel_id: channel,
+        is_thread_reply: 'thread_ts' in message && !!message.thread_ts,
+        is_mention: false,
+      })
+
+      logger.debug(
+        { intent: intentResult.intent, confidence: intentResult.confidence, method: intentResult.method },
+        'Intent classified',
+      )
+
+      switch (intentResult.intent) {
+        case 'capture':
+          await handleCapture(genericMessage, say, coreApiClient)
+          break
+
+        case 'query':
+          await handleQuery(genericMessage, say, coreApiClient, redis)
+          break
+
+        case 'command':
+          await handleCommand(genericMessage, say, coreApiClient, redis)
+          break
+
+        case 'conversation':
+          // Conversational messages acknowledged but not captured
+          logger.debug({ channel, ts }, 'Conversational message — no action taken')
+          break
+
+        default:
+          // Safety net — treat unknown intents as capture
+          await handleCapture(genericMessage, say, coreApiClient)
+          break
       }
-    }
-
-    // Classify intent
-    const intentResult = await intentRouter.classify(text, {
-      channel_id: channel,
-      is_thread_reply: 'thread_ts' in message && !!message.thread_ts,
-      is_mention: false,
-    })
-
-    logger.debug(
-      { intent: intentResult.intent, confidence: intentResult.confidence, method: intentResult.method },
-      'Intent classified',
-    )
-
-    switch (intentResult.intent) {
-      case 'capture':
-        await handleCapture(genericMessage, say, coreApiClient)
-        break
-
-      case 'query':
-        await handleQuery(genericMessage, say, coreApiClient, redis)
-        break
-
-      case 'command':
-        await handleCommand(genericMessage, say, coreApiClient, redis)
-        break
-
-      case 'conversation':
-        // Conversational messages acknowledged but not captured
-        logger.debug({ channel, ts }, 'Conversational message — no action taken')
-        break
-
-      default:
-        // Safety net — treat unknown intents as capture
-        await handleCapture(genericMessage, say, coreApiClient)
-        break
-    }
+    }, say, ts)
   })
 
   // App mention handler — `@Open Brain ...` → QUERY, `@Open Brain !cmd` → COMMAND

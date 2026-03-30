@@ -22,8 +22,7 @@
     "@hono/node-server": "^1.19.11",
     "@open-brain/shared": "workspace:*",
     "hono": "^4.12.5",
-    "openai": "^4.98.0",
-    "pino": "^10.3.1"
+    "openai": "^4.98.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.5",

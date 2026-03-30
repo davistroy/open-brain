@@ -1,9 +1,7 @@
 import { join } from 'node:path'
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type { Database } from '@open-brain/shared'
-import { skills_log, loadAndRenderPromptTemplate } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
+import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
 import {
   queryRecentCaptures,
   buildEntityCoOccurrence,
@@ -24,7 +22,6 @@ export type { DailyConnectionsOutput, DailyConnectionsResult, DailyConnectionsOp
 
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_TOKEN_BUDGET = 30_000
-const LLM_TIMEOUT_MS = 120_000
 
 /**
  * DailyConnectionsSkill — surfaces non-obvious cross-domain connections
@@ -35,9 +32,9 @@ const LLM_TIMEOUT_MS = 120_000
  */
 export class DailyConnectionsSkill {
   private db: Database
-  private litellmClient: OpenAI
+  private litellmClient: OpenAI | null
   private pushover: PushoverService
-  private promptsDir: string
+  private templates: TemplateCache
   private coreApiUrl: string
 
   constructor(opts: {
@@ -47,15 +44,17 @@ export class DailyConnectionsSkill {
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
+    templates?: TemplateCache
   }) {
     this.db = opts.db
-    this.litellmClient = new OpenAI({
-      baseURL: opts.litellmBaseUrl ?? process.env.LITELLM_URL ?? 'https://llm.k4jda.net',
-      apiKey: opts.litellmApiKey ?? process.env.LITELLM_API_KEY ?? 'no-key',
-      timeout: LLM_TIMEOUT_MS,
+    this.litellmClient = createLiteLLMClient({
+      baseUrl: opts.litellmBaseUrl,
+      apiKey: opts.litellmApiKey,
+      timeout: 'extended',
+      maxRetries: 0,
     })
-    this.pushover = opts.pushover ?? new PushoverService()
-    this.promptsDir = opts.promptsDir ?? join(process.cwd(), 'config', 'prompts')
+    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
+    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
   }
 
@@ -139,7 +138,8 @@ export class DailyConnectionsSkill {
     captureCount: number,
     modelAlias: string,
   ): Promise<string> {
-    const prompt = loadAndRenderPromptTemplate(this.promptsDir, 'daily_connections_v1.txt', {
+    if (!this.litellmClient) throw new Error('[daily-connections] LiteLLM client not configured — LITELLM_API_KEY missing')
+    const prompt = this.templates.render('daily_connections_v1.txt', {
       date_range: dateRange,
       capture_count: String(captureCount),
       captures: contextText,

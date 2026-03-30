@@ -1,13 +1,17 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { logger as honoLogger } from 'hono/logger'
-import pino from 'pino'
+import { createLogger } from '@open-brain/shared'
 import { TranscriptionService } from './services/transcription.js'
 import { ClassificationService } from './services/classification.js'
 import { IngestService } from './services/ingest.js'
 import { NotificationService } from './services/notification.js'
 
-const log = pino({ level: process.env.LOG_LEVEL ?? 'info' })
+const log = createLogger('voice-capture')
+
+if (!process.env.LITELLM_API_KEY) {
+  log.warn('LITELLM_API_KEY not set — voice classification will fail')
+}
 
 const SUPPORTED_FORMATS = new Set(['m4a', 'wav', 'mp3', 'ogg'])
 

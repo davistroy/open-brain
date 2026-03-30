@@ -2,8 +2,7 @@ import { Queue } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import { skills_log } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
-import { PushoverService } from '../services/pushover.js'
+import { logger, PushoverService } from '@open-brain/shared'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 
 // ============================================================

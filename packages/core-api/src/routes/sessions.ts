@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { ValidationError, NotFoundError } from '@open-brain/shared'
 import type { SessionService, SessionType, SessionStatus } from '../services/session.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Register session management API routes.

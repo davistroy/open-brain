@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import { Pool } from 'pg'
 import { Redis } from 'ioredis'
 import { readFileSync } from 'node:fs'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // Read version at startup — works in Docker where npm_package_version is unset.
 // tsup bundles into dist/index.js, so ../package.json reaches packages/core-api/package.json.

@@ -4,7 +4,7 @@ import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CaptureService } from './capture.js'
 import type { GovernanceEngine } from './governance-engine.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Types

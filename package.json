@@ -12,7 +12,7 @@
     "clean": "pnpm -r clean"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "packageManager": "pnpm@9.15.0"
 }

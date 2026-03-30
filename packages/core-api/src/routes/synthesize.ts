@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { SearchService } from '../services/search.js'
 import type { LLMGatewayService } from '../services/llm-gateway.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 const synthesizeBodySchema = z.object({
   query: z.string().min(1, 'Query is required').max(2000),

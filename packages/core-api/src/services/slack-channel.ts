@@ -1,5 +1,5 @@
 import { WebClient } from '@slack/web-api'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 export interface SlackChannelInfo {
   id: string

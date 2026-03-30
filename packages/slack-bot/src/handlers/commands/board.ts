@@ -7,7 +7,7 @@ import {
   formatError,
 } from '../../lib/formatters.js'
 import { setSessionThread } from '../session.js'
-import { logger } from '../../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 export async function handleBoardCommand(
   ts: string,

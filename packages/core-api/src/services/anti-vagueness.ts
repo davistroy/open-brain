@@ -1,5 +1,5 @@
 import type { LLMGatewayService } from './llm-gateway.js'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Types

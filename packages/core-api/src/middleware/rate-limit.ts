@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from 'hono'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 
 /**
  * Rate limit tier configuration.

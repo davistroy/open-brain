@@ -3,8 +3,7 @@ import { eq, sql } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures, triggers } from '@open-brain/shared'
-import { PushoverService } from '../services/pushover.js'
-import { logger } from '../lib/logger.js'
+import { logger, PushoverService } from '@open-brain/shared'
 import type { CheckTriggersJobData } from '../queues/check-triggers.js'
 
 const TRIGGER_CACHE_TTL_MS = 60_000 // 60-second cache for active triggers
@@ -277,7 +276,7 @@ export function createCheckTriggersWorker(
   pushoverAppToken?: string,
   pushoverUserKey?: string,
 ): Worker<CheckTriggersJobData> {
-  const pushoverService = new PushoverService(pushoverAppToken, pushoverUserKey)
+  const pushoverService = new PushoverService({ appToken: pushoverAppToken, userKey: pushoverUserKey, onError: 'throw' })
 
   const worker = new Worker<CheckTriggersJobData>(
     'check-triggers',

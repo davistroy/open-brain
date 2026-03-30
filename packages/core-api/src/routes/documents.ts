@@ -6,7 +6,7 @@ import type { Hono } from 'hono'
 import { ValidationError } from '@open-brain/shared'
 import type { CaptureService } from '../services/capture.js'
 import type { ConfigService } from '@open-brain/shared'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 import type { Queue } from 'bullmq'
 
 /**

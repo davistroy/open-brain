@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import { logger } from '../lib/logger.js'
+import { logger } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import type { NotificationQueue } from '../queues/notification.js'
 

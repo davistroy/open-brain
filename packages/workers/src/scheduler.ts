@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import { logger } from './lib/logger.js'
+import { logger } from '@open-brain/shared'
 import type { DailySweepJobData } from './jobs/daily-sweep.js'
 import { createBudgetCheckQueue } from './jobs/budget-check.js'
 import type { BudgetCheckJobData } from './jobs/budget-check.js'
