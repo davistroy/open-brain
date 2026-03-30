@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import StatsCards from '@/components/StatsCards';
 import CaptureCard from '@/components/CaptureCard';
-import { capturesApi, statsApi, pipelineApi } from '@/lib/api';
+import { capturesApi, statsApi, pipelineApi, adminApi } from '@/lib/api';
+import type { AdminBanner } from '@/lib/api';
 import type { BrainStats, Capture } from '@/lib/types';
 
 const QUICK_CAPTURE_SOURCE = 'api' as const;
@@ -44,6 +45,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<BrainStats | null>(null);
   const [recentCaptures, setRecentCaptures] = useState<Capture[]>([]);
   const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
+  const [adminBanner, setAdminBanner] = useState<AdminBanner | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -58,15 +60,17 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const [statsData, capturesData, healthData] = await Promise.allSettled([
+      const [statsData, capturesData, healthData, bannerData] = await Promise.allSettled([
         statsApi.get(),
         capturesApi.list({ limit: RECENT_LIMIT }),
         pipelineApi.health(),
+        adminApi.getBanner(),
       ]);
 
       if (statsData.status === 'fulfilled') setStats(statsData.value);
       if (capturesData.status === 'fulfilled') setRecentCaptures(capturesData.value.data);
       if (healthData.status === 'fulfilled') setPipelineHealth(healthData.value);
+      if (bannerData.status === 'fulfilled') setAdminBanner(bannerData.value.banner);
 
       // Surface error only if all three failed
       if (
@@ -160,6 +164,18 @@ export default function Dashboard() {
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
+        </div>
+      )}
+
+      {/* Admin banner (maintenance reports, etc.) */}
+      {adminBanner && (
+        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+          adminBanner.level === 'success' ? 'border-green-200 bg-green-50 text-green-800' :
+          adminBanner.level === 'warning' ? 'border-yellow-200 bg-yellow-50 text-yellow-800' :
+          'border-blue-200 bg-blue-50 text-blue-800'
+        }`}>
+          <span className="font-medium">{adminBanner.message}</span>
+          <span className="ml-auto text-xs opacity-60">{new Date(adminBanner.created_at).toLocaleDateString()}</span>
         </div>
       )}
 
