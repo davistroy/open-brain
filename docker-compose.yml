@@ -57,7 +57,7 @@ services:
       PORT: "3000"
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
-      LITELLM_URL: https://llm.k4jda.net
+      LITELLM_URL: https://api.openai.com/v1
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
@@ -92,7 +92,7 @@ services:
       NODE_ENV: production
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
-      LITELLM_URL: https://llm.k4jda.net
+      LITELLM_URL: https://api.openai.com/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
       # LITELLM_API_KEY: set in .env.secrets
@@ -125,7 +125,7 @@ services:
       NODE_ENV: production
       CORE_API_URL: http://core-api:3000
       REDIS_URL: redis://redis:6379
-      LITELLM_URL: https://llm.k4jda.net
+      LITELLM_URL: https://api.openai.com/v1
       # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
       # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
       # LITELLM_API_KEY: set in .env.secrets
@@ -170,7 +170,7 @@ services:
       PORT: "3001"
       CORE_API_URL: http://core-api:3000
       WHISPER_URL: http://faster-whisper:8000
-      LITELLM_URL: https://llm.k4jda.net
+      LITELLM_URL: https://api.openai.com/v1
       # LITELLM_API_KEY: set in .env.secrets
       # PUSHOVER_TOKEN: set in .env.secrets
       # PUSHOVER_USER: set in .env.secrets

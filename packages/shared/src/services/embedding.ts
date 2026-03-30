@@ -3,7 +3,7 @@ import { ServiceUnavailableError } from '../utils/errors.js'
 import type { ConfigService } from '../config/loader.js'
 
 /**
- * Thrown when LiteLLM is unreachable or returns a non-200 response.
+ * Thrown when the embedding API is unreachable or returns a non-200 response.
  * BullMQ retries with patient backoff; no fallback is attempted.
  */
 export class EmbeddingUnavailableError extends ServiceUnavailableError {
@@ -14,7 +14,7 @@ export class EmbeddingUnavailableError extends ServiceUnavailableError {
 }
 
 const EMBEDDING_DIMENSIONS = 768
-const EMBEDDING_TIMEOUT_MS = 60_000  // 60s to handle LiteLLM cold-start / slow model load
+const EMBEDDING_TIMEOUT_MS = 60_000
 
 /**
  * Normalizes a vector to unit length (L2 normalization) for cosine similarity.
@@ -26,10 +26,10 @@ function normalizeVector(vec: number[]): number[] {
 }
 
 /**
- * EmbeddingService generates 768-dimensional embeddings via LiteLLM proxy.
- * Routes to Qwen3-Embedding-4B via the `spark-qwen3-embedding-4b` alias.
- * The model returns 2560-dimensional Matryoshka vectors; this service
- * truncates to 768d via slice(0, EMBEDDING_DIMENSIONS).
+ * EmbeddingService generates 768-dimensional embeddings via the OpenAI API.
+ * Uses text-embedding-3-large with dimensions=768 for highest quality at
+ * the target dimensionality. The API handles dimension reduction internally
+ * (trained MRL, not naive truncation).
  *
  * Lives in @open-brain/shared so both core-api and workers can import it
  * without a circular dependency.
@@ -40,10 +40,10 @@ export class EmbeddingService {
   private client: OpenAI
   private configService: ConfigService
 
-  constructor(litellmBaseUrl: string, litellmApiKey: string, configService: ConfigService) {
+  constructor(baseUrl: string, apiKey: string, configService: ConfigService) {
     this.client = new OpenAI({
-      baseURL: litellmBaseUrl,
-      apiKey: litellmApiKey,
+      baseURL: baseUrl,
+      apiKey,
       timeout: EMBEDDING_TIMEOUT_MS,
       maxRetries: 0,  // BullMQ handles retries with patient backoff; no SDK-level retries
     })
@@ -69,22 +69,21 @@ export class EmbeddingService {
       const response = await this.client.embeddings.create({
         model,
         input: text,
+        dimensions: EMBEDDING_DIMENSIONS,
       })
 
       const raw = response.data[0]?.embedding
-      if (!raw || raw.length < EMBEDDING_DIMENSIONS) {
+      if (!raw || raw.length !== EMBEDDING_DIMENSIONS) {
         throw new EmbeddingUnavailableError(
-          `Expected at least ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${raw?.length ?? 0}`,
+          `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${raw?.length ?? 0}`,
         )
       }
 
-      // Matryoshka truncation: take first N dims (Qwen3-Embedding trained for this)
-      const embedding = raw.length > EMBEDDING_DIMENSIONS ? raw.slice(0, EMBEDDING_DIMENSIONS) : raw
-      return normalizeVector(embedding)
+      return normalizeVector(raw)
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      throw new EmbeddingUnavailableError(`LiteLLM embedding request failed: ${message}`)
+      throw new EmbeddingUnavailableError(`Embedding request failed: ${message}`)
     }
   }
 
@@ -101,6 +100,7 @@ export class EmbeddingService {
       const response = await this.client.embeddings.create({
         model,
         input: texts,
+        dimensions: EMBEDDING_DIMENSIONS,
       })
 
       const sorted = response.data.sort((a, b) => a.index - b.index)
@@ -112,26 +112,22 @@ export class EmbeddingService {
       }
 
       return sorted.map(item => {
-        if (!item.embedding || item.embedding.length < EMBEDDING_DIMENSIONS) {
+        if (!item.embedding || item.embedding.length !== EMBEDDING_DIMENSIONS) {
           throw new EmbeddingUnavailableError(
-            `Expected at least ${EMBEDDING_DIMENSIONS}-dimensional embedding at index ${item.index}, got ${item.embedding?.length ?? 0}`,
+            `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding at index ${item.index}, got ${item.embedding?.length ?? 0}`,
           )
         }
-        // Matryoshka truncation
-        const truncated = item.embedding.length > EMBEDDING_DIMENSIONS
-          ? item.embedding.slice(0, EMBEDDING_DIMENSIONS)
-          : item.embedding
-        return normalizeVector(truncated)
+        return normalizeVector(item.embedding)
       })
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) throw err
       const message = err instanceof Error ? err.message : String(err)
-      throw new EmbeddingUnavailableError(`LiteLLM batch embedding request failed: ${message}`)
+      throw new EmbeddingUnavailableError(`Batch embedding request failed: ${message}`)
     }
   }
 
   /**
-   * Returns model metadata from config — model alias, dimensions, and LiteLLM source URL.
+   * Returns model metadata from config — model alias, dimensions, and API base URL.
    */
   getModelInfo(): { model: string; dimensions: number; source: string } {
     const aiConfig = this.configService.get('ai')
