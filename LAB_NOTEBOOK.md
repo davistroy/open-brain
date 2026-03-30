@@ -19,6 +19,7 @@
 | D7 | Shared utilities in @open-brain/shared (Phase 7) | 2026-03-30 | ACTIVE | IMPL_PLAN_PHASE7 | Per-package duplication: 3x logger, 2x Pushover, 7x LLM client |
 | D8 | Healthchecks use 127.0.0.1 (not localhost) | 2026-03 | ACTIVE | CLAUDE.md | localhost: Alpine resolves to ::1 (IPv6), wget fails silently |
 | D9 | No auto-migration on startup — manual schema apply required | 2026-03-30 | ACTIVE | Entry 002 | Auto-migrate: risk of data loss if wrong migration runs; Docker entrypoint scripts are brittle |
+| D10 | Switch to OpenAI API (gpt-5.4 + text-embedding-3-large) | 2026-03-30 | ACTIVE | Entry 003 | Claude: no embeddings, 3-4x more expensive; Qwen local: free but lower quality, requires Spark |
 
 ## Action Items
 
@@ -180,6 +181,30 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 1. **API key stored in Bitwarden** — `open-brain-openai-api-key`, project ID `5022ea9c`
 2. **Test data wiped** — `POST /admin/reset-data` cleared all 10 tables, preserved triggers (empty) and schema
-3. **Code changes** — see below
+3. **Code changes — Round 1:** Updated ai-routing.yaml (all aliases → gpt-5.4, embedding → text-embedding-3-large), embedding.ts (dimensions=768 API param, removed Matryoshka truncation), docker-compose.yml (LITELLM_URL → api.openai.com/v1). Deployed. Pipeline completed, 768-dim embeddings generated successfully.
+
+4. **Synthesis 503 — extra_body rejection:** OpenAI API rejected `extra_body: { chat_template_kwargs: { enable_thinking: false } }` — a Qwen/vLLM-specific parameter. Removed from all 5 call sites. Rebuilt/deployed.
+
+5. **Synthesis 503 — max_tokens rejection:** OpenAI gpt-5.4 requires `max_completion_tokens` instead of deprecated `max_tokens`. Updated all 7 LLM call sites. Rebuilt/deployed.
+
+6. **Health check 404:** `checkLiteLLM()` built URL `${baseUrl}/v1/models` — with `baseUrl=https://api.openai.com/v1`, this doubled to `/v1/v1/models`. Fixed with suffix detection. Renamed to `checkLLMProvider()`.
+
+7. **Final verification:** Health check: healthy (470ms to api.openai.com). Pipeline: captures process to complete with 768-dim embeddings. Synthesis: gpt-5.4 returns high-quality responses. Search: hybrid search works.
+
+8. **Regression test: 88 PASS, 0 FAIL, 0 BUG, 7 SKIP — 100% pass rate**
+
+**What Worked:**
+- The OpenAI SDK client was already used internally — changing the base URL and API key was enough for basic connectivity
+- text-embedding-3-large with `dimensions: 768` parameter works perfectly — no schema changes needed
+- gpt-5.4 synthesis quality is noticeably better than Qwen3.5-35B (more structured, concise responses)
+
+**Root Causes of Issues:**
+1. `extra_body` param — Qwen/vLLM-specific, OpenAI rejects with 400
+2. `max_tokens` → `max_completion_tokens` — OpenAI renamed this for newer models
+3. Health check URL construction — double `/v1/` prefix
+
+**Decision:** D10 — Switched to OpenAI API (gpt-5.4 + text-embedding-3-large). Estimated cost: $2-3/month. Rationale: higher quality outputs for synthesis/governance, managed embedding service, no dependency on DGX Spark uptime. Alternatives considered: Claude (no embedding model, 3-4x more expensive), keep Qwen (free but lower quality).
+
+---
 
 *Entries continue below.*

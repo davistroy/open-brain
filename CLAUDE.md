@@ -65,6 +65,9 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **MCP Streamable HTTP returns SSE framing** — responses use `event: message\ndata: {json}` format. Clients must send `Accept: application/json, text/event-stream` header; parse the `data:` line for JSON.
 - **Test scripts require `X-Open-Brain-Caller: integration-test` header** — rate limiter skips enforcement for this caller key. Without it, rapid test requests exhaust the 20 req/min strict tier and return 429.
 - **Document upload hashes title, not file content** — `POST /api/v1/documents` creates capture with `content = "[Document] {title}"`. The `content_hash` unique index is on this string, not the file bytes. Uploading with the same title triggers 409 Conflict.
+- **OpenAI gpt-5.4 uses `max_completion_tokens`** — the deprecated `max_tokens` parameter is rejected with 400. All LLM call sites must use `max_completion_tokens`.
+- **No `extra_body` in OpenAI calls** — `extra_body: { chat_template_kwargs: ... }` was Qwen/vLLM-specific. OpenAI rejects unknown parameters with 400.
+- **Health check URL path detection** — `checkLLMProvider()` detects if baseUrl ends with `/v1` to avoid doubling the path prefix when building the `/models` endpoint URL.
 
 ---
 
@@ -78,9 +81,9 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 
 - **Runtime**: TypeScript, Hono framework, Drizzle ORM
 - **Database**: Postgres 16 + pgvector (pgvector/pgvector:pg16 image, no Supabase)
-- **LLM Gateway**: LiteLLM at https://llm.k4jda.net for ALL AI requests — both embeddings and LLM inference. No Ollama container in Open Brain stack.
-- **Embeddings**: Qwen3-Embedding-4B via `spark-qwen3-embedding-4b` alias on LiteLLM (Spark/cloud). OpenAI embeddings API format. Returns 2560 dims — Matryoshka-truncated to 768 in embedding service. NO fallback — queue and retry if LiteLLM is down.
-- **LLM Inference**: Model aliases fast, synthesis, governance, intent — all through LiteLLM (`spark-qwen3.5-35b` for all four, configured in `config/ai-routing.yaml`).
+- **LLM Provider**: OpenAI API (api.openai.com/v1) for ALL AI requests — both embeddings and LLM inference. No local LLM dependency. API key in Bitwarden (`open-brain-openai-api-key`), passed via `LITELLM_API_KEY` env var.
+- **Embeddings**: OpenAI `text-embedding-3-large` with `dimensions: 768` API parameter. The API handles dimension reduction via trained MRL (not naive truncation). NO fallback — queue and retry if API is down.
+- **LLM Inference**: Model aliases fast, synthesis, governance, intent — all `gpt-5.4` (configured in `config/ai-routing.yaml`). Uses `max_completion_tokens` (not `max_tokens`).
 - **Schema**: `vector(768)` everywhere. Do not use 1536.
 - **Search**: Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay scoring. Default temporal_weight: 0.0 (cold start), ramp up as search history builds.
 - **MCP Auth**: Authorization: Bearer header (not URL query parameter)
