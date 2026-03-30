@@ -1,0 +1,122 @@
+name: Monthly Dependency & Security Audit
+
+on:
+  schedule:
+    # 1st of each month at 10:00 UTC (6 AM ET) — same day as homeserver maintenance
+    - cron: '0 10 1 * *'
+  workflow_dispatch: # manual trigger
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check outdated packages
+        id: outdated
+        run: |
+          set +e
+          OUTPUT=$(pnpm outdated --no-color 2>&1)
+          # Count non-header lines (pnpm outdated returns exit 1 when packages are outdated)
+          COUNT=$(echo "$OUTPUT" | grep -cE '^\S' || true)
+          COUNT=$((COUNT > 2 ? COUNT - 2 : 0))
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "### Outdated Packages: $COUNT" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$OUTPUT" | head -30 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # Save for Slack
+          echo "$OUTPUT" | head -20 > /tmp/outdated.txt
+          exit 0
+
+      - name: Check Dependabot alerts
+        id: alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ALERTS=$(gh api repos/${{ github.repository }}/dependabot/alerts?state=open\&per_page=100 2>/dev/null || echo "[]")
+          TOTAL=$(echo "$ALERTS" | jq 'length')
+          CRITICAL=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "critical")] | length')
+          HIGH=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "high")] | length')
+          MEDIUM=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "medium")] | length')
+          LOW=$(echo "$ALERTS" | jq '[.[] | select(.security_vulnerability.severity == "low")] | length')
+
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "critical=$CRITICAL" >> "$GITHUB_OUTPUT"
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+
+          echo "### Dependabot Alerts: $TOTAL open" >> "$GITHUB_STEP_SUMMARY"
+          echo "Critical: $CRITICAL | High: $HIGH | Medium: $MEDIUM | Low: $LOW" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$TOTAL" -gt 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "$ALERTS" | jq -r '.[] | "[\(.security_vulnerability.severity)] \(.security_advisory.summary // .dependency.package.name)"' | head -10 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Post to Slack
+        if: always()
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0AJ2P8R31C' }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "SLACK_BOT_TOKEN not set — skipping Slack notification"
+            exit 0
+          fi
+
+          OUTDATED="${{ steps.outdated.outputs.count }}"
+          ALERTS="${{ steps.alerts.outputs.total }}"
+          CRITICAL="${{ steps.alerts.outputs.critical }}"
+          HIGH="${{ steps.alerts.outputs.high }}"
+
+          # Build status emoji
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            STATUS="⚠️ Action needed"
+          elif [ "$ALERTS" -gt 0 ] || [ "$OUTDATED" -gt 0 ]; then
+            STATUS="ℹ️ Review recommended"
+          else
+            STATUS="✅ All clear"
+          fi
+
+          BLOCKS=$(jq -n \
+            --arg title "📦 Open Brain — Monthly Dependency & Security Audit" \
+            --arg status "$STATUS" \
+            --arg deps "📦 *Outdated packages:* $OUTDATED" \
+            --arg alerts "🔒 *Dependabot alerts:* $ALERTS ($CRITICAL critical, $HIGH high)" \
+            --arg link "<https://github.com/${{ github.repository }}/security/dependabot|View alerts> · <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>" \
+            '[
+              {"type":"header","text":{"type":"plain_text","text":$title}},
+              {"type":"section","text":{"type":"mrkdwn","text":$status}},
+              {"type":"divider"},
+              {"type":"section","text":{"type":"mrkdwn","text":($deps + "\n" + $alerts)}},
+              {"type":"context","elements":[{"type":"mrkdwn","text":$link}]}
+            ]')
+
+          curl -sf -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -d "$(jq -n --arg ch "$SLACK_CHANNEL" --argjson blocks "$BLOCKS" \
+              '{channel: $ch, text: "Monthly audit complete", blocks: $blocks}')" \
+            > /dev/null && echo "Slack message posted" || echo "Slack post failed"
