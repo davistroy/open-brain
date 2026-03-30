@@ -1,6 +1,6 @@
 # Open Brain
 
-Self-hosted personal AI knowledge infrastructure running on an Unraid home server. Ingests information from voice memos (Apple Watch/iPhone), Slack, and documents; stores everything in Postgres with pgvector; provides semantic search, AI synthesis, weekly briefs, governance sessions, and entity tracking — all routed through a shared LiteLLM proxy.
+Self-hosted personal AI knowledge infrastructure running on an Unraid home server. Ingests information from voice memos (Apple Watch/iPhone), Slack, and documents; stores everything in Postgres with pgvector; provides semantic search, AI synthesis, weekly briefs, governance sessions, and entity tracking — powered by OpenAI API (gpt-5.4 + text-embedding-3-large).
 
 ## Status
 
@@ -24,7 +24,7 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
 
-**External dependency**: LiteLLM proxy at `https://llm.k4jda.net` handles ALL AI — both embeddings (`spark-qwen3-embedding-4b` alias → Qwen3-Embedding-4B, returns 2560d Matryoshka-truncated to 768d in the embedding service) and LLM inference (aliases: `fast`, `synthesis`, `governance`, `intent`). Not part of this stack.
+**External dependency**: OpenAI API (`https://api.openai.com/v1`) handles ALL AI — embeddings via `text-embedding-3-large` (768d via `dimensions` parameter) and LLM inference via `gpt-5.4` (aliases: `fast`, `synthesis`, `governance`, `intent`). Configured in `config/ai-routing.yaml`. API key in Bitwarden.
 
 ### Monorepo Layout
 
@@ -38,7 +38,7 @@ packages/
   web/             # Vite + React dashboard (nginx Docker)
     src/content/   # User-facing docs rendered in Help page
 config/
-  ai-routing.yaml  # LiteLLM model aliases + budget limits
+  ai-routing.yaml  # OpenAI model aliases + budget limits
   brain-views.yaml # Five views: career/personal/technical/work-internal/client
   pipeline.yaml    # Pipeline stage definitions + retry/backoff settings
   notifications.yaml
@@ -46,10 +46,12 @@ config/
   cloudflare/      # Tunnel config
   postgres/        # postgresql.conf
 scripts/
-  load-secrets.sh  # Bitwarden Secrets Manager integration
-  migrate.sh       # Drizzle migration runner
-  e2e-phase1.sh    # End-to-end test suite (Phase 1)
-  e2e-full.sh      # End-to-end test suite (all phases)
+  load-secrets.sh         # Bitwarden Secrets Manager integration
+  migrate.sh              # Drizzle migration runner
+  e2e-phase1.sh           # End-to-end smoke test
+  e2e-full.sh             # Full end-to-end test suite
+  regression-test.mjs     # Comprehensive regression suite (95 tests)
+  monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
 docs/
   PRD.md           # Product requirements (v0.6)
   TDD.md           # Technical design (v0.5)
