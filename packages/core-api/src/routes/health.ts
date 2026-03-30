@@ -65,20 +65,23 @@ async function checkRedis(url: string): Promise<ServiceCheck> {
   }
 }
 
-async function checkLiteLLM(baseUrl: string): Promise<ServiceCheck> {
+async function checkLLMProvider(baseUrl: string): Promise<ServiceCheck> {
   const start = Date.now()
   const apiKey = process.env.LITELLM_API_KEY
   try {
-    // Use /v1/models — virtual keys can only access LLM API routes, not /health
+    // baseUrl may or may not include /v1 (OpenAI: /v1, LiteLLM: no /v1)
+    const modelsUrl = baseUrl.endsWith('/v1')
+      ? `${baseUrl}/models`
+      : `${baseUrl}/v1/models`
     const headers: Record<string, string> = {}
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-    const res = await fetch(`${baseUrl}/v1/models`, { signal: AbortSignal.timeout(3000), headers })
+    const res = await fetch(modelsUrl, { signal: AbortSignal.timeout(3000), headers })
     if (res.ok) {
       return { status: 'healthy', latency_ms: Date.now() - start }
     }
     return { status: 'degraded', latency_ms: Date.now() - start, error: `HTTP ${res.status}` }
   } catch (err) {
-    logger.warn({ err }, 'LiteLLM health check failed')
+    logger.warn({ err }, 'LLM provider health check failed')
     return { status: 'degraded', error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -91,7 +94,7 @@ async function buildHealthResponse(): Promise<HealthResponse> {
   const [postgres, redis, litellm] = await Promise.all([
     checkPostgres(postgresUrl),
     checkRedis(redisUrl),
-    checkLiteLLM(litellmUrl),
+    checkLLMProvider(litellmUrl),
   ])
 
   return {

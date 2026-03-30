@@ -123,9 +123,7 @@ export async function processExtractEntitiesJob(
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_tokens: 1024,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      extra_body: { chat_template_kwargs: { enable_thinking: false } },
-    } as any)
+    })
 
     const rawText = response.choices[0]?.message?.content ?? ''
     logger.debug({ captureId, rawText }, '[extract-entities] LLM response received')
