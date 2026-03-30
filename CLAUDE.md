@@ -61,6 +61,10 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Entity resolution is in `workers/src/lib/entity-resolver.ts`** — shared by both `extract-entities.ts` and `link-entities.ts`. Uses indexed SQL queries (not in-memory filtering). Do not duplicate entity resolution logic.
 - **pg-notify has automatic reconnection** — exponential backoff (1s→30s, 5 attempts) when Postgres connection drops. Re-registers all LISTEN channels after reconnect. SSE events resume automatically.
 - **CI uses Node 22** — matches Docker images. `package.json` engines field is `>=22`.
+- **No auto-migration on startup** — if the Postgres volume is recreated, tables will be missing and all API endpoints return 500. Run `scripts/init-schema.sql` + all `packages/shared/drizzle/0*.sql` migrations manually. Check with `\dt` in psql first.
+- **MCP Streamable HTTP returns SSE framing** — responses use `event: message\ndata: {json}` format. Clients must send `Accept: application/json, text/event-stream` header; parse the `data:` line for JSON.
+- **Test scripts require `X-Open-Brain-Caller: integration-test` header** — rate limiter skips enforcement for this caller key. Without it, rapid test requests exhaust the 20 req/min strict tier and return 429.
+- **Document upload hashes title, not file content** — `POST /api/v1/documents` creates capture with `content = "[Document] {title}"`. The `content_hash` unique index is on this string, not the file bytes. Uploading with the same title triggers 409 Conflict.
 
 ---
 
@@ -114,8 +118,100 @@ All API keys in Bitwarden. Never in .env files or config. Use `bws` CLI to retri
 
 - `docs/PRD.md` — Product requirements (v0.6, architectural review v2 applied)
 - `docs/TDD.md` — Technical design document (v0.5, architectural review v2 applied)
+- `LAB_NOTEBOOK.md` — Experiment log with decision tracking and action items
 - `IMPLEMENTATION_PLAN-PHASE5.md` — Phases 17-20 (Intelligence features) — complete
 - `docs/archived/` — Completed plans (phases 1-16, hardening) and historical test results
+
+## Lab Notebook — MANDATORY Logging Protocol
+
+**LAB_NOTEBOOK.md is the permanent experiment record for this project. The following rules are NON-NEGOTIABLE and have the HIGHEST PRIORITY after user safety.**
+
+### Rule 1: Hypothesize, Plan Rollback, THEN Act
+
+Before executing ANY system-modifying action, you MUST add an entry to LAB_NOTEBOOK.md with:
+- **Objective:** What you're trying to achieve
+- **Hypothesis:** What you expect to happen and why. Include measurable success criteria. Example: "Expect deploying Phase 7 code will reduce logger initialization time by eliminating 3 duplicate instances. Success: no startup regressions in docker compose logs."
+- **Rollback Plan:** How to undo this change. For Docker deploys: "Revert to previous image tag" or "git revert + redeploy." For read-only operations: "N/A — read-only."
+
+This applies to: Docker deployments, container restarts, database schema changes, config changes, pipeline modifications, Slack bot routing changes, LiteLLM proxy config, and any action that could affect the running system.
+
+**If you catch yourself about to run a command without an entry: STOP. Create the entry first. No exceptions.**
+
+### Rule 2: Log Results As They Happen
+
+Update the entry immediately after each action with:
+- The exact command or operation performed
+- The result: success, failure, or unexpected behavior
+- Raw error output for failures — not just "it failed" but the actual message
+- Performance numbers with units, conditions, and comparison to baseline
+- Environment context: which container, which service, homeserver or laptop
+
+Do NOT batch-log multiple actions after the fact. Log each one as it completes.
+
+### Rule 3: Analyze Failures — Root Cause, Not Symptoms
+
+Failed attempts are MORE valuable than successes. For every failure:
+- **Exact error:** The literal message or behavior observed
+- **Root cause:** WHY it failed — trace to the underlying reason
+- **System insight:** What this failure reveals about how the system works
+- **Next approach:** What to try differently based on this understanding
+- **Pattern recognition:** If this is the same class of failure as a previous entry, create or update a pattern table
+
+### Rule 4: Document Decisions with Alternatives
+
+Every decision must include:
+- **The decision itself** and WHY it was made
+- **Alternatives considered** — what other options were evaluated, with their trade-offs
+- **Update the Decision Log table** at the top of LAB_NOTEBOOK.md
+
+When revisiting a previous decision: update the old decision's status to SUPERSEDED and reference the new entry.
+
+### Rule 5: Track What Worked, Not Just What Failed
+
+Include a "What Worked" section in entries with mixed outcomes. Successes establish positive patterns — which deployment steps are reliable, which container configurations are stable.
+
+### Rule 6: Write Before Risky Operations
+
+Before any operation that could crash the session, corrupt state, or take a long time:
+- Flush ALL current findings to LAB_NOTEBOOK.md
+- Include intermediate results, even if incomplete
+- Update the Decision Log and Action Items tables
+
+### Rule 7: Maintain Living Sections
+
+After EVERY completed entry, update the living sections at the top of LAB_NOTEBOOK.md:
+- **Decision Log:** Add new decisions, update superseded ones
+- **Action Items:** Add follow-ups from the entry, mark completed items
+
+### Rule 8: Tag and Contextualize Every Entry
+
+Every entry must have:
+- **Tags:** `[deploy]` `[docker]` `[pipeline]` `[slack]` `[api]` `[web]` `[database]` `[embedding]` `[config]` `[benchmark]` `[debug]` `[decision]`
+- **Environment:** Which system (homeserver/laptop), which containers affected, docker compose state
+- **Duration** (when completed): how long the work took
+
+### Rule 9: Pattern Tables for Repeated Issues
+
+When failures share a root cause or pattern, consolidate them into a table.
+
+### Rule 10: Session Boundaries
+
+When starting a new session, add a session boundary marker before your first entry:
+
+`--- New session: {date} — {brief context} ---`
+
+Read the Decision Log and Open Action Items before starting work.
+
+### Enforcement
+
+These rules are BLOCKING PRECONDITIONS, not suggestions. The mechanical process is:
+1. Create/update entry with Hypothesis + Rollback Plan
+2. Execute the action
+3. Log the result immediately
+4. Update Decision Log and Action Items if applicable
+5. Repeat
+
+No exceptions for "quick" changes, "obvious" fixes, or "simple" tests.
 
 ## Conventions
 

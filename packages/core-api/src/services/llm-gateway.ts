@@ -191,9 +191,7 @@ export class LLMGatewayService {
         messages: [{ role: 'user', content: prompt }],
         temperature: options.temperature ?? 0.2,
         max_tokens: options.maxTokens ?? 2048,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        extra_body: { chat_template_kwargs: { enable_thinking: false } },
-      } as any)
+      })
 
       const durationMs = Date.now() - startMs
       const usage = response.usage

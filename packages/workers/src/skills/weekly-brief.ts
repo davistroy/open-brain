@@ -90,8 +90,7 @@ export class WeeklyBriefSkill {
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias, messages: [{ role: 'user', content: prompt }],
       temperature: 0.3, max_tokens: 2048,
-      extra_body: { chat_template_kwargs: { enable_thinking: false } },
-    } as any)
+    })
     const text = response.choices[0]?.message?.content ?? ''
     logger.info({ promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens }, '[weekly-brief] LLM call complete')
     return text

@@ -14,6 +14,10 @@ set -euo pipefail
 BASE_URL="${1:-http://localhost:3000}"
 MCP_TOKEN="${2:-${MCP_BEARER_TOKEN:-}}"
 
+# Rate-limit bypass: wrap curl to always add the integration-test header
+_real_curl=$(command -v curl)
+curl() { "$_real_curl" -H "X-Open-Brain-Caller: integration-test" "$@"; }
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -24,9 +28,9 @@ RED='\033[0;31m'
 YELLOW='\033[0;33m'
 RESET='\033[0m'
 
-pass() { echo -e "${GREEN}PASS${RESET} $1"; ((PASS++)); }
-fail() { echo -e "${RED}FAIL${RESET} $1: $2"; ((FAIL++)); }
-skip() { echo -e "${YELLOW}SKIP${RESET} $1: $2"; ((SKIP++)); }
+pass() { echo -e "${GREEN}PASS${RESET} $1"; ((PASS++)) || true; }
+fail() { echo -e "${RED}FAIL${RESET} $1: $2"; ((FAIL++)) || true; }
+skip() { echo -e "${YELLOW}SKIP${RESET} $1: $2"; ((SKIP++)) || true; }
 
 echo "========================================"
 echo " Open Brain — Phase 1 E2E Verification"
@@ -109,6 +113,7 @@ echo "--- 6. MCP Authentication ---"
 # Test missing auth → 401
 AUTH_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/mcp" \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' 2>&1)
 if [[ "$AUTH_RESP" == "401" ]]; then
   pass "POST /mcp without auth → 401"
@@ -122,28 +127,60 @@ echo "--- 7. MCP Tools ---"
 if [[ -z "${MCP_TOKEN:-}" ]]; then
   skip "MCP tools/list" "MCP_BEARER_TOKEN not set — skipping authenticated MCP tests"
 else
-  MCP_TOOLS_RESP=$(curl -sf -X POST "$BASE_URL/mcp" \
+  # MCP uses Streamable HTTP — response may be SSE (event: message\ndata: {json})
+  # Extract the JSON from the SSE data line
+  MCP_TOOLS_RAW=$(curl -sf -X POST "$BASE_URL/mcp" \
     -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
     -H "Authorization: Bearer $MCP_TOKEN" \
     -d '{"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}' 2>&1) && {
-    TOOL_COUNT=$(echo "$MCP_TOOLS_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); tools=d.get('result',{}).get('tools',[]); print(len(tools))" 2>/dev/null || echo "0")
-    if [[ "$TOOL_COUNT" -ge 7 ]]; then
-      pass "POST /mcp tools/list returned $TOOL_COUNT tools (expected ≥7)"
+    MCP_TOOLS_RESP=$(echo "$MCP_TOOLS_RAW" | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+# Try direct JSON parse first, then extract from SSE data line
+try:
+    d = json.loads(raw)
+except:
+    for line in raw.splitlines():
+        if line.startswith('data: '):
+            d = json.loads(line[6:])
+            break
+    else:
+        d = {}
+print(len(d.get('result',{}).get('tools',[])))
+" 2>/dev/null || echo "0")
+    if [[ "$MCP_TOOLS_RESP" -ge 7 ]]; then
+      pass "POST /mcp tools/list returned $MCP_TOOLS_RESP tools (expected ≥7)"
     else
-      fail "POST /mcp tools/list" "expected ≥7 tools, got $TOOL_COUNT: $MCP_TOOLS_RESP"
+      fail "POST /mcp tools/list" "expected ≥7 tools, got $MCP_TOOLS_RESP"
     fi
-  } || fail "POST /mcp tools/list" "curl failed: $MCP_TOOLS_RESP"
+  } || fail "POST /mcp tools/list" "curl failed"
 
-  # Test search_brain tool
-  MCP_SEARCH_RESP=$(curl -sf -X POST "$BASE_URL/mcp" \
+  # Test brain_stats tool
+  MCP_SEARCH_RAW=$(curl -sf -X POST "$BASE_URL/mcp" \
     -H "Content-Type: application/json" \
+    -H "Accept: application/json, text/event-stream" \
     -H "Authorization: Bearer $MCP_TOKEN" \
     -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"brain_stats","arguments":{"period":"all"}},"id":2}' 2>&1) && {
-    CONTENT=$(echo "$MCP_SEARCH_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); content=d.get('result',{}).get('content',[]); print(content[0].get('text','')[:80] if content else 'empty')" 2>/dev/null || echo "parse-error")
+    CONTENT=$(echo "$MCP_SEARCH_RAW" | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+try:
+    d = json.loads(raw)
+except:
+    for line in raw.splitlines():
+        if line.startswith('data: '):
+            d = json.loads(line[6:])
+            break
+    else:
+        d = {}
+content = d.get('result',{}).get('content',[])
+print(content[0].get('text','')[:80] if content else 'empty')
+" 2>/dev/null || echo "parse-error")
     if [[ "$CONTENT" != "empty" && "$CONTENT" != "parse-error" ]]; then
       pass "MCP brain_stats tool: $CONTENT"
     else
-      fail "MCP brain_stats" "unexpected response: $MCP_SEARCH_RESP"
+      fail "MCP brain_stats" "unexpected response"
     fi
   } || fail "MCP brain_stats call" "curl failed"
 fi

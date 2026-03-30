@@ -152,8 +152,7 @@ export class DailyConnectionsSkill {
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.4,
       max_tokens: 2048,
-      extra_body: { chat_template_kwargs: { enable_thinking: false } },
-    } as any)
+    })
 
     const text = response.choices[0]?.message?.content ?? ''
     logger.info(

@@ -173,8 +173,7 @@ export class DriftMonitorSkill {
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
       max_tokens: 2048,
-      extra_body: { chat_template_kwargs: { enable_thinking: false } },
-    } as any)
+    })
 
     const text = response.choices[0]?.message?.content ?? ''
     logger.info(
