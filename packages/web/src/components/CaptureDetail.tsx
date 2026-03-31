@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { Clock, Globe, MapPin, Smartphone, Watch, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -18,6 +18,140 @@ const PIPELINE_STAGE_DOT: Record<string, string> = {
   pending: 'bg-gray-300',
   error: 'bg-red-500',
 };
+
+/** Known source_metadata keys that get structured rendering */
+const KNOWN_KEYS = new Set(['device', 'duration_seconds', 'language', 'location', 'original_filename']);
+
+const DEVICE_LABELS: Record<string, { label: string; icon: typeof Smartphone }> = {
+  iphone: { label: 'iPhone', icon: Smartphone },
+  apple_watch: { label: 'Apple Watch', icon: Watch },
+};
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  if (mins === 0) return `${secs}s`;
+  return `${mins}m ${secs}s`;
+}
+
+function formatMetaKey(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatMetaValue(value: unknown): string {
+  if (value === null || value === undefined) return '—';
+  if (typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+interface LocationData {
+  latitude?: number;
+  longitude?: number;
+  name?: string;
+  accuracy_meters?: number;
+}
+
+function SourceMetadataDisplay({ metadata }: { metadata: Record<string, unknown> }) {
+  const device = metadata.device as string | undefined;
+  const durationSeconds = metadata.duration_seconds as number | undefined;
+  const language = metadata.language as string | undefined;
+  const location = metadata.location as LocationData | undefined;
+
+  // Collect unknown keys for fallback rendering
+  const unknownEntries = Object.entries(metadata).filter(([key]) => !KNOWN_KEYS.has(key));
+
+  return (
+    <div className="space-y-1.5 text-sm">
+      {/* Device */}
+      {device != null && (() => {
+        const deviceKey = String(device).toLowerCase();
+        const info = DEVICE_LABELS[deviceKey];
+        const DeviceIcon = info?.icon ?? Smartphone;
+        const label = info?.label ?? String(device);
+        return (
+          <div className="flex items-center gap-2">
+            <DeviceIcon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span>{label}</span>
+          </div>
+        );
+      })()}
+
+      {/* Duration */}
+      {durationSeconds != null && (
+        <div className="flex items-center gap-2">
+          <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span>{formatDuration(durationSeconds)}</span>
+        </div>
+      )}
+
+      {/* Language */}
+      {language != null && (
+        <div className="flex items-center gap-2">
+          <Globe className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span>{String(language).toUpperCase()}</span>
+        </div>
+      )}
+
+      {/* Location */}
+      {location != null && (
+        <div className="flex items-start gap-2">
+          <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+          <div>
+            {location.latitude != null && location.longitude != null ? (
+              <>
+                {location.name ? (
+                  <a
+                    href={`https://maps.google.com/?q=${location.latitude},${location.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:text-blue-400 underline underline-offset-2"
+                  >
+                    {location.name}
+                  </a>
+                ) : (
+                  <a
+                    href={`https://maps.google.com/?q=${location.latitude},${location.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:text-blue-400 underline underline-offset-2 font-mono text-xs"
+                  >
+                    {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                  </a>
+                )}
+                <p className="text-[10px] text-muted-foreground font-mono">
+                  {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                  {location.accuracy_meters != null && ` (±${Math.round(location.accuracy_meters)}m)`}
+                </p>
+              </>
+            ) : (
+              location.name && <span>{location.name}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Unknown keys — formatted key-value fallback */}
+      {unknownEntries.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {unknownEntries.map(([key, value]) => (
+            <div key={key} className="flex items-start gap-2 text-xs">
+              <span className="text-muted-foreground shrink-0 min-w-[80px]">{formatMetaKey(key)}</span>
+              {typeof value === 'object' && value !== null ? (
+                <pre className="font-mono text-[10px] bg-secondary rounded px-1.5 py-0.5 overflow-x-auto whitespace-pre-wrap">
+                  {formatMetaValue(value)}
+                </pre>
+              ) : (
+                <span className="text-foreground">{formatMetaValue(value)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CaptureDetail({ capture, similarity, onClose }: CaptureDetailProps) {
   const tags = capture.tags ?? [];
@@ -154,9 +288,7 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
             <Separator />
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Source Metadata</p>
-              <pre className="text-[10px] font-mono bg-secondary rounded p-2 overflow-x-auto whitespace-pre-wrap">
-                {JSON.stringify(sourceMetadata, null, 2)}
-              </pre>
+              <SourceMetadataDisplay metadata={sourceMetadata} />
             </div>
           </>
         )}

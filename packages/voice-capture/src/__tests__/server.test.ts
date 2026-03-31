@@ -99,12 +99,20 @@ function buildCaptureRequest(opts: {
   content?: string
   brainView?: string
   device?: string
+  latitude?: string
+  longitude?: string
+  location_name?: string
+  location_accuracy?: string
 }): Request {
   const {
     filename = 'memo.m4a',
     content = 'fake audio bytes',
     brainView,
     device,
+    latitude,
+    longitude,
+    location_name,
+    location_accuracy,
   } = opts
 
   const formData = new FormData()
@@ -112,6 +120,10 @@ function buildCaptureRequest(opts: {
   formData.append('file', new File([blob], filename, { type: 'audio/mp4' }))
   if (brainView) formData.append('brain_view', brainView)
   if (device) formData.append('device', device)
+  if (latitude != null) formData.append('latitude', latitude)
+  if (longitude != null) formData.append('longitude', longitude)
+  if (location_name != null) formData.append('location_name', location_name)
+  if (location_accuracy != null) formData.append('location_accuracy', location_accuracy)
 
   return new Request('http://localhost/api/capture', {
     method: 'POST',
@@ -443,5 +455,90 @@ describe('POST /api/capture — ingest retry failure', () => {
     const body = await res.json() as { code: string }
     expect(body.code).toBe('INGEST_ERROR')
     expect(mockNotify).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/capture — location fields', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTranscribe.mockResolvedValue(TRANSCRIPTION_RESULT)
+    mockClassify.mockResolvedValue(CLASSIFICATION_RESULT)
+    mockIngest.mockResolvedValue(INGEST_RESULT)
+    mockNotify.mockResolvedValue(undefined)
+  })
+
+  it('includes location in source_metadata when valid lat/lng/name/accuracy provided (4.1)', async () => {
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      latitude: '33.749',
+      longitude: '-84.388',
+      location_name: 'Atlanta, GA',
+      location_accuracy: '10.5',
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockIngest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          source_metadata: expect.objectContaining({
+            location: {
+              latitude: 33.749,
+              longitude: -84.388,
+              name: 'Atlanta, GA',
+              accuracy_meters: 10.5,
+            },
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('omits location from source_metadata when no location fields provided (4.2)', async () => {
+    const res = await app.request(buildCaptureRequest({ filename: 'memo.m4a' }))
+
+    expect(res.status).toBe(200)
+    const ingestCall = mockIngest.mock.calls[0][0] as {
+      metadata: { source_metadata: Record<string, unknown> }
+    }
+    expect(ingestCall.metadata.source_metadata).not.toHaveProperty('location')
+  })
+
+  it('returns 400 when latitude provided without longitude (4.3)', async () => {
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      latitude: '33.749',
+    }))
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; code: string }
+    expect(body.code).toBe('BAD_REQUEST')
+    expect(body.error).toContain('latitude')
+    expect(body.error).toContain('longitude')
+  })
+
+  it('returns 400 when latitude is out of range (4.4)', async () => {
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      latitude: '999',
+      longitude: '-84.388',
+    }))
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; code: string }
+    expect(body.code).toBe('BAD_REQUEST')
+    expect(body.error).toContain('latitude')
+  })
+
+  it('returns 400 when latitude is a non-numeric string (4.5)', async () => {
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      latitude: 'not-a-number',
+      longitude: '-84.388',
+    }))
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; code: string }
+    expect(body.code).toBe('BAD_REQUEST')
+    expect(body.error).toContain('valid numbers')
   })
 })

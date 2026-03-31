@@ -66,17 +66,17 @@ Full data flow traced: iOS → voice-capture → core-api → Postgres → pipel
 ## Phase 2: CaptureDetail Display
 
 **File:** `packages/web/src/components/CaptureDetail.tsx`
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-30
 
 ### Items
 
-- [ ] **2.1** Replace raw JSON dump of `source_metadata` with structured rendering. Parse known fields:
+- [x] **2.1** Replace raw JSON dump of `source_metadata` with structured rendering. Parse known fields: — COMPLETE 2026-03-30
   - **Device:** icon + label (e.g., "Apple Watch")
   - **Duration:** formatted as "Xm Ys"
   - **Language:** language code or name
   - **Location:** pin icon + `location.name` if present, with coordinates as tooltip or secondary text
-- [ ] **2.2** For unknown source_metadata keys (future-proofing), fall back to formatted key-value display rather than raw JSON.
-- [ ] **2.3** If `location.latitude` and `location.longitude` are present, render the location name as a link to Google Maps: `https://maps.google.com/?q={lat},{lng}`
+- [x] **2.2** For unknown source_metadata keys (future-proofing), fall back to formatted key-value display rather than raw JSON. — COMPLETE 2026-03-30
+- [x] **2.3** If `location.latitude` and `location.longitude` are present, render the location name as a link to Google Maps: `https://maps.google.com/?q={lat},{lng}` — COMPLETE 2026-03-30
 
 ### Notes
 
@@ -105,15 +105,15 @@ Full data flow traced: iOS → voice-capture → core-api → Postgres → pipel
 ## Phase 4: Tests
 
 **File:** `packages/voice-capture/src/__tests__/server.test.ts`
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-30
 
 ### Items
 
-- [ ] **4.1** Test: POST with valid location fields → 200, source_metadata includes `location` object with lat/lng/name/accuracy
-- [ ] **4.2** Test: POST without location fields → 200, source_metadata has no `location` key (backward compat)
-- [ ] **4.3** Test: POST with latitude but no longitude → 400 validation error
-- [ ] **4.4** Test: POST with latitude out of range (e.g., 999) → 400 validation error
-- [ ] **4.5** Test: POST with non-numeric latitude string → 400 or ignored (decide: reject vs. skip)
+- [x] **4.1** Test: POST with valid location fields → 200, source_metadata includes `location` object with lat/lng/name/accuracy — COMPLETE 2026-03-30
+- [x] **4.2** Test: POST without location fields → 200, source_metadata has no `location` key (backward compat) — COMPLETE 2026-03-30
+- [x] **4.3** Test: POST with latitude but no longitude → 400 validation error — COMPLETE 2026-03-30
+- [x] **4.4** Test: POST with latitude out of range (e.g., 999) → 400 validation error — COMPLETE 2026-03-30
+- [x] **4.5** Test: POST with non-numeric latitude string → 400 validation error — COMPLETE 2026-03-30
 
 ### Decision for 4.5
 

@@ -328,6 +328,11 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
    - Classification test updated: model name `'fast'` → `'gpt-5.4'` (pre-existing debt from OpenAI migration)
    - All 1,407 tests pass
 
+2. **Phase 2 (display) + Phase 4 (tests) — parallel execution.** Both agents completed successfully.
+   - `CaptureDetail.tsx`: new `SourceMetadataDisplay` component — structured rendering of device (icon), duration (Xm Ys), language, location (MapPin + Google Maps link). Unknown keys fall back to formatted key-value pairs. Light/dark mode compatible.
+   - `server.test.ts`: 5 new tests in "location fields" describe block — valid coords, no location (backward compat), partial coords (400), out-of-range (400), non-numeric (400). Total voice-capture tests: 82.
+   - All 1,412 tests pass (1,407 existing + 5 new)
+
 ---
 
 *Entries continue below.*
