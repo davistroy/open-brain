@@ -32,13 +32,13 @@ Full data flow traced: iOS → voice-capture → core-api → Postgres → pipel
 ## Phase 1: Voice Capture Endpoint
 
 **File:** `packages/voice-capture/src/server.ts`
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-30
 
 ### Items
 
-- [ ] **1.1** Parse optional form fields: `latitude` (string→float), `longitude` (string→float), `location_name` (string), `location_accuracy` (string→float, meters)
-- [ ] **1.2** Validate coordinate ranges: latitude -90 to +90, longitude -180 to +180. Reject with 400 if out of range. Require both lat+lng or neither (no partial coordinates).
-- [ ] **1.3** Include in `source_metadata` when present:
+- [x] **1.1** Parse optional form fields: `latitude` (string→float), `longitude` (string→float), `location_name` (string), `location_accuracy` (string→float, meters) — COMPLETE 2026-03-30
+- [x] **1.2** Validate coordinate ranges: latitude -90 to +90, longitude -180 to +180. Reject with 400 if out of range. Require both lat+lng or neither (no partial coordinates). — COMPLETE 2026-03-30
+- [x] **1.3** Include in `source_metadata` when present: — COMPLETE 2026-03-30
   ```json
   {
     "device": "apple_watch",
@@ -53,7 +53,7 @@ Full data flow traced: iOS → voice-capture → core-api → Postgres → pipel
     }
   }
   ```
-- [ ] **1.4** Location fields are fully optional — omission is the normal case for captures without location. No change to existing behavior when fields are absent.
+- [x] **1.4** Location fields are fully optional — omission is the normal case for captures without location. No change to existing behavior when fields are absent. — COMPLETE 2026-03-30
 
 ### Notes
 
@@ -88,17 +88,17 @@ Full data flow traced: iOS → voice-capture → core-api → Postgres → pipel
 ## Phase 3: iOS Shortcut Documentation
 
 **File:** `docs/ios-shortcut.md`
-**Status:** PENDING
+**Status:** COMPLETE 2026-03-30
 
 ### Items
 
-- [ ] **3.1** Add "Get Current Location" action between "Record Audio" and "Get Contents of URL" in the Shortcut steps.
-- [ ] **3.2** Document 3 new form fields in the "Get Contents of URL" action:
+- [x] **3.1** Add "Get Current Location" action between "Record Audio" and "Get Contents of URL" in the Shortcut steps. — COMPLETE 2026-03-30
+- [x] **3.2** Document 3 new form fields in the "Get Contents of URL" action: — COMPLETE 2026-03-30
   - `latitude` — from Location.Latitude
   - `longitude` — from Location.Longitude
   - `location_name` — from Location.Street + ", " + Location.City + ", " + Location.State (or whatever iOS provides)
-- [ ] **3.3** Update the endpoint reference table with the new optional fields.
-- [ ] **3.4** Add a note that location is optional — the Shortcut works without it, and users can omit the "Get Current Location" action if they prefer not to share location.
+- [x] **3.3** Update the endpoint reference table with the new optional fields. — COMPLETE 2026-03-30
+- [x] **3.4** Add a note that location is optional — the Shortcut works without it, and users can omit the "Get Current Location" action if they prefer not to share location. — COMPLETE 2026-03-30
 
 ---
 

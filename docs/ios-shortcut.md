@@ -20,20 +20,26 @@ Find your homeserver's Tailscale IP in the Tailscale app on any connected device
    - Duration: until stopped (or set a max, e.g. 5 minutes)
    - For Watch: the Watch records audio via the Watch app, which passes the file to the iPhone Shortcut
 
-2. **Get Contents of URL**
+2. **Get Current Location** *(optional — see note below)*
+   - Accuracy: Best
+   - This action returns a Location object with latitude, longitude, and reverse-geocoded address fields
+   - The Shortcut pauses briefly while iOS acquires a GPS fix
+
+3. **Get Contents of URL**
    - URL: `http://<tailscale-ip>:3001/api/capture`
    - Method: `POST`
    - Request Body: **Form**
-   - Add field:
-     - Key: `file`
-     - Value: the recorded audio from the previous action (file reference)
-     - Type: **File**
+   - Add fields:
+     - Key: `file` / Value: the recorded audio from step 1 / Type: **File**
+     - Key: `latitude` / Value: *Location.Latitude* (from step 2) / Type: **Text**
+     - Key: `longitude` / Value: *Location.Longitude* (from step 2) / Type: **Text**
+     - Key: `location_name` / Value: *Location.Street* + ", " + *Location.City* + ", " + *Location.State* (from step 2) / Type: **Text**
 
-3. (Optional) **Get Dictionary Value**
+4. (Optional) **Get Dictionary Value**
    - Input: result from Get Contents of URL
    - Key: `capture_id` (or `message` for status text)
 
-4. (Optional) **Show Notification** or **Show Result**
+5. (Optional) **Show Notification** or **Show Result**
    - Display the capture ID or status for confirmation
 
 ### Optional: brain_view Query Parameter
@@ -50,13 +56,18 @@ If omitted, the service auto-classifies the capture's brain view from the transc
 
 ### Endpoint Reference
 
-| Field | Value |
-|-------|-------|
-| URL | `http://<tailscale-ip>:3001/api/capture` |
-| Method | `POST` |
-| Content-Type | `multipart/form-data` |
-| Field name | `file` |
-| Supported formats | `.m4a` (default from iPhone/Watch), `.wav`, `.mp3`, `.ogg` |
+| Field | Value | Required |
+|-------|-------|----------|
+| URL | `http://<tailscale-ip>:3001/api/capture` | — |
+| Method | `POST` | — |
+| Content-Type | `multipart/form-data` | — |
+| `file` | Audio file (recorded audio) | Yes |
+| `latitude` | GPS latitude, -90 to +90 (e.g., `33.749`) | No |
+| `longitude` | GPS longitude, -180 to +180 (e.g., `-84.388`) | No |
+| `location_name` | Human-readable location (e.g., "123 Main St, Atlanta, GA") | No |
+| Supported formats | `.m4a` (default from iPhone/Watch), `.wav`, `.mp3`, `.ogg` | — |
+
+> **Location is optional.** The Shortcut works without it. If you prefer not to share location, simply omit step 2 ("Get Current Location") and the three location form fields. Captures without location are processed identically — no features are lost.
 
 **Response (success, HTTP 202)**:
 ```json
@@ -120,17 +131,23 @@ This Pushover notification is separate from the optional Shortcut "Show Result" 
 1. Record Audio
    - Audio Recording: Until Stopped
 
-2. Get Contents of URL
+2. Get Current Location          (optional — omit if you don't want location)
+   - Accuracy: Best
+
+3. Get Contents of URL
    - URL: http://100.64.x.x:3001/api/capture
    - Method: POST
    - Request Body: Form
    - [+] file = Recorded Audio (File)
+   - [+] latitude = Location.Latitude (Text)       (optional)
+   - [+] longitude = Location.Longitude (Text)      (optional)
+   - [+] location_name = Location.Street + ", " + Location.City + ", " + Location.State (Text)  (optional)
 
-3. Get Dictionary Value
+4. Get Dictionary Value
    - Key: message
    - Dictionary: Contents of URL
 
-4. Show Notification
+5. Show Notification
    - Title: Brain Capture
    - Body: Dictionary Value
 ```

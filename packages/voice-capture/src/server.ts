@@ -43,6 +43,10 @@ app.get('/health', (c) => {
  * Optional form fields:
  *   - brain_view: target brain view (default: 'personal')
  *   - device: source device hint (default: 'apple_watch')
+ *   - latitude: GPS latitude as string (-90 to +90, requires longitude)
+ *   - longitude: GPS longitude as string (-180 to +180, requires latitude)
+ *   - location_name: reverse-geocoded place name from iOS
+ *   - location_accuracy: horizontal accuracy in meters from CLLocation
  *
  * Response: JSON with capture details forwarded from Core API, or error.
  */
@@ -71,7 +75,68 @@ app.post('/api/capture', async (c) => {
   const brainView = (formData.get('brain_view') as string | null) ?? 'personal'
   const device = (formData.get('device') as string | null) ?? 'apple_watch'
 
-  log.info({ filename, brainView, device }, 'Audio upload received')
+  // Parse optional location fields (1.1)
+  const rawLat = formData.get('latitude') as string | null
+  const rawLng = formData.get('longitude') as string | null
+  const rawLocationName = formData.get('location_name') as string | null
+  const rawLocationAccuracy = formData.get('location_accuracy') as string | null
+
+  // Build location object if any location fields are present (1.3, 1.4)
+  let location: { latitude: number; longitude: number; name?: string; accuracy_meters?: number } | undefined
+
+  if (rawLat != null || rawLng != null) {
+    // Require both lat+lng or neither (1.2)
+    if (rawLat == null || rawLng == null) {
+      return c.json(
+        { error: 'Both latitude and longitude are required when providing location', code: 'BAD_REQUEST' },
+        400,
+      )
+    }
+
+    const latitude = parseFloat(rawLat)
+    const longitude = parseFloat(rawLng)
+
+    // Reject non-numeric values (1.1)
+    if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
+      return c.json(
+        { error: 'latitude and longitude must be valid numbers', code: 'BAD_REQUEST' },
+        400,
+      )
+    }
+
+    // Validate coordinate ranges (1.2)
+    if (latitude < -90 || latitude > 90) {
+      return c.json(
+        { error: 'latitude must be between -90 and 90', code: 'BAD_REQUEST' },
+        400,
+      )
+    }
+    if (longitude < -180 || longitude > 180) {
+      return c.json(
+        { error: 'longitude must be between -180 and 180', code: 'BAD_REQUEST' },
+        400,
+      )
+    }
+
+    location = { latitude, longitude }
+
+    if (rawLocationName != null && rawLocationName.trim().length > 0) {
+      location.name = rawLocationName.trim()
+    }
+
+    if (rawLocationAccuracy != null) {
+      const accuracy = parseFloat(rawLocationAccuracy)
+      if (Number.isNaN(accuracy)) {
+        return c.json(
+          { error: 'location_accuracy must be a valid number', code: 'BAD_REQUEST' },
+          400,
+        )
+      }
+      location.accuracy_meters = accuracy
+    }
+  }
+
+  log.info({ filename, brainView, device, hasLocation: !!location }, 'Audio upload received')
 
   // Step 1: Transcribe
   let transcription
@@ -111,6 +176,7 @@ app.post('/api/capture', async (c) => {
         duration_seconds: transcription.duration,
         original_filename: filename,
         language: transcription.language,
+        ...(location ? { location } : {}),
       },
       pre_extracted: {
         template: classification.template,

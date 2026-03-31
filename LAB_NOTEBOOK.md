@@ -322,7 +322,11 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 **Actions & Results:**
 
-*Logging as implementation proceeds...*
+1. **Phase 1 (endpoint) + Phase 3 (docs) — parallel execution.** Both agents completed successfully.
+   - `server.ts`: parses latitude, longitude, location_name, location_accuracy from form fields; validates ranges + both-or-neither; nests under `source_metadata.location`
+   - `ios-shortcut.md`: added Get Current Location action, 3 new form fields, updated reference table, optional note
+   - Classification test updated: model name `'fast'` → `'gpt-5.4'` (pre-existing debt from OpenAI migration)
+   - All 1,407 tests pass
 
 ---
 
