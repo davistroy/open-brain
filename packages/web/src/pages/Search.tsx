@@ -1,12 +1,35 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Search as SearchIcon, X, ChevronLeft } from 'lucide-react';
+import { Search as SearchIcon, X, ChevronLeft, Brain, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import CaptureCard from '@/components/CaptureCard';
 import CaptureDetail from '@/components/CaptureDetail';
 import SearchFiltersPanel from '@/components/SearchFilters';
-import { searchApi } from '@/lib/api';
-import type { Capture, SearchFilters } from '@/lib/types';
+import { searchApi, synthesizeApi } from '@/lib/api';
+import type { Capture, SearchFilters, SynthesisResult } from '@/lib/types';
+
+/** Synthesis detection — matches the Slack bot's isSynthesisRequest() patterns */
+const SYNTHESIS_PATTERNS = [
+  /\bsummar(y|iz(e|ing))\b/i,
+  /\bsynthesi(s|z(e|ing))\b/i,
+  /\brecap\b/i,
+  /\brundown\b/i,
+  /\bbreakdown\b/i,
+  /\boverview\b/i,
+  /\bwhat('s| is| are) (the |my )?(patterns?|themes?|trends?)\b/i,
+  /\bwhat (have|did|do) I\b/i,
+  /\bwhat('s| is) my\b/i,
+  /^(what|how|why|when|who|where|which)\b/i,
+  /\?\s*$/,
+  /\bgive me\b/i,
+  /\btell me\b/i,
+  /\bexplain\b/i,
+  /\bdescribe\b/i,
+];
+
+function isSynthesisRequest(text: string): boolean {
+  return SYNTHESIS_PATTERNS.some((p) => p.test(text));
+}
 
 const DEFAULT_FILTERS: SearchFilters = {
   hybrid: true,
@@ -32,6 +55,10 @@ export default function Search() {
   const [searched, setSearched] = useState(false);
   const [selectedCapture, setSelectedCapture] = useState<Capture | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+
+  const [synthesis, setSynthesis] = useState<SynthesisResult | null>(null);
+  const [synthesisLoading, setSynthesisLoading] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
 
   const debouncedQuery = useDebounce(query, 400);
   const abortRef = useRef<AbortController | null>(null);
@@ -76,6 +103,17 @@ export default function Search() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     runSearch(query, filters);
+
+    // Fire synthesis in parallel if the query looks like a question
+    if (query.trim() && isSynthesisRequest(query.trim())) {
+      setSynthesisLoading(true);
+      setSynthesisError(null);
+      setSynthesis(null);
+      synthesizeApi.query(query.trim())
+        .then((result) => setSynthesis(result))
+        .catch((err) => setSynthesisError(err instanceof Error ? err.message : 'Synthesis failed'))
+        .finally(() => setSynthesisLoading(false));
+    }
   }
 
   function handleClearFilters() {
@@ -115,6 +153,8 @@ export default function Search() {
                 setQuery('');
                 setResults([]);
                 setSearched(false);
+                setSynthesis(null);
+                setSynthesisError(null);
               }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
@@ -152,6 +192,46 @@ export default function Search() {
 
         {/* Results area */}
         <div className="flex-1 min-w-0">
+          {/* Synthesis card — shown above results when a question is asked */}
+          {(synthesisLoading || synthesis || synthesisError) && (
+            <div className="mb-4 rounded-lg border bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/30">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Brain className="h-4 w-4 text-primary" />
+                  Synthesis
+                </div>
+                {synthesis && (
+                  <button
+                    type="button"
+                    onClick={() => { setSynthesis(null); setSynthesisError(null); }}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="px-4 py-3">
+                {synthesisLoading && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Thinking...
+                  </div>
+                )}
+                {synthesisError && (
+                  <p className="text-sm text-destructive">{synthesisError}</p>
+                )}
+                {synthesis && (
+                  <>
+                    <div className="text-sm whitespace-pre-wrap leading-relaxed">{synthesis.response}</div>
+                    <p className="text-xs text-muted-foreground mt-3">
+                      Based on {synthesis.capture_count} capture{synthesis.capture_count !== 1 ? 's' : ''}
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Loading state */}
           {loading && (
             <div className="space-y-2">
