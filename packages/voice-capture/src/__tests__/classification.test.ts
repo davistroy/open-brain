@@ -290,7 +290,7 @@ describe('ClassificationService', () => {
       expect(callArgs[0].temperature).toBe(0.1)
     })
 
-    it('sends request to the fast LiteLLM model alias', async () => {
+    it('sends request to the default classification model', async () => {
       mockCreate.mockResolvedValueOnce({
         choices: [{
           message: {
@@ -302,7 +302,7 @@ describe('ClassificationService', () => {
       await service.classify('Test.')
 
       const [callArgs] = mockCreate.mock.calls
-      expect(callArgs[0].model).toBe('fast')
+      expect(callArgs[0].model).toBe('gpt-5.4')
     })
   })
 })
