@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 const CAPTURE_TYPES = ['decision', 'idea', 'observation', 'task', 'win', 'blocker', 'question', 'reflection'] as const
-const CAPTURE_SOURCES = ['slack', 'voice', 'api', 'document'] as const
+const CAPTURE_SOURCES = ['slack', 'voice', 'api', 'document', 'mcp', 'email'] as const
 
 export const createCaptureSchema = z.object({
   content: z.string().min(1).max(50000),

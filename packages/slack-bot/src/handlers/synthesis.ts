@@ -11,15 +11,42 @@ import type { CoreApiClient } from '../lib/core-api-client.js'
 import { formatError } from '../lib/formatters.js'
 import { logger } from '@open-brain/shared'
 
-/** Patterns that indicate synthesis intent rather than a plain search */
+/**
+ * Patterns that indicate synthesis intent rather than a plain search.
+ *
+ * By the time this check runs, the message is already classified as QUERY intent,
+ * so we can be aggressive — captures and casual messages never reach here.
+ *
+ * Design: questions and requests get LLM-synthesized answers.
+ * Keyword-only queries (no question structure) fall through to raw search.
+ */
 const SYNTHESIS_PATTERNS = [
-  /\bsummariz(e|ing)\b/i,
-  /\bsynthesiz(e|ing)\b/i,
-  /\bwhat('s| is) the pattern\b/i,
-  /\bwhat('s| are) (my|the) (themes?|trends?|patterns?)\b/i,
-  /\bwhat have I (learned|decided|said|captured)\b/i,
-  /\boverall (summary|view|picture)\b/i,
-  /\bgive me an overview\b/i,
+  // Summary / synthesis keywords (verb and noun forms)
+  /\bsummar(y|iz(e|ing))\b/i,
+  /\bsynthesi(s|z(e|ing))\b/i,
+  /\brecap\b/i,
+  /\brundown\b/i,
+  /\bbreakdown\b/i,
+  /\boverview\b/i,
+
+  // Pattern / theme / trend analysis
+  /\bwhat('s| is| are) (the |my )?(patterns?|themes?|trends?)\b/i,
+
+  // Reflective queries — "what have/did/do I ..."
+  /\bwhat (have|did|do) I\b/i,
+  /\bwhat('s| is) my\b/i,
+
+  // Interrogative words at start of query — questions want answers, not result lists
+  /^(what|how|why|when|who|where|which)\b/i,
+
+  // Trailing question mark
+  /\?\s*$/,
+
+  // Request verbs — "give me ...", "tell me ...", "explain ...", "describe ..."
+  /\bgive me\b/i,
+  /\btell me\b/i,
+  /\bexplain\b/i,
+  /\bdescribe\b/i,
 ]
 
 /**

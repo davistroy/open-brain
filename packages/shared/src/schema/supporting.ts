@@ -194,3 +194,12 @@ export const triggers = pgTable(
     enabled_idx: index('triggers_enabled_idx').on(table.enabled),
   }),
 )
+
+// ============================================================
+// app_settings table — generic key-value settings store
+// ============================================================
+export const app_settings = pgTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: jsonb('value').notNull(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})

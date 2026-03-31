@@ -7,7 +7,7 @@ const BRAIN_VIEWS: BrainView[] = ['career', 'personal', 'technical', 'work-inter
 const CAPTURE_TYPES: CaptureType[] = [
   'decision', 'idea', 'observation', 'task', 'win', 'blocker', 'question', 'reflection',
 ];
-const CAPTURE_SOURCES: CaptureSource[] = ['slack', 'voice', 'api', 'mcp', 'system', 'bookmark', 'calendar'];
+const CAPTURE_SOURCES: CaptureSource[] = ['slack', 'voice', 'api', 'document', 'mcp', 'email'];
 
 interface SearchFiltersProps {
   filters: SearchFilters;

@@ -309,6 +309,21 @@ export const adminApi = {
   },
 }
 
+// Settings API
+
+export const settingsApi = {
+  get: <T = unknown>(key: string) => {
+    return request<{ key: string; value: T; updated_at: string }>(`/settings/${encodeURIComponent(key)}`)
+  },
+
+  put: <T = unknown>(key: string, value: T) => {
+    return request<{ key: string; value: T; updated_at: string }>(`/settings/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    })
+  },
+}
+
 // Pipeline API
 
 export const pipelineApi = {

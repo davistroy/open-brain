@@ -14,6 +14,7 @@ import { registerSkillRoutes } from './routes/skills.js'
 import { registerTriggerRoutes } from './routes/triggers.js'
 import { registerEntityRoutes } from './routes/entities.js'
 import { registerBetRoutes } from './routes/bets.js'
+import { registerSettingsRoutes } from './routes/settings.js'
 import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEventsRoutes } from './routes/events.js'
 import { registerDocumentRoutes } from './routes/documents.js'
@@ -129,6 +130,11 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Sessions API — GovernanceEngine is passed via SessionService constructor in index.ts
   if (sessionService) {
     registerSessionRoutes(app, sessionService)
+  }
+
+  // Settings API (generic key-value store — used by email allowlist, etc.)
+  if (db) {
+    registerSettingsRoutes(app, db)
   }
 
   // MCP endpoint — requires all services to be available
