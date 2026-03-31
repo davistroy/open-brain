@@ -308,9 +308,9 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 ### Entry 008 — Voice capture location feature [api] [web] [config]
 **Date:** 2026-03-30
-**Duration:** In progress
-**Environment:** Laptop (development) → Homeserver (deployment)
-**Status:** IN PROGRESS
+**Duration:** ~25 minutes
+**Environment:** Laptop (development)
+**Status:** COMPLETED
 
 **Objective:** Add optional GPS location (latitude, longitude, location_name, location_accuracy) to voice captures from iOS Shortcut. Display in CaptureDetail. No schema migration — stored in existing source_metadata JSONB.
 
