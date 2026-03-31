@@ -117,6 +117,42 @@ describe('handleQuery()', () => {
   // New query — no thread context
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Synthesis routing — questions and requests delegate to synthesize_query
+  // -------------------------------------------------------------------------
+
+  describe('synthesis routing', () => {
+    it('calls synthesize_query for question-like queries', async () => {
+      const msg = makeMessage({ text: '? what did I decide about pricing?' })
+      await handleQuery(msg, say, client, redis)
+      expect(client.synthesize_query).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'what did I decide about pricing?' }),
+      )
+      expect(client.search_query).not.toHaveBeenCalled()
+    })
+
+    it('calls synthesize_query for "give me a summary" requests', async () => {
+      const msg = makeMessage({ text: 'give me a summary of what I did yesterday' })
+      await handleQuery(msg, say, client, redis)
+      expect(client.synthesize_query).toHaveBeenCalled()
+      expect(client.search_query).not.toHaveBeenCalled()
+    })
+
+    it('sends acknowledgment before synthesis', async () => {
+      const msg = makeMessage({ text: '? how should I approach QSR pricing?' })
+      await handleQuery(msg, say, client, redis)
+      const calls = (say as ReturnType<typeof vi.fn>).mock.calls
+      expect(calls[0][0].text).toContain('Synthesizing')
+    })
+
+    it('falls through to search for keyword-only queries', async () => {
+      const msg = makeMessage({ text: '? QSR pricing strategy' })
+      await handleQuery(msg, say, client, redis)
+      expect(client.search_query).toHaveBeenCalled()
+      expect(client.synthesize_query).not.toHaveBeenCalled()
+    })
+  })
+
   describe('new query (no thread context)', () => {
     it('calls search_query with extracted text (strips ? prefix)', async () => {
       const msg = makeMessage({ text: '? QSR pricing strategy' })
@@ -135,9 +171,18 @@ describe('handleQuery()', () => {
     })
 
     it('strips @mention from query text', async () => {
-      const msg = makeMessage({ text: '<@UBOTID> what are my recent decisions?' })
+      // Use keyword-only query to test prefix stripping without triggering synthesis
+      const msg = makeMessage({ text: '<@UBOTID> QSR pricing strategy' })
       await handleQuery(msg, say, client, redis)
       expect(client.search_query).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'QSR pricing strategy' }),
+      )
+    })
+
+    it('routes @mention questions to synthesis', async () => {
+      const msg = makeMessage({ text: '<@UBOTID> what are my recent decisions?' })
+      await handleQuery(msg, say, client, redis)
+      expect(client.synthesize_query).toHaveBeenCalledWith(
         expect.objectContaining({ query: 'what are my recent decisions?' }),
       )
     })
@@ -371,11 +416,18 @@ describe('handleQuery()', () => {
       })
     })
 
-    it('treats unrecognized follow-up as a new search', async () => {
+    it('routes question follow-ups to synthesis', async () => {
       const msg = makeMessage({ text: 'tell me about contract pricing', thread_ts: 'ts-original' })
       await handleQuery(msg, say, client, redis)
+      expect(client.synthesize_query).toHaveBeenCalled()
+      expect(client.search_query).not.toHaveBeenCalled()
+    })
+
+    it('treats keyword follow-ups as new search', async () => {
+      const msg = makeMessage({ text: 'contract pricing terms', thread_ts: 'ts-original' })
+      await handleQuery(msg, say, client, redis)
       expect(client.search_query).toHaveBeenCalledWith(
-        expect.objectContaining({ query: 'tell me about contract pricing' }),
+        expect.objectContaining({ query: 'contract pricing terms' }),
       )
     })
 
@@ -414,6 +466,7 @@ describe('handleQuery()', () => {
 // ---------------------------------------------------------------------------
 
 describe('isSynthesisRequest()', () => {
+  // --- Existing synthesis keywords ---
   it('returns true for "summarize my work"', () => {
     expect(isSynthesisRequest('summarize my work')).toBe(true)
   })
@@ -438,23 +491,70 @@ describe('isSynthesisRequest()', () => {
     expect(isSynthesisRequest('what have I learned')).toBe(true)
   })
 
-  it('returns false for a plain search query', () => {
-    expect(isSynthesisRequest('QSR pricing strategy')).toBe(false)
-  })
-
-  it('returns false for a question without synthesis keywords', () => {
-    expect(isSynthesisRequest('what did I decide about pricing?')).toBe(false)
-  })
-
-  it('returns false for empty string', () => {
-    expect(isSynthesisRequest('')).toBe(false)
-  })
-
   it('is case-insensitive', () => {
     expect(isSynthesisRequest('SUMMARIZE my notes')).toBe(true)
   })
 
   it('returns true for "overall summary"', () => {
     expect(isSynthesisRequest('give me an overall summary of my work')).toBe(true)
+  })
+
+  // --- Broadened patterns: questions ---
+  it('returns true for questions starting with interrogative words', () => {
+    expect(isSynthesisRequest('what did I decide about pricing')).toBe(true)
+    expect(isSynthesisRequest('how should I approach the QSR deal')).toBe(true)
+    expect(isSynthesisRequest('why did we choose that vendor')).toBe(true)
+    expect(isSynthesisRequest('when did I last discuss pricing')).toBe(true)
+    expect(isSynthesisRequest('who was involved in the QSR decision')).toBe(true)
+    expect(isSynthesisRequest('where did I capture that idea')).toBe(true)
+  })
+
+  it('returns true for questions ending with ?', () => {
+    expect(isSynthesisRequest('did I ever discuss pricing?')).toBe(true)
+    expect(isSynthesisRequest('anything about QSR contracts?')).toBe(true)
+  })
+
+  it('returns true for the user example: "give me a summary of what I did yesterday"', () => {
+    expect(isSynthesisRequest('give me a summary of what I did yesterday')).toBe(true)
+  })
+
+  // --- Broadened patterns: request verbs ---
+  it('returns true for "tell me about ..."', () => {
+    expect(isSynthesisRequest('tell me about my recent decisions')).toBe(true)
+  })
+
+  it('returns true for "explain ..."', () => {
+    expect(isSynthesisRequest('explain my QSR pricing strategy')).toBe(true)
+  })
+
+  it('returns true for "describe ..."', () => {
+    expect(isSynthesisRequest('describe my work this week')).toBe(true)
+  })
+
+  // --- Broadened patterns: noun forms ---
+  it('returns true for "recap", "rundown", "breakdown"', () => {
+    expect(isSynthesisRequest('give me a recap of this week')).toBe(true)
+    expect(isSynthesisRequest('rundown of my recent captures')).toBe(true)
+    expect(isSynthesisRequest('breakdown of decisions by topic')).toBe(true)
+  })
+
+  // --- Reflective ---
+  it('returns true for "what did I ..."', () => {
+    expect(isSynthesisRequest('what did I work on last week')).toBe(true)
+  })
+
+  it('returns true for "what do I ..."', () => {
+    expect(isSynthesisRequest('what do I know about vendor selection')).toBe(true)
+  })
+
+  // --- Should still be raw search (keyword-only, no question structure) ---
+  it('returns false for keyword-only queries', () => {
+    expect(isSynthesisRequest('QSR pricing strategy')).toBe(false)
+    expect(isSynthesisRequest('meeting notes march')).toBe(false)
+    expect(isSynthesisRequest('decisions')).toBe(false)
+  })
+
+  it('returns false for empty string', () => {
+    expect(isSynthesisRequest('')).toBe(false)
   })
 })

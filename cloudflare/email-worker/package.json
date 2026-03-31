@@ -1,0 +1,17 @@
+{
+  "name": "open-brain-email-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250327.0",
+    "wrangler": "^4.14.0"
+  },
+  "dependencies": {
+    "postal-mime": "^2.4.1"
+  }
+}

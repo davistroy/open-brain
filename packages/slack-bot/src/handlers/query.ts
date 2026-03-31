@@ -21,6 +21,7 @@ import type { Redis } from 'ioredis'
 import type { CoreApiClient } from '../lib/core-api-client.js'
 import { formatSearchResults, formatCapture, formatError } from '../lib/formatters.js'
 import { getThreadContext, setThreadContext } from '../lib/thread-context.js'
+import { isSynthesisRequest, handleSynthesis } from './synthesis.js'
 import { logger } from '@open-brain/shared'
 
 const SEARCH_LIMIT = 20   // Fetch up to 20 results; paginate 5 per page
@@ -180,8 +181,12 @@ export async function handleQuery(
       return
     }
 
-    // followUp.type === 'new_query' — run a fresh search scoped to this thread
+    // followUp.type === 'new_query' — question → synthesis, keywords → search
     const queryText = extractQueryText(followUp.text)
+    if (isSynthesisRequest(queryText)) {
+      await handleSynthesis(message, say, coreApiClient, queryText)
+      return
+    }
     await runSearch(queryText, ts, say, coreApiClient, redis)
     return
   }
@@ -190,5 +195,12 @@ export async function handleQuery(
   // Fresh query (not a thread reply)
   // -------------------------------------------------------------------------
   const queryText = extractQueryText(rawText)
+
+  // Questions and requests get LLM-synthesized answers; keyword-only queries get raw search
+  if (isSynthesisRequest(queryText)) {
+    await handleSynthesis(message, say, coreApiClient, queryText)
+    return
+  }
+
   await runSearch(queryText, ts, say, coreApiClient, redis)
 }
