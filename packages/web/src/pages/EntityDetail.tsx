@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
+import CaptureCard from '@/components/CaptureCard';
 import { entitiesApi } from '@/lib/api';
 import type { Entity, Capture } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -16,14 +17,6 @@ const TYPE_COLORS: Record<string, string> = {
   concept: 'bg-violet-100 text-violet-800 border-violet-200',
   decision: 'bg-rose-100 text-rose-800 border-rose-200',
   project: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-};
-
-const VIEW_COLORS: Record<string, string> = {
-  career: 'bg-blue-100 text-blue-800 border-blue-200',
-  personal: 'bg-green-100 text-green-800 border-green-200',
-  technical: 'bg-purple-100 text-purple-800 border-purple-200',
-  'work-internal': 'bg-orange-100 text-orange-800 border-orange-200',
-  client: 'bg-red-100 text-red-800 border-red-200',
 };
 
 function formatDate(iso: string) {
@@ -84,21 +77,7 @@ function EntityCard({ entity }: { entity: Entity }) {
 
 // --- Capture row ---
 function CaptureRow({ capture }: { capture: Capture }) {
-  const viewCls = VIEW_COLORS[capture.brain_view] ?? 'bg-gray-100 text-gray-800 border-gray-200';
-  return (
-    <div className="py-3 border-b last:border-b-0">
-      <div className="flex flex-wrap items-center gap-1.5 mb-1">
-        <span className="text-xs text-muted-foreground">{formatDate(capture.created_at)}</span>
-        <Badge variant="outline" className={cn('text-xs border', viewCls)}>
-          {capture.brain_view}
-        </Badge>
-        <Badge variant="secondary" className="text-xs capitalize">
-          {capture.capture_type}
-        </Badge>
-      </div>
-      <p className="text-sm leading-relaxed line-clamp-3">{capture.content}</p>
-    </div>
-  );
+  return <CaptureCard capture={capture} />;
 }
 
 // --- Co-occurrence graph (related entities derived from shared captures) ---
