@@ -80,6 +80,11 @@ export interface SearchResult {
   hybrid: boolean
 }
 
+export interface SynthesisResult {
+  response: string
+  capture_count: number
+}
+
 export interface Entity {
   id: string
   name: string

@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -81,6 +81,17 @@ export const searchApi = {
       query: raw.query,
       hybrid: filters.hybrid ?? true,
     }
+  },
+}
+
+// Synthesize API
+
+export const synthesizeApi = {
+  query: (query: string, limit = 20) => {
+    return request<SynthesisResult>('/synthesize', {
+      method: 'POST',
+      body: JSON.stringify({ query, limit }),
+    })
   },
 }
 
