@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn, formatRelativeTime, truncate } from '@/lib/utils';
@@ -20,11 +20,17 @@ const SOURCE_LABELS: Record<string, string> = {
   slack: 'Slack',
   voice: 'Voice',
   api: 'API',
+  document: 'Document',
   mcp: 'MCP',
-  system: 'System',
-  bookmark: 'Bookmark',
-  calendar: 'Calendar',
+  email: 'Email',
 };
+
+interface LocationData {
+  latitude?: number;
+  longitude?: number;
+  name?: string;
+  accuracy_meters?: number;
+}
 
 const PIPELINE_STATUS_COLORS: Record<string, string> = {
   complete: 'bg-green-100 text-green-700',
@@ -51,6 +57,7 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
   const topics = capture.topics ?? [];
   const entities = capture.entities ?? [];
   const pipelineEvents = capture.pipeline_events ?? [];
+  const location = (capture.source_metadata?.location ?? null) as LocationData | null;
 
   return (
     <Card
@@ -89,6 +96,19 @@ export default function CaptureCard({ capture, similarity, defaultExpanded = fal
             <span className="text-xs text-muted-foreground font-mono">
               {(similarity * 100).toFixed(0)}% match
             </span>
+          )}
+          {location?.latitude != null && location?.longitude != null && (
+            <a
+              href={`https://maps.google.com/?q=${location.latitude},${location.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 text-xs text-muted-foreground hover:text-blue-500 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+              title={location.name ?? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`}
+            >
+              <MapPin className="h-3 w-3" />
+              <span className="max-w-[120px] truncate">{location.name ?? `${location.latitude.toFixed(2)}, ${location.longitude.toFixed(2)}`}</span>
+            </a>
           )}
           <span className="text-xs text-muted-foreground ml-auto">
             {formatRelativeTime(capture.created_at)}

@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import CaptureCard from '@/components/CaptureCard';
 import { capturesApi } from '@/lib/api';
 import type { Capture, CaptureType, BrainView } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -38,63 +37,23 @@ function formatDate(iso: string) {
   });
 }
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-}
-
 function dateGroupKey(iso: string) {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function CaptureCard({ capture }: { capture: Capture }) {
+function TimelineEntry({ capture }: { capture: Capture }) {
   const dot = VIEW_DOT[capture.brain_view] ?? 'bg-gray-400';
-  const viewCls = VIEW_COLORS[capture.brain_view] ?? 'bg-gray-100 text-gray-800 border-gray-200';
   return (
-    <div className="flex gap-3 py-3 border-b last:border-b-0">
-      {/* Timeline dot */}
-      <div className="flex flex-col items-center pt-1.5 shrink-0">
+    <div className="flex gap-3 py-2">
+      {/* Timeline dot + line */}
+      <div className="flex flex-col items-center pt-3 shrink-0">
         <div className={cn('h-2.5 w-2.5 rounded-full', dot)} />
         <div className="flex-1 w-px bg-border mt-1" />
       </div>
-
-      <div className="flex-1 min-w-0 pb-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-1">
-          <span className="text-xs text-muted-foreground">{formatTime(capture.created_at)}</span>
-          <Badge variant="outline" className={cn('text-xs border', viewCls)}>
-            {capture.brain_view}
-          </Badge>
-          <Badge variant="secondary" className="text-xs capitalize">
-            {capture.capture_type}
-          </Badge>
-          <Badge variant="outline" className="text-xs">
-            {capture.source}
-          </Badge>
-        </div>
-
-        <p className="text-sm leading-relaxed line-clamp-3">{capture.content}</p>
-
-        {(capture.entities ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1.5">
-            {(capture.entities ?? []).slice(0, 5).map((e) => (
-              <Link
-                key={e.id}
-                to={`/entities/${e.id}`}
-                className="text-xs text-primary hover:underline"
-              >
-                @{e.name}
-              </Link>
-            ))}
-          </div>
-        )}
-
-        {(capture.tags ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1">
-            {(capture.tags ?? []).slice(0, 6).map((t) => (
-              <span key={t} className="text-xs text-muted-foreground">#{t}</span>
-            ))}
-          </div>
-        )}
+      {/* Shared CaptureCard */}
+      <div className="flex-1 min-w-0">
+        <CaptureCard capture={capture} />
       </div>
     </div>
   );
@@ -303,7 +262,7 @@ export default function Timeline() {
               </div>
               <div className="pl-1">
                 {group.items.map((c) => (
-                  <CaptureCard key={c.id} capture={c} />
+                  <TimelineEntry key={c.id} capture={c} />
                 ))}
               </div>
             </div>
