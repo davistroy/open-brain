@@ -80,18 +80,18 @@ All captures hit the same pipeline:
 
 Search:
   Hybrid (default): FTS + pgvector cosine → Reciprocal Rank Fusion → ACT-R temporal decay
-  FTS-only (?search_mode=fts): bypasses embedding, works when LiteLLM is unavailable
+  FTS-only (?search_mode=fts): bypasses embedding, works when OpenAI is unavailable
 
 AI calls:
-  all services → LiteLLM at https://llm.k4jda.net
-    → spark-qwen3-embedding-4b (Qwen3 2560d → truncated to 768d)
-    → fast / synthesis / governance / intent (Spark Qwen3.5-35B)
+  all services → OpenAI API at https://api.openai.com/v1
+    → text-embedding-3-large (768d via dimensions parameter)
+    → gpt-5.4 (all aliases: fast, synthesis, governance, intent)
 ```
 
 ### Key Design Decisions
 
-- **No Ollama container** — embeddings and inference both run through external LiteLLM; no AI in this stack
-- **vector(768)** everywhere, no fallback if LiteLLM is down — queue and retry
+- **No local LLM container** — embeddings and inference both run through OpenAI API; no AI in this stack
+- **vector(768)** everywhere, no fallback if OpenAI is down — queue and retry
 - **Hybrid search**: FTS + vector with RRF + ACT-R temporal decay (default `temporal_weight: 0.0` at launch, ramp as history builds)
 - **MCP embedded** in core-api at `/mcp` route (Streamable HTTP, `Authorization: Bearer` header)
 - **Governance**: LLM-driven conversation with guardrails, not FSM
