@@ -155,11 +155,9 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
   return async (c, next) => {
     const key = getClientKey(c.req.raw.headers)
 
-    // Bypass rate limiting for trusted internal callers:
-    // - integration-test: automated test suites
-    // - web-ui: nginx proxy adds this header for all /api/ requests from the dashboard
-    // - email-worker: Cloudflare Email Worker — guaranteed delivery
-    if (key === 'internal:integration-test' || key === 'internal:web-ui' || key === 'internal:email-worker') {
+    // Bypass rate limiting for trusted internal callers
+    const BYPASS_CALLERS = new Set(['internal:integration-test', 'internal:web-ui', 'internal:email-worker'])
+    if (BYPASS_CALLERS.has(key)) {
       await next()
       return
     }

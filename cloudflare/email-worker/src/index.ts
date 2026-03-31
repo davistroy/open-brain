@@ -13,7 +13,6 @@ interface Env {
   CAPTURES_URL: string
   DEFAULT_BRAIN_VIEW: string
   DEFAULT_CAPTURE_TYPE: string
-  INGEST_SECRET?: string
 }
 
 /** Common email signature delimiters — strip everything after the first match */
@@ -82,7 +81,7 @@ export default {
     console.log(`Email received: from=${from} to=${to} subject="${subject}"`)
 
     // ── Allowlist check (fail fast) ──────────────────────────────────────────
-    const allowlistUrl = env.CAPTURES_URL.replace('/captures', '/settings/email_allowlist')
+    const allowlistUrl = env.CAPTURES_URL.replace(/\/captures\/?$/, '') + '/settings/email_allowlist'
     try {
       const alRes = await fetch(allowlistUrl, {
         headers: { 'X-Open-Brain-Caller': 'email-worker' },
@@ -170,9 +169,6 @@ export default {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Open-Brain-Caller': 'email-worker',
-    }
-    if (env.INGEST_SECRET) {
-      headers['X-Open-Brain-Ingest-Secret'] = env.INGEST_SECRET
     }
 
     console.log(`POSTing capture: ${trimmedContent.length} chars, ${attachments.length} attachments`)

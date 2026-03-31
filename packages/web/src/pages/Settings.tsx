@@ -674,6 +674,8 @@ function EmailAllowlistSection({ entries, loading, error, onAdd, onRemove }: {
     setRemoving(entry);
     try {
       await onRemove(entry);
+    } catch {
+      setAddError('Failed to remove entry — please try again');
     } finally {
       setRemoving(null);
     }
