@@ -1,0 +1,18 @@
+name = "open-brain-email-worker"
+main = "src/index.ts"
+compatibility_date = "2025-03-30"
+workers_dev = false
+
+# Email routing trigger — Cloudflare routes matching emails to this worker
+# After deploying, configure Email Routing in the dashboard:
+#   brain@troy-davis.com → this worker
+
+[vars]
+CAPTURES_URL = "https://brain.troy-davis.com/api/v1/captures"
+# Default brain_view for email captures — pipeline reclassifies via LLM
+DEFAULT_BRAIN_VIEW = "personal"
+# Default capture_type — pipeline reclassifies via LLM
+DEFAULT_CAPTURE_TYPE = "observation"
+
+# INGEST_SECRET is stored as a Cloudflare Worker secret (wrangler secret put INGEST_SECRET)
+# Must match the X-Open-Brain-Ingest-Secret header expected by core-api (if you add that check)

@@ -4,7 +4,7 @@
 
 export type CaptureType = 'decision' | 'idea' | 'observation' | 'task' | 'win' | 'blocker' | 'question' | 'reflection'
 export type BrainView = 'career' | 'personal' | 'technical' | 'work-internal' | 'client'
-export type CaptureSource = 'api' | 'slack' | 'voice' | 'document' | 'bookmark' | 'calendar' | 'mcp' | 'system'
+export type CaptureSource = 'api' | 'slack' | 'voice' | 'document' | 'mcp' | 'email'
 export type PipelineStatus = 'pending' | 'processing' | 'complete' | 'partial' | 'failed'
 
 export interface PreExtracted {
