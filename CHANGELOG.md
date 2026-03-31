@@ -14,6 +14,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **CI actions upgraded**: checkout v5, setup-node v5, cache v5 (Node 24-compatible).
 
 ### Added
+- **Voice capture location** (PR #33): Optional GPS coordinates on voice captures from iOS Shortcut. Parses `latitude`, `longitude`, `location_name`, `location_accuracy` form fields; validates ranges; stores in `source_metadata.location` JSONB. No schema migration.
+- **CaptureDetail structured metadata display**: Replaced raw JSON dump with `SourceMetadataDisplay` component — device icon, formatted duration, language, location with MapPin + Google Maps link. Unknown keys fall back to key-value pairs.
+- **5 location validation tests**: Valid coords, backward compat, partial coords (400), out-of-range (400), non-numeric (400).
 - **Monthly maintenance script** (`scripts/monthly-maintenance.sh`): Runs 5 checks (docker rebuild, dependency audit, GitHub security alerts, error log scan, health check). Posts results to Slack + dashboard admin banner.
 - **Monthly audit GitHub Action** (`monthly-audit.yml`): Scheduled workflow for `pnpm outdated` + Dependabot alert check, posts to Slack.
 - **Admin banner API** (`POST/GET/DELETE /api/v1/admin/banner`): Redis-backed banner with 30-day TTL, displayed at top of dashboard.
@@ -26,6 +29,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **nginx stale DNS**: Added `resolver 127.0.0.11` + variable upstream to prevent cached IPs after container recreation.
 - **Docker web build failure**: Moved user docs into `packages/web/src/content/` to fix Vite `?raw` import boundary violation.
 - **e2e test scripts**: Added rate-limit bypass header, MCP SSE response parsing, bash arithmetic fix, document title uniqueness.
+- **Voice-capture classification model**: Resolved hardcoded `'fast'` alias to `'gpt-5.4'` (OpenAI rejects unknown model names).
+- **iOS Shortcut docs**: Form field name was `'file'` not `'audio'`.
 
 ---
 
