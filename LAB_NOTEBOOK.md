@@ -306,4 +306,24 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 ---
 
+### Entry 008 — Voice capture location feature [api] [web] [config]
+**Date:** 2026-03-30
+**Duration:** In progress
+**Environment:** Laptop (development) → Homeserver (deployment)
+**Status:** IN PROGRESS
+
+**Objective:** Add optional GPS location (latitude, longitude, location_name, location_accuracy) to voice captures from iOS Shortcut. Display in CaptureDetail. No schema migration — stored in existing source_metadata JSONB.
+
+**Hypothesis:** Adding 4 optional form fields to the voice-capture endpoint and nesting them under `source_metadata.location` will flow transparently through core-api, pipeline, search, and UI without any changes to those systems. The only display change needed is CaptureDetail.tsx (replace raw JSON dump with structured metadata rendering). Success criteria: voice capture with location shows pin + name in CaptureDetail, voice capture without location works identically to current behavior.
+
+**Rollback Plan:** `git revert` — all changes are additive. No migration, no data cleanup.
+
+**Plan:** IMPLEMENTATION_PLAN.md — 4 phases, 16 items. Phase 1 (endpoint) + Phase 3 (docs) run in parallel. Phase 2 (display) + Phase 4 (tests) run after Phase 1.
+
+**Actions & Results:**
+
+*Logging as implementation proceeds...*
+
+---
+
 *Entries continue below.*
