@@ -68,11 +68,19 @@ export const statsApi = {
 // Search API
 
 export const searchApi = {
-  search: (filters: SearchFilters) => {
-    return request<SearchResult>('/search', {
+  search: async (filters: SearchFilters): Promise<SearchResult> => {
+    // API returns { results: [{ capture, score, ... }], total, query }
+    // Frontend expects { captures: Capture[], total, query, hybrid }
+    const raw = await request<{ results: Array<{ capture: Capture; score: number }>; total: number; query: string }>('/search', {
       method: 'POST',
       body: JSON.stringify(filters),
     })
+    return {
+      captures: raw.results.map(r => r.capture),
+      total: raw.total,
+      query: raw.query,
+      hybrid: filters.hybrid ?? true,
+    }
   },
 }
 
