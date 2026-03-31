@@ -68,6 +68,9 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **OpenAI gpt-5.4 uses `max_completion_tokens`** — the deprecated `max_tokens` parameter is rejected with 400. All LLM call sites must use `max_completion_tokens`.
 - **No `extra_body` in OpenAI calls** — `extra_body: { chat_template_kwargs: ... }` was Qwen/vLLM-specific. OpenAI rejects unknown parameters with 400.
 - **Health check URL path detection** — `checkLLMProvider()` detects if baseUrl ends with `/v1` to avoid doubling the path prefix when building the `/models` endpoint URL.
+- **Voice-capture form field is `file`, not `audio`** — the iOS Shortcut must use `file` as the multipart field key. The endpoint also accepts optional `latitude`, `longitude`, `location_name`, `location_accuracy` fields for GPS location.
+- **Voice-capture classification model is `gpt-5.4`** — hardcoded in `classification.ts` (not read from ai-routing.yaml). Override via `CLASSIFICATION_MODEL` env var.
+- **PWA service worker caches stale JS aggressively** — after deploying web container changes, users must hard-refresh (Ctrl+Shift+R) or unregister the service worker (DevTools → Application → Service Workers → Unregister) to pick up new Vite-hashed bundles. This is a recurring issue after every web rebuild.
 
 ---
 
