@@ -82,6 +82,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Three separate CaptureCard implementations exist** — shared component (`components/CaptureCard.tsx`), Timeline local, EntityDetail local. Unification pending.
 - **Capture source types include `email` and `mcp`** — in addition to `slack`, `voice`, `api`, `document`. The Zod schema in `shared/src/schema/` validates these.
 - **Skills must resolve model aliases from ai-routing.yaml** — workers skills pass `modelAlias` directly to OpenAI. With LiteLLM proxy gone, aliases like `synthesis` cause 404. The skill-execution worker must resolve via `configService.get('ai').models[alias]` before dispatching. Same pattern as `extract-entities.ts`.
+- **Slack-bot loads only ai-routing.yaml, not full ConfigService** — `ConfigService.load()` requires all 4 config files (pipeline, ai, brain-views, notifications). Slack-bot only needs the intent model name. Uses lightweight `js-yaml` load with fallback to `gpt-5.4`. Config dir is now mounted (`./config:/app/config:ro`) but load is graceful if missing.
 
 ---
 
