@@ -7,7 +7,7 @@ import type { App } from '@slack/bolt'
 import type { GenericMessageEvent } from '@slack/types'
 import { Redis } from 'ioredis'
 import type { CoreApiClient } from './lib/core-api-client.js'
-import { logger } from '@open-brain/shared'
+import { logger, ConfigService } from '@open-brain/shared'
 import { IntentRouter } from './intent/router.js'
 import { handleCapture } from './handlers/capture.js'
 import { handleQuery } from './handlers/query.js'
@@ -20,13 +20,20 @@ import { safeHandle } from './lib/safe-handle.js'
  * Register all message/event handlers on the Bolt app.
  */
 function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis): void {
+  // Resolve model alias from ai-routing.yaml — OpenAI API rejects alias strings
+  const configDir = process.env.CONFIG_DIR ?? '/app/config'
+  const configService = new ConfigService(configDir)
+  configService.load()
+  const aiConfig = configService.get('ai')
+  const intentModel: string = aiConfig.models['intent'] as string
+
   // Build IntentRouter from environment — falls back to CAPTURE if LiteLLM unavailable
   const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
   const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
   const intentRouter = new IntentRouter({
     litellm_url: litellmUrl,
     litellm_api_key: litellmApiKey,
-    intent_model: 'intent',
+    intent_model: intentModel,
     llm_timeout_ms: 5_000,
   })
 

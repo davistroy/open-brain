@@ -65,11 +65,12 @@ describe('statsApi.get', () => {
 
 describe('searchApi.search', () => {
   it('posts search filters and returns results', async () => {
-    const searchResult = { captures: [], total: 0, query: 'hello', hybrid: true }
-    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(searchResult))
+    // Mock the actual API response format (results array, not captures)
+    const apiResponse = { results: [], total: 0, query: 'hello' }
+    vi.mocked(fetch).mockResolvedValueOnce(mockResponse(apiResponse))
 
     const result = await searchApi.search({ query: 'hello', hybrid: true })
-    expect(result).toEqual(searchResult)
+    expect(result).toEqual({ captures: [], total: 0, query: 'hello', hybrid: true })
 
     const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
     expect(url).toContain('/api/v1/search')

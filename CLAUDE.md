@@ -71,14 +71,25 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Voice-capture form field is `file`, not `audio`** — the iOS Shortcut must use `file` as the multipart field key. The endpoint also accepts optional `latitude`, `longitude`, `location_name`, `location_accuracy` fields for GPS location.
 - **Voice-capture classification model is `gpt-5.4`** — hardcoded in `classification.ts` (not read from ai-routing.yaml). Override via `CLASSIFICATION_MODEL` env var.
 - **PWA service worker caches stale JS aggressively** — after deploying web container changes, users must hard-refresh (Ctrl+Shift+R) or unregister the service worker (DevTools → Application → Service Workers → Unregister) to pick up new Vite-hashed bundles. This is a recurring issue after every web rebuild.
+- **PWA cache clearing requires both SW unregister AND cache delete** — unregistering the service worker alone is not enough. Must also run `caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))` in DevTools console to clear cached JS bundles. Without this, stale Vite-hashed chunks persist.
+- **Cloudflare Email Workers: set `workers_dev = false`** — email-only workers have no HTTP routes. Setting `workers_dev = true` (the default) creates a useless `*.workers.dev` subdomain. Use `workers_dev = false` in `wrangler.toml`.
+- **Python `urllib` gets 403 from Cloudflare** — Cloudflare blocks Python's default user-agent. Use `curl` for testing Cloudflare-fronted endpoints.
+- **`app_settings` table is a generic key-value store** — `key TEXT PRIMARY KEY, value JSONB, updated_at TIMESTAMPTZ`. Used for email allowlist, reusable for future dashboard-managed settings. Migration 0010.
+- **Settings API has key whitelist (`VALID_SETTINGS_KEYS`)** — prevents unbounded key creation. When adding a new setting, add the key to the `VALID_SETTINGS_KEYS` Set in `packages/core-api/src/routes/settings.ts`.
+- **Email worker allowlist URL derivation** — use regex `replace(/\/captures\/?$/, '')` to derive base API URL from `CAPTURES_URL`, not string replace (fragile with trailing slashes).
+- **Search API returns `results` not `captures`** — `GET /api/v1/search` returns `{ results: [{ capture, score }] }`. Frontend `searchApi.search()` maps this to the `SearchResult` type. Do not assume the API returns a flat `captures` array.
+- **Rate limiter bypass uses a Set** — `BYPASS_CALLERS` Set in `rate-limit.ts` instead of chained `||` conditions. Add new bypass callers there (e.g., `email-worker`).
+- **Three separate CaptureCard implementations exist** — shared component (`components/CaptureCard.tsx`), Timeline local, EntityDetail local. Unification pending.
+- **Capture source types include `email` and `mcp`** — in addition to `slack`, `voice`, `api`, `document`. The Zod schema in `shared/src/schema/` validates these.
+- **Skills must resolve model aliases from ai-routing.yaml** — workers skills pass `modelAlias` directly to OpenAI. With LiteLLM proxy gone, aliases like `synthesis` cause 404. The skill-execution worker must resolve via `configService.get('ai').models[alias]` before dispatching. Same pattern as `extract-entities.ts`.
 
 ---
 
 ## What This Is
 
-Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents; stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
+Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents, email (brain@troy-davis.com via Cloudflare Email Worker); stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: v1.2.0 — All 25 phases + Phase 7 architectural consolidation complete. 1,407 unit tests + 95 regression tests passing. Deployed to homeserver.
+**Status**: v1.3.0 — All 25 phases + Phase 7 architectural consolidation + email pipeline + web synthesis complete. 1,412 unit tests + 95 regression tests passing. Deployed to homeserver.
 
 ## Key Architecture Decisions
 
@@ -101,6 +112,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 - **Slack**: @slack/bolt with socketMode: true
 - **Build**: tsx for dev, tsup (esbuild) for production
 - **Voice capture**: Direct API from iPhone/Watch via iOS Shortcut (no Google Drive sync)
+- **Email capture**: Cloudflare Email Worker at brain@troy-davis.com → core-api POST /api/v1/captures. Sender allowlist managed via dashboard Settings page (stored in `app_settings` table).
 - **Governance**: LLM-driven conversation with guardrails, not FSM
 
 ## Target Hardware
