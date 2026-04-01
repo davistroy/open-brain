@@ -100,6 +100,7 @@ async function main() {
     litellmApiKey,
     promptsDir,
     coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
+    configService,
   }))
 
   logger.info({ count: workers.length }, 'All workers registered')

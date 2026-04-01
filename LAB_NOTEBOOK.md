@@ -23,6 +23,10 @@
 | D11 | Web UI exempt from rate limiting via nginx header | 2026-03-30 | ACTIVE | Entry 005 | Higher rate limit: still hits under rapid browsing; no bypass: blocks owner from own dashboard |
 | D12 | Monthly maintenance: homeserver cron + GitHub Action split | 2026-03-30 | ACTIVE | Entry 006 | All-in-one script: pnpm/gh not on homeserver; all-GitHub: can't docker compose |
 | D13 | CI actions v5 (Node 24-compatible) | 2026-03-30 | ACTIVE | Entry 006 | pnpm/action-setup still v4 — no v5 available yet, but works under Node 24 |
+| D14 | Email capture via Cloudflare Email Worker | 2026-03-31 | ACTIVE | Entry 009 | Direct SMTP (requires server), Zapier/Make (third-party dependency, cost) |
+| D15 | Dashboard-managed sender allowlist (app_settings table) | 2026-03-31 | ACTIVE | Entry 009 | Config file (no UI, requires redeploy), env var (same) |
+| D16 | Web synthesis answers on search page | 2026-03-31 | ACTIVE | Entry 011 | Separate synthesis page (fragmented UX), Slack-only synthesis (no web access) |
+| D17 | Model aliases resolved at init from ai-routing.yaml, never raw to OpenAI | 2026-04-01 | ACTIVE | Entry 012 | Pass-through to proxy (LiteLLM removed), hardcode model names (fragile) |
 
 ## Action Items
 
@@ -32,6 +36,7 @@
 | A1 | ~~Deploy Phase 7 consolidated code to homeserver~~ | 2026-03-30 | IMPL_PLAN_PHASE7 | DONE — deployed, verified via test suite |
 | A2 | Verify pg-notify reconnection works under real disconnect | 2026-03-30 | Phase 7 | MEDIUM |
 | A3 | Deferred features: F21 voice transcription history, F22 entity merge UI, F24 multi-user | 2026-03 | PRD | LOW — Could Have / Won't Have |
+| A4 | Unify three CaptureCard implementations (shared, Timeline, EntityDetail) | 2026-03-31 | Entry 009 | MEDIUM |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -45,6 +50,9 @@
 | A0g | Dashboard UI review — search fix, rate-limit bypass | 2026-03-30 | 2026-03-30 | Entry 004-005 |
 | A0h | Monthly maintenance script + GitHub Action | 2026-03-30 | 2026-03-30 | Entry 006 |
 | A0i | Repo cleanup: archive plans, update README + CHANGELOG | 2026-03-30 | 2026-03-30 | Entry 007 |
+| A0j | Email-to-capture pipeline (PR #34) | 2026-03-31 | 2026-03-31 | Entry 009 |
+| A0k | Search page crash fix (PR #35) | 2026-03-31 | 2026-03-31 | Entry 010 |
+| A0l | Web synthesis answers (PR #36) | 2026-03-31 | 2026-03-31 | Entry 011 |
 
 ---
 
@@ -74,18 +82,84 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Version | v1.2.0 + Phase 7 + OpenAI migration | 42 commits on main |
-| Containers | 9 in docker-compose.yml | core-api, workers, slack-bot, voice-capture, faster-whisper, web, postgres, redis, cloudflared |
-| Tests | 1,407 unit + 95 regression | All passing (CI green) |
+| Version | v1.3.0 + email pipeline + web synthesis | ~50 commits on main |
+| Containers | 9 in docker-compose.yml + Cloudflare Email Worker | core-api, workers, slack-bot, voice-capture, faster-whisper, web, postgres, redis, cloudflared; email worker on Cloudflare edge |
+| Tests | 1,412 unit + 95 regression | All passing (CI green) |
 | LLM backend | OpenAI API | gpt-5.4 (all aliases), text-embedding-3-large (768d) |
-| Database | Postgres 16 + pgvector | vector(768) schema |
-| External access | brain.troy-davis.com | Cloudflare Tunnel |
+| Database | Postgres 16 + pgvector | vector(768) schema, migration 0010 (app_settings) |
+| External access | brain.troy-davis.com | Cloudflare Tunnel + Email Routing (brain@troy-davis.com) |
 | Deployment | Fully deployed | All code on homeserver, 100% regression pass rate |
 | Maintenance | Automated | Homeserver cron (1st/month) + GitHub Action (monthly-audit.yml) |
+| Email capture | Deployed | Cloudflare Email Worker → core-api, 5 sender allowlist addresses |
 
 ---
 
 ## Experiment Log
+
+--- New session: 2026-04-01 — Investigating failed skill-execution queue job + model alias audit ---
+
+### Entry 012 — Fix unresolved model aliases across codebase [debug] [deploy] [api]
+**Date:** 2026-04-01
+**Duration:** ~45 min
+**Environment:** Laptop (development) + Homeserver (investigation)
+**Tags:** `[debug]` `[api]` `[config]` `[workers]` `[slack]` `[web]`
+
+**Objective:** Investigate failed `daily-connections` skill execution job (1 failed in Bull Board) and audit entire codebase for similar issues.
+
+**Hypothesis:** The failed job is likely related to the LiteLLM→OpenAI API migration (Decision D10). Model aliases were previously resolved by the LiteLLM proxy; now with direct OpenAI calls, unresolved aliases will cause 404 errors. Expect to find multiple call sites passing alias strings instead of resolved model names.
+
+**Rollback Plan:** `git revert` — all changes are code-only, no infrastructure impact.
+
+#### Investigation
+
+1. **Failed job data from Redis** — `bull:skill-execution:failed` contained one job:
+   - Job: `daily-connections` (scheduled, cron `0 21 * * *`)
+   - Error: `404 The model 'synthesis' does not exist or you do not have access to it.`
+   - Stacktrace: `DailyConnectionsSkill.callLLM → OpenAI.makeRequest`
+   - Retried 3 times (exponential backoff), all failed identically
+   - Timestamp: ~2026-03-29 21:00 UTC (first run after LiteLLM migration)
+
+2. **Root cause:** All three skills (`weekly-brief`, `daily-connections`, `drift-monitor`) pass `modelAlias = 'synthesis'` directly to `client.chat.completions.create({ model: modelAlias })`. OpenAI rejects unknown model names with 404.
+
+3. **Correct pattern already exists:** `extract-entities.ts:218` does `const synthesisModel = aiConfig.models['synthesis']` and `llm-gateway.ts:84` has `resolveModel()`. Skills bypassed both.
+
+4. **Comprehensive audit found 4 affected call sites:**
+
+| File | Model Value | Status |
+|------|------------|--------|
+| `workers/src/skills/daily-connections.ts:151` | `'synthesis'` alias | BROKEN — fixed |
+| `workers/src/skills/weekly-brief.ts:91` | `'synthesis'` alias | BROKEN — fixed |
+| `workers/src/skills/drift-monitor.ts:172` | `'synthesis'` alias | BROKEN — fixed |
+| `slack-bot/src/server.ts:29` | `'intent'` alias | BROKEN — fixed |
+| `voice-capture/src/services/classification.ts:6` | `'gpt-5.4'` (hardcoded) | SAFE (actual model name, not alias) |
+| `core-api/src/services/llm-gateway.ts:184` | `resolveModel()` | CORRECT |
+| `workers/src/jobs/extract-entities.ts:122` | `aiConfig.models['synthesis']` | CORRECT |
+
+5. **Additional CI fix:** Web package test `searchApi.search` was failing — test mock returned `{ captures: [] }` but `api.ts:79` expects `{ results: [...] }` (API format change from PR #35). This was the root cause of the 4 failed CI runs on main.
+
+#### Changes Made
+
+1. **`packages/workers/src/jobs/skill-execution.ts`** — Added `configService: ConfigService` to opts, resolve `synthesisModel` from `aiConfig.models['synthesis']`, pass resolved model to all three skill dispatches instead of letting them default to alias string.
+
+2. **`packages/workers/src/main.ts`** — Pass `configService` to `createSkillExecutionWorker`.
+
+3. **`packages/slack-bot/src/server.ts`** — Added ConfigService, load ai-routing.yaml, resolve `intent` alias before passing to IntentRouter constructor.
+
+4. **`packages/web/src/lib/__tests__/api.test.ts`** — Fixed mock to return `{ results: [], total: 0, query: 'hello' }` matching actual API response format.
+
+5. **`CLAUDE.md`** — Added operational rule about model alias resolution.
+
+#### What Worked
+- The `extract-entities.ts` pattern of resolving at worker init time is clean and efficient — replicated for skills.
+- Passing resolved model name through options (not requiring skill classes to know about ConfigService) kept the change minimal.
+
+#### Results
+- All 1,426 tests pass (68 test files across 6 packages)
+- Type-checks clean across all packages
+- CI web test failure resolved
+
+#### Decision
+- **D17:** All model alias resolution must happen at service/worker init time from `ai-routing.yaml`, never passed raw to OpenAI API. Pattern: `configService.get('ai').models[alias]`.
 
 ### Entry 001 — Lab notebook initialized [init] [documentation]
 **Date:** 2026-03-30
@@ -332,6 +406,101 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
    - `CaptureDetail.tsx`: new `SourceMetadataDisplay` component — structured rendering of device (icon), duration (Xm Ys), language, location (MapPin + Google Maps link). Unknown keys fall back to formatted key-value pairs. Light/dark mode compatible.
    - `server.test.ts`: 5 new tests in "location fields" describe block — valid coords, no location (backward compat), partial coords (400), out-of-range (400), non-numeric (400). Total voice-capture tests: 82.
    - All 1,412 tests pass (1,407 existing + 5 new)
+
+---
+
+--- New session: 2026-03-31 — Email pipeline, search fix, web synthesis ---
+
+### Entry 009 — Email-to-capture pipeline [deploy] [api] [web] [config]
+**Date:** 2026-03-31
+**Duration:** ~2 hours
+**Environment:** Laptop (development) + Homeserver (deployment) + Cloudflare (Email Worker)
+**Status:** COMPLETED
+
+**Objective:** Build email-to-capture pipeline: Cloudflare Email Worker receives mail at brain@troy-davis.com, extracts subject+body, POSTs to core-api as a capture with source='email'. Sender allowlist managed via dashboard Settings page. Also fix Slack bot synthesis routing and add 'email'+'mcp' source types.
+
+**Hypothesis:** Cloudflare Email Routing + Workers can receive email at a custom address and forward structured content to the API without running an SMTP server. Dashboard-managed allowlist via a generic `app_settings` table will be more maintainable than environment variables. Success: email from allowlisted sender creates a capture; email from non-allowlisted sender is silently dropped.
+
+**Rollback Plan:** Remove Cloudflare Email Route + Worker via dashboard. `git revert` PR #34 commits. Drop `app_settings` table if needed (migration 0010).
+
+**Actions & Results:**
+
+1. **Cloudflare Email Worker** — Created `email-worker/` at repo root with `wrangler.toml` and `src/index.ts`. Worker parses email (postal-mime), extracts subject+body, checks sender against allowlist fetched from core-api settings endpoint, POSTs to `/api/v1/captures` with `source: 'email'`, `source_metadata: { from, subject, date, messageId }`. Set `workers_dev = false` (no HTTP routes needed for email-only worker).
+
+2. **Cloudflare Email Routing setup** — Configured `brain@troy-davis.com` catch-all → Email Worker via Cloudflare dashboard. Required domain already on Cloudflare (troy-davis.com). MX/TXT records auto-configured.
+
+3. **API token** — Created "Edit Cloudflare Workers" API token (template provides all needed permissions: Workers Scripts, Workers Routes, Account Settings). Stored in Bitwarden for `wrangler deploy`.
+
+4. **Migration 0010 — `app_settings` table** — Generic key-value store (`key TEXT PK, value JSONB, updated_at TIMESTAMPTZ`). Seeded with `email_allowlist` containing 5 initial addresses.
+
+5. **Settings API** — `GET/PUT /api/v1/settings/:key` with `VALID_SETTINGS_KEYS` whitelist Set to prevent unbounded key creation. Rate limiter bypass added for `email-worker` caller.
+
+6. **Settings UI** — New "Email Allowlist" card on Settings page. Inline add/remove with tag-style display. Fetches from settings API.
+
+7. **Synthesis routing fix** — Slack bot's `!brain ask` was 404ing because the intent router sent requests to a non-existent synthesis endpoint path. Fixed routing.
+
+8. **Source types** — Added `email` and `mcp` to the Zod source type enum in shared schema. SearchFilters type updated to include all source types.
+
+9. **Slack Cleanup removed from nav** — Feature was vestigial; removed nav entry.
+
+10. **Testing** — Email from allowlisted sender creates capture with correct metadata. Non-allowlisted sender gets 403 from worker. Python urllib test got 403 from Cloudflare (user-agent blocking) — switched to curl. Dashboard allowlist management works (add, remove, display).
+
+**Root Causes of Issues:**
+- `workers_dev = true` (default) creates unnecessary `*.workers.dev` HTTP endpoint for email-only workers
+- Python urllib default user-agent blocked by Cloudflare WAF
+- Email worker allowlist URL: needed regex `replace(/\/captures\/?$/, '')` instead of string replace to handle trailing slash variations
+
+**What Worked:**
+- Cloudflare Email Routing + Workers is remarkably simple — zero infrastructure, sub-second delivery
+- Generic `app_settings` table design means future dashboard-managed settings need only a UI card + key whitelist entry
+- postal-mime parses email cleanly including multipart/alternative (HTML+text)
+
+**Decision:** D14 — Email capture via Cloudflare Email Worker (vs. running SMTP server or using third-party automation). D15 — Dashboard-managed sender allowlist via `app_settings` (vs. config file or env var).
+
+---
+
+### Entry 010 — Search page crash fix [web] [debug]
+**Date:** 2026-03-31
+**Duration:** ~10 minutes
+**Environment:** Laptop (development)
+**Status:** COMPLETED
+
+**Objective:** Fix search page crash — API returns `{ results: [{ capture, score }] }` but frontend `SearchResult` type expected `{ captures: Capture[] }`.
+
+**Hypothesis:** Pre-existing type mismatch between API response shape and frontend type definition. The search API was updated (hybrid search returns scored results) but the frontend type was never updated. Surface-level fix: update `searchApi.search()` to map `results` array correctly.
+
+**Rollback Plan:** `git revert` — single-file change.
+
+**Actions & Results:**
+- Updated `searchApi.search()` to correctly destructure `{ results }` from API response and map each `{ capture, score }` to the frontend `SearchResult` type
+- Root cause: API evolved to return scored results during hybrid search implementation, but frontend mapping was never updated. Bug was latent until search was actually tested with real data.
+
+**What Worked:** Clean fix, no collateral damage.
+
+---
+
+### Entry 011 — Web synthesis answers [web] [api]
+**Date:** 2026-03-31
+**Duration:** ~20 minutes
+**Environment:** Laptop (development)
+**Status:** COMPLETED
+
+**Objective:** Add LLM-synthesized answer cards to the search page. When the user's query looks like a question, show an AI-generated answer above the search results.
+
+**Hypothesis:** Reusing the existing `POST /api/v1/synthesize` endpoint from the search page will provide a seamless "answer + supporting captures" experience. Questions are detected client-side (starts with question word or ends with `?`). Success: question queries show a synthesis card; non-question queries show results only.
+
+**Rollback Plan:** `git revert` — additive UI change only.
+
+**Actions & Results:**
+- Added question detection logic in Search.tsx
+- On question-type queries, fires parallel requests: search + synthesize
+- Synthesis answer card renders above results with a distinct visual treatment
+- Non-question queries behave identically to before (search only)
+- Synthesis failures are non-blocking — search results still display
+
+**What Worked:** The existing synthesize endpoint required zero changes. The parallel fetch pattern keeps perceived latency low — search results appear immediately while synthesis streams in.
+
+**Decision:** D16 — Web synthesis on search page (vs. separate page or Slack-only).
 
 ---
 

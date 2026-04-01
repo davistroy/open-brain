@@ -1,6 +1,6 @@
 import { Worker, UnrecoverableError } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import type { Database } from '@open-brain/shared'
+import type { Database, ConfigService } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
 import { executeDailyConnections } from '../skills/daily-connections.js'
@@ -28,8 +28,14 @@ export function createSkillExecutionWorker(
     litellmApiKey: string
     promptsDir: string
     coreApiUrl: string
+    configService: ConfigService
   },
 ): Worker {
+  // Resolve model aliases from ai-routing.yaml so skills send actual model
+  // names (e.g. 'gpt-5.4') to the OpenAI API, not LiteLLM aliases.
+  const aiConfig = opts.configService.get('ai')
+  const synthesisModel: string = aiConfig.models['synthesis'] as string
+
   const worker = new Worker<SkillExecutionJobData>(
     'skill-execution',
     async (job) => {
@@ -42,7 +48,7 @@ export function createSkillExecutionWorker(
           const result = await executeWeeklyBrief(db, {
             windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-            modelAlias: typeof input?.modelAlias === 'string' ? input.modelAlias : undefined,
+            modelAlias: synthesisModel,
             emailTo: typeof input?.emailTo === 'string' ? input.emailTo : undefined,
           })
 
@@ -57,7 +63,7 @@ export function createSkillExecutionWorker(
           const result = await executeDailyConnections(db, {
             windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-            modelAlias: typeof input?.modelAlias === 'string' ? input.modelAlias : undefined,
+            modelAlias: synthesisModel,
           })
 
           logger.info(
@@ -72,7 +78,7 @@ export function createSkillExecutionWorker(
             betActivityDays: typeof input?.betActivityDays === 'number' ? input.betActivityDays : undefined,
             commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
             entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
-            modelAlias: typeof input?.modelAlias === 'string' ? input.modelAlias : undefined,
+            modelAlias: synthesisModel,
           })
 
           logger.info(
