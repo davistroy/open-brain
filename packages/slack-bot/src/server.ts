@@ -7,7 +7,10 @@ import type { App } from '@slack/bolt'
 import type { GenericMessageEvent } from '@slack/types'
 import { Redis } from 'ioredis'
 import type { CoreApiClient } from './lib/core-api-client.js'
-import { logger, ConfigService } from '@open-brain/shared'
+import { readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import yaml from 'js-yaml'
+import { logger } from '@open-brain/shared'
 import { IntentRouter } from './intent/router.js'
 import { handleCapture } from './handlers/capture.js'
 import { handleQuery } from './handlers/query.js'
@@ -20,12 +23,22 @@ import { safeHandle } from './lib/safe-handle.js'
  * Register all message/event handlers on the Bolt app.
  */
 function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis): void {
-  // Resolve model alias from ai-routing.yaml — OpenAI API rejects alias strings
+  // Resolve intent model alias from ai-routing.yaml — OpenAI API rejects alias strings.
+  // Load only ai-routing.yaml (not full ConfigService) since slack-bot doesn't mount all config files.
+  let intentModel = 'gpt-5.4' // safe fallback
   const configDir = process.env.CONFIG_DIR ?? '/app/config'
-  const configService = new ConfigService(configDir)
-  configService.load()
-  const aiConfig = configService.get('ai')
-  const intentModel: string = aiConfig.models['intent'] as string
+  const aiConfigPath = join(configDir, 'ai-routing.yaml')
+  if (existsSync(aiConfigPath)) {
+    try {
+      const raw = yaml.load(readFileSync(aiConfigPath, 'utf8')) as Record<string, unknown>
+      const models = raw?.models as Record<string, string> | undefined
+      if (models?.intent) intentModel = models.intent
+    } catch (err) {
+      logger.warn({ err }, 'Failed to load ai-routing.yaml — using default intent model')
+    }
+  } else {
+    logger.info({ path: aiConfigPath }, 'ai-routing.yaml not found — using default intent model')
+  }
 
   // Build IntentRouter from environment — falls back to CAPTURE if LiteLLM unavailable
   const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'

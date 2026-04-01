@@ -27,6 +27,7 @@
 | D15 | Dashboard-managed sender allowlist (app_settings table) | 2026-03-31 | ACTIVE | Entry 009 | Config file (no UI, requires redeploy), env var (same) |
 | D16 | Web synthesis answers on search page | 2026-03-31 | ACTIVE | Entry 011 | Separate synthesis page (fragmented UX), Slack-only synthesis (no web access) |
 | D17 | Model aliases resolved at init from ai-routing.yaml, never raw to OpenAI | 2026-04-01 | ACTIVE | Entry 012 | Pass-through to proxy (LiteLLM removed), hardcode model names (fragile) |
+| D18 | Slack-bot: lightweight ai-routing.yaml load, not full ConfigService | 2026-04-01 | ACTIVE | Entry 012 | Full ConfigService requires all 4 YAML files; slack-bot only needs intent model |
 
 ## Action Items
 
@@ -158,8 +159,19 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 - Type-checks clean across all packages
 - CI web test failure resolved
 
+#### Deployment Issue — Slack-bot ConfigService crash
+First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL config files (pipeline.yaml, ai-routing.yaml, brain-views.yaml, notifications.yaml) but slack-bot container didn't mount `./config` volume. Workers container has the mount; slack-bot didn't.
+
+**Fix:** Two changes:
+1. Replaced full `ConfigService` in slack-bot with lightweight YAML load of only `ai-routing.yaml` + safe fallback to `gpt-5.4`
+2. Added `./config:/app/config:ro` volume mount to slack-bot in docker-compose.yml
+3. Added `js-yaml` + `@types/js-yaml` as slack-bot dependencies
+
+**Root cause:** `ConfigService.load()` is all-or-nothing — no partial load. Slack-bot only needs one model name. The lightweight approach is more appropriate for a container that historically doesn't use config files.
+
 #### Decision
 - **D17:** All model alias resolution must happen at service/worker init time from `ai-routing.yaml`, never passed raw to OpenAI API. Pattern: `configService.get('ai').models[alias]`.
+- **D18:** Slack-bot loads only `ai-routing.yaml` directly (not full ConfigService) — lighter dependency, graceful fallback if config missing.
 
 ### Entry 001 — Lab notebook initialized [init] [documentation]
 **Date:** 2026-03-30

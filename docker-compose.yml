@@ -129,6 +129,8 @@ services:
       # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
       # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
       # LITELLM_API_KEY: set in .env.secrets
+    volumes:
+      - ./config:/app/config:ro
     depends_on:
       core-api:
         condition: service_healthy

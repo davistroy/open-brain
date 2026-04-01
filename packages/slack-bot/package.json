@@ -21,10 +21,12 @@
   "dependencies": {
     "@open-brain/shared": "workspace:*",
     "@slack/bolt": "^4.6.0",
-    "ioredis": "^5.10.0"
+    "ioredis": "^5.10.0",
+    "js-yaml": "^4.1.1"
   },
   "devDependencies": {
     "@slack/types": "^2.20.0",
+    "@types/js-yaml": "^4.0.9",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
