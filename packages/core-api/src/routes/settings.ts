@@ -4,7 +4,7 @@ import type { Database } from '@open-brain/shared'
 import { logger, app_settings } from '@open-brain/shared'
 
 /** Valid settings keys — prevents unbounded key creation */
-const VALID_SETTINGS_KEYS = new Set(['email_allowlist'])
+const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days'])
 
 /**
  * Register settings API routes.

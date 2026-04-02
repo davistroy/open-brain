@@ -79,10 +79,15 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Email worker allowlist URL derivation** — use regex `replace(/\/captures\/?$/, '')` to derive base API URL from `CAPTURES_URL`, not string replace (fragile with trailing slashes).
 - **Search API returns `results` not `captures`** — `GET /api/v1/search` returns `{ results: [{ capture, score }] }`. Frontend `searchApi.search()` maps this to the `SearchResult` type. Do not assume the API returns a flat `captures` array.
 - **Rate limiter bypass uses a Set** — `BYPASS_CALLERS` Set in `rate-limit.ts` instead of chained `||` conditions. Add new bypass callers there (e.g., `email-worker`).
-- **Three separate CaptureCard implementations exist** — shared component (`components/CaptureCard.tsx`), Timeline local, EntityDetail local. Unification pending.
+- **CaptureCard is a single shared component** — `packages/web/src/components/CaptureCard.tsx` used by Dashboard, Timeline, EntityDetail, and Search. Unified in PR #37.
 - **Capture source types include `email` and `mcp`** — in addition to `slack`, `voice`, `api`, `document`. The Zod schema in `shared/src/schema/` validates these.
 - **Skills must resolve model aliases from ai-routing.yaml** — workers skills pass `modelAlias` directly to OpenAI. With LiteLLM proxy gone, aliases like `synthesis` cause 404. The skill-execution worker must resolve via `configService.get('ai').models[alias]` before dispatching. Same pattern as `extract-entities.ts`.
 - **Slack-bot loads only ai-routing.yaml, not full ConfigService** — `ConfigService.load()` requires all 4 config files (pipeline, ai, brain-views, notifications). Slack-bot only needs the intent model name. Uses lightweight `js-yaml` load with fallback to `gpt-5.4`. Config dir is now mounted (`./config:/app/config:ro`) but load is graceful if missing.
+- **Autonomy levels gate all proactive features** — `app_settings` key `autonomy_level` with values: `observe` (default, notifications only), `assist` (draft + notify), `advise` (act + report), `partner` (autonomous). Check via `meetsAutonomyLevel()` from `@open-brain/shared`. Add new settings keys to `VALID_SETTINGS_KEYS` Set in settings.ts.
+- **Auto-response handler is async fire-and-forget** — runs after normal Slack message routing via `.then()/.catch()`. Never blocks capture/query/command handling. Autonomy level is cached for 5 minutes to avoid per-message settings API calls.
+- **`daily-sweep-skill` is distinct from `daily-sweep`** — the existing `daily-sweep` job (3 AM) silently re-queues stale captures. The new `daily-sweep-skill` (8 PM) is the LLM-powered evening summary. Different BullMQ queues and job IDs.
+- **MCP resources use `server.registerResource()`** — not `server.resource()`. The `@modelcontextprotocol/sdk` v1.27.1 resource API takes `(name, uri, metadata, handler)` and handler returns `{ contents: [{ uri, text, mimeType }] }`.
+- **Pipeline-health skill is now scheduled** — runs every 30 minutes via BullMQ repeatable job. Includes capture flow check (alerts if no captures in 6 hours during active hours 7am-midnight). Was previously manual-trigger only.
 
 ---
 
@@ -90,7 +95,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents, email (brain@troy-davis.com via Cloudflare Email Worker); stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: v1.3.0 — All 25 phases + Phase 7 architectural consolidation + email pipeline + web synthesis complete. 1,412 unit tests + 95 regression tests passing. Deployed to homeserver.
+**Status**: v1.4.0 — All 25 phases + Phase 7 consolidation + email pipeline + web synthesis + proactive intelligence. 1,504 unit tests + 95 regression tests passing. Deployed to homeserver.
 
 ## Key Architecture Decisions
 

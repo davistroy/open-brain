@@ -33,8 +33,12 @@ export const DEFAULT_SKILLS: Record<string, SkillConfig> = {
     description: 'Detect when tracked commitments, bets, or projects go silent and alert via Pushover if severity >= medium',
   },
   'pipeline-health': {
-    schedule: '0 * * * *', // Every hour
-    description: 'Check BullMQ queue stats and recent pipeline failures; alert via Pushover if thresholds exceeded',
+    schedule: '*/30 * * * *', // Every 30 minutes
+    description: 'Check BullMQ queue stats, capture flow, and recent pipeline failures; alert via Pushover if thresholds exceeded',
+  },
+  'daily-sweep-skill': {
+    schedule: '0 20 * * *', // Daily 8pm
+    description: 'Evening summary: key decisions, unresolved questions, new entities, tasks without follow-up',
   },
 }
 

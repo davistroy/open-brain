@@ -20,7 +20,7 @@ interface IntelligenceLogRow {
 }
 
 /** Allowed intelligence skill names — prevents arbitrary skill_name injection into SQL */
-const INTELLIGENCE_SKILLS = new Set(['daily-connections', 'drift-monitor'])
+const INTELLIGENCE_SKILLS = new Set(['daily-connections', 'drift-monitor', 'daily-sweep-skill'])
 
 /** Job data shape for skill-execution queue */
 interface SkillExecutionJobData {
@@ -224,6 +224,7 @@ export function registerIntelligenceRoutes(
       'daily-connections': new Set(['windowDays', 'tokenBudget', 'modelAlias']),
       'drift-monitor': new Set(['betActivityDays', 'commitmentDays', 'entityWindowDays', 'modelAlias']),
       'weekly-brief': new Set(['windowDays', 'tokenBudget', 'modelAlias', 'emailTo']),
+      'daily-sweep-skill': new Set(['tokenBudget', 'modelAlias']),
     }
     let overrides: Record<string, unknown> = {}
     try {
@@ -265,6 +266,42 @@ export function registerIntelligenceRoutes(
       },
       202,
     )
+  })
+
+  // -----------------------------------------------------------------------
+  // GET /api/v1/intelligence/unresolved-questions
+  // Returns questions (capture_type = 'question') that have not been
+  // followed up via entity overlap within 7 days.
+  // -----------------------------------------------------------------------
+  app.get('/api/v1/intelligence/unresolved-questions', async (c) => {
+    const windowDays = Math.max(1, Math.min(Number(c.req.query('window_days') ?? '30'), 365))
+    const limit = Math.min(Math.max(1, Number(c.req.query('limit') ?? '20')), 50)
+
+    const windowDate = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000)
+
+    const rows = await db.execute(sql`
+      SELECT c.id::text, c.content, c.brain_view, c.created_at::text, c.tags
+      FROM captures c
+      WHERE c.capture_type = 'question'
+        AND c.pipeline_status = 'complete'
+        AND c.deleted_at IS NULL
+        AND c.created_at >= ${windowDate.toISOString()}::timestamptz
+        AND NOT EXISTS (
+          SELECT 1 FROM entity_links el1
+          JOIN entity_links el2 ON el1.entity_id = el2.entity_id
+          JOIN captures c2 ON el2.capture_id = c2.id
+          WHERE el1.capture_id = c.id
+            AND c2.id != c.id
+            AND c2.created_at > c.created_at
+            AND c2.created_at <= c.created_at + INTERVAL '7 days'
+            AND c2.deleted_at IS NULL
+            AND c2.pipeline_status = 'complete'
+        )
+      ORDER BY c.created_at DESC
+      LIMIT ${limit}
+    `)
+
+    return c.json({ questions: rows.rows, count: rows.rows.length })
   })
 }
 

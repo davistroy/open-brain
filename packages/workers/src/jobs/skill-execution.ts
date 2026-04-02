@@ -5,6 +5,7 @@ import { logger } from '@open-brain/shared'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
 import { executeDailyConnections } from '../skills/daily-connections.js'
 import { executeDriftMonitor } from '../skills/drift-monitor.js'
+import { executeDailySweep } from '../skills/daily-sweep-skill.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 
 /**
@@ -89,9 +90,28 @@ export function createSkillExecutionWorker(
         }
 
         case 'pipeline-health': {
-          // Defined in KNOWN_SKILLS for scheduling visibility but not yet implemented.
-          // Log and skip gracefully.
-          logger.warn({ skillName }, '[skill-execution] skill not yet implemented — skipping')
+          const { executePipelineHealth } = await import('../skills/pipeline-health.js')
+          const result = await executePipelineHealth(db, {
+            failureLookbackMinutes: typeof input?.failureLookbackMinutes === 'number' ? input.failureLookbackMinutes : undefined,
+            failedThreshold: typeof input?.failedThreshold === 'number' ? input.failedThreshold : undefined,
+            waitingThreshold: typeof input?.waitingThreshold === 'number' ? input.waitingThreshold : undefined,
+          })
+          logger.info(
+            { skillName, healthy: result.healthy, alertSent: result.alertSent, durationMs: result.durationMs },
+            '[skill-execution] pipeline-health complete',
+          )
+          break
+        }
+
+        case 'daily-sweep-skill': {
+          const result = await executeDailySweep(db, {
+            tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
+            modelAlias: synthesisModel,
+          })
+          logger.info(
+            { skillName, captureCount: result.captureCount, headline: result.output.headline, durationMs: result.durationMs },
+            '[skill-execution] daily-sweep-skill complete',
+          )
           break
         }
 

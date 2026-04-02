@@ -10,7 +10,7 @@ import type { CoreApiClient } from './lib/core-api-client.js'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import yaml from 'js-yaml'
-import { logger } from '@open-brain/shared'
+import { logger, type AutonomyLevel } from '@open-brain/shared'
 import { IntentRouter } from './intent/router.js'
 import { handleCapture } from './handlers/capture.js'
 import { handleQuery } from './handlers/query.js'
@@ -18,6 +18,37 @@ import { handleCommand } from './handlers/command.js'
 import { handleSessionThreadReply, getSessionThread } from './handlers/session.js'
 import { getThreadContext } from './lib/thread-context.js'
 import { safeHandle } from './lib/safe-handle.js'
+import { isAutoResponseCandidate, handleAutoResponse, type AutoResponseConfig } from './handlers/auto-response.js'
+
+/** Cache for autonomy level -- refreshed every 5 minutes */
+let cachedAutonomyLevel: { level: AutonomyLevel; fetchedAt: number } | null = null
+const AUTONOMY_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+async function getAutonomyLevel(coreApiClient: CoreApiClient): Promise<AutonomyLevel> {
+  const now = Date.now()
+  if (cachedAutonomyLevel && now - cachedAutonomyLevel.fetchedAt < AUTONOMY_CACHE_TTL) {
+    return cachedAutonomyLevel.level
+  }
+
+  try {
+    const response = await fetch(
+      `${process.env.CORE_API_URL ?? 'http://core-api:3000'}/api/v1/settings/autonomy_level`,
+    )
+    if (response.ok) {
+      const data = (await response.json()) as { value: string }
+      const level = (['observe', 'assist', 'advise', 'partner'].includes(data.value)
+        ? data.value
+        : 'observe') as AutonomyLevel
+      cachedAutonomyLevel = { level, fetchedAt: now }
+      return level
+    }
+  } catch {
+    // Settings not available -- default to observe
+  }
+
+  cachedAutonomyLevel = { level: 'observe', fetchedAt: now }
+  return 'observe'
+}
 
 /**
  * Register all message/event handlers on the Bolt app.
@@ -49,6 +80,16 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
     intent_model: intentModel,
     llm_timeout_ms: 5_000,
   })
+
+  // Auto-response configuration
+  const autoResponseConfig: AutoResponseConfig = {
+    coreApiUrl: process.env.CORE_API_URL ?? 'http://core-api:3000',
+    confidenceThreshold: 0.6,
+    stalenessDays: 90,
+    minCorroboratingResults: 2,
+    botUserId: undefined, // Set after app.start() if available
+    ownerUserId: process.env.SLACK_OWNER_USER_ID,
+  }
 
   // Ignore bot messages globally — prevents feedback loops
   app.message(async ({ message, next }) => {
@@ -129,6 +170,22 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
           // Safety net — treat unknown intents as capture
           await handleCapture(genericMessage, say, coreApiClient)
           break
+      }
+
+      // --- Auto-response (async, fire-and-forget) ---
+      // For messages that aren't directed at the bot, check if they're
+      // questions Open Brain could answer. Runs in background.
+      if (
+        intentResult.intent === 'conversation' ||
+        intentResult.intent === 'capture'
+      ) {
+        if (isAutoResponseCandidate(genericMessage, autoResponseConfig)) {
+          getAutonomyLevel(coreApiClient).then(level => {
+            handleAutoResponse(genericMessage, app, coreApiClient, level, autoResponseConfig)
+          }).catch(err => {
+            logger.debug({ err }, '[auto-response] skipped — failed to get autonomy level')
+          })
+        }
       }
     }, say, ts)
   })
