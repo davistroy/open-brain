@@ -35,6 +35,7 @@ export interface PipelineHealthResult {
   queues: QueueStats[]
   recentFailures: RecentFailure[]
   stalledByQueue: StalledStats[]
+  captureFlowStale: boolean
   alertSent: boolean
   durationMs: number
 }
@@ -195,12 +196,20 @@ export class PipelineHealthSkill {
     // Step 3: Check for stalled jobs
     const stalledByQueue = await this.queryStalledJobs()
 
+    // Step 3.5: Check capture flow (skip during quiet hours)
+    let captureFlowStale = false
+    const hour = new Date().getHours()
+    const isQuietHours = hour >= 0 && hour < 7  // midnight-7am
+    if (!isQuietHours) {
+      captureFlowStale = await this.checkCaptureFlow(6)  // 6 hours threshold
+    }
+
     // Step 4: Evaluate thresholds
     const failedQueues = queues.filter(q => q.failed >= failedThreshold)
     const backloggedQueues = queues.filter(q => q.waiting >= waitingThreshold)
     const stalledQueues = alertOnStalled ? stalledByQueue.filter(s => s.stalledCount > 0) : []
 
-    const shouldAlert = failedQueues.length > 0 || backloggedQueues.length > 0 || stalledQueues.length > 0
+    const shouldAlert = failedQueues.length > 0 || backloggedQueues.length > 0 || stalledQueues.length > 0 || captureFlowStale
 
     const healthy = !shouldAlert && recentFailures.length === 0
 
@@ -211,6 +220,7 @@ export class PipelineHealthSkill {
         backloggedQueues,
         stalledQueues,
         recentFailures,
+        captureFlowStale,
         failedThreshold,
         waitingThreshold,
       })
@@ -223,6 +233,7 @@ export class PipelineHealthSkill {
       queues,
       recentFailures,
       stalledByQueue,
+      captureFlowStale,
       healthy,
       alertSent,
       durationMs,
@@ -238,6 +249,7 @@ export class PipelineHealthSkill {
       queues,
       recentFailures,
       stalledByQueue,
+      captureFlowStale,
       alertSent,
       durationMs,
     }
@@ -358,6 +370,36 @@ export class PipelineHealthSkill {
   }
 
   // ----------------------------------------------------------
+  // Private: capture flow check
+  // ----------------------------------------------------------
+
+  /**
+   * Check if captures are flowing. Returns true if no capture has been
+   * created in the last `hoursThreshold` hours.
+   * This detects silent failures where the system is "running" but not processing.
+   */
+  private async checkCaptureFlow(hoursThreshold: number): Promise<boolean> {
+    try {
+      const since = new Date(Date.now() - hoursThreshold * 60 * 60 * 1000)
+      const rows = await this.db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)::text as count
+        FROM captures
+        WHERE created_at >= ${since.toISOString()}::timestamptz
+          AND deleted_at IS NULL
+      `)
+      const count = Number(rows.rows[0]?.count ?? 0)
+      if (count === 0) {
+        logger.warn({ hoursThreshold }, '[pipeline-health] no captures in recent window')
+        return true
+      }
+      return false
+    } catch (err) {
+      logger.warn({ err }, '[pipeline-health] failed to check capture flow — assuming OK')
+      return false
+    }
+  }
+
+  // ----------------------------------------------------------
   // Private: Pushover alert
   // ----------------------------------------------------------
 
@@ -372,6 +414,7 @@ export class PipelineHealthSkill {
     backloggedQueues: QueueStats[]
     stalledQueues: StalledStats[]
     recentFailures: RecentFailure[]
+    captureFlowStale: boolean
     failedThreshold: number
     waitingThreshold: number
   }): Promise<boolean> {
@@ -415,6 +458,10 @@ export class PipelineHealthSkill {
       lines.push(`Recent failures: ${params.recentFailures.length} (${stageSummary})`)
     }
 
+    if (params.captureFlowStale) {
+      lines.push('No captures received in the last 6 hours (during active hours)')
+    }
+
     const message = lines.join('\n')
 
     try {
@@ -439,6 +486,7 @@ export class PipelineHealthSkill {
     queues: QueueStats[]
     recentFailures: RecentFailure[]
     stalledByQueue: StalledStats[]
+    captureFlowStale: boolean
     healthy: boolean
     alertSent: boolean
     durationMs: number
@@ -456,6 +504,7 @@ export class PipelineHealthSkill {
       `active:${totalActive}`,
       `stalled:${totalStalled}`,
       `recentFailures:${params.recentFailures.length}`,
+      `captureFlowStale:${params.captureFlowStale}`,
       `alert:${params.alertSent}`,
     ].join(' | ')
 

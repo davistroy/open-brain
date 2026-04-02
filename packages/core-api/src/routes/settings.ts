@@ -1,10 +1,26 @@
 import type { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { logger, app_settings } from '@open-brain/shared'
+import { logger, app_settings, AUTONOMY_LEVELS } from '@open-brain/shared'
 
 /** Valid settings keys — prevents unbounded key creation */
-const VALID_SETTINGS_KEYS = new Set(['email_allowlist'])
+const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days'])
+
+/** Type-specific value validators for settings that need them */
+const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
+  autonomy_level: (v) =>
+    typeof v === 'string' && AUTONOMY_LEVELS.includes(v as never)
+      ? null
+      : `autonomy_level must be one of: ${AUTONOMY_LEVELS.join(', ')}`,
+  auto_response_threshold: (v) =>
+    typeof v === 'number' && v >= 0 && v <= 1
+      ? null
+      : 'auto_response_threshold must be a number between 0 and 1',
+  auto_response_staleness_days: (v) =>
+    typeof v === 'number' && v >= 1 && v <= 365
+      ? null
+      : 'auto_response_staleness_days must be a number between 1 and 365',
+}
 
 /**
  * Register settings API routes.
@@ -35,6 +51,15 @@ export function registerSettingsRoutes(app: Hono, db: Database): void {
     }
     if (body.value === undefined) {
       return c.json({ error: 'value is required' }, 400)
+    }
+
+    // Type-specific validation for settings that need it
+    const validator = SETTINGS_VALIDATORS[key]
+    if (validator) {
+      const validationError = validator(body.value)
+      if (validationError) {
+        return c.json({ error: validationError, key }, 400)
+      }
     }
 
     const now = new Date()
