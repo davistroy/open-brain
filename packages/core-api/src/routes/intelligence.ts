@@ -274,8 +274,8 @@ export function registerIntelligenceRoutes(
   // followed up via entity overlap within 7 days.
   // -----------------------------------------------------------------------
   app.get('/api/v1/intelligence/unresolved-questions', async (c) => {
-    const windowDays = Math.max(1, Math.min(Number(c.req.query('window_days') ?? '30'), 365))
-    const limit = Math.min(Math.max(1, Number(c.req.query('limit') ?? '20')), 50)
+    const windowDays = Math.max(1, Math.min(Number(c.req.query('window_days') ?? '30') || 30, 365))
+    const limit = Math.min(Math.max(1, Number(c.req.query('limit') ?? '20') || 20), 50)
 
     const windowDate = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000)
 

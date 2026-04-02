@@ -19,6 +19,13 @@ import { scoreConfidence } from '../services/confidence-scorer.js'
 import { formatAttributedResponse } from '../services/attribution-formatter.js'
 import { logger, PushoverService, type AutonomyLevel, meetsAutonomyLevel } from '@open-brain/shared'
 
+/** Lazy-initialized PushoverService singleton for auto-response notifications */
+let _pushover: PushoverService | null = null
+function getPushover(): PushoverService {
+  if (!_pushover) _pushover = new PushoverService({ onError: 'swallow' })
+  return _pushover
+}
+
 /** Minimum message length to consider for auto-response */
 const MIN_MESSAGE_LENGTH = 15
 
@@ -138,7 +145,7 @@ export async function handleAutoResponse(
       synthesis
     ) {
       try {
-        const pushover = new PushoverService({ onError: 'swallow' })
+        const pushover = getPushover()
         if (pushover.isConfigured) {
           const pushoverMessage = [
             `Channel question from <@${message.user}>:`,
