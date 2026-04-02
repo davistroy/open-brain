@@ -201,7 +201,7 @@ describe('getTestApp', () => {
     expect(body.services).toBeDefined()
     expect(body.services.postgres).toBeDefined()
     expect(body.services.redis).toBeDefined()
-    expect(body.services.litellm).toBeDefined()
+    expect(body.services.llm).toBeDefined()
   })
 
   it('serves the captures API', async () => {
