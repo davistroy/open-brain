@@ -30,6 +30,8 @@
 | D18 | Slack-bot: lightweight ai-routing.yaml load, not full ConfigService | 2026-04-01 | ACTIVE | Entry 012 | Full ConfigService requires all 4 YAML files; slack-bot only needs intent model |
 | D19 | Autonomy levels (observe/assist/advise/partner) gate all proactive features | 2026-04-02 | ACTIVE | Entry 013 | Per-feature toggles (too granular), env var (not dashboard-configurable) |
 | D20 | Auto-response is async fire-and-forget; autonomy cached 5 min | 2026-04-02 | ACTIVE | Entry 013 | Sync (blocks message routing), no cache (hammers settings API per message) |
+| D21 | Pipeline-health parses REDIS_URL with fallback to REDIS_HOST | 2026-04-02 | ACTIVE | Entry 013 | Docker sets REDIS_URL not REDIS_HOST; skill created queues against localhost |
+| D22 | Health endpoint service key renamed from `litellm` to `llm` | 2026-04-02 | ACTIVE | Entry 013 | LiteLLM proxy removed; OpenAI direct — label should be generic |
 
 ## Action Items
 
@@ -602,5 +604,16 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 **Decision:** D19 — Autonomy levels gating proactive features (observe/assist/advise/partner). Default `observe`. See entry 013.
 **Decision:** D20 — Auto-response uses fire-and-forget async; never blocks normal Slack message handling. Autonomy level cached 5 minutes.
 **Decision:** D21 — Pipeline-health uses REDIS_URL parsing with fallback to REDIS_HOST. Docker containers set REDIS_URL.
+**Decision:** D22 — Rename health endpoint `litellm` service key to `llm`. LiteLLM proxy removed; system calls OpenAI directly.
+
+**Post-deploy UI walkthrough (2026-04-02):**
+- Dashboard: 16 captures, pipeline healthy, daily sweep capture visible
+- Search: Hybrid search + synthesis answer card working (tested "What happened with the Stratfield coworkers?")
+- Timeline: 16 captures grouped by date, brain view color dots
+- Entities: 240 entities, correct type badges and mention counts
+- Intelligence: Daily connections (4 cross-domain patterns), drift monitor
+- Settings: Autonomy Level section with 4 radio buttons (Observe active), all 5 skills with last-run times
+- **Found & fixed:** "Litellm" label in Service Health → renamed to "LLM" (health endpoint key + Settings page display override). Committed 735108e, deployed.
+- PWA cache required Ctrl+Shift+R to pick up new bundles (known issue, documented in CLAUDE.md)
 
 *Entries continue below.*
