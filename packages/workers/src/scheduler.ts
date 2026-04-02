@@ -116,5 +116,43 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: driftCron }, '[scheduler] drift-monitor repeatable job registered')
 
+  // --------------------------------------------------------
+  // Pipeline health (every 30 minutes)
+  // --------------------------------------------------------
+  const pipelineHealthCron = '*/30 * * * *'
+
+  await skillExecutionQueue.add(
+    'pipeline-health',
+    {
+      skillName: 'pipeline-health',
+      input: {},
+    },
+    {
+      repeat: { pattern: pipelineHealthCron },
+      jobId: 'scheduled_pipeline-health',
+    },
+  )
+
+  logger.info({ cron: pipelineHealthCron }, '[scheduler] pipeline-health repeatable job registered')
+
+  // --------------------------------------------------------
+  // Daily sweep skill (8:00 PM)
+  // --------------------------------------------------------
+  const dailySweepSkillCron = '0 20 * * *'
+
+  await skillExecutionQueue.add(
+    'daily-sweep-skill',
+    {
+      skillName: 'daily-sweep-skill',
+      input: {},
+    },
+    {
+      repeat: { pattern: dailySweepSkillCron },
+      jobId: 'scheduled_daily-sweep-skill',
+    },
+  )
+
+  logger.info({ cron: dailySweepSkillCron }, '[scheduler] daily-sweep-skill repeatable job registered')
+
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

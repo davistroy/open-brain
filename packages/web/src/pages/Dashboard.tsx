@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Plus, AlertCircle } from 'lucide-react';
+import { RefreshCw, Plus, AlertCircle, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import StatsCards from '@/components/StatsCards';
 import CaptureCard from '@/components/CaptureCard';
-import { capturesApi, statsApi, pipelineApi, adminApi } from '@/lib/api';
+import { capturesApi, statsApi, pipelineApi, adminApi, intelligenceApi } from '@/lib/api';
 import type { AdminBanner } from '@/lib/api';
 import type { BrainStats, Capture } from '@/lib/types';
 
@@ -46,6 +46,7 @@ export default function Dashboard() {
   const [recentCaptures, setRecentCaptures] = useState<Capture[]>([]);
   const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
   const [adminBanner, setAdminBanner] = useState<AdminBanner | null>(null);
+  const [unresolvedQuestions, setUnresolvedQuestions] = useState<Array<{ id: string; content: string; brain_view: string; created_at: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,17 +61,19 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const [statsData, capturesData, healthData, bannerData] = await Promise.allSettled([
+      const [statsData, capturesData, healthData, bannerData, questionsData] = await Promise.allSettled([
         statsApi.get(),
         capturesApi.list({ limit: RECENT_LIMIT }),
         pipelineApi.health(),
         adminApi.getBanner(),
+        intelligenceApi.unresolvedQuestions(5),
       ]);
 
       if (statsData.status === 'fulfilled') setStats(statsData.value);
       if (capturesData.status === 'fulfilled') setRecentCaptures(capturesData.value.data);
       if (healthData.status === 'fulfilled') setPipelineHealth(healthData.value);
       if (bannerData.status === 'fulfilled') setAdminBanner(bannerData.value.banner);
+      if (questionsData.status === 'fulfilled') setUnresolvedQuestions(questionsData.value.questions);
 
       // Surface error only if all three failed
       if (
@@ -184,6 +187,32 @@ export default function Dashboard() {
 
       {/* Stats cards */}
       {stats && <StatsCards stats={stats} />}
+
+      {/* Open Questions widget */}
+      {unresolvedQuestions.length > 0 && (
+        <div className="rounded-lg border bg-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 text-amber-500" />
+              Open Questions
+              <span className="text-xs font-normal text-muted-foreground">({unresolvedQuestions.length})</span>
+            </h2>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/search?q=type:question')} className="text-xs">
+              View all
+            </Button>
+          </div>
+          <ul className="space-y-2">
+            {unresolvedQuestions.slice(0, 5).map((q) => (
+              <li key={q.id} className="text-sm text-muted-foreground flex items-start gap-2">
+                <span className="shrink-0 mt-0.5 text-amber-400">?</span>
+                <span className="line-clamp-2">
+                  {q.content.length > 100 ? `${q.content.slice(0, 100)}...` : q.content}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <Separator />
 

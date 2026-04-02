@@ -7,6 +7,7 @@ import type { EntityService } from '../services/entity.js'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { validateMcpAuth } from './auth.js'
 import { registerMcpTools } from './tools/index.js'
+import { generateContextSummary } from './resources/context.js'
 import { logger } from '@open-brain/shared'
 
 interface McpServerDeps {
@@ -42,6 +43,20 @@ export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
     })
 
     registerMcpTools({ server, captureService, searchService, configService, db, entityService })
+
+    // Register MCP resources
+    server.registerResource(
+      'brain-context',
+      'open_brain://context',
+      { description: 'Current brain context summary — active projects, recent entities, open questions, focus areas' },
+      async () => ({
+        contents: [{
+          uri: 'open_brain://context',
+          text: await generateContextSummary(db),
+          mimeType: 'text/markdown',
+        }],
+      }),
+    )
 
     // WebStandardStreamableHTTPServerTransport works natively with Hono (web-standard Request/Response)
     const transport = new WebStandardStreamableHTTPServerTransport({

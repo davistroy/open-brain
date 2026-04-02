@@ -96,8 +96,14 @@ const SAMPLE_FAILURES = [
 // ============================================================
 
 function makeMockDb(failures = SAMPLE_FAILURES) {
+  // db.execute is called twice:
+  //   1. pipeline_events failure query → returns failures rows
+  //   2. capture flow COUNT query → returns count > 0 (healthy by default)
+  const executeMock = vi.fn()
+    .mockResolvedValueOnce({ rows: failures })
+    .mockResolvedValueOnce({ rows: [{ count: '10' }] })
   return {
-    execute: vi.fn().mockResolvedValue({ rows: failures }),
+    execute: executeMock,
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockResolvedValue(undefined),
     }),

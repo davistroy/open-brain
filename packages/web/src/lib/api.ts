@@ -405,7 +405,7 @@ export const intelligenceApi = {
   },
 
   /** Manually trigger an intelligence skill */
-  trigger: (skill: 'daily-connections' | 'drift-monitor', overrides?: Record<string, unknown>) => {
+  trigger: (skill: 'daily-connections' | 'drift-monitor' | 'daily-sweep-skill', overrides?: Record<string, unknown>) => {
     return request<{ skill: string; job_id: string; status: string; message: string }>(
       `/intelligence/${skill}/trigger`,
       {
@@ -414,6 +414,12 @@ export const intelligenceApi = {
       },
     )
   },
+
+  /** Fetch unresolved questions — questions with no entity-overlap follow-up in 7 days */
+  unresolvedQuestions: (limit = 5) =>
+    request<{ questions: Array<{ id: string; content: string; brain_view: string; created_at: string }>; count: number }>(
+      `/intelligence/unresolved-questions?limit=${limit}`,
+    ),
 }
 
 // Bets API — API uses statement/confidence/resolution; web uses description/status/due_date

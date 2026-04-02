@@ -28,6 +28,8 @@
 | D16 | Web synthesis answers on search page | 2026-03-31 | ACTIVE | Entry 011 | Separate synthesis page (fragmented UX), Slack-only synthesis (no web access) |
 | D17 | Model aliases resolved at init from ai-routing.yaml, never raw to OpenAI | 2026-04-01 | ACTIVE | Entry 012 | Pass-through to proxy (LiteLLM removed), hardcode model names (fragile) |
 | D18 | Slack-bot: lightweight ai-routing.yaml load, not full ConfigService | 2026-04-01 | ACTIVE | Entry 012 | Full ConfigService requires all 4 YAML files; slack-bot only needs intent model |
+| D19 | Autonomy levels (observe/assist/advise/partner) gate all proactive features | 2026-04-02 | ACTIVE | Entry 013 | Per-feature toggles (too granular), env var (not dashboard-configurable) |
+| D20 | Auto-response is async fire-and-forget; autonomy cached 5 min | 2026-04-02 | ACTIVE | Entry 013 | Sync (blocks message routing), no cache (hammers settings API per message) |
 
 ## Action Items
 
@@ -37,7 +39,7 @@
 | A1 | ~~Deploy Phase 7 consolidated code to homeserver~~ | 2026-03-30 | IMPL_PLAN_PHASE7 | DONE — deployed, verified via test suite |
 | A2 | Verify pg-notify reconnection works under real disconnect | 2026-03-30 | Phase 7 | MEDIUM |
 | A3 | Deferred features: F21 voice transcription history, F22 entity merge UI, F24 multi-user | 2026-03 | PRD | LOW — Could Have / Won't Have |
-| A4 | Unify three CaptureCard implementations (shared, Timeline, EntityDetail) | 2026-03-31 | Entry 009 | MEDIUM |
+| A4 | ~~Unify three CaptureCard implementations~~ | 2026-03-31 | Entry 009 | DONE — PR #37 (8c31728) |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -83,9 +85,9 @@ The CLAUDE.md contains 24 verified operational rules covering Docker healthcheck
 
 | Component | Status | Details |
 |-----------|--------|---------|
-| Version | v1.3.0 + email pipeline + web synthesis | ~50 commits on main |
+| Version | v1.4.0 + proactive intelligence | ~55 commits on main |
 | Containers | 9 in docker-compose.yml + Cloudflare Email Worker | core-api, workers, slack-bot, voice-capture, faster-whisper, web, postgres, redis, cloudflared; email worker on Cloudflare edge |
-| Tests | 1,412 unit + 95 regression | All passing (CI green) |
+| Tests | 1,504 unit + 95 regression | All passing (CI green) |
 | LLM backend | OpenAI API | gpt-5.4 (all aliases), text-embedding-3-large (768d) |
 | Database | Postgres 16 + pgvector | vector(768) schema, migration 0010 (app_settings) |
 | External access | brain.troy-davis.com | Cloudflare Tunnel + Email Routing (brain@troy-davis.com) |
@@ -515,5 +517,75 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 **Decision:** D16 — Web synthesis on search page (vs. separate page or Slack-only).
 
 ---
+
+--- New session: 2026-04-02 — Proactive Intelligence feature set (P1-P4, P6-P9) ---
+
+### Entry 013 — Proactive Intelligence: autonomy levels, daily sweep, MCP context, heartbeat, Slack auto-response [feature] [api] [web] [slack] [workers] [mcp]
+**Date:** 2026-04-02
+**Duration:** TBD
+**Environment:** Laptop (development)
+**Tags:** `[feature]` `[api]` `[web]` `[slack]` `[workers]` `[mcp]`
+
+**Objective:** Implement 8 features across 7 change sets to transform Open Brain from passive store to active thinking partner:
+- CS1: Configurable autonomy levels (observe/assist/advise/partner) — gates all proactive features
+- CS2: Daily sweep skill + unresolved questions tracker + dashboard widget
+- CS3: MCP context bootstrap resource (`open_brain://context`)
+- CS4: Heartbeat integration monitor (complete pipeline-health skill, schedule every 30 min)
+- CS5: Slack auto-response shadow mode (classify channel questions, log draft responses)
+- CS6: Slack DM-to-you mode (send Pushover/DM when confidence exceeds threshold)
+- CS7: Slack threaded replies (autonomous responses with attribution at `advise` level)
+
+**Hypothesis:** These features can be built incrementally following existing patterns (skill system, settings API, MCP tools, Slack handlers). CS1-CS4 are independent and can be implemented in parallel. CS5→CS6→CS7 are sequential (each extends the previous). P5 (CaptureCard unification) is already done (PR #37). Success: all unit tests pass, new features work in isolation, documentation updated.
+
+**Rollback Plan:** `git revert` — all changes are additive. Autonomy level defaults to `observe` (most restrictive). Auto-response handler is async/fire-and-forget — disabling it has zero impact on existing bot behavior.
+
+**Discovery:** P5 (Unify CaptureCard) already completed in PR #37 (`8c31728`). Only one CaptureCard implementation exists. Updated action item A4 to DONE.
+
+**Actions & Results:**
+
+**CS1 — Autonomy Levels:**
+- Created `packages/shared/src/lib/autonomy.ts` — `AutonomyLevel` type, `meetsAutonomyLevel()` ordinal comparison, `AUTONOMY_DESCRIPTIONS`
+- Added `autonomy_level`, `auto_response_threshold`, `auto_response_staleness_days` to `VALID_SETTINGS_KEYS` in settings.ts
+- Added Autonomy Level section to Settings page with radio buttons and descriptions
+- 6 unit tests pass
+
+**CS2 — Daily Intelligence (P1 + P4):**
+- Created `config/prompts/daily_sweep_v1.txt` — structured JSON output template
+- Created `packages/workers/src/skills/daily-sweep-skill.ts` — full skill: query today's captures, unresolved questions (entity overlap heuristic), new entities; LLM synthesis; Pushover + save-to-brain
+- Added `GET /api/v1/intelligence/unresolved-questions` endpoint with configurable window_days and limit
+- Added Open Questions widget to Dashboard (fetches unresolved questions, shows count + excerpts)
+- Wired into skill-execution worker and scheduler (8 PM daily)
+- 38 unit tests pass
+
+**CS3 — MCP Context Resource:**
+- Created `packages/core-api/src/mcp/resources/context.ts` — generates markdown summary: focus areas, key entities, open questions, recent decisions, capture type distribution
+- Registered as MCP resource at `open_brain://context` in server.ts
+- 7 unit tests pass
+
+**CS4 — Heartbeat Monitor:**
+- Wired existing `pipeline-health` skill into skill-execution worker (was "not yet implemented" stub)
+- Added capture flow check: alerts if no captures in 6 hours during active hours (7am-midnight)
+- Scheduled every 30 minutes
+- Updated `PipelineHealthResult` interface with `captureFlowStale` field
+- 6 new unit tests pass, 24 existing pass (30 total)
+
+**CS5-CS7 — Slack Auto-Response Pipeline:**
+- Created `packages/slack-bot/src/services/confidence-scorer.ts` — composite score (50% search, 30% coverage, 20% recency)
+- Created `packages/slack-bot/src/services/attribution-formatter.ts` — Slack mrkdwn with source citations
+- Created `packages/slack-bot/src/handlers/auto-response.ts` — three modes gated by autonomy level:
+  - observe: shadow log (always)
+  - assist: Pushover notification with draft
+  - advise: threaded reply with attribution, corroboration, staleness checks
+- Integrated into server.ts as async fire-and-forget after normal routing
+- Added `getAutonomyLevel()` with 5-minute cache
+- 26 unit tests pass across auto-response and confidence-scorer test files
+
+**Test Results:**
+- shared: 40, core-api: 423, workers: 498, slack-bot: 384, web: 77, voice-capture: 82
+- **Total: 1,504 tests, 0 failures** (up from 1,412 unit + 95 regression)
+- All packages build cleanly (tsup/vite)
+
+**Decision:** D19 — Autonomy levels gating proactive features (observe/assist/advise/partner). Default `observe`. See entry 013.
+**Decision:** D20 — Auto-response uses fire-and-forget async; never blocks normal Slack message handling. Autonomy level cached 5 minutes.
 
 *Entries continue below.*
