@@ -152,9 +152,22 @@ export class PipelineHealthSkill {
     if (opts.queueFactory) {
       this.queueFactory = opts.queueFactory
     } else {
-      const connection: ConnectionOptions = opts.redisConnection ?? {
-        host: process.env.REDIS_HOST ?? 'localhost',
-        port: Number(process.env.REDIS_PORT ?? 6379),
+      // Parse REDIS_URL (e.g., redis://redis:6379) if REDIS_HOST is not set
+      let connection: ConnectionOptions
+      if (opts.redisConnection) {
+        connection = opts.redisConnection
+      } else if (process.env.REDIS_URL) {
+        const url = new URL(process.env.REDIS_URL)
+        connection = {
+          host: url.hostname || 'localhost',
+          port: Number(url.port) || 6379,
+          ...(url.password ? { password: url.password } : {}),
+        }
+      } else {
+        connection = {
+          host: process.env.REDIS_HOST ?? 'localhost',
+          port: Number(process.env.REDIS_PORT ?? 6379),
+        }
       }
       this.queueFactory = makeRealQueueFactory(connection)
     }
