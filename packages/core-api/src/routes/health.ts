@@ -32,7 +32,7 @@ interface HealthResponse {
   services: {
     postgres: ServiceCheck
     redis: ServiceCheck
-    litellm: ServiceCheck
+    llm: ServiceCheck
   }
 }
 
@@ -91,7 +91,7 @@ async function buildHealthResponse(): Promise<HealthResponse> {
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
   const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
 
-  const [postgres, redis, litellm] = await Promise.all([
+  const [postgres, redis, llm] = await Promise.all([
     checkPostgres(postgresUrl),
     checkRedis(redisUrl),
     checkLLMProvider(litellmUrl),
@@ -99,12 +99,12 @@ async function buildHealthResponse(): Promise<HealthResponse> {
 
   return {
     status: postgres.status === 'unhealthy' ? 'unhealthy' : (
-      redis.status === 'unhealthy' || litellm.status === 'degraded' ? 'degraded' : 'healthy'
+      redis.status === 'unhealthy' || llm.status === 'degraded' ? 'degraded' : 'healthy'
     ),
     timestamp: new Date().toISOString(),
     version: APP_VERSION,
     uptime_s: Math.floor(process.uptime()),
-    services: { postgres, redis, litellm },
+    services: { postgres, redis, llm },
   }
 }
 

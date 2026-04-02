@@ -44,11 +44,11 @@ describe('health endpoint', () => {
     expect(body.status).toBe('healthy')
     expect(body.services.postgres.status).toBe('healthy')
     expect(body.services.redis.status).toBe('healthy')
-    expect(body.services.litellm.status).toBe('healthy')
+    expect(body.services.llm.status).toBe('healthy')
     expect(body.timestamp).toBeTruthy()
   })
 
-  it('returns degraded when LiteLLM is down', async () => {
+  it('returns degraded when LLM provider is down', async () => {
     mockFetch.mockRejectedValue(new Error('connection refused'))
 
     const { registerHealthRoutes } = await import('../routes/health.js')
@@ -59,7 +59,7 @@ describe('health endpoint', () => {
     expect(res.status).toBe(200) // still 200 (not 503)
     const body = await res.json()
     expect(body.status).toBe('degraded')
-    expect(body.services.litellm.status).toBe('degraded')
+    expect(body.services.llm.status).toBe('degraded')
   })
 
   it('returns 503 when Postgres is down', async () => {

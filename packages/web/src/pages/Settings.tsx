@@ -111,7 +111,7 @@ function ServiceHealthSection({ services, loading }: {
             <div key={name} className="px-4 py-3 flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
                 <StatusDot status={svc.status} />
-                <span className="capitalize">{name}</span>
+                <span className="capitalize">{name === 'llm' ? 'LLM' : name}</span>
               </div>
               <div className="flex items-center gap-3 text-muted-foreground">
                 {svc.latency_ms !== undefined && <span>{svc.latency_ms}ms</span>}
