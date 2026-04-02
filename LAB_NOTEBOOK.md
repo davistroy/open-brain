@@ -585,7 +585,22 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 - **Total: 1,504 tests, 0 failures** (up from 1,412 unit + 95 regression)
 - All packages build cleanly (tsup/vite)
 
+**Deployment (2026-04-02):**
+- Built and deployed core-api, workers, slack-bot, web containers
+- All 9 containers healthy
+- **Bug found:** pipeline-health skill created internal Queue instances using `REDIS_HOST` (not set) instead of parsing `REDIS_URL=redis://redis:6379`. Fixed by adding `REDIS_URL` parsing fallback. Committed directly to main (10509b0).
+- **pipeline-health trigger:** Executed in 324ms, correctly detected `captureFlowStale:true` (last capture 12h ago)
+- **daily-sweep-skill trigger:** Executed in 2,742ms. Processed today's captures, generated headline ("A productive day ended with coworker catch-up and a date night with Ashley"), detected 2 new entities, sent Pushover notification, saved as capture.
+- Skills list shows all 5 skills with correct schedules
+- Unresolved questions endpoint returns 0 (correct — no unanswered questions yet)
+- Web dashboard healthy
+
+**What Worked:** All new features work in production. Skill execution framework handled the new skills without any issues. Pushover delivery confirmed. The daily-sweep-skill produced a relevant, actionable summary.
+
+**What Failed:** Pipeline-health Redis connection — pre-existing bug surfaced by first-ever execution. Fixed in 5 minutes.
+
 **Decision:** D19 — Autonomy levels gating proactive features (observe/assist/advise/partner). Default `observe`. See entry 013.
 **Decision:** D20 — Auto-response uses fire-and-forget async; never blocks normal Slack message handling. Autonomy level cached 5 minutes.
+**Decision:** D21 — Pipeline-health uses REDIS_URL parsing with fallback to REDIS_HOST. Docker containers set REDIS_URL.
 
 *Entries continue below.*

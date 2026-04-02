@@ -88,6 +88,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **`daily-sweep-skill` is distinct from `daily-sweep`** — the existing `daily-sweep` job (3 AM) silently re-queues stale captures. The new `daily-sweep-skill` (8 PM) is the LLM-powered evening summary. Different BullMQ queues and job IDs.
 - **MCP resources use `server.registerResource()`** — not `server.resource()`. The `@modelcontextprotocol/sdk` v1.27.1 resource API takes `(name, uri, metadata, handler)` and handler returns `{ contents: [{ uri, text, mimeType }] }`.
 - **Pipeline-health skill is now scheduled** — runs every 30 minutes via BullMQ repeatable job. Includes capture flow check (alerts if no captures in 6 hours during active hours 7am-midnight). Was previously manual-trigger only.
+- **Pipeline-health Redis connection parses REDIS_URL** — Docker sets `REDIS_URL=redis://redis:6379` but NOT `REDIS_HOST`. The skill now parses `REDIS_URL` as fallback when creating internal Queue instances for stats queries. Without this, the skill fails with ECONNREFUSED on localhost.
 
 ---
 
