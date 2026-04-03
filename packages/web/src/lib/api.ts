@@ -169,10 +169,10 @@ export const skillsApi = {
     return { data }
   },
 
-  trigger: (skillName: string) => {
+  trigger: (skillName: string, overrides?: Record<string, unknown>) => {
     return request<{ job_id: string }>(`/skills/${skillName}/trigger`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(overrides ?? {}),
     })
   },
 

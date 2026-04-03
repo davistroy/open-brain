@@ -616,4 +616,49 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 - **Found & fixed:** "Litellm" label in Service Health → renamed to "LLM" (health endpoint key + Settings page display override). Committed 735108e, deployed.
 - PWA cache required Ctrl+Shift+R to pick up new bundles (known issue, documented in CLAUDE.md)
 
+--- New session: 2026-04-03 — Run Brief configuration panel ---
+
+### Entry 014 — Run Brief configuration panel: configurable time window for weekly brief [feature] [web]
+**Date:** 2026-04-03
+**Duration:** ~30 min
+**Environment:** Laptop (development)
+**Tags:** `[feature]` `[web]`
+
+**Objective:** Replace the instant-fire "Run Now" button on the Briefs page with an inline configuration panel that lets the user choose a time window before triggering a weekly brief. Default 7 days, with presets and custom input.
+
+**Hypothesis:** The backend already accepts `windowDays` through the full chain (skills route → BullMQ job → skill-execution worker → WeeklyBriefSkill.execute). Only the frontend needs changes: update `skillsApi.trigger()` to accept overrides, and build an inline panel component. Success: panel opens on "Run Now" click, all 6 presets compute correct day counts, custom input validates, trigger sends correct `windowDays` in POST body, TypeScript compiles cleanly.
+
+**Rollback Plan:** `git revert` — pure frontend addition, no backend/DB changes.
+
+**Investigation:**
+- Traced full data path: `skillsApi.trigger()` → `POST /skills/:name/trigger` (skills.ts:88-130) → body parsed as `overrides` → BullMQ job `input` → `skill-execution.ts:50` extracts `windowDays` → `weekly-brief.ts:47` uses it with `DEFAULT_WINDOW_DAYS = 7` fallback
+- Backend already handles `windowDays` — confirmed in `skill-execution.ts:50` (`typeof input?.windowDays === 'number'`)
+- Frontend `skillsApi.trigger()` was hardcoded to send `JSON.stringify({})` — no mechanism for overrides
+- Existing Briefs page uses expand/collapse cards (BriefCard) — inline panel matches this pattern
+
+**Design Decisions:**
+- Inline expanding panel (not modal) — consistent with BriefCard expand/collapse pattern on the page
+- 6 presets: This Week (Sunday→today), This Month (1st→today), 7d, 14d, 30d, 60d
+- Custom numeric input with validation (1-365 days, integer only)
+- Live date range preview (e.g., "Mar 27 — Apr 3, 2026 (7 days)")
+- Warning for 90+ day windows (AI token cost)
+- Uses existing shadcn components only (Button, Input, Separator) — no new deps
+
+**Changes:**
+1. `packages/web/src/lib/api.ts` — Added optional `overrides?: Record<string, unknown>` param to `skillsApi.trigger()`, passed as POST body
+2. `packages/web/src/pages/Briefs.tsx` — Added:
+   - `computePresetDays()` — date math for This Week (getDay → days since Sunday) and This Month (getDate)
+   - `formatDateRange()` — human-readable "from — to (N days)" label
+   - `PRESETS` constant (6 presets with fixed days or 'compute' marker)
+   - `RunBriefPanel` component — preset buttons, custom input, validation, date preview, action buttons
+   - `showPanel` state, "Run Now" toggles panel instead of triggering directly
+   - `handleTrigger(windowDays)` passes `{ windowDays }` to `skillsApi.trigger()`
+
+**Verification:**
+- TypeScript: `pnpm --filter @open-brain/web exec tsc --noEmit` — zero errors
+- No backend changes needed — API contract unchanged
+- No new dependencies
+
+**What Worked:** Backend plumbing for `windowDays` was already complete from the original weekly-brief implementation. This was a pure frontend feature — minimal blast radius.
+
 *Entries continue below.*
