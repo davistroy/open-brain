@@ -661,4 +661,11 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 
 **What Worked:** Backend plumbing for `windowDays` was already complete from the original weekly-brief implementation. This was a pure frontend feature — minimal blast radius.
 
+**Deployment (2026-04-03):**
+- Committed bf2ff30, pushed to origin/main
+- Homeserver: `git pull` (fast-forward), `docker compose build web` (13.5s), `docker compose up -d web`
+- Web container healthy in ~13 seconds
+- New bundle `Briefs-dVn2Pd3L.js` confirmed in container
+- **Reminder:** Users may need Ctrl+Shift+R to clear PWA cache and pick up new bundles (known issue)
+
 *Entries continue below.*
