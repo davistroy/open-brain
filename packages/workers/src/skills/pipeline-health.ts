@@ -215,6 +215,11 @@ export class PipelineHealthSkill {
     const isQuietHours = hour >= 0 && hour < 7  // midnight-7am
     if (!isQuietHours) {
       captureFlowStale = await this.checkCaptureFlow(6)  // 6 hours threshold
+      // Suppress repeated capture-flow alerts — only alert once per 24 hours
+      if (captureFlowStale && await this.wasCaptureFlowAlertSentRecently(24)) {
+        logger.info('[pipeline-health] capture flow stale but alert already sent in last 24h — suppressing')
+        captureFlowStale = false
+      }
     }
 
     // Step 4: Evaluate thresholds
@@ -408,6 +413,33 @@ export class PipelineHealthSkill {
       return false
     } catch (err) {
       logger.warn({ err }, '[pipeline-health] failed to check capture flow — assuming OK')
+      return false
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Private: capture flow alert suppression
+  // ----------------------------------------------------------
+
+  /**
+   * Check if a capture-flow-stale alert was already sent within the last N hours.
+   * Queries skills_log for pipeline-health entries where output_summary contains
+   * both 'captureFlowStale:true' and 'alert:true'.
+   */
+  private async wasCaptureFlowAlertSentRecently(hours: number): Promise<boolean> {
+    try {
+      const since = new Date(Date.now() - hours * 60 * 60 * 1000)
+      const rows = await this.db.execute<{ count: string }>(sql`
+        SELECT COUNT(*)::text as count
+        FROM skills_log
+        WHERE skill_name = 'pipeline-health'
+          AND created_at >= ${since.toISOString()}::timestamptz
+          AND output_summary LIKE '%captureFlowStale:true%'
+          AND output_summary LIKE '%alert:true%'
+      `)
+      return Number(rows.rows[0]?.count ?? 0) > 0
+    } catch (err) {
+      logger.warn({ err }, '[pipeline-health] failed to check recent alert history — allowing alert')
       return false
     }
   }
