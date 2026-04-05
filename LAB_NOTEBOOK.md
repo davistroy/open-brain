@@ -668,4 +668,26 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 - New bundle `Briefs-dVn2Pd3L.js` confirmed in container
 - **Reminder:** Users may need Ctrl+Shift+R to clear PWA cache and pick up new bundles (known issue)
 
+### Entry 015 — Reduce pipeline-health alert frequency and add capture-flow suppression [config] [workers]
+
+**Date:** 2026-04-05
+**Environment:** Laptop (development)
+**Status:** COMPLETE
+**Duration:** ~15 minutes
+
+**Objective:** Reduce Pushover notification spam from pipeline-health skill. The skill runs every 30 minutes and sends "No captures received in the last 6 hours" every time during active hours when no captures exist — up to ~34 notifications per day.
+
+**Hypothesis:** Changing the cron from every 30 minutes to every 6 hours and adding 24-hour suppression for capture-flow alerts will reduce notifications to at most 1 per day. Expect: all existing tests pass, 2 new suppression tests pass.
+
+**Rollback Plan:** `git revert` the commit (ecfd968 is current HEAD before changes).
+
+**Changes:**
+1. `packages/workers/src/scheduler.ts` — cron changed from `*/30 * * * *` to `0 */6 * * *`
+2. `packages/workers/src/skills/pipeline-health.ts` — added `wasCaptureFlowAlertSentRecently(hours)` method that queries `skills_log` for prior capture-flow alerts within 24 hours; suppresses repeated alerts
+3. `packages/workers/src/__tests__/pipeline-health-heartbeat.test.ts` — 2 new tests for suppression behavior, updated mock DB to handle third query
+
+**Verification:** 32/32 pipeline-health tests pass (30 existing + 2 new).
+
+**What Worked:** Suppression uses existing `skills_log` table (no new state or columns needed). The output_summary already contains `captureFlowStale:true` and `alert:true` flags, so the query is a simple LIKE match.
+
 *Entries continue below.*

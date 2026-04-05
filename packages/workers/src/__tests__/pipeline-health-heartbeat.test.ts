@@ -13,14 +13,15 @@ function makeMockQueueFactory() {
   })
 }
 
-function makeMockDb(captureCount: string = '5') {
-  // The db.execute mock needs to handle two different queries:
+function makeMockDb(captureCount: string = '5', recentAlertCount: string = '0') {
+  // The db.execute mock needs to handle up to three different queries:
   // 1. pipeline_events failure query (returns rows array)
   // 2. capture flow COUNT query (returns { count: string })
-  // We differentiate by call order: first call = pipeline_events, second = capture flow
+  // 3. suppression check query (only called when captureFlowStale=true; returns { count: string })
   const executeMock = vi.fn()
     .mockResolvedValueOnce({ rows: [] })  // pipeline_events query
     .mockResolvedValueOnce({ rows: [{ count: captureCount }] })  // capture flow query
+    .mockResolvedValueOnce({ rows: [{ count: recentAlertCount }] })  // suppression check (if needed)
 
   return {
     execute: executeMock,
@@ -126,6 +127,49 @@ describe('PipelineHealthSkill — heartbeat (capture flow)', () => {
         message: expect.stringContaining('No captures received in the last 6 hours'),
       }),
     )
+
+    vi.useRealTimers()
+  })
+
+  it('suppresses capture flow alert if one was already sent in the last 24 hours', async () => {
+    const mockDate = new Date('2026-04-02T10:00:00')
+    vi.setSystemTime(mockDate)
+
+    // recentAlertCount = '1' means a prior alert was already sent
+    const mockDb = makeMockDb('0', '1')
+    const sendMock = vi.fn().mockResolvedValue(undefined)
+
+    const skill = new PipelineHealthSkill({
+      db: mockDb as any,
+      queueFactory: makeMockQueueFactory(),
+      pushover: { isConfigured: true, send: sendMock } as any,
+    })
+
+    const result = await skill.execute()
+    // captureFlowStale should be suppressed to false
+    expect(result.captureFlowStale).toBe(false)
+    expect(sendMock).not.toHaveBeenCalled()
+
+    vi.useRealTimers()
+  })
+
+  it('sends capture flow alert when no prior alert in last 24 hours', async () => {
+    const mockDate = new Date('2026-04-02T10:00:00')
+    vi.setSystemTime(mockDate)
+
+    // recentAlertCount = '0' means no prior alert
+    const mockDb = makeMockDb('0', '0')
+    const sendMock = vi.fn().mockResolvedValue(undefined)
+
+    const skill = new PipelineHealthSkill({
+      db: mockDb as any,
+      queueFactory: makeMockQueueFactory(),
+      pushover: { isConfigured: true, send: sendMock } as any,
+    })
+
+    const result = await skill.execute()
+    expect(result.captureFlowStale).toBe(true)
+    expect(sendMock).toHaveBeenCalled()
 
     vi.useRealTimers()
   })
