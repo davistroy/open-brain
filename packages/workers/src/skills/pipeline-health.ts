@@ -211,7 +211,6 @@ export class PipelineHealthSkill {
 
     // Step 3.5: Check capture flow (skip during quiet hours)
     let captureFlowStale = false
-    let captureFlowSuppressed = false
     const hour = new Date().getHours()
     const isQuietHours = hour >= 0 && hour < 7  // midnight-7am
     if (!isQuietHours) {
@@ -220,7 +219,6 @@ export class PipelineHealthSkill {
       if (captureFlowStale && await this.wasCaptureFlowAlertSentRecently(24)) {
         logger.info('[pipeline-health] capture flow stale but alert already sent in last 24h — suppressing')
         captureFlowStale = false
-        captureFlowSuppressed = true
       }
     }
 
