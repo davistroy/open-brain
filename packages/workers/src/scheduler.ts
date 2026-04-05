@@ -117,9 +117,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: driftCron }, '[scheduler] drift-monitor repeatable job registered')
 
   // --------------------------------------------------------
-  // Pipeline health (every 30 minutes)
+  // Pipeline health (every 6 hours)
   // --------------------------------------------------------
-  const pipelineHealthCron = '*/30 * * * *'
+  const pipelineHealthCron = '0 */6 * * *'
 
   await skillExecutionQueue.add(
     'pipeline-health',
