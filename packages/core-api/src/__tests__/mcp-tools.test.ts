@@ -6,6 +6,7 @@ import { captureThoughtTool } from '../mcp/tools/capture-thought.js'
 import { getEntityTool } from '../mcp/tools/get-entity.js'
 import { listEntitiesTool } from '../mcp/tools/list-entities.js'
 import { getWeeklyBriefTool } from '../mcp/tools/get-weekly-brief.js'
+import { getCaptureTool } from '../mcp/tools/get-capture.js'
 
 // ---------- Mocks ----------
 
@@ -244,17 +245,98 @@ describe('get_weekly_brief tool', () => {
     expect(result).toContain('No weekly briefs generated yet')
   })
 
-  it('returns brief content when found', async () => {
+  it('returns brief content from result JSONB when available', async () => {
     mockDb.execute.mockResolvedValue({
       rows: [{
         id: 'b1234567-89ab-cdef-0123-456789abcdef',
         skill_name: 'weekly-brief',
-        output: { content: 'This week you captured 15 items across 3 views...' },
+        output_summary: 'Truncated summary...',
+        result: { content: 'This week you captured 15 items across 3 views...' },
         created_at: '2026-03-01T09:00:00Z',
       }],
     })
     const result = await getWeeklyBriefTool({ weeks_ago: 0 }, mockDb as any)
     expect(result).toContain('Weekly Brief')
     expect(result).toContain('This week you captured')
+    // Should prefer result over output_summary
+    expect(result).not.toContain('Truncated summary')
+  })
+
+  it('falls back to output_summary when result is null', async () => {
+    mockDb.execute.mockResolvedValue({
+      rows: [{
+        id: 'b1234567-89ab-cdef-0123-456789abcdef',
+        skill_name: 'weekly-brief',
+        output_summary: 'Fallback summary text',
+        result: null,
+        created_at: '2026-03-01T09:00:00Z',
+      }],
+    })
+    const result = await getWeeklyBriefTool({ weeks_ago: 0 }, mockDb as any)
+    expect(result).toContain('Fallback summary text')
+  })
+})
+
+describe('get_capture tool', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+
+  const mockCaptureServiceForGet = {
+    getById: vi.fn().mockResolvedValue({
+      ...mockCapture,
+      source_metadata: { channel: '#general' },
+    }),
+  }
+
+  it('returns full capture content', async () => {
+    mockDb.execute.mockResolvedValue({ rows: [] }) // no linked entities
+    const result = await getCaptureTool(
+      { id: mockCapture.id },
+      mockCaptureServiceForGet as any,
+      mockDb as any,
+    )
+    expect(result).toContain('DECISION')
+    expect(result).toContain(mockCapture.id)
+    expect(result).toContain(mockCapture.content)
+    expect(result).toContain('work-internal')
+    expect(result).toContain('qsr, pricing')
+  })
+
+  it('includes linked entities when present', async () => {
+    mockDb.execute.mockResolvedValue({
+      rows: [
+        { name: 'Coca-Cola', type: 'organization', relationship: 'mentioned_in' },
+        { name: 'Troy Davis', type: 'person', relationship: null },
+      ],
+    })
+    const result = await getCaptureTool(
+      { id: mockCapture.id },
+      mockCaptureServiceForGet as any,
+      mockDb as any,
+    )
+    expect(result).toContain('Linked Entities')
+    expect(result).toContain('Coca-Cola [organization]')
+    expect(result).toContain('Troy Davis [person]')
+  })
+
+  it('includes source metadata when present', async () => {
+    mockDb.execute.mockResolvedValue({ rows: [] })
+    const result = await getCaptureTool(
+      { id: mockCapture.id },
+      mockCaptureServiceForGet as any,
+      mockDb as any,
+    )
+    expect(result).toContain('channel: #general')
+  })
+
+  it('handles missing entity table gracefully', async () => {
+    mockDb.execute.mockRejectedValue(new Error('relation "entity_links" does not exist'))
+    const result = await getCaptureTool(
+      { id: mockCapture.id },
+      mockCaptureServiceForGet as any,
+      mockDb as any,
+    )
+    // Should not throw, just skip entities section
+    expect(result).toContain(mockCapture.content)
+    expect(result).not.toContain('Linked Entities')
   })
 })

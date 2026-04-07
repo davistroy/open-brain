@@ -32,6 +32,8 @@
 | D20 | Auto-response is async fire-and-forget; autonomy cached 5 min | 2026-04-02 | ACTIVE | Entry 013 | Sync (blocks message routing), no cache (hammers settings API per message) |
 | D21 | Pipeline-health parses REDIS_URL with fallback to REDIS_HOST | 2026-04-02 | ACTIVE | Entry 013 | Docker sets REDIS_URL not REDIS_HOST; skill created queues against localhost |
 | D22 | Health endpoint service key renamed from `litellm` to `llm` | 2026-04-02 | ACTIVE | Entry 013 | LiteLLM proxy removed; OpenAI direct — label should be generic |
+| D23 | OpenClaw integration via skill (not plugin) | 2026-04-07 | ACTIVE | Entry 016 | Plugin (overkill — no runtime code needed), direct API calls (less discoverable for agent) |
+| D24 | MCP captures from OpenClaw use source: mcp (hardcoded) | 2026-04-07 | ACTIVE | Entry 016 | New 'openclaw' source type (schema change, migration), source_metadata.origin field (future) |
 
 ## Action Items
 
@@ -42,6 +44,8 @@
 | A2 | Verify pg-notify reconnection works under real disconnect | 2026-03-30 | Phase 7 | MEDIUM |
 | A3 | Deferred features: F21 voice transcription history, F22 entity merge UI, F24 multi-user | 2026-03 | PRD | LOW — Could Have / Won't Have |
 | A4 | ~~Unify three CaptureCard implementations~~ | 2026-03-31 | Entry 009 | DONE — PR #37 (8c31728) |
+| A5 | Monitor OpenClaw capture quality (entity extraction, brain view classification) | 2026-04-07 | Entry 016 | MEDIUM |
+| A6 | Consider source_metadata.origin field to distinguish MCP capture origins | 2026-04-07 | Entry 016 | LOW |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -688,6 +692,76 @@ First deploy attempt crashed slack-bot: `ConfigService.load()` requires ALL conf
 
 **Verification:** 32/32 pipeline-health tests pass (30 existing + 2 new).
 
-**What Worked:** Suppression uses existing `skills_log` table (no new state or columns needed). The output_summary already contains `captureFlowStale:true` and `alert:true` flags, so the query is a simple LIKE match.
+**What Worked:** Suppression uses existing `skills_log` table (no new state or columns needed). The output_summary already contains `captureFlowStale:true` and `alert:true` flags, so the query is a simple LIKE match. Auto-review caught an unused `captureFlowSuppressed` variable — removed before merge.
+
+**Deployment (2026-04-05):**
+- PR #41 merged (squash), commit 9de0301
+- Homeserver: `git pull` (fast-forward), `docker compose build workers` (25s), `docker compose up -d workers`
+- Workers container healthy, logs confirm new cron: `"cron":"0 */6 * * *","msg":"[scheduler] pipeline-health repeatable job registered"`
+- CLAUDE.md updated with new operational rule
+
+--- New session: 2026-04-07 — OpenClaw ↔ Open Brain MCP integration ---
+
+### Entry 016 — OpenClaw ↔ Open Brain MCP integration + MCP tool improvements [mcp] [deploy] [feature]
+
+**Date:** 2026-04-07
+**Environment:** Laptop (development) + bond.k4jda.net (OpenClaw) + homeserver (Open Brain)
+**Status:** COMPLETE
+**Duration:** ~90 minutes
+
+**Objective:** Connect OpenClaw (bond.k4jda.net) to Open Brain (homeserver) via MCP for bidirectional knowledge flow — OpenClaw queries Open Brain's knowledge base during conversations and captures decisions/insights back. Also fix MCP tool quality issues discovered during validation.
+
+**Hypothesis:** OpenClaw's native MCP client support (streamable-http) should connect directly to Open Brain's existing `/mcp` endpoint with Bearer auth. A skill file will teach the agent when to use the tools. Expect: all 7 MCP tools callable from bond, conversational search and capture-back working through Telegram/Slack.
+
+**Rollback Plan:** Delete skill file on bond. Revert code changes via git. No database changes involved.
+
+**Investigation Findings:**
+1. OpenClaw v2026.4.5 already running on bond as systemd service (davistroy user, port 18789)
+2. MCP config for `open_brain` already existed in `openclaw.json` — pointing to Tailscale IP `100.101.61.122:3002/mcp` with streamable-http transport
+3. Bearer token verified matching: `OPENCLAW_OPEN_BRAIN_TOKEN` (via Bitwarden secrets-loader) = `MCP_API_KEY` on homeserver
+4. DNS `homeserver.k4jda.net` fails from bond; Tailscale IP and MagicDNS (`homeserver`) both work
+5. `/mcp` route has NO rate limiting (outside `/api/v1/*` namespace)
+6. CORS is non-issue (server-to-server)
+7. Paperclip project also on bond at `~/projects/paperclip/` but not yet set up
+
+**Phase 1 — Skill deployment:**
+- Created `~/.openclaw/workspace/skills/open-brain/SKILL.md` on bond via SSH
+- Restarted gateway (secrets-loader failed on first attempt due to Bitwarden rate limiting; succeeded on auto-retry)
+- Skill loads at session start — verified via `/new` in TUI
+
+**Phase 2 — MCP connectivity verification:**
+- `tools/list` from bond: all 7 tools returned ✅
+- `brain_stats` (week): 36 captures, 468 entities, pipeline healthy ✅
+- `capture_thought`: test capture created (ID `500506f7...`) ✅
+
+**Phase 3 — Conversational validation + fixes:**
+User tested via OpenClaw TUI. First test exposed two issues:
+1. Agent used `brain_stats` instead of `search_brain` for "what have I captured about X" — skill wording ambiguity
+2. `get_weekly_brief` returned truncated metadata (queried `output_summary` TEXT column instead of `result` JSONB)
+3. No `get_capture` tool existed — agent couldn't drill down to full capture content from truncated search previews
+
+**Skill v2:** Updated skill to explicitly guide agent to default to `search_brain` for content questions, `brain_stats` only for explicit count/stats questions. Second test showed dramatically better results — agent searched and presented actual capture content.
+
+**Code changes (3 fixes, zero technical debt):**
+1. `get-weekly-brief.ts` — selects both `result` (JSONB) and `output_summary` (TEXT), prefers `result` via `??` fallback. Existing TypeScript parsing handles both formats.
+2. `search-brain.ts` / `list-captures.ts` — preview limits increased: search 200→500 chars, list 150→300 chars
+3. New `get-capture.ts` tool — fetches full capture by ID with content, metadata, source_metadata, tags, and linked entities (via JOIN on entity_links). Registered as tool #8 in `index.ts`.
+4. `mcp-tools.test.ts` — 4 new tests for get_capture, 1 updated test for weekly brief result-vs-summary preference. 25 total (was 21).
+
+**Verification:** 428/428 core-api tests pass. Type-check clean.
+
+**What Worked:**
+- MCP config on OpenClaw side was already done — zero config changes needed on bond
+- Bitwarden secrets-loader chain (Bitwarden → secrets-loader.sh → gateway.env → systemd EnvironmentFile) is robust
+- Streamable HTTP transport works seamlessly between the two systems over Tailscale
+- Iterative skill refinement based on actual user testing produced much better agent behavior
+
+**What Failed:**
+- Gateway restart triggered secrets-loader failure (14/19 secrets failed to fetch from Bitwarden on first attempt — likely rate-limited). The `>3 failures` threshold caused exit 1, but auto-retry succeeded. The secrets-loader is fragile for restarts but self-healing.
+- `claude` SSH user on bond has limited visibility into davistroy's files — had to use `ssh davistroy@bond` for most operations
+
+**Decisions:**
+- D23: OpenClaw skill is the right integration level (not a plugin) — agent instruction via SKILL.md, no runtime code needed
+- D24: MCP captures from OpenClaw show as `source: mcp` (hardcoded in capture_thought) — acceptable for now, distinguishable via source_metadata if needed later
 
 *Entries continue below.*
