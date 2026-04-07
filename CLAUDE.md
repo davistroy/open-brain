@@ -87,7 +87,10 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Auto-response handler is async fire-and-forget** — runs after normal Slack message routing via `.then()/.catch()`. Never blocks capture/query/command handling. Autonomy level is cached for 5 minutes to avoid per-message settings API calls.
 - **`daily-sweep-skill` is distinct from `daily-sweep`** — the existing `daily-sweep` job (3 AM) silently re-queues stale captures. The new `daily-sweep-skill` (8 PM) is the LLM-powered evening summary. Different BullMQ queues and job IDs.
 - **MCP resources use `server.registerResource()`** — not `server.resource()`. The `@modelcontextprotocol/sdk` v1.27.1 resource API takes `(name, uri, metadata, handler)` and handler returns `{ contents: [{ uri, text, mimeType }] }`.
-- **Pipeline-health skill is now scheduled** — runs every 30 minutes via BullMQ repeatable job. Includes capture flow check (alerts if no captures in 6 hours during active hours 7am-midnight). Was previously manual-trigger only.
+- **Pipeline-health skill is now scheduled** — runs every 6 hours (cron `0 */6 * * *`) via BullMQ repeatable job. Includes capture flow check (alerts if no captures in 6 hours during active hours 7am-midnight). Capture-flow alert suppressed if already sent within 24 hours (queries `skills_log`). Was previously every 30 minutes — reduced to avoid notification spam.
+- **`get_weekly_brief` reads `result` JSONB, falls back to `output_summary`** — the `result` column (JSONB) stores the full structured brief; `output_summary` (TEXT) is truncated. Always prefer `result` via `COALESCE`.
+- **MCP search/list previews are truncated** — `search_brain` truncates at 500 chars, `list_captures` at 300 chars. Use `get_capture` tool to fetch full content by ID.
+- **`get_capture` MCP tool returns full content + linked entities** — includes content, metadata, source_metadata, tags, and entity links via JOIN on entity_links table.
 - **Pipeline-health Redis connection parses REDIS_URL** — Docker sets `REDIS_URL=redis://redis:6379` but NOT `REDIS_HOST`. The skill now parses `REDIS_URL` as fallback when creating internal Queue instances for stats queries. Without this, the skill fails with ECONNREFUSED on localhost.
 
 ---
@@ -114,7 +117,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 - **Migrations**: Drizzle ORM + drizzle-kit (NOT raw SQL, NOT Prisma)
 - **External access**: Cloudflare Tunnel → brain.troy-davis.com (web dashboard); MCP via LiteLLM gateway at llm.troy-davis.com/mcp
 - **Docker networking**: Single `open-brain` network for all containers
-- **MCP**: Embedded in Core API at `/mcp` route (Streamable HTTP, no separate container)
+- **MCP**: Embedded in Core API at `/mcp` route (Streamable HTTP, no separate container). 8 tools: search_brain, list_captures, brain_stats, capture_thought, get_entity, list_entities, get_weekly_brief, get_capture. 1 resource: open_brain://context.
 - **Monorepo**: pnpm workspaces (packages: shared, core-api, slack-bot, workers, voice-capture)
 - **Slack**: @slack/bolt with socketMode: true
 - **Build**: tsx for dev, tsup (esbuild) for production

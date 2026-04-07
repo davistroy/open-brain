@@ -52,8 +52,8 @@ export async function searchBrainTool(input: SearchBrainInput, searchService: Se
       day: 'numeric',
     })
     const matchPct = Math.round(score * 100)
-    const preview = capture.content.length > 200
-      ? capture.content.slice(0, 200).trimEnd() + '…'
+    const preview = capture.content.length > 500
+      ? capture.content.slice(0, 500).trimEnd() + '…'
       : capture.content
 
     lines.push(`${i + 1}. [${matchPct}% match] ${capture.capture_type.toUpperCase()} — ${date} (${capture.source})`)

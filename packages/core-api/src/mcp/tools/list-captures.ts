@@ -41,8 +41,8 @@ export async function listCapturesTool(input: ListCapturesInput, captureService:
       month: 'short',
       day: 'numeric',
     })
-    const preview = capture.content.length > 150
-      ? capture.content.slice(0, 150).trimEnd() + '…'
+    const preview = capture.content.length > 300
+      ? capture.content.slice(0, 300).trimEnd() + '…'
       : capture.content
 
     lines.push(`• [${capture.capture_type.toUpperCase()}] ${date} | ${capture.source} | status: ${capture.pipeline_status}`)

@@ -12,6 +12,7 @@ import { captureThoughtSchema, captureThoughtTool, type CaptureThoughtInput } fr
 import { getEntitySchema, getEntitySchemaShape, getEntityTool, type GetEntityInput } from './get-entity.js'
 import { listEntitiesSchema, listEntitiesTool, type ListEntitiesInput } from './list-entities.js'
 import { getWeeklyBriefSchema, getWeeklyBriefTool, type GetWeeklyBriefInput } from './get-weekly-brief.js'
+import { getCaptureSchema, getCaptureTool, type GetCaptureInput } from './get-capture.js'
 
 interface RegisterToolsDeps {
   server: McpServer
@@ -98,6 +99,17 @@ export function registerMcpTools(deps: RegisterToolsDeps): void {
     getWeeklyBriefSchema.shape,
     async (input) => {
       const result = await getWeeklyBriefTool(input as GetWeeklyBriefInput, db)
+      return { content: [{ type: 'text', text: result }] }
+    },
+  )
+
+  // Tool 8: get_capture — fetch full capture by ID
+  server.tool(
+    'get_capture',
+    'Get the full content of a specific capture by ID. Use after search_brain or list_captures to read complete content instead of truncated previews.',
+    getCaptureSchema.shape,
+    async (input) => {
+      const result = await getCaptureTool(input as GetCaptureInput, captureService, db)
       return { content: [{ type: 'text', text: result }] }
     },
   )
