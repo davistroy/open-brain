@@ -11,7 +11,8 @@ export type GetWeeklyBriefInput = z.infer<typeof getWeeklyBriefSchema>
 type SkillsLogRow = {
   id: string
   skill_name: string
-  output: unknown
+  output_summary: string | null
+  result: unknown
   created_at: string
 }
 
@@ -21,14 +22,14 @@ export async function getWeeklyBriefTool(input: GetWeeklyBriefInput, db: Databas
   try {
     if (input.weeks_ago === 0) {
       const result = await db.execute<SkillsLogRow>(
-        sql`SELECT id::text, skill_name, output_summary AS output, created_at FROM skills_log WHERE skill_name = 'weekly-brief' ORDER BY created_at DESC LIMIT 1`,
+        sql`SELECT id::text, skill_name, output_summary, result, created_at FROM skills_log WHERE skill_name = 'weekly-brief' ORDER BY created_at DESC LIMIT 1`,
       )
       rows = result.rows
     } else {
       // Find the brief from approximately N weeks ago
       const targetDate = new Date(Date.now() - input.weeks_ago * 7 * 24 * 60 * 60 * 1000)
       const result = await db.execute<SkillsLogRow>(
-        sql`SELECT id::text, skill_name, output_summary AS output, created_at FROM skills_log WHERE skill_name = 'weekly-brief' AND created_at <= ${targetDate.toISOString()}::timestamptz ORDER BY created_at DESC LIMIT 1`,
+        sql`SELECT id::text, skill_name, output_summary, result, created_at FROM skills_log WHERE skill_name = 'weekly-brief' AND created_at <= ${targetDate.toISOString()}::timestamptz ORDER BY created_at DESC LIMIT 1`,
       )
       rows = result.rows
     }
@@ -52,12 +53,18 @@ export async function getWeeklyBriefTool(input: GetWeeklyBriefInput, db: Databas
     day: 'numeric',
   })
 
-  const output = brief.output
-  const content = typeof output === 'string'
-    ? output
-    : typeof output === 'object' && output !== null && 'content' in output
-      ? String((output as Record<string, unknown>).content)
-      : JSON.stringify(output, null, 2)
+  // Prefer result (JSONB, full structured output) over output_summary (truncated text)
+  const output = brief.result ?? brief.output_summary
+  let content: string
+  if (typeof output === 'string') {
+    content = output
+  } else if (typeof output === 'object' && output !== null && 'content' in output) {
+    content = String((output as Record<string, unknown>).content)
+  } else if (output != null) {
+    content = JSON.stringify(output, null, 2)
+  } else {
+    content = 'No brief content available.'
+  }
 
   return `Weekly Brief — ${briefDate}\n${'='.repeat(50)}\n\n${content}`
 }
