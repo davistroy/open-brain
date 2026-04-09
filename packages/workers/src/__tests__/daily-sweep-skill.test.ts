@@ -5,11 +5,13 @@ import {
   parseOutput,
   assembleContext,
   fmtDate,
+  formatVoiceStatsLine,
   queryTodayCaptures,
   queryUnresolvedQuestions,
   queryNewEntities,
+  queryVoiceStats,
 } from '../skills/daily-sweep-skill.js'
-import type { DailySweepOutput } from '../skills/daily-sweep-skill.js'
+import type { DailySweepOutput, VoiceStats } from '../skills/daily-sweep-skill.js'
 import { PushoverService } from '../services/pushover.js'
 
 // Prompt templates live at <repo-root>/config/prompts/
@@ -84,18 +86,22 @@ const SAMPLE_OUTPUT: DailySweepOutput = {
 // Mock helpers
 // ============================================================
 
+const DEFAULT_VOICE_STATS_ROW = { count: '3', last_voice: '2026-04-01T14:00:00Z' }
+
 function makeMockDb(
   captures = SAMPLE_CAPTURES,
   questions = SAMPLE_QUESTIONS,
   entities = SAMPLE_ENTITIES,
+  voiceStatsRow = DEFAULT_VOICE_STATS_ROW,
 ) {
   let callCount = 0
   return {
     execute: vi.fn().mockImplementation(() => {
       callCount++
-      // Call order: 1=todayCaptures, 2=unresolvedQuestions, 3=newEntities
+      // Call order: 1=todayCaptures, 2=voiceStats, 3=unresolvedQuestions, 4=newEntities
       if (callCount === 1) return Promise.resolve({ rows: captures })
-      if (callCount === 2) return Promise.resolve({ rows: questions })
+      if (callCount === 2) return Promise.resolve({ rows: [voiceStatsRow] })
+      if (callCount === 3) return Promise.resolve({ rows: questions })
       return Promise.resolve({ rows: entities })
     }),
     insert: vi.fn().mockReturnValue({
@@ -130,6 +136,7 @@ function makeSkill(opts: {
   captures?: typeof SAMPLE_CAPTURES
   questions?: typeof SAMPLE_QUESTIONS
   entities?: typeof SAMPLE_ENTITIES
+  voiceStatsRow?: { count: string; last_voice: string | null }
   sweepOutput?: DailySweepOutput
   pushoverConfigured?: boolean
   promptsDir?: string
@@ -139,6 +146,7 @@ function makeSkill(opts: {
     opts.captures ?? SAMPLE_CAPTURES,
     opts.questions ?? SAMPLE_QUESTIONS,
     opts.entities ?? SAMPLE_ENTITIES,
+    opts.voiceStatsRow ?? DEFAULT_VOICE_STATS_ROW,
   )
   const mockLitellm = makeMockOpenAI(opts.sweepOutput ?? SAMPLE_OUTPUT)
   const pushover = makePushoverService(opts.pushoverConfigured ?? true)
@@ -270,6 +278,65 @@ describe('fmtDate', () => {
 
   it('handles year boundaries', () => {
     expect(fmtDate(new Date('2025-12-31T23:59:59Z'))).toBe('2025-12-31')
+  })
+})
+
+// ============================================================
+// Tests: formatVoiceStatsLine
+// ============================================================
+
+describe('formatVoiceStatsLine', () => {
+  it('formats zero voice captures', () => {
+    const result = formatVoiceStatsLine({ count: 0, lastVoiceDate: null })
+    expect(result).toBe('Voice memos this week: 0')
+  })
+
+  it('formats captures with last today', () => {
+    const result = formatVoiceStatsLine({ count: 5, lastVoiceDate: new Date() })
+    expect(result).toBe('Voice memos this week: 5 (last: today)')
+  })
+
+  it('formats captures with last 1 day ago', () => {
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    // Set to same time to ensure we get exactly 1 day
+    yesterday.setHours(0, 0, 0, 0)
+    const now = new Date()
+    now.setHours(23, 59, 59, 0)
+    // Use a deterministic approach: construct a date exactly 1.5 days ago
+    const oneDayAgo = new Date(Date.now() - 1.5 * 24 * 60 * 60 * 1000)
+    const result = formatVoiceStatsLine({ count: 2, lastVoiceDate: oneDayAgo })
+    expect(result).toBe('Voice memos this week: 2 (last: 1 day ago)')
+  })
+
+  it('formats captures with last multiple days ago', () => {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+    const result = formatVoiceStatsLine({ count: 1, lastVoiceDate: threeDaysAgo })
+    expect(result).toBe('Voice memos this week: 1 (last: 3 days ago)')
+  })
+})
+
+// ============================================================
+// Tests: queryVoiceStats
+// ============================================================
+
+describe('queryVoiceStats', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('returns count and lastVoiceDate from query', async () => {
+    const mockDb = { execute: vi.fn().mockResolvedValue({ rows: [{ count: '5', last_voice: '2026-04-01T14:00:00Z' }] }) }
+    const result = await queryVoiceStats(mockDb as any)
+    expect(result.count).toBe(5)
+    expect(result.lastVoiceDate).toEqual(new Date('2026-04-01T14:00:00Z'))
+  })
+
+  it('returns zero count and null date when no voice captures', async () => {
+    const mockDb = { execute: vi.fn().mockResolvedValue({ rows: [{ count: '0', last_voice: null }] }) }
+    const result = await queryVoiceStats(mockDb as any)
+    expect(result.count).toBe(0)
+    expect(result.lastVoiceDate).toBeNull()
   })
 })
 
@@ -419,6 +486,22 @@ describe('DailySweepSkill', () => {
       expect(sendCall.message).toContain(SAMPLE_OUTPUT.headline)
     })
 
+    it('includes voice stats in Pushover notification', async () => {
+      const { skill, pushover } = makeSkill()
+      await skill.execute()
+
+      const sendCall = (pushover.send as unknown as MockInstance).mock.calls[0][0]
+      expect(sendCall.message).toContain('Voice memos this week: 3')
+    })
+
+    it('shows zero voice memos when none in last 7 days', async () => {
+      const { skill, pushover } = makeSkill({ voiceStatsRow: { count: '0', last_voice: null } })
+      await skill.execute()
+
+      const sendCall = (pushover.send as unknown as MockInstance).mock.calls[0][0]
+      expect(sendCall.message).toContain('Voice memos this week: 0')
+    })
+
     it('saves sweep back to brain via Core API POST when storeCapture is true', async () => {
       const { skill, mockFetch } = makeSkill()
       await skill.execute({ storeCapture: true })
@@ -525,6 +608,14 @@ describe('DailySweepSkill', () => {
           message: expect.stringContaining('Quiet day'),
         }),
       )
+    })
+
+    it('includes voice stats in quiet-day Pushover notification', async () => {
+      const { skill, pushover } = makeSkill({ captures: [] })
+      await skill.execute()
+
+      const sendCall = (pushover.send as unknown as MockInstance).mock.calls[0][0]
+      expect(sendCall.message).toContain('Voice memos this week:')
     })
   })
 

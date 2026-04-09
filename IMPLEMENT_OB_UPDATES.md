@@ -97,13 +97,13 @@ This creates a habit-reinforcing feedback loop -- seeing the count in the evenin
 - `packages/workers/src/skills/daily-sweep-skill.ts` -- add voice stats query in execute(), include in Pushover message
 - `packages/workers/src/__tests__/daily-sweep-skill.test.ts` -- add test for voice stats in notification
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-04-09
 
 **Acceptance Criteria:**
-- [ ] Pushover notification includes "Voice memos this week: N" line
-- [ ] Includes "last: X days ago" (or "last: today" if same day)
-- [ ] Gracefully handles zero voice captures (shows "Voice memos this week: 0")
-- [ ] Query uses indexed `created_at` column -- no full table scan
+- [x] Pushover notification includes "Voice memos this week: N" line
+- [x] Includes "last: X days ago" (or "last: today" if same day)
+- [x] Gracefully handles zero voice captures (shows "Voice memos this week: 0")
+- [x] Query uses indexed `created_at` column -- no full table scan
 
 ---
 
