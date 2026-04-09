@@ -34,6 +34,7 @@
 | D22 | Health endpoint service key renamed from `litellm` to `llm` | 2026-04-02 | ACTIVE | Entry 013 | LiteLLM proxy removed; OpenAI direct — label should be generic |
 | D23 | OpenClaw integration via skill (not plugin) | 2026-04-07 | ACTIVE | Entry 016 | Plugin (overkill — no runtime code needed), direct API calls (less discoverable for agent) |
 | D24 | MCP captures from OpenClaw use source: mcp (hardcoded) | 2026-04-07 | ACTIVE | Entry 016 | New 'openclaw' source type (schema change, migration), source_metadata.origin field (future) |
+| D25 | Port Shodh cognitive concepts (not binary) into Open Brain | 2026-04-09 | ACTIVE | Entry 017 | Run Shodh as sidecar (dual storage, incompatible embeddings, Rust/TS mismatch), ignore entirely (miss valuable cognitive patterns) |
 
 ## Action Items
 
@@ -46,6 +47,9 @@
 | A4 | ~~Unify three CaptureCard implementations~~ | 2026-03-31 | Entry 009 | DONE — PR #37 (8c31728) |
 | A5 | Monitor OpenClaw capture quality (entity extraction, brain view classification) | 2026-04-07 | Entry 016 | MEDIUM |
 | A6 | Consider source_metadata.origin field to distinguish MCP capture origins | 2026-04-07 | Entry 016 | LOW |
+| A7 | Implement Hebbian Learning (Phase 1 of IMPLEMENT_IMPROVED_MEMORY.md) | 2026-04-09 | Entry 017 | MEDIUM |
+| A8 | Implement Spreading Activation (Phase 2 of IMPLEMENT_IMPROVED_MEMORY.md) | 2026-04-09 | Entry 017 | MEDIUM |
+| A9 | Implement Memory Consolidation skill (Phase 3 of IMPLEMENT_IMPROVED_MEMORY.md) | 2026-04-09 | Entry 017 | MEDIUM |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -763,5 +767,75 @@ User tested via OpenClaw TUI. First test exposed two issues:
 **Decisions:**
 - D23: OpenClaw skill is the right integration level (not a plugin) — agent instruction via SKILL.md, no runtime code needed
 - D24: MCP captures from OpenClaw show as `source: mcp` (hardcoded in capture_thought) — acceptable for now, distinguishable via source_metadata if needed later
+
+---
+
+--- New session: 2026-04-09 — Evaluate Shodh cognitive memory integration ---
+
+### Entry 017: Shodh Memory Evaluation & Cognitive Memory Implementation Plan [decision] [architecture]
+
+**Date:** 2026-04-09
+**Environment:** Development (planning only — no code changes)
+**Tags:** `[decision]` `[architecture]` `[planning]`
+
+**Objective:** Evaluate whether Shodh (shodh-memory.com) should be integrated into Open Brain, and if so, how. Build a detailed implementation plan for the chosen approach.
+
+**Hypothesis:** Shodh's cognitive memory concepts (Hebbian learning, spreading activation, memory consolidation) would add value to Open Brain's memory system, but running it as a sidecar binary would create more problems than it solves. Porting the concepts into Open Brain's existing Postgres/TypeScript stack should be feasible and architecturally cleaner.
+
+**Rollback Plan:** N/A — planning and documentation only.
+
+---
+
+**Research Phase:**
+
+Researched Shodh via website, GitHub repo (varun29ankuS/shodh-memory), and npm package (@shodh/memory-mcp).
+
+**Shodh key facts:**
+- Rust binary (~30MB), fully offline, RocksDB storage
+- Local embeddings (not cloud), 37 MCP tools
+- Neuroscience-grounded: Cowan's working memory model, Hebbian learning, spreading activation, hybrid decay (exponential + power-law)
+- 3-tier memory: Working (100 items) → Session (100MB) → Long-term (RocksDB)
+- Sub-millisecond graph traversal, 34-58ms semantic search
+- Apache 2.0 licensed
+
+**Overlap analysis (70% redundant):**
+- Both: semantic search with embeddings, temporal decay, entity/knowledge graph, MCP integration, storage
+- Open Brain advantages: richer hybrid search (FTS+vector+RRF), LLM-powered synthesis, entity resolution with LLM disambiguation
+- Shodh advantages: Hebbian learning, spreading activation, automatic consolidation
+
+**Decision (D25): Port concepts, don't integrate binary.**
+
+Reasons against sidecar integration:
+1. **Dual storage** — captures in both Postgres and RocksDB, no natural sync
+2. **Incompatible embeddings** — Shodh local embeddings vs. OpenAI text-embedding-3-large (different vector spaces)
+3. **Language mismatch** — Rust vs. TypeScript, separate debugging/deployment
+4. **MCP tool collision** — two servers with overlapping remember/recall vs. search_brain/capture_thought
+5. **Operational overhead** — another persistent binary + storage volume on single-user homeserver
+
+**Three concepts to port:**
+
+1. **Hebbian Learning** — Co-access association strengthening. Open Brain already has `access_count` + `last_accessed_at` (migration 0008) but doesn't use them. New `capture_associations` table tracks co-accessed pairs with decaying weights. Builds on `entity_relationships` canonical pair pattern.
+
+2. **Spreading Activation** — Entity graph traversal during search. Open Brain has `entity_links` + `entity_relationships` but never traverses them at search time. New SQL function follows entity links 1-2 hops from top results to surface related captures.
+
+3. **Memory Consolidation** — Scheduled skill to cluster near-duplicates (cosine > 0.92), LLM-merge them, soft-delete originals. Follows weekly-brief skill pattern exactly. Conservative: min 3 captures per cluster, LLM safety valve, soft-delete for recovery.
+
+**Plan created:** `IMPLEMENT_IMPROVED_MEMORY.md` — 3 phases, 13 work items, detailed file-level specifications. Phases 1 & 2 parallelizable; Phase 3 depends on both.
+
+**What Worked:**
+- Existing infrastructure is well-positioned: access tracking columns, entity graph tables, skills framework all exist
+- entity_relationships table already implements canonical pair ordering pattern — capture_associations mirrors it
+- weekly-brief skill provides exact implementation template for the consolidation skill
+
+**Key Insight:**
+The most valuable parts of Shodh aren't its implementation — they're the cognitive science concepts it applies. Hebbian learning and spreading activation are well-researched neuroscience patterns that map cleanly onto Open Brain's existing relational model. The hard work (entity extraction, graph building, access tracking) is already done; what's missing is using these signals at search time and for maintenance.
+
+**Decisions:**
+- D25: Port Shodh concepts into native Postgres/TypeScript (not binary sidecar)
+
+**Action Items:**
+- A7: Implement Phase 1 (Hebbian Learning) — migration 0011, schema, access-stats, search boost, pruning
+- A8: Implement Phase 2 (Spreading Activation) — SQL function, search service, API/MCP
+- A9: Implement Phase 3 (Memory Consolidation) — query, skill, prompt template, scheduler
 
 *Entries continue below.*
