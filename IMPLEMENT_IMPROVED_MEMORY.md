@@ -78,9 +78,11 @@ CREATE TABLE capture_associations (
 **Description:**
 Add `captureAssociations` table definition matching migration 0011. Export from schema index.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Schema matches SQL migration exactly
-- [ ] TypeScript types correctly inferred
+- [x] Schema matches SQL migration exactly
+- [x] TypeScript types correctly inferred
 
 ---
 
