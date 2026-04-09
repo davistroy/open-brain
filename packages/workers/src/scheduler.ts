@@ -193,6 +193,25 @@ export async function registerScheduledJobs(
   logger.info({ cron: captureReminderMorningCron }, '[scheduler] capture-reminder-morning repeatable job registered')
 
   // --------------------------------------------------------
+  // Morning brief (7:15 AM weekdays)
+  // --------------------------------------------------------
+  const morningBriefCron = '15 7 * * 1-5'
+
+  await skillExecutionQueue.add(
+    'morning-brief',
+    {
+      skillName: 'morning-brief',
+      input: {},
+    },
+    {
+      repeat: { pattern: morningBriefCron },
+      jobId: 'scheduled_morning-brief',
+    },
+  )
+
+  logger.info({ cron: morningBriefCron }, '[scheduler] morning-brief repeatable job registered')
+
+  // --------------------------------------------------------
   // Capture reminder — evening (9 PM daily)
   // --------------------------------------------------------
   const captureReminderEveningCron = '0 21 * * *'

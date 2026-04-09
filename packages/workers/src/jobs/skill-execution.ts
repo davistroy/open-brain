@@ -117,6 +117,16 @@ export function createSkillExecutionWorker(
           break
         }
 
+        case 'morning-brief': {
+          const { executeMorningBrief } = await import('../skills/morning-brief.js')
+          const result = await executeMorningBrief(db, {})
+          logger.info(
+            { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, durationMs: result.durationMs },
+            '[skill-execution] morning-brief complete',
+          )
+          break
+        }
+
         case 'capture-reminder-morning': {
           const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
           const result = await executeCaptureReminder(db, { mode: 'morning' })

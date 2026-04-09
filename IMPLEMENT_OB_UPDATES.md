@@ -179,20 +179,20 @@ Also logs to skills_log for audit trail.
 - `packages/workers/src/jobs/skill-execution.ts` -- add dispatcher case
 - `packages/core-api/src/services/skill-config.ts` -- add to DEFAULT_SKILLS
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-04-09
 
 **Acceptance Criteria:**
-- [ ] Runs at 7:15 AM weekdays via BullMQ scheduler
-- [ ] YESTERDAY'S THREAD shows human captures from previous day (excludes skill-output tagged)
-- [ ] OPEN LOOPS extracts forward-looking phrases from last 3 days of captures
-- [ ] PEOPLE section lists recently mentioned people with capture context
-- [ ] No LLM call -- all template-based formatting
-- [ ] Pushover notification sent with structured sections
-- [ ] Gracefully handles empty sections (omits section header if no data)
-- [ ] Does NOT create a capture
-- [ ] Logs full result to skills_log
-- [ ] Skill appears in `GET /api/v1/skills` and is manually triggerable
-- [ ] Schedule editable via PATCH
+- [x] Runs at 7:15 AM weekdays via BullMQ scheduler
+- [x] YESTERDAY'S THREAD shows human captures from previous day (excludes skill-output tagged)
+- [x] OPEN LOOPS extracts forward-looking phrases from last 3 days of captures
+- [x] PEOPLE section lists recently mentioned people with capture context
+- [x] No LLM call -- all template-based formatting
+- [x] Pushover notification sent with structured sections
+- [x] Gracefully handles empty sections (omits section header if no data)
+- [x] Does NOT create a capture
+- [x] Logs full result to skills_log
+- [x] Skill appears in `GET /api/v1/skills` and is manually triggerable
+- [x] Schedule editable via PATCH
 
 ---
 
