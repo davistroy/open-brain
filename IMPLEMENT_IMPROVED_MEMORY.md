@@ -61,10 +61,12 @@ CREATE TABLE capture_associations (
 );
 ```
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Migration applies cleanly on fresh and existing databases
-- [ ] CASCADE delete works (deleting a capture removes its associations)
-- [ ] Canonical ordering constraint prevents duplicate pairs
+- [x] Migration applies cleanly on fresh and existing databases
+- [x] CASCADE delete works (deleting a capture removes its associations)
+- [x] Canonical ordering constraint prevents duplicate pairs
 
 ---
 
