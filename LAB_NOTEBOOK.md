@@ -768,11 +768,53 @@ User tested via OpenClaw TUI. First test exposed two issues:
 - D23: OpenClaw skill is the right integration level (not a plugin) — agent instruction via SKILL.md, no runtime code needed
 - D24: MCP captures from OpenClaw show as `source: mcp` (hardcoded in capture_thought) — acceptable for now, distinguishable via source_metadata if needed later
 
+### Entry 017 — Daily Brain Check skill for OpenClaw [mcp] [deploy]
+
+**Date:** 2026-04-07
+**Environment:** Laptop (development) + bond.k4jda.net (OpenClaw)
+**Status:** COMPLETE
+**Duration:** ~20 minutes
+
+**Objective:** Create a compact daily briefing skill for OpenClaw that pulls today's important tasks, decisions, blockers, and questions from Open Brain via MCP.
+
+**Hypothesis:** A focused skill using `open_brain://context` + parallel `list_captures` calls filtered by type and `days: 1` will give OpenClaw enough signal to produce a sub-30-line daily briefing. Expect: skill deploys to bond, loads on next session start.
+
+**Rollback Plan:** `rm -rf ~/.openclaw/workspace/skills/daily-brain-check/` on bond.
+
+**CRITICAL MISTAKE — Wrong project association:**
+Initially created the skill at `c:\Users\Troy Davis\dev\contact-center-lab\.claude\skills\daily-brain-check\SKILL.md` — the contact-center-lab repo. **Contact-center-lab has absolutely nothing to do with Open Brain or OpenClaw.** This was a fundamental confusion: the memory file `openclaw-integration.md` mentioned "OpenClaw" and a prior Explore agent mistakenly searched contact-center-lab for OpenClaw's skill structure. The contact-center-lab repo is a completely separate project.
+
+**What is OpenClaw:** An open-source personal AI assistant running on bond.k4jda.net as a systemd service. Its skill directory is at `/home/davistroy/.openclaw/workspace/skills/` on bond — NOT in any local repo. Skills are deployed directly to bond via SSH, not committed to any local codebase.
+
+**Correction:** Deleted the misplaced file from contact-center-lab. Created the skill on bond at the correct path via SSH.
+
+**Skill design (5-step procedure):**
+1. Read `open_brain://context` resource — extract dominant themes (don't reproduce)
+2. Parallel `list_captures` calls — blocker, task, decision, question, idea — all with `days: 1`
+3. Expand truncated previews via `get_capture` only when meaning is lost
+4. Check `get_weekly_brief` for still-relevant action items
+5. Output compact briefing — one line per item, omit empty sections, under 30 lines total
+
+**Deployment:**
+- Created `/home/davistroy/.openclaw/workspace/skills/daily-brain-check/SKILL.md` on bond via SSH
+- File owned by davistroy:davistroy, permissions 644
+- Sits alongside existing skills: nano-banana-pro, ontology, open-brain, secureclaw, self-improving-agent
+
+**Verification:** File exists and readable on bond. Will load on next OpenClaw session start.
+
+**What Worked:**
+- SSH deployment pattern from Entry 016 worked cleanly
+- Skill is complementary to existing `open-brain` skill (general query/capture) — daily-brain-check is the focused daily briefing
+
+**System Insight:**
+- **OpenClaw skills live on bond, not in any local repo.** The path is `/home/davistroy/.openclaw/workspace/skills/{name}/SKILL.md`. Do not confuse with contact-center-lab, which is a separate project with its own `.claude/skills/` directory.
+- **contact-center-lab ≠ OpenClaw.** These are entirely unrelated projects. contact-center-lab is a local repo; OpenClaw runs on bond.
+
 ---
 
 --- New session: 2026-04-09 — Evaluate Shodh cognitive memory integration ---
 
-### Entry 017: Shodh Memory Evaluation & Cognitive Memory Implementation Plan [decision] [architecture]
+### Entry 018: Shodh Memory Evaluation & Cognitive Memory Implementation Plan [decision] [architecture]
 
 **Date:** 2026-04-09
 **Environment:** Development (planning only — no code changes)
