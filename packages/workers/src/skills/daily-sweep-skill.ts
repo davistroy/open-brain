@@ -30,6 +30,8 @@ export interface DailySweepOptions {
   tokenBudget?: number
   /** Actual model name (not alias). Required. */
   modelAlias?: string
+  /** Whether to save the sweep output as a capture. Default: false */
+  storeCapture?: boolean
 }
 
 // ============================================================
@@ -67,6 +69,29 @@ interface EntityRow {
   [key: string]: unknown
   name: string
   entity_type: string
+}
+
+export interface VoiceStats {
+  count: number
+  lastVoiceDate: Date | null
+}
+
+/** Query voice capture stats for the last 7 days. */
+export async function queryVoiceStats(db: Database): Promise<VoiceStats> {
+  const result = await db.execute<{ count: string; last_voice: string | null }>(sql`
+    SELECT
+      COUNT(*)::text AS count,
+      MAX(created_at)::text AS last_voice
+    FROM captures
+    WHERE source = 'voice'
+      AND deleted_at IS NULL
+      AND created_at > NOW() - INTERVAL '7 days'
+  `)
+  const row = result.rows[0]
+  return {
+    count: parseInt(row?.count ?? '0', 10),
+    lastVoiceDate: row?.last_voice ? new Date(row.last_voice) : null,
+  }
 }
 
 /** Query today's completed captures. */
@@ -197,6 +222,17 @@ export function fmtDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+/** Format voice stats line for Pushover notification. */
+export function formatVoiceStatsLine(stats: VoiceStats): string {
+  if (stats.count === 0) {
+    return 'Voice memos this week: 0'
+  }
+  const now = new Date()
+  const daysAgo = Math.floor((now.getTime() - (stats.lastVoiceDate?.getTime() ?? now.getTime())) / (1000 * 60 * 60 * 24))
+  const lastStr = daysAgo === 0 ? 'last: today' : daysAgo === 1 ? 'last: 1 day ago' : `last: ${daysAgo} days ago`
+  return `Voice memos this week: ${stats.count} (${lastStr})`
+}
+
 // ============================================================
 // DailySweepSkill class
 // ============================================================
@@ -240,6 +276,7 @@ export class DailySweepSkill {
     const {
       tokenBudget: rawBudget = DEFAULT_TOKEN_BUDGET,
       modelAlias = 'synthesis',
+      storeCapture = false,
     } = options
     const tokenBudget = Math.max(1_000, Math.min(rawBudget, 100_000))
 
@@ -252,10 +289,13 @@ export class DailySweepSkill {
     const captureCount = captures.length
     logger.info({ captureCount }, '[daily-sweep-skill] captures fetched')
 
+    // Query voice stats (used in both quiet-day and normal paths)
+    const voiceStats = await queryVoiceStats(this.db)
+
     if (captureCount === 0) {
       logger.info('[daily-sweep-skill] no captures today — producing quiet-day summary')
       const quietOutput = emptyOutput()
-      const notificationSent = await this.deliverPushover(quietOutput)
+      const notificationSent = await this.deliverPushover(quietOutput, voiceStats)
       await this.logToSkillsLog({
         inputSummary: '0 captures today',
         outputSummary: 'Quiet day — no captures',
@@ -288,10 +328,12 @@ export class DailySweepSkill {
     const durationMs = Date.now() - startMs
 
     // Step 5: Deliver Pushover notification
-    const notificationSent = await this.deliverPushover(output)
+    const notificationSent = await this.deliverPushover(output, voiceStats)
 
-    // Step 6: Save as capture back into the brain
-    const savedCaptureId = await this.saveSweepCapture(output, fmtDate(today))
+    // Step 6: Optionally save as capture back into the brain
+    const savedCaptureId = storeCapture
+      ? await this.saveSweepCapture(output, fmtDate(today))
+      : null
 
     // Step 7: Log to skills_log
     await this.logToSkillsLog({
@@ -351,7 +393,7 @@ export class DailySweepSkill {
   // Private: Pushover delivery
   // ----------------------------------------------------------
 
-  private async deliverPushover(output: DailySweepOutput): Promise<boolean> {
+  private async deliverPushover(output: DailySweepOutput, voiceStats: VoiceStats): Promise<boolean> {
     if (!this.pushover.isConfigured) return false
 
     const lines: string[] = [output.headline]
@@ -369,6 +411,9 @@ export class DailySweepSkill {
         lines.push(`  - ${q}`)
       }
     }
+
+    // Voice capture habit nudge
+    lines.push('', formatVoiceStatsLine(voiceStats))
 
     try {
       await this.pushover.send({
