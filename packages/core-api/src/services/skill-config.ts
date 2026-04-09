@@ -40,6 +40,10 @@ export const DEFAULT_SKILLS: Record<string, SkillConfig> = {
     schedule: '0 20 * * *', // Daily 8pm
     description: 'Evening summary: key decisions, unresolved questions, new entities, tasks without follow-up',
   },
+  'memory-consolidation': {
+    schedule: '0 4 * * 0', // Sunday 4am
+    description: 'Identify clusters of near-duplicate captures, merge via LLM preserving all unique information, soft-delete originals',
+  },
 }
 
 /**

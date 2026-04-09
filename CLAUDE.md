@@ -92,6 +92,12 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **MCP search/list previews are truncated** — `search_brain` truncates at 500 chars, `list_captures` at 300 chars. Use `get_capture` tool to fetch full content by ID.
 - **`get_capture` MCP tool returns full content + linked entities** — includes content, metadata, source_metadata, tags, and entity links via JOIN on entity_links table.
 - **Pipeline-health Redis connection parses REDIS_URL** — Docker sets `REDIS_URL=redis://redis:6379` but NOT `REDIS_HOST`. The skill now parses `REDIS_URL` as fallback when creating internal Queue instances for stats queries. Without this, the skill fails with ECONNREFUSED on localhost.
+- **`capture_associations` uses canonical pair ordering** — `capture_id_a < capture_id_b` CHECK constraint mirrors `entity_relationships` pattern. Always sort UUIDs before insert.
+- **Hebbian co-access tracking is fire-and-forget** — wrapped in try/catch inside `update-access-stats` worker. Association failures never block the primary access count update.
+- **`spreading_activation` SQL function requires migrations 0011 + 0012** — function references `capture_associations` table. Apply both migrations together.
+- **Search `include_related` defaults to false (API) but true (MCP)** — API is backward compatible; MCP agents benefit from broader context by default.
+- **Memory consolidation source type is `consolidation`** — merged captures use `source: 'consolidation'` to distinguish from original sources. Soft-deleted originals retain `deleted_at` timestamp for recovery.
+- **Memory consolidation skill is `memory-consolidation`** (not `memory_consolidation`) — hyphenated, consistent with other skill names. Cron: `0 4 * * 0` (4 AM Sundays).
 
 ---
 
@@ -99,7 +105,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents, email (brain@troy-davis.com via Cloudflare Email Worker); stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.
 
-**Status**: v1.4.0 — All 25 phases + Phase 7 consolidation + email pipeline + web synthesis + proactive intelligence. 1,504 unit tests + 95 regression tests passing. Deployed to homeserver.
+**Status**: v1.5.0 — All 25 phases + Phase 7 consolidation + email pipeline + web synthesis + proactive intelligence + cognitive memory (Hebbian learning, spreading activation, memory consolidation). 1,569 unit tests + 95 regression tests passing. Deployed to homeserver.
 
 ## Key Architecture Decisions
 
@@ -109,9 +115,9 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 - **Embeddings**: OpenAI `text-embedding-3-large` with `dimensions: 768` API parameter. The API handles dimension reduction via trained MRL (not naive truncation). NO fallback — queue and retry if API is down.
 - **LLM Inference**: Model aliases fast, synthesis, governance, intent — all `gpt-5.4` (configured in `config/ai-routing.yaml`). Uses `max_completion_tokens` (not `max_tokens`).
 - **Schema**: `vector(768)` everywhere. Do not use 1536.
-- **Search**: Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay scoring. Default temporal_weight: 0.0 (cold start), ramp up as search history builds.
+- **Search**: Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay scoring + Hebbian association boost + spreading activation (entity graph traversal via `include_related`). Default temporal_weight: 0.0 (cold start), ramp up as search history builds.
 - **MCP Auth**: Authorization: Bearer header (not URL query parameter)
-- **Phases**: 16 phases complete (see IMPLEMENTATION_PLAN.md and IMPLEMENTATION_PLAN-PHASE2.md)
+- **Phases**: 16 phases + cognitive memory complete (see IMPLEMENTATION_PLAN.md, IMPLEMENTATION_PLAN-PHASE2.md, IMPLEMENT_IMPROVED_MEMORY.md)
 - **Pipeline**: BullMQ + Redis, async processing stages
 - **Web UI**: Vite + React + Tailwind + shadcn/ui (NOT Next.js)
 - **Migrations**: Drizzle ORM + drizzle-kit (NOT raw SQL, NOT Prisma)

@@ -68,6 +68,13 @@ function makeSearchResult(overrides: Partial<SearchResult> = {}): SearchResult {
 function makeMockSearchService(overrides: Record<string, unknown> = {}) {
   return {
     search: vi.fn().mockResolvedValue([makeSearchResult()]),
+    searchWithRelated: vi.fn().mockResolvedValue({
+      results: [makeSearchResult()],
+      relatedResults: [makeSearchResult({
+        score: 0.6,
+        capture: makeCaptureRecord({ id: 'cap-related-1', content: 'Related capture' }),
+      })],
+    }),
     ...overrides,
   }
 }
@@ -189,6 +196,38 @@ describe('GET /api/v1/search', () => {
     const body = await res.json()
     expect(body.results).toEqual([])
     expect(body.total).toBe(0)
+  })
+
+  it('does not include related_results when include_related is not set', async () => {
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search?q=test')
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.related_results).toBeUndefined()
+    expect(searchService.search).toHaveBeenCalled()
+    expect(searchService.searchWithRelated).not.toHaveBeenCalled()
+  })
+
+  it('returns related_results when include_related=true', async () => {
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search?q=test&include_related=true')
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Array.isArray(body.related_results)).toBe(true)
+    expect(body.related_results.length).toBeGreaterThan(0)
+    expect(searchService.searchWithRelated).toHaveBeenCalled()
+  })
+
+  it('does not include related_results when include_related=false', async () => {
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search?q=test&include_related=false')
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.related_results).toBeUndefined()
+    expect(searchService.searchWithRelated).not.toHaveBeenCalled()
   })
 
   it('returns 404 when searchService is not registered (no searchService dep)', async () => {
@@ -411,6 +450,50 @@ describe('POST /api/v1/search', () => {
     const body = await res.json()
     expect(body.results).toEqual([])
     expect(body.total).toBe(0)
+  })
+
+  it('does not include related_results when include_related is not set (POST)', async () => {
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.related_results).toBeUndefined()
+    expect(searchService.search).toHaveBeenCalled()
+    expect(searchService.searchWithRelated).not.toHaveBeenCalled()
+  })
+
+  it('returns related_results when include_related is true (POST)', async () => {
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test', include_related: true }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(Array.isArray(body.related_results)).toBe(true)
+    expect(body.related_results.length).toBeGreaterThan(0)
+    expect(searchService.searchWithRelated).toHaveBeenCalled()
+  })
+
+  it('does not include related_results when include_related is false (POST)', async () => {
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'test', include_related: false }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.related_results).toBeUndefined()
+    expect(searchService.searchWithRelated).not.toHaveBeenCalled()
   })
 
   it('uses default values for optional fields (limit=10, offset=0, temporal_weight=0.1)', async () => {

@@ -13,6 +13,10 @@ export interface SearchOptions {
   dateFrom?: Date
   dateTo?: Date
   searchMode?: 'hybrid' | 'vector' | 'fts'
+  /** IDs of recently accessed captures — used for Hebbian association boost */
+  recentCaptureIds?: string[]
+  /** When true, runs spreading activation on top 5 results to find related captures via entity graph */
+  includeRelated?: boolean
 }
 
 export interface SearchResult {
@@ -20,6 +24,11 @@ export interface SearchResult {
   score: number
   ftsScore?: number
   vectorScore?: number
+}
+
+export interface SearchResponse {
+  results: SearchResult[]
+  relatedResults?: SearchResult[]
 }
 
 type HybridSearchRow = {
@@ -102,6 +111,66 @@ export class SearchService {
     private db: Database,
     private embeddingService: EmbeddingService,
   ) {}
+
+  /**
+   * Look up Hebbian association weights between result captures and recently
+   * accessed captures. Returns a Map from captureId → normalized weight [0,1].
+   *
+   * Queries capture_associations for any pair where one side is a result capture
+   * and the other side is a recent capture. When multiple associations exist for
+   * the same result capture (linked to different recent captures), takes the max
+   * weight. Normalizes to [0,1] by dividing by the max weight across all results.
+   */
+  private async lookupAssociationBoosts(
+    resultCaptureIds: string[],
+    recentCaptureIds: string[],
+  ): Promise<Map<string, number>> {
+    const boostMap = new Map<string, number>()
+
+    if (resultCaptureIds.length === 0 || recentCaptureIds.length === 0) {
+      return boostMap
+    }
+
+    const pgResultIds = `{${resultCaptureIds.join(',')}}`
+    const pgRecentIds = `{${recentCaptureIds.join(',')}}`
+
+    // Find associations where one side is a result capture and the other
+    // is a recent capture. The canonical ordering constraint (a < b) means
+    // we need to check both directions.
+    const rows = await this.db.execute<{ capture_id: string; max_weight: number }>(sql`
+      SELECT capture_id, MAX(weight) as max_weight FROM (
+        SELECT capture_id_a AS capture_id, weight
+        FROM capture_associations
+        WHERE capture_id_a = ANY(${pgResultIds}::uuid[])
+          AND capture_id_b = ANY(${pgRecentIds}::uuid[])
+        UNION ALL
+        SELECT capture_id_b AS capture_id, weight
+        FROM capture_associations
+        WHERE capture_id_b = ANY(${pgResultIds}::uuid[])
+          AND capture_id_a = ANY(${pgRecentIds}::uuid[])
+      ) sub
+      GROUP BY capture_id
+    `)
+
+    if (rows.rows.length === 0) {
+      return boostMap
+    }
+
+    // Find the max weight across all results for normalization
+    let maxWeight = 0
+    for (const row of rows.rows) {
+      if (row.max_weight > maxWeight) {
+        maxWeight = row.max_weight
+      }
+    }
+
+    // Normalize to [0,1]
+    for (const row of rows.rows) {
+      boostMap.set(row.capture_id, maxWeight > 0 ? row.max_weight / maxWeight : 0)
+    }
+
+    return boostMap
+  }
 
   async search(query: string, options: SearchOptions = {}): Promise<SearchResult[]> {
     const {
@@ -200,9 +269,128 @@ export class SearchService {
       })
     }
 
+    // Step 4b: apply Hebbian association boost — captures associated with
+    // recently accessed captures get a small multiplicative score increase.
+    // Max boost is 10% (score * 1.1). Cold-start safe: no-op when empty.
+    const recentCaptureIds = options.recentCaptureIds
+    if (recentCaptureIds && recentCaptureIds.length > 0) {
+      const resultIds = results.map(r => r.capture.id!)
+      const boostMap = await this.lookupAssociationBoosts(resultIds, recentCaptureIds)
+
+      for (const result of results) {
+        const boost = boostMap.get(result.capture.id!)
+        if (boost != null && boost > 0) {
+          // Multiplicative boost: score * (1 + 0.1 * normalizedWeight)
+          // normalizedWeight is already in [0,1], so max boost is 10%
+          result.score = result.score * (1 + 0.1 * boost)
+        }
+      }
+    }
+
     // Step 5: sort by final score descending and return
     // No in-memory filtering needed — filters are applied in SQL
     results.sort((a, b) => b.score - a.score)
     return results.slice(0, limit)
+  }
+
+  /**
+   * Find captures related to seed captures via entity graph traversal.
+   *
+   * Calls the spreading_activation SQL function which traverses entity_links
+   * and entity_relationships up to 2 hops from the seed captures. Fetches
+   * full capture records and applies ACT-R temporal decay to activation scores.
+   *
+   * @param seedCaptureIds - UUIDs of seed captures to start traversal from
+   * @param limit - Maximum related captures to return (default 10)
+   * @param temporalWeight - ACT-R decay weight (default 0.0, cold-start safe)
+   * @returns SearchResult[] scored by activation_score with temporal decay
+   */
+  async findRelatedCaptures(
+    seedCaptureIds: string[],
+    limit: number = 10,
+    temporalWeight: number = 0.0,
+  ): Promise<SearchResult[]> {
+    if (seedCaptureIds.length === 0) {
+      return []
+    }
+
+    const pgSeedIds = `{${seedCaptureIds.join(',')}}`
+
+    // Call the spreading_activation SQL function
+    const activationRows = await this.db.execute<{
+      capture_id: string
+      activation_score: number
+      hop_count: number
+    }>(sql`
+      SELECT capture_id::text, activation_score, hop_count
+      FROM spreading_activation(
+        ${pgSeedIds}::uuid[],
+        2,
+        ${limit}
+      )
+    `)
+
+    if (activationRows.rows.length === 0) {
+      return []
+    }
+
+    // Fetch full capture records for the related captures
+    const relatedIds = activationRows.rows.map(r => r.capture_id)
+    const pgRelatedIds = `{${relatedIds.join(',')}}`
+    const captureRows = await this.db.execute<CaptureQueryRow>(sql`
+      SELECT *
+      FROM captures
+      WHERE id = ANY(${pgRelatedIds}::uuid[])
+    `)
+
+    const captureMap = new Map<string, CaptureRecord>()
+    for (const row of captureRows.rows) {
+      captureMap.set(row.id, row as unknown as CaptureRecord)
+    }
+
+    // Apply ACT-R temporal decay to activation scores
+    const results: SearchResult[] = []
+    for (const row of activationRows.rows) {
+      const capture = captureMap.get(row.capture_id)
+      if (!capture) continue
+
+      const finalScore = applyTemporalDecay(row.activation_score, capture.created_at, temporalWeight)
+      results.push({
+        capture,
+        score: finalScore,
+      })
+    }
+
+    // Sort by final score descending
+    results.sort((a, b) => b.score - a.score)
+    return results.slice(0, limit)
+  }
+
+  /**
+   * Full search with optional spreading activation for related captures.
+   *
+   * When options.includeRelated is true, runs findRelatedCaptures on the
+   * top 5 primary results after the main search completes. Related results
+   * exclude any captures already in the primary results.
+   */
+  async searchWithRelated(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
+    const results = await this.search(query, options)
+
+    const response: SearchResponse = { results }
+
+    if (options.includeRelated && results.length > 0) {
+      const seedIds = results.slice(0, 5).map(r => r.capture.id!)
+      const related = await this.findRelatedCaptures(
+        seedIds,
+        options.limit ?? 10,
+        options.temporalWeight ?? 0.0,
+      )
+
+      // Exclude captures already in primary results
+      const primaryIds = new Set(results.map(r => r.capture.id!))
+      response.relatedResults = related.filter(r => !primaryIds.has(r.capture.id!))
+    }
+
+    return response
   }
 }
