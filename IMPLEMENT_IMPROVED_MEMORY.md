@@ -305,14 +305,16 @@ Following weekly-brief skill pattern:
 3. Log to skills_log with result JSONB
 4. Send Pushover notification with summary
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Clusters are merged into consolidated captures
-- [ ] LLM safety valve (should_merge: false) is respected
-- [ ] Entity links migrated to consolidated capture
-- [ ] Capture associations re-pointed
-- [ ] Originals soft-deleted (recoverable)
-- [ ] skills_log records full details
-- [ ] Pushover notification sent
+- [x] Clusters are merged into consolidated captures
+- [x] LLM safety valve (should_merge: false) is respected
+- [x] Entity links migrated to consolidated capture
+- [x] Capture associations re-pointed
+- [x] Originals soft-deleted (recoverable)
+- [x] skills_log records full details
+- [x] Pushover notification sent
 
 ---
 
