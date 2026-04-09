@@ -13,6 +13,8 @@ export interface SearchOptions {
   dateFrom?: Date
   dateTo?: Date
   searchMode?: 'hybrid' | 'vector' | 'fts'
+  /** IDs of recently accessed captures — used for Hebbian association boost */
+  recentCaptureIds?: string[]
 }
 
 export interface SearchResult {
@@ -102,6 +104,66 @@ export class SearchService {
     private db: Database,
     private embeddingService: EmbeddingService,
   ) {}
+
+  /**
+   * Look up Hebbian association weights between result captures and recently
+   * accessed captures. Returns a Map from captureId → normalized weight [0,1].
+   *
+   * Queries capture_associations for any pair where one side is a result capture
+   * and the other side is a recent capture. When multiple associations exist for
+   * the same result capture (linked to different recent captures), takes the max
+   * weight. Normalizes to [0,1] by dividing by the max weight across all results.
+   */
+  private async lookupAssociationBoosts(
+    resultCaptureIds: string[],
+    recentCaptureIds: string[],
+  ): Promise<Map<string, number>> {
+    const boostMap = new Map<string, number>()
+
+    if (resultCaptureIds.length === 0 || recentCaptureIds.length === 0) {
+      return boostMap
+    }
+
+    const pgResultIds = `{${resultCaptureIds.join(',')}}`
+    const pgRecentIds = `{${recentCaptureIds.join(',')}}`
+
+    // Find associations where one side is a result capture and the other
+    // is a recent capture. The canonical ordering constraint (a < b) means
+    // we need to check both directions.
+    const rows = await this.db.execute<{ capture_id: string; max_weight: number }>(sql`
+      SELECT capture_id, MAX(weight) as max_weight FROM (
+        SELECT capture_id_a AS capture_id, weight
+        FROM capture_associations
+        WHERE capture_id_a = ANY(${pgResultIds}::uuid[])
+          AND capture_id_b = ANY(${pgRecentIds}::uuid[])
+        UNION ALL
+        SELECT capture_id_b AS capture_id, weight
+        FROM capture_associations
+        WHERE capture_id_b = ANY(${pgResultIds}::uuid[])
+          AND capture_id_a = ANY(${pgRecentIds}::uuid[])
+      ) sub
+      GROUP BY capture_id
+    `)
+
+    if (rows.rows.length === 0) {
+      return boostMap
+    }
+
+    // Find the max weight across all results for normalization
+    let maxWeight = 0
+    for (const row of rows.rows) {
+      if (row.max_weight > maxWeight) {
+        maxWeight = row.max_weight
+      }
+    }
+
+    // Normalize to [0,1]
+    for (const row of rows.rows) {
+      boostMap.set(row.capture_id, maxWeight > 0 ? row.max_weight / maxWeight : 0)
+    }
+
+    return boostMap
+  }
 
   async search(query: string, options: SearchOptions = {}): Promise<SearchResult[]> {
     const {
@@ -198,6 +260,24 @@ export class SearchService {
         ftsScore: hybridRow.fts_score,
         vectorScore: hybridRow.vector_score,
       })
+    }
+
+    // Step 4b: apply Hebbian association boost — captures associated with
+    // recently accessed captures get a small multiplicative score increase.
+    // Max boost is 10% (score * 1.1). Cold-start safe: no-op when empty.
+    const recentCaptureIds = options.recentCaptureIds
+    if (recentCaptureIds && recentCaptureIds.length > 0) {
+      const resultIds = results.map(r => r.capture.id!)
+      const boostMap = await this.lookupAssociationBoosts(resultIds, recentCaptureIds)
+
+      for (const result of results) {
+        const boost = boostMap.get(result.capture.id!)
+        if (boost != null && boost > 0) {
+          // Multiplicative boost: score * (1 + 0.1 * normalizedWeight)
+          // normalizedWeight is already in [0,1], so max boost is 10%
+          result.score = result.score * (1 + 0.1 * boost)
+        }
+      }
     }
 
     // Step 5: sort by final score descending and return

@@ -432,6 +432,163 @@ describe('SearchService', () => {
   })
 
   // -------------------------------------------------------------------------
+  // Hebbian association boost
+  // -------------------------------------------------------------------------
+
+  describe('recentCaptureIds — association boost', () => {
+    it('does not change scores when recentCaptureIds is empty (backward compatible)', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.search('test', { recentCaptureIds: [] })
+
+      expect(results[0].score).toBe(0.8)
+      // Still exactly 2 DB calls — no association lookup
+      expect(db.execute).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not change scores when recentCaptureIds is undefined (default)', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.search('test')
+
+      expect(results[0].score).toBe(0.8)
+      expect(db.execute).toHaveBeenCalledTimes(2)
+    })
+
+    it('applies a boost when associations exist with recent captures', async () => {
+      const capture1 = makeCaptureRecord({ id: 'cap-1' })
+      const capture2 = makeCaptureRecord({ id: 'cap-2' })
+      const hybridRows = [
+        { capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 },
+        { capture_id: 'cap-2', rrf_score: 0.7, fts_score: 0.5, vector_score: 0.8 },
+      ]
+
+      const execute = vi.fn()
+      // Call 1: hybrid_search
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 2: SELECT * FROM captures
+      execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
+      // Call 3: association lookup — cap-1 has an association with a recent capture
+      execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 5.0 }] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
+
+      // cap-1 should be boosted: 0.8 * (1 + 0.1 * 1.0) = 0.88
+      // (normalized weight is 5.0/5.0 = 1.0)
+      expect(results[0].capture.id).toBe('cap-1')
+      expect(results[0].score).toBeCloseTo(0.88, 5)
+      // cap-2 has no association, stays at 0.7
+      expect(results[1].capture.id).toBe('cap-2')
+      expect(results[1].score).toBe(0.7)
+      // 3 DB calls: hybrid_search + captures + association lookup
+      expect(execute).toHaveBeenCalledTimes(3)
+    })
+
+    it('caps the boost at 10% even with very high association weights', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [capture] })
+      // Association with very high weight — normalized to 1.0
+      execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 999.0 }] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
+
+      // Max boost: 0.8 * (1 + 0.1 * 1.0) = 0.88 (10% increase)
+      expect(results[0].score).toBeCloseTo(0.88, 5)
+      expect(results[0].score).toBeLessThanOrEqual(0.8 * 1.1 + 0.0001)
+    })
+
+    it('normalizes multiple association weights to [0,1] range', async () => {
+      const capture1 = makeCaptureRecord({ id: 'cap-1' })
+      const capture2 = makeCaptureRecord({ id: 'cap-2' })
+      const hybridRows = [
+        { capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 },
+        { capture_id: 'cap-2', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 },
+      ]
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
+      // cap-1 has weight 10.0, cap-2 has weight 5.0
+      // After normalization: cap-1 = 1.0, cap-2 = 0.5
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'cap-1', max_weight: 10.0 },
+        { capture_id: 'cap-2', max_weight: 5.0 },
+      ] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
+
+      // cap-1: 0.8 * (1 + 0.1 * 1.0) = 0.88
+      const cap1 = results.find(r => r.capture.id === 'cap-1')!
+      expect(cap1.score).toBeCloseTo(0.88, 5)
+      // cap-2: 0.8 * (1 + 0.1 * 0.5) = 0.84
+      const cap2 = results.find(r => r.capture.id === 'cap-2')!
+      expect(cap2.score).toBeCloseTo(0.84, 5)
+    })
+
+    it('does not boost when association lookup returns no rows', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [capture] })
+      // No associations found
+      execute.mockResolvedValueOnce({ rows: [] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
+
+      // Score unchanged
+      expect(results[0].score).toBe(0.8)
+    })
+
+    it('can reorder results when boost changes relative ranking', async () => {
+      const capture1 = makeCaptureRecord({ id: 'cap-1' })
+      const capture2 = makeCaptureRecord({ id: 'cap-2' })
+      // cap-2 is slightly ahead of cap-1 before boost
+      const hybridRows = [
+        { capture_id: 'cap-1', rrf_score: 0.79, fts_score: 0.6, vector_score: 0.8 },
+        { capture_id: 'cap-2', rrf_score: 0.80, fts_score: 0.7, vector_score: 0.85 },
+      ]
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
+      // Only cap-1 has an association with a recent capture
+      execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 3.0 }] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
+
+      // cap-1 boosted: 0.79 * 1.1 = 0.869
+      // cap-2 unboosted: 0.80
+      // cap-1 should now be ranked first
+      expect(results[0].capture.id).toBe('cap-1')
+      expect(results[0].score).toBeCloseTo(0.79 * 1.1, 5)
+      expect(results[1].capture.id).toBe('cap-2')
+      expect(results[1].score).toBe(0.80)
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // EmbeddingUnavailableError propagation
   // -------------------------------------------------------------------------
 

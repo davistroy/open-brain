@@ -100,11 +100,13 @@ weight = co_access_count * exp(-0.005 * hours_since_last_co_access)
 
 Only pair the top 10 results per search (avoids N^2 explosion). Uses `INSERT ON CONFLICT DO UPDATE`.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] After a search returning captures A, B, C — associations A-B, A-C, B-C are created/strengthened
-- [ ] Weight increases with repeated co-access
-- [ ] Canonical ordering maintained (smaller UUID first)
-- [ ] No performance regression on access-stats processing
+- [x] After a search returning captures A, B, C — associations A-B, A-C, B-C are created/strengthened
+- [x] Weight increases with repeated co-access
+- [x] Canonical ordering maintained (smaller UUID first)
+- [x] No performance regression on access-stats processing
 
 ---
 
@@ -118,11 +120,13 @@ Add optional `recentCaptureIds` parameter to `SearchOptions`. After ACT-R tempor
 
 Default: no boost when `recentCaptureIds` is empty (cold-start safe). Association weight is normalized to [0,1] range.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Search results unchanged when `recentCaptureIds` is empty (backward compatible)
-- [ ] Associated captures receive a small but measurable score boost
-- [ ] Boost is bounded (max 10% increase)
-- [ ] No performance regression on search latency
+- [x] Search results unchanged when `recentCaptureIds` is empty (backward compatible)
+- [x] Associated captures receive a small but measurable score boost
+- [x] Boost is bounded (max 10% increase)
+- [x] No performance regression on search latency
 
 ---
 
@@ -134,10 +138,12 @@ Default: no boost when `recentCaptureIds` is empty (cold-start safe). Associatio
 **Description:**
 Add a pruning function called periodically (piggyback on access-stats processing or daily-sweep). Deletes associations where `weight < 0.1 AND last_co_access < NOW() - INTERVAL '90 days'`.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Stale, low-weight associations are cleaned up
-- [ ] Active associations are preserved
-- [ ] Pruning runs without blocking normal access-stats processing
+- [x] Stale, low-weight associations are cleaned up
+- [x] Active associations are preserved
+- [x] Pruning runs without blocking normal access-stats processing
 
 ---
 
