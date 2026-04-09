@@ -52,13 +52,13 @@ curl -s -X PATCH "http://100.101.61.122:3002/api/v1/skills/daily-connections" \
 
 No code changes. Config-only update persisted to `config/skills.yaml`.
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-04-09
 
 **Acceptance Criteria:**
-- [ ] PATCH returns 200 with updated schedule
-- [ ] `GET /api/v1/skills` shows daily-connections with schedule `0 0 29 2 *`
-- [ ] No daily-connections Pushover notifications after the change
-- [ ] Skill code in `daily-connections.ts` is untouched
+- [x] PATCH returns 200 with updated schedule
+- [x] `GET /api/v1/skills` shows daily-connections with schedule `0 0 29 2 *`
+- [x] No daily-connections Pushover notifications after the change
+- [x] Skill code in `daily-connections.ts` is untouched
 
 ---
 
