@@ -44,6 +44,14 @@ export const DEFAULT_SKILLS: Record<string, SkillConfig> = {
     schedule: '0 4 * * 0', // Sunday 4am
     description: 'Identify clusters of near-duplicate captures, merge via LLM preserving all unique information, soft-delete originals',
   },
+  'capture-reminder-morning': {
+    schedule: '0 7 * * 1-5', // Weekdays 7am
+    description: 'Morning Pushover nudge to encourage voice capture — "What\'s on your plate today?"',
+  },
+  'capture-reminder-evening': {
+    schedule: '0 21 * * *', // Daily 9pm
+    description: 'Evening Pushover nudge with today\'s capture count and last capture time — encourages evening reflection',
+  },
 }
 
 /**

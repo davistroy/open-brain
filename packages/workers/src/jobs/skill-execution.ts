@@ -117,6 +117,26 @@ export function createSkillExecutionWorker(
           break
         }
 
+        case 'capture-reminder-morning': {
+          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
+          const result = await executeCaptureReminder(db, { mode: 'morning' })
+          logger.info(
+            { skillName, notificationSent: result.notificationSent, durationMs: result.durationMs },
+            '[skill-execution] capture-reminder-morning complete',
+          )
+          break
+        }
+
+        case 'capture-reminder-evening': {
+          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
+          const result = await executeCaptureReminder(db, { mode: 'evening' })
+          logger.info(
+            { skillName, notificationSent: result.notificationSent, captureCount: result.captureCount, durationMs: result.durationMs },
+            '[skill-execution] capture-reminder-evening complete',
+          )
+          break
+        }
+
         case 'memory-consolidation': {
           const result = await executeMemoryConsolidation(db, {
             modelAlias: synthesisModel,

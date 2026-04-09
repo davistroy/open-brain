@@ -173,5 +173,43 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: memoryConsolidationCron }, '[scheduler] memory-consolidation repeatable job registered')
 
+  // --------------------------------------------------------
+  // Capture reminder — morning (7 AM weekdays)
+  // --------------------------------------------------------
+  const captureReminderMorningCron = '0 7 * * 1-5'
+
+  await skillExecutionQueue.add(
+    'capture-reminder-morning',
+    {
+      skillName: 'capture-reminder-morning',
+      input: { mode: 'morning' },
+    },
+    {
+      repeat: { pattern: captureReminderMorningCron },
+      jobId: 'scheduled_capture-reminder-morning',
+    },
+  )
+
+  logger.info({ cron: captureReminderMorningCron }, '[scheduler] capture-reminder-morning repeatable job registered')
+
+  // --------------------------------------------------------
+  // Capture reminder — evening (9 PM daily)
+  // --------------------------------------------------------
+  const captureReminderEveningCron = '0 21 * * *'
+
+  await skillExecutionQueue.add(
+    'capture-reminder-evening',
+    {
+      skillName: 'capture-reminder-evening',
+      input: { mode: 'evening' },
+    },
+    {
+      repeat: { pattern: captureReminderEveningCron },
+      jobId: 'scheduled_capture-reminder-evening',
+    },
+  )
+
+  logger.info({ cron: captureReminderEveningCron }, '[scheduler] capture-reminder-evening repeatable job registered')
+
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

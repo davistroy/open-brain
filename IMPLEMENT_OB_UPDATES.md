@@ -132,16 +132,16 @@ Two separate scheduled jobs: `capture-reminder-morning` (cron `0 7 * * 1-5`) and
 - `packages/workers/src/jobs/skill-execution.ts` -- add dispatcher cases for both reminder jobs
 - `packages/core-api/src/services/skill-config.ts` -- add both to DEFAULT_SKILLS
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-04-09
 
 **Acceptance Criteria:**
-- [ ] Morning reminder sends Pushover at 7 AM weekdays with "What's on your plate today?"
-- [ ] Evening reminder sends Pushover at 9 PM daily with capture count + last capture time
-- [ ] Pushover priority is -1 (lowest) -- these are nudges, not alerts
-- [ ] No capture created, no LLM call
-- [ ] Both skills appear in `GET /api/v1/skills` and are manually triggerable
-- [ ] Gracefully handles zero captures today ("No captures today")
-- [ ] Schedule editable via PATCH (same as other skills)
+- [x] Morning reminder sends Pushover at 7 AM weekdays with "What's on your plate today?"
+- [x] Evening reminder sends Pushover at 9 PM daily with capture count + last capture time
+- [x] Pushover priority is -1 (lowest) -- these are nudges, not alerts
+- [x] No capture created, no LLM call
+- [x] Both skills appear in `GET /api/v1/skills` and are manually triggerable
+- [x] Gracefully handles zero captures today ("No captures today")
+- [x] Schedule editable via PATCH (same as other skills)
 
 ---
 
