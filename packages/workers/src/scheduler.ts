@@ -79,7 +79,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Daily connections skill (9:00 PM)
   // --------------------------------------------------------
-  const connectionsCron = '0 21 * * *'
+  const connectionsCron = '0 0 29 2 *'
 
   const skillExecutionQueue = createSkillExecutionQueue(connection)
 
@@ -172,6 +172,63 @@ export async function registerScheduledJobs(
   )
 
   logger.info({ cron: memoryConsolidationCron }, '[scheduler] memory-consolidation repeatable job registered')
+
+  // --------------------------------------------------------
+  // Capture reminder — morning (7 AM weekdays)
+  // --------------------------------------------------------
+  const captureReminderMorningCron = '0 7 * * 1-5'
+
+  await skillExecutionQueue.add(
+    'capture-reminder-morning',
+    {
+      skillName: 'capture-reminder-morning',
+      input: { mode: 'morning' },
+    },
+    {
+      repeat: { pattern: captureReminderMorningCron },
+      jobId: 'scheduled_capture-reminder-morning',
+    },
+  )
+
+  logger.info({ cron: captureReminderMorningCron }, '[scheduler] capture-reminder-morning repeatable job registered')
+
+  // --------------------------------------------------------
+  // Morning brief (7:15 AM weekdays)
+  // --------------------------------------------------------
+  const morningBriefCron = '15 7 * * 1-5'
+
+  await skillExecutionQueue.add(
+    'morning-brief',
+    {
+      skillName: 'morning-brief',
+      input: {},
+    },
+    {
+      repeat: { pattern: morningBriefCron },
+      jobId: 'scheduled_morning-brief',
+    },
+  )
+
+  logger.info({ cron: morningBriefCron }, '[scheduler] morning-brief repeatable job registered')
+
+  // --------------------------------------------------------
+  // Capture reminder — evening (9 PM daily)
+  // --------------------------------------------------------
+  const captureReminderEveningCron = '0 21 * * *'
+
+  await skillExecutionQueue.add(
+    'capture-reminder-evening',
+    {
+      skillName: 'capture-reminder-evening',
+      input: { mode: 'evening' },
+    },
+    {
+      repeat: { pattern: captureReminderEveningCron },
+      jobId: 'scheduled_capture-reminder-evening',
+    },
+  )
+
+  logger.info({ cron: captureReminderEveningCron }, '[scheduler] capture-reminder-evening repeatable job registered')
 
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

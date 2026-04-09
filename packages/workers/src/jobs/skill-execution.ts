@@ -108,10 +108,41 @@ export function createSkillExecutionWorker(
           const result = await executeDailySweep(db, {
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
             modelAlias: synthesisModel,
+            storeCapture: typeof input?.storeCapture === 'boolean' ? input.storeCapture : false,
           })
           logger.info(
             { skillName, captureCount: result.captureCount, headline: result.output.headline, durationMs: result.durationMs },
             '[skill-execution] daily-sweep-skill complete',
+          )
+          break
+        }
+
+        case 'morning-brief': {
+          const { executeMorningBrief } = await import('../skills/morning-brief.js')
+          const result = await executeMorningBrief(db, {})
+          logger.info(
+            { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, durationMs: result.durationMs },
+            '[skill-execution] morning-brief complete',
+          )
+          break
+        }
+
+        case 'capture-reminder-morning': {
+          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
+          const result = await executeCaptureReminder(db, { mode: 'morning' })
+          logger.info(
+            { skillName, notificationSent: result.notificationSent, durationMs: result.durationMs },
+            '[skill-execution] capture-reminder-morning complete',
+          )
+          break
+        }
+
+        case 'capture-reminder-evening': {
+          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
+          const result = await executeCaptureReminder(db, { mode: 'evening' })
+          logger.info(
+            { skillName, notificationSent: result.notificationSent, captureCount: result.captureCount, durationMs: result.durationMs },
+            '[skill-execution] capture-reminder-evening complete',
           )
           break
         }
