@@ -207,10 +207,12 @@ Add `include_related` option to `SearchOptions`. When true, automatically calls 
 **Description:**
 Add optional `include_related` query parameter (GET) and body field (POST). When true, response includes `related_results: SearchResult[]` alongside existing `results`. Backward compatible — field absent when not requested.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Existing API consumers unaffected
-- [ ] `include_related=true` returns related captures in response
-- [ ] Related results are clearly separate from primary results
+- [x] Existing API consumers unaffected
+- [x] `include_related=true` returns related captures in response
+- [x] Related results are clearly separate from primary results
 
 ---
 
@@ -222,10 +224,12 @@ Add optional `include_related` query parameter (GET) and body field (POST). When
 **Description:**
 After primary search results, run spreading activation on top 5 results. Append "Related captures:" section to tool response text. Add `include_related` parameter to schema (default true for MCP — AI agents benefit from broader context).
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] MCP search results include related captures section
-- [ ] Related captures clearly labeled and separated from primary results
-- [ ] Can be disabled via parameter
+- [x] MCP search results include related captures section
+- [x] Related captures clearly labeled and separated from primary results
+- [x] Can be disabled via parameter
 
 ---
 

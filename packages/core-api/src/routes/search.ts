@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import type { SearchService } from '../services/search.js'
+import type { SearchService, SearchResponse } from '../services/search.js'
 import { searchSchema } from '../schemas/search.js'
 
 const csvToArray = z
@@ -23,6 +23,7 @@ const searchQuerySchema = z.object({
   capture_type: csvToArray,
   date_from: z.string().datetime().optional(),
   date_to: z.string().datetime().optional(),
+  include_related: z.enum(['true', 'false', '1', '0']).transform(v => v === 'true' || v === '1').default('false'),
 }).transform(data => ({
   ...data,
   // Merge singular/plural: prefer plural if both provided
@@ -35,7 +36,7 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
   app.get('/api/v1/search', zValidator('query', searchQuerySchema), async (c) => {
     const query = c.req.valid('query')
 
-    const results = await searchService.search(query.q, {
+    const searchOptions = {
       limit: query.limit,
       temporalWeight: query.temporal_weight,
       ftsWeight: query.fts_weight,
@@ -45,8 +46,20 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
       captureTypes: query.capture_types as string[] | undefined,
       dateFrom: query.date_from ? new Date(query.date_from) : undefined,
       dateTo: query.date_to ? new Date(query.date_to) : undefined,
-    })
+      includeRelated: query.include_related,
+    }
 
+    if (query.include_related) {
+      const response: SearchResponse = await searchService.searchWithRelated(query.q, searchOptions)
+      return c.json({
+        query: query.q,
+        total: response.results.length,
+        results: response.results,
+        ...(response.relatedResults ? { related_results: response.relatedResults } : {}),
+      })
+    }
+
+    const results = await searchService.search(query.q, searchOptions)
     return c.json({
       query: query.q,
       total: results.length,
@@ -58,17 +71,31 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
   app.post('/api/v1/search', zValidator('json', searchSchema), async (c) => {
     const body = c.req.valid('json')
 
-    const results = await searchService.search(body.query, {
+    const searchOptions = {
       limit: body.limit,
       temporalWeight: body.temporal_weight,
       ftsWeight: body.fts_weight,
       vectorWeight: body.vector_weight,
       searchMode: body.search_mode,
       brainViews: body.brain_views,
-      captureTypes: undefined, // capture_type filter not in POST schema; extend SearchOptions if needed
+      captureTypes: undefined as string[] | undefined, // capture_type filter not in POST schema; extend SearchOptions if needed
       dateFrom: body.start_date ? new Date(body.start_date) : undefined,
       dateTo: body.end_date ? new Date(body.end_date) : undefined,
-    })
+      includeRelated: body.include_related,
+    }
+
+    if (body.include_related) {
+      const response: SearchResponse = await searchService.searchWithRelated(body.query, searchOptions)
+      const paginated = response.results.slice(body.offset, body.offset + body.limit)
+      return c.json({
+        query: body.query,
+        total: response.results.length,
+        results: paginated,
+        ...(response.relatedResults ? { related_results: response.relatedResults } : {}),
+      })
+    }
+
+    const results = await searchService.search(body.query, searchOptions)
 
     // Apply client-side offset for pagination (hybrid_search returns ordered results)
     const paginated = results.slice(body.offset, body.offset + body.limit)

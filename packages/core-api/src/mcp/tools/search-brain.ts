@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { SearchService } from '../../services/search.js'
+import type { SearchResult } from '../../services/search.js'
 
 export const searchBrainSchema = z.object({
   query: z.string().min(1).describe('Search query string'),
@@ -9,20 +10,45 @@ export const searchBrainSchema = z.object({
   tag_filter: z.array(z.string()).optional().describe('Filter by tags'),
   brain_view: z.string().optional().describe('Filter by brain view (career, personal, technical, work-internal, client)'),
   days: z.number().int().min(1).optional().describe('Limit results to the last N days'),
+  include_related: z.boolean().default(true).describe('Include related captures found via entity graph traversal (spreading activation). Default true — AI agents benefit from broader context. Set false to get only direct search results.'),
 })
 
 export type SearchBrainInput = z.infer<typeof searchBrainSchema>
+
+/** Format a single search result as text lines */
+function formatResult(index: number, { capture, score }: SearchResult): string[] {
+  const date = new Date(capture.captured_at).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
+  const matchPct = Math.round(score * 100)
+  const preview = capture.content.length > 500
+    ? capture.content.slice(0, 500).trimEnd() + '…'
+    : capture.content
+
+  const lines: string[] = []
+  lines.push(`${index}. [${matchPct}% match] ${capture.capture_type.toUpperCase()} — ${date} (${capture.source})`)
+  lines.push(`   ID: ${capture.id}`)
+  if (capture.brain_view) lines.push(`   View: ${capture.brain_view}`)
+  if (capture.tags && capture.tags.length > 0) lines.push(`   Tags: ${capture.tags.join(', ')}`)
+  lines.push(`   ${preview}`)
+  return lines
+}
 
 export async function searchBrainTool(input: SearchBrainInput, searchService: SearchService): Promise<string> {
   const dateFrom = input.days
     ? new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
     : undefined
 
-  const results = await searchService.search(input.query, {
+  const response = await searchService.searchWithRelated(input.query, {
     limit: input.limit,
     brainViews: input.brain_view ? [input.brain_view] : undefined,
     dateFrom,
+    includeRelated: input.include_related,
   })
+
+  const results = response.results
 
   // Apply threshold filter post-search
   const filtered = input.threshold > 0
@@ -45,23 +71,20 @@ export async function searchBrainTool(input: SearchBrainInput, searchService: Se
   ]
 
   for (let i = 0; i < sourced.length; i++) {
-    const { capture, score } = sourced[i]
-    const date = new Date(capture.captured_at).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    })
-    const matchPct = Math.round(score * 100)
-    const preview = capture.content.length > 500
-      ? capture.content.slice(0, 500).trimEnd() + '…'
-      : capture.content
-
-    lines.push(`${i + 1}. [${matchPct}% match] ${capture.capture_type.toUpperCase()} — ${date} (${capture.source})`)
-    lines.push(`   ID: ${capture.id}`)
-    if (capture.brain_view) lines.push(`   View: ${capture.brain_view}`)
-    if (capture.tags && capture.tags.length > 0) lines.push(`   Tags: ${capture.tags.join(', ')}`)
-    lines.push(`   ${preview}`)
+    lines.push(...formatResult(i + 1, sourced[i]))
     lines.push('')
+  }
+
+  // Append related captures from spreading activation (if any)
+  const relatedResults = response.relatedResults
+  if (relatedResults && relatedResults.length > 0) {
+    lines.push('---')
+    lines.push(`Related captures (via entity graph): ${relatedResults.length} found`)
+    lines.push('')
+    for (let i = 0; i < relatedResults.length; i++) {
+      lines.push(...formatResult(i + 1, relatedResults[i]))
+      lines.push('')
+    }
   }
 
   return lines.join('\n').trimEnd()

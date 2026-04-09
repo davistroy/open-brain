@@ -26,10 +26,34 @@ const mockCapture = {
   updated_at: new Date('2026-02-01T10:00:00Z'),
 }
 
+const mockRelatedCapture = {
+  id: 'r1234567-89ab-cdef-0123-456789abcdef',
+  content: 'Related restaurant operations finding',
+  content_raw: null,
+  content_hash: 'def',
+  embedding: null,
+  capture_type: 'observation',
+  brain_view: 'work-internal',
+  source: 'api',
+  tags: ['restaurant'],
+  pipeline_status: 'complete',
+  captured_at: new Date('2026-02-02T14:00:00Z'),
+  created_at: new Date('2026-02-02T14:00:00Z'),
+  updated_at: new Date('2026-02-02T14:00:00Z'),
+}
+
 const mockSearchService = {
   search: vi.fn().mockResolvedValue([
     { capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 },
   ]),
+  searchWithRelated: vi.fn().mockResolvedValue({
+    results: [
+      { capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 },
+    ],
+    relatedResults: [
+      { capture: mockRelatedCapture, score: 0.62 },
+    ],
+  }),
 }
 
 const mockCaptureService = {
@@ -64,7 +88,7 @@ describe('search_brain tool', () => {
 
   it('returns formatted results', async () => {
     const result = await searchBrainTool(
-      { query: 'QSR pricing', limit: 10, threshold: 0.0 },
+      { query: 'QSR pricing', limit: 10, threshold: 0.0, include_related: true },
       mockSearchService as any,
     )
     expect(result).toContain('QSR pricing')
@@ -74,32 +98,88 @@ describe('search_brain tool', () => {
   })
 
   it('returns no results message when nothing found', async () => {
-    mockSearchService.search.mockResolvedValueOnce([])
+    mockSearchService.searchWithRelated.mockResolvedValueOnce({ results: [], relatedResults: [] })
     const result = await searchBrainTool(
-      { query: 'nonexistent', limit: 10, threshold: 0.0 },
+      { query: 'nonexistent', limit: 10, threshold: 0.0, include_related: true },
       mockSearchService as any,
     )
     expect(result).toContain('No captures found')
   })
 
-  it('calls SearchService.search with correct params', async () => {
+  it('calls SearchService.searchWithRelated with correct params', async () => {
     await searchBrainTool(
-      { query: 'test', limit: 5, threshold: 0.0, brain_view: 'technical', days: 7 },
+      { query: 'test', limit: 5, threshold: 0.0, brain_view: 'technical', days: 7, include_related: true },
       mockSearchService as any,
     )
-    expect(mockSearchService.search).toHaveBeenCalledWith('test', expect.objectContaining({
+    expect(mockSearchService.searchWithRelated).toHaveBeenCalledWith('test', expect.objectContaining({
       limit: 5,
       brainViews: ['technical'],
+      includeRelated: true,
     }))
   })
 
   it('filters by source when source_filter provided', async () => {
     const result = await searchBrainTool(
-      { query: 'test', limit: 10, threshold: 0.0, source_filter: 'api' },
+      { query: 'test', limit: 10, threshold: 0.0, source_filter: 'api', include_related: true },
       mockSearchService as any,
     )
     // Source is 'slack', filter is 'api' — should return no results
     expect(result).toContain('No captures found')
+  })
+
+  it('includes related captures section when include_related is true', async () => {
+    const result = await searchBrainTool(
+      { query: 'QSR pricing', limit: 10, threshold: 0.0, include_related: true },
+      mockSearchService as any,
+    )
+    expect(result).toContain('Related captures (via entity graph)')
+    expect(result).toContain(mockRelatedCapture.id)
+    expect(result).toContain('OBSERVATION')
+    expect(result).toContain('62%')
+  })
+
+  it('omits related captures section when include_related is false', async () => {
+    mockSearchService.searchWithRelated.mockResolvedValueOnce({
+      results: [
+        { capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 },
+      ],
+      // No relatedResults when includeRelated=false
+    })
+    const result = await searchBrainTool(
+      { query: 'QSR pricing', limit: 10, threshold: 0.0, include_related: false },
+      mockSearchService as any,
+    )
+    expect(result).not.toContain('Related captures')
+    expect(result).toContain('DECISION')
+  })
+
+  it('omits related section when related results are empty', async () => {
+    mockSearchService.searchWithRelated.mockResolvedValueOnce({
+      results: [
+        { capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 },
+      ],
+      relatedResults: [],
+    })
+    const result = await searchBrainTool(
+      { query: 'QSR pricing', limit: 10, threshold: 0.0, include_related: true },
+      mockSearchService as any,
+    )
+    expect(result).not.toContain('Related captures')
+  })
+
+  it('passes includeRelated=false to searchWithRelated when disabled', async () => {
+    mockSearchService.searchWithRelated.mockResolvedValueOnce({
+      results: [
+        { capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 },
+      ],
+    })
+    await searchBrainTool(
+      { query: 'test', limit: 10, threshold: 0.0, include_related: false },
+      mockSearchService as any,
+    )
+    expect(mockSearchService.searchWithRelated).toHaveBeenCalledWith('test', expect.objectContaining({
+      includeRelated: false,
+    }))
   })
 })
 
