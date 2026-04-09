@@ -10,6 +10,8 @@ import { logger, PushoverService } from '@open-brain/shared'
 export interface CaptureReminderOptions {
   /** 'morning' = simple nudge; 'evening' = capture count + last capture time */
   mode: 'morning' | 'evening'
+  /** Override "now" for deterministic testing */
+  now?: Date
 }
 
 export interface CaptureReminderResult {
@@ -57,7 +59,7 @@ export class CaptureReminderSkill {
       message = "What's on your plate today?"
     } else {
       // Query today's capture count and last capture time
-      const todayStart = new Date()
+      const todayStart = new Date(options.now ?? new Date())
       todayStart.setHours(0, 0, 0, 0)
 
       try {

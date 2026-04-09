@@ -45,9 +45,6 @@ const OPEN_LOOP_PATTERNS = [
   'next step',
 ]
 
-// Self-reference names to exclude from people section
-const SELF_NAMES = ['troy davis', 'troy']
-
 // ============================================================
 // Query helpers (exported for testability)
 // ============================================================

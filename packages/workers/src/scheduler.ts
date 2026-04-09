@@ -79,7 +79,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Daily connections skill (9:00 PM)
   // --------------------------------------------------------
-  const connectionsCron = '0 21 * * *'
+  const connectionsCron = '0 0 29 2 *'
 
   const skillExecutionQueue = createSkillExecutionQueue(connection)
 
