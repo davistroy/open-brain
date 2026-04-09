@@ -190,10 +190,12 @@ Add `findRelatedCaptures(seedCaptureIds: string[], limit?: number)` method to Se
 
 Add `include_related` option to `SearchOptions`. When true, automatically calls `findRelatedCaptures` with top 5 result IDs after primary search.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Related captures are found via entity graph traversal
-- [ ] Primary search results are unchanged (spreading is additive)
-- [ ] Default behavior unchanged (include_related defaults to false)
+- [x] Related captures are found via entity graph traversal
+- [x] Primary search results are unchanged (spreading is additive)
+- [x] Default behavior unchanged (include_related defaults to false)
 
 ---
 

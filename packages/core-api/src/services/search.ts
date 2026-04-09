@@ -15,6 +15,8 @@ export interface SearchOptions {
   searchMode?: 'hybrid' | 'vector' | 'fts'
   /** IDs of recently accessed captures — used for Hebbian association boost */
   recentCaptureIds?: string[]
+  /** When true, runs spreading activation on top 5 results to find related captures via entity graph */
+  includeRelated?: boolean
 }
 
 export interface SearchResult {
@@ -22,6 +24,11 @@ export interface SearchResult {
   score: number
   ftsScore?: number
   vectorScore?: number
+}
+
+export interface SearchResponse {
+  results: SearchResult[]
+  relatedResults?: SearchResult[]
 }
 
 type HybridSearchRow = {
@@ -284,5 +291,106 @@ export class SearchService {
     // No in-memory filtering needed — filters are applied in SQL
     results.sort((a, b) => b.score - a.score)
     return results.slice(0, limit)
+  }
+
+  /**
+   * Find captures related to seed captures via entity graph traversal.
+   *
+   * Calls the spreading_activation SQL function which traverses entity_links
+   * and entity_relationships up to 2 hops from the seed captures. Fetches
+   * full capture records and applies ACT-R temporal decay to activation scores.
+   *
+   * @param seedCaptureIds - UUIDs of seed captures to start traversal from
+   * @param limit - Maximum related captures to return (default 10)
+   * @param temporalWeight - ACT-R decay weight (default 0.0, cold-start safe)
+   * @returns SearchResult[] scored by activation_score with temporal decay
+   */
+  async findRelatedCaptures(
+    seedCaptureIds: string[],
+    limit: number = 10,
+    temporalWeight: number = 0.0,
+  ): Promise<SearchResult[]> {
+    if (seedCaptureIds.length === 0) {
+      return []
+    }
+
+    const pgSeedIds = `{${seedCaptureIds.join(',')}}`
+
+    // Call the spreading_activation SQL function
+    const activationRows = await this.db.execute<{
+      capture_id: string
+      activation_score: number
+      hop_count: number
+    }>(sql`
+      SELECT capture_id::text, activation_score, hop_count
+      FROM spreading_activation(
+        ${pgSeedIds}::uuid[],
+        2,
+        ${limit}
+      )
+    `)
+
+    if (activationRows.rows.length === 0) {
+      return []
+    }
+
+    // Fetch full capture records for the related captures
+    const relatedIds = activationRows.rows.map(r => r.capture_id)
+    const pgRelatedIds = `{${relatedIds.join(',')}}`
+    const captureRows = await this.db.execute<CaptureQueryRow>(sql`
+      SELECT *
+      FROM captures
+      WHERE id = ANY(${pgRelatedIds}::uuid[])
+    `)
+
+    const captureMap = new Map<string, CaptureRecord>()
+    for (const row of captureRows.rows) {
+      captureMap.set(row.id, row as unknown as CaptureRecord)
+    }
+
+    // Apply ACT-R temporal decay to activation scores
+    const results: SearchResult[] = []
+    for (const row of activationRows.rows) {
+      const capture = captureMap.get(row.capture_id)
+      if (!capture) continue
+
+      const finalScore = applyTemporalDecay(row.activation_score, capture.created_at, temporalWeight)
+      results.push({
+        capture,
+        score: finalScore,
+      })
+    }
+
+    // Sort by final score descending
+    results.sort((a, b) => b.score - a.score)
+    return results.slice(0, limit)
+  }
+
+  /**
+   * Full search with optional spreading activation for related captures.
+   *
+   * When options.includeRelated is true, runs findRelatedCaptures on the
+   * top 5 primary results after the main search completes. Related results
+   * exclude any captures already in the primary results.
+   */
+  async searchWithRelated(query: string, options: SearchOptions = {}): Promise<SearchResponse> {
+    const results = await this.search(query, options)
+
+    const response: SearchResponse = { results }
+
+    if (options.includeRelated && results.length > 0) {
+      const seedIds = results.slice(0, 5).map(r => r.capture.id!)
+      const related = await this.findRelatedCaptures(
+        seedIds,
+        options.limit ?? 10,
+        options.temporalWeight ?? 0.0,
+      )
+
+      // Exclude captures already in primary results
+      const primaryIds = new Set(results.map(r => r.capture.id!))
+      response.relatedResults = related.filter(r => !primaryIds.has(r.capture.id!))
+    }
+
+    return response
   }
 }

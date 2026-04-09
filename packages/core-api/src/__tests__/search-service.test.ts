@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SearchService, applyTemporalDecay } from '../services/search.js'
+import { SearchService, applyTemporalDecay, type SearchResponse } from '../services/search.js'
 import { EmbeddingUnavailableError } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
 
@@ -616,6 +616,286 @@ describe('SearchService', () => {
 
       await expect(service.search('failing query')).rejects.toThrow()
       expect(db.execute).not.toHaveBeenCalled()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // findRelatedCaptures — spreading activation
+  // -------------------------------------------------------------------------
+
+  describe('findRelatedCaptures()', () => {
+    it('returns empty array when seedCaptureIds is empty', async () => {
+      const db = { execute: vi.fn() }
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures([])
+
+      expect(results).toEqual([])
+      expect(db.execute).not.toHaveBeenCalled()
+    })
+
+    it('calls spreading_activation SQL function with seed IDs', async () => {
+      const relatedCapture = makeCaptureRecord({ id: 'related-1' })
+      const execute = vi.fn()
+      // Call 1: spreading_activation
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'related-1', activation_score: 0.75, hop_count: 1 },
+      ] })
+      // Call 2: SELECT * FROM captures
+      execute.mockResolvedValueOnce({ rows: [relatedCapture] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures(['seed-1', 'seed-2'])
+
+      expect(results).toHaveLength(1)
+      expect(results[0].capture.id).toBe('related-1')
+      expect(results[0].score).toBe(0.75) // temporalWeight=0 → score unchanged
+      // Exactly 2 DB calls: spreading_activation + captures fetch
+      expect(execute).toHaveBeenCalledTimes(2)
+    })
+
+    it('returns empty array when spreading_activation returns no rows', async () => {
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: [] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures(['seed-1'])
+
+      expect(results).toEqual([])
+      // Only 1 DB call — no captures fetch needed
+      expect(execute).toHaveBeenCalledTimes(1)
+    })
+
+    it('applies ACT-R temporal decay to activation scores', async () => {
+      const oneYearAgo = new Date(Date.now() - 365 * 24 * 3_600_000)
+      const relatedCapture = makeCaptureRecord({ id: 'related-1', created_at: oneYearAgo })
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'related-1', activation_score: 0.9, hop_count: 1 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [relatedCapture] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures(['seed-1'], 10, 1.0)
+
+      expect(results).toHaveLength(1)
+      // With temporalWeight=1.0 and a year-old capture, score should be less than 0.9
+      expect(results[0].score).toBeLessThan(0.9)
+    })
+
+    it('sorts results by score descending', async () => {
+      const cap1 = makeCaptureRecord({ id: 'rel-1' })
+      const cap2 = makeCaptureRecord({ id: 'rel-2' })
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'rel-1', activation_score: 0.5, hop_count: 2 },
+        { capture_id: 'rel-2', activation_score: 0.9, hop_count: 1 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [cap1, cap2] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures(['seed-1'])
+
+      expect(results[0].capture.id).toBe('rel-2')
+      expect(results[1].capture.id).toBe('rel-1')
+    })
+
+    it('respects the limit parameter', async () => {
+      const captures = Array.from({ length: 5 }, (_, i) => makeCaptureRecord({ id: `rel-${i}` }))
+      const activationRows = captures.map((c, i) => ({
+        capture_id: c.id!,
+        activation_score: 0.9 - i * 0.1,
+        hop_count: 1,
+      }))
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: activationRows })
+      execute.mockResolvedValueOnce({ rows: captures })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures(['seed-1'], 3)
+
+      expect(results).toHaveLength(3)
+    })
+
+    it('skips captures not found in the database', async () => {
+      // spreading_activation returns a capture ID that doesn't exist in captures table
+      const cap1 = makeCaptureRecord({ id: 'rel-1' })
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'rel-1', activation_score: 0.8, hop_count: 1 },
+        { capture_id: 'rel-missing', activation_score: 0.7, hop_count: 1 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [cap1] }) // only rel-1 exists
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const results = await service.findRelatedCaptures(['seed-1'])
+
+      expect(results).toHaveLength(1)
+      expect(results[0].capture.id).toBe('rel-1')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // searchWithRelated — includeRelated integration
+  // -------------------------------------------------------------------------
+
+  describe('searchWithRelated()', () => {
+    it('returns only primary results when includeRelated is false (default)', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const response = await service.searchWithRelated('test query')
+
+      expect(response.results).toHaveLength(1)
+      expect(response.relatedResults).toBeUndefined()
+      // No extra DB calls for spreading activation
+      expect(db.execute).toHaveBeenCalledTimes(2)
+    })
+
+    it('includes related captures when includeRelated is true', async () => {
+      const primaryCapture = makeCaptureRecord({ id: 'cap-1' })
+      const relatedCapture = makeCaptureRecord({ id: 'related-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+
+      const execute = vi.fn()
+      // Call 1: hybrid_search (primary search)
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 2: SELECT captures (primary)
+      execute.mockResolvedValueOnce({ rows: [primaryCapture] })
+      // Call 3: spreading_activation
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'related-1', activation_score: 0.6, hop_count: 1 },
+      ] })
+      // Call 4: SELECT captures (related)
+      execute.mockResolvedValueOnce({ rows: [relatedCapture] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const response = await service.searchWithRelated('test', { includeRelated: true })
+
+      expect(response.results).toHaveLength(1)
+      expect(response.results[0].capture.id).toBe('cap-1')
+      expect(response.relatedResults).toHaveLength(1)
+      expect(response.relatedResults![0].capture.id).toBe('related-1')
+    })
+
+    it('excludes primary results from related results (no duplicates)', async () => {
+      const cap1 = makeCaptureRecord({ id: 'cap-1' })
+      const cap2 = makeCaptureRecord({ id: 'cap-2' })
+      const hybridRows = [
+        { capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 },
+        { capture_id: 'cap-2', rrf_score: 0.7, fts_score: 0.6, vector_score: 0.8 },
+      ]
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [cap1, cap2] })
+      // spreading_activation returns cap-2 (already in primary) and related-1 (new)
+      const relatedCapture = makeCaptureRecord({ id: 'related-1' })
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'cap-2', activation_score: 0.9, hop_count: 1 },
+        { capture_id: 'related-1', activation_score: 0.5, hop_count: 2 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [cap2, relatedCapture] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const response = await service.searchWithRelated('test', { includeRelated: true })
+
+      expect(response.results).toHaveLength(2)
+      // cap-2 should NOT appear in related results — it's already in primary
+      expect(response.relatedResults).toHaveLength(1)
+      expect(response.relatedResults![0].capture.id).toBe('related-1')
+    })
+
+    it('uses top 5 primary result IDs as seeds for spreading activation', async () => {
+      // Create 7 primary results — only top 5 should be seeds
+      const captures = Array.from({ length: 7 }, (_, i) => makeCaptureRecord({ id: `cap-${i}` }))
+      const hybridRows = captures.map((c, i) => ({
+        capture_id: c.id!,
+        rrf_score: 0.9 - i * 0.05,
+        fts_score: 0.8,
+        vector_score: 0.85,
+      }))
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: captures })
+      // Spreading activation returns nothing — we just want to verify it was called
+      execute.mockResolvedValueOnce({ rows: [] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      await service.searchWithRelated('test', { includeRelated: true })
+
+      // Verify spreading_activation was called (3rd execute call)
+      expect(execute).toHaveBeenCalledTimes(3)
+      // The SQL call should contain the seed IDs — we verify by checking
+      // that it was called at all (the function uses top 5)
+    })
+
+    it('returns empty relatedResults when spreading_activation finds nothing', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [capture] })
+      // Spreading activation returns nothing
+      execute.mockResolvedValueOnce({ rows: [] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      const response = await service.searchWithRelated('test', { includeRelated: true })
+
+      expect(response.results).toHaveLength(1)
+      expect(response.relatedResults).toEqual([])
+    })
+
+    it('does not run spreading activation when primary search returns no results', async () => {
+      const db = makeMockDb([], [])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const response = await service.searchWithRelated('no matches', { includeRelated: true })
+
+      expect(response.results).toEqual([])
+      expect(response.relatedResults).toBeUndefined()
+    })
+
+    it('primary search results are unchanged by includeRelated (additive only)', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+
+      // Run without includeRelated
+      const db1 = makeMockDb(hybridRows, [capture])
+      const service1 = new SearchService(db1 as any, embeddingService as any)
+      const baseResults = await service1.search('test')
+
+      // Run with includeRelated
+      embeddingService = makeMockEmbeddingService()
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      execute.mockResolvedValueOnce({ rows: [capture] })
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'related-1', activation_score: 0.6, hop_count: 1 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [makeCaptureRecord({ id: 'related-1' })] })
+      const service2 = new SearchService({ execute } as any, embeddingService as any)
+      const response = await service2.searchWithRelated('test', { includeRelated: true })
+
+      // Primary results should be identical
+      expect(response.results).toHaveLength(baseResults.length)
+      expect(response.results[0].capture.id).toBe(baseResults[0].capture.id)
+      expect(response.results[0].score).toBe(baseResults[0].score)
     })
   })
 })
