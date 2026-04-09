@@ -61,10 +61,12 @@ CREATE TABLE capture_associations (
 );
 ```
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Migration applies cleanly on fresh and existing databases
-- [ ] CASCADE delete works (deleting a capture removes its associations)
-- [ ] Canonical ordering constraint prevents duplicate pairs
+- [x] Migration applies cleanly on fresh and existing databases
+- [x] CASCADE delete works (deleting a capture removes its associations)
+- [x] Canonical ordering constraint prevents duplicate pairs
 
 ---
 
@@ -76,9 +78,11 @@ CREATE TABLE capture_associations (
 **Description:**
 Add `captureAssociations` table definition matching migration 0011. Export from schema index.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Schema matches SQL migration exactly
-- [ ] TypeScript types correctly inferred
+- [x] Schema matches SQL migration exactly
+- [x] TypeScript types correctly inferred
 
 ---
 
@@ -96,11 +100,13 @@ weight = co_access_count * exp(-0.005 * hours_since_last_co_access)
 
 Only pair the top 10 results per search (avoids N^2 explosion). Uses `INSERT ON CONFLICT DO UPDATE`.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] After a search returning captures A, B, C — associations A-B, A-C, B-C are created/strengthened
-- [ ] Weight increases with repeated co-access
-- [ ] Canonical ordering maintained (smaller UUID first)
-- [ ] No performance regression on access-stats processing
+- [x] After a search returning captures A, B, C — associations A-B, A-C, B-C are created/strengthened
+- [x] Weight increases with repeated co-access
+- [x] Canonical ordering maintained (smaller UUID first)
+- [x] No performance regression on access-stats processing
 
 ---
 
@@ -114,11 +120,13 @@ Add optional `recentCaptureIds` parameter to `SearchOptions`. After ACT-R tempor
 
 Default: no boost when `recentCaptureIds` is empty (cold-start safe). Association weight is normalized to [0,1] range.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Search results unchanged when `recentCaptureIds` is empty (backward compatible)
-- [ ] Associated captures receive a small but measurable score boost
-- [ ] Boost is bounded (max 10% increase)
-- [ ] No performance regression on search latency
+- [x] Search results unchanged when `recentCaptureIds` is empty (backward compatible)
+- [x] Associated captures receive a small but measurable score boost
+- [x] Boost is bounded (max 10% increase)
+- [x] No performance regression on search latency
 
 ---
 
@@ -130,10 +138,12 @@ Default: no boost when `recentCaptureIds` is empty (cold-start safe). Associatio
 **Description:**
 Add a pruning function called periodically (piggyback on access-stats processing or daily-sweep). Deletes associations where `weight < 0.1 AND last_co_access < NOW() - INTERVAL '90 days'`.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Stale, low-weight associations are cleaned up
-- [ ] Active associations are preserved
-- [ ] Pruning runs without blocking normal access-stats processing
+- [x] Stale, low-weight associations are cleaned up
+- [x] Active associations are preserved
+- [x] Pruning runs without blocking normal access-stats processing
 
 ---
 
@@ -160,11 +170,13 @@ Algorithm:
 Parameters: `seed_capture_ids UUID[]`, `max_hops INT DEFAULT 2`, `max_related INT DEFAULT 10`
 Returns: `TABLE(capture_id UUID, activation_score REAL, hop_count INT)`
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Returns related captures connected by shared entities
-- [ ] Excludes seed captures from results
-- [ ] Performance < 50ms for typical graphs
-- [ ] Respects max_related limit
+- [x] Returns related captures connected by shared entities
+- [x] Excludes seed captures from results
+- [x] Performance < 50ms for typical graphs
+- [x] Respects max_related limit
 
 ---
 
@@ -178,10 +190,12 @@ Add `findRelatedCaptures(seedCaptureIds: string[], limit?: number)` method to Se
 
 Add `include_related` option to `SearchOptions`. When true, automatically calls `findRelatedCaptures` with top 5 result IDs after primary search.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Related captures are found via entity graph traversal
-- [ ] Primary search results are unchanged (spreading is additive)
-- [ ] Default behavior unchanged (include_related defaults to false)
+- [x] Related captures are found via entity graph traversal
+- [x] Primary search results are unchanged (spreading is additive)
+- [x] Default behavior unchanged (include_related defaults to false)
 
 ---
 
@@ -193,10 +207,12 @@ Add `include_related` option to `SearchOptions`. When true, automatically calls 
 **Description:**
 Add optional `include_related` query parameter (GET) and body field (POST). When true, response includes `related_results: SearchResult[]` alongside existing `results`. Backward compatible — field absent when not requested.
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Existing API consumers unaffected
-- [ ] `include_related=true` returns related captures in response
-- [ ] Related results are clearly separate from primary results
+- [x] Existing API consumers unaffected
+- [x] `include_related=true` returns related captures in response
+- [x] Related results are clearly separate from primary results
 
 ---
 
@@ -208,10 +224,12 @@ Add optional `include_related` query parameter (GET) and body field (POST). When
 **Description:**
 After primary search results, run spreading activation on top 5 results. Append "Related captures:" section to tool response text. Add `include_related` parameter to schema (default true for MCP — AI agents benefit from broader context).
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] MCP search results include related captures section
-- [ ] Related captures clearly labeled and separated from primary results
-- [ ] Can be disabled via parameter
+- [x] MCP search results include related captures section
+- [x] Related captures clearly labeled and separated from primary results
+- [x] Can be disabled via parameter
 
 ---
 
@@ -235,11 +253,13 @@ Find candidate clusters for consolidation:
 
 Types exported: `ConsolidationCluster`, `ConsolidationQueryResult`
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Identifies clusters of semantically similar captures
-- [ ] Respects minimum cluster size (3)
-- [ ] Limits to top 5 clusters per run
-- [ ] Excludes already-deleted captures
+- [x] Identifies clusters of semantically similar captures
+- [x] Respects minimum cluster size (3)
+- [x] Limits to top 5 clusters per run
+- [x] Excludes already-deleted captures
 
 ---
 
@@ -256,10 +276,12 @@ LLM prompt for merging a cluster of captures into a single consolidated capture:
 - Output JSON: `{ should_merge: boolean, merged_content: string, merged_tags: string[], merge_rationale: string }`
 - Set `should_merge: false` if captures are about fundamentally different topics
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Template renders correctly with TemplateCache
-- [ ] LLM output is parseable JSON
-- [ ] Safety valve (should_merge: false) works when captures are too different
+- [x] Template renders correctly with TemplateCache
+- [x] LLM output is parseable JSON
+- [x] Safety valve (should_merge: false) works when captures are too different
 
 ---
 
@@ -283,14 +305,16 @@ Following weekly-brief skill pattern:
 3. Log to skills_log with result JSONB
 4. Send Pushover notification with summary
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Clusters are merged into consolidated captures
-- [ ] LLM safety valve (should_merge: false) is respected
-- [ ] Entity links migrated to consolidated capture
-- [ ] Capture associations re-pointed
-- [ ] Originals soft-deleted (recoverable)
-- [ ] skills_log records full details
-- [ ] Pushover notification sent
+- [x] Clusters are merged into consolidated captures
+- [x] LLM safety valve (should_merge: false) is respected
+- [x] Entity links migrated to consolidated capture
+- [x] Capture associations re-pointed
+- [x] Originals soft-deleted (recoverable)
+- [x] skills_log records full details
+- [x] Pushover notification sent
 
 ---
 
@@ -306,11 +330,13 @@ Following weekly-brief skill pattern:
 - Add case to skill-execution.ts switch statement
 - Add to DEFAULT_SKILLS in skill-config.ts
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Skill appears in GET /api/v1/skills
-- [ ] Skill can be manually triggered via POST /api/v1/skills/memory-consolidation/trigger
-- [ ] Repeatable job registered on scheduler startup
-- [ ] Schedule editable via PATCH /api/v1/skills/memory-consolidation
+- [x] Skill appears in GET /api/v1/skills
+- [x] Skill can be manually triggered via POST /api/v1/skills/memory-consolidation/trigger
+- [x] Repeatable job registered on scheduler startup
+- [x] Schedule editable via PATCH /api/v1/skills/memory-consolidation
 
 ---
 

@@ -25,6 +25,9 @@ vi.mock('../../lib/api', () => ({
   adminApi: {
     getBanner: vi.fn().mockResolvedValue({ banner: null }),
   },
+  intelligenceApi: {
+    unresolvedQuestions: vi.fn().mockResolvedValue({ questions: [], count: 0 }),
+  },
 }))
 
 // Also stub global EventSource so sse.ts module initialisation doesn't throw

@@ -4,7 +4,7 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 ## Status
 
-**Implementation complete** — 25 phases shipped across three implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
+**Implementation complete** — 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
 ---
 
@@ -80,6 +80,8 @@ All captures hit the same pipeline:
 
 Search:
   Hybrid (default): FTS + pgvector cosine → Reciprocal Rank Fusion → ACT-R temporal decay
+    → Hebbian association boost (from co-access patterns)
+    → Spreading activation (entity graph traversal, optional via include_related)
   FTS-only (?search_mode=fts): bypasses embedding, works when OpenAI is unavailable
 
 AI calls:
@@ -111,8 +113,8 @@ AI calls:
 
 - **Capture**: Voice memos (iOS Shortcut), Slack messages, Slack voice clips, document upload (PDF/docx/txt/md), MCP, direct API
 - **Pipeline**: Async BullMQ stages — embed, classify, extract entities, link entities, check triggers, notify
-- **Search**: Hybrid retrieval (FTS + pgvector cosine + RRF) with ACT-R temporal decay
-- **AI Skills**: Weekly brief, board governance (quick check, quarterly), bet tracking, semantic push triggers
+- **Search**: Hybrid retrieval (FTS + pgvector cosine + RRF) with ACT-R temporal decay + Hebbian association boost + spreading activation (entity graph traversal)
+- **AI Skills**: Weekly brief, board governance (quick check, quarterly), bet tracking, semantic push triggers, memory consolidation
 - **Output**: Pushover notifications, HTML email delivery, Slack responses
 - **Governance**: LLM-driven interactive sessions via Slack with guardrails
 - **Entity Graph**: Auto-extraction, 3-tier resolution, relationship tracking
@@ -134,6 +136,12 @@ AI calls:
 - Skill schedule editing (inline cron editing with YAML write-back)
 - In-app help page with tabbed markdown rendering and table of contents
 - Slack channel management (listing with activity metadata, channel archiving)
+
+**Cognitive Memory (shipped 2026-04-09)**
+
+- **Hebbian Learning**: Captures co-accessed in search sessions form strengthening associations (`capture_associations` table). Bounded 10% search score boost from association weights. Automatic pruning of stale associations.
+- **Spreading Activation**: Entity graph traversal (1-2 hops via `entity_links` + `entity_relationships`) surfaces related captures during search. Available via `include_related` param on search API and MCP `search_brain` tool.
+- **Memory Consolidation**: Scheduled weekly skill (4 AM Sundays) identifies clusters of near-duplicate captures (cosine > 0.92), LLM-merges them with a safety valve, migrates entity links and associations, soft-deletes originals.
 
 ### Deferred Features
 
@@ -248,6 +256,7 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `CHANGELOG.md` | Version history and recent changes |
 | `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
 | `IMPLEMENTATION_PLAN-PHASE6.md` | Phases 21–25 (UX polish + admin tools) — complete |
+| `IMPLEMENT_IMPROVED_MEMORY.md` | Cognitive memory (Hebbian, spreading activation, consolidation) — complete |
 | `docs/PRD.md` | Product requirements (v0.6) |
 | `docs/TDD.md` | Technical design (v0.6) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |

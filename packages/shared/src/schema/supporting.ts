@@ -196,6 +196,39 @@ export const triggers = pgTable(
 )
 
 // ============================================================
+// capture_associations table — Hebbian learning (co-access tracking)
+//
+// When multiple captures appear together in search results,
+// an association row is created or strengthened between each pair.
+// Associations are undirected: capture_id_a < capture_id_b (UUID lexicographic)
+// enforces a canonical ordering so (A,B) and (B,A) never duplicate.
+//
+// co_access_count — incremented each time both captures appear in the same search.
+// weight — Hebbian weight with time decay:
+//          weight = co_access_count * exp(-0.005 * hours_since_last_co_access)
+// last_co_access — timestamp of the most recent co-access event.
+// ============================================================
+export const captureAssociations = pgTable(
+  'capture_associations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    capture_id_a: uuid('capture_id_a').notNull().references(() => captures.id, { onDelete: 'cascade' }),
+    capture_id_b: uuid('capture_id_b').notNull().references(() => captures.id, { onDelete: 'cascade' }),
+    co_access_count: integer('co_access_count').notNull().default(1),
+    weight: real('weight').notNull().default(1.0),
+    last_co_access: timestamp('last_co_access', { withTimezone: true }).notNull().defaultNow(),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    // Unique constraint enforces one row per ordered (a < b) pair
+    pair_idx: uniqueIndex('capture_associations_pair_idx').on(table.capture_id_a, table.capture_id_b),
+    capture_id_a_idx: index('capture_associations_capture_id_a_idx').on(table.capture_id_a),
+    capture_id_b_idx: index('capture_associations_capture_id_b_idx').on(table.capture_id_b),
+    last_co_access_idx: index('capture_associations_last_co_access_idx').on(table.last_co_access),
+  }),
+)
+
+// ============================================================
 // app_settings table — generic key-value settings store
 // ============================================================
 export const app_settings = pgTable('app_settings', {

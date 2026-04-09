@@ -20,6 +20,7 @@ export const searchSchema = z.object({
   search_mode: z.enum(SEARCH_MODES).default('hybrid'),
   fts_weight: z.number().min(0).max(1).default(0.5),
   vector_weight: z.number().min(0).max(1).default(0.5),
+  include_related: z.boolean().default(false),
 })
 
 export type SearchInput = z.infer<typeof searchSchema>

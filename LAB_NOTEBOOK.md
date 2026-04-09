@@ -34,7 +34,10 @@
 | D22 | Health endpoint service key renamed from `litellm` to `llm` | 2026-04-02 | ACTIVE | Entry 013 | LiteLLM proxy removed; OpenAI direct — label should be generic |
 | D23 | OpenClaw integration via skill (not plugin) | 2026-04-07 | ACTIVE | Entry 016 | Plugin (overkill — no runtime code needed), direct API calls (less discoverable for agent) |
 | D24 | MCP captures from OpenClaw use source: mcp (hardcoded) | 2026-04-07 | ACTIVE | Entry 016 | New 'openclaw' source type (schema change, migration), source_metadata.origin field (future) |
-| D25 | Port Shodh cognitive concepts (not binary) into Open Brain | 2026-04-09 | ACTIVE | Entry 017 | Run Shodh as sidecar (dual storage, incompatible embeddings, Rust/TS mismatch), ignore entirely (miss valuable cognitive patterns) |
+| D25 | Port Shodh cognitive concepts (not binary) into Open Brain | 2026-04-09 | ACTIVE | Entry 018 | Run Shodh as sidecar (dual storage, incompatible embeddings, Rust/TS mismatch), ignore entirely (miss valuable cognitive patterns) |
+| D26 | Hebbian co-access tracking pairs top-10 results only | 2026-04-09 | ACTIVE | Entry 019 | All pairs (N^2 explosion), top-5 (insufficient signal) |
+| D27 | Spreading activation max 2 hops, fan-out 10 | 2026-04-09 | ACTIVE | Entry 019 | 3 hops (too slow on dense graphs), 1 hop (misses indirect connections) |
+| D28 | Memory consolidation cosine > 0.92, min cluster 3, weekly | 2026-04-09 | ACTIVE | Entry 019 | Lower threshold (over-merging risk), daily (too aggressive for single user) |
 
 ## Action Items
 
@@ -47,9 +50,9 @@
 | A4 | ~~Unify three CaptureCard implementations~~ | 2026-03-31 | Entry 009 | DONE — PR #37 (8c31728) |
 | A5 | Monitor OpenClaw capture quality (entity extraction, brain view classification) | 2026-04-07 | Entry 016 | MEDIUM |
 | A6 | Consider source_metadata.origin field to distinguish MCP capture origins | 2026-04-07 | Entry 016 | LOW |
-| A7 | Implement Hebbian Learning (Phase 1 of IMPLEMENT_IMPROVED_MEMORY.md) | 2026-04-09 | Entry 017 | MEDIUM |
-| A8 | Implement Spreading Activation (Phase 2 of IMPLEMENT_IMPROVED_MEMORY.md) | 2026-04-09 | Entry 017 | MEDIUM |
-| A9 | Implement Memory Consolidation skill (Phase 3 of IMPLEMENT_IMPROVED_MEMORY.md) | 2026-04-09 | Entry 017 | MEDIUM |
+| A10 | Tune Hebbian association boost weight after real usage data | 2026-04-09 | Entry 019 | LOW |
+| A11 | Build web UI "Related captures" component for spreading activation | 2026-04-09 | Entry 019 | LOW |
+| A12 | Monitor consolidation skill output quality in first 2-3 runs | 2026-04-09 | Entry 019 | MEDIUM |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -57,6 +60,9 @@
 | A0a | Phase 5: Intelligence features (connections, drift monitor, dashboard) | 2026-03 | 2026-03-11 | IMPL_PLAN_PHASE5 |
 | A0b | Phase 6: UX polish, admin tools, Slack channel cleanup | 2026-03 | 2026-03-12 | IMPL_PLAN_PHASE6 |
 | A0c | Phase 7: Architectural consolidation (shared utils, decomposition) | 2026-03 | 2026-03-30 | IMPL_PLAN_PHASE7 |
+| A7 | Implement Hebbian Learning (Phase 1 of cognitive memory) | 2026-04-09 | 2026-04-09 | Entry 019 |
+| A8 | Implement Spreading Activation (Phase 2 of cognitive memory) | 2026-04-09 | 2026-04-09 | Entry 019 |
+| A9 | Implement Memory Consolidation skill (Phase 3 of cognitive memory) | 2026-04-09 | 2026-04-09 | Entry 019 |
 | A0d | DGX Spark LLM throughput optimization (13→49 tok/s) | 2026-03-29 | 2026-03-30 | (See ../spark/LAB_NOTEBOOK.md) |
 | A0e | Run prod test suite, fix issues | 2026-03-30 | 2026-03-30 | Entry 002 |
 | A0f | Switch to OpenAI API (gpt-5.4 + text-embedding-3-large) | 2026-03-30 | 2026-03-30 | Entry 003 |
@@ -879,5 +885,67 @@ The most valuable parts of Shodh aren't its implementation — they're the cogni
 - A7: Implement Phase 1 (Hebbian Learning) — migration 0011, schema, access-stats, search boost, pruning
 - A8: Implement Phase 2 (Spreading Activation) — SQL function, search service, API/MCP
 - A9: Implement Phase 3 (Memory Consolidation) — query, skill, prompt template, scheduler
+
+### Entry 019: Cognitive Memory Implementation — Hebbian Learning, Spreading Activation, Memory Consolidation [deploy] [architecture]
+
+**Date:** 2026-04-09
+**Environment:** Laptop (development), feature/cognitive-memory branch
+**Status:** COMPLETE
+**Duration:** ~90 minutes (parallel subagent execution)
+**Tags:** `[deploy]` `[architecture]` `[pipeline]` `[database]`
+
+**Objective:** Implement all 13 work items from IMPLEMENT_IMPROVED_MEMORY.md — three neuroscience-inspired memory features ported from Shodh's cognitive architecture into Open Brain's native Postgres/TypeScript stack.
+
+**Hypothesis:** Hebbian learning (co-access associations), spreading activation (entity graph traversal), and memory consolidation (LLM-powered near-duplicate merging) can be implemented natively using existing infrastructure (access tracking columns, entity graph tables, skills framework) without architectural disruption. Expect: all 13 work items pass tests, no regressions.
+
+**Rollback Plan:** `git revert` the PR merge commit; drop migration 0011/0012 objects (`capture_associations` table, `spreading_activation` function).
+
+---
+
+**Implementation Summary:**
+
+Executed via `/implement-plan` with parallel subagent orchestration. 9 commits, 21 files changed, +2,781/-82 lines, 58 new tests.
+
+**Phase 1 — Hebbian Learning (5 items):**
+- Migration 0011: `capture_associations` table with canonical UUID pair ordering, CASCADE deletes
+- Drizzle schema in `supporting.ts`, shared package rebuilt
+- Co-access tracking: top-10 search results generate canonical pairs, upsert with Hebbian weight decay `w = count * exp(-0.005 * hours)`
+- Search boost: bounded 10% multiplicative score increase from recently accessed associations, cold-start safe
+- Pruning: removes stale associations (weight < 0.1, 90 days inactive)
+
+**Phase 2 — Spreading Activation (4 items):**
+- Migration 0012: `spreading_activation` PL/pgSQL function — 2-hop traversal via entity_links + entity_relationships, scores by `SUM(confidence * weight) / hop_count`, STABLE PARALLEL SAFE
+- `findRelatedCaptures()` and `searchWithRelated()` in search service — calls SQL function, deduplicates against primary results
+- Search API: `include_related` param on GET/POST, returns `related_results` alongside `results`
+- MCP `search_brain`: defaults `include_related=true`, appends "Related captures (via entity graph)" section
+
+**Phase 3 — Memory Consolidation (4 items):**
+- Query module: cosine similarity > 0.92, union-find clustering, min 3 captures, top 5 clusters
+- Prompt template: `memory_consolidation_v1.txt` with safety valve (`should_merge: false`)
+- Full skill: query → LLM merge → create consolidated capture → migrate entity_links → re-point associations → soft-delete originals → skills_log + Pushover
+- Scheduler: 4 AM Sundays via BullMQ repeatable job, registered in DEFAULT_SKILLS
+
+**Test Results:** 1,569 tests passing (58 new), 0 failures. Test suite ran cleanly at every commit.
+
+**What Worked:**
+- Parallel subagent execution dramatically reduced wall clock time — 3 agents for items 1.3/1.4/1.5, 2 for 2.3/2.4, 2 for 3.1/3.2
+- Existing infrastructure was perfectly positioned: access tracking columns (migration 0008), entity graph tables, skills framework all pre-existed
+- No merge conflicts despite parallel agents editing the same file (update-access-stats.ts items 1.3 and 1.5)
+- Only one pre-existing test issue found (Dashboard test missing `intelligenceApi` mock) — fixed as part of item 1.1
+
+**System Insights:**
+- `capture_associations` mirrors `entity_relationships` canonical pair pattern — both enforce `id_a < id_b`
+- Spreading activation SQL function uses existing indexes on entity_links — no new indexes needed
+- Memory consolidation creates captures with `source: 'consolidation'` — distinguishable in timeline/search
+
+**Decisions:**
+- D26: Top-10 pairing limit for Hebbian associations (avoids N^2)
+- D27: Max 2 hops, fan-out 10 for spreading activation (performance vs coverage tradeoff)
+- D28: Cosine > 0.92, min cluster 3, weekly consolidation (conservative to prevent over-merging)
+
+**Action Items:**
+- A10: Tune association boost weight after real usage data
+- A11: Build web UI "Related captures" component
+- A12: Monitor consolidation skill quality in first 2-3 runs
 
 *Entries continue below.*

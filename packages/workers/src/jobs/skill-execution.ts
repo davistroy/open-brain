@@ -6,6 +6,7 @@ import { executeWeeklyBrief } from '../skills/weekly-brief.js'
 import { executeDailyConnections } from '../skills/daily-connections.js'
 import { executeDriftMonitor } from '../skills/drift-monitor.js'
 import { executeDailySweep } from '../skills/daily-sweep-skill.js'
+import { executeMemoryConsolidation } from '../skills/memory-consolidation.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 
 /**
@@ -111,6 +112,20 @@ export function createSkillExecutionWorker(
           logger.info(
             { skillName, captureCount: result.captureCount, headline: result.output.headline, durationMs: result.durationMs },
             '[skill-execution] daily-sweep-skill complete',
+          )
+          break
+        }
+
+        case 'memory-consolidation': {
+          const result = await executeMemoryConsolidation(db, {
+            modelAlias: synthesisModel,
+            similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
+            minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
+            maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,
+          })
+          logger.info(
+            { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
+            '[skill-execution] memory-consolidation complete',
           )
           break
         }
