@@ -253,11 +253,13 @@ Find candidate clusters for consolidation:
 
 Types exported: `ConsolidationCluster`, `ConsolidationQueryResult`
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Identifies clusters of semantically similar captures
-- [ ] Respects minimum cluster size (3)
-- [ ] Limits to top 5 clusters per run
-- [ ] Excludes already-deleted captures
+- [x] Identifies clusters of semantically similar captures
+- [x] Respects minimum cluster size (3)
+- [x] Limits to top 5 clusters per run
+- [x] Excludes already-deleted captures
 
 ---
 
@@ -274,10 +276,12 @@ LLM prompt for merging a cluster of captures into a single consolidated capture:
 - Output JSON: `{ should_merge: boolean, merged_content: string, merged_tags: string[], merge_rationale: string }`
 - Set `should_merge: false` if captures are about fundamentally different topics
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Template renders correctly with TemplateCache
-- [ ] LLM output is parseable JSON
-- [ ] Safety valve (should_merge: false) works when captures are too different
+- [x] Template renders correctly with TemplateCache
+- [x] LLM output is parseable JSON
+- [x] Safety valve (should_merge: false) works when captures are too different
 
 ---
 
