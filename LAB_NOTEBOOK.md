@@ -948,4 +948,71 @@ Executed via `/implement-plan` with parallel subagent orchestration. 9 commits, 
 - A11: Build web UI "Related captures" component
 - A12: Monitor consolidation skill quality in first 2-3 runs
 
+### Entry 020: Dashboard Cloudflare Access Session Fix [debug] [config]
+
+**Date:** 2026-04-09
+**Environment:** Homeserver (production) + laptop (browser)
+**Status:** COMPLETE
+**Duration:** ~30 minutes
+**Tags:** `[debug]` `[config]` `[deploy]`
+
+**Objective:** Diagnose and fix "Failed to load dashboard data. Is the Core API running?" error on brain.troy-davis.com dashboard.
+
+**Hypothesis:** The error appeared after the Postgres restart during the cognitive memory deployment. Either the core-api is down, the Cloudflare Tunnel is broken, or the Access session expired.
+
+**Rollback Plan:** N/A — diagnostic only.
+
+---
+
+**Diagnosis:**
+
+1. **Core API is healthy** — confirmed via Tailscale direct (`curl http://100.101.61.122:3002/health` returns healthy with postgres, redis, llm all green). Brain entry POST also succeeded via Tailscale.
+
+2. **Cloudflare Tunnel is running** — `open-brain-cloudflared` container up 10 days (confirmed via Docker API unix socket query since Docker CLI was broken by USB SQUASHFS errors).
+
+3. **Cloudflare Access is blocking all requests** — browser network tab showed API calls getting 302'd to `troydavis.cloudflareaccess.com/cdn-cgi/access/login/brain.troy-davis.com` which returned 503. The PWA service worker served the cached dashboard HTML, masking the redirect.
+
+4. **Access application exists and is correctly configured** — confirmed via Cloudflare API (`GET /accounts/.../access/apps/f6673e80-72b7-4f37-a14e-6bea71dd4f50`):
+   - Name: "Open Brain"
+   - Domain: brain.troy-davis.com
+   - Policy: "Troy Only" — allow troy.e.davis@gmail.com
+   - Session: 24h
+   - IdPs: Google + one-time PIN
+
+5. **Root cause: Stale `CF_Authorization` cookie** — the browser had an expired/invalid Access cookie. Cloudflare accepted it (302 redirect back to the app) but didn't provide a valid session for API calls. The Access login page showed "Unable to find your Access application!" in the browser because the stale cookie confused the auth flow. Clean curl requests (no cookies) correctly showed the login form.
+
+**Fix applied:**
+- Cleared all cookies for brain.troy-davis.com and .troy-davis.com domains via JavaScript
+- Unregistered PWA service worker and deleted all browser caches
+- Hard-navigated to brain.troy-davis.com — Cloudflare Access login page appeared correctly
+- Re-authenticated via Google → dashboard loaded with fresh session
+
+**Cloudflare Access Configuration (for reference — not documented elsewhere):**
+```
+Application ID: f6673e80-72b7-4f37-a14e-6bea71dd4f50
+AUD tag: 09f17ac077b27c11079792ae91507eea77db47ff59b1174725df86851664fc9c
+Type: self_hosted
+Domain: brain.troy-davis.com
+Session duration: 24h
+Policy: "Troy Only" (allow troy.e.davis@gmail.com)
+Identity providers: Google (0888007f), One-time PIN (bcb05152)
+Created: 2026-04-03
+API token for management: CLOUDFLARE_API_TOKEN in Bitwarden
+Account ID: 6cc1bfa5a5e1a868b2ab19d9edf835c5
+```
+
+**Additional context — Docker CLI broken during investigation:**
+The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `docker logs`, `docker inspect` all fail with SIGBUS. Workaround: queried Docker API directly via unix socket using Node.js (`http.get({socketPath: '/var/run/docker.sock', path: '/containers/json'})`). This is a reliable fallback when the Docker CLI binary can't be loaded from the corrupt USB.
+
+**What Worked:**
+- Querying Docker Engine API via unix socket with Node.js bypassed the broken CLI
+- Cloudflare API (with token from Bitwarden) confirmed the Access app config was intact
+- Clearing cookies + SW cache + hard navigation fixed the auth flow
+
+**System Insights:**
+- PWA service workers can mask Cloudflare Access failures — the cached HTML shell loads fine but API calls silently fail behind the Access redirect
+- Stale CF_Authorization cookies create a confusing redirect loop: app → Access login → back to app (cookie accepted but session invalid)
+- The "Unable to find your Access application!" error in the browser was misleading — the app exists. The stale cookie was causing Access to skip the normal login flow and redirect back, where it hit the PWA cache instead of the login page
+- When diagnosing Access issues: always test with clean curl (no cookies) first to distinguish cookie problems from actual misconfiguration
+
 *Entries continue below.*
