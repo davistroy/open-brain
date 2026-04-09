@@ -154,5 +154,24 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: dailySweepSkillCron }, '[scheduler] daily-sweep-skill repeatable job registered')
 
+  // --------------------------------------------------------
+  // Memory consolidation skill (4:00 AM Sundays)
+  // --------------------------------------------------------
+  const memoryConsolidationCron = '0 4 * * 0'
+
+  await skillExecutionQueue.add(
+    'memory-consolidation',
+    {
+      skillName: 'memory-consolidation',
+      input: {},
+    },
+    {
+      repeat: { pattern: memoryConsolidationCron },
+      jobId: 'scheduled_memory-consolidation',
+    },
+  )
+
+  logger.info({ cron: memoryConsolidationCron }, '[scheduler] memory-consolidation repeatable job registered')
+
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

@@ -330,11 +330,13 @@ Following weekly-brief skill pattern:
 - Add case to skill-execution.ts switch statement
 - Add to DEFAULT_SKILLS in skill-config.ts
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Skill appears in GET /api/v1/skills
-- [ ] Skill can be manually triggered via POST /api/v1/skills/memory-consolidation/trigger
-- [ ] Repeatable job registered on scheduler startup
-- [ ] Schedule editable via PATCH /api/v1/skills/memory-consolidation
+- [x] Skill appears in GET /api/v1/skills
+- [x] Skill can be manually triggered via POST /api/v1/skills/memory-consolidation/trigger
+- [x] Repeatable job registered on scheduler startup
+- [x] Schedule editable via PATCH /api/v1/skills/memory-consolidation
 
 ---
 
