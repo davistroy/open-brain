@@ -392,9 +392,16 @@ describe('DailySweepSkill', () => {
       expect(result.durationMs).toBeGreaterThanOrEqual(0)
     })
 
-    it('returns savedCaptureId from Core API response', async () => {
-      const { skill } = makeSkill()
+    it('does NOT create a capture by default (storeCapture defaults to false)', async () => {
+      const { skill, mockFetch } = makeSkill()
       const result = await skill.execute()
+      expect(result.savedCaptureId).toBeNull()
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('returns savedCaptureId when storeCapture is true', async () => {
+      const { skill } = makeSkill()
+      const result = await skill.execute({ storeCapture: true })
       expect(result.savedCaptureId).toBe('saved-cap-id')
     })
 
@@ -412,9 +419,9 @@ describe('DailySweepSkill', () => {
       expect(sendCall.message).toContain(SAMPLE_OUTPUT.headline)
     })
 
-    it('saves sweep back to brain via Core API POST', async () => {
+    it('saves sweep back to brain via Core API POST when storeCapture is true', async () => {
       const { skill, mockFetch } = makeSkill()
-      await skill.execute()
+      await skill.execute({ storeCapture: true })
 
       expect(mockFetch).toHaveBeenCalledWith(
         'http://localhost:3000/api/v1/captures',
@@ -538,7 +545,7 @@ describe('DailySweepSkill', () => {
     it('continues if Core API save-back fails', async () => {
       const { skill } = makeSkill({ coreApiResponse: { ok: false, status: 500 } })
 
-      const result = await skill.execute()
+      const result = await skill.execute({ storeCapture: true })
       expect(result.output.headline).toBe(SAMPLE_OUTPUT.headline)
       expect(result.savedCaptureId).toBeNull()
     })

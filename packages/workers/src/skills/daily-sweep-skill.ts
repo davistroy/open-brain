@@ -30,6 +30,8 @@ export interface DailySweepOptions {
   tokenBudget?: number
   /** Actual model name (not alias). Required. */
   modelAlias?: string
+  /** Whether to save the sweep output as a capture. Default: false */
+  storeCapture?: boolean
 }
 
 // ============================================================
@@ -240,6 +242,7 @@ export class DailySweepSkill {
     const {
       tokenBudget: rawBudget = DEFAULT_TOKEN_BUDGET,
       modelAlias = 'synthesis',
+      storeCapture = false,
     } = options
     const tokenBudget = Math.max(1_000, Math.min(rawBudget, 100_000))
 
@@ -290,8 +293,10 @@ export class DailySweepSkill {
     // Step 5: Deliver Pushover notification
     const notificationSent = await this.deliverPushover(output)
 
-    // Step 6: Save as capture back into the brain
-    const savedCaptureId = await this.saveSweepCapture(output, fmtDate(today))
+    // Step 6: Optionally save as capture back into the brain
+    const savedCaptureId = storeCapture
+      ? await this.saveSweepCapture(output, fmtDate(today))
+      : null
 
     // Step 7: Log to skills_log
     await this.logToSkillsLog({

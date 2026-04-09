@@ -108,6 +108,7 @@ export function createSkillExecutionWorker(
           const result = await executeDailySweep(db, {
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
             modelAlias: synthesisModel,
+            storeCapture: typeof input?.storeCapture === 'boolean' ? input.storeCapture : false,
           })
           logger.info(
             { skillName, captureCount: result.captureCount, headline: result.output.headline, durationMs: result.durationMs },

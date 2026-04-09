@@ -74,15 +74,15 @@ The skill already logs the full result JSON to `skills_log`, so audit trail is p
 - `packages/workers/src/__tests__/daily-sweep-skill.test.ts` -- update tests: default behavior should NOT create capture; add test for `storeCapture: true` to verify opt-in still works
 - `packages/workers/src/jobs/skill-execution.ts` -- pass `storeCapture` from job data if provided (default: false)
 
-**Status:** PENDING
+**Status:** COMPLETE 2026-04-09
 
 **Acceptance Criteria:**
-- [ ] Default execution (no options) does NOT create a capture
-- [ ] `storeCapture: true` in options DOES create a capture (backward-compatible opt-in)
-- [ ] Pushover notification still sent with headline + decisions/questions
-- [ ] skills_log still receives full result JSON with all fields
-- [ ] `DailySweepResult.savedCaptureId` is null when storeCapture is false
-- [ ] All existing tests pass (updated to reflect new default)
+- [x] Default execution (no options) does NOT create a capture
+- [x] `storeCapture: true` in options DOES create a capture (backward-compatible opt-in)
+- [x] Pushover notification still sent with headline + decisions/questions
+- [x] skills_log still receives full result JSON with all fields
+- [x] `DailySweepResult.savedCaptureId` is null when storeCapture is false
+- [x] All existing tests pass (updated to reflect new default)
 
 ---
 
