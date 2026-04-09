@@ -170,11 +170,13 @@ Algorithm:
 Parameters: `seed_capture_ids UUID[]`, `max_hops INT DEFAULT 2`, `max_related INT DEFAULT 10`
 Returns: `TABLE(capture_id UUID, activation_score REAL, hop_count INT)`
 
+**Status:** COMPLETE 2026-04-09
+
 **Acceptance Criteria:**
-- [ ] Returns related captures connected by shared entities
-- [ ] Excludes seed captures from results
-- [ ] Performance < 50ms for typical graphs
-- [ ] Respects max_related limit
+- [x] Returns related captures connected by shared entities
+- [x] Excludes seed captures from results
+- [x] Performance < 50ms for typical graphs
+- [x] Respects max_related limit
 
 ---
 
