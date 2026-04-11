@@ -60,6 +60,7 @@ describe('processBudgetCheckJob', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     delete process.env.LITELLM_API_KEY
+    delete process.env.LITELLM_SPEND_URL
     delete process.env.BUDGET_SOFT_LIMIT
     delete process.env.BUDGET_HARD_LIMIT
     delete process.env.PUSHOVER_APP_TOKEN
@@ -82,6 +83,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -101,6 +103,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -123,6 +126,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -148,6 +152,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -165,6 +170,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -188,6 +194,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -210,6 +217,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -234,6 +242,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -253,6 +262,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -271,6 +281,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -291,6 +302,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -314,6 +326,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -333,6 +346,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -352,6 +366,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         // no litellmApiKey provided
         softLimit: 30,
         hardLimit: 50,
@@ -360,6 +375,27 @@ describe('processBudgetCheckJob', () => {
       // fetch should not have been called for LiteLLM spend endpoint
       expect(mockFetch).not.toHaveBeenCalled()
       expect(result.spendSource).toBe('local')
+    })
+
+    it('skips LiteLLM query entirely when no spend URL is set (default)', async () => {
+      const mockFetch = makeLiteLLMFetch({ total_cost: 99.00 })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const db = makeDb(5_000_000) // $5 local estimate
+      const pushover = new PushoverService('tok', 'usr')
+      vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
+
+      const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        // no litellmSpendUrl — defaults to empty string
+        litellmApiKey: 'test-key',
+        softLimit: 30,
+        hardLimit: 50,
+      })
+
+      // fetch should not have been called — no spend URL configured
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(result.spendSource).toBe('local')
+      expect(result.monthlySpend).toBeCloseTo(5.00, 2)
     })
   })
 
@@ -426,6 +462,7 @@ describe('processBudgetCheckJob', () => {
       const pushover = new PushoverService()
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -444,6 +481,7 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockRejectedValue(new Error('Pushover 503'))
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -470,6 +508,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         // no softLimit override — should read from env
       })
@@ -480,6 +519,25 @@ describe('processBudgetCheckJob', () => {
       expect(sendSpy.mock.calls[0][0].priority).toBe(0)
     })
 
+    it('reads LITELLM_SPEND_URL from environment', async () => {
+      process.env.LITELLM_SPEND_URL = 'https://llm.env.local'
+
+      vi.stubGlobal('fetch', makeLiteLLMFetch({ total_cost: 35.00 }))
+
+      const db = makeDb(null)
+      const pushover = new PushoverService('tok', 'usr')
+      const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
+
+      const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmApiKey: 'test-key',
+        // no litellmSpendUrl override — should read LITELLM_SPEND_URL from env
+      })
+
+      // $35 > $30 soft limit → alert
+      expect(result.thresholdCrossed).toBe('soft')
+      expect(sendSpy).toHaveBeenCalledOnce()
+    })
+
     it('defaults to $30 soft limit when env var not set', async () => {
       vi.stubGlobal('fetch', makeLiteLLMFetch({ total_cost: 25.00 }))
 
@@ -488,6 +546,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         // no softLimit override, no env var → defaults to 30
       })
@@ -510,6 +569,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -530,6 +590,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
@@ -549,6 +610,7 @@ describe('processBudgetCheckJob', () => {
       const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+        litellmSpendUrl: 'https://llm.test.local',
         litellmApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,

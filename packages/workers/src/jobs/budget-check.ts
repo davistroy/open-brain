@@ -41,16 +41,21 @@ const LITELLM_TIMEOUT_MS = 15_000
  * then sends a Pushover alert when spend crosses soft ($30) or hard ($50) thresholds.
  *
  * Design decisions:
- * - Primary source: LiteLLM spend API at GET /spend/logs (requires LITELLM_API_KEY)
+ * - Primary source: LiteLLM spend API at GET /spend/logs (requires LITELLM_SPEND_URL + LITELLM_API_KEY)
  * - Fallback source: local ai_audit_log table (estimated cost via token counts)
  * - If both sources available, uses LiteLLM (authoritative) and logs local for comparison
+ * - When LITELLM_SPEND_URL is unset (default), skips the LiteLLM spend query entirely
+ *   and relies solely on local ai_audit_log estimation. This is the expected state when
+ *   using OpenAI directly (no LiteLLM proxy for inference).
  * - Soft limit: normal priority Pushover alert with spend details
  * - Hard limit: high priority Pushover alert — circuit breaker is LiteLLM's job,
  *   this is proactive monitoring while there's still headroom
  * - Logs spend regardless of whether an alert fires
  *
  * Environment variables:
- * - LITELLM_URL: LiteLLM proxy URL (default: https://llm.k4jda.net)
+ * - LITELLM_SPEND_URL: LiteLLM proxy URL for spend queries (e.g., https://llm.k4jda.net).
+ *   When empty/unset, LiteLLM spend query is skipped entirely. Separate from LITELLM_URL
+ *   which points to the inference API (api.openai.com/v1).
  * - LITELLM_API_KEY: API key for LiteLLM spend endpoint
  * - BUDGET_SOFT_LIMIT: soft alert threshold in USD (default: 30)
  * - BUDGET_HARD_LIMIT: hard alert threshold in USD (default: 50)
@@ -61,13 +66,13 @@ export async function processBudgetCheckJob(
   db: Database,
   pushover: PushoverService,
   opts?: {
-    litellmUrl?: string
+    litellmSpendUrl?: string
     litellmApiKey?: string
     softLimit?: number
     hardLimit?: number
   },
 ): Promise<BudgetCheckResult> {
-  const litellmUrl = opts?.litellmUrl ?? process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
+  const litellmSpendUrl = opts?.litellmSpendUrl ?? process.env.LITELLM_SPEND_URL ?? ''
   const litellmApiKey = opts?.litellmApiKey ?? process.env.LITELLM_API_KEY ?? ''
   const softLimit = opts?.softLimit ?? Number(process.env.BUDGET_SOFT_LIMIT ?? DEFAULT_SOFT_LIMIT)
   const hardLimit = opts?.hardLimit ?? Number(process.env.BUDGET_HARD_LIMIT ?? DEFAULT_HARD_LIMIT)
@@ -80,8 +85,10 @@ export async function processBudgetCheckJob(
   let litellmSpend: number | null = null
   let spendSource = 'local'
 
-  if (litellmApiKey) {
-    litellmSpend = await queryLiteLLMSpend(litellmUrl, litellmApiKey)
+  if (litellmSpendUrl && litellmApiKey) {
+    litellmSpend = await queryLiteLLMSpend(litellmSpendUrl, litellmApiKey)
+  } else if (!litellmSpendUrl) {
+    logger.info('[budget-check] LITELLM_SPEND_URL not set — skipping LiteLLM spend query, using local data only')
   } else {
     logger.warn('[budget-check] LITELLM_API_KEY not set — skipping LiteLLM spend query')
   }
@@ -327,7 +334,7 @@ export function createBudgetCheckWorker(
   opts?: {
     appToken?: string
     userKey?: string
-    litellmUrl?: string
+    litellmSpendUrl?: string
     litellmApiKey?: string
     softLimit?: number
     hardLimit?: number
@@ -339,7 +346,7 @@ export function createBudgetCheckWorker(
     'budget-check',
     async (job) => {
       await processBudgetCheckJob(job.data, db, pushover, {
-        litellmUrl: opts?.litellmUrl,
+        litellmSpendUrl: opts?.litellmSpendUrl,
         litellmApiKey: opts?.litellmApiKey,
         softLimit: opts?.softLimit,
         hardLimit: opts?.hardLimit,
