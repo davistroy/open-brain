@@ -98,6 +98,9 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Search `include_related` defaults to false (API) but true (MCP)** — API is backward compatible; MCP agents benefit from broader context by default.
 - **Memory consolidation source type is `consolidation`** — merged captures use `source: 'consolidation'` to distinguish from original sources. Soft-deleted originals retain `deleted_at` timestamp for recovery.
 - **Memory consolidation skill is `memory-consolidation`** (not `memory_consolidation`) — hyphenated, consistent with other skill names. Cron: `0 4 * * 0` (4 AM Sundays).
+- **Node.js punycode DEP0040 warning is cosmetic** — both workers and slack-bot emit this at startup. Transitive runtime dependency (psl → punycode via URL/cookie processing chain in @slack/bolt or BullMQ). No functional impact. Awaiting upstream fix. Do not investigate further.
+- **JSDoc comments must not contain `*/` sequences** — `tsup --dts` parses `*/` inside JSDoc as end-of-comment, causing DTS build failures. Use expanded cron forms (e.g., `0,6,12,18` instead of `*/6`) in JSDoc comments.
+- **Budget-check uses `LITELLM_SPEND_URL` (not `LITELLM_URL`)** — since migrating to direct OpenAI API, `LITELLM_URL` points to `api.openai.com/v1`. Budget-check has a separate `LITELLM_SPEND_URL` env var for querying a LiteLLM proxy's spend API. When unset (default), skips the HTTP call and uses local `ai_audit_log` estimation only.
 
 ---
 

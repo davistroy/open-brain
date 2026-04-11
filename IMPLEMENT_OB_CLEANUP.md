@@ -389,9 +389,9 @@ Clean up the test capture after verification to avoid accumulating test data. If
 
 ### Work Items
 
-#### 4.1 Document punycode DEP0040 as known issue
+#### 4.1 Document punycode DEP0040 as known issue ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #4
 **Files Affected:**
 - `CLAUDE.md` (modify — add to verified operational rules)
