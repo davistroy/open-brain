@@ -20,6 +20,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@open-brain/shared": "workspace:*",
     "bullmq": "^5.0.0",
     "drizzle-orm": "^0.45.1",

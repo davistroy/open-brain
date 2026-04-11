@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, numeric } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { vector } from './types.js'
 
@@ -81,11 +81,14 @@ export const ai_audit_log = pgTable(
     capture_id: uuid('capture_id').references(() => captures.id, { onDelete: 'set null' }),
     session_id: uuid('session_id'),               // forward ref — sessions table created in supporting tables
     error: text('error'),
+    client_used: text('client_used').default('litellm'),  // 'anthropic' | 'litellm'
+    cost_usd: numeric('cost_usd', { precision: 10, scale: 6 }),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     task_type_idx: index('ai_audit_log_task_type_idx').on(table.task_type),
     created_at_idx: index('ai_audit_log_created_at_idx').on(table.created_at),
     capture_id_idx: index('ai_audit_log_capture_id_idx').on(table.capture_id),
+    client_used_idx: index('ai_audit_log_client_used_idx').on(table.client_used),
   }),
 )

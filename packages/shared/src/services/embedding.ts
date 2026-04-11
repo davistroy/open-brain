@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import type { ConfigService } from '../config/loader.js'
+import { resolveModelName } from '../types/config.js'
 
 /**
  * Thrown when the embedding API is unreachable or returns a non-200 response.
@@ -51,11 +52,11 @@ export class EmbeddingService {
   }
 
   /**
-   * Returns the model alias from ai-routing.yaml config (never hardcoded).
+   * Returns the resolved model name from ai-routing.yaml config (never hardcoded).
    */
-  private getModelAlias(): string {
+  private getModelName(): string {
     const aiConfig = this.configService.get('ai')
-    return aiConfig.models.embedding
+    return resolveModelName(aiConfig, 'embedding')
   }
 
   /**
@@ -63,7 +64,7 @@ export class EmbeddingService {
    * Throws EmbeddingUnavailableError on any failure.
    */
   async embed(text: string): Promise<number[]> {
-    const model = this.getModelAlias()
+    const model = this.getModelName()
 
     try {
       const response = await this.client.embeddings.create({
@@ -94,7 +95,7 @@ export class EmbeddingService {
   async embedBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
 
-    const model = this.getModelAlias()
+    const model = this.getModelName()
 
     try {
       const response = await this.client.embeddings.create({
@@ -132,7 +133,7 @@ export class EmbeddingService {
   getModelInfo(): { model: string; dimensions: number; source: string } {
     const aiConfig = this.configService.get('ai')
     return {
-      model: aiConfig.models.embedding,
+      model: resolveModelName(aiConfig, 'embedding'),
       dimensions: EMBEDDING_DIMENSIONS,
       source: aiConfig.litellm_url,
     }

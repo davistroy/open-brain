@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type { Database } from '@open-brain/shared'
 import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import {
   queryRecentCaptures,
   buildEntityCoOccurrence,
@@ -36,6 +37,7 @@ export class DailyConnectionsSkill {
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
+  private wikiService: WikiGitService | null
 
   constructor(opts: {
     db: Database
@@ -45,6 +47,7 @@ export class DailyConnectionsSkill {
     promptsDir?: string
     coreApiUrl?: string
     templates?: TemplateCache
+    wikiService?: WikiGitService
   }) {
     this.db = opts.db
     this.litellmClient = createLiteLLMClient({
@@ -56,6 +59,7 @@ export class DailyConnectionsSkill {
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+    this.wikiService = opts.wikiService ?? null
   }
 
   async execute(options: DailyConnectionsOptions = {}): Promise<DailyConnectionsResult> {
@@ -110,19 +114,22 @@ export class DailyConnectionsSkill {
     // Step 5: Deliver Pushover notification (top 3 connections summary)
     await this.deliverPushover(output)
 
+    // Step 5b: Write interesting connections to wiki as synthesis pages (if wiki is configured)
+    const wikiWritten = await this.writeConnectionsToWiki(output, fmtDate(windowStart), fmtDate(now))
+
     // Step 6: Save as capture back into the brain
     const savedCaptureId = await this.saveConnectionsCapture(output, fmtDate(windowStart), fmtDate(now))
 
     // Step 7: Log to skills_log
     await this.logToSkillsLog({
       inputSummary: `${captureCount} captures from ${dateRange}, ${coOccurrence.length} entity pairs`,
-      outputSummary: `summary: "${output.summary}" | connections:${output.connections.length} | meta_pattern:${output.meta_pattern ? 'yes' : 'none'}`,
+      outputSummary: `summary: "${output.summary}" | connections:${output.connections.length} | meta_pattern:${output.meta_pattern ? 'yes' : 'none'} | wiki: ${wikiWritten}`,
       durationMs,
       captureId: savedCaptureId ?? undefined,
       result: output,
     })
 
-    logger.info({ captureCount, connectionCount: output.connections.length, durationMs, savedCaptureId }, '[daily-connections] execution complete')
+    logger.info({ captureCount, connectionCount: output.connections.length, durationMs, wikiWritten, savedCaptureId }, '[daily-connections] execution complete')
 
     return { output, captureCount, durationMs, savedCaptureId }
   }
@@ -185,6 +192,48 @@ export class DailyConnectionsSkill {
       })
     } catch {
       // Pushover delivery is non-fatal
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Private: Write connections to wiki as synthesis pages
+  // ----------------------------------------------------------
+
+  private async writeConnectionsToWiki(
+    output: DailyConnectionsOutput,
+    windowStart: string,
+    windowEnd: string,
+  ): Promise<boolean> {
+    if (!this.wikiService) return false
+    // Only write if there are interesting connections (medium or high confidence)
+    const interesting = output.connections.filter(c => c.confidence === 'high' || c.confidence === 'medium')
+    if (interesting.length === 0) return false
+
+    try {
+      const today = windowEnd
+      const pagePath = `synthesis/connections/${today}.md`
+      const content = buildConnectionsMarkdown(output, windowStart, windowEnd)
+      const frontmatter: WikiFrontmatter = {
+        title: `Daily Connections — ${today}`,
+        type: 'synthesis',
+        created: today,
+        updated: today,
+        tags: ['connections', 'synthesis', 'auto-generated'],
+        connection_count: output.connections.length,
+        domains: [...new Set(output.connections.flatMap(c => c.domains))],
+      }
+
+      await this.wikiService.writePage(
+        pagePath,
+        content,
+        frontmatter,
+        `daily-connections: ${today} — ${output.connections.length} connections`,
+      )
+      logger.info({ pagePath, connectionCount: output.connections.length }, '[daily-connections] wiki synthesis page written')
+      return true
+    } catch (err) {
+      logger.warn({ err }, '[daily-connections] failed to write wiki synthesis page — continuing without wiki')
+      return false
     }
   }
 
@@ -260,8 +309,9 @@ export class DailyConnectionsSkill {
 export async function executeDailyConnections(
   db: Database,
   options: DailyConnectionsOptions = {},
+  wikiService?: WikiGitService,
 ): Promise<DailyConnectionsResult> {
-  return new DailyConnectionsSkill({ db }).execute(options)
+  return new DailyConnectionsSkill({ db, wikiService }).execute(options)
 }
 
 // ============================================================
@@ -325,6 +375,51 @@ export function parseOutput(raw: string): DailyConnectionsOutput {
 
 function isValidConfidence(val: unknown): val is 'high' | 'medium' | 'low' {
   return val === 'high' || val === 'medium' || val === 'low'
+}
+
+// ============================================================
+// Markdown rendering (for wiki pages)
+// ============================================================
+
+/** Builds a markdown-formatted connections page for wiki. Exported for testing. */
+export function buildConnectionsMarkdown(
+  output: DailyConnectionsOutput,
+  windowStart: string,
+  windowEnd: string,
+): string {
+  const lines: string[] = [
+    `# Daily Connections — ${windowStart} to ${windowEnd}`,
+    '',
+    output.summary,
+    '',
+  ]
+
+  if (output.connections.length > 0) {
+    lines.push('## Connections')
+    lines.push('')
+
+    for (const conn of output.connections) {
+      lines.push(`### ${conn.theme}`)
+      lines.push('')
+      lines.push(`**Confidence:** ${conn.confidence} | **Domains:** ${conn.domains.join(', ')}`)
+      lines.push('')
+      lines.push(conn.insight)
+      lines.push('')
+      if (conn.captures.length > 0) {
+        lines.push(`*Source captures:* ${conn.captures.join(', ')}`)
+        lines.push('')
+      }
+    }
+  }
+
+  if (output.meta_pattern) {
+    lines.push('## Meta-Pattern')
+    lines.push('')
+    lines.push(output.meta_pattern)
+    lines.push('')
+  }
+
+  return lines.join('\n')
 }
 
 // ============================================================

@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar, bigint } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { captures } from './core.js'
 import { vector } from './types.js'
@@ -229,6 +229,35 @@ export const captureAssociations = pgTable(
 )
 
 // ============================================================
+// activity_feed table — unified activity feed for dashboard
+//
+// Application-level inserts from all event sources: capture creation,
+// skill completions, pipeline events, entity changes.
+// type = capture | skill | pipeline | entity | system
+// subtype = more specific event (e.g. capture:created, skill:completed)
+// source_id = FK to originating record (not enforced — events survive source deletion)
+// ============================================================
+export const activity_feed = pgTable(
+  'activity_feed',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    type: varchar('type', { length: 32 }).notNull(),
+    subtype: varchar('subtype', { length: 64 }),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    summary: text('summary').notNull(),
+    view: varchar('view', { length: 32 }),
+    detail: jsonb('detail'),
+    source_id: uuid('source_id'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_desc_idx: index('activity_feed_timestamp_desc_idx').on(table.timestamp),
+    type_timestamp_idx: index('activity_feed_type_timestamp_idx').on(table.type, table.timestamp),
+    view_timestamp_idx: index('activity_feed_view_timestamp_idx').on(table.view, table.timestamp),
+  }),
+)
+
+// ============================================================
 // app_settings table — generic key-value settings store
 // ============================================================
 export const app_settings = pgTable('app_settings', {
@@ -236,3 +265,149 @@ export const app_settings = pgTable('app_settings', {
   value: jsonb('value').notNull(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+// ============================================================
+// mcp_activity table — logs every MCP tool call
+//
+// Every tool invocation through the MCP server is recorded here
+// with the tool name, sanitized parameters, truncated result,
+// duration, and optional client identifier.
+// ============================================================
+export const mcp_activity = pgTable(
+  'mcp_activity',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    client_id: varchar('client_id', { length: 64 }),
+    tool_name: varchar('tool_name', { length: 64 }).notNull(),
+    parameters: jsonb('parameters'),
+    result_summary: text('result_summary'),
+    duration_ms: integer('duration_ms'),
+    metadata: jsonb('metadata'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_idx: index('mcp_activity_timestamp_idx').on(table.timestamp),
+    tool_name_idx: index('mcp_activity_tool_name_idx').on(table.tool_name),
+  }),
+)
+
+// ============================================================
+// backup_log table — tracks infrastructure backup operations
+//
+// Each backup skill (db-backup, wiki-backup, redis-snapshot) writes
+// a row on completion. Retention pruning counts are recorded so the
+// log is self-documenting about cleanup actions.
+// ============================================================
+export const backup_log = pgTable(
+  'backup_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    backup_type: varchar('backup_type', { length: 16 }).notNull(),  // database | wiki | redis
+    file_path: text('file_path'),
+    size_bytes: bigint('size_bytes', { mode: 'number' }),
+    duration_seconds: integer('duration_seconds'),
+    status: varchar('status', { length: 16 }).notNull(),            // success | failed
+    error: text('error'),
+    pruned_count: integer('pruned_count').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_desc_idx: index('backup_log_timestamp_desc_idx').on(table.timestamp),
+    type_idx: index('backup_log_type_idx').on(table.backup_type),
+  }),
+)
+
+// ============================================================
+// email_drafts table — outbound email composition and sending
+//
+// Stores draft emails for review-before-send and auto-send workflows.
+// Drafts are created by the email-compose skill (LLM) or via API/Slack/MCP.
+// Two send modes:
+//   review-required — requires explicit approval before sending
+//   auto-send       — sent immediately via Himalaya SMTP
+//
+// Status lifecycle: draft → approved → sent (or draft → rejected, draft → failed)
+// Sent emails are also logged as captures with source='email-outbound'.
+// ============================================================
+export const email_drafts = pgTable(
+  'email_drafts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    to_address: text('to_address').notNull(),
+    cc_address: text('cc_address'),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('draft'),
+    send_mode: varchar('send_mode', { length: 20 }).notNull().default('review-required'),
+    source: varchar('source', { length: 32 }),
+    approved_at: timestamp('approved_at', { withTimezone: true }),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+    himalaya_message_id: varchar('himalaya_message_id', { length: 256 }),
+    capture_id: uuid('capture_id').references(() => captures.id, { onDelete: 'set null' }),
+    metadata: jsonb('metadata'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    status_idx: index('email_drafts_status_idx').on(table.status),
+    created_at_idx: index('email_drafts_created_at_idx').on(table.created_at),
+  }),
+)
+
+// ============================================================
+// container_health table — infrastructure health check results
+//
+// The container-health skill (every 15 min) checks /health on each
+// container and writes a row here. Used for consecutive-failure
+// alerting and historical uptime queries.
+// ============================================================
+export const container_health = pgTable(
+  'container_health',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    container_name: varchar('container_name', { length: 64 }).notNull(),
+    healthy: boolean('healthy').notNull(),
+    response_ms: integer('response_ms'),
+    error: text('error'),
+    metadata: jsonb('metadata'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_desc_idx: index('container_health_timestamp_desc_idx').on(table.timestamp),
+    name_timestamp_idx: index('container_health_name_timestamp_idx').on(table.container_name, table.timestamp),
+    // Partial index on unhealthy rows created via SQL migration (Drizzle cannot generate partial indexes)
+  }),
+)
+
+// ============================================================
+// voice_sessions table — Pipecat voice conversation sessions
+//
+// Each row represents one voice conversation session between the
+// user and the AI assistant via Pipecat. The session_key is a
+// unique identifier generated by the Pipecat service at session
+// start. Transcript is stored as a JSONB array of turns
+// [{role, content, timestamp}]. captures_created tracks which
+// captures were extracted from the conversation.
+// ============================================================
+export const voice_sessions = pgTable(
+  'voice_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    session_key: varchar('session_key', { length: 64 }).unique().notNull(),
+    started_at: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    ended_at: timestamp('ended_at', { withTimezone: true }),
+    duration_seconds: integer('duration_seconds'),
+    turn_count: integer('turn_count').default(0),
+    transcript: jsonb('transcript').default([]),
+    summary: text('summary'),
+    captures_created: text('captures_created').array().notNull().default(sql`'{}'::text[]`),
+    metadata: jsonb('metadata').default({}),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    started_at_desc_idx: index('voice_sessions_started_at_desc_idx').on(table.started_at),
+  }),
+)

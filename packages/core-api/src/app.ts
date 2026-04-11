@@ -17,9 +17,16 @@ import { registerBetRoutes } from './routes/bets.js'
 import { registerSettingsRoutes } from './routes/settings.js'
 import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEventsRoutes } from './routes/events.js'
+import { registerSystemHealthRoutes } from './routes/system-health.js'
 import { registerDocumentRoutes } from './routes/documents.js'
 import { registerSynthesizeRoutes } from './routes/synthesize.js'
 import { registerIntelligenceRoutes } from './routes/intelligence.js'
+import { registerWikiRoutes } from './routes/wiki.js'
+import { registerActivityRoutes } from './routes/activity.js'
+import { registerMcpActivityRoutes } from './routes/mcp-activity.js'
+import { registerConfigRoutes } from './routes/config.js'
+import { registerEmailRoutes } from './routes/email.js'
+import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -29,6 +36,11 @@ import type { EntityService } from './services/entity.js'
 import type { BetService } from './services/bet.js'
 import type { SessionService } from './services/session.js'
 import type { LLMGatewayService } from './services/llm-gateway.js'
+import type { SystemHealthService } from './services/system-health.js'
+import type { WikiService } from './services/wiki.js'
+import type { ActivityFeedService } from './services/activity-feed.js'
+import type { EmailDraftService } from './services/email-draft.js'
+import type { VoiceSessionService } from './services/voice-session.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -53,11 +65,21 @@ interface AppDependencies {
   documentPipelineQueue?: Queue
   /** LLM Gateway — required for POST /api/v1/synthesize */
   llmGateway?: LLMGatewayService
+  /** System health service — required for GET /api/v1/system/health */
+  systemHealthService?: SystemHealthService
+  /** Wiki service — required for wiki API endpoints and MCP wiki tools */
+  wikiService?: WikiService
+  /** Activity feed service — required for activity feed API and SSE */
+  activityFeedService?: ActivityFeedService
+  /** Email draft service — required for email draft management endpoints */
+  emailDraftService?: EmailDraftService
+  /** Voice session service — required for voice conversation session endpoints */
+  voiceSessionService?: VoiceSessionService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, voiceSessionService } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -137,9 +159,44 @@ export function createApp(deps: AppDependencies = {}): Hono {
     registerSettingsRoutes(app, db)
   }
 
+  // Config API (read-only config + integration status)
+  if (configService && db) {
+    registerConfigRoutes(app, configService, db)
+  }
+
+  // System health API (operational metrics, SSE stream)
+  if (systemHealthService) {
+    registerSystemHealthRoutes(app, systemHealthService)
+  }
+
+  // Wiki API
+  if (wikiService) {
+    registerWikiRoutes(app, wikiService)
+  }
+
+  // Activity feed API + SSE
+  if (activityFeedService) {
+    registerActivityRoutes(app, activityFeedService)
+  }
+
+  // Email drafts API
+  if (emailDraftService) {
+    registerEmailRoutes(app, emailDraftService)
+  }
+
+  // Voice session API
+  if (voiceSessionService) {
+    registerVoiceSessionRoutes(app, voiceSessionService)
+  }
+
+  // MCP activity log API (read-only, requires db)
+  if (db) {
+    registerMcpActivityRoutes(app, db)
+  }
+
   // MCP endpoint — requires all services to be available
   if (captureService && searchService && configService && db) {
-    mountMcpServer(app, { captureService, searchService, configService, db, entityService })
+    mountMcpServer(app, { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService })
   }
 
   return app

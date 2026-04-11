@@ -1,4 +1,5 @@
 import { Worker, UnrecoverableError } from 'bullmq'
+import type { FlowProducer } from 'bullmq'
 import { eq } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
@@ -7,6 +8,8 @@ import { logger } from '@open-brain/shared'
 import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 import type { EmbedCaptureQueue } from '../queues/embed-capture.js'
+import { buildIngestFlow } from '../flows/ingest-pipeline.js'
+import type { IngestDedup } from '../lib/ingest-dedup.js'
 
 /**
  * Advance a capture's pipeline_status and record a pipeline_events row.
@@ -66,6 +69,8 @@ export async function processIngestionJob(
   data: CapturePipelineJobData,
   db: Database,
   embedCaptureQueue: EmbedCaptureQueue,
+  flowProducer?: FlowProducer,
+  ingestDedup?: IngestDedup,
 ): Promise<void> {
   const { captureId } = data
 
@@ -75,6 +80,7 @@ export async function processIngestionJob(
   const [capture] = await db
     .select({
       id: captures.id,
+      content_hash: captures.content_hash,
       pipeline_status: captures.pipeline_status,
       pipeline_attempts: captures.pipeline_attempts,
     })
@@ -93,6 +99,22 @@ export async function processIngestionJob(
   if (capture.pipeline_status === 'complete' || capture.pipeline_status === 'failed') {
     logger.info({ captureId, pipeline_status: capture.pipeline_status }, '[ingestion] already terminal, skipping')
     return
+  }
+
+  // ── Content hash dedup ────────────────────────────────────────────────────
+  // Check Redis for recent duplicates (5-min TTL). This catches iOS Shortcut
+  // retries and rapid double-submits before they enter the pipeline.
+  // The DB unique index on content_hash is the permanent dedup — this is a
+  // fast-path optimization to avoid wasted pipeline work.
+  if (ingestDedup && capture.content_hash) {
+    const isDup = await ingestDedup.isDuplicate(capture.content_hash)
+    if (isDup) {
+      logger.info(
+        { captureId, content_hash: capture.content_hash },
+        '[ingestion] duplicate content hash in dedup window — skipping pipeline',
+      )
+      return
+    }
   }
 
   // ── Mark processing ────────────────────────────────────────────────────────
@@ -128,13 +150,20 @@ export async function processIngestionJob(
 
     logger.info({ captureId, duration_ms: extractDurationMs }, '[ingestion] extract stage complete (stub)')
 
-    // Enqueue embed-capture job — jobId = captureId for idempotency
-    await embedCaptureQueue.add(
-      'embed',
-      { captureId },
-      { jobId: `embed_${captureId}` },
-    )
-    logger.info({ captureId }, '[ingestion] embed-capture job enqueued')
+    // Enqueue downstream pipeline — FlowProducer DAG or legacy queue bridging
+    if (flowProducer) {
+      const flow = buildIngestFlow(captureId)
+      await flowProducer.add(flow)
+      logger.info({ captureId }, '[ingestion] FlowProducer DAG enqueued (embed + extract → ingest-root)')
+    } else {
+      // Legacy path: manual queue bridging (embed-capture enqueues extract + triggers)
+      await embedCaptureQueue.add(
+        'embed',
+        { captureId },
+        { jobId: `embed_${captureId}` },
+      )
+      logger.info({ captureId }, '[ingestion] embed-capture job enqueued (legacy)')
+    }
   } catch (err) {
     const extractDurationMs = Date.now() - extractStart
     const errMsg = err instanceof Error ? err.message : String(err)
@@ -173,11 +202,13 @@ export function createIngestionWorker(
   connection: ConnectionOptions,
   db: Database,
   embedCaptureQueue: EmbedCaptureQueue,
+  flowProducer?: FlowProducer,
+  ingestDedup?: IngestDedup,
 ): Worker<CapturePipelineJobData> {
   const worker = new Worker<CapturePipelineJobData>(
     'capture-pipeline',
     async (job) => {
-      await processIngestionJob(job.data, db, embedCaptureQueue)
+      await processIngestionJob(job.data, db, embedCaptureQueue, flowProducer, ingestDedup)
     },
     {
       connection,

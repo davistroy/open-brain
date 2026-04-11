@@ -184,3 +184,40 @@ export interface SkillLastRun {
   captures_queried: number
   result_summary: string
 }
+
+// Email draft types
+
+export interface EmailDraftCreatePayload {
+  to: string
+  subject: string
+  body: string
+  cc?: string
+  source?: string
+  sendMode?: 'review-required' | 'auto-send'
+  metadata?: Record<string, unknown>
+}
+
+export interface EmailDraftRecord {
+  id: string
+  to_address: string
+  cc_address: string | null
+  subject: string
+  body: string
+  status: string
+  send_mode: string
+  source: string | null
+  approved_at: string | null
+  sent_at: string | null
+  himalaya_message_id: string | null
+  capture_id: string | null
+  metadata: unknown
+  created_at: string
+  updated_at: string
+}
+
+export interface EmailDraftListResult {
+  items: EmailDraftRecord[]
+  total: number
+  limit: number
+  offset: number
+}

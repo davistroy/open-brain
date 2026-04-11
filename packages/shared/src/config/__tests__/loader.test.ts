@@ -30,11 +30,31 @@ retry:
 const validAi = `
 litellm_url: "https://llm.k4jda.net"
 models:
-  fast: fast
-  synthesis: synthesis
-  governance: governance
-  intent: intent
-  embedding: spark-qwen3-embedding-4b
+  fast:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  synthesis:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  governance:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  intent:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
 monthly_budget:
   soft_limit_usd: 30
   hard_limit_usd: 50

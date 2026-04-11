@@ -4,6 +4,7 @@ export type AITaskType =
   | 'synthesize'
   | 'govern'
   | 'intent'
+  | 'conversation'
 
 export interface AIOptions {
   task_type: AITaskType

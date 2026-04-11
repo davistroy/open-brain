@@ -4,11 +4,16 @@ import type { Hono } from 'hono'
 import type { CaptureService } from '../services/capture.js'
 import type { SearchService } from '../services/search.js'
 import type { EntityService } from '../services/entity.js'
+import type { WikiService } from '../services/wiki.js'
+import type { ActivityFeedService } from '../services/activity-feed.js'
+import type { EmailDraftService } from '../services/email-draft.js'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { validateMcpAuth } from './auth.js'
 import { registerMcpTools } from './tools/index.js'
 import { generateContextSummary } from './resources/context.js'
+import { McpActivityLogger } from './middleware/activity-logger.js'
 import { logger } from '@open-brain/shared'
+import { createHash } from 'node:crypto'
 
 interface McpServerDeps {
   captureService: CaptureService
@@ -16,6 +21,9 @@ interface McpServerDeps {
   configService: ConfigService
   db: Database
   entityService?: EntityService
+  wikiService?: WikiService
+  activityFeedService?: ActivityFeedService
+  emailDraftService?: EmailDraftService
 }
 
 /**
@@ -28,7 +36,10 @@ interface McpServerDeps {
  * This is the correct approach for Hono/edge environments and avoids shared state.
  */
 export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
-  const { captureService, searchService, configService, db, entityService } = deps
+  const { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService } = deps
+
+  // Create the activity logger (shared across requests — it's stateless, just holds db ref)
+  const activityLogger = new McpActivityLogger(db, activityFeedService)
 
   app.all('/mcp', async (c) => {
     // Auth check — fail closed on missing/invalid token
@@ -37,12 +48,19 @@ export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
       return authError
     }
 
+    // Derive client_id from the bearer token hash (first 16 hex chars of SHA-256)
+    const authHeader = c.req.raw.headers.get('Authorization') ?? ''
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+    const clientId = token
+      ? createHash('sha256').update(token).digest('hex').slice(0, 16)
+      : undefined
+
     const server = new McpServer({
       name: 'open-brain',
       version: '0.1.0',
     })
 
-    registerMcpTools({ server, captureService, searchService, configService, db, entityService })
+    registerMcpTools({ server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId })
 
     // Register MCP resources
     server.registerResource(
