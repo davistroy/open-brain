@@ -179,9 +179,9 @@ Trivial operation. File is not in git.
 
 ### Work Items
 
-#### 2.1 Separate budget-check spend URL from inference URL
+#### 2.1 Separate budget-check spend URL from inference URL ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #3
 **Files Affected:**
 - `packages/workers/src/jobs/budget-check.ts` (modify)
@@ -214,9 +214,9 @@ The `LITELLM_URL` env var in docker-compose.yml is used by other packages (core-
 
 ---
 
-#### 2.2 Update scheduler JSDoc to reflect current state
+#### 2.2 Update scheduler JSDoc to reflect current state ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Bonus finding (stale daily-connections comment)
 **Files Affected:**
 - `packages/workers/src/scheduler.ts` (modify — JSDoc only)

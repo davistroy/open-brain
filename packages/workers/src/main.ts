@@ -92,7 +92,7 @@ async function main() {
   workers.push(createBudgetCheckWorker(connection, db, {
     appToken: pushoverAppToken,
     userKey: pushoverUserKey,
-    litellmUrl,
+    litellmSpendUrl: process.env.LITELLM_SPEND_URL ?? '',
     litellmApiKey,
   }))
   workers.push(createSkillExecutionWorker(connection, db, {

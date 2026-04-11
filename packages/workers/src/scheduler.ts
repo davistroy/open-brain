@@ -19,7 +19,14 @@ export interface ScheduledQueues {
  * Jobs registered:
  * - daily-sweep: 3:00 AM daily (cron: 0 3 * * *) — re-queues stuck pipeline captures
  * - budget-check: 8:00 AM daily (cron: 0 8 * * *) — checks monthly AI spend vs thresholds
- * - daily-connections: 9:00 PM daily (cron: 0 21 * * *) — cross-domain pattern detection skill
+ * - daily-connections: DISABLED (cron: 0 0 29 2 * — Feb 29 only, silenced for noise reduction)
+ * - drift-monitor: 8:00 AM daily (cron: 0 8 * * *) — detects brain-view classification drift
+ * - pipeline-health: every 6 hours (cron: 0 */6 * * *) — checks pipeline + capture flow health
+ * - daily-sweep-skill: 8:00 PM daily (cron: 0 20 * * *) — LLM-powered evening summary
+ * - memory-consolidation: 4:00 AM Sundays (cron: 0 4 * * 0) — LLM near-duplicate merging
+ * - capture-reminder-morning: 7:00 AM weekdays (cron: 0 7 * * 1-5) — morning Pushover nudge
+ * - morning-brief: 7:15 AM weekdays (cron: 15 7 * * 1-5) — structured morning briefing (no LLM)
+ * - capture-reminder-evening: 9:00 PM daily (cron: 0 21 * * *) — evening Pushover nudge with capture count
  *
  * jobId values are stable — BullMQ treats a repeat job with the same jobId as
  * an upsert, so calling this on every startup is safe.
