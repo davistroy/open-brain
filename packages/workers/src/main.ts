@@ -4,7 +4,7 @@
  * Creates Redis + Postgres connections, registers all BullMQ workers
  * and scheduled jobs, then keeps the process alive until SIGTERM/SIGINT.
  */
-import { createDb, ConfigService } from '@open-brain/shared'
+import { createDb, ConfigService, createAnthropicClient } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
@@ -45,6 +45,14 @@ async function main() {
   // LITELLM_API_KEY check
   if (!litellmApiKey) {
     logger.warn('LITELLM_API_KEY not set — embedding, entity extraction, and skill execution will fail')
+  }
+
+  // Anthropic client for Claude SDK routing (used by skill-execution and future agentic workers)
+  const anthropicClient = createAnthropicClient({ maxRetries: 0 }) // BullMQ handles retries
+  if (anthropicClient) {
+    logger.info('Anthropic client initialized (Claude subscription)')
+  } else {
+    logger.warn('ANTHROPIC_API_KEY not set — Claude SDK features unavailable in workers')
   }
 
   // Template cache (shared across all workers that load prompt templates)

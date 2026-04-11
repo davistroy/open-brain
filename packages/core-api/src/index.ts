@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { join } from 'node:path'
 import { Queue } from 'bullmq'
-import { ConfigService, createDb, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import { ConfigService, createDb, createLiteLLMClient, createAnthropicClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
 import { EmbeddingService } from '@open-brain/shared'
@@ -67,8 +67,14 @@ const betService = new BetService(db)
 let governanceEngine: GovernanceEngine | undefined
 let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
 const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
+const anthropicClient = createAnthropicClient({ maxRetries: 2 })
+if (anthropicClient) {
+  logger.info('Anthropic client initialized (Claude subscription)')
+} else {
+  logger.warn('ANTHROPIC_API_KEY not set — Claude SDK routing unavailable, LiteLLM-only mode')
+}
 if (litellmClient) {
-  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache)
+  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache, anthropicClient)
   governanceEngine = new GovernanceEngine(llmGateway, templateCache)
   logger.info('GovernanceEngine initialized')
 } else {

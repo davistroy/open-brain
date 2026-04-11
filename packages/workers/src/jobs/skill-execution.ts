@@ -36,7 +36,7 @@ export function createSkillExecutionWorker(
   // Resolve model aliases from ai-routing.yaml so skills send actual model
   // names (e.g. 'gpt-5.4') to the OpenAI API, not LiteLLM aliases.
   const aiConfig = opts.configService.get('ai')
-  const synthesisModel: string = aiConfig.models['synthesis'] as string
+  const synthesisModel: string = aiConfig.models['synthesis'].model
 
   const worker = new Worker<SkillExecutionJobData>(
     'skill-execution',

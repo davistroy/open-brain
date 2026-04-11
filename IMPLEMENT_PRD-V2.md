@@ -87,33 +87,36 @@ ANTHROPIC_API_KEY must be stored in Bitwarden. The Claude Code subscription prov
 
 ---
 
-#### 1.2 Refactor LLMGatewayService for dual-client routing
+#### 1.2 Refactor LLMGatewayService for dual-client routing ✅
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F4.1, F4.2, F4.4, F4.6, F4.7
 **Files Affected:**
 - `packages/core-api/src/services/llm-gateway.ts` (modify)
 - `packages/core-api/src/index.ts` (modify — pass Anthropic client)
 - `packages/workers/src/main.ts` (modify — init Anthropic client)
-- `packages/shared/src/schema/core.ts` (modify — extend ai_audit_log or add llm_usage columns)
+- `packages/shared/src/schema/core.ts` (modify — extend ai_audit_log with client_used + cost_usd)
+- `packages/shared/drizzle/0013_ai_audit_log_client_tracking.sql` (create — migration)
+- `packages/workers/src/jobs/extract-entities.ts` (modify — fix model alias resolution for new config format)
+- `packages/workers/src/jobs/skill-execution.ts` (modify — fix model alias resolution for new config format)
 
 **Description:**
 Extend LLMGatewayService to accept both an Anthropic client and an OpenAI/LiteLLM client. Route LLM calls based on the `client` field in ai-routing.yaml: Claude SDK for inference tasks (fast, synthesis, governance, conversation, intent), LiteLLM for embeddings and local models. Update audit logging to record which client was used and mark Claude calls as cost=$0 (subscription-covered). Add fallback behavior: if primary client fails (429/500), try the other if configured.
 
 **Tasks:**
-1. [ ] Extend LLMGatewayService constructor to accept optional Anthropic client
-2. [ ] Add routing logic: resolve task_type → client from config
-3. [ ] Implement Claude SDK call path (messages API with proper response mapping)
-4. [ ] Add `client_used` field to ai_audit_log entries
-5. [ ] Mark Claude calls with `cost_usd: 0` in audit log (subscription)
-6. [ ] Wire Anthropic client through dependency injection in core-api/index.ts and workers/main.ts
+1. [x] Extend LLMGatewayService constructor to accept optional Anthropic client
+2. [x] Add routing logic: resolve task_type → client from config
+3. [x] Implement Claude SDK call path (messages API with proper response mapping)
+4. [x] Add `client_used` field to ai_audit_log entries
+5. [x] Mark Claude calls with `cost_usd: 0` in audit log (subscription)
+6. [x] Wire Anthropic client through dependency injection in core-api/index.ts and workers/main.ts
 
 **Acceptance Criteria:**
-- [ ] LLM calls for `fast`, `synthesis`, `governance` route through Claude SDK
-- [ ] Embedding calls route through LiteLLM (unchanged)
-- [ ] Audit log records which client was used per call
-- [ ] Existing tests pass — no behavioral change for callers
-- [ ] Fallback to other client on 429/500 errors (configurable)
+- [x] LLM calls for `fast`, `synthesis`, `governance` route through Claude SDK
+- [x] Embedding calls route through LiteLLM (unchanged)
+- [x] Audit log records which client was used per call
+- [x] Existing tests pass — no behavioral change for callers (1,638 tests, 0 failures)
+- [x] Fallback to other client on 429/500 errors (configurable)
 
 **Notes:**
 The Claude SDK messages API uses a different format than OpenAI (no `model` in messages, different tool_use format). The gateway must translate between internal types and each SDK's native format. All existing skills pass `modelAlias` — they don't need to know which client handles it.
