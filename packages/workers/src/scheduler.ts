@@ -19,7 +19,7 @@ export interface ScheduledQueues {
  * Jobs registered:
  * - daily-sweep: 3:00 AM daily (cron: 0 3 * * *) — re-queues stuck pipeline captures
  * - budget-check: 8:00 AM daily (cron: 0 8 * * *) — checks monthly AI spend vs thresholds
- * - daily-connections: DISABLED (cron: 0 0 29 2 * — Feb 29 only, silenced for noise reduction)
+ * - daily-connections: 7:00 AM daily (cron: 0 7 * * *) — cross-domain connections + wiki synthesis
  * - drift-monitor: 8:00 AM daily (cron: 0 8 * * *) — detects brain-view classification drift
  * - pipeline-health: every 6 hours (cron: 0 0,6,12,18 * * *) — checks pipeline + capture flow health
  * - daily-sweep-skill: 8:00 PM daily (cron: 0 20 * * *) — LLM-powered evening summary
@@ -27,6 +27,9 @@ export interface ScheduledQueues {
  * - capture-reminder-morning: 7:00 AM weekdays (cron: 0 7 * * 1-5) — morning Pushover nudge
  * - morning-brief: 7:15 AM weekdays (cron: 15 7 * * 1-5) — structured morning briefing (no LLM)
  * - capture-reminder-evening: 9:00 PM daily (cron: 0 21 * * *) — evening Pushover nudge with capture count
+ * - monthly-reflection: 9:00 AM 1st of month (cron: 0 9 1 * *) — LLM-powered monthly synthesis via runAgent()
+ * - wiki-lint: 5:00 AM Sundays (cron: 0 5 * * 0) — scans wiki pages for quality issues
+ * - wiki-synthesis: 6:00 AM daily (cron: 0 6 * * *) — queues unintegrated captures for wiki-ingest
  *
  * jobId values are stable — BullMQ treats a repeat job with the same jobId as
  * an upsert, so calling this on every startup is safe.
@@ -84,9 +87,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: budgetCron }, '[scheduler] budget-check repeatable job registered')
 
   // --------------------------------------------------------
-  // Daily connections skill (9:00 PM)
+  // Daily connections skill (7:00 AM daily)
   // --------------------------------------------------------
-  const connectionsCron = '0 0 29 2 *'
+  const connectionsCron = '0 7 * * *'
 
   const skillExecutionQueue = createSkillExecutionQueue(connection)
 
@@ -236,6 +239,63 @@ export async function registerScheduledJobs(
   )
 
   logger.info({ cron: captureReminderEveningCron }, '[scheduler] capture-reminder-evening repeatable job registered')
+
+  // --------------------------------------------------------
+  // Wiki lint (5:00 AM Sundays)
+  // --------------------------------------------------------
+  const wikiLintCron = '0 5 * * 0'
+
+  await skillExecutionQueue.add(
+    'wiki-lint',
+    {
+      skillName: 'wiki-lint',
+      input: {},
+    },
+    {
+      repeat: { pattern: wikiLintCron },
+      jobId: 'scheduled_wiki-lint',
+    },
+  )
+
+  logger.info({ cron: wikiLintCron }, '[scheduler] wiki-lint repeatable job registered')
+
+  // --------------------------------------------------------
+  // Wiki synthesis (6:00 AM daily)
+  // --------------------------------------------------------
+  const wikiSynthesisCron = '0 6 * * *'
+
+  await skillExecutionQueue.add(
+    'wiki-synthesis',
+    {
+      skillName: 'wiki-synthesis',
+      input: {},
+    },
+    {
+      repeat: { pattern: wikiSynthesisCron },
+      jobId: 'scheduled_wiki-synthesis',
+    },
+  )
+
+  logger.info({ cron: wikiSynthesisCron }, '[scheduler] wiki-synthesis repeatable job registered')
+
+  // --------------------------------------------------------
+  // Monthly reflection (1st of month, 9:00 AM)
+  // --------------------------------------------------------
+  const monthlyReflectionCron = '0 9 1 * *'
+
+  await skillExecutionQueue.add(
+    'monthly-reflection',
+    {
+      skillName: 'monthly-reflection',
+      input: {},
+    },
+    {
+      repeat: { pattern: monthlyReflectionCron },
+      jobId: 'scheduled_monthly-reflection',
+    },
+  )
+
+  logger.info({ cron: monthlyReflectionCron }, '[scheduler] monthly-reflection repeatable job registered')
 
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

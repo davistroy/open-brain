@@ -656,7 +656,7 @@ New System page with sub-tabs: Queues (card per queue with counts, clear failed 
 
 #### 4.1 Wiki-lint and wiki-synthesis skills
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F5.1, F5.2
 **Files Affected:**
 - `packages/workers/src/skills/wiki-lint.ts` (create)
@@ -664,83 +664,99 @@ New System page with sub-tabs: Queues (card per queue with counts, clear failed 
 - `packages/workers/src/scheduler.ts` (modify — register new skills)
 - `packages/workers/src/jobs/skill-execution.ts` (modify — add cases)
 - `config/prompts/wiki-lint/` (create)
+- `packages/workers/src/__tests__/wiki-lint.test.ts` (create)
+- `packages/workers/src/__tests__/wiki-synthesis.test.ts` (create)
+- `packages/core-api/src/services/skill-config.ts` (modify — add to DEFAULT_SKILLS)
 
 **Description:**
 Wiki-lint (weekly, Sundays 5 AM): Uses runAgent() to scan all wiki pages for contradictions, orphan pages, stale claims, missing cross-references. Writes `wiki/maintenance/lint-report.md`. Sends Pushover summary. Wiki-synthesis (daily, 6 AM): Identifies captures from last 24 hours not yet integrated into wiki, queues wiki-ingest jobs for each.
 
 **Tasks:**
-1. [ ] Create wiki-lint skill with runAgent() and wiki tools
-2. [ ] Create wiki-synthesis skill that queries un-ingested captures and queues wiki-ingest jobs
-3. [ ] Register both in scheduler.ts with cron schedules
-4. [ ] Add cases in skill-execution.ts dispatcher
-5. [ ] Write prompt templates for lint analysis
+1. [x] Create wiki-lint skill with runAgent() and wiki tools
+2. [x] Create wiki-synthesis skill that queries un-ingested captures and queues wiki-ingest jobs
+3. [x] Register both in scheduler.ts with cron schedules
+4. [x] Add cases in skill-execution.ts dispatcher
+5. [x] Write prompt templates for lint analysis
+6. [x] Write tests (19 wiki-lint + 13 wiki-synthesis = 32 new tests)
+7. [x] Add to DEFAULT_SKILLS in skill-config.ts
 
 **Acceptance Criteria:**
-- [ ] Wiki-lint produces a lint report in the wiki
-- [ ] Wiki-synthesis queues wiki-ingest for un-integrated captures
-- [ ] Both skills log to skills_log table
-- [ ] Pushover notifications sent on completion
+- [x] Wiki-lint produces a lint report in the wiki
+- [x] Wiki-synthesis queues wiki-ingest for un-integrated captures
+- [x] Both skills log to skills_log table
+- [x] Pushover notifications sent on completion
 
 ---
 
 #### 4.2 Enhanced drift detection and daily connections skills
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F5.3, F5.4
 **Files Affected:**
-- `packages/workers/src/skills/drift-monitor.ts` (modify — enhance)
-- `packages/workers/src/skills/daily-connections.ts` (modify — enhance and re-enable)
-- `packages/workers/src/scheduler.ts` (modify — re-enable daily-connections)
+- `packages/workers/src/skills/drift-monitor.ts` (modify — wiki integration via WikiGitService)
+- `packages/workers/src/skills/daily-connections.ts` (modify — wiki synthesis pages via WikiGitService)
+- `packages/workers/src/scheduler.ts` (modify — re-enabled daily-connections to 7 AM daily)
+- `packages/workers/src/jobs/skill-execution.ts` (modify — pass wikiService to both skills)
+- `packages/workers/src/__tests__/drift-monitor-wiki.test.ts` (create — 11 tests)
+- `packages/workers/src/__tests__/daily-connections-wiki.test.ts` (create — 13 tests)
+- `packages/workers/src/__tests__/scheduler-connections-cron.test.ts` (create — 2 tests)
 
 **Description:**
-Enhance drift-monitor to file results as wiki pages (in addition to Pushover). Re-enable daily-connections (currently disabled, cron set to Feb 29 only) with wiki integration — interesting cross-domain connections become wiki synthesis pages instead of just captures. Both skills use runAgent() for LLM analysis.
+Enhanced drift-monitor to file results as wiki pages (in addition to Pushover). Re-enabled daily-connections (was disabled, cron set to Feb 29 only) with wiki integration — interesting cross-domain connections become wiki synthesis pages. Both skills gracefully degrade when WikiGitService is not configured (WIKI_REPO_URL not set).
 
 **Tasks:**
-1. [ ] Enhance drift-monitor to write results to `wiki/operations/drift-reports/`
-2. [ ] Re-enable daily-connections: change cron from `0 0 29 2 *` back to `0 7 * * *` (daily 7 AM)
-3. [ ] Update daily-connections to create wiki synthesis pages for interesting connections
-4. [ ] Migrate both skills to use runAgent() pattern
-5. [ ] Update scheduler.ts JSDoc
+1. [x] Enhance drift-monitor to write results to `wiki/operations/drift-reports/YYYY-MM-DD.md`
+2. [x] Re-enable daily-connections: change cron from `0 0 29 2 *` back to `0 7 * * *` (daily 7 AM)
+3. [x] Update daily-connections to create wiki synthesis pages for interesting connections
+4. [ ] Migrate both skills to use runAgent() pattern (deferred — existing LLM call pattern works)
+5. [x] Update scheduler.ts JSDoc
+6. [x] Pass wikiService from skill-execution worker to both skills
+7. [x] Graceful fallback when WIKI_REPO_URL not configured
+8. [x] Write 26 tests for new wiki functionality
 
 **Acceptance Criteria:**
-- [ ] Drift reports appear in wiki operations directory
-- [ ] Daily connections produces wiki synthesis pages
-- [ ] Both skills use runAgent() with proper tool definitions
-- [ ] Pushover notifications include key findings
+- [x] Drift reports appear in wiki operations directory (operations/drift-reports/YYYY-MM-DD.md)
+- [x] Daily connections produces wiki synthesis pages (synthesis/connections/YYYY-MM-DD.md)
+- [ ] Both skills use runAgent() with proper tool definitions (deferred)
+- [x] Pushover notifications include key findings (unchanged)
+- [x] Wiki operations are non-fatal — failures logged and execution continues
+- [x] All 151 tests pass (71 + 54 existing + 26 new)
 
 ---
 
 #### 4.3 Monthly reflection skill
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F5.5
 **Files Affected:**
 - `packages/workers/src/skills/monthly-reflection.ts` (create)
+- `packages/workers/src/__tests__/monthly-reflection.test.ts` (create)
 - `packages/workers/src/scheduler.ts` (modify)
 - `packages/workers/src/jobs/skill-execution.ts` (modify)
-- `config/prompts/monthly-reflection/` (create)
+- `packages/core-api/src/services/skill-config.ts` (modify)
+- `config/prompts/monthly-reflection/system.txt` (create)
 
 **Description:**
 Monthly skill (1st of month, 9 AM) that generates a comprehensive "state of Troy" synthesis across all brain views: career momentum, active projects, technical exploration, personal patterns. Filed as a wiki synthesis page and sent as HTML email (via existing email service).
 
 **Tasks:**
-1. [ ] Create monthly-reflection skill using runAgent()
-2. [ ] Query captures from last 30 days across all brain views
-3. [ ] Generate structured reflection with wiki + email output
-4. [ ] Register in scheduler with cron `0 9 1 * *`
-5. [ ] Write prompt template for reflection analysis
+1. [x] Create monthly-reflection skill using runAgent()
+2. [x] Query captures from last 30 days across all brain views
+3. [x] Generate structured reflection with wiki + email output
+4. [x] Register in scheduler with cron `0 9 1 * *`
+5. [x] Write prompt template for reflection analysis
 
 **Acceptance Criteria:**
-- [ ] Monthly reflection generates comprehensive synthesis
-- [ ] Filed as wiki page under `wiki/synthesis/reflections/`
-- [ ] Sent as HTML email
-- [ ] Covers all five brain views
+- [x] Monthly reflection generates comprehensive synthesis
+- [x] Filed as wiki page under `wiki/synthesis/reflections/`
+- [x] Sent as HTML email
+- [x] Covers all five brain views
 
 ---
 
 #### 4.4 Settings expansion — AI routing and wiki sections
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F12.1, F12.3
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — add sections)
@@ -751,23 +767,23 @@ Monthly skill (1st of month, 9 AM) that generates a comprehensive "state of Troy
 Add two new sections to the Settings page. AI Routing: displays current model routing table (task type → provider → model → client), monthly spend by model with progress bar, rate limit status. Wiki: Gitea repo URL (read-only), lint schedule (cron editor), auto-ingest toggle.
 
 **Tasks:**
-1. [ ] Create AI Routing settings section with model routing table
-2. [ ] Add spend breakdown display (by model, with progress bars against budget)
-3. [ ] Create Wiki settings section with lint schedule editor
-4. [ ] Add backend endpoints for reading AI routing config and wiki settings
-5. [ ] Add auto-ingest toggle that writes back to wiki config
+1. [x] Create AI Routing settings section with model routing table
+2. [x] Add spend breakdown display (by model, with progress bars against budget)
+3. [x] Create Wiki settings section with lint schedule editor
+4. [x] Add backend endpoints for reading AI routing config and wiki settings
+5. [x] Add auto-ingest toggle that writes back to wiki config
 
 **Acceptance Criteria:**
-- [ ] AI routing table shows all task types with their routing
-- [ ] Spend breakdown is accurate against ai_audit_log data
-- [ ] Wiki lint schedule editable via cron editor
-- [ ] Auto-ingest toggle persists correctly
+- [x] AI routing table shows all task types with their routing
+- [x] Spend breakdown is accurate against ai_audit_log data
+- [x] Wiki lint schedule editable via cron editor
+- [x] Auto-ingest toggle persists correctly
 
 ---
 
 #### 4.5 Settings expansion — Integrations section
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F12.4
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — add integrations section)
@@ -776,15 +792,15 @@ Add two new sections to the Settings page. AI Routing: displays current model ro
 Add an Integrations section to Settings showing read-only status for all connected services: MCP endpoint URL and status, Slack workspace info, Cloudflare tunnel status, Gitea connectivity, email channel status (CF worker for inbound, Himalaya for outbound when available). No configuration — secrets stay in Bitwarden.
 
 **Tasks:**
-1. [ ] Create Integrations section with status cards per service
-2. [ ] Fetch status from /api/v1/system/health and /api/v1/settings
-3. [ ] Show connectivity indicators (green/red dot + last check time)
-4. [ ] Display key metadata per service (MCP endpoint URL, Slack workspace name, etc.)
+1. [x] Create Integrations section with status cards per service
+2. [x] Fetch status from /api/v1/system/health and /api/v1/settings
+3. [x] Show connectivity indicators (green/red dot + last check time)
+4. [x] Display key metadata per service (MCP endpoint URL, Slack workspace name, etc.)
 
 **Acceptance Criteria:**
-- [ ] All integration statuses display correctly
-- [ ] Read-only — no editable fields
-- [ ] Status indicators reflect real connectivity
+- [x] All integration statuses display correctly
+- [x] Read-only — no editable fields
+- [x] Status indicators reflect real connectivity
 
 ---
 

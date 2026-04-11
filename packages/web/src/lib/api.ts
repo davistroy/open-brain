@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -650,5 +650,19 @@ export const mcpActivityApi = {
   list: (params?: { limit?: number; offset?: number; tool_name?: string; client_id?: string; since?: string }) => {
     const qs = buildQueryString(params ?? {})
     return request<{ items: McpActivityEntry[]; total: number; limit: number; offset: number }>(`/mcp/activity${qs}`)
+  },
+}
+
+// Config API — read-only configuration and integration status
+
+export const configApi = {
+  /** GET /api/v1/config/ai-routing — model routing table + per-model monthly spend */
+  aiRouting: () => {
+    return request<AIRoutingResponse>('/config/ai-routing')
+  },
+
+  /** GET /api/v1/config/integrations — integration connectivity statuses */
+  integrations: () => {
+    return request<{ integrations: IntegrationStatus[] }>('/config/integrations')
   },
 }

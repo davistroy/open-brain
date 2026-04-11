@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type { Database } from '@open-brain/shared'
 import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import {
   queryPendingBets,
   queryBetActivity,
@@ -41,6 +42,7 @@ export class DriftMonitorSkill {
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
+  private wikiService: WikiGitService | null
 
   constructor(opts: {
     db: Database
@@ -50,6 +52,7 @@ export class DriftMonitorSkill {
     promptsDir?: string
     coreApiUrl?: string
     templates?: TemplateCache
+    wikiService?: WikiGitService
   }) {
     this.db = opts.db
     this.litellmClient = createLiteLLMClient({
@@ -61,6 +64,7 @@ export class DriftMonitorSkill {
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+    this.wikiService = opts.wikiService ?? null
   }
 
   async execute(options: DriftMonitorOptions = {}): Promise<DriftMonitorResult> {
@@ -128,20 +132,23 @@ export class DriftMonitorSkill {
       notificationSent = await this.deliverPushover(output)
     }
 
+    // Step 6b: Write drift report to wiki (if wiki is configured)
+    const wikiWritten = await this.writeDriftToWiki(output, analysisDate)
+
     // Step 7: Save as capture back into the brain
     const savedCaptureId = await this.saveDriftCapture(output, analysisDate)
 
     // Step 8: Log to skills_log
     await this.logToSkillsLog({
       inputSummary: `${betsWithActivity.length} bets, ${commitments.length} commitments, ${entityFrequency.length} declining entities`,
-      outputSummary: `health: ${output.overall_health} | drift_items: ${output.drift_items.length} | high: ${output.drift_items.filter(d => d.severity === 'high').length} | medium: ${output.drift_items.filter(d => d.severity === 'medium').length} | notified: ${notificationSent}`,
+      outputSummary: `health: ${output.overall_health} | drift_items: ${output.drift_items.length} | high: ${output.drift_items.filter(d => d.severity === 'high').length} | medium: ${output.drift_items.filter(d => d.severity === 'medium').length} | notified: ${notificationSent} | wiki: ${wikiWritten}`,
       durationMs,
       captureId: savedCaptureId ?? undefined,
       result: output,
     })
 
     logger.info(
-      { driftItemCount: output.drift_items.length, overallHealth: output.overall_health, durationMs, notificationSent, savedCaptureId },
+      { driftItemCount: output.drift_items.length, overallHealth: output.overall_health, durationMs, notificationSent, wikiWritten, savedCaptureId },
       '[drift-monitor] execution complete',
     )
 
@@ -218,6 +225,43 @@ export class DriftMonitorSkill {
   }
 
   // ----------------------------------------------------------
+  // Private: Write drift report to wiki
+  // ----------------------------------------------------------
+
+  private async writeDriftToWiki(
+    output: DriftMonitorOutput,
+    analysisDate: string,
+  ): Promise<boolean> {
+    if (!this.wikiService) return false
+
+    try {
+      const pagePath = `operations/drift-reports/${analysisDate}.md`
+      const content = buildDriftMarkdown(output, analysisDate)
+      const frontmatter: WikiFrontmatter = {
+        title: `Drift Report — ${analysisDate}`,
+        type: 'overview',
+        created: analysisDate,
+        updated: analysisDate,
+        tags: ['drift', 'operations', 'auto-generated'],
+        overall_health: output.overall_health,
+        drift_item_count: output.drift_items.length,
+      }
+
+      await this.wikiService.writePage(
+        pagePath,
+        content,
+        frontmatter,
+        `drift-monitor: ${analysisDate} — ${output.overall_health.replace(/_/g, ' ')}`,
+      )
+      logger.info({ pagePath, overallHealth: output.overall_health }, '[drift-monitor] wiki report written')
+      return true
+    } catch (err) {
+      logger.warn({ err }, '[drift-monitor] failed to write wiki drift report — continuing without wiki')
+      return false
+    }
+  }
+
+  // ----------------------------------------------------------
   // Private: Save as capture
   // ----------------------------------------------------------
 
@@ -288,8 +332,9 @@ export class DriftMonitorSkill {
 export async function executeDriftMonitor(
   db: Database,
   options: DriftMonitorOptions = {},
+  wikiService?: WikiGitService,
 ): Promise<DriftMonitorResult> {
-  return new DriftMonitorSkill({ db }).execute(options)
+  return new DriftMonitorSkill({ db, wikiService }).execute(options)
 }
 
 // ============================================================
@@ -357,6 +402,52 @@ function isValidSeverity(val: unknown): val is 'high' | 'medium' | 'low' {
 
 function isValidItemType(val: unknown): val is 'bet' | 'commitment' | 'entity' {
   return val === 'bet' || val === 'commitment' || val === 'entity'
+}
+
+// ============================================================
+// Markdown rendering (for wiki pages)
+// ============================================================
+
+/** Builds a markdown-formatted drift report for wiki pages. Exported for testing. */
+export function buildDriftMarkdown(
+  output: DriftMonitorOutput,
+  analysisDate: string,
+): string {
+  const lines: string[] = [
+    `# Drift Report — ${analysisDate}`,
+    '',
+    `**Overall health:** ${output.overall_health.replace(/_/g, ' ')}`,
+    '',
+    output.summary,
+    '',
+  ]
+
+  if (output.drift_items.length > 0) {
+    lines.push('## Drift Items')
+    lines.push('')
+
+    // Group by severity for readability
+    for (const severity of ['high', 'medium', 'low'] as const) {
+      const items = output.drift_items.filter(d => d.severity === severity)
+      if (items.length === 0) continue
+
+      lines.push(`### ${severity.charAt(0).toUpperCase() + severity.slice(1)} Severity`)
+      lines.push('')
+
+      for (const item of items) {
+        lines.push(`- **${item.item_name}** (${item.item_type})`)
+        lines.push(`  - Silent: ${item.days_silent} days`)
+        lines.push(`  - Reason: ${item.reason}`)
+        lines.push(`  - Suggested action: ${item.suggested_action}`)
+        lines.push('')
+      }
+    }
+  } else {
+    lines.push('No drift items detected — all tracked items are active.')
+    lines.push('')
+  }
+
+  return lines.join('\n')
 }
 
 // ============================================================

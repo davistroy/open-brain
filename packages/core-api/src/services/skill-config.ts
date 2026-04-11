@@ -56,6 +56,18 @@ export const DEFAULT_SKILLS: Record<string, SkillConfig> = {
     schedule: '0 21 * * *', // Daily 9pm
     description: 'Evening Pushover nudge with today\'s capture count and last capture time — encourages evening reflection',
   },
+  'wiki-lint': {
+    schedule: '0 5 * * 0', // Sunday 5am
+    description: 'Scan all wiki pages for contradictions, orphan pages, stale claims, missing cross-references, and structural issues',
+  },
+  'wiki-synthesis': {
+    schedule: '0 6 * * *', // Daily 6am
+    description: 'Identify captures from the last 24 hours not yet wiki-integrated and queue wiki-ingest jobs for each',
+  },
+  'monthly-reflection': {
+    schedule: '0 9 1 * *', // 1st of month, 9am
+    description: 'Comprehensive "state of Troy" monthly synthesis via runAgent() — career momentum, active projects, technical exploration, personal patterns across all brain views',
+  },
 }
 
 /**

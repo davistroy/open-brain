@@ -24,6 +24,7 @@ import { registerIntelligenceRoutes } from './routes/intelligence.js'
 import { registerWikiRoutes } from './routes/wiki.js'
 import { registerActivityRoutes } from './routes/activity.js'
 import { registerMcpActivityRoutes } from './routes/mcp-activity.js'
+import { registerConfigRoutes } from './routes/config.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -148,6 +149,11 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Settings API (generic key-value store — used by email allowlist, etc.)
   if (db) {
     registerSettingsRoutes(app, db)
+  }
+
+  // Config API (read-only config + integration status)
+  if (configService && db) {
+    registerConfigRoutes(app, configService, db)
   }
 
   // System health API (operational metrics, SSE stream)

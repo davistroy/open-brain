@@ -307,3 +307,34 @@ export interface SkillLastRun {
   duration_ms: number | null
   output_summary: string | null
 }
+
+// ─── Config / AI Routing ─────────────────────────────────────────────────────
+
+export interface ModelRoutingEntry {
+  task: string
+  model: string
+  client: 'anthropic' | 'litellm'
+  cost_per_1k_input: number
+  cost_per_1k_output: number
+  month_spend_usd: number
+  month_calls: number
+}
+
+export interface AIRoutingResponse {
+  models: ModelRoutingEntry[]
+  budget: {
+    soft_limit_usd: number
+    hard_limit_usd: number
+    month_total_usd: number
+  }
+}
+
+// ─── Integrations ────────────────────────────────────────────────────────────
+
+export interface IntegrationStatus {
+  name: string
+  status: 'connected' | 'disconnected' | 'unknown'
+  url?: string
+  detail?: string
+  last_activity?: string
+}

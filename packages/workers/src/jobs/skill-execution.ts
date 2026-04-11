@@ -70,7 +70,7 @@ export function createSkillExecutionWorker(
             windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
             modelAlias: synthesisModel,
-          })
+          }, opts.wikiService)
 
           logger.info(
             { skillName, captureCount: result.captureCount, connectionCount: result.output.connections.length, durationMs: result.durationMs },
@@ -85,7 +85,7 @@ export function createSkillExecutionWorker(
             commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
             entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
             modelAlias: synthesisModel,
-          })
+          }, opts.wikiService)
 
           logger.info(
             { skillName, driftItemCount: result.output.drift_items.length, overallHealth: result.output.overall_health, notificationSent: result.notificationSent, durationMs: result.durationMs },
@@ -161,6 +161,70 @@ export function createSkillExecutionWorker(
           logger.info(
             { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
             '[skill-execution] memory-consolidation complete',
+          )
+          break
+        }
+
+        case 'wiki-lint': {
+          if (!opts.wikiService) {
+            throw new UnrecoverableError('[skill-execution] wiki-lint requires wikiService — WikiGitService not configured')
+          }
+          const { executeWikiLint } = await import('../skills/wiki-lint.js')
+          const wikiLintResult = await executeWikiLint(db, opts.wikiService, {
+            anthropicClient: opts.anthropicClient,
+            promptsDir: opts.promptsDir,
+          })
+          logger.info(
+            {
+              skillName,
+              pagesScanned: wikiLintResult.pagesScanned,
+              issuesFound: wikiLintResult.issuesFound,
+              notificationSent: wikiLintResult.notificationSent,
+              durationMs: wikiLintResult.durationMs,
+            },
+            '[skill-execution] wiki-lint complete',
+          )
+          break
+        }
+
+        case 'wiki-synthesis': {
+          const { executeWikiSynthesis } = await import('../skills/wiki-synthesis.js')
+          const wikiSynthResult = await executeWikiSynthesis(db, {
+            redisConnection: connection,
+            lookbackHours: typeof input?.lookbackHours === 'number' ? input.lookbackHours : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              capturesChecked: wikiSynthResult.capturesChecked,
+              capturesQueued: wikiSynthResult.capturesQueued,
+              notificationSent: wikiSynthResult.notificationSent,
+              durationMs: wikiSynthResult.durationMs,
+            },
+            '[skill-execution] wiki-synthesis complete',
+          )
+          break
+        }
+
+        case 'monthly-reflection': {
+          const { executeMonthlyReflection } = await import('../skills/monthly-reflection.js')
+          const monthlyResult = await executeMonthlyReflection(db, {
+            anthropicClient: opts.anthropicClient,
+            wikiService: opts.wikiService,
+            promptsDir: opts.promptsDir,
+          })
+          logger.info(
+            {
+              skillName,
+              captureCount: monthlyResult.captureCount,
+              headline: monthlyResult.output.headline,
+              iterations: monthlyResult.agentIterations,
+              toolCalls: monthlyResult.toolCalls,
+              emailSent: monthlyResult.emailSent,
+              wikiPageWritten: monthlyResult.wikiPageWritten,
+              durationMs: monthlyResult.durationMs,
+            },
+            '[skill-execution] monthly-reflection complete',
           )
           break
         }
