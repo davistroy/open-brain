@@ -21,7 +21,7 @@ export interface ScheduledQueues {
  * - budget-check: 8:00 AM daily (cron: 0 8 * * *) — checks monthly AI spend vs thresholds
  * - daily-connections: DISABLED (cron: 0 0 29 2 * — Feb 29 only, silenced for noise reduction)
  * - drift-monitor: 8:00 AM daily (cron: 0 8 * * *) — detects brain-view classification drift
- * - pipeline-health: every 6 hours (cron: 0 */6 * * *) — checks pipeline + capture flow health
+ * - pipeline-health: every 6 hours (cron: 0 0,6,12,18 * * *) — checks pipeline + capture flow health
  * - daily-sweep-skill: 8:00 PM daily (cron: 0 20 * * *) — LLM-powered evening summary
  * - memory-consolidation: 4:00 AM Sundays (cron: 0 4 * * 0) — LLM near-duplicate merging
  * - capture-reminder-morning: 7:00 AM weekdays (cron: 0 7 * * 1-5) — morning Pushover nudge
