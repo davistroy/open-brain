@@ -1,7 +1,8 @@
 import { join } from 'node:path'
 import type OpenAI from 'openai'
+import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { queryCaptures, assembleContext, fmtDate, CHARS_PER_TOKEN } from './weekly-brief-query.js'
 import type { WeeklyBriefOutput, WeeklyBriefResult, WeeklyBriefOptions } from './weekly-brief-query.js'
@@ -20,13 +21,14 @@ const DEFAULT_TOKEN_BUDGET = 50_000
 export class WeeklyBriefSkill {
   private db: Database
   private litellmClient: OpenAI | null
+  private anthropicClient: Anthropic | null
   private pushover: PushoverService
   private email: EmailService
   private templates: TemplateCache
   private coreApiUrl: string
 
   constructor(opts: {
-    db: Database; litellmBaseUrl?: string; litellmApiKey?: string
+    db: Database; litellmBaseUrl?: string; litellmApiKey?: string; anthropicClient?: Anthropic
     pushover?: PushoverService; email?: EmailService; promptsDir?: string; coreApiUrl?: string
     templates?: TemplateCache
   }) {
@@ -37,6 +39,7 @@ export class WeeklyBriefSkill {
       timeout: 'extended',
       maxRetries: 0,
     })
+    this.anthropicClient = opts.anthropicClient ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.email = opts.email ?? new EmailService()
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
@@ -82,17 +85,27 @@ export class WeeklyBriefSkill {
   }
 
   private async callLLM(contextText: string, dateRange: string, captureCount: number, modelAlias: string): Promise<string> {
-    if (!this.litellmClient) throw new Error('[weekly-brief] LiteLLM client not configured — LITELLM_API_KEY missing')
     const prompt = this.templates.render('weekly_brief_v1.txt', {
       date_range: dateRange, capture_count: String(captureCount), captures: contextText,
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[weekly-brief] calling LLM')
+
+    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    if (this.anthropicClient) {
+      const result = await callClaude(this.anthropicClient, prompt, {
+        model: modelAlias, maxTokens: 2048, temperature: 0.3,
+      })
+      logger.info({ inputTokens: result.inputTokens, outputTokens: result.outputTokens }, '[weekly-brief] LLM call complete (Claude)')
+      return result.text
+    }
+
+    if (!this.litellmClient) throw new Error('[weekly-brief] No LLM client configured — set ANTHROPIC_API_KEY or LITELLM_API_KEY')
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias, messages: [{ role: 'user', content: prompt }],
       temperature: 0.3, max_completion_tokens: 2048,
     })
     const text = response.choices[0]?.message?.content ?? ''
-    logger.info({ promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens }, '[weekly-brief] LLM call complete')
+    logger.info({ promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens }, '[weekly-brief] LLM call complete (OpenAI)')
     return text
   }
 
@@ -132,8 +145,8 @@ export class WeeklyBriefSkill {
 }
 
 /** Top-level entry point called by BullMQ worker. */
-export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptions = {}): Promise<WeeklyBriefResult> {
-  return new WeeklyBriefSkill({ db }).execute(options)
+export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptions = {}, anthropicClient?: Anthropic): Promise<WeeklyBriefResult> {
+  return new WeeklyBriefSkill({ db, anthropicClient }).execute(options)
 }
 
 function emptyBrief(): WeeklyBriefOutput {

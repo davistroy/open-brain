@@ -1,7 +1,8 @@
 import { join } from 'node:path'
 import type OpenAI from 'openai'
+import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import {
   queryRecentCaptures,
@@ -34,6 +35,7 @@ const DEFAULT_TOKEN_BUDGET = 30_000
 export class DailyConnectionsSkill {
   private db: Database
   private litellmClient: OpenAI | null
+  private anthropicClient: Anthropic | null
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -43,6 +45,7 @@ export class DailyConnectionsSkill {
     db: Database
     litellmBaseUrl?: string
     litellmApiKey?: string
+    anthropicClient?: Anthropic
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
@@ -56,6 +59,7 @@ export class DailyConnectionsSkill {
       timeout: 'extended',
       maxRetries: 0,
     })
+    this.anthropicClient = opts.anthropicClient ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -145,7 +149,6 @@ export class DailyConnectionsSkill {
     captureCount: number,
     modelAlias: string,
   ): Promise<string> {
-    if (!this.litellmClient) throw new Error('[daily-connections] LiteLLM client not configured — LITELLM_API_KEY missing')
     const prompt = this.templates.render('daily_connections_v1.txt', {
       date_range: dateRange,
       capture_count: String(captureCount),
@@ -153,6 +156,22 @@ export class DailyConnectionsSkill {
       entity_cooccurrence: coOccurrenceText,
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[daily-connections] calling LLM')
+
+    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    if (this.anthropicClient) {
+      const result = await callClaude(this.anthropicClient, prompt, {
+        model: modelAlias,
+        maxTokens: 2048,
+        temperature: 0.4,
+      })
+      logger.info(
+        { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+        '[daily-connections] LLM call complete (Claude)',
+      )
+      return result.text
+    }
+
+    if (!this.litellmClient) throw new Error('[daily-connections] No LLM client configured — set ANTHROPIC_API_KEY or LITELLM_API_KEY')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,
@@ -164,7 +183,7 @@ export class DailyConnectionsSkill {
     const text = response.choices[0]?.message?.content ?? ''
     logger.info(
       { promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
-      '[daily-connections] LLM call complete',
+      '[daily-connections] LLM call complete (OpenAI)',
     )
     return text
   }
@@ -310,8 +329,9 @@ export async function executeDailyConnections(
   db: Database,
   options: DailyConnectionsOptions = {},
   wikiService?: WikiGitService,
+  anthropicClient?: Anthropic,
 ): Promise<DailyConnectionsResult> {
-  return new DailyConnectionsSkill({ db, wikiService }).execute(options)
+  return new DailyConnectionsSkill({ db, wikiService, anthropicClient }).execute(options)
 }
 
 // ============================================================

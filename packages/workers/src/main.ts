@@ -149,7 +149,7 @@ async function main() {
   workers.push(createIngestRootWorker(connection, db, queues.checkTriggers))
 
   workers.push(createCheckTriggersWorker(connection, db, pushoverAppToken, pushoverUserKey))
-  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates))
+  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates, anthropicClient))
   workers.push(createDocumentPipelineWorker(connection, db, configService, litellmUrl, litellmApiKey, queues.embedCapture))
   workers.push(createDailySweepWorker(connection, db, queues.capturePipeline))
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))

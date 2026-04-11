@@ -1,8 +1,9 @@
 import { join } from 'node:path'
 import type OpenAI from 'openai'
+import type Anthropic from '@anthropic-ai/sdk'
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 
 // ============================================================
 // Types
@@ -247,6 +248,7 @@ export function formatVoiceStatsLine(stats: VoiceStats): string {
 export class DailySweepSkill {
   private db: Database
   private litellmClient: OpenAI | null
+  private anthropicClient: Anthropic | null
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -255,6 +257,7 @@ export class DailySweepSkill {
     db: Database
     litellmBaseUrl?: string
     litellmApiKey?: string
+    anthropicClient?: Anthropic
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
@@ -267,6 +270,7 @@ export class DailySweepSkill {
       timeout: 'extended',
       maxRetries: 0,
     })
+    this.anthropicClient = opts.anthropicClient ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -364,7 +368,6 @@ export class DailySweepSkill {
     date: string,
     modelAlias: string,
   ): Promise<string> {
-    if (!this.litellmClient) throw new Error('[daily-sweep-skill] LiteLLM client not configured — LITELLM_API_KEY missing')
     const prompt = this.templates.render('daily_sweep_v1.txt', {
       date,
       capture_count: String(captureCount),
@@ -373,6 +376,22 @@ export class DailySweepSkill {
       new_entities: entitiesText,
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[daily-sweep-skill] calling LLM')
+
+    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    if (this.anthropicClient) {
+      const result = await callClaude(this.anthropicClient, prompt, {
+        model: modelAlias,
+        maxTokens: 2048,
+        temperature: 0.3,
+      })
+      logger.info(
+        { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
+        '[daily-sweep-skill] LLM call complete (Claude)',
+      )
+      return result.text
+    }
+
+    if (!this.litellmClient) throw new Error('[daily-sweep-skill] No LLM client configured — set ANTHROPIC_API_KEY or LITELLM_API_KEY')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,
@@ -384,7 +403,7 @@ export class DailySweepSkill {
     const text = response.choices[0]?.message?.content ?? ''
     logger.info(
       { promptTokens: response.usage?.prompt_tokens, completionTokens: response.usage?.completion_tokens },
-      '[daily-sweep-skill] LLM call complete',
+      '[daily-sweep-skill] LLM call complete (OpenAI)',
     )
     return text
   }
@@ -498,8 +517,9 @@ export class DailySweepSkill {
 export async function executeDailySweep(
   db: Database,
   options: DailySweepOptions = {},
+  anthropicClient?: Anthropic,
 ): Promise<DailySweepResult> {
-  return new DailySweepSkill({ db }).execute(options)
+  return new DailySweepSkill({ db, anthropicClient }).execute(options)
 }
 
 // ============================================================
