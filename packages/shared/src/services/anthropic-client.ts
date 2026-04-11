@@ -30,19 +30,20 @@ export interface CreateAnthropicClientOptions {
  * LiteLLM/OpenAI client.
  */
 export function createAnthropicClient(opts?: CreateAnthropicClientOptions): Anthropic | null {
-  const apiKey = opts?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? ''
+  // Check both env vars: ANTHROPIC_AUTH_TOKEN (OAuth/Bearer) and ANTHROPIC_API_KEY (regular key)
+  const apiKey = opts?.apiKey ?? process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? ''
   if (!apiKey) return null
 
   const timeout = typeof opts?.timeout === 'number'
     ? opts.timeout
     : TIMEOUT_MS[opts?.timeout ?? 'standard']
 
-  // OAuth tokens (sk-ant-oat*) use Authorization: Bearer via authToken.
-  // Regular API keys (sk-ant-api*) use x-api-key via apiKey.
-  const isOAuthToken = apiKey.startsWith('sk-ant-oat')
   const retries = opts?.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}
 
-  if (isOAuthToken) {
+  // OAuth tokens (sk-ant-oat*) use authToken (Authorization: Bearer).
+  // Regular API keys (sk-ant-api*) use apiKey (x-api-key header).
+  // The SDK also auto-reads ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY env vars.
+  if (apiKey.startsWith('sk-ant-oat')) {
     return new Anthropic({ authToken: apiKey, timeout, ...retries })
   }
 
