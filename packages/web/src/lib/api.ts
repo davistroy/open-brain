@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -703,5 +703,27 @@ export const configApi = {
   /** GET /api/v1/config/integrations — integration connectivity statuses */
   integrations: () => {
     return request<{ integrations: IntegrationStatus[] }>('/config/integrations')
+  },
+}
+
+// Voice Sessions API
+
+export const voiceSessionApi = {
+  /** GET /api/v1/voice/sessions — list all voice conversation sessions */
+  list: async (params?: { limit?: number; offset?: number }) => {
+    const qs = buildQueryString(params ?? {})
+    return request<{ items: VoiceSession[]; total: number; limit: number; offset: number }>(
+      `/voice/sessions${qs}`,
+    )
+  },
+
+  /** GET /api/v1/voice/sessions/active — get any active (in-progress) sessions */
+  active: () => {
+    return request<{ sessions: VoiceSession[] }>('/voice/sessions/active')
+  },
+
+  /** GET /api/v1/voice/sessions/:id — get a single session with full transcript */
+  get: (id: string) => {
+    return request<VoiceSession>(`/voice/sessions/${encodeURIComponent(id)}`)
   },
 }

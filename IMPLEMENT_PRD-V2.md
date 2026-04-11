@@ -1044,7 +1044,7 @@ LLM cost analysis (daily 7 AM): query ai_audit_log, aggregate by model and task 
 
 #### 6.1 Phase 0 spike: Deepgram latency validation
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 Risk Register (Pipecat latency)
 **Files Affected:**
 - `scripts/deepgram-spike.py` (create — throwaway test script)
@@ -1053,11 +1053,11 @@ LLM cost analysis (daily 7 AM): query ai_audit_log, aggregate by model and task 
 Before committing to the full Pipecat implementation, validate Deepgram cloud STT latency with realistic audio. Test: send 5-10 second audio clips via Deepgram's streaming API, measure time-to-first-word and total transcription latency. Target: <500ms time-to-first-word for real-time conversation feasibility. Also test Kokoro TTS latency locally.
 
 **Tasks:**
-1. [ ] Create Python test script using Deepgram SDK
-2. [ ] Test with 5 representative audio clips (different lengths, noise levels)
-3. [ ] Measure and record: time-to-first-word, total transcription time, accuracy
+1. [x] Create Python test script using Deepgram SDK
+2. [x] Test with 5 representative audio clips (different lengths, noise levels)
+3. [x] Measure and record: time-to-first-word, total transcription time, accuracy
 4. [ ] Test Kokoro TTS synthesis latency for 1-3 sentence responses
-5. [ ] Document results and go/no-go decision
+5. [x] Document results and go/no-go decision
 6. [ ] Store DEEPGRAM_API_KEY in Bitwarden
 
 **Acceptance Criteria:**
@@ -1072,7 +1072,7 @@ If Deepgram latency exceeds targets, consider: Deepgram's Nova-2 model (optimize
 
 #### 6.2 Pipecat voice service foundation
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F1.1-F1.2, F1.8, F1.9
 **Files Affected:**
 - `packages/voice-pipecat/` (create — new Python package)
@@ -1086,21 +1086,21 @@ If Deepgram latency exceeds targets, consider: Deepgram's Nova-2 model (optimize
 Create a new Python-based Pipecat voice service. Pipeline: VAD (Silero) → STT (Deepgram cloud) → LLM (Claude SDK via conversation task type) → TTS (Kokoro local or ElevenLabs cloud). Session state stored in Redis with configurable TTL. Health endpoint at /health reporting model status, active sessions, TTS availability. Interrupt handling: user speech cancels current TTS.
 
 **Tasks:**
-1. [ ] Create packages/voice-pipecat/ with Python project structure
-2. [ ] Write Dockerfile (Python 3.11 + Pipecat + Deepgram SDK + Kokoro)
-3. [ ] Implement Pipecat pipeline definition (VAD → STT → LLM → TTS)
-4. [ ] Implement Redis session state management
-5. [ ] Implement health endpoint (FastAPI or similar)
-6. [ ] Add to docker-compose.yml (replace voice-capture + faster-whisper entries)
-7. [ ] Configure voice.yaml with Deepgram as primary STT
+1. [x] Create packages/voice-pipecat/ with Python project structure
+2. [x] Write Dockerfile (Python 3.11 + Pipecat + Deepgram SDK + Kokoro)
+3. [x] Implement Pipecat pipeline definition (VAD → STT → LLM → TTS)
+4. [x] Implement Redis session state management
+5. [x] Implement health endpoint (FastAPI or similar)
+6. [x] Add to docker-compose.yml (keep voice-capture + faster-whisper for fallback)
+7. [x] Configure voice.yaml with Deepgram as primary STT
 
 **Acceptance Criteria:**
-- [ ] Pipecat service starts and reports healthy
-- [ ] WebSocket endpoint accepts audio streams
-- [ ] STT transcription works via Deepgram
-- [ ] LLM responds via Claude SDK
-- [ ] TTS generates audio response
-- [ ] Session state persisted in Redis
+- [x] Pipecat service starts and reports healthy
+- [x] WebSocket endpoint accepts audio streams
+- [x] STT transcription works via Deepgram
+- [x] LLM responds via Claude SDK
+- [x] TTS generates audio response
+- [x] Session state persisted in Redis
 
 **Notes:**
 This is a Python service in a TypeScript monorepo. It communicates with the rest of the system via HTTP (core-api endpoints) and Redis (session state). No shared TypeScript code — clean service boundary. The existing voice-capture and faster-whisper containers are NOT removed until this service is validated.
@@ -1109,10 +1109,10 @@ This is a Python service in a TypeScript monorepo. It communicates with the rest
 
 #### 6.3 Session management and capture extraction
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F1.5, F1.6, F1.7
 **Files Affected:**
-- `packages/voice-pipecat/src/session.py` (create)
+- `packages/voice-pipecat/src/session.py` (modify)
 - `packages/voice-pipecat/src/capture_extractor.py` (create)
 - `packages/voice-pipecat/src/tools.py` (create)
 
@@ -1120,52 +1120,56 @@ This is a Python service in a TypeScript monorepo. It communicates with the rest
 Implement session lifecycle: start (create Redis session), during (accumulate transcript turns), end (extract captures, store transcript). At conversation end (silence timeout or user says "done"), use Claude to extract one or more captures from the conversation, each POSTed to core-api for standard pipeline processing. LLM has access to Open Brain search and entity lookup as tools during conversation.
 
 **Tasks:**
-1. [ ] Implement session start/end lifecycle with Redis state
-2. [ ] Create transcript accumulator (JSONB array of turns with timestamps)
-3. [ ] Implement capture extraction at session end via Claude
-4. [ ] Create Open Brain tools for in-conversation use (search_brain, get_entity)
-5. [ ] POST extracted captures to core-api
+1. [x] Implement session start/end lifecycle with Redis state
+2. [x] Create transcript accumulator (JSONB array of turns with timestamps)
+3. [x] Implement capture extraction at session end via Claude
+4. [x] Create Open Brain tools for in-conversation use (search_brain, get_entity)
+5. [x] POST extracted captures to core-api
 
 **Acceptance Criteria:**
-- [ ] Conversations produce captures routed through standard pipeline
-- [ ] Full transcript stored as JSONB
-- [ ] In-conversation search ("what did I say about X?") works
-- [ ] Session cleanup on timeout
+- [x] Conversations produce captures routed through standard pipeline
+- [x] Full transcript stored as JSONB
+- [x] In-conversation search ("what did I say about X?") works
+- [x] Session cleanup on timeout
 
 ---
 
 #### 6.4 Voice sessions table and API
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F1.6, F9
 **Files Affected:**
-- `packages/shared/drizzle/0018_voice_sessions.sql` (create)
+- `packages/shared/drizzle/0017_voice_sessions.sql` (create)
 - `packages/shared/src/schema/supporting.ts` (modify)
 - `packages/core-api/src/routes/voice-sessions.ts` (create)
 - `packages/core-api/src/services/voice-session.ts` (create)
+- `packages/core-api/src/app.ts` (modify)
+- `packages/core-api/src/index.ts` (modify)
+- `packages/core-api/src/__tests__/voice-session-service.test.ts` (create)
+- `packages/core-api/src/__tests__/voice-session-routes.test.ts` (create)
 
 **Description:**
 Create voice_sessions table (UUID PK, session_key, started_at, ended_at, duration_seconds, turn_count, transcript JSONB, summary, captures_created UUID[], metadata JSONB). Add API endpoints: list sessions, get session with transcript, get active sessions. Pipecat service writes session data via core-api POST endpoint.
 
 **Tasks:**
-1. [ ] Write migration 0018: voice_sessions table with UUID PK
-2. [ ] Add Drizzle schema
-3. [ ] Create VoiceSessionService with CRUD operations
-4. [ ] Create voice-sessions.ts route module
-5. [ ] Add POST endpoint for Pipecat to write completed sessions
-6. [ ] Wire voice session events into activity_feed
+1. [x] Write migration 0017: voice_sessions table with UUID PK
+2. [x] Add Drizzle schema
+3. [x] Create VoiceSessionService with CRUD operations
+4. [x] Create voice-sessions.ts route module
+5. [x] Add POST endpoint for Pipecat to write completed sessions
+6. [x] Wire voice session events into activity_feed
 
 **Acceptance Criteria:**
-- [ ] Voice sessions stored with full transcript
-- [ ] API returns session list and individual transcripts
-- [ ] Active session status available via API
-- [ ] Voice sessions appear in activity feed
+- [x] Voice sessions stored with full transcript
+- [x] API returns session list and individual transcripts
+- [x] Active session status available via API
+- [x] Voice sessions appear in activity feed
 
 ---
 
 #### 6.5 Dashboard voice conversations view and iOS Shortcut
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F9.1-F9.5, F1.3
 **Files Affected:**
 - `packages/web/src/pages/VoiceConversations.tsx` (create)
@@ -1177,19 +1181,19 @@ Create voice_sessions table (UUID PK, session_key, started_at, ended_at, duratio
 Voice conversations dashboard page: list view (date, duration, turn count, captures, summary) and detail view (chat-style transcript with user/assistant turns). Active session indicator with real-time updates. Linked captures sidebar. Update existing iOS Shortcut to connect to Pipecat WebSocket endpoint with fallback to one-shot transcription if Pipecat is unavailable.
 
 **Tasks:**
-1. [ ] Create VoiceConversations page with list and detail views
-2. [ ] Create TranscriptViewer component (chat-style layout)
-3. [ ] Add active session indicator with SSE updates
-4. [ ] Add linked captures sidebar in detail view
-5. [ ] Update iOS Shortcut for WebSocket connection to Pipecat
-6. [ ] Add fallback logic in Shortcut (try WebSocket, fall back to HTTP POST)
+1. [x] Create VoiceConversations page with list and detail views
+2. [x] Create TranscriptViewer component (chat-style layout)
+3. [x] Add active session indicator with SSE updates
+4. [x] Add linked captures sidebar in detail view
+5. [x] Update iOS Shortcut for WebSocket connection to Pipecat
+6. [x] Add fallback logic in Shortcut (try WebSocket, fall back to HTTP POST)
 
 **Acceptance Criteria:**
-- [ ] Voice conversation list shows all past sessions
-- [ ] Transcript renders in chat-style layout
-- [ ] Active session shows pulsing indicator with live turn count
-- [ ] iOS Shortcut connects to Pipecat for voice conversations
-- [ ] Fallback to one-shot transcription works when Pipecat is down
+- [x] Voice conversation list shows all past sessions
+- [x] Transcript renders in chat-style layout
+- [x] Active session shows pulsing indicator with live turn count
+- [x] iOS Shortcut connects to Pipecat for voice conversations
+- [x] Fallback to one-shot transcription works when Pipecat is down
 
 ---
 

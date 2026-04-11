@@ -26,6 +26,7 @@ import { registerActivityRoutes } from './routes/activity.js'
 import { registerMcpActivityRoutes } from './routes/mcp-activity.js'
 import { registerConfigRoutes } from './routes/config.js'
 import { registerEmailRoutes } from './routes/email.js'
+import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -39,6 +40,7 @@ import type { SystemHealthService } from './services/system-health.js'
 import type { WikiService } from './services/wiki.js'
 import type { ActivityFeedService } from './services/activity-feed.js'
 import type { EmailDraftService } from './services/email-draft.js'
+import type { VoiceSessionService } from './services/voice-session.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -71,11 +73,13 @@ interface AppDependencies {
   activityFeedService?: ActivityFeedService
   /** Email draft service — required for email draft management endpoints */
   emailDraftService?: EmailDraftService
+  /** Voice session service — required for voice conversation session endpoints */
+  voiceSessionService?: VoiceSessionService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, voiceSessionService } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -178,6 +182,11 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Email drafts API
   if (emailDraftService) {
     registerEmailRoutes(app, emailDraftService)
+  }
+
+  // Voice session API
+  if (voiceSessionService) {
+    registerVoiceSessionRoutes(app, voiceSessionService)
   }
 
   // MCP activity log API (read-only, requires db)

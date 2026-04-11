@@ -20,6 +20,7 @@ import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
 import { ActivityFeedService } from './services/activity-feed.js'
 import { EmailDraftService } from './services/email-draft.js'
+import { VoiceSessionService } from './services/voice-session.js'
 import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
 
@@ -104,6 +105,10 @@ if (himalayaService.isConfigured) {
   logger.info('HIMALAYA_CONFIG not set — outbound email disabled (drafts still work)')
 }
 
+// Voice session service — manages Pipecat voice conversation sessions
+const voiceSessionService = new VoiceSessionService(db)
+voiceSessionService.setActivityFeedService(activityFeedService)
+
 // Wiki service — optional, requires WIKI_REPO_URL and WIKI_LOCAL_PATH env vars
 let wikiService: WikiService | undefined
 let wikiIngestQueue: Queue | undefined
@@ -146,6 +151,7 @@ const app = createApp({
   wikiService,
   activityFeedService,
   emailDraftService,
+  voiceSessionService,
 })
 const port = Number(process.env.PORT ?? 3000)
 

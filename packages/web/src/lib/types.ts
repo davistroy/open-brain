@@ -360,3 +360,25 @@ export interface EmailDraft {
   created_at: string
   updated_at: string
 }
+
+// ─── Voice sessions ────────────────────────────────────────────────────────
+
+export type TranscriptRole = 'user' | 'assistant'
+
+export interface TranscriptTurn {
+  role: TranscriptRole
+  text: string
+  timestamp: string
+}
+
+export interface VoiceSession {
+  id: string
+  started_at: string
+  ended_at: string | null
+  duration_s: number | null
+  turn_count: number
+  captures_created: number
+  summary: string | null
+  transcript: TranscriptTurn[]
+  capture_ids: string[]
+}
