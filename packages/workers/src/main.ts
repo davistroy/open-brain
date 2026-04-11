@@ -17,8 +17,10 @@ import { createEmailWorker } from './jobs/email.js'
 import { createAccessStatsWorker } from './jobs/update-access-stats.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
 import { createSkillExecutionWorker } from './jobs/skill-execution.js'
+import { createIngestRootWorker } from './jobs/ingest-root.js'
 import { registerScheduledJobs } from './scheduler.js'
 import { logger, TemplateCache, PushoverService } from '@open-brain/shared'
+import { FlowProducer } from 'bullmq'
 import type { Worker } from 'bullmq'
 
 function parseRedisUrl(url: string) {
@@ -82,14 +84,29 @@ async function main() {
   const queues = createAllQueues(connection)
   logger.info('Queues created')
 
+  // FlowProducer — enabled via PIPELINE_USE_FLOWS=true feature flag
+  const useFlows = process.env.PIPELINE_USE_FLOWS === 'true'
+  let flowProducer: FlowProducer | undefined
+
+  if (useFlows) {
+    flowProducer = new FlowProducer({ connection })
+    logger.info('FlowProducer initialized — pipeline will use DAG-based orchestration')
+  } else {
+    logger.info('FlowProducer disabled — using legacy queue bridging (set PIPELINE_USE_FLOWS=true to enable)')
+  }
+
   // Workers
   const workers: Worker[] = []
 
-  workers.push(createIngestionWorker(connection, db, queues.embedCapture))
+  workers.push(createIngestionWorker(connection, db, queues.embedCapture, flowProducer))
   workers.push(createEmbedCaptureWorker(
     connection, db, configService, litellmUrl, litellmApiKey,
     queues.checkTriggers, queues.extractEntities,
   ))
+  // Ingest-root worker — processes the FlowProducer root job after children complete
+  // Always registered so it can drain jobs if flows were previously enabled
+  workers.push(createIngestRootWorker(connection, db, queues.checkTriggers))
+
   workers.push(createCheckTriggersWorker(connection, db, pushoverAppToken, pushoverUserKey))
   workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates))
   workers.push(createDocumentPipelineWorker(connection, db, configService, litellmUrl, litellmApiKey, queues.embedCapture))
@@ -125,7 +142,8 @@ async function main() {
     logger.info({ signal }, 'Shutting down workers...')
     await Promise.allSettled(workers.map(w => w.close()))
     await Promise.allSettled(Object.values(queues).map(q => q.close()))
-    logger.info('All workers and queues closed')
+    if (flowProducer) await flowProducer.close().catch(() => {})
+    logger.info('All workers, queues, and flow producer closed')
     await pool.end()
     logger.info('Postgres pool closed')
     process.exit(0)

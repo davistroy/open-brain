@@ -42,6 +42,7 @@ export async function processEmbedCaptureJob(
   embeddingService: EmbeddingService,
   checkTriggersQueue?: Queue<CheckTriggersJobData>,
   extractEntitiesQueue?: ExtractEntitiesQueue,
+  isFlowChild = false,
 ): Promise<void> {
   const { captureId } = data
 
@@ -162,36 +163,43 @@ export async function processEmbedCaptureJob(
 
   logger.info({ captureId, duration_ms: embedDurationMs }, '[embed] embedding complete, pipeline status → complete')
 
-  // ── Enqueue check-triggers job after successful embedding ─────────────────
-  if (checkTriggersQueue) {
-    try {
-      await checkTriggersQueue.add(
-        'check-triggers',
-        { captureId },
-        { jobId: `check-triggers_${captureId}_${Date.now()}` },
-      )
-      logger.debug({ captureId }, '[embed] check-triggers job enqueued')
-    } catch (err) {
-      // Non-fatal: trigger check failure must not block pipeline completion
-      const msg = err instanceof Error ? err.message : String(err)
-      logger.warn({ captureId, err: msg }, '[embed] failed to enqueue check-triggers job — continuing')
+  // ── Enqueue downstream jobs (legacy path only) ─────────────────────────────
+  // When running under FlowProducer, the flow DAG handles dependency ordering:
+  // extract-entities runs as a sibling child, and check-triggers is enqueued by
+  // the ingest-root parent job. Skip manual queue bridging to avoid duplicates.
+  if (!isFlowChild) {
+    // Legacy path: manual queue bridging
+    if (checkTriggersQueue) {
+      try {
+        await checkTriggersQueue.add(
+          'check-triggers',
+          { captureId },
+          { jobId: `check-triggers_${captureId}_${Date.now()}` },
+        )
+        logger.debug({ captureId }, '[embed] check-triggers job enqueued (legacy)')
+      } catch (err) {
+        // Non-fatal: trigger check failure must not block pipeline completion
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.warn({ captureId, err: msg }, '[embed] failed to enqueue check-triggers job — continuing')
+      }
     }
-  }
 
-  // ── Enqueue extract-entities job after successful embedding ───────────────
-  if (extractEntitiesQueue) {
-    try {
-      await extractEntitiesQueue.add(
-        'extract-entities',
-        { captureId },
-        { jobId: `extract-entities_${captureId}` },
-      )
-      logger.debug({ captureId }, '[embed] extract-entities job enqueued')
-    } catch (err) {
-      // Non-fatal: entity extraction failure must not block pipeline completion
-      const msg = err instanceof Error ? err.message : String(err)
-      logger.warn({ captureId, err: msg }, '[embed] failed to enqueue extract-entities job — continuing')
+    if (extractEntitiesQueue) {
+      try {
+        await extractEntitiesQueue.add(
+          'extract-entities',
+          { captureId },
+          { jobId: `extract-entities_${captureId}` },
+        )
+        logger.debug({ captureId }, '[embed] extract-entities job enqueued (legacy)')
+      } catch (err) {
+        // Non-fatal: entity extraction failure must not block pipeline completion
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.warn({ captureId, err: msg }, '[embed] failed to enqueue extract-entities job — continuing')
+      }
     }
+  } else {
+    logger.debug({ captureId }, '[embed] running under FlowProducer — skipping manual queue bridging')
   }
 }
 
@@ -213,7 +221,9 @@ export function createEmbedCaptureWorker(
   const worker = new Worker<EmbedCaptureJobData>(
     'embed-capture',
     async (job) => {
-      await processEmbedCaptureJob(job.data, db, embeddingService, checkTriggersQueue, extractEntitiesQueue)
+      // Detect FlowProducer: job.parent exists when this job is a child in a flow DAG
+      const isFlowChild = !!job.parent
+      await processEmbedCaptureJob(job.data, db, embeddingService, checkTriggersQueue, extractEntitiesQueue, isFlowChild)
     },
     {
       connection,
