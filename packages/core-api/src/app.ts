@@ -17,6 +17,7 @@ import { registerBetRoutes } from './routes/bets.js'
 import { registerSettingsRoutes } from './routes/settings.js'
 import { registerSessionRoutes } from './routes/sessions.js'
 import { registerEventsRoutes } from './routes/events.js'
+import { registerSystemHealthRoutes } from './routes/system-health.js'
 import { registerDocumentRoutes } from './routes/documents.js'
 import { registerSynthesizeRoutes } from './routes/synthesize.js'
 import { registerIntelligenceRoutes } from './routes/intelligence.js'
@@ -29,6 +30,7 @@ import type { EntityService } from './services/entity.js'
 import type { BetService } from './services/bet.js'
 import type { SessionService } from './services/session.js'
 import type { LLMGatewayService } from './services/llm-gateway.js'
+import type { SystemHealthService } from './services/system-health.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -53,11 +55,13 @@ interface AppDependencies {
   documentPipelineQueue?: Queue
   /** LLM Gateway — required for POST /api/v1/synthesize */
   llmGateway?: LLMGatewayService
+  /** System health service — required for GET /api/v1/system/health */
+  systemHealthService?: SystemHealthService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -135,6 +139,11 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Settings API (generic key-value store — used by email allowlist, etc.)
   if (db) {
     registerSettingsRoutes(app, db)
+  }
+
+  // System health API (operational metrics, SSE stream)
+  if (systemHealthService) {
+    registerSystemHealthRoutes(app, systemHealthService)
   }
 
   // MCP endpoint — requires all services to be available

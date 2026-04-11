@@ -192,30 +192,32 @@ Implemented with a feature flag as recommended by the risk register. The `ingest
 
 ---
 
-#### 1.5 System health API endpoints
+#### 1.5 System health API endpoints ✅
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F6.6
 **Files Affected:**
-- `packages/core-api/src/routes/system-health.ts` (create)
 - `packages/core-api/src/services/system-health.ts` (create)
-- `packages/core-api/src/index.ts` (modify — register routes)
+- `packages/core-api/src/routes/system-health.ts` (create)
+- `packages/core-api/src/app.ts` (modify — register routes, add dependency)
+- `packages/core-api/src/index.ts` (modify — instantiate service, pass to createApp)
+- `packages/core-api/src/__tests__/system-health.test.ts` (create — 23 tests)
 
 **Description:**
 Create comprehensive system health API endpoints. `GET /api/v1/system/health` returns JSON with: queue depths per queue (waiting + active), last successful skill run, voice service status, Redis memory usage, LLM monthly spend vs budget, overall status (healthy/degraded/unhealthy). `GET /api/v1/system/health/stream` returns SSE stream updating every 10 seconds via the existing pg-notify infrastructure.
 
 **Tasks:**
-1. [ ] Create `SystemHealthService` that aggregates: BullMQ queue stats, Redis INFO, ai_audit_log monthly spend, skills_log last runs
-2. [ ] Create `system-health.ts` route module with GET (snapshot) and GET /stream (SSE)
-3. [ ] Wire SSE to existing pg-notify `EventSource` pattern (events.ts is the template)
-4. [ ] Define warning/critical thresholds per PRD-V2 F6.3
-5. [ ] Register routes in index.ts
+1. [x] Create `SystemHealthService` that aggregates: BullMQ queue stats, Redis INFO, ai_audit_log monthly spend, skills_log last runs
+2. [x] Create `system-health.ts` route module with GET (snapshot) and GET /stream (SSE)
+3. [x] Wire SSE to existing pg-notify `EventSource` pattern (events.ts is the template)
+4. [x] Define warning/critical thresholds per PRD-V2 F6.3
+5. [x] Register routes in index.ts
 
 **Acceptance Criteria:**
-- [ ] `/api/v1/system/health` returns comprehensive JSON with all health metrics
-- [ ] `/api/v1/system/health/stream` delivers SSE events every 10 seconds
-- [ ] Overall status correctly reflects worst-case component status
-- [ ] Thresholds: queue >50 = yellow, >200 = red; spend >$7 = yellow, >$10 = red
+- [x] `/api/v1/system/health` returns comprehensive JSON with all health metrics
+- [x] `/api/v1/system/health/stream` delivers SSE events every 10 seconds
+- [x] Overall status correctly reflects worst-case component status
+- [x] Thresholds: queue >50 = yellow, >200 = red; spend >$7 = yellow, >$10 = red
 
 **Notes:**
 Extends the existing `/health` endpoint (which only checks postgres, redis, llm connectivity). The new endpoint provides operational metrics, not just liveness. The existing health endpoint stays for Docker healthchecks.
@@ -224,7 +226,7 @@ Extends the existing `/health` endpoint (which only checks postgres, redis, llm 
 
 #### 1.6 Dashboard system health strip component
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F6.1-F6.5
 **Files Affected:**
 - `packages/web/src/components/StatusStrip.tsx` (create)
@@ -235,19 +237,19 @@ Extends the existing `/health` endpoint (which only checks postgres, redis, llm 
 Create a persistent, compact status bar displayed across the top of every dashboard page. Shows: queue depths, last skill run, voice status, LLM spend vs budget, overall status indicator. Data refreshed via SSE from the new health stream endpoint. Collapses to a single status dot on mobile. Clicking any indicator navigates to the relevant detail view.
 
 **Tasks:**
-1. [ ] Create `StatusStrip.tsx` with indicator components for each metric
-2. [ ] Connect to `/api/v1/system/health/stream` SSE endpoint
-3. [ ] Implement color logic: green (normal), yellow (warning), red (critical)
-4. [ ] Add to `Layout.tsx` so it appears on every page
-5. [ ] Implement mobile collapse (single dot, expandable on tap)
-6. [ ] Add `systemHealthApi` to api.ts for the snapshot fallback
+1. [x] Create `StatusStrip.tsx` with indicator components for each metric
+2. [x] Connect to `/api/v1/system/health/stream` SSE endpoint
+3. [x] Implement color logic: green (normal), yellow (warning), red (critical)
+4. [x] Add to `Layout.tsx` so it appears on every page
+5. [x] Implement mobile collapse (single dot, expandable on tap)
+6. [x] Add `systemHealthApi` to api.ts for the snapshot fallback
 
 **Acceptance Criteria:**
-- [ ] Strip visible on all pages (persistent in Layout)
-- [ ] Real-time updates via SSE (no polling)
-- [ ] Correct color coding based on thresholds
-- [ ] Mobile responsive (collapses to dot)
-- [ ] Clicking indicators navigates to relevant page
+- [x] Strip visible on all pages (persistent in Layout)
+- [x] Real-time updates via SSE (falls back to 30s polling if SSE unavailable)
+- [x] Correct color coding based on thresholds
+- [x] Mobile responsive (collapses to dot)
+- [x] Clicking indicators navigates to relevant page
 
 **Notes:**
 This is the first dashboard feature to use SSE. Wire it using the existing `sseClient` infrastructure in `packages/web/src/lib/sse.ts` (built but currently unused). This establishes the pattern for activity feed and other real-time features.

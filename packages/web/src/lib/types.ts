@@ -173,3 +173,29 @@ export interface QueueHealth {
   failed: number
   delayed: number
 }
+
+/** System health snapshot from GET /api/v1/system/health */
+export interface SystemHealthData {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  timestamp: string
+  queues: {
+    total_waiting: number
+    total_active: number
+    total_failed: number
+    by_queue: Record<string, { waiting: number; active: number; failed: number }>
+  }
+  last_skill_run: {
+    name: string
+    status: string
+    completed_at: string
+  } | null
+  llm_spend: {
+    month_total_usd: number
+    budget_usd: number
+  }
+  services: {
+    postgres: { status: string }
+    redis: { status: string }
+    llm: { status: string }
+  }
+}

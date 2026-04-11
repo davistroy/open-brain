@@ -16,6 +16,7 @@ import { LLMGatewayService } from './services/llm-gateway.js'
 import { GovernanceEngine } from './services/governance-engine.js'
 import { SkillConfigService, initSkillConfigSingleton } from './services/skill-config.js'
 import { logger } from '@open-brain/shared'
+import { SystemHealthService } from './services/system-health.js'
 import { pgNotify } from './lib/pg-notify.js'
 
 // Load config
@@ -82,6 +83,7 @@ if (litellmClient) {
 }
 
 const sessionService = new SessionService(db, captureService, governanceEngine)
+const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl)
 
 const app = createApp({
   configService,
@@ -97,6 +99,7 @@ const app = createApp({
   sessionService,
   documentPipelineQueue,
   llmGateway,
+  systemHealthService,
 })
 const port = Number(process.env.PORT ?? 3000)
 

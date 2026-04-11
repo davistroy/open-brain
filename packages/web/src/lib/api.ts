@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -490,5 +490,65 @@ export const betsApi = {
       method: 'PATCH',
       body: JSON.stringify({ resolution }),
     }).then(mapRawBet)
+  },
+}
+
+// System Health API
+
+export const systemHealthApi = {
+  /** GET /api/v1/system/health — full health snapshot */
+  snapshot: () => {
+    return request<SystemHealthData>('/system/health')
+  },
+
+  /**
+   * Build a SystemHealthData object from legacy endpoints when /system/health is unavailable.
+   * Combines /health (services) + /admin/pipeline/health (queues).
+   */
+  fallbackSnapshot: async (): Promise<SystemHealthData> => {
+    const [healthRes, pipelineRes] = await Promise.allSettled([
+      request<{
+        status: string
+        services: Record<string, { status: string }>
+      }>('/health'),
+      pipelineApi.health(),
+    ])
+
+    const health = healthRes.status === 'fulfilled' ? healthRes.value : null
+    const pipeline = pipelineRes.status === 'fulfilled' ? pipelineRes.value : null
+
+    const queues = pipeline?.queues ?? {}
+    let totalWaiting = 0
+    let totalActive = 0
+    let totalFailed = 0
+    const byQueue: Record<string, { waiting: number; active: number; failed: number }> = {}
+
+    for (const [name, q] of Object.entries(queues)) {
+      const w = q.waiting ?? 0
+      const a = q.active ?? 0
+      const f = q.failed ?? 0
+      byQueue[name] = { waiting: w, active: a, failed: f }
+      totalWaiting += w
+      totalActive += a
+      totalFailed += f
+    }
+
+    return {
+      status: (health?.status ?? 'unhealthy') as SystemHealthData['status'],
+      timestamp: new Date().toISOString(),
+      queues: {
+        total_waiting: totalWaiting,
+        total_active: totalActive,
+        total_failed: totalFailed,
+        by_queue: byQueue,
+      },
+      last_skill_run: null,
+      llm_spend: { month_total_usd: 0, budget_usd: 10 },
+      services: {
+        postgres: { status: health?.services?.postgres?.status ?? 'unknown' },
+        redis: { status: health?.services?.redis?.status ?? 'unknown' },
+        llm: { status: health?.services?.llm?.status ?? 'unknown' },
+      },
+    }
   },
 }

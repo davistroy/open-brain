@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import ThemeToggle from '@/components/ThemeToggle';
+import StatusStrip from '@/components/StatusStrip';
 
 interface NavItem {
   to: string;
@@ -112,6 +113,7 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto pb-14 md:pb-0">
+        <StatusStrip />
         <div className="container mx-auto max-w-5xl p-4 md:p-6">
           <Outlet />
         </div>
