@@ -1,10 +1,35 @@
 litellm_url: "https://api.openai.com/v1"
 models:
-  fast: "gpt-5.4"
-  synthesis: "gpt-5.4"
-  governance: "gpt-5.4"
-  intent: "gpt-5.4"
-  embedding: "text-embedding-3-large"
+  fast:
+    model: "claude-sonnet-4-20250514"
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  synthesis:
+    model: "claude-sonnet-4-20250514"
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  governance:
+    model: "claude-sonnet-4-20250514"
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  intent:
+    model: "claude-sonnet-4-20250514"
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  conversation:
+    model: "claude-sonnet-4-20250514"
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  embedding:
+    model: "text-embedding-3-large"
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
 monthly_budget:
   soft_limit_usd: 30
   hard_limit_usd: 50

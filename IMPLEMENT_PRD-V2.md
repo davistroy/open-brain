@@ -55,9 +55,9 @@ The implementation follows a dependency-ordered sequence. Phase 1 (Foundation) d
 
 ### Work Items
 
-#### 1.1 Add Anthropic SDK and create Claude client factory
+#### 1.1 Add Anthropic SDK and create Claude client factory -- COMPLETE
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F4.1, F4.3
 **Files Affected:**
 - `package.json` (root + packages/shared, core-api, workers) (modify — add @anthropic-ai/sdk)
@@ -69,18 +69,18 @@ The implementation follows a dependency-ordered sequence. Phase 1 (Foundation) d
 Add the Anthropic SDK as a dependency and create a `createAnthropicClient()` factory function mirroring the existing `createLiteLLMClient()` pattern. The factory reads `ANTHROPIC_API_KEY` from environment (sourced from Bitwarden), returns null if missing (graceful degradation). Update `ai-routing.yaml` to specify which client handles each task type: Claude SDK for fast/synthesis/governance/conversation/intent, LiteLLM for embedding/local.
 
 **Tasks:**
-1. [ ] Add `@anthropic-ai/sdk` to root package.json and relevant workspace packages
-2. [ ] Create `packages/shared/src/services/anthropic-client.ts` with `createAnthropicClient()` factory
-3. [ ] Export from `packages/shared/src/index.ts`
-4. [ ] Update `config/ai-routing.yaml`: add `client` field per model alias (anthropic | litellm), add `conversation` and `local` task types, add per-model cost rates
-5. [ ] Update config types in `packages/shared/src/types/` to reflect new schema
-6. [ ] Run `pnpm install && pnpm build` to verify
+1. [x] Add `@anthropic-ai/sdk` to root package.json and relevant workspace packages
+2. [x] Create `packages/shared/src/services/anthropic-client.ts` with `createAnthropicClient()` factory
+3. [x] Export from `packages/shared/src/index.ts`
+4. [x] Update `config/ai-routing.yaml`: add `client` field per model alias (anthropic | litellm), add `conversation` and `local` task types, add per-model cost rates
+5. [x] Update config types in `packages/shared/src/types/` to reflect new schema
+6. [x] Run `pnpm install && pnpm build` to verify
 
 **Acceptance Criteria:**
-- [ ] `createAnthropicClient()` returns an Anthropic SDK client when API key is set
-- [ ] Returns null when API key is empty (matches LiteLLM client pattern)
-- [ ] `ai-routing.yaml` defines client preference for all task types
-- [ ] Shared package builds and exports both client factories
+- [x] `createAnthropicClient()` returns an Anthropic SDK client when API key is set
+- [x] Returns null when API key is empty (matches LiteLLM client pattern)
+- [x] `ai-routing.yaml` defines client preference for all task types
+- [x] Shared package builds and exports both client factories
 
 **Notes:**
 ANTHROPIC_API_KEY must be stored in Bitwarden. The Claude Code subscription provides API access — the key is the same Anthropic API key used with the subscription. Do NOT remove the existing OpenAI SDK or createLiteLLMClient — embeddings still flow through it.
@@ -120,9 +120,9 @@ The Claude SDK messages API uses a different format than OpenAI (no `model` in m
 
 ---
 
-#### 1.3 Implement runAgent() function
+#### 1.3 Implement runAgent() function ✅
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-11]**
 **Requirement Refs:** PRD-V2 F4.5
 **Files Affected:**
 - `packages/shared/src/services/run-agent.ts` (create)
