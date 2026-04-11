@@ -3,6 +3,7 @@ import type { CaptureService } from '../../services/capture.js'
 import type { SearchService } from '../../services/search.js'
 import type { EntityService } from '../../services/entity.js'
 import type { WikiService } from '../../services/wiki.js'
+import type { EmailDraftService } from '../../services/email-draft.js'
 import type { ConfigService } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { McpActivityLogger, McpToolResult } from '../middleware/activity-logger.js'
@@ -21,6 +22,11 @@ import {
   writeWikiPageSchema, writeWikiPageTool, type WriteWikiPageInput,
   listWikiPagesSchema, listWikiPagesTool, type ListWikiPagesInput,
 } from './wiki-tools.js'
+import {
+  draftEmailSchema, draftEmailTool, type DraftEmailInput,
+  sendEmailSchema, sendEmailTool, type SendEmailInput,
+  searchEmailCapturesSchema, searchEmailCapturesTool, type SearchEmailCapturesInput,
+} from './email-tools.js'
 
 interface RegisterToolsDeps {
   server: McpServer
@@ -30,6 +36,7 @@ interface RegisterToolsDeps {
   db: Database
   entityService?: EntityService
   wikiService?: WikiService
+  emailDraftService?: EmailDraftService
   activityLogger?: McpActivityLogger
   clientId?: string
 }
@@ -49,7 +56,7 @@ function withLogging(
 }
 
 export function registerMcpTools(deps: RegisterToolsDeps): void {
-  const { server, captureService, searchService, configService, db, entityService, wikiService, activityLogger, clientId } = deps
+  const { server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId } = deps
 
   // Tool 1: search_brain — semantic + FTS hybrid search
   server.tool(
@@ -181,6 +188,42 @@ export function registerMcpTools(deps: RegisterToolsDeps): void {
       listWikiPagesSchema.shape,
       withLogging('list_wiki_pages', async (input) => {
         const result = await listWikiPagesTool(input as ListWikiPagesInput, wikiService)
+        return { content: [{ type: 'text', text: result }] }
+      }, activityLogger, clientId),
+    )
+  }
+
+  // ---- Email tools (only registered when EmailDraftService is available) ----
+  if (emailDraftService) {
+    // Tool 13: draft_email — create an email draft
+    server.tool(
+      'draft_email',
+      'Create an email draft for review. The draft must be approved before sending. Use send_email to approve and send.',
+      draftEmailSchema.shape,
+      withLogging('draft_email', async (input) => {
+        const result = await draftEmailTool(input as DraftEmailInput, emailDraftService)
+        return { content: [{ type: 'text', text: result }] }
+      }, activityLogger, clientId),
+    )
+
+    // Tool 14: send_email — approve and send a draft
+    server.tool(
+      'send_email',
+      'Approve and send an email draft by its ID. The draft must exist and be in "draft" or "approved" status.',
+      sendEmailSchema.shape,
+      withLogging('send_email', async (input) => {
+        const result = await sendEmailTool(input as SendEmailInput, emailDraftService)
+        return { content: [{ type: 'text', text: result }] }
+      }, activityLogger, clientId),
+    )
+
+    // Tool 15: search_email_captures — search email-type captures
+    server.tool(
+      'search_email_captures',
+      'Search captures that originated from email (inbound or outbound). Uses semantic and full-text search.',
+      searchEmailCapturesSchema.shape,
+      withLogging('search_email_captures', async (input) => {
+        const result = await searchEmailCapturesTool(input as SearchEmailCapturesInput, searchService)
         return { content: [{ type: 'text', text: result }] }
       }, activityLogger, clientId),
     )

@@ -68,6 +68,30 @@ export const DEFAULT_SKILLS: Record<string, SkillConfig> = {
     schedule: '0 9 1 * *', // 1st of month, 9am
     description: 'Comprehensive "state of Troy" monthly synthesis via runAgent() — career momentum, active projects, technical exploration, personal patterns across all brain views',
   },
+  'db-backup': {
+    schedule: '0 2 * * *', // Daily 2am
+    description: 'PostgreSQL pg_dump + gzip backup with retention pruning (7 daily, 4 weekly, 3 monthly)',
+  },
+  'wiki-backup': {
+    schedule: '15 2 * * *', // Daily 2:15am
+    description: 'Git bundle of wiki repository with retention pruning',
+  },
+  'redis-snapshot': {
+    schedule: '30 2 * * *', // Daily 2:30am
+    description: 'Redis BGSAVE + copy RDB file with retention pruning',
+  },
+  'cost-analysis': {
+    schedule: '0 7 * * *', // Daily 7am
+    description: 'Query ai_audit_log for LLM spend — daily breakdown by model/task, weekly summary Mondays, monthly report 1st of month',
+  },
+  'container-health': {
+    schedule: '*/15 * * * *', // Every 15 minutes
+    description: 'Hit /health on each container, log to container_health table, alert after 3 consecutive failures',
+  },
+  'storage-audit': {
+    schedule: '0 3 * * 0', // Sunday 3am
+    description: 'Weekly report: Postgres DB size, Redis memory, backup storage, wiki repo size, capture growth rate',
+  },
 }
 
 /**

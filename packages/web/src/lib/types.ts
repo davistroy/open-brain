@@ -215,7 +215,7 @@ export interface WikiLintReport {
 
 // ─── Activity feed ──────────────────────────────────────────────────────────
 
-export type ActivityType = 'capture' | 'skill' | 'pipeline' | 'entity' | 'wiki' | 'mcp' | 'system'
+export type ActivityType = 'capture' | 'skill' | 'pipeline' | 'entity' | 'wiki' | 'mcp' | 'system' | 'email'
 
 export interface ActivityFeedItem {
   id: string
@@ -337,4 +337,26 @@ export interface IntegrationStatus {
   url?: string
   detail?: string
   last_activity?: string
+}
+
+// ─── Email drafts ───────────────────────────────────────────────────────────
+
+export type EmailDraftStatus = 'draft' | 'approved' | 'sent' | 'rejected' | 'failed'
+
+export interface EmailDraft {
+  id: string
+  to_address: string
+  cc_address: string | null
+  subject: string
+  body: string
+  status: EmailDraftStatus
+  send_mode: string
+  source: string | null
+  approved_at: string | null
+  sent_at: string | null
+  himalaya_message_id: string | null
+  capture_id: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
 }

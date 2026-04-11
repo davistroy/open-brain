@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar, bigint } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { captures } from './core.js'
 import { vector } from './types.js'
@@ -289,5 +289,95 @@ export const mcp_activity = pgTable(
   (table) => ({
     timestamp_idx: index('mcp_activity_timestamp_idx').on(table.timestamp),
     tool_name_idx: index('mcp_activity_tool_name_idx').on(table.tool_name),
+  }),
+)
+
+// ============================================================
+// backup_log table — tracks infrastructure backup operations
+//
+// Each backup skill (db-backup, wiki-backup, redis-snapshot) writes
+// a row on completion. Retention pruning counts are recorded so the
+// log is self-documenting about cleanup actions.
+// ============================================================
+export const backup_log = pgTable(
+  'backup_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    backup_type: varchar('backup_type', { length: 16 }).notNull(),  // database | wiki | redis
+    file_path: text('file_path'),
+    size_bytes: bigint('size_bytes', { mode: 'number' }),
+    duration_seconds: integer('duration_seconds'),
+    status: varchar('status', { length: 16 }).notNull(),            // success | failed
+    error: text('error'),
+    pruned_count: integer('pruned_count').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_desc_idx: index('backup_log_timestamp_desc_idx').on(table.timestamp),
+    type_idx: index('backup_log_type_idx').on(table.backup_type),
+  }),
+)
+
+// ============================================================
+// email_drafts table — outbound email composition and sending
+//
+// Stores draft emails for review-before-send and auto-send workflows.
+// Drafts are created by the email-compose skill (LLM) or via API/Slack/MCP.
+// Two send modes:
+//   review-required — requires explicit approval before sending
+//   auto-send       — sent immediately via Himalaya SMTP
+//
+// Status lifecycle: draft → approved → sent (or draft → rejected, draft → failed)
+// Sent emails are also logged as captures with source='email-outbound'.
+// ============================================================
+export const email_drafts = pgTable(
+  'email_drafts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    to_address: text('to_address').notNull(),
+    cc_address: text('cc_address'),
+    subject: text('subject').notNull(),
+    body: text('body').notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('draft'),
+    send_mode: varchar('send_mode', { length: 20 }).notNull().default('review-required'),
+    source: varchar('source', { length: 32 }),
+    approved_at: timestamp('approved_at', { withTimezone: true }),
+    sent_at: timestamp('sent_at', { withTimezone: true }),
+    himalaya_message_id: varchar('himalaya_message_id', { length: 256 }),
+    capture_id: uuid('capture_id').references(() => captures.id, { onDelete: 'set null' }),
+    metadata: jsonb('metadata'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    status_idx: index('email_drafts_status_idx').on(table.status),
+    created_at_idx: index('email_drafts_created_at_idx').on(table.created_at),
+  }),
+)
+
+// ============================================================
+// container_health table — infrastructure health check results
+//
+// The container-health skill (every 15 min) checks /health on each
+// container and writes a row here. Used for consecutive-failure
+// alerting and historical uptime queries.
+// ============================================================
+export const container_health = pgTable(
+  'container_health',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    container_name: varchar('container_name', { length: 64 }).notNull(),
+    healthy: boolean('healthy').notNull(),
+    response_ms: integer('response_ms'),
+    error: text('error'),
+    metadata: jsonb('metadata'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_desc_idx: index('container_health_timestamp_desc_idx').on(table.timestamp),
+    name_timestamp_idx: index('container_health_name_timestamp_idx').on(table.container_name, table.timestamp),
+    // Partial index on unhealthy rows created via SQL migration (Drizzle cannot generate partial indexes)
   }),
 )

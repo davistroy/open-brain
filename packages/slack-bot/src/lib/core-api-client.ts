@@ -24,6 +24,9 @@ import type {
   PipelineStatus,
   RecentCapture,
   SkillLastRun,
+  EmailDraftCreatePayload,
+  EmailDraftRecord,
+  EmailDraftListResult,
 } from './core-api-types.js'
 
 // Client implementation
@@ -288,5 +291,37 @@ export class CoreApiClient {
 
   async pipeline_health(): Promise<PipelineStatus> {
     return this.request<PipelineStatus>('/api/v1/admin/pipeline/health')
+  }
+
+  // Email drafts
+
+  async email_drafts_create(payload: EmailDraftCreatePayload): Promise<EmailDraftRecord> {
+    return this.request<EmailDraftRecord>('/api/v1/email/drafts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async email_drafts_list(status?: string, limit = 20): Promise<EmailDraftListResult> {
+    const params = new URLSearchParams()
+    if (status) params.set('status', status)
+    params.set('limit', String(limit))
+    return this.request<EmailDraftListResult>(`/api/v1/email/drafts?${params}`)
+  }
+
+  async email_drafts_get(id: string): Promise<EmailDraftRecord> {
+    return this.request<EmailDraftRecord>(`/api/v1/email/drafts/${id}`)
+  }
+
+  async email_drafts_send(id: string): Promise<EmailDraftRecord> {
+    return this.request<EmailDraftRecord>(`/api/v1/email/drafts/${id}/send`, {
+      method: 'POST',
+    })
+  }
+
+  async email_drafts_reject(id: string): Promise<EmailDraftRecord> {
+    return this.request<EmailDraftRecord>(`/api/v1/email/drafts/${id}`, {
+      method: 'DELETE',
+    })
   }
 }

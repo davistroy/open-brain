@@ -6,6 +6,7 @@ import type { SearchService } from '../services/search.js'
 import type { EntityService } from '../services/entity.js'
 import type { WikiService } from '../services/wiki.js'
 import type { ActivityFeedService } from '../services/activity-feed.js'
+import type { EmailDraftService } from '../services/email-draft.js'
 import type { ConfigService, Database } from '@open-brain/shared'
 import { validateMcpAuth } from './auth.js'
 import { registerMcpTools } from './tools/index.js'
@@ -22,6 +23,7 @@ interface McpServerDeps {
   entityService?: EntityService
   wikiService?: WikiService
   activityFeedService?: ActivityFeedService
+  emailDraftService?: EmailDraftService
 }
 
 /**
@@ -34,7 +36,7 @@ interface McpServerDeps {
  * This is the correct approach for Hono/edge environments and avoids shared state.
  */
 export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
-  const { captureService, searchService, configService, db, entityService, wikiService, activityFeedService } = deps
+  const { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService } = deps
 
   // Create the activity logger (shared across requests — it's stateless, just holds db ref)
   const activityLogger = new McpActivityLogger(db, activityFeedService)
@@ -58,7 +60,7 @@ export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
       version: '0.1.0',
     })
 
-    registerMcpTools({ server, captureService, searchService, configService, db, entityService, wikiService, activityLogger, clientId })
+    registerMcpTools({ server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId })
 
     // Register MCP resources
     server.registerResource(

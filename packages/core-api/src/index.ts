@@ -19,6 +19,8 @@ import { logger } from '@open-brain/shared'
 import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
 import { ActivityFeedService } from './services/activity-feed.js'
+import { EmailDraftService } from './services/email-draft.js'
+import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
 
 // Load config
@@ -91,6 +93,17 @@ const systemHealthService = new SystemHealthService(db, redisConnection, redisUr
 const activityFeedService = new ActivityFeedService(db)
 captureService.setActivityFeedService(activityFeedService)
 
+// Email draft service — HimalayaService for SMTP sending, PushoverService for review notifications
+const himalayaService = new HimalayaService()
+const emailPushover = new PushoverService({ onError: 'swallow' })
+const emailDraftService = new EmailDraftService(db, himalayaService, emailPushover)
+emailDraftService.setActivityFeedService(activityFeedService)
+if (himalayaService.isConfigured) {
+  logger.info('HimalayaService configured — outbound email enabled')
+} else {
+  logger.info('HIMALAYA_CONFIG not set — outbound email disabled (drafts still work)')
+}
+
 // Wiki service — optional, requires WIKI_REPO_URL and WIKI_LOCAL_PATH env vars
 let wikiService: WikiService | undefined
 let wikiIngestQueue: Queue | undefined
@@ -132,6 +145,7 @@ const app = createApp({
   systemHealthService,
   wikiService,
   activityFeedService,
+  emailDraftService,
 })
 const port = Number(process.env.PORT ?? 3000)
 

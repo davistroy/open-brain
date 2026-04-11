@@ -256,6 +256,142 @@ export function createSkillExecutionWorker(
           break
         }
 
+        case 'db-backup': {
+          const { executeDbBackup } = await import('../skills/db-backup.js')
+          const dbBackupResult = await executeDbBackup(db, {
+            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
+            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
+            dbName: typeof input?.dbName === 'string' ? input.dbName : undefined,
+            dbUser: typeof input?.dbUser === 'string' ? input.dbUser : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              status: dbBackupResult.status,
+              sizeBytes: dbBackupResult.sizeBytes,
+              durationSeconds: dbBackupResult.durationSeconds,
+              prunedCount: dbBackupResult.prunedCount,
+            },
+            '[skill-execution] db-backup complete',
+          )
+          break
+        }
+
+        case 'wiki-backup': {
+          const { executeWikiBackup } = await import('../skills/wiki-backup.js')
+          const wikiBackupResult = await executeWikiBackup(db, {
+            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
+            wikiRepoPath: typeof input?.wikiRepoPath === 'string' ? input.wikiRepoPath : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              status: wikiBackupResult.status,
+              sizeBytes: wikiBackupResult.sizeBytes,
+              durationSeconds: wikiBackupResult.durationSeconds,
+              prunedCount: wikiBackupResult.prunedCount,
+            },
+            '[skill-execution] wiki-backup complete',
+          )
+          break
+        }
+
+        case 'redis-snapshot': {
+          const { executeRedisSnapshot } = await import('../skills/redis-snapshot.js')
+          const redisResult = await executeRedisSnapshot(db, {
+            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
+            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              status: redisResult.status,
+              sizeBytes: redisResult.sizeBytes,
+              durationSeconds: redisResult.durationSeconds,
+              prunedCount: redisResult.prunedCount,
+            },
+            '[skill-execution] redis-snapshot complete',
+          )
+          break
+        }
+
+        case 'email-compose': {
+          const { executeEmailCompose } = await import('../skills/email-compose.js')
+          const instruction = typeof input?.instruction === 'string' ? input.instruction : ''
+          if (!instruction) {
+            throw new UnrecoverableError('[skill-execution] email-compose requires input.instruction')
+          }
+          const emailResult = await executeEmailCompose(db, instruction, {
+            anthropicClient: opts.anthropicClient,
+            coreApiUrl: opts.coreApiUrl,
+          })
+          logger.info(
+            {
+              skillName,
+              draftId: emailResult.draftId,
+              to: emailResult.to,
+              iterations: emailResult.agentIterations,
+              toolCalls: emailResult.toolCalls,
+              durationMs: emailResult.durationMs,
+            },
+            '[skill-execution] email-compose complete',
+          )
+          break
+        }
+
+        case 'cost-analysis': {
+          const { executeCostAnalysis } = await import('../skills/cost-analysis.js')
+          const costResult = await executeCostAnalysis(db, {
+            dailyAlertThreshold: typeof input?.dailyAlertThreshold === 'number' ? input.dailyAlertThreshold : undefined,
+          }, opts.wikiService)
+          logger.info(
+            {
+              skillName,
+              type: costResult.type,
+              totalCost: costResult.summary.totalCost,
+              alertSent: costResult.alertSent,
+              wikiPageWritten: costResult.wikiPageWritten,
+              durationMs: costResult.durationMs,
+            },
+            '[skill-execution] cost-analysis complete',
+          )
+          break
+        }
+
+        case 'container-health': {
+          const { executeContainerHealth } = await import('../skills/container-health.js')
+          const healthResult = await executeContainerHealth(db, {
+            consecutiveFailureThreshold: typeof input?.consecutiveFailureThreshold === 'number' ? input.consecutiveFailureThreshold : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              healthyCount: healthResult.healthyCount,
+              unhealthyCount: healthResult.unhealthyCount,
+              alertsSent: healthResult.alertsSent,
+              durationMs: healthResult.durationMs,
+            },
+            '[skill-execution] container-health complete',
+          )
+          break
+        }
+
+        case 'storage-audit': {
+          const { executeStorageAudit } = await import('../skills/storage-audit.js')
+          const storageResult = await executeStorageAudit(db, {}, opts.wikiService)
+          logger.info(
+            {
+              skillName,
+              dbSize: storageResult.metrics.postgres.dbSizeHuman,
+              redisMemory: storageResult.metrics.redis.usedMemoryHuman,
+              wikiPageWritten: storageResult.wikiPageWritten,
+              durationMs: storageResult.durationMs,
+            },
+            '[skill-execution] storage-audit complete',
+          )
+          break
+        }
+
         default: {
           // Unknown skill names are unrecoverable — no point retrying.
           throw new UnrecoverableError(`[skill-execution] unknown skill: ${skillName}`)

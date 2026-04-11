@@ -83,6 +83,10 @@ COPY packages/workers/package.json ./packages/workers/
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/workers/dist ./packages/workers/dist
+# Himalaya CLI v1.2.0 — outbound email via SMTP
+RUN wget -qO- https://github.com/pimalaya/himalaya/releases/download/v1.2.0/himalaya.x86_64-linux.tgz \
+    | tar xz -C /usr/local/bin himalaya \
+    && chmod +x /usr/local/bin/himalaya
 ENV NODE_ENV=production
 CMD ["node", "packages/workers/dist/main.js"]
 

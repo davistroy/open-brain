@@ -25,6 +25,7 @@ import { registerWikiRoutes } from './routes/wiki.js'
 import { registerActivityRoutes } from './routes/activity.js'
 import { registerMcpActivityRoutes } from './routes/mcp-activity.js'
 import { registerConfigRoutes } from './routes/config.js'
+import { registerEmailRoutes } from './routes/email.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -37,6 +38,7 @@ import type { LLMGatewayService } from './services/llm-gateway.js'
 import type { SystemHealthService } from './services/system-health.js'
 import type { WikiService } from './services/wiki.js'
 import type { ActivityFeedService } from './services/activity-feed.js'
+import type { EmailDraftService } from './services/email-draft.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -67,11 +69,13 @@ interface AppDependencies {
   wikiService?: WikiService
   /** Activity feed service — required for activity feed API and SSE */
   activityFeedService?: ActivityFeedService
+  /** Email draft service — required for email draft management endpoints */
+  emailDraftService?: EmailDraftService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -171,6 +175,11 @@ export function createApp(deps: AppDependencies = {}): Hono {
     registerActivityRoutes(app, activityFeedService)
   }
 
+  // Email drafts API
+  if (emailDraftService) {
+    registerEmailRoutes(app, emailDraftService)
+  }
+
   // MCP activity log API (read-only, requires db)
   if (db) {
     registerMcpActivityRoutes(app, db)
@@ -178,7 +187,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
 
   // MCP endpoint — requires all services to be available
   if (captureService && searchService && configService && db) {
-    mountMcpServer(app, { captureService, searchService, configService, db, entityService, wikiService, activityFeedService })
+    mountMcpServer(app, { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService })
   }
 
   return app

@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -650,6 +650,45 @@ export const mcpActivityApi = {
   list: (params?: { limit?: number; offset?: number; tool_name?: string; client_id?: string; since?: string }) => {
     const qs = buildQueryString(params ?? {})
     return request<{ items: McpActivityEntry[]; total: number; limit: number; offset: number }>(`/mcp/activity${qs}`)
+  },
+}
+
+// Email Drafts API
+
+export const emailApi = {
+  /** List email drafts with optional status filter */
+  list: async (params?: { status?: string; limit?: number; offset?: number }) => {
+    const qs = buildQueryString(params ?? {})
+    return request<{ items: EmailDraft[]; total: number; limit: number; offset: number }>(
+      `/email/drafts${qs}`,
+    )
+  },
+
+  /** Get a single email draft by ID */
+  get: (id: string) => {
+    return request<EmailDraft>(`/email/drafts/${id}`)
+  },
+
+  /** Create a new email draft */
+  create: (payload: { to: string; subject: string; body: string; cc?: string; source?: string }) => {
+    return request<EmailDraft>('/email/drafts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /** Approve and send a draft */
+  send: (id: string) => {
+    return request<EmailDraft>(`/email/drafts/${id}/send`, {
+      method: 'POST',
+    })
+  },
+
+  /** Reject/discard a draft */
+  reject: (id: string) => {
+    return request<EmailDraft>(`/email/drafts/${id}`, {
+      method: 'DELETE',
+    })
   },
 }
 
