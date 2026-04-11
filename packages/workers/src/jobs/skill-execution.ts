@@ -56,7 +56,7 @@ export function createSkillExecutionWorker(
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
             modelAlias: synthesisModel,
             emailTo: typeof input?.emailTo === 'string' ? input.emailTo : undefined,
-          })
+          }, opts.anthropicClient)
 
           logger.info(
             { skillName, captureCount: result.captureCount, durationMs: result.durationMs },
@@ -70,7 +70,7 @@ export function createSkillExecutionWorker(
             windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
             modelAlias: synthesisModel,
-          }, opts.wikiService)
+          }, opts.wikiService, opts.anthropicClient)
 
           logger.info(
             { skillName, captureCount: result.captureCount, connectionCount: result.output.connections.length, durationMs: result.durationMs },
@@ -85,7 +85,7 @@ export function createSkillExecutionWorker(
             commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
             entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
             modelAlias: synthesisModel,
-          }, opts.wikiService)
+          }, opts.wikiService, opts.anthropicClient)
 
           logger.info(
             { skillName, driftItemCount: result.output.drift_items.length, overallHealth: result.output.overall_health, notificationSent: result.notificationSent, durationMs: result.durationMs },
@@ -113,7 +113,7 @@ export function createSkillExecutionWorker(
             tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
             modelAlias: synthesisModel,
             storeCapture: typeof input?.storeCapture === 'boolean' ? input.storeCapture : false,
-          })
+          }, opts.anthropicClient)
           logger.info(
             { skillName, captureCount: result.captureCount, headline: result.output.headline, durationMs: result.durationMs },
             '[skill-execution] daily-sweep-skill complete',
@@ -157,7 +157,7 @@ export function createSkillExecutionWorker(
             similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
             minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
             maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,
-          })
+          }, opts.anthropicClient)
           logger.info(
             { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
             '[skill-execution] memory-consolidation complete',

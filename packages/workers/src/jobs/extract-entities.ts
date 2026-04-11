@@ -1,9 +1,10 @@
 import { Worker } from 'bullmq'
 import { eq } from 'drizzle-orm'
 import type OpenAI from 'openai'
+import type Anthropic from '@anthropic-ai/sdk'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { captures, pipeline_events, logger, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import { captures, pipeline_events, logger, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 import type { ConfigService } from '@open-brain/shared'
 import { EXTRACT_ENTITIES_BACKOFF_DELAYS_MS } from '../queues/extract-entities.js'
 import type { ExtractEntitiesJobData } from '../queues/extract-entities.js'
@@ -80,6 +81,7 @@ export async function processExtractEntitiesJob(
   litellmClient: OpenAI,
   synthesisModel: string,
   templatesOrDir: TemplateCache | string,
+  anthropicClient?: Anthropic | null,
 ): Promise<void> {
   const templates = typeof templatesOrDir === 'string'
     ? new TemplateCache(templatesOrDir)
@@ -116,17 +118,32 @@ export async function processExtractEntitiesJob(
     // ── Load prompt template ─────────────────────────────────────────────────
     const prompt = templates.render('extract-entities.v1.txt', { content: capture.content })
 
-    // ── Call LiteLLM synthesis alias ─────────────────────────────────────────
-    // Disable thinking/reasoning mode for structured JSON output (Qwen3.5 etc.)
-    const response = await litellmClient.chat.completions.create({
-      model: synthesisModel,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_completion_tokens: 1024,
-    })
+    // ── Call LLM for entity extraction ────────────────────────────────────────
+    // Primary: Anthropic Claude (zero marginal cost via subscription)
+    // Fallback: OpenAI via litellmClient (if Anthropic client unavailable)
+    let rawText: string
 
-    const rawText = response.choices[0]?.message?.content ?? ''
-    logger.debug({ captureId, rawText }, '[extract-entities] LLM response received')
+    if (anthropicClient) {
+      const claudeResult = await callClaude(anthropicClient, prompt, {
+        model: synthesisModel,
+        maxTokens: 1024,
+        temperature: 0.1,
+      })
+      rawText = claudeResult.text
+      logger.debug(
+        { captureId, inputTokens: claudeResult.inputTokens, outputTokens: claudeResult.outputTokens },
+        '[extract-entities] Claude response received',
+      )
+    } else {
+      const response = await litellmClient.chat.completions.create({
+        model: synthesisModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_completion_tokens: 1024,
+      })
+      rawText = response.choices[0]?.message?.content ?? ''
+      logger.debug({ captureId, rawText }, '[extract-entities] OpenAI fallback response received')
+    }
 
     // ── Parse extracted entities ─────────────────────────────────────────────
     const extracted = parseEntityResponse(rawText)
@@ -213,6 +230,7 @@ export function createExtractEntitiesWorker(
   litellmBaseUrl: string,
   litellmApiKey: string,
   templates: TemplateCache,
+  anthropicClient?: Anthropic | null,
 ): Worker<ExtractEntitiesJobData> {
   const aiConfig = configService.get('ai')
   const synthesisModel: string = aiConfig.models['synthesis'].model
@@ -224,20 +242,23 @@ export function createExtractEntitiesWorker(
     maxRetries: 0,
   })
 
-  if (!litellmClient) {
-    logger.warn('[extract-entities] LiteLLM client not available — entity extraction will fail')
+  if (!litellmClient && !anthropicClient) {
+    logger.warn('[extract-entities] No LLM client available — entity extraction will fail')
+  } else if (anthropicClient) {
+    logger.info('[extract-entities] Using Anthropic Claude for entity extraction')
   }
 
   const worker = new Worker<ExtractEntitiesJobData>(
     'extract-entities',
     async (job) => {
-      if (!litellmClient) throw new Error('[extract-entities] LiteLLM client not configured — LITELLM_API_KEY missing')
+      if (!litellmClient && !anthropicClient) throw new Error('[extract-entities] No LLM client configured — both ANTHROPIC_API_KEY and LITELLM_API_KEY missing')
       await processExtractEntitiesJob(
         job.data,
         db,
-        litellmClient,
+        litellmClient!,
         synthesisModel,
         templates,
+        anthropicClient,
       )
     },
     {

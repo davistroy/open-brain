@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
-import { createLogger, createLiteLLMClient } from '@open-brain/shared'
+import type Anthropic from '@anthropic-ai/sdk'
+import { createLogger, createLiteLLMClient, callClaude } from '@open-brain/shared'
 
 const logger = createLogger('voice-classification')
 
@@ -70,8 +71,9 @@ Rules:
  */
 export class ClassificationService {
   private client: OpenAI
+  private anthropicClient: Anthropic | null
 
-  constructor() {
+  constructor(opts?: { anthropicClient?: Anthropic }) {
     // Prefer shared LiteLLM client factory (reads LITELLM_URL / LITELLM_API_KEY from env).
     // Falls back to a direct OpenAI construction for test compatibility (tests vi.mock('openai')).
     this.client = createLiteLLMClient({ timeout: 'fast' }) ?? new OpenAI({
@@ -79,6 +81,7 @@ export class ClassificationService {
       apiKey: process.env.LITELLM_API_KEY || 'unconfigured',
       timeout: 30_000,
     })
+    this.anthropicClient = opts?.anthropicClient ?? null
   }
 
   async classify(transcriptText: string): Promise<ClassificationResult> {
@@ -86,14 +89,25 @@ export class ClassificationService {
 
     logger.info({ textLength: transcriptText.length }, 'Classifying voice transcript')
 
-    const response = await this.client.chat.completions.create({
-      model: CLASSIFICATION_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_completion_tokens: 512,
-    })
+    let raw: string
 
-    const raw = response.choices[0]?.message?.content ?? ''
+    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    if (this.anthropicClient) {
+      const result = await callClaude(this.anthropicClient, prompt, {
+        model: CLASSIFICATION_MODEL,
+        maxTokens: 512,
+        temperature: 0.1,
+      })
+      raw = result.text
+    } else {
+      const response = await this.client.chat.completions.create({
+        model: CLASSIFICATION_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_completion_tokens: 512,
+      })
+      raw = response.choices[0]?.message?.content ?? ''
+    }
 
     let parsed: { template?: string; confidence?: number; fields?: ClassificationField[] }
     try {
