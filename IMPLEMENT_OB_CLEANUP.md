@@ -274,9 +274,9 @@ Pure documentation fix. The actual cron values in the code are correct — only 
 
 ### Work Items
 
-#### 3.1 Pull latest code and rebuild Docker images
+#### 3.1 Pull latest code and rebuild Docker images ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check items #1, #2
 **Files Affected:**
 - All 5 custom Docker images (core-api, workers, slack-bot, voice-capture, web)
@@ -301,9 +301,9 @@ Build time on homeserver is typically 3-5 minutes (i7-9700, 128GB RAM). The mult
 
 ---
 
-#### 3.2 Verify scheduled skill registration
+#### 3.2 Verify scheduled skill registration ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #2
 **Files Affected:**
 - None (verification only)
@@ -328,9 +328,9 @@ If budget-check runs immediately on startup (it processes a backlogged job), ver
 
 ---
 
-#### 3.3 End-to-end pipeline verification
+#### 3.3 End-to-end pipeline verification ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #1 (deploy verification)
 **Files Affected:**
 - None (verification only)
