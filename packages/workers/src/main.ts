@@ -4,6 +4,7 @@
  * Creates Redis + Postgres connections, registers all BullMQ workers
  * and scheduled jobs, then keeps the process alive until SIGTERM/SIGINT.
  */
+import { Redis } from 'ioredis'
 import { createDb, ConfigService, createAnthropicClient } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
@@ -20,6 +21,8 @@ import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { createIngestRootWorker } from './jobs/ingest-root.js'
 import { createWikiIngestWorker } from './jobs/wiki-ingest-worker.js'
 import { registerScheduledJobs } from './scheduler.js'
+import { SpendTracker } from './lib/spend-tracker.js'
+import { IngestDedup } from './lib/ingest-dedup.js'
 import { logger, TemplateCache, PushoverService, WikiGitService } from '@open-brain/shared'
 import { FlowProducer } from 'bullmq'
 import type { Worker } from 'bullmq'
@@ -106,6 +109,22 @@ async function main() {
   const queues = createAllQueues(connection)
   logger.info('Queues created')
 
+  // Spend-aware rate limiter for embed queue (non-Claude spend only)
+  const spendTracker = new SpendTracker(db)
+  logger.info('SpendTracker initialized (non-Claude spend limits)')
+
+  // Redis-based content hash dedup for ingestion pipeline
+  const dedupRedis = new Redis({
+    host: connection.host as string,
+    port: connection.port as number,
+    ...(connection.password ? { password: connection.password as string } : {}),
+    maxRetriesPerRequest: 3,
+    lazyConnect: true,
+  })
+  await dedupRedis.connect()
+  const ingestDedup = new IngestDedup(dedupRedis)
+  logger.info('IngestDedup initialized (5-min TTL content hash dedup)')
+
   // FlowProducer — enabled via PIPELINE_USE_FLOWS=true feature flag
   const useFlows = process.env.PIPELINE_USE_FLOWS === 'true'
   let flowProducer: FlowProducer | undefined
@@ -120,10 +139,10 @@ async function main() {
   // Workers
   const workers: Worker[] = []
 
-  workers.push(createIngestionWorker(connection, db, queues.embedCapture, flowProducer))
+  workers.push(createIngestionWorker(connection, db, queues.embedCapture, flowProducer, ingestDedup))
   workers.push(createEmbedCaptureWorker(
     connection, db, configService, litellmUrl, litellmApiKey,
-    queues.checkTriggers, queues.extractEntities,
+    queues.checkTriggers, queues.extractEntities, spendTracker,
   ))
   // Ingest-root worker — processes the FlowProducer root job after children complete
   // Always registered so it can drain jobs if flows were previously enabled
@@ -177,7 +196,8 @@ async function main() {
     await Promise.allSettled(workers.map(w => w.close()))
     await Promise.allSettled(Object.values(queues).map(q => q.close()))
     if (flowProducer) await flowProducer.close().catch(() => {})
-    logger.info('All workers, queues, and flow producer closed')
+    await dedupRedis.quit().catch(() => {})
+    logger.info('All workers, queues, flow producer, and dedup Redis closed')
     await pool.end()
     logger.info('Postgres pool closed')
     process.exit(0)

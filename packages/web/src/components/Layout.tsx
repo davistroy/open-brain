@@ -9,6 +9,7 @@ import {
   Gavel,
   Lightbulb,
   Mic,
+  Monitor,
   Settings,
   HelpCircle,
   Brain,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { to: '/board', label: 'Board', icon: Gavel },
   { to: '/intelligence', label: 'Intelligence', icon: Lightbulb },
   { to: '/voice', label: 'Voice', icon: Mic },
+  { to: '/system', label: 'System', icon: Monitor },
 ];
 
 const bottomNavItems: NavItem[] = [

@@ -213,6 +213,36 @@ export interface WikiLintReport {
   last_run?: string
 }
 
+// ─── Activity feed ──────────────────────────────────────────────────────────
+
+export type ActivityType = 'capture' | 'skill' | 'pipeline' | 'entity' | 'wiki' | 'mcp' | 'system'
+
+export interface ActivityFeedItem {
+  id: string
+  type: ActivityType
+  subtype: string | null
+  timestamp: string
+  summary: string
+  view: string | null
+  detail: Record<string, unknown> | null
+  source_id: string | null
+  created_at: string
+}
+
+// ─── MCP activity ───────────────────────────────────────────────────────────
+
+export interface McpActivityEntry {
+  id: string
+  timestamp: string
+  client_id: string | null
+  tool_name: string
+  parameters: Record<string, unknown> | null
+  result_summary: string | null
+  duration_ms: number | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
 // ─── System health ───────────────────────────────────────────────────────────
 
 /** System health snapshot from GET /api/v1/system/health */
@@ -239,4 +269,41 @@ export interface SystemHealthData {
     redis: { status: string }
     llm: { status: string }
   }
+}
+
+/** Full system health snapshot — matches backend SystemHealthSnapshot shape */
+export interface SystemHealthSnapshot {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  timestamp: string
+  uptime_s: number
+  queues: QueueStatsEntry[]
+  redis_memory: {
+    used_bytes: number
+    max_bytes: number
+    used_pct: number
+    status: 'healthy' | 'degraded' | 'unhealthy'
+  }
+  monthly_spend: {
+    month: string
+    total_usd: number
+    non_claude_usd: number
+    status: 'healthy' | 'degraded' | 'unhealthy'
+  }
+  skill_last_runs: SkillLastRun[]
+}
+
+export interface QueueStatsEntry {
+  name: string
+  waiting: number
+  active: number
+  failed: number
+  delayed: number
+  status: 'healthy' | 'degraded' | 'unhealthy'
+}
+
+export interface SkillLastRun {
+  skill_name: string
+  last_run_at: string
+  duration_ms: number | null
+  output_summary: string | null
 }

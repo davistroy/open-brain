@@ -1,7 +1,7 @@
 import { Worker, UnrecoverableError } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database, ConfigService } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, activity_feed } from '@open-brain/shared'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
 import { executeDailyConnections } from '../skills/daily-connections.js'
 import { executeDriftMonitor } from '../skills/drift-monitor.js'
@@ -210,6 +210,17 @@ export function createSkillExecutionWorker(
 
   worker.on('completed', (job) => {
     logger.info({ skillName: job.data.skillName, jobId: job.id }, '[skill-execution] job completed')
+    // Fire-and-forget activity feed insert
+    db.insert(activity_feed)
+      .values({
+        type: 'skill',
+        subtype: 'completed',
+        summary: `Skill "${job.data.skillName}" completed`,
+        detail: { skill_name: job.data.skillName, job_id: job.id },
+      })
+      .catch((err) => {
+        logger.debug({ err, skillName: job.data.skillName }, 'activity_feed insert failed for skill completion')
+      })
   })
 
   worker.on('failed', (job, err) => {

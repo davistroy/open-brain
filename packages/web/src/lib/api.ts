@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -551,12 +551,44 @@ export const wikiApi = {
   },
 }
 
+// Activity Feed API
+
+export const activityApi = {
+  /** Fetch paginated activity feed with optional filters */
+  list: async (params?: {
+    type?: string
+    view?: string
+    since?: string
+    limit?: number
+    offset?: number
+  }) => {
+    const qs = buildQueryString(params ?? {})
+    return request<{ items: ActivityFeedItem[]; total: number; limit: number; offset: number }>(
+      `/activity/feed${qs}`,
+    )
+  },
+
+  /** Count items since a given ISO timestamp */
+  countSince: async (since: string) => {
+    const qs = buildQueryString({ since, limit: 0 })
+    const res = await request<{ items: ActivityFeedItem[]; total: number; limit: number; offset: number }>(
+      `/activity/feed${qs}`,
+    )
+    return res.total
+  },
+}
+
 // System Health API
 
 export const systemHealthApi = {
-  /** GET /api/v1/system/health — full health snapshot */
+  /** GET /api/v1/system/health — full health snapshot (rich format with per-queue status, Redis memory, spend) */
   snapshot: () => {
     return request<SystemHealthData>('/system/health')
+  },
+
+  /** GET /api/v1/system/health — full snapshot with QueueStats array, Redis memory, monthly spend, skill runs */
+  fullSnapshot: () => {
+    return request<SystemHealthSnapshot>('/system/health')
   },
 
   /**
@@ -608,5 +640,15 @@ export const systemHealthApi = {
         llm: { status: health?.services?.llm?.status ?? 'unknown' },
       },
     }
+  },
+}
+
+// MCP Activity API
+
+export const mcpActivityApi = {
+  /** GET /api/v1/mcp/activity — paginated MCP tool call log */
+  list: (params?: { limit?: number; offset?: number; tool_name?: string; client_id?: string; since?: string }) => {
+    const qs = buildQueryString(params ?? {})
+    return request<{ items: McpActivityEntry[]; total: number; limit: number; offset: number }>(`/mcp/activity${qs}`)
   },
 }

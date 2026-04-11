@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { captures } from './core.js'
 import { vector } from './types.js'
@@ -229,6 +229,35 @@ export const captureAssociations = pgTable(
 )
 
 // ============================================================
+// activity_feed table — unified activity feed for dashboard
+//
+// Application-level inserts from all event sources: capture creation,
+// skill completions, pipeline events, entity changes.
+// type = capture | skill | pipeline | entity | system
+// subtype = more specific event (e.g. capture:created, skill:completed)
+// source_id = FK to originating record (not enforced — events survive source deletion)
+// ============================================================
+export const activity_feed = pgTable(
+  'activity_feed',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    type: varchar('type', { length: 32 }).notNull(),
+    subtype: varchar('subtype', { length: 64 }),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    summary: text('summary').notNull(),
+    view: varchar('view', { length: 32 }),
+    detail: jsonb('detail'),
+    source_id: uuid('source_id'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_desc_idx: index('activity_feed_timestamp_desc_idx').on(table.timestamp),
+    type_timestamp_idx: index('activity_feed_type_timestamp_idx').on(table.type, table.timestamp),
+    view_timestamp_idx: index('activity_feed_view_timestamp_idx').on(table.view, table.timestamp),
+  }),
+)
+
+// ============================================================
 // app_settings table — generic key-value settings store
 // ============================================================
 export const app_settings = pgTable('app_settings', {
@@ -236,3 +265,29 @@ export const app_settings = pgTable('app_settings', {
   value: jsonb('value').notNull(),
   updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+// ============================================================
+// mcp_activity table — logs every MCP tool call
+//
+// Every tool invocation through the MCP server is recorded here
+// with the tool name, sanitized parameters, truncated result,
+// duration, and optional client identifier.
+// ============================================================
+export const mcp_activity = pgTable(
+  'mcp_activity',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+    client_id: varchar('client_id', { length: 64 }),
+    tool_name: varchar('tool_name', { length: 64 }).notNull(),
+    parameters: jsonb('parameters'),
+    result_summary: text('result_summary'),
+    duration_ms: integer('duration_ms'),
+    metadata: jsonb('metadata'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    timestamp_idx: index('mcp_activity_timestamp_idx').on(table.timestamp),
+    tool_name_idx: index('mcp_activity_tool_name_idx').on(table.tool_name),
+  }),
+)

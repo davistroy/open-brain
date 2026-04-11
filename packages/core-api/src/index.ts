@@ -18,6 +18,7 @@ import { SkillConfigService, initSkillConfigSingleton } from './services/skill-c
 import { logger } from '@open-brain/shared'
 import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
+import { ActivityFeedService } from './services/activity-feed.js'
 import { pgNotify } from './lib/pg-notify.js'
 
 // Load config
@@ -86,6 +87,10 @@ if (litellmClient) {
 const sessionService = new SessionService(db, captureService, governanceEngine)
 const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl)
 
+// Activity feed service — wire into capture service for automatic feed inserts
+const activityFeedService = new ActivityFeedService(db)
+captureService.setActivityFeedService(activityFeedService)
+
 // Wiki service — optional, requires WIKI_REPO_URL and WIKI_LOCAL_PATH env vars
 let wikiService: WikiService | undefined
 let wikiIngestQueue: Queue | undefined
@@ -126,6 +131,7 @@ const app = createApp({
   llmGateway,
   systemHealthService,
   wikiService,
+  activityFeedService,
 })
 const port = Number(process.env.PORT ?? 3000)
 

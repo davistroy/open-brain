@@ -25,6 +25,7 @@ class PgNotify {
     'pipeline_complete',
     'skill_complete',
     'bet_expiring',
+    'activity_feed',
   ])
   private postgresUrl: string | null = null
   private reconnecting = false

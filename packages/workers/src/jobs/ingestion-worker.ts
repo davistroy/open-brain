@@ -9,6 +9,7 @@ import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 import type { EmbedCaptureQueue } from '../queues/embed-capture.js'
 import { buildIngestFlow } from '../flows/ingest-pipeline.js'
+import type { IngestDedup } from '../lib/ingest-dedup.js'
 
 /**
  * Advance a capture's pipeline_status and record a pipeline_events row.
@@ -69,6 +70,7 @@ export async function processIngestionJob(
   db: Database,
   embedCaptureQueue: EmbedCaptureQueue,
   flowProducer?: FlowProducer,
+  ingestDedup?: IngestDedup,
 ): Promise<void> {
   const { captureId } = data
 
@@ -78,6 +80,7 @@ export async function processIngestionJob(
   const [capture] = await db
     .select({
       id: captures.id,
+      content_hash: captures.content_hash,
       pipeline_status: captures.pipeline_status,
       pipeline_attempts: captures.pipeline_attempts,
     })
@@ -96,6 +99,22 @@ export async function processIngestionJob(
   if (capture.pipeline_status === 'complete' || capture.pipeline_status === 'failed') {
     logger.info({ captureId, pipeline_status: capture.pipeline_status }, '[ingestion] already terminal, skipping')
     return
+  }
+
+  // ── Content hash dedup ────────────────────────────────────────────────────
+  // Check Redis for recent duplicates (5-min TTL). This catches iOS Shortcut
+  // retries and rapid double-submits before they enter the pipeline.
+  // The DB unique index on content_hash is the permanent dedup — this is a
+  // fast-path optimization to avoid wasted pipeline work.
+  if (ingestDedup && capture.content_hash) {
+    const isDup = await ingestDedup.isDuplicate(capture.content_hash)
+    if (isDup) {
+      logger.info(
+        { captureId, content_hash: capture.content_hash },
+        '[ingestion] duplicate content hash in dedup window — skipping pipeline',
+      )
+      return
+    }
   }
 
   // ── Mark processing ────────────────────────────────────────────────────────
@@ -184,11 +203,12 @@ export function createIngestionWorker(
   db: Database,
   embedCaptureQueue: EmbedCaptureQueue,
   flowProducer?: FlowProducer,
+  ingestDedup?: IngestDedup,
 ): Worker<CapturePipelineJobData> {
   const worker = new Worker<CapturePipelineJobData>(
     'capture-pipeline',
     async (job) => {
-      await processIngestionJob(job.data, db, embedCaptureQueue, flowProducer)
+      await processIngestionJob(job.data, db, embedCaptureQueue, flowProducer, ingestDedup)
     },
     {
       connection,
