@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity, Pencil, Check, X, Loader2, Mail, Info, Shield } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity, Pencil, Check, X, Loader2, Mail, Info, Shield, Cpu, Link2, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { skillsApi, triggersApi, pipelineApi, adminApi, settingsApi } from '@/lib/api';
+import { skillsApi, triggersApi, pipelineApi, adminApi, settingsApi, configApi } from '@/lib/api';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Skill, Trigger, AutonomyLevel } from '@/lib/types';
+import type { Skill, Trigger, AutonomyLevel, AIRoutingResponse, IntegrationStatus } from '@/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -861,6 +861,233 @@ function EmailAllowlistSection({ entries, loading, error, onAdd, onRemove }: {
   );
 }
 
+// ─── AI Routing section ──────────────────────────────────────────────────────
+
+function AIRoutingSection({ routing, loading, error }: {
+  routing: AIRoutingResponse | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (loading && !routing) {
+    return (
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Cpu className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-base font-semibold">AI Routing</h2>
+        </div>
+        <div className="space-y-2">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      </section>
+    );
+  }
+
+  const budgetPct = routing?.budget
+    ? Math.min(100, (routing.budget.month_total_usd / routing.budget.hard_limit_usd) * 100)
+    : 0;
+  const budgetColor = budgetPct > 80 ? 'bg-destructive' : budgetPct > 60 ? 'bg-yellow-500' : 'bg-green-500';
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Cpu className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">AI Routing</h2>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {routing && (
+        <>
+          {/* Model routing table */}
+          <div className="rounded-lg border bg-card overflow-hidden">
+            <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-x-4 px-4 py-2 text-xs font-medium text-muted-foreground border-b bg-muted/30">
+              <span>Task</span>
+              <span>Model</span>
+              <span className="text-right">Client</span>
+              <span className="text-right">Calls</span>
+            </div>
+            {routing.models.map((entry) => (
+              <div
+                key={entry.task}
+                className="grid grid-cols-[1fr_1fr_auto_auto] gap-x-4 px-4 py-2.5 text-sm border-b last:border-b-0"
+              >
+                <span className="font-medium capitalize">{entry.task}</span>
+                <span className="font-mono text-xs text-muted-foreground truncate">{entry.model}</span>
+                <Badge variant={entry.client === 'anthropic' ? 'default' : 'secondary'} className="text-xs justify-self-end">
+                  {entry.client}
+                </Badge>
+                <span className="text-xs text-muted-foreground text-right tabular-nums">
+                  {entry.month_calls > 0 ? entry.month_calls.toLocaleString() : '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Monthly budget progress */}
+          <div className="rounded-lg border bg-card px-4 py-3 space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Monthly Spend</span>
+              <span className="font-mono text-xs">
+                ${routing.budget.month_total_usd.toFixed(2)} / ${routing.budget.hard_limit_usd.toFixed(0)} budget
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-secondary overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${budgetColor}`}
+                style={{ width: `${budgetPct}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Soft limit: ${routing.budget.soft_limit_usd}</span>
+              <span>Hard limit: ${routing.budget.hard_limit_usd}</span>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+// ─── Wiki section ────────────────────────────────────────────────────────────
+
+function WikiSection({ skills, integrations, loading }: {
+  skills: Skill[];
+  integrations: IntegrationStatus[];
+  loading: boolean;
+}) {
+  // Wiki-related skills for schedule display
+  const wikiLintSkill = skills.find(s => s.name === 'wiki-lint');
+  const wikiIngestSkill = skills.find(s => s.name === 'wiki-ingest' || s.name === 'wiki-synthesis');
+  const giteaIntegration = integrations.find(i => i.name === 'Gitea');
+  const giteaUrl = giteaIntegration?.url;
+  const giteaConfigured = giteaIntegration?.status === 'connected';
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <BookOpen className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Wiki</h2>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      ) : (
+        <div className="rounded-lg border bg-card divide-y">
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Gitea Repo</span>
+            <div className="flex items-center gap-2">
+              <span className={`inline-block w-2 h-2 rounded-full ${giteaConfigured ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="font-mono text-xs text-muted-foreground truncate max-w-[250px]">
+                {giteaUrl ?? 'Not configured'}
+              </span>
+            </div>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Lint Schedule</span>
+            <span className="font-mono text-xs">
+              {wikiLintSkill?.schedule
+                ? `${wikiLintSkill.schedule}${describeCron(wikiLintSkill.schedule) ? ` (${describeCron(wikiLintSkill.schedule)})` : ''}`
+                : '—'}
+            </span>
+          </div>
+          {wikiIngestSkill && (
+            <div className="px-4 py-3 flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Auto-ingest</span>
+              <Badge variant={wikiIngestSkill.schedule ? 'default' : 'secondary'} className="text-xs">
+                {wikiIngestSkill.schedule ? 'Enabled' : 'Disabled'}
+              </Badge>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Integrations section ────────────────────────────────────────────────────
+
+function IntegrationsSection({ integrations, loading, error }: {
+  integrations: IntegrationStatus[];
+  loading: boolean;
+  error: string | null;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Link2 className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Integrations</h2>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {loading && integrations.length === 0 ? (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => <div key={i} className="h-12 animate-pulse rounded bg-secondary" />)}
+        </div>
+      ) : integrations.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No integration data available.</p>
+      ) : (
+        <div className="rounded-lg border bg-card divide-y">
+          {integrations.map((integration) => (
+            <div key={integration.name} className="px-4 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${
+                  integration.status === 'connected' ? 'bg-green-500' : 'bg-red-500'
+                }`} />
+                <div className="min-w-0">
+                  <span className="text-sm font-medium">{integration.name}</span>
+                  {integration.detail && (
+                    <p className="text-xs text-muted-foreground truncate">{integration.detail}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 text-right">
+                {integration.url && (
+                  <span className="text-xs text-muted-foreground font-mono hidden sm:inline truncate max-w-[200px]">
+                    {integration.url}
+                  </span>
+                )}
+                {integration.last_activity && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-xs text-muted-foreground cursor-help">
+                          Last: {new Date(integration.last_activity).toLocaleDateString()}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {new Date(integration.last_activity).toLocaleString()}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <Badge
+                  variant={integration.status === 'connected' ? 'default' : 'destructive'}
+                  className="text-xs"
+                >
+                  {integration.status}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─── Danger Zone section ──────────────────────────────────────────────────────
 
 const CONFIRM_PHRASE = 'WIPE ALL DATA';
@@ -1028,6 +1255,14 @@ export default function Settings() {
   const [allowlistLoading, setAllowlistLoading] = useState(true);
   const [allowlistError, setAllowlistError] = useState<string | null>(null);
 
+  const [aiRouting, setAiRouting] = useState<AIRoutingResponse | null>(null);
+  const [aiRoutingLoading, setAiRoutingLoading] = useState(true);
+  const [aiRoutingError, setAiRoutingError] = useState<string | null>(null);
+
+  const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
+  const [integrationsError, setIntegrationsError] = useState<string | null>(null);
+
   const [refreshing, setRefreshing] = useState(false);
 
   const loadHealth = useCallback(async () => {
@@ -1117,9 +1352,42 @@ export default function Settings() {
     }
   }, []);
 
+  const loadAiRouting = useCallback(async () => {
+    setAiRoutingError(null);
+    try {
+      const res = await configApi.aiRouting();
+      setAiRouting(res);
+    } catch (err) {
+      // Not critical — may not be deployed yet
+      if (err instanceof Error && err.message.includes('404')) {
+        setAiRouting(null);
+      } else {
+        setAiRoutingError(err instanceof Error ? err.message : 'Failed to load AI routing');
+      }
+    } finally {
+      setAiRoutingLoading(false);
+    }
+  }, []);
+
+  const loadIntegrations = useCallback(async () => {
+    setIntegrationsError(null);
+    try {
+      const res = await configApi.integrations();
+      setIntegrations(res.integrations);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('404')) {
+        setIntegrations([]);
+      } else {
+        setIntegrationsError(err instanceof Error ? err.message : 'Failed to load integrations');
+      }
+    } finally {
+      setIntegrationsLoading(false);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
-    await Promise.allSettled([loadHealth(), loadSkills(), loadTriggers(), loadAutonomy(), loadAllowlist()]);
-  }, [loadHealth, loadSkills, loadTriggers, loadAutonomy, loadAllowlist]);
+    await Promise.allSettled([loadHealth(), loadSkills(), loadTriggers(), loadAutonomy(), loadAllowlist(), loadAiRouting(), loadIntegrations()]);
+  }, [loadHealth, loadSkills, loadTriggers, loadAutonomy, loadAllowlist, loadAiRouting, loadIntegrations]);
 
   useEffect(() => {
     loadAll();
@@ -1242,6 +1510,30 @@ export default function Settings() {
         error={allowlistError}
         onAdd={handleAddAllowlistEntry}
         onRemove={handleRemoveAllowlistEntry}
+      />
+
+      <Separator />
+
+      <AIRoutingSection
+        routing={aiRouting}
+        loading={aiRoutingLoading}
+        error={aiRoutingError}
+      />
+
+      <Separator />
+
+      <WikiSection
+        skills={skills}
+        integrations={integrations}
+        loading={skillsLoading}
+      />
+
+      <Separator />
+
+      <IntegrationsSection
+        integrations={integrations}
+        loading={integrationsLoading}
+        error={integrationsError}
       />
 
       <Separator />

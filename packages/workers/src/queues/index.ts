@@ -7,6 +7,7 @@ import { createEmbedCaptureQueue } from './embed-capture.js'
 import { createExtractEntitiesQueue } from './extract-entities.js'
 import { createNotificationQueue } from './notification.js'
 import { createSkillExecutionQueue } from './skill-execution.js'
+import { createWikiIngestQueue } from './wiki-ingest.js'
 
 export interface AllQueues {
   capturePipeline: ReturnType<typeof createCapturePipelineQueue>
@@ -17,6 +18,7 @@ export interface AllQueues {
   skillExecution: ReturnType<typeof createSkillExecutionQueue>
   notification: ReturnType<typeof createNotificationQueue>
   accessStats: ReturnType<typeof createAccessStatsQueue>
+  wikiIngest: ReturnType<typeof createWikiIngestQueue>
 }
 
 /**
@@ -33,6 +35,7 @@ export function createAllQueues(connection: ConnectionOptions): AllQueues {
     skillExecution: createSkillExecutionQueue(connection),
     notification: createNotificationQueue(connection),
     accessStats: createAccessStatsQueue(connection),
+    wikiIngest: createWikiIngestQueue(connection),
   }
 }
 
@@ -44,3 +47,4 @@ export * from './embed-capture.js'
 export * from './extract-entities.js'
 export * from './notification.js'
 export * from './skill-execution.js'
+export * from './wiki-ingest.js'

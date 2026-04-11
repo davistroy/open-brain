@@ -10,7 +10,7 @@ vi.mock('../../lib/api', () => ({
       by_source: {},
       by_type: {},
       by_view: {},
-      pipeline_health: { queue_depth: 0, failed_jobs: 0, avg_processing_ms: 0 },
+      pipeline_health: { pending: 0, processing: 0, complete: 5, failed: 0 },
       embeddings_coverage: 1,
     }),
   },
@@ -28,14 +28,29 @@ vi.mock('../../lib/api', () => ({
   intelligenceApi: {
     unresolvedQuestions: vi.fn().mockResolvedValue({ questions: [], count: 0 }),
   },
+  activityApi: {
+    list: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 30, offset: 0 }),
+    countSince: vi.fn().mockResolvedValue(0),
+  },
 }))
 
-// Also stub global EventSource so sse.ts module initialisation doesn't throw
+// Mock the SSE module
+vi.mock('../../lib/sse', () => ({
+  sseClient: {
+    start: vi.fn(),
+    stop: vi.fn(),
+    on: vi.fn().mockReturnValue(() => {}),
+  },
+  createSSEConnection: vi.fn().mockReturnValue(() => {}),
+}))
+
+// Also stub global EventSource so module initialisation doesn't throw
 class NoopEventSource {
   addEventListener() {}
   removeEventListener() {}
   close() {}
   onerror = null
+  onmessage = null
 }
 vi.stubGlobal('EventSource', NoopEventSource)
 
@@ -56,7 +71,6 @@ describe('Dashboard page', () => {
 
   it('renders the Dashboard heading', async () => {
     renderDashboard()
-    // heading visible after loading resolves
     await waitFor(() => {
       expect(screen.getByText('Dashboard')).toBeInTheDocument()
     })
@@ -69,17 +83,17 @@ describe('Dashboard page', () => {
     })
   })
 
-  it('renders the Recent Captures section', async () => {
+  it('renders the Activity Feed section', async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('Recent Captures')).toBeInTheDocument()
+      expect(screen.getByText('Activity Feed')).toBeInTheDocument()
     })
   })
 
-  it('shows the empty state when no captures are returned', async () => {
+  it('shows the empty state when no activity items are returned', async () => {
     renderDashboard()
     await waitFor(() => {
-      expect(screen.getByText('No captures yet.')).toBeInTheDocument()
+      expect(screen.getByText('No activity yet.')).toBeInTheDocument()
     })
   })
 
@@ -87,6 +101,65 @@ describe('Dashboard page', () => {
     renderDashboard()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument()
+    })
+  })
+
+  it('renders type and view filter dropdowns', async () => {
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('All types')).toBeInTheDocument()
+      expect(screen.getByDisplayValue('All views')).toBeInTheDocument()
+    })
+  })
+
+  it('shows "since you\'ve been away" badge when count > 0', async () => {
+    const { activityApi } = await import('../../lib/api')
+    vi.mocked(activityApi.countSince).mockResolvedValue(7)
+
+    // Stub localStorage for this test
+    const store: Record<string, string> = {
+      'open-brain-last-visit': new Date(Date.now() - 3600000).toISOString(),
+    }
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => { store[key] = value },
+      removeItem: (key: string) => { delete store[key] },
+    })
+
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText('7 new')).toBeInTheDocument()
+    })
+
+    vi.unstubAllGlobals()
+    // Re-stub EventSource since unstubAllGlobals removes it
+    vi.stubGlobal('EventSource', NoopEventSource)
+  })
+
+  it('renders activity items when feed has data', async () => {
+    const { activityApi } = await import('../../lib/api')
+    vi.mocked(activityApi.list).mockResolvedValue({
+      items: [
+        {
+          id: 'a1',
+          type: 'capture',
+          subtype: 'created',
+          timestamp: new Date().toISOString(),
+          summary: 'New observation from voice: Testing the feed',
+          view: 'technical',
+          detail: null,
+          source_id: 'c1',
+          created_at: new Date().toISOString(),
+        },
+      ],
+      total: 1,
+      limit: 30,
+      offset: 0,
+    })
+
+    renderDashboard()
+    await waitFor(() => {
+      expect(screen.getByText(/Testing the feed/)).toBeInTheDocument()
     })
   })
 })

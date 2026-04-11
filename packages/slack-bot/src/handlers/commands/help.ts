@@ -46,6 +46,12 @@ export const HELP_TEXT = `*Open Brain — Available Commands*
   \`!bet resolve <id> <outcome>\`    — resolve: correct | incorrect | ambiguous
   \`!bet resolve <id> <outcome> <evidence>\` — resolve with evidence
 
+*Email*
+  \`!email send <to> <subject>\`  — create an email draft
+  \`!email drafts\`               — list pending drafts
+  \`!email approve <id>\`         — approve and send a draft
+  \`!email reject <id>\`          — reject/discard a draft
+
   \`!help\`               — this message`
 
 export async function handleHelp(ts: string, say: SayFn): Promise<void> {

@@ -215,7 +215,7 @@ export function createExtractEntitiesWorker(
   templates: TemplateCache,
 ): Worker<ExtractEntitiesJobData> {
   const aiConfig = configService.get('ai')
-  const synthesisModel: string = aiConfig.models['synthesis'] as string
+  const synthesisModel: string = aiConfig.models['synthesis'].model
 
   const litellmClient = createLiteLLMClient({
     baseUrl: litellmBaseUrl,

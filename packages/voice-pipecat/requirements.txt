@@ -1,0 +1,27 @@
+# Core pipeline
+pipecat-ai[silero,deepgram]>=0.0.60
+
+# LLM
+anthropic>=0.49.0
+
+# Session state
+redis>=5.0.0
+
+# Health endpoint
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+
+# Config
+pyyaml>=6.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# HTTP client (for core-api calls)
+httpx>=0.27.0
+
+# Audio processing
+numpy>=1.26.0
+
+# TTS options (install one):
+# pip install kokoro          # Local TTS (preferred)
+# pip install piper-tts       # Local TTS (fallback)

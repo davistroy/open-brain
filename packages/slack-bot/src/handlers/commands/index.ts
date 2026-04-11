@@ -15,6 +15,7 @@ export { handleTriggerCommand } from './trigger.js'
 export { handleConnectionsCommand } from './connections.js'
 export { handleDriftCommand } from './drift.js'
 export { handlePipelineStatus } from './pipeline.js'
+export { handleEmailCommand } from './email.js'
 export { handleHelp, HELP_TEXT } from './help.js'
 
 /**

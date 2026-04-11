@@ -140,6 +140,39 @@ services:
       - open-brain
     restart: unless-stopped
 
+  voice-pipecat:
+    build:
+      context: packages/voice-pipecat
+      dockerfile: Dockerfile
+    container_name: open-brain-voice-pipecat
+    env_file:
+      - .env.secrets
+    environment:
+      # DEEPGRAM_API_KEY: set in .env.secrets
+      # ANTHROPIC_API_KEY: set in .env.secrets
+      REDIS_URL: redis://redis:6379
+      CORE_API_URL: http://core-api:3000
+    ports:
+      - "8765:8765"   # WebSocket for Pipecat audio streams
+      - "8766:8766"   # Health endpoint
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8766/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    mem_limit: 4g
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  # --- Legacy voice services (kept for fallback until voice-pipecat is validated) ---
+
   faster-whisper:
     image: fedirz/faster-whisper-server:0.5.0-cpu
     container_name: open-brain-faster-whisper

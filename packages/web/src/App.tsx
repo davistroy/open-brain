@@ -7,13 +7,17 @@ const Search = lazy(() => import('@/pages/Search'));
 const Timeline = lazy(() => import('@/pages/Timeline'));
 const Entities = lazy(() => import('@/pages/Entities'));
 const EntityDetail = lazy(() => import('@/pages/EntityDetail'));
+const Wiki = lazy(() => import('@/pages/Wiki'));
 const Briefs = lazy(() => import('@/pages/Briefs'));
 const Board = lazy(() => import('@/pages/Board'));
-const Voice = lazy(() => import('@/pages/Voice'));
+const VoiceConversations = lazy(() => import('@/pages/VoiceConversations'));
+const VoiceUpload = lazy(() => import('@/pages/Voice'));
 const Intelligence = lazy(() => import('@/pages/Intelligence'));
+const Email = lazy(() => import('@/pages/Email'));
 const Help = lazy(() => import('@/pages/Help'));
 const SlackCleanup = lazy(() => import('@/pages/SlackCleanup'));
 const Settings = lazy(() => import('@/pages/Settings'));
+const System = lazy(() => import('@/pages/System'));
 
 function PageLoader() {
   return (
@@ -34,13 +38,18 @@ export default function App() {
           <Route path="timeline" element={<Timeline />} />
           <Route path="entities" element={<Entities />} />
           <Route path="entities/:id" element={<EntityDetail />} />
+          <Route path="wiki" element={<Wiki />} />
+          <Route path="wiki/*" element={<Wiki />} />
           <Route path="briefs" element={<Briefs />} />
           <Route path="board" element={<Board />} />
-          <Route path="voice" element={<Voice />} />
+          <Route path="voice" element={<VoiceConversations />} />
+          <Route path="voice-upload" element={<VoiceUpload />} />
+          <Route path="email" element={<Email />} />
           <Route path="intelligence" element={<Intelligence />} />
           <Route path="help" element={<Help />} />
           <Route path="slack-cleanup" element={<SlackCleanup />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="system" element={<System />} />
         </Route>
       </Routes>
     </Suspense>

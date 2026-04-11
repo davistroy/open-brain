@@ -23,13 +23,47 @@ export type PipelineConfig = z.infer<typeof PipelineConfigSchema>
 // ============================================================
 // AI routing config schema
 // ============================================================
-export const AIModelConfigSchema = z.object({
-  fast: z.string(),
-  synthesis: z.string(),
-  governance: z.string(),
-  intent: z.string(),
-  embedding: z.string(),
+
+/** Client preference for a model alias */
+export type AIClientType = 'anthropic' | 'litellm'
+
+/** Detailed model entry with client routing and cost tracking */
+export const AIModelEntrySchema = z.object({
+  model: z.string(),
+  client: z.enum(['anthropic', 'litellm']).default('litellm'),
+  cost_per_1k_input: z.number().default(0),
+  cost_per_1k_output: z.number().default(0),
 })
+
+export type AIModelEntry = z.infer<typeof AIModelEntrySchema>
+
+/**
+ * Accepts either a string (legacy: just the model name, defaults to litellm client)
+ * or a full AIModelEntry object. Normalizes to AIModelEntry.
+ */
+const AIModelValueSchema = z.union([
+  z.string().transform((model): z.infer<typeof AIModelEntrySchema> => ({
+    model,
+    client: 'litellm',
+    cost_per_1k_input: 0,
+    cost_per_1k_output: 0,
+  })),
+  AIModelEntrySchema,
+])
+
+export const AIModelConfigSchema = z.object({
+  fast: AIModelValueSchema,
+  synthesis: AIModelValueSchema,
+  governance: AIModelValueSchema,
+  intent: AIModelValueSchema,
+  conversation: AIModelValueSchema.optional(),
+  embedding: AIModelValueSchema,
+})
+
+export type AIModelConfig = z.infer<typeof AIModelConfigSchema>
+
+/** Known model alias names */
+export type AIModelAlias = keyof AIModelConfig
 
 export const AIConfigSchema = z.object({
   litellm_url: z.string().url(),
@@ -41,6 +75,25 @@ export const AIConfigSchema = z.object({
 })
 
 export type AIConfig = z.infer<typeof AIConfigSchema>
+
+/**
+ * Resolve a model alias to the concrete model name string.
+ * Works with both legacy (string) and new (object) config formats.
+ */
+export function resolveModelName(config: AIConfig, alias: string): string {
+  const entry = config.models[alias as keyof typeof config.models]
+  if (!entry) throw new Error(`Unknown model alias: ${alias}`)
+  return entry.model
+}
+
+/**
+ * Get the full model entry for an alias, including client and cost info.
+ */
+export function getModelEntry(config: AIConfig, alias: string): AIModelEntry {
+  const entry = config.models[alias as keyof typeof config.models]
+  if (!entry) throw new Error(`Unknown model alias: ${alias}`)
+  return entry
+}
 
 // ============================================================
 // Brain views config schema

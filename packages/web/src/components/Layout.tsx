@@ -4,10 +4,13 @@ import {
   Search,
   Clock,
   Users,
+  BookOpenText,
   FileText,
   Gavel,
   Lightbulb,
   Mic,
+  Mail,
+  Monitor,
   Settings,
   HelpCircle,
   Brain,
@@ -15,6 +18,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import ThemeToggle from '@/components/ThemeToggle';
+import StatusStrip from '@/components/StatusStrip';
 
 interface NavItem {
   to: string;
@@ -27,10 +31,13 @@ const navItems: NavItem[] = [
   { to: '/search', label: 'Search', icon: Search },
   { to: '/timeline', label: 'Timeline', icon: Clock },
   { to: '/entities', label: 'Entities', icon: Users },
+  { to: '/wiki', label: 'Wiki', icon: BookOpenText },
   { to: '/briefs', label: 'Briefs', icon: FileText },
   { to: '/board', label: 'Board', icon: Gavel },
   { to: '/intelligence', label: 'Intelligence', icon: Lightbulb },
   { to: '/voice', label: 'Voice', icon: Mic },
+  { to: '/email', label: 'Email', icon: Mail },
+  { to: '/system', label: 'System', icon: Monitor },
 ];
 
 const bottomNavItems: NavItem[] = [
@@ -112,6 +119,7 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex-1 overflow-y-auto pb-14 md:pb-0">
+        <StatusStrip />
         <div className="container mx-auto max-w-5xl p-4 md:p-6">
           <Outlet />
         </div>

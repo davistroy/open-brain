@@ -173,3 +173,212 @@ export interface QueueHealth {
   failed: number
   delayed: number
 }
+
+// ─── Wiki types ──────────────────────────────────────────────────────────────
+
+export type WikiPageType = 'entity' | 'concept' | 'source' | 'comparison' | 'synthesis' | 'overview'
+
+export interface WikiPageMeta {
+  path: string
+  title: string
+  type: WikiPageType
+  created: string
+  updated: string
+  source_count?: number
+  tags?: string[]
+  aliases?: string[]
+}
+
+export interface WikiPageFull extends WikiPageMeta {
+  content: string
+}
+
+export interface WikiRecentChange {
+  hash: string
+  date: string
+  message: string
+  files: string[]
+}
+
+export interface WikiLintIssue {
+  page: string
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  rule: string
+}
+
+export interface WikiLintReport {
+  total_pages: number
+  issues: WikiLintIssue[]
+  last_run?: string
+}
+
+// ─── Activity feed ──────────────────────────────────────────────────────────
+
+export type ActivityType = 'capture' | 'skill' | 'pipeline' | 'entity' | 'wiki' | 'mcp' | 'system' | 'email'
+
+export interface ActivityFeedItem {
+  id: string
+  type: ActivityType
+  subtype: string | null
+  timestamp: string
+  summary: string
+  view: string | null
+  detail: Record<string, unknown> | null
+  source_id: string | null
+  created_at: string
+}
+
+// ─── MCP activity ───────────────────────────────────────────────────────────
+
+export interface McpActivityEntry {
+  id: string
+  timestamp: string
+  client_id: string | null
+  tool_name: string
+  parameters: Record<string, unknown> | null
+  result_summary: string | null
+  duration_ms: number | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+// ─── System health ───────────────────────────────────────────────────────────
+
+/** System health snapshot from GET /api/v1/system/health */
+export interface SystemHealthData {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  timestamp: string
+  queues: {
+    total_waiting: number
+    total_active: number
+    total_failed: number
+    by_queue: Record<string, { waiting: number; active: number; failed: number }>
+  }
+  last_skill_run: {
+    name: string
+    status: string
+    completed_at: string
+  } | null
+  llm_spend: {
+    month_total_usd: number
+    budget_usd: number
+  }
+  services: {
+    postgres: { status: string }
+    redis: { status: string }
+    llm: { status: string }
+  }
+}
+
+/** Full system health snapshot — matches backend SystemHealthSnapshot shape */
+export interface SystemHealthSnapshot {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  timestamp: string
+  uptime_s: number
+  queues: QueueStatsEntry[]
+  redis_memory: {
+    used_bytes: number
+    max_bytes: number
+    used_pct: number
+    status: 'healthy' | 'degraded' | 'unhealthy'
+  }
+  monthly_spend: {
+    month: string
+    total_usd: number
+    non_claude_usd: number
+    status: 'healthy' | 'degraded' | 'unhealthy'
+  }
+  skill_last_runs: SkillLastRun[]
+}
+
+export interface QueueStatsEntry {
+  name: string
+  waiting: number
+  active: number
+  failed: number
+  delayed: number
+  status: 'healthy' | 'degraded' | 'unhealthy'
+}
+
+export interface SkillLastRun {
+  skill_name: string
+  last_run_at: string
+  duration_ms: number | null
+  output_summary: string | null
+}
+
+// ─── Config / AI Routing ─────────────────────────────────────────────────────
+
+export interface ModelRoutingEntry {
+  task: string
+  model: string
+  client: 'anthropic' | 'litellm'
+  cost_per_1k_input: number
+  cost_per_1k_output: number
+  month_spend_usd: number
+  month_calls: number
+}
+
+export interface AIRoutingResponse {
+  models: ModelRoutingEntry[]
+  budget: {
+    soft_limit_usd: number
+    hard_limit_usd: number
+    month_total_usd: number
+  }
+}
+
+// ─── Integrations ────────────────────────────────────────────────────────────
+
+export interface IntegrationStatus {
+  name: string
+  status: 'connected' | 'disconnected' | 'unknown'
+  url?: string
+  detail?: string
+  last_activity?: string
+}
+
+// ─── Email drafts ───────────────────────────────────────────────────────────
+
+export type EmailDraftStatus = 'draft' | 'approved' | 'sent' | 'rejected' | 'failed'
+
+export interface EmailDraft {
+  id: string
+  to_address: string
+  cc_address: string | null
+  subject: string
+  body: string
+  status: EmailDraftStatus
+  send_mode: string
+  source: string | null
+  approved_at: string | null
+  sent_at: string | null
+  himalaya_message_id: string | null
+  capture_id: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+// ─── Voice sessions ────────────────────────────────────────────────────────
+
+export type TranscriptRole = 'user' | 'assistant'
+
+export interface TranscriptTurn {
+  role: TranscriptRole
+  text: string
+  timestamp: string
+}
+
+export interface VoiceSession {
+  id: string
+  started_at: string
+  ended_at: string | null
+  duration_s: number | null
+  turn_count: number
+  captures_created: number
+  summary: string | null
+  transcript: TranscriptTurn[]
+  capture_ids: string[]
+}

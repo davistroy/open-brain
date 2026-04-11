@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { join } from 'node:path'
 import { Queue } from 'bullmq'
-import { ConfigService, createDb, createLiteLLMClient, TemplateCache } from '@open-brain/shared'
+import { ConfigService, createDb, createLiteLLMClient, createAnthropicClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
 import { EmbeddingService } from '@open-brain/shared'
@@ -16,6 +16,12 @@ import { LLMGatewayService } from './services/llm-gateway.js'
 import { GovernanceEngine } from './services/governance-engine.js'
 import { SkillConfigService, initSkillConfigSingleton } from './services/skill-config.js'
 import { logger } from '@open-brain/shared'
+import { SystemHealthService } from './services/system-health.js'
+import { WikiService } from './services/wiki.js'
+import { ActivityFeedService } from './services/activity-feed.js'
+import { EmailDraftService } from './services/email-draft.js'
+import { VoiceSessionService } from './services/voice-session.js'
+import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
 
 // Load config
@@ -67,8 +73,14 @@ const betService = new BetService(db)
 let governanceEngine: GovernanceEngine | undefined
 let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
 const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
+const anthropicClient = createAnthropicClient({ maxRetries: 2 })
+if (anthropicClient) {
+  logger.info('Anthropic client initialized (Claude subscription)')
+} else {
+  logger.warn('ANTHROPIC_API_KEY not set — Claude SDK routing unavailable, LiteLLM-only mode')
+}
 if (litellmClient) {
-  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache)
+  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache, anthropicClient)
   governanceEngine = new GovernanceEngine(llmGateway, templateCache)
   logger.info('GovernanceEngine initialized')
 } else {
@@ -76,6 +88,50 @@ if (litellmClient) {
 }
 
 const sessionService = new SessionService(db, captureService, governanceEngine)
+const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl)
+
+// Activity feed service — wire into capture service for automatic feed inserts
+const activityFeedService = new ActivityFeedService(db)
+captureService.setActivityFeedService(activityFeedService)
+
+// Email draft service — HimalayaService for SMTP sending, PushoverService for review notifications
+const himalayaService = new HimalayaService()
+const emailPushover = new PushoverService({ onError: 'swallow' })
+const emailDraftService = new EmailDraftService(db, himalayaService, emailPushover)
+emailDraftService.setActivityFeedService(activityFeedService)
+if (himalayaService.isConfigured) {
+  logger.info('HimalayaService configured — outbound email enabled')
+} else {
+  logger.info('HIMALAYA_CONFIG not set — outbound email disabled (drafts still work)')
+}
+
+// Voice session service — manages Pipecat voice conversation sessions
+const voiceSessionService = new VoiceSessionService(db)
+voiceSessionService.setActivityFeedService(activityFeedService)
+
+// Wiki service — optional, requires WIKI_REPO_URL and WIKI_LOCAL_PATH env vars
+let wikiService: WikiService | undefined
+let wikiIngestQueue: Queue | undefined
+let wikiLintQueue: Queue | undefined
+const wikiRepoUrl = process.env.WIKI_REPO_URL
+const wikiLocalPath = process.env.WIKI_LOCAL_PATH
+if (wikiRepoUrl && wikiLocalPath) {
+  wikiIngestQueue = new Queue('wiki-ingest', { connection: redisConnection })
+  wikiLintQueue = new Queue('wiki-lint', { connection: redisConnection })
+  wikiService = new WikiService({
+    repoUrl: wikiRepoUrl,
+    localPath: wikiLocalPath,
+    wikiIngestQueue,
+    wikiLintQueue,
+  })
+  wikiService.init().then(() => {
+    logger.info('WikiService initialized')
+  }).catch((err) => {
+    logger.warn({ err }, 'WikiService init failed — wiki endpoints will return errors')
+  })
+} else {
+  logger.info('WIKI_REPO_URL or WIKI_LOCAL_PATH not set — wiki endpoints disabled')
+}
 
 const app = createApp({
   configService,
@@ -91,6 +147,11 @@ const app = createApp({
   sessionService,
   documentPipelineQueue,
   llmGateway,
+  systemHealthService,
+  wikiService,
+  activityFeedService,
+  emailDraftService,
+  voiceSessionService,
 })
 const port = Number(process.env.PORT ?? 3000)
 
@@ -111,11 +172,14 @@ const shutdown = async () => {
   logger.info('Shutting down...')
 
   // 1. Close BullMQ queues (stop accepting new jobs)
-  await Promise.allSettled([
+  const queueClosePromises = [
     capturePipelineQueue.close(),
     skillQueue.close(),
     documentPipelineQueue.close(),
-  ])
+  ]
+  if (wikiIngestQueue) queueClosePromises.push(wikiIngestQueue.close())
+  if (wikiLintQueue) queueClosePromises.push(wikiLintQueue.close())
+  await Promise.allSettled(queueClosePromises)
   logger.info('BullMQ queues closed')
 
   // 2. Stop Postgres LISTEN/NOTIFY

@@ -22,10 +22,17 @@ vi.mock('openai', () => {
 // Helper: build a mock ConfigService
 // ---------------------------------------------------------------------------
 
-function makeMockConfigService(modelAlias = 'spark-qwen3-embedding-4b', litellmUrl = 'https://llm.k4jda.net') {
+function makeMockConfigService(modelName = 'spark-qwen3-embedding-4b', litellmUrl = 'https://llm.k4jda.net') {
   return {
     get: vi.fn().mockReturnValue({
-      models: { embedding: modelAlias },
+      models: {
+        embedding: {
+          model: modelName,
+          client: 'litellm',
+          cost_per_1k_input: 0.00013,
+          cost_per_1k_output: 0,
+        },
+      },
       litellm_url: litellmUrl,
     }),
     getBrainViews: vi.fn(),

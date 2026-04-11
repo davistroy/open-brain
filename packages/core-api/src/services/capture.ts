@@ -4,6 +4,7 @@ import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { CreateCaptureInput, CaptureFilter, CaptureRecord } from '@open-brain/shared'
 import type { PipelineService } from './pipeline.js'
+import type { ActivityFeedService } from './activity-feed.js'
 import { logger } from '@open-brain/shared'
 
 const DEDUP_WINDOW_MS = 60_000 // 60 seconds
@@ -29,10 +30,17 @@ export interface UpdateCaptureInput {
 }
 
 export class CaptureService {
+  private activityFeedService?: ActivityFeedService
+
   constructor(
     private db: Database,
     private pipelineService?: PipelineService,
   ) {}
+
+  /** Set the activity feed service (avoids circular dep in constructor) */
+  setActivityFeedService(service: ActivityFeedService): void {
+    this.activityFeedService = service
+  }
 
   async create(input: CreateCaptureInput): Promise<CaptureRecord> {
     const hash = contentHash(input.content)
@@ -96,6 +104,19 @@ export class CaptureService {
         const msg = err instanceof Error ? err.message : String(err)
         logger.warn({ captureId: created.id, err: msg }, `Failed to enqueue pipeline for capture ${created.id}`)
       }
+    }
+
+    // Insert activity feed entry (fire-and-forget — must not fail capture creation)
+    if (this.activityFeedService) {
+      this.activityFeedService.insertCapture({
+        id: created.id,
+        content: created.content,
+        capture_type: created.capture_type,
+        brain_view: created.brain_view,
+        source: created.source,
+      }).catch((err) => {
+        logger.debug({ err, captureId: created.id }, 'Activity feed insert failed for capture')
+      })
     }
 
     return created as CaptureRecord

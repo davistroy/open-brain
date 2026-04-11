@@ -22,6 +22,7 @@ import {
   handleConnectionsCommand,
   handleDriftCommand,
   handlePipelineStatus,
+  handleEmailCommand,
   handleHelp,
   HELP_TEXT,
 } from './commands/index.js'
@@ -131,6 +132,10 @@ export async function handleCommand(
 
       case 'drift':
         await handleDriftCommand(ts, say, coreApiClient)
+        break
+
+      case 'email':
+        await handleEmailCommand(ts, say, coreApiClient, subCmd, subCmdRaw, args)
         break
 
       case 'help':
