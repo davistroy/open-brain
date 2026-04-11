@@ -37,25 +37,14 @@ export function createAnthropicClient(opts?: CreateAnthropicClientOptions): Anth
     ? opts.timeout
     : TIMEOUT_MS[opts?.timeout ?? 'standard']
 
-  // OAuth tokens (sk-ant-oat*) must be sent as Authorization: Bearer,
-  // not x-api-key. Regular API keys (sk-ant-api*) use x-api-key.
+  // OAuth tokens (sk-ant-oat*) use Authorization: Bearer via authToken.
+  // Regular API keys (sk-ant-api*) use x-api-key via apiKey.
   const isOAuthToken = apiKey.startsWith('sk-ant-oat')
+  const retries = opts?.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}
 
   if (isOAuthToken) {
-    return new Anthropic({
-      apiKey: 'oauth-placeholder', // SDK requires a non-empty apiKey
-      timeout,
-      ...(opts?.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
-      defaultHeaders: {
-        'Authorization': `Bearer ${apiKey}`,
-        'x-api-key': '', // clear the default x-api-key header
-      },
-    })
+    return new Anthropic({ authToken: apiKey, timeout, ...retries })
   }
 
-  return new Anthropic({
-    apiKey,
-    timeout,
-    ...(opts?.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
-  })
+  return new Anthropic({ apiKey, timeout, ...retries })
 }
