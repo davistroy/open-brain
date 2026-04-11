@@ -21,6 +21,7 @@ import { registerSystemHealthRoutes } from './routes/system-health.js'
 import { registerDocumentRoutes } from './routes/documents.js'
 import { registerSynthesizeRoutes } from './routes/synthesize.js'
 import { registerIntelligenceRoutes } from './routes/intelligence.js'
+import { registerWikiRoutes } from './routes/wiki.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -31,6 +32,7 @@ import type { BetService } from './services/bet.js'
 import type { SessionService } from './services/session.js'
 import type { LLMGatewayService } from './services/llm-gateway.js'
 import type { SystemHealthService } from './services/system-health.js'
+import type { WikiService } from './services/wiki.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -57,11 +59,13 @@ interface AppDependencies {
   llmGateway?: LLMGatewayService
   /** System health service — required for GET /api/v1/system/health */
   systemHealthService?: SystemHealthService
+  /** Wiki service — required for wiki API endpoints and MCP wiki tools */
+  wikiService?: WikiService
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -146,9 +150,14 @@ export function createApp(deps: AppDependencies = {}): Hono {
     registerSystemHealthRoutes(app, systemHealthService)
   }
 
+  // Wiki API
+  if (wikiService) {
+    registerWikiRoutes(app, wikiService)
+  }
+
   // MCP endpoint — requires all services to be available
   if (captureService && searchService && configService && db) {
-    mountMcpServer(app, { captureService, searchService, configService, db, entityService })
+    mountMcpServer(app, { captureService, searchService, configService, db, entityService, wikiService })
   }
 
   return app

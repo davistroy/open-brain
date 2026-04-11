@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -490,6 +490,64 @@ export const betsApi = {
       method: 'PATCH',
       body: JSON.stringify({ resolution }),
     }).then(mapRawBet)
+  },
+}
+
+// Wiki API
+
+export const wikiApi = {
+  /** List all wiki pages (metadata only, no content) */
+  pages: (directory?: string) => {
+    const qs = buildQueryString({ directory: directory ?? '' })
+    return request<{ pages: WikiPageMeta[] }>(`/wiki/pages${qs}`)
+      .then((r) => r.pages)
+  },
+
+  /** Get a single wiki page with full content */
+  page: (pagePath: string) => {
+    return request<WikiPageFull>(`/wiki/pages/${encodeURIComponent(pagePath)}`)
+  },
+
+  /** Get recent changes (git log) */
+  recentChanges: (limit = 20) => {
+    const qs = buildQueryString({ limit })
+    return request<{ changes: WikiRecentChange[] }>(`/wiki/changes${qs}`)
+      .then((r) => r.changes)
+  },
+
+  /** Get the lint report */
+  lintReport: () => {
+    return request<WikiLintReport>('/wiki/lint')
+  },
+
+  /** Search wiki pages */
+  search: (q: string) => {
+    const qs = buildQueryString({ q })
+    return request<{ pages: WikiPageMeta[] }>(`/wiki/search${qs}`)
+      .then((r) => r.pages)
+  },
+
+  /** Trigger a wiki re-ingest for a specific capture */
+  triggerIngest: (captureId: string) => {
+    return request<{ job_id: string }>('/wiki/ingest', {
+      method: 'POST',
+      body: JSON.stringify({ capture_id: captureId }),
+    })
+  },
+
+  /** Trigger the wiki lint skill */
+  triggerLint: () => {
+    return request<{ job_id: string }>('/wiki/lint', {
+      method: 'POST',
+    })
+  },
+
+  /** Trigger re-synthesis for a specific wiki page */
+  triggerResynthesize: (pagePath: string) => {
+    return request<{ job_id: string }>('/wiki/resynthesize', {
+      method: 'POST',
+      body: JSON.stringify({ page_path: pagePath }),
+    })
   },
 }
 

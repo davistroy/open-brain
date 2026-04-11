@@ -18,8 +18,9 @@ import { createAccessStatsWorker } from './jobs/update-access-stats.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
 import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { createIngestRootWorker } from './jobs/ingest-root.js'
+import { createWikiIngestWorker } from './jobs/wiki-ingest-worker.js'
 import { registerScheduledJobs } from './scheduler.js'
-import { logger, TemplateCache, PushoverService } from '@open-brain/shared'
+import { logger, TemplateCache, PushoverService, WikiGitService } from '@open-brain/shared'
 import { FlowProducer } from 'bullmq'
 import type { Worker } from 'bullmq'
 
@@ -80,6 +81,27 @@ async function main() {
   const connection = parseRedisUrl(redisUrl)
   logger.info({ host: connection.host, port: connection.port }, 'Redis connection')
 
+  // Wiki Git service (optional — requires WIKI_REPO_URL)
+  const wikiRepoUrl = process.env.WIKI_REPO_URL
+  const wikiLocalPath = process.env.WIKI_LOCAL_PATH ?? '/tmp/open-brain-wiki'
+  let wikiService: WikiGitService | undefined
+
+  if (wikiRepoUrl) {
+    wikiService = new WikiGitService({
+      repoUrl: wikiRepoUrl,
+      localPath: wikiLocalPath,
+    })
+    try {
+      await wikiService.init()
+      logger.info({ repoUrl: wikiRepoUrl, localPath: wikiLocalPath }, 'WikiGitService initialized')
+    } catch (err) {
+      logger.warn({ err }, 'WikiGitService init failed — wiki-ingest will be unavailable')
+      wikiService = undefined
+    }
+  } else {
+    logger.info('WIKI_REPO_URL not set — wiki-ingest worker disabled')
+  }
+
   // Queues
   const queues = createAllQueues(connection)
   logger.info('Queues created')
@@ -126,7 +148,19 @@ async function main() {
     promptsDir,
     coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
     configService,
+    anthropicClient: anthropicClient ?? undefined,
+    wikiService,
   }))
+
+  // Wiki-ingest worker — dedicated worker for wiki integration (rate-limited, concurrency=1)
+  if (wikiService) {
+    workers.push(createWikiIngestWorker(connection, db, {
+      wikiService,
+      anthropicClient: anthropicClient ?? undefined,
+      promptsDir,
+      templates,
+    }))
+  }
 
   logger.info({ count: workers.length }, 'All workers registered')
 

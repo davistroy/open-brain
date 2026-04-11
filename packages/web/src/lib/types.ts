@@ -174,6 +174,47 @@ export interface QueueHealth {
   delayed: number
 }
 
+// ─── Wiki types ──────────────────────────────────────────────────────────────
+
+export type WikiPageType = 'entity' | 'concept' | 'source' | 'comparison' | 'synthesis' | 'overview'
+
+export interface WikiPageMeta {
+  path: string
+  title: string
+  type: WikiPageType
+  created: string
+  updated: string
+  source_count?: number
+  tags?: string[]
+  aliases?: string[]
+}
+
+export interface WikiPageFull extends WikiPageMeta {
+  content: string
+}
+
+export interface WikiRecentChange {
+  hash: string
+  date: string
+  message: string
+  files: string[]
+}
+
+export interface WikiLintIssue {
+  page: string
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  rule: string
+}
+
+export interface WikiLintReport {
+  total_pages: number
+  issues: WikiLintIssue[]
+  last_run?: string
+}
+
+// ─── System health ───────────────────────────────────────────────────────────
+
 /** System health snapshot from GET /api/v1/system/health */
 export interface SystemHealthData {
   status: 'healthy' | 'degraded' | 'unhealthy'

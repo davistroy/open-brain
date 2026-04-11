@@ -8,6 +8,8 @@ import { executeDriftMonitor } from '../skills/drift-monitor.js'
 import { executeDailySweep } from '../skills/daily-sweep-skill.js'
 import { executeMemoryConsolidation } from '../skills/memory-consolidation.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
+import type Anthropic from '@anthropic-ai/sdk'
+import type { WikiGitService } from '@open-brain/shared'
 
 /**
  * BullMQ worker that consumes the `skill-execution` queue and dispatches
@@ -31,6 +33,8 @@ export function createSkillExecutionWorker(
     promptsDir: string
     coreApiUrl: string
     configService: ConfigService
+    anthropicClient?: Anthropic
+    wikiService?: WikiGitService
   },
 ): Worker {
   // Resolve model aliases from ai-routing.yaml so skills send actual model
@@ -157,6 +161,33 @@ export function createSkillExecutionWorker(
           logger.info(
             { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
             '[skill-execution] memory-consolidation complete',
+          )
+          break
+        }
+
+        case 'wiki-ingest': {
+          const captureId = job.data.captureId ?? (typeof input?.captureId === 'string' ? input.captureId : undefined)
+          if (!captureId) {
+            throw new UnrecoverableError('[skill-execution] wiki-ingest requires captureId')
+          }
+          if (!opts.wikiService) {
+            throw new UnrecoverableError('[skill-execution] wiki-ingest requires wikiService — WikiGitService not configured')
+          }
+          const { executeWikiIngest } = await import('../skills/wiki-ingest.js')
+          const result = await executeWikiIngest(db, captureId, opts.wikiService, {
+            anthropicClient: opts.anthropicClient,
+            promptsDir: opts.promptsDir,
+          })
+          logger.info(
+            {
+              skillName,
+              captureId,
+              pagesCreated: result.pagesCreated.length,
+              pagesUpdated: result.pagesUpdated.length,
+              skipped: result.skipped,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] wiki-ingest complete',
           )
           break
         }

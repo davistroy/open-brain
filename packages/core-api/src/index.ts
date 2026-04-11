@@ -17,6 +17,7 @@ import { GovernanceEngine } from './services/governance-engine.js'
 import { SkillConfigService, initSkillConfigSingleton } from './services/skill-config.js'
 import { logger } from '@open-brain/shared'
 import { SystemHealthService } from './services/system-health.js'
+import { WikiService } from './services/wiki.js'
 import { pgNotify } from './lib/pg-notify.js'
 
 // Load config
@@ -85,6 +86,30 @@ if (litellmClient) {
 const sessionService = new SessionService(db, captureService, governanceEngine)
 const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl)
 
+// Wiki service — optional, requires WIKI_REPO_URL and WIKI_LOCAL_PATH env vars
+let wikiService: WikiService | undefined
+let wikiIngestQueue: Queue | undefined
+let wikiLintQueue: Queue | undefined
+const wikiRepoUrl = process.env.WIKI_REPO_URL
+const wikiLocalPath = process.env.WIKI_LOCAL_PATH
+if (wikiRepoUrl && wikiLocalPath) {
+  wikiIngestQueue = new Queue('wiki-ingest', { connection: redisConnection })
+  wikiLintQueue = new Queue('wiki-lint', { connection: redisConnection })
+  wikiService = new WikiService({
+    repoUrl: wikiRepoUrl,
+    localPath: wikiLocalPath,
+    wikiIngestQueue,
+    wikiLintQueue,
+  })
+  wikiService.init().then(() => {
+    logger.info('WikiService initialized')
+  }).catch((err) => {
+    logger.warn({ err }, 'WikiService init failed — wiki endpoints will return errors')
+  })
+} else {
+  logger.info('WIKI_REPO_URL or WIKI_LOCAL_PATH not set — wiki endpoints disabled')
+}
+
 const app = createApp({
   configService,
   captureService,
@@ -100,6 +125,7 @@ const app = createApp({
   documentPipelineQueue,
   llmGateway,
   systemHealthService,
+  wikiService,
 })
 const port = Number(process.env.PORT ?? 3000)
 
@@ -120,11 +146,14 @@ const shutdown = async () => {
   logger.info('Shutting down...')
 
   // 1. Close BullMQ queues (stop accepting new jobs)
-  await Promise.allSettled([
+  const queueClosePromises = [
     capturePipelineQueue.close(),
     skillQueue.close(),
     documentPipelineQueue.close(),
-  ])
+  ]
+  if (wikiIngestQueue) queueClosePromises.push(wikiIngestQueue.close())
+  if (wikiLintQueue) queueClosePromises.push(wikiLintQueue.close())
+  await Promise.allSettled(queueClosePromises)
   logger.info('BullMQ queues closed')
 
   // 2. Stop Postgres LISTEN/NOTIFY

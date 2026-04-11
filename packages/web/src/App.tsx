@@ -7,6 +7,7 @@ const Search = lazy(() => import('@/pages/Search'));
 const Timeline = lazy(() => import('@/pages/Timeline'));
 const Entities = lazy(() => import('@/pages/Entities'));
 const EntityDetail = lazy(() => import('@/pages/EntityDetail'));
+const Wiki = lazy(() => import('@/pages/Wiki'));
 const Briefs = lazy(() => import('@/pages/Briefs'));
 const Board = lazy(() => import('@/pages/Board'));
 const Voice = lazy(() => import('@/pages/Voice'));
@@ -34,6 +35,8 @@ export default function App() {
           <Route path="timeline" element={<Timeline />} />
           <Route path="entities" element={<Entities />} />
           <Route path="entities/:id" element={<EntityDetail />} />
+          <Route path="wiki" element={<Wiki />} />
+          <Route path="wiki/*" element={<Wiki />} />
           <Route path="briefs" element={<Briefs />} />
           <Route path="board" element={<Board />} />
           <Route path="voice" element={<Voice />} />
