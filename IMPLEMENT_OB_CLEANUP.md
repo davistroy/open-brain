@@ -50,9 +50,9 @@ Phase 1 (cleanup) and Phase 2 (code fixes) are independent and can run in parall
 
 ### Work Items
 
-#### 1.1 Delete stale `packages/workers/src/src/` directory
+#### 1.1 Delete stale `packages/workers/src/src/` directory ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #5
 **Files Affected:**
 - `packages/workers/src/src/` on homeserver (delete entire directory)
@@ -74,9 +74,9 @@ This directory is NOT in git — it only exists on the homeserver filesystem. No
 
 ---
 
-#### 1.2 Delete orphaned test capture
+#### 1.2 Delete orphaned test capture ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #6
 **Files Affected:**
 - Database row: `captures` table, id `477f2087-1c9e-4012-98d1-5dc4d2b108a7`
@@ -97,9 +97,9 @@ Must include `X-Open-Brain-Caller: integration-test` header to bypass rate limit
 
 ---
 
-#### 1.3 Commit backup.sh to git and activate cron
+#### 1.3 Commit backup.sh to git and activate cron ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #7
 **Files Affected:**
 - `scripts/backup.sh` (retrieve from homeserver, commit to git)
@@ -127,9 +127,9 @@ The script uses `docker exec` for pg_dump, which requires the postgres container
 
 ---
 
-#### 1.4 Delete stale Dockerfile.prebuild
+#### 1.4 Delete stale Dockerfile.prebuild ✅ Completed 2026-04-10
 <!-- Status values: PENDING, IN_PROGRESS, COMPLETE [YYYY-MM-DD] -->
-**Status: PENDING**
+**Status: COMPLETE [2026-04-10]**
 **Requirement Refs:** Health check item #7
 **Files Affected:**
 - `packages/web/Dockerfile.prebuild` on homeserver (delete)
