@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, type MockInstance } from 'vitest'
 import { join } from 'node:path'
 import { WeeklyBriefSkill } from '../skills/weekly-brief.js'
 import type { WeeklyBriefOutput } from '../skills/weekly-brief.js'
-import { PushoverService } from '../services/pushover.js'
+import { PushoverService, HimalayaService } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 
 // Prompt templates live at <repo-root>/config/prompts/ — go up two levels from packages/workers
@@ -116,6 +116,15 @@ function makeEmailService(configured = true) {
   return svc
 }
 
+function makeHimalayaService(configured = true) {
+  const svc = new HimalayaService(configured ? { configPath: '/etc/himalaya/config.toml' } : {})
+  if (!configured) {
+    Object.defineProperty(svc, 'isConfigured', { get: () => false })
+  }
+  vi.spyOn(svc, 'send').mockResolvedValue({ success: true, output: 'msg-id-123' })
+  return svc
+}
+
 /**
  * Builds a WeeklyBriefSkill with all external I/O mocked.
  */
@@ -124,6 +133,7 @@ function makeSkill(opts: {
   briefOutput?: WeeklyBriefOutput
   pushoverConfigured?: boolean
   emailConfigured?: boolean
+  himalayaConfigured?: boolean
   promptsDir?: string
   coreApiResponse?: { ok: boolean; json?: object; status?: number }
 } = {}) {
@@ -131,6 +141,7 @@ function makeSkill(opts: {
   const mockLitellm = makeMockOpenAI(opts.briefOutput ?? SAMPLE_BRIEF_JSON)
   const pushover = makePushoverService(opts.pushoverConfigured ?? true)
   const email = makeEmailService(opts.emailConfigured ?? true)
+  const himalaya = makeHimalayaService(opts.himalayaConfigured ?? false)
 
   // Mock fetch for save-brief-capture
   const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'saved-cap-id' } }
@@ -146,6 +157,7 @@ function makeSkill(opts: {
     promptsDir: opts.promptsDir ?? REPO_PROMPTS_DIR,
     coreApiUrl: 'http://localhost:3000',
     pushover,
+    himalaya,
     email,
   })
 
@@ -156,7 +168,7 @@ function makeSkill(opts: {
   // Replace global fetch
   vi.stubGlobal('fetch', mockFetch)
 
-  return { skill, db, mockLitellm, pushover, email, mockFetch }
+  return { skill, db, mockLitellm, pushover, email, himalaya, mockFetch }
 }
 
 // ============================================================
@@ -198,8 +210,8 @@ describe('WeeklyBriefSkill', () => {
       expect(result.brief).toHaveProperty('connections')
     })
 
-    it('sends Pushover notification with brief headline', async () => {
-      const { skill, pushover } = makeSkill()
+    it('sends Pushover notification when no email services configured', async () => {
+      const { skill, pushover } = makeSkill({ himalayaConfigured: false, emailConfigured: false })
       await skill.execute({ emailTo: 'troy@example.com' })
 
       expect(pushover.send).toHaveBeenCalledWith(
@@ -211,8 +223,8 @@ describe('WeeklyBriefSkill', () => {
       )
     })
 
-    it('sends email to the specified recipient', async () => {
-      const { skill, email } = makeSkill()
+    it('sends email via nodemailer when Himalaya not configured', async () => {
+      const { skill, email } = makeSkill({ himalayaConfigured: false })
       await skill.execute({ emailTo: 'troy@stratfield.io' })
 
       expect(email.send).toHaveBeenCalledWith(
@@ -246,6 +258,7 @@ describe('WeeklyBriefSkill', () => {
       expect(logEntry.skill_name).toBe('weekly-brief')
       expect(logEntry.input_summary).toContain('3 captures')
       expect(logEntry.output_summary).toContain('headline:')
+      expect(logEntry.output_summary).toContain('delivery:')
     })
 
     it('calls LLM with weekly_brief_v1 template variables substituted', async () => {
@@ -395,7 +408,7 @@ describe('WeeklyBriefSkill', () => {
 
   describe('delivery — non-fatal failures', () => {
     it('continues if Pushover delivery fails', async () => {
-      const { skill, pushover } = makeSkill()
+      const { skill, pushover } = makeSkill({ himalayaConfigured: false, emailConfigured: false })
       vi.spyOn(pushover, 'send').mockRejectedValue(new Error('Pushover API down'))
 
       // Should not throw
@@ -403,12 +416,24 @@ describe('WeeklyBriefSkill', () => {
       expect(result.brief.headline).toBe(SAMPLE_BRIEF_JSON.headline)
     })
 
-    it('continues if email delivery fails', async () => {
-      const { skill, email } = makeSkill()
+    it('continues if email delivery fails and falls back to Pushover', async () => {
+      const { skill, email, pushover } = makeSkill({ himalayaConfigured: false })
       vi.spyOn(email, 'send').mockRejectedValue(new Error('SMTP connection refused'))
 
       const result = await skill.execute({ emailTo: 'test@test.com' })
       expect(result.brief.headline).toBe(SAMPLE_BRIEF_JSON.headline)
+      // Pushover should be tried as fallback
+      expect(pushover.send).toHaveBeenCalled()
+    })
+
+    it('falls back from Himalaya to nodemailer when Himalaya fails', async () => {
+      const { skill, himalaya, email } = makeSkill({ himalayaConfigured: true })
+      vi.spyOn(himalaya, 'send').mockRejectedValue(new Error('SMTP unreachable'))
+
+      const result = await skill.execute({ emailTo: 'test@test.com' })
+      expect(result.brief.headline).toBe(SAMPLE_BRIEF_JSON.headline)
+      // nodemailer should be tried as fallback
+      expect(email.send).toHaveBeenCalled()
     })
 
     it('continues if Core API save-back fails', async () => {
@@ -438,27 +463,84 @@ describe('WeeklyBriefSkill', () => {
   // ----------------------------------------------------------
 
   describe('notification configuration', () => {
-    it('skips Pushover if not configured', async () => {
-      const { skill, pushover } = makeSkill({ pushoverConfigured: false })
+    it('skips Pushover when not configured and all other delivery fails', async () => {
+      const { skill, pushover } = makeSkill({ pushoverConfigured: false, himalayaConfigured: false, emailConfigured: false })
       await skill.execute({ emailTo: 'test@test.com' })
 
       expect(pushover.send).not.toHaveBeenCalled()
     })
 
-    it('skips email if not configured', async () => {
-      const { skill, email } = makeSkill({ emailConfigured: false })
+    it('skips nodemailer if not configured, falls back to Pushover', async () => {
+      const { skill, email, pushover } = makeSkill({ emailConfigured: false, himalayaConfigured: false })
       await skill.execute({ emailTo: 'test@test.com' })
 
       expect(email.send).not.toHaveBeenCalled()
+      expect(pushover.send).toHaveBeenCalled()
     })
 
-    it('skips email if emailTo is not provided', async () => {
-      const { skill, email } = makeSkill()
+    it('skips all email delivery if emailTo is not provided, falls back to Pushover', async () => {
+      const { skill, email, himalaya, pushover } = makeSkill({ himalayaConfigured: true })
       // No emailTo passed, no env var set
       delete process.env.WEEKLY_BRIEF_EMAIL
       await skill.execute()
 
+      expect(himalaya.send).not.toHaveBeenCalled()
       expect(email.send).not.toHaveBeenCalled()
+      // Pushover still fires (no emailTo needed)
+      expect(pushover.send).toHaveBeenCalled()
+    })
+  })
+
+  // ----------------------------------------------------------
+  // Himalaya delivery
+  // ----------------------------------------------------------
+
+  describe('Himalaya delivery', () => {
+    it('uses Himalaya as primary delivery when configured', async () => {
+      const { skill, himalaya, email } = makeSkill({ himalayaConfigured: true })
+      await skill.execute({ emailTo: 'troy@stratfield.io' })
+
+      expect(himalaya.send).toHaveBeenCalledWith(
+        'troy@stratfield.io',
+        expect.stringContaining('Open Brain Weekly Brief'),
+        expect.any(String),
+      )
+      // nodemailer should NOT be called since Himalaya succeeded
+      expect(email.send).not.toHaveBeenCalled()
+    })
+
+    it('does not use Himalaya when not configured', async () => {
+      const { skill, himalaya, email } = makeSkill({ himalayaConfigured: false })
+      await skill.execute({ emailTo: 'troy@stratfield.io' })
+
+      expect(himalaya.send).not.toHaveBeenCalled()
+      // Falls back to nodemailer
+      expect(email.send).toHaveBeenCalled()
+    })
+
+    it('cascades through all three methods when each fails', async () => {
+      const { skill, himalaya, email, pushover } = makeSkill({ himalayaConfigured: true })
+      vi.spyOn(himalaya, 'send').mockRejectedValue(new Error('SMTP down'))
+      vi.spyOn(email, 'send').mockRejectedValue(new Error('SMTP refused'))
+
+      const result = await skill.execute({ emailTo: 'test@test.com' })
+
+      // All three should have been attempted
+      expect(himalaya.send).toHaveBeenCalled()
+      expect(email.send).toHaveBeenCalled()
+      expect(pushover.send).toHaveBeenCalled()
+      // Brief should still complete
+      expect(result.brief.headline).toBe(SAMPLE_BRIEF_JSON.headline)
+    })
+
+    it('logs delivery method in skills_log output', async () => {
+      const { skill, db } = makeSkill({ himalayaConfigured: true })
+      await skill.execute({ emailTo: 'troy@test.com' })
+
+      const insertSpy = db.insert as MockInstance
+      const valuesSpy = insertSpy.mock.results[0].value.values as MockInstance
+      const logEntry = valuesSpy.mock.calls[0][0]
+      expect(logEntry.output_summary).toContain('delivery:himalaya')
     })
   })
 
@@ -474,6 +556,7 @@ describe('WeeklyBriefSkill', () => {
       const mockLitellm = makeMockOpenAI()
       const pushover = makePushoverService()
       const email = makeEmailService()
+      const himalaya = makeHimalayaService(false)
 
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
         ok: true,
@@ -486,6 +569,7 @@ describe('WeeklyBriefSkill', () => {
         promptsDir: REPO_PROMPTS_DIR,
         coreApiUrl: 'http://localhost:3000',
         pushover,
+        himalaya,
         email,
       })
       // @ts-ignore

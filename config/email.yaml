@@ -1,0 +1,20 @@
+# Email configuration for Open Brain outbound email
+# See PRD-UNIFIED section 18.10 (F13.10)
+
+himalaya:
+  config_path: /app/config/himalaya/config.toml
+  default_account: personal
+
+outbound:
+  default_from: troy@troy-davis.com
+  display_name: "Troy Davis"
+  signature: |
+    Troy Davis
+    Stratfield Consulting
+    ---
+    This email may have been drafted with AI assistance.
+  default_mode: review-required  # review-required | auto-send
+  auto_send_rules:
+    - type: skill-output  # weekly briefs, reflections auto-send
+    - match:
+        to: "self"  # emails to self always auto-send

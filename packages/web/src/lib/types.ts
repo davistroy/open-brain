@@ -373,6 +373,7 @@ export interface TranscriptTurn {
 
 export interface VoiceSession {
   id: string
+  session_key: string
   started_at: string
   ended_at: string | null
   duration_s: number | null
