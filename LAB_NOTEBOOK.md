@@ -50,7 +50,11 @@
 | D38 | Cost-tiered processing: T0 Python → T1 local LLM → T2 CLI → T3 API | 2026-04-12 | ACTIVE | Entry 030 | Mandatory for all new features. Codified in CLAUDE.md. |
 | D39 | Claude Code CLI (`claude --print`) for batch/async LLM tasks | 2026-04-12 | ACTIVE | Entry 030 | Covered by Max subscription, no per-token cost |
 | D40 | Two-track pipeline: real-time (API) vs batch (Python+CLI) | 2026-04-12 | ACTIVE | Entry 030 | Batch sources → summary capture only enters full pipeline |
-| D41 | Test smaller Ollama models for T1 (Gemma 3 4B, Phi-3 Mini) | 2026-04-12 | ACTIVE | Entry 030 | Gemma 4 12B too slow; smaller models may work for simple classification |
+| D41 | Test smaller Ollama models for T1 (Gemma 3 4B, Phi-3 Mini) | 2026-04-12 | SUPERSEDED by D43 | Entry 030 | Tested; Jetson GPU is the answer, not homeserver CPU |
+| D42 | Keep OpenAI embeddings for now ($2-5/month) | 2026-04-12 | ACTIVE | Entry 031 | Revisit when RTX PRO 2000 purchased or volume increases |
+| D43 | Jetson is current T1 classification endpoint (0.67s/call) | 2026-04-12 | ACTIVE | Entry 031 | Qwen 3.5 4B, llama.cpp, port 8080, --reasoning off |
+| D44 | Thinking mode caused T0 validation failures — always use think:false | 2026-04-12 | ACTIVE | Entry 031 | Corrects D36; models are accurate, thinking was the problem |
+| D45 | nomic-embed-text is preferred local embedding model (768-dim) | 2026-04-12 | ACTIVE | Entry 031 | Drop-in for OpenAI, 800ms CPU / <50ms GPU |
 
 ## Action Items
 
@@ -1623,3 +1627,117 @@ Gemma 4 12B on i7-9700 CPU validation completed:
 - New data sources (email, financial) should be designed Track B from the start
 
 **Status:** COMPLETE — principle established, codified in CLAUDE.md, memory files created.
+
+### Entry 031: Local LLM + Embedding Benchmarking — Model Selection for T1 Tier [benchmark] [infrastructure] [decision]
+
+**Date:** 2026-04-12
+**Environment:** Homeserver (Ollama, i7-9700 CPU), Jetson Orin Nano (llama.cpp, GPU), DGX Spark (vLLM, GPU)
+**Status:** COMPLETE
+**Tags:** `[benchmark]` `[infrastructure]` `[decision]`
+
+**Objective:** Benchmark available local LLM and embedding models across all hardware to determine the best T1 classification tier and whether local embeddings can replace OpenAI.
+
+---
+
+#### Correction: Gemma 4 Model Sizes
+
+The earlier T0 validation (Entry 029) incorrectly called `gemma4:e4b` "Gemma 4 12B". Actual sizes:
+- `gemma4:e4b` = **8.0B** Q4_K_M (9.6 GB)
+- `gemma4:e2b` = **5.1B** Q4_K_M (7.2 GB)
+
+The 57s latency from Entry 029 was largely caused by **thinking mode being ON by default** — the model was generating reasoning chains before answering, consuming all tokens and time. With `think:false`, the same 8B model classifies in 8-20s.
+
+#### Classification Model Benchmarks (think:false)
+
+**Homeserver CPU (i7-9700, Ollama):**
+
+| Model | Params | Intent | Type | View | Avg | Correct? |
+|-------|--------|--------|------|------|-----|----------|
+| qwen3.5:2b | 2.3B Q8 | 10.7s | 11.0s | 9.7s | **10.5s** | All correct |
+| gemma4:e2b | 5.1B Q4 | 19.6s | 10.1s | 10.5s | 13.4s | All correct |
+| gemma4:e4b | 8.0B Q4 | 20.3s | 10.3s | 7.7s | 12.8s | All correct |
+| qwen3.5:4b | 4.7B Q4 | 25.1s | 19.9s | 27.9s | 24.3s | All correct |
+
+**Jetson Orin Nano GPU (llama.cpp, already running):**
+
+| Model | Params | Intent | Type | View | Email | Avg |
+|-------|--------|--------|------|------|-------|-----|
+| qwen3.5-4b | 4.7B Q4 | 0.70s | 0.70s | 0.62s | 0.66s | **0.67s** |
+
+Jetson was already configured and running since March 30: llama-server with `--reasoning off --flash-attn on --n-gpu-layers 999` on port 8080. 13 days uptime.
+
+**Key insight:** Thinking mode was the root cause of all T0 failures. With thinking disabled, all models give correct answers. The i7-9700 is still 10-25s (too slow for inline pipeline), but the Jetson at 0.67s is production-ready.
+
+#### Embedding Model Benchmarks
+
+| Model | Params | Dims | Where | Avg Latency | Cost |
+|-------|--------|------|-------|-------------|------|
+| OpenAI text-embedding-3-large | ? | **768** (MRL) | Cloud API | ~200ms | $0.13/1M tokens |
+| Qwen 3 Embedding 4B | 4B | 2560 | Spark GPU | **195ms** | Free |
+| Qwen 3 Embedding 7.6B | 7.6B | 4096 | Homeserver CPU | 4,700ms | Free |
+| nomic-embed-text | 137M | **768** | Homeserver CPU | **800ms** | Free |
+
+**Qwen 3 Embedding analysis:**
+- Ollama's `qwen3-embedding` pulls the 7.6B model (not 4B) — 4096-dim output
+- The 4B variant on Spark outputs 2560-dim
+- Neither matches Open Brain's `vector(768)` schema
+- Qwen embeddings support Matryoshka truncation (trained for it) but Ollama doesn't expose the parameter — would need client-side truncation
+- 7.6B on CPU: 4.7s per embedding — too slow
+- 4B on Spark: 195ms — fast but Spark comes and goes
+
+**nomic-embed-text analysis:**
+- 137M params, F16 (274 MB) — tiny
+- **768 dimensions natively** — drop-in replacement for OpenAI, no schema change
+- 800ms on homeserver CPU — acceptable for current volume
+- Would be <50ms on the RTX PRO 2000 GPU
+- Lower quality ceiling than Qwen 3 on benchmarks, but adequate for personal corpus
+
+#### Hardware Evaluation: NVIDIA RTX PRO 2000 Blackwell
+
+Evaluated PNY NVIDIA RTX PRO 2000 Blackwell ($549 at Micro Center):
+- 16GB GDDR7 dedicated VRAM, ~448 GB/s bandwidth
+- Blackwell B60 GPU, ~4,608 CUDA cores
+- 70W TDP, single-slot, single-fan, low-profile capable
+- PCIe 5.0 x8
+
+**Impact for Open Brain if purchased:**
+- Run Qwen 3.5 9B Q5_K_M (~7 GB) for T1 classification + entity extraction (<500ms)
+- Run nomic-embed-text for local embeddings (<50ms)
+- Eliminates ~$6-8/month Haiku costs + $2-5/month OpenAI embedding costs
+- Makes inline pipeline T1 viable (no two-track needed for classification)
+- Pure ROI ~6 years at current spend, but value is removing cost anxiety for future high-volume features
+
+#### Decisions
+
+- D42: **Keep OpenAI text-embedding-3-large for now.** $2-5/month is low priority to eliminate. Switching models requires re-embedding all captures. Revisit when RTX PRO 2000 is purchased or capture volume increases significantly.
+- D43: **Jetson is the current T1 classification endpoint.** Qwen 3.5 4B at 0.67s per classification, already running, `--reasoning off`. Available at `http://jetson.k4jda.net:8080/v1`. Not yet wired into Open Brain pipeline (future task).
+- D44: **Thinking mode is the root cause of T0 failures** (Entry 029). All models give correct classifications with thinking disabled. The validation script and Ollama defaults had thinking ON, which burned all tokens on reasoning chains. Any future local LLM integration MUST use `think:false` / `--reasoning off`.
+- D45: **nomic-embed-text is the preferred local embedding model** if/when switching from OpenAI. 768-dim native (schema-compatible), 800ms on CPU, <50ms on GPU. No Matryoshka truncation needed.
+
+#### Models Installed on Homeserver Ollama
+
+| Model | Params | Size | Purpose |
+|-------|--------|------|---------|
+| gemma4:e4b | 8.0B Q4 | 9.6 GB | Batch analysis (heavy, slow on CPU) |
+| gemma4:e2b | 5.1B Q4 | 7.2 GB | Tested, not better than qwen for classification |
+| qwen3.5:2b | 2.3B Q8 | 2.7 GB | Fastest classification on CPU (~10s) |
+| qwen3.5:4b | 4.7B Q4 | 3.4 GB | Slower than 2b on CPU, skip |
+| qwen3-embedding | 7.6B Q4 | 5.5 GB | 4096-dim, too slow on CPU, dim mismatch |
+| nomic-embed-text | 137M F16 | 274 MB | Best local embedding option (768-dim native) |
+
+#### Models on Jetson (llama.cpp, /home/claude/llm-server/models/)
+
+| Model | Size | Status |
+|-------|------|--------|
+| Qwen_Qwen3.5-4B-Q4_K_M | 2.6 GB | **Currently loaded and serving on port 8080** |
+| Qwen_Qwen3.5-4B-Q5_K_M | 3.1 GB | Available |
+| Qwen_Qwen3-4B-Q5_K_M | 2.7 GB | Available |
+| Qwen2.5-7B-Instruct-Q4_K_M | 4.4 GB | Available (may not fit in 8GB) |
+| DeepSeek-R1-Distill-Qwen-7B-Q4_K_M | 4.4 GB | Available |
+| NVIDIA-Nemotron3-Nano-4B-Q4_K_M | 2.7 GB | Available |
+| Qwen2.5-Coder-3B-Q6_K_L | 2.5 GB | Available |
+| qwen2.5-3b-instruct-q4_k_m | 2.0 GB | Available |
+| Qwen3-Embedding-4B-Q4_K_M | 2.4 GB | Available (embedding model) |
+| Qwen3-Embedding-0.6B-Q8_0 | 610 MB | Available (small embedding) |
+
+**Status:** COMPLETE — benchmarks documented, decisions made, no code changes needed.
