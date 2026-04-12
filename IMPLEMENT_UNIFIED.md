@@ -382,7 +382,7 @@ The homeserver has 128GB DDR4. Gemma 4 12B q4_K_M uses ~10GB. With 16GB limit th
 ---
 
 #### 2.5 Update ConfigService for New Schema
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §7.8 (Config Structure)
 **Files Affected:**
 - `packages/shared/src/services/config-service.ts` (modify)

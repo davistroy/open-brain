@@ -366,5 +366,72 @@ monthly_budget:
       service.load()
       expect(service.getTaskTier('intent_classification')).toBeUndefined()
     })
+
+    it('getMonthlyBudget returns budget from three-tier config', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      const budget = service.getMonthlyBudget()
+      expect(budget.soft_limit_usd).toBe(20)
+      expect(budget.hard_limit_usd).toBe(35)
+    })
+
+    it('getMonthlyBudget returns defaults from legacy config', () => {
+      writeValidConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      const budget = service.getMonthlyBudget()
+      expect(budget.soft_limit_usd).toBe(30)
+      expect(budget.hard_limit_usd).toBe(50)
+    })
+
+    it('warns on invalid tier references in task_routing without crashing', () => {
+      const aiWithBadRef = `
+litellm_url: "https://api.openai.com/v1"
+models:
+  fast:
+    model: gpt-5.4
+    client: litellm
+  synthesis:
+    model: gpt-5.4
+    client: litellm
+  governance:
+    model: gpt-5.4
+    client: litellm
+  intent:
+    model: gpt-5.4
+    client: litellm
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    fallback: null
+task_routing:
+  intent_classification: t0_nonexistent
+  entity_extraction: t1_fast
+monthly_budget:
+  soft_limit_usd: 30
+  hard_limit_usd: 50
+`
+      writeFileSync(join(tmpDir, 'brain-views.yaml'), validBrainViews)
+      writeFileSync(join(tmpDir, 'pipeline.yaml'), validPipeline)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), aiWithBadRef)
+      writeFileSync(join(tmpDir, 'notifications.yaml'), validNotifications)
+
+      const service = new ConfigService(tmpDir)
+      // Should not throw -- just warn
+      expect(() => service.load()).not.toThrow()
+      // The valid reference still resolves correctly
+      const tier = service.getTaskTier('entity_extraction')
+      expect(tier).toBeDefined()
+      expect(tier!.provider).toBe('anthropic')
+      // The invalid reference returns undefined gracefully
+      expect(service.getTaskTier('intent_classification')).toBeUndefined()
+    })
   })
 })
