@@ -1223,3 +1223,47 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 **Test Results:** 2,341+ tests passing, 84 new in Phase 4.
 
 **Status:** COMPLETE — Full Slack auto-response progression implemented (shadow → DM → threaded).
+
+### Entry 026: Phases 5-8 Completion + OneDrive Sync Setup [deploy] [pipeline] [web] [infrastructure]
+
+**Date:** 2026-04-11/12
+**Environment:** Laptop (development) + Homeserver (sync setup)
+**Status:** COMPLETE
+**Tags:** `[deploy]` `[pipeline]` `[web]` `[infrastructure]`
+
+**Objective:** Complete remaining phases 5-8 of IMPLEMENT_UNIFIED.md and set up OneDrive file sync.
+
+**Phase 5 — OneDrive File Migration (5 items):**
+- Python extraction service (8 file types, FastAPI, Docker), rclone sync script
+- Documents API extended with `file` source type + batch endpoint (max 100)
+- File inventory (SQLite + two-tier hashing), dedup detection (exact + near-duplicate HTML report), batch LLM categorization (Spark/Ollama backends, checkpointing)
+
+**Phase 6 — Wiki Construction (4 items, 2 operational):**
+- Batch wiki-ingest orchestrator (domain-by-domain, SQLite checkpoint/resume)
+- Enhanced wiki-ingest prompt (source summaries, frontmatter management, 2+ cross-refs)
+- Pilot + full batch ingestion: tooling ready, execution deferred to deployment
+
+**Phase 7 — Voice & Email (6 items, 2 operational):**
+- VoiceConversations.tsx: fixed API field mapping bugs, added session_key display
+- Email config (email.yaml), 25 tests for Slack email commands
+- Himalaya as primary weekly brief delivery (3-level fallback chain)
+- Email.tsx expanded to 3 tabs (Inbound, Drafts/Outbox, Threads)
+- Pipecat validation + container promotion: deferred to deployment
+
+**Phase 8 — Dashboard & Settings Polish (4 items):**
+- Verified StatusStrip, activity feed, MCP activity all implemented
+- System.tsx expanded to 5 sub-tabs (Queues, Skills, Flows, Infrastructure, MCP Activity)
+- Settings.tsx expanded with Voice, Wiki, Email config sections
+- Consolidated: queue/skill management moved from Settings to System page
+
+**OneDrive Sync Setup (homeserver):**
+- Script: `/mnt/user/appdata/open-brain/scripts/sync-onedrive.sh`
+- Source: `/mnt/user/storage/onedrive/davistroy/` (454,528 files, 207.7 GB)
+- Destination: `/mnt/user/storage/open-brain/raw/`
+- Cron: every 15 minutes (claude user)
+- Passwordless sudo for rsync configured via `/etc/sudoers.d/claude`
+- First sync kicked off 2026-04-12 ~07:28
+
+**Final Test Results:** 2,423 tests passing across all 6 packages, 0 failures.
+
+**Decision:** D30 — All 39 IMPLEMENT_UNIFIED.md items code-complete. 4 operational items (Pipecat validation, container promotion, pilot ingestion, full batch) deferred to deployment sessions.
