@@ -38,6 +38,7 @@
 | D26 | Hebbian co-access tracking pairs top-10 results only | 2026-04-09 | ACTIVE | Entry 019 | All pairs (N^2 explosion), top-5 (insufficient signal) |
 | D27 | Spreading activation max 2 hops, fan-out 10 | 2026-04-09 | ACTIVE | Entry 019 | 3 hops (too slow on dense graphs), 1 hop (misses indirect connections) |
 | D28 | Memory consolidation cosine > 0.92, min cluster 3, weekly | 2026-04-09 | ACTIVE | Entry 019 | Lower threshold (over-merging risk), daily (too aggressive for single user) |
+| D29 | Unified implementation plan: 8 phases, 39 items, ~8,500 LOC | 2026-04-11 | ACTIVE | Entry 021 | Separate plans per feature (fragmented), single mega-plan (too large for subagent execution) |
 
 ## Action Items
 
@@ -1014,5 +1015,82 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 - Stale CF_Authorization cookies create a confusing redirect loop: app → Access login → back to app (cookie accepted but session invalid)
 - The "Unable to find your Access application!" error in the browser was misleading — the app exists. The stale cookie was causing Access to skip the normal login flow and redirect back, where it hit the PWA cache instead of the login page
 - When diagnosing Access issues: always test with clean curl (no cookies) first to distinguish cookie problems from actual misconfiguration
+
+--- New session: 2026-04-11 — Unified implementation plan from PRD-UNIFIED ---
+
+### Entry 021: Unified Implementation Plan (IMPLEMENT_UNIFIED.md) [planning] [architecture] [documentation]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development)
+**Status:** COMPLETE
+**Duration:** ~60 minutes
+**Tags:** `[planning]` `[architecture]` `[documentation]`
+
+**Objective:** Generate a comprehensive, phased implementation plan covering all planned features from PRD-UNIFIED.md (v1.1) — the unified PRD merging the Knowledge OS, Proactive Intelligence, and v2 Architecture Expansion visions.
+
+**Hypothesis:** A thorough codebase investigation will reveal that many PRD-UNIFIED "Planned" features already have partial or full implementations, significantly reducing the true scope of new work. The plan should reflect actual delta, not greenfield assumptions.
+
+**Rollback Plan:** N/A — documentation only.
+
+---
+
+**Process:** Ultra Plan (5-phase rigid workflow) with 4 parallel codebase investigation agents:
+1. Model routing, pipeline architecture, runAgent, health endpoints, activity tracking
+2. Wiki infrastructure, file ingestion, Gitea, Python containers, BullMQ queues, email outbound
+3. Voice infrastructure, web dashboard pages, SSE endpoints, auto-response, confidence scoring, Ollama
+4. Database migrations, Drizzle schema, Docker compose, config files, dependencies, MCP tools
+
+**Key Findings — Codebase significantly ahead of PRD labels:**
+
+| PRD-UNIFIED Status | True Codebase State |
+|-------------------|---------------------|
+| Migrations at 0012 | **0017** (voice_sessions, mcp_activity, email_drafts, container_health, backup_log, activity_feed) |
+| 8 MCP tools | **15 tools** (8 core + 4 wiki conditional + 3 email conditional) |
+| runAgent() planned | **Production-ready** (317 lines, Anthropic SDK, tool-use loop) |
+| FlowProducer DAG planned | **Behind feature flag** (`PIPELINE_USE_FLOWS=true`) |
+| Infrastructure skills planned | **7 of 9 exist as code files** (need scheduler wiring) |
+| Wiki layer planned | **WikiGitService + routes + 4 MCP tools exist** (need Gitea setup) |
+| Email outbound planned | **HimalayaService + email_drafts + EmailDraftService exist** |
+| Voice-pipecat planned | **Container deployed** (Deepgram STT + Claude + TTS pipeline running) |
+| Activity feed planned | **Fully implemented** with SSE streaming |
+
+**True greenfield items:** Only Ollama integration, OneDrive file migration tooling (rclone/SQLite/Python extraction), and 2 small skills (secret rotation, dedup sweep).
+
+**Plan Structure (IMPLEMENT_UNIFIED.md):**
+
+| Phase | Focus | Items | Complexity | Dependencies |
+|-------|-------|-------|------------|-------------|
+| 1 | Pipeline & Infrastructure Foundation | 6 | M (~800 LOC) | None |
+| 2 | Three-Tier Model Routing | 6 | L (~1,200 LOC) | None |
+| 3 | Wiki Infrastructure | 4 | M (~900 LOC) | Phase 1 |
+| 4 | Slack Auto-Response Completion | 4 | M (~600 LOC) | Phase 2 |
+| 5 | OneDrive File Migration | 5 | L (~1,500 LOC) | Phases 2, 3 |
+| 6 | Wiki Construction | 4 | M (~400 LOC) | Phases 3, 5 |
+| 7 | Voice & Email Completion | 6 | M (~1,200 LOC) | None |
+| 8 | Dashboard & Settings Polish | 4 | M (~700 LOC) | Phases 1, 2, 3 |
+
+**Total:** 8 phases, 39 work items, ~8,500 LOC across ~95 files.
+**Critical path:** Phase 1 → Phase 3 → Phase 5 → Phase 6
+**Parallel opportunities:** Phases 1+2 parallel. Phase 7 fully independent. 9 parallel work item pairs identified.
+
+**10 Change Sets mapped to 8 phases:**
+- CS2 (Pipeline Flows) + CS9 (Infra Skills) merged into Phase 1 (both independent foundation)
+- CS7 (Voice) + CS8 (Email) merged into Phase 7 (both independent completion)
+- Remaining 6 change sets map 1:1 to phases
+
+**Verification:** All 23 planned feature IDs (F37, F42-F44, F46, v2-F1 through v2-F15, doc1-P1, doc1-P2) traceable in appendix. All phases within 6-item limit. Structural markers present.
+
+**What Worked:**
+- Parallel codebase investigation (4 agents) provided comprehensive coverage in one round
+- Ultra Plan's Phase 2 (interaction mapping) prevented several would-be conflicts (e.g., wiki-ingest as flow child requires Phase 1 before Phase 3)
+- The "investigate before planning" approach correctly identified that ~70% of the work is wiring/stabilization, not new development
+
+**Decision:**
+- Implementation follows PRD-UNIFIED §13.5 ordering: v2 stabilization → file migration → wiki → intelligence → voice (highest risk last)
+- ai-routing.yaml already uses Anthropic/Claude — "interim gpt-5.4" from PRD appears superseded
+
+**Action Items:**
+- Execute IMPLEMENT_UNIFIED.md via `/implement-plan` when ready
+- Phase 1 and Phase 2 can start immediately in parallel
 
 *Entries continue below.*
