@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import uuid
@@ -38,9 +39,19 @@ def _validate_config() -> list[str]:
     """Validate required configuration. Returns list of errors."""
     errors: list[str] = []
     if not settings.deepgram_api_key:
-        errors.append("DEEPGRAM_API_KEY is not set")
+        in_env = "DEEPGRAM_API_KEY" in os.environ
+        env_val = "empty" if in_env else "missing"
+        errors.append(
+            f"DEEPGRAM_API_KEY is not set (env var {env_val}, "
+            f"settings value={settings.deepgram_api_key!r})"
+        )
     if not settings.anthropic_api_key:
-        errors.append("ANTHROPIC_API_KEY is not set")
+        in_env = "ANTHROPIC_API_KEY" in os.environ
+        env_val = "empty" if in_env else "missing"
+        errors.append(
+            f"ANTHROPIC_API_KEY is not set (env var {env_val}, "
+            f"settings value={settings.anthropic_api_key!r})"
+        )
     return errors
 
 

@@ -6,13 +6,12 @@ with environment variable overrides for secrets and runtime config.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _load_voice_yaml() -> dict[str, Any]:
@@ -106,7 +105,10 @@ class Settings(BaseSettings):
     vad_min_speech_ms: int = _yaml_config.get("vad", {}).get("min_speech_ms", 250)
     vad_min_silence_ms: int = _yaml_config.get("vad", {}).get("min_silence_ms", 300)
 
-    model_config = {"env_prefix": "", "case_sensitive": False}
+    model_config = SettingsConfigDict(
+        env_prefix="",
+        case_sensitive=False,
+    )
 
 
 # Singleton — import this from other modules
