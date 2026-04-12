@@ -104,6 +104,70 @@ After any non-trivial finding during deployment, testing, or debugging:
 
 ---
 
+## Cost-Tiered Processing — MANDATORY Design Principle
+
+**Every new feature, pipeline stage, skill, or data source MUST follow this tiering. Do not default to API calls.**
+
+Troy pays for a Claude Max subscription that covers Claude Code. API usage (Anthropic, OpenAI, Deepgram) is an additional per-token expense. The system must minimize API costs by exhausting cheaper tiers first.
+
+### Processing Tiers (in order of preference)
+
+| Tier | What | Cost | When to Use |
+|------|------|------|-------------|
+| **T0: Python/Code** | Parsing, extraction, fetching, rule-based classification, structured data transforms, regex, lookup tables | Free | **Always first.** If code can do it deterministically, code does it. No LLM needed for CSV parsing, known-vendor categorization, date extraction, dedup, or data normalization. |
+| **T1: Small Local LLM** | Simple classification, short summarization, yes/no decisions, sentiment scoring | Free | When T0 can't decide — ambiguous categories, natural language understanding needed, but the task is simple (short input, structured output). Use smallest model that works (Gemma 3 4B, Phi-3 Mini). |
+| **T2: Claude Code CLI** | Complex analysis, multi-document synthesis, reasoning, report generation | Free (subscription) | Batch/async tasks where latency doesn't matter. Daily summaries, weekly analyses, document review, insurance comparison. Use `claude --print` mode. **Aggregate first, then one smart prompt — never call per-item.** |
+| **T3: API (Anthropic/OpenAI)** | Real-time responses, streaming, structured tool_use, embeddings | $$$/token | **Last resort.** Only when a human is actively waiting for an answer: MCP tool responses, Slack queries, voice conversations, interactive governance. Embeddings (OpenAI) have no free alternative and stay here. |
+
+### The Aggregation Rule
+
+**Never call an LLM per-item when you can aggregate.** Examples:
+- 200 emails/day → Python extracts + classifies → **1 CLI call** for daily summary → 1 capture
+- 50 Amazon purchases/month → Python parses order data → **1 CLI call** for monthly analysis → 1 capture
+- 30 financial transactions/day → Python computes deltas → **1 CLI call** for daily briefing → 1 capture
+
+The pattern: **collect → extract (T0) → classify (T0/T1) → aggregate → synthesize (T2) → store as capture**
+
+### Two-Track Pipeline
+
+High-volume batch sources (email, financial, purchases) use a different processing track than real-time captures:
+
+```
+Track A (real-time): Voice, Slack, manual captures, MCP
+  → Full pipeline (embed + extract entities + wiki-ingest)
+  → API for entity extraction (user expects fast response)
+
+Track B (batch): Email, financial data, documents, scraping
+  → Python extraction + rule-based classification (T0)
+  → Local LLM for ambiguous items (T1)
+  → Aggregate into daily/weekly summary captures
+  → Claude CLI for synthesis reports (T2, subscription-covered)
+  → Only synthesis output enters full pipeline as a capture
+```
+
+### When Building New Features — Checklist
+
+Before writing any code that calls an LLM, answer these questions:
+
+1. **Can Python do this without an LLM?** (parsing, regex, lookup, math, API calls) → Do it in Python.
+2. **Is the LLM task simple classification with short input?** → Try local LLM first (T1).
+3. **Is this a batch/async task?** → Use Claude Code CLI (T2, subscription-covered).
+4. **Is a human actively waiting for this response?** → OK to use API (T3).
+5. **Am I calling the LLM per-item?** → Stop. Aggregate first, then one LLM call for the batch.
+
+### Cost Targets
+
+| Component | Monthly Budget |
+|-----------|---------------|
+| Claude Max subscription | $100-200 (fixed, covers Claude Code CLI) |
+| Anthropic API (T3 only) | < $10 (real-time queries only) |
+| OpenAI API (embeddings) | < $10 (no free alternative) |
+| Deepgram (voice) | < $5 |
+| External APIs (Plaid, etc.) | < $10 |
+| **Total beyond subscription** | **< $35/month** |
+
+---
+
 ## What This Is
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents, email (brain@troy-davis.com via Cloudflare Email Worker); stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, and governance sessions.

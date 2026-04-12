@@ -47,6 +47,10 @@
 | D35 | Anthropic API active in production (OpenClaw key for cost tracking) | 2026-04-12 | ACTIVE | Entry 029 | Fallback: revert ai-routing.yaml to gpt-5.4 |
 | D36 | T0 local inference not viable on i7-9700 CPU (57s/call) | 2026-04-12 | ACTIVE | Entry 029 | All classification tasks on T1 (Haiku). Ollama for batch only. |
 | D37 | Autonomy level promoted to assist | 2026-04-12 | ACTIVE | Entry 028 | Pushover notifications, DM drafts, pipeline alerts active |
+| D38 | Cost-tiered processing: T0 Python → T1 local LLM → T2 CLI → T3 API | 2026-04-12 | ACTIVE | Entry 030 | Mandatory for all new features. Codified in CLAUDE.md. |
+| D39 | Claude Code CLI (`claude --print`) for batch/async LLM tasks | 2026-04-12 | ACTIVE | Entry 030 | Covered by Max subscription, no per-token cost |
+| D40 | Two-track pipeline: real-time (API) vs batch (Python+CLI) | 2026-04-12 | ACTIVE | Entry 030 | Batch sources → summary capture only enters full pipeline |
+| D41 | Test smaller Ollama models for T1 (Gemma 3 4B, Phi-3 Mini) | 2026-04-12 | ACTIVE | Entry 030 | Gemma 4 12B too slow; smaller models may work for simple classification |
 
 ## Action Items
 
@@ -1548,3 +1552,74 @@ Voice-pipecat is running and healthy. Full validation (10+ multi-turn conversati
 - OneDrive file ingestion (sync in progress, needs organizing)
 - Full Pipecat voice validation (2-week soak period — manual)
 - Voice container promotion (after Pipecat validation)
+
+### Entry 030: Cost-Tiered Processing Architecture — Design Principle [architecture] [decision]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (architecture discussion)
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[decision]` `[cost]`
+
+**Objective:** Establish a mandatory cost-tiering design principle for all current and future Open Brain features, driven by the realization that Troy already pays for a Claude Max subscription (covering Claude Code) but API usage (Anthropic, OpenAI, Deepgram) is additional per-token expense.
+
+**Context:** After activating Anthropic API routing and planning future high-volume features (email processing, financial monitoring, Amazon purchases, insurance analysis, lab reports, newsletter analysis), the projected API costs at scale would be $50-100+/month — unsustainable for a personal system when the subscription already covers Claude Code.
+
+**The Trigger:** Troy's observation: "I already pay for a Claude subscription that covers Claude Code, but API usage is extra expense. I do not want to be constantly concerned about cost."
+
+**Future Use Cases Discussed:**
+- Monthly Amazon purchase scraping and analysis
+- Credit card charge categorization and trend analysis
+- Power and natural gas bill tracking
+- Daily financial account monitoring (Schwab, Truist) with change/risk analysis
+- Financial advisor newsletter assessment (daily, weekly, monthly)
+- Doctor lab report review and analysis
+- Email inbox processing (hotmail + gmail) — read, categorize, daily summary
+- Insurance policy analysis and opportunity identification
+
+**Solution: Four-Tier Cost Model**
+
+| Tier | Cost | Description |
+|------|------|-------------|
+| T0: Python/Code | Free | Parsing, extraction, rule-based classification, data normalization, API fetching |
+| T1: Small Local LLM | Free | Simple classification when T0 can't decide (Gemma 3 4B or Phi-3 Mini on Ollama) |
+| T2: Claude Code CLI | Free (subscription) | Complex analysis, synthesis, batch reports via `claude --print` |
+| T3: API (per-token) | $$/token | Real-time user-facing only: MCP, Slack queries, voice conversations |
+
+**The Aggregation Rule:** Never call LLM per-item. Aggregate first, then one smart prompt.
+- 200 emails → Python processing → 1 CLI call → 1 capture (not 200 API calls)
+- 50 Amazon purchases → Python parsing → 1 CLI call → 1 capture
+
+**Two-Track Pipeline:**
+- Track A (real-time): Voice, Slack, MCP → full pipeline with API for entity extraction
+- Track B (batch): Email, financial, documents → Python + CLI → summary capture only enters full pipeline
+
+**Cost Projection:** Volume increases 10x but API costs stay flat ($11-23/month beyond subscription) because expensive work shifts to T2 (Claude CLI, subscription-covered).
+
+**Artifacts Created:**
+1. `CLAUDE.md` — new "Cost-Tiered Processing — MANDATORY Design Principle" section with tier table, aggregation rule, two-track pipeline diagram, feature checklist, and cost targets
+2. `memory/cost-tiering-architecture.md` — detailed memory file for future sessions
+3. `MEMORY.md` — new "Architecture Principles" section with link
+
+**Decisions:**
+- D38: All new features must follow T0→T1→T2→T3 cost tiering. No defaulting to API calls. Codified in CLAUDE.md as mandatory design principle.
+- D39: Claude Code CLI (`claude --print`) is the preferred LLM tier for batch/async tasks. Covered by Max subscription. Aggregate items before calling.
+- D40: Two-track pipeline architecture — real-time captures use API, batch sources use Python+CLI with only summary captures entering full pipeline.
+- D41: Test smaller Ollama models (Gemma 3 4B, Phi-3 Mini) for T1 classification — Gemma 4 12B too slow but smaller models may work for simple tasks.
+
+**T0 Validation Results (also captured here for completeness):**
+
+Gemma 4 12B on i7-9700 CPU validation completed:
+- Intent classification: 90.0% accuracy, 32s avg latency — PASS but too slow
+- Capture type classification: 60.0% accuracy, 35s avg — FAIL (many timeouts)
+- Brain view classification: 74.0% accuracy, 36s avg — FAIL (many timeouts)
+- Overall: 74.7% accuracy, 85 minutes for 150 calls
+- Most "wrong" answers were timeouts (>60s), not incorrect classifications
+- The model gives correct answers when it responds — it's purely a hardware speed problem
+
+**What This Changes for Existing Architecture:**
+- Entity extraction in the pipeline currently always hits API — for Track B sources, this should happen on the aggregated summary, not per-item
+- Skills (weekly brief, daily sweep, governance) could potentially use Claude CLI instead of API
+- The wiki-ingest pipeline's LLM calls for page creation should be batched via CLI for bulk ingestion
+- New data sources (email, financial) should be designed Track B from the start
+
+**Status:** COMPLETE — principle established, codified in CLAUDE.md, memory files created.
