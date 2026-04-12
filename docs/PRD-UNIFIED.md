@@ -1,10 +1,10 @@
 # Product Requirements Document (PRD) - Unified
 # Open Brain - Personal Knowledge Operating System
 
-**Version**: 1.0 Unified Draft
+**Version**: 1.1 Unified
 **Author**: Troy Davis / Stratfield Consulting / Claude
-**Date**: 2026-04-10
-**Status**: Draft - Unified from openbrain-prd.docx (doc1), PRD-PHASE7.md (doc2), and PRD-V2.md (doc3)
+**Date**: 2026-04-11
+**Status**: All conflicts resolved -- unified from openbrain-prd.docx (doc1), PRD-PHASE7.md (doc2), and PRD-V2.md (doc3). 52 questions answered, 13 NEEDS CLARIFICATION tags resolved.
 **Repository**: https://github.com/davistroy/open-brain
 
 ---
@@ -19,7 +19,7 @@ Throughout this document, requirements and sections are tagged with their origin
 | **(doc2)** | `PRD-PHASE7.md` - "Proactive Intelligence & Multi-Model Routing" - multi-tier model routing, autonomy levels, Slack auto-response |
 | **(doc3)** | `PRD-V2.md` - "Open Brain v2 Architecture Expansion" - Pipecat voice, wiki layer, pipeline modernization, dual-client routing, email outbound, infrastructure skills |
 | **(existing)** | Currently deployed and running in production (v1.5.0+) |
-| **[NEEDS CLARIFICATION]** | Conflict between sources or ambiguity requiring resolution |
+| **[RESOLVED]** | Previously flagged conflict or ambiguity, now resolved with a decision (see answers-PRD-UNIFIED-20260411.json) |
 
 ---
 
@@ -80,7 +80,7 @@ Real-time multi-turn voice conversations via Pipecat (replacing one-shot transcr
 | System uptime | 99%+ excluding planned maintenance | existing |
 | Wiki coverage | Every file in raw/ has a source summary page within 30 days | doc1 |
 | Wiki cross-referencing | <5% orphan pages after initial ingestion | doc1 |
-| Monthly LLM cost | <$15 (down from ~$25) | doc2 |
+| Monthly LLM cost | <$20 soft limit (down from ~$25) | resolved |
 | Voice conversation latency | <2s round-trip (STT + LLM + TTS) | doc3 |
 | Autonomous operation | 7+ days without manual intervention | doc3 |
 
@@ -221,9 +221,10 @@ The following is deployed and running as of v1.5.0:
 |   +----------------------+  +------------------------------+   |
 +---------------------------------------------------------------+
 | Layer 3: Intelligence Engine                                   |
-|   Claude SDK (Anthropic API, subscription) -- all Claude calls |
-|   LiteLLM proxy (llm.k4jda.net) -- embeddings, local models   |
-|   Deepgram -- real-time STT for Pipecat voice                  |
+|   Ollama (homeserver) -- T0 local classification               |
+|   Anthropic API -- T1 Haiku, T2 Sonnet (interim: OpenAI gpt-5.4) |
+|   OpenAI API -- embeddings (text-embedding-3-large)            |
+|   Deepgram -- real-time STT + TTS for Pipecat voice            |
 +---------------------------------------------------------------+
 | Layer 2: Interface Services                                    |
 |   +----------+  +----------------+  +------------------+       |
@@ -253,10 +254,23 @@ The following is deployed and running as of v1.5.0:
 | open-brain-voice-pipecat | build: target=voice-pipecat | Pipecat: VAD -> STT (Deepgram) -> LLM -> TTS | NEW (replaces voice-capture + faster-whisper) |
 | open-brain-web | build: target=web | Vite + React + shadcn/ui dashboard (nginx, PWA) | Existing (expanded) |
 | open-brain-cloudflared | cloudflare/cloudflared:latest | Cloudflare Tunnel | Existing |
+| open-brain-ollama | ollama/ollama:latest | Local CPU inference (Gemma 4 12B q4_K_M) | NEW |
 
-**Net change:** 8 containers (down from 9). The `voice-capture` and `faster-whisper` containers are replaced by a single `voice-pipecat` container that uses Deepgram cloud STT for real-time voice. **(doc3)**
+**Net change:** 9 containers (same as current). The `voice-capture` and `faster-whisper` containers are replaced by a single `voice-pipecat` container, and an `ollama` container is added for local CPU inference. **(doc3, resolved)**
 
-[NEEDS CLARIFICATION: doc2 proposes adding an Ollama container (11th container) for local Gemma 4 inference. doc3 states a goal of keeping containers at 10 or fewer and does not include Ollama. If Ollama is added for T0 local classification (doc2), the container count would be 9 in the v2 target. The DGX Spark is available for local inference and could serve the T0 role without an Ollama container on the homeserver. Resolve whether local inference runs on the homeserver (Ollama) or DGX Spark (vLLM).]
+**Local inference**: Ollama runs on the homeserver for CPU inference (classification, brain view, intent). This is already running and avoids a DGX Spark dependency for routine tasks. The DGX Spark serves as optional overflow for large batch workloads (e.g., one-time 10K file categorization) but is not always available and is not required for daily operation. **[RESOLVED: Ollama on homeserver (CPU), DGX Spark for batch overflow.]**
+
+**External Dependencies:**
+
+| Dependency | Location | Purpose | Required |
+|-----------|----------|---------|----------|
+| Gitea | `gitea.k4jda.net` | Wiki authoritative store (git-backed markdown) | Yes (wiki features) |
+| Ollama | homeserver container | Local CPU inference (T0 classification tasks) | Yes (model routing) |
+| DGX Spark | `spark.k4jda.net` | Batch LLM inference (Qwen 3.5 for bulk operations) | No (optional overflow) |
+| Deepgram API | `api.deepgram.com` | Real-time STT for Pipecat voice | Yes (voice features) |
+| OpenAI API | `api.openai.com` | Embeddings (text-embedding-3-large) | Yes |
+| Anthropic API | `api.anthropic.com` | LLM inference (Haiku + Sonnet) | Yes (target state) |
+| Cloudflare Email Worker | `brain@troy-davis.com` | Inbound email capture | Yes (email features) |
 
 ### 4.3 Hardware **(existing + doc1)**
 
@@ -284,7 +298,8 @@ The following is deployed and running as of v1.5.0:
 | open-brain-voice-pipecat | 4GB |
 | open-brain-web | 256MB |
 | open-brain-cloudflared | 128MB |
-| **Total** | **~21GB** (of 128GB available) |
+| open-brain-ollama | 16GB |
+| **Total** | **~37GB** (of 128GB available) |
 
 ### 4.4 Data Flow **(doc3)**
 
@@ -344,7 +359,7 @@ Voice (Pipecat)            Slack              MCP / API          Email (CF Worke
 
 For the OneDrive file ingestion (doc1), the sync topology is strictly one-directional:
 
-- **OneDrive -> Homeserver (steady-state):** rclone sync on a cron schedule (every 15-60 minutes). Working files in OneDrive flow downstream to the staging area where the ingestion pipeline picks them up.
+- **OneDrive -> Homeserver (steady-state):** 15-minute rsync from local OneDrive clone (already mirrored via Docker app on homeserver) to Open Brain corpus. No rclone to OneDrive API needed -- the OneDrive Docker app handles cloud sync, rsync handles the local copy into the staging area.
 - **Homeserver -> OneDrive (intentional push only):** Runs only for deliberate structural changes (e.g., post-reorganization push). Never automated.
 - **Wiki never syncs to OneDrive.** Wiki and all generated knowledge live exclusively on the homeserver. OneDrive holds working files (raw layer); homeserver holds the intelligence layer (wiki, vectors, entities).
 
@@ -359,20 +374,20 @@ Cloud backup of the wiki layer is handled by Gitea's own git history plus option
 | Layer | Purpose | Implementation | Mutability |
 |-------|---------|----------------|------------|
 | **Raw Sources** | Immutable source of truth. Original files from OneDrive, voice memos, Slack messages, emails, documents. | Postgres `captures` table + Unraid file share `/mnt/user/openbrain/raw/` | Read-only (LLM never modifies originals) |
-| **The Wiki** | LLM-generated, interlinked Markdown pages: summaries, entity pages, concept pages, synthesis. | Gitea wiki repo at `gitea.k4jda.net/davistroy/open-brain-wiki` **(doc3)** | LLM-owned (writes, updates, cross-references) |
+| **The Wiki** | LLM-generated, interlinked Markdown pages: summaries, entity pages, concept pages, synthesis. | Gitea wiki repo at `gitea.k4jda.net/davistroy/open-brain-wiki` | LLM-owned (writes, updates, cross-references) |
 | **The Schema** | Configuration document defining wiki structure, conventions, and workflows. | `WIKI_SCHEMA.md` in wiki repo root | Co-evolved by human and LLM |
 
-[NEEDS CLARIFICATION: doc1 specifies Obsidian as the wiki vault (`/mnt/user/openbrain/wiki/`). The existing system and doc3 specify a Gitea-backed markdown wiki (`gitea.k4jda.net/davistroy/open-brain-wiki`). This unified PRD assumes the Gitea approach from doc3 as the implementation, since Gitea provides git-backed versioning, commit history, and API access without requiring Obsidian. The wiki content format (markdown + YAML frontmatter) is identical either way. See Reconciliation section.]
+**[RESOLVED: Gitea is the authoritative wiki store.** Gitea provides git-backed versioning, commit history, and API access. Obsidian is available as an optional local browser via `git clone` for power-user graph exploration over Tailscale, but is not required for any system functionality. The wiki content format (markdown + YAML frontmatter) is identical either way.**]**
 
 ### 5.2 Extended Layers **(doc1, adapted)**
 
 | Layer | Purpose | Implementation | Query Type |
 |-------|---------|----------------|------------|
 | **Vector Store** | Fast semantic retrieval -- associative recall across all captures and wiki content | Postgres pgvector (existing) | "Find me things similar to X" |
-| **Entity Graph** | Structural reasoning -- typed relationships between entities, projects, concepts | Postgres `entities` + `entity_links` + `entity_relationships` tables (existing) | "How does X connect to Y?" |
+| **Entity Graph** | Structural reasoning -- typed relationships between entities, projects, concepts | Postgres `entities` + `entity_links` + `entity_relationships` tables (existing). `entity_relationships` extended with `relationship_type VARCHAR(32) DEFAULT 'related_to'` for typed edges (SUPPORTS, CONTRADICTS, SUPERSEDES, etc.) | "How does X connect to Y?" |
 | **Search Index** | Keyword + semantic hybrid search over captures and wiki pages | Postgres FTS GIN index + pgvector HNSW index (existing) | "Find the page about X" |
 
-[NEEDS CLARIFICATION: doc1 specifies Qdrant for vector search and Neo4j for knowledge graph as separate Docker containers. The existing system uses Postgres pgvector for vectors and Postgres entity tables for the knowledge graph. This unified PRD assumes the existing Postgres-based approach continues, as it avoids adding two additional containers and the entity/vector infrastructure is already production-proven. See Reconciliation section.]
+**[RESOLVED: Keep pgvector for vector search, keep Postgres entity tables for knowledge graph.** No Qdrant or Neo4j containers. pgvector is production-proven; monitor 4 signals for potential migration: query latency >200ms, index build >30min, filter degradation, RAM pressure. Revisit at 500K+ vectors. The entity graph gains typed relationship edges via a `relationship_type` column on `entity_relationships` (migration adds `VARCHAR(32) DEFAULT 'related_to'`), enabling rich relationship types without Neo4j.**]**
 
 ### 5.3 Infrastructure Mapping **(doc1, adapted)**
 
@@ -381,12 +396,12 @@ Cloud backup of the wiki layer is handled by Gitea's own git history plus option
 | File Storage (raw + wiki) | Unraid NAS | Existing array + Gitea repo | Wiki accessed via Gitea API and dashboard |
 | Vector Store | Unraid (Postgres container) | pgvector extension | HNSW index, vector(768) schema |
 | Entity Graph | Unraid (Postgres container) | Drizzle ORM entities/entity_links/entity_relationships | ACT-R temporal scoring, Hebbian associations |
-| Embedding Generation | OpenAI API | text-embedding-3-large, dimensions: 768 | Via api.openai.com/v1 |
-| LLM Inference | OpenAI API / Anthropic SDK / DGX Spark | See Multi-Model Routing (Section 7) | Multiple providers |
+| Embedding Generation | OpenAI API | text-embedding-3-large, dimensions: 768 | Via api.openai.com/v1. Cost ~$2-5/month, no DGX Spark dependency. |
+| LLM Inference | Anthropic API (Haiku + Sonnet) / Ollama (local) / DGX Spark (batch) | See Multi-Model Routing (Section 7) | Three-tier routing |
 | Claude Code | Dev workstation | CLI + MCP | Connects to brain.troy-davis.com/mcp |
 | Dashboard | Unraid (web container) | Vite + React + shadcn/ui | PWA at brain.troy-davis.com |
 
-[NEEDS CLARIFICATION: doc1 specifies DGX Spark for embedding generation using local models (nomic-embed-text or BGE-large). The existing system uses OpenAI text-embedding-3-large with dimensions: 768. Switching embedding models would require re-embedding all captures and changing the vector(768) schema if dimensions differ. The existing approach is retained. DGX Spark can be used for local LLM inference tasks (T0/T1 in multi-model routing) without affecting embeddings.]
+**[RESOLVED: Keep OpenAI text-embedding-3-large for embeddings.** Cost is negligible (~$2-5/month). Switching to local models on DGX Spark would require re-embedding all captures and introduces a dependency on DGX Spark availability. DGX Spark is used for local LLM inference tasks only, not embeddings.**]**
 
 ### 5.4 Wiki Directory Structure **(doc1, doc3)**
 
@@ -400,12 +415,15 @@ open-brain-wiki/
     sources/                # One summary page per ingested source file
     entities/               # Pages for people, companies, organizations
     projects/               # Pages for projects and engagements
+    domains/                # Pages for knowledge domains and practice areas
     concepts/               # Pages for frameworks, methodologies, technologies
     comparisons/            # Side-by-side analyses
     synthesis/              # Cross-cutting analyses, filed query results
     operations/             # Cost reports, storage reports (infrastructure skill outputs)
     maintenance/            # Lint reports, health checks
 ```
+
+Note: `dashboards/` and `graph/` directories are not needed -- those functions are covered by the React dashboard and `operations/` respectively.
 
 ### 5.5 Wiki Page Format **(doc1)**
 
@@ -418,11 +436,14 @@ type: entity|concept|source|comparison|synthesis|overview
 created: 2026-04-10
 updated: 2026-04-10
 source_count: 3
+source_captures: [uuid-1, uuid-2, uuid-3]  # Bidirectional link to Postgres captures
 tags: [consulting, ai, servicenow]
 related_pages: [entities/chick-fil-a.md, concepts/triz.md]
-confidence: 0.85  # 0-1 for synthesis pages
+source_removed: false  # Set to true when source file is deleted from OneDrive
 ---
 ```
+
+`source_count` serves as a confidence proxy -- no explicit confidence score. Pages with 1 source are tentative; 5+ are well-supported. `source_captures` provides bidirectional linking between wiki pages and Postgres captures (captures also track `wiki_pages` in metadata).
 
 Body: Markdown prose with standard markdown links for cross-references (`[link text](../entities/page.md)`). No rigid template -- the LLM adapts structure to content type.
 
@@ -456,7 +477,7 @@ Sources section: Every claim links back to the source page(s) it was derived fro
 
 ### 6.1 OneDrive File Migration **(doc1)**
 
-Before the wiki can be built, the raw OneDrive corpus must be cleaned and organized. This runs as a Python pipeline.
+Before the wiki can be built, the raw OneDrive corpus must be cleaned and organized. Content extraction runs in a separate lightweight Python container, BullMQ-triggered via core-api (same pattern as voice-pipecat). File ingestion creates captures with `source: 'file'` and rich `source_metadata` JSONB (file path, size, MIME type, modified date, hash). Single pipeline for everything -- no separate `raw_files` table.
 
 #### 6.1.1 File Migration
 
@@ -473,20 +494,20 @@ Before the wiki can be built, the raw OneDrive corpus must be cleaned and organi
 
 | Method | Description | Action |
 |--------|-------------|--------|
-| Exact duplicates | Group by (size, hash_partial), confirm with full hash | Auto-resolve by keeping newest, logging all paths |
-| Near-duplicates (documents) | Text extraction + difflib.SequenceMatcher, flag pairs above 0.9 similarity | Human review of clusters |
+| Exact duplicates | Group by (size, hash_partial), confirm with full hash | Auto-resolve: keep newest, log all paths. No human review needed. |
+| Near-duplicates (documents) | Text extraction + difflib.SequenceMatcher, flag pairs above 0.9 similarity | LLM-assisted triage with confidence scores. Human reviews LLM recommendations. |
 | Near-duplicates (images) | Perceptual hash via imagehash library | Flag for review |
 
-HTML report generated for human review before any deletion.
+HTML report generated for human review of near-duplicate clusters. Exact duplicates are resolved automatically.
 
 #### 6.1.4 Categorization and Taxonomy **(doc1)**
 
-- Batch LLM classification: each unique file processed through Haiku with filename, type, and first 2000 chars. Returns: category, subcategory, one-line description, tags (JSON).
+- Batch LLM classification: each unique file processed with filename, type, and first 2000 chars. Returns: category, subcategory, one-line description, tags (JSON).
 - Distribution analysis of categories to propose 2-3 alternative folder taxonomies
 - Human selects taxonomy; Python script reorganizes files into `/mnt/user/openbrain/raw/`
-- Estimated API cost: ~$5-10 for 10K files
+- Estimated API cost: $0 for batch (Qwen 3.5 on DGX Spark)
 
-[NEEDS CLARIFICATION: doc1 specifies Claude Haiku for batch categorization. The multi-model routing (doc2) maps classification to T0 (local Gemma 4). For batch processing of 10K files, T0 would be free but potentially slower. T2 (Haiku) provides better quality. Recommend: use Haiku for initial one-time batch (quality matters, cost is small), then use T0 for ongoing incremental classifications.]
+**[RESOLVED: Qwen 3.5 on DGX Spark for one-time batch categorization (free, fast on GPU). Gemma 4 on homeserver Ollama for ongoing incremental classification.** The batch/incremental split applies consistently across all large-scale LLM operations: Qwen 3.5 on DGX Spark for bulk, Gemma 4 on Ollama for ongoing.**]**
 
 ### 6.2 Ingestion Pipeline **(doc1, adapted for BullMQ)**
 
@@ -496,7 +517,7 @@ The primary operation. A new source file enters the system and the LLM integrate
 
 | Stage | Purpose | Queue | Implementation |
 |-------|---------|-------|----------------|
-| 1. Content extraction | Python pipeline extracts text from source file (python-docx, pdfplumber, python-pptx, openpyxl) | `ingest` | BullMQ job |
+| 1. Content extraction | Separate Python container extracts text from source file (python-docx, pdfplumber, python-pptx, openpyxl). Text-bearing formats now + metadata-only for images. Future: multi-modal model on DGX Spark for bulk image processing. | `ingest` | BullMQ-triggered |
 | 2. Dedup check | Hash comparison against captures table content_hash | `ingest` | Inline check |
 | 3. LLM analysis | Summary, entity extraction, relationship identification, category/tag assignment | `extract-entities` | Existing worker |
 | 4. Wiki page creation/update | Create source summary page; update entity, concept, project pages; add cross-references | `wiki-ingest` | New BullMQ queue **(doc3)** |
@@ -576,33 +597,32 @@ monthly_budget:
   hard_limit_usd: 50
 ```
 
-### 7.2 Five-Tier Model Hierarchy **(doc2)**
+### 7.2 Three-Tier Model Hierarchy **(resolved)**
 
-Replace the single-model routing with a five-tier hierarchy that routes each task to the most cost-effective model:
+Replace the single-model routing with a three-tier hierarchy that routes each task to the most cost-effective model. No DeepSeek for now (config ready for future addition). Target: Claude models (Haiku + Sonnet). Interim: gpt-5.4 via OpenAI until Anthropic API key obtained.
 
 | Tier | Model | Provider | Cost (input/output per M tokens) | Run Where |
 |------|-------|----------|----------------------------------|-----------|
-| T0 | Gemma 4 12B (q4_K_M) | Ollama | Free | Local (homeserver or DGX Spark) |
-| T1 | DeepSeek Chat V3 | DeepSeek API | $0.27 / $1.10 | api.deepseek.com |
-| T2 | Claude Haiku 4.5 | Anthropic API | $0.80 / $4.00 | api.anthropic.com |
-| T3 | Claude Sonnet 4.6 | Anthropic API | $3.00 / $15.00 | api.anthropic.com |
-| T4 | Claude Opus 4.6 | Anthropic API | $15.00 / $75.00 | api.anthropic.com |
+| T0 | Gemma 4 12B (q4_K_M) | Ollama | Free | Local (homeserver CPU) |
+| T1 | Claude Haiku 4.5 | Anthropic API | $0.80 / $4.00 | api.anthropic.com |
+| T2 | Claude Sonnet 4.6 | Anthropic API | $3.00 / $15.00 | api.anthropic.com |
 
-### 7.3 Dual-Client Architecture **(doc3)**
+**Model validation**: 50-example validation suite built from existing captures. 90% accuracy threshold required before migration to new model tier.
 
-[NEEDS CLARIFICATION: doc2 proposes a five-tier hierarchy with Ollama, DeepSeek, and three Anthropic tiers accessed via `createModelClient(taskName)`. doc3 proposes a simpler dual-client architecture: Claude SDK (subscription-covered, $0 marginal cost) for all Claude models + LiteLLM proxy for non-Claude traffic (embeddings, local models). The dual-client approach from doc3 assumes a Claude Code subscription that covers API usage at $0 -- which is the current state (claude-sonnet-4 at $0 cost). The five-tier approach from doc2 assumes per-token API billing. These are fundamentally different cost models. Recommend: start with doc3's dual-client (since subscription is active), but retain doc2's tiering concept for the DGX Spark local models and potential DeepSeek integration. See Reconciliation section.]
+### 7.3 Three-Tier Model Architecture **(resolved)**
 
-**doc3 proposal:**
+**[RESOLVED: Three-tier routing (local Ollama + Haiku + Sonnet)** with Anthropic API key, configurable in ai-routing.yaml for future tier additions. No DeepSeek for now -- $2.70/month savings not worth added provider complexity. Config is ready for future addition. Target models are Claude (Haiku + Sonnet). Interim: gpt-5.4 via OpenAI until Anthropic API key is obtained. Anthropic API key is non-blocking -- proceed on OpenAI and switch when key is available.**]**
 
-| Task Type | Provider | Model | Cost |
-|-----------|----------|-------|------|
-| fast | Claude SDK (subscription) | Sonnet | $0 (subscription) |
-| synthesis | Claude SDK (subscription) | Opus | $0 (subscription) |
-| conversation | Claude SDK (subscription) | Sonnet | $0 (subscription) |
-| governance | Claude SDK (subscription) | Opus | $0 (subscription) |
-| intent | Claude SDK (subscription) | Haiku | $0 (subscription) |
-| embedding | LiteLLM -> OpenAI | text-embedding-3-large | ~$0.13/1M tokens |
-| local | LiteLLM -> DGX Spark vLLM | Qwen-3 | $0 (self-hosted) |
+**`runAgent()` implementation**: Provider-agnostic with adapter pattern (~130 LOC). `LLMProvider` interface with Anthropic + OpenAI adapters. Future-proof for local/alternative providers.
+
+**Fallback logging**: Log fallback events to `ai_audit_log`, aggregate in heartbeat report. No per-event alerts.
+
+| Tier | Model | Provider | Cost | Run Where |
+|------|-------|----------|------|-----------|
+| T0 (local) | Gemma 4 12B (q4_K_M) | Ollama | Free | Homeserver (CPU) |
+| T1 (fast) | Claude Haiku 4.5 | Anthropic API | $0.80 / $4.00 per M tokens | api.anthropic.com |
+| T2 (quality) | Claude Sonnet 4.6 | Anthropic API | $3.00 / $15.00 per M tokens | api.anthropic.com |
+| Embedding | text-embedding-3-large | OpenAI API | ~$0.13/1M tokens | api.openai.com |
 
 **Implementation requirements (doc3):**
 
@@ -616,96 +636,85 @@ Replace the single-model routing with a five-tier hierarchy that routes each tas
 | F4.6 | Fallback behavior: if primary provider unavailable, route to fallback; if all fail, queue for BullMQ retry |
 | F4.7 | Both client factories are stateless -- all state in config + Postgres |
 
-### 7.4 Task-to-Tier Mapping **(doc2)**
+### 7.4 Task-to-Tier Mapping **(resolved)**
 
-| Task | Tier (doc2) | Model (doc3) | Rationale |
-|------|-------------|--------------|-----------|
-| Intent classification | T0 | Haiku (subscription) | Short input, structured output |
-| Capture type classification | T0 | Haiku (subscription) | 8-way classification |
-| Brain view classification | T0 | Haiku (subscription) | 5-way classification |
-| Voice capture classification | T0 | Haiku (subscription) | Same pattern as capture type |
-| Confidence gating | T0 | Haiku (subscription) | Binary yes/no assessment |
-| Entity extraction | T1 | Sonnet (subscription) | Pattern matching, structured output |
-| Entity resolution/linking | T1 | Sonnet (subscription) | Match against known entities |
-| Capture enrichment (tags, summary) | T1 | Sonnet (subscription) | Bounded input, structured output |
-| Unresolved question detection | T1 | Sonnet (subscription) | Cross-reference captures |
-| Search synthesis | T2 | Sonnet (subscription) | Interactive latency needed |
-| Daily sweep summary | T2 | Sonnet (subscription) | Review + summarize |
-| MCP context bootstrap | T2 | Sonnet (subscription) | Generate markdown summary |
-| Auto-response drafts | T2 | Sonnet (subscription) | Good writing, bounded inputs |
-| Weekly briefs | T3 | Opus (subscription) | Narrative quality, cross-week patterns |
-| Daily connections | T3 | Opus (subscription) | Nuanced co-occurrence analysis |
-| Drift monitoring | T3 | Opus (subscription) | Subtle pattern detection |
-| Governance sessions | T4 | Opus (subscription) | Complex multi-turn reasoning |
-| Wiki ingest/synthesis | -- | Opus (subscription) | Quality matters for persistent knowledge **(doc3)** |
+| Task | Tier | Model | Rationale |
+|------|------|-------|-----------|
+| Intent classification | T0 | Gemma 4 (local) | Short input, structured output |
+| Capture type classification | T0 | Gemma 4 (local) | 8-way classification |
+| Brain view classification | T0 | Gemma 4 (local) | 5-way classification |
+| Voice capture classification | T0 | Gemma 4 (local) | Same pattern as capture type |
+| Confidence gating | T0 | Gemma 4 (local) | Binary yes/no assessment |
+| Entity extraction | T1 | Haiku | Pattern matching, structured output |
+| Entity resolution/linking | T1 | Haiku | Match against known entities |
+| Capture enrichment (tags, summary) | T1 | Haiku | Bounded input, structured output |
+| Unresolved question detection | T1 | Haiku | Cross-reference captures |
+| Search synthesis | T1 | Haiku | Interactive latency needed |
+| Daily sweep summary | T1 | Haiku | Review + summarize |
+| MCP context bootstrap | T1 | Haiku | Generate markdown summary |
+| Auto-response drafts | T1 | Haiku | Good writing, bounded inputs |
+| Weekly briefs | T2 | Sonnet | Narrative quality, cross-week patterns |
+| Daily connections | T2 | Sonnet | Nuanced co-occurrence analysis |
+| Drift monitoring | T2 | Sonnet | Subtle pattern detection |
+| Governance sessions | T2 | Sonnet | Complex multi-turn reasoning |
+| Wiki ingest/synthesis | T2 | Sonnet | Quality matters for persistent knowledge |
 
-### 7.5 Fallback Chains **(doc2)**
+### 7.5 Fallback Chains **(resolved)**
 
 Each tier specifies a fallback tier. On failure (429, 500, timeout), automatically retry with the fallback tier (max 2 hops):
 
 ```
-T0 (local Gemma 4) -> T1 (DeepSeek) -> T2 (Haiku)
-T1 (DeepSeek)      -> T2 (Haiku)
-T2 (Haiku)         -> T3 (Sonnet)
-T3 (Sonnet)        -> T4 (Opus)
-T4 (Opus)          -> null (fail, queue for BullMQ retry)
+T0 (local Gemma 4) -> T1 (Haiku) -> T2 (Sonnet)
+T1 (Haiku)         -> T2 (Sonnet)
+T2 (Sonnet)        -> null (fail, queue for BullMQ retry)
 ```
 
-Fallback chain activates within 5 seconds of primary tier timeout. Events logged to `ai_audit_log` / `llm_usage`.
+Fallback chain activates within 5 seconds of primary tier timeout. Fallback events logged to `ai_audit_log` and aggregated in heartbeat report. No per-event alerts.
 
 ### 7.6 Embedding Model **(existing, doc2)**
 
-Remains OpenAI `text-embedding-3-large` with `dimensions: 768`. Embeddings are NOT tiered -- quality matters too much and the cost is low (~$0.13/1M tokens). No fallback; queue and retry if API is down.
+Remains OpenAI `text-embedding-3-large` with `dimensions: 768`. Embeddings are NOT tiered -- quality matters too much and the cost is low (~$0.13/1M tokens). No fallback; queue and retry if API is down. **[RESOLVED: Keep OpenAI. Cost is negligible, quality is proven, switching requires re-embedding all captures.]**
 
-[NEEDS CLARIFICATION: doc1 specifies local embedding models on DGX Spark (nomic-embed-text or BGE-large). doc2 explicitly decides to keep OpenAI for embeddings (D26). The existing system uses OpenAI text-embedding-3-large at 768d. Switching models would require re-embedding all captures. This PRD retains the existing OpenAI approach.]
+### 7.7 Budget Thresholds **(resolved)**
 
-### 7.7 Budget Thresholds **(doc2, doc3)**
+**[RESOLVED: Soft $20 / Hard $35.** ~30% headroom above the $10-18 estimated range under three-tier routing. Covers Anthropic API (Haiku + Sonnet), OpenAI embeddings, and Deepgram STT.**]**
 
-| Source | Soft Limit | Hard Limit |
-|--------|-----------|------------|
-| doc2 (five-tier) | $15/month | $30/month |
-| doc3 (dual-client, subscription) | $7/month (non-Claude only) | $10/month (non-Claude only) |
-| existing | $30/month | $50/month |
+| Threshold | Amount |
+|-----------|--------|
+| Soft limit (Pushover alert) | $20/month |
+| Hard limit (circuit breaker) | $35/month |
 
-[NEEDS CLARIFICATION: Budget thresholds depend on the model routing decision. If Claude subscription covers LLM calls at $0, only non-Claude costs (embeddings, Deepgram STT) apply, and the budget should be $7/$10 (doc3). If per-token billing, use $15/$30 (doc2).]
+### 7.8 Config Structure (Target) **(resolved)**
 
-### 7.8 Config Structure (Target) **(doc2, doc3 merged)**
+`ai-routing.yaml` is the sole source of truth for model routing. Hardcoded model references in other files must be removed.
 
 ```yaml
-# config/ai-routing.yaml (target)
+# config/ai-routing.yaml (target -- three-tier)
 model_tiers:
   t0_local:
-    provider: ollama  # or vllm on DGX Spark
+    provider: ollama
     model: gemma4:12b-q4_K_M
-    base_url: http://ollama:11434/v1  # or spark.k4jda.net
+    base_url: http://ollama:11434/v1
     max_completion_tokens: 256
     timeout_ms: 10000
-    fallback: t1_cheap
-  t1_cheap:
-    provider: deepseek
-    model: deepseek-chat
-    base_url: https://api.deepseek.com/v1
-    max_completion_tokens: 2048
-    timeout_ms: 15000
-    fallback: t2_fast
-  t2_fast:
+    fallback: t1_fast
+  t1_fast:
     provider: anthropic
     model: claude-haiku-4-5-20251001
     max_completion_tokens: 4096
     timeout_ms: 20000
-    fallback: t3_quality
-  t3_quality:
+    fallback: t2_quality
+  t2_quality:
     provider: anthropic
     model: claude-sonnet-4-6
     max_completion_tokens: 8192
     timeout_ms: 30000
-    fallback: t4_max
-  t4_max:
-    provider: anthropic
-    model: claude-opus-4-6
-    max_completion_tokens: 16384
-    timeout_ms: 60000
     fallback: null
+  # DeepSeek placeholder (not active -- config ready for future addition)
+  # t_deepseek:
+  #   provider: deepseek
+  #   model: deepseek-chat
+  #   base_url: https://api.deepseek.com/v1
 
 task_routing:
   intent_classification: t0_local
@@ -713,20 +722,20 @@ task_routing:
   brain_view_classification: t0_local
   voice_classification: t0_local
   confidence_gating: t0_local
-  entity_extraction: t1_cheap
-  entity_linking: t1_cheap
-  capture_enrichment: t1_cheap
-  question_detection: t1_cheap
-  search_synthesis: t2_fast
-  daily_sweep: t2_fast
-  mcp_context: t2_fast
-  auto_response_draft: t2_fast
-  weekly_brief: t3_quality
-  daily_connections: t3_quality
-  drift_monitoring: t3_quality
-  governance: t4_max
-  wiki_ingest: t3_quality
-  wiki_synthesis: t4_max
+  entity_extraction: t1_fast
+  entity_linking: t1_fast
+  capture_enrichment: t1_fast
+  question_detection: t1_fast
+  search_synthesis: t1_fast
+  daily_sweep: t1_fast
+  mcp_context: t1_fast
+  auto_response_draft: t1_fast
+  weekly_brief: t2_quality
+  daily_connections: t2_quality
+  drift_monitoring: t2_quality
+  governance: t2_quality
+  wiki_ingest: t2_quality
+  wiki_synthesis: t2_quality
 
 embedding:
   model: text-embedding-3-large
@@ -734,8 +743,8 @@ embedding:
   dimensions: 768
 
 monthly_budget:
-  soft_limit_usd: 15
-  hard_limit_usd: 30
+  soft_limit_usd: 20
+  hard_limit_usd: 35
 ```
 
 ---
@@ -746,7 +755,7 @@ monthly_budget:
 
 **Status**: Partially implemented as `daily-sweep-skill` (8 PM daily). **(existing)**
 
-A scheduled skill that runs each evening, reviews the day's captures, and generates a concise summary. Covers: key decisions made, new entities encountered, unresolved questions, tasks with no follow-up, and patterns against the entity graph.
+A scheduled skill that runs each evening, reviews the day's captures across all brain views by default (configurable filter available in `config/notifications.yaml` if needed), and generates a concise summary. Covers: key decisions made, new entities encountered, unresolved questions, tasks with no follow-up, and patterns against the entity graph.
 
 **Schedule**: Daily at 8:00 PM local time (configurable via `config/notifications.yaml`)
 **Model Tier**: T2 (Haiku) -- bounded input, structured summary output
@@ -758,7 +767,7 @@ A scheduled skill that runs each evening, reviews the day's captures, and genera
 
 **Status**: Implemented as `open_brain://context` resource. **(existing)**
 
-A dynamically-generated markdown summary of the user's current context: active projects, recent entities, open questions, and focus areas from the last 7 days. Designed for Claude/ChatGPT sessions to read on startup.
+A dynamically-generated markdown summary of the user's current context: active projects, recent entities, open questions, and focus areas from the last 7 days. Designed for Claude/ChatGPT sessions to read on startup. Cached for 5 minutes with `?fresh=true` bypass option.
 
 **Generated Content Structure**:
 ```markdown
@@ -789,7 +798,7 @@ Captures classified as `question` type that have no follow-up capture referencin
 
 **Status**: Implemented as `pipeline-health` skill (every 6 hours). **(existing)**
 
-Lightweight scheduled job that checks application-level health beyond Docker healthchecks. Monitors capture flow, pipeline queue depth, Redis responsiveness.
+Lightweight scheduled job that checks application-level health beyond Docker healthchecks. Monitors capture flow, pipeline queue depth, Redis responsiveness, and Ollama availability.
 
 | Check | Healthy | Degraded | Unhealthy |
 |-------|---------|----------|-----------|
@@ -797,6 +806,7 @@ Lightweight scheduled job that checks application-level health beyond Docker hea
 | Pipeline queue depth | < 50 | < 200 | > 200 |
 | Failed job count | 0 | < 10 | > 10 |
 | Redis ping | < 100ms | < 500ms | > 500ms or timeout |
+| Ollama | Responding | Slow (>5s) | Unreachable (informational, not critical) |
 | Postgres connections | < 80% max | < 95% max | > 95% max |
 
 **Alert logic**: State-transition only (healthy -> degraded, degraded -> unhealthy). No re-alerting for persistent issues.
@@ -807,15 +817,16 @@ Three-phase progression for Slack auto-response:
 
 #### Phase A: Shadow Mode (F42)
 
-- Intent classifier detects `auto_respondable_query` in channel messages
+- Intent classifier detects `auto_respondable_query` in channel messages and DMs
+- Monitors both channels and DMs (DM drafts require higher confidence threshold: 0.90+)
 - Runs search + synthesis, logs what it would have said
 - Never posts anything
 - Autonomy gate: `observe` or higher (only logs)
-- Minimum 2 weeks before enabling DM mode
+- Graduation criteria: minimum 50 shadow responses reviewed (not time-based). Manual promotion when quality is validated.
 
 #### Phase B: DM Mode (F43)
 
-- When confidence exceeds threshold (default 0.75), sends owner a Slack DM or Pushover with draft
+- When confidence exceeds threshold (default 0.75 for channels, 0.90 for DMs), sends owner a Slack DM or Pushover with draft
 - Owner decides whether to copy-paste, edit, or ignore
 - Autonomy gate: `assist` level
 - "Post as Reply" / "Edit & Post" / "Dismiss" interactive buttons
@@ -824,7 +835,7 @@ Three-phase progression for Slack auto-response:
 
 - Bot posts threaded replies directly with AI attribution
 - ALL criteria must be true: confidence >= 0.85, 2+ corroborating captures, no captures older than 90 days, non-bot user, monitored channel
-- Per-channel rate limit: max 3 auto-responses per hour
+- No hard per-channel rate limit -- confidence threshold is the sole gate. Bot responds whenever confidence criteria are met.
 - Autonomy gate: `advise` level
 
 **Status**: Partially implemented -- shadow mode and auto-response handler exist as fire-and-forget async handlers with cached autonomy levels. Full progression (DM mode, threaded replies) is planned. **(existing)**
@@ -843,10 +854,12 @@ Composite score (0.0 to 1.0) evaluating how confidently Open Brain can answer a 
 
 **Formula**: `confidence = sum(signal_value * weight)` where each signal_value is normalized to [0, 1].
 
-**Thresholds** (configurable in `app_settings`):
+**Thresholds** (configurable via `app_settings` API, not dashboard UI initially):
 - Shadow mode: log all, no threshold
-- DM mode: confidence >= 0.75
+- DM mode: confidence >= 0.75 (channels), >= 0.90 (DMs)
 - Threaded replies: confidence >= 0.85
+
+Confidence scoring weights are tunable via the `app_settings` API. Dashboard UI controls for weight tuning are deferred.
 
 ---
 
@@ -857,7 +870,7 @@ Composite score (0.0 to 1.0) evaluating how confidently Open Brain can answer a 
 BullMQ job triggered after entity extraction in the ingest pipeline. The LLM reads the new capture, identifies relevant existing wiki pages, and updates them. Creates new pages for new entities or concepts. A single capture may touch 5-15 wiki pages.
 
 **Queue**: `wiki-ingest` -- rate-limited to 5 jobs/minute to control LLM costs **(doc3)**
-**Model**: Synthesis/Opus class for quality **(doc3)**
+**Model**: Sonnet (T2) for ongoing wiki-ingest quality. Bulk wiki population from 10K OneDrive files uses Qwen 3.5 on DGX Spark (domain-by-domain, overnight), with Haiku (T1) for daily incremental wiki-ingest. **(resolved)**
 
 ### 9.2 Wiki-Lint Job **(doc1, doc3)**
 
@@ -881,9 +894,11 @@ Identifies captures from the last 24 hours not yet integrated into the wiki and 
 
 **Schedule**: Daily, 6 AM **(doc3)**
 
-### 9.4 Core Query Filing **(doc1)**
+### 9.4 Query Filing **(doc1, resolved)**
 
 Critical principle: Good answers get filed back into the wiki as synthesis pages. A comparison you asked for, an analysis, a connection you discovered -- these are valuable and compound into the knowledge base rather than disappearing into chat history.
+
+**Two filing mechanisms**: (1) User-triggered "Save to Wiki" button on synthesis answers in the dashboard for immediate filing. (2) Daily `wiki-synthesis` job reviews unfiled synthesis answers as a catch-all. Synthesis answers are persisted as captures with `type: 'synthesis'` before wiki filing.
 
 ---
 
@@ -909,11 +924,11 @@ Critical principle: Good answers get filed back into the wiki as synthesis pages
 - **Spreading activation**: Entity graph traversal (max 2 hops, fan-out 10) via PL/pgSQL function. `include_related` parameter defaults false (API) / true (MCP).
 - **Memory consolidation**: LLM-powered near-duplicate merging (cosine > 0.92, min cluster 3, 4 AM Sundays)
 
-### 10.3 Wiki Search **(doc1, adapted)**
+### 10.3 Wiki Search **(doc1, adapted, resolved)**
 
-Initially via `index.md` scanning. When page count exceeds 200, integrate full-text search over the markdown files.
+Initially via `index.md` scanning. When page count exceeds 200, integrate full-text search over the markdown files. Wiki pages are embedded in pgvector as `source: 'wiki'` captures for unified search -- raw captures and synthesized wiki pages are ranked together in the same hybrid search results.
 
-[NEEDS CLARIFICATION: doc1 specifies `qmd` MCP server for wiki search. The existing system has a built-in MCP endpoint at `/mcp`. doc3 specifies core-api endpoints for wiki access (`GET /api/v1/wiki/search`). The `qmd` MCP server is not needed if wiki search is integrated into the existing core-api and MCP endpoint.]
+**[RESOLVED: Keep existing /mcp endpoint only -- no qmd.** 15 MCP tools already built. Wiki search tools (`search_wiki`, `read_wiki_page`, `write_wiki_page`, `list_wiki_pages`) are added to the existing /mcp endpoint and core-api routes. No separate qmd MCP server needed.**]**
 
 ### 10.4 MCP Tools for Search **(existing + doc3)**
 
@@ -946,8 +961,8 @@ Initially via `index.md` scanning. When page count exceeds 200, integrate full-t
 
 | Level | Behavior | Use Case |
 |-------|----------|----------|
-| `observe` | Log findings internally. No notifications, no messages. | Initial deployment, calibration. **Default.** |
-| `assist` | Send findings to owner via Pushover/Slack DM. Human relays. | Default operating mode |
+| `observe` | Log findings internally. No notifications, no messages. | Initial deployment, calibration. |
+| `assist` | Send findings to owner via Pushover/Slack DM. Human relays. | **Default.** Proactive features are validated -- time to receive their notifications. |
 | `advise` | Act and report. Post bot-attributed messages in channels. | Trusted, validated features |
 | `partner` | Autonomous action within guardrails. Rare permission requests. | Future -- requires extensive validation |
 
@@ -1033,17 +1048,19 @@ Settings      -- all config sections
 
 Embedded in Core API at `/mcp` route (Streamable HTTP). Authorization: Bearer header. 8 tools currently, expandable with wiki and email tools.
 
-### 12.4 Voice Interface **(doc3)**
+### 12.4 Voice Interface **(doc3, resolved)**
 
-[NEEDS CLARIFICATION: doc1 specifies Obsidian as the primary browse interface with Graph View, Dataview plugin, Marp plugin, and Web Clipper. The existing system has a React dashboard and will add a wiki browser. doc3 specifies Pipecat for voice conversations (replacing Obsidian-based browsing). Obsidian can still be used for direct vault browsing over Tailscale, but the primary interface is the React dashboard. Obsidian is optional, not primary.]
+**[RESOLVED: React dashboard is the primary interface** (accessible from any device). Obsidian is an optional power-user tool for graph exploration via `git clone` of the Gitea wiki repo over Tailscale. No system functionality depends on Obsidian.**]**
 
 **Pipecat Conversational Voice (doc3)**:
 - Real-time multi-turn voice via Pipecat framework
-- Pipeline: VAD (Silero) -> STT (Deepgram cloud) -> LLM (Claude SDK) -> TTS (Kokoro local or ElevenLabs cloud)
+- Pipeline: VAD (Silero) -> STT (Deepgram cloud) -> LLM (Claude SDK) -> TTS (Deepgram cloud)
+- Deepgram spike: soft gate before daily use -- run full streaming spike before enabling, don't block other work. Existing voice-capture one-shot flow continues during spike.
 - Session state in Redis with 30-minute TTL
-- iOS Shortcut updated for WebSocket connection
+- iOS Shortcut updated for WebSocket connection with fallback to one-shot transcription
 - Optional Twilio SIP trunk for phone access
 - At conversation end, creates captures routed through standard pipeline
+- Legacy decommission: after 2 weeks of validated Pipecat operation + iOS Shortcut updated with fallback, remove voice-capture and faster-whisper containers (9 -> 8 containers temporarily, then Ollama added = 9)
 
 ### 12.5 Email Interface **(existing + doc3)**
 
@@ -1118,20 +1135,19 @@ All ingestion, query, and lint operations can run through Claude Code sessions v
 | 2e: Interfaces | Configure dashboard wiki browser, test end-to-end | 1-2 sessions | All layers populated |
 | 3: Ongoing | Incremental ingestion, periodic lint passes | Continuous | System operational |
 
-### 13.5 Implementation Ordering (Recommended)
+### 13.5 Implementation Ordering **(resolved)**
 
-[NEEDS CLARIFICATION: The three source documents propose overlapping implementation timelines. The recommended ordering prioritizes v2 Phase 1 (model router + pipeline flows) and Phase 2 (wiki layer) first, since the OneDrive file migration (doc1) depends on the wiki layer being operational. The doc2 proactive intelligence features can be interspersed. Voice conversations (doc3 Phase 6) are last due to highest risk. Detailed scheduling requires a planning session.]
+**[RESOLVED: v2 stabilization (1 week) -> File migration (2-3 weeks) -> Phase 7 features.** Content first, then intelligence. Get the knowledge base populated before building advanced intelligence on top of it.**]**
 
-Recommended priority order:
-1. v2 Phase 1: Foundation (model router, pipeline flows, health strip)
-2. v2 Phase 2: Wiki Layer (Gitea repo, wiki-ingest, wiki browser)
-3. doc1 Phase 0-1: OneDrive infrastructure + file migration + dedup
-4. doc2 Phase 7D-7E: Slack auto-response completion (confidence scoring, DM mode, threaded replies)
-5. v2 Phase 3: Pipeline hardening + activity feed
-6. doc1 Phase 2: Wiki construction from OneDrive files
-7. v2 Phase 4: Scheduled intelligence skills
-8. v2 Phase 5: Outbound email + infrastructure skills
-9. v2 Phase 6: Voice conversations (Pipecat)
+Implementation sequence:
+1. **v2 Stabilization** (1 week): Multi-model router (three-tier), pipeline hardening, health strip, system health endpoint
+2. **File Migration** (2-3 weeks): OneDrive sync infrastructure, inventory/dedup, batch categorization (Qwen 3.5 on DGX Spark), file reorganization, Python extraction container
+3. **Wiki Layer**: Gitea repo, wiki-ingest worker, wiki browser UI, wiki search integration
+4. **Wiki Construction**: Process 10K files domain-by-domain into wiki, vector + entity population
+5. **Phase 7 Completion**: Slack auto-response (DM mode, threaded replies), confidence scoring framework
+6. **Scheduled Intelligence**: Wiki lint/synthesis/drift, monthly reflection
+7. **Outbound Email + Infrastructure Skills**: Himalaya integration, backup/cost/health skills
+8. **Voice Conversations**: Pipecat service, Deepgram spike, iOS Shortcut update (highest risk, last)
 
 ---
 
@@ -1150,34 +1166,25 @@ Monthly cost with single-model OpenAI gpt-5.4 routing:
 | Governance sessions | ~5 | ~$3 |
 | **Total** | | **~$25/month** |
 
-### 14.2 Projected: Five-Tier Routing **(doc2)**
+### 14.2 Projected: Three-Tier Routing **(resolved)**
 
 | Task Category | Tier | Monthly Cost |
 |---------------|------|-------------|
-| Classification | T0 (local) | $0 |
-| Entity extraction | T1 (DeepSeek) | ~$0.30 |
-| Search synthesis | T2 (Haiku) | ~$2 |
-| Skills | T3 (Sonnet) | ~$3 |
-| Governance | T4 (Opus) | ~$4 |
-| Daily sweep (30/mo) | T2 (Haiku) | ~$0.30 |
-| Shadow mode (~150 drafts/mo) | T2 (Haiku) | ~$0.50 |
-| MCP context (~60/mo) | T2 (Haiku) | ~$0.20 |
-| **Total** | | **~$10/month** |
+| Classification | T0 (local Ollama) | $0 |
+| Entity extraction | T1 (Haiku) | ~$1.50 |
+| Search synthesis | T1 (Haiku) | ~$2 |
+| Skills | T2 (Sonnet) | ~$4 |
+| Governance | T2 (Sonnet) | ~$3 |
+| Daily sweep (30/mo) | T1 (Haiku) | ~$0.30 |
+| Shadow mode (~150 drafts/mo) | T1 (Haiku) | ~$0.50 |
+| MCP context (~60/mo) | T1 (Haiku) | ~$0.20 |
+| Embeddings | OpenAI | ~$2-5 |
+| Deepgram STT + TTS | Deepgram | ~$1-3 |
+| **Total** | | **~$10-18/month** |
 
-**Net savings**: ~$15/month (60% reduction) while adding three new features.
+**Net savings**: ~$7-15/month (30-60% reduction) vs current $25/month while adding proactive features. Budget: soft $20 / hard $35.
 
-### 14.3 Projected: Dual-Client Subscription **(doc3)**
-
-| Component | Provider | Monthly Estimate |
-|-----------|----------|-----------------|
-| Claude LLM calls (all tasks) | Anthropic (subscription) | $0 |
-| Embeddings (text-embedding-3-large) | OpenAI via LiteLLM | ~$2-5 |
-| Deepgram STT (real-time voice) | Deepgram | ~$1-3 |
-| TTS (Kokoro local) | Self-hosted | $0 |
-| Local LLM (DGX Spark) | Self-hosted vLLM | $0 |
-| **Total** | | **~$3-8/month** |
-
-[NEEDS CLARIFICATION: The dramatic cost difference ($10/month vs $3-8/month) depends on whether the Claude Code subscription covers API usage at $0 marginal cost. If the subscription token works for API calls, doc3's model is correct. If API calls require per-token billing, doc2's model applies. Current state per ai-routing.yaml shows all Claude models at cost: $0, suggesting subscription coverage is active.]
+**[RESOLVED: Three-tier routing with Anthropic API billing.** Target state uses Haiku + Sonnet at per-token rates. Estimated monthly cost: $10-18/month depending on volume. Budget set at soft $20 / hard $35 with ~30% headroom. Interim: gpt-5.4 via OpenAI until Anthropic API key obtained (non-blocking).**]**
 
 ### 14.4 One-Time Costs **(doc1)**
 
@@ -1210,7 +1217,7 @@ Monthly cost with single-model OpenAI gpt-5.4 routing:
 | Knowledge compounding | 20+ synthesis pages after 60 days | doc1 |
 | Lint maintenance cost | Lint passes in <5 minutes | doc1 |
 | Incremental ingestion | Single new file in <2 minutes including all layer updates | doc1 |
-| Monthly LLM cost | <$15 (five-tier) or <$10 (subscription) | doc2, doc3 |
+| Monthly LLM cost | <$20 soft limit (three-tier routing) | resolved |
 | Classification quality | Equivalent or better after model migration | doc2 |
 | Fallback activation | Within 5 seconds of primary tier timeout | doc2 |
 | Auto-response accuracy | Validated via shadow mode review period | doc2 |
@@ -1254,30 +1261,32 @@ Monthly cost with single-model OpenAI gpt-5.4 routing:
 
 ## 17. Open Questions
 
-### 17.1 From doc2
+All questions from the initial unified draft have been resolved. Decisions are recorded in `reference/answers-PRD-UNIFIED-20260411.json` and applied inline throughout this document as **[RESOLVED]** tags.
 
-| # | Question | Impact | Status |
-|---|----------|--------|--------|
-| Q1 | Should confidence scoring weights be tunable from dashboard? | Nice-to-have | Open |
-| Q2 | Should auto-response shadow mode monitor DMs or only channels? | Privacy | Leaning channels-only |
-| Q3 | Should MCP context resource be cached or generated fresh? | Performance vs freshness | Open (5-min cache reasonable) |
-| Q4 | What Gemma 4 quantization gives best quality/speed on i7-9700 CPU? | Local inference quality | Needs benchmarking |
-| Q5 | Should fallback chain log warning or silently escalate? | Operator visibility vs noise | Leaning: log + aggregate in heartbeat |
+### 17.1 From doc2 -- All Resolved
 
-### 17.2 From Conflicts
+| # | Question | Decision | Status |
+|---|----------|----------|--------|
+| Q1 | Should confidence scoring weights be tunable from dashboard? | Tunable via `app_settings` API, not dashboard UI initially. Dashboard controls deferred. | **Resolved** |
+| Q2 | Should auto-response shadow mode monitor DMs or only channels? | Channels + DMs, but DM drafts require higher confidence threshold (0.90+). | **Resolved** |
+| Q3 | Should MCP context resource be cached or generated fresh? | 5-minute cache with `?fresh=true` bypass option. | **Resolved** |
+| Q4 | What Gemma 4 quantization gives best quality/speed on i7-9700 CPU? | Gemma 4 12B q4_K_M on Ollama. Benchmarking still needed for fine-tuning. | **Resolved** |
+| Q5 | Should fallback chain log warning or silently escalate? | Log to `ai_audit_log`, aggregate in heartbeat. No per-event alerts. | **Resolved** |
 
-| # | Question | Impact | Status |
-|---|----------|--------|--------|
-| Q6 | Vector search: continue with pgvector or add Qdrant? | Architecture complexity | Recommend: pgvector (already working, no new container) |
-| Q7 | Knowledge graph: continue with Postgres entities or add Neo4j? | Architecture complexity | Recommend: Postgres entities (already working, no new container) |
-| Q8 | Wiki host: Obsidian vault or Gitea repo? | Developer workflow | Recommend: Gitea (git-backed, API access, dashboard integration) |
-| Q9 | Local inference: Ollama on homeserver or vLLM on DGX Spark? | Container count, performance | Open (DGX Spark has GPU, homeserver has 128GB RAM) |
-| Q10 | Model routing: five-tier (doc2) or dual-client subscription (doc3)? | Cost model, complexity | Recommend: dual-client as baseline, five-tier as optional extension |
-| Q11 | Budget thresholds: $15/$30 (doc2) or $7/$10 (doc3) or $30/$50 (existing)? | Cost controls | Depends on Q10 resolution |
-| Q12 | Embedding model: OpenAI text-embedding-3-large (existing) or local (doc1)? | Cost, quality, re-embedding effort | Recommend: keep OpenAI (quality proven, cost low) |
-| Q13 | Claude Code as orchestrator (doc1) or BullMQ workers (existing)? | System architecture | Both: BullMQ for automated pipeline, Claude Code for interactive wiki work |
-| Q14 | Container count target: 8 (doc3), 9 (existing), or 10+ (with Ollama/Qdrant/Neo4j)? | Infrastructure complexity | Recommend: 8 (doc3 target, Pipecat replaces voice+whisper) |
-| Q15 | Search interface: qmd MCP server (doc1) or existing /mcp endpoint? | Redundancy | Recommend: existing /mcp endpoint with wiki tools added |
+### 17.2 From Conflicts -- All Resolved
+
+| # | Question | Decision | Status |
+|---|----------|----------|--------|
+| Q6 | Vector search: pgvector or Qdrant? | Keep pgvector. Revisit at 500K+ vectors. | **Resolved** |
+| Q7 | Knowledge graph: Postgres or Neo4j? | Keep Postgres entities, add `relationship_type` column. | **Resolved** |
+| Q8 | Wiki host: Obsidian or Gitea? | Gitea authoritative, Obsidian optional local browser. | **Resolved** |
+| Q9 | Local inference: Ollama on homeserver or vLLM on DGX Spark? | Ollama on homeserver (CPU). DGX Spark for batch overflow. | **Resolved** |
+| Q10 | Model routing: five-tier or dual-client? | Three-tier (local Ollama + Haiku + Sonnet), configurable. | **Resolved** |
+| Q11 | Budget thresholds? | Soft $20 / Hard $35. | **Resolved** |
+| Q12 | Embedding model: OpenAI or local? | Keep OpenAI text-embedding-3-large. | **Resolved** |
+| Q13 | Claude Code or BullMQ workers? | Both: BullMQ for automated pipeline, Claude Code for interactive wiki work. | **Resolved** |
+| Q14 | Container count target? | 9 (Pipecat replaces voice+whisper, Ollama added). | **Resolved** |
+| Q15 | Search interface: qmd or existing /mcp? | Existing /mcp endpoint with wiki tools added. No qmd. | **Resolved** |
 
 ---
 
@@ -1370,7 +1379,7 @@ See PRD-V2.md for detailed specifications, including:
 
 - **v2-F1**: Pipecat voice -- Deepgram STT, Kokoro/ElevenLabs TTS, session management, Twilio SIP
 - **v2-F2**: Wiki layer -- Gitea repo, directory structure, wiki-ingest/lint/synthesis jobs, MCP tools
-- **v2-F3**: Pipeline modernization -- FlowProducer DAGs, parallel stages, rate limiting, dedup, OpenTelemetry
+- **v2-F3**: Pipeline modernization -- FlowProducer DAGs, parallel stages, rate limiting, dedup, lightweight OTel trace IDs in logs (no collector infrastructure)
 - **v2-F4**: Dual-client model routing -- `createClaudeClient()`, `runAgent()`, `llm_usage` table, fallback behavior
 - **v2-F5**: Scheduled intelligence skills -- wiki lint, wiki synthesis, drift detection, daily connections, monthly reflection
 - **v2-F6**: System health strip -- persistent status bar, SSE updates, threshold indicators
@@ -1399,7 +1408,7 @@ CREATE TABLE voice_sessions (
   turn_count INTEGER DEFAULT 0,
   transcript JSONB DEFAULT '[]'::jsonb,
   summary TEXT,
-  captures_created INTEGER[] DEFAULT '{}',
+  captures_created UUID[] DEFAULT '{}',
   metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -1446,7 +1455,7 @@ CREATE TABLE email_drafts (
   approved_at TIMESTAMPTZ,
   sent_at TIMESTAMPTZ,
   himalaya_message_id VARCHAR(256),
-  capture_id INTEGER REFERENCES captures(id),
+  capture_id UUID REFERENCES captures(id),
   metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1488,6 +1497,7 @@ CREATE TABLE activity_feed (
   source_id UUID,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX idx_activity_feed_source_id ON activity_feed(source_id); -- Enables fast 'show all activity for this capture' queries
 ```
 
 ### 18.5 API Additions (v2) **(doc3)**
@@ -1625,7 +1635,7 @@ Per process: 1.5 GB resident memory ceiling. Stream large files, use generators/
 
 - **Schedule**: Daily, 2:30 AM
 - **Method**: Trigger `BGSAVE`, copy RDB file to `/mnt/backups/open-brain-redis/`
-- **Retention**: 7 daily
+- **Retention**: 7 daily / 4 weekly / 3 monthly (standardized across all backup types)
 
 #### v2-F14.4: LLM Cost Analysis
 
@@ -1649,7 +1659,7 @@ Per process: 1.5 GB resident memory ceiling. Stream large files, use generators/
 #### v2-F14.7: Container Health Check
 
 - **Schedule**: Every 15 minutes
-- **Method**: Hit `/health` endpoint on each container
+- **Method**: HTTP for health checks (hit `/health` endpoint on each container). Docker socket mount (read-only) for backup operations that need container info. Acceptable risk for homelab, documented.
 - **Alert**: If any container unhealthy for 3 consecutive checks, send Pushover alert
 - **Storage**: Log health history to `container_health` table for dashboard display
 
@@ -1671,7 +1681,7 @@ Per process: 1.5 GB resident memory ceiling. Stream large files, use generators/
 
 | ID | Requirement |
 |----|-------------|
-| F1.1 | Pipecat pipeline: VAD (Silero) -> STT (Deepgram cloud, primary) -> LLM (Claude SDK) -> TTS (Kokoro local or ElevenLabs cloud). Phase 0 spike: test Deepgram latency before full implementation. |
+| F1.1 | Pipecat pipeline: VAD (Silero) -> STT (Deepgram cloud, primary) -> LLM (Claude SDK) -> TTS (Deepgram cloud). Phase 0 spike: test Deepgram streaming latency before enabling daily use (soft gate -- don't block other work). |
 | F1.2 | Session state in Redis with configurable TTL (default 30 min). Includes conversation history, session metadata, extracted captures. |
 | F1.3 | iOS Shortcut updated for Pipecat WebSocket endpoint. Fallback to one-shot transcription if unavailable. |
 | F1.4 | Twilio SIP trunk support (optional, configurable). Phone number connects to Pipecat. Config in `config/voice.yaml`. |
@@ -1695,8 +1705,8 @@ stt:
     device: cpu
 
 tts:
-  provider: kokoro
-  voice: af_heart
+  provider: deepgram  # Single vendor with STT -- low cost, low latency
+  voice: aura-asteria-en
 
 llm:
   task_type: conversation
@@ -1733,7 +1743,7 @@ Outbound (NEW):
 
 | ID | Requirement |
 |----|-------------|
-| F13.1 | Himalaya CLI binary installed in workers container. SMTP credentials from Bitwarden. |
+| F13.1 | Himalaya CLI binary installed in workers container. SMTP credentials from Bitwarden. Migrate all outbound email to Himalaya -- remove nodemailer dependency entirely. Single sending mechanism. |
 | F13.4 | Email thread tracking via `in_reply_to` and `references` headers in capture metadata. |
 | F13.5 | Attachment handling -- draft replies can reference attachments from original inbound email. |
 | F13.6 | Outbound email composition via `runAgent()` with `draft_email`, `search_brain`, `get_entity` tools. |
@@ -1753,9 +1763,12 @@ himalaya:
 
 outbound:
   default_from: troy@troy-davis.com
+  display_name: "Troy Davis"  # Display name on outbound emails
   signature: |
     Troy Davis
     Stratfield Consulting
+    ---
+    This email may have been drafted with AI assistance.
   default_mode: review-required
   auto_send_rules:
     - type: skill-output
@@ -1898,10 +1911,10 @@ create table capture_associations (
 | D14 | Pipecat for voice over voice-capture + faster-whisper | Multi-turn, real-time, fewer containers | doc3 |
 | D15 | Deepgram cloud STT over local faster-whisper | Real-time latency, no local model loading | doc3 |
 | D16 | Himalaya CLI for outbound email | Stateless Rust binary, no daemon, no container | doc3 |
-| D17 | Claude SDK subscription for LLM calls | $0 marginal cost, high quality | doc3 |
+| D17 | Three-tier model routing (Ollama + Haiku + Sonnet) | Configurable tiers, cost-effective, interim gpt-5.4 until Anthropic key | resolved |
 | D18 | FlowProducer DAGs over sequential pipeline | Parallel stages, dependency tracking | doc3 |
-| D19 | Five-tier model hierarchy (optional) | Cost optimization + quality matching | doc2 |
-| D20 | DGX Spark over Ollama for local inference | GPU available, no new homeserver container | merged |
+| D19 | Three-tier model hierarchy (Ollama + Haiku + Sonnet) | Cost optimization + quality matching. No DeepSeek for now. | resolved |
+| D20 | Ollama on homeserver (CPU) for local inference | Already running, DGX Spark for batch overflow only | resolved |
 | D21 | Shadow -> DM -> threaded auto-response progression | Risk management, each phase validates next | doc2 |
 | D22 | Autonomy levels over per-feature toggles | Single knob, easier to reason about | doc2 |
 | D23 | OpenAI for embeddings (keep) | Proven quality, low cost, no re-embedding | doc2 |
@@ -1916,7 +1929,7 @@ create table capture_associations (
 | Unit | Vitest for all modules. Current: 1,569 tests passing. Target: 80%+ coverage on new code. Key areas: Claude client factory, wiki Git operations, pipeline flow construction, activity feed aggregation, himalaya CLI wrapper, backup retention policy, confidence scoring. |
 | Integration | Docker Compose test stack. Test: ingest flow DAG execution, wiki-ingest end-to-end (capture -> wiki page), voice session lifecycle, MCP tool execution, email draft -> approve -> send lifecycle, backup -> restore -> verify. Uses `X-Open-Brain-Caller: integration-test` header for rate limit bypass. Config: `vitest.config.integration.ts`. Runner: `pnpm --filter @open-brain/core-api exec vitest`. |
 | Regression | 95 tests (`scripts/regression-test.mjs`). Extend with: voice conversation -> capture -> wiki integration, scheduled skill -> wiki update -> dashboard display, outbound email draft -> Slack approval -> send, infrastructure skill execution chain. |
-| E2E | `scripts/e2e-phase1.sh` (8 tests), `scripts/e2e-full.sh` (37 tests). Extend for v2 scenarios. |
+| E2E | `scripts/e2e-phase1.sh` (8 tests), `scripts/e2e-full.sh` (37 tests). Extend for v2 scenarios. Add 3-5 file ingestion e2e tests covering major file types (PDF, DOCX, PPTX, TXT, CSV) following the existing `e2e-full.sh` pattern. |
 | Performance | Benchmark: Pipecat voice latency (VAD -> STT -> Claude -> TTS round-trip), wiki-ingest throughput (captures/minute), flow DAG vs sequential pipeline execution time, pg_dump duration at current database size. |
 
 ### 18.16 Future Considerations (Out of Scope)
@@ -1947,40 +1960,44 @@ These items are explicitly out of scope for the unified plan but may inform futu
 
 ## 19. Reconciliation: Conflicts and Resolutions
 
-### 19.1 Conflict Summary
+### 19.1 Conflict Summary -- All Resolved
 
-| # | Topic | doc1 Says | doc2 Says | doc3/existing Says | Recommendation |
-|---|-------|-----------|-----------|-------------------|----------------|
-| C1 | Vector search | Qdrant (separate Docker container) | N/A | Postgres pgvector (existing, working) | **Keep pgvector.** No new container, proven at scale, simpler operations. Qdrant adds architectural complexity for marginal benefit at current data volume (<100K captures). |
-| C2 | Knowledge graph | Neo4j Community Edition (separate Docker container) | N/A | Postgres entity tables (existing, working) | **Keep Postgres entities.** Entity graph with spreading activation already implemented. Neo4j adds container + operational complexity. Consider if entity count exceeds 100K or graph traversal queries become too slow. |
-| C3 | Wiki host | Obsidian vault on filesystem | N/A | Gitea-backed markdown wiki repo | **Use Gitea.** Provides git-backed versioning, commit history, API access, and dashboard integration. Obsidian can still be used as an optional viewer over Tailscale. |
-| C4 | Browse interface | Obsidian (primary) | N/A | React dashboard (existing) + wiki browser (doc3) | **Dashboard is primary.** Obsidian is optional power-user tool for direct vault browsing. |
-| C5 | Search interface | qmd MCP server | N/A | Built-in MCP endpoint at /mcp | **Use existing /mcp endpoint.** Add wiki search tools to existing MCP. No separate qmd server needed. |
-| C6 | API framework | FastAPI RAG service | N/A | Hono API (existing) | **Keep Hono.** Existing TypeScript API handles all routes. No separate Python service needed. |
-| C7 | Orchestration | Claude Code (primary) | N/A | BullMQ workers (existing) | **Both.** BullMQ for automated pipeline. Claude Code for interactive wiki work via MCP. They complement each other. |
-| C8 | Embedding model | DGX Spark local (nomic-embed-text or BGE-large) | OpenAI text-embedding-3-large (keep) | OpenAI text-embedding-3-large (existing) | **Keep OpenAI.** Proven quality, low cost, switching requires re-embedding all captures. DGX Spark available for other local inference. |
-| C9 | Model routing | N/A (pre-dates routing discussion) | Five-tier (T0-T4) with Ollama, DeepSeek, Anthropic | Dual-client (Claude SDK subscription + LiteLLM) | **Start with dual-client (doc3).** Subscription-covered Claude is cheapest. Add five-tier extensions (local T0 via DGX Spark, DeepSeek T1) as optional cost optimization when/if subscription model changes. |
-| C10 | Local inference container | N/A | Ollama on homeserver (new container) | No Ollama; DGX Spark via LiteLLM | **Use DGX Spark for local inference.** Has a GPU, already running vLLM. Avoids adding an 11th container to homeserver. Connect via LiteLLM proxy. |
-| C11 | Budget thresholds | N/A | $15 soft / $30 hard | $7 soft / $10 hard (non-Claude only) | **Depends on C9.** If dual-client with subscription: $7/$10 for non-Claude only. If five-tier: $15/$30 total. |
-| C12 | Features already implemented | N/A | Some features (F36, F38, F39, F40, F45) already done | Confirms existing | **Mark as implemented.** F36 (autonomy), F38 (daily sweep), F39 (MCP context), F40 (CaptureCard), F45 (heartbeat) are production. |
-| C13 | DeepSeek T1 | N/A | DeepSeek Chat V3 as T1 | Not mentioned | **Optional.** Can be added to ai-routing.yaml as a fallback tier if DGX Spark local inference is insufficient for entity extraction quality. |
+All 13 conflicts have been resolved. Decisions recorded 2026-04-11 (see `reference/answers-PRD-UNIFIED-20260411.json`).
+
+| # | Topic | Resolution | Status |
+|---|-------|------------|--------|
+| C1 | Vector search | **Keep pgvector.** Monitor 4 signals (latency >200ms, index build >30min, filter degradation, RAM pressure). Revisit at 500K+ vectors. | **RESOLVED** |
+| C2 | Knowledge graph | **Keep Postgres entities.** Add `relationship_type VARCHAR(32) DEFAULT 'related_to'` to `entity_relationships` for typed edges. No Neo4j. | **RESOLVED** |
+| C3 | Wiki host | **Gitea is authoritative store.** Obsidian as optional local browser via clone. | **RESOLVED** |
+| C4 | Browse interface | **React dashboard is primary** (any device). Obsidian for power-user graph exploration. | **RESOLVED** |
+| C5 | Search interface | **Existing /mcp endpoint only.** No qmd. Wiki search tools added to /mcp. | **RESOLVED** |
+| C6 | API framework | **Keep Hono.** No separate Python service. File extraction uses a separate lightweight Python container, BullMQ-triggered. | **RESOLVED** |
+| C7 | Orchestration | **Both.** BullMQ for automated pipeline. Claude Code for interactive wiki work via MCP. | **RESOLVED** |
+| C8 | Embedding model | **Keep OpenAI text-embedding-3-large.** Cost negligible (~$2-5/month), no DGX Spark dependency. | **RESOLVED** |
+| C9 | Model routing | **Three-tier** (local Ollama + Haiku + Sonnet) with Anthropic API key. No DeepSeek for now. Configurable for future additions. | **RESOLVED** |
+| C10 | Local inference | **Ollama on homeserver (CPU).** DGX Spark as batch overflow. Already running, GPU upgrade planned. | **RESOLVED** |
+| C11 | Budget thresholds | **Soft $20 / Hard $35.** ~30% headroom above $10-18 estimated range. | **RESOLVED** |
+| C12 | Features already implemented | **Confirmed.** F36 (autonomy), F38 (daily sweep), F39 (MCP context), F40 (CaptureCard), F45 (heartbeat) are production. | **RESOLVED** |
+| C13 | DeepSeek T1 | **Skip for now.** Config ready for future addition. $2.70/month savings not worth added provider complexity. | **RESOLVED** |
 
 ### 19.2 Unified Technology Stack Decision
 
 | Component | Decision | Rationale |
 |-----------|----------|-----------|
 | **Database** | Postgres 16 + pgvector (existing) | Single database for captures, entities, vectors. Proven. No additional containers. |
-| **Entity Graph** | Postgres entity tables + Drizzle ORM (existing) | Spreading activation, Hebbian associations already implemented. |
-| **Vector Search** | pgvector HNSW index (existing) | vector(768) schema, hybrid search with FTS. |
-| **Wiki** | Gitea-backed markdown repo (doc3) | Git versioning, API access, dashboard integration. |
-| **Primary Interface** | React dashboard (existing) + wiki browser (doc3) | PWA, responsive, full-featured. |
-| **Model Routing** | Dual-client (doc3) with optional five-tier extension (doc2) | Start cheap (subscription), add tiers later. |
-| **Embeddings** | OpenAI text-embedding-3-large at 768d (existing) | High quality, low cost, no re-embedding needed. |
-| **Local Inference** | DGX Spark via LiteLLM proxy (existing infrastructure) | GPU available, no new container on homeserver. |
-| **Voice** | Pipecat with Deepgram STT (doc3) | Replaces voice-capture + faster-whisper. |
-| **Email Outbound** | Himalaya CLI in workers container (doc3) | Stateless Rust CLI, no additional container. |
-| **Pipeline** | BullMQ FlowProducer DAGs (doc3) | Parallel stages, durable, existing Redis. |
+| **Entity Graph** | Postgres entity tables + Drizzle ORM (existing) + typed relationships | Spreading activation, Hebbian associations implemented. `relationship_type` column for rich edges. |
+| **Vector Search** | pgvector HNSW index (existing) | vector(768) schema, hybrid search with FTS. Revisit at 500K+ vectors. |
+| **Wiki** | Gitea-backed markdown repo | Git versioning, API access, dashboard integration. Obsidian optional. |
+| **Primary Interface** | React dashboard (existing) + wiki browser | PWA, responsive, full-featured. Obsidian for power-user graph exploration. |
+| **Model Routing** | Three-tier (Ollama + Haiku + Sonnet) | Configurable in ai-routing.yaml. Interim: gpt-5.4 until Anthropic key. |
+| **Embeddings** | OpenAI text-embedding-3-large at 768d (existing) | High quality, low cost (~$2-5/month), no re-embedding needed. |
+| **Local Inference** | Ollama on homeserver (CPU) + DGX Spark (batch overflow) | Ollama for routine classification. DGX Spark for bulk operations. |
+| **Voice** | Pipecat with Deepgram STT + TTS (doc3) | Replaces voice-capture + faster-whisper. Single vendor for STT + TTS. |
+| **Email Outbound** | Himalaya CLI in workers container (doc3) | Stateless Rust CLI, no nodemailer. Display name: "Troy Davis", AI disclaimer in signature. |
+| **Pipeline** | BullMQ FlowProducer DAGs (doc3) | Parallel stages, durable, existing Redis. Lightweight OTel trace IDs in logs. |
 | **Orchestration** | BullMQ (automated) + Claude Code (interactive) | Complementary approaches for different use cases. |
+| **File Extraction** | Separate lightweight Python container | BullMQ-triggered via core-api. Same pattern as voice-pipecat. |
+| **Backups** | 7 daily / 4 weekly / 3 monthly | Standardized retention across all backup types (DB, wiki, Redis). |
 
 ---
 
@@ -1989,3 +2006,4 @@ These items are explicitly out of scope for the unified plan but may inform futu
 | Date | Version | Changes |
 |------|---------|---------|
 | 2026-04-10 | 1.0 | Initial unified draft. Merged openbrain-prd.docx, PRD-PHASE7.md, PRD-V2.md. 15 NEEDS CLARIFICATION tags. Reconciliation section with 13 conflicts and recommended resolutions. |
+| 2026-04-11 | 1.1 | All 52 questions answered and applied. 13 NEEDS CLARIFICATION tags resolved (0 remaining). Key decisions: three-tier model routing (Ollama + Haiku + Sonnet), Gitea wiki with Obsidian optional, pgvector + typed entity relationships (no Qdrant/Neo4j), Ollama on homeserver for local inference, soft $20 / hard $35 budget, implementation sequence v2 stabilize -> file migration -> Phase 7. Doc errors fixed (INTEGER -> UUID in voice_sessions and email_drafts). External Dependencies table added. Open Questions and Reconciliation sections updated to RESOLVED. |
