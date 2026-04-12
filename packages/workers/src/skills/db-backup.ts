@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
-import { stat, readdir, unlink, mkdir } from 'node:fs/promises'
+import { stat, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Database } from '@open-brain/shared'
 import { backup_log, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { pruneBackups, DEFAULT_RETENTION } from '../lib/backup-retention.js'
+import type { RetentionPolicy } from '../lib/backup-retention.js'
 
 function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<{ stdout: string | Buffer; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -39,10 +41,18 @@ export interface DbBackupResult {
   error?: string
 }
 
-export interface RetentionPolicy {
-  daily: number   // keep N most recent daily backups
-  weekly: number  // keep N most recent weekly backups (Sunday)
-  monthly: number // keep N most recent monthly backups (1st of month)
+// Re-export RetentionPolicy so existing imports from this module still work
+export type { RetentionPolicy } from '../lib/backup-retention.js'
+
+/**
+ * Apply retention policy to database backups (.sql.gz files).
+ * Delegates to shared pruneBackups utility.
+ */
+export async function applyRetention(
+  backupDir: string,
+  retention: RetentionPolicy = DEFAULT_RETENTION,
+): Promise<number> {
+  return pruneBackups(backupDir, '.sql.gz', retention, '[db-backup]')
 }
 
 // ============================================================
@@ -53,97 +63,6 @@ const DEFAULT_BACKUP_DIR = '/backups/database'
 const DEFAULT_CONTAINER = 'open-brain-postgres'
 const DEFAULT_DB_NAME = 'openbrain'
 const DEFAULT_DB_USER = 'openbrain'
-
-const DEFAULT_RETENTION: RetentionPolicy = {
-  daily: 7,
-  weekly: 4,
-  monthly: 3,
-}
-
-// ============================================================
-// Retention logic
-// ============================================================
-
-interface BackupFile {
-  name: string
-  path: string
-  date: Date
-}
-
-/**
- * Parse backup filename to extract date.
- * Expected format: openbrain_YYYY-MM-DDTHH-MM-SS.sql.gz
- */
-function parseBackupDate(filename: string): Date | null {
-  const match = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/)
-  if (!match) return null
-  // Convert T-separated time back to colons for Date parsing
-  const dateStr = match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3')
-  const date = new Date(dateStr)
-  return isNaN(date.getTime()) ? null : date
-}
-
-/**
- * Apply retention policy: keep N daily, N weekly (Sunday), N monthly (1st).
- * A single backup can satisfy multiple retention slots (e.g., the 1st of a month
- * counts for daily, weekly if Sunday, and monthly). Files not retained are deleted.
- *
- * Returns the number of files pruned.
- */
-export async function applyRetention(
-  backupDir: string,
-  retention: RetentionPolicy = DEFAULT_RETENTION,
-): Promise<number> {
-  let files: string[]
-  try {
-    files = await readdir(backupDir)
-  } catch {
-    return 0
-  }
-
-  const backups: BackupFile[] = files
-    .filter(f => f.endsWith('.sql.gz'))
-    .map(f => ({ name: f, path: join(backupDir, f), date: parseBackupDate(f)! }))
-    .filter(b => b.date !== null)
-    .sort((a, b) => b.date.getTime() - a.date.getTime()) // newest first
-
-  if (backups.length === 0) return 0
-
-  const keep = new Set<string>()
-
-  // Daily: keep N most recent
-  for (let i = 0; i < Math.min(retention.daily, backups.length); i++) {
-    keep.add(backups[i].name)
-  }
-
-  // Weekly: keep N most recent Sunday backups
-  const sundays = backups.filter(b => b.date.getDay() === 0)
-  for (let i = 0; i < Math.min(retention.weekly, sundays.length); i++) {
-    keep.add(sundays[i].name)
-  }
-
-  // Monthly: keep N most recent 1st-of-month backups
-  const firsts = backups.filter(b => b.date.getDate() === 1)
-  for (let i = 0; i < Math.min(retention.monthly, firsts.length); i++) {
-    keep.add(firsts[i].name)
-  }
-
-  // Delete files not in the keep set
-  let pruned = 0
-  for (const backup of backups) {
-    if (!keep.has(backup.name)) {
-      try {
-        await unlink(backup.path)
-        pruned++
-        logger.info({ file: backup.name }, '[db-backup] pruned old backup')
-      } catch (err) {
-        logger.warn({ file: backup.name, err }, '[db-backup] failed to prune backup')
-      }
-    }
-  }
-
-  return pruned
-}
 
 // ============================================================
 // DbBackupSkill

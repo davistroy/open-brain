@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
-import { stat, readdir, unlink, mkdir } from 'node:fs/promises'
+import { stat, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Database } from '@open-brain/shared'
 import { backup_log, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { pruneBackups, DEFAULT_RETENTION } from '../lib/backup-retention.js'
+import type { RetentionPolicy } from '../lib/backup-retention.js'
 
 function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -43,48 +45,16 @@ const DEFAULT_BACKUP_DIR = '/backups/redis'
 const DEFAULT_CONTAINER = 'open-brain-redis'
 const DEFAULT_RDB_PATH = '/data/dump.rdb'
 
-const RETENTION_DAILY = 7
-
-// ============================================================
-// Retention logic (simple: keep N most recent .rdb files)
-// ============================================================
-
-function parseSnapshotDate(filename: string): Date | null {
-  const match = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/)
-  if (!match) return null
-  const dateStr = match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3')
-  const date = new Date(dateStr)
-  return isNaN(date.getTime()) ? null : date
-}
-
-export async function applyRetention(backupDir: string, keepCount: number = RETENTION_DAILY): Promise<number> {
-  let files: string[]
-  try {
-    files = await readdir(backupDir)
-  } catch {
-    return 0
-  }
-
-  const snapshots = files
-    .filter(f => f.endsWith('.rdb'))
-    .map(f => ({ name: f, path: join(backupDir, f), date: parseSnapshotDate(f)! }))
-    .filter(s => s.date !== null)
-    .sort((a, b) => b.date.getTime() - a.date.getTime())
-
-  if (snapshots.length <= keepCount) return 0
-
-  let pruned = 0
-  for (let i = keepCount; i < snapshots.length; i++) {
-    try {
-      await unlink(snapshots[i].path)
-      pruned++
-      logger.info({ file: snapshots[i].name }, '[redis-snapshot] pruned old snapshot')
-    } catch (err) {
-      logger.warn({ file: snapshots[i].name, err }, '[redis-snapshot] failed to prune snapshot')
-    }
-  }
-
-  return pruned
+/**
+ * Apply retention policy to Redis snapshots (.rdb files).
+ * Now uses the full daily/weekly/monthly retention policy (standardized
+ * across all backup skills) instead of the previous simple count-based approach.
+ */
+export async function applyRetention(
+  backupDir: string,
+  retention: RetentionPolicy = DEFAULT_RETENTION,
+): Promise<number> {
+  return pruneBackups(backupDir, '.rdb', retention, '[redis-snapshot]')
 }
 
 // ============================================================

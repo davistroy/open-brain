@@ -92,6 +92,14 @@ export const DEFAULT_SKILLS: Record<string, SkillConfig> = {
     schedule: '0 3 * * 0', // Sunday 3am
     description: 'Weekly report: Postgres DB size, Redis memory, backup storage, wiki repo size, capture growth rate',
   },
+  'secret-rotation': {
+    schedule: '0 10 1 * *', // 1st of month, 10am
+    description: 'Check API key ages via bws CLI (Bitwarden Secrets Manager), alert via Pushover if any key older than 90 days',
+  },
+  'capture-dedup-sweep': {
+    schedule: '0 4 * * 6', // Saturday 4am
+    description: 'Weekly scan for near-duplicate captures (cosine > 0.95) not caught by real-time dedup — flags for review, does not auto-merge',
+  },
 }
 
 /**

@@ -376,6 +376,25 @@ export function createSkillExecutionWorker(
           break
         }
 
+        case 'secret-rotation': {
+          const { executeSecretRotation } = await import('../skills/secret-rotation.js')
+          const secretResult = await executeSecretRotation(db, {
+            maxAgeDays: typeof input?.maxAgeDays === 'number' ? input.maxAgeDays : undefined,
+            bwsBinary: typeof input?.bwsBinary === 'string' ? input.bwsBinary : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              totalSecrets: secretResult.totalSecrets,
+              staleCount: secretResult.staleSecrets.length,
+              alertSent: secretResult.alertSent,
+              durationMs: secretResult.durationMs,
+            },
+            '[skill-execution] secret-rotation complete',
+          )
+          break
+        }
+
         case 'storage-audit': {
           const { executeStorageAudit } = await import('../skills/storage-audit.js')
           const storageResult = await executeStorageAudit(db, {}, opts.wikiService)
@@ -388,6 +407,24 @@ export function createSkillExecutionWorker(
               durationMs: storageResult.durationMs,
             },
             '[skill-execution] storage-audit complete',
+          )
+          break
+        }
+
+        case 'capture-dedup-sweep': {
+          const { executeCaptureDedupSweep } = await import('../skills/capture-dedup-sweep.js')
+          const dedupResult = await executeCaptureDedupSweep(db, {
+            similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
+            maxPairs: typeof input?.maxPairs === 'number' ? input.maxPairs : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              pairsFound: dedupResult.pairsFound,
+              notificationSent: dedupResult.notificationSent,
+              durationMs: dedupResult.durationMs,
+            },
+            '[skill-execution] capture-dedup-sweep complete',
           )
           break
         }

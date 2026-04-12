@@ -140,7 +140,7 @@ JSDoc comments for cron expressions must not contain `*/` sequences (tsup --dts 
 ---
 
 #### 1.4 Create Secret Rotation Reminder Skill
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §18.8 (v2-F14.8, Secret Rotation Reminder)
 **Files Affected:**
 - `packages/workers/src/skills/secret-rotation.ts` (create)
@@ -167,7 +167,7 @@ The `bws` CLI is at `~/bin/bws.exe`. It reads `BWS_ACCESS_TOKEN` from env automa
 ---
 
 #### 1.5 Create Capture Dedup Sweep Skill
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §18.8 (v2-F14.9, Capture Deduplication Sweep)
 **Files Affected:**
 - `packages/workers/src/skills/capture-dedup-sweep.ts` (create)
@@ -195,7 +195,7 @@ Supplements memory consolidation (0.92 threshold, auto-merge). This skill uses a
 ---
 
 #### 1.6 Implement Backup Retention Policies
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §18.8 (v2-F14.1-F14.3, standardized retention)
 **Files Affected:**
 - `packages/workers/src/skills/db-backup.ts` (modify) -- add retention logic

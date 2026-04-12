@@ -36,6 +36,8 @@ export interface ScheduledQueues {
  * - cost-analysis: 7:00 AM daily (cron: 0 7 * * *) — LLM cost tracking, weekly/monthly reports
  * - container-health: every 15 min (cron: *\/15 * * * *) — /health checks on all containers
  * - storage-audit: 3:00 AM Sundays (cron: 0 3 * * 0) — Postgres, Redis, backup, wiki sizes
+ * - secret-rotation: 10:00 AM 1st of month (cron: 0 10 1 * *) — checks API key ages via bws CLI, alerts if > 90 days
+ * - capture-dedup-sweep: 4:00 AM Saturdays (cron: 0 4 * * 6) — flags near-duplicate captures (cosine > 0.95) for review
  *
  * jobId values are stable — BullMQ treats a repeat job with the same jobId as
  * an upsert, so calling this on every startup is safe.
@@ -416,6 +418,44 @@ export async function registerScheduledJobs(
   )
 
   logger.info({ cron: storageAuditCron }, '[scheduler] storage-audit repeatable job registered')
+
+  // --------------------------------------------------------
+  // Secret rotation (1st of month, 10:00 AM)
+  // --------------------------------------------------------
+  const secretRotationCron = '0 10 1 * *'
+
+  await skillExecutionQueue.add(
+    'secret-rotation',
+    {
+      skillName: 'secret-rotation',
+      input: {},
+    },
+    {
+      repeat: { pattern: secretRotationCron },
+      jobId: 'scheduled_secret-rotation',
+    },
+  )
+
+  logger.info({ cron: secretRotationCron }, '[scheduler] secret-rotation repeatable job registered')
+
+  // --------------------------------------------------------
+  // Capture dedup sweep (Saturday 4:00 AM)
+  // --------------------------------------------------------
+  const captureDedupSweepCron = '0 4 * * 6'
+
+  await skillExecutionQueue.add(
+    'capture-dedup-sweep',
+    {
+      skillName: 'capture-dedup-sweep',
+      input: {},
+    },
+    {
+      repeat: { pattern: captureDedupSweepCron },
+      jobId: 'scheduled_capture-dedup-sweep',
+    },
+  )
+
+  logger.info({ cron: captureDedupSweepCron }, '[scheduler] capture-dedup-sweep repeatable job registered')
 
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

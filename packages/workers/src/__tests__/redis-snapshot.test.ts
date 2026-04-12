@@ -194,15 +194,18 @@ describe('redis applyRetention', () => {
     expect(pruned).toBe(0)
   })
 
-  it('prunes .rdb files beyond retention limit', async () => {
+  it('prunes .rdb files beyond daily retention limit', async () => {
+    // Use dates that avoid Sundays and 1st-of-month to isolate daily behavior
+    // 2026-04-06 (Mon) through 2026-04-15 (Wed) — no Sundays except 04-12
     const files = []
     for (let i = 0; i < 10; i++) {
-      const day = String(10 - i).padStart(2, '0')
+      const day = String(15 - i).padStart(2, '0')
       files.push(`redis_2026-04-${day}T02-30-00.rdb`)
     }
     mockReaddir.mockResolvedValue(files)
 
-    const pruned = await applyRetention('/tmp/test-backups', 7)
+    // daily=7, weekly=4 (04-12 is Sunday, kept by weekly), monthly=0
+    const pruned = await applyRetention('/tmp/test-backups', { daily: 7, weekly: 0, monthly: 0 })
     expect(pruned).toBe(3) // 10 - 7 = 3
   })
 
@@ -213,14 +216,28 @@ describe('redis applyRetention', () => {
     expect(pruned).toBe(0)
   })
 
-  it('keeps exactly keepCount files', async () => {
+  it('keeps all files when count is within retention limits', async () => {
     mockReaddir.mockResolvedValue([
       'redis_2026-04-10T02-30-00.rdb',
       'redis_2026-04-09T02-30-00.rdb',
       'redis_2026-04-08T02-30-00.rdb',
     ])
 
-    const pruned = await applyRetention('/tmp/test-backups', 3)
+    const pruned = await applyRetention('/tmp/test-backups', { daily: 7, weekly: 4, monthly: 3 })
+    expect(pruned).toBe(0)
+  })
+
+  it('uses standardized 7/4/3 retention by default', async () => {
+    // 5 files, all within daily=7 limit
+    mockReaddir.mockResolvedValue([
+      'redis_2026-04-10T02-30-00.rdb',
+      'redis_2026-04-09T02-30-00.rdb',
+      'redis_2026-04-08T02-30-00.rdb',
+      'redis_2026-04-07T02-30-00.rdb',
+      'redis_2026-04-06T02-30-00.rdb',
+    ])
+
+    const pruned = await applyRetention('/tmp/test-backups')
     expect(pruned).toBe(0)
   })
 })
