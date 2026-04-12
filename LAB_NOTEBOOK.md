@@ -1267,3 +1267,113 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 **Final Test Results:** 2,423 tests passing across all 6 packages, 0 failures.
 
 **Decision:** D30 — All 39 IMPLEMENT_UNIFIED.md items code-complete. 4 operational items (Pipecat validation, container promotion, pilot ingestion, full batch) deferred to deployment sessions.
+
+### Entry 027: Pre-Deployment Infrastructure Reconnaissance — Ollama + Gitea [infrastructure] [config]
+
+**Date:** 2026-04-12
+**Environment:** Homeserver (Unraid) + Laptop (investigation)
+**Status:** COMPLETE
+**Tags:** `[infrastructure]` `[config]` `[docker]` `[deploy]`
+
+**Objective:** Investigate existing Ollama and Gitea infrastructure on homeserver before deployment to avoid creating duplicate services or misconfigured networking.
+
+**Hypothesis:** The homeserver may already have services running that overlap with the v2 docker-compose additions. Need to verify and adapt deployment plan.
+
+**Rollback Plan:** N/A — read-only investigation + one reversible network connect.
+
+---
+
+#### Finding 1: Ollama Already Running (Standalone Container)
+
+| Detail | Value |
+|--------|-------|
+| Container | `ollama` — standalone, not part of Open Brain compose |
+| Image | `ollama/ollama:latest` (6.17 GB) |
+| Model | `gemma4:e4b` — 9.6 GB, consistent with Gemma 4 12B Q4 |
+| Memory limit | None (unlimited) — plan specified 16GB |
+| Volume | `/mnt/user/appdata/ollama:/root/.ollama` |
+| Port | 11434 → 0.0.0.0:11434 |
+| Network | Default `bridge` (172.17.0.10) |
+| Uptime | 12+ hours at time of investigation |
+
+**Action taken:** Connected to `open-brain_open-brain` network:
+```
+docker network connect open-brain_open-brain ollama
+```
+**Result:** Open Brain containers can now reach Ollama at `http://ollama:11434/v1`. Verified from core-api container — `/v1/models` returns `gemma4:e4b`.
+
+**Decision:** D31 — Reuse existing standalone Ollama. Remove `ollama` service from docker-compose.yml. Update `OLLAMA_URL` env var to use container name resolution after network connect. The `docker network connect` command must be run after every `docker compose up` (or added to a startup script) since compose recreates the network.
+
+---
+
+#### Finding 2: Gitea Wiki Repo Exists (Private, Tailscale-Served)
+
+| Detail | Value |
+|--------|-------|
+| Repo | `davistroy/open-brain-wiki` — **private** repo |
+| URL (external) | `http://gitea.tale-mamba.ts.net:3000/davistroy/open-brain-wiki` |
+| Gitea container | `Gitea` on `br0` macvlan network (192.168.10.9), own Tailscale identity |
+| Tailscale hostname | `gitea` → `gitea.tale-mamba.ts.net` |
+| Serve config | Tailscale Serve on port 3000 (HTTP) and port 22 (SSH) |
+| Content | 2 commits, WIKI_SCHEMA.md, index.md, log.md, 9 wiki subdirectories |
+| Visibility | Private — anonymous API returns 404, git clone returns 401 |
+
+**Network topology:**
+- Gitea is on `br0` macvlan (own LAN IP 192.168.10.9)
+- Open Brain containers are on `open-brain_open-brain` bridge
+- These networks are isolated — containers can't reach each other
+- **MagicDNS `gitea.tale-mamba.ts.net` does NOT resolve from homeserver host** (only from other Tailscale nodes)
+
+**Action taken:** Connected Gitea to `open-brain_open-brain` network:
+```
+docker network connect open-brain_open-brain Gitea
+```
+**Result:** Gitea now has IPs on both networks:
+- `br0`: 192.168.10.9 (LAN)
+- `open-brain_open-brain`: 172.27.0.12
+
+Open Brain containers can reach Gitea at `http://Gitea:3000/` (container name resolution). Verified HTML response from core-api container.
+
+**Authentication issue:** Private repo requires credentials for git operations. Anonymous HTTP clone returns 401. The containers need a **Gitea access token** embedded in the clone URL:
+```
+http://<username>:<token>@Gitea:3000/davistroy/open-brain-wiki.git
+```
+Or set via git credential helper. This token needs to be stored in Bitwarden and passed as an env var.
+
+**Git binary issue:** Confirmed `git` is NOT installed in either core-api or workers Alpine containers (`sh: git: not found`). This is the deployment blocker identified in the ultra plan — must add `git` to Dockerfile `apk add`.
+
+**SSH access from laptop:** SSH to `git@gitea.tale-mamba.ts.net` authenticates via Tailscale identity ("none" auth), but git operations fail ("does not appear to be a git repository"). HTTP clone works from laptop (Tailscale routes traffic).
+
+**Decision:** D32 — Gitea wiki URL for containers is `http://Gitea:3000/davistroy/open-brain-wiki.git` (not `gitea.k4jda.net`). Requires: (1) Gitea connected to open-brain network, (2) Gitea access token for private repo auth, (3) `git` installed in Docker images. Config `wiki.yaml` must be updated from `gitea.k4jda.net` to `Gitea:3000`.
+
+---
+
+#### Finding 3: Homeserver Sudoers — Repaired and Persisted
+
+During the session, the `claude` user's sudoers was accidentally reduced to only `rsync` + `find` (Option A for OneDrive sync overwrote the full list). Fixed:
+
+1. Troy manually restored full sudoers via root SSH (docker, systemctl, rsync, find, cp, mv, rm, etc.)
+2. Persisted to `/boot/config/custom/etc/sudoers.d/claude`
+3. Updated `/boot/config/go` to copy from persistent file on boot (replaced old heredoc approach)
+
+**Operational rule:** On Unraid, `/etc/` is tmpfs. All persistent config must be saved to `/boot/config/custom/` and copied back via `/boot/config/go` startup script. Never assume `/etc/` changes survive reboots.
+
+---
+
+#### Summary: Deployment Plan Adjustments
+
+| Original Plan | Revised |
+|---------------|---------|
+| Add Ollama to docker-compose | **Reuse existing standalone Ollama**, connect to network |
+| Create Gitea wiki repo | **Repo already exists** (private, 2 commits) |
+| `OLLAMA_URL=http://ollama:11434/v1` | Correct — works after network connect |
+| `WIKI_REPO_URL=gitea.k4jda.net/...` | **Change to `http://Gitea:3000/davistroy/open-brain-wiki.git`** |
+| Wiki access: just clone | **Need Gitea access token** for private repo auth |
+| `docker network connect` | **Must run for BOTH Ollama and Gitea** after every compose up |
+
+**New items for deployment plan:**
+1. Create Gitea API token, store in Bitwarden
+2. Add `GITEA_TOKEN` env var to core-api and workers
+3. Update `config/wiki.yaml` with correct Gitea URL
+4. Create startup script or compose `external_links` to auto-connect Ollama + Gitea
+5. Add `git` to Dockerfile (confirmed blocker)
