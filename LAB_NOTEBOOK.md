@@ -1448,9 +1448,65 @@ During the session, the `claude` user's sudoers was accidentally reduced to only
 
 **Status:** COMPLETE — v2 deployed and operational. Wiki active. Autonomy at `assist`.
 
-**Deferred to future sessions:**
+### Entry 029: Post-Deployment Activation — Voice-Pipecat Fix, Anthropic Switch, T0 Validation [deploy] [config] [debug]
+
+**Date:** 2026-04-12
+**Environment:** Laptop + Homeserver (production)
+**Status:** IN PROGRESS
+**Tags:** `[deploy]` `[config]` `[debug]` `[api]`
+
+**Objective:** Complete the 4 deferred items from deployment: voice-pipecat env var fix, T0 classification validation, Anthropic API key switch, Pipecat validation.
+
+**Hypothesis:** Voice-pipecat crash is a Pydantic BaseSettings config issue (not missing secrets). Anthropic switch should be a config-only change since the LLMGateway three-way dispatch code is already deployed. T0 validation may be slow on CPU but should achieve 90% accuracy.
+
+**Rollback Plan:** Revert ai-routing.yaml to gpt-5.4 config if Anthropic routing fails. Voice-pipecat has legacy fallback.
+
+---
+
+#### Voice-Pipecat Fix — COMPLETE
+
+**Root cause:** `model_config` in `config.py` was defined as a plain Python `dict` instead of `SettingsConfigDict` from `pydantic_settings`. Depending on the pydantic/pydantic-settings version combination in the Docker image, pydantic v2's metaclass may strip unrecognized keys before `BaseSettings` can use them, silently disabling environment variable reading.
+
+**Fix applied:**
+1. `packages/voice-pipecat/src/config.py` — imported `SettingsConfigDict`, replaced plain dict
+2. `packages/voice-pipecat/src/main.py` — enhanced error messages to distinguish "missing" vs "empty" env vars
+
+**Result:** Voice-pipecat healthy — STT (Deepgram nova-2), LLM (Claude Sonnet 4), TTS (Deepgram aura-asteria-en), Redis connected, WebSocket on 8765, health on 8766. All components show "ready" status.
+
+**Operational rule:** Pydantic BaseSettings classes MUST use `SettingsConfigDict(...)` not plain dicts for `model_config`. Plain dicts may silently fail to configure env var loading.
+
+#### Anthropic API Switch — COMPLETE
+
+**Action:** Removed the local ai-routing.yaml override on homeserver (was keeping gpt-5.4/litellm). The repo version with Claude models (`claude-sonnet-4-20250514`, `client: anthropic`) is now active.
+
+**Verification:**
+- Created test capture → pipeline completed successfully (embed 1s, entity extraction 1.5s)
+- Health endpoint: LLM check passes in 322ms (faster than OpenAI's 478ms)
+- Worker logs confirm trace ID propagation through all pipeline stages
+- OpenClaw Anthropic API key (`OPENCLAW_ANTHROPIC_API_KEY`) in use for cost tracking
+
+**Cost impact:** All LLM calls now route through Anthropic (Claude Sonnet 4). T0 (Ollama) for classification tasks pending T0 validation results. Embeddings remain on OpenAI (text-embedding-3-large).
+
+#### T0 Classification Validation — IN PROGRESS
+
+**Issue found:** Original 15s timeout too short for Gemma 4 on CPU (~10s per classification). Increased to 60s.
+
+**Current status:** Validation script running. Ollama at 562% CPU, 11.7 GB RAM. 150 classification calls (50 examples × 3 tasks) estimated ~25 min total. Results pending.
+
+**If T0 passes (>=90%):** Classification tasks stay on T0 (Ollama) — free, ~$3/month savings.
+**If T0 fails (<90%):** Affected tasks stay on T1 (Haiku) — still cheaper than gpt-5.4.
+
+#### Pipecat Voice Validation — PENDING
+
+Voice-pipecat is running and healthy. Full validation (10+ multi-turn conversations, <2s latency measurement) requires manual testing via iOS Shortcut over a 2-week soak period. WebSocket endpoint on port 8765 is reachable. Not automatable.
+
+**Decisions:**
+- D34 SUPERSEDED: Voice-pipecat fixed — no longer deferred. Container healthy with all components.
+- D35: Anthropic API active in production. OpenClaw API key for cost tracking. Fallback: revert ai-routing.yaml to gpt-5.4.
+- D36: T0 validation timeout increased from 15s to 60s. Gemma 4 12B on i7-9700 CPU takes ~10s per classification call.
+
+**Deferred:**
 - OneDrive file ingestion (sync in progress, needs organizing)
-- T0 classification validation (run locally)
-- Voice-pipecat env var debugging
-- Anthropic API key switch (using OpenAI gpt-5.4 for now)
-- Full Pipecat voice validation + container promotion
+- Full Pipecat voice validation (2-week soak period — manual)
+- Voice container promotion (after Pipecat validation)
+- T0 results pending (update this entry when complete)
