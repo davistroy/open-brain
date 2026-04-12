@@ -1138,4 +1138,37 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 
 **Decision:** D29 updated — Phase 1 execution validates the parallel subagent approach for the remaining 33 work items.
 
-**Status:** COMPLETE ��� Phase 1 code-complete on feature branch. Production deployment deferred until all phases complete.
+**Status:** COMPLETE — Phase 1 code-complete on feature branch. Production deployment deferred until all phases complete.
+
+### Entry 023: Phase 2 — Three-Tier Model Routing [architecture] [config] [api]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[config]` `[api]` `[docker]`
+
+**Objective:** Implement three-tier model routing (T0 Ollama/Gemma 4 local → T1 Haiku → T2 Sonnet) with fallback chains, replacing the single-model gpt-5.4 routing.
+
+**Results:**
+
+**Batch 1 (parallel: 2.1, 2.2, 2.4) — commit 157ba25:**
+- **2.1 Ollama Client Factory:** Created `createOllamaClient()` (OpenAI SDK → Ollama /v1). Added ModelTierConfig, TaskRoutingConfig, TaskName types + Zod schemas. 38 new tests.
+- **2.2 ai-routing.yaml Restructure:** Added `model_tiers` (T0/T1/T2) and `task_routing` (19 tasks) sections. ConfigService extended with `getModelTier()`, `getTaskTier()`, `hasThreeTierRouting()`. Legacy `models:` map preserved. Budget: soft $20/hard $35. 16 new tests.
+- **2.4 Ollama Docker:** Added `open-brain-ollama` service (16GB limit, port 11434). Created `scripts/setup-ollama.sh`. `OLLAMA_URL` injected into core-api and workers.
+
+**Sequential items (2.5, 2.3, 2.6):**
+- **2.5 ConfigService:** Added `getMonthlyBudget()` and `validateTaskRouting()`. 90% already done by 2.2. 3 new tests.
+- **2.3 LLMGateway Three-Way Dispatch:** Extended with `resolveByTask()`, `completeByTask()`, recursive fallback chain (T0→T1→T2, max 2 hops on transient errors). Ollama initialized in core-api and workers. Legacy `complete()` unchanged. 24 new tests.
+- **2.6 T0 Validation Suite:** 50-example fixture (10/brain view, all 8 capture types). Script with `--compare` mode for T0 vs T1 baseline. 90% accuracy threshold. 45 new tests.
+
+**Test Results:** 2,283 tests passing (126 new in Phase 2), 0 failures.
+
+**What Worked:**
+- No merge conflicts between parallel agents on shared types/config — cleanly integrated
+- ConfigService design (backward-compat `models:` + new `model_tiers:`) allows incremental migration
+- LLMGateway fallback chain correctly handles transient vs non-transient errors
+- One pre-existing flaky test (system-health timeout) fixed as part of 2.6 testing
+
+**Key Finding:** Types defined by agent 2.1 and config methods by agent 2.2 were complementary with zero overlap — the parallel decomposition was clean.
+
+**Status:** COMPLETE — Phase 2 code-complete. Ollama container not yet deployed (requires homeserver `docker compose up` + model pull).

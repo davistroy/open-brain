@@ -62,6 +62,8 @@ services:
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
+      WIKI_REPO_URL: gitea.k4jda.net/davistroy/open-brain-wiki.git
+      WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
@@ -100,6 +102,8 @@ services:
       OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
+      WIKI_REPO_URL: gitea.k4jda.net/davistroy/open-brain-wiki.git
+      WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
       # LITELLM_API_KEY: set in .env.secrets
       # PUSHOVER_APP_TOKEN: set in .env.secrets

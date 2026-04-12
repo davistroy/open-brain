@@ -481,7 +481,7 @@ If T0 accuracy falls below 90% on any task, that task stays on T1 (Haiku) and th
 ### Work Items
 
 #### 3.1 Gitea Repository Setup and Wiki Schema
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §5.1 (Three-Layer Model), §5.4 (Wiki Directory Structure), §5.5 (Wiki Page Format)
 **Files Affected:**
 - `scripts/setup-wiki-repo.sh` (modify/run) -- create repo at gitea.k4jda.net
@@ -491,18 +491,18 @@ If T0 accuracy falls below 90% on any task, that task stays on T1 (Haiku) and th
 Create the `open-brain-wiki` repository on the existing Gitea instance at gitea.k4jda.net. Initialize with the directory structure from PRD §5.4 (sources/, entities/, projects/, domains/, concepts/, comparisons/, synthesis/, operations/, maintenance/) and the WIKI_SCHEMA.md conventions document. Clone locally for development.
 
 **Tasks:**
-1. [ ] Run `scripts/setup-wiki-repo.sh` (or create repo via Gitea API if script needs updating)
-2. [ ] Initialize directory structure per PRD §5.4 with .gitkeep files
-3. [ ] Author WIKI_SCHEMA.md defining: page types (entity, concept, source, comparison, synthesis, overview), YAML frontmatter spec (title, type, created, updated, source_count, source_captures, tags, related_pages, source_removed), cross-reference format (relative markdown links), naming conventions (kebab-case filenames)
-4. [ ] Create index.md (empty catalog template) and log.md (empty append-only log)
-5. [ ] Create overview.md stub
-6. [ ] Commit and push initial structure
+1. [x] Run `scripts/setup-wiki-repo.sh` (or create repo via Gitea API if script needs updating)
+2. [x] Initialize directory structure per PRD §5.4 with .gitkeep files
+3. [x] Author WIKI_SCHEMA.md defining: page types (entity, concept, source, comparison, synthesis, overview, project, domain), YAML frontmatter spec (title, type, created, updated, source_count, source_captures, tags, related_pages, source_removed), cross-reference format (relative markdown links), naming conventions (kebab-case filenames)
+4. [x] Create index.md (empty catalog template) and log.md (empty append-only log)
+5. [x] Create overview.md stub
+6. [x] Commit and push initial structure
 
 **Acceptance Criteria:**
-- [ ] Repo exists at gitea.k4jda.net/davistroy/open-brain-wiki
-- [ ] All 9 subdirectories created under wiki/
-- [ ] WIKI_SCHEMA.md defines all page types and conventions
-- [ ] Repo cloneable via SSH and HTTPS
+- [x] Repo exists at gitea.k4jda.net/davistroy/open-brain-wiki
+- [x] All 9 subdirectories created under wiki/
+- [x] WIKI_SCHEMA.md defines all page types and conventions
+- [x] Repo cloneable via SSH and HTTPS
 
 **Notes:**
 Gitea is already running at gitea.k4jda.net (external service, not part of Open Brain docker-compose). The setup script exists but may need updates for the current Gitea API version.
@@ -510,7 +510,7 @@ Gitea is already running at gitea.k4jda.net (external service, not part of Open 
 ---
 
 #### 3.2 Wiki Configuration and Docker Compose
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §5.1 (Wiki Layer), §18.6 (config/wiki.yaml)
 **Files Affected:**
 - `config/wiki.yaml` (create)
@@ -520,14 +520,14 @@ Gitea is already running at gitea.k4jda.net (external service, not part of Open 
 Create the wiki configuration file and add environment variables to the containers that need wiki access (core-api for API routes and MCP tools, workers for wiki-ingest/lint/synthesis skills).
 
 **Tasks:**
-1. [ ] Create `config/wiki.yaml` with: repo_url (`gitea.k4jda.net/davistroy/open-brain-wiki.git`), local_path (`/tmp/open-brain-wiki`), sync_interval_minutes (15), lint_schedule (`0 5 * * 0`), synthesis_schedule (`0 6 * * *`), ingest_rate_limit (5 jobs/minute), ingest_concurrency (1)
-2. [ ] Add `WIKI_REPO_URL` and `WIKI_LOCAL_PATH` to core-api environment in docker-compose.yml
-3. [ ] Add `WIKI_REPO_URL` and `WIKI_LOCAL_PATH` to workers environment in docker-compose.yml
-4. [ ] Mount `config/` volume as read-only in both services (already done, verify)
+1. [x] Create `config/wiki.yaml` with: repo_url (`gitea.k4jda.net/davistroy/open-brain-wiki.git`), local_path (`/tmp/open-brain-wiki`), sync_interval_minutes (15), lint_schedule (`0 5 * * 0`), synthesis_schedule (`0 6 * * *`), ingest_rate_limit (5 jobs/minute), ingest_concurrency (1)
+2. [x] Add `WIKI_REPO_URL` and `WIKI_LOCAL_PATH` to core-api environment in docker-compose.yml
+3. [x] Add `WIKI_REPO_URL` and `WIKI_LOCAL_PATH` to workers environment in docker-compose.yml
+4. [x] Mount `config/` volume as read-only in both services (already done, verified)
 
 **Acceptance Criteria:**
-- [ ] config/wiki.yaml exists with all fields
-- [ ] Core-api and workers containers see WIKI_REPO_URL in environment
+- [x] config/wiki.yaml exists with all fields
+- [x] Core-api and workers containers see WIKI_REPO_URL in environment
 - [ ] WikiGitService can clone the repo using WIKI_REPO_URL
 
 ---
@@ -563,28 +563,29 @@ Wiki-ingest rate limit of 5 jobs/min prevents LLM cost runaway. Concurrency=1 se
 ---
 
 #### 3.4 Expand Wiki.tsx Browser
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §12.1 (Wiki Browser), v2-F8
 **Files Affected:**
 - `packages/web/src/pages/Wiki.tsx` (modify) -- expand with nav tree, rendering, tabs
+- `packages/web/src/components/WikiNavTree.tsx` (already exists) -- collapsible tree grouped by type
 - `packages/web/src/lib/api.ts` (verify) -- wikiApi already exists
 
 **Description:**
 Expand the existing Wiki.tsx page into a full wiki browser with: left nav tree (pages grouped by type), main content area (markdown rendering with react-markdown), recent changes tab (git log from API), and lint report tab (latest lint results). The wikiApi client and all 7 API routes already exist.
 
 **Tasks:**
-1. [ ] Build left nav component: fetch pages via `wikiApi.list()`, group by type (entities, concepts, sources, etc.), render as collapsible tree with page counts
-2. [ ] Build content area: fetch page via `wikiApi.get(path)`, render markdown with react-markdown + remark-gfm (already in deps), parse and display YAML frontmatter as metadata badges
-3. [ ] Build Recent Changes tab: fetch via `wikiApi.recentChanges()`, display git log entries with date, message, files changed
-4. [ ] Build Lint Report tab: fetch via `wikiApi.lintReport()`, render findings with severity badges
-5. [ ] Add empty state for when wiki is not configured (WIKI_REPO_URL unset)
+1. [x] Build left nav component: fetch pages via `wikiApi.pages()`, group by type (entities, concepts, sources, etc.), render as collapsible tree with page counts
+2. [x] Build content area: fetch page via `wikiApi.page(path)`, render markdown with react-markdown + remark-gfm (already in deps), parse and display YAML frontmatter as metadata badges
+3. [x] Build Recent Changes tab: fetch via `wikiApi.recentChanges()`, display git log entries with date, message, files changed
+4. [x] Build Lint Report tab: fetch via `wikiApi.lintReport()`, render findings with severity badges
+5. [x] Add empty state for when wiki is not configured (WIKI_REPO_URL unset)
 
 **Acceptance Criteria:**
-- [ ] Nav tree shows wiki pages grouped by type
-- [ ] Clicking a page renders its markdown content with frontmatter
-- [ ] Recent Changes tab shows git history
-- [ ] Lint Report tab shows latest lint results
-- [ ] Empty state shown gracefully when wiki not configured
+- [x] Nav tree shows wiki pages grouped by type
+- [x] Clicking a page renders its markdown content with frontmatter
+- [x] Recent Changes tab shows git history
+- [x] Lint Report tab shows latest lint results
+- [x] Empty state shown gracefully when wiki not configured
 
 **Notes:**
 react-markdown ^10.1.0 and remark-gfm are already in packages/web dependencies. The wikiApi client (`packages/web/src/lib/api.ts`) already has methods for list, get, search, recentChanges, lintReport.
