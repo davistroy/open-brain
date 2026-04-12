@@ -208,7 +208,7 @@ describe('DailyConnectionsSkill — wiki integration', () => {
     await skill.execute()
 
     expect(wikiService.writePage).toHaveBeenCalledOnce()
-    const callArgs = (wikiService.writePage as MockInstance).mock.calls[0]
+    const callArgs = (wikiService.writePage as unknown as MockInstance).mock.calls[0]
     // pagePath should be synthesis/connections/YYYY-MM-DD.md
     expect(callArgs[0]).toMatch(/^synthesis\/connections\/\d{4}-\d{2}-\d{2}\.md$/)
     // content should contain connections
@@ -272,7 +272,7 @@ describe('DailyConnectionsSkill — wiki integration', () => {
     const { skill } = makeSkill({ wikiService })
     await skill.execute()
 
-    const callArgs = (wikiService.writePage as MockInstance).mock.calls[0]
+    const callArgs = (wikiService.writePage as unknown as MockInstance).mock.calls[0]
     const frontmatter = callArgs[2]
     expect(frontmatter.domains).toContain('client')
     expect(frontmatter.domains).toContain('technical')

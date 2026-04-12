@@ -88,7 +88,7 @@ function makeSkill(opts: {
   const skill = new SecretRotationSkill({
     db: db as unknown as import('@open-brain/shared').Database,
     pushover,
-    execFn,
+    execFn: execFn as any,
   })
 
   return { skill, db, pushover, execFn }

@@ -184,7 +184,7 @@ describe('DriftMonitorSkill — wiki integration', () => {
     await skill.execute()
 
     expect(wikiService.writePage).toHaveBeenCalledOnce()
-    const callArgs = (wikiService.writePage as MockInstance).mock.calls[0]
+    const callArgs = (wikiService.writePage as unknown as MockInstance).mock.calls[0]
     // pagePath should be operations/drift-reports/YYYY-MM-DD.md
     expect(callArgs[0]).toMatch(/^operations\/drift-reports\/\d{4}-\d{2}-\d{2}\.md$/)
     // content should contain the drift report
@@ -257,7 +257,7 @@ describe('DriftMonitorSkill — wiki integration', () => {
     const { skill } = makeSkill({ wikiService })
     await skill.execute()
 
-    const callArgs = (wikiService.writePage as MockInstance).mock.calls[0]
+    const callArgs = (wikiService.writePage as unknown as MockInstance).mock.calls[0]
     const frontmatter = callArgs[2]
     expect(frontmatter.overall_health).toBe('significant_drift')
     expect(frontmatter.drift_item_count).toBe(2)

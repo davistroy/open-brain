@@ -10,7 +10,7 @@ const mockExecFile = vi.fn((_cmd: string, _args: string[], _opts: any, cb: Funct
 })
 
 vi.mock('node:child_process', () => ({
-  execFile: (...args: any[]) => mockExecFile(...args),
+  execFile: (...args: any[]) => mockExecFile(...(args as [any, any, any, any])),
 }))
 
 const mockStat = vi.fn().mockResolvedValue({ size: 1024 * 1024 })

@@ -38,6 +38,7 @@ export interface WikiIngestQueueLike {
 // ============================================================
 
 interface UnintegratedCapture {
+  [key: string]: unknown
   id: string
   content: string
   capture_type: string

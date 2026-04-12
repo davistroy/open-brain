@@ -10,7 +10,7 @@ function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown
   return new Promise((resolve, reject) => {
     execFile(cmd, args, opts as any, (err, stdout, stderr) => {
       if (err) return reject(err)
-      resolve({ stdout: stdout as string, stderr: stderr as string })
+      resolve({ stdout: String(stdout), stderr: String(stderr) })
     })
   })
 }
