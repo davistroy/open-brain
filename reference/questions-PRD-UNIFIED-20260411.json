@@ -1,0 +1,444 @@
+{
+  "metadata": {
+    "source_document": "docs/PRD-UNIFIED.md",
+    "total_questions": 52,
+    "generated_date": "2026-04-11T23:30:00Z",
+    "topics_summary": [
+      "Infrastructure & Containers",
+      "Model Routing & LLM Strategy",
+      "Wiki Architecture",
+      "Embedding Strategy",
+      "Cost & Budget",
+      "Search & Query",
+      "Voice Pipeline",
+      "Proactive Intelligence",
+      "Slack Auto-Response",
+      "File Ingestion & Migration",
+      "Implementation Planning",
+      "Email Pipeline",
+      "Autonomy & Governance",
+      "User Interface",
+      "Data Model & Schema",
+      "Testing & Validation",
+      "Observability"
+    ]
+  },
+  "questions": [
+    {
+      "id": 1,
+      "topic": "Infrastructure & Containers",
+      "sections": ["4.2 Target Architecture"],
+      "question": "Should local inference run on the homeserver via an Ollama container, or on the DGX Spark via vLLM?",
+      "context": "[NEEDS CLARIFICATION] doc2 proposes adding an Ollama container (11th container) for local Gemma 4 inference. doc3 states a goal of keeping containers at 10 or fewer and does not include Ollama. DGX Spark has a GPU; homeserver has 128GB RAM but no GPU. The document recommends DGX Spark (D20) but this decision is marked as Open (Q9). If Ollama is added, container count goes to 9 in v2 target; if DGX Spark, stays at 8.",
+      "priority": "high"
+    },
+    {
+      "id": 2,
+      "topic": "Wiki Architecture",
+      "sections": ["5.1 Three-Layer Model"],
+      "question": "Is the wiki hosted as an Obsidian vault on the filesystem or as a Gitea-backed markdown repo?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies Obsidian vault at /mnt/user/openbrain/wiki/. doc3 and existing system specify Gitea-backed wiki at gitea.k4jda.net/davistroy/open-brain-wiki. PRD recommends Gitea for git-backed versioning, commit history, and API access. Content format (markdown + YAML frontmatter) is identical either way. Reconciliation section records this as C3/Q8 with Gitea recommendation. Decision needs formal sign-off to close.",
+      "priority": "high"
+    },
+    {
+      "id": 3,
+      "topic": "Infrastructure & Containers",
+      "sections": ["5.2 Extended Layers"],
+      "question": "Should vector search use Postgres pgvector (existing) or add Qdrant as a separate Docker container?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies Qdrant for vector search. Existing system uses Postgres pgvector, which is production-proven. Adding Qdrant means a new container and additional operational complexity. PRD recommends keeping pgvector (C1/Q6). The threshold for reconsidering is stated as >100K captures. Currently well below that.",
+      "priority": "medium"
+    },
+    {
+      "id": 4,
+      "topic": "Infrastructure & Containers",
+      "sections": ["5.2 Extended Layers"],
+      "question": "Should the knowledge graph use Postgres entity tables (existing) or add Neo4j as a separate Docker container?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies Neo4j Community Edition. Existing system uses Postgres entities + entity_links + entity_relationships with spreading activation PL/pgSQL function. Adding Neo4j means a new container. PRD recommends keeping Postgres (C2/Q7). Threshold for reconsidering: entity count >100K or graph traversal queries becoming too slow.",
+      "priority": "medium"
+    },
+    {
+      "id": 5,
+      "topic": "Embedding Strategy",
+      "sections": ["5.3 Infrastructure Mapping"],
+      "question": "Should embeddings use OpenAI text-embedding-3-large (existing) or switch to local models on DGX Spark (nomic-embed-text or BGE-large)?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies DGX Spark for embedding generation using local models. doc2 explicitly decides to keep OpenAI (D26). Switching models requires re-embedding ALL captures and potentially changing the vector(768) schema if dimensions differ. PRD retains OpenAI approach (C8/Q12). Cost is ~$0.13/1M tokens, which is low.",
+      "priority": "medium"
+    },
+    {
+      "id": 6,
+      "topic": "File Ingestion & Migration",
+      "sections": ["6.1.4 Categorization and Taxonomy"],
+      "question": "Which model should be used for the initial batch categorization of 10K OneDrive files: Claude Haiku (doc1) or local Gemma 4 T0 (doc2)?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies Claude Haiku. doc2 maps classification to T0 (local Gemma 4). For the one-time batch of 10K files, T0 would be free but potentially slower; Haiku costs ~$5-10 but better quality. PRD recommends Haiku for initial batch (quality matters, cost is small), then T0 for ongoing incremental classifications. No formal decision recorded.",
+      "priority": "medium"
+    },
+    {
+      "id": 7,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["7.3 Dual-Client Architecture"],
+      "question": "Should model routing use the five-tier hierarchy (doc2: Ollama/DeepSeek/Haiku/Sonnet/Opus with per-token billing) or the dual-client subscription model (doc3: Claude SDK at $0 + LiteLLM for non-Claude)?",
+      "context": "[NEEDS CLARIFICATION] doc2 proposes five tiers with per-token API billing. doc3 proposes dual-client with Claude subscription at $0 marginal cost. These are fundamentally different cost models. Current ai-routing.yaml shows all Claude models at cost: $0, suggesting subscription is active. PRD recommends dual-client as baseline with five-tier as optional extension (C9/Q10). This decision cascades to budget thresholds (Q11), container count (Q14), and DeepSeek integration (C13).",
+      "priority": "high"
+    },
+    {
+      "id": 8,
+      "topic": "Embedding Strategy",
+      "sections": ["7.6 Embedding Model"],
+      "question": "Should embedding remain on OpenAI text-embedding-3-large or migrate to local models on DGX Spark?",
+      "context": "[NEEDS CLARIFICATION] Duplicate of the embedding decision in Section 5.3 but with additional context: doc2 explicitly decided to keep OpenAI (D26). This reinforces the existing approach. Question is whether this is a final decision or still open for the doc1 migration phase.",
+      "priority": "low"
+    },
+    {
+      "id": 9,
+      "topic": "Cost & Budget",
+      "sections": ["7.7 Budget Thresholds"],
+      "question": "What should the monthly LLM budget thresholds be: $15/$30 (doc2 five-tier), $7/$10 (doc3 subscription), or $30/$50 (existing)?",
+      "context": "[NEEDS CLARIFICATION] Three conflicting budget configurations. The correct answer depends on which model routing strategy is chosen (Q7/Q10). If subscription covers Claude at $0, only non-Claude costs (embeddings, Deepgram) apply and $7/$10 is appropriate. If per-token billing, $15/$30 is needed. Existing $30/$50 is from the single-model gpt-5.4 era.",
+      "priority": "high"
+    },
+    {
+      "id": 10,
+      "topic": "Search & Query",
+      "sections": ["10.3 Wiki Search"],
+      "question": "Should wiki search use a separate qmd MCP server (doc1) or be integrated into the existing /mcp endpoint with wiki tools added?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies qmd MCP server for wiki search. Existing system has built-in MCP endpoint at /mcp. doc3 specifies core-api endpoints for wiki access (GET /api/v1/wiki/search). PRD recommends existing /mcp endpoint with wiki tools added (C5/Q15). No separate qmd server needed.",
+      "priority": "medium"
+    },
+    {
+      "id": 11,
+      "topic": "User Interface",
+      "sections": ["12.4 Voice Interface"],
+      "question": "Is Obsidian still intended as a browse interface, and if so, what is its role relative to the React dashboard?",
+      "context": "[NEEDS CLARIFICATION] doc1 specifies Obsidian as the primary browse interface with Graph View, Dataview plugin, Marp plugin, and Web Clipper. Existing system has React dashboard. doc3 replaces voice-capture with Pipecat. PRD says Obsidian is 'optional, not primary' -- can be used for direct vault browsing over Tailscale. But the Gitea wiki decision (Q2/C3) means there's no local filesystem vault for Obsidian to open unless an additional sync is set up.",
+      "priority": "low"
+    },
+    {
+      "id": 12,
+      "topic": "Implementation Planning",
+      "sections": ["13.5 Implementation Ordering"],
+      "question": "What is the detailed implementation schedule across the three overlapping timelines (doc1 OneDrive migration, doc2 proactive intelligence, doc3 v2 architecture)?",
+      "context": "[NEEDS CLARIFICATION] Three source documents propose overlapping timelines. PRD provides a recommended priority order (9 steps) but notes 'Detailed scheduling requires a planning session.' Key dependencies: wiki layer must be operational before OneDrive file migration; model router should be in place before wiki-ingest LLM calls. Voice conversations (highest risk) placed last.",
+      "priority": "high"
+    },
+    {
+      "id": 13,
+      "topic": "Cost & Budget",
+      "sections": ["14.3 Projected: Dual-Client Subscription"],
+      "question": "Does the Claude Code subscription cover API usage at $0 marginal cost, and is this sustainable for the projected volume of LLM calls?",
+      "context": "[NEEDS CLARIFICATION] The cost difference between five-tier ($10/month) and dual-client ($3-8/month) hinges on this. Current ai-routing.yaml shows Claude models at cost: $0, suggesting subscription is active. But subscription terms may change, and this creates a single-vendor dependency. The answer determines the entire cost model and budget thresholds.",
+      "priority": "high"
+    },
+    {
+      "id": 14,
+      "topic": "Proactive Intelligence",
+      "sections": ["17.1 From doc2"],
+      "question": "Should confidence scoring weights be tunable from the dashboard?",
+      "context": "Open Question Q1 from doc2. Currently confidence scoring uses fixed weights (0.30 top search, 0.25 entity match, 0.20 recency, 0.15 corroboration, 0.10 source diversity). Making them tunable adds UI complexity but allows calibration without code changes. Marked as 'Nice-to-have' impact.",
+      "priority": "low"
+    },
+    {
+      "id": 15,
+      "topic": "Slack Auto-Response",
+      "sections": ["17.1 From doc2"],
+      "question": "Should auto-response shadow mode monitor DMs or only channels?",
+      "context": "Open Question Q2 from doc2. Privacy implications of monitoring DMs vs channels. Document leans 'channels-only'. This affects the scope of the auto_respondable_query intent classifier.",
+      "priority": "medium"
+    },
+    {
+      "id": 16,
+      "topic": "Proactive Intelligence",
+      "sections": ["17.1 From doc2"],
+      "question": "Should the MCP context resource be cached or generated fresh on each request?",
+      "context": "Open Question Q3 from doc2. Performance vs freshness trade-off. Document notes '5-min cache reasonable' as a leaning. Currently implemented as open_brain://context resource. A 5-minute cache aligns with the existing autonomy level caching pattern.",
+      "priority": "low"
+    },
+    {
+      "id": 17,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["17.1 From doc2"],
+      "question": "What Gemma 4 quantization gives best quality/speed trade-off on the i7-9700 CPU (no GPU)?",
+      "context": "Open Question Q4 from doc2. Needs benchmarking. Only relevant if Ollama on homeserver is chosen over DGX Spark for local inference (Q1/Q9). The i7-9700 has 8 cores, 128GB RAM. Gemma 4 12B q4_K_M uses ~10GB RAM. CPU inference will be significantly slower than GPU.",
+      "priority": "medium"
+    },
+    {
+      "id": 18,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["17.1 From doc2"],
+      "question": "Should the fallback chain log warnings or silently escalate to the next tier?",
+      "context": "Open Question Q5 from doc2. Operator visibility vs noise. Document leans 'log + aggregate in heartbeat' -- meaning individual fallback events are logged but only surfaced in periodic heartbeat reports rather than generating per-event alerts.",
+      "priority": "low"
+    },
+    {
+      "id": 19,
+      "topic": "Infrastructure & Containers",
+      "sections": ["17.2 From Conflicts"],
+      "question": "What is the target container count: 8 (doc3 with Pipecat replacing voice+whisper), 9 (existing), or 10+ (with Ollama/Qdrant/Neo4j)?",
+      "context": "Open Question Q14. Depends on decisions about local inference (Q1/Q9), vector search (Q3/Q6), and knowledge graph (Q4/Q7). The doc3 target of 8 containers is achievable if Pipecat replaces voice-capture + faster-whisper and no additional infrastructure containers are added.",
+      "priority": "medium"
+    },
+    {
+      "id": 20,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["17.2 From Conflicts"],
+      "question": "Should DeepSeek Chat V3 be integrated as a T1 tier for entity extraction, or is this unnecessary with the dual-client subscription model?",
+      "context": "Conflict C13. doc2 proposes DeepSeek as T1 at $0.27/$1.10 per M tokens. doc3 does not mention it. If Claude subscription covers all LLM calls at $0, DeepSeek adds complexity without cost benefit. May still be valuable as a fallback if subscription changes or for tasks where a different model's strengths are relevant.",
+      "priority": "low"
+    },
+    {
+      "id": 21,
+      "topic": "Wiki Architecture",
+      "sections": ["5.4 Wiki Directory Structure", "9.1 Wiki-Ingest Job"],
+      "question": "How does the wiki-ingest job handle concurrency and Git lock contention when multiple captures arrive simultaneously?",
+      "context": "Risk R13 mentions 'Serialize Git operations through single BullMQ worker (concurrency=1)' as mitigation. But this creates a throughput bottleneck. For the initial OneDrive batch ingestion of 10K files, a concurrency=1 wiki-ingest queue processing 5 jobs/minute means ~33 hours of wiki work. No detail on whether batch ingestion bypasses this rate limit or uses a different strategy.",
+      "priority": "high"
+    },
+    {
+      "id": 22,
+      "topic": "Wiki Architecture",
+      "sections": ["5.7 Special Files"],
+      "question": "At what wiki page count does index.md scanning become inadequate, and what is the transition plan to full-text search over markdown files?",
+      "context": "Section 10.3 says 'Initially via index.md scanning. When page count exceeds 200, integrate full-text search over the markdown files.' But the OneDrive migration targets 10K files, which could generate thousands of wiki pages. No specific design for how FTS over markdown in a Gitea repo would work -- would wiki pages be indexed in Postgres alongside captures, or searched via Gitea's API?",
+      "priority": "medium"
+    },
+    {
+      "id": 23,
+      "topic": "Voice Pipeline",
+      "sections": ["12.4 Voice Interface", "18.9 Pipecat Voice Service Detail"],
+      "question": "What happens during the transition period when Pipecat replaces voice-capture + faster-whisper? Is there a parallel-run phase, or a hard cutover?",
+      "context": "Section 4.2 says Pipecat replaces voice-capture and faster-whisper. The iOS Shortcut must be updated (F1.3) with 'fallback to one-shot transcription if unavailable.' But there's no detail on migration strategy: do both containers run simultaneously during validation? How is the iOS Shortcut updated for all devices? What's the rollback plan if Pipecat latency is unacceptable?",
+      "priority": "medium"
+    },
+    {
+      "id": 24,
+      "topic": "Voice Pipeline",
+      "sections": ["18.9 Pipecat Voice Service Detail"],
+      "question": "Has Deepgram cloud STT latency been validated for real-time voice conversations, given the <2s round-trip target?",
+      "context": "F1.1 mentions 'Phase 0 spike: test Deepgram latency before full implementation.' This spike is a prerequisite for the entire Pipecat implementation. No results from this spike are recorded. The success criterion is <2s for full round-trip (VAD + STT + LLM + TTS). Deepgram's nova-2 model is specified but not benchmarked.",
+      "priority": "high"
+    },
+    {
+      "id": 25,
+      "topic": "Email Pipeline",
+      "sections": ["18.10 Email Outbound Detail"],
+      "question": "What SMTP credentials will Himalaya use for outbound email, and from which email address?",
+      "context": "Section 18.10 specifies default_from as troy@troy-davis.com and mentions SMTP credentials from Bitwarden. But the inbound address is brain@troy-davis.com via Cloudflare. The email.yaml shows default_account: personal. No detail on which SMTP provider (Gmail, custom, etc.), whether MX records need updating, or SPF/DKIM configuration for the sending domain.",
+      "priority": "medium"
+    },
+    {
+      "id": 26,
+      "topic": "Email Pipeline",
+      "sections": ["18.10 Email Outbound Detail"],
+      "question": "What are the specific auto-send rules for email, and what guardrails prevent unintended email sending?",
+      "context": "v2-F13.7 defines two send modes: auto-send and review-required. The config shows auto_send_rules for 'skill-output' type and messages to 'self'. But no detail on how 'self' is resolved, what other auto-send rules might be added, or what prevents a misconfigured rule from sending emails without review. The autonomy level system gates proactive features but isn't explicitly connected to email sending.",
+      "priority": "medium"
+    },
+    {
+      "id": 27,
+      "topic": "Data Model & Schema",
+      "sections": ["18.4 Database Additions"],
+      "question": "Should the voice_sessions table use UUID or INTEGER for captures_created, given that captures.id is UUID?",
+      "context": "The voice_sessions DDL shows 'captures_created INTEGER[] DEFAULT \\'{}\\'' but captures.id is UUID. This is a type mismatch that would prevent foreign key references. Should be 'captures_created UUID[]' to match the captures table primary key type.",
+      "priority": "high"
+    },
+    {
+      "id": 28,
+      "topic": "Data Model & Schema",
+      "sections": ["18.4 Database Additions"],
+      "question": "Should the email_drafts table reference captures(id) as UUID instead of INTEGER?",
+      "context": "The email_drafts DDL shows 'capture_id INTEGER REFERENCES captures(id)' but captures.id is UUID (gen_random_uuid()). This foreign key definition will fail at CREATE TABLE time due to type mismatch. Should be 'capture_id UUID REFERENCES captures(id)'.",
+      "priority": "high"
+    },
+    {
+      "id": 29,
+      "topic": "Wiki Architecture",
+      "sections": ["5.1 Three-Layer Model", "5.4 Wiki Directory Structure"],
+      "question": "Is Gitea already deployed on the homeserver, or does it need to be provisioned as a new container/service?",
+      "context": "The wiki is specified as a Gitea-backed repo at gitea.k4jda.net/davistroy/open-brain-wiki. But Gitea is not listed in the current container architecture (Section 4.1) or target container architecture (Section 4.2). If Gitea is an external service or runs outside Docker Compose, that's fine -- but if it needs to be added, it affects container count (Q14) and infrastructure planning.",
+      "priority": "high"
+    },
+    {
+      "id": 30,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["7.2 Five-Tier Model Hierarchy", "7.3 Dual-Client Architecture"],
+      "question": "How does the createClaudeClient() factory relate to the existing createLiteLLMClient() factory, and does it require the Anthropic SDK as a new dependency?",
+      "context": "v2-F4.1 specifies a new createClaudeClient() factory in packages/shared returning an Anthropic SDK client. The existing system uses OpenAI SDK client (via createLiteLLMClient()) pointing at api.openai.com/v1. Adding the Anthropic SDK is a new dependency with a different API surface (messages API vs chat completions). All existing LLM call sites would need to be updated or both clients maintained.",
+      "priority": "high"
+    },
+    {
+      "id": 31,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["7.3 Dual-Client Architecture"],
+      "question": "What is the implementation design for the runAgent() function, and how does it interact with existing LLM call patterns?",
+      "context": "v2-F4.5 specifies 'runAgent(systemPrompt, tools, userMessage, options) function implementing Claude tool_use loop via Anthropic SDK.' This is a new abstraction that doesn't exist in the current codebase. It implies a multi-turn tool-use loop similar to Claude's agentic pattern. No detail on: max iterations, token budget per run, error handling, how it integrates with BullMQ jobs, or whether it replaces existing LLM call patterns (llm-gateway.ts).",
+      "priority": "medium"
+    },
+    {
+      "id": 32,
+      "topic": "File Ingestion & Migration",
+      "sections": ["6.1 OneDrive File Migration"],
+      "question": "What is the content extraction strategy for non-text file formats (images, videos, audio, binary files) in the OneDrive corpus?",
+      "context": "Section 6.1.2 mentions content extraction for text-bearing formats (docx, pdf, pptx, xlsx, txt, md, csv). Section 18.16 lists 'Multi-modal ingestion -- image analysis, video keyframe extraction' as out of scope. But the 10K file corpus likely includes images, videos, and other binary formats. What happens to these files -- are they cataloged but not content-extracted? Silently skipped? Flagged for future processing?",
+      "priority": "medium"
+    },
+    {
+      "id": 33,
+      "topic": "File Ingestion & Migration",
+      "sections": ["6.1.1 File Migration", "4.5 Sync Topology"],
+      "question": "What is the rclone sync schedule for ongoing OneDrive synchronization, and how are sync conflicts or failures handled?",
+      "context": "Section 4.5 says 'rclone sync on a cron schedule (every 15-60 minutes).' The specific interval is not decided. Also no detail on: what happens if rclone sync fails, how partial syncs are detected, whether rclone runs in a container or on the host, and conflict resolution if a file is modified both in OneDrive and locally (though the topology says homeserver->OneDrive is 'intentional push only').",
+      "priority": "medium"
+    },
+    {
+      "id": 34,
+      "topic": "File Ingestion & Migration",
+      "sections": ["6.1 OneDrive File Migration"],
+      "question": "Where does the Python pipeline for file migration run -- as a Docker container, a host process, or within the existing workers container?",
+      "context": "Section 6.1 describes a Python pipeline for file migration (rclone, SQLite inventory, content extraction via python-docx/pdfplumber/etc.). The existing system is TypeScript. No detail on whether this Python pipeline is a standalone script, a new container, or integrated into the workers package. The dependency on Python libraries (python-docx, pdfplumber, imagehash) suggests a separate environment.",
+      "priority": "medium"
+    },
+    {
+      "id": 35,
+      "topic": "Wiki Architecture",
+      "sections": ["9.2 Wiki-Lint Job"],
+      "question": "What is the expected cost per wiki-lint run, and is the weekly schedule sustainable given that Opus-class models are specified?",
+      "context": "Wiki-lint uses 'Synthesis/Opus class' model to audit the entire wiki for contradictions, orphan pages, missing cross-references, stale information, and entity graph inconsistencies. For a wiki with hundreds or thousands of pages, this could be a substantial LLM operation. No cost estimate is provided. If using subscription-covered Claude at $0, cost is not an issue -- but if per-token, a full wiki audit could be expensive.",
+      "priority": "low"
+    },
+    {
+      "id": 36,
+      "topic": "Proactive Intelligence",
+      "sections": ["8.5 Slack Auto-Response Progression"],
+      "question": "What specific criteria define the 'minimum 2 weeks' validation period before progressing from shadow mode to DM mode?",
+      "context": "Phase A (shadow mode) says 'Minimum 2 weeks before enabling DM mode.' But no criteria for what constitutes a successful 2-week period: number of shadow responses logged? Accuracy rate? False positive rate? Manual review process? This is the gate between passive logging and active notifications to the user.",
+      "priority": "medium"
+    },
+    {
+      "id": 37,
+      "topic": "Slack Auto-Response",
+      "sections": ["8.5 Slack Auto-Response Progression"],
+      "question": "How are 'monitored channels' defined and configured for Phase C threaded replies?",
+      "context": "Phase C (threaded replies) requires 'monitored channel' as one of the ALL criteria. No definition of how channels are marked as monitored. Is it a config file? A dashboard setting? Per-channel Slack metadata? This is a guardrail that prevents the bot from posting in channels where it shouldn't.",
+      "priority": "medium"
+    },
+    {
+      "id": 38,
+      "topic": "Voice Pipeline",
+      "sections": ["18.9 Pipecat Voice Service Detail"],
+      "question": "What is the TTS provider decision: Kokoro (local, free) or ElevenLabs (cloud, paid)?",
+      "context": "F1.1 says 'TTS (Kokoro local or ElevenLabs cloud).' Voice config shows provider: kokoro with voice: af_heart. But no detail on whether ElevenLabs is a fallback, an alternative, or deprecated. The cost table in 14.3 shows 'TTS (Kokoro local): $0' suggesting Kokoro is the primary choice, but the config does not show a fallback entry for TTS (unlike STT which has a faster-whisper fallback).",
+      "priority": "low"
+    },
+    {
+      "id": 39,
+      "topic": "Voice Pipeline",
+      "sections": ["18.9 Pipecat Voice Service Detail"],
+      "question": "How does the Pipecat container handle Kokoro TTS model loading given the 4GB memory limit?",
+      "context": "Container memory allocation table shows voice-pipecat at 4GB. Kokoro is a local TTS model that needs to be loaded into memory. No detail on model size, whether it fits within 4GB alongside Pipecat, Deepgram client, and conversation state. If Kokoro is too large, ElevenLabs cloud would be needed (adding cost).",
+      "priority": "medium"
+    },
+    {
+      "id": 40,
+      "topic": "Data Model & Schema",
+      "sections": ["18.4 Database Additions"],
+      "question": "What indexes are needed on the new v2 tables (llm_usage, mcp_activity, activity_feed, email_drafts, container_health, backup_log, voice_sessions)?",
+      "context": "Seven new tables are defined with DDL but no CREATE INDEX statements. For performance: llm_usage needs indexes on timestamp and task_type for cost queries; activity_feed needs timestamp index for feed pagination; mcp_activity needs timestamp index; container_health needs (container_name, timestamp) for history queries. Missing indexes will cause slow queries as data accumulates.",
+      "priority": "medium"
+    },
+    {
+      "id": 41,
+      "topic": "Observability",
+      "sections": ["13.3 Planned: v2 Architecture Expansion"],
+      "question": "What is the OpenTelemetry implementation plan -- which signals (traces, metrics, logs), which exporter, and where does telemetry data go?",
+      "context": "v2 Phase 3 mentions 'OpenTelemetry (F3.10)' as part of pipeline hardening. But there's no detail in the feature specifications about which OpenTelemetry SDK, what signals to capture, where to send them (Jaeger? Grafana? stdout?), or whether this adds a new container. On a 128GB homeserver, a full observability stack (Jaeger + Prometheus + Grafana) is feasible but adds operational complexity.",
+      "priority": "medium"
+    },
+    {
+      "id": 42,
+      "topic": "Infrastructure & Containers",
+      "sections": ["18.8 Infrastructure Skills Detail"],
+      "question": "How do infrastructure skills (container health, backups, secret rotation) interact with the Unraid host OS, given they run inside Docker containers?",
+      "context": "v2-F14.7 (container health) needs to hit /health endpoints on other containers -- achievable via Docker networking. v2-F14.1 (database backup) needs pg_dump access and write access to /mnt/backups/. v2-F14.8 (secret rotation) needs bws CLI access. These all require specific volume mounts, network access, and potentially the Docker socket. No detail on how the workers container gets these capabilities.",
+      "priority": "medium"
+    },
+    {
+      "id": 43,
+      "topic": "Infrastructure & Containers",
+      "sections": ["18.8 Infrastructure Skills Detail"],
+      "question": "What is the retention policy for backup_log and container_health tables to prevent unbounded growth?",
+      "context": "container_health writes every 15 minutes (v2-F14.7) = ~35K rows/year. backup_log writes daily. No retention/pruning policy specified for these tables. The file-level retention is defined (7 daily, 4 weekly, 3 monthly) but the database records tracking those backups have no similar policy.",
+      "priority": "low"
+    },
+    {
+      "id": 44,
+      "topic": "Wiki Architecture",
+      "sections": ["5.5 Wiki Page Format", "9.1 Wiki-Ingest Job"],
+      "question": "How does the wiki-ingest job determine which existing wiki pages to update when a new capture arrives?",
+      "context": "Section 6.3.1 says 'A single new file typically touches 8-12 wiki pages.' Section 9.1 says 'The LLM reads the new capture, identifies relevant existing wiki pages, and updates them.' But no detail on the identification mechanism: does it search index.md? Run vector similarity against existing pages? Use entity graph links? The strategy affects both accuracy and cost.",
+      "priority": "medium"
+    },
+    {
+      "id": 45,
+      "topic": "Wiki Architecture",
+      "sections": ["5.5 Wiki Page Format"],
+      "question": "How is the 'confidence' field in wiki page frontmatter calculated and maintained over time?",
+      "context": "Wiki page format shows 'confidence: 0.85 # 0-1 for synthesis pages.' No detail on how this is calculated (LLM self-assessment? Source count? Recency?), when it's updated, or whether it decays over time. Section 18.16 mentions 'Decay and archival -- confidence decay on synthesis pages over time' as out of scope, but the field exists in the format.",
+      "priority": "low"
+    },
+    {
+      "id": 46,
+      "topic": "Testing & Validation",
+      "sections": ["18.15 Testing Strategy"],
+      "question": "What is the specific integration test plan for wiki-ingest end-to-end (capture -> wiki page creation -> index update -> entity graph update)?",
+      "context": "Testing strategy mentions 'wiki-ingest end-to-end (capture -> wiki page)' as an integration test target. But this requires a running Gitea instance, Git operations, and LLM calls. No detail on whether integration tests mock Gitea/LLM or require a full test stack. The existing integration tests use a real Postgres instance but mock LLM calls.",
+      "priority": "low"
+    },
+    {
+      "id": 47,
+      "topic": "Model Routing & LLM Strategy",
+      "sections": ["7.1 Current State", "7.3 Dual-Client Architecture"],
+      "question": "The ai-routing.yaml in Section 7.1 shows claude-sonnet-4-20250514 as the model for all aliases, but Section 4.1 and CLAUDE.md say gpt-5.4 is the current model. Which is correct?",
+      "context": "The current state config block shows client: anthropic for all task types, but CLAUDE.md and the existing system description reference gpt-5.4 via api.openai.com/v1. This may reflect a migration in progress (from OpenAI gpt-5.4 to Anthropic Claude Sonnet via subscription), or a documentation inconsistency. The cost entries show $0, suggesting the subscription model is now active.",
+      "priority": "high"
+    },
+    {
+      "id": 48,
+      "topic": "Implementation Planning",
+      "sections": ["13.2 Planned: Phase 7 Proactive Intelligence Completion"],
+      "question": "What is the specific implementation plan for Phase 7D (confidence scoring + DM mode) and 7E (threaded replies)?",
+      "context": "Phase 7D and 7E are listed as planned but have no duration estimates, no detailed task breakdowns, and no specific success criteria beyond the feature specs in Section 18.2. Phase 7D depends on F36 (done), F37 (planned), and F46 (planned). Phase 7E depends on F43 validated and F46 tuned. The dependency chain is partially resolved but needs a concrete plan.",
+      "priority": "medium"
+    },
+    {
+      "id": 49,
+      "topic": "File Ingestion & Migration",
+      "sections": ["6.1.3 Duplicate Detection"],
+      "question": "What is the human review process for near-duplicate document clusters, and what tooling supports it?",
+      "context": "Section 6.1.3 says near-duplicates (>0.9 similarity) are flagged for 'Human review of clusters' and an 'HTML report generated for human review before any deletion.' No detail on: how many clusters are expected, the review UI/tool, the decision workflow (keep newest? merge? manual selection?), or how long this review phase is expected to take for 10K files.",
+      "priority": "low"
+    },
+    {
+      "id": 50,
+      "topic": "Autonomy & Governance",
+      "sections": ["11.1 Configurable Autonomy Levels"],
+      "question": "What are the specific guardrails and validation requirements before escalating from 'advise' to 'partner' autonomy level?",
+      "context": "The partner level is described as 'Autonomous action within guardrails. Rare permission requests. Future -- requires extensive validation.' No detail on what guardrails, what validation, or what specific autonomous actions would be enabled. This is the highest-risk autonomy level and has no concrete specification.",
+      "priority": "low"
+    },
+    {
+      "id": 51,
+      "topic": "Wiki Architecture",
+      "sections": ["5.1 Three-Layer Model", "9.4 Core Query Filing"],
+      "question": "How are synthesis pages (filed query results) distinguished from source-derived pages, and how are they maintained when underlying sources change?",
+      "context": "Section 9.4 says 'Good answers get filed back into the wiki as synthesis pages.' Wiki page types include 'Synthesis -- Cross-cutting analysis connecting multiple entities/concepts.' But no detail on: who decides which answers are 'good enough' to file (human? automatic?), how synthesis pages are updated when their source material changes, or whether synthesis pages have a staleness threshold.",
+      "priority": "low"
+    },
+    {
+      "id": 52,
+      "topic": "Data Model & Schema",
+      "sections": ["18.11 Existing Database Schema Reference", "18.4 Database Additions"],
+      "question": "How do wiki pages relate to the existing captures and entities tables -- are wiki pages stored as captures, as a separate Gitea-only layer, or both?",
+      "context": "The three-layer model separates raw sources (captures table) from wiki (Gitea repo). But wiki pages need to be searchable via the existing hybrid search. Are wiki page embeddings stored in the captures table with source='wiki'? In a new wiki_pages table? Or only searched via Gitea API? The answer affects search integration, the vector index, and the entity graph connection to wiki content. No explicit schema design for this bridge.",
+      "priority": "high"
+    }
+  ]
+}
