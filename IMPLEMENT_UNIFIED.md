@@ -808,7 +808,7 @@ Set up the file sync infrastructure (rclone from OneDrive Docker app mirror to s
 ---
 
 #### 5.2 File Inventory Script
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §6.1.2 (Inventory and Hashing)
 **Files Affected:**
 - `scripts/file-inventory.py` (create)
@@ -833,7 +833,7 @@ Build a SQLite-based inventory of all files in the staging area. Two-tier hashin
 ---
 
 #### 5.3 Duplicate Detection Script
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §6.1.3 (Duplicate Detection)
 **Files Affected:**
 - `scripts/file-dedup.py` (create)
@@ -857,7 +857,7 @@ Detect exact and near-duplicate files using the inventory database. Exact duplic
 ---
 
 #### 5.4 Batch LLM Categorization Script
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §6.1.4 (Categorization and Taxonomy)
 **Files Affected:**
 - `scripts/file-categorize.py` (create)
