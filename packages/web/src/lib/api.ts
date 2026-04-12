@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession, InfrastructureData, PipelineFlowEntry } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -591,6 +591,17 @@ export const systemHealthApi = {
     return request<SystemHealthSnapshot>('/system/health')
   },
 
+  /** GET /api/v1/system/infrastructure — container health, backup log, cost summary */
+  infrastructure: () => {
+    return request<InfrastructureData>('/system/infrastructure')
+  },
+
+  /** GET /api/v1/system/flows — recent pipeline flows with stage details */
+  flows: (limit = 20) => {
+    const qs = buildQueryString({ limit })
+    return request<{ flows: PipelineFlowEntry[] }>(`/system/flows${qs}`)
+  },
+
   /**
    * Build a SystemHealthData object from legacy endpoints when /system/health is unavailable.
    * Combines /health (services) + /admin/pipeline/health (queues).
@@ -708,22 +719,66 @@ export const configApi = {
 
 // Voice Sessions API
 
+/** Raw voice session record as returned by the backend API */
+interface RawVoiceSession {
+  id: string
+  session_key: string
+  started_at: string
+  ended_at: string | null
+  duration_seconds: number | null
+  turn_count: number | null
+  transcript: Array<{ role: string; content: string; timestamp?: string }> | null
+  summary: string | null
+  captures_created: string[] | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
+/** Map backend voice session fields to frontend VoiceSession shape */
+function mapRawVoiceSession(raw: RawVoiceSession): VoiceSession {
+  const captureIds = raw.captures_created ?? []
+  return {
+    id: raw.id,
+    session_key: raw.session_key,
+    started_at: raw.started_at,
+    ended_at: raw.ended_at,
+    duration_s: raw.duration_seconds,
+    turn_count: raw.turn_count ?? 0,
+    captures_created: captureIds.length,
+    summary: raw.summary,
+    transcript: (raw.transcript ?? []).map((t) => ({
+      role: t.role as 'user' | 'assistant',
+      text: t.content,
+      timestamp: t.timestamp ?? raw.started_at,
+    })),
+    capture_ids: captureIds,
+  }
+}
+
 export const voiceSessionApi = {
   /** GET /api/v1/voice/sessions — list all voice conversation sessions */
   list: async (params?: { limit?: number; offset?: number }) => {
     const qs = buildQueryString(params ?? {})
-    return request<{ items: VoiceSession[]; total: number; limit: number; offset: number }>(
+    const raw = await request<{ items: RawVoiceSession[]; total: number; limit: number; offset: number }>(
       `/voice/sessions${qs}`,
     )
+    return {
+      items: (raw.items ?? []).map(mapRawVoiceSession),
+      total: raw.total,
+      limit: raw.limit,
+      offset: raw.offset,
+    }
   },
 
   /** GET /api/v1/voice/sessions/active — get any active (in-progress) sessions */
-  active: () => {
-    return request<{ sessions: VoiceSession[] }>('/voice/sessions/active')
+  active: async () => {
+    const raw = await request<{ items: RawVoiceSession[] }>('/voice/sessions/active')
+    return { sessions: (raw.items ?? []).map(mapRawVoiceSession) }
   },
 
   /** GET /api/v1/voice/sessions/:id — get a single session with full transcript */
-  get: (id: string) => {
-    return request<VoiceSession>(`/voice/sessions/${encodeURIComponent(id)}`)
+  get: async (id: string) => {
+    const raw = await request<RawVoiceSession>(`/voice/sessions/${encodeURIComponent(id)}`)
+    return mapRawVoiceSession(raw)
   },
 }

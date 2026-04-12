@@ -5,7 +5,7 @@
  * and scheduled jobs, then keeps the process alive until SIGTERM/SIGINT.
  */
 import { Redis } from 'ioredis'
-import { createDb, ConfigService, createAnthropicClient } from '@open-brain/shared'
+import { createDb, ConfigService, createAnthropicClient, createOllamaClient } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
@@ -59,6 +59,14 @@ async function main() {
     logger.info('Anthropic client initialized (Claude subscription)')
   } else {
     logger.warn('ANTHROPIC_API_KEY not set — Claude SDK features unavailable in workers')
+  }
+
+  // Ollama client for T0 local inference (classification tasks)
+  const ollamaClient = createOllamaClient({ maxRetries: 0 }) // BullMQ handles retries
+  if (ollamaClient) {
+    logger.info('Ollama client initialized (local inference)')
+  } else {
+    logger.info('OLLAMA_URL not set — Ollama local inference unavailable in workers')
   }
 
   // Template cache (shared across all workers that load prompt templates)
@@ -125,24 +133,16 @@ async function main() {
   const ingestDedup = new IngestDedup(dedupRedis)
   logger.info('IngestDedup initialized (5-min TTL content hash dedup)')
 
-  // FlowProducer — enabled via PIPELINE_USE_FLOWS=true feature flag
-  const useFlows = process.env.PIPELINE_USE_FLOWS === 'true'
-  let flowProducer: FlowProducer | undefined
-
-  if (useFlows) {
-    flowProducer = new FlowProducer({ connection })
-    logger.info('FlowProducer initialized — pipeline will use DAG-based orchestration')
-  } else {
-    logger.info('FlowProducer disabled — using legacy queue bridging (set PIPELINE_USE_FLOWS=true to enable)')
-  }
+  // FlowProducer — DAG-based pipeline orchestration (always enabled)
+  const flowProducer = new FlowProducer({ connection })
+  logger.info('FlowProducer initialized — pipeline uses DAG-based orchestration')
 
   // Workers
   const workers: Worker[] = []
 
-  workers.push(createIngestionWorker(connection, db, queues.embedCapture, flowProducer, ingestDedup))
+  workers.push(createIngestionWorker(connection, db, flowProducer, ingestDedup))
   workers.push(createEmbedCaptureWorker(
-    connection, db, configService, litellmUrl, litellmApiKey,
-    queues.checkTriggers, queues.extractEntities, spendTracker,
+    connection, db, configService, litellmUrl, litellmApiKey, spendTracker,
   ))
   // Ingest-root worker — processes the FlowProducer root job after children complete
   // Always registered so it can drain jobs if flows were previously enabled
@@ -168,6 +168,7 @@ async function main() {
     coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
     configService,
     anthropicClient: anthropicClient ?? undefined,
+    ollamaClient: ollamaClient ?? undefined,
     wikiService,
   }))
 

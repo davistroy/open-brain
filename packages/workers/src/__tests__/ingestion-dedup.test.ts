@@ -40,7 +40,7 @@ function makeDb(capture?: ReturnType<typeof makeCapture>) {
   }
 }
 
-function makeEmbedQueue() {
+function makeFlowProducer() {
   return {
     add: vi.fn().mockResolvedValue(undefined),
   }
@@ -64,22 +64,21 @@ describe('processIngestionJob — content hash dedup', () => {
   it('skips pipeline when dedup detects duplicate content hash', async () => {
     const capture = makeCapture()
     const db = makeDb(capture)
-    const embedQueue = makeEmbedQueue()
+    const flowProducer = makeFlowProducer()
     const dedup = makeDedup(true) // isDuplicate returns true
 
     await processIngestionJob(
       { captureId: 'cap-1' },
       db as never,
-      embedQueue as never,
-      undefined,
+      flowProducer as never,
       dedup,
     )
 
     // Should have checked dedup
     expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123')
 
-    // Should NOT have enqueued embed job
-    expect(embedQueue.add).not.toHaveBeenCalled()
+    // Should NOT have enqueued flow DAG
+    expect(flowProducer.add).not.toHaveBeenCalled()
 
     // Should NOT have updated pipeline_status to 'processing'
     // (no update calls after the terminal status check)
@@ -89,75 +88,71 @@ describe('processIngestionJob — content hash dedup', () => {
   it('proceeds with pipeline when dedup says content is new', async () => {
     const capture = makeCapture()
     const db = makeDb(capture)
-    const embedQueue = makeEmbedQueue()
+    const flowProducer = makeFlowProducer()
     const dedup = makeDedup(false) // isDuplicate returns false
 
     await processIngestionJob(
       { captureId: 'cap-1' },
       db as never,
-      embedQueue as never,
-      undefined,
+      flowProducer as never,
       dedup,
     )
 
     expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123')
 
-    // Should have proceeded to enqueue embed job
-    expect(embedQueue.add).toHaveBeenCalled()
+    // Should have proceeded to enqueue flow DAG
+    expect(flowProducer.add).toHaveBeenCalled()
   })
 
   it('proceeds normally when no dedup service is provided', async () => {
     const capture = makeCapture()
     const db = makeDb(capture)
-    const embedQueue = makeEmbedQueue()
+    const flowProducer = makeFlowProducer()
 
     await processIngestionJob(
       { captureId: 'cap-1' },
       db as never,
-      embedQueue as never,
-      undefined,
+      flowProducer as never,
       undefined, // no dedup
     )
 
-    // Should have proceeded to enqueue embed job
-    expect(embedQueue.add).toHaveBeenCalled()
+    // Should have proceeded to enqueue flow DAG
+    expect(flowProducer.add).toHaveBeenCalled()
   })
 
   it('proceeds when capture has no content_hash (edge case)', async () => {
     const capture = makeCapture({ content_hash: '' })
     const db = makeDb(capture)
-    const embedQueue = makeEmbedQueue()
+    const flowProducer = makeFlowProducer()
     const dedup = makeDedup(false)
 
     await processIngestionJob(
       { captureId: 'cap-1' },
       db as never,
-      embedQueue as never,
-      undefined,
+      flowProducer as never,
       dedup,
     )
 
     // Empty content_hash is falsy — dedup should be skipped
     expect(dedup.isDuplicate).not.toHaveBeenCalled()
-    expect(embedQueue.add).toHaveBeenCalled()
+    expect(flowProducer.add).toHaveBeenCalled()
   })
 
   it('still skips terminal captures before dedup check', async () => {
     const capture = makeCapture({ pipeline_status: 'complete' })
     const db = makeDb(capture)
-    const embedQueue = makeEmbedQueue()
+    const flowProducer = makeFlowProducer()
     const dedup = makeDedup(false)
 
     await processIngestionJob(
       { captureId: 'cap-1' },
       db as never,
-      embedQueue as never,
-      undefined,
+      flowProducer as never,
       dedup,
     )
 
     // Terminal status check happens before dedup — dedup should not be called
     expect(dedup.isDuplicate).not.toHaveBeenCalled()
-    expect(embedQueue.add).not.toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
   })
 })

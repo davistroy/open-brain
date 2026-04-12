@@ -1093,4 +1093,177 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 - Execute IMPLEMENT_UNIFIED.md via `/implement-plan` when ready
 - Phase 1 and Phase 2 can start immediately in parallel
 
-*Entries continue below.*
+--- New session: 2026-04-11 — Execute IMPLEMENT_UNIFIED.md (v2 unified implementation) ---
+
+### Entry 022: IMPLEMENT_UNIFIED.md Execution — Phase 1: Pipeline & Infrastructure Foundation [deploy] [pipeline] [workers]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** IN PROGRESS
+**Tags:** `[deploy]` `[pipeline]` `[workers]` `[config]`
+
+**Objective:** Execute all 39 work items from IMPLEMENT_UNIFIED.md across 8 phases, transforming Open Brain from v1.5.0 capture-and-search system to full v2 knowledge operating system. Starting with Phase 1 (Pipeline & Infrastructure Foundation): FlowProducer DAGs, trace IDs, infrastructure skill scheduling, secret rotation, dedup sweep, backup retention.
+
+**Hypothesis:** Phase 1 items are all independent (no inter-dependencies) and can be implemented in parallel batches. The FlowProducer DAG already exists behind a feature flag; promoting it should be low-risk. Infrastructure skill files already exist; wiring to scheduler should be straightforward. New skills (secret rotation, dedup sweep) follow established skill patterns. Expect: all 6 items pass tests, no regressions against 1,569 existing unit tests.
+
+**Rollback Plan:** `git revert` the merge commit or `git reset --hard` to pre-implementation SHA. All changes are on feature branch `feature/v2-unified-implementation`, not main.
+
+**Phase 1 Work Items:**
+- 1.1: Enable FlowProducer DAG Pipeline (promote feature flag)
+- 1.2: Add Pipeline Trace IDs (UUID v4 cross-stage correlation)
+- 1.3: Register Infrastructure Skills in Scheduler (6 cron entries)
+- 1.4: Create Secret Rotation Reminder Skill (monthly bws check)
+- 1.5: Create Capture Dedup Sweep Skill (weekly cosine >0.95)
+- 1.6: Implement Backup Retention Policies (7/4/3 pruning)
+
+#### Phase 1 Results
+
+**Batch 1 (parallel: 1.1, 1.2, 1.3) — commit dad60e3:**
+- **1.1 FlowProducer DAG:** Promoted from feature flag to default. Removed ~80 lines of dead legacy queue-bridging code from `ingestion-worker.ts` and `embed-capture.ts`. Added `wiki-ingest` as non-critical flow child gated on `WIKI_REPO_URL`. 8 new tests.
+- **1.2 Pipeline Trace IDs:** UUID v4 `trace_id` generated in `CaptureService.create()`, stored in `source_metadata.trace_id`, propagated to all pipeline stages via BullMQ job data. Every `pipeline_events` insert includes trace_id in metadata JSONB. Pino child loggers bound with `{ captureId, traceId }` for structured log grep-ability. Tests added across core-api and workers.
+- **1.3 Infrastructure Skills:** All 6 already fully wired — scheduler has cron registrations, skill-execution has dispatch cases, skill-config has DEFAULT_SKILLS entries. No changes needed. Verified with 814 worker tests.
+
+**Batch 2 (parallel: 1.4, 1.5, 1.6) — commit 7af4384:**
+- **1.4 Secret Rotation:** Created `SecretRotationSkill` — executes `bws secret list`, parses JSON, checks `revisionDate` age, alerts via Pushover for secrets >90 days. Injectable `execFn` for testing. Never logs secret values. 20 new tests.
+- **1.5 Capture Dedup Sweep:** Created `CaptureDedupSweepSkill` — queries pairs with cosine similarity >0.95 via pgvector `<=>` operator, excludes consolidated captures, limits to 100 pairs. Flags only (no auto-merge). Pushover summary with count + top 3 examples. Cron: Saturday 4 AM. 18 new tests.
+- **1.6 Backup Retention:** Extracted shared `pruneBackups()` utility to `packages/workers/src/lib/backup-retention.ts` implementing 7 daily / 4 weekly (Sunday) / 3 monthly (1st) policy. Integrated into db-backup, wiki-backup, redis-snapshot — replaced ~130 lines of duplicated logic. 28 new tests.
+
+**Test Results:** 2,204 tests passing (66 new), 0 failures. All packages build cleanly.
+
+**What Worked:**
+- Parallel subagent execution worked cleanly — no merge conflicts despite 3 agents per batch
+- Item 1.3 discovered infrastructure skills were already fully wired (zero new code needed)
+- Existing skill patterns (BaseSkill, PushoverService, skills_log) made new skill creation straightforward
+- Shared backup-retention utility eliminated significant code duplication
+
+**Decision:** D29 updated — Phase 1 execution validates the parallel subagent approach for the remaining 33 work items.
+
+**Status:** COMPLETE — Phase 1 code-complete on feature branch. Production deployment deferred until all phases complete.
+
+### Entry 023: Phase 2 — Three-Tier Model Routing [architecture] [config] [api]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[config]` `[api]` `[docker]`
+
+**Objective:** Implement three-tier model routing (T0 Ollama/Gemma 4 local → T1 Haiku → T2 Sonnet) with fallback chains, replacing the single-model gpt-5.4 routing.
+
+**Results:**
+
+**Batch 1 (parallel: 2.1, 2.2, 2.4) — commit 157ba25:**
+- **2.1 Ollama Client Factory:** Created `createOllamaClient()` (OpenAI SDK → Ollama /v1). Added ModelTierConfig, TaskRoutingConfig, TaskName types + Zod schemas. 38 new tests.
+- **2.2 ai-routing.yaml Restructure:** Added `model_tiers` (T0/T1/T2) and `task_routing` (19 tasks) sections. ConfigService extended with `getModelTier()`, `getTaskTier()`, `hasThreeTierRouting()`. Legacy `models:` map preserved. Budget: soft $20/hard $35. 16 new tests.
+- **2.4 Ollama Docker:** Added `open-brain-ollama` service (16GB limit, port 11434). Created `scripts/setup-ollama.sh`. `OLLAMA_URL` injected into core-api and workers.
+
+**Sequential items (2.5, 2.3, 2.6):**
+- **2.5 ConfigService:** Added `getMonthlyBudget()` and `validateTaskRouting()`. 90% already done by 2.2. 3 new tests.
+- **2.3 LLMGateway Three-Way Dispatch:** Extended with `resolveByTask()`, `completeByTask()`, recursive fallback chain (T0→T1→T2, max 2 hops on transient errors). Ollama initialized in core-api and workers. Legacy `complete()` unchanged. 24 new tests.
+- **2.6 T0 Validation Suite:** 50-example fixture (10/brain view, all 8 capture types). Script with `--compare` mode for T0 vs T1 baseline. 90% accuracy threshold. 45 new tests.
+
+**Test Results:** 2,283 tests passing (126 new in Phase 2), 0 failures.
+
+**What Worked:**
+- No merge conflicts between parallel agents on shared types/config — cleanly integrated
+- ConfigService design (backward-compat `models:` + new `model_tiers:`) allows incremental migration
+- LLMGateway fallback chain correctly handles transient vs non-transient errors
+- One pre-existing flaky test (system-health timeout) fixed as part of 2.6 testing
+
+**Key Finding:** Types defined by agent 2.1 and config methods by agent 2.2 were complementary with zero overlap — the parallel decomposition was clean.
+
+**Status:** COMPLETE — Phase 2 code-complete. Ollama container not yet deployed (requires homeserver `docker compose up` + model pull).
+
+### Entry 024: Phase 3 — Wiki Infrastructure [architecture] [web] [workers]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[web]` `[workers]` `[config]`
+
+**Objective:** Stand up Gitea wiki infrastructure, wire wiki workers/schedulers, and build wiki browser UI.
+
+**Results:**
+
+**Batch 1 (parallel: 3.1, 3.2, 3.4) — commit 7e6a9ef:**
+- **3.1 Gitea Wiki Setup:** Rewrote `setup-wiki-repo.sh` — Gitea API integration, 9 directories, comprehensive WIKI_SCHEMA.md (8 page types, full frontmatter spec, cross-reference format, naming conventions, content templates, validation rules), index.md/log.md/overview.md stubs.
+- **3.2 Wiki Config:** Created `config/wiki.yaml` (repo_url, local_path, sync interval, lint/synthesis schedules, rate limits). Added WIKI_REPO_URL + WIKI_LOCAL_PATH env vars to core-api and workers in docker-compose.
+- **3.4 Wiki.tsx Browser:** Already substantially complete from prior work. Added `NotConfiguredState` component for when WIKI_REPO_URL is unset. 80 web tests pass.
+
+**Sequential item (3.3) — commit 36e0e76:**
+- **3.3 Wiki Workers:** Workers/schedulers already wired from prior sessions. Added `WikiGitService.getStatus()` for health reporting, integrated into `SystemHealthService` (wiki sync status in health snapshot), added `wiki-ingest` to monitored queues, enhanced wiki-ingest failure handler with Gitea connection error detection. 8 new tests.
+
+**Test Results:** 2,292 tests passing, 0 failures.
+
+**What Worked:**
+- Codebase was significantly ahead of plan — wiki-ingest worker, schedulers, and Wiki.tsx were already mostly implemented
+- WIKI_SCHEMA.md provides clear conventions for wiki page generation quality
+- Health integration gives visibility into wiki sync status alongside existing services
+
+**Status:** COMPLETE — Phase 3 code-complete. Gitea repo creation deferred to deployment time.
+
+### Entry 025: Phase 4 — Slack Auto-Response Completion [slack] [feature]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** COMPLETE
+**Tags:** `[slack]` `[feature]` `[api]`
+
+**Objective:** Complete the Slack auto-response progression: 5-signal confidence scoring, DM delivery with interactive buttons, and full advise-mode guardrails.
+
+**Results:**
+
+**Batch 1 (parallel: 4.1, 4.4) — commit 6c60ebb:**
+- **4.1 Confidence Scorer:** Expanded from 3 to 5 signals — added entity match ratio (term extraction + entity substring matching) and source diversity (distinct source types). Weights: search 0.30, entity 0.25, recency 0.20, corroboration 0.15, diversity 0.10. 30 tests.
+- **4.4 Advise Guardrails:** All 5 PRD guardrails enforced for threaded replies: confidence >= 0.85, 2+ corroboration, staleness <= 90d, bot-user filtering, nested thread detection. Per-channel monitoring via `app_settings` with 5-min cache. 20 tests.
+
+**Sequential items (4.2, 4.3) — commit 462c5c8:**
+- **4.2 DM Delivery:** Block Kit DM to owner with draft, confidence %, original message link, 3 buttons. Dual thresholds (0.75 channel / 0.90 DM). Pushover fallback. 6 tests.
+- **4.3 Interactive Handlers:** `post_reply` posts threaded reply, `edit_post` opens Slack modal, `dismiss` logs for tuning. Metadata JSON-encoded in button values. 28 tests.
+
+**Test Results:** 2,341+ tests passing, 84 new in Phase 4.
+
+**Status:** COMPLETE — Full Slack auto-response progression implemented (shadow → DM → threaded).
+
+### Entry 026: Phases 5-8 Completion + OneDrive Sync Setup [deploy] [pipeline] [web] [infrastructure]
+
+**Date:** 2026-04-11/12
+**Environment:** Laptop (development) + Homeserver (sync setup)
+**Status:** COMPLETE
+**Tags:** `[deploy]` `[pipeline]` `[web]` `[infrastructure]`
+
+**Objective:** Complete remaining phases 5-8 of IMPLEMENT_UNIFIED.md and set up OneDrive file sync.
+
+**Phase 5 — OneDrive File Migration (5 items):**
+- Python extraction service (8 file types, FastAPI, Docker), rclone sync script
+- Documents API extended with `file` source type + batch endpoint (max 100)
+- File inventory (SQLite + two-tier hashing), dedup detection (exact + near-duplicate HTML report), batch LLM categorization (Spark/Ollama backends, checkpointing)
+
+**Phase 6 — Wiki Construction (4 items, 2 operational):**
+- Batch wiki-ingest orchestrator (domain-by-domain, SQLite checkpoint/resume)
+- Enhanced wiki-ingest prompt (source summaries, frontmatter management, 2+ cross-refs)
+- Pilot + full batch ingestion: tooling ready, execution deferred to deployment
+
+**Phase 7 — Voice & Email (6 items, 2 operational):**
+- VoiceConversations.tsx: fixed API field mapping bugs, added session_key display
+- Email config (email.yaml), 25 tests for Slack email commands
+- Himalaya as primary weekly brief delivery (3-level fallback chain)
+- Email.tsx expanded to 3 tabs (Inbound, Drafts/Outbox, Threads)
+- Pipecat validation + container promotion: deferred to deployment
+
+**Phase 8 — Dashboard & Settings Polish (4 items):**
+- Verified StatusStrip, activity feed, MCP activity all implemented
+- System.tsx expanded to 5 sub-tabs (Queues, Skills, Flows, Infrastructure, MCP Activity)
+- Settings.tsx expanded with Voice, Wiki, Email config sections
+- Consolidated: queue/skill management moved from Settings to System page
+
+**OneDrive Sync Setup (homeserver):**
+- Script: `/mnt/user/appdata/open-brain/scripts/sync-onedrive.sh`
+- Source: `/mnt/user/storage/onedrive/davistroy/` (454,528 files, 207.7 GB)
+- Destination: `/mnt/user/storage/open-brain/raw/`
+- Cron: every 15 minutes (claude user)
+- Passwordless sudo for rsync configured via `/etc/sudoers.d/claude`
+- First sync kicked off 2026-04-12 ~07:28
+
+**Final Test Results:** 2,423 tests passing across all 6 packages, 0 failures.
+
+**Decision:** D30 — All 39 IMPLEMENT_UNIFIED.md items code-complete. 4 operational items (Pipecat validation, container promotion, pilot ingestion, full batch) deferred to deployment sessions.

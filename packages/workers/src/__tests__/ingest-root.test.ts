@@ -32,6 +32,7 @@ function makeMockCheckTriggersQueue() {
 // ---------------------------------------------------------------------------
 describe('processIngestRootJob', () => {
   const jobData: IngestRootJobData = { captureId: 'cap-root-1' }
+  const jobDataWithTrace: IngestRootJobData = { captureId: 'cap-root-1', traceId: 'trace-test-abc' }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -42,7 +43,14 @@ describe('processIngestRootJob', () => {
     const db = makeMockDb()
     await processIngestRootJob(jobData, db)
 
-    expect(mockProcessLinkEntitiesStage).toHaveBeenCalledWith('cap-root-1', db)
+    expect(mockProcessLinkEntitiesStage).toHaveBeenCalledWith('cap-root-1', db, undefined)
+  })
+
+  it('calls processLinkEntitiesStage with traceId when provided', async () => {
+    const db = makeMockDb()
+    await processIngestRootJob(jobDataWithTrace, db)
+
+    expect(mockProcessLinkEntitiesStage).toHaveBeenCalledWith('cap-root-1', db, 'trace-test-abc')
   })
 
   it('enqueues check-triggers job when queue is provided', async () => {
@@ -53,7 +61,22 @@ describe('processIngestRootJob', () => {
 
     expect(queue.add).toHaveBeenCalledWith(
       'check-triggers',
-      { captureId: 'cap-root-1' },
+      { captureId: 'cap-root-1', traceId: undefined },
+      expect.objectContaining({
+        jobId: expect.stringContaining('check-triggers_cap-root-1_'),
+      }),
+    )
+  })
+
+  it('enqueues check-triggers with traceId when provided', async () => {
+    const db = makeMockDb()
+    const queue = makeMockCheckTriggersQueue()
+
+    await processIngestRootJob(jobDataWithTrace, db, queue)
+
+    expect(queue.add).toHaveBeenCalledWith(
+      'check-triggers',
+      { captureId: 'cap-root-1', traceId: 'trace-test-abc' },
       expect.objectContaining({
         jobId: expect.stringContaining('check-triggers_cap-root-1_'),
       }),

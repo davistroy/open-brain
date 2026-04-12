@@ -1,0 +1,19 @@
+# Wiki layer configuration
+# See IMPLEMENT_UNIFIED.md §3.2 and PRD-UNIFIED §5.1
+
+# Gitea repository (external service at gitea.k4jda.net)
+repo_url: "gitea.k4jda.net/davistroy/open-brain-wiki.git"
+
+# Local clone path inside containers (ephemeral, re-cloned on startup)
+local_path: "/tmp/open-brain-wiki"
+
+# How often workers pull latest changes from Gitea (minutes)
+sync_interval_minutes: 15
+
+# Cron schedules (UTC)
+lint_schedule: "0 5 * * 0"        # Sunday 5 AM — wiki-lint skill
+synthesis_schedule: "0 6 * * *"   # Daily 6 AM — wiki-synthesis skill
+
+# Rate limiting for wiki-ingest jobs
+ingest_rate_limit: 5              # max jobs per minute
+ingest_concurrency: 1             # single-threaded to avoid git conflicts

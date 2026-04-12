@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { eq, and, desc, sql, gte, lte, isNull } from 'drizzle-orm'
 import { captures, entities } from '@open-brain/shared'
 import { contentHash, ConflictError, NotFoundError } from '@open-brain/shared'
@@ -64,6 +65,13 @@ export class CaptureService {
     const metadata = input.metadata ?? {}
     const capturedAt = metadata.captured_at ? new Date(metadata.captured_at) : new Date()
 
+    // Generate a pipeline trace ID for cross-stage correlation
+    const traceId = randomUUID()
+    const sourceMetadata = {
+      ...(metadata.source_metadata as Record<string, unknown> ?? {}),
+      trace_id: traceId,
+    }
+
     let created: typeof captures.$inferSelect
     try {
       const [row] = await this.db
@@ -74,7 +82,7 @@ export class CaptureService {
           capture_type: input.capture_type,
           brain_view: input.brain_view,
           source: input.source,
-          source_metadata: metadata.source_metadata ?? null,
+          source_metadata: sourceMetadata,
           tags: metadata.tags ?? [],
           pipeline_status: 'pending',
           pre_extracted: metadata.pre_extracted ?? null,

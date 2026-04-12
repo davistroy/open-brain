@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw,
   Mic,
@@ -9,6 +8,7 @@ import {
   FileText,
   AlertCircle,
   Upload,
+  Hash,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn, formatDateTime, relativeTime, truncate } from '@/lib/utils';
 import { voiceSessionApi, capturesApi } from '@/lib/api';
 import TranscriptViewer from '@/components/TranscriptViewer';
+import CaptureCard from '@/components/CaptureCard';
 import type { VoiceSession, Capture } from '@/lib/types';
 
 // ─── Helper functions ──────────────────────────────────────────────────────
@@ -82,6 +83,10 @@ function SessionRow({ session, onClick }: SessionRowProps) {
             <span className="text-sm font-medium">
               {formatDateTime(session.started_at)}
             </span>
+            <Badge variant="outline" className="text-xs gap-1 font-mono">
+              <Hash className="h-3 w-3" />
+              {session.session_key.slice(0, 8)}
+            </Badge>
             <Badge variant="outline" className="text-xs gap-1">
               <MessageSquare className="h-3 w-3" />
               {session.turn_count} turn{session.turn_count !== 1 ? 's' : ''}
@@ -123,7 +128,6 @@ interface SessionDetailProps {
 }
 
 function SessionDetail({ session, onBack }: SessionDetailProps) {
-  const navigate = useNavigate();
   const [linkedCaptures, setLinkedCaptures] = useState<Capture[]>([]);
   const [loadingCaptures, setLoadingCaptures] = useState(false);
 
@@ -151,6 +155,8 @@ function SessionDetail({ session, onBack }: SessionDetailProps) {
             {formatDateTime(session.started_at)}
           </h2>
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+            <span className="font-mono">{session.session_key.slice(0, 8)}</span>
+            <span>&middot;</span>
             <span>{formatDuration(session.duration_s)}</span>
             <span>&middot;</span>
             <span>{session.turn_count} turn{session.turn_count !== 1 ? 's' : ''}</span>
@@ -211,22 +217,7 @@ function SessionDetail({ session, onBack }: SessionDetailProps) {
               </p>
             ) : (
               linkedCaptures.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => navigate(`/timeline?capture=${c.id}`)}
-                  className="w-full text-left rounded-lg border bg-card p-3 hover:bg-accent/50 transition-colors"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="outline" className="text-[10px] capitalize">
-                      {c.capture_type}
-                    </Badge>
-                    <Badge variant="secondary" className="text-[10px]">
-                      {c.brain_view}
-                    </Badge>
-                  </div>
-                  <p className="text-xs line-clamp-2">{truncate(c.content, 120)}</p>
-                </button>
+                <CaptureCard key={c.id} capture={c} />
               ))
             )}
           </div>

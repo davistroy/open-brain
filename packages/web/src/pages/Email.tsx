@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Mail,
   MailOpen,
@@ -11,6 +11,10 @@ import {
   FileEdit,
   ChevronDown,
   ChevronRight,
+  MessageSquare,
+  Filter,
+  Calendar,
+  User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -146,7 +150,78 @@ function DraftCard({ draft, onApprove, onReject, actionLoading }: DraftCardProps
 
 // ─── Tab selector ───────────────────────────────────────────────────────────
 
-type Tab = 'inbound' | 'drafts';
+type Tab = 'inbound' | 'drafts' | 'threads';
+
+// ─── Thread reconstruction helpers ──────────────────────────────────────────
+
+interface EmailThread {
+  id: string;
+  subject: string;
+  messages: Capture[];
+  lastActivity: string;
+  participants: string[];
+}
+
+function extractSender(capture: Capture): string {
+  const meta = capture.source_metadata as Record<string, unknown> | undefined;
+  if (meta?.from && typeof meta.from === 'string') return meta.from;
+  return 'unknown';
+}
+
+function extractSubject(capture: Capture): string {
+  const meta = capture.source_metadata as Record<string, unknown> | undefined;
+  if (meta?.subject && typeof meta.subject === 'string') return meta.subject;
+  // Fall back to first line of content
+  const first = capture.content.split('\n')[0] ?? '';
+  return first.replace(/^Subject:\s*/i, '').slice(0, 80) || '(no subject)';
+}
+
+function normalizeSubject(subject: string): string {
+  return subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim().toLowerCase();
+}
+
+/**
+ * Groups email captures into threads by normalized subject line and message_id references.
+ */
+function buildThreads(captures: Capture[]): EmailThread[] {
+  const threadMap = new Map<string, Capture[]>();
+
+  for (const capture of captures) {
+    const subject = extractSubject(capture);
+    const key = normalizeSubject(subject);
+
+    if (!threadMap.has(key)) {
+      threadMap.set(key, []);
+    }
+    threadMap.get(key)!.push(capture);
+  }
+
+  const threads: EmailThread[] = [];
+  for (const [, messages] of threadMap) {
+    // Sort by date ascending within thread
+    messages.sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+
+    const participants = [...new Set(messages.map(extractSender))];
+    const lastMsg = messages[messages.length - 1];
+
+    threads.push({
+      id: messages[0].id,
+      subject: extractSubject(messages[0]),
+      messages,
+      lastActivity: lastMsg.created_at,
+      participants,
+    });
+  }
+
+  // Sort threads by last activity descending
+  threads.sort(
+    (a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime(),
+  );
+
+  return threads;
+}
 
 // ─── Main page ──────────────────────────────────────────────────────────────
 
@@ -166,11 +241,17 @@ export default function Email() {
   const [draftsTotal, setDraftsTotal] = useState(0);
   const [draftFilter, setDraftFilter] = useState<string>('');
 
+  // Inbound filters
+  const [senderFilter, setSenderFilter] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+
   const loadInbound = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await capturesApi.list({ source: 'email', limit: 50 });
+      const result = await capturesApi.list({ source: 'email', limit: 100 });
       setInboundCaptures(result.data);
       setInboundTotal(result.total);
     } catch (err) {
@@ -198,12 +279,41 @@ export default function Email() {
   }, [draftFilter]);
 
   useEffect(() => {
-    if (tab === 'inbound') {
+    if (tab === 'inbound' || tab === 'threads') {
       loadInbound();
     } else {
       loadDrafts();
     }
   }, [tab, loadInbound, loadDrafts]);
+
+  // Filtered inbound captures (client-side filtering by sender and date)
+  const filteredInbound = useMemo(() => {
+    let items = inboundCaptures;
+
+    if (senderFilter) {
+      const lower = senderFilter.toLowerCase();
+      items = items.filter((c) => {
+        const sender = extractSender(c).toLowerCase();
+        return sender.includes(lower);
+      });
+    }
+
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime();
+      items = items.filter((c) => new Date(c.created_at).getTime() >= from);
+    }
+
+    if (dateTo) {
+      // Include the full end day
+      const to = new Date(dateTo).getTime() + 86_400_000;
+      items = items.filter((c) => new Date(c.created_at).getTime() < to);
+    }
+
+    return items;
+  }, [inboundCaptures, senderFilter, dateFrom, dateTo]);
+
+  // Thread data derived from filtered inbound captures
+  const threads = useMemo(() => buildThreads(filteredInbound), [filteredInbound]);
 
   async function handleApprove(id: string) {
     setActionLoading(id);
@@ -235,7 +345,16 @@ export default function Email() {
     }
   }
 
-  const refresh = tab === 'inbound' ? loadInbound : loadDrafts;
+  function clearFilters() {
+    setSenderFilter('');
+    setDateFrom('');
+    setDateTo('');
+  }
+
+  const hasActiveFilters = Boolean(senderFilter || dateFrom || dateTo);
+
+  const refresh =
+    tab === 'inbound' || tab === 'threads' ? loadInbound : loadDrafts;
 
   return (
     <div className="space-y-6">
@@ -245,17 +364,85 @@ export default function Email() {
           <Mail className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-bold">Email</h1>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={refresh}
-          disabled={loading}
-          className="gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          {(tab === 'inbound' || tab === 'threads') && (
+            <Button
+              variant={showFilters ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowFilters((v) => !v)}
+              className="gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              Filters
+              {hasActiveFilters && (
+                <Badge variant="secondary" className="text-xs ml-1">
+                  active
+                </Badge>
+              )}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
+            disabled={loading}
+            className="gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {/* Filter bar (inbound + threads) */}
+      {showFilters && (tab === 'inbound' || tab === 'threads') && (
+        <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <User className="h-3 w-3" />
+                Sender
+              </label>
+              <input
+                type="text"
+                placeholder="Filter by sender..."
+                value={senderFilter}
+                onChange={(e) => setSenderFilter(e.target.value)}
+                className="h-8 px-2 text-sm rounded-md border bg-background w-48"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                From
+              </label>
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="h-8 px-2 text-sm rounded-md border bg-background"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                To
+              </label>
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="h-8 px-2 text-sm rounded-md border bg-background"
+              />
+            </div>
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 text-xs">
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Feedback */}
       {actionMsg && (
@@ -301,10 +488,28 @@ export default function Email() {
           onClick={() => setTab('drafts')}
         >
           <MailOpen className="h-4 w-4" />
-          Drafts
+          Drafts / Outbox
           {draftsTotal > 0 && (
             <Badge variant="secondary" className="text-xs ml-1">
               {draftsTotal}
+            </Badge>
+          )}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors',
+            tab === 'threads'
+              ? 'border-primary text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+          onClick={() => setTab('threads')}
+        >
+          <MessageSquare className="h-4 w-4" />
+          Threads
+          {threads.length > 0 && (
+            <Badge variant="secondary" className="text-xs ml-1">
+              {threads.length}
             </Badge>
           )}
         </button>
@@ -313,9 +518,11 @@ export default function Email() {
       {/* Tab content */}
       {tab === 'inbound' && (
         <InboundTab
-          captures={inboundCaptures}
-          total={inboundTotal}
+          captures={filteredInbound}
+          total={filteredInbound.length}
+          unfilteredTotal={inboundTotal}
           loading={loading}
+          hasFilters={hasActiveFilters}
         />
       )}
       {tab === 'drafts' && (
@@ -330,6 +537,13 @@ export default function Email() {
           actionLoading={actionLoading}
         />
       )}
+      {tab === 'threads' && (
+        <ThreadsTab
+          threads={threads}
+          loading={loading}
+          hasFilters={hasActiveFilters}
+        />
+      )}
     </div>
   );
 }
@@ -339,11 +553,15 @@ export default function Email() {
 function InboundTab({
   captures,
   total,
+  unfilteredTotal,
   loading,
+  hasFilters,
 }: {
   captures: Capture[];
   total: number;
+  unfilteredTotal: number;
   loading: boolean;
+  hasFilters: boolean;
 }) {
   if (loading) {
     return (
@@ -359,10 +577,22 @@ function InboundTab({
     return (
       <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
         <Inbox className="h-10 w-10 mx-auto mb-3 opacity-50" />
-        <p className="text-sm">No inbound emails captured yet.</p>
-        <p className="text-xs mt-1">
-          Emails sent to brain@troy-davis.com will appear here.
-        </p>
+        {hasFilters ? (
+          <>
+            <p className="text-sm">No emails match the current filters.</p>
+            <p className="text-xs mt-1">
+              {unfilteredTotal} email{unfilteredTotal !== 1 ? 's' : ''} total.
+              Try adjusting filters.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm">No inbound emails captured yet.</p>
+            <p className="text-xs mt-1">
+              Emails sent to brain@troy-davis.com will appear here.
+            </p>
+          </>
+        )}
       </div>
     );
   }
@@ -370,7 +600,10 @@ function InboundTab({
   return (
     <div className="space-y-2">
       <p className="text-sm text-muted-foreground">
-        {total} inbound email{total !== 1 ? 's' : ''} captured
+        {total} email{total !== 1 ? 's' : ''}
+        {hasFilters && total !== unfilteredTotal
+          ? ` (filtered from ${unfilteredTotal})`
+          : ''}
       </p>
       <div className="space-y-2">
         {captures.map((capture) => (
@@ -442,6 +675,9 @@ function DraftsTab({
         <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
           <MailOpen className="h-10 w-10 mx-auto mb-3 opacity-50" />
           <p className="text-sm">No email drafts{filter ? ` with status "${filter}"` : ''}.</p>
+          <p className="text-xs mt-1">
+            Drafts created by skills or agents will appear here for review.
+          </p>
         </div>
       ) : (
         <>
@@ -462,6 +698,151 @@ function DraftsTab({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Threads tab ────────────────────────────────────────────────────────────
+
+function ThreadsTab({
+  threads,
+  loading,
+  hasFilters,
+}: {
+  threads: EmailThread[];
+  loading: boolean;
+  hasFilters: boolean;
+}) {
+  const [expandedThread, setExpandedThread] = useState<string | null>(null);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="h-16 animate-pulse rounded-lg bg-secondary" />
+        ))}
+      </div>
+    );
+  }
+
+  if (threads.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed p-10 text-center text-muted-foreground">
+        <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-50" />
+        {hasFilters ? (
+          <>
+            <p className="text-sm">No threads match the current filters.</p>
+            <p className="text-xs mt-1">Try adjusting the sender or date filters.</p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm">No email threads found.</p>
+            <p className="text-xs mt-1">
+              Threads are reconstructed from inbound emails by subject line.
+              Emails sent to brain@troy-davis.com will be grouped here.
+            </p>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        {threads.length} thread{threads.length !== 1 ? 's' : ''}
+      </p>
+      <div className="space-y-2">
+        {threads.map((thread) => {
+          const isExpanded = expandedThread === thread.id;
+          const msgCount = thread.messages.length;
+
+          return (
+            <Card key={thread.id} className="hover:border-primary/50 transition-colors">
+              <CardContent className="p-4">
+                {/* Thread header */}
+                <div
+                  className="flex items-start gap-2 cursor-pointer"
+                  onClick={() =>
+                    setExpandedThread(isExpanded ? null : thread.id)
+                  }
+                >
+                  <span className="mt-0.5 text-muted-foreground shrink-0">
+                    {isExpanded ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </span>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="font-medium text-sm truncate">
+                        {thread.subject}
+                      </span>
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        {msgCount} message{msgCount !== 1 ? 's' : ''}
+                      </Badge>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>
+                        {thread.participants.length <= 2
+                          ? thread.participants.join(', ')
+                          : `${thread.participants[0]} + ${thread.participants.length - 1} others`}
+                      </span>
+                      <span className="ml-auto">
+                        {formatRelativeTime(thread.lastActivity)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Expanded: show threaded messages */}
+                {isExpanded && (
+                  <div className="mt-3 ml-6 space-y-3 border-t pt-3">
+                    {thread.messages.map((msg, idx) => {
+                      const sender = extractSender(msg);
+                      const subject = extractSubject(msg);
+                      const preview =
+                        msg.content.length > 200
+                          ? msg.content.slice(0, 200) + '...'
+                          : msg.content;
+
+                      return (
+                        <div
+                          key={msg.id}
+                          className={cn(
+                            'rounded-md border p-3 space-y-1',
+                            idx === 0 ? 'bg-muted/30' : '',
+                          )}
+                        >
+                          <div className="flex items-center gap-2 text-xs">
+                            <User className="h-3 w-3 text-muted-foreground" />
+                            <span className="font-medium">{sender}</span>
+                            <span className="text-muted-foreground ml-auto">
+                              {new Date(msg.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          {idx === 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Subject: {subject}
+                            </p>
+                          )}
+                          <p className="text-sm whitespace-pre-wrap">{preview}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono">
+                            {msg.id}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

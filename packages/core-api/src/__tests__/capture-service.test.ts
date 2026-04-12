@@ -148,7 +148,7 @@ describe('CaptureService', () => {
       expect(insertedValues.captured_at).toEqual(new Date('2026-01-01T00:00:00Z'))
     })
 
-    it('defaults to api source when metadata has no source_metadata', async () => {
+    it('includes trace_id in source_metadata when no source_metadata provided', async () => {
       const record = makeCaptureRecord()
       db.select.mockReturnValueOnce(selectChain([]))
       const insertValues = vi.fn().mockReturnValue({
@@ -164,9 +164,37 @@ describe('CaptureService', () => {
       })
 
       const insertedValues = insertValues.mock.calls[0][0]
-      expect(insertedValues.source_metadata).toBeNull()
+      // source_metadata now always includes trace_id (UUID v4)
+      expect(insertedValues.source_metadata).toHaveProperty('trace_id')
+      expect(insertedValues.source_metadata.trace_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      )
       expect(insertedValues.tags).toEqual([])
       expect(insertedValues.pipeline_status).toBe('pending')
+    })
+
+    it('preserves existing source_metadata fields alongside trace_id', async () => {
+      const record = makeCaptureRecord()
+      db.select.mockReturnValueOnce(selectChain([]))
+      const insertValues = vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([record]),
+      })
+      db.insert.mockReturnValueOnce({ values: insertValues })
+
+      await service.create({
+        content: 'Capture with existing metadata',
+        capture_type: 'idea',
+        brain_view: 'technical',
+        source: 'slack',
+        metadata: {
+          source_metadata: { channel: 'general', thread_ts: '12345' },
+        },
+      })
+
+      const insertedValues = insertValues.mock.calls[0][0]
+      expect(insertedValues.source_metadata).toHaveProperty('trace_id')
+      expect(insertedValues.source_metadata).toHaveProperty('channel', 'general')
+      expect(insertedValues.source_metadata).toHaveProperty('thread_ts', '12345')
     })
   })
 

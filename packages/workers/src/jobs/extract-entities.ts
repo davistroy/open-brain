@@ -86,10 +86,11 @@ export async function processExtractEntitiesJob(
   const templates = typeof templatesOrDir === 'string'
     ? new TemplateCache(templatesOrDir)
     : templatesOrDir
-  const { captureId } = data
+  const { captureId, traceId } = data
   const start = Date.now()
+  const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
-  logger.info({ captureId }, '[extract-entities] job received')
+  log.info('[extract-entities] job received')
 
   // ── Fetch capture ──────────────────────────────────────────────────────────
   const [capture] = await db
@@ -103,7 +104,7 @@ export async function processExtractEntitiesJob(
     .limit(1)
 
   if (!capture) {
-    logger.warn({ captureId }, '[extract-entities] capture not found — skipping')
+    log.warn('[extract-entities] capture not found — skipping')
     return
   }
 
@@ -112,6 +113,7 @@ export async function processExtractEntitiesJob(
     capture_id: captureId,
     stage: 'extract_entities',
     status: 'started',
+    metadata: traceId ? { trace_id: traceId } : undefined,
   })
 
   try {
@@ -130,8 +132,8 @@ export async function processExtractEntitiesJob(
         temperature: 0.1,
       })
       rawText = claudeResult.text
-      logger.debug(
-        { captureId, inputTokens: claudeResult.inputTokens, outputTokens: claudeResult.outputTokens },
+      log.debug(
+        { inputTokens: claudeResult.inputTokens, outputTokens: claudeResult.outputTokens },
         '[extract-entities] Claude response received',
       )
     } else {
@@ -142,15 +144,15 @@ export async function processExtractEntitiesJob(
         max_completion_tokens: 1024,
       })
       rawText = response.choices[0]?.message?.content ?? ''
-      logger.debug({ captureId, rawText }, '[extract-entities] OpenAI fallback response received')
+      log.debug({ rawText }, '[extract-entities] OpenAI fallback response received')
     }
 
     // ── Parse extracted entities ─────────────────────────────────────────────
     const extracted = parseEntityResponse(rawText)
 
     const totalMentions = Object.values(extracted).reduce((sum, arr) => sum + arr.length, 0)
-    logger.info(
-      { captureId, totalMentions },
+    log.info(
+      { totalMentions },
       '[extract-entities] entities parsed from LLM response',
     )
 
@@ -165,14 +167,14 @@ export async function processExtractEntitiesJob(
             try {
               const entityId = await resolveOrCreateEntity(db, mention, entityType)
               await linkEntityToCapture(db, entityId, captureId, 'mentioned', 0.9)
-              logger.debug(
-                { captureId, entityId, mention, entityType },
+              log.debug(
+                { entityId, mention, entityType },
                 '[extract-entities] entity linked',
               )
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err)
-              logger.warn(
-                { captureId, mention, entityType, err: msg },
+              log.warn(
+                { mention, entityType, err: msg },
                 '[extract-entities] failed to resolve/link entity — skipping mention',
               )
             }
@@ -190,16 +192,19 @@ export async function processExtractEntitiesJob(
       stage: 'extract_entities',
       status: 'success',
       duration_ms: durationMs,
-      metadata: { entity_counts: Object.fromEntries(
-        Object.entries(ENTITY_TYPE_MAP).map(([field, type]) => [
-          type,
-          extracted[field as keyof ExtractedEntities].length,
-        ]),
-      )},
+      metadata: {
+        ...(traceId ? { trace_id: traceId } : {}),
+        entity_counts: Object.fromEntries(
+          Object.entries(ENTITY_TYPE_MAP).map(([field, type]) => [
+            type,
+            extracted[field as keyof ExtractedEntities].length,
+          ]),
+        ),
+      },
     })
 
-    logger.info(
-      { captureId, duration_ms: durationMs, totalMentions },
+    log.info(
+      { duration_ms: durationMs, totalMentions },
       '[extract-entities] job complete',
     )
   } catch (err) {
@@ -212,9 +217,10 @@ export async function processExtractEntitiesJob(
       status: 'failed',
       duration_ms: durationMs,
       error: errMsg,
+      metadata: traceId ? { trace_id: traceId } : undefined,
     })
 
-    logger.error({ captureId, err }, '[extract-entities] job failed')
+    log.error({ err }, '[extract-entities] job failed')
     throw err // let BullMQ retry with patient backoff
   }
 }

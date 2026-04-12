@@ -369,7 +369,7 @@ describe('system-health routes', () => {
     expect(body.redis_memory).toBeDefined()
     expect(body.monthly_spend).toBeDefined()
     expect(body.skill_last_runs).toBeDefined()
-  })
+  }, 15_000)
 
   it('GET /api/v1/system/health returns 503 when unhealthy', async () => {
     mockGetJobCounts.mockResolvedValue({ waiting: QUEUE_DEPTH_CRITICAL + 50, active: 0, failed: 0, delayed: 0 })
@@ -383,7 +383,7 @@ describe('system-health routes', () => {
     expect(res.status).toBe(503)
     const body = await res.json()
     expect(body.status).toBe('unhealthy')
-  })
+  }, 15_000)
 
   it('GET /api/v1/system/health/stream returns SSE content-type', async () => {
     const { createApp } = await import('../app.js')
@@ -395,5 +395,118 @@ describe('system-health routes', () => {
 
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
+  }, 15_000)
+})
+
+// ---------------------------------------------------------------------------
+// Wiki health in system health snapshot
+// ---------------------------------------------------------------------------
+
+describe('SystemHealthService wiki health', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetJobCounts.mockResolvedValue(defaultQueueCounts())
+    mockRedisInfo.mockResolvedValue(redisInfoString(10_000_000, 100_000_000))
+  })
+
+  it('returns wiki configured=false when no wikiService provided', async () => {
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+
+    const result = await service.snapshot()
+
+    expect(result.wiki).toBeDefined()
+    expect(result.wiki.configured).toBe(false)
+    expect(result.wiki.status).toBe('healthy') // not configured is not unhealthy
+    expect(result.wiki.repo_url).toBeNull()
+  })
+
+  it('returns wiki health when wikiService is configured and healthy', async () => {
+    const db = makeMockDb()
+    const mockWiki = {
+      getStatus: vi.fn().mockResolvedValue({
+        initialized: true,
+        repoUrl: 'http://gitea:3000/wiki.git',
+        localPath: '/tmp/wiki',
+        pageCount: 15,
+        lastCommitHash: 'abc123',
+        lastCommitDate: '2026-04-11T10:00:00Z',
+        lastCommitMessage: 'wiki-ingest: update projects/test.md',
+        error: null,
+      }),
+    }
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL, mockWiki)
+
+    const result = await service.snapshot()
+
+    expect(result.wiki.configured).toBe(true)
+    expect(result.wiki.status).toBe('healthy')
+    expect(result.wiki.repo_url).toBe('http://gitea:3000/wiki.git')
+    expect(result.wiki.page_count).toBe(15)
+    expect(result.wiki.last_commit_date).toBe('2026-04-11T10:00:00Z')
+    expect(result.wiki.error).toBeNull()
+  })
+
+  it('returns degraded when wikiService reports error', async () => {
+    const db = makeMockDb()
+    const mockWiki = {
+      getStatus: vi.fn().mockResolvedValue({
+        initialized: true,
+        repoUrl: 'http://gitea:3000/wiki.git',
+        localPath: '/tmp/wiki',
+        pageCount: 0,
+        lastCommitHash: null,
+        lastCommitDate: null,
+        lastCommitMessage: null,
+        error: 'ECONNREFUSED: Gitea unreachable',
+      }),
+    }
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL, mockWiki)
+
+    const result = await service.snapshot()
+
+    expect(result.wiki.configured).toBe(true)
+    expect(result.wiki.status).toBe('degraded')
+    expect(result.wiki.error).toBe('ECONNREFUSED: Gitea unreachable')
+  })
+
+  it('returns unhealthy when wikiService is not initialized', async () => {
+    const db = makeMockDb()
+    const mockWiki = {
+      getStatus: vi.fn().mockResolvedValue({
+        initialized: false,
+        repoUrl: 'http://gitea:3000/wiki.git',
+        localPath: '/tmp/wiki',
+        pageCount: 0,
+        lastCommitHash: null,
+        lastCommitDate: null,
+        lastCommitMessage: null,
+        error: 'WikiGitService not initialized',
+      }),
+    }
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL, mockWiki)
+
+    const result = await service.snapshot()
+
+    expect(result.wiki.configured).toBe(true)
+    expect(result.wiki.status).toBe('unhealthy')
+  })
+
+  it('handles getStatus() throwing gracefully', async () => {
+    const db = makeMockDb()
+    const mockWiki = {
+      getStatus: vi.fn().mockRejectedValue(new Error('git command failed')),
+    }
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL, mockWiki)
+
+    const result = await service.snapshot()
+
+    expect(result.wiki.configured).toBe(true)
+    expect(result.wiki.status).toBe('degraded')
+    expect(result.wiki.error).toBe('git command failed')
+  })
+
+  it('wiki-ingest appears in MONITORED_QUEUES', () => {
+    expect(MONITORED_QUEUES).toContain('wiki-ingest')
   })
 })

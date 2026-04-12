@@ -1,4 +1,9 @@
 litellm_url: "https://api.openai.com/v1"
+
+# ============================================================
+# Legacy model aliases (backward compat -- used by existing call sites)
+# Will be removed after all call sites migrate to task_routing.
+# ============================================================
 models:
   fast:
     model: "claude-sonnet-4-20250514"
@@ -30,6 +35,63 @@ models:
     client: litellm
     cost_per_1k_input: 0.00013
     cost_per_1k_output: 0
+
+# ============================================================
+# Three-tier model definitions (v2)
+# ============================================================
+model_tiers:
+  t0_local:
+    provider: ollama
+    model: "gemma4:12b-q4_K_M"
+    base_url: "http://ollama:11434/v1"
+    max_completion_tokens: 256
+    timeout_ms: 10000
+    fallback: t1_fast
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    fallback: t2_quality
+  t2_quality:
+    provider: anthropic
+    model: "claude-sonnet-4-6"
+    max_completion_tokens: 8192
+    timeout_ms: 30000
+    fallback: null
+  # DeepSeek placeholder (not active -- config ready for future addition per PRD C13)
+  # t_deepseek:
+  #   provider: deepseek
+  #   model: deepseek-chat
+  #   base_url: https://api.deepseek.com/v1
+  #   max_completion_tokens: 4096
+  #   timeout_ms: 20000
+  #   fallback: t2_quality
+
+# ============================================================
+# Task-to-tier routing (17 tasks per PRD 7.4)
+# ============================================================
+task_routing:
+  intent_classification: t0_local
+  capture_classification: t0_local
+  brain_view_classification: t0_local
+  voice_classification: t0_local
+  confidence_gating: t0_local
+  entity_extraction: t1_fast
+  entity_linking: t1_fast
+  capture_enrichment: t1_fast
+  question_detection: t1_fast
+  search_synthesis: t1_fast
+  daily_sweep: t1_fast
+  mcp_context: t1_fast
+  auto_response_draft: t1_fast
+  weekly_brief: t2_quality
+  daily_connections: t2_quality
+  drift_monitoring: t2_quality
+  governance: t2_quality
+  wiki_ingest: t2_quality
+  wiki_synthesis: t2_quality
+
 monthly_budget:
-  soft_limit_usd: 30
-  hard_limit_usd: 50
+  soft_limit_usd: 20
+  hard_limit_usd: 35

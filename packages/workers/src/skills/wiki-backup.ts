@@ -1,14 +1,16 @@
 import { execFile } from 'node:child_process'
-import { stat, readdir, unlink, mkdir } from 'node:fs/promises'
+import { stat, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Database } from '@open-brain/shared'
 import { backup_log, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { pruneBackups, DEFAULT_RETENTION } from '../lib/backup-retention.js'
+import type { RetentionPolicy } from '../lib/backup-retention.js'
 
 function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, opts as any, (err, stdout, stderr) => {
       if (err) return reject(err)
-      resolve({ stdout: stdout as string, stderr: stderr as string })
+      resolve({ stdout: String(stdout), stderr: String(stderr) })
     })
   })
 }
@@ -40,73 +42,15 @@ export interface WikiBackupResult {
 const DEFAULT_BACKUP_DIR = '/backups/wiki'
 const DEFAULT_WIKI_REPO = '/data/wiki'
 
-const RETENTION = {
-  daily: 7,
-  weekly: 4,
-  monthly: 3,
-}
-
-// ============================================================
-// Retention logic (same policy as db-backup)
-// ============================================================
-
-function parseBackupDate(filename: string): Date | null {
-  const match = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/)
-  if (!match) return null
-  const dateStr = match[1].replace(/T(\d{2})-(\d{2})-(\d{2})/, 'T$1:$2:$3')
-  const date = new Date(dateStr)
-  return isNaN(date.getTime()) ? null : date
-}
-
-export async function applyRetention(backupDir: string): Promise<number> {
-  let files: string[]
-  try {
-    files = await readdir(backupDir)
-  } catch {
-    return 0
-  }
-
-  const backups = files
-    .filter(f => f.endsWith('.bundle'))
-    .map(f => ({ name: f, path: join(backupDir, f), date: parseBackupDate(f)! }))
-    .filter(b => b.date !== null)
-    .sort((a, b) => b.date.getTime() - a.date.getTime())
-
-  if (backups.length === 0) return 0
-
-  const keep = new Set<string>()
-
-  // Daily
-  for (let i = 0; i < Math.min(RETENTION.daily, backups.length); i++) {
-    keep.add(backups[i].name)
-  }
-
-  // Weekly (Sundays)
-  const sundays = backups.filter(b => b.date.getDay() === 0)
-  for (let i = 0; i < Math.min(RETENTION.weekly, sundays.length); i++) {
-    keep.add(sundays[i].name)
-  }
-
-  // Monthly (1st of month)
-  const firsts = backups.filter(b => b.date.getDate() === 1)
-  for (let i = 0; i < Math.min(RETENTION.monthly, firsts.length); i++) {
-    keep.add(firsts[i].name)
-  }
-
-  let pruned = 0
-  for (const backup of backups) {
-    if (!keep.has(backup.name)) {
-      try {
-        await unlink(backup.path)
-        pruned++
-        logger.info({ file: backup.name }, '[wiki-backup] pruned old backup')
-      } catch (err) {
-        logger.warn({ file: backup.name, err }, '[wiki-backup] failed to prune backup')
-      }
-    }
-  }
-
-  return pruned
+/**
+ * Apply retention policy to wiki backups (.bundle files).
+ * Delegates to shared pruneBackups utility.
+ */
+export async function applyRetention(
+  backupDir: string,
+  retention: RetentionPolicy = DEFAULT_RETENTION,
+): Promise<number> {
+  return pruneBackups(backupDir, '.bundle', retention, '[wiki-backup]')
 }
 
 // ============================================================

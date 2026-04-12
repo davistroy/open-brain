@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import yaml from 'js-yaml'
 import { z } from 'zod'
+import { createLogger } from '../lib/logger.js'
 import {
   PipelineConfigSchema,
   AIConfigSchema,
@@ -11,7 +12,11 @@ import {
   type AIConfig,
   type BrainViewsConfig,
   type NotificationConfig,
+  type ModelTierEntry,
+  type TaskRoutingConfig,
 } from '../types/config.js'
+
+const logger = createLogger('config-service')
 
 export interface LoadedConfigs {
   pipeline: PipelineConfig
@@ -48,6 +53,22 @@ export class ConfigService {
   }
 
   /**
+   * Validate task_routing: warn if any task references a tier key not present in model_tiers.
+   * Non-fatal -- logs warnings but does not throw.
+   */
+  private validateTaskRouting(aiConfig: AIConfig): void {
+    if (!aiConfig.task_routing || !aiConfig.model_tiers) return
+    for (const [task, tierKey] of Object.entries(aiConfig.task_routing)) {
+      if (!aiConfig.model_tiers[tierKey]) {
+        logger.warn(
+          { task, tierKey },
+          `task_routing references non-existent tier '${tierKey}' for task '${task}'`,
+        )
+      }
+    }
+  }
+
+  /**
    * Load all config files. Throws on first validation error (fail-fast at startup).
    */
   load(): void {
@@ -57,6 +78,7 @@ export class ConfigService {
       brainViews: loadOne(join(this.configDir, 'brain-views.yaml'), BrainViewsConfigSchema),
       notifications: loadOne(join(this.configDir, 'notifications.yaml'), NotificationConfigSchema),
     }
+    this.validateTaskRouting(this.configs.ai)
   }
 
   /**
@@ -88,6 +110,11 @@ export class ConfigService {
       }
     }
 
+    // Re-validate tier references after reload
+    if (this.configs) {
+      this.validateTaskRouting(this.configs.ai)
+    }
+
     return results
   }
 
@@ -104,5 +131,58 @@ export class ConfigService {
 
   getNotificationsConfig(): NotificationConfig {
     return this.get('notifications')
+  }
+
+  /**
+   * Get a model tier entry by tier key (e.g., 't0_local', 't1_fast', 't2_quality').
+   * Returns undefined if model_tiers is not configured or the key is unknown.
+   */
+  getModelTier(tierKey: string): ModelTierEntry | undefined {
+    const aiConfig = this.get('ai')
+    return aiConfig.model_tiers?.[tierKey]
+  }
+
+  /**
+   * Get the tier key for a given task name, then resolve to the full tier entry.
+   * Returns undefined if task_routing or model_tiers is not configured,
+   * or if the task or its mapped tier is unknown.
+   */
+  getTaskTier(taskName: string): ModelTierEntry | undefined {
+    const aiConfig = this.get('ai')
+    const tierKey = aiConfig.task_routing?.[taskName]
+    if (!tierKey) return undefined
+    return aiConfig.model_tiers?.[tierKey]
+  }
+
+  /**
+   * Get the tier key string for a given task name.
+   * Returns undefined if task_routing is not configured or the task is unknown.
+   */
+  getTaskTierKey(taskName: string): string | undefined {
+    const aiConfig = this.get('ai')
+    return aiConfig.task_routing?.[taskName]
+  }
+
+  /**
+   * Get all task routing mappings.
+   * Returns undefined if task_routing is not configured.
+   */
+  getTaskRouting(): TaskRoutingConfig | undefined {
+    return this.get('ai').task_routing
+  }
+
+  /**
+   * Check if three-tier routing is configured.
+   */
+  hasThreeTierRouting(): boolean {
+    const aiConfig = this.get('ai')
+    return !!(aiConfig.model_tiers && aiConfig.task_routing)
+  }
+
+  /**
+   * Get the monthly budget limits from AI config.
+   */
+  getMonthlyBudget(): { soft_limit_usd: number; hard_limit_usd: number } {
+    return this.get('ai').monthly_budget
   }
 }

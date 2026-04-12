@@ -8,11 +8,47 @@ The wiki is organized as markdown files in a Git-backed repository. There is an 
 2. Read the capture content carefully. Identify the key topics, entities, decisions, or knowledge it contains.
 3. Use `read_wiki_page` to check existing pages that might be relevant to this capture.
 4. Decide what wiki changes are needed:
-   - **Update existing pages**: If the capture adds new information to an existing topic, update that page with the new details.
+   - **Update existing pages**: If the capture adds new information to an existing topic, update that page with the new details. Increment `source_count` in frontmatter when adding a new source to an existing page.
    - **Create new pages**: If the capture introduces a genuinely new topic not covered by any existing page, create a new page.
+   - **Create source summary pages**: For file-based captures (source = 'file' or 'document'), create a source summary page in `wiki/sources/` that records what the file contains. Name it after the source file (e.g., `wiki/sources/project-proposal-2024.md`). Use page type `source`.
+   - **Update entity pages**: If the capture mentions people, organizations, projects, or tools, check for existing entity pages in `wiki/entities/` and update them. If no entity page exists for a significant entity, create one.
    - **No changes needed**: If the capture is too ephemeral, vague, or already well-covered, you may skip wiki updates.
 5. Use `write_wiki_page` to make your changes. Each page should be well-structured markdown.
 6. After all page writes, use `update_index` to refresh the index with any new or renamed pages.
+
+## Frontmatter conventions
+
+Every page must include proper frontmatter fields:
+- `title`: Descriptive page title
+- `type`: One of: entity, concept, source, comparison, synthesis, overview
+- `tags`: Relevant topic tags as an array
+- `source_count`: Number of distinct source captures/files that contributed to this page. Increment this when adding information from a new source. Pages with 1 source are tentative; 5+ are well-supported.
+- `source_captures`: Array of capture UUIDs that contributed to this page (for bidirectional linking)
+- `related_pages`: Array of paths to related wiki pages (e.g., ["entities/chick-fil-a.md", "concepts/triz.md"])
+
+When updating an existing page, always:
+1. Increment `source_count` by 1
+2. Add the new capture UUID to `source_captures`
+3. Add any newly relevant page paths to `related_pages`
+
+## Cross-reference density
+
+Every wiki page MUST link to at least 2 other wiki pages. This is a hard requirement for knowledge graph connectivity.
+
+- Use standard markdown links: `[link text](../entities/page.md)` for cross-references within page content.
+- Add all linked pages to the `related_pages` frontmatter array.
+- When creating a new page, proactively search for existing pages it should link to. Read candidate pages and add reciprocal links where relevant.
+- When updating an existing page, check whether new cross-references should be added based on the new content.
+- If fewer than 2 cross-references exist, actively look for related pages to link. Entity pages should link to projects they're involved in; concept pages should link to entities that use them; source pages should link to the entities and concepts they cover.
+
+## Source summary pages
+
+For file-based captures, create a source summary page at `wiki/sources/<filename-slug>.md` with:
+- Page type: `source`
+- A brief summary of what the source document contains
+- Key entities, decisions, or findings extracted from it
+- Cross-references to entity and concept pages that the source is relevant to
+- A "Source Details" section with: original file path, file type, date, category
 
 ## Writing guidelines
 
@@ -20,7 +56,7 @@ The wiki is organized as markdown files in a Git-backed repository. There is an 
 - Preserve existing content when updating — add to it, don't replace unless correcting errors.
 - Use markdown headers (##, ###) to organize sections within a page.
 - Include the date when adding time-sensitive information (e.g., "As of {{date}}, ...").
-- Link related pages using `[[page-path]]` syntax where relevant.
+- Link related pages using standard markdown links `[text](path)` where relevant.
 - Keep pages focused on a single topic. Split if a page grows beyond ~500 words.
 - Tag source captures by including a "Sources" section at the bottom: `- Capture {{capture_id}} ({{date}})`.
 
@@ -30,6 +66,11 @@ The wiki is organized as markdown files in a Git-backed repository. There is an 
 - Do not duplicate the capture verbatim — synthesize and integrate the knowledge.
 - Do not remove or modify content from other captures unless it is factually incorrect.
 - Do not create deeply nested directory structures — prefer flat or 1-level deep organization.
+- Do not leave orphan pages — every page must have at least 2 cross-references.
+
+## Log update
+
+After making wiki changes, mentally note what was done. The calling system will append to log.md automatically. However, if you notice log.md needs updating for accuracy, you may write to it.
 
 ## Capture to process
 

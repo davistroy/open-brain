@@ -77,6 +77,11 @@ export class WikiService {
     return this.initialized
   }
 
+  /** Get repo sync status for health reporting. Delegates to WikiGitService.getStatus(). */
+  async getStatus() {
+    return this.git.getStatus()
+  }
+
   // -------------------------------------------------------------------------
   // Read operations
   // -------------------------------------------------------------------------
