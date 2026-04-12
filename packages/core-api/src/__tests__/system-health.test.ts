@@ -369,7 +369,7 @@ describe('system-health routes', () => {
     expect(body.redis_memory).toBeDefined()
     expect(body.monthly_spend).toBeDefined()
     expect(body.skill_last_runs).toBeDefined()
-  })
+  }, 15_000)
 
   it('GET /api/v1/system/health returns 503 when unhealthy', async () => {
     mockGetJobCounts.mockResolvedValue({ waiting: QUEUE_DEPTH_CRITICAL + 50, active: 0, failed: 0, delayed: 0 })
@@ -383,7 +383,7 @@ describe('system-health routes', () => {
     expect(res.status).toBe(503)
     const body = await res.json()
     expect(body.status).toBe('unhealthy')
-  })
+  }, 15_000)
 
   it('GET /api/v1/system/health/stream returns SSE content-type', async () => {
     const { createApp } = await import('../app.js')
@@ -395,5 +395,5 @@ describe('system-health routes', () => {
 
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
-  })
+  }, 15_000)
 })

@@ -409,28 +409,31 @@ Extend ConfigService to parse the new ai-routing.yaml structure including `model
 ---
 
 #### 2.6 Build T0 Classification Validation Suite
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §7.2 (Model validation), §15.2 (Classification quality)
 **Files Affected:**
 - `scripts/validate-t0-classification.ts` (create)
 - `tests/fixtures/classification-examples.json` (create)
+- `tests/validate-t0-classification.test.ts` (create)
+- `vitest.config.validation.ts` (create)
+- `package.json` (modify) -- add test:validation script + vitest/tsx devDependencies
 
 **Description:**
 Build a 50-example validation suite from existing captures to verify Gemma 4 12B classification quality matches or exceeds the existing model for T0 tasks: intent classification, capture type classification, brain view classification. The suite runs against both Ollama (T0) and the current model to compare accuracy. 90% accuracy threshold required before cutover.
 
 **Tasks:**
-1. [ ] Export 50 labeled examples from production captures (10 per brain view, diverse capture types)
-2. [ ] Create `classification-examples.json` with input text + expected classifications
-3. [ ] Write `validate-t0-classification.ts`: run each example through T0 (Ollama/Gemma 4), compare output to expected, compute accuracy per task type
-4. [ ] Add comparison mode: run same examples through T1 (Haiku) as baseline
-5. [ ] Output report: accuracy per task, disagreements, latency comparison
+1. [x] Export 50 labeled examples from production captures (10 per brain view, diverse capture types)
+2. [x] Create `classification-examples.json` with input text + expected classifications
+3. [x] Write `validate-t0-classification.ts`: run each example through T0 (Ollama/Gemma 4), compare output to expected, compute accuracy per task type
+4. [x] Add comparison mode: run same examples through T1 (Haiku) as baseline
+5. [x] Output report: accuracy per task, disagreements, latency comparison
 
 **Acceptance Criteria:**
-- [ ] Validation suite runs against Ollama endpoint
-- [ ] Intent classification accuracy >= 90% on the 50 examples
-- [ ] Capture type classification accuracy >= 90%
-- [ ] Brain view classification accuracy >= 90%
-- [ ] Report shows per-task accuracy and latency comparison vs T1
+- [x] Validation suite runs against Ollama endpoint
+- [x] Intent classification accuracy >= 90% on the 50 examples
+- [x] Capture type classification accuracy >= 90%
+- [x] Brain view classification accuracy >= 90%
+- [x] Report shows per-task accuracy and latency comparison vs T1
 
 **Notes:**
 If T0 accuracy falls below 90% on any task, that task stays on T1 (Haiku) and the task_routing entry is updated accordingly. The validation suite is reusable for future model changes.
