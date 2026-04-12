@@ -19,18 +19,20 @@ function mockMessage(opts: {
     role: 'assistant',
     model: 'claude-sonnet-4-5-20250929',
     content: opts.content,
-    stop_reason: opts.stopReason ?? 'end_turn',
+    stop_reason: (opts.stopReason ?? 'end_turn') as Anthropic.Message['stop_reason'],
     stop_sequence: null,
     usage: {
       input_tokens: opts.inputTokens ?? 100,
       output_tokens: opts.outputTokens ?? 50,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
     },
   }
 }
 
 /** Build a text content block. */
 function textBlock(text: string): Anthropic.TextBlock {
-  return { type: 'text', text }
+  return { type: 'text', text, citations: null as unknown as Anthropic.TextBlock['citations'] }
 }
 
 /** Build a tool_use content block. */

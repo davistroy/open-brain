@@ -29,19 +29,20 @@ export async function processIngestRootJob(
   db: Database,
   checkTriggersQueue?: Queue<CheckTriggersJobData>,
 ): Promise<void> {
-  const { captureId } = data
+  const { captureId, traceId } = data
   const start = Date.now()
+  const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
-  logger.info({ captureId }, '[ingest-root] flow children completed, running post-pipeline enrichment')
+  log.info('[ingest-root] flow children completed, running post-pipeline enrichment')
 
   // ── Link entities (inline, non-blocking) ──────────────────────────────────
   try {
-    await processLinkEntitiesStage(captureId, db)
-    logger.debug({ captureId }, '[ingest-root] link-entities stage complete')
+    await processLinkEntitiesStage(captureId, db, traceId)
+    log.debug('[ingest-root] link-entities stage complete')
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    logger.warn(
-      { captureId, err: msg },
+    log.warn(
+      { err: msg },
       '[ingest-root] link-entities stage failed — continuing (non-blocking enrichment)',
     )
     // Non-fatal: entity linking failure must not block pipeline completion
@@ -52,22 +53,22 @@ export async function processIngestRootJob(
     try {
       await checkTriggersQueue.add(
         'check-triggers',
-        { captureId },
+        { captureId, traceId },
         { jobId: `check-triggers_${captureId}_${Date.now()}` },
       )
-      logger.debug({ captureId }, '[ingest-root] check-triggers job enqueued')
+      log.debug('[ingest-root] check-triggers job enqueued')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      logger.warn(
-        { captureId, err: msg },
+      log.warn(
+        { err: msg },
         '[ingest-root] failed to enqueue check-triggers — continuing',
       )
     }
   }
 
   const elapsed = Date.now() - start
-  logger.info(
-    { captureId, duration_ms: elapsed },
+  log.info(
+    { duration_ms: elapsed },
     '[ingest-root] post-pipeline enrichment complete',
   )
 }

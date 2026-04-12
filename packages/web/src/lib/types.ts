@@ -308,6 +308,65 @@ export interface SkillLastRun {
   output_summary: string | null
 }
 
+// ─── Infrastructure ────────────────────────────────────────────────────────
+
+export interface ContainerHealthEntry {
+  id: string
+  timestamp: string
+  container_name: string
+  healthy: boolean
+  response_ms: number | null
+  error: string | null
+}
+
+export interface BackupLogEntry {
+  id: string
+  timestamp: string
+  backup_type: string
+  file_path: string | null
+  size_bytes: number | null
+  duration_seconds: number | null
+  status: string
+  error: string | null
+  pruned_count: number
+}
+
+export interface CostSummaryModel {
+  model: string
+  cost_usd: number
+  call_count: number
+}
+
+export interface CostSummary {
+  month: string
+  total_usd: number
+  by_model: CostSummaryModel[]
+}
+
+export interface InfrastructureData {
+  container_health: ContainerHealthEntry[]
+  backups: BackupLogEntry[]
+  cost: CostSummary
+}
+
+// ─── Pipeline flows ──────────────────────────────────────────────────────────
+
+export interface PipelineFlowStage {
+  stage: string
+  status: string
+  duration_ms: number | null
+  error: string | null
+  started_at: string | null
+}
+
+export interface PipelineFlowEntry {
+  capture_id: string
+  trace_id: string | null
+  pipeline_status: string
+  created_at: string
+  stages: PipelineFlowStage[]
+}
+
 // ─── Config / AI Routing ─────────────────────────────────────────────────────
 
 export interface ModelRoutingEntry {
@@ -373,6 +432,7 @@ export interface TranscriptTurn {
 
 export interface VoiceSession {
   id: string
+  session_key: string
   started_at: string
   ended_at: string | null
   duration_s: number | null

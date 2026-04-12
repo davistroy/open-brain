@@ -1,0 +1,357 @@
+{
+  "version": "1.0.0",
+  "description": "50 labeled classification examples for T0 validation. 10 per brain view, diverse capture types and intents.",
+  "generated": "2026-04-11",
+  "examples": [
+    {
+      "id": 1,
+      "input": "I decided to pursue the VP of Engineering role at Acme Corp. The compensation package is strong and the team size matches my leadership experience.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "decision",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 2,
+      "input": "Had a great conversation with the recruiter from TechStart. They want someone to build out their platform engineering org from scratch. Salary range is 280-320K.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 3,
+      "input": "Need to update my resume with the cloud migration numbers from the Coca-Cola engagement before the interview on Thursday.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "task",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 4,
+      "input": "What if I positioned Stratfield Consulting as a fractional CTO practice instead of pure advisory? That opens up the mid-market segment.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "idea",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 5,
+      "input": "Landed the QSR transformation engagement with a $180K annual contract. Biggest single client since going independent.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "win",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 6,
+      "input": "The AI consulting market is getting crowded with former Big 4 consultants who have zero hands-on experience. My builder credentials are a genuine differentiator.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "reflection",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 7,
+      "input": "What career-related decisions have I logged in the past month?",
+      "expected_brain_view": "career",
+      "expected_capture_type": "question",
+      "expected_intent": "query"
+    },
+    {
+      "id": 8,
+      "input": "The non-compete clause in the Acme contract is blocking me from taking on the restaurant tech client. Need to get legal advice before proceeding.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "blocker",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 9,
+      "input": "Should I get the AWS Solutions Architect Professional cert or the Azure equivalent? The restaurant vertical is 70% AWS but the enterprise pipeline is Azure-heavy.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "question",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 10,
+      "input": "Networking event at the Atlanta Tech Village was productive. Met three CTOs who could be referral sources. Follow up with Sarah Chen about the ops transformation project.",
+      "expected_brain_view": "career",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 11,
+      "input": "Started the new running program today. Did 2 miles at an easy pace. Knee felt good the whole time which is encouraging after the PT sessions.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 12,
+      "input": "Decided to renovate the barn workshop this spring. Going to add a proper electronics bench with ventilation and better lighting.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "decision",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 13,
+      "input": "What if I set up a repeater on the barn roof? The elevation would give coverage across the whole county for ARES nets.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "idea",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 14,
+      "input": "Need to schedule the annual checkup and get the bloodwork done before the insurance deadline in May.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "task",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 15,
+      "input": "The sailing regatta went perfectly. Zero protests filed, all races started on time, 47 boats across 6 classes. Best PRO performance yet.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "win",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 16,
+      "input": "Spending too much time on screens after work hours. Need to be more intentional about unplugging. The farm work helps but I need other analog activities.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "reflection",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 17,
+      "input": "When did I last log something about the ham radio antenna project?",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "question",
+      "expected_intent": "query"
+    },
+    {
+      "id": 18,
+      "input": "The well pump is making that grinding noise again. Can't schedule the plumber until next week and we need water for the livestock.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "blocker",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 19,
+      "input": "Helped the kids set up their first Arduino project. Simple LED blink but watching them debug the wiring was great. They actually enjoyed the troubleshooting.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 20,
+      "input": "Thirty-five years of fixing things on the farm taught me more about systems thinking than any management consulting framework ever did.",
+      "expected_brain_view": "personal",
+      "expected_capture_type": "reflection",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 21,
+      "input": "Tested the vLLM serving endpoint with Gemma 4 12B on the DGX Spark. Getting 45 tokens/sec at 4-bit quantization which is solid for local inference.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 22,
+      "input": "Decided to use pgvector with 768-dimension embeddings from text-embedding-3-large instead of 1536. The MRL truncation gives us the same quality at half the storage.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "decision",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 23,
+      "input": "What if we used BullMQ FlowProducer to model the entire ingest pipeline as a DAG instead of sequential queue hops? Would simplify error handling significantly.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "idea",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 24,
+      "input": "Need to benchmark the hybrid search (FTS + vector RRF) against pure vector search to see if the FTS component actually improves recall for our use case.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "task",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 25,
+      "input": "The Alpine Linux Docker image resolves localhost to IPv6 which breaks healthchecks that use wget. Must use 127.0.0.1 explicitly.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 26,
+      "input": "Got the Cloudflare Email Worker deployed and processing inbound mail to brain@troy-davis.com. End-to-end latency is under 3 seconds.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "win",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 27,
+      "input": "How does the spreading activation SQL function handle cycles in the entity graph? Do I have notes on that?",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "question",
+      "expected_intent": "query"
+    },
+    {
+      "id": 28,
+      "input": "The tsup DTS build keeps failing because JSDoc comments contain asterisk-slash sequences. This is a known parser bug with no upstream fix.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "blocker",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 29,
+      "input": "The three-tier model routing architecture (Ollama local -> Haiku -> Sonnet) should cut our monthly API costs by 40-60% once classification tasks move to T0.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "reflection",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 30,
+      "input": "Is there a way to make Drizzle ORM emit AS aliases for computed SELECT columns? The ORDER BY workaround with full expressions is ugly.",
+      "expected_brain_view": "technical",
+      "expected_capture_type": "question",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 31,
+      "input": "Sprint planning went well. We committed to 8 stories, 34 points total. The team seems confident about the new microservice decomposition.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 32,
+      "input": "Decided to delay the ERP cutover by two weeks. The data migration scripts are not handling the edge cases in the legacy SKU mapping table.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "decision",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 33,
+      "input": "Need to schedule the architecture review with the platform team before Friday. They need to sign off on the new API gateway configuration.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "task",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 34,
+      "input": "The QA environment is down again because someone pushed a breaking migration without running the seed scripts. Third time this sprint.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "blocker",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 35,
+      "input": "Shipped the contact center RPA automation. Call handling time dropped 23% in the first week. Operations team is thrilled.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "win",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 36,
+      "input": "What if we moved the daily standup to async updates in Slack? The time zone spread across the team makes synchronous meetings painful.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "idea",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 37,
+      "input": "What action items did I capture from the last all-hands meeting?",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "question",
+      "expected_intent": "query"
+    },
+    {
+      "id": 38,
+      "input": "The onboarding process for new engineers is still taking 3 weeks. We need a better runbook and automated environment setup.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 39,
+      "input": "Our velocity has been steadily increasing since we started pair programming on complex stories. The knowledge sharing effect is real.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "reflection",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 40,
+      "input": "Budget approval came through for the cloud migration Phase 2. We have $2.4M allocated for Q3-Q4 with a 10% contingency buffer.",
+      "expected_brain_view": "work-internal",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 41,
+      "input": "Client demo for the restaurant analytics dashboard went great. They loved the real-time labor cost tracking. Requested adding food waste metrics by next sprint.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 42,
+      "input": "Decided to recommend the phased rollout approach for the POS migration instead of big-bang. Lower risk and the client can validate each store cluster before proceeding.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "decision",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 43,
+      "input": "Need to prepare the executive summary for the quarterly business review with the franchise group. Due by end of day Wednesday.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "task",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 44,
+      "input": "The client's IT team is pushing back on our SD-WAN recommendation because they have an existing contract with the incumbent provider through 2027.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "blocker",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 45,
+      "input": "Closed the SOW amendment for the additional drive-through optimization module. Added $45K to the engagement total.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "win",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 46,
+      "input": "What if we built a self-service reporting portal so the franchise operators can pull their own metrics without going through the central analytics team?",
+      "expected_brain_view": "client",
+      "expected_capture_type": "idea",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 47,
+      "input": "What feedback did the client give about the drive-through optimization proposal?",
+      "expected_brain_view": "client",
+      "expected_capture_type": "question",
+      "expected_intent": "query"
+    },
+    {
+      "id": 48,
+      "input": "The client engagement model is working well when we embed one of our people on-site two days a week. Remote-only engagements lose the trust-building dynamic.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "reflection",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 49,
+      "input": "Delivered the store performance benchmarking report two days ahead of schedule. The client VP forwarded it to the entire C-suite with positive comments.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "win",
+      "expected_intent": "capture"
+    },
+    {
+      "id": 50,
+      "input": "The franchise group wants us to extend our engagement to cover the loyalty program integration. This could double the contract value if scoped properly.",
+      "expected_brain_view": "client",
+      "expected_capture_type": "observation",
+      "expected_intent": "capture"
+    }
+  ]
+}

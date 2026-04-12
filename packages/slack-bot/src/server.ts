@@ -19,6 +19,7 @@ import { handleSessionThreadReply, getSessionThread } from './handlers/session.j
 import { getThreadContext } from './lib/thread-context.js'
 import { safeHandle } from './lib/safe-handle.js'
 import { isAutoResponseCandidate, handleAutoResponse, type AutoResponseConfig } from './handlers/auto-response.js'
+import { registerActionHandlers } from './handlers/action-handlers.js'
 
 /** Cache for autonomy level -- refreshed every 5 minutes */
 let cachedAutonomyLevel: { level: AutonomyLevel; fetchedAt: number } | null = null
@@ -215,6 +216,9 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
       await handleQuery(syntheticMessage, say, coreApiClient, redis)
     }
   })
+
+  // Register interactive action handlers for auto-response DM buttons
+  registerActionHandlers(app)
 
   logger.info('Slack bot handlers registered')
 }

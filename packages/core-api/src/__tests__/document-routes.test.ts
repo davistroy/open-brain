@@ -425,4 +425,386 @@ describe('POST /api/v1/documents', () => {
     const res = await app.request('/api/v1/documents', { method: 'POST', body: makeFormData() })
     expect(res.status).toBe(404)
   })
+
+  it('accepts source=file via form field', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValueOnce(record)
+
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      documentPipelineQueue: documentPipelineQueue as any,
+    })
+
+    const fd = makeFormData()
+    fd.append('source', 'file')
+    const res = await app.request('/api/v1/documents', { method: 'POST', body: fd })
+
+    expect(res.status).toBe(201)
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'file' }),
+    )
+  })
+
+  it('defaults source to document when not specified', async () => {
+    const record = makeDocumentCaptureRecord()
+    captureService.create.mockResolvedValueOnce(record)
+
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      documentPipelineQueue: documentPipelineQueue as any,
+    })
+
+    await app.request('/api/v1/documents', { method: 'POST', body: makeFormData() })
+
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'document' }),
+    )
+  })
+
+  it('merges source_metadata JSON with standard fields', async () => {
+    const record = makeDocumentCaptureRecord()
+    captureService.create.mockResolvedValueOnce(record)
+
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      documentPipelineQueue: documentPipelineQueue as any,
+    })
+
+    const fd = makeFormData()
+    fd.append('source_metadata', JSON.stringify({
+      original_path: '/mnt/files/report.pdf',
+      file_size: 1048576,
+      category: 'technical',
+      taxonomy_path: 'technical/architecture',
+    }))
+    const res = await app.request('/api/v1/documents', { method: 'POST', body: fd })
+
+    expect(res.status).toBe(201)
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          source_metadata: expect.objectContaining({
+            original_path: '/mnt/files/report.pdf',
+            file_size: 1048576,
+            category: 'technical',
+            taxonomy_path: 'technical/architecture',
+            filename: 'test-document.pdf',
+            mime_type: 'application/pdf',
+            upload_status: 'pending_extraction',
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('returns 400 for invalid source_metadata JSON', async () => {
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      documentPipelineQueue: documentPipelineQueue as any,
+    })
+
+    const fd = makeFormData()
+    fd.append('source_metadata', '{not valid json')
+    const res = await app.request('/api/v1/documents', { method: 'POST', body: fd })
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('source_metadata must be valid JSON')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/documents/batch
+// ---------------------------------------------------------------------------
+
+describe('POST /api/v1/documents/batch', () => {
+  let captureService: ReturnType<typeof makeMockCaptureService>
+  let configService: ReturnType<typeof makeMockConfigService>
+  let documentPipelineQueue: ReturnType<typeof makeMockDocumentPipelineQueue>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    captureService = makeMockCaptureService()
+    configService = makeMockConfigService()
+    documentPipelineQueue = makeMockDocumentPipelineQueue()
+  })
+
+  function makeApp() {
+    return createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      documentPipelineQueue: documentPipelineQueue as any,
+    })
+  }
+
+  function makeFileRef(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      title: 'Architecture Overview',
+      original_path: '/mnt/onedrive/docs/architecture.pdf',
+      mime_type: 'application/pdf',
+      file_size: 204800,
+      category: 'technical',
+      subcategory: 'architecture',
+      taxonomy_path: 'technical/architecture',
+      ...overrides,
+    }
+  }
+
+  it('returns 201 with queued count for valid batch', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [makeFileRef(), makeFileRef({ title: 'Second Doc' })] }),
+    })
+
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.queued).toBe(2)
+    expect(body.errors).toBe(0)
+    expect(body.results).toHaveLength(2)
+    expect(body.results[0].capture_id).toBe('doc-cap-abc-123')
+    expect(body.results[1].capture_id).toBe('doc-cap-abc-123')
+  })
+
+  it('creates captures with source=file', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [makeFileRef()] }),
+    })
+
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'file' }),
+    )
+  })
+
+  it('stores file-specific source_metadata fields', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [makeFileRef({
+          modified_date: '2025-06-15T10:00:00Z',
+          content_hash: 'sha256:abc123',
+        })],
+      }),
+    })
+
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          source_metadata: expect.objectContaining({
+            original_path: '/mnt/onedrive/docs/architecture.pdf',
+            mime_type: 'application/pdf',
+            file_size: 204800,
+            category: 'technical',
+            subcategory: 'architecture',
+            taxonomy_path: 'technical/architecture',
+            modified_date: '2025-06-15T10:00:00Z',
+            content_hash: 'sha256:abc123',
+            upload_status: 'pending_extraction',
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('enqueues document-pipeline job for each item', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [makeFileRef(), makeFileRef({ title: 'Doc 2' })] }),
+    })
+
+    expect(documentPipelineQueue.add).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses inline content when provided', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [makeFileRef({ content: 'Full text of the document here...' })],
+      }),
+    })
+
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Full text of the document here...',
+      }),
+    )
+  })
+
+  it('defaults content to [Document] title when not provided', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [makeFileRef({ title: 'My Report' })],
+      }),
+    })
+
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ content: '[Document] My Report' }),
+    )
+  })
+
+  it('accepts brain_view and tags per item', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any, brain_view: 'career' })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [makeFileRef({ brain_view: 'career', tags: ['resume', 'portfolio'] })],
+      }),
+    })
+
+    expect(captureService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brain_view: 'career',
+        metadata: expect.objectContaining({ tags: ['resume', 'portfolio'] }),
+      }),
+    )
+  })
+
+  it('returns 400 when files is missing', async () => {
+    const app = makeApp()
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('files')
+  })
+
+  it('returns 400 when files is empty', async () => {
+    const app = makeApp()
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [] }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('empty')
+  })
+
+  it('returns 400 when batch exceeds max size', async () => {
+    const app = makeApp()
+    const files = Array.from({ length: 101 }, (_, i) => makeFileRef({ title: `Doc ${i}` }))
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toContain('Maximum is 100')
+  })
+
+  it('reports per-item errors for invalid items without failing the batch', async () => {
+    const record = makeDocumentCaptureRecord({ source: 'file' as any })
+    captureService.create.mockResolvedValue(record)
+
+    const app = makeApp()
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: [
+          makeFileRef(),                                    // valid
+          { title: 'Missing path' },                       // missing original_path + mime_type
+          makeFileRef({ title: '', original_path: 'x' }),  // empty title
+          makeFileRef({ mime_type: 'not-a-mime' }),         // invalid mime_type
+          makeFileRef({ brain_view: 'invalid-view' }),     // invalid brain_view
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.queued).toBe(1)
+    expect(body.errors).toBe(4)
+    expect(body.results[0].capture_id).toBeDefined()
+    expect(body.results[1].error).toContain('original_path')
+    expect(body.results[2].error).toContain('title')
+    expect(body.results[3].error).toContain('mime_type')
+    expect(body.results[4].error).toContain('brain_view')
+  })
+
+  it('reports capture creation errors per-item', async () => {
+    captureService.create.mockRejectedValue(
+      new ConflictError('Duplicate capture: content already exists'),
+    )
+
+    const app = makeApp()
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [makeFileRef()] }),
+    })
+
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.queued).toBe(0)
+    expect(body.errors).toBe(1)
+    expect(body.results[0].error).toContain('Duplicate')
+  })
+
+  it('returns 400 when request body is not valid JSON', async () => {
+    const app = makeApp()
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when services not registered', async () => {
+    const app = createApp({})
+    const res = await app.request('/api/v1/documents/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [makeFileRef()] }),
+    })
+    expect(res.status).toBe(404)
+  })
 })

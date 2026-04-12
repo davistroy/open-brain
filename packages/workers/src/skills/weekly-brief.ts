@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { skills_log, logger, PushoverService, HimalayaService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { queryCaptures, assembleContext, fmtDate, CHARS_PER_TOKEN } from './weekly-brief-query.js'
 import type { WeeklyBriefOutput, WeeklyBriefResult, WeeklyBriefOptions } from './weekly-brief-query.js'
@@ -14,22 +14,28 @@ export type { WeeklyBriefOutput, WeeklyBriefResult, WeeklyBriefOptions } from '.
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_TOKEN_BUDGET = 50_000
 
+/** Delivery methods in priority order */
+export type DeliveryMethod = 'himalaya' | 'nodemailer' | 'pushover' | 'none'
+
 /**
  * WeeklyBriefSkill — orchestrator that coordinates query, LLM, rendering, and delivery.
  * Data fetching is in weekly-brief-query.ts, rendering in weekly-brief-renderer.ts.
+ *
+ * Email delivery chain: Himalaya (primary) -> nodemailer (fallback) -> Pushover (last resort).
  */
 export class WeeklyBriefSkill {
   private db: Database
   private litellmClient: OpenAI | null
   private anthropicClient: Anthropic | null
   private pushover: PushoverService
+  private himalaya: HimalayaService
   private email: EmailService
   private templates: TemplateCache
   private coreApiUrl: string
 
   constructor(opts: {
     db: Database; litellmBaseUrl?: string; litellmApiKey?: string; anthropicClient?: Anthropic
-    pushover?: PushoverService; email?: EmailService; promptsDir?: string; coreApiUrl?: string
+    pushover?: PushoverService; himalaya?: HimalayaService; email?: EmailService; promptsDir?: string; coreApiUrl?: string
     templates?: TemplateCache
   }) {
     this.db = opts.db
@@ -41,6 +47,7 @@ export class WeeklyBriefSkill {
     })
     this.anthropicClient = opts.anthropicClient ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
+    this.himalaya = opts.himalaya ?? new HimalayaService()
     this.email = opts.email ?? new EmailService()
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -71,13 +78,12 @@ export class WeeklyBriefSkill {
     const brief = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 
-    const emailSent = await this.deliverEmail(brief, capturesByView, weekStart, weekEnd, captureCount, emailTo)
-    await this.deliverPushover(brief)
+    const deliveryMethod = await this.deliverBrief(brief, capturesByView, weekStart, weekEnd, captureCount, emailTo)
     const savedCaptureId = await this.saveBriefCapture(brief, weekStart, weekEnd)
 
     await this.logToSkillsLog({
       inputSummary: `${captureCount} captures from ${dateRange}`,
-      outputSummary: `headline: "${brief.headline}" | wins:${brief.wins.length} blockers:${brief.blockers.length} risks:${brief.risks.length} | email:${emailSent}`,
+      outputSummary: `headline: "${brief.headline}" | wins:${brief.wins.length} blockers:${brief.blockers.length} risks:${brief.risks.length} | delivery:${deliveryMethod}`,
       durationMs, captureId: savedCaptureId ?? undefined, result: brief,
     })
     logger.info({ captureCount, durationMs, savedCaptureId }, '[weekly-brief] execution complete')
@@ -109,19 +115,50 @@ export class WeeklyBriefSkill {
     return text
   }
 
-  private async deliverEmail(brief: WeeklyBriefOutput, capturesByView: Record<string, number>, weekStart: string, weekEnd: string, captureCount: number, emailTo?: string): Promise<boolean> {
-    if (!emailTo || !this.email.isConfigured) return false
-    try {
-      const htmlBody = renderEmailHtml(brief, capturesByView, weekStart, weekEnd, captureCount)
-      const textBody = renderEmailText(brief, weekStart, weekEnd, captureCount)
-      await this.email.send({ to: emailTo, subject: `Open Brain Weekly Brief — ${weekStart}`, htmlBody, textBody })
-      return true
-    } catch { return false }
-  }
+  /**
+   * Deliver the weekly brief via cascading fallback: Himalaya -> nodemailer -> Pushover.
+   * Returns the delivery method that succeeded ('himalaya', 'nodemailer', 'pushover', or 'none').
+   */
+  private async deliverBrief(brief: WeeklyBriefOutput, capturesByView: Record<string, number>, weekStart: string, weekEnd: string, captureCount: number, emailTo?: string): Promise<DeliveryMethod> {
+    const subject = `Open Brain Weekly Brief — ${weekStart}`
+    const textBody = renderEmailText(brief, weekStart, weekEnd, captureCount)
 
-  private async deliverPushover(brief: WeeklyBriefOutput): Promise<void> {
-    if (!this.pushover.isConfigured) return
-    try { await this.pushover.send({ title: 'Weekly Brief Ready', message: brief.headline, priority: 0 }) } catch { /* non-fatal */ }
+    // 1. Try Himalaya (primary)
+    if (emailTo && this.himalaya.isConfigured) {
+      try {
+        await this.himalaya.send(emailTo, subject, textBody)
+        logger.info({ method: 'himalaya', to: emailTo }, '[weekly-brief] delivered via Himalaya')
+        return 'himalaya'
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[weekly-brief] Himalaya delivery failed, trying nodemailer')
+      }
+    }
+
+    // 2. Try nodemailer (fallback)
+    if (emailTo && this.email.isConfigured) {
+      try {
+        const htmlBody = renderEmailHtml(brief, capturesByView, weekStart, weekEnd, captureCount)
+        await this.email.send({ to: emailTo, subject, htmlBody, textBody })
+        logger.info({ method: 'nodemailer', to: emailTo }, '[weekly-brief] delivered via nodemailer')
+        return 'nodemailer'
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[weekly-brief] nodemailer delivery failed, trying Pushover')
+      }
+    }
+
+    // 3. Try Pushover (last resort)
+    if (this.pushover.isConfigured) {
+      try {
+        await this.pushover.send({ title: 'Weekly Brief Ready', message: brief.headline, priority: 0 })
+        logger.info({ method: 'pushover' }, '[weekly-brief] delivered via Pushover')
+        return 'pushover'
+      } catch (err) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[weekly-brief] Pushover delivery failed')
+      }
+    }
+
+    logger.warn('[weekly-brief] no delivery method succeeded')
+    return 'none'
   }
 
   private async saveBriefCapture(brief: WeeklyBriefOutput, weekStart: string, weekEnd: string): Promise<string | null> {

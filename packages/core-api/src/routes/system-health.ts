@@ -26,6 +26,19 @@ export function registerSystemHealthRoutes(
     return c.json(snapshot, httpStatus)
   })
 
+  // ---- Infrastructure endpoint (container health, backups, cost) ----
+  app.get('/api/v1/system/infrastructure', async (c) => {
+    const data = await service.getInfrastructureData()
+    return c.json(data)
+  })
+
+  // ---- Pipeline flows endpoint ----
+  app.get('/api/v1/system/flows', async (c) => {
+    const limit = parseInt(c.req.query('limit') ?? '20', 10)
+    const flows = await service.getPipelineFlows(Math.min(limit, 100))
+    return c.json({ flows })
+  })
+
   // ---- SSE stream endpoint ----
   app.get('/api/v1/system/health/stream', (c) => {
     c.header('Content-Type', 'text/event-stream')

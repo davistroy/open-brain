@@ -6,6 +6,7 @@ volumes:
   postgres_data:
   redis_data:
   whisper_model_cache:
+  ollama_data:
 
 services:
   postgres:
@@ -60,6 +61,9 @@ services:
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://api.openai.com/v1
+      OLLAMA_URL: http://ollama:11434/v1
+      WIKI_REPO_URL: gitea.k4jda.net/davistroy/open-brain-wiki.git
+      WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
@@ -95,8 +99,12 @@ services:
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://api.openai.com/v1
+      OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
+      WIKI_REPO_URL: gitea.k4jda.net/davistroy/open-brain-wiki.git
+      WIKI_LOCAL_PATH: /tmp/open-brain-wiki
+      PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
       # LITELLM_API_KEY: set in .env.secrets
       # PUSHOVER_APP_TOKEN: set in .env.secrets
       # PUSHOVER_USER_KEY: set in .env.secrets
@@ -167,6 +175,50 @@ services:
       retries: 3
       start_period: 15s
     mem_limit: 4g
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: open-brain-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 16g
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  file-ingestion:
+    build:
+      context: packages/file-ingestion
+      dockerfile: Dockerfile
+    container_name: open-brain-file-ingestion
+    environment:
+      PORT: "8080"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${STAGING_DIR:-/mnt/user/openbrain/staging}:/data/staging:ro
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    mem_limit: 1536m
     networks:
       - open-brain
     restart: unless-stopped

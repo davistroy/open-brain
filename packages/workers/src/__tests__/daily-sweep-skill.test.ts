@@ -92,7 +92,7 @@ function makeMockDb(
   captures = SAMPLE_CAPTURES,
   questions = SAMPLE_QUESTIONS,
   entities = SAMPLE_ENTITIES,
-  voiceStatsRow = DEFAULT_VOICE_STATS_ROW,
+  voiceStatsRow: { count: string; last_voice: string | null } = DEFAULT_VOICE_STATS_ROW,
 ) {
   let callCount = 0
   return {

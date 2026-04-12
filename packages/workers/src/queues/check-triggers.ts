@@ -3,6 +3,8 @@ import type { ConnectionOptions } from 'bullmq'
 
 export interface CheckTriggersJobData {
   captureId: string
+  /** Pipeline trace ID (UUID v4) for cross-stage correlation in logs and pipeline_events */
+  traceId?: string
 }
 
 /**

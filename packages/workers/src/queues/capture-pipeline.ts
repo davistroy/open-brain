@@ -5,6 +5,8 @@ export interface CapturePipelineJobData {
   captureId: string
   /** Optional pipeline name — defaults to 'default' when not specified */
   pipelineName?: string
+  /** Pipeline trace ID (UUID v4) for cross-stage correlation in logs and pipeline_events */
+  traceId?: string
 }
 
 /**

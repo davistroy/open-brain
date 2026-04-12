@@ -72,10 +72,24 @@ export function createWikiIngestWorker(
   })
 
   worker.on('failed', (job, err) => {
-    logger.error(
-      { captureId: job?.data.captureId, jobId: job?.id, err },
-      '[wiki-ingest-worker] job failed',
-    )
+    const errMsg = err instanceof Error ? err.message : String(err)
+    const isGiteaUnavailable = errMsg.includes('ECONNREFUSED')
+      || errMsg.includes('ENOTFOUND')
+      || errMsg.includes('ETIMEDOUT')
+      || errMsg.includes('connect EHOSTUNREACH')
+      || errMsg.includes('git push')
+
+    if (isGiteaUnavailable) {
+      logger.warn(
+        { captureId: job?.data.captureId, jobId: job?.id, err: errMsg, attemptsLeft: job ? (job.opts.attempts ?? 3) - job.attemptsMade : 0 },
+        '[wiki-ingest-worker] Gitea appears unavailable — job will retry via BullMQ backoff',
+      )
+    } else {
+      logger.error(
+        { captureId: job?.data.captureId, jobId: job?.id, err },
+        '[wiki-ingest-worker] job failed',
+      )
+    }
   })
 
   return worker

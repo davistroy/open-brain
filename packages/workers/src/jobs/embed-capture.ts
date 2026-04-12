@@ -1,4 +1,4 @@
-import { Worker, UnrecoverableError, Queue, DelayedError } from 'bullmq'
+import { Worker, UnrecoverableError, DelayedError } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import { eq } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
@@ -8,8 +8,6 @@ import type { ConfigService } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { EMBED_BACKOFF_DELAYS_MS } from '../queues/embed-capture.js'
 import type { EmbedCaptureJobData } from '../queues/embed-capture.js'
-import type { CheckTriggersJobData } from '../queues/check-triggers.js'
-import type { ExtractEntitiesQueue } from '../queues/extract-entities.js'
 import type { SpendTracker } from '../lib/spend-tracker.js'
 
 /**
@@ -46,14 +44,12 @@ export async function processEmbedCaptureJob(
   data: EmbedCaptureJobData,
   db: Database,
   embeddingService: EmbeddingService,
-  checkTriggersQueue?: Queue<CheckTriggersJobData>,
-  extractEntitiesQueue?: ExtractEntitiesQueue,
-  isFlowChild = false,
   spendTracker?: SpendTracker,
 ): Promise<void> {
-  const { captureId } = data
+  const { captureId, traceId } = data
+  const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
-  logger.info({ captureId }, '[embed] job received')
+  log.info('[embed] job received')
 
   // ── Spend-aware rate limiting ─────────────────────────────────────────────
   // Only non-Claude spend counts (Claude subscription = $0 marginal).
@@ -62,8 +58,8 @@ export async function processEmbedCaptureJob(
     const spend = await spendTracker.check()
 
     if (spend.action === 'paused') {
-      logger.warn(
-        { captureId, monthlySpend: spend.monthlySpend },
+      log.warn(
+        { monthlySpend: spend.monthlySpend },
         '[embed] non-Claude spend at hard limit — delaying job',
       )
       // Move job to delayed state — BullMQ will re-process after delay
@@ -71,8 +67,8 @@ export async function processEmbedCaptureJob(
     }
 
     if (spend.action === 'throttled') {
-      logger.info(
-        { captureId, monthlySpend: spend.monthlySpend },
+      log.info(
+        { monthlySpend: spend.monthlySpend },
         '[embed] non-Claude spend above soft limit — throttling',
       )
       // Brief delay to slow processing rate — not a full pause
@@ -104,8 +100,8 @@ export async function processEmbedCaptureJob(
     capture.pipeline_status === 'complete' ||
     capture.pipeline_status === 'failed'
   ) {
-    logger.info(
-      { captureId, pipeline_status: capture.pipeline_status },
+    log.info(
+      { pipeline_status: capture.pipeline_status },
       '[embed] already at or past embedded status, skipping',
     )
     return
@@ -118,9 +114,10 @@ export async function processEmbedCaptureJob(
     capture_id: captureId,
     stage: 'embed',
     status: 'started',
+    metadata: traceId ? { trace_id: traceId } : undefined,
   })
 
-  logger.info({ captureId }, '[embed] calling EmbeddingService')
+  log.info('[embed] calling EmbeddingService')
 
   let embedding: number[]
   try {
@@ -135,6 +132,7 @@ export async function processEmbedCaptureJob(
       status: 'failed',
       duration_ms: embedDurationMs,
       error: errMsg,
+      metadata: traceId ? { trace_id: traceId } : undefined,
     })
 
     await db
@@ -145,9 +143,9 @@ export async function processEmbedCaptureJob(
     // EmbeddingUnavailableError (and any other error) must propagate so
     // BullMQ retries with patient backoff. No fallback.
     if (err instanceof EmbeddingUnavailableError) {
-      logger.warn({ captureId, err: errMsg }, '[embed] embedding unavailable — will retry with backoff')
+      log.warn({ err: errMsg }, '[embed] embedding unavailable — will retry with backoff')
     } else {
-      logger.error({ captureId, err }, '[embed] unexpected error during embed')
+      log.error({ err }, '[embed] unexpected error during embed')
     }
     throw err
   }
@@ -167,9 +165,10 @@ export async function processEmbedCaptureJob(
       status: 'failed',
       duration_ms: embedDurationMs,
       error: errMsg,
+      metadata: traceId ? { trace_id: traceId } : undefined,
     })
 
-    logger.error({ captureId, err }, '[embed] DB write failed after embedding')
+    log.error({ err }, '[embed] DB write failed after embedding')
     throw err
   }
 
@@ -180,6 +179,7 @@ export async function processEmbedCaptureJob(
     stage: 'embed',
     status: 'success',
     duration_ms: embedDurationMs,
+    metadata: traceId ? { trace_id: traceId } : undefined,
   })
 
   // Advance pipeline to 'complete' — extract-entities is non-blocking enrichment
@@ -193,46 +193,9 @@ export async function processEmbedCaptureJob(
     })
     .where(eq(captures.id, captureId))
 
-  logger.info({ captureId, duration_ms: embedDurationMs }, '[embed] embedding complete, pipeline status → complete')
-
-  // ── Enqueue downstream jobs (legacy path only) ─────────────────────────────
-  // When running under FlowProducer, the flow DAG handles dependency ordering:
-  // extract-entities runs as a sibling child, and check-triggers is enqueued by
-  // the ingest-root parent job. Skip manual queue bridging to avoid duplicates.
-  if (!isFlowChild) {
-    // Legacy path: manual queue bridging
-    if (checkTriggersQueue) {
-      try {
-        await checkTriggersQueue.add(
-          'check-triggers',
-          { captureId },
-          { jobId: `check-triggers_${captureId}_${Date.now()}` },
-        )
-        logger.debug({ captureId }, '[embed] check-triggers job enqueued (legacy)')
-      } catch (err) {
-        // Non-fatal: trigger check failure must not block pipeline completion
-        const msg = err instanceof Error ? err.message : String(err)
-        logger.warn({ captureId, err: msg }, '[embed] failed to enqueue check-triggers job — continuing')
-      }
-    }
-
-    if (extractEntitiesQueue) {
-      try {
-        await extractEntitiesQueue.add(
-          'extract-entities',
-          { captureId },
-          { jobId: `extract-entities_${captureId}` },
-        )
-        logger.debug({ captureId }, '[embed] extract-entities job enqueued (legacy)')
-      } catch (err) {
-        // Non-fatal: entity extraction failure must not block pipeline completion
-        const msg = err instanceof Error ? err.message : String(err)
-        logger.warn({ captureId, err: msg }, '[embed] failed to enqueue extract-entities job — continuing')
-      }
-    }
-  } else {
-    logger.debug({ captureId }, '[embed] running under FlowProducer — skipping manual queue bridging')
-  }
+  log.info({ duration_ms: embedDurationMs }, '[embed] embedding complete, pipeline status → complete')
+  // FlowProducer DAG handles downstream jobs (extract-entities as sibling child,
+  // check-triggers enqueued by ingest-root parent). No manual queue bridging needed.
 }
 
 /**
@@ -245,8 +208,6 @@ export function createEmbedCaptureWorker(
   configService: ConfigService,
   litellmBaseUrl: string,
   litellmApiKey: string,
-  checkTriggersQueue?: Queue<CheckTriggersJobData>,
-  extractEntitiesQueue?: ExtractEntitiesQueue,
   spendTracker?: SpendTracker,
 ): Worker<EmbedCaptureJobData> {
   const embeddingService = new EmbeddingService(litellmBaseUrl, litellmApiKey, configService)
@@ -254,9 +215,7 @@ export function createEmbedCaptureWorker(
   const worker = new Worker<EmbedCaptureJobData>(
     'embed-capture',
     async (job) => {
-      // Detect FlowProducer: job.parent exists when this job is a child in a flow DAG
-      const isFlowChild = !!job.parent
-      await processEmbedCaptureJob(job.data, db, embeddingService, checkTriggersQueue, extractEntitiesQueue, isFlowChild, spendTracker)
+      await processEmbedCaptureJob(job.data, db, embeddingService, spendTracker)
     },
     {
       connection,

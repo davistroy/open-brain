@@ -60,10 +60,12 @@ interface ResolvedEntity {
 export async function processLinkEntitiesStage(
   captureId: string,
   db: Database,
+  traceId?: string,
 ): Promise<void> {
   const start = Date.now()
+  const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
-  logger.info({ captureId }, '[link-entities] stage started')
+  log.info('[link-entities] stage started')
 
   // ── Fetch capture metadata ─────────────────────────────────────────────────
   const [capture] = await db
@@ -77,7 +79,7 @@ export async function processLinkEntitiesStage(
     .limit(1)
 
   if (!capture) {
-    logger.warn({ captureId }, '[link-entities] capture not found — skipping')
+    log.warn('[link-entities] capture not found — skipping')
     return
   }
 
@@ -85,6 +87,7 @@ export async function processLinkEntitiesStage(
     capture_id: captureId,
     stage: 'link_entities',
     status: 'started',
+    metadata: traceId ? { trace_id: traceId } : undefined,
   })
 
   try {
@@ -108,8 +111,8 @@ export async function processLinkEntitiesStage(
 
     const totalMentions = peopleMentions.length + topicMentions.length
 
-    logger.debug(
-      { captureId, people: peopleMentions.length, topics: topicMentions.length },
+    log.debug(
+      { people: peopleMentions.length, topics: topicMentions.length },
       '[link-entities] mentions collected',
     )
 
@@ -123,8 +126,8 @@ export async function processLinkEntitiesStage(
         resolved.push({ id: entityId, entityType: 'person', name })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        logger.warn(
-          { captureId, name, entityType: 'person', err: msg },
+        log.warn(
+          { name, entityType: 'person', err: msg },
           '[link-entities] failed to resolve person mention — skipping',
         )
       }
@@ -137,8 +140,8 @@ export async function processLinkEntitiesStage(
         resolved.push({ id: entityId, entityType: 'concept', name: topic })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
-        logger.warn(
-          { captureId, name: topic, entityType: 'concept', err: msg },
+        log.warn(
+          { name: topic, entityType: 'concept', err: msg },
           '[link-entities] failed to resolve topic mention — skipping',
         )
       }
@@ -157,8 +160,8 @@ export async function processLinkEntitiesStage(
           relationshipCount++
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
-          logger.warn(
-            { captureId, idA, idB, err: msg },
+          log.warn(
+            { idA, idB, err: msg },
             '[link-entities] failed to upsert entity relationship — skipping pair',
           )
         }
@@ -174,6 +177,7 @@ export async function processLinkEntitiesStage(
       status: 'success',
       duration_ms: durationMs,
       metadata: {
+        ...(traceId ? { trace_id: traceId } : {}),
         people_count: peopleMentions.length,
         topic_count: topicMentions.length,
         entities_resolved: resolved.length,
@@ -182,9 +186,8 @@ export async function processLinkEntitiesStage(
       },
     })
 
-    logger.info(
+    log.info(
       {
-        captureId,
         duration_ms: durationMs,
         entities_resolved: resolved.length,
         relationships_upserted: relationshipCount,
@@ -201,9 +204,10 @@ export async function processLinkEntitiesStage(
       status: 'failed',
       duration_ms: durationMs,
       error: errMsg,
+      metadata: traceId ? { trace_id: traceId } : undefined,
     })
 
-    logger.error({ captureId, err }, '[link-entities] stage failed')
+    log.error({ err }, '[link-entities] stage failed')
     throw err
   }
 }

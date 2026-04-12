@@ -17,7 +17,7 @@ import { logger } from '@open-brain/shared'
 interface ModelRoutingEntry {
   task: string
   model: string
-  client: 'anthropic' | 'litellm'
+  client: 'anthropic' | 'litellm' | 'ollama'
   cost_per_1k_input: number
   cost_per_1k_output: number
   month_spend_usd: number

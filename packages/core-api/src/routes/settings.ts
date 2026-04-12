@@ -4,7 +4,7 @@ import type { Database } from '@open-brain/shared'
 import { logger, app_settings, AUTONOMY_LEVELS } from '@open-brain/shared'
 
 /** Valid settings keys — prevents unbounded key creation */
-const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days'])
+const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days', 'monitored_channels'])
 
 /** Type-specific value validators for settings that need them */
 const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
@@ -20,6 +20,10 @@ const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
     typeof v === 'number' && v >= 1 && v <= 365
       ? null
       : 'auto_response_staleness_days must be a number between 1 and 365',
+  monitored_channels: (v) =>
+    Array.isArray(v) && v.every((item: unknown) => typeof item === 'string')
+      ? null
+      : 'monitored_channels must be an array of channel ID strings',
 }
 
 /**

@@ -541,4 +541,70 @@ Content about K8s.`)
       )
     })
   })
+
+  describe('getStatus()', () => {
+    it('returns not-initialized status before init()', async () => {
+      const status = await service.getStatus()
+
+      expect(status.initialized).toBe(false)
+      expect(status.repoUrl).toBe('git@gitea.k4jda.net:davistroy/open-brain-wiki.git')
+      expect(status.localPath).toBe('/tmp/test-wiki')
+      expect(status.error).toBe('WikiGitService not initialized')
+      expect(status.pageCount).toBe(0)
+      expect(status.lastCommitHash).toBeNull()
+    })
+
+    it('returns full status after init() with pages and commits', async () => {
+      vi.mocked(existsSync).mockReturnValue(true)
+      await service.init()
+
+      // Mock listPages via readdir (returns directories + files)
+      vi.mocked(readdir).mockResolvedValue([
+        { name: 'page1.md', isDirectory: () => false },
+        { name: 'page2.md', isDirectory: () => false },
+      ] as any)
+
+      vi.mocked(readFile).mockResolvedValue(
+        `---\ntitle: Test\ntype: entity\ncreated: 2026-04-11\nupdated: 2026-04-11\n---\nContent`,
+      )
+
+      // Mock git log for last commit
+      mockGit.log.mockResolvedValue({
+        latest: {
+          hash: 'abc123def',
+          date: '2026-04-11T10:00:00Z',
+          message: 'wiki-ingest: update test.md',
+        },
+        all: [{
+          hash: 'abc123def',
+          date: '2026-04-11T10:00:00Z',
+          message: 'wiki-ingest: update test.md',
+        }],
+      })
+
+      const status = await service.getStatus()
+
+      expect(status.initialized).toBe(true)
+      expect(status.repoUrl).toBe('git@gitea.k4jda.net:davistroy/open-brain-wiki.git')
+      expect(status.localPath).toBe('/tmp/test-wiki')
+      expect(status.error).toBeNull()
+      expect(status.pageCount).toBe(2)
+      expect(status.lastCommitHash).toBe('abc123def')
+      expect(status.lastCommitDate).toBe('2026-04-11T10:00:00Z')
+      expect(status.lastCommitMessage).toBe('wiki-ingest: update test.md')
+    })
+
+    it('returns error when git log fails without throwing', async () => {
+      vi.mocked(existsSync).mockReturnValue(true)
+      await service.init()
+
+      mockGit.log.mockRejectedValue(new Error('ECONNREFUSED'))
+
+      const status = await service.getStatus()
+
+      expect(status.initialized).toBe(true)
+      expect(status.error).toBe('ECONNREFUSED')
+      // Should not throw
+    })
+  })
 })

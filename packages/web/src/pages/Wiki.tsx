@@ -431,6 +431,28 @@ function EmptyState() {
   );
 }
 
+// ─── Not configured state ───────────────────────────────────────────────────
+
+function NotConfiguredState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <AlertCircle className="h-12 w-12 text-muted-foreground/40 mb-4" />
+      <h3 className="text-lg font-semibold mb-2">Wiki not configured</h3>
+      <p className="text-sm text-muted-foreground max-w-md mb-4">
+        The wiki feature requires a Gitea repository. Set the{' '}
+        <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">WIKI_REPO_URL</code>{' '}
+        and{' '}
+        <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">WIKI_LOCAL_PATH</code>{' '}
+        environment variables on the core-api container to enable it.
+      </p>
+      <p className="text-xs text-muted-foreground max-w-sm">
+        Once configured, the wiki will automatically build knowledge pages from your captures
+        using LLM synthesis.
+      </p>
+    </div>
+  );
+}
+
 // ─── Main Wiki page ──────────────────────────────────────────────────────────
 
 export default function Wiki() {
@@ -459,6 +481,9 @@ export default function Wiki() {
   const [resynthesizing, setResynthesizing] = useState(false);
   const [searching, setSearching] = useState(false);
 
+  // Wiki availability — false when WIKI_REPO_URL is unset (API returns 404)
+  const [wikiAvailable, setWikiAvailable] = useState(true);
+
   // ─── Load page list ──────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -467,10 +492,19 @@ export default function Wiki() {
     wikiApi
       .pages()
       .then((data) => {
-        if (!cancelled) setPages(data);
+        if (!cancelled) {
+          setPages(data);
+          setWikiAvailable(true);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setPages([]);
+      .catch((err: Error) => {
+        if (!cancelled) {
+          setPages([]);
+          // 404 means wiki routes are not registered (WIKI_REPO_URL unset)
+          if (err.message?.includes('404')) {
+            setWikiAvailable(false);
+          }
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingPages(false);
@@ -631,65 +665,54 @@ export default function Wiki() {
       {/* Toast */}
       {toast && <ToastBanner toast={toast} onDismiss={dismissToast} />}
 
-      {/* Search */}
-      <form onSubmit={handleSearch} className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search wiki pages..."
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              if (!e.target.value.trim()) setSearchResults(null);
-            }}
-            className="pl-9"
-          />
-        </div>
-        <Button type="submit" variant="outline" size="default" disabled={searching}>
-          {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
-        </Button>
-      </form>
+      {/* Not configured state */}
+      {!loadingPages && !wikiAvailable && <NotConfiguredState />}
 
-      {/* Tab buttons */}
-      <div className="flex gap-2">
-        {tabs.map((tab) => (
-          <Button
-            key={tab.id}
-            variant={activeTab === tab.id ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </Button>
-        ))}
-      </div>
-
-      <Separator />
-
-      {/* Two-panel layout */}
-      {activeTab === 'content' && (
-        <div className="flex gap-6 items-start">
-          {/* Left: Navigation tree */}
-          <div className="hidden md:block w-56 shrink-0 sticky top-4 max-h-[calc(100vh-14rem)] overflow-y-auto rounded-lg border bg-card p-2">
-            {loadingPages ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <WikiNavTree
-                pages={displayedPages}
-                selectedPath={pathFromUrl}
-                onSelectPage={handleSelectPage}
+      {/* Wiki content — only rendered when wiki is available */}
+      {wikiAvailable && (
+        <>
+          {/* Search */}
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search wiki pages..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  if (!e.target.value.trim()) setSearchResults(null);
+                }}
+                className="pl-9"
               />
-            )}
+            </div>
+            <Button type="submit" variant="outline" size="default" disabled={searching}>
+              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+            </Button>
+          </form>
+
+          {/* Tab buttons */}
+          <div className="flex gap-2">
+            {tabs.map((tab) => (
+              <Button
+                key={tab.id}
+                variant={activeTab === tab.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </Button>
+            ))}
           </div>
 
-          {/* Mobile: simple page list */}
-          <div className="md:hidden w-full">
-            {!pathFromUrl && !loadingPage && (
-              <div className="mb-4 rounded-lg border bg-card p-2">
+          <Separator />
+
+          {/* Two-panel layout */}
+          {activeTab === 'content' && (
+            <div className="flex gap-6 items-start">
+              {/* Left: Navigation tree */}
+              <div className="hidden md:block w-56 shrink-0 sticky top-4 max-h-[calc(100vh-14rem)] overflow-y-auto rounded-lg border bg-card p-2">
                 {loadingPages ? (
-                  <div className="flex items-center justify-center py-4">
+                  <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                   </div>
                 ) : (
@@ -700,78 +723,97 @@ export default function Wiki() {
                   />
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Right: Page content */}
-          <div className="flex-1 min-w-0">
-            {loadingPage ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : selectedPage ? (
-              <div>
-                {/* Page header */}
-                <PageHeader page={selectedPage} />
-
-                {/* Action buttons */}
-                <div className="flex gap-2 mb-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleResynthesize}
-                    disabled={resynthesizing}
-                    className="gap-1.5"
-                  >
-                    {resynthesizing ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {/* Mobile: simple page list */}
+              <div className="md:hidden w-full">
+                {!pathFromUrl && !loadingPage && (
+                  <div className="mb-4 rounded-lg border bg-card p-2">
+                    {loadingPages ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      </div>
                     ) : (
-                      <Sparkles className="h-3.5 w-3.5" />
+                      <WikiNavTree
+                        pages={displayedPages}
+                        selectedPath={pathFromUrl}
+                        onSelectPage={handleSelectPage}
+                      />
                     )}
-                    Re-synthesize Page
-                  </Button>
-                </div>
-
-                <Separator className="mb-6" />
-
-                {/* Rendered markdown */}
-                <div className="prose-custom">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    rehypePlugins={[rehypeSlug, rehypeAutolinkHeadings]}
-                    components={markdownComponents}
-                  >
-                    {selectedPage.content}
-                  </ReactMarkdown>
-                </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              <EmptyState />
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* Recent Changes tab */}
-      {activeTab === 'changes' && (
-        <RecentChangesTab
-          changes={recentChanges}
-          loading={loadingChanges}
-          onSelectPage={(path) => {
-            setActiveTab('content');
-            handleSelectPage(path);
-          }}
-        />
-      )}
+              {/* Right: Page content */}
+              <div className="flex-1 min-w-0">
+                {loadingPage ? (
+                  <div className="flex items-center justify-center py-16">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : selectedPage ? (
+                  <div>
+                    {/* Page header */}
+                    <PageHeader page={selectedPage} />
 
-      {/* Health / Lint tab */}
-      {activeTab === 'health' && (
-        <HealthTab
-          report={lintReport}
-          loading={loadingLint}
-          onRunLint={handleRunLint}
-          lintRunning={lintRunning}
-        />
+                    {/* Action buttons */}
+                    <div className="flex gap-2 mb-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleResynthesize}
+                        disabled={resynthesizing}
+                        className="gap-1.5"
+                      >
+                        {resynthesizing ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5" />
+                        )}
+                        Re-synthesize Page
+                      </Button>
+                    </div>
+
+                    <Separator className="mb-6" />
+
+                    {/* Rendered markdown */}
+                    <div className="prose-custom">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeSlug, rehypeAutolinkHeadings]}
+                        components={markdownComponents}
+                      >
+                        {selectedPage.content}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                ) : (
+                  <EmptyState />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Recent Changes tab */}
+          {activeTab === 'changes' && (
+            <RecentChangesTab
+              changes={recentChanges}
+              loading={loadingChanges}
+              onSelectPage={(path) => {
+                setActiveTab('content');
+                handleSelectPage(path);
+              }}
+            />
+          )}
+
+          {/* Health / Lint tab */}
+          {activeTab === 'health' && (
+            <HealthTab
+              report={lintReport}
+              loading={loadingLint}
+              onRunLint={handleRunLint}
+              lintRunning={lintRunning}
+            />
+          )}
+        </>
       )}
     </div>
   );
