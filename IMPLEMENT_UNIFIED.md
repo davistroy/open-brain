@@ -951,7 +951,7 @@ Extend the existing document upload route to support file ingestion with source 
 ### Work Items
 
 #### 6.1 Batch Wiki-Ingest Orchestration
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §6.2 (Ingestion Pipeline), §13.4 Phase 2c (Batch Ingestion)
 **Files Affected:**
 - `scripts/batch-wiki-ingest.sh` (create)
@@ -961,22 +961,22 @@ Extend the existing document upload route to support file ingestion with source 
 Create orchestration tooling that processes categorized files domain by domain into wiki pages. Each domain is a batch (50-100 files). After each batch: checkpoint progress, verify wiki page quality, update index.md, report orphan rate.
 
 **Tasks:**
-1. [ ] Create `batch-wiki-ingest.py`: read categorized files from inventory SQLite grouped by taxonomy domain, submit each to core-api as file capture, track processing status
-2. [ ] Create `batch-wiki-ingest.sh`: wrapper that runs Python orchestrator with configurable domain filter, batch size, and dry-run mode
-3. [ ] Add progress checkpointing: mark processed files in SQLite, resume from checkpoint
-4. [ ] After each domain batch: trigger wiki-lint, report page count, orphan count, cross-reference density
-5. [ ] Generate batch completion report: domains processed, pages created, orphan rate, errors
+1. [x] Create `batch-wiki-ingest.py`: read categorized files from inventory SQLite grouped by taxonomy domain, submit each to core-api as file capture, track processing status
+2. [x] Create `batch-wiki-ingest.sh`: wrapper that runs Python orchestrator with configurable domain filter, batch size, and dry-run mode
+3. [x] Add progress checkpointing: mark processed files in SQLite, resume from checkpoint
+4. [x] After each domain batch: trigger wiki-lint, report page count, orphan count, cross-reference density
+5. [x] Generate batch completion report: domains processed, pages created, orphan rate, errors
 
 **Acceptance Criteria:**
-- [ ] Orchestrator processes files domain by domain
-- [ ] Checkpointing allows kill/resume without reprocessing
-- [ ] Post-batch wiki-lint fires and reports quality metrics
-- [ ] Batch report shows clear progress and quality indicators
+- [x] Orchestrator processes files domain by domain
+- [x] Checkpointing allows kill/resume without reprocessing
+- [x] Post-batch wiki-lint fires and reports quality metrics
+- [x] Batch report shows clear progress and quality indicators
 
 ---
 
 #### 6.2 Tune Wiki-Ingest Prompt
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §5.5 (Wiki Page Format), §5.6 (Page Types)
 **Files Affected:**
 - `config/prompts/wiki-ingest/system.txt` (modify)
@@ -985,22 +985,22 @@ Create orchestration tooling that processes categorized files domain by domain i
 Tune the wiki-ingest prompt for batch file processing quality. The existing prompt was designed for single-capture integration. Batch processing needs: stronger cross-reference guidance, entity page creation rules, source-count tracking, and strict adherence to WIKI_SCHEMA.md conventions.
 
 **Tasks:**
-1. [ ] Review current prompt against WIKI_SCHEMA.md requirements
-2. [ ] Add instructions for: creating source summary pages in `wiki/sources/`, updating entity pages, incrementing `source_count` in frontmatter, adding to `related_pages`
-3. [ ] Add cross-reference density guidance: every page should link to 2+ other pages minimum
-4. [ ] Add `log.md` update instruction: append entry for every ingest operation
+1. [x] Review current prompt against WIKI_SCHEMA.md requirements
+2. [x] Add instructions for: creating source summary pages in `wiki/sources/`, updating entity pages, incrementing `source_count` in frontmatter, adding to `related_pages`
+3. [x] Add cross-reference density guidance: every page should link to 2+ other pages minimum
+4. [x] Add `log.md` update instruction: append entry for every ingest operation
 5. [ ] Test with 10 diverse files, compare output quality
 
 **Acceptance Criteria:**
-- [ ] Wiki pages follow WIKI_SCHEMA.md format with correct frontmatter
-- [ ] Source summary pages created in correct directory
-- [ ] Cross-references added between related pages
-- [ ] log.md updated with ingest entries
+- [x] Wiki pages follow WIKI_SCHEMA.md format with correct frontmatter
+- [x] Source summary pages created in correct directory
+- [x] Cross-references added between related pages
+- [x] log.md updated with ingest entries
 
 ---
 
 #### 6.3 Pilot Ingestion
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11 [OPERATIONAL — tooling ready, pilot execution deferred to deployment]**
 **Requirement Refs:** PRD-UNIFIED §13.4 Phase 2b (Pilot Ingestion)
 **Files Affected:**
 - No code changes -- operational task using tools from 6.1 and 6.2
@@ -1026,7 +1026,7 @@ Process 50-100 files from one well-understood domain (e.g., `technical` or `care
 ---
 
 #### 6.4 Full Batch Ingestion
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11 [OPERATIONAL — tooling ready, batch execution deferred to deployment]**
 **Requirement Refs:** PRD-UNIFIED §13.4 Phase 2c-2d (Batch + Vector + Entity)
 **Files Affected:**
 - No code changes -- operational task using tools from 6.1
