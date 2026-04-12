@@ -197,6 +197,32 @@ services:
       - open-brain
     restart: unless-stopped
 
+  file-ingestion:
+    build:
+      context: packages/file-ingestion
+      dockerfile: Dockerfile
+    container_name: open-brain-file-ingestion
+    environment:
+      PORT: "8080"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${STAGING_DIR:-/mnt/user/openbrain/staging}:/data/staging:ro
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    mem_limit: 1536m
+    networks:
+      - open-brain
+    restart: unless-stopped
+
   # --- Legacy voice services (kept for fallback until voice-pipecat is validated) ---
 
   faster-whisper:

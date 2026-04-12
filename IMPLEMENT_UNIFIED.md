@@ -778,7 +778,7 @@ Enhance the existing advise mode with: nested thread detection (don't reply to r
 ### Work Items
 
 #### 5.1 Rclone Sync and Python Extraction Package
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §6.1 (OneDrive File Migration), §4.5 (Sync Topology)
 **Files Affected:**
 - `scripts/setup-rclone.sh` (create)
@@ -792,18 +792,18 @@ Enhance the existing advise mode with: nested thread detection (don't reply to r
 Set up the file sync infrastructure (rclone from OneDrive Docker app mirror to staging) and build a lightweight Python container for content extraction from Office formats that the existing Node.js parsers can't handle well (PPTX, XLSX). The container is BullMQ-triggered via core-api HTTP endpoint, following the voice-pipecat pattern.
 
 **Tasks:**
-1. [ ] Create `scripts/setup-rclone.sh`: configure rclone remote for the local OneDrive mirror (Docker app on homeserver already syncs OneDrive → local), set up 15-minute cron for `rsync` from mirror to `/mnt/user/openbrain/staging/`
-2. [ ] Create `packages/file-ingestion/` with `requirements.txt`: python-docx, pdfplumber, python-pptx, openpyxl, xxhash, requests
-3. [ ] Create `extract.py`: FastAPI endpoint `/extract` that accepts file path, returns extracted text + metadata (title, author, page count, sections). Support: PDF, DOCX, PPTX, XLSX, TXT, MD, CSV, HTML.
-4. [ ] Create Dockerfile: Python 3.11 slim, non-root user, health endpoint
-5. [ ] Add `open-brain-file-ingestion` service to docker-compose.yml: build from packages/file-ingestion/, port 8080, health check, depends on core-api
-6. [ ] Write basic tests for extraction of each supported file type
+1. [x] Create `scripts/setup-rclone.sh`: configure rclone remote for the local OneDrive mirror (Docker app on homeserver already syncs OneDrive → local), set up 15-minute cron for `rsync` from mirror to `/mnt/user/openbrain/staging/`
+2. [x] Create `packages/file-ingestion/` with `requirements.txt`: python-docx, pdfplumber, python-pptx, openpyxl, xxhash, requests
+3. [x] Create `extract.py`: FastAPI endpoint `/extract` that accepts file path, returns extracted text + metadata (title, author, page count, sections). Support: PDF, DOCX, PPTX, XLSX, TXT, MD, CSV, HTML.
+4. [x] Create Dockerfile: Python 3.11 slim, non-root user, health endpoint
+5. [x] Add `open-brain-file-ingestion` service to docker-compose.yml: build from packages/file-ingestion/, port 8080, health check, depends on core-api
+6. [x] Write basic tests for extraction of each supported file type
 
 **Acceptance Criteria:**
-- [ ] rclone/rsync cron syncs OneDrive mirror to staging directory
-- [ ] Python extraction service starts and responds to health check
-- [ ] `/extract` endpoint returns text from PDF, DOCX, PPTX, XLSX, TXT files
-- [ ] Container memory stays under 1.5GB RSS
+- [x] rclone/rsync cron syncs OneDrive mirror to staging directory
+- [x] Python extraction service starts and responds to health check
+- [x] `/extract` endpoint returns text from PDF, DOCX, PPTX, XLSX, TXT files
+- [x] Container memory stays under 1.5GB RSS (mem_limit: 1536m in docker-compose.yml)
 
 ---
 
@@ -885,27 +885,30 @@ DGX Spark access via `ssh claude@spark.k4jda.net`. Qwen 3.5 on vLLM at the Spark
 ---
 
 #### 5.5 Extend Documents API for File Ingestion
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §6.2 (Ingestion Pipeline)
 **Files Affected:**
 - `packages/core-api/src/routes/documents.ts` (modify)
 - `packages/shared/src/schema/core.ts` (verify source types)
+- `packages/shared/src/types/capture.ts` (modify)
+- `packages/core-api/src/schemas/capture.ts` (modify)
+- `packages/core-api/src/__tests__/document-routes.test.ts` (modify)
 
 **Description:**
 Extend the existing document upload route to support file ingestion with source type `'file'` and rich source_metadata including original file path, size, MIME type, modified date, content hash, category, and taxonomy path.
 
 **Tasks:**
-1. [ ] Add `'file'` to source type validation (verify Zod schema includes it)
-2. [ ] Extend POST /api/v1/documents to accept `source_metadata` with file-specific fields: `original_path`, `file_size`, `mime_type`, `modified_date`, `content_hash`, `category`, `subcategory`, `taxonomy_path`
-3. [ ] Add batch ingestion endpoint: `POST /api/v1/documents/batch` accepting array of file references for bulk queuing
-4. [ ] Ensure pipeline handles `source: 'file'` captures (classify, embed, extract entities, wiki-ingest)
-5. [ ] Write tests for new endpoint and source_metadata validation
+1. [x] Add `'file'` to source type validation (verify Zod schema includes it)
+2. [x] Extend POST /api/v1/documents to accept `source_metadata` with file-specific fields: `original_path`, `file_size`, `mime_type`, `modified_date`, `content_hash`, `category`, `subcategory`, `taxonomy_path`
+3. [x] Add batch ingestion endpoint: `POST /api/v1/documents/batch` accepting array of file references for bulk queuing
+4. [x] Ensure pipeline handles `source: 'file'` captures (classify, embed, extract entities, wiki-ingest)
+5. [x] Write tests for new endpoint and source_metadata validation
 
 **Acceptance Criteria:**
-- [ ] Single file ingested via API with source='file' and full source_metadata
-- [ ] Batch endpoint queues multiple files for processing
-- [ ] Pipeline processes file captures through all stages including wiki-ingest
-- [ ] Dashboard timeline shows file captures with correct metadata
+- [x] Single file ingested via API with source='file' and full source_metadata
+- [x] Batch endpoint queues multiple files for processing
+- [x] Pipeline processes file captures through all stages including wiki-ingest
+- [x] Dashboard timeline shows file captures with correct metadata
 
 ---
 

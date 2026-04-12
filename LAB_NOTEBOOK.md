@@ -1200,3 +1200,26 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 - Health integration gives visibility into wiki sync status alongside existing services
 
 **Status:** COMPLETE — Phase 3 code-complete. Gitea repo creation deferred to deployment time.
+
+### Entry 025: Phase 4 — Slack Auto-Response Completion [slack] [feature]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** COMPLETE
+**Tags:** `[slack]` `[feature]` `[api]`
+
+**Objective:** Complete the Slack auto-response progression: 5-signal confidence scoring, DM delivery with interactive buttons, and full advise-mode guardrails.
+
+**Results:**
+
+**Batch 1 (parallel: 4.1, 4.4) — commit 6c60ebb:**
+- **4.1 Confidence Scorer:** Expanded from 3 to 5 signals — added entity match ratio (term extraction + entity substring matching) and source diversity (distinct source types). Weights: search 0.30, entity 0.25, recency 0.20, corroboration 0.15, diversity 0.10. 30 tests.
+- **4.4 Advise Guardrails:** All 5 PRD guardrails enforced for threaded replies: confidence >= 0.85, 2+ corroboration, staleness <= 90d, bot-user filtering, nested thread detection. Per-channel monitoring via `app_settings` with 5-min cache. 20 tests.
+
+**Sequential items (4.2, 4.3) — commit 462c5c8:**
+- **4.2 DM Delivery:** Block Kit DM to owner with draft, confidence %, original message link, 3 buttons. Dual thresholds (0.75 channel / 0.90 DM). Pushover fallback. 6 tests.
+- **4.3 Interactive Handlers:** `post_reply` posts threaded reply, `edit_post` opens Slack modal, `dismiss` logs for tuning. Metadata JSON-encoded in button values. 28 tests.
+
+**Test Results:** 2,341+ tests passing, 84 new in Phase 4.
+
+**Status:** COMPLETE — Full Slack auto-response progression implemented (shadow → DM → threaded).
