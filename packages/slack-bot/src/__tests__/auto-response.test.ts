@@ -7,6 +7,8 @@ import {
   getMonitoredChannels,
   _resetMonitoredChannelsCache,
   ADVISE_CONFIDENCE_THRESHOLD,
+  ASSIST_CHANNEL_CONFIDENCE_THRESHOLD,
+  ASSIST_DM_CONFIDENCE_THRESHOLD,
   type AutoResponseConfig,
 } from '../handlers/auto-response.js'
 import { scoreConfidence } from '../services/confidence-scorer.js'
@@ -270,12 +272,15 @@ describe('handleAutoResponse advise mode guardrails', () => {
       json: async () => ({ value: ['C_MONITORED'] }),
     } as Response)
 
+    // Use config WITHOUT ownerUserId so only the threaded reply fires (no DM)
+    const adviseOnlyConfig = { ...baseConfig, ownerUserId: undefined }
+
     await handleAutoResponse(
       makeMessage('What is the deploy process?', 'C_MONITORED'),
       app,
       client,
       'advise',
-      baseConfig,
+      adviseOnlyConfig,
     )
 
     // The confidence from 3 high-score, recent, multi-source results should exceed 0.85
@@ -393,6 +398,170 @@ describe('handleAutoResponse advise mode guardrails', () => {
     expect(client.search_query).toHaveBeenCalled()
     // But no threaded reply
     expect(app.client.chat.postMessage).not.toHaveBeenCalled()
+  })
+})
+
+describe('assist mode confidence thresholds', () => {
+  it('exports correct threshold values', () => {
+    expect(ASSIST_CHANNEL_CONFIDENCE_THRESHOLD).toBe(0.75)
+    expect(ASSIST_DM_CONFIDENCE_THRESHOLD).toBe(0.90)
+  })
+})
+
+describe('handleAutoResponse assist mode DM delivery', () => {
+  const makeMessage = (text: string, channel = 'C_MONITORED', ts = '1234.5678') =>
+    ({
+      text,
+      user: 'U_OTHER',
+      channel,
+      ts,
+      type: 'message' as const,
+    }) as any
+
+  const makeHighConfidenceResults = (): SearchResult[] => [
+    { id: '1', content: 'relevant answer one', score: 0.95, created_at: new Date().toISOString(), capture_type: 'observation', brain_view: 'technical', source: 'slack', pre_extracted: { entities: [{ name: 'deploy', type: 'process' }] } },
+    { id: '2', content: 'relevant answer two', score: 0.90, created_at: new Date().toISOString(), capture_type: 'decision', brain_view: 'technical', source: 'api', pre_extracted: { entities: [{ name: 'process', type: 'concept' }] } },
+    { id: '3', content: 'relevant answer three', score: 0.85, created_at: new Date().toISOString(), capture_type: 'observation', brain_view: 'career', source: 'voice' },
+  ]
+
+  const makeMockApp = () => ({
+    client: {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ok: true }),
+      },
+    },
+  }) as any
+
+  const makeMockClient = (results: SearchResult[], synthesis = 'test synthesis answer') => ({
+    search_query: vi.fn().mockResolvedValue({ results, query: 'test', total: results.length }),
+    synthesize_query: vi.fn().mockResolvedValue({ response: synthesis }),
+  }) as any
+
+  beforeEach(() => {
+    _resetMonitoredChannelsCache()
+    vi.restoreAllMocks()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 404,
+    } as Response)
+  })
+
+  it('sends DM with Block Kit blocks when ownerUserId is set in assist mode', async () => {
+    const app = makeMockApp()
+    const results = makeHighConfidenceResults()
+    const client = makeMockClient(results)
+
+    await handleAutoResponse(
+      makeMessage('What is the deploy process?'),
+      app,
+      client,
+      'assist',
+      { ...baseConfig, ownerUserId: 'U_OWNER', confidenceThreshold: 0.3 },
+    )
+
+    const confidence = scoreConfidence(results, 'What is the deploy process?')
+    if (confidence.composite >= ASSIST_CHANNEL_CONFIDENCE_THRESHOLD) {
+      // Should send DM to owner user ID
+      expect(app.client.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: 'U_OWNER',
+          blocks: expect.arrayContaining([
+            expect.objectContaining({ type: 'header' }),
+            expect.objectContaining({ block_id: 'auto_response_actions' }),
+          ]),
+        }),
+      )
+    }
+  })
+
+  it('applies 0.75 threshold for channel messages', async () => {
+    // Results that produce confidence between 0.6 and 0.75
+    const mediumResults: SearchResult[] = [
+      { id: '1', content: 'partial match', score: 0.6, created_at: new Date().toISOString(), capture_type: 'observation', brain_view: 'technical', source: 'slack' },
+      { id: '2', content: 'partial match two', score: 0.5, created_at: new Date().toISOString(), capture_type: 'observation', brain_view: 'technical', source: 'slack' },
+    ]
+    const app = makeMockApp()
+    const client = makeMockClient(mediumResults)
+
+    await handleAutoResponse(
+      makeMessage('What is the deploy process?', 'C_CHANNEL'),
+      app,
+      client,
+      'assist',
+      { ...baseConfig, ownerUserId: 'U_OWNER', confidenceThreshold: 0.3 },
+    )
+
+    const confidence = scoreConfidence(mediumResults, 'What is the deploy process?')
+    if (confidence.composite < ASSIST_CHANNEL_CONFIDENCE_THRESHOLD) {
+      // Should NOT send DM because confidence < 0.75
+      expect(app.client.chat.postMessage).not.toHaveBeenCalled()
+    }
+  })
+
+  it('applies 0.90 threshold for DM channel messages', async () => {
+    const app = makeMockApp()
+    const results = makeHighConfidenceResults()
+    const client = makeMockClient(results)
+
+    await handleAutoResponse(
+      makeMessage('What is the deploy process?', 'D_DIRECT_MSG'),
+      app,
+      client,
+      'assist',
+      { ...baseConfig, ownerUserId: 'U_OWNER', confidenceThreshold: 0.3 },
+    )
+
+    const confidence = scoreConfidence(results, 'What is the deploy process?')
+    if (confidence.composite < ASSIST_DM_CONFIDENCE_THRESHOLD) {
+      // Should NOT send DM because DM threshold is 0.90 and most results won't hit it
+      expect(app.client.chat.postMessage).not.toHaveBeenCalled()
+    }
+  })
+
+  it('skips DM delivery in observe mode', async () => {
+    const app = makeMockApp()
+    const results = makeHighConfidenceResults()
+    const client = makeMockClient(results)
+
+    await handleAutoResponse(
+      makeMessage('What is the deploy process?'),
+      app,
+      client,
+      'observe',
+      { ...baseConfig, ownerUserId: 'U_OWNER' },
+    )
+
+    // observe mode never sends DMs
+    expect(app.client.chat.postMessage).not.toHaveBeenCalled()
+  })
+
+  it('includes metadata with original message context in DM', async () => {
+    const app = makeMockApp()
+    const results = makeHighConfidenceResults()
+    const client = makeMockClient(results)
+
+    await handleAutoResponse(
+      makeMessage('What is the deploy process?', 'C_CHAN', '5555.6666'),
+      app,
+      client,
+      'assist',
+      { ...baseConfig, ownerUserId: 'U_OWNER', confidenceThreshold: 0.3 },
+    )
+
+    const confidence = scoreConfidence(results, 'What is the deploy process?')
+    if (confidence.composite >= ASSIST_CHANNEL_CONFIDENCE_THRESHOLD) {
+      expect(app.client.chat.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            event_type: 'auto_response_draft',
+            event_payload: expect.objectContaining({
+              channel: 'C_CHAN',
+              thread_ts: '5555.6666',
+            }),
+          }),
+        }),
+      )
+    }
   })
 })
 

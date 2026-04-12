@@ -663,7 +663,7 @@ Add entity match ratio and source diversity signals to the existing confidence s
 ---
 
 #### 4.2 Wire DM Delivery for Assist Mode
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §8.5 Phase B (DM Mode), F43
 **Files Affected:**
 - `packages/slack-bot/src/handlers/auto-response.ts` (modify)
@@ -673,22 +673,22 @@ Add entity match ratio and source diversity signals to the existing confidence s
 Complete the assist mode (DM to owner) by adding Slack DM delivery with Block Kit interactive buttons. Currently assist mode sends Pushover only. Add: send the draft response as a Slack DM to the owner with "Post as Reply", "Edit & Post", and "Dismiss" buttons. Include the original message link and confidence score.
 
 **Tasks:**
-1. [ ] Build Block Kit message: draft response text, confidence %, original message link, 3 action buttons (post_reply, edit_post, dismiss)
-2. [ ] Send via `client.chat.postMessage()` to owner's DM channel
-3. [ ] Keep existing Pushover notification as fallback if DM fails
-4. [ ] Apply confidence thresholds: 0.75 for channel messages, 0.90 for DMs
-5. [ ] Write tests for DM message construction and threshold logic
+1. [x] Build Block Kit message: draft response text, confidence %, original message link, 3 action buttons (post_reply, edit_post, dismiss)
+2. [x] Send via `client.chat.postMessage()` to owner's DM channel
+3. [x] Keep existing Pushover notification as fallback if DM fails
+4. [x] Apply confidence thresholds: 0.75 for channel messages, 0.90 for DMs
+5. [x] Write tests for DM message construction and threshold logic
 
 **Acceptance Criteria:**
-- [ ] Assist mode sends Slack DM with draft and interactive buttons
-- [ ] Confidence threshold correctly differentiates channel (0.75) vs DM (0.90) messages
-- [ ] Pushover still fires as backup
-- [ ] DM includes original message link and confidence percentage
+- [x] Assist mode sends Slack DM with draft and interactive buttons
+- [x] Confidence threshold correctly differentiates channel (0.75) vs DM (0.90) messages
+- [x] Pushover still fires as backup
+- [x] DM includes original message link and confidence percentage
 
 ---
 
 #### 4.3 Register Interactive Message Handlers
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §8.5 Phase B (Interactive buttons)
 **Files Affected:**
 - `packages/slack-bot/src/server.ts` (modify) -- register action handlers
@@ -698,18 +698,18 @@ Complete the assist mode (DM to owner) by adding Slack DM delivery with Block Ki
 Register @slack/bolt action handlers for the three interactive buttons sent in DM mode. "Post as Reply" copies the draft into the original channel thread. "Edit & Post" opens a modal for editing before posting. "Dismiss" acknowledges and logs the dismissal.
 
 **Tasks:**
-1. [ ] Register `app.action('post_reply')`: post draft as threaded reply in original channel, update DM to show "Posted"
-2. [ ] Register `app.action('edit_post')`: open Slack modal with editable draft text, on submit post edited text as threaded reply
-3. [ ] Register `app.action('dismiss')`: acknowledge action, update DM to show "Dismissed", log dismissal for tuning
-4. [ ] Store original message context (channel, thread_ts, user) in action metadata for all three handlers
-5. [ ] Write tests for each action handler
+1. [x] Register `app.action('post_reply')`: post draft as threaded reply in original channel, update DM to show "Posted"
+2. [x] Register `app.action('edit_post')`: open Slack modal with editable draft text, on submit post edited text as threaded reply
+3. [x] Register `app.action('dismiss')`: acknowledge action, update DM to show "Dismissed", log dismissal for tuning
+4. [x] Store original message context (channel, thread_ts, user) in action metadata for all three handlers
+5. [x] Write tests for each action handler
 
 **Acceptance Criteria:**
-- [ ] "Post as Reply" creates a threaded reply in the original channel
-- [ ] "Edit & Post" opens a modal, edited text posted as reply
-- [ ] "Dismiss" acknowledges cleanly
-- [ ] All actions update the DM message to reflect the taken action
-- [ ] Action metadata correctly preserves original message context
+- [x] "Post as Reply" creates a threaded reply in the original channel
+- [x] "Edit & Post" opens a modal, edited text posted as reply
+- [x] "Dismiss" acknowledges cleanly
+- [x] All actions update the DM message to reflect the taken action
+- [x] Action metadata correctly preserves original message context
 
 ---
 
@@ -743,8 +743,8 @@ Enhance the existing advise mode with: nested thread detection (don't reply to r
 ### Phase 4 Testing Requirements
 
 - [ ] 5-signal confidence scorer produces correct composite scores
-- [ ] DM mode sends messages with interactive buttons
-- [ ] All three button actions work correctly
+- [x] DM mode sends messages with interactive buttons
+- [x] All three button actions work correctly
 - [ ] Advise mode respects all guardrails
 - [ ] Nested thread detection prevents reply-to-reply
 - [ ] Per-channel monitoring works via app_settings

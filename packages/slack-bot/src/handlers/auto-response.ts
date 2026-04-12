@@ -26,6 +26,7 @@ import type { SearchResult } from '../lib/core-api-types.js'
 import { scoreConfidence } from '../services/confidence-scorer.js'
 import { formatAttributedResponse } from '../services/attribution-formatter.js'
 import { logger, PushoverService, type AutonomyLevel, meetsAutonomyLevel } from '@open-brain/shared'
+import { buildDraftDMBlocks, type DraftDMContext } from '../services/dm-blocks.js'
 
 /** Lazy-initialized PushoverService singleton for auto-response notifications */
 let _pushover: PushoverService | null = null
@@ -39,6 +40,12 @@ const MIN_MESSAGE_LENGTH = 15
 
 /** Minimum confidence for advise-mode threaded replies (PRD guardrail) */
 export const ADVISE_CONFIDENCE_THRESHOLD = 0.85
+
+/** Minimum confidence for assist-mode DM delivery (channel questions) */
+export const ASSIST_CHANNEL_CONFIDENCE_THRESHOLD = 0.75
+
+/** Minimum confidence for assist-mode DM delivery (DM questions) */
+export const ASSIST_DM_CONFIDENCE_THRESHOLD = 0.90
 
 /** Question patterns -- more conservative than IntentRouter's patterns */
 const AUTO_RESPONSE_QUESTION_PATTERNS = [
@@ -230,34 +237,83 @@ export async function handleAutoResponse(
     )
 
     // Step 6: DM/Pushover delivery (assist mode)
+    // Confidence thresholds differ by message context:
+    //   0.75 for channel messages, 0.90 for DMs
+    const isDM = channel.startsWith('D')
+    const assistThreshold = isDM ? ASSIST_DM_CONFIDENCE_THRESHOLD : ASSIST_CHANNEL_CONFIDENCE_THRESHOLD
+    const effectiveAssistThreshold = Math.max(config.confidenceThreshold, assistThreshold)
+
     if (
       meetsAutonomyLevel(autonomyLevel, 'assist') &&
-      confidence.composite >= config.confidenceThreshold &&
+      confidence.composite >= effectiveAssistThreshold &&
       synthesis
     ) {
-      try {
-        const pushover = getPushover()
-        if (pushover.isConfigured) {
-          const pushoverMessage = [
-            `Channel question from <@${message.user}>:`,
-            `"${text.length > 150 ? text.slice(0, 150) + '...' : text}"`,
-            '',
-            `Draft response (confidence: ${(confidence.composite * 100).toFixed(0)}%):`,
-            attributed.summary,
-            '',
-            `Sources: ${confidence.relevantResultCount} relevant captures`,
-          ].join('\n')
+      let dmSent = false
 
-          await pushover.send({
-            title: 'Open Brain: Auto-Response Draft',
-            message: pushoverMessage,
-            priority: 0,
+      // Try Slack DM with interactive buttons first
+      if (config.ownerUserId) {
+        try {
+          const dmContext: DraftDMContext = {
+            channel,
+            threadTs: ts,
+            userId: message.user ?? 'unknown',
+            draft: attributed.text,
+            summary: attributed.summary,
+            confidence: confidence.composite,
+            sourceCount: confidence.relevantResultCount,
+            originalText: text,
+          }
+          const blocks = buildDraftDMBlocks(dmContext)
+
+          await app.client.chat.postMessage({
+            channel: config.ownerUserId,
+            text: `Auto-response draft (${(confidence.composite * 100).toFixed(0)}% confidence) for question in <#${channel}>`,
+            blocks,
+            // Store context in metadata for action handlers
+            metadata: {
+              event_type: 'auto_response_draft',
+              event_payload: {
+                channel,
+                thread_ts: ts,
+                user: message.user,
+                draft: attributed.text,
+              },
+            },
           })
 
-          logger.info({ channel, ts, confidence: confidence.composite }, '[auto-response] Pushover sent')
+          dmSent = true
+          logger.info({ channel, ts, confidence: confidence.composite }, '[auto-response] DM sent with interactive buttons')
+        } catch (err) {
+          logger.warn({ err }, '[auto-response] DM delivery failed -- falling back to Pushover')
         }
-      } catch (err) {
-        logger.warn({ err }, '[auto-response] Pushover delivery failed')
+      }
+
+      // Pushover as fallback (or if DM not configured)
+      if (!dmSent) {
+        try {
+          const pushover = getPushover()
+          if (pushover.isConfigured) {
+            const pushoverMessage = [
+              `Channel question from <@${message.user}>:`,
+              `"${text.length > 150 ? text.slice(0, 150) + '...' : text}"`,
+              '',
+              `Draft response (confidence: ${(confidence.composite * 100).toFixed(0)}%):`,
+              attributed.summary,
+              '',
+              `Sources: ${confidence.relevantResultCount} relevant captures`,
+            ].join('\n')
+
+            await pushover.send({
+              title: 'Open Brain: Auto-Response Draft',
+              message: pushoverMessage,
+              priority: 0,
+            })
+
+            logger.info({ channel, ts, confidence: confidence.composite }, '[auto-response] Pushover sent')
+          }
+        } catch (err) {
+          logger.warn({ err }, '[auto-response] Pushover delivery failed')
+        }
       }
     }
 
