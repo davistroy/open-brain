@@ -235,7 +235,7 @@ Document all secrets needed across all services, with Bitwarden retrieval instru
 ### Work Items
 
 #### 2.1 Build and Deploy Containers
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 
 **Description:**
 SSH to homeserver, pull latest code, populate secrets, build all Docker images, and bring up the stack.
@@ -261,7 +261,7 @@ SSH to homeserver, pull latest code, populate secrets, build all Docker images, 
 ---
 
 #### 2.2 Apply Database Migrations
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 
 **Description:**
 Apply migrations 0013 through 0017 — 6 new tables, 2 new columns. Idempotent patterns.
@@ -286,7 +286,7 @@ Apply migrations 0013 through 0017 — 6 new tables, 2 new columns. Idempotent p
 ---
 
 #### 2.3 Verify All Services Healthy
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12 [voice-pipecat crash-looping — ANTHROPIC_API_KEY env var issue, all other services healthy]**
 
 **Description:**
 Comprehensive health check of every service after deployment.
