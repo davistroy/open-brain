@@ -11,6 +11,8 @@ import {
   type AIConfig,
   type BrainViewsConfig,
   type NotificationConfig,
+  type ModelTierEntry,
+  type TaskRoutingConfig,
 } from '../types/config.js'
 
 export interface LoadedConfigs {
@@ -104,5 +106,51 @@ export class ConfigService {
 
   getNotificationsConfig(): NotificationConfig {
     return this.get('notifications')
+  }
+
+  /**
+   * Get a model tier entry by tier key (e.g., 't0_local', 't1_fast', 't2_quality').
+   * Returns undefined if model_tiers is not configured or the key is unknown.
+   */
+  getModelTier(tierKey: string): ModelTierEntry | undefined {
+    const aiConfig = this.get('ai')
+    return aiConfig.model_tiers?.[tierKey]
+  }
+
+  /**
+   * Get the tier key for a given task name, then resolve to the full tier entry.
+   * Returns undefined if task_routing or model_tiers is not configured,
+   * or if the task or its mapped tier is unknown.
+   */
+  getTaskTier(taskName: string): ModelTierEntry | undefined {
+    const aiConfig = this.get('ai')
+    const tierKey = aiConfig.task_routing?.[taskName]
+    if (!tierKey) return undefined
+    return aiConfig.model_tiers?.[tierKey]
+  }
+
+  /**
+   * Get the tier key string for a given task name.
+   * Returns undefined if task_routing is not configured or the task is unknown.
+   */
+  getTaskTierKey(taskName: string): string | undefined {
+    const aiConfig = this.get('ai')
+    return aiConfig.task_routing?.[taskName]
+  }
+
+  /**
+   * Get all task routing mappings.
+   * Returns undefined if task_routing is not configured.
+   */
+  getTaskRouting(): TaskRoutingConfig | undefined {
+    return this.get('ai').task_routing
+  }
+
+  /**
+   * Check if three-tier routing is configured.
+   */
+  hasThreeTierRouting(): boolean {
+    const aiConfig = this.get('ai')
+    return !!(aiConfig.model_tiers && aiConfig.task_routing)
   }
 }

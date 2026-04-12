@@ -1116,4 +1116,26 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 - 1.5: Create Capture Dedup Sweep Skill (weekly cosine >0.95)
 - 1.6: Implement Backup Retention Policies (7/4/3 pruning)
 
-*Results logged as implementation proceeds.*
+#### Phase 1 Results
+
+**Batch 1 (parallel: 1.1, 1.2, 1.3) — commit dad60e3:**
+- **1.1 FlowProducer DAG:** Promoted from feature flag to default. Removed ~80 lines of dead legacy queue-bridging code from `ingestion-worker.ts` and `embed-capture.ts`. Added `wiki-ingest` as non-critical flow child gated on `WIKI_REPO_URL`. 8 new tests.
+- **1.2 Pipeline Trace IDs:** UUID v4 `trace_id` generated in `CaptureService.create()`, stored in `source_metadata.trace_id`, propagated to all pipeline stages via BullMQ job data. Every `pipeline_events` insert includes trace_id in metadata JSONB. Pino child loggers bound with `{ captureId, traceId }` for structured log grep-ability. Tests added across core-api and workers.
+- **1.3 Infrastructure Skills:** All 6 already fully wired — scheduler has cron registrations, skill-execution has dispatch cases, skill-config has DEFAULT_SKILLS entries. No changes needed. Verified with 814 worker tests.
+
+**Batch 2 (parallel: 1.4, 1.5, 1.6) — commit 7af4384:**
+- **1.4 Secret Rotation:** Created `SecretRotationSkill` — executes `bws secret list`, parses JSON, checks `revisionDate` age, alerts via Pushover for secrets >90 days. Injectable `execFn` for testing. Never logs secret values. 20 new tests.
+- **1.5 Capture Dedup Sweep:** Created `CaptureDedupSweepSkill` — queries pairs with cosine similarity >0.95 via pgvector `<=>` operator, excludes consolidated captures, limits to 100 pairs. Flags only (no auto-merge). Pushover summary with count + top 3 examples. Cron: Saturday 4 AM. 18 new tests.
+- **1.6 Backup Retention:** Extracted shared `pruneBackups()` utility to `packages/workers/src/lib/backup-retention.ts` implementing 7 daily / 4 weekly (Sunday) / 3 monthly (1st) policy. Integrated into db-backup, wiki-backup, redis-snapshot — replaced ~130 lines of duplicated logic. 28 new tests.
+
+**Test Results:** 2,204 tests passing (66 new), 0 failures. All packages build cleanly.
+
+**What Worked:**
+- Parallel subagent execution worked cleanly — no merge conflicts despite 3 agents per batch
+- Item 1.3 discovered infrastructure skills were already fully wired (zero new code needed)
+- Existing skill patterns (BaseSkill, PushoverService, skills_log) made new skill creation straightforward
+- Shared backup-retention utility eliminated significant code duplication
+
+**Decision:** D29 updated — Phase 1 execution validates the parallel subagent approach for the remaining 33 work items.
+
+**Status:** COMPLETE ��� Phase 1 code-complete on feature branch. Production deployment deferred until all phases complete.

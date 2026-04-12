@@ -261,7 +261,7 @@ Backup directories: `/mnt/backups/open-brain/` (db), `/mnt/backups/open-brain-wi
 ### Work Items
 
 #### 2.1 Create Ollama Client Factory and Config Types
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §7.2-7.3 (Three-Tier Model Hierarchy), v2-F4.1-F4.2
 **Files Affected:**
 - `packages/shared/src/services/ollama-client.ts` (create)
@@ -272,19 +272,19 @@ Backup directories: `/mnt/backups/open-brain/` (db), `/mnt/backups/open-brain-wi
 Create `createOllamaClient(baseUrl)` factory that returns an OpenAI SDK client pointed at Ollama's OpenAI-compatible `/v1` endpoint. Ollama exposes `/v1/chat/completions` with the same interface as OpenAI, so we reuse the existing OpenAI SDK. Also extend the config type system with `ModelTierConfig`, `TaskRoutingConfig`, and `AIClientType = 'anthropic' | 'litellm' | 'ollama'`.
 
 **Tasks:**
-1. [ ] Create `ollama-client.ts` with `createOllamaClient(baseUrl?: string)` returning `OpenAI` client configured for Ollama (default base: `http://ollama:11434/v1`)
-2. [ ] Add null check pattern matching `createLiteLLMClient()` (returns null if OLLAMA_URL is empty)
-3. [ ] Extend `AIClientType` union in `config.ts` to include `'ollama'`
-4. [ ] Add `ModelTierConfig` type: `{ provider: AIClientType, model: string, base_url?: string, max_completion_tokens: number, timeout_ms: number, fallback: string | null }`
-5. [ ] Add `TaskRoutingConfig` type: `Record<string, string>` mapping task names to tier keys
-6. [ ] Export from shared package index
-7. [ ] Write unit tests for factory (null when no URL, returns OpenAI instance when URL set)
+1. [x] Create `ollama-client.ts` with `createOllamaClient(baseUrl?: string)` returning `OpenAI` client configured for Ollama (default base: `http://ollama:11434/v1`)
+2. [x] Add null check pattern matching `createLiteLLMClient()` (returns null if OLLAMA_URL is empty)
+3. [x] Extend `AIClientType` union in `config.ts` to include `'ollama'`
+4. [x] Add `ModelTierConfig` type: `{ provider: AIClientType, model: string, base_url?: string, max_completion_tokens: number, timeout_ms: number, fallback: string | null }`
+5. [x] Add `TaskRoutingConfig` type: `Record<string, string>` mapping task names to tier keys
+6. [x] Export from shared package index
+7. [x] Write unit tests for factory (null when no URL, returns OpenAI instance when URL set)
 
 **Acceptance Criteria:**
-- [ ] `createOllamaClient()` returns OpenAI SDK client when OLLAMA_URL is set
-- [ ] Returns null when OLLAMA_URL is empty (same pattern as createLiteLLMClient)
-- [ ] TypeScript types compile cleanly
-- [ ] Shared package builds successfully
+- [x] `createOllamaClient()` returns OpenAI SDK client when OLLAMA_URL is set
+- [x] Returns null when OLLAMA_URL is empty (same pattern as createLiteLLMClient)
+- [x] TypeScript types compile cleanly
+- [x] Shared package builds successfully
 
 **Notes:**
 Ollama's OpenAI compatibility layer means we don't need a custom client library. The OpenAI SDK handles everything. Key difference: no API key needed for local Ollama.
@@ -292,28 +292,30 @@ Ollama's OpenAI compatibility layer means we don't need a custom client library.
 ---
 
 #### 2.2 Restructure ai-routing.yaml
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §7.8 (Config Structure Target)
 **Files Affected:**
 - `config/ai-routing.yaml` (modify) -- restructure to three-tier format
-- `packages/shared/src/services/config-service.ts` (modify) -- parse new sections
+- `packages/shared/src/types/config.ts` (modify) -- add ModelTierEntrySchema, ModelTiersConfigSchema, TaskRoutingConfigSchema, TaskName type; extend AIConfigSchema
+- `packages/shared/src/config/loader.ts` (modify) -- add getModelTier(), getTaskTier(), getTaskTierKey(), getTaskRouting(), hasThreeTierRouting() methods
+- `packages/shared/src/config/__tests__/loader.test.ts` (modify) -- 16 new tests for three-tier routing
 
 **Description:**
 Transform ai-routing.yaml from the current flat `models:` map to the target three-tier structure with `model_tiers` and `task_routing` sections. Maintain backward compatibility by keeping the existing `models:` section for any code that hasn't been updated yet. Update ConfigService to parse both old and new formats.
 
 **Tasks:**
-1. [ ] Add `model_tiers` section with t0_local (Gemma 4 12B q4_K_M, Ollama, 256 max tokens, 10s timeout, fallback t1_fast), t1_fast (Haiku 4.5, Anthropic, 4096 tokens, 20s timeout, fallback t2_quality), t2_quality (Sonnet 4.6, Anthropic, 8192 tokens, 30s timeout, no fallback)
-2. [ ] Add `task_routing` section mapping all 17 tasks to tiers per PRD §7.4
-3. [ ] Keep existing `models:` section with `fast`, `synthesis`, `governance`, `intent`, `conversation` aliases pointing to Claude models (backward compat during migration)
-4. [ ] Update `monthly_budget` to soft $20 / hard $35
-5. [ ] Update ConfigService to parse `model_tiers` and `task_routing`, expose via `getModelTier(tierKey)` and `getTaskTier(taskName)` methods
-6. [ ] Write tests for ConfigService parsing both old and new format
+1. [x] Add `model_tiers` section with t0_local (Gemma 4 12B q4_K_M, Ollama, 256 max tokens, 10s timeout, fallback t1_fast), t1_fast (Haiku 4.5, Anthropic, 4096 tokens, 20s timeout, fallback t2_quality), t2_quality (Sonnet 4.6, Anthropic, 8192 tokens, 30s timeout, no fallback)
+2. [x] Add `task_routing` section mapping all 19 tasks to tiers per PRD §7.4 (17 original + wiki_ingest + wiki_synthesis)
+3. [x] Keep existing `models:` section with `fast`, `synthesis`, `governance`, `intent`, `conversation` aliases pointing to Claude models (backward compat during migration)
+4. [x] Update `monthly_budget` to soft $20 / hard $35
+5. [x] Update ConfigService to parse `model_tiers` and `task_routing`, expose via `getModelTier(tierKey)` and `getTaskTier(taskName)` methods (plus getTaskTierKey, getTaskRouting, hasThreeTierRouting)
+6. [x] Write tests for ConfigService parsing both old and new format (16 new tests)
 
 **Acceptance Criteria:**
-- [ ] ConfigService correctly parses the new three-tier config
-- [ ] `getTaskTier('intent_classification')` returns `t0_local` config
-- [ ] Existing `get('ai').models['fast']` still works (backward compat)
-- [ ] Budget thresholds updated to soft $20 / hard $35
+- [x] ConfigService correctly parses the new three-tier config
+- [x] `getTaskTier('intent_classification')` returns `t0_local` config
+- [x] Existing `get('ai').models['fast']` still works (backward compat)
+- [x] Budget thresholds updated to soft $20 / hard $35
 
 **Notes:**
 DeepSeek placeholder is commented out in config (ready for future addition per PRD C13 resolution). The backward-compat `models:` section will be removed in a future cleanup after all call sites are migrated.
@@ -352,7 +354,7 @@ The existing `complete()` method that uses model aliases continues working via t
 ---
 
 #### 2.4 Add Ollama Container to Docker Compose
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §4.2 (Target Architecture), §4.3 (Container Memory Allocations)
 **Files Affected:**
 - `docker-compose.yml` (modify) -- add ollama service

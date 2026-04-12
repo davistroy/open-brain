@@ -6,6 +6,7 @@ volumes:
   postgres_data:
   redis_data:
   whisper_model_cache:
+  ollama_data:
 
 services:
   postgres:
@@ -60,6 +61,7 @@ services:
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://api.openai.com/v1
+      OLLAMA_URL: http://ollama:11434/v1
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
@@ -95,6 +97,7 @@ services:
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://api.openai.com/v1
+      OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
@@ -168,6 +171,24 @@ services:
       retries: 3
       start_period: 15s
     mem_limit: 4g
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: open-brain-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 16g
     networks:
       - open-brain
     restart: unless-stopped

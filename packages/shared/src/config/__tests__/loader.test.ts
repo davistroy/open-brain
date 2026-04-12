@@ -166,4 +166,205 @@ weekly_brief:
     const service = new ConfigService(tmpDir)
     expect(() => service.get('brainViews')).toThrow('not loaded')
   })
+
+  // ================================================================
+  // Three-tier model routing tests
+  // ================================================================
+
+  describe('three-tier routing', () => {
+    const validAiWithTiers = `
+litellm_url: "https://api.openai.com/v1"
+models:
+  fast:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  synthesis:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  governance:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  intent:
+    model: claude-sonnet-4-20250514
+    client: anthropic
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t0_local:
+    provider: ollama
+    model: "gemma4:12b-q4_K_M"
+    base_url: "http://ollama:11434/v1"
+    max_completion_tokens: 256
+    timeout_ms: 10000
+    fallback: t1_fast
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    fallback: t2_quality
+  t2_quality:
+    provider: anthropic
+    model: "claude-sonnet-4-6"
+    max_completion_tokens: 8192
+    timeout_ms: 30000
+    fallback: null
+task_routing:
+  intent_classification: t0_local
+  capture_classification: t0_local
+  entity_extraction: t1_fast
+  governance: t2_quality
+  weekly_brief: t2_quality
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+
+    function writeThreeTierConfigs(dir: string): void {
+      writeFileSync(join(dir, 'brain-views.yaml'), validBrainViews)
+      writeFileSync(join(dir, 'pipeline.yaml'), validPipeline)
+      writeFileSync(join(dir, 'ai-routing.yaml'), validAiWithTiers)
+      writeFileSync(join(dir, 'notifications.yaml'), validNotifications)
+    }
+
+    it('loads config with model_tiers and task_routing', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).not.toThrow()
+    })
+
+    it('getModelTier returns correct tier entry', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      const t0 = service.getModelTier('t0_local')
+      expect(t0).toBeDefined()
+      expect(t0!.provider).toBe('ollama')
+      expect(t0!.model).toBe('gemma4:12b-q4_K_M')
+      expect(t0!.max_completion_tokens).toBe(256)
+      expect(t0!.timeout_ms).toBe(10000)
+      expect(t0!.fallback).toBe('t1_fast')
+
+      const t2 = service.getModelTier('t2_quality')
+      expect(t2).toBeDefined()
+      expect(t2!.provider).toBe('anthropic')
+      expect(t2!.fallback).toBeNull()
+    })
+
+    it('getModelTier returns undefined for unknown tier', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.getModelTier('t99_unknown')).toBeUndefined()
+    })
+
+    it('getTaskTier resolves task to tier entry', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      const tier = service.getTaskTier('intent_classification')
+      expect(tier).toBeDefined()
+      expect(tier!.provider).toBe('ollama')
+      expect(tier!.model).toBe('gemma4:12b-q4_K_M')
+    })
+
+    it('getTaskTier returns t2_quality for governance', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      const tier = service.getTaskTier('governance')
+      expect(tier).toBeDefined()
+      expect(tier!.provider).toBe('anthropic')
+      expect(tier!.model).toBe('claude-sonnet-4-6')
+    })
+
+    it('getTaskTier returns undefined for unknown task', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.getTaskTier('unknown_task')).toBeUndefined()
+    })
+
+    it('getTaskTierKey returns tier key string', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.getTaskTierKey('intent_classification')).toBe('t0_local')
+      expect(service.getTaskTierKey('governance')).toBe('t2_quality')
+      expect(service.getTaskTierKey('unknown')).toBeUndefined()
+    })
+
+    it('hasThreeTierRouting returns true when configured', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.hasThreeTierRouting()).toBe(true)
+    })
+
+    it('hasThreeTierRouting returns false for legacy-only config', () => {
+      writeValidConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.hasThreeTierRouting()).toBe(false)
+    })
+
+    it('backward compat: get("ai").models still works with three-tier config', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      const aiConfig = service.get('ai')
+      expect(aiConfig.models.fast.model).toBe('claude-sonnet-4-20250514')
+      expect(aiConfig.models.embedding.model).toBe('text-embedding-3-large')
+    })
+
+    it('budget thresholds reflect new values', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      const aiConfig = service.get('ai')
+      expect(aiConfig.monthly_budget.soft_limit_usd).toBe(20)
+      expect(aiConfig.monthly_budget.hard_limit_usd).toBe(35)
+    })
+
+    it('getTaskRouting returns all routing entries', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      const routing = service.getTaskRouting()
+      expect(routing).toBeDefined()
+      expect(Object.keys(routing!)).toHaveLength(5)
+      expect(routing!['entity_extraction']).toBe('t1_fast')
+    })
+
+    it('getModelTier returns undefined when model_tiers not configured', () => {
+      writeValidConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.getModelTier('t0_local')).toBeUndefined()
+    })
+
+    it('getTaskTier returns undefined when task_routing not configured', () => {
+      writeValidConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      expect(service.getTaskTier('intent_classification')).toBeUndefined()
+    })
+  })
 })
