@@ -39,6 +39,14 @@
 | D27 | Spreading activation max 2 hops, fan-out 10 | 2026-04-09 | ACTIVE | Entry 019 | 3 hops (too slow on dense graphs), 1 hop (misses indirect connections) |
 | D28 | Memory consolidation cosine > 0.92, min cluster 3, weekly | 2026-04-09 | ACTIVE | Entry 019 | Lower threshold (over-merging risk), daily (too aggressive for single user) |
 | D29 | Unified implementation plan: 8 phases, 39 items, ~8,500 LOC | 2026-04-11 | ACTIVE | Entry 021 | Separate plans per feature (fragmented), single mega-plan (too large for subagent execution) |
+| D30 | All 39 IMPLEMENT_UNIFIED.md items code-complete | 2026-04-11 | ACTIVE | Entry 026 | 4 operational items deferred to deployment |
+| D31 | Reuse existing standalone Ollama (not duplicate in compose) | 2026-04-12 | ACTIVE | Entry 027 | docker network connect after every compose up |
+| D32 | Gitea wiki URL for containers: http://Gitea:3000/ (not gitea.k4jda.net) | 2026-04-12 | ACTIVE | Entry 027 | Requires GITEA_TOKEN for private repo, network connect |
+| D33 | GITEA_TOKEN in both .env (compose interpolation) and .env.secrets | 2026-04-12 | ACTIVE | Entry 028 | ${VAR} in environment: is compose-time, not runtime |
+| D34 | Voice-pipecat: SettingsConfigDict fix, container healthy | 2026-04-12 | ACTIVE | Entry 029 | Supersedes "deferred" — now running |
+| D35 | Anthropic API active in production (OpenClaw key for cost tracking) | 2026-04-12 | ACTIVE | Entry 029 | Fallback: revert ai-routing.yaml to gpt-5.4 |
+| D36 | T0 local inference not viable on i7-9700 CPU (57s/call) | 2026-04-12 | ACTIVE | Entry 029 | All classification tasks on T1 (Haiku). Ollama for batch only. |
+| D37 | Autonomy level promoted to assist | 2026-04-12 | ACTIVE | Entry 028 | Pushover notifications, DM drafts, pipeline alerts active |
 
 ## Action Items
 
@@ -54,6 +62,11 @@
 | A10 | Tune Hebbian association boost weight after real usage data | 2026-04-09 | Entry 019 | LOW |
 | A11 | Build web UI "Related captures" component for spreading activation | 2026-04-09 | Entry 019 | LOW |
 | A12 | Monitor consolidation skill output quality in first 2-3 runs | 2026-04-09 | Entry 019 | MEDIUM |
+| A13 | OneDrive file ingestion — sync complete, organize files, run inventory | 2026-04-12 | Entry 028 | MEDIUM — deferred until sync finishes |
+| A14 | Full Pipecat voice validation — 10+ conversations, <2s latency | 2026-04-12 | Entry 029 | MEDIUM — manual, 2-week soak |
+| A15 | Voice container promotion — remove voice-capture + faster-whisper | 2026-04-12 | Entry 029 | LOW — after A14 validates |
+| A16 | Check OneDrive sync status and file count | 2026-04-12 | Entry 026 | LOW |
+| A17 | Consider smaller Ollama model (Gemma 3 4B) for T0 if latency matters | 2026-04-12 | Entry 029 | LOW |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -71,6 +84,15 @@
 | A0h | Monthly maintenance script + GitHub Action | 2026-03-30 | 2026-03-30 | Entry 006 |
 | A0i | Repo cleanup: archive plans, update README + CHANGELOG | 2026-03-30 | 2026-03-30 | Entry 007 |
 | A0j | Email-to-capture pipeline (PR #34) | 2026-03-31 | 2026-03-31 | Entry 009 |
+| A0k | Search page crash fix (PR #35) | 2026-03-31 | 2026-03-31 | Entry 010 |
+| A0l | Web synthesis answers (PR #36) | 2026-03-31 | 2026-03-31 | Entry 011 |
+| A0m | v2 Unified Implementation — 39 items, 8 phases (PR #48) | 2026-04-11 | 2026-04-11 | Entry 022-026 |
+| A0n | v2 Deployment — 16 items, 4 phases (PR #49) | 2026-04-12 | 2026-04-12 | Entry 028 |
+| A0o | Voice-pipecat env var fix (SettingsConfigDict) | 2026-04-12 | 2026-04-12 | Entry 029 |
+| A0p | Anthropic API switch (Claude Sonnet 4 active) | 2026-04-12 | 2026-04-12 | Entry 029 |
+| A0q | T0 validation — failed, tasks reassigned to T1 | 2026-04-12 | 2026-04-12 | Entry 029 |
+| A0r | OneDrive sync cron installed on homeserver | 2026-04-12 | 2026-04-12 | Entry 026 |
+| A0s | Homeserver sudoers repaired and persisted to boot drive | 2026-04-12 | 2026-04-12 | Entry 027 |
 | A0k | Search page crash fix (PR #35) | 2026-03-31 | 2026-03-31 | Entry 010 |
 | A0l | Web synthesis answers (PR #36) | 2026-03-31 | 2026-03-31 | Entry 011 |
 
