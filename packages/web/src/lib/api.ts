@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession, InfrastructureData, PipelineFlowEntry } from './types'
 
 const API_BASE = '/api/v1'
 
@@ -589,6 +589,17 @@ export const systemHealthApi = {
   /** GET /api/v1/system/health — full snapshot with QueueStats array, Redis memory, monthly spend, skill runs */
   fullSnapshot: () => {
     return request<SystemHealthSnapshot>('/system/health')
+  },
+
+  /** GET /api/v1/system/infrastructure — container health, backup log, cost summary */
+  infrastructure: () => {
+    return request<InfrastructureData>('/system/infrastructure')
+  },
+
+  /** GET /api/v1/system/flows — recent pipeline flows with stage details */
+  flows: (limit = 20) => {
+    const qs = buildQueryString({ limit })
+    return request<{ flows: PipelineFlowEntry[] }>(`/system/flows${qs}`)
   },
 
   /**

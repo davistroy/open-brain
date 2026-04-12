@@ -69,6 +69,53 @@ export interface WikiHealthStatus {
   error: string | null
 }
 
+export interface ContainerHealthEntry {
+  id: string
+  timestamp: string
+  container_name: string
+  healthy: boolean
+  response_ms: number | null
+  error: string | null
+}
+
+export interface BackupLogEntry {
+  id: string
+  timestamp: string
+  backup_type: string
+  file_path: string | null
+  size_bytes: number | null
+  duration_seconds: number | null
+  status: string
+  error: string | null
+  pruned_count: number
+}
+
+export interface CostSummary {
+  month: string
+  total_usd: number
+  by_model: Array<{ model: string; cost_usd: number; call_count: number }>
+}
+
+export interface InfrastructureData {
+  container_health: ContainerHealthEntry[]
+  backups: BackupLogEntry[]
+  cost: CostSummary
+}
+
+export interface PipelineFlowEntry {
+  capture_id: string
+  trace_id: string | null
+  pipeline_status: string
+  created_at: string
+  stages: Array<{
+    stage: string
+    status: string
+    duration_ms: number | null
+    error: string | null
+    started_at: string | null
+  }>
+}
+
 export interface SystemHealthSnapshot {
   status: HealthLevel
   timestamp: string
@@ -281,6 +328,159 @@ export class SystemHealthService {
       return []
     }
   }
+  // ---- Infrastructure data (container health, backups, cost) ----
+
+  async getInfrastructureData(): Promise<InfrastructureData> {
+    const [containerHealth, backups, cost] = await Promise.all([
+      this.getContainerHealth(),
+      this.getBackupLog(),
+      this.getCostSummary(),
+    ])
+    return { container_health: containerHealth, backups, cost }
+  }
+
+  async getContainerHealth(): Promise<ContainerHealthEntry[]> {
+    try {
+      const rows = await this.db.execute<{
+        id: string
+        timestamp: string
+        container_name: string
+        healthy: boolean
+        response_ms: number | null
+        error: string | null
+      }>(sql`
+        SELECT id, timestamp, container_name, healthy, response_ms, error
+        FROM container_health
+        ORDER BY timestamp DESC
+        LIMIT 100
+      `)
+      return rows.rows
+    } catch (err) {
+      logger.warn({ err }, 'Failed to fetch container health data')
+      return []
+    }
+  }
+
+  async getBackupLog(): Promise<BackupLogEntry[]> {
+    try {
+      const rows = await this.db.execute<{
+        id: string
+        timestamp: string
+        backup_type: string
+        file_path: string | null
+        size_bytes: string | null
+        duration_seconds: number | null
+        status: string
+        error: string | null
+        pruned_count: number
+      }>(sql`
+        SELECT id, timestamp, backup_type, file_path, size_bytes, duration_seconds, status, error, pruned_count
+        FROM backup_log
+        ORDER BY timestamp DESC
+        LIMIT 50
+      `)
+      return rows.rows.map(r => ({
+        ...r,
+        size_bytes: r.size_bytes ? parseInt(String(r.size_bytes), 10) : null,
+      }))
+    } catch (err) {
+      logger.warn({ err }, 'Failed to fetch backup log')
+      return []
+    }
+  }
+
+  async getCostSummary(): Promise<CostSummary> {
+    const now = new Date()
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    try {
+      const rows = await this.db.execute<{
+        model: string
+        cost_usd: string
+        call_count: string
+      }>(sql`
+        SELECT
+          model_used AS model,
+          COALESCE(SUM(cost_usd), 0) AS cost_usd,
+          COUNT(*) AS call_count
+        FROM ai_audit_log
+        WHERE created_at >= date_trunc('month', CURRENT_DATE)
+        GROUP BY model_used
+        ORDER BY SUM(cost_usd) DESC
+      `)
+      const byModel = rows.rows.map(r => ({
+        model: r.model ?? 'unknown',
+        cost_usd: parseFloat(String(r.cost_usd)),
+        call_count: parseInt(String(r.call_count), 10),
+      }))
+      const totalUsd = byModel.reduce((sum, m) => sum + m.cost_usd, 0)
+      return { month, total_usd: totalUsd, by_model: byModel }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to fetch cost summary')
+      return { month, total_usd: 0, by_model: [] }
+    }
+  }
+
+  // ---- Pipeline flows (recent captures with pipeline stages) ----
+
+  async getPipelineFlows(limit = 20): Promise<PipelineFlowEntry[]> {
+    try {
+      const rows = await this.db.execute<{
+        id: string
+        pipeline_status: string
+        created_at: string
+        metadata: Record<string, unknown> | null
+      }>(sql`
+        SELECT id, pipeline_status, created_at, metadata
+        FROM captures
+        WHERE pipeline_status IN ('processing', 'pending', 'partial', 'complete', 'failed')
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `)
+
+      const captureIds = rows.rows.map(r => r.id)
+      if (captureIds.length === 0) return []
+
+      // Fetch pipeline_events for these captures
+      const events = await this.db.execute<{
+        capture_id: string
+        stage: string
+        status: string
+        duration_ms: number | null
+        error: string | null
+        started_at: string | null
+      }>(sql`
+        SELECT capture_id, stage, status, duration_ms, error, started_at
+        FROM pipeline_events
+        WHERE capture_id = ANY(${captureIds})
+        ORDER BY started_at ASC
+      `)
+
+      // Group events by capture_id
+      const eventMap = new Map<string, PipelineFlowEntry['stages']>()
+      for (const e of events.rows) {
+        if (!eventMap.has(e.capture_id)) eventMap.set(e.capture_id, [])
+        eventMap.get(e.capture_id)!.push({
+          stage: e.stage,
+          status: e.status,
+          duration_ms: e.duration_ms,
+          error: e.error,
+          started_at: e.started_at,
+        })
+      }
+
+      return rows.rows.map(r => ({
+        capture_id: r.id,
+        trace_id: (r.metadata as Record<string, unknown>)?.trace_id as string | null ?? null,
+        pipeline_status: r.pipeline_status,
+        created_at: r.created_at,
+        stages: eventMap.get(r.id) ?? [],
+      }))
+    } catch (err) {
+      logger.warn({ err }, 'Failed to fetch pipeline flows')
+      return []
+    }
+  }
+
   // ---- Wiki health ----
 
   async getWikiHealth(): Promise<WikiHealthStatus> {

@@ -11,6 +11,12 @@ import {
   Wrench,
   Zap,
   Clock,
+  GitBranch,
+  Server,
+  DollarSign,
+  HardDrive,
+  Database,
+  Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,11 +30,15 @@ import type {
   QueueStatsEntry,
   SkillLastRun,
   McpActivityEntry,
+  InfrastructureData,
+  PipelineFlowEntry,
+  ContainerHealthEntry,
+  BackupLogEntry,
 } from '@/lib/types';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type Tab = 'queues' | 'skills' | 'mcp';
+type Tab = 'queues' | 'flows' | 'skills' | 'infrastructure' | 'mcp';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -370,6 +380,413 @@ function SkillsTab({
   );
 }
 
+// ─── Flows Tab ─────────────────────────────────────────────────────────────
+
+function stageStatusIcon(status: string) {
+  if (status === 'complete' || status === 'completed' || status === 'success') {
+    return <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />;
+  }
+  if (status === 'failed' || status === 'error') {
+    return <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />;
+  }
+  if (status === 'processing' || status === 'active') {
+    return <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin shrink-0" />;
+  }
+  return <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />;
+}
+
+function pipelineStatusBadge(status: string) {
+  const variant = status === 'complete' ? 'default'
+    : status === 'failed' ? 'destructive'
+    : status === 'processing' ? 'secondary'
+    : 'outline';
+  return <Badge variant={variant} className="text-[10px] px-1.5 py-0">{status}</Badge>;
+}
+
+function FlowsTab({
+  flows,
+  loading,
+  error,
+}: {
+  flows: PipelineFlowEntry[];
+  loading: boolean;
+  error: string | null;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleExpand(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        {error}
+      </div>
+    );
+  }
+
+  if (loading && flows.length === 0) {
+    return (
+      <div className="space-y-2">
+        {[...Array(5)].map((_, i) => <div key={i} className="h-16 animate-pulse rounded bg-secondary" />)}
+      </div>
+    );
+  }
+
+  if (flows.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+        <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-40" />
+        <p className="text-sm">No pipeline flows found.</p>
+        <p className="text-xs mt-1">Captures processed through the pipeline will appear here.</p>
+      </div>
+    );
+  }
+
+  // Split into active (processing/pending) and recent completed
+  const active = flows.filter(f => f.pipeline_status === 'processing' || f.pipeline_status === 'pending');
+  const completed = flows.filter(f => f.pipeline_status !== 'processing' && f.pipeline_status !== 'pending');
+
+  return (
+    <div className="space-y-4">
+      {active.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">Active Flows ({active.length})</h3>
+          <FlowList flows={active} expanded={expanded} onToggle={toggleExpand} />
+        </div>
+      )}
+      <div>
+        <h3 className="text-sm font-medium text-muted-foreground mb-2">
+          Recent Flows ({completed.length})
+        </h3>
+        <FlowList flows={completed} expanded={expanded} onToggle={toggleExpand} />
+      </div>
+    </div>
+  );
+}
+
+function FlowList({
+  flows,
+  expanded,
+  onToggle,
+}: {
+  flows: PipelineFlowEntry[];
+  expanded: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="rounded-lg border bg-card divide-y">
+      {flows.map((flow) => {
+        const isExpanded = expanded.has(flow.capture_id);
+        const totalDuration = flow.stages.reduce((sum, s) => sum + (s.duration_ms ?? 0), 0);
+        const failedStages = flow.stages.filter(s => s.status === 'failed' || s.status === 'error');
+
+        return (
+          <div key={flow.capture_id} className="px-4 py-3">
+            <button
+              className="w-full flex items-center justify-between gap-3 text-left"
+              onClick={() => onToggle(flow.capture_id)}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {isExpanded ? (
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                )}
+                <span className="text-xs font-mono text-muted-foreground truncate">
+                  {flow.capture_id.slice(0, 8)}
+                </span>
+                {pipelineStatusBadge(flow.pipeline_status)}
+                {failedStages.length > 0 && (
+                  <span className="text-xs text-destructive">{failedStages.length} failed</span>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                <span>{flow.stages.length} stages</span>
+                {totalDuration > 0 && <span>{formatDuration(totalDuration)}</span>}
+                <span>{relativeTime(flow.created_at)}</span>
+              </div>
+            </button>
+
+            {isExpanded && (
+              <div className="mt-3 ml-6">
+                {flow.trace_id && (
+                  <div className="text-xs text-muted-foreground mb-2">
+                    <span className="font-medium text-foreground">Trace:</span>{' '}
+                    <span className="font-mono">{flow.trace_id.slice(0, 12)}...</span>
+                  </div>
+                )}
+
+                {/* Tree view of stages */}
+                <div className="space-y-1">
+                  {flow.stages.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No stage events recorded.</p>
+                  ) : (
+                    flow.stages.map((stage, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        <div className="w-4 flex justify-center text-muted-foreground/40">
+                          {idx < flow.stages.length - 1 ? '|' : 'L'}
+                        </div>
+                        {stageStatusIcon(stage.status)}
+                        <span className="font-mono font-medium">{stage.stage}</span>
+                        <Badge
+                          variant={stage.status === 'complete' || stage.status === 'completed' || stage.status === 'success' ? 'default' :
+                            stage.status === 'failed' || stage.status === 'error' ? 'destructive' : 'outline'}
+                          className="text-[9px] px-1 py-0"
+                        >
+                          {stage.status}
+                        </Badge>
+                        {stage.duration_ms != null && (
+                          <span className="text-muted-foreground">{formatDuration(stage.duration_ms)}</span>
+                        )}
+                        {stage.started_at && (
+                          <span className="text-muted-foreground/60">{relativeTime(stage.started_at)}</span>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Show errors */}
+                {failedStages.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {failedStages.map((s, i) => (
+                      <div key={i} className="text-xs bg-destructive/5 border border-destructive/20 rounded px-2 py-1">
+                        <span className="font-mono font-medium text-destructive">{s.stage}:</span>{' '}
+                        <span className="text-destructive/80">{s.error ?? 'Unknown error'}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Infrastructure Tab ────────────────────────────────────────────────────
+
+function formatBytes(bytes: number | null): string {
+  if (bytes == null || bytes === 0) return '--';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function InfrastructureTab({
+  data,
+  loading,
+  error,
+}: {
+  data: InfrastructureData | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        {error}
+      </div>
+    );
+  }
+
+  if (loading && !data) {
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[...Array(3)].map((_, i) => <div key={i} className="h-48 animate-pulse rounded-lg bg-secondary" />)}
+      </div>
+    );
+  }
+
+  if (!data) {
+    return <p className="text-sm text-muted-foreground">No infrastructure data available.</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Container Health */}
+      <ContainerHealthSection entries={data.container_health} />
+
+      {/* Backups */}
+      <BackupsSection entries={data.backups} />
+
+      {/* Cost Summary */}
+      <CostSection cost={data.cost} />
+    </div>
+  );
+}
+
+function ContainerHealthSection({ entries }: { entries: ContainerHealthEntry[] }) {
+  if (entries.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <Server className="h-4 w-4" />
+            <CardTitle className="text-sm">Container Health</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No health check data recorded yet.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Group by container name, show latest status for each
+  const latestByContainer = new Map<string, ContainerHealthEntry>();
+  for (const entry of entries) {
+    if (!latestByContainer.has(entry.container_name)) {
+      latestByContainer.set(entry.container_name, entry);
+    }
+  }
+
+  const containers = Array.from(latestByContainer.values());
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Server className="h-4 w-4" />
+          <CardTitle className="text-sm">Container Health</CardTitle>
+          <Badge variant="outline" className="text-[10px] ml-auto">{containers.length} containers</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y">
+          {containers.map((c) => (
+            <div key={c.container_name} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
+              <div className="flex items-center gap-2">
+                {c.healthy ? (
+                  <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                ) : (
+                  <XCircle className="h-3.5 w-3.5 text-destructive" />
+                )}
+                <span className="text-sm font-mono">{c.container_name}</span>
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {c.response_ms != null && <span>{c.response_ms}ms</span>}
+                <span>{relativeTime(c.timestamp)}</span>
+                {c.error && (
+                  <span className="text-destructive truncate max-w-[200px]" title={c.error}>{c.error}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BackupsSection({ entries }: { entries: BackupLogEntry[] }) {
+  // Group by type, show latest
+  const typeIcons: Record<string, React.ReactNode> = {
+    database: <Database className="h-3.5 w-3.5 text-blue-500" />,
+    redis: <HardDrive className="h-3.5 w-3.5 text-orange-500" />,
+    wiki: <Archive className="h-3.5 w-3.5 text-purple-500" />,
+  };
+
+  if (entries.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <Archive className="h-4 w-4" />
+            <CardTitle className="text-sm">Recent Backups</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">No backup records found.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Show latest 10
+  const recent = entries.slice(0, 10);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <Archive className="h-4 w-4" />
+          <CardTitle className="text-sm">Recent Backups</CardTitle>
+          <Badge variant="outline" className="text-[10px] ml-auto">{entries.length} total</Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y">
+          {recent.map((b) => (
+            <div key={b.id} className="flex items-center justify-between py-2 first:pt-0 last:pb-0 gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                {typeIcons[b.backup_type] ?? <Archive className="h-3.5 w-3.5 text-muted-foreground" />}
+                <span className="text-sm capitalize">{b.backup_type}</span>
+                {b.status === 'success' ? (
+                  <CheckCircle className="h-3 w-3 text-green-500" />
+                ) : (
+                  <XCircle className="h-3 w-3 text-destructive" />
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                {b.size_bytes != null && <span>{formatBytes(b.size_bytes)}</span>}
+                {b.duration_seconds != null && <span>{b.duration_seconds}s</span>}
+                {b.pruned_count > 0 && <span className="text-orange-500">{b.pruned_count} pruned</span>}
+                <span>{relativeTime(b.timestamp)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function CostSection({ cost }: { cost: InfrastructureData['cost'] }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center gap-2">
+          <DollarSign className="h-4 w-4" />
+          <CardTitle className="text-sm">LLM Cost Breakdown ({cost.month})</CardTitle>
+          <Badge variant="outline" className="text-[10px] ml-auto font-mono">
+            ${cost.total_usd.toFixed(2)}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {cost.by_model.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No LLM usage this month.</p>
+        ) : (
+          <div className="divide-y">
+            {cost.by_model.map((m) => (
+              <div key={m.model} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-mono">{m.model}</span>
+                  <span className="text-xs text-muted-foreground">{m.call_count.toLocaleString()} calls</span>
+                </div>
+                <span className="text-sm font-mono tabular-nums">${m.cost_usd.toFixed(4)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── MCP Activity Tab ───────────────────────────────────────────────────────
 
 function McpActivityTab({
@@ -516,7 +933,9 @@ function McpActivityTab({
 
 const TABS: { key: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: 'queues', label: 'Queues', icon: Activity },
+  { key: 'flows', label: 'Flows', icon: GitBranch },
   { key: 'skills', label: 'Skills', icon: Zap },
+  { key: 'infrastructure', label: 'Infrastructure', icon: Server },
   { key: 'mcp', label: 'MCP Activity', icon: Wrench },
 ];
 
@@ -535,6 +954,16 @@ export default function System() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  // Flows state
+  const [flows, setFlows] = useState<PipelineFlowEntry[]>([]);
+  const [flowsLoading, setFlowsLoading] = useState(true);
+  const [flowsError, setFlowsError] = useState<string | null>(null);
+
+  // Infrastructure state
+  const [infraData, setInfraData] = useState<InfrastructureData | null>(null);
+  const [infraLoading, setInfraLoading] = useState(true);
+  const [infraError, setInfraError] = useState<string | null>(null);
 
   // MCP activity state
   const [mcpEntries, setMcpEntries] = useState<McpActivityEntry[]>([]);
@@ -568,6 +997,30 @@ export default function System() {
     }
   }, []);
 
+  const loadFlows = useCallback(async () => {
+    setFlowsError(null);
+    try {
+      const res = await systemHealthApi.flows(30);
+      setFlows(res.flows);
+    } catch (err) {
+      setFlowsError(err instanceof Error ? err.message : 'Failed to load pipeline flows');
+    } finally {
+      setFlowsLoading(false);
+    }
+  }, []);
+
+  const loadInfrastructure = useCallback(async () => {
+    setInfraError(null);
+    try {
+      const data = await systemHealthApi.infrastructure();
+      setInfraData(data);
+    } catch (err) {
+      setInfraError(err instanceof Error ? err.message : 'Failed to load infrastructure data');
+    } finally {
+      setInfraLoading(false);
+    }
+  }, []);
+
   const loadMcpActivity = useCallback(async (append = false) => {
     setMcpError(null);
     setMcpLoading(true);
@@ -592,6 +1045,8 @@ export default function System() {
   useEffect(() => {
     loadQueues();
     loadSkills();
+    loadFlows();
+    loadInfrastructure();
     loadMcpActivity();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -603,6 +1058,8 @@ export default function System() {
     await Promise.allSettled([
       loadQueues(),
       loadSkills(),
+      loadFlows(),
+      loadInfrastructure(),
       loadMcpActivity(),
     ]);
     setRefreshing(false);
@@ -635,7 +1092,7 @@ export default function System() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">System</h1>
           <p className="text-sm text-muted-foreground">
-            Queue health, skill scheduling, and MCP activity
+            Queues, pipeline flows, skills, infrastructure, and MCP activity
           </p>
         </div>
         <Button
@@ -724,6 +1181,14 @@ export default function System() {
         />
       )}
 
+      {activeTab === 'flows' && (
+        <FlowsTab
+          flows={flows}
+          loading={flowsLoading}
+          error={flowsError}
+        />
+      )}
+
       {activeTab === 'skills' && (
         <SkillsTab
           skills={skills}
@@ -731,6 +1196,14 @@ export default function System() {
           loading={skillsLoading}
           error={skillsError}
           onTrigger={handleTriggerSkill}
+        />
+      )}
+
+      {activeTab === 'infrastructure' && (
+        <InfrastructureTab
+          data={infraData}
+          loading={infraLoading}
+          error={infraError}
         />
       )}
 

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity, Pencil, Check, X, Loader2, Mail, Info, Shield, Cpu, Link2, BookOpen } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity, Pencil, Check, X, Loader2, Mail, Info, Shield, Cpu, Link2, BookOpen, Mic, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { skillsApi, triggersApi, pipelineApi, adminApi, settingsApi, configApi } from '@/lib/api';
+import { skillsApi, triggersApi, pipelineApi, adminApi, settingsApi, configApi, voiceSessionApi, wikiApi } from '@/lib/api';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Skill, Trigger, AutonomyLevel, AIRoutingResponse, IntegrationStatus } from '@/lib/types';
+import type { Skill, Trigger, AutonomyLevel, AIRoutingResponse, IntegrationStatus, WikiLintReport } from '@/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -953,11 +953,73 @@ function AIRoutingSection({ routing, loading, error }: {
   );
 }
 
+// ─── Voice section ──────────────────────────────────────────────────────────
+
+function VoiceSection({ integrations, voiceStats, loading }: {
+  integrations: IntegrationStatus[];
+  voiceStats: { totalSessions: number; activeSessions: number } | null;
+  loading: boolean;
+}) {
+  const pipecatIntegration = integrations.find(i => i.name.toLowerCase().includes('pipecat') || i.name.toLowerCase().includes('voice'));
+  const voiceCaptureIntegration = integrations.find(i => i.name === 'Voice Capture');
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Mic className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Voice</h2>
+      </div>
+
+      {loading && !voiceStats ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      ) : (
+        <div className="rounded-lg border bg-card divide-y">
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Pipecat (Conversational)</span>
+            {pipecatIntegration ? (
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${pipecatIntegration.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-xs text-muted-foreground">{pipecatIntegration.detail ?? pipecatIntegration.status}</span>
+              </div>
+            ) : (
+              <Badge variant="secondary" className="text-xs">Not configured</Badge>
+            )}
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Voice Capture (iOS Shortcut)</span>
+            {voiceCaptureIntegration ? (
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${voiceCaptureIntegration.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-xs text-muted-foreground">{voiceCaptureIntegration.detail ?? voiceCaptureIntegration.status}</span>
+              </div>
+            ) : (
+              <Badge variant="default" className="text-xs">Active</Badge>
+            )}
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Total Sessions</span>
+            <span className="font-mono text-xs">{voiceStats?.totalSessions ?? '—'}</span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Active Sessions</span>
+            <span className={`font-mono text-xs ${(voiceStats?.activeSessions ?? 0) > 0 ? 'text-blue-600 dark:text-blue-400' : ''}`}>
+              {voiceStats?.activeSessions ?? 0}
+            </span>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─── Wiki section ────────────────────────────────────────────────────────────
 
-function WikiSection({ skills, integrations, loading }: {
+function WikiSection({ skills, integrations, wikiStats, loading }: {
   skills: Skill[];
   integrations: IntegrationStatus[];
+  wikiStats: { pageCount: number; lastLintRun: string | null; lastSync: string | null } | null;
   loading: boolean;
 }) {
   // Wiki-related skills for schedule display
@@ -976,7 +1038,7 @@ function WikiSection({ skills, integrations, loading }: {
 
       {loading ? (
         <div className="space-y-2">
-          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+          {[...Array(3)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
         </div>
       ) : (
         <div className="rounded-lg border bg-card divide-y">
@@ -990,11 +1052,27 @@ function WikiSection({ skills, integrations, loading }: {
             </div>
           </div>
           <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Page Count</span>
+            <span className="font-mono text-xs">{wikiStats?.pageCount ?? '—'}</span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Last Sync</span>
+            <span className="text-xs text-muted-foreground">
+              {wikiStats?.lastSync ? new Date(wikiStats.lastSync).toLocaleString() : '—'}
+            </span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Lint Schedule</span>
             <span className="font-mono text-xs">
               {wikiLintSkill?.schedule
                 ? `${wikiLintSkill.schedule}${describeCron(wikiLintSkill.schedule) ? ` (${describeCron(wikiLintSkill.schedule)})` : ''}`
                 : '—'}
+            </span>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Last Lint</span>
+            <span className="text-xs text-muted-foreground">
+              {wikiStats?.lastLintRun ? new Date(wikiStats.lastLintRun).toLocaleString() : '—'}
             </span>
           </div>
           {wikiIngestSkill && (
@@ -1005,6 +1083,52 @@ function WikiSection({ skills, integrations, loading }: {
               </Badge>
             </div>
           )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Email Configuration section ────────────────────────────────────────────
+
+function EmailConfigSection({ integrations, loading }: {
+  integrations: IntegrationStatus[];
+  loading: boolean;
+}) {
+  const inbound = integrations.find(i => i.name === 'Email (Inbound)');
+  const outbound = integrations.find(i => i.name === 'Email (Outbound)');
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Send className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-base font-semibold">Email Configuration</h2>
+      </div>
+
+      {loading && !inbound && !outbound ? (
+        <div className="space-y-2">
+          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
+        </div>
+      ) : (
+        <div className="rounded-lg border bg-card divide-y">
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Inbound</span>
+            <div className="flex items-center gap-2">
+              <span className={`inline-block w-2 h-2 rounded-full ${inbound?.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-xs text-muted-foreground">
+                {inbound?.detail ?? 'Not configured'}
+              </span>
+            </div>
+          </div>
+          <div className="px-4 py-3 flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Outbound</span>
+            <div className="flex items-center gap-2">
+              <span className={`inline-block w-2 h-2 rounded-full ${outbound?.status === 'connected' ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-xs text-muted-foreground">
+                {outbound?.detail ?? 'Not configured'}
+              </span>
+            </div>
+          </div>
         </div>
       )}
     </section>
@@ -1263,6 +1387,12 @@ export default function Settings() {
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
   const [integrationsError, setIntegrationsError] = useState<string | null>(null);
 
+  const [voiceStats, setVoiceStats] = useState<{ totalSessions: number; activeSessions: number } | null>(null);
+  const [voiceStatsLoading, setVoiceStatsLoading] = useState(true);
+
+  const [wikiStats, setWikiStats] = useState<{ pageCount: number; lastLintRun: string | null; lastSync: string | null } | null>(null);
+  const [wikiStatsLoading, setWikiStatsLoading] = useState(true);
+
   const [refreshing, setRefreshing] = useState(false);
 
   const loadHealth = useCallback(async () => {
@@ -1385,9 +1515,49 @@ export default function Settings() {
     }
   }, []);
 
+  const loadVoiceStats = useCallback(async () => {
+    try {
+      const [listRes, activeRes] = await Promise.allSettled([
+        voiceSessionApi.list({ limit: 1 }),
+        voiceSessionApi.active(),
+      ]);
+      setVoiceStats({
+        totalSessions: listRes.status === 'fulfilled' ? listRes.value.total : 0,
+        activeSessions: activeRes.status === 'fulfilled' ? activeRes.value.sessions.length : 0,
+      });
+    } catch {
+      // Voice sessions may not be deployed — show zeros gracefully
+      setVoiceStats({ totalSessions: 0, activeSessions: 0 });
+    } finally {
+      setVoiceStatsLoading(false);
+    }
+  }, []);
+
+  const loadWikiStats = useCallback(async () => {
+    try {
+      const [pagesRes, lintRes, changesRes] = await Promise.allSettled([
+        wikiApi.pages(),
+        wikiApi.lintReport(),
+        wikiApi.recentChanges(1),
+      ]);
+      setWikiStats({
+        pageCount: pagesRes.status === 'fulfilled' ? pagesRes.value.length : 0,
+        lastLintRun: lintRes.status === 'fulfilled' ? (lintRes.value as WikiLintReport).last_run ?? null : null,
+        lastSync: changesRes.status === 'fulfilled' && changesRes.value.length > 0
+          ? changesRes.value[0].date
+          : null,
+      });
+    } catch {
+      // Wiki may not be deployed — show graceful fallback
+      setWikiStats({ pageCount: 0, lastLintRun: null, lastSync: null });
+    } finally {
+      setWikiStatsLoading(false);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
-    await Promise.allSettled([loadHealth(), loadSkills(), loadTriggers(), loadAutonomy(), loadAllowlist(), loadAiRouting(), loadIntegrations()]);
-  }, [loadHealth, loadSkills, loadTriggers, loadAutonomy, loadAllowlist, loadAiRouting, loadIntegrations]);
+    await Promise.allSettled([loadHealth(), loadSkills(), loadTriggers(), loadAutonomy(), loadAllowlist(), loadAiRouting(), loadIntegrations(), loadVoiceStats(), loadWikiStats()]);
+  }, [loadHealth, loadSkills, loadTriggers, loadAutonomy, loadAllowlist, loadAiRouting, loadIntegrations, loadVoiceStats, loadWikiStats]);
 
   useEffect(() => {
     loadAll();
@@ -1522,10 +1692,26 @@ export default function Settings() {
 
       <Separator />
 
+      <VoiceSection
+        integrations={integrations}
+        voiceStats={voiceStats}
+        loading={voiceStatsLoading}
+      />
+
+      <Separator />
+
       <WikiSection
         skills={skills}
         integrations={integrations}
-        loading={skillsLoading}
+        wikiStats={wikiStats}
+        loading={skillsLoading || wikiStatsLoading}
+      />
+
+      <Separator />
+
+      <EmailConfigSection
+        integrations={integrations}
+        loading={integrationsLoading}
       />
 
       <Separator />
