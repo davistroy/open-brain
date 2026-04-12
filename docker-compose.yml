@@ -6,7 +6,6 @@ volumes:
   postgres_data:
   redis_data:
   whisper_model_cache:
-  ollama_data:
 
 services:
   postgres:
@@ -62,8 +61,9 @@ services:
       REDIS_URL: redis://redis:6379
       LITELLM_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
-      WIKI_REPO_URL: gitea.k4jda.net/davistroy/open-brain-wiki.git
+      WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
+      GITEA_TOKEN: ${GITEA_TOKEN}
       # LITELLM_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
@@ -102,8 +102,9 @@ services:
       OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
-      WIKI_REPO_URL: gitea.k4jda.net/davistroy/open-brain-wiki.git
+      WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
+      GITEA_TOKEN: ${GITEA_TOKEN}
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
       # LITELLM_API_KEY: set in .env.secrets
       # PUSHOVER_APP_TOKEN: set in .env.secrets
@@ -179,23 +180,24 @@ services:
       - open-brain
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: open-brain-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    mem_limit: 16g
-    networks:
-      - open-brain
-    restart: unless-stopped
+  # Ollama runs as standalone container — connected via scripts/post-compose-up.sh
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: open-brain-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "ollama list || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+  #     start_period: 30s
+  #   mem_limit: 16g
+  #   networks:
+  #     - open-brain
+  #   restart: unless-stopped
 
   file-ingestion:
     build:

@@ -1377,3 +1377,29 @@ During the session, the `claude` user's sudoers was accidentally reduced to only
 3. Update `config/wiki.yaml` with correct Gitea URL
 4. Create startup script or compose `external_links` to auto-connect Ollama + Gitea
 5. Add `git` to Dockerfile (confirmed blocker)
+
+### Entry 028: IMPLEMENT_DEPLOYMENT.md Execution — Phase 1: Pre-Deploy Code Fixes [deploy] [config] [docker]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development), feature/v2-deployment branch
+**Status:** IN PROGRESS
+**Tags:** `[deploy]` `[config]` `[docker]`
+
+**Objective:** Execute Phase 1 of IMPLEMENT_DEPLOYMENT.md — fix deployment blockers before building and deploying v2 to homeserver. 5 code fix items, all parallelizable.
+
+**Hypothesis:** All 5 items are independent code changes touching different files. Parallel execution should complete without conflicts. The git-in-Dockerfile fix is the critical blocker; others are configuration and documentation.
+
+**Rollback Plan:** `git revert` — all changes on feature branch.
+
+**Deferred Items (captured for future sessions):**
+- OneDrive file ingestion — sync in progress (454K files, 207.7 GB), defer until complete + organized
+- Anthropic API key switch — using OpenClaw keys for cost tracking, OpenAI gpt-5.4 continues working
+- Full Pipecat voice validation — needs 10+ conversations after Deepgram key configured
+- Voice container promotion — remove voice-capture + faster-whisper after 2-week Pipecat validation
+- Full batch wiki ingestion — requires organized OneDrive files + validated wiki-ingest quality
+
+**Secrets sourced from Bitwarden (OpenClaw keys for cost tracking):**
+- `ANTHROPIC_API_KEY` ← `OPENCLAW_ANTHROPIC_API_KEY` (sk-ant-a..._AAA)
+- `DEEPGRAM_API_KEY` ← `OPENCLAW_DEEPGRAM_API_KEY` (2004a0cf...e5c7)
+
+*Results logged as implementation proceeds.*
