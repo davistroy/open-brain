@@ -5,7 +5,7 @@
  * and scheduled jobs, then keeps the process alive until SIGTERM/SIGINT.
  */
 import { Redis } from 'ioredis'
-import { createDb, ConfigService, createAnthropicClient } from '@open-brain/shared'
+import { createDb, ConfigService, createAnthropicClient, createOllamaClient } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
@@ -59,6 +59,14 @@ async function main() {
     logger.info('Anthropic client initialized (Claude subscription)')
   } else {
     logger.warn('ANTHROPIC_API_KEY not set — Claude SDK features unavailable in workers')
+  }
+
+  // Ollama client for T0 local inference (classification tasks)
+  const ollamaClient = createOllamaClient({ maxRetries: 0 }) // BullMQ handles retries
+  if (ollamaClient) {
+    logger.info('Ollama client initialized (local inference)')
+  } else {
+    logger.info('OLLAMA_URL not set — Ollama local inference unavailable in workers')
   }
 
   // Template cache (shared across all workers that load prompt templates)
@@ -160,6 +168,7 @@ async function main() {
     coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
     configService,
     anthropicClient: anthropicClient ?? undefined,
+    ollamaClient: ollamaClient ?? undefined,
     wikiService,
   }))
 

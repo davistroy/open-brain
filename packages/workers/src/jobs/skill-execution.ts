@@ -1,5 +1,6 @@
 import { Worker, UnrecoverableError } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
+import type OpenAI from 'openai'
 import type { Database, ConfigService } from '@open-brain/shared'
 import { logger, activity_feed } from '@open-brain/shared'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
@@ -34,11 +35,12 @@ export function createSkillExecutionWorker(
     coreApiUrl: string
     configService: ConfigService
     anthropicClient?: Anthropic
+    ollamaClient?: OpenAI
     wikiService?: WikiGitService
   },
 ): Worker {
   // Resolve model aliases from ai-routing.yaml so skills send actual model
-  // names (e.g. 'gpt-5.4') to the OpenAI API, not LiteLLM aliases.
+  // names (e.g. 'claude-sonnet-4-20250514') to the API, not LiteLLM aliases.
   const aiConfig = opts.configService.get('ai')
   const synthesisModel: string = aiConfig.models['synthesis'].model
 

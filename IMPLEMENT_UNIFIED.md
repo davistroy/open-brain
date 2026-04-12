@@ -323,7 +323,7 @@ DeepSeek placeholder is commented out in config (ready for future addition per P
 ---
 
 #### 2.3 Extend LLMGateway for Three-Way Dispatch
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §7.3 (runAgent), §7.5 (Fallback Chains)
 **Files Affected:**
 - `packages/core-api/src/services/llm-gateway.ts` (modify) -- extend resolveClient for three-way dispatch
@@ -333,20 +333,20 @@ DeepSeek placeholder is commented out in config (ready for future addition per P
 Extend `LLMGatewayService.resolveClient()` to support three-way dispatch: Ollama, Anthropic, and LiteLLM/OpenAI. When a task is routed to a tier, try the primary provider. On failure (429, 500, timeout), automatically fall back to the next tier (max 2 hops). Log all fallback events to `ai_audit_log` with `client_used` reflecting the actual provider used.
 
 **Tasks:**
-1. [ ] Add `resolveByTask(taskName: string)` method that looks up tier via `task_routing`, resolves provider from `model_tiers`, and returns the appropriate client + model
-2. [ ] Implement fallback chain: on error, look up `fallback` tier and retry. Max 2 hops (T0→T1→T2). Fallback triggers within 5 seconds of primary timeout.
-3. [ ] Add `client_used: 'ollama'` support in ai_audit_log inserts
-4. [ ] Initialize Ollama client in `workers/src/main.ts` alongside existing Anthropic + LiteLLM clients
-5. [ ] Update skill-execution worker to use `resolveByTask()` for task-specific routing
-6. [ ] Write tests for fallback chain (mock timeouts, verify retry with next tier, verify max 2 hops)
+1. [x] Add `resolveByTask(taskName: string)` method that looks up tier via `task_routing`, resolves provider from `model_tiers`, and returns the appropriate client + model
+2. [x] Implement fallback chain: on error, look up `fallback` tier and retry. Max 2 hops (T0→T1→T2). Fallback triggers within 5 seconds of primary timeout.
+3. [x] Add `client_used: 'ollama'` support in ai_audit_log inserts
+4. [x] Initialize Ollama client in `workers/src/main.ts` alongside existing Anthropic + LiteLLM clients
+5. [x] Update skill-execution worker to use `resolveByTask()` for task-specific routing
+6. [x] Write tests for fallback chain (mock timeouts, verify retry with next tier, verify max 2 hops)
 
 **Acceptance Criteria:**
-- [ ] T0 classification tasks route to Ollama when available
-- [ ] On Ollama timeout, automatically falls back to T1 (Haiku)
-- [ ] On T1 failure, falls back to T2 (Sonnet)
-- [ ] Fallback events logged to ai_audit_log with correct client_used
-- [ ] No fallback loops (max 2 hops enforced)
-- [ ] All existing LLM call sites continue working (backward compat via models map)
+- [x] T0 classification tasks route to Ollama when available
+- [x] On Ollama timeout, automatically falls back to T1 (Haiku)
+- [x] On T1 failure, falls back to T2 (Sonnet)
+- [x] Fallback events logged to ai_audit_log with correct client_used
+- [x] No fallback loops (max 2 hops enforced)
+- [x] All existing LLM call sites continue working (backward compat via models map)
 
 **Notes:**
 The existing `complete()` method that uses model aliases continues working via the backward-compat `models:` map. New code should use `resolveByTask()` for tier-aware routing. Migration of existing call sites to task-based routing can happen incrementally.

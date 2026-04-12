@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { join } from 'node:path'
 import { Queue } from 'bullmq'
-import { ConfigService, createDb, createLiteLLMClient, createAnthropicClient, TemplateCache } from '@open-brain/shared'
+import { ConfigService, createDb, createLiteLLMClient, createAnthropicClient, createOllamaClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
 import { EmbeddingService } from '@open-brain/shared'
@@ -74,13 +74,19 @@ let governanceEngine: GovernanceEngine | undefined
 let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
 const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
 const anthropicClient = createAnthropicClient({ maxRetries: 2 })
+const ollamaClient = createOllamaClient()
 if (anthropicClient) {
   logger.info('Anthropic client initialized (Claude subscription)')
 } else {
   logger.warn('ANTHROPIC_API_KEY not set — Claude SDK routing unavailable, LiteLLM-only mode')
 }
+if (ollamaClient) {
+  logger.info('Ollama client initialized (local inference)')
+} else {
+  logger.info('OLLAMA_URL not set — Ollama local inference unavailable, tier fallback will skip T0')
+}
 if (litellmClient) {
-  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache, anthropicClient)
+  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache, anthropicClient, ollamaClient)
   governanceEngine = new GovernanceEngine(llmGateway, templateCache)
   logger.info('GovernanceEngine initialized')
 } else {
