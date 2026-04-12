@@ -1487,14 +1487,28 @@ During the session, the `claude` user's sudoers was accidentally reduced to only
 
 **Cost impact:** All LLM calls now route through Anthropic (Claude Sonnet 4). T0 (Ollama) for classification tasks pending T0 validation results. Embeddings remain on OpenAI (text-embedding-3-large).
 
-#### T0 Classification Validation — IN PROGRESS
+#### T0 Classification Validation — COMPLETE (FAILED — too slow for production)
 
-**Issue found:** Original 15s timeout too short for Gemma 4 on CPU (~10s per classification). Increased to 60s.
+**Issue found:** Gemma 4 12B on i7-9700 CPU is far too slow for classification tasks.
 
-**Current status:** Validation script running. Ollama at 562% CPU, 11.7 GB RAM. 150 classification calls (50 examples × 3 tasks) estimated ~25 min total. Results pending.
+| Test | Latency | Result |
+|------|---------|--------|
+| Single call (warm cache, no contention) | ~10s | Correct answer ("idea") |
+| Single call (during validation load) | **57s** | Correct answer but unacceptable latency |
+| Validation suite (150 calls) | Timeouts at 60s | Aborted — could not complete |
 
-**If T0 passes (>=90%):** Classification tasks stay on T0 (Ollama) — free, ~$3/month savings.
-**If T0 fails (<90%):** Affected tasks stay on T1 (Haiku) — still cheaper than gpt-5.4.
+**Root cause:** The i7-9700 (8C/8T, no GPU) cannot run Gemma 4 12B Q4 at interactive speeds. The model produces correct classifications but takes 10-57s per call depending on system load. With Ollama's sequential inference queue, concurrent requests compound the latency. This makes T0 routing unusable for real-time pipeline processing.
+
+**Action taken:** Reassigned all 5 T0 tasks to T1 (Haiku) in `config/ai-routing.yaml`:
+- `intent_classification: t1_fast`
+- `capture_classification: t1_fast`
+- `brain_view_classification: t1_fast`
+- `voice_classification: t1_fast`
+- `confidence_gating: t1_fast`
+
+**Cost impact:** No free-tier savings from local inference. All classification goes through Haiku ($0.80/$4.00 per M tokens) — still significantly cheaper than gpt-5.4. Estimated classification cost: ~$1.50/month.
+
+**Ollama remains available** for future use: batch processing (not latency-sensitive), experimentation with smaller models (Gemma 3 4B?), or if the homeserver gets a GPU.
 
 #### Pipecat Voice Validation — PENDING
 
@@ -1503,10 +1517,12 @@ Voice-pipecat is running and healthy. Full validation (10+ multi-turn conversati
 **Decisions:**
 - D34 SUPERSEDED: Voice-pipecat fixed — no longer deferred. Container healthy with all components.
 - D35: Anthropic API active in production. OpenClaw API key for cost tracking. Fallback: revert ai-routing.yaml to gpt-5.4.
-- D36: T0 validation timeout increased from 15s to 60s. Gemma 4 12B on i7-9700 CPU takes ~10s per classification call.
+- D36 SUPERSEDED: T0 validation failed — Gemma 4 12B too slow on i7-9700 CPU (57s/call under load). All classification tasks reassigned to T1 (Haiku).
+- D37: T0 local inference not viable on current hardware for interactive use. Ollama retained for batch/experimental use only. GPU or smaller model needed for production T0.
 
-**Deferred:**
+**Status:** COMPLETE — all 4 deferred items resolved.
+
+**Remaining deferred (future sessions):**
 - OneDrive file ingestion (sync in progress, needs organizing)
 - Full Pipecat voice validation (2-week soak period — manual)
 - Voice container promotion (after Pipecat validation)
-- T0 results pending (update this entry when complete)

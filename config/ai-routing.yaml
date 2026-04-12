@@ -72,11 +72,11 @@ model_tiers:
 # Task-to-tier routing (17 tasks per PRD 7.4)
 # ============================================================
 task_routing:
-  intent_classification: t0_local
-  capture_classification: t0_local
-  brain_view_classification: t0_local
-  voice_classification: t0_local
-  confidence_gating: t0_local
+  intent_classification: t1_fast  # t0_local too slow on i7-9700 (~57s per call)
+  capture_classification: t1_fast  # t0_local too slow on i7-9700
+  brain_view_classification: t1_fast  # t0_local too slow on i7-9700
+  voice_classification: t1_fast  # t0_local too slow on i7-9700
+  confidence_gating: t1_fast  # t0_local too slow on i7-9700
   entity_extraction: t1_fast
   entity_linking: t1_fast
   capture_enrichment: t1_fast
