@@ -1172,3 +1172,31 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 **Key Finding:** Types defined by agent 2.1 and config methods by agent 2.2 were complementary with zero overlap — the parallel decomposition was clean.
 
 **Status:** COMPLETE — Phase 2 code-complete. Ollama container not yet deployed (requires homeserver `docker compose up` + model pull).
+
+### Entry 024: Phase 3 — Wiki Infrastructure [architecture] [web] [workers]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[web]` `[workers]` `[config]`
+
+**Objective:** Stand up Gitea wiki infrastructure, wire wiki workers/schedulers, and build wiki browser UI.
+
+**Results:**
+
+**Batch 1 (parallel: 3.1, 3.2, 3.4) — commit 7e6a9ef:**
+- **3.1 Gitea Wiki Setup:** Rewrote `setup-wiki-repo.sh` — Gitea API integration, 9 directories, comprehensive WIKI_SCHEMA.md (8 page types, full frontmatter spec, cross-reference format, naming conventions, content templates, validation rules), index.md/log.md/overview.md stubs.
+- **3.2 Wiki Config:** Created `config/wiki.yaml` (repo_url, local_path, sync interval, lint/synthesis schedules, rate limits). Added WIKI_REPO_URL + WIKI_LOCAL_PATH env vars to core-api and workers in docker-compose.
+- **3.4 Wiki.tsx Browser:** Already substantially complete from prior work. Added `NotConfiguredState` component for when WIKI_REPO_URL is unset. 80 web tests pass.
+
+**Sequential item (3.3) — commit 36e0e76:**
+- **3.3 Wiki Workers:** Workers/schedulers already wired from prior sessions. Added `WikiGitService.getStatus()` for health reporting, integrated into `SystemHealthService` (wiki sync status in health snapshot), added `wiki-ingest` to monitored queues, enhanced wiki-ingest failure handler with Gitea connection error detection. 8 new tests.
+
+**Test Results:** 2,292 tests passing, 0 failures.
+
+**What Worked:**
+- Codebase was significantly ahead of plan — wiki-ingest worker, schedulers, and Wiki.tsx were already mostly implemented
+- WIKI_SCHEMA.md provides clear conventions for wiki page generation quality
+- Health integration gives visibility into wiki sync status alongside existing services
+
+**Status:** COMPLETE — Phase 3 code-complete. Gitea repo creation deferred to deployment time.

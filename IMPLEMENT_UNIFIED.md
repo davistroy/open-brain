@@ -635,28 +635,30 @@ react-markdown ^10.1.0 and remark-gfm are already in packages/web dependencies. 
 ### Work Items
 
 #### 4.1 Expand Confidence Scorer to 5 Signals
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §8.6 (Confidence Scoring Framework)
 **Files Affected:**
 - `packages/slack-bot/src/services/confidence-scorer.ts` (modify)
 - `packages/slack-bot/src/__tests__/confidence-scorer.test.ts` (modify)
+- `packages/slack-bot/src/__tests__/auto-response.test.ts` (modify)
+- `packages/slack-bot/src/handlers/auto-response.ts` (modify)
 
 **Description:**
 Add entity match ratio and source diversity signals to the existing confidence scorer. Rebalance all 5 weights per PRD §8.6: search_score 0.30, entity_match 0.25, recency 0.20, corroboration 0.15, source_diversity 0.10.
 
 **Tasks:**
-1. [ ] Add entity match ratio signal: extract entities from the question (via entity_links on search results), compute fraction of question entities found in retrieved captures. Normalize to [0,1].
-2. [ ] Add source diversity signal: count distinct source types among top results (slack, voice, email, document, etc.). 3+ sources = 1.0, 2 = 0.7, 1 = 0.3.
-3. [ ] Rebalance weights: search_score 0.30, entity_match 0.25, recency 0.20, corroboration 0.15, source_diversity 0.10
-4. [ ] Update `ConfidenceFactors` type to include new fields
-5. [ ] Update tests for new signals and rebalanced weights
+1. [x] Add entity match ratio signal: extract entities from the question (via entity_links on search results), compute fraction of question entities found in retrieved captures. Normalize to [0,1].
+2. [x] Add source diversity signal: count distinct source types among top results (slack, voice, email, document, etc.). 3+ sources = 1.0, 2 = 0.7, 1 = 0.3.
+3. [x] Rebalance weights: search_score 0.30, entity_match 0.25, recency 0.20, corroboration 0.15, source_diversity 0.10
+4. [x] Update `ConfidenceFactors` type to include new fields
+5. [x] Update tests for new signals and rebalanced weights
 
 **Acceptance Criteria:**
-- [ ] Composite score uses all 5 signals with correct weights
-- [ ] Entity match ratio correctly computed from search result entity links
-- [ ] Source diversity rewards multi-source answers
-- [ ] Existing tests updated and passing
-- [ ] New signal tests cover edge cases (no entities, single source, etc.)
+- [x] Composite score uses all 5 signals with correct weights
+- [x] Entity match ratio correctly computed from search result entity links
+- [x] Source diversity rewards multi-source answers
+- [x] Existing tests updated and passing
+- [x] New signal tests cover edge cases (no entities, single source, etc.)
 
 ---
 
@@ -712,28 +714,29 @@ Register @slack/bolt action handlers for the three interactive buttons sent in D
 ---
 
 #### 4.4 Enhance Advise Mode Threaded Replies
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §8.5 Phase C (Threaded Replies), F44
 **Files Affected:**
 - `packages/slack-bot/src/handlers/auto-response.ts` (modify)
 - `packages/slack-bot/src/services/confidence-scorer.ts` (verify thresholds)
+- `packages/core-api/src/routes/settings.ts` (modify) -- added `monitored_channels` to VALID_SETTINGS_KEYS
 
 **Description:**
 Enhance the existing advise mode with: nested thread detection (don't reply to replies), per-channel monitoring configuration, and the full set of PRD guardrails: confidence >= 0.85, 2+ corroborating captures, no captures older than 90 days, non-bot user, monitored channel.
 
 **Tasks:**
-1. [ ] Add nested thread detection: if message has `thread_ts` AND `thread_ts !== ts`, skip (it's a reply to a reply)
-2. [ ] Add per-channel monitoring: read monitored channel list from app_settings, skip channels not in list (default: monitor all)
-3. [ ] Verify all PRD guardrails are enforced: confidence >= 0.85, minCorroboratingResults >= 2, staleness <= 90 days, skip bot users
-4. [ ] Add bot-user detection: check `message.bot_id` or `message.subtype === 'bot_message'`
-5. [ ] Write tests for each guardrail condition
+1. [x] Add nested thread detection: if message has `thread_ts` AND `thread_ts !== ts`, skip (it's a reply to a reply)
+2. [x] Add per-channel monitoring: read monitored channel list from app_settings, skip channels not in list (default: monitor all)
+3. [x] Verify all PRD guardrails are enforced: confidence >= 0.85, minCorroboratingResults >= 2, staleness <= 90 days, skip bot users
+4. [x] Add bot-user detection: check `message.bot_id` or `message.subtype === 'bot_message'`
+5. [x] Write tests for each guardrail condition
 
 **Acceptance Criteria:**
-- [ ] Replies to replies are skipped (no nested thread spam)
-- [ ] Per-channel monitoring configurable via app_settings API
-- [ ] Bot messages skipped
-- [ ] All 5 guardrails enforced before posting
-- [ ] Threaded replies include attribution per existing formatAttributedResponse
+- [x] Replies to replies are skipped (no nested thread spam)
+- [x] Per-channel monitoring configurable via app_settings API
+- [x] Bot messages skipped
+- [x] All 5 guardrails enforced before posting
+- [x] Threaded replies include attribution per existing formatAttributedResponse
 
 ---
 
