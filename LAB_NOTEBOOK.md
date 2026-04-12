@@ -1402,4 +1402,55 @@ During the session, the `claude` user's sudoers was accidentally reduced to only
 - `ANTHROPIC_API_KEY` ← `OPENCLAW_ANTHROPIC_API_KEY` (sk-ant-a..._AAA)
 - `DEEPGRAM_API_KEY` ← `OPENCLAW_DEEPGRAM_API_KEY` (2004a0cf...e5c7)
 
-*Results logged as implementation proceeds.*
+#### Phase 1 Results (commit 2e7bc40, merged as PR #49)
+- 1.1: Added `git` to Dockerfile prod-base stage
+- 1.2: Commented out Ollama from compose, created `scripts/post-compose-up.sh`
+- 1.3: Updated wiki.yaml for Gitea:3000, added `buildAuthUrl()` to WikiGitService (6 new tests)
+- 1.4: Updated init-schema.sql with 0013-0017 tables
+- 1.5: Created `deploy/.env.secrets.template` (20 secrets documented)
+- 2,429 tests passing
+
+#### Phase 2 Results (operational deployment)
+- All containers built and deployed to homeserver
+- Migrations 0013-0017 applied (all idempotent, no errors)
+- Ollama + Gitea already connected to open-brain network (from earlier session)
+- Core services healthy: postgres, redis, core-api, workers, slack-bot, web, file-ingestion, cloudflared
+- **Voice-pipecat crash-looping** — ANTHROPIC_API_KEY is in .env.secrets but not reaching container. Suspected Pydantic BaseSettings env loading issue. Legacy voice-capture works as fallback. Deferred.
+- **GITEA_TOKEN issue discovered**: `${GITEA_TOKEN}` in compose `environment:` section is shell interpolation, not env_file. Fixed by adding to `.env` (compose interpolation file) in addition to `.env.secrets`.
+
+#### Phase 3 Results (post-deploy validation)
+- Regression tests: 89/95 pass (99%), 0 bugs, 5 skips. 1 fail = MCP token not passed to script.
+- Dashboard: 59 captures, 654 entities, 20 skills registered. All pages load.
+- MCP: All 15 tools responding via authenticated endpoint.
+- T0 validation: deferred to local run.
+
+#### Phase 4 Results (wiki + intelligence activation)
+- Wiki repo cloned successfully after GITEA_TOKEN fix
+- Wiki-ingest worker processing capture jobs
+- **Autonomy promoted to `assist`** — Pushover notifications, DM drafts now active
+- Voice-pipecat: deferred (env var issue)
+- Gitea token stored in Bitwarden (id: 3d1269fd, project: ai-work)
+
+**What Worked:**
+- Parallel subagent execution for Phase 1 (5 items) completed cleanly
+- Infrastructure reconnaissance from Entry 027 prevented duplicate Ollama + caught Gitea networking issues early
+- 99% regression pass rate on first deploy — no regressions from 16,500 LOC change
+- Wiki repo clone + wiki-ingest activation worked once GITEA_TOKEN was properly passed
+
+**What Failed / Needs Follow-up:**
+- Voice-pipecat env var issue — ANTHROPIC_API_KEY in .env.secrets but Pydantic BaseSettings not reading it. Needs debugging.
+- `${VAR}` in compose `environment:` vs env_file semantics — caught us on GITEA_TOKEN. Operational rule added below.
+- e2e-phase1.sh defaults to port 3000 (old) — should be updated to 3002
+
+**Decisions:**
+- D33: GITEA_TOKEN must be in BOTH `.env` (for compose interpolation) and `.env.secrets` (for direct container env). The `${VAR}` syntax in `environment:` is compose-time interpolation from `.env`, not runtime env_file loading.
+- D34: Voice-pipecat debugging deferred — legacy voice-capture handles all current voice needs.
+
+**Status:** COMPLETE — v2 deployed and operational. Wiki active. Autonomy at `assist`.
+
+**Deferred to future sessions:**
+- OneDrive file ingestion (sync in progress, needs organizing)
+- T0 classification validation (run locally)
+- Voice-pipecat env var debugging
+- Anthropic API key switch (using OpenAI gpt-5.4 for now)
+- Full Pipecat voice validation + container promotion
