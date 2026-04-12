@@ -7,7 +7,6 @@ import { captures, pipeline_events } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
-import type { EmbedCaptureQueue } from '../queues/embed-capture.js'
 import { buildIngestFlow } from '../flows/ingest-pipeline.js'
 import type { IngestDedup } from '../lib/ingest-dedup.js'
 
@@ -30,6 +29,7 @@ async function recordStageEvent(
   durationMs?: number,
   error?: string,
   newPipelineStatus?: string,
+  traceId?: string,
 ): Promise<void> {
   await db.insert(pipeline_events).values({
     capture_id: captureId,
@@ -37,6 +37,7 @@ async function recordStageEvent(
     status,
     duration_ms: durationMs,
     error,
+    metadata: traceId ? { trace_id: traceId } : undefined,
   })
 
   if (newPipelineStatus) {
@@ -68,8 +69,7 @@ async function recordStageEvent(
 export async function processIngestionJob(
   data: CapturePipelineJobData,
   db: Database,
-  embedCaptureQueue: EmbedCaptureQueue,
-  flowProducer?: FlowProducer,
+  flowProducer: FlowProducer,
   ingestDedup?: IngestDedup,
 ): Promise<void> {
   const { captureId } = data
@@ -83,6 +83,7 @@ export async function processIngestionJob(
       content_hash: captures.content_hash,
       pipeline_status: captures.pipeline_status,
       pipeline_attempts: captures.pipeline_attempts,
+      source_metadata: captures.source_metadata,
     })
     .from(captures)
     .where(eq(captures.id, captureId))
@@ -100,6 +101,11 @@ export async function processIngestionJob(
     logger.info({ captureId, pipeline_status: capture.pipeline_status }, '[ingestion] already terminal, skipping')
     return
   }
+
+  // ── Extract trace ID from source_metadata ─────────────────────────────────
+  const sourceMeta = capture.source_metadata as Record<string, unknown> | null
+  const traceId = (sourceMeta?.trace_id as string | undefined) ?? data.traceId
+  const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
   // ── Content hash dedup ────────────────────────────────────────────────────
   // Check Redis for recent duplicates (5-min TTL). This catches iOS Shortcut
@@ -130,9 +136,9 @@ export async function processIngestionJob(
     })
     .where(eq(captures.id, captureId))
 
-  await recordStageEvent(db, captureId, 'received', 'started')
+  await recordStageEvent(db, captureId, 'received', 'started', undefined, undefined, undefined, traceId)
 
-  logger.info({ captureId }, '[ingestion] marked processing')
+  log.info('[ingestion] marked processing')
 
   // ── Extract stage (stub) ───────────────────────────────────────────────────
   // Real text extraction (audio transcription, document parse) is implemented
@@ -141,45 +147,36 @@ export async function processIngestionJob(
   const extractStart = Date.now()
 
   try {
-    await recordStageEvent(db, captureId, 'extract', 'started')
+    await recordStageEvent(db, captureId, 'extract', 'started', undefined, undefined, undefined, traceId)
 
     // Stub: no-op. Future: call transcription or parser service here.
 
     const extractDurationMs = Date.now() - extractStart
-    await recordStageEvent(db, captureId, 'extract', 'success', extractDurationMs, undefined, 'extracted')
+    await recordStageEvent(db, captureId, 'extract', 'success', extractDurationMs, undefined, 'extracted', traceId)
 
-    logger.info({ captureId, duration_ms: extractDurationMs }, '[ingestion] extract stage complete (stub)')
+    log.info({ duration_ms: extractDurationMs }, '[ingestion] extract stage complete (stub)')
 
-    // Enqueue downstream pipeline — FlowProducer DAG or legacy queue bridging
-    if (flowProducer) {
-      const flow = buildIngestFlow(captureId)
-      await flowProducer.add(flow)
-      logger.info({ captureId }, '[ingestion] FlowProducer DAG enqueued (embed + extract → ingest-root)')
-    } else {
-      // Legacy path: manual queue bridging (embed-capture enqueues extract + triggers)
-      await embedCaptureQueue.add(
-        'embed',
-        { captureId },
-        { jobId: `embed_${captureId}` },
-      )
-      logger.info({ captureId }, '[ingestion] embed-capture job enqueued (legacy)')
-    }
+    // Enqueue downstream pipeline via FlowProducer DAG
+    const includeWikiIngest = !!process.env.WIKI_REPO_URL
+    const flow = buildIngestFlow(captureId, { includeWikiIngest, traceId })
+    await flowProducer.add(flow)
+    log.info({ includeWikiIngest }, '[ingestion] FlowProducer DAG enqueued (embed + extract + ingest-root)')
   } catch (err) {
     const extractDurationMs = Date.now() - extractStart
     const errMsg = err instanceof Error ? err.message : String(err)
 
-    await recordStageEvent(db, captureId, 'extract', 'failed', extractDurationMs, errMsg)
+    await recordStageEvent(db, captureId, 'extract', 'failed', extractDurationMs, errMsg, undefined, traceId)
     await db
       .update(captures)
       .set({ pipeline_error: errMsg, updated_at: new Date() })
       .where(eq(captures.id, captureId))
 
-    logger.error({ captureId, err }, '[ingestion] extract stage failed — retrying')
+    log.error({ err }, '[ingestion] extract stage failed — retrying')
     throw err // let BullMQ retry with patient backoff
   }
 
   const totalDurationMs = Date.now() - stageStart
-  logger.info({ captureId, duration_ms: totalDurationMs }, '[ingestion] job complete')
+  log.info({ duration_ms: totalDurationMs }, '[ingestion] job complete')
 }
 
 /**
@@ -201,14 +198,13 @@ export function pipelineBackoffStrategy(attemptsMade: number): number {
 export function createIngestionWorker(
   connection: ConnectionOptions,
   db: Database,
-  embedCaptureQueue: EmbedCaptureQueue,
-  flowProducer?: FlowProducer,
+  flowProducer: FlowProducer,
   ingestDedup?: IngestDedup,
 ): Worker<CapturePipelineJobData> {
   const worker = new Worker<CapturePipelineJobData>(
     'capture-pipeline',
     async (job) => {
-      await processIngestionJob(job.data, db, embedCaptureQueue, flowProducer, ingestDedup)
+      await processIngestionJob(job.data, db, flowProducer, ingestDedup)
     },
     {
       connection,

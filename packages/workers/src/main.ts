@@ -125,24 +125,16 @@ async function main() {
   const ingestDedup = new IngestDedup(dedupRedis)
   logger.info('IngestDedup initialized (5-min TTL content hash dedup)')
 
-  // FlowProducer — enabled via PIPELINE_USE_FLOWS=true feature flag
-  const useFlows = process.env.PIPELINE_USE_FLOWS === 'true'
-  let flowProducer: FlowProducer | undefined
-
-  if (useFlows) {
-    flowProducer = new FlowProducer({ connection })
-    logger.info('FlowProducer initialized — pipeline will use DAG-based orchestration')
-  } else {
-    logger.info('FlowProducer disabled — using legacy queue bridging (set PIPELINE_USE_FLOWS=true to enable)')
-  }
+  // FlowProducer — DAG-based pipeline orchestration (always enabled)
+  const flowProducer = new FlowProducer({ connection })
+  logger.info('FlowProducer initialized — pipeline uses DAG-based orchestration')
 
   // Workers
   const workers: Worker[] = []
 
-  workers.push(createIngestionWorker(connection, db, queues.embedCapture, flowProducer, ingestDedup))
+  workers.push(createIngestionWorker(connection, db, flowProducer, ingestDedup))
   workers.push(createEmbedCaptureWorker(
-    connection, db, configService, litellmUrl, litellmApiKey,
-    queues.checkTriggers, queues.extractEntities, spendTracker,
+    connection, db, configService, litellmUrl, litellmApiKey, spendTracker,
   ))
   // Ingest-root worker — processes the FlowProducer root job after children complete
   // Always registered so it can drain jobs if flows were previously enabled

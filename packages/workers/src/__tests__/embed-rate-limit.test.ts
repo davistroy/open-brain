@@ -57,9 +57,6 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
       { captureId: 'cap-1' },
       db as never,
       embedService as never,
-      undefined,
-      undefined,
-      false,
       tracker,
     )
 
@@ -79,9 +76,6 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
         { captureId: 'cap-1' },
         db as never,
         embedService as never,
-        undefined,
-        undefined,
-        false,
         tracker,
       ),
     ).rejects.toThrow(DelayedError)
@@ -103,9 +97,6 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
       { captureId: 'cap-1' },
       db as never,
       embedService as never,
-      undefined,
-      undefined,
-      false,
       tracker,
     )
 
@@ -129,9 +120,6 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
       { captureId: 'cap-1' },
       db as never,
       embedService as never,
-      undefined,
-      undefined,
-      false,
       undefined, // no tracker
     )
 

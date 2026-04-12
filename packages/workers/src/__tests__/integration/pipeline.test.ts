@@ -1,8 +1,10 @@
 /**
- * Pipeline Smoke Tests (6.3) — BullMQ flow, retry, and idempotency.
+ * Pipeline Smoke Tests (6.3) -- BullMQ flow, retry, and idempotency.
  *
  * Exercises the real BullMQ capture pipeline with real Redis and Postgres.
  * LLM and embedding calls are stubbed (LiteLLM unavailable in test/CI).
+ * FlowProducer is mocked for ingestion tests (real flow orchestration
+ * tested via the ingest-pipeline unit tests).
  *
  * Requires docker-compose.test.yml services running:
  *   docker compose -f docker-compose.test.yml up -d
@@ -28,13 +30,24 @@ import type { CapturePipelineJobData } from '../../queues/capture-pipeline.js'
 import type { EmbedCaptureJobData } from '../../queues/embed-capture.js'
 
 // ---------------------------------------------------------------------------
-// Queue name generator — unique per test to avoid cross-test collision
+// Queue name generator -- unique per test to avoid cross-test collision
 // ---------------------------------------------------------------------------
 
 let testRunId = 0
 
 function uniqueQueueName(base: string): string {
   return `test-${base}-${testRunId++}-${Date.now()}`
+}
+
+/**
+ * Create a mock FlowProducer for tests.
+ * Ingestion worker calls flowProducer.add() to enqueue the DAG.
+ */
+function mockFlowProducer() {
+  return {
+    add: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,38 +89,25 @@ async function waitForJobState(
 }
 
 // ---------------------------------------------------------------------------
-// 1. Pipeline flow: capture → ingestion job → embed job → complete
+// 1. Pipeline flow: capture -> ingestion job -> flow DAG enqueued -> embed -> complete
 // ---------------------------------------------------------------------------
 
 describe('Pipeline Flow', () => {
-  it('processes a capture through ingestion and embed stages with real Redis', async () => {
+  it('processes a capture through ingestion stage and enqueues FlowProducer DAG', async () => {
     const db = getTestDb()
-
-    // Create unique queue names for isolation
-    const embedQueueName = uniqueQueueName('embed-capture')
-
-    // Create queues backed by real Redis
-    const embedQueue = new Queue<EmbedCaptureJobData>(embedQueueName, {
-      connection: redisConnection,
-    })
-
-    // Stub embedding service — returns zero vectors (768d)
-    const stubEmbeddingService = {
-      embed: vi.fn().mockResolvedValue(new Array(768).fill(0.1)),
-      embedBatch: vi.fn(),
-    }
+    const flowProducer = mockFlowProducer()
 
     // Create a test capture in 'pending' state
     const capture = await createTestCapture({
-      content: 'Pipeline flow test capture — should transit to complete',
+      content: 'Pipeline flow test capture -- should transit to extracted',
       pipeline_status: 'pending',
     })
     const captureId = capture.id as string
 
-    // --- Step 1: Process ingestion job (calls processIngestionJob directly) ---
-    await processIngestionJob({ captureId }, db, embedQueue as any)
+    // Process ingestion job -- calls flowProducer.add() to enqueue DAG
+    await processIngestionJob({ captureId }, db, flowProducer as any)
 
-    // Verify capture status → 'extracted'
+    // Verify capture status -> 'extracted'
     const [afterIngestion] = await db
       .select({
         pipeline_status: captures.pipeline_status,
@@ -135,21 +135,40 @@ describe('Pipeline Flow', () => {
     expect(extractStarted).toBeDefined()
     expect(extractSuccess).toBeDefined()
 
-    // Verify embed job was enqueued in the embed queue
-    const embedJob = await embedQueue.getJob(`embed_${captureId}`)
-    expect(embedJob).toBeDefined()
-    expect(embedJob!.data.captureId).toBe(captureId)
+    // Verify FlowProducer.add was called with the correct DAG
+    expect(flowProducer.add).toHaveBeenCalledOnce()
+    const flowArg = flowProducer.add.mock.calls[0][0]
+    expect(flowArg.name).toBe('ingest-root')
+    expect(flowArg.data.captureId).toBe(captureId)
+    expect(flowArg.children).toHaveLength(2)
+    const childQueues = flowArg.children.map((c: any) => c.queueName).sort()
+    expect(childQueues).toEqual(['embed-capture', 'extract-entities'])
+  })
 
-    // --- Step 2: Process embed job directly ---
+  it('processes embed stage independently and advances to complete', async () => {
+    const db = getTestDb()
+
+    // Stub embedding service -- returns zero vectors (768d)
+    const stubEmbeddingService = {
+      embed: vi.fn().mockResolvedValue(new Array(768).fill(0.1)),
+      embedBatch: vi.fn(),
+    }
+
+    // Create a test capture in 'extracted' state (as if ingestion already ran)
+    const capture = await createTestCapture({
+      content: 'Embed stage test capture -- should transit to complete',
+      pipeline_status: 'extracted',
+    })
+    const captureId = capture.id as string
+
+    // Process embed job directly
     await processEmbedCaptureJob(
       { captureId },
       db,
       stubEmbeddingService as any,
-      undefined, // no check-triggers queue
-      undefined, // no extract-entities queue
     )
 
-    // Verify capture status → 'complete'
+    // Verify capture status -> 'complete'
     const [afterEmbed] = await db
       .select({
         pipeline_status: captures.pipeline_status,
@@ -176,31 +195,18 @@ describe('Pipeline Flow', () => {
 
     // Verify embedding service was called with capture content
     expect(stubEmbeddingService.embed).toHaveBeenCalledWith(
-      'Pipeline flow test capture — should transit to complete',
+      'Embed stage test capture -- should transit to complete',
     )
-
-    // Cleanup queues
-    await embedQueue.obliterate({ force: true })
-    await embedQueue.close()
   })
 
-  it('processes a capture end-to-end via BullMQ workers with real Redis', async () => {
+  it('processes ingestion via BullMQ worker with real Redis', async () => {
     const db = getTestDb()
+    const flowProducer = mockFlowProducer()
 
     const pipelineQueueName = uniqueQueueName('capture-pipeline')
-    const embedQueueName = uniqueQueueName('embed-capture')
-
     const pipelineQueue = new Queue<CapturePipelineJobData>(pipelineQueueName, {
       connection: redisConnection,
     })
-    const embedQueue = new Queue<EmbedCaptureJobData>(embedQueueName, {
-      connection: redisConnection,
-    })
-
-    const stubEmbeddingService = {
-      embed: vi.fn().mockResolvedValue(new Array(768).fill(0.05)),
-      embedBatch: vi.fn(),
-    }
 
     // Create a test capture
     const capture = await createTestCapture({
@@ -209,24 +215,16 @@ describe('Pipeline Flow', () => {
     })
     const captureId = capture.id as string
 
-    // Create workers that process jobs from real Redis queues
+    // Create ingestion worker with mock FlowProducer
     const ingestionWorker = new Worker<CapturePipelineJobData>(
       pipelineQueueName,
       async (job) => {
-        await processIngestionJob(job.data, db, embedQueue as any)
+        await processIngestionJob(job.data, db, flowProducer as any)
       },
       {
         connection: redisConnection,
         settings: { backoffStrategy: pipelineBackoffStrategy },
       },
-    )
-
-    const embedWorker = new Worker<EmbedCaptureJobData>(
-      embedQueueName,
-      async (job) => {
-        await processEmbedCaptureJob(job.data, db, stubEmbeddingService as any)
-      },
-      { connection: redisConnection },
     )
 
     // Enqueue the pipeline job
@@ -235,38 +233,29 @@ describe('Pipeline Flow', () => {
     // Wait for the pipeline job to complete
     await waitForJobState(pipelineQueue, captureId, ['completed'])
 
-    // Wait for the embed job to complete (enqueued by ingestion worker)
-    await waitForJobState(embedQueue, `embed_${captureId}`, ['completed'])
+    // Verify FlowProducer.add was called (DAG enqueued)
+    expect(flowProducer.add).toHaveBeenCalled()
 
-    // Verify final capture state
+    // Verify final capture state (extracted -- embed hasn't run yet)
     const [final] = await db
       .select({
         pipeline_status: captures.pipeline_status,
-        pipeline_completed_at: captures.pipeline_completed_at,
       })
       .from(captures)
       .where(eq(captures.id, captureId))
       .limit(1)
 
-    expect(final.pipeline_status).toBe('complete')
-    expect(final.pipeline_completed_at).toBeInstanceOf(Date)
+    expect(final.pipeline_status).toBe('extracted')
 
     // Cleanup
     await ingestionWorker.close()
-    await embedWorker.close()
     await pipelineQueue.obliterate({ force: true })
-    await embedQueue.obliterate({ force: true })
     await pipelineQueue.close()
-    await embedQueue.close()
   })
 
   it('skips already-terminal captures (idempotency guard in ingestion)', async () => {
     const db = getTestDb()
-
-    const embedQueueName = uniqueQueueName('embed-capture')
-    const embedQueue = new Queue<EmbedCaptureJobData>(embedQueueName, {
-      connection: redisConnection,
-    })
+    const flowProducer = mockFlowProducer()
 
     // Create a capture that is already 'complete'
     const capture = await createTestCapture({
@@ -275,12 +264,11 @@ describe('Pipeline Flow', () => {
     })
     const captureId = capture.id as string
 
-    // Process ingestion — should skip without side effects
-    await processIngestionJob({ captureId }, db, embedQueue as any)
+    // Process ingestion -- should skip without side effects
+    await processIngestionJob({ captureId }, db, flowProducer as any)
 
-    // Verify no embed job was enqueued
-    const jobs = await embedQueue.getJobs()
-    expect(jobs).toHaveLength(0)
+    // Verify no flow DAG was enqueued
+    expect(flowProducer.add).not.toHaveBeenCalled()
 
     // Verify pipeline_events are empty (no stage processing happened)
     const events = await db
@@ -289,9 +277,6 @@ describe('Pipeline Flow', () => {
       .where(eq(pipeline_events.capture_id, captureId))
 
     expect(events).toHaveLength(0)
-
-    await embedQueue.obliterate({ force: true })
-    await embedQueue.close()
   })
 
   it('skips already-embedded captures in embed worker (idempotency guard)', async () => {
@@ -309,7 +294,7 @@ describe('Pipeline Flow', () => {
     })
     const captureId = capture.id as string
 
-    // Process embed — should skip
+    // Process embed -- should skip
     await processEmbedCaptureJob(
       { captureId },
       db,
@@ -322,22 +307,22 @@ describe('Pipeline Flow', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 2. Retry behavior: backoff strategy + stage failure → BullMQ retry
+// 2. Retry behavior: backoff strategy + stage failure -> BullMQ retry
 // ---------------------------------------------------------------------------
 
 describe('Retry Behavior', () => {
   it('pipelineBackoffStrategy returns correct patient delays', () => {
-    // Attempt 1 → 30s
+    // Attempt 1 -> 30s
     expect(pipelineBackoffStrategy(1)).toBe(30_000)
-    // Attempt 2 → 2m
+    // Attempt 2 -> 2m
     expect(pipelineBackoffStrategy(2)).toBe(120_000)
-    // Attempt 3 → 10m
+    // Attempt 3 -> 10m
     expect(pipelineBackoffStrategy(3)).toBe(600_000)
-    // Attempt 4 → 30m
+    // Attempt 4 -> 30m
     expect(pipelineBackoffStrategy(4)).toBe(1_800_000)
-    // Attempt 5 → 2h
+    // Attempt 5 -> 2h
     expect(pipelineBackoffStrategy(5)).toBe(7_200_000)
-    // Beyond max → clamp to last delay
+    // Beyond max -> clamp to last delay
     expect(pipelineBackoffStrategy(10)).toBe(7_200_000)
   })
 
@@ -442,7 +427,7 @@ describe('Retry Behavior', () => {
     })
     const captureId = capture.id as string
 
-    // Process directly — expect throw
+    // Process directly -- expect throw
     await expect(
       processEmbedCaptureJob(
         { captureId },
@@ -462,26 +447,19 @@ describe('Retry Behavior', () => {
       .limit(1)
 
     expect(updated.pipeline_error).toBe('LiteLLM down')
-    // Status should still be 'extracted' — not advanced
+    // Status should still be 'extracted' -- not advanced
     expect(updated.pipeline_status).toBe('extracted')
   })
 
   it('throws UnrecoverableError for missing captures (no retry)', async () => {
     const db = getTestDb()
-
-    const embedQueueName = uniqueQueueName('embed-capture')
-    const embedQueue = new Queue<EmbedCaptureJobData>(embedQueueName, {
-      connection: redisConnection,
-    })
+    const flowProducer = mockFlowProducer()
 
     const nonExistentId = '00000000-0000-0000-0000-000000000000'
 
     await expect(
-      processIngestionJob({ captureId: nonExistentId }, db, embedQueue as any),
+      processIngestionJob({ captureId: nonExistentId }, db, flowProducer as any),
     ).rejects.toThrow(/not found/)
-
-    await embedQueue.obliterate({ force: true })
-    await embedQueue.close()
   })
 })
 
@@ -490,13 +468,9 @@ describe('Retry Behavior', () => {
 // ---------------------------------------------------------------------------
 
 describe('Idempotency', () => {
-  it('BullMQ deduplicates embed jobs by jobId', async () => {
+  it('FlowProducer deduplicates via idempotent jobIds in flow DAG', async () => {
     const db = getTestDb()
-
-    const embedQueueName = uniqueQueueName('embed-capture')
-    const embedQueue = new Queue<EmbedCaptureJobData>(embedQueueName, {
-      connection: redisConnection,
-    })
+    const flowProducer = mockFlowProducer()
 
     const capture = await createTestCapture({
       content: 'Idempotency test capture',
@@ -504,20 +478,21 @@ describe('Idempotency', () => {
     })
     const captureId = capture.id as string
 
-    // Run ingestion once — enqueues embed job
-    await processIngestionJob({ captureId }, db, embedQueue as any)
+    // Run ingestion once -- enqueues flow DAG
+    await processIngestionJob({ captureId }, db, flowProducer as any)
 
     // Run ingestion again (capture is now 'extracted', not terminal)
-    await processIngestionJob({ captureId }, db, embedQueue as any)
+    await processIngestionJob({ captureId }, db, flowProducer as any)
 
-    // BullMQ deduplicates: embed queue should have only one job
-    // (both runs add embed_{captureId} with the same jobId)
-    const embedJobs = await embedQueue.getJobs()
-    const uniqueJobIds = new Set(embedJobs.map((j) => j.id))
-    expect(uniqueJobIds.size).toBe(1)
+    // FlowProducer.add was called twice, but each flow DAG uses
+    // idempotent jobIds (embed_{captureId}, extract-entities_{captureId})
+    // so BullMQ deduplicates at the queue level
+    expect(flowProducer.add).toHaveBeenCalledTimes(2)
 
-    await embedQueue.obliterate({ force: true })
-    await embedQueue.close()
+    // Verify both calls use the same idempotent jobIds
+    const call1 = flowProducer.add.mock.calls[0][0]
+    const call2 = flowProducer.add.mock.calls[1][0]
+    expect(call1.opts.jobId).toBe(call2.opts.jobId)
   })
 
   it('embed worker does not re-embed a capture already at complete status', async () => {
@@ -536,7 +511,7 @@ describe('Idempotency', () => {
     })
     const captureId = capture.id as string
 
-    // Process embed — should skip (idempotency guard)
+    // Process embed -- should skip (idempotency guard)
     await processEmbedCaptureJob(
       { captureId },
       db,
@@ -555,18 +530,9 @@ describe('Idempotency', () => {
     expect(events).toHaveLength(0)
   })
 
-  it('full pipeline processes a capture exactly once to completion', async () => {
+  it('ingestion + embed processes a capture exactly once to completion', async () => {
     const db = getTestDb()
-
-    const pipelineQueueName = uniqueQueueName('capture-pipeline')
-    const embedQueueName = uniqueQueueName('embed-capture')
-
-    const pipelineQueue = new Queue<CapturePipelineJobData>(pipelineQueueName, {
-      connection: redisConnection,
-    })
-    const embedQueue = new Queue<EmbedCaptureJobData>(embedQueueName, {
-      connection: redisConnection,
-    })
+    const flowProducer = mockFlowProducer()
 
     const stubEmbeddingService = {
       embed: vi.fn().mockResolvedValue(new Array(768).fill(0.3)),
@@ -579,30 +545,12 @@ describe('Idempotency', () => {
     })
     const captureId = capture.id as string
 
-    // Create workers backed by real Redis
-    const ingestionWorker = new Worker<CapturePipelineJobData>(
-      pipelineQueueName,
-      async (job) => {
-        await processIngestionJob(job.data, db, embedQueue as any)
-      },
-      { connection: redisConnection },
-    )
+    // Step 1: Run ingestion (enqueues flow DAG via mock)
+    await processIngestionJob({ captureId }, db, flowProducer as any)
+    expect(flowProducer.add).toHaveBeenCalledOnce()
 
-    const embedWorker = new Worker<EmbedCaptureJobData>(
-      embedQueueName,
-      async (job) => {
-        await processEmbedCaptureJob(job.data, db, stubEmbeddingService as any)
-      },
-      { connection: redisConnection },
-    )
-
-    // Enqueue the pipeline job TWICE with the same jobId — BullMQ deduplicates
-    await pipelineQueue.add('ingest', { captureId }, { jobId: captureId })
-    await pipelineQueue.add('ingest', { captureId }, { jobId: captureId })
-
-    // Wait for pipeline + embed to complete
-    await waitForJobState(pipelineQueue, captureId, ['completed'])
-    await waitForJobState(embedQueue, `embed_${captureId}`, ['completed'])
+    // Step 2: Run embed (simulating what the flow DAG child would do)
+    await processEmbedCaptureJob({ captureId }, db, stubEmbeddingService as any)
 
     // Verify final state
     const [final] = await db
@@ -616,13 +564,11 @@ describe('Idempotency', () => {
     // Embedding should have been called exactly once
     expect(stubEmbeddingService.embed).toHaveBeenCalledTimes(1)
 
-    // Cleanup
-    await ingestionWorker.close()
-    await embedWorker.close()
-    await pipelineQueue.obliterate({ force: true })
-    await embedQueue.obliterate({ force: true })
-    await pipelineQueue.close()
-    await embedQueue.close()
+    // Step 3: Run ingestion again -- should skip (already complete)
+    await processIngestionJob({ captureId }, db, flowProducer as any)
+
+    // FlowProducer should NOT have been called again (terminal guard)
+    expect(flowProducer.add).toHaveBeenCalledOnce()
   })
 })
 

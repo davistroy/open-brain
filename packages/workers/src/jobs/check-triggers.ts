@@ -193,10 +193,11 @@ export async function processCheckTriggersJob(
   db: Database,
   pushoverService: PushoverService,
 ): Promise<void> {
-  const { captureId } = data
+  const { captureId, traceId } = data
   const start = Date.now()
+  const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
-  logger.debug({ captureId }, '[check-triggers] job received')
+  log.debug('[check-triggers] job received')
 
   // ── Load capture embedding ─────────────────────────────────────────────────
   const [capture] = await db
@@ -211,12 +212,12 @@ export async function processCheckTriggersJob(
     .limit(1)
 
   if (!capture) {
-    logger.warn({ captureId }, '[check-triggers] capture not found — skipping')
+    log.warn('[check-triggers] capture not found — skipping')
     return
   }
 
   if (!capture.embedding) {
-    logger.warn({ captureId }, '[check-triggers] capture has no embedding — skipping')
+    log.warn('[check-triggers] capture has no embedding — skipping')
     return
   }
 
@@ -226,7 +227,7 @@ export async function processCheckTriggersJob(
   const activeTriggers = await getActiveTriggers(db)
 
   if (activeTriggers.length === 0) {
-    logger.debug({ captureId }, '[check-triggers] no active triggers — done')
+    log.debug('[check-triggers] no active triggers — done')
     return
   }
 
@@ -260,8 +261,8 @@ export async function processCheckTriggersJob(
   )
 
   const elapsed = Date.now() - start
-  logger.debug(
-    { captureId, triggerCount: activeTriggers.length, elapsed_ms: elapsed },
+  log.debug(
+    { triggerCount: activeTriggers.length, elapsed_ms: elapsed },
     '[check-triggers] check complete',
   )
 }

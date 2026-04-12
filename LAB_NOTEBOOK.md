@@ -1093,4 +1093,27 @@ The USB SQUASHFS corruption (see homeserver LAB_NOTEBOOK) made `docker ps`, `doc
 - Execute IMPLEMENT_UNIFIED.md via `/implement-plan` when ready
 - Phase 1 and Phase 2 can start immediately in parallel
 
-*Entries continue below.*
+--- New session: 2026-04-11 — Execute IMPLEMENT_UNIFIED.md (v2 unified implementation) ---
+
+### Entry 022: IMPLEMENT_UNIFIED.md Execution — Phase 1: Pipeline & Infrastructure Foundation [deploy] [pipeline] [workers]
+
+**Date:** 2026-04-11
+**Environment:** Laptop (development), feature/v2-unified-implementation branch
+**Status:** IN PROGRESS
+**Tags:** `[deploy]` `[pipeline]` `[workers]` `[config]`
+
+**Objective:** Execute all 39 work items from IMPLEMENT_UNIFIED.md across 8 phases, transforming Open Brain from v1.5.0 capture-and-search system to full v2 knowledge operating system. Starting with Phase 1 (Pipeline & Infrastructure Foundation): FlowProducer DAGs, trace IDs, infrastructure skill scheduling, secret rotation, dedup sweep, backup retention.
+
+**Hypothesis:** Phase 1 items are all independent (no inter-dependencies) and can be implemented in parallel batches. The FlowProducer DAG already exists behind a feature flag; promoting it should be low-risk. Infrastructure skill files already exist; wiring to scheduler should be straightforward. New skills (secret rotation, dedup sweep) follow established skill patterns. Expect: all 6 items pass tests, no regressions against 1,569 existing unit tests.
+
+**Rollback Plan:** `git revert` the merge commit or `git reset --hard` to pre-implementation SHA. All changes are on feature branch `feature/v2-unified-implementation`, not main.
+
+**Phase 1 Work Items:**
+- 1.1: Enable FlowProducer DAG Pipeline (promote feature flag)
+- 1.2: Add Pipeline Trace IDs (UUID v4 cross-stage correlation)
+- 1.3: Register Infrastructure Skills in Scheduler (6 cron entries)
+- 1.4: Create Secret Rotation Reminder Skill (monthly bws check)
+- 1.5: Create Capture Dedup Sweep Skill (weekly cosine >0.95)
+- 1.6: Implement Backup Retention Policies (7/4/3 pruning)
+
+*Results logged as implementation proceeds.*

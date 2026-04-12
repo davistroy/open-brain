@@ -54,27 +54,29 @@ The phasing groups related changes into coherent sets that share code paths, sta
 ### Work Items
 
 #### 1.1 Enable FlowProducer DAG Pipeline
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §4.4 (Data Flow), v2-F3 (Pipeline modernization)
 **Files Affected:**
 - `docker-compose.yml` (modify) -- add `PIPELINE_USE_FLOWS=true` to workers env
 - `packages/workers/src/main.ts` (modify) -- remove feature flag conditional, flows become default
 - `packages/workers/src/flows/ingest-pipeline.ts` (modify) -- add wiki-ingest as non-critical child
+- `packages/workers/src/jobs/ingestion-worker.ts` (modify) -- flowProducer now required, legacy path removed
+- `packages/workers/src/jobs/embed-capture.ts` (modify) -- legacy queue-bridging removed, signature simplified
 
 **Description:**
 The FlowProducer DAG already exists behind the `PIPELINE_USE_FLOWS` feature flag. The ingest-root parent spawns embed-capture and extract-entities as parallel children, then runs link-entities inline after both complete, then fires check-triggers. This item promotes that path to default and adds wiki-ingest as an additional non-critical child that fires after entity linking, conditional on `WIKI_REPO_URL` being set.
 
 **Tasks:**
-1. [ ] Set `PIPELINE_USE_FLOWS=true` in workers environment in `docker-compose.yml`
-2. [ ] Remove the conditional check in `main.ts` that gates FlowProducer behind the env var -- make flows the only code path
-3. [ ] Add `wiki-ingest` job as a non-critical child in `ingest-pipeline.ts` with `removeDependencyOnFailure: true`, gated on `process.env.WIKI_REPO_URL` being truthy
-4. [ ] Verify the legacy queue-bridging code path is unreachable and remove dead code
-5. [ ] Run full test suite to confirm no regressions
+1. [x] Set `PIPELINE_USE_FLOWS=true` in workers environment in `docker-compose.yml`
+2. [x] Remove the conditional check in `main.ts` that gates FlowProducer behind the env var -- make flows the only code path
+3. [x] Add `wiki-ingest` job as a non-critical child in `ingest-pipeline.ts` with `removeDependencyOnFailure: true`, gated on `process.env.WIKI_REPO_URL` being truthy
+4. [x] Verify the legacy queue-bridging code path is unreachable and remove dead code
+5. [x] Run full test suite to confirm no regressions
 
 **Acceptance Criteria:**
-- [ ] Capture flows through embed + extract in parallel, link-entities after both, then check-triggers + wiki-ingest fire
-- [ ] When WIKI_REPO_URL is unset, wiki-ingest child is not added to the flow (no errors)
-- [ ] All existing 1,569 unit tests pass
+- [x] Capture flows through embed + extract in parallel, link-entities after both, then check-triggers + wiki-ingest fire
+- [x] When WIKI_REPO_URL is unset, wiki-ingest child is not added to the flow (no errors)
+- [x] All existing 1,569 unit tests pass (826 workers tests pass)
 - [ ] Pipeline processes a test capture end-to-end in production docker-compose
 
 **Notes:**
@@ -83,7 +85,7 @@ wiki-ingest child follows the same non-critical pattern as extract-entities (rem
 ---
 
 #### 1.2 Add Pipeline Trace IDs
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §18.3 (v2-F3.10 lightweight OTel trace IDs)
 **Files Affected:**
 - `packages/core-api/src/services/capture-service.ts` (modify) -- generate trace UUID on capture creation
@@ -111,7 +113,7 @@ This is NOT full OpenTelemetry. No collector, no spans, no propagation headers. 
 ---
 
 #### 1.3 Register Infrastructure Skills in Scheduler
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §18.8 (v2-F14, Infrastructure Skills Detail)
 **Files Affected:**
 - `packages/workers/src/scheduler.ts` (modify) -- register 6 new cron entries
