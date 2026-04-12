@@ -473,7 +473,7 @@ async function main(): Promise<void> {
     apiKey: '',  // Ollama needs no API key
     model: args.t0Model,
     tier: 't0',
-    timeoutMs: 15_000,
+    timeoutMs: 60_000,  // Gemma 4 on CPU needs ~10-15s per classification
   }
 
   console.log(`\nRunning T0 validation (${t0Endpoint.model} @ ${t0Endpoint.baseUrl})...`)
