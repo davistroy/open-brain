@@ -1,21 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, XCircle, Activity, Pencil, Check, X, Loader2, Mail, Info, Shield, Cpu, Link2, BookOpen, Mic, Send } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, AlertCircle, CheckCircle, Mail, Info, Shield, Cpu, Link2, BookOpen, Mic, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { skillsApi, triggersApi, pipelineApi, adminApi, settingsApi, configApi, voiceSessionApi, wikiApi } from '@/lib/api';
+import { skillsApi, triggersApi, adminApi, settingsApi, configApi, voiceSessionApi, wikiApi } from '@/lib/api';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Skill, Trigger, AutonomyLevel, AIRoutingResponse, IntegrationStatus, WikiLintReport } from '@/lib/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SystemHealth {
-  version?: string;
-  uptime_s?: number;
-  services?: Record<string, { status: 'up' | 'down' | 'degraded'; latency_ms?: number; models_available?: string[] }>;
-  queues?: Record<string, { waiting: number; active: number; failed: number }>;
-}
 
 interface HealthResponse {
   status: string;
@@ -129,104 +122,9 @@ function ServiceHealthSection({ services, loading }: {
   );
 }
 
-// ─── Queue Status section ────────────────────────────────────────────────────
 
-function QueueStatusSection({ queues, loading, onClearQueue }: {
-  queues?: Record<string, { waiting: number; active: number; failed: number }>;
-  loading: boolean;
-  onClearQueue?: (queueName: string) => Promise<void>;
-}) {
-  const [clearing, setClearing] = useState<string | null>(null);
-  const [clearResult, setClearResult] = useState<Record<string, { success: boolean; message: string }>>({});
 
-  async function handleClear(queueName: string) {
-    if (!onClearQueue) return;
-    setClearing(queueName);
-    setClearResult((prev) => { const next = { ...prev }; delete next[queueName]; return next; });
-    try {
-      await onClearQueue(queueName);
-      setClearResult((prev) => ({ ...prev, [queueName]: { success: true, message: 'Cleared' } }));
-      setTimeout(() => setClearResult((prev) => { const next = { ...prev }; delete next[queueName]; return next; }), 4000);
-    } catch (err) {
-      setClearResult((prev) => ({
-        ...prev,
-        [queueName]: { success: false, message: err instanceof Error ? err.message : 'Clear failed' },
-      }));
-    } finally {
-      setClearing(null);
-    }
-  }
 
-  return (
-    <section className="space-y-3">
-      <h2 className="text-base font-semibold">Queue Status</h2>
-
-      {loading && !queues && (
-        <div className="space-y-2">
-          {[...Array(2)].map((_, i) => <div key={i} className="h-8 animate-pulse rounded bg-secondary" />)}
-        </div>
-      )}
-
-      {queues && Object.keys(queues).length > 0 ? (
-        <div className="rounded-lg border bg-card divide-y">
-          {Object.entries(queues).map(([name, q]) => (
-            <div key={name} className="px-4 py-3 flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="capitalize">{name.replace(/-/g, ' ')} queue</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                {q.waiting > 0 && <span>{q.waiting} waiting</span>}
-                {q.active > 0 && <span className="text-blue-600 dark:text-blue-400">{q.active} active</span>}
-                {q.failed > 0 && (
-                  <>
-                    <span className="text-destructive">{q.failed} failed</span>
-                    {onClearQueue && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-5 px-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                        disabled={clearing === name}
-                        onClick={() => handleClear(name)}
-                      >
-                        {clearing === name ? 'Clearing...' : 'Clear'}
-                      </Button>
-                    )}
-                  </>
-                )}
-                {clearResult[name] && (
-                  <span className={clearResult[name].success ? 'text-green-600 dark:text-green-400' : 'text-destructive'}>
-                    {clearResult[name].message}
-                  </span>
-                )}
-                {q.waiting === 0 && q.active === 0 && q.failed === 0 && !clearResult[name] && <span className="text-green-600 dark:text-green-400">idle</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : !loading && (
-        <p className="text-sm text-muted-foreground">No queue data available.</p>
-      )}
-    </section>
-  );
-}
-
-// ─── Cron validation ──────────────────────────────────────────────────────────
-
-/**
- * Basic client-side cron expression validation.
- * Accepts standard 5-field cron: minute hour day-of-month month day-of-week
- * Does not validate value ranges exhaustively — the backend does full validation.
- */
-function isValidCron(expr: string): boolean {
-  const trimmed = expr.trim();
-  if (!trimmed) return false;
-  const fields = trimmed.split(/\s+/);
-  if (fields.length !== 5) return false;
-  // Each field must be: number, *, */n, n-n, n,n, or combinations
-  const fieldPattern = /^(\*|[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*)(\/([0-9]+))?$/;
-  return fields.every((f) => fieldPattern.test(f));
-}
 
 /**
  * Convert a cron expression to a simple human-readable description.
@@ -278,207 +176,7 @@ function describeCron(expr: string): string | null {
   return null;
 }
 
-// ─── Skills section ───────────────────────────────────────────────────────────
 
-function SkillsSection({ skills, loading, error, onTrigger, onScheduleUpdate }: {
-  skills: Skill[];
-  loading: boolean;
-  error: string | null;
-  onTrigger: (name: string) => Promise<void>;
-  onScheduleUpdate: (name: string, schedule: string) => Promise<void>;
-}) {
-  const [triggering, setTriggering] = useState<string | null>(null);
-  const [triggerMsg, setTriggerMsg] = useState<Record<string, string>>({});
-
-  // Schedule editing state
-  const [editingSkill, setEditingSkill] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
-  const [editError, setEditError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-
-  async function handleTrigger(name: string) {
-    setTriggering(name);
-    try {
-      await onTrigger(name);
-      setTriggerMsg((m) => ({ ...m, [name]: 'Queued' }));
-      setTimeout(() => setTriggerMsg((m) => { const n = { ...m }; delete n[name]; return n; }), 4000);
-    } catch (err) {
-      setTriggerMsg((m) => ({ ...m, [name]: err instanceof Error ? err.message : 'Failed' }));
-    } finally {
-      setTriggering(null);
-    }
-  }
-
-  function handleEditClick(skillName: string, currentSchedule: string) {
-    setEditingSkill(skillName);
-    setEditValue(currentSchedule);
-    setEditError(null);
-    setSaveSuccess(null);
-  }
-
-  function handleCancel() {
-    setEditingSkill(null);
-    setEditValue('');
-    setEditError(null);
-  }
-
-  async function handleSave(skillName: string) {
-    const trimmed = editValue.trim();
-
-    if (!isValidCron(trimmed)) {
-      setEditError('Invalid cron expression. Expected 5 fields: minute hour day month weekday');
-      return;
-    }
-
-    setSaving(true);
-    setEditError(null);
-    try {
-      await onScheduleUpdate(skillName, trimmed);
-      setEditingSkill(null);
-      setEditValue('');
-      setSaveSuccess(skillName);
-      setTimeout(() => setSaveSuccess((prev) => prev === skillName ? null : prev), 3000);
-    } catch (err) {
-      setEditError(err instanceof Error ? err.message : 'Failed to update schedule');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent, skillName: string) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleSave(skillName);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleCancel();
-    }
-  }
-
-  return (
-    <section className="space-y-3">
-      <h2 className="text-base font-semibold">Skills</h2>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-
-      {loading && skills.length === 0 ? (
-        <div className="space-y-2">
-          {[...Array(3)].map((_, i) => <div key={i} className="h-14 animate-pulse rounded bg-secondary" />)}
-        </div>
-      ) : skills.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No skills configured.</p>
-      ) : (
-        <div className="rounded-lg border bg-card divide-y">
-          {skills.map((skill) => {
-            const isEditing = editingSkill === skill.name;
-            const justSaved = saveSuccess === skill.name;
-
-            return (
-              <div key={skill.name} className="px-4 py-3 flex items-center justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium font-mono">{skill.name}</span>
-                    {(skill.last_run_status ?? (skill.last_run ? 'success' : undefined)) && (
-                      (skill.last_run_status ?? 'success') === 'success'
-                        ? <CheckCircle className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                        : <XCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
-                    )}
-                    {justSaved && (
-                      <span className="text-xs text-green-600 dark:text-green-400">Schedule updated</span>
-                    )}
-                  </div>
-
-                  <div className="text-xs text-muted-foreground mt-0.5 space-x-2">
-                    {isEditing ? (
-                      <div className="mt-1 space-y-1.5" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-muted-foreground shrink-0">Schedule:</span>
-                          <Input
-                            value={editValue}
-                            onChange={(e) => { setEditValue(e.target.value); setEditError(null); }}
-                            onKeyDown={(e) => handleKeyDown(e, skill.name)}
-                            className="w-48 h-6 px-2 font-mono text-xs"
-                            placeholder="0 20 * * 0"
-                            autoFocus
-                            disabled={saving}
-                          />
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950"
-                            onClick={() => handleSave(skill.name)}
-                            disabled={saving}
-                            aria-label="Save schedule"
-                          >
-                            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                            onClick={handleCancel}
-                            disabled={saving}
-                            aria-label="Cancel editing"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                        {editValue.trim() && describeCron(editValue.trim()) && (
-                          <p className="text-xs text-muted-foreground ml-[4.5rem]">{describeCron(editValue.trim())}</p>
-                        )}
-                        {editError && (
-                          <p className="text-xs text-destructive ml-[4.5rem]">{editError}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <span
-                        className="inline-flex items-center gap-1 group cursor-pointer hover:text-foreground transition-colors"
-                        onClick={() => handleEditClick(skill.name, skill.schedule ?? '')}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleEditClick(skill.name, skill.schedule ?? ''); }}
-                        title="Click to edit schedule"
-                      >
-                        Schedule: <span className="font-mono">{skill.schedule ?? '—'}</span>
-                        <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />
-                      </span>
-                    )}
-                    {!isEditing && (skill.last_run_at ?? skill.last_run) && (
-                      <span>Last: {new Date((skill.last_run_at ?? skill.last_run)!).toLocaleString()}</span>
-                    )}
-                    {!isEditing && (skill.next_run_at ?? skill.next_run) && (
-                      <span>Next: {new Date((skill.next_run_at ?? skill.next_run)!).toLocaleString()}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {triggerMsg[skill.name] && (
-                    <span className="text-xs text-muted-foreground">{triggerMsg[skill.name]}</span>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={triggering === skill.name}
-                    onClick={() => handleTrigger(skill.name)}
-                    className="text-xs"
-                  >
-                    {triggering === skill.name ? 'Queuing...' : 'Run now'}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
 
 // ─── Triggers section ─────────────────────────────────────────────────────────
 
@@ -1359,13 +1057,12 @@ function DangerZoneSection() {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Settings() {
-  const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(true);
   const [healthError, setHealthError] = useState<string | null>(null);
 
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(true);
-  const [skillsError, setSkillsError] = useState<string | null>(null);
 
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [triggersLoading, setTriggersLoading] = useState(true);
@@ -1398,39 +1095,21 @@ export default function Settings() {
   const loadHealth = useCallback(async () => {
     setHealthError(null);
     try {
-      const [healthRes, queueRes] = await Promise.allSettled([
-        apiFetch<HealthResponse>('/api/v1/health'),
-        pipelineApi.health(),
-      ]);
-      const merged: SystemHealth = {};
-      if (healthRes.status === 'fulfilled') {
-        Object.assign(merged, {
-          version: healthRes.value.version,
-          uptime_s: healthRes.value.uptime_s,
-          services: healthRes.value.services,
-        });
-      }
-      if (queueRes.status === 'fulfilled') {
-        merged.queues = queueRes.value.queues;
-      }
-      if (healthRes.status === 'rejected' && queueRes.status === 'rejected') {
-        setHealthError('Could not reach Core API. Is it running?');
-      }
-      setHealth(merged);
+      const data = await apiFetch<HealthResponse>('/api/v1/health');
+      setHealth(data);
     } catch (err) {
-      setHealthError(err instanceof Error ? err.message : 'Failed to load health');
+      setHealthError(err instanceof Error ? err.message : 'Could not reach Core API. Is it running?');
     } finally {
       setHealthLoading(false);
     }
   }, []);
 
   const loadSkills = useCallback(async () => {
-    setSkillsError(null);
     try {
       const res = await skillsApi.list();
       setSkills(res.data);
-    } catch (err) {
-      setSkillsError(err instanceof Error ? err.message : 'Failed to load skills');
+    } catch {
+      // Skills are only used for WikiSection display — non-critical
     } finally {
       setSkillsLoading(false);
     }
@@ -1569,15 +1248,6 @@ export default function Settings() {
     setRefreshing(false);
   }
 
-  async function handleTriggerSkill(name: string) {
-    await skillsApi.trigger(name);
-  }
-
-  async function handleScheduleUpdate(name: string, schedule: string) {
-    await skillsApi.updateSchedule(name, schedule);
-    await loadSkills();
-  }
-
   async function handleAddTrigger(name: string, queryText: string) {
     await triggersApi.create(name, queryText);
     await loadTriggers();
@@ -1605,11 +1275,6 @@ export default function Settings() {
     setAllowlist(updated);
   }
 
-  async function handleClearQueue(queueName: string) {
-    await adminApi.clearQueue(queueName);
-    await loadHealth();
-  }
-
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -1633,24 +1298,6 @@ export default function Settings() {
       <ServiceHealthSection
         services={health?.services}
         loading={healthLoading}
-      />
-
-      <Separator />
-
-      <QueueStatusSection
-        queues={health?.queues}
-        loading={healthLoading}
-        onClearQueue={handleClearQueue}
-      />
-
-      <Separator />
-
-      <SkillsSection
-        skills={skills}
-        loading={skillsLoading}
-        error={skillsError}
-        onTrigger={handleTriggerSkill}
-        onScheduleUpdate={handleScheduleUpdate}
       />
 
       <Separator />

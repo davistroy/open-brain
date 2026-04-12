@@ -1375,7 +1375,7 @@ Add 4 new read-only configuration display sections to Settings.tsx: AI Routing (
 ---
 
 #### 8.4 Consolidate Settings and System Pages
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §12.1 (Navigation Structure v2)
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify) -- remove moved sections
@@ -1386,17 +1386,20 @@ Add 4 new read-only configuration display sections to Settings.tsx: AI Routing (
 Move operational management (queues, skills) from Settings to System page. Settings retains: version/uptime, service health, configuration displays (AI, voice, wiki, email), autonomy level, triggers. System becomes the operational hub.
 
 **Tasks:**
-1. [ ] Move QueueStatusSection from Settings.tsx to System.tsx Queues tab
-2. [ ] Move SkillsSection from Settings.tsx to System.tsx Skills tab
-3. [ ] Clean up Settings.tsx: remaining sections are Version/Uptime, Service Health, AI Routing, Voice, Wiki, Email, Autonomy Level, Triggers
-4. [ ] Verify Layout.tsx navigation: System and Settings both accessible
-5. [ ] Test that all moved functionality works in new location
+1. [x] Move QueueStatusSection from Settings.tsx to System.tsx Queues tab
+2. [x] Move SkillsSection from Settings.tsx to System.tsx Skills tab
+3. [x] Clean up Settings.tsx: remaining sections are Version/Uptime, Service Health, AI Routing, Voice, Wiki, Email, Autonomy Level, Triggers
+4. [x] Verify Layout.tsx navigation: System and Settings both accessible
+5. [x] Test that all moved functionality works in new location
 
 **Acceptance Criteria:**
-- [ ] Queue management accessible in System → Queues tab
-- [ ] Skill management accessible in System → Skills tab
-- [ ] Settings page is cleaner with configuration-focused sections
-- [ ] No broken links or missing functionality after move
+- [x] Queue management accessible in System → Queues tab
+- [x] Skill management accessible in System → Skills tab
+- [x] Settings page is cleaner with configuration-focused sections
+- [x] No broken links or missing functionality after move
+
+**Notes:**
+System.tsx already had rich QueuesTab and SkillsTab implementations (from 8.2). The SkillsTab was enhanced with inline cron schedule editing (ported from Settings.tsx SkillsSection). QueueStatusSection and SkillsSection removed from Settings.tsx along with unused helpers, state, and imports. Settings.tsx loadHealth simplified (no longer fetches queue data). Pre-existing Email.tsx unused function also cleaned up.
 
 ---
 

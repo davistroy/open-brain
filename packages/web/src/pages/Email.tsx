@@ -176,11 +176,6 @@ function extractSubject(capture: Capture): string {
   return first.replace(/^Subject:\s*/i, '').slice(0, 80) || '(no subject)';
 }
 
-function extractMessageId(capture: Capture): string | undefined {
-  const meta = capture.source_metadata as Record<string, unknown> | undefined;
-  return typeof meta?.message_id === 'string' ? meta.message_id : undefined;
-}
-
 function normalizeSubject(subject: string): string {
   return subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim().toLowerCase();
 }
