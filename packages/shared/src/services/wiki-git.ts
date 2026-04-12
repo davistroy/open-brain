@@ -216,6 +216,32 @@ export class WikiGitService {
     this.localPath = opts.localPath
   }
 
+  /**
+   * Build the authenticated clone URL by embedding GITEA_TOKEN credentials.
+   * For HTTP(S) URLs, inserts `davistroy:{token}@` before the host.
+   * Returns the original URL unchanged if no token is set or URL is not HTTP(S).
+   */
+  buildAuthUrl(): string {
+    const token = process.env.GITEA_TOKEN
+    if (!token) {
+      logger.warn('GITEA_TOKEN not set — wiki clone will use unauthenticated URL (will fail for private repos)')
+      return this.repoUrl
+    }
+
+    try {
+      const parsed = new URL(this.repoUrl)
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        parsed.username = 'davistroy'
+        parsed.password = token
+        return parsed.toString()
+      }
+    } catch {
+      // Not a valid URL (e.g., SSH-style git@host:path) — return as-is
+    }
+
+    return this.repoUrl
+  }
+
   // -------------------------------------------------------------------------
   // Initialization
   // -------------------------------------------------------------------------
@@ -225,16 +251,20 @@ export class WikiGitService {
    * Clones if the local path doesn't exist; pulls latest if it does.
    */
   async init(): Promise<void> {
+    const authUrl = this.buildAuthUrl()
+
     if (existsSync(join(this.localPath, '.git'))) {
       logger.info({ localPath: this.localPath }, 'Wiki repo exists, pulling latest')
       const git = simpleGit(this.localPath)
+      // Update remote URL in case token changed since last clone
+      await git.remote(['set-url', 'origin', authUrl])
       await git.pull('origin', 'main')
       this.git = git
     } else {
       logger.info({ repoUrl: this.repoUrl, localPath: this.localPath }, 'Cloning wiki repo')
       await mkdir(this.localPath, { recursive: true })
       const git = simpleGit()
-      await git.clone(this.repoUrl, this.localPath)
+      await git.clone(authUrl, this.localPath)
       this.git = simpleGit(this.localPath)
     }
   }

@@ -12,6 +12,7 @@ const mockGit = {
   add: vi.fn().mockResolvedValue(undefined),
   commit: vi.fn().mockResolvedValue({ summary: { changes: 1 } }),
   push: vi.fn().mockResolvedValue(undefined),
+  remote: vi.fn().mockResolvedValue(undefined),
   log: vi.fn().mockResolvedValue({
     all: [
       {
@@ -269,10 +270,16 @@ describe('WikiGitService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // Clear GITEA_TOKEN to start each test with no auth
+    delete process.env.GITEA_TOKEN
     service = new WikiGitService({
       repoUrl: 'git@gitea.k4jda.net:davistroy/open-brain-wiki.git',
       localPath: '/tmp/test-wiki',
     })
+  })
+
+  afterEach(() => {
+    delete process.env.GITEA_TOKEN
   })
 
   describe('init()', () => {
@@ -293,8 +300,86 @@ describe('WikiGitService', () => {
 
       await service.init()
 
+      // Should update remote URL before pulling
+      expect(mockGit.remote).toHaveBeenCalledWith([
+        'set-url', 'origin', 'git@gitea.k4jda.net:davistroy/open-brain-wiki.git',
+      ])
       expect(mockGit.pull).toHaveBeenCalledWith('origin', 'main')
       expect(mockGit.clone).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('buildAuthUrl()', () => {
+    it('returns original URL when GITEA_TOKEN is not set', () => {
+      delete process.env.GITEA_TOKEN
+      const svc = new WikiGitService({
+        repoUrl: 'http://Gitea:3000/davistroy/open-brain-wiki.git',
+        localPath: '/tmp/test-wiki',
+      })
+      expect(svc.buildAuthUrl()).toBe('http://Gitea:3000/davistroy/open-brain-wiki.git')
+    })
+
+    it('embeds token in HTTP URL when GITEA_TOKEN is set', () => {
+      process.env.GITEA_TOKEN = 'test-token-abc123'
+      const svc = new WikiGitService({
+        repoUrl: 'http://Gitea:3000/davistroy/open-brain-wiki.git',
+        localPath: '/tmp/test-wiki',
+      })
+      // URL class lowercases hostname per RFC — Docker DNS is case-insensitive
+      expect(svc.buildAuthUrl()).toBe('http://davistroy:test-token-abc123@gitea:3000/davistroy/open-brain-wiki.git')
+    })
+
+    it('embeds token in HTTPS URL when GITEA_TOKEN is set', () => {
+      process.env.GITEA_TOKEN = 'test-token-abc123'
+      const svc = new WikiGitService({
+        repoUrl: 'https://gitea.k4jda.net/davistroy/open-brain-wiki.git',
+        localPath: '/tmp/test-wiki',
+      })
+      expect(svc.buildAuthUrl()).toBe('https://davistroy:test-token-abc123@gitea.k4jda.net/davistroy/open-brain-wiki.git')
+    })
+
+    it('returns SSH URL unchanged even when GITEA_TOKEN is set', () => {
+      process.env.GITEA_TOKEN = 'test-token-abc123'
+      const svc = new WikiGitService({
+        repoUrl: 'git@gitea.k4jda.net:davistroy/open-brain-wiki.git',
+        localPath: '/tmp/test-wiki',
+      })
+      expect(svc.buildAuthUrl()).toBe('git@gitea.k4jda.net:davistroy/open-brain-wiki.git')
+    })
+
+    it('uses authenticated URL in clone during init()', async () => {
+      process.env.GITEA_TOKEN = 'clone-token-xyz'
+      vi.mocked(existsSync).mockReturnValue(false)
+
+      const svc = new WikiGitService({
+        repoUrl: 'http://Gitea:3000/davistroy/open-brain-wiki.git',
+        localPath: '/tmp/test-wiki',
+      })
+      await svc.init()
+
+      // URL class lowercases hostname per RFC — Docker DNS is case-insensitive
+      expect(mockGit.clone).toHaveBeenCalledWith(
+        'http://davistroy:clone-token-xyz@gitea:3000/davistroy/open-brain-wiki.git',
+        '/tmp/test-wiki',
+      )
+    })
+
+    it('updates remote URL with token during pull in init()', async () => {
+      process.env.GITEA_TOKEN = 'pull-token-xyz'
+      vi.mocked(existsSync).mockReturnValue(true)
+
+      const svc = new WikiGitService({
+        repoUrl: 'http://Gitea:3000/davistroy/open-brain-wiki.git',
+        localPath: '/tmp/test-wiki',
+      })
+      await svc.init()
+
+      // URL class lowercases hostname per RFC — Docker DNS is case-insensitive
+      expect(mockGit.remote).toHaveBeenCalledWith([
+        'set-url', 'origin',
+        'http://davistroy:pull-token-xyz@gitea:3000/davistroy/open-brain-wiki.git',
+      ])
+      expect(mockGit.pull).toHaveBeenCalledWith('origin', 'main')
     })
   })
 

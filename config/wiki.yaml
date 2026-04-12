@@ -1,8 +1,9 @@
 # Wiki layer configuration
 # See IMPLEMENT_UNIFIED.md §3.2 and PRD-UNIFIED §5.1
 
-# Gitea repository (external service at gitea.k4jda.net)
-repo_url: "gitea.k4jda.net/davistroy/open-brain-wiki.git"
+# Gitea repository (Docker container name "Gitea" on open-brain network)
+# Token auth: GITEA_TOKEN env var is embedded in clone URL by WikiGitService
+repo_url: "http://Gitea:3000/davistroy/open-brain-wiki.git"
 
 # Local clone path inside containers (ephemeral, re-cloned on startup)
 local_path: "/tmp/open-brain-wiki"
