@@ -533,29 +533,33 @@ Create the wiki configuration file and add environment variables to the containe
 ---
 
 #### 3.3 Wire Wiki Workers and Schedulers
-**Status: PENDING**
+**Status: COMPLETE 2026-04-11**
 **Requirement Refs:** PRD-UNIFIED §9.1 (Wiki-Ingest Job), §9.2 (Wiki-Lint), §9.3 (Wiki-Synthesis)
 **Files Affected:**
-- `packages/workers/src/jobs/wiki-ingest.ts` (modify) -- wire to BullMQ worker
-- `packages/workers/src/scheduler.ts` (modify) -- register wiki-lint and wiki-synthesis
-- `packages/workers/src/main.ts` (modify) -- add wiki-ingest worker initialization
+- `packages/workers/src/jobs/wiki-ingest-worker.ts` (modify) -- graceful Gitea unavailability handling
+- `packages/workers/src/scheduler.ts` (already wired) -- wiki-lint and wiki-synthesis registered
+- `packages/workers/src/main.ts` (already wired) -- wiki-ingest worker + WikiGitService init
+- `packages/shared/src/services/wiki-git.ts` (modify) -- add getStatus() method + WikiRepoStatus type
+- `packages/core-api/src/services/system-health.ts` (modify) -- wiki health in system snapshot
+- `packages/core-api/src/services/wiki.ts` (modify) -- expose getStatus() delegation
+- `packages/core-api/src/index.ts` (modify) -- pass wikiService to SystemHealthService
 
 **Description:**
 The wiki-ingest queue already exists in the queue factory (concurrency=1, rate-limited 5/min). The wiki-ingest skill, wiki-lint skill, and wiki-synthesis skill all exist as code files with prompts. This item wires them to the BullMQ worker system and registers the lint/synthesis schedulers.
 
 **Tasks:**
-1. [ ] Wire wiki-ingest worker in `main.ts`: create worker consuming `wiki-ingest` queue, dispatch to WikiIngestSkill
-2. [ ] Ensure wiki-ingest worker initializes WikiGitService on startup (clone/pull repo)
-3. [ ] Register wiki-lint in scheduler: cron `0 5 * * 0` (Sunday 5 AM)
-4. [ ] Register wiki-synthesis in scheduler: cron `0 6 * * *` (daily 6 AM)
-5. [ ] Add health check: wiki-ingest worker reports repo sync status
+1. [x] Wire wiki-ingest worker in `main.ts`: create worker consuming `wiki-ingest` queue, dispatch to WikiIngestSkill
+2. [x] Ensure wiki-ingest worker initializes WikiGitService on startup (clone/pull repo)
+3. [x] Register wiki-lint in scheduler: cron `0 5 * * 0` (Sunday 5 AM)
+4. [x] Register wiki-synthesis in scheduler: cron `0 6 * * *` (daily 6 AM)
+5. [x] Add health check: wiki-ingest worker reports repo sync status
 
 **Acceptance Criteria:**
-- [ ] Wiki-ingest worker processes a test capture and creates a wiki page
-- [ ] Wiki page committed to Gitea repo with correct frontmatter
-- [ ] Wiki-lint fires on schedule and writes to maintenance/lint-report.md
-- [ ] Wiki-synthesis fires daily and queues wiki-ingest for unintegrated captures
-- [ ] Worker handles Gitea unavailability gracefully (logs error, does not crash)
+- [x] Wiki-ingest worker processes a test capture and creates a wiki page
+- [x] Wiki page committed to Gitea repo with correct frontmatter
+- [x] Wiki-lint fires on schedule and writes to maintenance/lint-report.md
+- [x] Wiki-synthesis fires daily and queues wiki-ingest for unintegrated captures
+- [x] Worker handles Gitea unavailability gracefully (logs error, does not crash)
 
 **Notes:**
 Wiki-ingest rate limit of 5 jobs/min prevents LLM cost runaway. Concurrency=1 serializes git operations to prevent lock contention on the wiki repo.

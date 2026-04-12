@@ -40,6 +40,18 @@ export interface WikiChange {
   files: string[]
 }
 
+/** Wiki repository health status. */
+export interface WikiRepoStatus {
+  initialized: boolean
+  repoUrl: string
+  localPath: string
+  pageCount: number
+  lastCommitHash: string | null
+  lastCommitDate: string | null
+  lastCommitMessage: string | null
+  error: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Frontmatter parsing / serialization
 // ---------------------------------------------------------------------------
@@ -357,6 +369,51 @@ export class WikiGitService {
 
     await this.git!.push('origin', 'main')
     logger.info({ message, changes: result.summary.changes }, 'Wiki changes committed and pushed')
+  }
+
+  // -------------------------------------------------------------------------
+  // Health / status
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get the current status of the wiki repository for health reporting.
+   * Returns a snapshot including initialization state, page count, and
+   * last commit info. Never throws — returns error details in the result.
+   */
+  async getStatus(): Promise<WikiRepoStatus> {
+    const base: WikiRepoStatus = {
+      initialized: this.git !== null,
+      repoUrl: this.repoUrl,
+      localPath: this.localPath,
+      pageCount: 0,
+      lastCommitHash: null,
+      lastCommitDate: null,
+      lastCommitMessage: null,
+      error: null,
+    }
+
+    if (!this.git) {
+      base.error = 'WikiGitService not initialized'
+      return base
+    }
+
+    try {
+      // Get last commit
+      const log = await this.git.log({ maxCount: 1 })
+      if (log.latest) {
+        base.lastCommitHash = log.latest.hash
+        base.lastCommitDate = log.latest.date
+        base.lastCommitMessage = log.latest.message
+      }
+
+      // Count pages (lightweight — just count .md files)
+      const pages = await this.listPages()
+      base.pageCount = pages.length
+    } catch (err) {
+      base.error = err instanceof Error ? err.message : String(err)
+    }
+
+    return base
   }
 
   // -------------------------------------------------------------------------

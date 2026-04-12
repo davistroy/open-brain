@@ -94,7 +94,6 @@ if (litellmClient) {
 }
 
 const sessionService = new SessionService(db, captureService, governanceEngine)
-const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl)
 
 // Activity feed service — wire into capture service for automatic feed inserts
 const activityFeedService = new ActivityFeedService(db)
@@ -138,6 +137,9 @@ if (wikiRepoUrl && wikiLocalPath) {
 } else {
   logger.info('WIKI_REPO_URL or WIKI_LOCAL_PATH not set — wiki endpoints disabled')
 }
+
+// System health service — includes wiki status when configured
+const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl, wikiService)
 
 const app = createApp({
   configService,

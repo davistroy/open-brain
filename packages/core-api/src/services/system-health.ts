@@ -15,8 +15,13 @@ import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import { Redis } from 'ioredis'
 import { sql } from 'drizzle-orm'
-import type { Database } from '@open-brain/shared'
+import type { Database, WikiRepoStatus } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
+
+/** Minimal interface for wiki status reporting. Satisfied by both WikiService and WikiGitService. */
+interface WikiStatusProvider {
+  getStatus(): Promise<WikiRepoStatus>
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +59,16 @@ export interface SkillLastRun {
   output_summary: string | null
 }
 
+export interface WikiHealthStatus {
+  configured: boolean
+  status: HealthLevel
+  repo_url: string | null
+  page_count: number
+  last_commit_date: string | null
+  last_commit_message: string | null
+  error: string | null
+}
+
 export interface SystemHealthSnapshot {
   status: HealthLevel
   timestamp: string
@@ -62,6 +77,7 @@ export interface SystemHealthSnapshot {
   redis_memory: RedisMemory
   monthly_spend: MonthlySpend
   skill_last_runs: SkillLastRun[]
+  wiki: WikiHealthStatus
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +106,7 @@ export const MONITORED_QUEUES = [
   'document-pipeline',
   'daily-sweep',
   'ingest-root',
+  'wiki-ingest',
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -101,16 +118,18 @@ export class SystemHealthService {
     private readonly db: Database,
     private readonly redisConnection: ConnectionOptions,
     private readonly redisUrl: string,
+    private readonly wikiService?: WikiStatusProvider,
   ) {}
 
   // ---- Public API ----
 
   async snapshot(): Promise<SystemHealthSnapshot> {
-    const [queues, redisMemory, monthlySpend, skillLastRuns] = await Promise.all([
+    const [queues, redisMemory, monthlySpend, skillLastRuns, wiki] = await Promise.all([
       this.getQueueStats(),
       this.getRedisMemory(),
       this.getMonthlySpend(),
       this.getSkillLastRuns(),
+      this.getWikiHealth(),
     ])
 
     const componentStatuses = [
@@ -118,6 +137,11 @@ export class SystemHealthService {
       redisMemory.status,
       monthlySpend.status,
     ]
+
+    // Only include wiki status in overall health when configured
+    if (wiki.configured) {
+      componentStatuses.push(wiki.status)
+    }
 
     const status = deriveOverallStatus(componentStatuses)
 
@@ -129,6 +153,7 @@ export class SystemHealthService {
       redis_memory: redisMemory,
       monthly_spend: monthlySpend,
       skill_last_runs: skillLastRuns,
+      wiki,
     }
   }
 
@@ -254,6 +279,49 @@ export class SystemHealthService {
     } catch (err) {
       logger.warn({ err }, 'Failed to fetch skill last runs')
       return []
+    }
+  }
+  // ---- Wiki health ----
+
+  async getWikiHealth(): Promise<WikiHealthStatus> {
+    if (!this.wikiService) {
+      return {
+        configured: false,
+        status: 'healthy', // Not configured is not unhealthy
+        repo_url: null,
+        page_count: 0,
+        last_commit_date: null,
+        last_commit_message: null,
+        error: null,
+      }
+    }
+
+    try {
+      const repoStatus = await this.wikiService.getStatus()
+      const status: HealthLevel = !repoStatus.initialized ? 'unhealthy'
+        : repoStatus.error ? 'degraded'
+        : 'healthy'
+
+      return {
+        configured: true,
+        status,
+        repo_url: repoStatus.repoUrl,
+        page_count: repoStatus.pageCount,
+        last_commit_date: repoStatus.lastCommitDate,
+        last_commit_message: repoStatus.lastCommitMessage,
+        error: repoStatus.error,
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to fetch wiki health status')
+      return {
+        configured: true,
+        status: 'degraded',
+        repo_url: null,
+        page_count: 0,
+        last_commit_date: null,
+        last_commit_message: null,
+        error: err instanceof Error ? err.message : String(err),
+      }
     }
   }
 }
