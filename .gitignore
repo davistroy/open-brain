@@ -17,6 +17,8 @@ dist/
 .env.local
 .env.*.local
 .env.secrets
+deploy/.env.secrets*
+!deploy/.env.secrets.template
 *.pem
 *.key
 

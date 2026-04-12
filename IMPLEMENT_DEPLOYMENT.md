@@ -54,7 +54,7 @@ The deployment sequence: fix blockers → build and deploy → validate → acti
 ### Work Items
 
 #### 1.1 Add git to Docker Base Image
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 **Requirement Refs:** LAB_NOTEBOOK Entry 027 — confirmed `git` missing from Alpine containers
 
 **Files Affected:**
@@ -74,7 +74,7 @@ WikiGitService uses `simple-git` which shells out to the `git` binary. Confirmed
 ---
 
 #### 1.2 Remove Ollama from Docker Compose and Configure Network Automation
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 **Requirement Refs:** LAB_NOTEBOOK Entry 027 — Ollama already running standalone
 
 **Files Affected:**
@@ -116,7 +116,7 @@ A standalone Ollama container (`gemma4:e4b`, 9.6 GB) is already running on homes
 ---
 
 #### 1.3 Update Wiki Configuration for Gitea
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 **Requirement Refs:** LAB_NOTEBOOK Entry 027 — Gitea URL is `Gitea:3000`, repo is private
 
 **Files Affected:**
@@ -144,7 +144,7 @@ The Gitea access token should have `repo` scope (read/write). Create via Gitea S
 ---
 
 #### 1.4 Update init-schema.sql for Disaster Recovery
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 **Requirement Refs:** Ultra Plan Phase 1 — init-schema.sql missing tables from migrations 0013-0017
 
 **Files Affected:**
@@ -167,7 +167,7 @@ The init-schema.sql baseline is missing tables from migrations 0013-0017: `activ
 ---
 
 #### 1.5 Create Secrets Template
-**Status: PENDING**
+**Status: COMPLETE 2026-04-12**
 **Requirement Refs:** Ultra Plan — new secrets needed for v2 services
 
 **Files Affected:**

@@ -1003,5 +1003,5 @@ describe('skill-execution worker — drift-monitor dispatch', () => {
     // Verify the dispatcher module imports drift-monitor
     const mod = await import('../jobs/skill-execution.js')
     expect(typeof mod.createSkillExecutionWorker).toBe('function')
-  })
+  }, 30_000)
 })

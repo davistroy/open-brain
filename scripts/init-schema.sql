@@ -439,4 +439,116 @@ BEGIN
 END;
 $$;
 
+-- ============================================================
+-- Migrations 0013-0017: Tables and columns added in v2
+-- ============================================================
+
+-- Migration 0013: Add client tracking columns to ai_audit_log
+ALTER TABLE ai_audit_log
+  ADD COLUMN IF NOT EXISTS client_used VARCHAR(32) DEFAULT 'litellm',
+  ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(10, 6) DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS ai_audit_log_client_used_idx ON ai_audit_log(client_used);
+
+-- Migration 0014a: Activity feed table
+CREATE TABLE IF NOT EXISTS activity_feed (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type VARCHAR(32) NOT NULL,
+  subtype VARCHAR(64),
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  summary TEXT NOT NULL,
+  view VARCHAR(32),
+  detail JSONB,
+  source_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS activity_feed_timestamp_desc_idx ON activity_feed (timestamp DESC);
+CREATE INDEX IF NOT EXISTS activity_feed_type_timestamp_idx ON activity_feed (type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS activity_feed_view_timestamp_idx ON activity_feed (view, timestamp DESC) WHERE view IS NOT NULL;
+
+-- Migration 0014b: MCP activity logging table
+CREATE TABLE IF NOT EXISTS mcp_activity (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
+  client_id VARCHAR(64),
+  tool_name VARCHAR(64) NOT NULL,
+  parameters JSONB,
+  result_summary TEXT,
+  duration_ms INTEGER,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS mcp_activity_timestamp_idx ON mcp_activity(timestamp DESC);
+CREATE INDEX IF NOT EXISTS mcp_activity_tool_name_idx ON mcp_activity(tool_name);
+
+-- Migration 0015a: Backup log table
+CREATE TABLE IF NOT EXISTS backup_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  backup_type VARCHAR(16) NOT NULL,
+  file_path TEXT,
+  size_bytes BIGINT,
+  duration_seconds INTEGER,
+  status VARCHAR(16) NOT NULL,
+  error TEXT,
+  pruned_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS backup_log_timestamp_desc_idx ON backup_log (timestamp DESC);
+CREATE INDEX IF NOT EXISTS backup_log_type_idx ON backup_log (backup_type);
+
+-- Migration 0015b: Email drafts table
+CREATE TABLE IF NOT EXISTS email_drafts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  to_address TEXT NOT NULL,
+  cc_address TEXT,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  send_mode VARCHAR(20) NOT NULL DEFAULT 'review-required',
+  source VARCHAR(32),
+  approved_at TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  himalaya_message_id VARCHAR(256),
+  capture_id UUID REFERENCES captures(id) ON DELETE SET NULL,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS email_drafts_status_idx ON email_drafts (status);
+CREATE INDEX IF NOT EXISTS email_drafts_created_at_idx ON email_drafts (created_at DESC);
+
+DROP TRIGGER IF EXISTS set_email_drafts_updated_at ON email_drafts;
+CREATE TRIGGER set_email_drafts_updated_at BEFORE UPDATE ON email_drafts FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Migration 0016: Container health tracking table
+CREATE TABLE IF NOT EXISTS container_health (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  container_name VARCHAR(64) NOT NULL,
+  healthy BOOLEAN NOT NULL,
+  response_ms INTEGER,
+  error TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS container_health_timestamp_desc_idx ON container_health (timestamp DESC);
+CREATE INDEX IF NOT EXISTS container_health_name_timestamp_idx ON container_health (container_name, timestamp DESC);
+CREATE INDEX IF NOT EXISTS container_health_unhealthy_idx ON container_health (container_name, timestamp DESC) WHERE healthy = false;
+
+-- Migration 0017: Voice sessions table
+CREATE TABLE IF NOT EXISTS voice_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_key VARCHAR(64) UNIQUE NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ended_at TIMESTAMPTZ,
+  duration_seconds INTEGER,
+  turn_count INTEGER DEFAULT 0,
+  transcript JSONB DEFAULT '[]'::jsonb,
+  summary TEXT,
+  captures_created UUID[] DEFAULT '{}',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS voice_sessions_started_at_desc_idx ON voice_sessions (started_at DESC);
+
 SELECT 'Schema initialization complete' AS result;
