@@ -114,9 +114,9 @@ export interface AutoResponseConfig {
  */
 export function isBotMessage(message: GenericMessageEvent): boolean {
   // Check for bot_id field (present on all bot-posted messages)
-  if ('bot_id' in message && (message as Record<string, unknown>).bot_id) return true
+  if ('bot_id' in message && (message as unknown as Record<string, unknown>).bot_id) return true
   // Check for bot_message subtype
-  if ('subtype' in message && (message as Record<string, unknown>).subtype === 'bot_message') return true
+  if ('subtype' in message && (message as unknown as Record<string, unknown>).subtype === 'bot_message') return true
   return false
 }
 
@@ -125,7 +125,7 @@ export function isBotMessage(message: GenericMessageEvent): boolean {
  * A nested reply has thread_ts set AND thread_ts !== ts (it's inside a thread, not the parent).
  */
 export function isNestedThreadReply(message: GenericMessageEvent): boolean {
-  const threadTs = 'thread_ts' in message ? (message as Record<string, unknown>).thread_ts : undefined
+  const threadTs = 'thread_ts' in message ? (message as unknown as Record<string, unknown>).thread_ts : undefined
   if (!threadTs) return false
   return threadTs !== message.ts
 }
