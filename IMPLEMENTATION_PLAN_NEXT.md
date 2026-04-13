@@ -407,7 +407,7 @@ Workers already have all the dependencies: `db`, `configService`, `anthropicClie
 
 #### 3.2 Migrate extract-entities.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/jobs/extract-entities.ts`
 **Line:** ~129
 
@@ -455,7 +455,7 @@ rawText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
 
 #### 3.3 Migrate Skill: weekly-brief.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/skills/weekly-brief.ts`
 **Line:** ~101
 
@@ -477,7 +477,7 @@ rawText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
 
 #### 3.4 Migrate Skill: daily-sweep-skill.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/skills/daily-sweep-skill.ts`
 **Line:** ~382
 
@@ -497,7 +497,7 @@ rawText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
 
 #### 3.5 Migrate Skill: drift-monitor.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/skills/drift-monitor.ts`
 **Line:** ~183
 
@@ -517,16 +517,16 @@ rawText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
 
 #### 3.6 Migrate Skill: daily-connections.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/skills/daily-connections.ts`
 **Line:** ~162
 
 **Task mapping:** `daily_connections` → `t2_quality`
 
 **Tasks:**
-1. [ ] Add `llmGateway` param to `executeDailyConnections()`
-2. [ ] Replace dual call pattern
-3. [ ] Update `skill-execution.ts` dispatch
+1. [x] Add `llmGateway` param to `executeDailyConnections()`
+2. [x] Replace dual call pattern
+3. [x] Update `skill-execution.ts` dispatch
 4. [ ] Update tests
 
 **Acceptance Criteria:**
@@ -537,16 +537,16 @@ rawText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
 
 #### 3.7 Migrate Skill: memory-consolidation.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/skills/memory-consolidation.ts`
 **Line:** ~399
 
 **Task mapping:** `search_synthesis` → `t1_fast` (consolidation is synthesis-like)
 
 **Tasks:**
-1. [ ] Add `llmGateway` param to `executeMemoryConsolidation()`
-2. [ ] Replace dual call pattern
-3. [ ] Update `skill-execution.ts` dispatch
+1. [x] Add `llmGateway` param to `executeMemoryConsolidation()`
+2. [x] Replace dual call pattern
+3. [x] Update `skill-execution.ts` dispatch
 4. [ ] Update tests
 
 **Acceptance Criteria:**
@@ -557,7 +557,7 @@ rawText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
 
 #### 3.8 Update skill-execution.ts Dispatcher
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/jobs/skill-execution.ts`
 
 **Description:**

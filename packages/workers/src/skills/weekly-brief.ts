@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, LLMGatewayService } from '@open-brain/shared'
 import { skills_log, logger, PushoverService, HimalayaService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { queryCaptures, assembleContext, fmtDate, CHARS_PER_TOKEN } from './weekly-brief-query.js'
@@ -27,6 +27,7 @@ export class WeeklyBriefSkill {
   private db: Database
   private litellmClient: OpenAI | null
   private anthropicClient: Anthropic | null
+  private llmGateway: LLMGatewayService | null
   private pushover: PushoverService
   private himalaya: HimalayaService
   private email: EmailService
@@ -36,7 +37,7 @@ export class WeeklyBriefSkill {
   constructor(opts: {
     db: Database; litellmBaseUrl?: string; litellmApiKey?: string; anthropicClient?: Anthropic
     pushover?: PushoverService; himalaya?: HimalayaService; email?: EmailService; promptsDir?: string; coreApiUrl?: string
-    templates?: TemplateCache
+    templates?: TemplateCache; llmGateway?: LLMGatewayService
   }) {
     this.db = opts.db
     this.litellmClient = createLiteLLMClient({
@@ -46,6 +47,7 @@ export class WeeklyBriefSkill {
       maxRetries: 0,
     })
     this.anthropicClient = opts.anthropicClient ?? null
+    this.llmGateway = opts.llmGateway ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.himalaya = opts.himalaya ?? new HimalayaService()
     this.email = opts.email ?? new EmailService()
@@ -96,7 +98,16 @@ export class WeeklyBriefSkill {
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[weekly-brief] calling LLM')
 
-    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    // Prefer LLM Gateway (task-based tier routing with audit logging)
+    if (this.llmGateway) {
+      const raw = await this.llmGateway.completeByTask(prompt, 'weekly_brief', {
+        temperature: 0.3, maxTokens: 2048,
+      })
+      logger.info({ promptLength: prompt.length }, '[weekly-brief] LLM call complete (gateway)')
+      return raw
+    }
+
+    // Legacy fallback: Anthropic (Claude) client; fall back to OpenAI/LiteLLM
     if (this.anthropicClient) {
       const result = await callClaude(this.anthropicClient, prompt, {
         model: modelAlias, maxTokens: 2048, temperature: 0.3,
@@ -182,8 +193,8 @@ export class WeeklyBriefSkill {
 }
 
 /** Top-level entry point called by BullMQ worker. */
-export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptions = {}, anthropicClient?: Anthropic): Promise<WeeklyBriefResult> {
-  return new WeeklyBriefSkill({ db, anthropicClient }).execute(options)
+export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptions = {}, anthropicClient?: Anthropic, llmGateway?: LLMGatewayService): Promise<WeeklyBriefResult> {
+  return new WeeklyBriefSkill({ db, anthropicClient, llmGateway }).execute(options)
 }
 
 function emptyBrief(): WeeklyBriefOutput {
