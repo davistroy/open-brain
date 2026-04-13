@@ -55,6 +55,12 @@
 | D43 | Jetson is current T1 classification endpoint (0.67s/call) | 2026-04-12 | ACTIVE | Entry 031 | Qwen 3.5 4B, llama.cpp, port 8080, --reasoning off |
 | D44 | Thinking mode caused T0 validation failures — always use think:false | 2026-04-12 | ACTIVE | Entry 031 | Corrects D36; models are accurate, thinking was the problem |
 | D45 | nomic-embed-text is preferred local embedding model (768-dim) | 2026-04-12 | ACTIVE | Entry 031 | Drop-in for OpenAI, 800ms CPU / <50ms GPU |
+| D46 | `openai_compat` provider for non-Ollama OpenAI-compatible endpoints | 2026-04-12 | ACTIVE | Entry 032 | Per-tier cached clients from base_url; llama.cpp, vLLM, etc. |
+| D47 | 6 classification tasks route to t1_jetson (free, 0.67s) | 2026-04-12 | ACTIVE | Entry 032 | Complex tasks stay on t1_fast (Haiku) or t2_quality (Sonnet) |
+| D48 | Homeserver KVM VM for T2 Claude CLI (not Bond, not LXC) | 2026-04-12 | ACTIVE | Entry 033 | 192.168.10.53, open-brain-vm, 2 vCPU, 4GB RAM |
+| D49 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | ACTIVE | Entry 033 | Workers needs gateway; all deps already in shared |
+| D50 | Voice-capture migration DEFERRED pending soak test | 2026-04-12 | ACTIVE | Entry 033 | Pipecat (WebSocket) and voice-capture (HTTP) are complementary |
+| D51 | Pipecat soak validates conversation only, not voice-capture replacement | 2026-04-12 | ACTIVE | Entry 033 | iOS Shortcut needs HTTP POST; Pipecat is WebSocket only |
 
 ## Action Items
 
@@ -75,6 +81,13 @@
 | A15 | Voice container promotion — remove voice-capture + faster-whisper | 2026-04-12 | Entry 029 | LOW — after A14 validates |
 | A16 | Check OneDrive sync status and file count | 2026-04-12 | Entry 026 | LOW |
 | A17 | Consider smaller Ollama model (Gemma 3 4B) for T0 if latency matters | 2026-04-12 | Entry 029 | LOW |
+| A18 | Switch worker call sites from `complete()` to `completeByTask()` | 2026-04-12 | Entry 032 | HIGH — Phase 1A |
+| A19 | Switch voice-capture classification to use gateway dispatch | 2026-04-12 | Entry 032 | HIGH — Phase 1A |
+| A20 | Set up Bond or Ubuntu VM as T2 (Claude CLI) runner | 2026-04-12 | Entry 032 | HIGH — Phase 0B |
+| A21 | Validate Jetson endpoint from homeserver Docker containers | 2026-04-12 | Entry 032 | HIGH — before Phase 1A deploy |
+| A22 | Create homeserver KVM VM (open-brain-vm, 192.168.10.53) | 2026-04-12 | Entry 033 | HIGH — Phase 0B |
+| A23 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | Entry 033 | HIGH — prerequisite for Phase 3 |
+| A24 | Verify Pipecat DEEPGRAM_API_KEY configured before soak | 2026-04-12 | Entry 033 | HIGH — blocks Phase 0D |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -1741,3 +1754,152 @@ Evaluated PNY NVIDIA RTX PRO 2000 Blackwell ($549 at Micro Center):
 | Qwen3-Embedding-0.6B-Q8_0 | 610 MB | Available (small embedding) |
 
 **Status:** COMPLETE — benchmarks documented, decisions made, no code changes needed.
+
+--- New session: 2026-04-12 — Master plan + Jetson T1 wiring ---
+
+### Entry 032: Master Plan + Jetson T1 Endpoint Wiring [architecture] [infrastructure] [decision]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development)
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[infrastructure]` `[decision]` `[config]`
+
+**Objective:** Create a comprehensive master implementation plan covering all discussed future features, then wire the Jetson Orin Nano as the T1 classification endpoint in the LLM gateway.
+
+**Hypothesis:** Adding a `t1_jetson` tier to `ai-routing.yaml` and teaching the LLM gateway to create per-tier OpenAI SDK clients from `base_url` will enable classification tasks to route to Jetson (0.67s, free) with automatic fallback to Haiku API. Expect: all 24 gateway tests pass, no regressions in 694 core-api tests.
+
+**Rollback Plan:** Revert `ai-routing.yaml` to previous version (classification tasks back to `t1_fast`). Remove `openai_compat` from provider enum. Remove `getClientForTier` method and `tierClientCache` from gateway.
+
+---
+
+#### Part 1: Master Implementation Plan
+
+Created `IMPLEMENT_MASTER_PLAN.md` — comprehensive plan covering 5 tiers, 22 work items:
+- **Tier 0 (Foundation):** Jetson T1 wiring, Bond/Ubuntu-VM T2 setup, OneDrive sync, Pipecat soak
+- **Tier 1 (Pipeline):** Three-tier model routing, Slack auto-response, voice promotion
+- **Tier 2 (Wiki):** Wiki activation, OneDrive file migration tooling, wiki construction
+- **Tier 3 (Batch Sources):** Email inbox, financial monitoring, Amazon purchases, credit cards, utilities, newsletters, lab reports, insurance
+- **Tier 4 (Polish):** Email outbound, dashboard polish, cognitive memory tuning
+- **Tier 5 (Hardware):** Optional RTX PRO 2000 GPU
+
+Critical path: 0A → 0B → 1A → 3A (Jetson → Bond → model routing → first batch source).
+
+Bond or homeserver Ubuntu VM both viable for T2 tier. Bond recommended for isolation; VM as alternative.
+
+#### Part 2: Jetson T1 Endpoint Wiring
+
+**Changes Made:**
+
+1. **`config/ai-routing.yaml`:**
+   - Added `t1_jetson` tier: `provider: openai_compat`, `model: qwen3.5-4b`, `base_url: http://jetson.k4jda.net:8080/v1`, timeout 5s, fallback to `t1_fast`
+   - Updated `t0_local` model to `qwen3.5:2b` (fastest on CPU per Entry 031), fallback chain: `t0_local → t1_jetson → t1_fast → t2_quality`
+   - Rerouted classification tasks (`intent_classification`, `capture_classification`, `brain_view_classification`, `voice_classification`, `confidence_gating`, `question_detection`) from `t1_fast` to `t1_jetson`
+   - Entity extraction and other complex tasks stay on `t1_fast` (Haiku API)
+
+2. **`packages/shared/src/types/config.ts`:**
+   - Added `'openai_compat'` to `ModelTierEntrySchema.provider` enum — for non-Ollama OpenAI-compatible endpoints (llama.cpp, vLLM, etc.)
+
+3. **`packages/core-api/src/services/llm-gateway.ts`:**
+   - Added `tierClientCache: Map<string, OpenAI>` — caches OpenAI SDK clients per tier key
+   - Added `getClientForTier(tier, tierKey, clientType)` method — creates dedicated cached clients for `openai_compat` tiers with `base_url`, preserves existing ollama/litellm client behavior
+   - Changed `import type OpenAI` to `import OpenAI` (needed for `new OpenAI()` in client factory)
+   - Updated `completeWithTierFallback()` to use `getClientForTier()` instead of `getOpenAIClient()`
+   - Updated `resolveProviderClient()` to document `openai_compat` routing
+
+**Design Decision:** Only `openai_compat` provider tiers get per-tier clients from `base_url`. The `ollama` provider continues using the pre-constructed `this.ollamaClient` (from OLLAMA_URL env). This preserves test mock compatibility — tests inject a mock ollama client via constructor, and `openai_compat` tiers don't exist in the test fixtures.
+
+**Test Results:**
+- Gateway tests: 24/24 pass
+- Core-api full suite: 694/694 pass
+- Shared package builds clean (DTS generation)
+- Workers type-check clean
+
+**What This Enables:**
+- Any code calling `gateway.completeByTask('intent_classification', prompt)` will automatically route to Jetson
+- Fallback chain handles Jetson unavailability transparently
+- `ai_audit_log` records which tier handled each call (for cost analysis)
+- Future tiers (DGX Spark, etc.) can be added with just config + `openai_compat` provider
+
+**What Remains (Phase 1A):**
+- Workers still use legacy `complete()` path — need to switch to `completeByTask()`
+- Voice-capture classification uses its own direct client — needs gateway integration
+- No production validation yet (Jetson endpoint not tested from homeserver containers)
+
+**Decisions:**
+- D46: `openai_compat` is the provider type for non-Ollama OpenAI-compatible endpoints (llama.cpp, vLLM, etc.). Uses dedicated per-tier cached clients created from `base_url`.
+- D47: Classification tasks (6 of 19) route to `t1_jetson` (free, 0.67s). Complex tasks stay on `t1_fast` (Haiku API) or `t2_quality` (Sonnet API).
+
+### Entry 033: Ultra Plan — Phases 0B, 1A, 0D Investigation + Plan Generation [architecture] [planning]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development) + homeserver (SSH recon)
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[planning]` `[infrastructure]`
+
+**Objective:** Deep investigation of three next-priority items (VM setup, LLM call site migration, Pipecat soak test), followed by formal implementation plan generation.
+
+**Hypothesis:** A thorough investigation of all LLM call sites and Pipecat architecture will reveal hidden dependencies and interaction risks that wouldn't be caught by jumping straight to implementation. Expect: a coherent plan with no surprises during execution.
+
+**Rollback Plan:** N/A — planning only, no system changes.
+
+---
+
+#### Investigation Key Findings
+
+**LLM Call Site Audit (3 parallel agents):**
+- Found **12 production call sites** across 4 packages that need migration to `completeByTask()`
+- **4 in core-api** (trivial — gateway already available, just change method call)
+- **6 in workers** (requires plumbing — workers have no gateway instance)
+- **2 in voice-capture** (deferred — pending soak test outcome)
+- **Critical architecture issue:** `LLMGatewayService` lives in core-api but workers needs it. Solution: move gateway to `@open-brain/shared` (all its dependencies are already there).
+
+**Pipecat Investigation:**
+- **Critical finding: Pipecat and voice-capture are complementary, NOT redundant.**
+  - Pipecat = WebSocket real-time multi-turn conversation (Deepgram STT → Claude LLM → TTS)
+  - voice-capture = HTTP POST one-shot upload from iOS Shortcut (Whisper → classification → capture)
+  - Different protocols, different use cases. Removing voice-capture breaks iOS workflow.
+- Pipecat container healthy (23h uptime), requires DEEPGRAM_API_KEY and ANTHROPIC_API_KEY
+- Full soak test checklist created: 30+ validation items across functional, non-functional, data quality
+
+**Homeserver VM Recon:**
+- Unraid 7.2.3, KVM VM manager installed, existing VMs running (vnet0, vnet1)
+- Ubuntu 24.04 desktop ISO already on server (server ISO preferred — may need download)
+- 86GB RAM available (39GB used by 48 containers), `br0` bridge exists
+- Docker containers can reach `br0` IPs via default gateway routing
+- User specified: IP `192.168.10.53`, hostname `open-brain-vm`
+
+#### Plan Generated
+
+Created `IMPLEMENTATION_PLAN_NEXT.md` — 4 phases, 18 work items:
+
+| Phase | Focus | Items | Risk |
+|-------|-------|-------|------|
+| 1 | Homeserver KVM VM (0B) | 5 | LOW |
+| 2 | Core-API migration (1A) | 5 | LOW |
+| 3 | Workers migration (1A) | 8 | MEDIUM |
+| 4 | Pipecat soak (0D) | 4 | LOW |
+
+Phases 1, 2, and 4 can start in parallel. Phase 3 depends on Phase 2.
+
+#### Housekeeping
+
+Archived 7 completed implementation plans to `docs/archived/`:
+- `IMPLEMENTATION_PLAN.md` (Brief Config — complete)
+- `IMPLEMENTATION_PLAN_BRAIN_CLAW.md` (OpenClaw — phases 1-2 complete)
+- `IMPLEMENT_DEPLOYMENT.md` (v2 deployment — complete)
+- `IMPLEMENT_IMPROVED_MEMORY.md` (cognitive memory — complete)
+- `IMPLEMENT_OB_UPDATES.md` (value updates — complete)
+- `IMPLEMENT_UNIFIED.md` (v2 unified — complete)
+- `ULTRA_PLAN_0B_1A_0D.md` (investigation document — consumed by plan)
+
+Root now contains only:
+- `IMPLEMENT_MASTER_PLAN.md` — high-level roadmap (22 items, 5 tiers)
+- `IMPLEMENTATION_PLAN_NEXT.md` — active implementation plan (18 items, 4 phases)
+
+**Decisions:**
+- D48: Homeserver KVM VM (`open-brain-vm`, 192.168.10.53, 2 vCPU, 4GB RAM) for T2 Claude CLI tier. Chosen over Bond for zero network latency and co-location with data. Chosen over LXC (not supported on Unraid) and Docker (Claude Code auth painful headless).
+- D49: Move `LLMGatewayService` to `@open-brain/shared` for worker access. All dependencies (ai_audit_log, logger, configService types) already in shared. No circular dependency risk.
+- D50: Voice-capture classification migration DEFERRED until Pipecat soak test determines voice-capture's future. Pipecat and voice-capture serve different use cases (WebSocket conversation vs HTTP upload).
+- D51: Pipecat soak test validates conversational quality only; does NOT determine voice-capture removal. Voice-capture stays for iOS Shortcut unless Pipecat gains HTTP upload support.
+
+**Status:** COMPLETE — plan generated, plans archived, ready for execution.

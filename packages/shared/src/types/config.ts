@@ -72,7 +72,7 @@ export type AIModelAlias = keyof AIModelConfig
 
 /** Configuration for a single model tier (e.g., t0_local, t1_fast, t2_quality) */
 export const ModelTierEntrySchema = z.object({
-  provider: z.enum(['anthropic', 'litellm', 'ollama', 'openai', 'deepseek']),
+  provider: z.enum(['anthropic', 'litellm', 'ollama', 'openai', 'openai_compat', 'deepseek']),
   model: z.string(),
   base_url: z.string().optional(),
   max_completion_tokens: z.number(),
