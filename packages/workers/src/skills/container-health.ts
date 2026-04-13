@@ -48,11 +48,12 @@ const DEFAULT_CONSECUTIVE_FAILURE_THRESHOLD = 3
  * Uses container names as Docker DNS names on the open-brain network.
  */
 const DEFAULT_ENDPOINTS: ContainerEndpoint[] = [
-  { name: 'core-api', url: 'http://open-brain-core-api:3000/health' },
-  { name: 'workers', url: 'http://open-brain-workers:3001/health' },
-  { name: 'voice-capture', url: 'http://open-brain-voice-capture:3003/health' },
-  { name: 'web', url: 'http://open-brain-web:5173/' },
-  { name: 'slack-bot', url: 'http://open-brain-slack-bot:3004/health' },
+  { name: 'core-api', url: 'http://core-api:3000/health' },
+  { name: 'voice-capture', url: 'http://voice-capture:3001/health' },
+  { name: 'voice-pipecat', url: 'http://voice-pipecat:8766/health' },
+  { name: 'file-ingestion', url: 'http://file-ingestion:8080/health' },
+  // workers (BullMQ) and slack-bot (Socket Mode) have no HTTP health endpoints
+  // web (Vite static) health checked via external Cloudflare tunnel instead
 ]
 
 /**
