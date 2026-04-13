@@ -381,23 +381,42 @@ Complete the auto-response progression: shadow → DM → threaded replies.
 
 ---
 
-## Phase 1C: Voice Container Promotion
+## Phase 1C: Voice Architecture Decision
 
 **Estimated Effort:** S (~2 files)
 **Dependencies:** 0D (successful voice soak test)
 
+### Key Discovery
+
+**Pipecat and voice-capture are complementary, not redundant.**
+- **Pipecat** = WebSocket real-time multi-turn conversation (Deepgram STT → Claude LLM → TTS). Port 8765.
+- **voice-capture** = HTTP POST one-shot upload from iOS Shortcut (Whisper → classification → capture). Port 3001.
+
+These serve different use cases and different protocols. Removing voice-capture would break the iOS Shortcut workflow unless Pipecat also supports HTTP upload or the Shortcut is rewritten for WebSocket.
+
+**This reshapes Phase 1C from "remove legacy" to "keep both unless Pipecat gains HTTP upload."**
+
 ### Work Items
 
+**If Pipecat CANNOT handle HTTP uploads (most likely):**
+- Keep both services running — they are complementary
+- Optionally: remove `faster-whisper` if Pipecat's Deepgram STT is acceptable for one-shot transcription via a thin HTTP adapter
+- Update documentation to reflect two voice paths: conversation (Pipecat) and capture (voice-capture)
+
+**If Pipecat CAN handle HTTP uploads (unlikely without code changes):**
 - Remove `voice-capture` and `faster-whisper` services from docker-compose.yml
-- Update nginx/cloudflare routing if needed
-- Verify Pipecat handles all voice traffic
+- Update iOS Shortcut to point to Pipecat's HTTP endpoint
 - Stack simplifies from 12 → 10 containers
 
+### Decision Criteria
+
+The soak test (Phase 0D) determines Pipecat conversation quality. The HTTP upload question is separate and determined by reviewing Pipecat's API surface. If Pipecat is WebSocket-only (current state), voice-capture stays.
+
 **Acceptance Criteria:**
-- [ ] voice-capture and faster-whisper removed from docker-compose.yml
-- [ ] Pipecat handles all voice traffic end-to-end
-- [ ] No voice capture regressions
-- [ ] LAB_NOTEBOOK entry created with before/after container count, verification results
+- [ ] Decision documented: keep both services or consolidate
+- [ ] If keeping both: documentation updated to explain two voice paths
+- [ ] If consolidating: voice-capture and faster-whisper removed, iOS Shortcut updated
+- [ ] LAB_NOTEBOOK entry created with decision rationale and architecture diagram
 
 ---
 
