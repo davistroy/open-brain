@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import { skills_log } from '@open-brain/shared'
-import { logger, PushoverService } from '@open-brain/shared'
+import { logger, PushoverService, ComposioClient } from '@open-brain/shared'
 
 // ============================================================
 // Types
@@ -10,9 +10,18 @@ import { logger, PushoverService } from '@open-brain/shared'
 export interface MorningBriefOptions {
   /** Override "now" for deterministic testing */
   now?: Date
+  /** Composio API key for calendar integration (optional) */
+  composioApiKey?: string
+}
+
+export interface CalendarEvent {
+  time: string
+  title: string
+  calendar: string
 }
 
 export interface MorningBriefResult {
+  schedule: CalendarEvent[]
   yesterdayThread: ThreadItem[]
   openLoops: string[]
   people: PersonItem[]
@@ -251,28 +260,113 @@ export function extractTodayItems(
 }
 
 // ============================================================
+// Calendar helpers (Composio)
+// ============================================================
+
+/** Calendar names to skip (not useful in brief) */
+const SKIP_CALENDARS = new Set([
+  'birthdays', 'licw', 'your family', 'troy davis',
+  'jamie davis', 'daniel davis',
+])
+
+/**
+ * Fetch today's calendar events via Composio Outlook integration.
+ * Returns empty array on any failure (calendar is optional enhancement).
+ */
+export async function fetchCalendarEvents(
+  composioKey: string,
+  now: Date,
+): Promise<CalendarEvent[]> {
+  if (!composioKey) return []
+
+  try {
+    const client = new ComposioClient(composioKey)
+    const todayStr = now.toISOString().slice(0, 10)
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowStr = tomorrow.toISOString().slice(0, 10)
+
+    // List calendars first to get IDs
+    const calData = await client.execute('OUTLOOK_LIST_CALENDARS', { top: '50' })
+    if (!calData || !Array.isArray((calData as Record<string, unknown>).value)) return []
+
+    const calendars = (calData as Record<string, unknown>).value as Array<{ id: string; name: string }>
+    const events: CalendarEvent[] = []
+
+    for (const cal of calendars) {
+      if (SKIP_CALENDARS.has(cal.name.toLowerCase())) continue
+
+      const evData = await client.execute('OUTLOOK_GET_CALENDAR_VIEW', {
+        calendar_id: cal.id,
+        start_date_time: `${todayStr}T00:00:00`,
+        end_date_time: `${tomorrowStr}T00:00:00`,
+        top: '20',
+      })
+
+      if (!evData || !Array.isArray((evData as Record<string, unknown>).value)) continue
+
+      const calEvents = (evData as Record<string, unknown>).value as Array<{
+        subject?: string
+        start?: { dateTime?: string }
+        isAllDay?: boolean
+      }>
+
+      for (const ev of calEvents) {
+        const startTime = ev.start?.dateTime
+        let time = 'All day'
+        if (startTime && !ev.isAllDay) {
+          const d = new Date(startTime + 'Z') // Outlook returns UTC
+          time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+        }
+        events.push({
+          time,
+          title: ev.subject ?? '(no title)',
+          calendar: cal.name,
+        })
+      }
+    }
+
+    // Sort by time
+    events.sort((a, b) => {
+      if (a.time === 'All day') return -1
+      if (b.time === 'All day') return 1
+      return a.time.localeCompare(b.time)
+    })
+
+    logger.info({ eventCount: events.length }, '[morning-brief] calendar events fetched')
+    return events
+  } catch (err) {
+    logger.warn({ err }, '[morning-brief] calendar fetch failed — continuing without calendar')
+    return []
+  }
+}
+
+// ============================================================
 // MorningBriefSkill
 // ============================================================
 
 /**
  * MorningBriefSkill — assembles a structured morning briefing from database
- * queries. No LLM call.
+ * queries + optional Composio calendar integration. No LLM call.
  *
- * Four sections:
- * 1. YESTERDAY'S THREAD — captures from previous day
- * 2. OPEN LOOPS — forward-looking phrases from last 3 days
- * 3. PEOPLE — recently mentioned people with capture context
- * 4. TODAY — heuristic items from evening captures (may be empty)
+ * Five sections:
+ * 1. TODAY'S SCHEDULE — calendar events via Composio (if configured)
+ * 2. YESTERDAY'S THREAD — captures from previous day
+ * 3. OPEN LOOPS — forward-looking phrases from last 3 days
+ * 4. PEOPLE — recently mentioned people with capture context
+ * 5. TODAY — heuristic items from evening captures (may be empty)
  *
  * Output: Pushover notification + skills_log entry. No capture created.
  */
 export class MorningBriefSkill {
   private db: Database
   private pushover: PushoverService
+  private composioKey: string
 
-  constructor(opts: { db: Database; pushover?: PushoverService }) {
+  constructor(opts: { db: Database; pushover?: PushoverService; composioApiKey?: string }) {
     this.db = opts.db
     this.pushover = opts.pushover ?? new PushoverService()
+    this.composioKey = opts.composioApiKey ?? process.env.COMPOSIO_API_KEY ?? ''
   }
 
   async execute(options: MorningBriefOptions = {}): Promise<MorningBriefResult> {
@@ -280,6 +374,9 @@ export class MorningBriefSkill {
     const now = options.now ?? new Date()
 
     logger.info('[morning-brief] starting execution')
+
+    // Section 0: Today's Schedule (Composio calendar — non-blocking)
+    const schedule = await fetchCalendarEvents(options.composioApiKey ?? this.composioKey, now)
 
     // Section 1: Yesterday's Thread
     const yesterdayCaptures = await queryYesterdayCaptures(this.db, now)
@@ -300,7 +397,7 @@ export class MorningBriefSkill {
     const todayItems = extractTodayItems(eveningCaptures, now)
 
     // Format notification message
-    const message = this.formatMessage(yesterdayThread, openLoops, people, todayItems)
+    const message = this.formatMessage(schedule, yesterdayThread, openLoops, people, todayItems)
     const title = this.formatTitle(now)
 
     // Send Pushover notification
@@ -327,6 +424,7 @@ export class MorningBriefSkill {
 
     // Log to skills_log
     const result: MorningBriefResult = {
+      schedule,
       yesterdayThread,
       openLoops,
       people,
@@ -341,6 +439,7 @@ export class MorningBriefSkill {
         capture_id: null,
         input_summary: `date:${now.toISOString().slice(0, 10)}`,
         output_summary: [
+          `schedule:${schedule.length}`,
           `thread:${yesterdayThread.length}`,
           `loops:${openLoops.length}`,
           `people:${people.length}`,
@@ -355,7 +454,7 @@ export class MorningBriefSkill {
     }
 
     logger.info(
-      { thread: yesterdayThread.length, loops: openLoops.length, people: people.length, today: todayItems.length, notificationSent, durationMs },
+      { schedule: schedule.length, thread: yesterdayThread.length, loops: openLoops.length, people: people.length, today: todayItems.length, notificationSent, durationMs },
       '[morning-brief] execution complete',
     )
 
@@ -373,12 +472,18 @@ export class MorningBriefSkill {
   }
 
   private formatMessage(
+    schedule: CalendarEvent[],
     thread: ThreadItem[],
     loops: string[],
     people: PersonItem[],
     todayItems: string[],
   ): string {
     const sections: string[] = []
+
+    if (schedule.length > 0) {
+      const lines = schedule.map(e => `- ${e.time} ${e.title} [${e.calendar}]`)
+      sections.push(`TODAY'S SCHEDULE:\n${lines.join('\n')}`)
+    }
 
     if (thread.length > 0) {
       const lines = thread.map(t => `- ${t.snippet}`)
