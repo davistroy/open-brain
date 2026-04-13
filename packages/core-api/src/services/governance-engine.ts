@@ -226,7 +226,7 @@ export class GovernanceEngine {
 
     let botMessage: string
     try {
-      botMessage = await this.llmGateway.complete(prompt, 'governance', {
+      botMessage = await this.llmGateway.completeByTask(prompt, 'governance', {
         temperature: 0.3,
         maxTokens: 1024,
         sessionId,

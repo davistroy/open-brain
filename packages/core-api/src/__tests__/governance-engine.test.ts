@@ -46,7 +46,7 @@ function makeTranscript(entries: Array<{ role: 'user' | 'assistant'; content: st
 
 function makeLlmGateway(response = 'Board response here.') {
   return {
-    complete: vi.fn().mockResolvedValue(response),
+    completeByTask: vi.fn().mockResolvedValue(response),
     completeWithPromptTemplate: vi.fn().mockResolvedValue(response),
   } as any
 }
@@ -146,7 +146,7 @@ describe('AntiVaguenessGate', () => {
   describe('LLM evaluation path', () => {
     it('calls LLM for ambiguous answers and parses response', async () => {
       const mockGateway = {
-        complete: vi.fn().mockResolvedValue(
+        completeByTask: vi.fn().mockResolvedValue(
           JSON.stringify({ passes: false, confidence: 0.85, reason: 'No specifics', pushback_question: 'What specific client?' }),
         ),
       } as any
@@ -160,14 +160,14 @@ describe('AntiVaguenessGate', () => {
         'test-session-1',
       )
 
-      expect(mockGateway.complete).toHaveBeenCalled()
+      expect(mockGateway.completeByTask).toHaveBeenCalled()
       expect(result.passes).toBe(false)
       expect(result.pushback_message).toBe('What specific client?')
     })
 
     it('fails open (passes) when LLM call throws', async () => {
       const mockGateway = {
-        complete: vi.fn().mockRejectedValue(new Error('LLM unavailable')),
+        completeByTask: vi.fn().mockRejectedValue(new Error('LLM unavailable')),
       } as any
 
       const gate = new AntiVaguenessGate(mockGateway)
@@ -185,7 +185,7 @@ describe('AntiVaguenessGate', () => {
 
     it('fails open when LLM returns invalid JSON', async () => {
       const mockGateway = {
-        complete: vi.fn().mockResolvedValue('Sorry, I cannot evaluate that.'),
+        completeByTask: vi.fn().mockResolvedValue('Sorry, I cannot evaluate that.'),
       } as any
 
       const gate = new AntiVaguenessGate(mockGateway)
@@ -220,7 +220,7 @@ describe('GovernanceEngine', () => {
 
       const result = await engine.processResponse(session, transcript, 'I am working on Phase 13 governance engine, targeting completion by Friday.')
 
-      expect(llm.complete).toHaveBeenCalledWith(
+      expect(llm.completeByTask).toHaveBeenCalledWith(
         expect.any(String),
         'governance',
         expect.objectContaining({ temperature: 0.3, sessionId: 'session-test-1' }),
@@ -259,7 +259,7 @@ describe('GovernanceEngine', () => {
       const result = await engine.processResponse(session, transcript, 'working on it')
 
       // LLM should NOT have been called — pushback is immediate
-      expect(llm.complete).not.toHaveBeenCalled()
+      expect(llm.completeByTask).not.toHaveBeenCalled()
       expect(result.bot_message).toContain('[Operator]')
       expect(result.state_update?.vagueness_skips?.priorities).toBe(1)
     })
@@ -283,7 +283,7 @@ describe('GovernanceEngine', () => {
       const result = await engine.processResponse(session, transcript, 'working on it')
 
       // LLM should have been called — max skips reached, advancing
-      expect(llm.complete).toHaveBeenCalled()
+      expect(llm.completeByTask).toHaveBeenCalled()
       // priorities should be covered now
       expect(result.state_update?.topics_covered).toContain('priorities')
     })
@@ -554,7 +554,7 @@ describe('GovernanceEngine', () => {
       // The rendered prompt should contain 'Integrator' for the board_role variable
       await engine.processResponse(session, transcript, 'Nothing further.')
 
-      const callArgs = llm.complete.mock.calls[0]
+      const callArgs = llm.completeByTask.mock.calls[0]
       expect(callArgs[0]).toContain('Integrator')
     })
   })

@@ -68,7 +68,7 @@ ${context}
 
 Answer:`
 
-    const response = await llmGateway.complete(prompt, 'synthesis', {
+    const response = await llmGateway.completeByTask(prompt, 'search_synthesis', {
       maxTokens: 1024,
       temperature: 0.2,
     })

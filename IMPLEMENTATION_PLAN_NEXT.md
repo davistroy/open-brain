@@ -211,7 +211,7 @@ Confirm that Open Brain Docker containers can reach the VM.
 
 #### 2.1 Migrate synthesize.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/core-api/src/routes/synthesize.ts`
 **Line:** 71
 
@@ -240,7 +240,7 @@ const response = await llmGateway.completeByTask(prompt, 'search_synthesis', {
 
 #### 2.2 Migrate governance-engine.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/core-api/src/services/governance-engine.ts`
 **Line:** 229
 
@@ -267,7 +267,7 @@ botMessage = await this.llmGateway.completeByTask(prompt, 'governance', {
 
 #### 2.3 Migrate anti-vagueness.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/core-api/src/services/anti-vagueness.ts`
 **Line:** 113
 
@@ -296,9 +296,9 @@ const raw = await this.llmGateway.completeByTask(prompt, 'confidence_gating', {
 
 #### 2.4 Migrate entity-resolution.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/core-api/src/services/entity-resolution.ts`
-**Line:** 125 (approximate — verify)
+**Line:** 125
 
 **Change:**
 ```typescript
@@ -318,6 +318,8 @@ await this.llmGateway.completeByTask(prompt, 'entity_linking', {...})
 ---
 
 #### 2.5 Update Tests
+
+**Status:** COMPLETE 2026-04-12
 
 **Description:**
 Update any core-api tests that mock `gateway.complete()` for these 4 call sites to instead expect `gateway.completeByTask()`.

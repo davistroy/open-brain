@@ -122,7 +122,7 @@ Reply with ONLY valid JSON in this exact format:
 Use match_index null if none of the entities match or confidence < 0.8.`
 
       try {
-        const raw = await this.llm.complete(prompt, 'fast', { temperature: 0.0, maxTokens: 200 })
+        const raw = await this.llm.completeByTask(prompt, 'entity_linking', { temperature: 0.0, maxTokens: 200 })
         const parsed = this.parseLLMResponse(raw)
 
         if (
