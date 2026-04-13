@@ -1,5 +1,6 @@
 export * from './anthropic-client.js'
 export * from './call-claude.js'
+export * from './composio-client.js'
 export * from './embedding.js'
 export * from './himalaya.js'
 export * from './litellm-client.js'

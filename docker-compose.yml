@@ -106,6 +106,7 @@ services:
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       GITEA_TOKEN: ${GITEA_TOKEN}
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
+      # COMPOSIO_API_KEY: set in .env.secrets (Composio MCP — calendar, email integrations)
       # LITELLM_API_KEY: set in .env.secrets
       # PUSHOVER_APP_TOKEN: set in .env.secrets
       # PUSHOVER_USER_KEY: set in .env.secrets
