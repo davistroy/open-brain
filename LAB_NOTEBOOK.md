@@ -61,6 +61,8 @@
 | D49 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | ACTIVE | Entry 033 | Workers needs gateway; all deps already in shared |
 | D50 | Voice-capture migration DEFERRED pending soak test | 2026-04-12 | ACTIVE | Entry 033 | Pipecat (WebSocket) and voice-capture (HTTP) are complementary |
 | D51 | Pipecat soak validates conversation only, not voice-capture replacement | 2026-04-12 | ACTIVE | Entry 033 | iOS Shortcut needs HTTP POST; Pipecat is WebSocket only |
+| D52 | Ubuntu cloud images for automated VM provisioning (not server ISOs) | 2026-04-12 | ACTIVE | Entry 035 | Autoinstall ISO failed; cloud-init + cloud image works |
+| D53 | open-brain-vm is Claude Code's dedicated ops box — full autonomy | 2026-04-12 | ACTIVE | Entry 035 | 192.168.10.53, T2 batch synthesis, Python, general ops |
 
 ## Action Items
 
@@ -85,7 +87,7 @@
 | A19 | Switch voice-capture classification to use gateway dispatch | 2026-04-12 | Entry 032 | HIGH — Phase 1A |
 | A20 | Set up Bond or Ubuntu VM as T2 (Claude CLI) runner | 2026-04-12 | Entry 032 | HIGH — Phase 0B |
 | A21 | Validate Jetson endpoint from homeserver Docker containers | 2026-04-12 | Entry 032 | HIGH — before Phase 1A deploy |
-| A22 | Create homeserver KVM VM (open-brain-vm, 192.168.10.53) | 2026-04-12 | Entry 033 | HIGH — Phase 0B |
+| A22 | ~~Create homeserver KVM VM (open-brain-vm, 192.168.10.53)~~ | 2026-04-12 | Entry 035 | DONE 2026-04-12 |
 | A23 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | Entry 033 | HIGH — prerequisite for Phase 3 |
 | A24 | Verify Pipecat DEEPGRAM_API_KEY configured before soak | 2026-04-12 | Entry 033 | HIGH — blocks Phase 0D |
 
@@ -1922,3 +1924,52 @@ Root now contains only:
 **Key pattern:** All skills use three-tier dispatch: gateway → Anthropic fallback → OpenAI fallback. Legacy path preserved for tests and edge cases.
 
 **What's now live:** Classification tasks (confidence_gating) route to t1_jetson (free). Complex tasks to t1_fast (Haiku) or t2_quality (Sonnet). All calls logged to ai_audit_log with tier info.
+
+### Entry 035: Phase 0B — open-brain-vm Created via CLI [infrastructure] [deploy]
+
+**Date:** 2026-04-12
+**Environment:** Homeserver (root + claude SSH), KVM/libvirt
+**Status:** COMPLETE (pending: Troy runs `claude login` once for Max subscription auth)
+**Tags:** `[infrastructure]` `[deploy]` `[decision]`
+
+**Objective:** Create a dedicated KVM VM on the homeserver for Claude Code T2 batch synthesis and general-purpose ops work.
+
+**Hypothesis:** A Ubuntu cloud image + cloud-init via virsh CLI will produce a working VM without using the Unraid web UI. Static IP 192.168.10.53, hostname open-brain-vm, SSH key auth, Docker container reachability. Expect: VM accessible from both laptop and Docker containers.
+
+**Rollback Plan:** `virsh destroy open-brain-vm && virsh undefine open-brain-vm && rm -rf /mnt/user/domains/open-brain-vm/`
+
+---
+
+**Approach 1 (failed): Ubuntu Server autoinstall ISO**
+- Downloaded Ubuntu 24.04 Server ISO (3.0GB)
+- Created cloud-init autoinstall config + ISO via Docker (Alpine + cdrkit)
+- Defined VM with CDROM boot + cidata ISO
+- Result: **Installer never ran.** Disk remained empty. The autoinstall format wasn't detected by the live installer (likely needed kernel boot parameter `autoinstall` or the ISO volume label wasn't recognized).
+- Root cause: Ubuntu Server autoinstall requires either a kernel cmdline arg or specific GRUB config — attaching a cidata ISO alone is insufficient for the installer.
+
+**Approach 2 (succeeded): Ubuntu cloud image**
+- Downloaded Ubuntu 24.04 cloud image (601MB qcow2, pre-installed)
+- Resized to 20GB via `qemu-img resize`
+- Created cloud-init ISO with: `claude` user, SSH key, static IP 192.168.10.53, hostname, packages
+- Defined VM with disk boot (no installer needed — cloud image boots directly)
+- VM booted in ~30s, cloud-init applied config, rebooted with static IP
+- SSH access confirmed from both laptop and Docker containers
+
+**Key finding:** Cloud images are dramatically simpler than installer ISOs for automated VM provisioning. No installer interaction, no autoinstall format quirks — just boot and cloud-init handles everything.
+
+**Sudoers fix:** The `claude` user on homeserver had no sudoers config. Created `/boot/config/custom/etc/sudoers.d/claude` (persists across Unraid reboots) with NOPASSWD for virsh, docker, cp, mv, rm, ln, mkdir, chmod, chown, reboot, mount, umount. Also installed to `/etc/sudoers.d/claude` for immediate effect.
+
+**VM Specifications:**
+- IP: 192.168.10.53, hostname: open-brain-vm
+- OS: Ubuntu 24.04 (cloud image), kernel 6.8.0
+- 2 vCPU, 4GB RAM, 20GB disk (qcow2 thin)
+- br0 bridge, autostart enabled
+- Node.js 22.22.2, npm 10.9.7, Claude Code CLI 2.1.104
+- T2 dispatch script: `/home/claude/t2-synthesize.sh`
+- Docker container → VM latency: <1ms (verified from open-brain-workers)
+
+**Decisions:**
+- D52: Ubuntu cloud images (not server ISOs) for automated VM provisioning on Unraid. Autoinstall ISO approach failed; cloud-init + cloud image worked on first try.
+- D53: open-brain-vm is Claude Code's dedicated ops box — full autonomy for installs, cron, services.
+
+**Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
