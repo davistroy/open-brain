@@ -38,6 +38,32 @@ The critical insight driving everything: Troy pays for a Claude Max subscription
 
 ---
 
+## Composio Integration (Simplifies Phases 3A+)
+
+**Composio** (`connect.composio.dev/mcp`) provides pre-built MCP integrations to 500+ services. Troy's account has the following already connected:
+
+| App | Tools Available | Master Plan Impact |
+|-----|----------------|-------------------|
+| **Gmail** | Fetch emails, search, labels | Phase 3A: replaces custom IMAP sync |
+| **Outlook/Hotmail** | List messages, calendars, calendar events | Phase 3A (email) + morning brief (calendar) |
+| **Google Drive** | File metadata, search | Phase 2B: potential OneDrive migration aid |
+| **Google Sheets** | Search spreadsheets | Financial tracking via sheets |
+| **Notion** | Fetch pages/databases | Potential data source |
+| **Slack** | Search messages | Cross-reference enrichment |
+
+**Available in two ways:**
+1. **Claude Code MCP server** — added to user config, available in every session for interactive use
+2. **Python client on open-brain-vm** — `~/composio/composio_client.py` for batch scripts
+
+**Key API:** `COMPOSIO_MULTI_EXECUTE_TOOL` with `tool_slug` + `arguments`. Auth via `x-consumer-api-key` header. API key stored in Bitwarden as `OPENCLAW_COMPOSIO_API_KEY`.
+
+**What this eliminates:**
+- Phase 3A.1 (IMAP Sync Service): replaced by `GMAIL_FETCH_EMAILS` + `OUTLOOK_LIST_MESSAGES`
+- Custom Google Calendar API integration: replaced by `OUTLOOK_LIST_CALENDARS` + `OUTLOOK_GET_CALENDAR_VIEW`
+- Morning brief calendar enhancement: use Composio instead of building custom integration
+
+---
+
 ## Plan Overview
 
 | Tier | Phase | Focus | Key Deliverables | Dependencies | Est. Effort |
@@ -558,22 +584,24 @@ Use this as the starting point for Phase 3A rather than building from scratch. T
 
 Process email from hotmail + gmail inboxes: fetch, classify, summarize daily.
 
-### Architecture (Track B — Batch)
+### Architecture (Track B — Batch, Composio-Powered)
 
 ```
-IMAP fetch (T0, Python) → Parse & extract (T0) → Classify (T0 rules + T1 Jetson) 
-  → Aggregate day's emails → Daily summary (T2, Claude CLI on bond) → One capture/day
+Composio GMAIL_FETCH_EMAILS + OUTLOOK_LIST_MESSAGES (T0, Python on VM)
+  → Parse & extract (T0) → Classify (T0 rules + T1 Jetson) 
+  → Aggregate day's emails → Daily summary (T2, Claude CLI on VM) → One capture/day
 ```
 
 ### Work Items
 
-#### 3A.1 IMAP Sync Service
+#### 3A.1 Email Fetch via Composio
 
-Python service/container that:
-- Connects to hotmail and gmail via IMAP
-- Fetches new emails since last sync (15-minute cron)
-- Extracts: sender, subject, date, body text, attachments list
-- Stores in a local staging table or SQLite
+Python script on open-brain-vm using `~/composio/composio_client.py`:
+- Calls `GMAIL_FETCH_EMAILS` for Gmail inbox (replaces custom IMAP sync)
+- Calls `OUTLOOK_LIST_MESSAGES` for Hotmail inbox (replaces custom IMAP sync)
+- Runs on 15-minute cron via open-brain-vm
+- Extracts: sender, subject, date, body text preview
+- Stores in local SQLite staging database
 
 #### 3A.2 Email Classification (T0)
 

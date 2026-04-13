@@ -65,6 +65,7 @@
 | D53 | open-brain-vm is Claude Code's dedicated ops box — full autonomy | 2026-04-12 | ACTIVE | Entry 035 | 192.168.10.53, T2 batch synthesis, Python, general ops |
 | D54 | OpenClaw jobs stay on Bond — no migration to Open Brain needed | 2026-04-13 | ACTIVE | Entry 036 | All jobs are OpenClaw-internal or already covered |
 | D55 | OpenClaw morning-brief-data.py is template for Phase 3A email pipeline | 2026-04-13 | ACTIVE | Entry 036 | Calendar + email via Composio MCP — reference when building |
+| D56 | Composio MCP for Claude Code + VM client library | 2026-04-13 | ACTIVE | Entry 037 | Gmail, Outlook, Drive, Sheets, Notion, Slack connected. Replaces IMAP for 3A. |
 
 ## Action Items
 
@@ -2028,5 +2029,39 @@ OpenClaw jobs are either OpenClaw-internal (backups, memory) or already covered 
 **Decisions:**
 - D54: OpenClaw scheduled jobs stay on Bond — they're OpenClaw-internal or already covered by Open Brain skills. No migration needed.
 - D55: OpenClaw's `morning-brief-data.py` (calendar + email via Composio) is the template for Phase 3A email pipeline. Reference it when building email ingestion.
+
+### Entry 037: Composio MCP Integration [infrastructure] [integration]
+
+**Date:** 2026-04-13
+**Environment:** Laptop + Bond (recon) + open-brain-vm (client setup)
+**Status:** COMPLETE
+**Tags:** `[infrastructure]` `[integration]`
+
+**Objective:** Evaluate and integrate Composio as a unified API connector for Open Brain's batch data sources, replacing custom IMAP/calendar integrations.
+
+**Hypothesis:** Composio's MCP endpoint (already working for OpenClaw on Bond) can be added to Claude Code and open-brain-vm, providing pre-built Gmail, Outlook, Calendar, Drive, Sheets, Notion, and Slack integrations. This would eliminate the need for custom IMAP sync code in Phase 3A.
+
+**Rollback Plan:** Remove MCP server: `claude mcp remove composio`. Delete `~/composio/` on VM.
+
+---
+
+**Findings:**
+- Composio MCP at `connect.composio.dev/mcp` requires `x-consumer-api-key` header + Mozilla-compatible User-Agent (Cloudflare blocks Python default UA)
+- Troy's Composio account has 7 app integrations already connected: Gmail, Outlook, Google Drive, Google Sheets, Notion, Slack
+- Composio uses a meta-tool pattern: `COMPOSIO_SEARCH_TOOLS` discovers tools, `COMPOSIO_MULTI_EXECUTE_TOOL` executes them, `COMPOSIO_GET_TOOL_SCHEMAS` returns input schemas
+- API key already in Bitwarden as `OPENCLAW_COMPOSIO_API_KEY`
+
+**Setup completed:**
+1. **Claude Code MCP server** — added via `claude mcp add composio` with HTTP transport + custom headers. Available in all future sessions.
+2. **VM client library** — `~/composio/composio_client.py` on open-brain-vm. Python class with `execute()`, `search_tools()`, `get_schemas()` methods. Tested and working.
+3. **Master plan updated** — Phase 3A architecture changed from custom IMAP to Composio-powered. New "Composio Integration" section added to master plan.
+
+**Impact on master plan:**
+- Phase 3A.1 (IMAP Sync Service) → replaced by `GMAIL_FETCH_EMAILS` + `OUTLOOK_LIST_MESSAGES` via Composio
+- Morning brief calendar → `OUTLOOK_LIST_CALENDARS` + `OUTLOOK_GET_CALENDAR_VIEW`
+- Estimated effort reduction: ~400 LOC eliminated (no IMAP auth, message parsing, calendar API)
+
+**Decision:**
+- D56: Composio MCP added to Claude Code user config and open-brain-vm client library. 7 connected apps available. Replaces custom IMAP sync for Phase 3A email pipeline.
 
 **Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
