@@ -262,6 +262,31 @@ export class WikiService {
     return job.id ?? null
   }
 
+  /**
+   * Enqueue a wiki re-synthesis job for a specific page.
+   * Uses the skill-execution queue to run wiki-ingest with the page path.
+   * @returns Job ID or null if queue not configured.
+   */
+  async triggerResynthesize(pagePath: string): Promise<string | null> {
+    if (!this.wikiIngestQueue) {
+      logger.warn('Wiki ingest queue not configured — cannot trigger resynthesize')
+      return null
+    }
+
+    const job = await this.wikiIngestQueue.add(
+      'wiki-ingest',
+      { pagePath, resynthesize: true },
+      {
+        jobId: `wiki-resynthesize_${pagePath.replace(/\//g, '_')}_${Date.now()}`,
+        removeOnComplete: 100,
+        removeOnFail: 50,
+      },
+    )
+
+    logger.info({ pagePath, jobId: job.id }, 'Wiki resynthesize job enqueued')
+    return job.id ?? null
+  }
+
   // -------------------------------------------------------------------------
   // Internal helpers
   // -------------------------------------------------------------------------
