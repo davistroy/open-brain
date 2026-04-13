@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { entities, entity_links } from '@open-brain/shared'
 import { NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import type { LLMGatewayService } from './llm-gateway.js'
+import type { LLMGatewayService } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 
 /** Return value from resolve() describing what happened. */
@@ -122,7 +122,7 @@ Reply with ONLY valid JSON in this exact format:
 Use match_index null if none of the entities match or confidence < 0.8.`
 
       try {
-        const raw = await this.llm.complete(prompt, 'fast', { temperature: 0.0, maxTokens: 200 })
+        const raw = await this.llm.completeByTask(prompt, 'entity_linking', { temperature: 0.0, maxTokens: 200 })
         const parsed = this.parseLLMResponse(raw)
 
         if (

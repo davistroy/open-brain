@@ -3,7 +3,7 @@ import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
 import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
-import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
+import type { WikiGitService, WikiFrontmatter, LLMGatewayService } from '@open-brain/shared'
 import {
   queryRecentCaptures,
   buildEntityCoOccurrence,
@@ -36,6 +36,7 @@ export class DailyConnectionsSkill {
   private db: Database
   private litellmClient: OpenAI | null
   private anthropicClient: Anthropic | null
+  private llmGateway: LLMGatewayService | null
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -46,6 +47,7 @@ export class DailyConnectionsSkill {
     litellmBaseUrl?: string
     litellmApiKey?: string
     anthropicClient?: Anthropic
+    llmGateway?: LLMGatewayService
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
@@ -60,6 +62,7 @@ export class DailyConnectionsSkill {
       maxRetries: 0,
     })
     this.anthropicClient = opts.anthropicClient ?? null
+    this.llmGateway = opts.llmGateway ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -157,7 +160,17 @@ export class DailyConnectionsSkill {
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[daily-connections] calling LLM')
 
-    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    // Prefer LLMGatewayService (task-based tier routing with audit logging)
+    if (this.llmGateway) {
+      const text = await this.llmGateway.completeByTask(prompt, 'daily_connections', {
+        temperature: 0.4,
+        maxTokens: 2048,
+      })
+      logger.info('[daily-connections] LLM call complete (gateway)')
+      return text
+    }
+
+    // Legacy fallback: Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
     if (this.anthropicClient) {
       const result = await callClaude(this.anthropicClient, prompt, {
         model: modelAlias,
@@ -330,8 +343,9 @@ export async function executeDailyConnections(
   options: DailyConnectionsOptions = {},
   wikiService?: WikiGitService,
   anthropicClient?: Anthropic,
+  llmGateway?: LLMGatewayService,
 ): Promise<DailyConnectionsResult> {
-  return new DailyConnectionsSkill({ db, wikiService, anthropicClient }).execute(options)
+  return new DailyConnectionsSkill({ db, wikiService, anthropicClient, llmGateway }).execute(options)
 }
 
 // ============================================================

@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, LLMGatewayService } from '@open-brain/shared'
 import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import {
@@ -41,6 +41,7 @@ export class DriftMonitorSkill {
   private db: Database
   private litellmClient: OpenAI | null
   private anthropicClient: Anthropic | null
+  private llmGateway: LLMGatewayService | null
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -51,6 +52,7 @@ export class DriftMonitorSkill {
     litellmBaseUrl?: string
     litellmApiKey?: string
     anthropicClient?: Anthropic
+    llmGateway?: LLMGatewayService
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
@@ -65,6 +67,7 @@ export class DriftMonitorSkill {
       maxRetries: 0,
     })
     this.anthropicClient = opts.anthropicClient ?? null
+    this.llmGateway = opts.llmGateway ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -178,7 +181,17 @@ export class DriftMonitorSkill {
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[drift-monitor] calling LLM')
 
-    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    // Prefer LLMGateway (task-based tier routing with audit logging)
+    if (this.llmGateway) {
+      const raw = await this.llmGateway.completeByTask(prompt, 'drift_monitoring', {
+        temperature: 0.3,
+        maxTokens: 2048,
+      })
+      logger.info('[drift-monitor] LLM call complete (gateway)')
+      return raw
+    }
+
+    // Legacy fallback: Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
     if (this.anthropicClient) {
       const result = await callClaude(this.anthropicClient, prompt, {
         model: modelAlias,
@@ -353,8 +366,9 @@ export async function executeDriftMonitor(
   options: DriftMonitorOptions = {},
   wikiService?: WikiGitService,
   anthropicClient?: Anthropic,
+  llmGateway?: LLMGatewayService,
 ): Promise<DriftMonitorResult> {
-  return new DriftMonitorSkill({ db, wikiService, anthropicClient }).execute(options)
+  return new DriftMonitorSkill({ db, wikiService, anthropicClient, llmGateway }).execute(options)
 }
 
 // ============================================================

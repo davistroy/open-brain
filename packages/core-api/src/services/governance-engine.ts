@@ -1,5 +1,5 @@
 import { logger, TemplateCache } from '@open-brain/shared'
-import type { LLMGatewayService } from './llm-gateway.js'
+import type { LLMGatewayService } from '@open-brain/shared'
 import type { SearchService } from './search.js'
 import type { BetService } from './bet.js'
 import type { SessionRecord, SessionMessageRecord } from './session.js'
@@ -226,7 +226,7 @@ export class GovernanceEngine {
 
     let botMessage: string
     try {
-      botMessage = await this.llmGateway.complete(prompt, 'governance', {
+      botMessage = await this.llmGateway.completeByTask(prompt, 'governance', {
         temperature: 0.3,
         maxTokens: 1024,
         sessionId,

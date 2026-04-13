@@ -8,7 +8,7 @@ import { NotFoundError } from '@open-brain/shared'
 
 function makeMockLLM(response: string) {
   return {
-    complete: vi.fn().mockResolvedValue(response),
+    completeByTask: vi.fn().mockResolvedValue(response),
   }
 }
 
@@ -176,7 +176,7 @@ describe('EntityResolutionService.resolve — LLM match', () => {
     expect(result.outcome).toBe('llm_match')
     expect(result.entity_id).toBe('entity-uuid-1')
     expect(result.confidence).toBe(0.9)
-    expect(llm.complete).toHaveBeenCalledOnce()
+    expect(llm.completeByTask).toHaveBeenCalledOnce()
   })
 
   it('creates new entity when LLM confidence < 0.8', async () => {
@@ -281,7 +281,7 @@ describe('EntityResolutionService.resolve — new entity creation', () => {
     }
 
     const llm = {
-      complete: vi.fn().mockRejectedValue(new Error('LLM timeout')),
+      completeByTask: vi.fn().mockRejectedValue(new Error('LLM timeout')),
     }
 
     const service = new EntityResolutionService(db as any, llm as any)

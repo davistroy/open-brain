@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, LLMGatewayService } from '@open-brain/shared'
 import {
   skills_log,
   logger,
@@ -102,6 +102,7 @@ export class MemoryConsolidationSkill {
   private db: Database
   private litellmClient: OpenAI | null
   private anthropicClient: Anthropic | null
+  private llmGateway: LLMGatewayService | null
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -111,6 +112,7 @@ export class MemoryConsolidationSkill {
     litellmBaseUrl?: string
     litellmApiKey?: string
     anthropicClient?: Anthropic
+    llmGateway?: LLMGatewayService
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
@@ -124,6 +126,7 @@ export class MemoryConsolidationSkill {
       maxRetries: 0,
     })
     this.anthropicClient = opts.anthropicClient ?? null
+    this.llmGateway = opts.llmGateway ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -394,7 +397,17 @@ export class MemoryConsolidationSkill {
 
     logger.debug({ modelAlias, promptLength: prompt.length }, '[memory-consolidation] calling LLM')
 
-    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    // Prefer LLMGatewayService (task-based tier routing with audit log)
+    if (this.llmGateway) {
+      const raw = await this.llmGateway.completeByTask(prompt, 'search_synthesis', {
+        temperature: 0.2,
+        maxTokens: 2048,
+      })
+      logger.info('[memory-consolidation] LLM call complete (gateway)')
+      return this.parseLLMOutput(raw)
+    }
+
+    // Legacy fallback: Anthropic client → OpenAI/LiteLLM
     if (this.anthropicClient) {
       const result = await callClaude(this.anthropicClient, prompt, {
         model: modelAlias,
@@ -739,6 +752,7 @@ export async function executeMemoryConsolidation(
   db: Database,
   options: MemoryConsolidationOptions = {},
   anthropicClient?: Anthropic,
+  llmGateway?: LLMGatewayService,
 ): Promise<MemoryConsolidationResult> {
-  return new MemoryConsolidationSkill({ db, anthropicClient }).execute(options)
+  return new MemoryConsolidationSkill({ db, anthropicClient, llmGateway }).execute(options)
 }

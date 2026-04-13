@@ -42,10 +42,17 @@ models:
 model_tiers:
   t0_local:
     provider: ollama
-    model: "gemma4:12b-q4_K_M"
+    model: "qwen3.5:2b"
     base_url: "http://ollama:11434/v1"
     max_completion_tokens: 256
-    timeout_ms: 10000
+    timeout_ms: 15000
+    fallback: t1_jetson
+  t1_jetson:
+    provider: openai_compat
+    model: "qwen3.5-4b"
+    base_url: "http://jetson.k4jda.net:8080/v1"
+    max_completion_tokens: 256
+    timeout_ms: 5000
     fallback: t1_fast
   t1_fast:
     provider: anthropic
@@ -69,18 +76,22 @@ model_tiers:
   #   fallback: t2_quality
 
 # ============================================================
-# Task-to-tier routing (17 tasks per PRD 7.4)
+# Task-to-tier routing (17+ tasks per PRD 7.4)
+#
+# Classification tasks route to t1_jetson (Qwen 3.5 4B, 0.67s/call, free).
+# Falls back to t1_fast (Haiku API) if Jetson is unreachable.
+# Complex tasks route to t2_quality (Sonnet API).
 # ============================================================
 task_routing:
-  intent_classification: t1_fast  # t0_local too slow on i7-9700 (~57s per call)
-  capture_classification: t1_fast  # t0_local too slow on i7-9700
-  brain_view_classification: t1_fast  # t0_local too slow on i7-9700
-  voice_classification: t1_fast  # t0_local too slow on i7-9700
-  confidence_gating: t1_fast  # t0_local too slow on i7-9700
+  intent_classification: t1_jetson
+  capture_classification: t1_jetson
+  brain_view_classification: t1_jetson
+  voice_classification: t1_jetson
+  confidence_gating: t1_jetson
   entity_extraction: t1_fast
   entity_linking: t1_fast
   capture_enrichment: t1_fast
-  question_detection: t1_fast
+  question_detection: t1_jetson
   search_synthesis: t1_fast
   daily_sweep: t1_fast
   mcp_context: t1_fast

@@ -1,12 +1,13 @@
-import type OpenAI from 'openai'
+import OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import {
-  ServiceUnavailableError,
-  ai_audit_log,
-  logger,
-  getModelEntry,
-} from '@open-brain/shared'
-import type { ConfigService, Database, TemplateCache, AIModelEntry, AIClientType, ModelTierEntry } from '@open-brain/shared'
+import { ServiceUnavailableError } from '../utils/errors.js'
+import { ai_audit_log } from '../schema/index.js'
+import { logger } from '../lib/logger.js'
+import { getModelEntry } from '../types/config.js'
+import type { ConfigService } from '../config/loader.js'
+import type { Database } from '../db/index.js'
+import type { TemplateCache } from '../lib/prompt-template.js'
+import type { AIModelEntry, AIClientType, ModelTierEntry } from '../types/config.js'
 
 /**
  * Thrown when the LLM gateway is over budget (hard limit).
@@ -97,6 +98,8 @@ export class LLMGatewayService {
   private configService: ConfigService
   private db: Database
   private templateCache: TemplateCache
+  /** Cache of OpenAI SDK clients for tiers with custom base_url (e.g., Jetson) */
+  private tierClientCache: Map<string, OpenAI> = new Map()
 
   constructor(
     litellmClient: OpenAI,
@@ -179,12 +182,14 @@ export class LLMGatewayService {
   /**
    * Maps a tier's provider string to the actual client type that will be used,
    * accounting for client availability. Falls back gracefully.
+   *
+   * 'openai_compat' tiers (e.g., Jetson llama.cpp) always resolve to 'litellm'
+   * client type — the actual base_url is handled by getClientForTier().
    */
   private resolveProviderClient(provider: string): AIClientType {
     if (provider === 'ollama' && this.ollamaClient) return 'ollama'
     if (provider === 'anthropic' && this.anthropicClient) return 'anthropic'
     if (provider === 'ollama' && !this.ollamaClient) {
-      // Ollama not available — degrade to litellm
       logger.debug('Ollama client not available — degrading to litellm')
       return 'litellm'
     }
@@ -192,7 +197,7 @@ export class LLMGatewayService {
       logger.debug('Anthropic client not available — degrading to litellm')
       return 'litellm'
     }
-    // litellm, openai, deepseek — all use the litellm/OpenAI SDK client
+    // litellm, openai, openai_compat, deepseek — all use the OpenAI SDK client
     return 'litellm'
   }
 
@@ -203,6 +208,37 @@ export class LLMGatewayService {
   private getOpenAIClient(clientType: AIClientType): OpenAI {
     if (clientType === 'ollama' && this.ollamaClient) return this.ollamaClient
     return this.litellmClient
+  }
+
+  /**
+   * Returns the OpenAI SDK client for a specific tier, respecting its base_url.
+   *
+   * For 'openai_compat' provider tiers (custom OpenAI-compatible endpoints like
+   * Jetson llama.cpp), creates a dedicated cached client using the tier's base_url.
+   * For 'ollama' tiers, uses the pre-constructed ollamaClient (from OLLAMA_URL env).
+   * For 'anthropic' tiers, the caller handles dispatch separately.
+   */
+  private getClientForTier(tier: ModelTierEntry, tierKey: string, clientType: AIClientType): OpenAI {
+    // openai_compat tiers always get a dedicated client from base_url
+    if (tier.provider === 'openai_compat' && tier.base_url) {
+      const cached = this.tierClientCache.get(tierKey)
+      if (cached) return cached
+
+      const normalizedURL = tier.base_url.endsWith('/v1') ? tier.base_url : `${tier.base_url}/v1`
+      const client = new OpenAI({
+        baseURL: normalizedURL,
+        apiKey: 'local',  // Local endpoints ignore the key but SDK requires non-empty
+        timeout: tier.timeout_ms,
+        maxRetries: 0,  // Fail fast — let the fallback chain handle retries
+      })
+
+      this.tierClientCache.set(tierKey, client)
+      logger.info({ tierKey, baseUrl: normalizedURL }, `Created cached client for tier '${tierKey}'`)
+      return client
+    }
+
+    // ollama, litellm, openai — use pre-constructed clients
+    return this.getOpenAIClient(clientType)
   }
 
   /**
@@ -290,8 +326,9 @@ export class LLMGatewayService {
         completionTokens = result.outputTokens
         totalTokens = promptTokens + completionTokens
       } else {
-        // Ollama and LiteLLM both use OpenAI SDK
-        const openaiClient = this.getOpenAIClient(client)
+        // Ollama, LiteLLM, and openai_compat tiers all use OpenAI SDK.
+        // getClientForTier respects the tier's base_url for custom endpoints.
+        const openaiClient = this.getClientForTier(tier, tierKey, client)
         const result = await this.completeViaOpenAISDK(
           openaiClient, prompt, model,
           { ...options, maxTokens: options.maxTokens ?? maxTokens },
