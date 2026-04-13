@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import { sql } from 'drizzle-orm'
-import type { Database } from '@open-brain/shared'
+import type { Database, LLMGatewayService } from '@open-brain/shared'
 import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
 
 // ============================================================
@@ -249,6 +249,7 @@ export class DailySweepSkill {
   private db: Database
   private litellmClient: OpenAI | null
   private anthropicClient: Anthropic | null
+  private llmGateway: LLMGatewayService | null
   private pushover: PushoverService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -258,6 +259,7 @@ export class DailySweepSkill {
     litellmBaseUrl?: string
     litellmApiKey?: string
     anthropicClient?: Anthropic
+    llmGateway?: LLMGatewayService
     pushover?: PushoverService
     promptsDir?: string
     coreApiUrl?: string
@@ -271,6 +273,7 @@ export class DailySweepSkill {
       maxRetries: 0,
     })
     this.anthropicClient = opts.anthropicClient ?? null
+    this.llmGateway = opts.llmGateway ?? null
     this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
@@ -377,7 +380,17 @@ export class DailySweepSkill {
     })
     logger.debug({ modelAlias, promptLength: prompt.length }, '[daily-sweep-skill] calling LLM')
 
-    // Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
+    // Prefer LLMGatewayService (task-based tier routing with audit log)
+    if (this.llmGateway) {
+      const raw = await this.llmGateway.completeByTask(prompt, 'daily_sweep', {
+        temperature: 0.3,
+        maxTokens: 2048,
+      })
+      logger.info('[daily-sweep-skill] LLM call complete (gateway)')
+      return raw
+    }
+
+    // Legacy fallback: Anthropic client → OpenAI/LiteLLM
     if (this.anthropicClient) {
       const result = await callClaude(this.anthropicClient, prompt, {
         model: modelAlias,
@@ -518,8 +531,9 @@ export async function executeDailySweep(
   db: Database,
   options: DailySweepOptions = {},
   anthropicClient?: Anthropic,
+  llmGateway?: LLMGatewayService,
 ): Promise<DailySweepResult> {
-  return new DailySweepSkill({ db, anthropicClient }).execute(options)
+  return new DailySweepSkill({ db, anthropicClient, llmGateway }).execute(options)
 }
 
 // ============================================================

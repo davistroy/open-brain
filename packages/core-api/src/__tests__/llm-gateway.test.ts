@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { LLMGatewayService, LLMBudgetExceededError, LLMGatewayError } from '../services/llm-gateway.js'
+import { LLMGatewayService, LLMBudgetExceededError, LLMGatewayError } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Mock factories

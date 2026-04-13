@@ -2,7 +2,7 @@ import type { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { SearchService } from '../services/search.js'
-import type { LLMGatewayService } from '../services/llm-gateway.js'
+import type { LLMGatewayService } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 
 const synthesizeBodySchema = z.object({
@@ -68,7 +68,7 @@ ${context}
 
 Answer:`
 
-    const response = await llmGateway.complete(prompt, 'synthesis', {
+    const response = await llmGateway.completeByTask(prompt, 'search_synthesis', {
       maxTokens: 1024,
       temperature: 0.2,
     })

@@ -1,4 +1,4 @@
-import type { LLMGatewayService } from './llm-gateway.js'
+import type { LLMGatewayService } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ export class AntiVaguenessGate {
     // LLM evaluation for ambiguous cases
     try {
       const prompt = this.buildEvalPrompt(question, answer, topic)
-      const raw = await this.llmGateway.complete(prompt, 'fast', {
+      const raw = await this.llmGateway.completeByTask(prompt, 'confidence_gating', {
         temperature: 0.0,
         maxTokens: 256,
         sessionId,

@@ -55,6 +55,17 @@
 | D43 | Jetson is current T1 classification endpoint (0.67s/call) | 2026-04-12 | ACTIVE | Entry 031 | Qwen 3.5 4B, llama.cpp, port 8080, --reasoning off |
 | D44 | Thinking mode caused T0 validation failures — always use think:false | 2026-04-12 | ACTIVE | Entry 031 | Corrects D36; models are accurate, thinking was the problem |
 | D45 | nomic-embed-text is preferred local embedding model (768-dim) | 2026-04-12 | ACTIVE | Entry 031 | Drop-in for OpenAI, 800ms CPU / <50ms GPU |
+| D46 | `openai_compat` provider for non-Ollama OpenAI-compatible endpoints | 2026-04-12 | ACTIVE | Entry 032 | Per-tier cached clients from base_url; llama.cpp, vLLM, etc. |
+| D47 | 6 classification tasks route to t1_jetson (free, 0.67s) | 2026-04-12 | ACTIVE | Entry 032 | Complex tasks stay on t1_fast (Haiku) or t2_quality (Sonnet) |
+| D48 | Homeserver KVM VM for T2 Claude CLI (not Bond, not LXC) | 2026-04-12 | ACTIVE | Entry 033 | 192.168.10.53, open-brain-vm, 2 vCPU, 4GB RAM |
+| D49 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | ACTIVE | Entry 033 | Workers needs gateway; all deps already in shared |
+| D50 | Voice-capture migration DEFERRED pending soak test | 2026-04-12 | ACTIVE | Entry 033 | Pipecat (WebSocket) and voice-capture (HTTP) are complementary |
+| D51 | Pipecat soak validates conversation only, not voice-capture replacement | 2026-04-12 | ACTIVE | Entry 033 | iOS Shortcut needs HTTP POST; Pipecat is WebSocket only |
+| D52 | Ubuntu cloud images for automated VM provisioning (not server ISOs) | 2026-04-12 | ACTIVE | Entry 035 | Autoinstall ISO failed; cloud-init + cloud image works |
+| D53 | open-brain-vm is Claude Code's dedicated ops box — full autonomy | 2026-04-12 | ACTIVE | Entry 035 | 192.168.10.53, T2 batch synthesis, Python, general ops |
+| D54 | OpenClaw jobs stay on Bond — no migration to Open Brain needed | 2026-04-13 | ACTIVE | Entry 036 | All jobs are OpenClaw-internal or already covered |
+| D55 | OpenClaw morning-brief-data.py is template for Phase 3A email pipeline | 2026-04-13 | ACTIVE | Entry 036 | Calendar + email via Composio MCP — reference when building |
+| D56 | Composio MCP for Claude Code + VM client library | 2026-04-13 | ACTIVE | Entry 037 | Gmail, Outlook, Drive, Sheets, Notion, Slack connected. Replaces IMAP for 3A. |
 
 ## Action Items
 
@@ -75,6 +86,13 @@
 | A15 | Voice container promotion — remove voice-capture + faster-whisper | 2026-04-12 | Entry 029 | LOW — after A14 validates |
 | A16 | Check OneDrive sync status and file count | 2026-04-12 | Entry 026 | LOW |
 | A17 | Consider smaller Ollama model (Gemma 3 4B) for T0 if latency matters | 2026-04-12 | Entry 029 | LOW |
+| A18 | Switch worker call sites from `complete()` to `completeByTask()` | 2026-04-12 | Entry 032 | HIGH — Phase 1A |
+| A19 | Switch voice-capture classification to use gateway dispatch | 2026-04-12 | Entry 032 | HIGH — Phase 1A |
+| A20 | Set up Bond or Ubuntu VM as T2 (Claude CLI) runner | 2026-04-12 | Entry 032 | HIGH — Phase 0B |
+| A21 | Validate Jetson endpoint from homeserver Docker containers | 2026-04-12 | Entry 032 | HIGH — before Phase 1A deploy |
+| A22 | ~~Create homeserver KVM VM (open-brain-vm, 192.168.10.53)~~ | 2026-04-12 | Entry 035 | DONE 2026-04-12 |
+| A23 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | Entry 033 | HIGH — prerequisite for Phase 3 |
+| A24 | Verify Pipecat DEEPGRAM_API_KEY configured before soak | 2026-04-12 | Entry 033 | HIGH — blocks Phase 0D |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -1741,3 +1759,309 @@ Evaluated PNY NVIDIA RTX PRO 2000 Blackwell ($549 at Micro Center):
 | Qwen3-Embedding-0.6B-Q8_0 | 610 MB | Available (small embedding) |
 
 **Status:** COMPLETE — benchmarks documented, decisions made, no code changes needed.
+
+--- New session: 2026-04-12 — Master plan + Jetson T1 wiring ---
+
+### Entry 032: Master Plan + Jetson T1 Endpoint Wiring [architecture] [infrastructure] [decision]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development)
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[infrastructure]` `[decision]` `[config]`
+
+**Objective:** Create a comprehensive master implementation plan covering all discussed future features, then wire the Jetson Orin Nano as the T1 classification endpoint in the LLM gateway.
+
+**Hypothesis:** Adding a `t1_jetson` tier to `ai-routing.yaml` and teaching the LLM gateway to create per-tier OpenAI SDK clients from `base_url` will enable classification tasks to route to Jetson (0.67s, free) with automatic fallback to Haiku API. Expect: all 24 gateway tests pass, no regressions in 694 core-api tests.
+
+**Rollback Plan:** Revert `ai-routing.yaml` to previous version (classification tasks back to `t1_fast`). Remove `openai_compat` from provider enum. Remove `getClientForTier` method and `tierClientCache` from gateway.
+
+---
+
+#### Part 1: Master Implementation Plan
+
+Created `IMPLEMENT_MASTER_PLAN.md` — comprehensive plan covering 5 tiers, 22 work items:
+- **Tier 0 (Foundation):** Jetson T1 wiring, Bond/Ubuntu-VM T2 setup, OneDrive sync, Pipecat soak
+- **Tier 1 (Pipeline):** Three-tier model routing, Slack auto-response, voice promotion
+- **Tier 2 (Wiki):** Wiki activation, OneDrive file migration tooling, wiki construction
+- **Tier 3 (Batch Sources):** Email inbox, financial monitoring, Amazon purchases, credit cards, utilities, newsletters, lab reports, insurance
+- **Tier 4 (Polish):** Email outbound, dashboard polish, cognitive memory tuning
+- **Tier 5 (Hardware):** Optional RTX PRO 2000 GPU
+
+Critical path: 0A → 0B → 1A → 3A (Jetson → Bond → model routing → first batch source).
+
+Bond or homeserver Ubuntu VM both viable for T2 tier. Bond recommended for isolation; VM as alternative.
+
+#### Part 2: Jetson T1 Endpoint Wiring
+
+**Changes Made:**
+
+1. **`config/ai-routing.yaml`:**
+   - Added `t1_jetson` tier: `provider: openai_compat`, `model: qwen3.5-4b`, `base_url: http://jetson.k4jda.net:8080/v1`, timeout 5s, fallback to `t1_fast`
+   - Updated `t0_local` model to `qwen3.5:2b` (fastest on CPU per Entry 031), fallback chain: `t0_local → t1_jetson → t1_fast → t2_quality`
+   - Rerouted classification tasks (`intent_classification`, `capture_classification`, `brain_view_classification`, `voice_classification`, `confidence_gating`, `question_detection`) from `t1_fast` to `t1_jetson`
+   - Entity extraction and other complex tasks stay on `t1_fast` (Haiku API)
+
+2. **`packages/shared/src/types/config.ts`:**
+   - Added `'openai_compat'` to `ModelTierEntrySchema.provider` enum — for non-Ollama OpenAI-compatible endpoints (llama.cpp, vLLM, etc.)
+
+3. **`packages/core-api/src/services/llm-gateway.ts`:**
+   - Added `tierClientCache: Map<string, OpenAI>` — caches OpenAI SDK clients per tier key
+   - Added `getClientForTier(tier, tierKey, clientType)` method — creates dedicated cached clients for `openai_compat` tiers with `base_url`, preserves existing ollama/litellm client behavior
+   - Changed `import type OpenAI` to `import OpenAI` (needed for `new OpenAI()` in client factory)
+   - Updated `completeWithTierFallback()` to use `getClientForTier()` instead of `getOpenAIClient()`
+   - Updated `resolveProviderClient()` to document `openai_compat` routing
+
+**Design Decision:** Only `openai_compat` provider tiers get per-tier clients from `base_url`. The `ollama` provider continues using the pre-constructed `this.ollamaClient` (from OLLAMA_URL env). This preserves test mock compatibility — tests inject a mock ollama client via constructor, and `openai_compat` tiers don't exist in the test fixtures.
+
+**Test Results:**
+- Gateway tests: 24/24 pass
+- Core-api full suite: 694/694 pass
+- Shared package builds clean (DTS generation)
+- Workers type-check clean
+
+**What This Enables:**
+- Any code calling `gateway.completeByTask('intent_classification', prompt)` will automatically route to Jetson
+- Fallback chain handles Jetson unavailability transparently
+- `ai_audit_log` records which tier handled each call (for cost analysis)
+- Future tiers (DGX Spark, etc.) can be added with just config + `openai_compat` provider
+
+**What Remains (Phase 1A):**
+- Workers still use legacy `complete()` path — need to switch to `completeByTask()`
+- Voice-capture classification uses its own direct client — needs gateway integration
+- No production validation yet (Jetson endpoint not tested from homeserver containers)
+
+**Decisions:**
+- D46: `openai_compat` is the provider type for non-Ollama OpenAI-compatible endpoints (llama.cpp, vLLM, etc.). Uses dedicated per-tier cached clients created from `base_url`.
+- D47: Classification tasks (6 of 19) route to `t1_jetson` (free, 0.67s). Complex tasks stay on `t1_fast` (Haiku API) or `t2_quality` (Sonnet API).
+
+### Entry 033: Ultra Plan — Phases 0B, 1A, 0D Investigation + Plan Generation [architecture] [planning]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development) + homeserver (SSH recon)
+**Status:** COMPLETE
+**Tags:** `[architecture]` `[planning]` `[infrastructure]`
+
+**Objective:** Deep investigation of three next-priority items (VM setup, LLM call site migration, Pipecat soak test), followed by formal implementation plan generation.
+
+**Hypothesis:** A thorough investigation of all LLM call sites and Pipecat architecture will reveal hidden dependencies and interaction risks that wouldn't be caught by jumping straight to implementation. Expect: a coherent plan with no surprises during execution.
+
+**Rollback Plan:** N/A — planning only, no system changes.
+
+---
+
+#### Investigation Key Findings
+
+**LLM Call Site Audit (3 parallel agents):**
+- Found **12 production call sites** across 4 packages that need migration to `completeByTask()`
+- **4 in core-api** (trivial — gateway already available, just change method call)
+- **6 in workers** (requires plumbing — workers have no gateway instance)
+- **2 in voice-capture** (deferred — pending soak test outcome)
+- **Critical architecture issue:** `LLMGatewayService` lives in core-api but workers needs it. Solution: move gateway to `@open-brain/shared` (all its dependencies are already there).
+
+**Pipecat Investigation:**
+- **Critical finding: Pipecat and voice-capture are complementary, NOT redundant.**
+  - Pipecat = WebSocket real-time multi-turn conversation (Deepgram STT → Claude LLM → TTS)
+  - voice-capture = HTTP POST one-shot upload from iOS Shortcut (Whisper → classification → capture)
+  - Different protocols, different use cases. Removing voice-capture breaks iOS workflow.
+- Pipecat container healthy (23h uptime), requires DEEPGRAM_API_KEY and ANTHROPIC_API_KEY
+- Full soak test checklist created: 30+ validation items across functional, non-functional, data quality
+
+**Homeserver VM Recon:**
+- Unraid 7.2.3, KVM VM manager installed, existing VMs running (vnet0, vnet1)
+- Ubuntu 24.04 desktop ISO already on server (server ISO preferred — may need download)
+- 86GB RAM available (39GB used by 48 containers), `br0` bridge exists
+- Docker containers can reach `br0` IPs via default gateway routing
+- User specified: IP `192.168.10.53`, hostname `open-brain-vm`
+
+#### Plan Generated
+
+Created `IMPLEMENTATION_PLAN_NEXT.md` — 4 phases, 18 work items:
+
+| Phase | Focus | Items | Risk |
+|-------|-------|-------|------|
+| 1 | Homeserver KVM VM (0B) | 5 | LOW |
+| 2 | Core-API migration (1A) | 5 | LOW |
+| 3 | Workers migration (1A) | 8 | MEDIUM |
+| 4 | Pipecat soak (0D) | 4 | LOW |
+
+Phases 1, 2, and 4 can start in parallel. Phase 3 depends on Phase 2.
+
+#### Housekeeping
+
+Archived 7 completed implementation plans to `docs/archived/`:
+- `IMPLEMENTATION_PLAN.md` (Brief Config — complete)
+- `IMPLEMENTATION_PLAN_BRAIN_CLAW.md` (OpenClaw — phases 1-2 complete)
+- `IMPLEMENT_DEPLOYMENT.md` (v2 deployment — complete)
+- `IMPLEMENT_IMPROVED_MEMORY.md` (cognitive memory — complete)
+- `IMPLEMENT_OB_UPDATES.md` (value updates — complete)
+- `IMPLEMENT_UNIFIED.md` (v2 unified — complete)
+- `ULTRA_PLAN_0B_1A_0D.md` (investigation document — consumed by plan)
+
+Root now contains only:
+- `IMPLEMENT_MASTER_PLAN.md` — high-level roadmap (22 items, 5 tiers)
+- `IMPLEMENTATION_PLAN_NEXT.md` — active implementation plan (18 items, 4 phases)
+
+**Decisions:**
+- D48: Homeserver KVM VM (`open-brain-vm`, 192.168.10.53, 2 vCPU, 4GB RAM) for T2 Claude CLI tier. Chosen over Bond for zero network latency and co-location with data. Chosen over LXC (not supported on Unraid) and Docker (Claude Code auth painful headless).
+- D49: Move `LLMGatewayService` to `@open-brain/shared` for worker access. All dependencies (ai_audit_log, logger, configService types) already in shared. No circular dependency risk.
+- D50: Voice-capture classification migration DEFERRED until Pipecat soak test determines voice-capture's future. Pipecat and voice-capture serve different use cases (WebSocket conversation vs HTTP upload).
+- D51: Pipecat soak test validates conversational quality only; does NOT determine voice-capture removal. Voice-capture stays for iOS Shortcut unless Pipecat gains HTTP upload support.
+
+**Status:** COMPLETE — plan generated, plans archived, ready for execution.
+
+### Entry 034: Phases 2+3 Execution — LLM Call Site Migration [pipeline] [architecture]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development)
+**Status:** COMPLETE
+**Tags:** `[pipeline]` `[architecture]`
+
+**Objective:** Migrate 10 production LLM call sites to `completeByTask()` tier routing, activating Jetson T1 classification.
+
+**Results:**
+- Phase 2: 4 core-api call sites migrated (synthesize, governance, anti-vagueness, entity-resolution). 2 test mocks updated. 694/694 pass.
+- Phase 3.1: Moved `LLMGatewayService` to `@open-brain/shared`. Created gateway instance in workers `main.ts`. 1,591/1,591 pass.
+- Phase 3.2-3.8: 6 skills migrated with gateway-first routing + legacy fallback. Dispatcher updated. 897/897 pass. Zero fixes needed.
+- **13 items, 11 subagents, zero functional regressions.**
+
+**Key pattern:** All skills use three-tier dispatch: gateway → Anthropic fallback → OpenAI fallback. Legacy path preserved for tests and edge cases.
+
+**What's now live:** Classification tasks (confidence_gating) route to t1_jetson (free). Complex tasks to t1_fast (Haiku) or t2_quality (Sonnet). All calls logged to ai_audit_log with tier info.
+
+### Entry 035: Phase 0B — open-brain-vm Created via CLI [infrastructure] [deploy]
+
+**Date:** 2026-04-12
+**Environment:** Homeserver (root + claude SSH), KVM/libvirt
+**Status:** COMPLETE (pending: Troy runs `claude login` once for Max subscription auth)
+**Tags:** `[infrastructure]` `[deploy]` `[decision]`
+
+**Objective:** Create a dedicated KVM VM on the homeserver for Claude Code T2 batch synthesis and general-purpose ops work.
+
+**Hypothesis:** A Ubuntu cloud image + cloud-init via virsh CLI will produce a working VM without using the Unraid web UI. Static IP 192.168.10.53, hostname open-brain-vm, SSH key auth, Docker container reachability. Expect: VM accessible from both laptop and Docker containers.
+
+**Rollback Plan:** `virsh destroy open-brain-vm && virsh undefine open-brain-vm && rm -rf /mnt/user/domains/open-brain-vm/`
+
+---
+
+**Approach 1 (failed): Ubuntu Server autoinstall ISO**
+- Downloaded Ubuntu 24.04 Server ISO (3.0GB)
+- Created cloud-init autoinstall config + ISO via Docker (Alpine + cdrkit)
+- Defined VM with CDROM boot + cidata ISO
+- Result: **Installer never ran.** Disk remained empty. The autoinstall format wasn't detected by the live installer (likely needed kernel boot parameter `autoinstall` or the ISO volume label wasn't recognized).
+- Root cause: Ubuntu Server autoinstall requires either a kernel cmdline arg or specific GRUB config — attaching a cidata ISO alone is insufficient for the installer.
+
+**Approach 2 (succeeded): Ubuntu cloud image**
+- Downloaded Ubuntu 24.04 cloud image (601MB qcow2, pre-installed)
+- Resized to 20GB via `qemu-img resize`
+- Created cloud-init ISO with: `claude` user, SSH key, static IP 192.168.10.53, hostname, packages
+- Defined VM with disk boot (no installer needed — cloud image boots directly)
+- VM booted in ~30s, cloud-init applied config, rebooted with static IP
+- SSH access confirmed from both laptop and Docker containers
+
+**Key finding:** Cloud images are dramatically simpler than installer ISOs for automated VM provisioning. No installer interaction, no autoinstall format quirks — just boot and cloud-init handles everything.
+
+**Sudoers fix:** The `claude` user on homeserver had no sudoers config. Created `/boot/config/custom/etc/sudoers.d/claude` (persists across Unraid reboots) with NOPASSWD for virsh, docker, cp, mv, rm, ln, mkdir, chmod, chown, reboot, mount, umount. Also installed to `/etc/sudoers.d/claude` for immediate effect.
+
+**VM Specifications:**
+- IP: 192.168.10.53, hostname: open-brain-vm
+- OS: Ubuntu 24.04 (cloud image), kernel 6.8.0
+- 2 vCPU, 4GB RAM, 20GB disk (qcow2 thin)
+- br0 bridge, autostart enabled
+- Node.js 22.22.2, npm 10.9.7, Claude Code CLI 2.1.104
+- T2 dispatch script: `/home/claude/t2-synthesize.sh`
+- Docker container → VM latency: <1ms (verified from open-brain-workers)
+
+**Decisions:**
+- D52: Ubuntu cloud images (not server ISOs) for automated VM provisioning on Unraid. Autoinstall ISO approach failed; cloud-init + cloud image worked on first try.
+- D53: open-brain-vm is Claude Code's dedicated ops box — full autonomy for installs, cron, services.
+
+**Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
+
+### Entry 036: OpenClaw Bond Audit — Scheduled Jobs & Cron Assessment [infrastructure] [decision]
+
+**Date:** 2026-04-13
+**Environment:** Bond (SSH recon)
+**Status:** COMPLETE
+**Tags:** `[infrastructure]` `[decision]`
+
+**Objective:** Audit all scheduled jobs and cron on Bond to determine if anything needs to move to the Open Brain architecture.
+
+**Rollback Plan:** N/A — read-only investigation + one config disable.
+
+---
+
+#### Findings
+
+**5 OpenClaw cron jobs** in `~/.openclaw/cron/jobs.json`:
+
+| Job | Schedule | Status | Assessment |
+|-----|----------|--------|------------|
+| daily-usage-report | 5 AM | **Disabled (this session)** | Redundant — queries old LiteLLM proxy spend endpoint. Open Brain `cost-analysis` skill does this better via `ai_audit_log`. Was timing out. |
+| weekly-backup | Sun 3 AM | Enabled, working | OpenClaw-internal. Backs up OpenClaw data. Keep on Bond. |
+| morning-brief | Disabled | Was disabled | Most interesting — fetches Google Calendar + Gmail via Composio MCP, combines with brain check. Calendar/email integration is valuable for future Open Brain morning brief enhancement (Phase 3A). |
+| daily-openclaw-backup | 2 AM | Enabled, working | OpenClaw-internal. Archives to homeserver via CIFS/rsync. Keep on Bond. |
+| Memory Dreaming | 3 AM | Enabled, working | OpenClaw-internal memory promotion system. No relation to Open Brain. |
+
+**2 system cron jobs** in `/etc/cron.d/`:
+
+| Job | Schedule | Assessment |
+|-----|----------|------------|
+| morning-brief (Python) | 7 AM | Standalone script fetching calendar/email data. Predecessor to the OpenClaw morning-brief job (now disabled). Keep as-is. |
+| shodh-watchdog | 4 AM | Restarts shodh-memory-bridge service. Bond-specific. Keep as-is. |
+
+**2 OpenClaw skills touching Open Brain:**
+
+| Skill | Assessment |
+|-------|------------|
+| open-brain | General query/capture via MCP. Working correctly. Keep — it's a consumer of Open Brain, not a producer. |
+| daily-brain-check | Compact daily briefing from Open Brain data. Keep — same reason. |
+
+**Key scripts on Bond:**
+- `morning-brief-data.py` — fetches Google Calendar + Gmail via Composio MCP. Contains calendar config (primary, reference, skip lists), email summary logic, and Open Brain API integration. **This is the template for Phase 3A email pipeline.**
+- `litellm-daily-spend.py` — queries LiteLLM spend API. **Obsolete** — Open Brain queries `ai_audit_log` directly now.
+
+#### Conclusion: Nothing needs to move.
+
+OpenClaw jobs are either OpenClaw-internal (backups, memory) or already covered by Open Brain skills (cost analysis). The morning-brief calendar/email integration is the only valuable piece not yet in Open Brain — it belongs in Phase 3A (email pipeline) of the master plan, not as a migration.
+
+**Action taken:** Disabled `daily-usage-report` (was erroring with timeouts, redundant with Open Brain's cost-analysis skill).
+
+**Decisions:**
+- D54: OpenClaw scheduled jobs stay on Bond — they're OpenClaw-internal or already covered by Open Brain skills. No migration needed.
+- D55: OpenClaw's `morning-brief-data.py` (calendar + email via Composio) is the template for Phase 3A email pipeline. Reference it when building email ingestion.
+
+### Entry 037: Composio MCP Integration [infrastructure] [integration]
+
+**Date:** 2026-04-13
+**Environment:** Laptop + Bond (recon) + open-brain-vm (client setup)
+**Status:** COMPLETE
+**Tags:** `[infrastructure]` `[integration]`
+
+**Objective:** Evaluate and integrate Composio as a unified API connector for Open Brain's batch data sources, replacing custom IMAP/calendar integrations.
+
+**Hypothesis:** Composio's MCP endpoint (already working for OpenClaw on Bond) can be added to Claude Code and open-brain-vm, providing pre-built Gmail, Outlook, Calendar, Drive, Sheets, Notion, and Slack integrations. This would eliminate the need for custom IMAP sync code in Phase 3A.
+
+**Rollback Plan:** Remove MCP server: `claude mcp remove composio`. Delete `~/composio/` on VM.
+
+---
+
+**Findings:**
+- Composio MCP at `connect.composio.dev/mcp` requires `x-consumer-api-key` header + Mozilla-compatible User-Agent (Cloudflare blocks Python default UA)
+- Troy's Composio account has 7 app integrations already connected: Gmail, Outlook, Google Drive, Google Sheets, Notion, Slack
+- Composio uses a meta-tool pattern: `COMPOSIO_SEARCH_TOOLS` discovers tools, `COMPOSIO_MULTI_EXECUTE_TOOL` executes them, `COMPOSIO_GET_TOOL_SCHEMAS` returns input schemas
+- API key already in Bitwarden as `OPENCLAW_COMPOSIO_API_KEY`
+
+**Setup completed:**
+1. **Claude Code MCP server** — added via `claude mcp add composio` with HTTP transport + custom headers. Available in all future sessions.
+2. **VM client library** — `~/composio/composio_client.py` on open-brain-vm. Python class with `execute()`, `search_tools()`, `get_schemas()` methods. Tested and working.
+3. **Master plan updated** — Phase 3A architecture changed from custom IMAP to Composio-powered. New "Composio Integration" section added to master plan.
+
+**Impact on master plan:**
+- Phase 3A.1 (IMAP Sync Service) → replaced by `GMAIL_FETCH_EMAILS` + `OUTLOOK_LIST_MESSAGES` via Composio
+- Morning brief calendar → `OUTLOOK_LIST_CALENDARS` + `OUTLOOK_GET_CALENDAR_VIEW`
+- Estimated effort reduction: ~400 LOC eliminated (no IMAP auth, message parsing, calendar API)
+
+**Decision:**
+- D56: Composio MCP added to Claude Code user config and open-brain-vm client library. 7 connected apps available. Replaces custom IMAP sync for Phase 3A email pipeline.
+
+**Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
