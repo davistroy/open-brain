@@ -1903,3 +1903,22 @@ Root now contains only:
 - D51: Pipecat soak test validates conversational quality only; does NOT determine voice-capture removal. Voice-capture stays for iOS Shortcut unless Pipecat gains HTTP upload support.
 
 **Status:** COMPLETE — plan generated, plans archived, ready for execution.
+
+### Entry 034: Phases 2+3 Execution — LLM Call Site Migration [pipeline] [architecture]
+
+**Date:** 2026-04-12
+**Environment:** Laptop (development)
+**Status:** COMPLETE
+**Tags:** `[pipeline]` `[architecture]`
+
+**Objective:** Migrate 10 production LLM call sites to `completeByTask()` tier routing, activating Jetson T1 classification.
+
+**Results:**
+- Phase 2: 4 core-api call sites migrated (synthesize, governance, anti-vagueness, entity-resolution). 2 test mocks updated. 694/694 pass.
+- Phase 3.1: Moved `LLMGatewayService` to `@open-brain/shared`. Created gateway instance in workers `main.ts`. 1,591/1,591 pass.
+- Phase 3.2-3.8: 6 skills migrated with gateway-first routing + legacy fallback. Dispatcher updated. 897/897 pass. Zero fixes needed.
+- **13 items, 11 subagents, zero functional regressions.**
+
+**Key pattern:** All skills use three-tier dispatch: gateway → Anthropic fallback → OpenAI fallback. Legacy path preserved for tests and edge cases.
+
+**What's now live:** Classification tasks (confidence_gating) route to t1_jetson (free). Complex tasks to t1_fast (Haiku) or t2_quality (Sonnet). All calls logged to ai_audit_log with tier info.
