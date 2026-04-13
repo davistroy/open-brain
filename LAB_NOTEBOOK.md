@@ -2064,4 +2064,16 @@ OpenClaw jobs are either OpenClaw-internal (backups, memory) or already covered 
 **Decision:**
 - D56: Composio MCP added to Claude Code user config and open-brain-vm client library. 7 connected apps available. Replaces custom IMAP sync for Phase 3A email pipeline.
 
-**Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
+### Entry 038: Deploy PR #50 + Fix Skills + Morning Brief Calendar [deploy] [pipeline]
+
+**Date:** 2026-04-13
+**Environment:** Homeserver (Docker), Laptop (development)
+**Status:** COMPLETE
+**Tags:** `[deploy]` `[pipeline]` `[integration]`
+
+**Results:**
+1. **Deploy:** PR #50 merged, code pulled on homeserver, containers rebuilt and redeployed. All healthy. Jetson reachable from Docker.
+2. **container-health FIXED:** removed non-HTTP services (workers, slack-bot, web), fixed voice-capture port (3001), added voice-pipecat + file-ingestion. Re-enabled at 6-hour interval.
+3. **pipeline-health RE-ENABLED:** at 6-hour interval.
+4. **Backup skills STILL SILENCED:** db-backup, redis-snapshot, wiki-backup try `docker exec` from workers container (no Docker socket). Need host/VM cron rewrite.
+5. **Morning brief calendar:** ComposioClient in shared, fetchCalendarEvents via Outlook, new TODAY'S SCHEDULE section. Graceful degradation. COMPOSIO_API_KEY added to .env.secrets. 897/897 tests pass.
