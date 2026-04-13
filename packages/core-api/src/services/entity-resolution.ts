@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { entities, entity_links } from '@open-brain/shared'
 import { NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import type { LLMGatewayService } from './llm-gateway.js'
+import type { LLMGatewayService } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 
 /** Return value from resolve() describing what happened. */

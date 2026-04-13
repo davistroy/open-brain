@@ -5,7 +5,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures, pipeline_events, logger, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
-import type { ConfigService } from '@open-brain/shared'
+import type { ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { EXTRACT_ENTITIES_BACKOFF_DELAYS_MS } from '../queues/extract-entities.js'
 import type { ExtractEntitiesJobData } from '../queues/extract-entities.js'
 import { ENTITY_TYPE_MAP, resolveOrCreateEntity, linkEntityToCapture } from '../lib/entity-resolver.js'
@@ -237,6 +237,7 @@ export function createExtractEntitiesWorker(
   litellmApiKey: string,
   templates: TemplateCache,
   anthropicClient?: Anthropic | null,
+  llmGateway?: LLMGatewayService,
 ): Worker<ExtractEntitiesJobData> {
   const aiConfig = configService.get('ai')
   const synthesisModel: string = aiConfig.models['synthesis'].model

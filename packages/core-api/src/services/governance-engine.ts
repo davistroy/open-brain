@@ -1,5 +1,5 @@
 import { logger, TemplateCache } from '@open-brain/shared'
-import type { LLMGatewayService } from './llm-gateway.js'
+import type { LLMGatewayService } from '@open-brain/shared'
 import type { SearchService } from './search.js'
 import type { BetService } from './bet.js'
 import type { SessionRecord, SessionMessageRecord } from './session.js'

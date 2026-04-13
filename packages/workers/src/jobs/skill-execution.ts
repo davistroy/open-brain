@@ -1,7 +1,7 @@
 import { Worker, UnrecoverableError } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type OpenAI from 'openai'
-import type { Database, ConfigService } from '@open-brain/shared'
+import type { Database, ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { logger, activity_feed } from '@open-brain/shared'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
 import { executeDailyConnections } from '../skills/daily-connections.js'
@@ -37,6 +37,7 @@ export function createSkillExecutionWorker(
     anthropicClient?: Anthropic
     ollamaClient?: OpenAI
     wikiService?: WikiGitService
+    llmGateway?: LLMGatewayService
   },
 ): Worker {
   // Resolve model aliases from ai-routing.yaml so skills send actual model

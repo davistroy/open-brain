@@ -5,7 +5,7 @@
  * and scheduled jobs, then keeps the process alive until SIGTERM/SIGINT.
  */
 import { Redis } from 'ioredis'
-import { createDb, ConfigService, createAnthropicClient, createOllamaClient } from '@open-brain/shared'
+import { createDb, ConfigService, createAnthropicClient, createOllamaClient, createLiteLLMClient, LLMGatewayService } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
@@ -88,6 +88,16 @@ async function main() {
   configService.load()
   logger.info('Config loaded')
 
+  // LLM Gateway — shared across skill-execution and extract-entities workers
+  const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
+  let llmGateway: LLMGatewayService | undefined
+  if (litellmClient) {
+    llmGateway = new LLMGatewayService(litellmClient, configService, db, templates, anthropicClient, ollamaClient)
+    logger.info('LLMGatewayService initialized in workers')
+  } else {
+    logger.warn('LITELLM_API_KEY not set — LLMGatewayService unavailable in workers')
+  }
+
   // Redis
   const connection = parseRedisUrl(redisUrl)
   logger.info({ host: connection.host, port: connection.port }, 'Redis connection')
@@ -149,7 +159,7 @@ async function main() {
   workers.push(createIngestRootWorker(connection, db, queues.checkTriggers))
 
   workers.push(createCheckTriggersWorker(connection, db, pushoverAppToken, pushoverUserKey))
-  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates, anthropicClient))
+  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates, anthropicClient, llmGateway))
   workers.push(createDocumentPipelineWorker(connection, db, configService, litellmUrl, litellmApiKey, queues.embedCapture))
   workers.push(createDailySweepWorker(connection, db, queues.capturePipeline))
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))
@@ -170,6 +180,7 @@ async function main() {
     anthropicClient: anthropicClient ?? undefined,
     ollamaClient: ollamaClient ?? undefined,
     wikiService,
+    llmGateway,
   }))
 
   // Wiki-ingest worker — dedicated worker for wiki integration (rate-limited, concurrency=1)

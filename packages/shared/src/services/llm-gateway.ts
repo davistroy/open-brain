@@ -1,12 +1,13 @@
 import OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import {
-  ServiceUnavailableError,
-  ai_audit_log,
-  logger,
-  getModelEntry,
-} from '@open-brain/shared'
-import type { ConfigService, Database, TemplateCache, AIModelEntry, AIClientType, ModelTierEntry } from '@open-brain/shared'
+import { ServiceUnavailableError } from '../utils/errors.js'
+import { ai_audit_log } from '../schema/index.js'
+import { logger } from '../lib/logger.js'
+import { getModelEntry } from '../types/config.js'
+import type { ConfigService } from '../config/loader.js'
+import type { Database } from '../db/index.js'
+import type { TemplateCache } from '../lib/prompt-template.js'
+import type { AIModelEntry, AIClientType, ModelTierEntry } from '../types/config.js'
 
 /**
  * Thrown when the LLM gateway is over budget (hard limit).

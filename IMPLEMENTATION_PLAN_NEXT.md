@@ -368,7 +368,7 @@ Update any core-api tests that mock `gateway.complete()` for these 4 call sites 
 
 #### 3.1 Create LLMGatewayService in Workers main.ts
 
-**Status:** Pending
+**Status:** COMPLETE 2026-04-12
 **File:** `packages/workers/src/main.ts`
 
 **Description:**
