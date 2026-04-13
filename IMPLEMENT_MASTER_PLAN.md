@@ -542,6 +542,18 @@ Process all OneDrive files into wiki pages using Claude CLI (T2) for synthesis.
 **Estimated Effort:** L (~10 files, ~800 LOC)
 **Dependencies:** 0B (bond/T2 ready), 1A (model routing)
 
+### Reference Implementation
+
+**OpenClaw's `morning-brief-data.py` on Bond** (`/home/davistroy/.openclaw/workspace/scripts/morning-brief-data.py`) is a working template for email + calendar data fetching via Composio MCP. It handles:
+- Google Calendar integration (primary + reference calendars with icon mapping)
+- Gmail summary fetching
+- Open Brain API integration (search + capture)
+- Pre-formatted output for agent delivery
+
+Use this as the starting point for Phase 3A rather than building from scratch. The calendar integration should also feed into an enhanced `morning-brief` skill (currently database-only).
+
+*(Discovered during OpenClaw Bond audit — LAB_NOTEBOOK Entry 036, Decision D55)*
+
 ### Goals
 
 Process email from hotmail + gmail inboxes: fetch, classify, summarize daily.

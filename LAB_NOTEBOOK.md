@@ -63,6 +63,8 @@
 | D51 | Pipecat soak validates conversation only, not voice-capture replacement | 2026-04-12 | ACTIVE | Entry 033 | iOS Shortcut needs HTTP POST; Pipecat is WebSocket only |
 | D52 | Ubuntu cloud images for automated VM provisioning (not server ISOs) | 2026-04-12 | ACTIVE | Entry 035 | Autoinstall ISO failed; cloud-init + cloud image works |
 | D53 | open-brain-vm is Claude Code's dedicated ops box — full autonomy | 2026-04-12 | ACTIVE | Entry 035 | 192.168.10.53, T2 batch synthesis, Python, general ops |
+| D54 | OpenClaw jobs stay on Bond — no migration to Open Brain needed | 2026-04-13 | ACTIVE | Entry 036 | All jobs are OpenClaw-internal or already covered |
+| D55 | OpenClaw morning-brief-data.py is template for Phase 3A email pipeline | 2026-04-13 | ACTIVE | Entry 036 | Calendar + email via Composio MCP — reference when building |
 
 ## Action Items
 
@@ -1971,5 +1973,60 @@ Root now contains only:
 **Decisions:**
 - D52: Ubuntu cloud images (not server ISOs) for automated VM provisioning on Unraid. Autoinstall ISO approach failed; cloud-init + cloud image worked on first try.
 - D53: open-brain-vm is Claude Code's dedicated ops box — full autonomy for installs, cron, services.
+
+**Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
+
+### Entry 036: OpenClaw Bond Audit — Scheduled Jobs & Cron Assessment [infrastructure] [decision]
+
+**Date:** 2026-04-13
+**Environment:** Bond (SSH recon)
+**Status:** COMPLETE
+**Tags:** `[infrastructure]` `[decision]`
+
+**Objective:** Audit all scheduled jobs and cron on Bond to determine if anything needs to move to the Open Brain architecture.
+
+**Rollback Plan:** N/A — read-only investigation + one config disable.
+
+---
+
+#### Findings
+
+**5 OpenClaw cron jobs** in `~/.openclaw/cron/jobs.json`:
+
+| Job | Schedule | Status | Assessment |
+|-----|----------|--------|------------|
+| daily-usage-report | 5 AM | **Disabled (this session)** | Redundant — queries old LiteLLM proxy spend endpoint. Open Brain `cost-analysis` skill does this better via `ai_audit_log`. Was timing out. |
+| weekly-backup | Sun 3 AM | Enabled, working | OpenClaw-internal. Backs up OpenClaw data. Keep on Bond. |
+| morning-brief | Disabled | Was disabled | Most interesting — fetches Google Calendar + Gmail via Composio MCP, combines with brain check. Calendar/email integration is valuable for future Open Brain morning brief enhancement (Phase 3A). |
+| daily-openclaw-backup | 2 AM | Enabled, working | OpenClaw-internal. Archives to homeserver via CIFS/rsync. Keep on Bond. |
+| Memory Dreaming | 3 AM | Enabled, working | OpenClaw-internal memory promotion system. No relation to Open Brain. |
+
+**2 system cron jobs** in `/etc/cron.d/`:
+
+| Job | Schedule | Assessment |
+|-----|----------|------------|
+| morning-brief (Python) | 7 AM | Standalone script fetching calendar/email data. Predecessor to the OpenClaw morning-brief job (now disabled). Keep as-is. |
+| shodh-watchdog | 4 AM | Restarts shodh-memory-bridge service. Bond-specific. Keep as-is. |
+
+**2 OpenClaw skills touching Open Brain:**
+
+| Skill | Assessment |
+|-------|------------|
+| open-brain | General query/capture via MCP. Working correctly. Keep — it's a consumer of Open Brain, not a producer. |
+| daily-brain-check | Compact daily briefing from Open Brain data. Keep — same reason. |
+
+**Key scripts on Bond:**
+- `morning-brief-data.py` — fetches Google Calendar + Gmail via Composio MCP. Contains calendar config (primary, reference, skip lists), email summary logic, and Open Brain API integration. **This is the template for Phase 3A email pipeline.**
+- `litellm-daily-spend.py` — queries LiteLLM spend API. **Obsolete** — Open Brain queries `ai_audit_log` directly now.
+
+#### Conclusion: Nothing needs to move.
+
+OpenClaw jobs are either OpenClaw-internal (backups, memory) or already covered by Open Brain skills (cost analysis). The morning-brief calendar/email integration is the only valuable piece not yet in Open Brain — it belongs in Phase 3A (email pipeline) of the master plan, not as a migration.
+
+**Action taken:** Disabled `daily-usage-report` (was erroring with timeouts, redundant with Open Brain's cost-analysis skill).
+
+**Decisions:**
+- D54: OpenClaw scheduled jobs stay on Bond — they're OpenClaw-internal or already covered by Open Brain skills. No migration needed.
+- D55: OpenClaw's `morning-brief-data.py` (calendar + email via Composio) is the template for Phase 3A email pipeline. Reference it when building email ingestion.
 
 **Remaining:** Troy needs to run `claude login` on the VM once (browser OAuth). After that, T2 tier is fully operational.
