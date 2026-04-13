@@ -66,6 +66,8 @@
 | D54 | OpenClaw jobs stay on Bond — no migration to Open Brain needed | 2026-04-13 | ACTIVE | Entry 036 | All jobs are OpenClaw-internal or already covered |
 | D55 | OpenClaw morning-brief-data.py is template for Phase 3A email pipeline | 2026-04-13 | ACTIVE | Entry 036 | Calendar + email via Composio MCP — reference when building |
 | D56 | Composio MCP for Claude Code + VM client library | 2026-04-13 | ACTIVE | Entry 037 | Gmail, Outlook, Drive, Sheets, Notion, Slack connected. Replaces IMAP for 3A. |
+| D57 | Backup scripts on VM cron, not Docker-exec skills | 2026-04-13 | ACTIVE | Entry 039 | db-backup/redis-snapshot/wiki-backup at 2 AM via SSH |
+| D58 | AllowUsers root claude persisted for Unraid boot | 2026-04-13 | ACTIVE | Entry 039 | /boot/config/custom/etc/ssh/sshd_config |
 
 ## Action Items
 
@@ -2077,3 +2079,48 @@ OpenClaw jobs are either OpenClaw-internal (backups, memory) or already covered 
 3. **pipeline-health RE-ENABLED:** at 6-hour interval.
 4. **Backup skills STILL SILENCED:** db-backup, redis-snapshot, wiki-backup try `docker exec` from workers container (no Docker socket). Need host/VM cron rewrite.
 5. **Morning brief calendar:** ComposioClient in shared, fetchCalendarEvents via Outlook, new TODAY'S SCHEDULE section. Graceful degradation. COMPOSIO_API_KEY added to .env.secrets. 897/897 tests pass.
+
+### Entry 039: Wiki API Fixes + Backup VM Cron + 1B Already Complete [deploy] [infrastructure] [planning]
+
+**Date:** 2026-04-13
+**Environment:** Laptop + homeserver + open-brain-vm
+**Status:** COMPLETE
+**Tags:** `[deploy]` `[infrastructure]` `[planning]`
+
+**Three items tackled:**
+
+#### 1. Phase 2A: Wiki Activation — API Client Bugs Fixed
+
+Investigation found wiki backend fully working (Gitea connected, repo cloned, 4 MCP tools registered, Wiki.tsx 821 lines). Three API client bugs fixed:
+- `wikiApi.recentChanges()` called `/wiki/changes` → fixed to `/wiki/recent-changes`
+- `wikiApi.lintReport()` called `/wiki/lint` → fixed to `/wiki/lint-report`
+- Added missing `POST /api/v1/wiki/resynthesize` endpoint + `WikiService.triggerResynthesize()`
+- All 694 core-api tests pass. Deployed to homeserver.
+
+#### 2. Backup Scripts — Moved to VM Cron
+
+Root cause of backup skill failures: skills try `docker exec` from inside workers container which has no Docker socket access.
+
+Solution: Created 3 backup scripts on open-brain-vm (`~/scripts/`) that SSH to homeserver and run backups:
+- `db-backup.sh` — pg_dump | gzip, 30-day retention (cron: 2:00 AM)
+- `wiki-backup.sh` — git bundle | gzip, 30-day retention (cron: 2:15 AM)
+- `redis-snapshot.sh` — BGSAVE + copy RDB | gzip, 14-day retention (cron: 2:30 AM)
+
+Fixed SSH from VM → homeserver: added `claude` to `AllowUsers` in `/etc/ssh/sshd_config`. Persisted to `/boot/config/custom/etc/ssh/sshd_config` for Unraid boot survival. Tested: DB backup successful (545KB compressed).
+
+Old Docker-exec backup skills remain silenced — VM cron jobs replace them.
+
+#### 3. Phase 1B: Slack Auto-Response — Already Complete
+
+Investigation revealed ALL Phase 1B deliverables were fully implemented in PR #48 (v2 unified implementation):
+- 5-signal confidence scorer (search 0.30, entity 0.25, recency 0.20, corroboration 0.15, source diversity 0.10)
+- DM mode with interactive buttons (Post Reply, Edit & Post, Dismiss)
+- Threaded replies with PRD guardrails (confidence >= 0.85, 2+ corroborating results, <= 90d staleness)
+- Shadow logging, autonomy gating, attribution formatting
+- 1000+ LOC tests across confidence-scorer.test.ts, auto-response.test.ts, dm-blocks.test.ts, action-handlers.test.ts
+
+Marked as complete in master plan. No work needed.
+
+**Decisions:**
+- D57: Backup scripts run on open-brain-vm via cron, SSH to homeserver. Replaces broken Docker-exec skills.
+- D58: `AllowUsers root claude` persisted to `/boot/config/custom/etc/ssh/sshd_config` for Unraid boot.
