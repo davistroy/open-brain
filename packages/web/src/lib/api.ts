@@ -511,13 +511,13 @@ export const wikiApi = {
   /** Get recent changes (git log) */
   recentChanges: (limit = 20) => {
     const qs = buildQueryString({ limit })
-    return request<{ changes: WikiRecentChange[] }>(`/wiki/changes${qs}`)
+    return request<{ changes: WikiRecentChange[] }>(`/wiki/recent-changes${qs}`)
       .then((r) => r.changes)
   },
 
   /** Get the lint report */
   lintReport: () => {
-    return request<WikiLintReport>('/wiki/lint')
+    return request<WikiLintReport>('/wiki/lint-report')
   },
 
   /** Search wiki pages */

@@ -8,6 +8,7 @@
  * GET  /api/v1/wiki/search?q=query    — search across wiki pages
  * POST /api/v1/wiki/ingest            — trigger manual ingest {captureId}
  * POST /api/v1/wiki/lint              — trigger manual lint
+ * POST /api/v1/wiki/resynthesize      — trigger re-synthesis for a wiki page {page_path}
  */
 
 import type { Hono } from 'hono'
@@ -88,6 +89,18 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
       return c.json({ error: 'Wiki lint queue not configured' }, 503)
     }
     return c.json({ jobId, status: 'enqueued' }, 202)
+  })
+
+  // POST /api/v1/wiki/resynthesize — trigger re-synthesis for a specific wiki page
+  app.post('/api/v1/wiki/resynthesize', zValidator('json', z.object({ page_path: z.string() })), async (c) => {
+    const { page_path } = c.req.valid('json')
+    // Re-synthesis works by triggering a wiki-ingest job for the page
+    // The wiki-ingest worker handles both initial creation and updates
+    const jobId = await wikiService.triggerResynthesize(page_path)
+    if (jobId === null) {
+      return c.json({ error: 'Wiki resynthesize queue not configured' }, 503)
+    }
+    return c.json({ jobId, pagePath: page_path, status: 'enqueued' }, 202)
   })
 
   // GET /api/v1/wiki/pages/* — get specific page content (must be LAST to avoid catching other routes)
