@@ -68,6 +68,15 @@
 | D56 | Composio MCP for Claude Code + VM client library | 2026-04-13 | ACTIVE | Entry 037 | Gmail, Outlook, Drive, Sheets, Notion, Slack connected. Replaces IMAP for 3A. |
 | D57 | Backup scripts on VM cron, not Docker-exec skills | 2026-04-13 | ACTIVE | Entry 039 | db-backup/redis-snapshot/wiki-backup at 2 AM via SSH |
 | D58 | AllowUsers root claude persisted for Unraid boot | 2026-04-13 | ACTIVE | Entry 039 | /boot/config/custom/etc/ssh/sshd_config |
+| D59 | GitHub Issues + Projects v2 for master plan kanban tracking | 2026-04-13 | ACTIVE | Entry 040 | Issues #51-#74, milestones by arc, board at users/davistroy/projects/1 |
+| D60 | Graph API direct (not Composio) for bulk email operations | 2026-04-13 | ACTIVE | Entry 040 | Save 20K/month Composio calls for non-email uses |
+| D61 | Initial email cleanup is one-time purge, NOT ongoing retention policy | 2026-04-13 | ACTIVE | Entry 040 | Pipeline classifies and organizes, never auto-deletes |
+| D62 | Per-email embeddings confirmed as design goal | 2026-04-13 | ACTIVE | Entry 040 | Not just daily summaries — full per-email search. Qdrant eval at 100K+ |
+| D63 | Email correction signal = folder moves in mailbox | 2026-04-13 | ACTIVE | Entry 040 | No out-of-band system. Pipeline watches for moves, updates rules |
+| D64 | 96.2% was coverage not accuracy — classifications unvalidated | 2026-04-13 | ACTIVE | Entry 040 | Conservative auto-move threshold, "Needs Review" folder for low confidence |
+| D65 | DGX Spark for file classification (Phase D), Opus 4.6 for reorg proposal (Phase E) | 2026-04-13 | ACTIVE | Entry 040 | Spark for bulk throughput, Opus for one-shot complex synthesis |
+| D66 | OneDrive file inventory via Docker on homeserver (not sshfs/NFS) | 2026-04-13 | ACTIVE | Entry 040 | Local I/O, python:3.12-slim container, ~1100 files/sec |
+| D67 | Qdrant evaluation deferred until Phase 2B file count exceeds 100K embeddings | 2026-04-13 | ACTIVE | Entry 040 | pgvector fine for current scale; migration is clean when needed |
 
 ## Action Items
 
@@ -95,6 +104,12 @@
 | A22 | ~~Create homeserver KVM VM (open-brain-vm, 192.168.10.53)~~ | 2026-04-12 | Entry 035 | DONE 2026-04-12 |
 | A23 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | Entry 033 | HIGH — prerequisite for Phase 3 |
 | A24 | Verify Pipecat DEEPGRAM_API_KEY configured before soak | 2026-04-12 | Entry 033 | HIGH — blocks Phase 0D |
+| A25 | Build Phase 3A email pipeline (email-pipeline.py on VM) | 2026-04-13 | Entry 040 | HIGH — next major feature |
+| A26 | Immich photo import — need API key from Troy | 2026-04-13 | Entry 040 | MEDIUM — 13,918 photos staged |
+| A27 | Set up Beets for music library organization | 2026-04-13 | Entry 040 | LOW — 885 files in /mnt/user/storage/music/downloads |
+| A28 | Run file inventory with hashing overnight | 2026-04-13 | Entry 040 | MEDIUM — dedup detection requires SHA-256 pass |
+| A29 | Push 9 untracked OneDrive git repos to GitHub (or delete) | 2026-04-13 | Entry 040 | LOW — Vibe Coding Prompts, digirig kept; others tbd |
+| A30 | Email Pass 8: forwarded email purge + age cut + top personal sender review | 2026-04-14 | Entry 040 | HIGH — next email cleanup step |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -121,8 +136,13 @@
 | A0q | T0 validation — failed, tasks reassigned to T1 | 2026-04-12 | 2026-04-12 | Entry 029 |
 | A0r | OneDrive sync cron installed on homeserver | 2026-04-12 | 2026-04-12 | Entry 026 |
 | A0s | Homeserver sudoers repaired and persisted to boot drive | 2026-04-12 | 2026-04-12 | Entry 027 |
-| A0k | Search page crash fix (PR #35) | 2026-03-31 | 2026-03-31 | Entry 010 |
-| A0l | Web synthesis answers (PR #36) | 2026-03-31 | 2026-03-31 | Entry 011 |
+| A0t | GitHub kanban board — 22 issues, 6 milestones, Projects v2 board | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0u | Hotmail email cleanup — Passes 1,4,5,6,7 (153K → ~34K) | 2026-04-13 | 2026-04-14 | Entry 040 |
+| A0v | OneDrive file inventory scan (264K files, 195 GB) | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0w | OneDrive cleanup: 20 GitHub-backed repos deleted (182K files) | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0x | OneDrive cleanup: AIOC, contact-tracker, SCARS, openproject, LegacySync, agents-v1 deleted | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0y | Media moved: photos→Immich staging, music→/storage/music, videos→/storage/videos | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A16 | ~~Check OneDrive sync status and file count~~ | 2026-04-12 | 2026-04-13 | Entry 040 — DONE: 264,813 files, 195 GB |
 
 ---
 
@@ -2124,3 +2144,150 @@ Marked as complete in master plan. No work needed.
 **Decisions:**
 - D57: Backup scripts run on open-brain-vm via cron, SSH to homeserver. Replaces broken Docker-exec skills.
 - D58: `AllowUsers root claude` persisted to `/boot/config/custom/etc/ssh/sshd_config` for Unraid boot.
+
+--- New session: 2026-04-13 — Kanban board, email cleanup, OneDrive file inventory & cleanup, Phase 3A design ---
+
+### Entry 040: GitHub Kanban + Hotmail Cleanup + OneDrive Inventory + Phase 3A Design [planning] [email] [infrastructure] [decision]
+
+**Date:** 2026-04-13 through 2026-04-14
+**Duration:** ~6 hours
+**Tags:** `[planning]` `[email]` `[infrastructure]` `[decision]` `[cleanup]`
+**Environment:** Laptop (development), homeserver (Docker, file storage), open-brain-vm, Outlook Graph API
+
+#### Objective
+Continue Open Brain development: set up project tracking, design Phase 3A email pipeline, clean up Hotmail inbox (153K emails), inventory and clean OneDrive files (265K files), move media to dedicated services.
+
+#### 1. GitHub Kanban Board
+
+Created full project tracking system:
+- **22 GitHub Issues** (#51-#72) — one per master plan phase, with dependency cross-references
+- **6 Milestones** — Arc 0 (Infrastructure), Arc 1 (Pipeline), Arc 2 (Wiki), Arc 3 (Batch Sources), Arc 4 (Polish), Arc 5 (Hardware)
+- **GitHub Projects v2 board** at https://github.com/users/davistroy/projects/1
+  - Columns: Backlog, Up Next, In Progress, Blocked, Done
+  - 5 phases marked Done (0A, 0B, 1A, 1B, 2A), 1 Up Next (3A), 6 Blocked, 10 Backlog
+- **Labels**: `arc:*` (6 colors), `size:*` (S/M/L/operational), `priority:next`
+- PAT needed `project` scope — added via `gh auth refresh -s project`
+- Additional issues: #73 (Qdrant evaluation), #74 (OneDrive corpus analysis)
+
+#### 2. Hotmail Email Cleanup (153K → ~34K)
+
+**Problem:** troy.davis@hotmail.com had 152,959 emails in inbox, 7,778 in Deleted Items, 3,507 in Junk.
+
+**Approach:** Direct Graph API via MSAL device code auth (reused token cache from email-corpus-analyzer project). Composio's 20K/month free tier limit made it unsuitable for bulk operations.
+
+**Scripts created:** `scripts/email-cleanup.py` (Pass 1), `scripts/email-cleanup-pass4.py` (Pass 4), `scripts/email-cleanup-pass6.py` (Pass 6), plus ad-hoc scripts for Passes 5 and 7.
+
+**Cleanup passes:**
+
+| Pass | Strategy | Deleted | Notes |
+|------|----------|---------|-------|
+| Pass 1 | Marketing senders from 23K classification sample + empty Junk/Deleted | 52,850 | Used sender list from email-corpus-analyzer RunPod classification |
+| Pass 4 | Delete all non-protected categories (keep only Personal, Jamie, Ashley, Work, Travel, Charity, Government, Utilities) | 26,133 | Superset of Passes 2+3 |
+| Pass 5 | Top 50 senders by volume (except troy, ash, km4ack) | ~10,000 | Original per-sender approach had broken batch delete counter; redone with scan-then-delete |
+| Pass 6 | Pattern-based automated sender sweep (noreply, newsletter, promo, etc.) | 31,467 | Scanned all 85K emails, classified by sender pattern. Protected personal email domains. |
+| Pass 7 | Domain review — deleted 64 non-personal domains (kept halibut.com, paulding.gov) | 5,066 | Troy reviewed top 80 domains, approved deletion list |
+
+**Key findings:**
+- Classification data from email-corpus-analyzer only covered 23K/153K emails (15% of senders). Passes 1+4 missed 130K emails from uncovered senders.
+- Graph API batch delete (`$batch` with DELETE) worked correctly in scan-then-delete approach (Pass 6) but failed in per-sender approach (Pass 5). Root cause: unclear, possibly stale message IDs from paginated queries.
+- 96.2% figure from prior RunPod run was COVERAGE (emails classified), not ACCURACY (correct classification). Classifications are unvalidated.
+- Protected senders: ash.davis@hotmail.com (all emails), troy.davis@hotmail.com, km4ack@arrl.net
+- One-time cleanup only — NOT establishing ongoing retention policies. Future email pipeline classifies and organizes, never auto-deletes.
+
+**Remaining work:** ~48K emails in inbox (many from failed Pass 5/7 deletes being re-run). Target: ~34K after re-runs, then manual review (forwarded email purge, age cut, top personal sender review).
+
+#### 3. Phase 3A Email Pipeline Design
+
+Detailed architecture discussion for the ongoing email pipeline:
+
+**Architecture:**
+```
+email-pipeline.py (open-brain-vm, cron every 15 min)
+  1. FETCH new emails (Graph API, incremental sync)
+  2. DETECT CORRECTIONS — compare parentFolderId to last-known
+  3. CLASSIFY (T0 rules → T1 Jetson for ambiguous)
+  4. ORGANIZE — move to folders (Graph API batch)
+     High confidence: auto-move
+     Low confidence: → "Needs Review" folder
+  5. STAGE in local SQLite
+  Daily (10 PM): SUMMARIZE (claude --print, T2) → POST capture
+```
+
+**Key design decisions:**
+- Graph API direct, not Composio (save 20K calls for calendar/Notion)
+- Correction signal = natural folder moves (no out-of-band API)
+- Per-email embeddings (not just daily summaries)
+- 26 categories from email-corpus-analyzer, ported to config/email-categories.yaml
+- Conservative auto-move threshold (0.85), relaxes as corrections validate rules
+- Active learning retained as concept: corrections → rule updates → improved T0 accuracy
+- SetFit training dropped (T0 rules + T1 Jetson + corrections sufficient for single user)
+
+#### 4. Qdrant vs pgvector Analysis
+
+Evaluated vector database needs at scale:
+- Current: ~200 captures in pgvector — trivial
+- With per-email embeddings: 70K-105K vectors — pgvector handles fine
+- With OneDrive files: 100K-1M+ vectors — decision point
+
+**Decision:** Defer Qdrant until Phase 2B file count exceeds 100K embeddings. Design email pipeline embedding interface to be backend-agnostic. Migration is ~200 LOC when needed. GitHub issue #73 created.
+
+#### 5. OneDrive File Inventory & Cleanup
+
+**rclone sync completed:** 264,813 files, 195 GB at `/mnt/user/storage/onedrive/davistroy/`
+
+**Inventory scan** (file-inventory.py via Docker on homeserver, 7.4 minutes):
+- 60K Python files, 25K .h files, 22K .v1_indexcache — mostly in Projects/
+- Top directory: Projects (152K files, 46 GB), Documents (39K, 37 GB), Pictures (12K, 37 GB)
+- 3,751 zero-byte files, 44,913 version chain candidates
+- No exact duplicates detected (hashing skipped — metadata-only scan)
+
+**Git repo cross-reference:** 36 git repos found in Projects/, 20 matched to GitHub repos.
+
+**Cleanup:**
+
+| Action | Files Removed |
+|--------|-------------|
+| 20 GitHub-backed repos deleted | 182,163 |
+| AIOC + contact-tracker (both versions) | 71,973 |
+| new-scars-website, openproject (both), LegacySync, agents-v1 | 1,039 |
+| **Total** | **255,175 files** |
+
+Kept: Vibe Coding Prompts (79 files), Electronics/digirig (92 files).
+
+Corpus: **264,813 → ~9,638 files** (96% reduction).
+
+**Media moved out of OneDrive:**
+
+| Media | Destination | Files |
+|-------|------------|-------|
+| Pictures | /mnt/user/storage/pictures/immich/onedrive-import/ | 13,918 (moved) |
+| Music | /mnt/user/storage/music/downloads/ | 885 (copied, originals deleted) |
+| Videos | /mnt/user/storage/videos/ (organized by category) | 144 (copied, originals deleted) |
+
+**Video categorization:** All 144 videos were personal/work (Zoom recordings, Stratfield consulting, ham radio, personal). Zero movies/TV shows. Organized into Jellyfin-friendly folders: Zoom Recordings/{date}/, Stratfield Consulting/, Business/, Amateur Radio/, etc.
+
+**Remaining OneDrive corpus:** ~9,600 files minus 15,000 media = actual document files TBD (inventory needs re-run post-cleanup). Ready for Phase B (structural cleanup) and Phase C (content extraction).
+
+#### 6. Infrastructure Work
+
+- **file-inventory.py** deployed to homeserver at `/mnt/user/appdata/open-brain/scripts/`
+- Runs via `python:3.12-slim` Docker container with volume mounts
+- sshfs mount to VM attempted but failed (SSH AllowUsers, connection resets). Docker on homeserver is the correct approach.
+- Scan rate: ~1,100 files/sec metadata-only, estimated 2-4 hours with hashing
+
+#### What Worked
+- GitHub Issues + Projects for tracking — immediate visibility into project state
+- Graph API scan-then-delete approach — reliable batch deletion
+- Docker-based file inventory on homeserver — fast, no dependency issues
+- Pattern-based email cleanup — caught 44K emails that classification data missed
+- Media separation (photos → Immich, music → Beets staging, videos → Jellyfin) — clean separation of concerns
+
+#### What Didn't Work
+- Per-sender batch delete (Pass 5 original) — counter showed 0 deletes, emails not actually removed
+- sshfs from VM to homeserver — SSH connection kept dropping
+- Classification data coverage — 23K sample only covered 15% of 153K inbox
+- Composio for bulk operations — 20K/month limit makes it unsuitable for 100K+ operations
+
+**Decisions:** D59-D67 (see Decision Log above)
+
+**Action Items:** A25-A30 (see Action Items above)
