@@ -2196,6 +2196,15 @@ Created full project tracking system:
 
 **Remaining work:** ~48K emails in inbox (many from failed Pass 5/7 deletes being re-run). Target: ~34K after re-runs, then manual review (forwarded email purge, age cut, top personal sender review).
 
+**UPDATE 2026-04-14:** Root cause of failed deletes identified: `ErrorQuotaExceededOnDelete` — Outlook recoverable items quota full from 110K+ deleted emails. `DELETE` and `permanentDelete` both return 403. Workaround: `MOVE` to "To Delete" folder (works), Troy empties via Outlook UI. Moved 32,151 non-personal emails to "To Delete". Then archived 16,258 remaining personal emails by year to Archive/2020-2025 folders. Final inbox: **273 emails** (2026 only). Oldest email in inbox: 2026-01-01.
+
+Additional file cleanup (2026-04-14):
+- Deleted KiCad community footprints (10,539 in Documents/KiCad), kept 31 in Projects/Electronics (Troy's designs)
+- Deleted glif font files (10,549 in Personal/Tech)
+- Deleted CFA, ics-forms, safely-utilities, 12-factor-agents, LegacySync, agents-v1 from Projects (GitHub-backed)
+- Total additional deletions: ~41K files
+- OneDrive corpus: 264,813 → ~53K files
+
 #### 3. Phase 3A Email Pipeline Design
 
 Detailed architecture discussion for the ongoing email pipeline:
