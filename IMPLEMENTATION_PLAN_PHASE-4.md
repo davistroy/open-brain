@@ -49,8 +49,8 @@ Scripts run on the VM as Python cron jobs. Each phase adds a new data source, an
 
 ### Work Items
 
-#### 1.1 Plaid Account Setup & Link Server
-**Status: PENDING**
+#### 1.1 Plaid Account Setup & Link Server ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A1
 **Files Affected:**
 - `scripts/plaid-link-server.py` (create)
