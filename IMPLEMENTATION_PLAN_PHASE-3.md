@@ -454,8 +454,8 @@ Verify the full email outbound pipeline: draft creation → approval → sending
 
 ### Work Items
 
-#### 5.1 Route Traffic Through LiteLLM Proxy
-**Status: PENDING**
+#### 5.1 Route Traffic Through LiteLLM Proxy ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 11 (Set I)
 **Files Affected:**
 - `docker-compose.yml` (modify — 4 env var changes)
