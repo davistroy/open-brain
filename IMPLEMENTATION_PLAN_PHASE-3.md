@@ -54,8 +54,8 @@ Phases are ordered by: (1) ops-only changes first (no build needed), (2) code ch
 
 ### Work Items
 
-#### 1.1 Flush Dead Redis Queues
-**Status: PENDING**
+#### 1.1 Flush Dead Redis Queues ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Items 3, 4
 **Files Affected:**
 - None (Redis CLI commands only)
@@ -80,8 +80,8 @@ Also consider flushing completed job data for document-pipeline if memory is a c
 
 ---
 
-#### 1.2 Disable OneDrive Sync Cron
-**Status: PENDING**
+#### 1.2 Disable OneDrive Sync Cron ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 6
 **Files Affected:**
 - Homeserver crontab (claude user)
@@ -103,8 +103,8 @@ If OneDrive files need re-syncing in the future, the script still exists — jus
 
 ---
 
-#### 1.3 Update GitHub Project Board
-**Status: PENDING**
+#### 1.3 Update GitHub Project Board ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 7
 **Files Affected:**
 - None (GitHub CLI commands only)
