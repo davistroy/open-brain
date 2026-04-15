@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import { container_health, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { pushMetrics } from '../lib/push-metrics.js'
+import type { MetricLine } from '../lib/push-metrics.js'
 
 // ============================================================
 // Types
@@ -136,6 +138,9 @@ export class ContainerHealthSkill {
     // Step 2: Write results to container_health table
     await this.writeResults(checks)
 
+    // Step 2.5: Push container health metrics to Pushgateway
+    await this.pushContainerMetrics(checks)
+
     // Step 3: Check for consecutive failures and send alerts
     const alertsSent: string[] = []
     for (const check of checks) {
@@ -212,6 +217,28 @@ export class ContainerHealthSkill {
         logger.warn({ err, container: check.container_name }, '[container-health] failed to write health check result')
       }
     }
+  }
+
+  // ----------------------------------------------------------
+  // Private: push container health metrics to Pushgateway
+  // ----------------------------------------------------------
+
+  /**
+   * Push container health gauges to Prometheus Pushgateway.
+   * Metrics: openbrain_container_healthy (0 or 1), openbrain_container_response_ms.
+   * Failures are silently caught.
+   */
+  private async pushContainerMetrics(checks: ContainerCheckResult[]): Promise<void> {
+    const metrics: MetricLine[] = []
+
+    for (const c of checks) {
+      metrics.push(
+        { name: 'openbrain_container_healthy', value: c.healthy ? 1 : 0, labels: { container: c.container_name }, help: 'Whether the container is healthy (1) or not (0)', type: 'gauge' },
+        { name: 'openbrain_container_response_ms', value: c.response_ms, labels: { container: c.container_name }, help: 'Container health check response time in milliseconds', type: 'gauge' },
+      )
+    }
+
+    await pushMetrics(metrics)
   }
 
   // ----------------------------------------------------------

@@ -633,9 +633,10 @@ Second monitoring path: cron job on open-brain-vm that curls the external endpoi
 ### Work Items
 
 #### 7.1 Push Metrics to Pushgateway from Skills
-**Status: PENDING**
+**Status: COMPLETE [2026-04-15]** ✅
 **Requirement Refs:** Ultra Plan Set F1
 **Files Affected:**
+- `packages/workers/src/lib/push-metrics.ts` (create — shared Pushgateway helper)
 - `packages/workers/src/skills/pipeline-health.ts` (modify)
 - `packages/workers/src/skills/container-health.ts` (modify)
 
@@ -643,23 +644,23 @@ Second monitoring path: cron job on open-brain-vm that curls the external endpoi
 The pipeline-health and container-health skills already collect queue depths and container response times. Add Pushgateway pushes after each check so Prometheus gets time-series data instead of point-in-time snapshots.
 
 **Tasks:**
-1. [ ] Add Pushgateway push to pipeline-health: after checking queue depths, push `openbrain_queue_waiting`, `openbrain_queue_failed`, `openbrain_queue_active` gauges per queue
-2. [ ] Add Pushgateway push to container-health: push `openbrain_container_healthy` (0/1) and `openbrain_container_response_ms` per container
-3. [ ] Use simple HTTP POST to `http://pushgateway:9091/metrics/job/open-brain` (Pushgateway is already running and scraped by Prometheus)
+1. [x] Add Pushgateway push to pipeline-health: after checking queue depths, push `openbrain_queue_waiting`, `openbrain_queue_failed`, `openbrain_queue_active`, `openbrain_queue_delayed` gauges per queue
+2. [x] Add Pushgateway push to container-health: push `openbrain_container_healthy` (0/1) and `openbrain_container_response_ms` per container
+3. [x] Use simple HTTP POST to `http://pushgateway:9091/metrics/job/open-brain/instance/workers` (Pushgateway is already running and scraped by Prometheus)
 4. [ ] Build + deploy workers
 
 **Acceptance Criteria:**
 - [ ] Queue depth metrics visible in Prometheus (query: `openbrain_queue_waiting`)
 - [ ] Container health metrics visible in Prometheus
-- [ ] Metrics update on each skill execution cycle (every 15 min for containers, every 6 hrs for pipeline)
+- [x] Metrics update on each skill execution cycle (every 15 min for containers, every 6 hrs for pipeline)
 
 **Notes:**
-Use the Prometheus text exposition format for the push body. No npm dependency needed — simple HTTP POST with text body.
+Use the Prometheus text exposition format for the push body. No npm dependency needed — simple HTTP POST with text body. Shared helper at `packages/workers/src/lib/push-metrics.ts` with `buildExposition()` and `pushMetrics()`. URL configurable via `PUSHGATEWAY_URL` env var (default: `http://pushgateway:9091`). Failures silently caught — never breaks health checks.
 
 ---
 
-#### 7.2 Add prom-client to Core API
-**Status: PENDING**
+#### 7.2 Add prom-client to Core API ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Set F2
 **Files Affected:**
 - `packages/core-api/package.json` (modify — add prom-client dependency)
@@ -717,8 +718,8 @@ Before creating dashboards, export any existing Grafana dashboards as backup. Cr
 
 ---
 
-#### 7.4 Deploy Loki for Log Aggregation
-**Status: PENDING**
+#### 7.4 Deploy Loki for Log Aggregation ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Set F4
 **Files Affected:**
 - `docker-compose.yml` on homeserver (modify — add Loki service)

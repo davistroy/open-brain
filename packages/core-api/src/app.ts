@@ -27,6 +27,7 @@ import { registerMcpActivityRoutes } from './routes/mcp-activity.js'
 import { registerConfigRoutes } from './routes/config.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
+import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -89,6 +90,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Global middleware
   app.use('*', honoLogger())
   app.use('*', cors({ origin: ['https://brain.k4jda.net', 'https://brain.troy-davis.com', 'http://localhost:5173', 'http://localhost:3000'] }))
+  app.use('*', metricsMiddleware())
   app.onError(errorHandler())
 
   // Rate limiting — tiered by endpoint group
@@ -104,9 +106,10 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Default tier: everything else under /api/v1
   app.use('/api/v1/*', rateLimit(defaultLimiter))
 
-  // Routes (health + events are outside /api/v1, intentionally not rate-limited)
+  // Routes (health, events, metrics are outside /api/v1, intentionally not rate-limited)
   registerHealthRoutes(app)
   registerEventsRoutes(app)
+  registerMetricsRoute(app)
 
   if (configService) {
     const adminRouter = createAdminRouter({ configService, redisConnection, db })
