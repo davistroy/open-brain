@@ -2771,6 +2771,32 @@ Execute IMPLEMENTATION_PLAN_PHASE-3.md Phases 1 through 5. Fix operational issue
 **Decisions:** D82-D87 (see Decision Log above)
 **Action Items:** A36-A42 (see Action Items above)
 
+#### Resumed Implementation — Phases 5.2 through 8.1
+
+**Phase 5.2-5.3 (LiteLLM Cost Routing completion):**
+- Fixed `getMonthlySpend()` to parse `/spend/logs` array (was expecting aggregated object)
+- Uses `LITELLM_SPEND_URL` (separate from inference URL) with fallback to local `ai_audit_log`
+- `CostAnalysisSkill` now combines LiteLLM + local audit for full cost picture
+- Added LiteLLM to container-health skill (`litellm:4000/health/liveliness`)
+
+**Phase 6 (Synthetic Monitoring):**
+- CF Worker created (`cloudflare/synthetic-monitor/`) — cron every 5 min, KV state, Pushover alerts
+- Added CF Access Service Token header support (brain.troy-davis.com uses Zero Trust)
+- VM cron added: curl internal endpoint (192.168.10.3:3002) every 15 min
+- **Note:** CF Worker deployment requires Access Service Token from Cloudflare dashboard
+
+**Phase 7 (Observability Stack):**
+- 7.1: Pushgateway metrics from pipeline-health + container-health skills (10 new tests)
+- 7.2: prom-client `/metrics` in core-api — 4 custom metrics + Node.js defaults, Hono middleware
+- 7.3: 3 Grafana dashboards (56 total panels): System Overview, LLM Cost, Pipeline Health
+- 7.4: Loki config + deploy script + docs (standalone container, 30-day retention)
+- Prometheus scrape config for core-api:3000/metrics
+
+**Phase 8.1 (Wiki Schema & Bootstrap):**
+- WIKI_SCHEMA.md: 6 page types, frontmatter spec, naming conventions, quality criteria
+- 8 domain stubs + 3 entity bootstrap pages with cross-references
+- Wiki-ingest prompt updated with schema reference + domain linking instruction
+
 #### Queue State at End of Session
 
 | Queue | Wait | Active | Completed | Failed |
