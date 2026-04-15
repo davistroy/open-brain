@@ -256,8 +256,8 @@ The homeserver's `backup.sh` runs at 3 AM daily but has been failing since Apr 1
 
 ### Work Items
 
-#### 3.1 Make Wiki-Ingest Model Configurable
-**Status: PENDING**
+#### 3.1 Make Wiki-Ingest Model Configurable ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 1 (Set A)
 **Files Affected:**
 - `packages/workers/src/skills/wiki-ingest.ts` (modify)
@@ -286,8 +286,8 @@ If Haiku wiki page quality is insufficient, upgrade to Sonnet via config change 
 
 ---
 
-#### 3.2 Add JSON Mode for Entity Extraction
-**Status: PENDING**
+#### 3.2 Add JSON Mode for Entity Extraction ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 8 (Set B)
 **Files Affected:**
 - `packages/shared/src/services/llm-gateway.ts` (modify — add jsonMode option)

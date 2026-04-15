@@ -11,6 +11,7 @@ models:
   governance: "gpt-5.4"
   intent: "gpt-5.4"
   conversation: "gpt-5.4"
+  wiki_agent: "claude-haiku-4-5-20251001"
   embedding:
     model: "text-embedding-3-large"
     client: litellm

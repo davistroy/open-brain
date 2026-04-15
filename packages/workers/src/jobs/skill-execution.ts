@@ -44,6 +44,7 @@ export function createSkillExecutionWorker(
   // names (e.g. 'claude-sonnet-4-20250514') to the API, not LiteLLM aliases.
   const aiConfig = opts.configService.get('ai')
   const synthesisModel: string = aiConfig.models['synthesis'].model
+  const wikiAgentModel: string = aiConfig.models.wiki_agent?.model ?? 'claude-haiku-4-5-20251001'
 
   const worker = new Worker<SkillExecutionJobData>(
     'skill-execution',
@@ -243,6 +244,7 @@ export function createSkillExecutionWorker(
           const { executeWikiIngest } = await import('../skills/wiki-ingest.js')
           const result = await executeWikiIngest(db, captureId, opts.wikiService, {
             anthropicClient: opts.anthropicClient,
+            model: wikiAgentModel,
             promptsDir: opts.promptsDir,
           })
           logger.info(

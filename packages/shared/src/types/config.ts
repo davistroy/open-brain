@@ -58,6 +58,7 @@ export const AIModelConfigSchema = z.object({
   intent: AIModelValueSchema,
   conversation: AIModelValueSchema.optional(),
   embedding: AIModelValueSchema,
+  wiki_agent: AIModelValueSchema.optional(),
 })
 
 export type AIModelConfig = z.infer<typeof AIModelConfigSchema>

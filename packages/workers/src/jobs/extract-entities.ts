@@ -131,6 +131,7 @@ export async function processExtractEntitiesJob(
         temperature: 0.1,
         maxTokens: 1024,
         captureId,
+        jsonMode: true,
       })
       log.debug('[extract-entities] gateway response received via completeByTask')
     } else if (anthropicClient) {
@@ -156,9 +157,51 @@ export async function processExtractEntitiesJob(
     }
 
     // ── Parse extracted entities ─────────────────────────────────────────────
-    const extracted = parseEntityResponse(rawText)
+    let extracted = parseEntityResponse(rawText)
 
-    const totalMentions = Object.values(extracted).reduce((sum, arr) => sum + arr.length, 0)
+    let totalMentions = Object.values(extracted).reduce((sum, arr) => sum + arr.length, 0)
+
+    // Safety net: if the LLM returned substantial text but parsing yielded nothing,
+    // retry once. This catches malformed JSON that slipped past response_format.
+    if (totalMentions === 0 && rawText.length > 50) {
+      log.warn(
+        { rawLength: rawText.length },
+        '[extract-entities] empty parse from non-trivial LLM response — retrying once',
+      )
+
+      let retryText: string
+      if (llmGateway) {
+        retryText = await llmGateway.completeByTask(prompt, 'entity_extraction', {
+          temperature: 0.1,
+          maxTokens: 1024,
+          captureId,
+          jsonMode: true,
+        })
+      } else if (anthropicClient) {
+        const claudeRetry = await callClaude(anthropicClient, prompt, {
+          model: synthesisModel,
+          maxTokens: 1024,
+          temperature: 0.1,
+        })
+        retryText = claudeRetry.text
+      } else {
+        const retryResponse = await litellmClient.chat.completions.create({
+          model: synthesisModel,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1,
+          max_completion_tokens: 1024,
+        })
+        retryText = retryResponse.choices[0]?.message?.content ?? ''
+      }
+
+      extracted = parseEntityResponse(retryText)
+      totalMentions = Object.values(extracted).reduce((sum, arr) => sum + arr.length, 0)
+      log.info(
+        { totalMentions, retryRawLength: retryText.length },
+        '[extract-entities] retry parse result',
+      )
+    }
+
     log.info(
       { totalMentions },
       '[extract-entities] entities parsed from LLM response',
