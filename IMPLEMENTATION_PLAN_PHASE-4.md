@@ -183,8 +183,8 @@ Create the merchant-to-category lookup table. Plaid provides base categories, bu
 
 ### Work Items
 
-#### 2.1 Weekly Investment Report
-**Status: PENDING**
+#### 2.1 Weekly Investment Report ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A4
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -207,8 +207,8 @@ Add `--investments` subcommand. Calls Plaid `/investments/holdings/get` for the 
 
 ---
 
-#### 2.2 Monthly Financial Synthesis
-**Status: PENDING**
+#### 2.2 Monthly Financial Synthesis ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A5
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
