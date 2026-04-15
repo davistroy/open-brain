@@ -784,8 +784,8 @@ Loki on the homeserver should be lightweight (single-tenant, local storage). Con
 
 ### Work Items
 
-#### 8.1 Wiki Schema & Bootstrap
-**Status: PENDING**
+#### 8.1 Wiki Schema & Bootstrap ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** GitHub Issue #60, Ultra Plan Item 10 (Set J1)
 **Files Affected:**
 - `WIKI_SCHEMA.md` (create — in wiki repo root via WikiGitService)
