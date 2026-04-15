@@ -2818,3 +2818,54 @@ Execute IMPLEMENTATION_PLAN_PHASE-3.md Phases 1 through 5. Fix operational issue
 | 9fff1ab | Phase 3: LLM Reliability (3.1, 3.2) |
 | 8918307 | Phase 4 partial: Email Outbound config (4.1, 4.2) |
 | 3ea0903 | Phase 5.1: LiteLLM proxy routing |
+| 2a61dcd | Phase 5.2-5.3: Spend aggregation + LiteLLM health check |
+| 69a52ac | Phase 6: Synthetic monitoring (CF Worker + VM cron) |
+| 7174d1f | Phase 7.1, 7.2, 7.4: Pushgateway + prom-client + Loki |
+| ba22aaa | Phase 7.3: Grafana dashboards (3 dashboards, 56 panels) |
+| 3a4d3da | LAB_NOTEBOOK Entry 045 update |
+| 02a4cd0 | Phase 8.1: Wiki schema + bootstrap pages |
+
+---
+
+### Entry 046 — Full Infrastructure Deployment + Financial Sprint Planning [deploy] [decision]
+**Date:** 2026-04-15
+**Environment:** Homeserver (Docker), all infrastructure
+**Duration:** ~1 hour
+
+#### Objective
+Deploy all Phase 3 code to homeserver production and plan the financial awareness sprint.
+
+#### Results
+
+**Deployed to production:**
+- Phase 7 code: prom-client `/metrics` endpoint in core-api, Pushgateway wiring in skills
+- Prometheus: connected to open-brain network, scraping core-api at 15s intervals
+- Grafana: 3 dashboards (System Overview, LLM Cost, Pipeline Health) provisioned
+- Loki: container running, data directory permissions fixed, ready for log ingestion
+- Wiki: 11 bootstrap pages (8 domains + 3 entities) pushed to Gitea
+
+**Key operational fixes during deployment:**
+- Prometheus needed `docker network connect` after restart (not persistent)
+- Loki `/loki/data/rules` permission denied — fixed with `chown 10001:10001`
+- Grafana datasource API needed admin auth (not default admin:admin)
+- Git identity in workers container needed re-setting after rebuild
+- `docker network connect` is NOT persistent across container restarts — need startup script or compose config (A42)
+
+**Financial Sprint Investigation:**
+- Analyzed email-pipeline.py as template (661 LOC, complete T0/T1/T2 pattern)
+- Verified Capture API accepts `source: 'api'` for financial data
+- Confirmed Plaid Development tier is free (100 items, 6 accounts needed)
+- Mapped all API endpoints from HAR analysis:
+  - Water: `ccw-csswebapi.cobbcounty.org/api/account/getMeterReadings` (clean JSON, possibly auth-free)
+  - Gas: `manage-api.gassouth.com/oas/api/account/get-account-activity` (authtoken required, therms in PDF only)
+  - Power: SmartHub API via electric-usage-downloader (Go tool, 15-min resolution)
+
+**Generated:** `IMPLEMENTATION_PLAN_PHASE-4.md` — 4 phases, 12 work items covering Plaid financial integration + utility usage + manual inboxes
+
+**Decisions:** Financial pipeline follows email-pipeline.py pattern exactly (SQLite local → POST captures). All synthesis via claude --print (T2, zero API cost). Plaid Dev tier, not Production.
+
+**Action Items:**
+- Troy: sign up Plaid, store keys in Bitwarden
+- Troy: provide SmartHub + Gas South credentials
+- Troy: provide SMTP credentials for email outbound
+- Troy: create CF Access Service Token for synthetic monitor deployment
