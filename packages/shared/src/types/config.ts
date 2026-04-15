@@ -24,8 +24,8 @@ export type PipelineConfig = z.infer<typeof PipelineConfigSchema>
 // AI routing config schema
 // ============================================================
 
-/** Client preference for a model alias */
-export type AIClientType = 'anthropic' | 'litellm' | 'ollama'
+/** Client preference for a model alias (openai_compat = direct OpenAI SDK to custom base_url) */
+export type AIClientType = 'anthropic' | 'litellm' | 'ollama' | 'openai_compat'
 
 /** Detailed model entry with client routing and cost tracking */
 export const AIModelEntrySchema = z.object({

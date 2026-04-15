@@ -183,8 +183,8 @@ export class LLMGatewayService {
    * Maps a tier's provider string to the actual client type that will be used,
    * accounting for client availability. Falls back gracefully.
    *
-   * 'openai_compat' tiers (e.g., Jetson llama.cpp) always resolve to 'litellm'
-   * client type — the actual base_url is handled by getClientForTier().
+   * 'openai_compat' tiers (e.g., Spark vLLM, Jetson llama.cpp) get a dedicated
+   * OpenAI SDK client via getClientForTier() with custom base_url.
    */
   private resolveProviderClient(provider: string): AIClientType {
     if (provider === 'ollama' && this.ollamaClient) return 'ollama'
@@ -197,7 +197,8 @@ export class LLMGatewayService {
       logger.debug('Anthropic client not available — degrading to litellm')
       return 'litellm'
     }
-    // litellm, openai, openai_compat, deepseek — all use the OpenAI SDK client
+    if (provider === 'openai_compat') return 'openai_compat'
+    // litellm, openai, deepseek — all use the OpenAI SDK client
     return 'litellm'
   }
 

@@ -87,6 +87,10 @@
 | D75 | Add t1_spark tier (Qwen 35B on DGX Spark) for all routine LLM tasks | 2026-04-15 | ACTIVE | Entry 042 | Entity extraction, linking, enrichment, synthesis all route to Spark (free). Only governance/weekly → Anthropic (paid). |
 | D76 | Jetson IP is 192.168.10.58 (static), was 192.168.10.44 in config | 2026-04-15 | ACTIVE | Entry 042 | Old IP caused all classification to fallback to Haiku (paid) |
 | D77 | NEVER batch-ingest through full pipeline without verifying cost path | 2026-04-15 | ACTIVE | Entry 042 | Must check ai-routing.yaml task_routing before any bulk operation |
+| D78 | Embedding service: adaptive truncation (16K→8K→4K→2K) for token overflow | 2026-04-15 | ACTIVE | Entry 043 | text-embedding-3-large hard limit 8,191 tokens; char estimation unreliable for dense content |
+| D79 | t1_spark timeout: 120s (was 30s — entity extraction takes 20-40s on 35B) | 2026-04-15 | ACTIVE | Entry 043 | 30s caused repeated timeouts and retries, slowing the 7K backlog |
+| D80 | AIClientType includes openai_compat (was falling through to 'litellm' label) | 2026-04-15 | ACTIVE | Entry 043 | Confusing error messages during debugging |
+| D81 | ai-routing.yaml v3 synced to local repo (was only on homeserver) | 2026-04-15 | ACTIVE | Entry 043 | Cost incident fix deployed directly, not committed to git |
 
 ## Action Items
 
@@ -123,6 +127,8 @@
 | A31 | Evaluate Composio for Gmail backend (avoid 7-day token refresh) | 2026-04-14 | Entry 041 | MEDIUM |
 | A32 | Audit all cron jobs across all machines for scheduling conflicts | 2026-04-14 | Entry 041 | MEDIUM |
 | A33 | Add more sender rules as email pipeline runs and corrections accumulate | 2026-04-14 | Entry 041 | ONGOING |
+| A34 | Monitor embed queue drain — 2,641 retried jobs processing | 2026-04-15 | Entry 043 | MEDIUM — verify 0 failures after full drain |
+| A35 | Monitor entity extraction queue drain — 6,971 remaining on Spark | 2026-04-15 | Entry 043 | MEDIUM — ~48h at current rate |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -2482,3 +2488,128 @@ email-pipeline.py (open-brain-vm, daily 5 AM cron)
 **Decisions:** D68-D77 (see Decision Log above)
 
 **Action Items:** A31-A33 (see Action Items above)
+
+---
+
+### Entry 043 — Fix embedding overflow + Spark timeout + config sync [deploy] [pipeline] [embedding] [config]
+**Date:** 2026-04-15
+**Environment:** Homeserver (Docker), DGX Spark (vLLM), laptop (development)
+**Duration:** ~45 minutes
+
+#### Objective
+Fix two production issues discovered during session startup health check:
+1. 2,577+ captures permanently failing embedding due to content exceeding text-embedding-3-large's 8,191-token limit
+2. Entity extraction jobs timing out on Spark (30s timeout vs 20-40s actual processing time)
+
+Also: sync local repo ai-routing.yaml with deployed v3 config, fix misleading error labels.
+
+#### Hypothesis
+1. Adding adaptive content truncation in EmbeddingService will eliminate all token overflow failures
+2. Increasing t1_spark timeout from 30s to 120s will eliminate timeout errors
+3. Adding `openai_compat` to AIClientType will fix misleading `(litellm)` error labels
+
+#### Rollback Plan
+- Revert source files on homeserver, rebuild containers
+- ai-routing.yaml: change timeout_ms back to 30000
+- Redis: failed embed jobs will naturally retry on next daily sweep
+
+#### Results
+
+**Fix 1: Embedding adaptive truncation**
+- Problem: `EmbeddingService.embed()` passed raw content to OpenAI API with zero truncation
+- Impact: 2,641 permanently failed embed jobs; 2,577 captures without embeddings
+- Root cause: No char/token limit enforcement anywhere in the pipeline
+- Fix: Added `embedWithAdaptiveTruncation()` — starts at 16K chars, catches 400 "context length" errors, halves limit and retries (down to 2K min)
+- Result: 58 successful embeddings + 2 overflow retries + 0 failures in first 60 seconds post-deploy. All 2,641 retried jobs processing.
+- Learning: Character estimation (4 chars/token) is unreliable — code and JSON can be as low as 1.5-2 chars/token. Adaptive retry is more robust than picking a single limit.
+
+**Fix 2: Spark timeout increase**
+- Problem: `t1_spark.timeout_ms = 30000` but entity extraction on Qwen 35B takes 20-40s
+- Impact: Jobs timing out at exactly 30.1s, retrying repeatedly, slowing the 7K backlog
+- Fix: Increased to 120s (matches LiteLLM proxy config already set for Spark)
+- Result: +86 completions in first check, no new timeout failures
+
+**Fix 3: Error label fix**
+- Problem: `resolveProviderClient()` mapped `openai_compat` → `'litellm'`, making logs say `(litellm)` for Spark requests
+- Fix: Added `'openai_compat'` to `AIClientType` union, return it from `resolveProviderClient()`
+- Result: Error messages now correctly identify the provider
+
+**Fix 4: Config sync**
+- Problem: Local repo had v2 ai-routing.yaml (no t1_spark tier, old Jetson IP, zero cost fields)
+- Fix: Wrote deployed v3 config to local repo
+- Note: Deployed version had 30s Spark timeout — updated to 120s in the sync
+
+**Queue state after fixes:**
+| Queue | Wait | Active | Completed | Failed |
+|-------|------|--------|-----------|--------|
+| extract-entities | 6,971 | 4 | 4,135 | 10 (stable) |
+| embed-capture | 1,861 | 2 | ~780 | 0 |
+
+**Tests:** 184 shared + 897 workers + 694 core-api = 1,775 tests passing
+
+**Decisions:** D78-D81 (see Decision Log above)
+**Action Items:** A34-A35 (see Action Items above)
+
+---
+
+### Entry 044 — Phase 3 Planning: Operations + Observability + Wiki [decision] [config]
+**Date:** 2026-04-15
+**Environment:** Laptop (planning session)
+**Duration:** ~2 hours
+
+#### Objective
+Comprehensive ultra-plan analysis of 12 items spanning operational fixes, observability, and feature completion. Generate formal implementation plan.
+
+#### Key Investigations & Findings
+
+**1. wiki-ingest bypass (critical discovery):**
+- `wiki-ingest.ts:242` hardcodes `claude-sonnet-4-5-20250929`
+- Uses `runAgent()` with Anthropic SDK directly — does NOT go through ai-routing.yaml task_routing or LLMGatewayService
+- Changing ai-routing.yaml has ZERO effect on wiki-ingest
+- 70% failure rate is Anthropic API connection timeouts during 15-iteration agent loops
+- Fix: configurable model key in ai-routing.yaml, default to Haiku (cheaper, faster, reliable tool use)
+
+**2. BullMQ backup skills all failing (critical discovery):**
+- Workers container has ONLY `config:/app/config:ro` mounted — NO Docker socket, NO /backups volume
+- `skills_log` confirms: every run since Apr 12 is `status:failed, size:0, duration:0s`
+- VM cron scripts are the only working backup (except Redis permission error)
+- Homeserver backup.sh also failing (Docker socket permission since Apr 11)
+- Resolution: remove BullMQ backup jobs, fix VM + homeserver scripts
+
+**3. Email Outbound #69 is 90% built:**
+- HimalayaService, EmailDraftService, email-compose skill, REST routes, Slack commands, MCP tools ALL exist
+- Missing: migration 0015, SMTP config, deployment
+- This is deployment wiring, not feature development
+
+**4. Entity extraction JSON mode:**
+- `completeViaOpenAISDK()` doesn't pass `response_format`
+- vLLM supports `response_format: { type: 'json_object' }` — easy fix
+- ~5% failure rate on Spark (Qwen 35B returns non-JSON)
+
+**5. Observability gap analysis:**
+- Prometheus, Grafana, Pushgateway all running on homeserver
+- ZERO custom Grafana dashboards
+- No app-level metrics export (no prom-client)
+- No log aggregation (Loki plugin installed, no backend)
+- ai_audit_log has every LLM call but no visualization
+- All health checks are container-internal — no external synthetic monitoring
+
+**6. LiteLLM standalone proxy:**
+- Running on port 4000 with its own Postgres spend DB
+- Full model config for all providers
+- Open Brain currently bypasses it (goes direct to api.openai.com)
+- `getMonthlySpend()` in llm-gateway.ts is broken (expects aggregated JSON, gets raw array)
+
+**7. Cron job audit:**
+- Triple backup redundancy: VM cron (2 AM), BullMQ (2 AM, all failing), homeserver (3 AM, failing)
+- 7-8 AM job cluster (6 jobs, some with LLM calls)
+- OneDrive sync still running every 15 min despite reorg being complete
+- Bond offline — cannot audit OpenClaw cron
+
+#### Deliverables
+- `IMPLEMENTATION_PLAN_PHASE-3.md` — 8 phases, 20 work items
+- `IMPLEMENT_MASTER_PLAN.md` — updated with current completion status
+- Archived: `IMPLEMENTATION_PLAN_NEXT.md`, `GITHUB_ERRORS.md` → docs/archived/
+
+**Decisions:** D78-D81 (from Entry 043), plus plan approval (this entry)
+**Action Items:** A34-A35 (from Entry 043), plus IMPLEMENTATION_PLAN_PHASE-3.md execution
