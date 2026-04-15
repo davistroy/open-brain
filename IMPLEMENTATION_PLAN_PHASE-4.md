@@ -77,8 +77,8 @@ The link server is a one-time tool — not a permanent service. After all accoun
 
 ---
 
-#### 1.2 Transaction Sync Script
-**Status: PENDING**
+#### 1.2 Transaction Sync Script ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A2
 **Files Affected:**
 - `scripts/financial-pipeline.py` (create — main script)
