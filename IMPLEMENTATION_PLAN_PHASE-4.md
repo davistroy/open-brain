@@ -350,8 +350,8 @@ From Troy's March 2026 bill: 66 CCFs × 1.034 = 68.24 therms at $0.65/therm. Acc
 
 ---
 
-#### 3.4 Monthly Utility Comparison
-**Status: PENDING**
+#### 3.4 Monthly Utility Comparison ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B4
 **Files Affected:**
 - `scripts/utility-pipeline.py` (extend)
