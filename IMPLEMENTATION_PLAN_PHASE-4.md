@@ -107,8 +107,8 @@ Use `X-Open-Brain-Caller: financial-pipeline` header for rate limit bypass (add 
 
 ---
 
-#### 1.3 Daily Balance Snapshot
-**Status: PENDING**
+#### 1.3 Daily Balance Snapshot ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A3
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -129,8 +129,8 @@ Add `--balances` subcommand to the financial pipeline. Calls `/accounts/balance/
 
 ---
 
-#### 1.4 Merchant Categorization Engine
-**Status: PENDING**
+#### 1.4 Merchant Categorization Engine ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A6
 **Files Affected:**
 - `config/financial/merchants.yaml` (create)

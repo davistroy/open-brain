@@ -530,11 +530,193 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
         log.warning(f"Brain unreachable: {e}")
 
 
-# ── Balances (stub for 1.3) ─────────────────────────────────────────────────
+# ── Balances ─────────────────────────────────────────────────────────────────
+
+# Account types where Plaid reports positive balances that represent debt (owed)
+CREDIT_ACCOUNT_TYPES = {"credit", "loan"}
+
+
+def fetch_account_balances(client, access_token: str) -> list:
+    """Call Plaid /accounts/balance/get and return list of account dicts."""
+    from plaid.model.accounts_balance_get_request import AccountsBalanceGetRequest
+
+    request = AccountsBalanceGetRequest(access_token=access_token)
+    response = client.accounts_balance_get(request)
+    return [acct.to_dict() for acct in response.accounts]
+
+
+def store_balances(conn: sqlite3.Connection, today: str, account_key: str,
+                   current: float, available: float, limit: float):
+    """Insert a daily balance row (one per account per day)."""
+    # Avoid duplicates: delete existing row for this account+date, then insert
+    conn.execute(
+        "DELETE FROM daily_balances WHERE date = ? AND account_id = ?",
+        (today, account_key),
+    )
+    conn.execute(
+        "INSERT INTO daily_balances (date, account_id, current_balance, available_balance, credit_limit) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (today, account_key, current, available, limit),
+    )
+
 
 def cmd_balances(cfg: dict, conn: sqlite3.Connection):
-    """--balances: Daily balance snapshot. (Will be implemented in item 1.3)"""
-    log.info("--balances: Not implemented yet (see work item 1.3)")
+    """--balances: Daily balance snapshot for all linked accounts.
+
+    Calls Plaid /accounts/balance/get per account, stores in daily_balances,
+    calculates net worth, and POSTs a balance capture to Open Brain.
+    """
+    log.info("=== Balance Snapshot ===")
+
+    client = init_plaid(cfg)
+    accounts_cfg = cfg.get("accounts", {})
+    today = date.today().isoformat()
+
+    # Collect balances across all accounts
+    balance_rows = []  # list of (account_key, display_name, acct_type, current, available, limit)
+    errors = []
+
+    for account_key, account_cfg in accounts_cfg.items():
+        access_token = get_access_token(cfg, account_key)
+        if not access_token:
+            log.warning(f"  {account_key}: no access token -- skipping")
+            errors.append(account_key)
+            continue
+
+        try:
+            plaid_accounts = fetch_account_balances(client, access_token)
+        except Exception as e:
+            error_str = str(e)
+            if "ITEM_LOGIN_REQUIRED" in error_str:
+                log.warning(f"  {account_key}: bank login required -- re-run Plaid Link")
+                errors.append(f"{account_key}: ITEM_LOGIN_REQUIRED")
+            else:
+                log.error(f"  {account_key}: balance fetch error -- {e}")
+                errors.append(f"{account_key}: {e}")
+            continue
+
+        if not plaid_accounts:
+            log.warning(f"  {account_key}: no accounts returned from Plaid")
+            errors.append(f"{account_key}: no accounts")
+            continue
+
+        # Plaid may return multiple sub-accounts per item. Sum them for this
+        # logical account, but typically there's one primary account per item.
+        for pa in plaid_accounts:
+            balances = pa.get("balances", {})
+            current = balances.get("current") or 0.0
+            available = balances.get("available")  # may be None for credit
+            limit = balances.get("limit")  # only for credit accounts
+            acct_type = pa.get("type", account_cfg.get("type", ""))
+            acct_subtype = pa.get("subtype", "")
+
+            # Build a sub-key if multiple accounts under one item
+            sub_key = account_key
+            if len(plaid_accounts) > 1:
+                sub_key = f"{account_key}_{pa.get('account_id', '')[:8]}"
+
+            store_balances(conn, today, sub_key, current,
+                           available if available is not None else 0.0,
+                           limit if limit is not None else 0.0)
+
+            balance_rows.append((
+                sub_key,
+                account_cfg["name"],
+                acct_type,
+                acct_subtype,
+                current,
+                available,
+                limit,
+            ))
+            log.info(f"  {account_cfg['name']}: current=${current:,.2f}"
+                     f"{f', available=${available:,.2f}' if available is not None else ''}"
+                     f"{f', limit=${limit:,.2f}' if limit is not None else ''}"
+                     f" ({acct_type}/{acct_subtype})")
+
+        time.sleep(0.1)  # rate limit courtesy
+
+    conn.commit()
+
+    if not balance_rows:
+        log.warning("No balance data retrieved -- skipping capture")
+        return
+
+    # ── Calculate net worth ──────────────────────────────────────────────
+    # Plaid returns positive values for credit card balances (amount owed).
+    # For net worth: positive for depository/investment, negative for credit/loan.
+    net_worth = 0.0
+    for _, _, acct_type, _, current, _, _ in balance_rows:
+        if acct_type in CREDIT_ACCOUNT_TYPES:
+            net_worth -= current  # credit balance is debt: subtract
+        else:
+            net_worth += current  # depository/investment/other: add
+
+    # ── Format capture text ──────────────────────────────────────────────
+    lines = [f"Financial Snapshot -- {today}", ""]
+
+    for account_key, display_name, acct_type, acct_subtype, current, available, limit in balance_rows:
+        if acct_type in CREDIT_ACCOUNT_TYPES:
+            # Show as negative for credit cards, with limit
+            line = f"{display_name}: -${current:,.2f}"
+            if limit is not None and limit > 0:
+                line += f" (limit ${limit:,.2f})"
+        else:
+            line = f"{display_name}: ${current:,.2f}"
+        lines.append(line)
+
+    lines.append("")
+    lines.append(f"Net Worth: ${net_worth:,.2f}")
+
+    if errors:
+        lines.append("")
+        lines.append(f"Errors: {', '.join(str(e) for e in errors)}")
+
+    capture_text = "\n".join(lines)
+    log.info(f"Net worth: ${net_worth:,.2f}")
+
+    # ── Build source_metadata ────────────────────────────────────────────
+    accounts_meta = {}
+    for account_key, display_name, acct_type, acct_subtype, current, available, limit in balance_rows:
+        accounts_meta[account_key] = {
+            "name": display_name,
+            "type": acct_type,
+            "subtype": acct_subtype,
+            "current_balance": round(current, 2),
+            "available_balance": round(available, 2) if available is not None else None,
+            "credit_limit": round(limit, 2) if limit is not None and limit > 0 else None,
+        }
+
+    # ── POST capture to Open Brain ───────────────────────────────────────
+    cap_cfg = cfg.get("capture_api", {})
+    url = cap_cfg.get("url", "https://brain.troy-davis.com/api/v1/captures")
+    caller = cap_cfg.get("caller_header", "financial-pipeline")
+
+    try:
+        resp = requests.post(
+            url,
+            json={
+                "content": capture_text,
+                "source": "api",
+                "source_metadata": {
+                    "type": "balance_snapshot",
+                    "date": today,
+                    "net_worth": round(net_worth, 2),
+                    "account_count": len(balance_rows),
+                    "accounts": accounts_meta,
+                },
+            },
+            headers={
+                "Content-Type": "application/json",
+                "X-Open-Brain-Caller": caller,
+            },
+            timeout=30,
+        )
+        if resp.status_code in (200, 201):
+            log.info(f"Balance snapshot posted ({len(balance_rows)} accounts, net worth ${net_worth:,.2f})")
+        else:
+            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
+    except requests.exceptions.RequestException as e:
+        log.warning(f"Brain unreachable: {e}")
 
 
 # ── Future stubs ─────────────────────────────────────────────────────────────
