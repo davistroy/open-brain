@@ -156,8 +156,8 @@ Four issues (#53, #59, #61, #74) were closed on 2026-04-15 but their project boa
 
 ### Work Items
 
-#### 2.1 Remove BullMQ Backup Jobs from Scheduler
-**Status: PENDING**
+#### 2.1 Remove BullMQ Backup Jobs from Scheduler ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 2
 **Files Affected:**
 - `packages/workers/src/scheduler.ts` (modify — remove ~60 lines)
@@ -183,8 +183,8 @@ The backup skills TypeScript code (`packages/workers/src/skills/db-backup.ts`, `
 
 ---
 
-#### 2.2 Fix VM Redis Backup Script
-**Status: PENDING**
+#### 2.2 Fix VM Redis Backup Script ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 5
 **Files Affected:**
 - `/home/claude/scripts/redis-snapshot.sh` on open-brain-vm (192.168.10.53)
@@ -204,8 +204,8 @@ The VM's `redis-snapshot.sh` runs `docker cp` to extract `dump.rdb` from the Red
 
 ---
 
-#### 2.3 Fix Homeserver Backup Script
-**Status: PENDING**
+#### 2.3 Fix Homeserver Backup Script ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 2
 **Files Affected:**
 - `/mnt/user/appdata/open-brain/scripts/backup.sh` on homeserver
