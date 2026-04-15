@@ -1,0 +1,41 @@
+# Utility pipeline configuration for Open Brain
+# Used by scripts/utility-pipeline.py on open-brain-vm (192.168.10.53)
+# All credentials stored in Bitwarden — never in this file.
+
+power:
+  provider: cobb_emc
+  tool: electric-usage-downloader   # open-source Go binary (github.com/tedpearson/electric-usage-downloader)
+  smarthub_url: cobbemc.smarthub.coop
+  bitwarden_key: dev/open-brain/cobb-emc   # SmartHub username + password
+  data_dir: ~/.electric-usage              # where the Go tool writes CSV output
+  output_format: csv
+  rate_kwh: 0.12                           # approximate $/kWh for cost estimates (update from bill)
+  cron: "0 4 * * *"                        # daily 4 AM — pull previous day's 15-min data
+
+water:
+  provider: cobb_county_water
+  api_url: https://ccw-csswebapi.cobbcounty.org/api
+  account_id: "100101623"
+  service_id: S0228354
+  # No auth required (confirmed via HAR analysis). If API starts returning 401,
+  # implement session cookie from portal login at https://ccw-css.cobbcounty.org/
+  cron: "0 5 2 * *"                        # 2nd of month, 5 AM
+
+gas:
+  provider: gas_south
+  api_url: https://manage-api.gassouth.com/oas/api
+  account_number: "2585622233"
+  bitwarden_key: dev/open-brain/gas-south   # Gas South portal username + password
+  login_url: https://manage.gassouth.com
+  lookback_months: 3                        # how many months of billing history to fetch
+  cron: "0 5 2 * *"                         # 2nd of month, 5 AM (same as water)
+
+capture_api:
+  url: https://brain.troy-davis.com/api/v1/captures
+  caller_header: utility-pipeline           # for rate-limit bypass (add to BYPASS_CALLERS Set)
+
+alert_thresholds:
+  # Month-over-month percentage increase that triggers an alert in the capture
+  power_mom_pct: 20
+  gas_mom_pct: 20
+  water_mom_pct: 30

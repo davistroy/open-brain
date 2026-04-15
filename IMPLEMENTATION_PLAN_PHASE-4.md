@@ -267,8 +267,8 @@ The aggregation rule applies here: 100+ transactions → Python aggregates → 1
 
 ### Work Items
 
-#### 3.1 Cobb EMC Power (SmartHub)
-**Status: PENDING**
+#### 3.1 Cobb EMC Power (SmartHub) ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B1
 **Files Affected:**
 - `config/utility/utility-config.yaml` (create)
@@ -292,8 +292,8 @@ Install the open-source `electric-usage-downloader` Go tool on the VM. Configure
 
 ---
 
-#### 3.2 Cobb County Water (REST API)
-**Status: PENDING**
+#### 3.2 Cobb County Water (REST API) ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B2
 **Files Affected:**
 - `scripts/utility-pipeline.py` (create)
@@ -320,8 +320,8 @@ Account ID `100101623`, Service ID `S0228354` are hardcoded in config (Troy's ac
 
 ---
 
-#### 3.3 Gas South (REST API + PDF Parsing)
-**Status: PENDING**
+#### 3.3 Gas South (REST API + PDF Parsing) ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B3
 **Files Affected:**
 - `scripts/utility-pipeline.py` (extend)
