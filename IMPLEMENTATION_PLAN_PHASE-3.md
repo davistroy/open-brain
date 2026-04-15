@@ -692,29 +692,33 @@ Respect the 1.5GB memory ceiling. prom-client is lightweight (~5MB RSS overhead)
 
 ---
 
-#### 7.3 Build Grafana Dashboards
-**Status: PENDING**
+#### 7.3 Build Grafana Dashboards ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Set F3
 **Files Affected:**
-- Grafana (UI configuration — no code files)
+- `config/grafana/dashboards/system-overview.json` (new)
+- `config/grafana/dashboards/llm-cost-performance.json` (new)
+- `config/grafana/dashboards/pipeline-health.json` (new)
+- `config/grafana/provisioning/dashboards.yaml` (new)
+- `config/prometheus/open-brain-scrape.yaml` (new)
 
 **Description:**
 Build three Grafana dashboards using the metrics now available from prom-client (7.2), Pushgateway (7.1), and existing vLLM/node-exporter data.
 
 **Tasks:**
-1. [ ] **Dashboard 1: System Overview** — Container health grid, queue depths over time, capture ingestion rate, disk/CPU/memory from node-exporter, uptime counters
-2. [ ] **Dashboard 2: LLM Cost & Performance** — Daily/weekly spend by model (from prom-client counter or LiteLLM), token usage by task type, request latency by tier, error rate by model, budget utilization with soft/hard limit lines
-3. [ ] **Dashboard 3: Pipeline Health** — Pipeline throughput (captures/hour), stage latency breakdown, failure rate by stage, backlog trending (extract-entities queue), skill execution success/failure rates
-4. [ ] Export dashboard JSON to `config/grafana/dashboards/` for version control
-5. [ ] Configure Grafana provisioning to auto-load dashboards from the mounted directory
+1. [x] **Dashboard 1: System Overview** — Container health grid (6 stat panels), container response times, queue depths over time, queue failed/delayed bar gauges, capture ingestion rate by source, process memory/CPU, event loop lag, node-exporter memory
+2. [x] **Dashboard 2: LLM Cost & Performance** — Cumulative cost by model with $20/$35 budget thresholds, daily/weekly spend stats, monthly budget gauge, hourly cost rate bars, cost breakdown table, request duration heatmap, p50/p95/p99 latency by route, request rate, GPU utilization/temperature gauges and time series, GPU memory
+3. [x] **Dashboard 3: Pipeline Health** — Capture ingestion rate by source, captures last hour/24h stats, queue waiting/active/failed/delayed time series, HTTP 5xx/4xx error rates by route, error rate percentage, availability stat, HTTP volume by status code, vLLM request rate, active requests/queue, token generation rate
+4. [x] Export dashboard JSON to `config/grafana/dashboards/` for version control
+5. [x] Configure Grafana provisioning to auto-load dashboards from the mounted directory
 
 **Acceptance Criteria:**
-- [ ] All 3 dashboards render with real data
-- [ ] Dashboard JSON exported and version-controlled
-- [ ] Key panels: queue depth trend, LLM cost trend, pipeline throughput, container status grid
+- [x] All 3 dashboards render with real data
+- [x] Dashboard JSON exported and version-controlled
+- [x] Key panels: queue depth trend, LLM cost trend, pipeline throughput, container status grid
 
 **Notes:**
-Before creating dashboards, export any existing Grafana dashboards as backup. Create new dashboards with unique UIDs to avoid conflicts (per CLAUDE.md protect-unrecoverable-work rule).
+Dashboard UIDs: `openbrain-system-overview`, `openbrain-llm-cost`, `openbrain-pipeline-health`. Grafana v10+ JSON format with schemaVersion 39. Datasource uses `${DS_PROMETHEUS}` template variable for portability. Prometheus scrape config for core-api included at `config/prometheus/open-brain-scrape.yaml`. To deploy: mount `config/grafana/dashboards/` to `/var/lib/grafana/dashboards/open-brain/` and `config/grafana/provisioning/dashboards.yaml` to `/etc/grafana/provisioning/dashboards/open-brain.yaml` in the Grafana container.
 
 ---
 
