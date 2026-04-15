@@ -13,14 +13,14 @@ Usage:
     python financial-pipeline.py --sync --daily-summary      # sync + summarize
     python financial-pipeline.py --investments               # weekly investment report (Schwab)
     python financial-pipeline.py --monthly-report            # monthly synthesis (prior month)
-    python financial-pipeline.py --process-inbox             # manual file inbox (stub)
+    python financial-pipeline.py --process-inbox             # process 401k PDFs + Amazon CSVs from ~/financial-inbox/
     python financial-pipeline.py --status                    # pipeline stats
 
 Cron (daily 6:30 AM):
     30 6 * * * cd ~/open-brain && venv/bin/python scripts/financial-pipeline.py --sync --daily-summary >> ~/logs/financial-pipeline.log 2>&1
 """
 
-import argparse, json, logging, re, sqlite3, subprocess, sys, time
+import argparse, csv, json, logging, re, sqlite3, subprocess, sys, time
 from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -1368,9 +1368,405 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         log.warning(f"Brain unreachable: {e}")
 
 
+INBOX_DIR = Path.home() / "financial-inbox"
+PROCESSED_DIR = INBOX_DIR / "processed"
+
+
+def _parse_401k_pdf(filepath: Path) -> Optional[dict]:
+    """Extract balance, contributions, and fund allocation from a 401k ReadySave PDF.
+
+    Returns dict with keys: balance, ytd_employee, ytd_match, funds (list of dicts),
+    quarter, year, raw_text. Returns None if parsing fails.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        log.error("PyMuPDF (fitz) not installed — run: pip install PyMuPDF")
+        return None
+
+    try:
+        doc = fitz.open(str(filepath))
+        text = "\n".join(page.get_text() for page in doc)
+        doc.close()
+    except Exception as e:
+        log.error(f"Failed to read PDF {filepath.name}: {e}")
+        return None
+
+    if not text.strip():
+        log.error(f"PDF {filepath.name} has no extractable text")
+        return None
+
+    # Dollar amount pattern: $1,234.56 or $1234.56
+    dollar_re = r"\$[\d,]+\.?\d*"
+
+    # Extract total balance — look for common headings
+    balance = None
+    for pat in [
+        r"(?:total\s*(?:account\s*)?(?:balance|value))\s*[:\s]*(" + dollar_re + r")",
+        r"(?:account\s*(?:total|balance|value))\s*[:\s]*(" + dollar_re + r")",
+        r"(?:ending\s*(?:balance|value))\s*[:\s]*(" + dollar_re + r")",
+        r"(?:vested\s*balance)\s*[:\s]*(" + dollar_re + r")",
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m:
+            balance = m.group(1).replace(",", "").replace("$", "")
+            balance = float(balance)
+            break
+
+    # Extract YTD contributions
+    ytd_employee = None
+    ytd_match = None
+    for pat in [
+        r"(?:employee|your)\s*(?:contributions?|deferrals?)\s*[:\s]*(" + dollar_re + r")",
+        r"(?:pre[- ]?tax|401k)\s*(?:contributions?)\s*[:\s]*(" + dollar_re + r")",
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m and ytd_employee is None:
+            ytd_employee = float(m.group(1).replace(",", "").replace("$", ""))
+    for pat in [
+        r"(?:employer|company)\s*(?:match|contributions?)\s*[:\s]*(" + dollar_re + r")",
+        r"(?:matching)\s*(?:contributions?)\s*[:\s]*(" + dollar_re + r")",
+    ]:
+        m = re.search(pat, text, re.IGNORECASE)
+        if m and ytd_match is None:
+            ytd_match = float(m.group(1).replace(",", "").replace("$", ""))
+
+    # Extract fund allocation: lines with a percentage and a dollar amount
+    funds = []
+    # Pattern: fund name ... XX.XX% ... $X,XXX.XX
+    fund_pat = re.compile(
+        r"([A-Za-z][A-Za-z0-9 &/\-]{5,50}?)\s+"
+        r"(\d{1,3}(?:\.\d{1,2})?)\s*%\s+.*?"
+        + r"(" + dollar_re + r")",
+        re.MULTILINE,
+    )
+    for m in fund_pat.finditer(text):
+        name = m.group(1).strip()
+        pct = float(m.group(2))
+        val = float(m.group(3).replace(",", "").replace("$", ""))
+        if pct > 0 and val > 0:
+            funds.append({"name": name, "pct": pct, "value": val})
+
+    # Determine quarter/year from text or file mod time
+    today = date.today()
+    year = today.year
+    quarter = (today.month - 1) // 3 + 1
+    # Try to find a date in the PDF
+    date_m = re.search(r"(?:as of|through|ending)\s*(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", text, re.IGNORECASE)
+    if date_m:
+        try:
+            y = int(date_m.group(3))
+            if y < 100:
+                y += 2000
+            month = int(date_m.group(1))
+            year = y
+            quarter = (month - 1) // 3 + 1
+        except ValueError:
+            pass
+
+    if balance is None:
+        log.warning(f"Could not extract balance from {filepath.name} — check PDF format")
+
+    return {
+        "balance": balance,
+        "ytd_employee": ytd_employee,
+        "ytd_match": ytd_match,
+        "funds": funds,
+        "quarter": quarter,
+        "year": year,
+        "raw_text": text[:2000],
+    }
+
+
+def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
+    """Parse Amazon 'Request My Data' order CSV and aggregate spending.
+
+    Returns dict with keys: total_spend, order_count, categories (dict),
+    top_items (list), quarter, year, rows_raw (list of dicts).
+    Returns None if parsing fails.
+    """
+    rows = []
+    # Try common encodings
+    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            with open(filepath, "r", encoding=enc, newline="") as f:
+                # Sniff delimiter
+                sample = f.read(4096)
+                f.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
+                except csv.Error:
+                    dialect = csv.excel
+                reader = csv.DictReader(f, dialect=dialect)
+                rows = list(reader)
+            if rows:
+                break
+        except (UnicodeDecodeError, csv.Error):
+            continue
+        except Exception as e:
+            log.error(f"Failed to read CSV {filepath.name}: {e}")
+            return None
+
+    if not rows:
+        log.error(f"CSV {filepath.name} has no parseable rows")
+        return None
+
+    # Normalize header keys (Amazon exports vary in casing/spacing)
+    def norm(key):
+        return re.sub(r"[^a-z]", "", (key or "").lower())
+
+    header_map = {}
+    for key in rows[0].keys():
+        header_map[norm(key)] = key
+
+    def col(row, *candidates):
+        for c in candidates:
+            mapped = header_map.get(norm(c))
+            if mapped and mapped in row and row[mapped]:
+                return row[mapped].strip()
+        return ""
+
+    total_spend = 0.0
+    order_count = 0
+    categories = defaultdict(lambda: {"count": 0, "amount": 0.0})
+    items = []
+    dates_seen = []
+
+    for row in rows:
+        title = col(row, "Title", "ProductName", "ItemDescription", "Product Name")
+        price_str = col(row, "ItemTotal", "Item Total", "TotalOwed", "Total Owed",
+                        "PurchasePricePerUnit", "Purchase Price Per Unit", "Price")
+        category = col(row, "Category", "ProductCategory", "Product Category") or "Uncategorized"
+        order_date = col(row, "OrderDate", "Order Date", "Ship Date", "ShipDate")
+        qty_str = col(row, "Quantity", "Qty")
+
+        # Parse price
+        price_clean = re.sub(r"[^\d.\-]", "", price_str)
+        try:
+            price = float(price_clean) if price_clean else 0.0
+        except ValueError:
+            price = 0.0
+
+        qty = 1
+        try:
+            qty = int(qty_str) if qty_str else 1
+        except ValueError:
+            qty = 1
+
+        line_total = price * qty if price > 0 else price
+        if line_total <= 0:
+            continue
+
+        total_spend += line_total
+        order_count += 1
+        categories[category]["count"] += 1
+        categories[category]["amount"] += line_total
+        items.append({"title": title or "(no title)", "price": line_total, "category": category})
+
+        if order_date:
+            dates_seen.append(order_date)
+
+    if order_count == 0:
+        log.error(f"CSV {filepath.name}: no valid order rows found")
+        return None
+
+    # Determine quarter/year from earliest order date or today
+    today = date.today()
+    year = today.year
+    quarter = (today.month - 1) // 3 + 1
+    for ds in dates_seen:
+        for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%Y/%m/%d"):
+            try:
+                dt = datetime.strptime(ds, fmt)
+                year = dt.year
+                quarter = (dt.month - 1) // 3 + 1
+                break
+            except ValueError:
+                continue
+        else:
+            continue
+        break
+
+    # Sort items by price descending, keep top 10
+    items.sort(key=lambda x: x["price"], reverse=True)
+    top_items = items[:10]
+
+    # Sort categories by amount descending
+    cat_sorted = dict(sorted(categories.items(), key=lambda x: x[1]["amount"], reverse=True))
+
+    return {
+        "total_spend": round(total_spend, 2),
+        "order_count": order_count,
+        "categories": {k: {"count": v["count"], "amount": round(v["amount"], 2)} for k, v in cat_sorted.items()},
+        "top_items": top_items,
+        "quarter": quarter,
+        "year": year,
+    }
+
+
+def _post_capture(cfg: dict, content: str, source_metadata: dict):
+    """POST a capture to the Open Brain API."""
+    cap_cfg = cfg.get("capture_api", {})
+    url = cap_cfg.get("url", "https://brain.troy-davis.com/api/v1/captures")
+    caller = cap_cfg.get("caller_header", "financial-pipeline")
+    try:
+        resp = requests.post(
+            url,
+            json={"content": content, "source": "api", "source_metadata": source_metadata},
+            headers={"Content-Type": "application/json", "X-Open-Brain-Caller": caller},
+            timeout=30,
+        )
+        if resp.status_code in (200, 201):
+            log.info(f"Capture posted: {content[:60]}...")
+            return True
+        else:
+            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
+            return False
+    except requests.exceptions.RequestException as e:
+        log.warning(f"Brain unreachable: {e}")
+        return False
+
+
 def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
-    """--process-inbox: Manual file inbox watcher. (Will be implemented in Phase 4.)"""
-    log.info("--process-inbox: Not implemented yet (see Phase 4, work items 4.1/4.2)")
+    """--process-inbox: Scan ~/financial-inbox/ for PDF/CSV files, parse, and post captures."""
+    INBOX_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+    files = sorted(
+        f for f in INBOX_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in (".pdf", ".csv")
+    )
+    if not files:
+        log.info("No files in financial inbox")
+        return
+
+    log.info(f"Found {len(files)} file(s) in {INBOX_DIR}")
+    processed = 0
+
+    for filepath in files:
+        ext = filepath.suffix.lower()
+        log.info(f"Processing: {filepath.name}")
+
+        if ext == ".pdf":
+            result = _parse_401k_pdf(filepath)
+            if result is None:
+                log.error(f"Skipping {filepath.name} — parse failed (leaving in inbox)")
+                continue
+
+            # Build capture text
+            q_label = f"Q{result['quarter']} {result['year']}"
+            parts = [f"401k Update — {q_label}", ""]
+            if result["balance"] is not None:
+                parts.append(f"Balance: ${result['balance']:,.2f}")
+            if result["ytd_employee"] is not None or result["ytd_match"] is not None:
+                emp = f"${result['ytd_employee']:,.2f}" if result["ytd_employee"] else "N/A"
+                match = f"${result['ytd_match']:,.2f}" if result["ytd_match"] else "N/A"
+                parts.append(f"YTD Contributions: {emp} (employee) + {match} (match)")
+            if result["funds"]:
+                parts.append("\nAllocation:")
+                for f in result["funds"]:
+                    parts.append(f"  {f['name']}: {f['pct']}% (${f['value']:,.2f})")
+
+            content = "\n".join(parts)
+            meta = {
+                "type": "401k_quarterly",
+                "quarter": q_label,
+                "balance": result["balance"],
+                "ytd_employee": result["ytd_employee"],
+                "ytd_match": result["ytd_match"],
+                "fund_count": len(result["funds"]),
+                "source_file": filepath.name,
+            }
+
+            if _post_capture(cfg, content, meta):
+                filepath.rename(PROCESSED_DIR / filepath.name)
+                processed += 1
+                log.info(f"401k PDF processed and moved to processed/")
+            else:
+                log.error(f"Failed to post 401k capture — leaving {filepath.name} in inbox")
+
+        elif ext == ".csv":
+            result = _parse_amazon_csv(filepath)
+            if result is None:
+                log.error(f"Skipping {filepath.name} — parse failed (leaving in inbox)")
+                continue
+
+            q_label = f"Q{result['quarter']} {result['year']}"
+
+            # Build raw data summary for claude --print
+            cat_lines = []
+            for cat, data in result["categories"].items():
+                cat_lines.append(f"  {cat}: {data['count']} items, ${data['amount']:,.2f}")
+            top_lines = []
+            for item in result["top_items"][:10]:
+                top_lines.append(f"  ${item['price']:,.2f} — {item['title'][:60]}")
+
+            raw_summary = (
+                f"Amazon Spending Data — {q_label}\n"
+                f"Total: ${result['total_spend']:,.2f} across {result['order_count']} orders\n\n"
+                f"By category:\n" + "\n".join(cat_lines) + "\n\n"
+                f"Top items by price:\n" + "\n".join(top_lines)
+            )
+
+            # T2 synthesis via claude --print
+            synthesis = None
+            prompt = (
+                f"Summarize this quarter's Amazon spending patterns. "
+                f"Identify notable trends, unusual purchases, and category insights. "
+                f"Keep it concise (3-5 paragraphs).\n\n{raw_summary}"
+            )
+            if len(prompt) > 4000:
+                prompt = prompt[:3950] + "\n\n[Data truncated for length.]"
+
+            try:
+                cli_result = subprocess.run(
+                    ["claude", "--print", "-p", prompt],
+                    capture_output=True, text=True, timeout=120,
+                )
+                if cli_result.returncode == 0 and cli_result.stdout.strip():
+                    synthesis = cli_result.stdout.strip()
+                    log.info(f"Claude synthesis received ({len(synthesis)} chars)")
+                else:
+                    log.warning(f"Claude CLI returned code {cli_result.returncode}")
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+                log.warning(f"Claude CLI unavailable: {e} — posting raw data")
+
+            # Build capture text
+            parts = [f"Amazon Spending — {q_label}", ""]
+            parts.append(f"${result['total_spend']:,.2f} across {result['order_count']} orders")
+            if synthesis:
+                parts.append("")
+                parts.append(synthesis)
+            parts.append("")
+            parts.append("Top categories:")
+            for cat, data in list(result["categories"].items())[:8]:
+                parts.append(f"  {cat}: ${data['amount']:,.2f} ({data['count']} items)")
+            parts.append("")
+            parts.append("Top purchases:")
+            for item in result["top_items"][:5]:
+                parts.append(f"  ${item['price']:,.2f} — {item['title'][:60]}")
+
+            content = "\n".join(parts)
+            meta = {
+                "type": "amazon_quarterly",
+                "quarter": q_label,
+                "total_spend": result["total_spend"],
+                "order_count": result["order_count"],
+                "categories": result["categories"],
+                "source_file": filepath.name,
+            }
+
+            if _post_capture(cfg, content, meta):
+                filepath.rename(PROCESSED_DIR / filepath.name)
+                processed += 1
+                log.info(f"Amazon CSV processed and moved to processed/")
+            else:
+                log.error(f"Failed to post Amazon capture — leaving {filepath.name} in inbox")
+
+        else:
+            log.warning(f"Unknown file type: {filepath.name} — skipping")
+
+    log.info(f"Inbox processing complete: {processed}/{len(files)} files processed")
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
@@ -1425,7 +1821,7 @@ def main():
     ap.add_argument("--daily-summary", action="store_true", help="Post daily transaction summary")
     ap.add_argument("--investments", action="store_true", help="Weekly investment report (Schwab holdings)")
     ap.add_argument("--monthly-report", action="store_true", help="Monthly financial synthesis (prior month)")
-    ap.add_argument("--process-inbox", action="store_true", help="Process manual file inbox (stub)")
+    ap.add_argument("--process-inbox", action="store_true", help="Process 401k PDFs and Amazon CSVs from ~/financial-inbox/")
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
     args = ap.parse_args()
 

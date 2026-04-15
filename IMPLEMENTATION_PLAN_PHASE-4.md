@@ -405,8 +405,8 @@ Monthly synthesis across all three utilities. Aggregates power kWh, gas therms, 
 
 ### Work Items
 
-#### 4.1 401k ReadySave PDF Parser
-**Status: PENDING**
+#### 4.1 401k ReadySave PDF Parser ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase C1
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -431,8 +431,8 @@ ReadySave PDF format may vary. Start with regex-based extraction, iterate on for
 
 ---
 
-#### 4.2 Amazon Order CSV Parser
-**Status: PENDING**
+#### 4.2 Amazon Order CSV Parser ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase C2
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
