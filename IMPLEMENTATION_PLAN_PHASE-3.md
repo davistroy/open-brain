@@ -350,8 +350,8 @@ The `response_format` parameter is supported by vLLM 0.4.0+ and OpenAI API. For 
 
 ### Work Items
 
-#### 4.1 Apply Email Drafts Migration
-**Status: PENDING**
+#### 4.1 Apply Email Drafts Migration ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** GitHub Issue #69, Ultra Plan Item 9 (Set H)
 **Files Affected:**
 - `packages/shared/drizzle/0015_email_drafts.sql` (apply to production Postgres)
@@ -371,8 +371,8 @@ The `email_drafts` table migration exists but hasn't been applied to production.
 
 ---
 
-#### 4.2 Configure Himalaya SMTP
-**Status: PENDING**
+#### 4.2 Configure Himalaya SMTP ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** GitHub Issue #69
 **Files Affected:**
 - `config/himalaya/config.toml` (create)
@@ -399,7 +399,7 @@ The config.toml should NOT be committed to git (contains credentials). Add `conf
 ---
 
 #### 4.3 End-to-End Email Testing
-**Status: PENDING**
+**Status: PENDING — blocked on SMTP credentials (Troy to provide)**
 **Requirement Refs:** GitHub Issue #69
 **Files Affected:**
 - None (testing only)
