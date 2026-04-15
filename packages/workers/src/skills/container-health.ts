@@ -52,6 +52,7 @@ const DEFAULT_ENDPOINTS: ContainerEndpoint[] = [
   { name: 'voice-capture', url: 'http://voice-capture:3001/health' },
   { name: 'voice-pipecat', url: 'http://voice-pipecat:8766/health' },
   { name: 'file-ingestion', url: 'http://file-ingestion:8080/health' },
+  { name: 'litellm', url: 'http://litellm:4000/health/liveliness' },
   // workers (BullMQ) and slack-bot (Socket Mode) have no HTTP health endpoints
   // web (Vite static) health checked via external Cloudflare tunnel instead
 ]

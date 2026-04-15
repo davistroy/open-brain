@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
+import { sql } from 'drizzle-orm'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import { ai_audit_log } from '../schema/index.js'
 import { logger } from '../lib/logger.js'
@@ -445,25 +446,117 @@ export class LLMGatewayService {
 
   /**
    * Queries LiteLLM /spend/logs for the current month's spend.
-   * Returns zero values if the endpoint is unavailable — non-critical.
+   *
+   * Uses LITELLM_SPEND_URL env var (separate from litellm_url which points to
+   * the inference API at api.openai.com/v1). When LITELLM_SPEND_URL is unset,
+   * falls back to local ai_audit_log estimation via queryLocalMonthlySpend().
+   *
+   * The /spend/logs endpoint returns a raw JSON array of individual request
+   * records (each with `spend`, `model`, `startTime`, etc.), NOT an aggregated
+   * summary. This method iterates the array, sums the `spend` field, and
+   * groups by `model`.
    */
   async getMonthlySpend(): Promise<MonthlySpend> {
+    const spendUrl = process.env.LITELLM_SPEND_URL ?? ''
+
+    if (!spendUrl) {
+      // No LiteLLM spend endpoint configured — use local ai_audit_log estimation
+      return this.queryLocalMonthlySpend()
+    }
+
     try {
-      const aiConfig = this.configService.get('ai')
-      const response = await fetch(`${aiConfig.litellm_url}/spend/logs`, {
+      const now = new Date()
+      const startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+      const endDate = now.toISOString().slice(0, 10)
+
+      const url = new URL('/spend/logs', spendUrl)
+      url.searchParams.set('start_date', startDate)
+      url.searchParams.set('end_date', endDate)
+
+      const response = await fetch(url.toString(), {
         headers: {
           Authorization: `Bearer ${this.litellmClient.apiKey}`,
+          'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(15_000),
       })
+
       if (!response.ok) {
-        return { total: 0, by_model: {} }
+        logger.warn(
+          { status: response.status },
+          'LiteLLM spend API returned non-OK — falling back to local estimation',
+        )
+        return this.queryLocalMonthlySpend()
       }
-      const data = await response.json() as { total_cost?: number; spend_by_model?: Record<string, number> }
-      return {
-        total: data.total_cost ?? 0,
-        by_model: data.spend_by_model ?? {},
+
+      const data = await response.json() as unknown
+
+      // /spend/logs returns an array of individual request records
+      if (Array.isArray(data)) {
+        const by_model: Record<string, number> = {}
+        let total = 0
+
+        for (const row of data as Array<Record<string, unknown>>) {
+          const rowSpend = typeof row.spend === 'number' ? row.spend
+            : typeof row.total_cost === 'number' ? row.total_cost
+            : 0
+          total += rowSpend
+
+          const model = typeof row.model === 'string' ? row.model : 'unknown'
+          by_model[model] = (by_model[model] ?? 0) + rowSpend
+        }
+
+        return { total, by_model }
       }
-    } catch {
+
+      // Fallback: handle unexpected object formats gracefully
+      const dataObj = data as Record<string, unknown>
+      if (typeof dataObj.total_cost === 'number') {
+        return { total: dataObj.total_cost, by_model: (dataObj.spend_by_model as Record<string, number>) ?? {} }
+      }
+
+      logger.warn({ data }, 'LiteLLM spend response format not recognized — using local estimation')
+      return this.queryLocalMonthlySpend()
+    } catch (err) {
+      logger.warn({ err }, 'Failed to query LiteLLM spend API — using local estimation')
+      return this.queryLocalMonthlySpend()
+    }
+  }
+
+  /**
+   * Estimates monthly spend from local ai_audit_log table.
+   * Used as fallback when LITELLM_SPEND_URL is not configured or unreachable.
+   */
+  private async queryLocalMonthlySpend(): Promise<MonthlySpend> {
+    try {
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+      const rows = await this.db.execute<{
+        model: string
+        cost_usd: string
+      }>(sql`
+        SELECT
+          model,
+          COALESCE(SUM(cost_usd::numeric), 0)::text AS cost_usd
+        FROM ai_audit_log
+        WHERE created_at >= ${monthStart.toISOString()}::timestamptz
+          AND error IS NULL
+        GROUP BY model
+      `)
+
+      const by_model: Record<string, number> = {}
+      let total = 0
+
+      for (const row of rows.rows as any[]) {
+        const cost = Number(row.cost_usd)
+        by_model[row.model] = cost
+        total += cost
+      }
+
+      return { total, by_model }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to query local ai_audit_log for spend estimation')
       return { total: 0, by_model: {} }
     }
   }

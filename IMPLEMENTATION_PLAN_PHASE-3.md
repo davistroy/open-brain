@@ -477,8 +477,8 @@ The standalone LiteLLM proxy is running on homeserver port 4000 with its own Pos
 
 ---
 
-#### 5.2 Fix Spend Aggregation
-**Status: PENDING**
+#### 5.2 Fix Spend Aggregation ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 11 (Set I)
 **Files Affected:**
 - `packages/shared/src/services/llm-gateway.ts` (modify — `getMonthlySpend()` function)
@@ -500,8 +500,8 @@ The standalone LiteLLM proxy is running on homeserver port 4000 with its own Pos
 
 ---
 
-#### 5.3 Add LiteLLM to Health Monitoring
-**Status: PENDING**
+#### 5.3 Add LiteLLM to Health Monitoring ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 11 (Set I)
 **Files Affected:**
 - `packages/workers/src/skills/container-health.ts` (modify — add litellm endpoint)
