@@ -91,6 +91,12 @@
 | D79 | t1_spark timeout: 120s (was 30s — entity extraction takes 20-40s on 35B) | 2026-04-15 | ACTIVE | Entry 043 | 30s caused repeated timeouts and retries, slowing the 7K backlog |
 | D80 | AIClientType includes openai_compat (was falling through to 'litellm' label) | 2026-04-15 | ACTIVE | Entry 043 | Confusing error messages during debugging |
 | D81 | ai-routing.yaml v3 synced to local repo (was only on homeserver) | 2026-04-15 | ACTIVE | Entry 043 | Cost incident fix deployed directly, not committed to git |
+| D82 | Remove BullMQ backup jobs — VM cron is canonical backup system | 2026-04-15 | ACTIVE | Entry 045 | Workers container has no Docker socket; BullMQ skills ALL failing since Apr 12 |
+| D83 | Wiki-ingest model configurable via ai-routing.yaml `wiki_agent` key | 2026-04-15 | ACTIVE | Entry 045 | Default: claude-haiku-4-5 (was hardcoded Sonnet). runAgent() still uses Anthropic SDK — can't route to Spark (no tool use) |
+| D84 | JSON mode opt-in for LLM gateway (`jsonMode: true` → `response_format`) | 2026-04-15 | ACTIVE | Entry 045 | Entity extraction enables it. vLLM supports response_format. ~5% empty parse rate → <1% |
+| D85 | LiteLLM proxy routing for embeddings + legacy calls | 2026-04-15 | ACTIVE | Entry 045 | LITELLM_URL → http://litellm:4000. Tier routing (Spark, Jetson, Anthropic direct) bypasses proxy by design |
+| D86 | Wiki-ingest backlog drained — DO NOT re-queue entire corpus | 2026-04-15 | ACTIVE | Entry 045 | 7,486 jobs burning ~$30 Anthropic Sonnet. Phase 8 will use T2 CLI for bulk, not wiki-ingest |
+| D87 | Email Outbound needs real SMTP creds — local relay has no auth | 2026-04-15 | ACTIVE | Entry 045 | bytemark-smtp connected to open-brain network but Himalaya requires auth. Config infra ready, blocked on credentials |
 
 ## Action Items
 
@@ -125,10 +131,17 @@
 | A29 | Push 9 untracked OneDrive git repos to GitHub (or delete) | 2026-04-13 | Entry 040 | LOW — Vibe Coding Prompts, digirig kept; others tbd |
 | A30 | Email Pass 8: forwarded email purge + age cut + top personal sender review | 2026-04-14 | Entry 040 | HIGH — next email cleanup step |
 | A31 | Evaluate Composio for Gmail backend (avoid 7-day token refresh) | 2026-04-14 | Entry 041 | MEDIUM |
-| A32 | Audit all cron jobs across all machines for scheduling conflicts | 2026-04-14 | Entry 041 | MEDIUM |
+| A32 | ~~Audit all cron jobs across all machines for scheduling conflicts~~ | 2026-04-14 | Entry 041 | DONE 2026-04-15 — triple backup found, BullMQ removed, VM+homeserver fixed |
 | A33 | Add more sender rules as email pipeline runs and corrections accumulate | 2026-04-14 | Entry 041 | ONGOING |
-| A34 | Monitor embed queue drain — 2,641 retried jobs processing | 2026-04-15 | Entry 043 | MEDIUM — verify 0 failures after full drain |
-| A35 | Monitor entity extraction queue drain — 6,971 remaining on Spark | 2026-04-15 | Entry 043 | MEDIUM — ~48h at current rate |
+| A34 | ~~Monitor embed queue drain — 2,641 retried jobs processing~~ | 2026-04-15 | Entry 043 | DONE — 11,034/11,035 embedded (99.99%) |
+| A35 | Monitor entity extraction queue drain — ~6,500 remaining on Spark | 2026-04-15 | Entry 043 | MEDIUM — ~36h at current rate, all on Spark (free) |
+| A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
+| A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
+| A38 | Add LiteLLM to container-health skill check list | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.3 |
+| A39 | Deploy Cloudflare Worker synthetic monitor | 2026-04-15 | Entry 045 | MEDIUM — Phase 6.1 |
+| A40 | Build Grafana dashboards (System, LLM Cost, Pipeline) | 2026-04-15 | Entry 045 | MEDIUM — Phase 7.3 |
+| A41 | Deploy Loki for log aggregation | 2026-04-15 | Entry 045 | LOW — Phase 7.4 |
+| A42 | Connect bytemark-smtp to open-brain network on each compose up | 2026-04-15 | Entry 045 | LOW — add to deployment runbook, or add to docker-compose external_links |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -2613,3 +2626,169 @@ Comprehensive ultra-plan analysis of 12 items spanning operational fixes, observ
 
 **Decisions:** D78-D81 (from Entry 043), plus plan approval (this entry)
 **Action Items:** A34-A35 (from Entry 043), plus IMPLEMENTATION_PLAN_PHASE-3.md execution
+
+---
+
+### Entry 045 — Phase 3 Implementation: Phases 1-5.1 complete [deploy] [pipeline] [config] [debug]
+**Date:** 2026-04-15
+**Environment:** Laptop (development), Homeserver (Docker deploy), open-brain-vm, DGX Spark
+**Duration:** ~3 hours
+**Branch:** `phase-3/ops-observability-wiki`
+
+#### Objective
+Execute IMPLEMENTATION_PLAN_PHASE-3.md Phases 1 through 5. Fix operational issues, improve LLM reliability, wire email outbound, route through LiteLLM proxy.
+
+#### Hypothesis
+1. Flushing dead Redis queues + disabling stale cron + updating board will take <15 min (ops only)
+2. Removing BullMQ backup jobs + fixing scripts will consolidate to one working backup system
+3. Wiki-ingest with Haiku will succeed >90% (was 30% with Sonnet timeouts)
+4. JSON mode will reduce entity extraction empty-parse rate from ~5% to <1%
+5. LiteLLM proxy routing will capture embedding costs for visibility
+
+#### Rollback Plan
+- Git branch: `phase-3/ops-observability-wiki` — revert commits if needed
+- Docker compose backup: `docker-compose.yml.bak-20260415`
+- .env.secrets backup: `.env.secrets.bak-20260415`
+- LiteLLM config backup: `config.yaml.bak-20260415`
+- Homeserver backup.sh backup: `backup.sh.bak`
+
+#### Results — Phase 1: Operational Cleanup ✅
+
+**1.1 Redis queue flush:**
+- Flushed 10,970 failed document-pipeline + 2,641 failed ingest-root jobs
+- Redis memory: 116.26MB → 114.61MB (~1.65MB freed)
+- Verified: both failed counts = 0, active queues unaffected
+
+**1.2 OneDrive sync disabled:**
+- Commented out `*/15 * * * *` cron on homeserver
+- Script preserved for future re-enable if needed
+
+**1.3 GitHub board updated:**
+- Moved #53, #59, #61, #74 to Done column (were in Backlog/Blocked/Up Next)
+- Added #73 (Qdrant Evaluation) to Backlog
+- Board now accurately reflects project state
+
+#### Results — Phase 2: Backup Consolidation ✅
+
+**2.1 BullMQ backup jobs removed:**
+- Removed 3 scheduled job registrations from scheduler.ts (~60 lines)
+- `db-backup`, `wiki-backup`, `redis-snapshot` no longer fire at 2 AM
+- All were failing since Apr 12 (workers container has no Docker socket)
+- 897 workers tests pass after change
+
+**2.2 VM Redis backup fixed:**
+- Changed `cat /tmp/redis-backup.rdb` → `sudo cat /tmp/redis-backup.rdb`
+- Previous: 20-byte empty gzip files for weeks (permission denied on extracted RDB)
+- Awaiting next 2:30 AM run to verify
+
+**2.3 Homeserver backup.sh fixed:**
+- Added `sudo` to all 6 `docker exec`/`docker ps`/`docker inspect` commands
+- Previous: failing since Apr 11 with Docker socket permission error
+- Awaiting next 3 AM run to verify
+
+**Key finding:** There were THREE backup systems (VM cron, BullMQ skills, homeserver cron). Only VM cron was partially working. Now: VM cron is canonical (off-host storage), homeserver cron is supplemental (tiered retention).
+
+#### Results — Phase 3: LLM Reliability ✅
+
+**3.1 Wiki-ingest model configurable:**
+- Added `wiki_agent: "claude-haiku-4-5-20251001"` to ai-routing.yaml models section
+- Added `wiki_agent` to AIModelConfigSchema (optional Zod field)
+- skill-execution.ts resolves model from config at init (same pattern as synthesisModel)
+- Wiki-ingest now uses configurable model, default Haiku (5x cheaper, 3x faster than Sonnet)
+
+**3.2 JSON mode for entity extraction:**
+- Added `jsonMode?: boolean` to LLMCompleteOptions
+- `completeViaOpenAISDK()` passes `response_format: { type: 'json_object' }` when enabled
+- Entity extraction enables jsonMode via `completeByTask('entity_extraction', { jsonMode: true })`
+- Added single retry on empty parse from substantial response (>50 chars)
+- 1,775 tests pass (184 shared + 897 workers + 694 core-api)
+
+**Deployed to homeserver:** Both changes rebuilt and deployed. Verified entity extraction on Spark with no Anthropic fallback (259 calls/hour all on openai_compat).
+
+#### Results — Phase 4: Email Outbound (partial) ✅
+
+**4.1 Migration:** `email_drafts` table already existed in production. Schema verified complete.
+
+**4.2 Himalaya config:**
+- Created `config/himalaya/config.toml` with bytemark-smtp relay
+- Connected bytemark-smtp to open-brain Docker network
+- Himalaya v1.2.0 config parses, account recognized
+- **Blocked:** bytemark-smtp has no auth support, Himalaya v1.2.0 requires auth
+- Config infrastructure is ready; needs real SMTP credentials from Troy
+
+**4.3 Testing:** Blocked pending SMTP credentials. See A36.
+
+#### Results — Phase 5.1: LiteLLM Proxy Routing ✅
+
+- Changed `LITELLM_URL` from `https://api.openai.com/v1` to `http://litellm:4000` (4 services in docker-compose)
+- Changed `LITELLM_API_KEY` to LiteLLM master key in `.env.secrets`
+- Connected `litellm` container to `open-brain_open-brain` Docker network
+- Added `text-embedding-3-large` to LiteLLM proxy model config (was missing)
+- Verified proxy health from workers container
+
+**Key architectural note:** Tier-based routing (Spark, Jetson, Anthropic direct) bypasses the proxy by design — those use dedicated OpenAI SDK clients created by `getClientForTier()`. The proxy captures embeddings and legacy alias calls. For full Anthropic cost tracking, would need to route Anthropic SDK through LiteLLM too (bigger refactor, deferred).
+
+#### COST INCIDENT — $50 Anthropic Invoice ⚠️
+
+**Root cause analysis:**
+
+| Source | Volume (24h) | Model | Tokens | Est. Cost |
+|--------|-------------|-------|--------|-----------|
+| Entity extraction fallback | 3,233 calls | Haiku (t1_fast) | 20.8M prompt + 980K completion | ~$20.50 |
+| Wiki-ingest retry loop | 7,486 queued × retries | Sonnet (hardcoded) | Unknown (not in ai_audit_log) | ~$30 |
+| **Total** | | | | **~$50** |
+
+**Entity extraction:** Spark was timing out (30s limit for 20-40s tasks), causing fallback to Haiku (paid). Fixed in Entry 043 with 120s timeout. Post-fix: 259 calls/hour all on Spark, zero Anthropic fallback.
+
+**Wiki-ingest:** The daily 6 AM wiki-synthesis job queued ALL unintegrated captures (7,486!) for wiki-ingest. Each wiki-ingest attempt ran a 10-15 turn Anthropic Sonnet agent loop (~$0.10-0.15/attempt), hit a git identity error on commit, then BullMQ retried. The git error was `Author identity unknown` — workers container had no git config.
+
+**Emergency actions taken:**
+1. Drained 7,486 wiki-ingest queue jobs (stopped Sonnet bleeding immediately)
+2. Fixed git identity in workers container: `git config --global user.email/name`
+3. Deployed wiki-ingest model change (Haiku, not Sonnet)
+4. Verified entity extraction 100% on Spark (no Anthropic fallback)
+5. Confirmed `cost_usd` in ai_audit_log still shows 0 — cost fields in tiers populate but gateway cost logging needs investigation (Phase 5.2)
+
+**Prevention:**
+- D86: Never re-queue entire corpus for wiki-ingest. Phase 8 bulk uses T2 CLI.
+- D83: Wiki-ingest model now configurable (default Haiku, not Sonnet)
+- D79: Spark timeout 120s prevents fallback to paid API
+- Phase 5 (LiteLLM routing) will provide real-time cost visibility
+
+#### What Worked
+- Parallel subagent execution for independent work items (3.1 + 3.2 ran simultaneously)
+- Immediate deploy after each phase (caught issues fast)
+- Infrastructure audit upfront (found BullMQ backup failure, triple redundancy, stale cron)
+- State file (.implement-plan-state.json) enables clean resume across sessions
+
+#### What Failed / Surprised
+- Wiki-ingest uses `runAgent()` with Anthropic SDK — completely bypasses ai-routing.yaml task routing
+- Himalaya v1.2.0 requires SMTP auth even for no-auth relays
+- `bytemark-smtp` was on a separate Docker network (br0, not open-brain)
+- `cost_usd` in ai_audit_log still shows 0 for all calls — cost calculation in gateway needs investigation
+- LiteLLM `/spend/logs` endpoint timed out on direct query from container
+
+**Decisions:** D82-D87 (see Decision Log above)
+**Action Items:** A36-A42 (see Action Items above)
+
+#### Queue State at End of Session
+
+| Queue | Wait | Active | Completed | Failed |
+|-------|------|--------|-----------|--------|
+| extract-entities | ~6,500 | 2 | ~4,600 | 10 |
+| embed-capture | 0 | 0 | 11,034 | 0 |
+| wiki-ingest | 0 | 0 | ~100 | ~2 |
+| document-pipeline | 0 | 0 | 0 | 0 (flushed) |
+| ingest-root | 0 | 0 | 0 | 0 (flushed) |
+
+#### Commits (branch: phase-3/ops-observability-wiki)
+
+| SHA | Description |
+|-----|-------------|
+| 7abc2c8 | Phase 3 baseline — embedding fix, config sync, plan |
+| f6e4659 | Stage archived file deletions |
+| 1a8fa54 | Phase 1: Operational Cleanup (1.1, 1.2, 1.3) |
+| 27e41ce | Phase 2: Backup Consolidation (2.1, 2.2, 2.3) |
+| 9fff1ab | Phase 3: LLM Reliability (3.1, 3.2) |
+| 8918307 | Phase 4 partial: Email Outbound config (4.1, 4.2) |
+| 3ea0903 | Phase 5.1: LiteLLM proxy routing |
