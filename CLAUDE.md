@@ -104,6 +104,8 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Classification tasks route to `t1_jetson` by default** — `ai-routing.yaml` routes 6 classification tasks (intent, capture, brain_view, voice, confidence, question_detection) to `t1_jetson` (Qwen 3.5 4B on Jetson, 0.67s/call, free). Fallback chain: `t1_jetson → t1_fast → t2_quality`. Complex tasks (entity extraction, synthesis, governance) stay on `t1_fast` or `t2_quality`.
 - **JSDoc comments must not contain `*/` sequences** — `tsup --dts` parses `*/` inside JSDoc as end-of-comment, causing DTS build failures. Use expanded cron forms (e.g., `0,6,12,18` instead of `*/6`) in JSDoc comments.
 - **Budget-check uses `LITELLM_SPEND_URL` (not `LITELLM_URL`)** — since migrating to direct OpenAI API, `LITELLM_URL` points to `api.openai.com/v1`. Budget-check has a separate `LITELLM_SPEND_URL` env var for querying a LiteLLM proxy's spend API. When unset (default), skips the HTTP call and uses local `ai_audit_log` estimation only.
+- **CRITICAL: Verify ai-routing.yaml cost path before ANY bulk operation** — 3,230 file captures cost $100+ because entity extraction routed to Anthropic API (Haiku) instead of Spark (free). The cost_per_1k fields were all 0, so the budget circuit breaker was blind. Always check `task_routing` in ai-routing.yaml before batch ingestion. The t1_spark tier (Qwen 35B on DGX Spark) handles all routine tasks for free.
+- **Jetson Orin Nano IP is 192.168.10.58** (static, not 192.168.10.44). Updated in ai-routing.yaml 2026-04-15. Old IP caused classification fallback to paid Haiku API.
 
 ---
 

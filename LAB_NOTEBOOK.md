@@ -77,6 +77,16 @@
 | D65 | DGX Spark for file classification (Phase D), Opus 4.6 for reorg proposal (Phase E) | 2026-04-13 | ACTIVE | Entry 040 | Spark for bulk throughput, Opus for one-shot complex synthesis |
 | D66 | OneDrive file inventory via Docker on homeserver (not sshfs/NFS) | 2026-04-13 | ACTIVE | Entry 040 | Local I/O, python:3.12-slim container, ~1100 files/sec |
 | D67 | Qdrant evaluation deferred until Phase 2B file count exceeds 100K embeddings | 2026-04-13 | ACTIVE | Entry 040 | pgvector fine for current scale; migration is clean when needed |
+| D68 | OneDrive dedup: SHA-256 exact + version-number-aware chain detection | 2026-04-14 | ACTIVE | Entry 041 | Version chains keep highest version number; Troy Davis Background excluded |
+| D69 | OneDrive reorg: 9 top-level domains (Work, Amateur Radio, Sailing, Making, Personal, Projects, Reference, App Data, _Archive) | 2026-04-14 | ACTIVE | Entry 041 | Reviewed via spreadsheet with Troy's annotations; script-driven moves |
+| D70 | Phase 3A email pipeline: daily 5 AM sweep (not every 15 min) | 2026-04-14 | ACTIVE | Entry 041 | No real value in real-time classification; Troy manages email during day, pipeline sweeps overnight |
+| D71 | Email pipeline: T0 sender rules → T0 keywords → T1 Jetson GPU (not CPU inference) | 2026-04-14 | ACTIVE | Entry 041 | Jetson at 192.168.10.58 (static IP), qwen3.5-4b, ~3-4s/email |
+| D72 | Hotmail: Graph API direct; Gmail: direct OAuth (testing mode, consider Composio) | 2026-04-14 | ACTIVE | Entry 041 | Composio for Gmail under evaluation — avoids 7-day token refresh |
+| D73 | Immich external library at /usr/src/app/external/onedrive (not inside upload dir) | 2026-04-14 | ACTIVE | Entry 041 | Upload dir rejected by Immich for external libraries |
+| D74 | CRITICAL: ai-routing.yaml cost fields were 0 — budget breaker was blind | 2026-04-15 | ACTIVE | Entry 042 | 3,230 file captures × pipeline stages hit Anthropic API at ~$100+. Fixed: costs populated, Spark tier added. |
+| D75 | Add t1_spark tier (Qwen 35B on DGX Spark) for all routine LLM tasks | 2026-04-15 | ACTIVE | Entry 042 | Entity extraction, linking, enrichment, synthesis all route to Spark (free). Only governance/weekly → Anthropic (paid). |
+| D76 | Jetson IP is 192.168.10.58 (static), was 192.168.10.44 in config | 2026-04-15 | ACTIVE | Entry 042 | Old IP caused all classification to fallback to Haiku (paid) |
+| D77 | NEVER batch-ingest through full pipeline without verifying cost path | 2026-04-15 | ACTIVE | Entry 042 | Must check ai-routing.yaml task_routing before any bulk operation |
 
 ## Action Items
 
@@ -104,12 +114,15 @@
 | A22 | ~~Create homeserver KVM VM (open-brain-vm, 192.168.10.53)~~ | 2026-04-12 | Entry 035 | DONE 2026-04-12 |
 | A23 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | Entry 033 | HIGH — prerequisite for Phase 3 |
 | A24 | Verify Pipecat DEEPGRAM_API_KEY configured before soak | 2026-04-12 | Entry 033 | HIGH — blocks Phase 0D |
-| A25 | Build Phase 3A email pipeline (email-pipeline.py on VM) | 2026-04-13 | Entry 040 | HIGH — next major feature |
-| A26 | Immich photo import — need API key from Troy | 2026-04-13 | Entry 040 | MEDIUM — 13,918 photos staged |
+| A25 | ~~Build Phase 3A email pipeline (email-pipeline.py on VM)~~ | 2026-04-13 | Entry 040 | DONE — Entry 041 |
+| A26 | ~~Immich photo import~~ | 2026-04-13 | Entry 040 | DONE — external library at /external/onedrive |
 | A27 | Set up Beets for music library organization | 2026-04-13 | Entry 040 | LOW — 885 files in /mnt/user/storage/music/downloads |
-| A28 | Run file inventory with hashing overnight | 2026-04-13 | Entry 040 | MEDIUM — dedup detection requires SHA-256 pass |
+| A28 | ~~Run file inventory with hashing~~ | 2026-04-13 | Entry 040 | DONE — 53,153 files hashed |
 | A29 | Push 9 untracked OneDrive git repos to GitHub (or delete) | 2026-04-13 | Entry 040 | LOW — Vibe Coding Prompts, digirig kept; others tbd |
 | A30 | Email Pass 8: forwarded email purge + age cut + top personal sender review | 2026-04-14 | Entry 040 | HIGH — next email cleanup step |
+| A31 | Evaluate Composio for Gmail backend (avoid 7-day token refresh) | 2026-04-14 | Entry 041 | MEDIUM |
+| A32 | Audit all cron jobs across all machines for scheduling conflicts | 2026-04-14 | Entry 041 | MEDIUM |
+| A33 | Add more sender rules as email pipeline runs and corrections accumulate | 2026-04-14 | Entry 041 | ONGOING |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -143,6 +156,11 @@
 | A0x | OneDrive cleanup: AIOC, contact-tracker, SCARS, openproject, LegacySync, agents-v1 deleted | 2026-04-13 | 2026-04-13 | Entry 040 |
 | A0y | Media moved: photos→Immich staging, music→/storage/music, videos→/storage/videos | 2026-04-13 | 2026-04-13 | Entry 040 |
 | A16 | ~~Check OneDrive sync status and file count~~ | 2026-04-12 | 2026-04-13 | Entry 040 — DONE: 264,813 files, 195 GB |
+| A25 | Phase 3A email pipeline built + deployed + cron | 2026-04-13 | 2026-04-14 | Entry 041 — Hotmail + Gmail, Jetson T1, daily 5 AM |
+| A26 | Immich external library configured | 2026-04-13 | 2026-04-14 | Entry 041 — /external/onedrive, 13,918 photos |
+| A28 | File inventory hashing complete | 2026-04-13 | 2026-04-14 | Entry 041 — 53,153 files, SHA-256 |
+| A0z | OneDrive dedup: 22,541 files archived, 0 errors | 2026-04-14 | 2026-04-14 | Entry 041 |
+| A0aa | OneDrive reorg: 19,507 moved, 2,842 deleted, 2,599 empty dirs removed | 2026-04-14 | 2026-04-14 | Entry 041 |
 
 ---
 
@@ -2300,3 +2318,167 @@ Corpus: **264,813 → ~9,638 files** (96% reduction).
 **Decisions:** D59-D67 (see Decision Log above)
 
 **Action Items:** A25-A30 (see Action Items above)
+
+---
+
+--- New session: 2026-04-14 — OneDrive dedup + reorg, Phase 3A email pipeline, Immich setup ---
+
+### Entry 041: OneDrive Dedup & Reorg + Phase 3A Email Pipeline + Immich [infrastructure] [email] [deploy]
+
+**Date:** 2026-04-14
+**Duration:** ~8 hours
+**Tags:** `[infrastructure]` `[email]` `[deploy]` `[cleanup]`
+**Environment:** Laptop (development), homeserver (Docker, file storage), open-brain-vm (email pipeline), Jetson (T1 LLM)
+
+#### Objective
+Complete OneDrive file dedup and reorganization, build and deploy Phase 3A email classification pipeline, configure Immich photo import.
+
+#### 1. OneDrive Dedup (dedup-and-archive.py)
+
+**Script patches applied:**
+- Changed archive destination from OneDrive internal (`_archive/versions/`) to backup share (`/mnt/user/backup/tdavis/onedrive-archive/`)
+- Added version-number-aware keep logic: files with explicit `v1`, `v2` etc. keep the highest version number (not largest file size)
+- Added exclusion list: "Troy Davis Background" versions protected from archival
+- Manifest CSV stored in archive directory (not OneDrive root)
+
+**Results:**
+| Metric | Value |
+|--------|-------|
+| Files moved to archive | 22,541 |
+| Errors | 0 |
+| Duration | ~6 hours (cross-filesystem moves, spinning disks) |
+| Duplicate groups | 13,268 |
+| Version chain groups | 642 |
+| Archive location | `/mnt/user/backup/tdavis/onedrive-archive/` |
+| Manifest | `archive-manifest.csv` (22,542 entries) |
+
+**Key observation:** Actual moves (22,541) were much higher than the initial estimate (7,000-8,000) because the triple-mirrored directories (Documents/Coke, Coke/Current, SkyDrive) each had unique files that weren't exact duplicates of each other but WERE duplicates within their own tree.
+
+#### 2. OneDrive Reorganization (reorganize-onedrive.py)
+
+**Approach:** Script-driven reorganization based on spreadsheet plan reviewed and annotated by Troy.
+
+**Troy's key feedback (from spreadsheet review):**
+- "Career" → "Work" (top-level rename)
+- Resume/career docs under Personal/Career
+- Business Services + BSNA combined (same org)
+- Chick-fil-A spelling (lowercase f)
+- Merge Consulting/Chick-fil-A into Stratfield
+- Charts under Sailing (navigational charts)
+- Raspberry Pi → Amateur Radio (BPQ packet radio)
+- Scouts, First Lego League → Personal/Family/Daniel
+- KiCad, EasyEDA-Pro → Making/Electronics
+- N1MM, Kenwood, Yaesu, VBCABLE, G4FON → Amateur Radio
+- Workspace (Eclipse metadata) → delete
+- Favorites (.url bookmarks) → delete
+- No deletions except explicitly approved items
+
+**Results:**
+| Metric | Value |
+|--------|-------|
+| Files moved | 19,507 |
+| Files deleted | 2,842 (Eclipse metadata, bookmarks, temp files) |
+| Empty dirs removed | 2,599 |
+| Errors | 0 |
+| Manifest | `reorganize-manifest.csv` in OneDrive root |
+
+**New top-level structure:**
+Work/, Amateur Radio/, Sailing/, Making/, Personal/, Projects/, Reference/, App Data/
+
+#### 3. Phase 3A Email Pipeline (email-pipeline.py)
+
+**Architecture:**
+```
+email-pipeline.py (open-brain-vm, daily 5 AM cron)
+  1. FETCH new emails (Graph API for Hotmail, Gmail API for Gmail)
+  2. CLASSIFY (T0 sender rules → T0 keyword rules → T1 Jetson LLM)
+  3. ORGANIZE — move to folders/labels (27 categories + "Needs Review")
+  4. CLEANUP — trash Spam & Junk older than 30 days
+  5. DETECT CORRECTIONS — check if user moved previously-classified emails
+  Daily: SUMMARIZE → POST capture to Open Brain
+```
+
+**Files created:**
+- `scripts/email-pipeline.py` (714 lines) — main pipeline
+- `config/email-categories.yaml` (230 lines) — 26 categories, sender rules, keyword rules, settings
+
+**Classification tiers:**
+| Tier | Method | Cost | Speed |
+|------|--------|------|-------|
+| T0 | Sender domain/email rules (32 rules) | Free | Instant |
+| T0 | Subject keyword rules (16 categories) | Free | Instant |
+| T1 | Jetson GPU (qwen3.5-4b at 192.168.10.58:8080) | Free | ~3-4s/email |
+| Fallback | "Needs Review" folder/label | Free | Instant |
+
+**Dry run results (Hotmail, 7 emails):**
+- 1 sender rule match (Financial & Banking — correct)
+- 2 keyword matches → Needs Review (correct, low confidence)
+- 4 Jetson classifications at 0.95 confidence
+- Added sender rules for sogacobb.org, truelinkfinancial.com, specialolympicsga.org → Jamie
+
+**Gmail setup:** OAuth credentials deployed, 27 labels created, dry run successful (6 emails classified). Testing mode — consider Composio to avoid 7-day token refresh.
+
+**Design decision:** Changed from 15-minute cron to daily 5 AM sweep. Troy manages email during the day; pipeline sweeps overnight. Reduces API calls from ~96/day to 1/day.
+
+**Cron (open-brain-vm):**
+```
+0 5 * * * email-pipeline.py --provider both --since-hours 24 && --summary
+```
+
+#### 4. Immich Configuration
+
+- Upgraded to v2.7.5 (from v2.6.3), DB backed up
+- **Problem:** Photos at `/mnt/user/storage/pictures/immich/onedrive-import/` inside Immich upload dir — rejected as external library
+- **Fix:** Added separate volume mount: `- /mnt/user/storage/pictures/immich/onedrive-import:/usr/src/app/external/onedrive:ro`
+- External library configured in Immich UI → scanning 13,918 photos
+
+#### 5. Jetson Connectivity
+
+- Jetson was offline (powered off), rebooted by Troy
+- Got new local IP: 192.168.10.58 (static, confirmed by Troy)
+- DNS `jetson.k4jda.net` resolves to Tailscale IP (100.x) — unreachable from VM (no Tailscale)
+- Config uses local IP directly: `http://192.168.10.58:8080/v1`
+- VM cannot reach Spark either (same Tailscale issue)
+- Troy explicitly rejected CPU inference on homeserver as fallback
+
+#### What Worked
+- Spreadsheet-based review process for reorg plan — Troy annotated column G with changes
+- Version-number-aware dedup scoring — keeps v24 over v15
+- Cross-filesystem dedup via shutil.move — zero errors on 22K files
+- Jetson GPU inference at 3-4s/email — accurate classifications
+- Reusing MSAL token cache from email-corpus-analyzer — no re-auth needed
+
+#### What Took Long
+- Dedup: 6 hours for 22K files (cross-filesystem copy+delete on spinning disks)
+- Many files in the plan didn't exist (already moved by earlier duplicate group) — script spent time stat'ing non-existent files
+
+#### 7. File Ingestion into Open Brain (Phase 2B)
+
+**Run 1 (overnight, routed to Anthropic API — MISTAKE):**
+- 3,300 files submitted, all pipeline stages hit Anthropic Haiku/Sonnet
+- Cost: ~$100+ in Anthropic API charges
+- Root cause: ai-routing.yaml had (1) wrong Jetson IP causing fallback to paid API, (2) cost_per_1k fields set to 0 (budget breaker blind), (3) no Spark tier defined
+
+**Fix applied:** Added t1_spark tier (Qwen 35B on DGX Spark, free), fixed Jetson IP to 192.168.10.58, populated cost fields, rerouted all routine tasks to Spark. Only governance + weekly brief remain on paid Anthropic.
+
+**Run 4 (after fix, routed to Spark — FREE):**
+- 7,054 files submitted, 375 errors, 146.5 minutes, 48 files/min
+- Zero Anthropic API charges
+
+**Repair run (fallback extractors in Docker):**
+- 930 error files processed with pymupdf, LibreOffice, pdftotext, tesseract OCR, xlrd
+- Repaired: 682, Failed: 24, Submit failed: 9
+- 73% recovery rate on previously-failed files
+
+**Final corpus state:**
+| Metric | Count |
+|--------|-------|
+| Total file captures | 10,966 |
+| With embeddings (searchable) | 8,254 |
+| Pipeline pending (Spark entity extraction) | 2,712 |
+| All captures (all sources) | 11,043 |
+| Truly unrecoverable files | 24 |
+
+**Decisions:** D68-D77 (see Decision Log above)
+
+**Action Items:** A31-A33 (see Action Items above)
