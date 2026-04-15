@@ -1,0 +1,23 @@
+name = "open-brain-synthetic-monitor"
+main = "src/index.ts"
+compatibility_date = "2025-03-30"
+workers_dev = false
+
+# Cron trigger — runs every 5 minutes
+[triggers]
+crons = ["*/5 * * * *"]
+
+# KV namespace for tracking consecutive failure count
+[[kv_namespaces]]
+binding = "HEALTH_STATE"
+id = "PLACEHOLDER_KV_NAMESPACE_ID"
+# After creating the KV namespace, replace the id above:
+#   wrangler kv namespace create HEALTH_STATE
+#   Then paste the returned id here
+
+[vars]
+HEALTH_URL = "https://brain.troy-davis.com/api/v1/health"
+PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
+# PUSHOVER_TOKEN and PUSHOVER_USER are set via wrangler secret:
+#   wrangler secret put PUSHOVER_TOKEN
+#   wrangler secret put PUSHOVER_USER

@@ -551,8 +551,8 @@ LiteLLM proxy becomes a critical dependency. Add it to the container-health skil
 
 ### Work Items
 
-#### 6.1 Deploy Cloudflare Worker Synthetic Monitor
-**Status: PENDING**
+#### 6.1 Deploy Cloudflare Worker Synthetic Monitor ✅
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 12 (Set G)
 **Files Affected:**
 - `cloudflare/synthetic-monitor/wrangler.toml` (create)
@@ -580,8 +580,8 @@ Set `workers_dev = false` in wrangler.toml (no HTTP route needed — cron-only w
 
 ---
 
-#### 6.2 Add VM Cron Synthetic Check
-**Status: PENDING**
+#### 6.2 Add VM Cron Synthetic Check ✅ Completed 2026-04-15
+**Status: COMPLETE [2026-04-15]**
 **Requirement Refs:** Ultra Plan Item 12 (Set G)
 **Files Affected:**
 - Crontab on open-brain-vm (192.168.10.53)
