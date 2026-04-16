@@ -1,35 +1,34 @@
 import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import {
-  skills_log,
-  logger,
-  runAgent,
-} from '@open-brain/shared'
+import { logger, runAgent } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
+import { LLMSkill } from './llm-skill.js'
+import type { LLMSkillOpts, BaseResult } from './types.js'
 
 // ============================================================
 // Types
 // ============================================================
 
-export interface EmailComposeResult {
+export interface EmailComposeResult extends BaseResult {
   draftId: string | null
   to: string
   subject: string
   bodyPreview: string
   agentIterations: number
   toolCalls: number
-  durationMs: number
 }
 
 export interface EmailComposeOptions {
-  /** Anthropic client instance (required for runAgent). */
+  /** Natural language instruction for the email to compose. */
+  instruction: string
+  /** Anthropic client instance (required for runAgent). Overrides class-level client. */
   anthropicClient?: Anthropic
   /** Model to use for the agent. Default: 'claude-sonnet-4-5-20250929'. */
   model?: string
   /** Max agent iterations. Default: 10. */
   maxIterations?: number
-  /** Core API base URL for creating the draft. Default: env CORE_API_URL or http://localhost:3000 */
+  /** Core API base URL for creating the draft. Overrides class-level coreApiUrl. */
   coreApiUrl?: string
 }
 
@@ -229,7 +228,96 @@ Process:
 Always create the draft via the draft_email tool — do not just describe what you would write.`
 
 // ============================================================
-// Entry point
+// EmailComposeSkill class
+// ============================================================
+
+/**
+ * EmailComposeSkill — agent-based email composition.
+ *
+ * Uses runAgent() with Anthropic to compose and create email drafts.
+ * Extends LLMSkill for access to anthropicClient and coreApiUrl.
+ */
+export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailComposeResult> {
+  constructor(opts: LLMSkillOpts) {
+    super('email-compose', opts)
+  }
+
+  async execute(options: EmailComposeOptions): Promise<EmailComposeResult> {
+    const startMs = Date.now()
+    const instruction = options.instruction
+    const coreApiUrl = options.coreApiUrl ?? this.coreApiUrl
+    const anthropicClient = options.anthropicClient ?? this.anthropicClient
+
+    logger.info({ instruction: instruction.slice(0, 200) }, '[email-compose] starting')
+
+    const tools = buildEmailComposeTools(this.db, coreApiUrl)
+
+    let agentResult: AgentResult
+    try {
+      agentResult = await runAgent(
+        EMAIL_COMPOSE_SYSTEM_PROMPT,
+        tools,
+        instruction,
+        {
+          client: anthropicClient ?? undefined,
+          model: options.model ?? 'claude-sonnet-4-5-20250929',
+          maxIterations: options.maxIterations ?? 10,
+          maxTokens: 4096,
+          temperature: 0.3,
+        },
+      )
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.error({ err: msg }, '[email-compose] agent loop failed')
+      throw err
+    }
+
+    // Extract draft info from tool calls
+    const draftCall = agentResult.toolCalls.find(
+      (tc) => tc.name === 'draft_email' && !tc.isError,
+    )
+
+    const draftIdMatch = draftCall?.result?.match(/ID: ([a-f0-9-]+)/)
+    const draftId = draftIdMatch?.[1] ?? null
+
+    const durationMs = Date.now() - startMs
+    const result: EmailComposeResult = {
+      draftId,
+      to: draftCall ? String(draftCall.input.to ?? '') : '',
+      subject: draftCall ? String(draftCall.input.subject ?? '') : '',
+      bodyPreview: draftCall ? String(draftCall.input.body ?? '').slice(0, 200) : '',
+      agentIterations: agentResult.iterations,
+      toolCalls: agentResult.toolCalls.length,
+      durationMs,
+    }
+
+    // Log to skills_log via BaseSkill
+    await this.logResult(
+      result,
+      instruction.slice(0, 200),
+      draftId
+        ? `draft:${draftId} to:${result.to} subj:${result.subject.slice(0, 80)}`
+        : `no draft created — iterations:${agentResult.iterations} tools:${agentResult.toolCalls.length}`,
+    )
+
+    logger.info(
+      {
+        draftId,
+        to: result.to,
+        subject: result.subject,
+        iterations: agentResult.iterations,
+        toolCalls: agentResult.toolCalls.length,
+        durationMs,
+      },
+      '[email-compose] execution complete',
+    )
+
+    return result
+  }
+}
+
+// ============================================================
+// Entry point — backward compatible
 // ============================================================
 
 /**
@@ -241,80 +329,10 @@ Always create the draft via the draft_email tool — do not just describe what y
 export async function executeEmailCompose(
   db: Database,
   instruction: string,
-  options: EmailComposeOptions = {},
+  options: Omit<EmailComposeOptions, 'instruction'> & { anthropicClient?: Anthropic; coreApiUrl?: string } = {},
 ): Promise<EmailComposeResult> {
-  const startMs = Date.now()
-  const coreApiUrl = options.coreApiUrl ?? process.env.CORE_API_URL ?? 'http://localhost:3000'
-
-  logger.info({ instruction: instruction.slice(0, 200) }, '[email-compose] starting')
-
-  const tools = buildEmailComposeTools(db, coreApiUrl)
-
-  let agentResult: AgentResult
-  try {
-    agentResult = await runAgent(
-      EMAIL_COMPOSE_SYSTEM_PROMPT,
-      tools,
-      instruction,
-      {
-        client: options.anthropicClient,
-        model: options.model ?? 'claude-sonnet-4-5-20250929',
-        maxIterations: options.maxIterations ?? 10,
-        maxTokens: 4096,
-        temperature: 0.3,
-      },
-    )
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    logger.error({ err: msg }, '[email-compose] agent loop failed')
-    throw err
-  }
-
-  // Extract draft info from tool calls
-  const draftCall = agentResult.toolCalls.find(
-    (tc) => tc.name === 'draft_email' && !tc.isError,
-  )
-
-  const draftIdMatch = draftCall?.result?.match(/ID: ([a-f0-9-]+)/)
-  const draftId = draftIdMatch?.[1] ?? null
-
-  const durationMs = Date.now() - startMs
-  const result: EmailComposeResult = {
-    draftId,
-    to: draftCall ? String(draftCall.input.to ?? '') : '',
-    subject: draftCall ? String(draftCall.input.subject ?? '') : '',
-    bodyPreview: draftCall ? String(draftCall.input.body ?? '').slice(0, 200) : '',
-    agentIterations: agentResult.iterations,
-    toolCalls: agentResult.toolCalls.length,
-    durationMs,
-  }
-
-  // Log to skills_log
-  try {
-    await db.insert(skills_log).values({
-      skill_name: 'email-compose',
-      input_summary: instruction.slice(0, 200),
-      output_summary: draftId
-        ? `draft:${draftId} to:${result.to} subj:${result.subject.slice(0, 80)}`
-        : `no draft created — iterations:${agentResult.iterations} tools:${agentResult.toolCalls.length}`,
-      result: result as unknown as Record<string, unknown>,
-      duration_ms: durationMs,
-    })
-  } catch {
-    logger.warn('[email-compose] failed to write skills_log')
-  }
-
-  logger.info(
-    {
-      draftId,
-      to: result.to,
-      subject: result.subject,
-      iterations: agentResult.iterations,
-      toolCalls: agentResult.toolCalls.length,
-      durationMs,
-    },
-    '[email-compose] execution complete',
-  )
-
-  return result
+  return new EmailComposeSkill({ db, anthropicClient: options.anthropicClient }).execute({
+    ...options,
+    instruction,
+  })
 }

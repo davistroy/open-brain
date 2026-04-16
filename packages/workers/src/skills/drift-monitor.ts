@@ -1,9 +1,9 @@
-import { join } from 'node:path'
-import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { logger, callClaude } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
+import { LLMSkill } from './llm-skill.js'
+import type { LLMSkillOpts } from './types.js'
 import {
   queryPendingBets,
   queryBetActivity,
@@ -28,6 +28,11 @@ import type {
 // Re-export types so consumers can import from this file
 export type { DriftMonitorOutput, DriftMonitorResult, DriftMonitorOptions } from './drift-monitor-query.js'
 
+/** Constructor options for DriftMonitorSkill (extends LLMSkillOpts with wikiService). */
+export interface DriftMonitorSkillOpts extends LLMSkillOpts {
+  wikiService?: WikiGitService
+}
+
 /**
  * DriftMonitorSkill — detects when tracked commitments, bets, or projects go silent.
  *
@@ -37,40 +42,11 @@ export type { DriftMonitorOutput, DriftMonitorResult, DriftMonitorOptions } from
  * Key difference from DailyConnectionsSkill: Pushover notification is only sent
  * when drift items with severity >= medium exist.
  */
-export class DriftMonitorSkill {
-  private db: Database
-  private litellmClient: OpenAI | null
-  private anthropicClient: Anthropic | null
-  private llmGateway: LLMGatewayService | null
-  private pushover: PushoverService
-  private templates: TemplateCache
-  private coreApiUrl: string
+export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonitorResult> {
   private wikiService: WikiGitService | null
 
-  constructor(opts: {
-    db: Database
-    litellmBaseUrl?: string
-    litellmApiKey?: string
-    anthropicClient?: Anthropic
-    llmGateway?: LLMGatewayService
-    pushover?: PushoverService
-    promptsDir?: string
-    coreApiUrl?: string
-    templates?: TemplateCache
-    wikiService?: WikiGitService
-  }) {
-    this.db = opts.db
-    this.litellmClient = createLiteLLMClient({
-      baseUrl: opts.litellmBaseUrl,
-      apiKey: opts.litellmApiKey,
-      timeout: 'extended',
-      maxRetries: 0,
-    })
-    this.anthropicClient = opts.anthropicClient ?? null
-    this.llmGateway = opts.llmGateway ?? null
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
-    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
-    this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+  constructor(opts: DriftMonitorSkillOpts) {
+    super('drift-monitor', opts)
     this.wikiService = opts.wikiService ?? null
   }
 
@@ -109,17 +85,19 @@ export class DriftMonitorSkill {
     if (!hasData) {
       logger.info('[drift-monitor] no bets, commitments, or declining entities — skipping LLM call')
       const emptyResult = emptyOutput()
-      await this.logToSkillsLog({
-        inputSummary: 'No pending bets, no governance commitments, no entity frequency data',
-        outputSummary: 'Skipped — no data to analyze',
-        durationMs: Date.now() - startMs,
-      })
-      return {
+      const durationMs = Date.now() - startMs
+      const result: DriftMonitorResult = {
         output: emptyResult,
-        durationMs: Date.now() - startMs,
+        durationMs,
         savedCaptureId: null,
         notificationSent: false,
       }
+      await this.logResult(
+        result,
+        'No pending bets, no governance commitments, no entity frequency data',
+        'Skipped — no data to analyze',
+      )
+      return result
     }
 
     // Step 5: Assemble context and call LLM
@@ -145,21 +123,21 @@ export class DriftMonitorSkill {
     // Step 7: Save as capture back into the brain
     const savedCaptureId = await this.saveDriftCapture(output, analysisDate)
 
-    // Step 8: Log to skills_log
-    await this.logToSkillsLog({
-      inputSummary: `${betsWithActivity.length} bets, ${commitments.length} commitments, ${entityFrequency.length} declining entities`,
-      outputSummary: `health: ${output.overall_health} | drift_items: ${output.drift_items.length} | high: ${output.drift_items.filter(d => d.severity === 'high').length} | medium: ${output.drift_items.filter(d => d.severity === 'medium').length} | notified: ${notificationSent} | wiki: ${wikiWritten}`,
-      durationMs,
-      captureId: savedCaptureId ?? undefined,
-      result: output,
-    })
+    // Step 8: Log to skills_log via BaseSkill
+    const finalResult: DriftMonitorResult = { output, durationMs, savedCaptureId, notificationSent }
+    await this.logResult(
+      finalResult,
+      `${betsWithActivity.length} bets, ${commitments.length} commitments, ${entityFrequency.length} declining entities`,
+      `health: ${output.overall_health} | drift_items: ${output.drift_items.length} | high: ${output.drift_items.filter(d => d.severity === 'high').length} | medium: ${output.drift_items.filter(d => d.severity === 'medium').length} | notified: ${notificationSent} | wiki: ${wikiWritten}`,
+      savedCaptureId ?? undefined,
+    )
 
     logger.info(
       { driftItemCount: output.drift_items.length, overallHealth: output.overall_health, durationMs, notificationSent, wikiWritten, savedCaptureId },
       '[drift-monitor] execution complete',
     )
 
-    return { output, durationMs, savedCaptureId, notificationSent }
+    return finalResult
   }
 
   // ----------------------------------------------------------
@@ -330,30 +308,6 @@ export class DriftMonitorSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    inputSummary: string
-    outputSummary: string
-    durationMs: number
-    captureId?: string
-    result?: DriftMonitorOutput
-  }): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'drift-monitor',
-        capture_id: params.captureId ?? null,
-        input_summary: params.inputSummary,
-        output_summary: params.outputSummary,
-        result: params.result ?? null,
-        duration_ms: params.durationMs,
-      })
-    } catch {
-      // skills_log failure is non-fatal
-    }
-  }
 }
 
 // ============================================================
@@ -368,7 +322,7 @@ export async function executeDriftMonitor(
   anthropicClient?: Anthropic,
   llmGateway?: LLMGatewayService,
 ): Promise<DriftMonitorResult> {
-  return new DriftMonitorSkill({ db, wikiService, anthropicClient, llmGateway }).execute(options)
+  return new DriftMonitorSkill({ db, wikiService, anthropicClient, llmGateway } as DriftMonitorSkillOpts).execute(options)
 }
 
 // ============================================================

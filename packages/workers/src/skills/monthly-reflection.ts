@@ -3,15 +3,15 @@ import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
 import {
-  skills_log,
   logger,
-  PushoverService,
   TemplateCache,
   runAgent,
 } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 // ============================================================
 // Types
@@ -45,12 +45,11 @@ export interface MonthlyReflectionOutput {
   decisions_to_make: string[]
 }
 
-export interface MonthlyReflectionResult {
+export interface MonthlyReflectionResult extends BaseResult {
   output: MonthlyReflectionOutput
   captureCount: number
   agentIterations: number
   toolCalls: number
-  durationMs: number
   savedCaptureId: string | null
   emailSent: boolean
   wikiPageWritten: boolean
@@ -257,9 +256,19 @@ export function buildReflectionTools(db: Database, windowStart: Date, windowEnd:
  * 4. Pushover notification
  * 5. Logged to skills_log
  */
-export class MonthlyReflectionSkill {
-  private db: Database
-  private pushover: PushoverService
+/** Constructor options for MonthlyReflectionSkill. */
+export interface MonthlyReflectionSkillOpts extends BaseSkillOpts {
+  anthropicClient?: Anthropic
+  wikiService?: WikiGitService
+  email?: EmailService
+  promptsDir?: string
+  coreApiUrl?: string
+  templates?: TemplateCache
+  model?: string
+  maxIterations?: number
+}
+
+export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, MonthlyReflectionResult> {
   private email: EmailService
   private templates: TemplateCache
   private coreApiUrl: string
@@ -268,22 +277,10 @@ export class MonthlyReflectionSkill {
   private model: string
   private maxIterations: number
 
-  constructor(opts: {
-    db: Database
-    anthropicClient?: Anthropic
-    wikiService?: WikiGitService
-    pushover?: PushoverService
-    email?: EmailService
-    promptsDir?: string
-    coreApiUrl?: string
-    templates?: TemplateCache
-    model?: string
-    maxIterations?: number
-  }) {
-    this.db = opts.db
+  constructor(opts: MonthlyReflectionSkillOpts) {
+    super('monthly-reflection', opts)
     this.anthropicClient = opts.anthropicClient
     this.wikiService = opts.wikiService
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
     this.email = opts.email ?? new EmailService()
     this.templates = opts.templates ?? new TemplateCache(
       opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'),
@@ -366,7 +363,12 @@ export class MonthlyReflectionSkill {
       notificationSent,
     }
 
-    await this.logToSkillsLog(result)
+    await this.logResult(
+      result,
+      `${captureCount} captures across 30 days | ${output.month_label}`,
+      `headline: "${output.headline}" | email:${emailSent} wiki:${wikiPageWritten} | iterations:${agentResult.iterations} tools:${agentResult.toolCalls.length}`,
+      savedCaptureId ?? undefined,
+    )
 
     logger.info(
       {
@@ -513,24 +515,6 @@ export class MonthlyReflectionSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(result: MonthlyReflectionResult): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'monthly-reflection',
-        capture_id: result.savedCaptureId ?? null,
-        input_summary: `${result.captureCount} captures across 30 days | ${result.output.month_label}`,
-        output_summary: `headline: "${result.output.headline}" | email:${result.emailSent} wiki:${result.wikiPageWritten} | iterations:${result.agentIterations} tools:${result.toolCalls}`,
-        result: result.output as unknown as Record<string, unknown>,
-        duration_ms: result.durationMs,
-      })
-    } catch {
-      // skills_log failure is non-fatal
-    }
-  }
 }
 
 // ============================================================

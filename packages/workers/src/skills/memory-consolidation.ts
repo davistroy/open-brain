@@ -1,16 +1,9 @@
-import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
-import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import {
-  skills_log,
-  logger,
-  PushoverService,
-  createLiteLLMClient,
-  TemplateCache,
-  callClaude,
-} from '@open-brain/shared'
+import { logger, callClaude } from '@open-brain/shared'
+import { LLMSkill } from './llm-skill.js'
+import type { LLMSkillOpts, BaseResult } from './types.js'
 import {
   findConsolidationCandidates,
   type ConsolidationCluster,
@@ -50,13 +43,12 @@ export interface ClusterResult {
 /**
  * Full result of the memory consolidation skill execution.
  */
-export interface MemoryConsolidationResult {
+export interface MemoryConsolidationResult extends BaseResult {
   queryResult: ConsolidationQueryResult
   clusterResults: ClusterResult[]
   totalMerged: number
   totalSkipped: number
   totalErrors: number
-  durationMs: number
   notificationSent: boolean
 }
 
@@ -98,38 +90,9 @@ interface CaptureRow {
  * Follows the weekly-brief / daily-sweep skill pattern:
  * query data, call LLM, persist results, deliver notification, log to skills_log.
  */
-export class MemoryConsolidationSkill {
-  private db: Database
-  private litellmClient: OpenAI | null
-  private anthropicClient: Anthropic | null
-  private llmGateway: LLMGatewayService | null
-  private pushover: PushoverService
-  private templates: TemplateCache
-  private coreApiUrl: string
-
-  constructor(opts: {
-    db: Database
-    litellmBaseUrl?: string
-    litellmApiKey?: string
-    anthropicClient?: Anthropic
-    llmGateway?: LLMGatewayService
-    pushover?: PushoverService
-    promptsDir?: string
-    coreApiUrl?: string
-    templates?: TemplateCache
-  }) {
-    this.db = opts.db
-    this.litellmClient = createLiteLLMClient({
-      baseUrl: opts.litellmBaseUrl,
-      apiKey: opts.litellmApiKey,
-      timeout: 'extended',
-      maxRetries: 0,
-    })
-    this.anthropicClient = opts.anthropicClient ?? null
-    this.llmGateway = opts.llmGateway ?? null
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
-    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
-    this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOptions, MemoryConsolidationResult> {
+  constructor(opts: LLMSkillOpts) {
+    super('memory-consolidation', opts)
   }
 
   async execute(options: MemoryConsolidationOptions = {}): Promise<MemoryConsolidationResult> {
@@ -152,13 +115,7 @@ export class MemoryConsolidationSkill {
     if (queryResult.clusters.length === 0) {
       logger.info('[memory-consolidation] no consolidation candidates found')
       const durationMs = Date.now() - startMs
-      await this.logToSkillsLog({
-        inputSummary: `${queryResult.totalPairsFound} pairs, ${queryResult.totalClustersFound} clusters (none met threshold)`,
-        outputSummary: 'No clusters to consolidate',
-        durationMs,
-        result: { totalMerged: 0, totalSkipped: 0, totalErrors: 0 },
-      })
-      return {
+      const emptyResult: MemoryConsolidationResult = {
         queryResult,
         clusterResults: [],
         totalMerged: 0,
@@ -167,6 +124,12 @@ export class MemoryConsolidationSkill {
         durationMs,
         notificationSent: false,
       }
+      await this.logResult(
+        emptyResult,
+        `${queryResult.totalPairsFound} pairs, ${queryResult.totalClustersFound} clusters (none met threshold)`,
+        'No clusters to consolidate',
+      )
+      return emptyResult
     }
 
     logger.info(
@@ -191,35 +154,8 @@ export class MemoryConsolidationSkill {
     // Step 3: Pushover notification
     const notificationSent = await this.deliverPushover(clusterResults, totalMerged, totalSkipped, totalErrors)
 
-    // Step 4: Log to skills_log
-    await this.logToSkillsLog({
-      inputSummary: `${queryResult.totalPairsFound} pairs, ${queryResult.clusters.length} clusters processed`,
-      outputSummary: `merged:${totalMerged} skipped:${totalSkipped} errors:${totalErrors}`,
-      durationMs,
-      result: {
-        totalMerged,
-        totalSkipped,
-        totalErrors,
-        clusterResults: clusterResults.map(r => ({
-          clusterIndex: r.clusterIndex,
-          captureCount: r.captureIds.length,
-          shouldMerge: r.shouldMerge,
-          mergeRationale: r.mergeRationale,
-          newCaptureId: r.newCaptureId,
-          entityLinksMigrated: r.entityLinksMigrated,
-          associationsRepointed: r.associationsRepointed,
-          originalsDeleted: r.originalsDeleted,
-          error: r.error,
-        })),
-      },
-    })
-
-    logger.info(
-      { totalMerged, totalSkipped, totalErrors, durationMs, notificationSent },
-      '[memory-consolidation] execution complete',
-    )
-
-    return {
+    // Step 4: Log to skills_log via BaseSkill
+    const finalResult: MemoryConsolidationResult = {
       queryResult,
       clusterResults,
       totalMerged,
@@ -228,6 +164,18 @@ export class MemoryConsolidationSkill {
       durationMs,
       notificationSent,
     }
+    await this.logResult(
+      finalResult,
+      `${queryResult.totalPairsFound} pairs, ${queryResult.clusters.length} clusters processed`,
+      `merged:${totalMerged} skipped:${totalSkipped} errors:${totalErrors}`,
+    )
+
+    logger.info(
+      { totalMerged, totalSkipped, totalErrors, durationMs, notificationSent },
+      '[memory-consolidation] execution complete',
+    )
+
+    return finalResult
   }
 
   // ----------------------------------------------------------
@@ -717,30 +665,6 @@ export class MemoryConsolidationSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    inputSummary: string
-    outputSummary: string
-    durationMs: number
-    captureId?: string
-    result?: Record<string, unknown>
-  }): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'memory-consolidation',
-        capture_id: params.captureId ?? null,
-        input_summary: params.inputSummary,
-        output_summary: params.outputSummary,
-        result: params.result ?? null,
-        duration_ms: params.durationMs,
-      })
-    } catch {
-      // skills_log failure is non-fatal
-    }
-  }
 }
 
 // ============================================================

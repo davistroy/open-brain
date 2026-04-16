@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
+import type { BaseResult } from './types.js'
 
 // ============================================================
 // Types
@@ -24,9 +25,8 @@ export interface DriftItem {
   suggested_action: string
 }
 
-export interface DriftMonitorResult {
+export interface DriftMonitorResult extends BaseResult {
   output: DriftMonitorOutput
-  durationMs: number
   /** UUID of the capture created to store the drift report back into the brain */
   savedCaptureId: string | null
   /** Whether a Pushover notification was sent (only if severity >= medium items exist) */

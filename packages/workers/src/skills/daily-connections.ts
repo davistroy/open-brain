@@ -1,9 +1,9 @@
-import { join } from 'node:path'
-import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { logger, callClaude } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter, LLMGatewayService } from '@open-brain/shared'
+import { LLMSkill } from './llm-skill.js'
+import type { LLMSkillOpts } from './types.js'
 import {
   queryRecentCaptures,
   buildEntityCoOccurrence,
@@ -25,6 +25,11 @@ export type { DailyConnectionsOutput, DailyConnectionsResult, DailyConnectionsOp
 const DEFAULT_WINDOW_DAYS = 7
 const DEFAULT_TOKEN_BUDGET = 30_000
 
+/** Constructor options for DailyConnectionsSkill (extends LLMSkillOpts with wikiService). */
+export interface DailyConnectionsSkillOpts extends LLMSkillOpts {
+  wikiService?: WikiGitService
+}
+
 /**
  * DailyConnectionsSkill — surfaces non-obvious cross-domain connections
  * across recent captures using entity co-occurrence data and LLM synthesis.
@@ -32,40 +37,11 @@ const DEFAULT_TOKEN_BUDGET = 30_000
  * Follows the WeeklyBriefSkill pattern: query data, assemble context,
  * call LLM, parse output, deliver via Pushover, save as capture, log to skills_log.
  */
-export class DailyConnectionsSkill {
-  private db: Database
-  private litellmClient: OpenAI | null
-  private anthropicClient: Anthropic | null
-  private llmGateway: LLMGatewayService | null
-  private pushover: PushoverService
-  private templates: TemplateCache
-  private coreApiUrl: string
+export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, DailyConnectionsResult> {
   private wikiService: WikiGitService | null
 
-  constructor(opts: {
-    db: Database
-    litellmBaseUrl?: string
-    litellmApiKey?: string
-    anthropicClient?: Anthropic
-    llmGateway?: LLMGatewayService
-    pushover?: PushoverService
-    promptsDir?: string
-    coreApiUrl?: string
-    templates?: TemplateCache
-    wikiService?: WikiGitService
-  }) {
-    this.db = opts.db
-    this.litellmClient = createLiteLLMClient({
-      baseUrl: opts.litellmBaseUrl,
-      apiKey: opts.litellmApiKey,
-      timeout: 'extended',
-      maxRetries: 0,
-    })
-    this.anthropicClient = opts.anthropicClient ?? null
-    this.llmGateway = opts.llmGateway ?? null
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
-    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
-    this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+  constructor(opts: DailyConnectionsSkillOpts) {
+    super('daily-connections', opts)
     this.wikiService = opts.wikiService ?? null
   }
 
@@ -90,17 +66,18 @@ export class DailyConnectionsSkill {
 
     if (captureCount === 0) {
       logger.info('[daily-connections] no captures in window — skipping LLM call')
-      await this.logToSkillsLog({
-        inputSummary: `0 captures in last ${windowDays} days`,
-        outputSummary: 'Skipped — no captures',
-        durationMs: Date.now() - startMs,
-      })
-      return {
+      const emptyResult: DailyConnectionsResult = {
         output: emptyOutput(),
         captureCount: 0,
         durationMs: Date.now() - startMs,
         savedCaptureId: null,
       }
+      await this.logResult(
+        emptyResult,
+        `0 captures in last ${windowDays} days`,
+        'Skipped — no captures',
+      )
+      return emptyResult
     }
 
     // Step 2: Build entity co-occurrence data
@@ -127,18 +104,18 @@ export class DailyConnectionsSkill {
     // Step 6: Save as capture back into the brain
     const savedCaptureId = await this.saveConnectionsCapture(output, fmtDate(windowStart), fmtDate(now))
 
-    // Step 7: Log to skills_log
-    await this.logToSkillsLog({
-      inputSummary: `${captureCount} captures from ${dateRange}, ${coOccurrence.length} entity pairs`,
-      outputSummary: `summary: "${output.summary}" | connections:${output.connections.length} | meta_pattern:${output.meta_pattern ? 'yes' : 'none'} | wiki: ${wikiWritten}`,
-      durationMs,
-      captureId: savedCaptureId ?? undefined,
-      result: output,
-    })
+    // Step 7: Log to skills_log via BaseSkill
+    const finalResult: DailyConnectionsResult = { output, captureCount, durationMs, savedCaptureId }
+    await this.logResult(
+      finalResult,
+      `${captureCount} captures from ${dateRange}, ${coOccurrence.length} entity pairs`,
+      `summary: "${output.summary}" | connections:${output.connections.length} | meta_pattern:${output.meta_pattern ? 'yes' : 'none'} | wiki: ${wikiWritten}`,
+      savedCaptureId ?? undefined,
+    )
 
     logger.info({ captureCount, connectionCount: output.connections.length, durationMs, wikiWritten, savedCaptureId }, '[daily-connections] execution complete')
 
-    return { output, captureCount, durationMs, savedCaptureId }
+    return finalResult
   }
 
   // ----------------------------------------------------------
@@ -307,30 +284,6 @@ export class DailyConnectionsSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    inputSummary: string
-    outputSummary: string
-    durationMs: number
-    captureId?: string
-    result?: DailyConnectionsOutput
-  }): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'daily-connections',
-        capture_id: params.captureId ?? null,
-        input_summary: params.inputSummary,
-        output_summary: params.outputSummary,
-        result: params.result ?? null,
-        duration_ms: params.durationMs,
-      })
-    } catch {
-      // skills_log failure is non-fatal
-    }
-  }
 }
 
 // ============================================================

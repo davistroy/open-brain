@@ -1,14 +1,16 @@
-import { execFile } from 'node:child_process'
+import { execFile, type ExecFileOptions } from 'node:child_process'
 import { stat, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Database } from '@open-brain/shared'
-import { backup_log, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { backup_log, logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 import { pruneBackups, DEFAULT_RETENTION } from '../lib/backup-retention.js'
 import type { RetentionPolicy } from '../lib/backup-retention.js'
 
-function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<{ stdout: string; stderr: string }> {
+function execFileAsync(cmd: string, args: string[], opts: ExecFileOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts as any, (err, stdout, stderr) => {
+    execFile(cmd, args, opts, (err, stdout, stderr) => {
       if (err) return reject(err)
       resolve({ stdout: String(stdout), stderr: String(stderr) })
     })
@@ -26,7 +28,7 @@ export interface WikiBackupOptions {
   wikiRepoPath?: string
 }
 
-export interface WikiBackupResult {
+export interface WikiBackupResult extends BaseResult {
   status: 'success' | 'failed'
   filePath: string | null
   sizeBytes: number
@@ -57,20 +59,17 @@ export async function applyRetention(
 // WikiBackupSkill
 // ============================================================
 
-export class WikiBackupSkill {
-  private db: Database
-  private pushover: PushoverService
+export interface WikiBackupSkillOpts extends BaseSkillOpts {
+  backupDir?: string
+  wikiRepoPath?: string
+}
+
+export class WikiBackupSkill extends BaseSkill<WikiBackupOptions, WikiBackupResult> {
   private backupDir: string
   private wikiRepoPath: string
 
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-    backupDir?: string
-    wikiRepoPath?: string
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: WikiBackupSkillOpts) {
+    super('wiki-backup', opts)
     this.backupDir = opts.backupDir ?? DEFAULT_BACKUP_DIR
     this.wikiRepoPath = opts.wikiRepoPath ?? DEFAULT_WIKI_REPO
   }
@@ -87,7 +86,7 @@ export class WikiBackupSkill {
       await mkdir(backupDir, { recursive: true })
     } catch (err) {
       const result = this.failResult(startMs, `Failed to create backup directory: ${err}`)
-      await this.logResult(result)
+      await this.logBackupResult(result)
       return result
     }
 
@@ -121,13 +120,14 @@ export class WikiBackupSkill {
         sizeBytes,
         durationSeconds,
         prunedCount,
+        durationMs: durationSeconds * 1000,
       }
 
-      await this.logResult(result)
+      await this.logBackupResult(result)
 
       const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(1)
-      await this.notify(
-        'Wiki Backup Complete',
+      await this.sendNotification(
+        'Open Brain: Wiki Backup Complete',
         `Bundle: ${filename}\nSize: ${sizeMB} MB\nDuration: ${durationSeconds}s\nPruned: ${prunedCount} old backups`,
         -1,
       )
@@ -138,9 +138,9 @@ export class WikiBackupSkill {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       const result = this.failResult(startMs, errorMsg, filePath)
-      await this.logResult(result)
-      await this.notify(
-        'Wiki Backup FAILED',
+      await this.logBackupResult(result)
+      await this.sendNotification(
+        'Open Brain: Wiki Backup FAILED',
         `Error: ${errorMsg.slice(0, 500)}`,
         1,
       )
@@ -154,17 +154,19 @@ export class WikiBackupSkill {
 
   private failResult(startMs: number, error: string, filePath?: string): WikiBackupResult {
     logger.error({ error }, '[wiki-backup] backup failed')
+    const durationSeconds = Math.round((Date.now() - startMs) / 1000)
     return {
       status: 'failed',
       filePath: filePath ?? null,
       sizeBytes: 0,
-      durationSeconds: Math.round((Date.now() - startMs) / 1000),
+      durationSeconds,
       prunedCount: 0,
       error,
+      durationMs: durationSeconds * 1000,
     }
   }
 
-  private async logResult(result: WikiBackupResult): Promise<void> {
+  private async logBackupResult(result: WikiBackupResult): Promise<void> {
     try {
       await this.db.insert(backup_log).values({
         backup_type: 'wiki',
@@ -179,25 +181,11 @@ export class WikiBackupSkill {
       logger.warn({ err }, '[wiki-backup] failed to write backup_log entry')
     }
 
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'wiki-backup',
-        input_summary: 'wiki git bundle backup',
-        output_summary: `status:${result.status} | size:${result.sizeBytes} | duration:${result.durationSeconds}s | pruned:${result.prunedCount}`,
-        duration_ms: result.durationSeconds * 1000,
-      })
-    } catch (err) {
-      logger.warn({ err }, '[wiki-backup] failed to write skills_log entry')
-    }
-  }
-
-  private async notify(title: string, message: string, priority: -2 | -1 | 0 | 1 | 2): Promise<void> {
-    if (!this.pushover.isConfigured) return
-    try {
-      await this.pushover.send({ title: `Open Brain: ${title}`, message, priority })
-    } catch (err) {
-      logger.warn({ err }, '[wiki-backup] Pushover notification failed')
-    }
+    await super.logResult(
+      result,
+      'wiki git bundle backup',
+      `status:${result.status} | size:${result.sizeBytes} | duration:${result.durationSeconds}s | pruned:${result.prunedCount}`,
+    )
   }
 }
 

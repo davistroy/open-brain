@@ -1,7 +1,8 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { skills_log } from '@open-brain/shared'
-import { logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 // ============================================================
 // Types
@@ -14,12 +15,11 @@ export interface CaptureReminderOptions {
   now?: Date
 }
 
-export interface CaptureReminderResult {
+export interface CaptureReminderResult extends BaseResult {
   mode: 'morning' | 'evening'
   notificationSent: boolean
   captureCount?: number
   lastCaptureAt?: string | null
-  durationMs: number
 }
 
 // ============================================================
@@ -35,21 +35,19 @@ export interface CaptureReminderResult {
  *
  * No LLM call, no capture creation. Just a DB query (evening) and Pushover send.
  */
-export class CaptureReminderSkill {
-  private db: Database
-  private pushover: PushoverService
-
-  constructor(opts: { db: Database; pushover?: PushoverService }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+export class CaptureReminderSkill extends BaseSkill<CaptureReminderOptions, CaptureReminderResult> {
+  constructor(opts: BaseSkillOpts) {
+    super('capture-reminder', opts)
   }
 
   async execute(options: CaptureReminderOptions): Promise<CaptureReminderResult> {
     const startMs = Date.now()
     const { mode } = options
-    const skillName = `capture-reminder-${mode}`
 
-    logger.info({ mode }, `[${skillName}] starting execution`)
+    // Dynamic skill name: capture-reminder-morning or capture-reminder-evening
+    this.skillName = `capture-reminder-${mode}`
+
+    logger.info({ mode }, `[${this.skillName}] starting execution`)
 
     let captureCount: number | undefined
     let lastCaptureAt: string | null | undefined
@@ -78,7 +76,7 @@ export class CaptureReminderSkill {
         captureCount = Number(rows.rows[0]?.count ?? 0)
         lastCaptureAt = rows.rows[0]?.last_at ?? null
       } catch (err) {
-        logger.warn({ err }, `[${skillName}] failed to query captures — defaulting to 0`)
+        logger.warn({ err }, `[${this.skillName}] failed to query captures — defaulting to 0`)
         captureCount = 0
         lastCaptureAt = null
       }
@@ -106,38 +104,33 @@ export class CaptureReminderSkill {
           priority: -1,
         })
         notificationSent = true
-        logger.info(`[${skillName}] Pushover notification sent`)
+        logger.info(`[${this.skillName}] Pushover notification sent`)
       } catch (err) {
-        logger.warn({ err }, `[${skillName}] Pushover send failed`)
+        logger.warn({ err }, `[${this.skillName}] Pushover send failed`)
       }
     } else {
-      logger.debug(`[${skillName}] Pushover not configured — skipping`)
+      logger.debug(`[${this.skillName}] Pushover not configured — skipping`)
     }
 
     const durationMs = Date.now() - startMs
-
-    // Log to skills_log
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: skillName,
-        capture_id: null,
-        input_summary: `mode:${mode}`,
-        output_summary: `sent:${notificationSent}${captureCount !== undefined ? ` | captures:${captureCount}` : ''}`,
-        duration_ms: durationMs,
-      })
-    } catch (err) {
-      logger.warn({ err }, `[${skillName}] failed to write skills_log entry`)
-    }
-
-    logger.info({ mode, notificationSent, captureCount, durationMs }, `[${skillName}] execution complete`)
-
-    return {
+    const result: CaptureReminderResult = {
       mode,
       notificationSent,
       captureCount,
       lastCaptureAt,
       durationMs,
     }
+
+    // Log to skills_log via BaseSkill
+    await this.logResult(
+      result,
+      `mode:${mode}`,
+      `sent:${notificationSent}${captureCount !== undefined ? ` | captures:${captureCount}` : ''}`,
+    )
+
+    logger.info({ mode, notificationSent, captureCount, durationMs }, `[${this.skillName}] execution complete`)
+
+    return result
   }
 }
 

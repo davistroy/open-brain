@@ -97,8 +97,7 @@ export class ConfigService {
       try {
         const value = loadOne(join(this.configDir, file), schema as z.ZodTypeAny)
         if (this.configs) {
-          // @ts-ignore — dynamic key assignment
-          this.configs[key] = value
+          ;(this.configs as unknown as Record<string, unknown>)[key] = value
         }
         results.push({ file, success: true })
       } catch (err) {
