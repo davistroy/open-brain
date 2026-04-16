@@ -1,0 +1,60 @@
+# Plaid Financial Integration Configuration
+# Used by: scripts/plaid-link-server.py, scripts/financial-pipeline.py
+
+# Plaid API environment
+# Options: sandbox, development, production
+# Development: free, 100 items, real bank data
+environment: development
+
+# Plaid products to request during Link
+products:
+  - transactions
+  - balance
+  - investments
+
+# ISO country codes for Plaid Link
+country_codes:
+  - US
+
+# Linked financial accounts
+# key: short identifier used in scripts and captures
+# name: display name for reports and captures
+# type: account category (credit, checking, brokerage, hsa, payment)
+# institution: bank/provider name
+accounts:
+  amex:
+    name: "American Express"
+    type: credit
+    institution: American Express
+  chase:
+    name: "Chase"
+    type: credit
+    institution: JPMorgan Chase
+  truist:
+    name: "Truist Checking"
+    type: checking
+    institution: Truist
+  schwab:
+    name: "Charles Schwab"
+    type: brokerage
+    institution: Charles Schwab
+  hsa:
+    name: "HSA Bank"
+    type: hsa
+    institution: HSA Bank
+  paypal:
+    name: "PayPal"
+    type: payment
+    institution: PayPal
+
+# Bitwarden secret references (retrieved via bws CLI)
+# These are the Bitwarden Secrets Manager secret names, NOT the values
+bitwarden_keys:
+  client_id_key: "plaid-client-id"
+  secret_key: "plaid-secret"
+  tokens_key: "plaid-access-tokens"
+
+# Open Brain capture API
+capture_api:
+  url: "https://brain.troy-davis.com/api/v1/captures"
+  caller_header: "financial-pipeline"
