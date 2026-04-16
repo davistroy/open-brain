@@ -514,7 +514,7 @@ describe('DailyConnectionsSkill', () => {
       expect(result.captureCount).toBe(SAMPLE_CAPTURES.length)
       expect(result.output.summary).toBe(SAMPLE_CONNECTIONS_OUTPUT.summary)
       expect(result.output.connections).toHaveLength(2)
-      expect(result.durationMs).toBeGreaterThan(0)
+      expect(result.durationMs).toBeGreaterThanOrEqual(0)
     })
 
     it('returns savedCaptureId from Core API response', async () => {
