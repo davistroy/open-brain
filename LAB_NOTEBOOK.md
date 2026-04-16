@@ -151,12 +151,14 @@
 | A46 | Add CSV parsers for Amex/Chase/Truist/Schwab/HSA/PayPal to financial-pipeline.py | 2026-04-16 | Entry 047 | HIGH — primary financial data path |
 | A47 | Deploy utility scripts to VM with stored credentials | 2026-04-16 | Entry 047 | HIGH — Cobb EMC + Gas South creds in Bitwarden |
 | A48 | SimpleFIN decision — check institution coverage for 6 accounts | 2026-04-16 | Entry 047 | MEDIUM — $15/yr if institutions match |
-| A49 | Containerize email-pipeline.py as Docker sidecar on homeserver | 2026-04-16 | Entry 049 | HIGH — eliminates VM dependency |
-| A50 | Add email triage section to Open Brain morning-brief skill | 2026-04-16 | Entry 049 | HIGH — classified emails feed morning brief (T0 free) |
-| A51 | Add Slack DM delivery option to morning-brief skill | 2026-04-16 | Entry 049 | MEDIUM — alongside existing Pushover |
-| A52 | Migrate VM backup scripts to homeserver cron (docker exec) | 2026-04-16 | Entry 049 | MEDIUM — after email pipeline containerized |
+| A49 | ~~Containerize email-pipeline.py as Docker sidecar on homeserver~~ | 2026-04-16 | Entry 049 | DONE — superseded by D96: full TypeScript rewrite as BullMQ worker (PR #78) |
+| A50 | ~~Add email triage section to Open Brain morning-brief skill~~ | 2026-04-16 | Entry 049 | DONE — PR #78 Phase 6.1, queries email_classifications |
+| A51 | ~~Add Slack DM delivery option to morning-brief skill~~ | 2026-04-16 | Entry 049 | DONE — PR #78 Phase 6.2, SlackMessenger + Block Kit |
+| A52 | Migrate VM backup scripts to homeserver cron (docker exec) | 2026-04-16 | Entry 049 | MEDIUM — deferred to Phase 7 post-deployment |
 | A53 | Add sender rules: anthropic.com → Financial, google.com security alerts → Account & Security | 2026-04-16 | Entry 049 | LOW — ongoing pipeline tuning |
-| A54 | Evaluate: email pipeline SQLite → Postgres email_classifications table | 2026-04-16 | Entry 049 | LOW — cleaner long-term, not urgent |
+| A54 | ~~Evaluate: email pipeline SQLite → Postgres email_classifications table~~ | 2026-04-16 | Entry 049 | DONE — PR #78 Phase 4.3, migration 0020 applied |
+| A56 | Seed MSAL + Gmail OAuth tokens into app_settings for email-classify skill | 2026-04-16 | Entry 056 | HIGH — blocks email pipeline going live |
+| A57 | Run email-classify manually after auth seeded, validate classification | 2026-04-16 | Entry 056 | HIGH — then begin 7-day parallel validation (5.3) |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3277,3 +3279,32 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 - 7.1: Backup migration to homeserver cron
 - 7.2: Disable Python pipeline on VM
 - 7.3: Disable OpenClaw morning brief on Bond
+
+### Entry 056 — Deployment: PR #78 Merged + Homeserver Updated
+**Date:** 2026-04-16
+**Tags:** `[deploy]` `[docker]`
+**Environment:** Homeserver (Unraid, Docker Compose)
+
+**Deployment steps executed:**
+1. PR #78 merged to main (squash merge, commit `6fd5b3d`)
+2. `git pull` on homeserver — all new files pulled cleanly
+3. `docker compose build --no-cache core-api workers slack-bot web` — all 4 built successfully
+4. `docker compose up -d` — all containers recreated and healthy
+5. Migration 0020 applied: `email_classifications`, `email_corrections`, `email_daily_summaries` tables + 3 indexes created
+6. `MORNING_BRIEF_SLACK_CHANNEL=D0AR39RNG4E` added to `.env`
+7. All 20 BullMQ jobs registered (verified in worker logs), including new `email-classify` at `0 5 * * *`
+
+**Scheduler verification (from worker logs):**
+- email-classify: `0 5 * * *` (NEW)
+- capture-reminder-morning: `5 7 * * 1-5` (staggered from 0 7)
+- cost-analysis: `10 7 * * *` (staggered from 0 7)
+- drift-monitor: `15 8 * * *` (staggered from 0 8)
+- All other jobs at their configured times
+
+**Remaining before email pipeline is live:**
+- Seed MSAL token into `app_settings` (requires interactive device code flow once)
+- Seed Gmail OAuth token into `app_settings` (requires interactive OAuth consent once)
+- After auth seeded: run email-classify manually to validate
+- Then begin 7-day parallel validation (5.3) with Python pipeline on VM
+
+**CI note:** Phases 4-6 failed CI because pnpm-lock.yaml wasn't committed after adding `@azure/msal-node` and `google-auth-library`. Fixed in commit `6d0fc84`. Rule added to CLAUDE.md: always commit lockfile after adding deps.
