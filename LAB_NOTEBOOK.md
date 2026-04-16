@@ -105,7 +105,8 @@
 | D93 | Agent SDK "Hive Mind" pattern worth evaluating for Open Brain | 2026-04-16 | ACTIVE | Entry 048 | Multi-agent shared state via skills_log. MCP tool for "what have agents been doing?" |
 | D94 | Consolidate Bond jobs + VM into Open Brain on homeserver | 2026-04-16 | ACTIVE | Entry 049 | Email pipeline → Docker sidecar. Morning brief → enhanced skill. VM backup scripts → homeserver cron. Bond → wind down. |
 | D95 | Email classification data feeds morning brief (not Composio raw scan) | 2026-04-16 | ACTIVE | Entry 049 | Pipeline classifies overnight → morning brief queries results (T0 free). Replaces per-morning Sonnet scan ($$$). |
-| D96 | Email pipeline stays Python (containerized), not TypeScript rewrite | 2026-04-16 | ACTIVE | Entry 049 | Working code, MSAL auth, 168 emails classified. Rewrite adds risk for zero value. Convert to BullMQ worker only if Python container becomes maintenance burden. |
+| D96 | ~~Email pipeline stays Python (containerized), not TypeScript rewrite~~ | 2026-04-16 | SUPERSEDED by refactor plan | Entry 049 | Decided to rewrite as TypeScript BullMQ worker for zero tech debt. See IMPLEMENT_REFACTOR_2026-04-16.md Phase 4-5. |
+| D97 | Composio for reads + low volume; direct API for writes + high volume | 2026-04-16 | ACTIVE | Entry 049 | Email pipeline (300+ calls/day, folder CRUD) → direct Graph API + Gmail API. Calendar (5 calls/day, read-only) → Composio. 20K/month free tier preserved for light integrations (Drive, Sheets, Notion). |
 
 ## Action Items
 
@@ -156,6 +157,7 @@
 | A52 | Migrate VM backup scripts to homeserver cron (docker exec) | 2026-04-16 | Entry 049 | MEDIUM — after email pipeline containerized |
 | A53 | Add sender rules: anthropic.com → Financial, google.com security alerts → Account & Security | 2026-04-16 | Entry 049 | LOW — ongoing pipeline tuning |
 | A54 | Evaluate: email pipeline SQLite → Postgres email_classifications table | 2026-04-16 | Entry 049 | LOW — cleaner long-term, not urgent |
+| A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
 | A38 | Add LiteLLM to container-health skill check list | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.3 |
