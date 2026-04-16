@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { container_health, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { container_health, logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 import { pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
 
@@ -30,12 +32,11 @@ export interface ContainerHealthOptions {
   now?: Date
 }
 
-export interface ContainerHealthResult {
+export interface ContainerHealthResult extends BaseResult {
   checks: ContainerCheckResult[]
   healthyCount: number
   unhealthyCount: number
   alertsSent: string[]
-  durationMs: number
 }
 
 // ============================================================
@@ -104,21 +105,18 @@ async function timedFetch(
  *
  * The fetchFn parameter is injectable for testing (no actual HTTP in tests).
  */
-export class ContainerHealthSkill {
-  private db: Database
-  private pushover: PushoverService
+export interface ContainerHealthSkillOpts extends BaseSkillOpts {
+  /** Inject fetch for testing. Defaults to globalThis.fetch. */
+  fetchFn?: typeof globalThis.fetch
+  endpoints?: ContainerEndpoint[]
+}
+
+export class ContainerHealthSkill extends BaseSkill<ContainerHealthOptions, ContainerHealthResult> {
   private fetchFn: typeof globalThis.fetch
   private endpoints: ContainerEndpoint[]
 
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-    /** Inject fetch for testing. Defaults to globalThis.fetch. */
-    fetchFn?: typeof globalThis.fetch
-    endpoints?: ContainerEndpoint[]
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: ContainerHealthSkillOpts) {
+    super('container-health', opts)
     this.fetchFn = opts.fetchFn ?? globalThis.fetch
     this.endpoints = opts.endpoints ?? DEFAULT_ENDPOINTS
   }
@@ -157,21 +155,23 @@ export class ContainerHealthSkill {
     const unhealthyCount = checks.filter(c => !c.healthy).length
     const durationMs = Date.now() - startMs
 
-    // Step 4: Log to skills_log
-    await this.logToSkillsLog({
-      checks,
-      healthyCount,
-      unhealthyCount,
-      alertsSent,
-      durationMs,
-    })
+    // Step 4: Log to skills_log via BaseSkill
+    const unhealthyNames = checks.filter(c => !c.healthy).map(c => c.container_name)
+    const outputSummary = [
+      `healthy:${healthyCount}`,
+      `unhealthy:${unhealthyCount}`,
+      unhealthyNames.length > 0 ? `down:[${unhealthyNames.join(',')}]` : null,
+      alertsSent.length > 0 ? `alerts:[${alertsSent.join(',')}]` : null,
+    ].filter(Boolean).join(' | ')
+    const result: ContainerHealthResult = { checks, healthyCount, unhealthyCount, alertsSent, durationMs }
+    await this.logResult(result, `${endpoints.length} containers checked`, outputSummary)
 
     logger.info(
       { healthyCount, unhealthyCount, alertsSent, durationMs },
       '[container-health] execution complete',
     )
 
-    return { checks, healthyCount, unhealthyCount, alertsSent, durationMs }
+    return result
   }
 
   // ----------------------------------------------------------
@@ -305,39 +305,6 @@ export class ContainerHealthSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    checks: ContainerCheckResult[]
-    healthyCount: number
-    unhealthyCount: number
-    alertsSent: string[]
-    durationMs: number
-  }): Promise<void> {
-    const unhealthy = params.checks
-      .filter(c => !c.healthy)
-      .map(c => c.container_name)
-
-    const outputSummary = [
-      `healthy:${params.healthyCount}`,
-      `unhealthy:${params.unhealthyCount}`,
-      unhealthy.length > 0 ? `down:[${unhealthy.join(',')}]` : null,
-      params.alertsSent.length > 0 ? `alerts:[${params.alertsSent.join(',')}]` : null,
-    ].filter(Boolean).join(' | ')
-
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'container-health',
-        input_summary: `${params.checks.length} containers checked`,
-        output_summary: outputSummary,
-        duration_ms: params.durationMs,
-      })
-    } catch (err) {
-      logger.warn({ err }, '[container-health] failed to write skills_log entry')
-    }
-  }
 }
 
 // ============================================================

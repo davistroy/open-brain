@@ -1,8 +1,9 @@
 import { Queue } from 'bullmq'
 import { sql } from 'drizzle-orm'
-import { skills_log } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import { logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 
 // ============================================================
@@ -17,12 +18,11 @@ export interface StaleCapture {
   age_minutes: number
 }
 
-export interface StaleCapturesResult {
+export interface StaleCapturesResult extends BaseResult {
   found: number
   requeued: number
   failed: number
   staleCaptures: StaleCapture[]
-  durationMs: number
 }
 
 export interface StaleCapturesOptions {
@@ -55,19 +55,16 @@ export interface StaleCapturesOptions {
  * Dependencies are injected for testability. The skill is invoked via
  * POST /api/v1/skills/stale-captures/trigger (SkillExecutor framework).
  */
-export class StaleCapturesSkill {
-  private db: Database
-  private capturePipelineQueue: Queue<CapturePipelineJobData>
-  private pushover: PushoverService
+export interface StaleCapturesSkillOpts extends BaseSkillOpts {
+  capturePipelineQueue: Queue<CapturePipelineJobData>
+}
 
-  constructor(opts: {
-    db: Database
-    capturePipelineQueue: Queue<CapturePipelineJobData>
-    pushover?: PushoverService
-  }) {
-    this.db = opts.db
+export class StaleCapturesSkill extends BaseSkill<StaleCapturesOptions, StaleCapturesResult> {
+  private capturePipelineQueue: Queue<CapturePipelineJobData>
+
+  constructor(opts: StaleCapturesSkillOpts) {
+    super('stale-captures', opts)
     this.capturePipelineQueue = opts.capturePipelineQueue
-    this.pushover = opts.pushover ?? new PushoverService()
   }
 
   // ----------------------------------------------------------
@@ -100,13 +97,10 @@ export class StaleCapturesSkill {
 
     if (found === 0) {
       const durationMs = Date.now() - startMs
-      await this.logToSkillsLog({
-        inputSummary: `threshold: ${thresholdMinutes}min`,
-        outputSummary: 'No stale captures found',
-        durationMs,
-      })
+      const emptyResult: StaleCapturesResult = { found: 0, requeued: 0, failed: 0, staleCaptures: [], durationMs }
+      await this.logResult(emptyResult, `threshold: ${thresholdMinutes}min`, 'No stale captures found')
       logger.info('[stale-captures] no stale captures — nothing to do')
-      return { found: 0, requeued: 0, failed: 0, staleCaptures: [], durationMs }
+      return emptyResult
     }
 
     // Step 2: Re-enqueue stuck captures
@@ -136,15 +130,12 @@ export class StaleCapturesSkill {
     // Step 3: Send Pushover notification
     await this.deliverPushover(staleCaptures, requeued, failed, thresholdMinutes)
 
-    // Step 4: Log to skills_log
+    // Step 4: Log to skills_log via BaseSkill
     const outputSummary = buildOutputSummary(staleCaptures, requeued, failed, thresholdMinutes)
-    await this.logToSkillsLog({
-      inputSummary: `threshold: ${thresholdMinutes}min`,
-      outputSummary,
-      durationMs,
-    })
+    const result: StaleCapturesResult = { found, requeued, failed, staleCaptures, durationMs }
+    await this.logResult(result, `threshold: ${thresholdMinutes}min`, outputSummary)
 
-    return { found, requeued, failed, staleCaptures, durationMs }
+    return result
   }
 
   // ----------------------------------------------------------
@@ -250,28 +241,6 @@ export class StaleCapturesSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    inputSummary: string
-    outputSummary: string
-    durationMs: number
-  }): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'stale-captures',
-        capture_id: null,
-        input_summary: params.inputSummary,
-        output_summary: params.outputSummary,
-        duration_ms: params.durationMs,
-      })
-    } catch (err) {
-      // skills_log failure is non-fatal
-      logger.warn({ err }, '[stale-captures] failed to write skills_log entry')
-    }
-  }
 }
 
 // ============================================================

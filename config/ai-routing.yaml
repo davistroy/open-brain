@@ -80,6 +80,7 @@ task_routing:
   voice_classification: t1_jetson
   confidence_gating: t1_jetson
   question_detection: t1_jetson
+  email_classification: t1_jetson
 
   # Complex but routine -> Spark 35B (FREE)
   entity_extraction: t1_spark

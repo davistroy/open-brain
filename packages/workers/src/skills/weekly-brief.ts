@@ -1,9 +1,9 @@
-import { join } from 'node:path'
-import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, HimalayaService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { logger, HimalayaService, callClaude } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
+import { LLMSkill } from './llm-skill.js'
+import type { LLMSkillOpts } from './types.js'
 import { queryCaptures, assembleContext, fmtDate, CHARS_PER_TOKEN } from './weekly-brief-query.js'
 import type { WeeklyBriefOutput, WeeklyBriefResult, WeeklyBriefOptions } from './weekly-brief-query.js'
 import { renderEmailHtml, renderEmailText, buildBriefText } from './weekly-brief-renderer.js'
@@ -17,42 +17,26 @@ const DEFAULT_TOKEN_BUDGET = 50_000
 /** Delivery methods in priority order */
 export type DeliveryMethod = 'himalaya' | 'nodemailer' | 'pushover' | 'none'
 
+/** Constructor options for WeeklyBriefSkill (extends LLMSkillOpts with himalaya/email). */
+export interface WeeklyBriefSkillOpts extends LLMSkillOpts {
+  himalaya?: HimalayaService
+  email?: EmailService
+}
+
 /**
  * WeeklyBriefSkill — orchestrator that coordinates query, LLM, rendering, and delivery.
  * Data fetching is in weekly-brief-query.ts, rendering in weekly-brief-renderer.ts.
  *
  * Email delivery chain: Himalaya (primary) -> nodemailer (fallback) -> Pushover (last resort).
  */
-export class WeeklyBriefSkill {
-  private db: Database
-  private litellmClient: OpenAI | null
-  private anthropicClient: Anthropic | null
-  private llmGateway: LLMGatewayService | null
-  private pushover: PushoverService
+export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefResult> {
   private himalaya: HimalayaService
   private email: EmailService
-  private templates: TemplateCache
-  private coreApiUrl: string
 
-  constructor(opts: {
-    db: Database; litellmBaseUrl?: string; litellmApiKey?: string; anthropicClient?: Anthropic
-    pushover?: PushoverService; himalaya?: HimalayaService; email?: EmailService; promptsDir?: string; coreApiUrl?: string
-    templates?: TemplateCache; llmGateway?: LLMGatewayService
-  }) {
-    this.db = opts.db
-    this.litellmClient = createLiteLLMClient({
-      baseUrl: opts.litellmBaseUrl,
-      apiKey: opts.litellmApiKey,
-      timeout: 'extended',
-      maxRetries: 0,
-    })
-    this.anthropicClient = opts.anthropicClient ?? null
-    this.llmGateway = opts.llmGateway ?? null
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
+  constructor(opts: WeeklyBriefSkillOpts) {
+    super('weekly-brief', opts)
     this.himalaya = opts.himalaya ?? new HimalayaService()
     this.email = opts.email ?? new EmailService()
-    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
-    this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
   }
 
   async execute(options: WeeklyBriefOptions = {}): Promise<WeeklyBriefResult> {
@@ -67,8 +51,9 @@ export class WeeklyBriefSkill {
     logger.info({ captureCount }, '[weekly-brief] captures fetched')
 
     if (captureCount === 0) {
-      await this.logToSkillsLog({ inputSummary: `0 captures in last ${windowDays} days`, outputSummary: 'Skipped — no captures', durationMs: Date.now() - startMs })
-      return { brief: emptyBrief(), captureCount: 0, durationMs: Date.now() - startMs, savedCaptureId: null }
+      const emptyResult: WeeklyBriefResult = { brief: emptyBrief(), captureCount: 0, durationMs: Date.now() - startMs, savedCaptureId: null }
+      await this.logResult(emptyResult, `0 captures in last ${windowDays} days`, 'Skipped — no captures')
+      return emptyResult
     }
 
     const { contextText, capturesByView } = assembleContext(captures, tokenBudget * CHARS_PER_TOKEN)
@@ -83,13 +68,15 @@ export class WeeklyBriefSkill {
     const deliveryMethod = await this.deliverBrief(brief, capturesByView, weekStart, weekEnd, captureCount, emailTo)
     const savedCaptureId = await this.saveBriefCapture(brief, weekStart, weekEnd)
 
-    await this.logToSkillsLog({
-      inputSummary: `${captureCount} captures from ${dateRange}`,
-      outputSummary: `headline: "${brief.headline}" | wins:${brief.wins.length} blockers:${brief.blockers.length} risks:${brief.risks.length} | delivery:${deliveryMethod}`,
-      durationMs, captureId: savedCaptureId ?? undefined, result: brief,
-    })
+    const finalResult: WeeklyBriefResult = { brief, captureCount, durationMs, savedCaptureId }
+    await this.logResult(
+      finalResult,
+      `${captureCount} captures from ${dateRange}`,
+      `headline: "${brief.headline}" | wins:${brief.wins.length} blockers:${brief.blockers.length} risks:${brief.risks.length} | delivery:${deliveryMethod}`,
+      savedCaptureId ?? undefined,
+    )
     logger.info({ captureCount, durationMs, savedCaptureId }, '[weekly-brief] execution complete')
-    return { brief, captureCount, durationMs, savedCaptureId }
+    return finalResult
   }
 
   private async callLLM(contextText: string, dateRange: string, captureCount: number, modelAlias: string): Promise<string> {
@@ -185,11 +172,6 @@ export class WeeklyBriefSkill {
     } catch { return null }
   }
 
-  private async logToSkillsLog(params: { inputSummary: string; outputSummary: string; durationMs: number; captureId?: string; result?: WeeklyBriefOutput }): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({ skill_name: 'weekly-brief', capture_id: params.captureId ?? null, input_summary: params.inputSummary, output_summary: params.outputSummary, result: params.result ?? null, duration_ms: params.durationMs })
-    } catch { /* non-fatal */ }
-  }
 }
 
 /** Top-level entry point called by BullMQ worker. */

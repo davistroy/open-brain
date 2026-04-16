@@ -4,26 +4,26 @@ import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
 import {
   captures,
-  skills_log,
   logger,
   TemplateCache,
   runAgent,
 } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 // ============================================================
 // Types
 // ============================================================
 
-export interface WikiIngestResult {
+export interface WikiIngestResult extends BaseResult {
   captureId: string
   pagesCreated: string[]
   pagesUpdated: string[]
   indexUpdated: boolean
   agentIterations: number
   toolCalls: number
-  durationMs: number
   skipped: boolean
   skipReason?: string
 }
@@ -207,6 +207,16 @@ export function buildWikiTools(wikiService: WikiGitService): AgentTool[] {
 // WikiIngestSkill class
 // ============================================================
 
+/** Constructor options for WikiIngestSkill (extends BaseSkillOpts with wiki/agent-specific params). */
+export interface WikiIngestSkillOpts extends BaseSkillOpts {
+  wikiService: WikiGitService
+  anthropicClient?: Anthropic
+  model?: string
+  maxIterations?: number
+  promptsDir?: string
+  templates?: TemplateCache
+}
+
 /**
  * WikiIngestSkill — reads a capture and integrates its knowledge into the wiki
  * using an LLM agent with wiki tools.
@@ -219,24 +229,15 @@ export function buildWikiTools(wikiService: WikiGitService): AgentTool[] {
  * 5. Appends an entry to the wiki log.md
  * 6. Logs to skills_log table
  */
-export class WikiIngestSkill {
-  private db: Database
+export class WikiIngestSkill extends BaseSkill<string, WikiIngestResult> {
   private wikiService: WikiGitService
   private templates: TemplateCache
   private anthropicClient?: Anthropic
   private model: string
   private maxIterations: number
 
-  constructor(opts: {
-    db: Database
-    wikiService: WikiGitService
-    anthropicClient?: Anthropic
-    model?: string
-    maxIterations?: number
-    promptsDir?: string
-    templates?: TemplateCache
-  }) {
-    this.db = opts.db
+  constructor(opts: WikiIngestSkillOpts) {
+    super('wiki-ingest', opts)
     this.wikiService = opts.wikiService
     this.anthropicClient = opts.anthropicClient
     this.model = opts.model ?? 'claude-haiku-4-5-20251001'
@@ -368,7 +369,12 @@ export class WikiIngestSkill {
       skipped: false,
     }
 
-    await this.logToSkillsLog(result)
+    await this.logResult(
+      result,
+      `capture ${result.captureId}`,
+      `created:${result.pagesCreated.length} updated:${result.pagesUpdated.length} index:${result.indexUpdated} iterations:${result.agentIterations} tools:${result.toolCalls}`,
+      result.captureId,
+    )
 
     logger.info(
       {
@@ -434,25 +440,6 @@ export class WikiIngestSkill {
     await this.wikiService.writePage('log.md', newContent, logFrontmatter, `wiki-ingest: log entry for capture ${captureId}`)
   }
 
-  // ──────────────────────────────────────────────────────────────────
-  // Private: skills_log
-  // ──────────────────────────────────────────────────────────────────
-
-  private async logToSkillsLog(result: WikiIngestResult): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'wiki-ingest',
-        capture_id: result.captureId,
-        input_summary: `capture ${result.captureId}`,
-        output_summary: `created:${result.pagesCreated.length} updated:${result.pagesUpdated.length} index:${result.indexUpdated} iterations:${result.agentIterations} tools:${result.toolCalls}`,
-        result: result as unknown as Record<string, unknown>,
-        duration_ms: result.durationMs,
-      })
-    } catch {
-      // skills_log failure is non-fatal
-      logger.warn({ captureId: result.captureId }, '[wiki-ingest] failed to write skills_log')
-    }
-  }
 }
 
 // ============================================================

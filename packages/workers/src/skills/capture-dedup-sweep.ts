@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 // ============================================================
 // Types
@@ -22,15 +24,13 @@ export interface DedupPair {
 /**
  * Result of the capture dedup sweep execution.
  */
-export interface CaptureDedupSweepResult {
+export interface CaptureDedupSweepResult extends BaseResult {
   /** Number of duplicate pairs found */
   pairsFound: number
   /** The flagged pairs (up to maxPairs) */
   pairs: DedupPair[]
   /** Whether a Pushover notification was sent */
   notificationSent: boolean
-  /** Execution duration in milliseconds */
-  durationMs: number
 }
 
 /**
@@ -84,16 +84,9 @@ interface DedupPairRow {
  *
  * Pattern: query DB, log results, send Pushover if duplicates found.
  */
-export class CaptureDedupSweepSkill {
-  private db: Database
-  private pushover: PushoverService
-
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, CaptureDedupSweepResult> {
+  constructor(opts: BaseSkillOpts) {
+    super('capture-dedup-sweep', opts)
   }
 
   async execute(options: CaptureDedupSweepOptions = {}): Promise<CaptureDedupSweepResult> {
@@ -123,26 +116,26 @@ export class CaptureDedupSweepSkill {
     }
 
     const durationMs = Date.now() - startMs
-
-    // Step 3: Log to skills_log
-    await this.logToSkillsLog({
+    const result: CaptureDedupSweepResult = {
       pairsFound: pairs.length,
-      similarityThreshold,
       pairs,
+      notificationSent,
       durationMs,
-    })
+    }
+
+    // Step 3: Log to skills_log via BaseSkill
+    const inputSummary = `threshold:${similarityThreshold} maxPairs:${maxPairs}`
+    const outputSummary = pairs.length === 0
+      ? 'No near-duplicates found'
+      : `${pairs.length} duplicate pair${pairs.length === 1 ? '' : 's'} flagged`
+    await this.logResult(result, inputSummary, outputSummary)
 
     logger.info(
       { pairsFound: pairs.length, notificationSent, durationMs },
       '[capture-dedup-sweep] execution complete',
     )
 
-    return {
-      pairsFound: pairs.length,
-      pairs,
-      notificationSent,
-      durationMs,
-    }
+    return result
   }
 
   // ----------------------------------------------------------
@@ -249,50 +242,6 @@ export class CaptureDedupSweepSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    pairsFound: number
-    similarityThreshold: number
-    pairs: DedupPair[]
-    durationMs: number
-  }): Promise<void> {
-    const inputSummary = `threshold:${params.similarityThreshold} maxPairs:${DEFAULT_MAX_PAIRS}`
-    const outputSummary = params.pairsFound === 0
-      ? 'No near-duplicates found'
-      : `${params.pairsFound} duplicate pair${params.pairsFound === 1 ? '' : 's'} flagged`
-
-    // Build structured result with capture IDs, similarity scores, and previews
-    const result: Record<string, unknown> = {
-      pairsFound: params.pairsFound,
-      similarityThreshold: params.similarityThreshold,
-      pairs: params.pairs.map((p) => ({
-        capture_id_a: p.capture_id_a,
-        capture_id_b: p.capture_id_b,
-        similarity: p.similarity,
-        content_a_preview: p.content_a_preview,
-        content_b_preview: p.content_b_preview,
-        created_at_a: p.created_at_a,
-        created_at_b: p.created_at_b,
-      })),
-    }
-
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'capture-dedup-sweep',
-        capture_id: null,
-        input_summary: inputSummary,
-        output_summary: outputSummary,
-        result,
-        duration_ms: params.durationMs,
-      })
-    } catch (err) {
-      // skills_log failure is non-fatal
-      logger.warn({ err }, '[capture-dedup-sweep] failed to write skills_log entry')
-    }
-  }
 }
 
 // ============================================================

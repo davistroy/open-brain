@@ -44,10 +44,10 @@ export function registerCaptureRoutes(
   app.get('/api/v1/captures', zValidator('query', listCapturesSchema), async (c) => {
     const query = c.req.valid('query')
 
-    const filter = {
+    const filter: import('@open-brain/shared').CaptureFilter = {
       brain_view: query.brain_view,
-      capture_type: query.capture_type as any,
-      source: query.source as any,
+      capture_type: query.capture_type,
+      source: query.source,
       tags: query.tags,
       date_from: query.date_from ? new Date(query.date_from) : undefined,
       date_to: query.date_to ? new Date(query.date_to) : undefined,

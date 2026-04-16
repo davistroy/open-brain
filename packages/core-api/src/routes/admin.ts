@@ -367,7 +367,8 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
       if (!body.message || typeof body.message !== 'string') {
         return c.json({ error: 'message is required' }, 400)
       }
-      const level = (['info', 'success', 'warning'] as const).includes(body.level as any)
+      const validLevels: readonly AdminBanner['level'][] = ['info', 'success', 'warning']
+      const level: AdminBanner['level'] = validLevels.includes(body.level as AdminBanner['level'])
         ? (body.level as AdminBanner['level'])
         : 'info'
       const banner: AdminBanner = {

@@ -198,7 +198,7 @@ export class CaptureService {
 
     const [updated] = await this.db
       .update(captures)
-      .set(updateValues as any)
+      .set(updateValues as typeof captures.$inferInsert)
       .where(eq(captures.id, id))
       .returning()
 

@@ -3,6 +3,12 @@ import { PushoverService } from '@open-brain/shared'
 import { ContainerHealthSkill } from '../skills/container-health.js'
 import type { ContainerEndpoint } from '../skills/container-health.js'
 
+// Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
+vi.mock('../lib/push-metrics.js', () => ({
+  pushMetrics: vi.fn().mockResolvedValue(undefined),
+  buildExposition: vi.fn().mockReturnValue(''),
+}))
+
 // ============================================================
 // Mock helpers
 // ============================================================

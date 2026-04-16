@@ -1,18 +1,19 @@
 import { sql } from 'drizzle-orm'
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService } from '@open-brain/shared'
+import type { Database, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 // ============================================================
 // Types
 // ============================================================
 
-export interface WikiSynthesisResult {
+export interface WikiSynthesisResult extends BaseResult {
   capturesChecked: number
   capturesQueued: number
   captureIds: string[]
-  durationMs: number
   notificationSent: boolean
 }
 
@@ -88,16 +89,9 @@ export async function queryUnintegratedCaptures(
  *
  * Scheduled daily (6 AM) via BullMQ.
  */
-export class WikiSynthesisSkill {
-  private db: Database
-  private pushover: PushoverService
-
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
+export class WikiSynthesisSkill extends BaseSkill<WikiSynthesisOptions, WikiSynthesisResult> {
+  constructor(opts: BaseSkillOpts) {
+    super('wiki-synthesis', opts)
   }
 
   async execute(options: WikiSynthesisOptions = {}): Promise<WikiSynthesisResult> {
@@ -123,7 +117,11 @@ export class WikiSynthesisSkill {
         durationMs: Date.now() - startMs,
         notificationSent: false,
       }
-      await this.logToSkillsLog(result)
+      await this.logResult(
+        result,
+        `checked 0 captures (none found)`,
+        `queued:0 notified:false`,
+      )
       logger.info('[wiki-synthesis] no unintegrated captures — done')
       return result
     }
@@ -166,7 +164,14 @@ export class WikiSynthesisSkill {
     }
 
     // ── Step 4: Deliver Pushover notification ───────────────────────
-    const notificationSent = await this.deliverPushover(capturesChecked, queuedIds.length)
+    let notificationSent = false
+    if (queuedIds.length > 0) {
+      notificationSent = await this.sendNotification(
+        'Wiki Synthesis',
+        `Queued ${queuedIds.length} of ${capturesChecked} unintegrated capture${capturesChecked === 1 ? '' : 's'} for wiki ingestion.`,
+        -1,
+      )
+    }
 
     // ── Step 5: Log to skills_log ───────────────────────────────────
     const durationMs = Date.now() - startMs
@@ -178,7 +183,11 @@ export class WikiSynthesisSkill {
       notificationSent,
     }
 
-    await this.logToSkillsLog(result)
+    await this.logResult(
+      result,
+      `checked ${capturesChecked} captures (${queuedIds.length > 0 ? 'last 24h' : 'none found'})`,
+      `queued:${queuedIds.length} notified:${notificationSent}`,
+    )
 
     logger.info(
       {
@@ -210,50 +219,6 @@ export class WikiSynthesisSkill {
     }
 
     return new Queue('wiki-ingest', { connection })
-  }
-
-  // ──────────────────────────────────────────────────────────────────
-  // Private: Pushover delivery
-  // ──────────────────────────────────────────────────────────────────
-
-  private async deliverPushover(
-    capturesFound: number,
-    capturesQueued: number,
-  ): Promise<boolean> {
-    if (!this.pushover.isConfigured) return false
-
-    // Only notify if there were captures to queue
-    if (capturesQueued === 0) return false
-
-    try {
-      await this.pushover.send({
-        title: 'Wiki Synthesis',
-        message: `Queued ${capturesQueued} of ${capturesFound} unintegrated capture${capturesFound === 1 ? '' : 's'} for wiki ingestion.`,
-        priority: -1, // Low priority — informational only
-      })
-      return true
-    } catch {
-      logger.warn('[wiki-synthesis] Pushover delivery failed')
-      return false
-    }
-  }
-
-  // ──────────────────────────────────────────────────────────────────
-  // Private: skills_log
-  // ──────────────────────────────────────────────────────────────────
-
-  private async logToSkillsLog(result: WikiSynthesisResult): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'wiki-synthesis',
-        input_summary: `checked ${result.capturesChecked} captures (${result.captureIds.length > 0 ? 'last 24h' : 'none found'})`,
-        output_summary: `queued:${result.capturesQueued} notified:${result.notificationSent}`,
-        result: result as unknown as Record<string, unknown>,
-        duration_ms: result.durationMs,
-      })
-    } catch {
-      logger.warn('[wiki-synthesis] failed to write skills_log')
-    }
   }
 }
 

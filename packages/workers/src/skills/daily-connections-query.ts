@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
+import type { BaseResult } from './types.js'
 
 // ============================================================
 // Types
@@ -24,10 +25,9 @@ export interface ConnectionItem {
   domains: string[]
 }
 
-export interface DailyConnectionsResult {
+export interface DailyConnectionsResult extends BaseResult {
   output: DailyConnectionsOutput
   captureCount: number
-  durationMs: number
   /** UUID of the capture created to store the connections back into the brain */
   savedCaptureId: string | null
 }

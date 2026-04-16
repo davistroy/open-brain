@@ -3,14 +3,57 @@ import type { ConnectionOptions } from 'bullmq'
 import type OpenAI from 'openai'
 import type { Database, ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { logger, activity_feed } from '@open-brain/shared'
-import { executeWeeklyBrief } from '../skills/weekly-brief.js'
-import { executeDailyConnections } from '../skills/daily-connections.js'
-import { executeDriftMonitor } from '../skills/drift-monitor.js'
-import { executeDailySweep } from '../skills/daily-sweep-skill.js'
-import { executeMemoryConsolidation } from '../skills/memory-consolidation.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { WikiGitService } from '@open-brain/shared'
+import type { BaseResult } from '../skills/types.js'
+import type { BaseSkill } from '../skills/base-skill.js'
+
+// Skill class imports — all 23 dispatchable skills
+import { CaptureReminderSkill } from '../skills/capture-reminder.js'
+import { DailyConnectionsSkill } from '../skills/daily-connections.js'
+import { WikiIngestSkill } from '../skills/wiki-ingest.js'
+import { WeeklyBriefSkill } from '../skills/weekly-brief.js'
+import { DriftMonitorSkill } from '../skills/drift-monitor.js'
+import { DailySweepSkill } from '../skills/daily-sweep-skill.js'
+import { MemoryConsolidationSkill } from '../skills/memory-consolidation.js'
+import { PipelineHealthSkill } from '../skills/pipeline-health.js'
+import { MorningBriefSkill } from '../skills/morning-brief.js'
+import { WikiLintSkill } from '../skills/wiki-lint.js'
+import { WikiSynthesisSkill } from '../skills/wiki-synthesis.js'
+import { MonthlyReflectionSkill } from '../skills/monthly-reflection.js'
+import { DbBackupSkill } from '../skills/db-backup.js'
+import { WikiBackupSkill } from '../skills/wiki-backup.js'
+import { RedisSnapshotSkill } from '../skills/redis-snapshot.js'
+import { EmailComposeSkill } from '../skills/email-compose.js'
+import { CostAnalysisSkill } from '../skills/cost-analysis.js'
+import { ContainerHealthSkill } from '../skills/container-health.js'
+import { SecretRotationSkill } from '../skills/secret-rotation.js'
+import { StorageAuditSkill } from '../skills/storage-audit.js'
+import { CaptureDedupSweepSkill } from '../skills/capture-dedup-sweep.js'
+import { EmailClassifySkill } from '../skills/email-classify.js'
+import { HotmailClient, GmailClient, EmailClassifier, loadEmailRules } from '@open-brain/shared'
+import path from 'node:path'
+
+/**
+ * Instantiate a BaseSkill subclass and execute it.
+ *
+ * All 23 dispatchable skills use this helper. Each skill class takes
+ * a typed opts object in its constructor, and the input is passed
+ * to `execute()`.
+ *
+ * @param SkillClass  Constructor that takes a single `opts` argument
+ * @param opts        Constructor options (db, pushover, etc.)
+ * @param input       Skill-specific input passed to `execute()`
+ */
+async function runSkill<TOpts, TInput, TResult extends BaseResult>(
+  SkillClass: new (opts: TOpts) => BaseSkill<TInput, TResult>,
+  opts: TOpts,
+  input: TInput,
+): Promise<TResult> {
+  const skill = new SkillClass(opts)
+  return skill.execute(input)
+}
 
 /**
  * BullMQ worker that consumes the `skill-execution` queue and dispatches
@@ -54,14 +97,19 @@ export function createSkillExecutionWorker(
       logger.info({ skillName, jobId: job.id }, '[skill-execution] job received')
 
       switch (skillName) {
-        case 'weekly-brief': {
-          const result = await executeWeeklyBrief(db, {
-            windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
-            tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-            modelAlias: synthesisModel,
-            emailTo: typeof input?.emailTo === 'string' ? input.emailTo : undefined,
-          }, opts.anthropicClient, opts.llmGateway)
+        // ── LLM Synthesis Skills (LLMSkill subclasses) ──────────
 
+        case 'weekly-brief': {
+          const result = await runSkill(
+            WeeklyBriefSkill,
+            { db, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            {
+              windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
+              tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
+              modelAlias: synthesisModel,
+              emailTo: typeof input?.emailTo === 'string' ? input.emailTo : undefined,
+            },
+          )
           logger.info(
             { skillName, captureCount: result.captureCount, durationMs: result.durationMs },
             '[skill-execution] weekly-brief complete',
@@ -70,12 +118,15 @@ export function createSkillExecutionWorker(
         }
 
         case 'daily-connections': {
-          const result = await executeDailyConnections(db, {
-            windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
-            tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-            modelAlias: synthesisModel,
-          }, opts.wikiService, opts.anthropicClient, opts.llmGateway)
-
+          const result = await runSkill(
+            DailyConnectionsSkill,
+            { db, wikiService: opts.wikiService, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            {
+              windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
+              tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
+              modelAlias: synthesisModel,
+            },
+          )
           logger.info(
             { skillName, captureCount: result.captureCount, connectionCount: result.output.connections.length, durationMs: result.durationMs },
             '[skill-execution] daily-connections complete',
@@ -84,13 +135,16 @@ export function createSkillExecutionWorker(
         }
 
         case 'drift-monitor': {
-          const result = await executeDriftMonitor(db, {
-            betActivityDays: typeof input?.betActivityDays === 'number' ? input.betActivityDays : undefined,
-            commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
-            entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
-            modelAlias: synthesisModel,
-          }, opts.wikiService, opts.anthropicClient, opts.llmGateway)
-
+          const result = await runSkill(
+            DriftMonitorSkill,
+            { db, wikiService: opts.wikiService, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            {
+              betActivityDays: typeof input?.betActivityDays === 'number' ? input.betActivityDays : undefined,
+              commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
+              entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
+              modelAlias: synthesisModel,
+            },
+          )
           logger.info(
             { skillName, driftItemCount: result.output.drift_items.length, overallHealth: result.output.overall_health, notificationSent: result.notificationSent, durationMs: result.durationMs },
             '[skill-execution] drift-monitor complete',
@@ -98,26 +152,16 @@ export function createSkillExecutionWorker(
           break
         }
 
-        case 'pipeline-health': {
-          const { executePipelineHealth } = await import('../skills/pipeline-health.js')
-          const result = await executePipelineHealth(db, {
-            failureLookbackMinutes: typeof input?.failureLookbackMinutes === 'number' ? input.failureLookbackMinutes : undefined,
-            failedThreshold: typeof input?.failedThreshold === 'number' ? input.failedThreshold : undefined,
-            waitingThreshold: typeof input?.waitingThreshold === 'number' ? input.waitingThreshold : undefined,
-          })
-          logger.info(
-            { skillName, healthy: result.healthy, alertSent: result.alertSent, durationMs: result.durationMs },
-            '[skill-execution] pipeline-health complete',
-          )
-          break
-        }
-
         case 'daily-sweep-skill': {
-          const result = await executeDailySweep(db, {
-            tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-            modelAlias: synthesisModel,
-            storeCapture: typeof input?.storeCapture === 'boolean' ? input.storeCapture : false,
-          }, opts.anthropicClient, opts.llmGateway)
+          const result = await runSkill(
+            DailySweepSkill,
+            { db, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            {
+              tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
+              modelAlias: synthesisModel,
+              storeCapture: typeof input?.storeCapture === 'boolean' ? input.storeCapture : false,
+            },
+          )
           logger.info(
             { skillName, captureCount: result.captureCount, headline: result.output.headline, durationMs: result.durationMs },
             '[skill-execution] daily-sweep-skill complete',
@@ -125,19 +169,52 @@ export function createSkillExecutionWorker(
           break
         }
 
-        case 'morning-brief': {
-          const { executeMorningBrief } = await import('../skills/morning-brief.js')
-          const result = await executeMorningBrief(db, {})
+        case 'memory-consolidation': {
+          const result = await runSkill(
+            MemoryConsolidationSkill,
+            { db, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            {
+              modelAlias: synthesisModel,
+              similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
+              minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
+              maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,
+            },
+          )
           logger.info(
-            { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, durationMs: result.durationMs },
-            '[skill-execution] morning-brief complete',
+            { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
+            '[skill-execution] memory-consolidation complete',
           )
           break
         }
 
+        case 'email-compose': {
+          const instruction = typeof input?.instruction === 'string' ? input.instruction : ''
+          if (!instruction) {
+            throw new UnrecoverableError('[skill-execution] email-compose requires input.instruction')
+          }
+          const result = await runSkill(
+            EmailComposeSkill,
+            { db, anthropicClient: opts.anthropicClient, coreApiUrl: opts.coreApiUrl },
+            { instruction, coreApiUrl: opts.coreApiUrl, anthropicClient: opts.anthropicClient },
+          )
+          logger.info(
+            {
+              skillName,
+              draftId: result.draftId,
+              to: result.to,
+              iterations: result.agentIterations,
+              toolCalls: result.toolCalls,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] email-compose complete',
+          )
+          break
+        }
+
+        // ── Simple Skills (BaseSkill subclasses) ────────────────
+
         case 'capture-reminder-morning': {
-          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
-          const result = await executeCaptureReminder(db, { mode: 'morning' })
+          const result = await runSkill(CaptureReminderSkill, { db }, { mode: 'morning' as const })
           logger.info(
             { skillName, notificationSent: result.notificationSent, durationMs: result.durationMs },
             '[skill-execution] capture-reminder-morning complete',
@@ -146,8 +223,7 @@ export function createSkillExecutionWorker(
         }
 
         case 'capture-reminder-evening': {
-          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
-          const result = await executeCaptureReminder(db, { mode: 'evening' })
+          const result = await runSkill(CaptureReminderSkill, { db }, { mode: 'evening' as const })
           logger.info(
             { skillName, notificationSent: result.notificationSent, captureCount: result.captureCount, durationMs: result.durationMs },
             '[skill-execution] capture-reminder-evening complete',
@@ -155,36 +231,199 @@ export function createSkillExecutionWorker(
           break
         }
 
-        case 'memory-consolidation': {
-          const result = await executeMemoryConsolidation(db, {
-            modelAlias: synthesisModel,
-            similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
-            minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
-            maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,
-          }, opts.anthropicClient, opts.llmGateway)
+        case 'pipeline-health': {
+          const result = await runSkill(
+            PipelineHealthSkill,
+            { db, redisConnection: connection },
+            {
+              failureLookbackMinutes: typeof input?.failureLookbackMinutes === 'number' ? input.failureLookbackMinutes : undefined,
+              failedThreshold: typeof input?.failedThreshold === 'number' ? input.failedThreshold : undefined,
+              waitingThreshold: typeof input?.waitingThreshold === 'number' ? input.waitingThreshold : undefined,
+            },
+          )
           logger.info(
-            { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
-            '[skill-execution] memory-consolidation complete',
+            { skillName, healthy: result.healthy, alertSent: result.alertSent, durationMs: result.durationMs },
+            '[skill-execution] pipeline-health complete',
           )
           break
         }
+
+        case 'morning-brief': {
+          const result = await runSkill(MorningBriefSkill, {
+            db,
+            slackChannelId: process.env.MORNING_BRIEF_SLACK_CHANNEL ?? 'D0AR39RNG4E',
+          }, {})
+          logger.info(
+            { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, slackSent: result.slackSent, durationMs: result.durationMs },
+            '[skill-execution] morning-brief complete',
+          )
+          break
+        }
+
+        case 'container-health': {
+          const result = await runSkill(ContainerHealthSkill, { db }, {
+            consecutiveFailureThreshold: typeof input?.consecutiveFailureThreshold === 'number' ? input.consecutiveFailureThreshold : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              healthyCount: result.healthyCount,
+              unhealthyCount: result.unhealthyCount,
+              alertsSent: result.alertsSent,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] container-health complete',
+          )
+          break
+        }
+
+        case 'secret-rotation': {
+          const result = await runSkill(SecretRotationSkill, { db }, {
+            maxAgeDays: typeof input?.maxAgeDays === 'number' ? input.maxAgeDays : undefined,
+            bwsBinary: typeof input?.bwsBinary === 'string' ? input.bwsBinary : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              totalSecrets: result.totalSecrets,
+              staleCount: result.staleSecrets.length,
+              alertSent: result.alertSent,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] secret-rotation complete',
+          )
+          break
+        }
+
+        case 'capture-dedup-sweep': {
+          const result = await runSkill(CaptureDedupSweepSkill, { db }, {
+            similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
+            maxPairs: typeof input?.maxPairs === 'number' ? input.maxPairs : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              pairsFound: result.pairsFound,
+              notificationSent: result.notificationSent,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] capture-dedup-sweep complete',
+          )
+          break
+        }
+
+        case 'db-backup': {
+          const result = await runSkill(DbBackupSkill, { db }, {
+            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
+            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
+            dbName: typeof input?.dbName === 'string' ? input.dbName : undefined,
+            dbUser: typeof input?.dbUser === 'string' ? input.dbUser : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              status: result.status,
+              sizeBytes: result.sizeBytes,
+              durationSeconds: result.durationSeconds,
+              prunedCount: result.prunedCount,
+            },
+            '[skill-execution] db-backup complete',
+          )
+          break
+        }
+
+        case 'wiki-backup': {
+          const result = await runSkill(WikiBackupSkill, { db }, {
+            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
+            wikiRepoPath: typeof input?.wikiRepoPath === 'string' ? input.wikiRepoPath : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              status: result.status,
+              sizeBytes: result.sizeBytes,
+              durationSeconds: result.durationSeconds,
+              prunedCount: result.prunedCount,
+            },
+            '[skill-execution] wiki-backup complete',
+          )
+          break
+        }
+
+        case 'redis-snapshot': {
+          const result = await runSkill(RedisSnapshotSkill, { db }, {
+            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
+            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              status: result.status,
+              sizeBytes: result.sizeBytes,
+              durationSeconds: result.durationSeconds,
+              prunedCount: result.prunedCount,
+            },
+            '[skill-execution] redis-snapshot complete',
+          )
+          break
+        }
+
+        case 'cost-analysis': {
+          const result = await runSkill(CostAnalysisSkill, { db, wikiService: opts.wikiService }, {
+            dailyAlertThreshold: typeof input?.dailyAlertThreshold === 'number' ? input.dailyAlertThreshold : undefined,
+          })
+          logger.info(
+            {
+              skillName,
+              type: result.type,
+              totalCost: result.summary.totalCost,
+              alertSent: result.alertSent,
+              wikiPageWritten: result.wikiPageWritten,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] cost-analysis complete',
+          )
+          break
+        }
+
+        case 'storage-audit': {
+          const result = await runSkill(StorageAuditSkill, { db, wikiService: opts.wikiService }, {})
+          logger.info(
+            {
+              skillName,
+              dbSize: result.metrics.postgres.dbSizeHuman,
+              redisMemory: result.metrics.redis.usedMemoryHuman,
+              wikiPageWritten: result.wikiPageWritten,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] storage-audit complete',
+          )
+          break
+        }
+
+        // ── Agent & Specialized Skills ──────────────────────────
 
         case 'wiki-lint': {
           if (!opts.wikiService) {
             throw new UnrecoverableError('[skill-execution] wiki-lint requires wikiService — WikiGitService not configured')
           }
-          const { executeWikiLint } = await import('../skills/wiki-lint.js')
-          const wikiLintResult = await executeWikiLint(db, opts.wikiService, {
-            anthropicClient: opts.anthropicClient,
-            promptsDir: opts.promptsDir,
-          })
+          const result = await runSkill(
+            WikiLintSkill,
+            {
+              db,
+              wikiService: opts.wikiService,
+              anthropicClient: opts.anthropicClient,
+              promptsDir: opts.promptsDir,
+            },
+            undefined as void,
+          )
           logger.info(
             {
               skillName,
-              pagesScanned: wikiLintResult.pagesScanned,
-              issuesFound: wikiLintResult.issuesFound,
-              notificationSent: wikiLintResult.notificationSent,
-              durationMs: wikiLintResult.durationMs,
+              pagesScanned: result.pagesScanned,
+              issuesFound: result.issuesFound,
+              notificationSent: result.notificationSent,
+              durationMs: result.durationMs,
             },
             '[skill-execution] wiki-lint complete',
           )
@@ -192,18 +431,17 @@ export function createSkillExecutionWorker(
         }
 
         case 'wiki-synthesis': {
-          const { executeWikiSynthesis } = await import('../skills/wiki-synthesis.js')
-          const wikiSynthResult = await executeWikiSynthesis(db, {
+          const result = await runSkill(WikiSynthesisSkill, { db }, {
             redisConnection: connection,
             lookbackHours: typeof input?.lookbackHours === 'number' ? input.lookbackHours : undefined,
           })
           logger.info(
             {
               skillName,
-              capturesChecked: wikiSynthResult.capturesChecked,
-              capturesQueued: wikiSynthResult.capturesQueued,
-              notificationSent: wikiSynthResult.notificationSent,
-              durationMs: wikiSynthResult.durationMs,
+              capturesChecked: result.capturesChecked,
+              capturesQueued: result.capturesQueued,
+              notificationSent: result.notificationSent,
+              durationMs: result.durationMs,
             },
             '[skill-execution] wiki-synthesis complete',
           )
@@ -211,22 +449,26 @@ export function createSkillExecutionWorker(
         }
 
         case 'monthly-reflection': {
-          const { executeMonthlyReflection } = await import('../skills/monthly-reflection.js')
-          const monthlyResult = await executeMonthlyReflection(db, {
-            anthropicClient: opts.anthropicClient,
-            wikiService: opts.wikiService,
-            promptsDir: opts.promptsDir,
-          })
+          const result = await runSkill(
+            MonthlyReflectionSkill,
+            {
+              db,
+              anthropicClient: opts.anthropicClient,
+              wikiService: opts.wikiService,
+              promptsDir: opts.promptsDir,
+            },
+            {},
+          )
           logger.info(
             {
               skillName,
-              captureCount: monthlyResult.captureCount,
-              headline: monthlyResult.output.headline,
-              iterations: monthlyResult.agentIterations,
-              toolCalls: monthlyResult.toolCalls,
-              emailSent: monthlyResult.emailSent,
-              wikiPageWritten: monthlyResult.wikiPageWritten,
-              durationMs: monthlyResult.durationMs,
+              captureCount: result.captureCount,
+              headline: result.output.headline,
+              iterations: result.agentIterations,
+              toolCalls: result.toolCalls,
+              emailSent: result.emailSent,
+              wikiPageWritten: result.wikiPageWritten,
+              durationMs: result.durationMs,
             },
             '[skill-execution] monthly-reflection complete',
           )
@@ -241,12 +483,17 @@ export function createSkillExecutionWorker(
           if (!opts.wikiService) {
             throw new UnrecoverableError('[skill-execution] wiki-ingest requires wikiService — WikiGitService not configured')
           }
-          const { executeWikiIngest } = await import('../skills/wiki-ingest.js')
-          const result = await executeWikiIngest(db, captureId, opts.wikiService, {
-            anthropicClient: opts.anthropicClient,
-            model: wikiAgentModel,
-            promptsDir: opts.promptsDir,
-          })
+          const result = await runSkill(
+            WikiIngestSkill,
+            {
+              db,
+              wikiService: opts.wikiService,
+              anthropicClient: opts.anthropicClient,
+              model: wikiAgentModel,
+              promptsDir: opts.promptsDir,
+            },
+            captureId,
+          )
           logger.info(
             {
               skillName,
@@ -261,175 +508,44 @@ export function createSkillExecutionWorker(
           break
         }
 
-        case 'db-backup': {
-          const { executeDbBackup } = await import('../skills/db-backup.js')
-          const dbBackupResult = await executeDbBackup(db, {
-            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
-            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
-            dbName: typeof input?.dbName === 'string' ? input.dbName : undefined,
-            dbUser: typeof input?.dbUser === 'string' ? input.dbUser : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              status: dbBackupResult.status,
-              sizeBytes: dbBackupResult.sizeBytes,
-              durationSeconds: dbBackupResult.durationSeconds,
-              prunedCount: dbBackupResult.prunedCount,
-            },
-            '[skill-execution] db-backup complete',
-          )
-          break
-        }
+        // ── Email Pipeline Skills ───────────────────────────────
 
-        case 'wiki-backup': {
-          const { executeWikiBackup } = await import('../skills/wiki-backup.js')
-          const wikiBackupResult = await executeWikiBackup(db, {
-            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
-            wikiRepoPath: typeof input?.wikiRepoPath === 'string' ? input.wikiRepoPath : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              status: wikiBackupResult.status,
-              sizeBytes: wikiBackupResult.sizeBytes,
-              durationSeconds: wikiBackupResult.durationSeconds,
-              prunedCount: wikiBackupResult.prunedCount,
-            },
-            '[skill-execution] wiki-backup complete',
-          )
-          break
-        }
+        case 'email-classify': {
+          const configDir = process.env.CONFIG_DIR ?? '/app/config'
+          const rulesPath = path.join(configDir, 'email-categories.yaml')
+          const rules = loadEmailRules(rulesPath)
 
-        case 'redis-snapshot': {
-          const { executeRedisSnapshot } = await import('../skills/redis-snapshot.js')
-          const redisResult = await executeRedisSnapshot(db, {
-            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
-            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              status: redisResult.status,
-              sizeBytes: redisResult.sizeBytes,
-              durationSeconds: redisResult.durationSeconds,
-              prunedCount: redisResult.prunedCount,
-            },
-            '[skill-execution] redis-snapshot complete',
-          )
-          break
-        }
+          const hotmailClient = new HotmailClient({ db })
+          const gmailClient = new GmailClient({ db })
+          const classifier = new EmailClassifier(rules, opts.llmGateway ?? null)
 
-        case 'email-compose': {
-          const { executeEmailCompose } = await import('../skills/email-compose.js')
-          const instruction = typeof input?.instruction === 'string' ? input.instruction : ''
-          if (!instruction) {
-            throw new UnrecoverableError('[skill-execution] email-compose requires input.instruction')
-          }
-          const emailResult = await executeEmailCompose(db, instruction, {
-            anthropicClient: opts.anthropicClient,
-            coreApiUrl: opts.coreApiUrl,
-          })
-          logger.info(
+          const result = await runSkill(
+            EmailClassifySkill,
             {
-              skillName,
-              draftId: emailResult.draftId,
-              to: emailResult.to,
-              iterations: emailResult.agentIterations,
-              toolCalls: emailResult.toolCalls,
-              durationMs: emailResult.durationMs,
+              db,
+              hotmailClient,
+              gmailClient,
+              classifier,
+              llmGateway: opts.llmGateway ?? null,
+              rules,
+              coreApiUrl: opts.coreApiUrl,
             },
-            '[skill-execution] email-compose complete',
+            {
+              providers: Array.isArray(input?.providers) ? input.providers : undefined,
+              sinceHours: typeof input?.sinceHours === 'number' ? input.sinceHours : undefined,
+              dryRun: typeof input?.dryRun === 'boolean' ? input.dryRun : undefined,
+            },
           )
-          break
-        }
-
-        case 'cost-analysis': {
-          const { executeCostAnalysis } = await import('../skills/cost-analysis.js')
-          const costResult = await executeCostAnalysis(db, {
-            dailyAlertThreshold: typeof input?.dailyAlertThreshold === 'number' ? input.dailyAlertThreshold : undefined,
-          }, opts.wikiService)
           logger.info(
             {
               skillName,
-              type: costResult.type,
-              totalCost: costResult.summary.totalCost,
-              alertSent: costResult.alertSent,
-              wikiPageWritten: costResult.wikiPageWritten,
-              durationMs: costResult.durationMs,
+              hotmailClassified: result.hotmail.classified,
+              gmailClassified: result.gmail.classified,
+              corrections: result.corrections,
+              summaryPosted: result.summaryPosted,
+              durationMs: result.durationMs,
             },
-            '[skill-execution] cost-analysis complete',
-          )
-          break
-        }
-
-        case 'container-health': {
-          const { executeContainerHealth } = await import('../skills/container-health.js')
-          const healthResult = await executeContainerHealth(db, {
-            consecutiveFailureThreshold: typeof input?.consecutiveFailureThreshold === 'number' ? input.consecutiveFailureThreshold : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              healthyCount: healthResult.healthyCount,
-              unhealthyCount: healthResult.unhealthyCount,
-              alertsSent: healthResult.alertsSent,
-              durationMs: healthResult.durationMs,
-            },
-            '[skill-execution] container-health complete',
-          )
-          break
-        }
-
-        case 'secret-rotation': {
-          const { executeSecretRotation } = await import('../skills/secret-rotation.js')
-          const secretResult = await executeSecretRotation(db, {
-            maxAgeDays: typeof input?.maxAgeDays === 'number' ? input.maxAgeDays : undefined,
-            bwsBinary: typeof input?.bwsBinary === 'string' ? input.bwsBinary : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              totalSecrets: secretResult.totalSecrets,
-              staleCount: secretResult.staleSecrets.length,
-              alertSent: secretResult.alertSent,
-              durationMs: secretResult.durationMs,
-            },
-            '[skill-execution] secret-rotation complete',
-          )
-          break
-        }
-
-        case 'storage-audit': {
-          const { executeStorageAudit } = await import('../skills/storage-audit.js')
-          const storageResult = await executeStorageAudit(db, {}, opts.wikiService)
-          logger.info(
-            {
-              skillName,
-              dbSize: storageResult.metrics.postgres.dbSizeHuman,
-              redisMemory: storageResult.metrics.redis.usedMemoryHuman,
-              wikiPageWritten: storageResult.wikiPageWritten,
-              durationMs: storageResult.durationMs,
-            },
-            '[skill-execution] storage-audit complete',
-          )
-          break
-        }
-
-        case 'capture-dedup-sweep': {
-          const { executeCaptureDedupSweep } = await import('../skills/capture-dedup-sweep.js')
-          const dedupResult = await executeCaptureDedupSweep(db, {
-            similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
-            maxPairs: typeof input?.maxPairs === 'number' ? input.maxPairs : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              pairsFound: dedupResult.pairsFound,
-              notificationSent: dedupResult.notificationSent,
-              durationMs: dedupResult.durationMs,
-            },
-            '[skill-execution] capture-dedup-sweep complete',
+            '[skill-execution] email-classify complete',
           )
           break
         }

@@ -186,9 +186,12 @@ function parseHtmlSections(html: string, plainText: string): DocumentSection[] {
 // ────────────────────────────────────────────────────────────────────────────
 
 async function parsePdf(fileBuffer: Buffer, filePath: string): Promise<ParsedDocument> {
-  // Dynamic import keeps pdf-parse out of the module scope so tests can mock it
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfParse = ((await import('pdf-parse')) as any).default
+  // Dynamic import keeps pdf-parse out of the module scope so tests can mock it.
+  // pdf-parse v1 CJS interop: ESM dynamic import wraps as { default: fn }.
+  // The module's v2 types don't match the v1 runtime behavior, so we use
+  // an explicit type for the import result.
+  const pdfParseModule: Record<string, unknown> = await import('pdf-parse')
+  const pdfParse = (pdfParseModule.default ?? pdfParseModule) as (buf: Buffer) => Promise<{ text: string; info: Record<string, unknown> }>
 
   const result = await pdfParse(fileBuffer)
   const text = result.text.trim()

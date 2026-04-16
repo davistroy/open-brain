@@ -1,10 +1,12 @@
-import { execFile } from 'node:child_process'
+import { execFile, type ExecFileOptions } from 'node:child_process'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
-function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<{ stdout: string; stderr: string }> {
+function execFileAsync(cmd: string, args: string[], opts: ExecFileOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts as any, (err, stdout, stderr) => {
+    execFile(cmd, args, opts, (err, stdout, stderr) => {
       if (err) return reject(err)
       resolve({ stdout: String(stdout), stderr: String(stderr) })
     })
@@ -46,12 +48,11 @@ export interface SecretRotationOptions {
   now?: Date
 }
 
-export interface SecretRotationResult {
+export interface SecretRotationResult extends BaseResult {
   totalSecrets: number
   staleSecrets: SecretAgeInfo[]
   freshSecrets: number
   alertSent: boolean
-  durationMs: number
   error?: string
 }
 
@@ -80,19 +81,16 @@ const DEFAULT_BWS_BINARY = 'bws'
  * - Non-fatal: CLI or parse failures return degraded result, logs warning
  * - skills_log entry written on both success and failure
  */
-export class SecretRotationSkill {
-  private db: Database
-  private pushover: PushoverService
+export interface SecretRotationSkillOpts extends BaseSkillOpts {
+  /** Override command executor for testing. */
+  execFn?: typeof execFileAsync
+}
+
+export class SecretRotationSkill extends BaseSkill<SecretRotationOptions, SecretRotationResult> {
   private execFn: typeof execFileAsync
 
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-    /** Override command executor for testing. */
-    execFn?: typeof execFileAsync
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: SecretRotationSkillOpts) {
+    super('secret-rotation', opts)
     this.execFn = opts.execFn ?? execFileAsync
   }
 
@@ -131,16 +129,7 @@ export class SecretRotationSkill {
       logger.error({ err }, '[secret-rotation] failed to query secrets from bws CLI')
 
       const durationMs = Date.now() - startMs
-      await this.logToSkillsLog({
-        totalSecrets: 0,
-        staleCount: 0,
-        freshCount: 0,
-        alertSent: false,
-        durationMs,
-        error: errorMsg,
-      })
-
-      return {
+      const errorResult: SecretRotationResult = {
         totalSecrets: 0,
         staleSecrets: [],
         freshSecrets: 0,
@@ -148,6 +137,13 @@ export class SecretRotationSkill {
         durationMs,
         error: errorMsg,
       }
+      await this.logResult(
+        errorResult,
+        '0 secrets checked',
+        buildOutputSummary(0, 0, 0, false, errorMsg),
+      )
+
+      return errorResult
     }
 
     // Step 2: Calculate ages and identify stale secrets
@@ -167,28 +163,27 @@ export class SecretRotationSkill {
     }
 
     const durationMs = Date.now() - startMs
-
-    // Step 4: Log to skills_log
-    await this.logToSkillsLog({
-      totalSecrets: secrets.length,
-      staleCount: staleSecrets.length,
-      freshCount,
-      alertSent,
-      durationMs,
-    })
-
-    logger.info(
-      { totalSecrets: secrets.length, staleCount: staleSecrets.length, alertSent, durationMs },
-      '[secret-rotation] execution complete',
-    )
-
-    return {
+    const result: SecretRotationResult = {
       totalSecrets: secrets.length,
       staleSecrets,
       freshSecrets: freshCount,
       alertSent,
       durationMs,
     }
+
+    // Step 4: Log to skills_log via BaseSkill
+    await this.logResult(
+      result,
+      `${secrets.length} secrets checked`,
+      buildOutputSummary(secrets.length, staleSecrets.length, freshCount, alertSent),
+    )
+
+    logger.info(
+      { totalSecrets: secrets.length, staleCount: staleSecrets.length, alertSent, durationMs },
+      '[secret-rotation] execution complete',
+    )
+
+    return result
   }
 
   // ----------------------------------------------------------
@@ -287,43 +282,29 @@ export class SecretRotationSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
+}
 
-  private async logToSkillsLog(params: {
-    totalSecrets: number
-    staleCount: number
-    freshCount: number
-    alertSent: boolean
-    durationMs: number
-    error?: string
-  }): Promise<void> {
-    const inputSummary = `${params.totalSecrets} secrets checked`
-    const outputParts = [
-      `total:${params.totalSecrets}`,
-      `stale:${params.staleCount}`,
-      `fresh:${params.freshCount}`,
-      `alert:${params.alertSent}`,
-    ]
-    if (params.error) {
-      outputParts.push(`error:${params.error.slice(0, 200)}`)
-    }
-    const outputSummary = outputParts.join(' | ')
+// ============================================================
+// Helpers
+// ============================================================
 
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'secret-rotation',
-        capture_id: null,
-        input_summary: inputSummary,
-        output_summary: outputSummary,
-        duration_ms: params.durationMs,
-      })
-    } catch (err) {
-      // skills_log failure is non-fatal
-      logger.warn({ err }, '[secret-rotation] failed to write skills_log entry')
-    }
+function buildOutputSummary(
+  totalSecrets: number,
+  staleCount: number,
+  freshCount: number,
+  alertSent: boolean,
+  error?: string,
+): string {
+  const parts = [
+    `total:${totalSecrets}`,
+    `stale:${staleCount}`,
+    `fresh:${freshCount}`,
+    `alert:${alertSent}`,
+  ]
+  if (error) {
+    parts.push(`error:${error.slice(0, 200)}`)
   }
+  return parts.join(' | ')
 }
 
 // ============================================================

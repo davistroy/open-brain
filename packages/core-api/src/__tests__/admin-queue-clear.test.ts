@@ -32,6 +32,17 @@ vi.mock('@hono/node-server/serve-static', () => ({
   serveStatic: vi.fn(),
 }))
 
+// Mock ioredis to avoid real Redis connections (banner feature)
+vi.mock('ioredis', () => ({
+  Redis: vi.fn().mockImplementation(() => ({
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue('OK'),
+    del: vi.fn().mockResolvedValue(1),
+    disconnect: vi.fn(),
+    quit: vi.fn(),
+  })),
+}))
+
 // Mock ConfigService
 const mockConfigService = {
   reload: vi.fn().mockReturnValue([{ file: 'test.yaml', success: true }]),
