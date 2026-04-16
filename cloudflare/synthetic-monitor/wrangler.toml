@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2025-03-30"
 workers_dev = false
 
-# Custom domain route (avoids workers.dev subdomain requirement)
+# Custom domain route
 routes = [
   { pattern = "health.troy-davis.com/*", zone_name = "troy-davis.com" }
 ]

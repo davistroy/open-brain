@@ -49,8 +49,8 @@ Scripts run on the VM as Python cron jobs. Each phase adds a new data source, an
 
 ### Work Items
 
-#### 1.1 Plaid Account Setup & Link Server ✅
-**Status: COMPLETE [2026-04-15]**
+#### 1.1 Plaid Account Setup & Link Server
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A1
 **Files Affected:**
 - `scripts/plaid-link-server.py` (create)
@@ -77,8 +77,8 @@ The link server is a one-time tool — not a permanent service. After all accoun
 
 ---
 
-#### 1.2 Transaction Sync Script ✅
-**Status: COMPLETE [2026-04-15]**
+#### 1.2 Transaction Sync Script
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A2
 **Files Affected:**
 - `scripts/financial-pipeline.py` (create — main script)
@@ -107,8 +107,8 @@ Use `X-Open-Brain-Caller: financial-pipeline` header for rate limit bypass (add 
 
 ---
 
-#### 1.3 Daily Balance Snapshot ✅
-**Status: COMPLETE [2026-04-15]**
+#### 1.3 Daily Balance Snapshot
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A3
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -129,8 +129,8 @@ Add `--balances` subcommand to the financial pipeline. Calls `/accounts/balance/
 
 ---
 
-#### 1.4 Merchant Categorization Engine ✅
-**Status: COMPLETE [2026-04-15]**
+#### 1.4 Merchant Categorization Engine
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A6
 **Files Affected:**
 - `config/financial/merchants.yaml` (create)
@@ -183,8 +183,8 @@ Create the merchant-to-category lookup table. Plaid provides base categories, bu
 
 ### Work Items
 
-#### 2.1 Weekly Investment Report ✅
-**Status: COMPLETE [2026-04-15]**
+#### 2.1 Weekly Investment Report
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A4
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -207,8 +207,8 @@ Add `--investments` subcommand. Calls Plaid `/investments/holdings/get` for the 
 
 ---
 
-#### 2.2 Monthly Financial Synthesis ✅
-**Status: COMPLETE [2026-04-15]**
+#### 2.2 Monthly Financial Synthesis
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase A5
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -267,8 +267,8 @@ The aggregation rule applies here: 100+ transactions → Python aggregates → 1
 
 ### Work Items
 
-#### 3.1 Cobb EMC Power (SmartHub) ✅
-**Status: COMPLETE [2026-04-15]**
+#### 3.1 Cobb EMC Power (SmartHub)
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B1
 **Files Affected:**
 - `config/utility/utility-config.yaml` (create)
@@ -292,8 +292,8 @@ Install the open-source `electric-usage-downloader` Go tool on the VM. Configure
 
 ---
 
-#### 3.2 Cobb County Water (REST API) ✅
-**Status: COMPLETE [2026-04-15]**
+#### 3.2 Cobb County Water (REST API)
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B2
 **Files Affected:**
 - `scripts/utility-pipeline.py` (create)
@@ -320,8 +320,8 @@ Account ID `100101623`, Service ID `S0228354` are hardcoded in config (Troy's ac
 
 ---
 
-#### 3.3 Gas South (REST API + PDF Parsing) ✅
-**Status: COMPLETE [2026-04-15]**
+#### 3.3 Gas South (REST API + PDF Parsing)
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B3
 **Files Affected:**
 - `scripts/utility-pipeline.py` (extend)
@@ -350,8 +350,8 @@ From Troy's March 2026 bill: 66 CCFs × 1.034 = 68.24 therms at $0.65/therm. Acc
 
 ---
 
-#### 3.4 Monthly Utility Comparison ✅
-**Status: COMPLETE [2026-04-15]**
+#### 3.4 Monthly Utility Comparison
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase B4
 **Files Affected:**
 - `scripts/utility-pipeline.py` (extend)
@@ -405,8 +405,8 @@ Monthly synthesis across all three utilities. Aggregates power kWh, gas therms, 
 
 ### Work Items
 
-#### 4.1 401k ReadySave PDF Parser ✅
-**Status: COMPLETE [2026-04-15]**
+#### 4.1 401k ReadySave PDF Parser
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase C1
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
@@ -431,8 +431,8 @@ ReadySave PDF format may vary. Start with regex-based extraction, iterate on for
 
 ---
 
-#### 4.2 Amazon Order CSV Parser ✅
-**Status: COMPLETE [2026-04-15]**
+#### 4.2 Amazon Order CSV Parser
+**Status: PENDING**
 **Requirement Refs:** FINANCIAL_SPRINT §Phase C2
 **Files Affected:**
 - `scripts/financial-pipeline.py` (extend)
