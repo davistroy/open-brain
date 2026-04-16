@@ -3183,3 +3183,16 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 - **1.3** Eliminated 15 `as any` across 14 production files (ExecFileOptions, CaptureFilter, typed SQL, CJS interop)
 
 **Test finding:** pushMetrics() calls in pipeline-health and container-health skills hit `http://pushgateway:9091` in tests — DNS timeout caused 40 tests to fail at 5s. Fix: mock `push-metrics.js` module in 3 test files. **Rule: mock all external service calls (Pushgateway, Prometheus) same as DB/Redis/Pushover.**
+
+### Entry 051 — Refactor Phase 2: BaseSkill Abstract Class + Pilots (COMPLETE)
+**Date:** 2026-04-16
+**Tags:** `[refactor]` `[architecture]`
+**Environment:** Laptop, branch `refactor/zero-debt-2026-04-16`
+
+**Results:** All 3 items completed sequentially. 2,459 tests passing (20 new), 0 failures. Commit `5ca53be`.
+
+- **2.1** Created `BaseSkill<TInput, TResult>` and `LLMSkill<TInput, TResult>` abstract classes. BaseSkill provides: `logResult()` (skills_log), `sendNotification()` (Pushover), `formatDuration()`, `truncate()`. LLMSkill adds: litellmClient, anthropicClient, llmGateway, templates, promptsDir, coreApiUrl — mirrors DailyConnectionsSkill constructor exactly.
+- **2.2** Migrated 3 pilots: capture-reminder (BaseSkill), daily-connections (LLMSkill), wiki-ingest (BaseSkill). Zero test modifications needed — backward-compatible entry point functions preserved.
+- **2.3** Added `runSkill()` helper to skill-execution.ts. 4 dispatch cases converted. 24 remaining cases unchanged.
+
+**Pattern validated:** Skills extend BaseSkill/LLMSkill, constructor boilerplate eliminated via super(). Entry point functions (`executeFoo()`) still work for unmigrated skills. Both patterns coexist during Phase 3 migration.
