@@ -3196,3 +3196,21 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 - **2.3** Added `runSkill()` helper to skill-execution.ts. 4 dispatch cases converted. 24 remaining cases unchanged.
 
 **Pattern validated:** Skills extend BaseSkill/LLMSkill, constructor boilerplate eliminated via super(). Entry point functions (`executeFoo()`) still work for unmigrated skills. Both patterns coexist during Phase 3 migration.
+
+### Entry 052 — Refactor Phase 3: Complete Skill Migration (COMPLETE)
+**Date:** 2026-04-16
+**Tags:** `[refactor]` `[architecture]`
+**Environment:** Laptop, branch `refactor/zero-debt-2026-04-16`
+
+**Results:** All 4 items completed (3 parallel + 1 sequential). 2,459 tests passing. Commit `99bda17`. **Net -204 lines** — migration reduced code.
+
+- **3.1** 8 simple skills migrated to BaseSkill. Created container-health-query.ts, storage-audit-query.ts
+- **3.2** 6 LLM synthesis skills migrated to LLMSkill. Created daily-sweep-query.ts, cost-analysis-query.ts. cost-analysis uses BaseSkill (no LLM calls despite being grouped here)
+- **3.3** 5 agent/specialized skills migrated to BaseSkill. Created morning-brief-query.ts, pipeline-health-query.ts
+- **3.4** All 22 remaining dispatcher cases converted from legacy `execute*()` to `runSkill()`. Old imports removed.
+
+**Skill system state:** All 27 skills extend BaseSkill or LLMSkill. Zero constructor boilerplate duplication. 6 new query extraction files (total 10 across codebase). Dispatcher uses `runSkill()` exclusively.
+
+**Test finding:** admin-queue-clear.test.ts needed ioredis mock — banner feature creates `new Redis()` connection in admin router. Same pattern as pushMetrics finding: mock all external I/O in unit tests.
+
+**The BaseSkill foundation is now complete.** Every future skill (email-classify, financial-collect, utility-collect) extends this hierarchy. The pattern is: extend BaseSkill/LLMSkill, implement `execute()`, extract queries to `*-query.ts`. Constructor boilerplate is zero.
