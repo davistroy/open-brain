@@ -96,7 +96,12 @@
 | D84 | JSON mode opt-in for LLM gateway (`jsonMode: true` → `response_format`) | 2026-04-15 | ACTIVE | Entry 045 | Entity extraction enables it. vLLM supports response_format. ~5% empty parse rate → <1% |
 | D85 | LiteLLM proxy routing for embeddings + legacy calls | 2026-04-15 | ACTIVE | Entry 045 | LITELLM_URL → http://litellm:4000. Tier routing (Spark, Jetson, Anthropic direct) bypasses proxy by design |
 | D86 | Wiki-ingest backlog drained — DO NOT re-queue entire corpus | 2026-04-15 | ACTIVE | Entry 045 | 7,486 jobs burning ~$30 Anthropic Sonnet. Phase 8 will use T2 CLI for bulk, not wiki-ingest |
-| D87 | Email Outbound needs real SMTP creds — local relay has no auth | 2026-04-15 | ACTIVE | Entry 045 | bytemark-smtp connected to open-brain network but Himalaya requires auth. Config infra ready, blocked on credentials |
+| D87 | Email Outbound needs real SMTP creds — local relay has no auth | 2026-04-15 | SUPERSEDED by D90 | Entry 045 | bytemark-smtp connected to open-brain network but Himalaya requires auth. Config infra ready, blocked on credentials |
+| D88 | Plaid requires business compliance signup — not suitable for personal use | 2026-04-16 | ACTIVE | Entry 047 | Development env decommissioned Jun 2024. Only Sandbox (fake) + Production (compliance). Troy started signup but hit security contact requirements. |
+| D89 | SimpleFIN ($15/yr) is the preferred API alternative to Plaid for personal use | 2026-04-16 | ACTIVE | Entry 047 | Read-only, 16K+ institutions via MX, token auth, no compliance forms. 24 req/day, 90-day lookback. No investment holdings API. Troy evaluating. |
+| D90 | Email outbound operational via PrivateEmail SMTP (bond@k4jda.net) | 2026-04-16 | ACTIVE | Entry 047 | Himalaya v1.2.0 + IMAP backend (save-to-sent) + SMTP on mail.privateemail.com:465. Test email delivered to Gmail. |
+| D91 | Financial pipeline primary path: CSV imports (not API) | 2026-04-16 | ACTIVE | Entry 047 | Per-provider CSV parsers for Amex/Chase/Truist/Schwab/HSA/PayPal. Drop in ~/financial-inbox/. SimpleFIN or Plaid as future automation layer. |
+| D92 | Synthetic monitor deployed on health.troy-davis.com | 2026-04-16 | ACTIVE | Entry 047 | CF Worker cron every 5 min, KV state, Pushover alerts. CF Access service token from Bitwarden. |
 
 ## Action Items
 
@@ -2865,7 +2870,67 @@ Deploy all Phase 3 code to homeserver production and plan the financial awarenes
 **Decisions:** Financial pipeline follows email-pipeline.py pattern exactly (SQLite local → POST captures). All synthesis via claude --print (T2, zero API cost). Plaid Dev tier, not Production.
 
 **Action Items:**
-- Troy: sign up Plaid, store keys in Bitwarden
-- Troy: provide SmartHub + Gas South credentials
-- Troy: provide SMTP credentials for email outbound
-- Troy: create CF Access Service Token for synthetic monitor deployment
+- ~~Troy: sign up Plaid, store keys in Bitwarden~~ SUPERSEDED — CSV imports first, SimpleFIN under evaluation
+- Troy: provide SmartHub + Gas South credentials for utility pipeline
+- ~~Troy: provide SMTP credentials for email outbound~~ DONE — bond@k4jda.net via PrivateEmail
+- ~~Troy: create CF Access Service Token for synthetic monitor deployment~~ DONE — already in Bitwarden, Worker deployed
+
+---
+
+### Entry 047 — Deployment Completion: Synthetic Monitor + Email + Financial Decision [deploy] [decision]
+**Date:** 2026-04-16
+**Environment:** Cloudflare Workers, homeserver (Docker), laptop
+**Duration:** ~1 hour
+
+#### Objective
+Deploy the CF Worker synthetic monitor, complete email outbound setup, resolve Plaid signup issues, and decide on financial data access strategy.
+
+#### Results
+
+**Synthetic Monitor Deployed ✅**
+- Created KV namespace: `HEALTH_STATE` (id: 9509aff629824832b3b39333e71d85b1)
+- Set 4 Worker secrets from Bitwarden: PUSHOVER_TOKEN, PUSHOVER_USER, CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
+- Hit workers.dev subdomain requirement for cron triggers — resolved by adding custom domain route
+- Deployed to `health.troy-davis.com/*` with cron `*/5 * * * *`
+- Worker version: ad689ce3 → final: with custom route
+
+**Email Outbound Operational ✅**
+- Provider: PrivateEmail (Namecheap) for bond@k4jda.net
+- IMAP: mail.privateemail.com:993 (TLS) — needed for save-to-sent
+- SMTP: mail.privateemail.com:465 (TLS)
+- Himalaya config: IMAP backend + SMTP send backend, password from Bitwarden `BOND_EMAIL_PASSWORD`
+- First test: "cannot send message without a sender" — needed From: header
+- Second test: "cannot add message" — Himalaya tried to save to Sent but backend was "none"
+- Third test (with IMAP backend): "Message successfully sent!" — email received in Gmail
+- Updated config/email.yaml: default_from → bond@k4jda.net
+
+**Key finding: Himalaya v1.2.0 `message send` requires IMAP backend for save-to-sent.** Setting `backend.type = "none"` causes the send to succeed but the post-send save to fail. Must have IMAP configured even if we never read mail through Himalaya.
+
+**Plaid Investigation & Decision**
+- Troy signed up at plaid.com, got Client ID + Sandbox secret
+- **No Development environment** — Plaid decommissioned it June 2024
+- Only Sandbox (fake data) and Production (requires compliance signup)
+- Production signup asks for: security compliance contact, business details, use case justification
+- Troy started the process but hit friction on compliance requirements
+
+**Alternatives Evaluated:**
+| Option | Suitability | Cost | Notes |
+|--------|------------|------|-------|
+| Plaid Production | Poor for personal | Free tier | Compliance forms, business-oriented |
+| SimpleFIN | Excellent for personal | $15/year | Read-only, 16K+ institutions via MX, simple token auth, no compliance |
+| Finicity/MX/Yodlee | Poor for personal | Enterprise | Same compliance problem as Plaid |
+| CSV imports | Best for immediate start | Free | 5 min/month per account, 100% reliable |
+
+**Decision: CSV imports as primary, SimpleFIN under evaluation**
+- Immediate: add per-provider CSV parsers to financial-pipeline.py
+- Troy evaluating SimpleFIN ($15/yr) — checking institution coverage for his 6 accounts
+- Plaid link server code remains in repo for future use if Plaid is revisited
+- financial-pipeline.py architecture supports both: CSV import + API sync share the same SQLite schema, categorization, and capture posting
+
+**Operational findings during deployment:**
+- Cloudflare requires workers.dev subdomain for ANY cron trigger registration, even with custom domain routes
+- Using custom route (`health.troy-davis.com`) avoids needing the subdomain for HTTP routing, but the account still needs it registered for the schedules API
+- Troy registered subdomain by visiting Workers dashboard (one-time account setup)
+- CF Access service tokens (CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET) were already in Bitwarden — didn't need to create new ones
+
+**Decisions:** D88-D92 (see Decision Log above)

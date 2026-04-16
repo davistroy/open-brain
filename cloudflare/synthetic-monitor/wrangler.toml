@@ -3,6 +3,11 @@ main = "src/index.ts"
 compatibility_date = "2025-03-30"
 workers_dev = false
 
+# Custom domain route (avoids workers.dev subdomain requirement)
+routes = [
+  { pattern = "health.troy-davis.com/*", zone_name = "troy-davis.com" }
+]
+
 # Cron trigger — runs every 5 minutes
 [triggers]
 crons = ["*/5 * * * *"]
@@ -10,10 +15,7 @@ crons = ["*/5 * * * *"]
 # KV namespace for tracking consecutive failure count
 [[kv_namespaces]]
 binding = "HEALTH_STATE"
-id = "PLACEHOLDER_KV_NAMESPACE_ID"
-# After creating the KV namespace, replace the id above:
-#   wrangler kv namespace create HEALTH_STATE
-#   Then paste the returned id here
+id = "9509aff629824832b3b39333e71d85b1"
 
 [vars]
 HEALTH_URL = "https://brain.troy-davis.com/api/v1/health"
