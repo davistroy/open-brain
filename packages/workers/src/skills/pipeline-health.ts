@@ -4,6 +4,8 @@ import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { skills_log } from '@open-brain/shared'
 import { logger, PushoverService } from '@open-brain/shared'
+import { pushMetrics } from '../lib/push-metrics.js'
+import type { MetricLine } from '../lib/push-metrics.js'
 
 // ============================================================
 // Types
@@ -222,6 +224,9 @@ export class PipelineHealthSkill {
       }
     }
 
+    // Step 3.6: Push queue metrics to Pushgateway
+    await this.pushQueueMetrics(queues)
+
     // Step 4: Evaluate thresholds
     const failedQueues = queues.filter(q => q.failed >= failedThreshold)
     const backloggedQueues = queues.filter(q => q.waiting >= waitingThreshold)
@@ -385,6 +390,30 @@ export class PipelineHealthSkill {
     }
 
     return results
+  }
+
+  // ----------------------------------------------------------
+  // Private: push queue metrics to Pushgateway
+  // ----------------------------------------------------------
+
+  /**
+   * Push BullMQ queue depth gauges to Prometheus Pushgateway.
+   * Metrics: openbrain_queue_waiting, openbrain_queue_active, openbrain_queue_failed,
+   * openbrain_queue_delayed per queue. Failures are silently caught.
+   */
+  private async pushQueueMetrics(queues: QueueStats[]): Promise<void> {
+    const metrics: MetricLine[] = []
+
+    for (const q of queues) {
+      metrics.push(
+        { name: 'openbrain_queue_waiting', value: q.waiting, labels: { queue: q.name }, help: 'Number of waiting jobs per queue', type: 'gauge' },
+        { name: 'openbrain_queue_active', value: q.active, labels: { queue: q.name }, help: 'Number of active jobs per queue', type: 'gauge' },
+        { name: 'openbrain_queue_failed', value: q.failed, labels: { queue: q.name }, help: 'Number of failed jobs per queue', type: 'gauge' },
+        { name: 'openbrain_queue_delayed', value: q.delayed, labels: { queue: q.name }, help: 'Number of delayed jobs per queue', type: 'gauge' },
+      )
+    }
+
+    await pushMetrics(metrics)
   }
 
   // ----------------------------------------------------------

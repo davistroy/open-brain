@@ -1,0 +1,62 @@
+# Loki configuration — single-tenant, local filesystem storage
+# Deployed as standalone container on homeserver (not in docker-compose.yml)
+# Retention: 30 days (720h)
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/data/chunks
+      rules_directory: /loki/data/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2024-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  filesystem:
+    directory: /loki/data/chunks
+  tsdb_shipper:
+    active_index_directory: /loki/data/tsdb-index
+    cache_location: /loki/data/tsdb-cache
+
+limits_config:
+  retention_period: 720h
+  max_streams_per_user: 5000
+  max_label_name_length: 1024
+  max_label_value_length: 2048
+  max_label_names_per_series: 30
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 6
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/data/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+  delete_request_store: filesystem
+
+# Analytics opt-out
+analytics:
+  reporting_enabled: false

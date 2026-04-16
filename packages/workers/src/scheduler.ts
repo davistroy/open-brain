@@ -30,9 +30,6 @@ export interface ScheduledQueues {
  * - monthly-reflection: 9:00 AM 1st of month (cron: 0 9 1 * *) — LLM-powered monthly synthesis via runAgent()
  * - wiki-lint: 5:00 AM Sundays (cron: 0 5 * * 0) — scans wiki pages for quality issues
  * - wiki-synthesis: 6:00 AM daily (cron: 0 6 * * *) — queues unintegrated captures for wiki-ingest
- * - db-backup: 2:00 AM daily (cron: 0 2 * * *) — pg_dump + gzip + retention pruning
- * - wiki-backup: 2:15 AM daily (cron: 15 2 * * *) — git bundle of wiki repo + retention pruning
- * - redis-snapshot: 2:30 AM daily (cron: 30 2 * * *) — BGSAVE + copy RDB + retention pruning
  * - cost-analysis: 7:00 AM daily (cron: 0 7 * * *) — LLM cost tracking, weekly/monthly reports
  * - container-health: every 15 min (cron: *\/15 * * * *) — /health checks on all containers
  * - storage-audit: 3:00 AM Sundays (cron: 0 3 * * 0) — Postgres, Redis, backup, wiki sizes
@@ -304,63 +301,6 @@ export async function registerScheduledJobs(
   )
 
   logger.info({ cron: monthlyReflectionCron }, '[scheduler] monthly-reflection repeatable job registered')
-
-  // --------------------------------------------------------
-  // Database backup (2:00 AM daily)
-  // --------------------------------------------------------
-  const dbBackupCron = '0 2 * * *'
-
-  await skillExecutionQueue.add(
-    'db-backup',
-    {
-      skillName: 'db-backup',
-      input: {},
-    },
-    {
-      repeat: { pattern: dbBackupCron },
-      jobId: 'scheduled_db-backup',
-    },
-  )
-
-  logger.info({ cron: dbBackupCron }, '[scheduler] db-backup repeatable job registered')
-
-  // --------------------------------------------------------
-  // Wiki backup (2:15 AM daily)
-  // --------------------------------------------------------
-  const wikiBackupCron = '15 2 * * *'
-
-  await skillExecutionQueue.add(
-    'wiki-backup',
-    {
-      skillName: 'wiki-backup',
-      input: {},
-    },
-    {
-      repeat: { pattern: wikiBackupCron },
-      jobId: 'scheduled_wiki-backup',
-    },
-  )
-
-  logger.info({ cron: wikiBackupCron }, '[scheduler] wiki-backup repeatable job registered')
-
-  // --------------------------------------------------------
-  // Redis snapshot (2:30 AM daily)
-  // --------------------------------------------------------
-  const redisSnapshotCron = '30 2 * * *'
-
-  await skillExecutionQueue.add(
-    'redis-snapshot',
-    {
-      skillName: 'redis-snapshot',
-      input: {},
-    },
-    {
-      repeat: { pattern: redisSnapshotCron },
-      jobId: 'scheduled_redis-snapshot',
-    },
-  )
-
-  logger.info({ cron: redisSnapshotCron }, '[scheduler] redis-snapshot repeatable job registered')
 
   // --------------------------------------------------------
   // Cost analysis (7:00 AM daily)

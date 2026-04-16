@@ -31,7 +31,7 @@ export interface WikiIngestResult {
 export interface WikiIngestOptions {
   /** Anthropic client instance (required for runAgent). */
   anthropicClient?: Anthropic
-  /** Model to use for the agent. Default: 'claude-sonnet-4-5-20250929'. */
+  /** Model to use for the agent. Default: 'claude-haiku-4-5-20251001'. */
   model?: string
   /** Max agent iterations. Default: 15. */
   maxIterations?: number
@@ -239,7 +239,7 @@ export class WikiIngestSkill {
     this.db = opts.db
     this.wikiService = opts.wikiService
     this.anthropicClient = opts.anthropicClient
-    this.model = opts.model ?? 'claude-sonnet-4-5-20250929'
+    this.model = opts.model ?? 'claude-haiku-4-5-20251001'
     this.maxIterations = opts.maxIterations ?? 15
     this.templates = opts.templates ?? new TemplateCache(
       opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'),

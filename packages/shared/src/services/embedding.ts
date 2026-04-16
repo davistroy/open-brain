@@ -2,6 +2,7 @@ import OpenAI from 'openai'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import type { ConfigService } from '../config/loader.js'
 import { resolveModelName } from '../types/config.js'
+import { logger } from '../lib/logger.js'
 
 /**
  * Thrown when the embedding API is unreachable or returns a non-200 response.
@@ -18,12 +19,27 @@ const EMBEDDING_DIMENSIONS = 768
 const EMBEDDING_TIMEOUT_MS = 60_000
 
 /**
+ * Initial character limit for embedding API input.
+ * text-embedding-3-large has a hard 8,191-token limit.
+ * First attempt uses 16K chars; if the API rejects for token overflow,
+ * the limit is halved and retried (down to MIN_EMBEDDING_CHARS).
+ */
+const MAX_EMBEDDING_CHARS = 16_000
+const MIN_EMBEDDING_CHARS = 2_000
+
+/**
  * Normalizes a vector to unit length (L2 normalization) for cosine similarity.
  */
 function normalizeVector(vec: number[]): number[] {
   const magnitude = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0))
   if (magnitude === 0) return vec
   return vec.map(v => v / magnitude)
+}
+
+/** Returns true if the error is a 400 about context length / token limit */
+function isTokenOverflowError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return msg.includes('maximum context length') || msg.includes('too many tokens')
 }
 
 /**
@@ -60,32 +76,73 @@ export class EmbeddingService {
   }
 
   /**
+   * Truncates text to a given character limit at a word boundary.
+   */
+  private truncateToLimit(text: string, limit: number): string {
+    if (text.length <= limit) return text
+    const truncated = text.slice(0, limit)
+    const lastSpace = truncated.lastIndexOf(' ')
+    return lastSpace > limit * 0.8 ? truncated.slice(0, lastSpace) : truncated
+  }
+
+  /**
+   * Calls the embedding API with adaptive truncation.
+   * Starts at MAX_EMBEDDING_CHARS; if the API rejects for token overflow,
+   * halves the limit and retries until MIN_EMBEDDING_CHARS.
+   */
+  private async embedWithAdaptiveTruncation(text: string, model: string): Promise<number[]> {
+    let limit = MAX_EMBEDDING_CHARS
+    let input = this.truncateToLimit(text, limit)
+    const wasOriginallyTruncated = input.length < text.length
+
+    if (wasOriginallyTruncated) {
+      logger.info(
+        { originalLength: text.length, truncatedLength: input.length, charLimit: limit },
+        'Content truncated for embedding API token limit',
+      )
+    }
+
+    while (true) {
+      try {
+        const response = await this.client.embeddings.create({
+          model,
+          input,
+          dimensions: EMBEDDING_DIMENSIONS,
+        })
+
+        const raw = response.data[0]?.embedding
+        if (!raw || raw.length !== EMBEDDING_DIMENSIONS) {
+          throw new EmbeddingUnavailableError(
+            `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${raw?.length ?? 0}`,
+          )
+        }
+        return normalizeVector(raw)
+      } catch (err) {
+        if (err instanceof EmbeddingUnavailableError) throw err
+
+        if (isTokenOverflowError(err) && limit > MIN_EMBEDDING_CHARS) {
+          limit = Math.floor(limit / 2)
+          input = this.truncateToLimit(text, limit)
+          logger.warn(
+            { charLimit: limit, inputLength: input.length },
+            'Token overflow — retrying with shorter input',
+          )
+          continue
+        }
+
+        const message = err instanceof Error ? err.message : String(err)
+        throw new EmbeddingUnavailableError(`Embedding request failed: ${message}`)
+      }
+    }
+  }
+
+  /**
    * Embeds a single text and returns a normalized 768-dimensional vector.
+   * Adaptively truncates content that exceeds the model's token limit.
    * Throws EmbeddingUnavailableError on any failure.
    */
   async embed(text: string): Promise<number[]> {
-    const model = this.getModelName()
-
-    try {
-      const response = await this.client.embeddings.create({
-        model,
-        input: text,
-        dimensions: EMBEDDING_DIMENSIONS,
-      })
-
-      const raw = response.data[0]?.embedding
-      if (!raw || raw.length !== EMBEDDING_DIMENSIONS) {
-        throw new EmbeddingUnavailableError(
-          `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${raw?.length ?? 0}`,
-        )
-      }
-
-      return normalizeVector(raw)
-    } catch (err) {
-      if (err instanceof EmbeddingUnavailableError) throw err
-      const message = err instanceof Error ? err.message : String(err)
-      throw new EmbeddingUnavailableError(`Embedding request failed: ${message}`)
-    }
+    return this.embedWithAdaptiveTruncation(text, this.getModelName())
   }
 
   /**
@@ -96,11 +153,12 @@ export class EmbeddingService {
     if (texts.length === 0) return []
 
     const model = this.getModelName()
+    const truncatedTexts = texts.map(t => this.truncateToLimit(t, MAX_EMBEDDING_CHARS))
 
     try {
       const response = await this.client.embeddings.create({
         model,
-        input: texts,
+        input: truncatedTexts,
         dimensions: EMBEDDING_DIMENSIONS,
       })
 

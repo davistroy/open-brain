@@ -82,3 +82,4 @@ redis_data/
 temp_*.md
 working-docs/
 __pycache__/
+config/himalaya/config.toml

@@ -68,6 +68,35 @@
 | D56 | Composio MCP for Claude Code + VM client library | 2026-04-13 | ACTIVE | Entry 037 | Gmail, Outlook, Drive, Sheets, Notion, Slack connected. Replaces IMAP for 3A. |
 | D57 | Backup scripts on VM cron, not Docker-exec skills | 2026-04-13 | ACTIVE | Entry 039 | db-backup/redis-snapshot/wiki-backup at 2 AM via SSH |
 | D58 | AllowUsers root claude persisted for Unraid boot | 2026-04-13 | ACTIVE | Entry 039 | /boot/config/custom/etc/ssh/sshd_config |
+| D59 | GitHub Issues + Projects v2 for master plan kanban tracking | 2026-04-13 | ACTIVE | Entry 040 | Issues #51-#74, milestones by arc, board at users/davistroy/projects/1 |
+| D60 | Graph API direct (not Composio) for bulk email operations | 2026-04-13 | ACTIVE | Entry 040 | Save 20K/month Composio calls for non-email uses |
+| D61 | Initial email cleanup is one-time purge, NOT ongoing retention policy | 2026-04-13 | ACTIVE | Entry 040 | Pipeline classifies and organizes, never auto-deletes |
+| D62 | Per-email embeddings confirmed as design goal | 2026-04-13 | ACTIVE | Entry 040 | Not just daily summaries — full per-email search. Qdrant eval at 100K+ |
+| D63 | Email correction signal = folder moves in mailbox | 2026-04-13 | ACTIVE | Entry 040 | No out-of-band system. Pipeline watches for moves, updates rules |
+| D64 | 96.2% was coverage not accuracy — classifications unvalidated | 2026-04-13 | ACTIVE | Entry 040 | Conservative auto-move threshold, "Needs Review" folder for low confidence |
+| D65 | DGX Spark for file classification (Phase D), Opus 4.6 for reorg proposal (Phase E) | 2026-04-13 | ACTIVE | Entry 040 | Spark for bulk throughput, Opus for one-shot complex synthesis |
+| D66 | OneDrive file inventory via Docker on homeserver (not sshfs/NFS) | 2026-04-13 | ACTIVE | Entry 040 | Local I/O, python:3.12-slim container, ~1100 files/sec |
+| D67 | Qdrant evaluation deferred until Phase 2B file count exceeds 100K embeddings | 2026-04-13 | ACTIVE | Entry 040 | pgvector fine for current scale; migration is clean when needed |
+| D68 | OneDrive dedup: SHA-256 exact + version-number-aware chain detection | 2026-04-14 | ACTIVE | Entry 041 | Version chains keep highest version number; Troy Davis Background excluded |
+| D69 | OneDrive reorg: 9 top-level domains (Work, Amateur Radio, Sailing, Making, Personal, Projects, Reference, App Data, _Archive) | 2026-04-14 | ACTIVE | Entry 041 | Reviewed via spreadsheet with Troy's annotations; script-driven moves |
+| D70 | Phase 3A email pipeline: daily 5 AM sweep (not every 15 min) | 2026-04-14 | ACTIVE | Entry 041 | No real value in real-time classification; Troy manages email during day, pipeline sweeps overnight |
+| D71 | Email pipeline: T0 sender rules → T0 keywords → T1 Jetson GPU (not CPU inference) | 2026-04-14 | ACTIVE | Entry 041 | Jetson at 192.168.10.58 (static IP), qwen3.5-4b, ~3-4s/email |
+| D72 | Hotmail: Graph API direct; Gmail: direct OAuth (testing mode, consider Composio) | 2026-04-14 | ACTIVE | Entry 041 | Composio for Gmail under evaluation — avoids 7-day token refresh |
+| D73 | Immich external library at /usr/src/app/external/onedrive (not inside upload dir) | 2026-04-14 | ACTIVE | Entry 041 | Upload dir rejected by Immich for external libraries |
+| D74 | CRITICAL: ai-routing.yaml cost fields were 0 — budget breaker was blind | 2026-04-15 | ACTIVE | Entry 042 | 3,230 file captures × pipeline stages hit Anthropic API at ~$100+. Fixed: costs populated, Spark tier added. |
+| D75 | Add t1_spark tier (Qwen 35B on DGX Spark) for all routine LLM tasks | 2026-04-15 | ACTIVE | Entry 042 | Entity extraction, linking, enrichment, synthesis all route to Spark (free). Only governance/weekly → Anthropic (paid). |
+| D76 | Jetson IP is 192.168.10.58 (static), was 192.168.10.44 in config | 2026-04-15 | ACTIVE | Entry 042 | Old IP caused all classification to fallback to Haiku (paid) |
+| D77 | NEVER batch-ingest through full pipeline without verifying cost path | 2026-04-15 | ACTIVE | Entry 042 | Must check ai-routing.yaml task_routing before any bulk operation |
+| D78 | Embedding service: adaptive truncation (16K→8K→4K→2K) for token overflow | 2026-04-15 | ACTIVE | Entry 043 | text-embedding-3-large hard limit 8,191 tokens; char estimation unreliable for dense content |
+| D79 | t1_spark timeout: 120s (was 30s — entity extraction takes 20-40s on 35B) | 2026-04-15 | ACTIVE | Entry 043 | 30s caused repeated timeouts and retries, slowing the 7K backlog |
+| D80 | AIClientType includes openai_compat (was falling through to 'litellm' label) | 2026-04-15 | ACTIVE | Entry 043 | Confusing error messages during debugging |
+| D81 | ai-routing.yaml v3 synced to local repo (was only on homeserver) | 2026-04-15 | ACTIVE | Entry 043 | Cost incident fix deployed directly, not committed to git |
+| D82 | Remove BullMQ backup jobs — VM cron is canonical backup system | 2026-04-15 | ACTIVE | Entry 045 | Workers container has no Docker socket; BullMQ skills ALL failing since Apr 12 |
+| D83 | Wiki-ingest model configurable via ai-routing.yaml `wiki_agent` key | 2026-04-15 | ACTIVE | Entry 045 | Default: claude-haiku-4-5 (was hardcoded Sonnet). runAgent() still uses Anthropic SDK — can't route to Spark (no tool use) |
+| D84 | JSON mode opt-in for LLM gateway (`jsonMode: true` → `response_format`) | 2026-04-15 | ACTIVE | Entry 045 | Entity extraction enables it. vLLM supports response_format. ~5% empty parse rate → <1% |
+| D85 | LiteLLM proxy routing for embeddings + legacy calls | 2026-04-15 | ACTIVE | Entry 045 | LITELLM_URL → http://litellm:4000. Tier routing (Spark, Jetson, Anthropic direct) bypasses proxy by design |
+| D86 | Wiki-ingest backlog drained — DO NOT re-queue entire corpus | 2026-04-15 | ACTIVE | Entry 045 | 7,486 jobs burning ~$30 Anthropic Sonnet. Phase 8 will use T2 CLI for bulk, not wiki-ingest |
+| D87 | Email Outbound needs real SMTP creds — local relay has no auth | 2026-04-15 | ACTIVE | Entry 045 | bytemark-smtp connected to open-brain network but Himalaya requires auth. Config infra ready, blocked on credentials |
 
 ## Action Items
 
@@ -95,6 +124,24 @@
 | A22 | ~~Create homeserver KVM VM (open-brain-vm, 192.168.10.53)~~ | 2026-04-12 | Entry 035 | DONE 2026-04-12 |
 | A23 | Move LLMGatewayService to @open-brain/shared | 2026-04-12 | Entry 033 | HIGH — prerequisite for Phase 3 |
 | A24 | Verify Pipecat DEEPGRAM_API_KEY configured before soak | 2026-04-12 | Entry 033 | HIGH — blocks Phase 0D |
+| A25 | ~~Build Phase 3A email pipeline (email-pipeline.py on VM)~~ | 2026-04-13 | Entry 040 | DONE — Entry 041 |
+| A26 | ~~Immich photo import~~ | 2026-04-13 | Entry 040 | DONE — external library at /external/onedrive |
+| A27 | Set up Beets for music library organization | 2026-04-13 | Entry 040 | LOW — 885 files in /mnt/user/storage/music/downloads |
+| A28 | ~~Run file inventory with hashing~~ | 2026-04-13 | Entry 040 | DONE — 53,153 files hashed |
+| A29 | Push 9 untracked OneDrive git repos to GitHub (or delete) | 2026-04-13 | Entry 040 | LOW — Vibe Coding Prompts, digirig kept; others tbd |
+| A30 | Email Pass 8: forwarded email purge + age cut + top personal sender review | 2026-04-14 | Entry 040 | HIGH — next email cleanup step |
+| A31 | Evaluate Composio for Gmail backend (avoid 7-day token refresh) | 2026-04-14 | Entry 041 | MEDIUM |
+| A32 | ~~Audit all cron jobs across all machines for scheduling conflicts~~ | 2026-04-14 | Entry 041 | DONE 2026-04-15 — triple backup found, BullMQ removed, VM+homeserver fixed |
+| A33 | Add more sender rules as email pipeline runs and corrections accumulate | 2026-04-14 | Entry 041 | ONGOING |
+| A34 | ~~Monitor embed queue drain — 2,641 retried jobs processing~~ | 2026-04-15 | Entry 043 | DONE — 11,034/11,035 embedded (99.99%) |
+| A35 | Monitor entity extraction queue drain — ~6,500 remaining on Spark | 2026-04-15 | Entry 043 | MEDIUM — ~36h at current rate, all on Spark (free) |
+| A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
+| A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
+| A38 | Add LiteLLM to container-health skill check list | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.3 |
+| A39 | Deploy Cloudflare Worker synthetic monitor | 2026-04-15 | Entry 045 | MEDIUM — Phase 6.1 |
+| A40 | Build Grafana dashboards (System, LLM Cost, Pipeline) | 2026-04-15 | Entry 045 | MEDIUM — Phase 7.3 |
+| A41 | Deploy Loki for log aggregation | 2026-04-15 | Entry 045 | LOW — Phase 7.4 |
+| A42 | Connect bytemark-smtp to open-brain network on each compose up | 2026-04-15 | Entry 045 | LOW — add to deployment runbook, or add to docker-compose external_links |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -121,8 +168,18 @@
 | A0q | T0 validation — failed, tasks reassigned to T1 | 2026-04-12 | 2026-04-12 | Entry 029 |
 | A0r | OneDrive sync cron installed on homeserver | 2026-04-12 | 2026-04-12 | Entry 026 |
 | A0s | Homeserver sudoers repaired and persisted to boot drive | 2026-04-12 | 2026-04-12 | Entry 027 |
-| A0k | Search page crash fix (PR #35) | 2026-03-31 | 2026-03-31 | Entry 010 |
-| A0l | Web synthesis answers (PR #36) | 2026-03-31 | 2026-03-31 | Entry 011 |
+| A0t | GitHub kanban board — 22 issues, 6 milestones, Projects v2 board | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0u | Hotmail email cleanup — Passes 1,4,5,6,7 (153K → ~34K) | 2026-04-13 | 2026-04-14 | Entry 040 |
+| A0v | OneDrive file inventory scan (264K files, 195 GB) | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0w | OneDrive cleanup: 20 GitHub-backed repos deleted (182K files) | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0x | OneDrive cleanup: AIOC, contact-tracker, SCARS, openproject, LegacySync, agents-v1 deleted | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A0y | Media moved: photos→Immich staging, music→/storage/music, videos→/storage/videos | 2026-04-13 | 2026-04-13 | Entry 040 |
+| A16 | ~~Check OneDrive sync status and file count~~ | 2026-04-12 | 2026-04-13 | Entry 040 — DONE: 264,813 files, 195 GB |
+| A25 | Phase 3A email pipeline built + deployed + cron | 2026-04-13 | 2026-04-14 | Entry 041 — Hotmail + Gmail, Jetson T1, daily 5 AM |
+| A26 | Immich external library configured | 2026-04-13 | 2026-04-14 | Entry 041 — /external/onedrive, 13,918 photos |
+| A28 | File inventory hashing complete | 2026-04-13 | 2026-04-14 | Entry 041 — 53,153 files, SHA-256 |
+| A0z | OneDrive dedup: 22,541 files archived, 0 errors | 2026-04-14 | 2026-04-14 | Entry 041 |
+| A0aa | OneDrive reorg: 19,507 moved, 2,842 deleted, 2,599 empty dirs removed | 2026-04-14 | 2026-04-14 | Entry 041 |
 
 ---
 
@@ -2124,3 +2181,691 @@ Marked as complete in master plan. No work needed.
 **Decisions:**
 - D57: Backup scripts run on open-brain-vm via cron, SSH to homeserver. Replaces broken Docker-exec skills.
 - D58: `AllowUsers root claude` persisted to `/boot/config/custom/etc/ssh/sshd_config` for Unraid boot.
+
+--- New session: 2026-04-13 — Kanban board, email cleanup, OneDrive file inventory & cleanup, Phase 3A design ---
+
+### Entry 040: GitHub Kanban + Hotmail Cleanup + OneDrive Inventory + Phase 3A Design [planning] [email] [infrastructure] [decision]
+
+**Date:** 2026-04-13 through 2026-04-14
+**Duration:** ~6 hours
+**Tags:** `[planning]` `[email]` `[infrastructure]` `[decision]` `[cleanup]`
+**Environment:** Laptop (development), homeserver (Docker, file storage), open-brain-vm, Outlook Graph API
+
+#### Objective
+Continue Open Brain development: set up project tracking, design Phase 3A email pipeline, clean up Hotmail inbox (153K emails), inventory and clean OneDrive files (265K files), move media to dedicated services.
+
+#### 1. GitHub Kanban Board
+
+Created full project tracking system:
+- **22 GitHub Issues** (#51-#72) — one per master plan phase, with dependency cross-references
+- **6 Milestones** — Arc 0 (Infrastructure), Arc 1 (Pipeline), Arc 2 (Wiki), Arc 3 (Batch Sources), Arc 4 (Polish), Arc 5 (Hardware)
+- **GitHub Projects v2 board** at https://github.com/users/davistroy/projects/1
+  - Columns: Backlog, Up Next, In Progress, Blocked, Done
+  - 5 phases marked Done (0A, 0B, 1A, 1B, 2A), 1 Up Next (3A), 6 Blocked, 10 Backlog
+- **Labels**: `arc:*` (6 colors), `size:*` (S/M/L/operational), `priority:next`
+- PAT needed `project` scope — added via `gh auth refresh -s project`
+- Additional issues: #73 (Qdrant evaluation), #74 (OneDrive corpus analysis)
+
+#### 2. Hotmail Email Cleanup (153K → ~34K)
+
+**Problem:** troy.davis@hotmail.com had 152,959 emails in inbox, 7,778 in Deleted Items, 3,507 in Junk.
+
+**Approach:** Direct Graph API via MSAL device code auth (reused token cache from email-corpus-analyzer project). Composio's 20K/month free tier limit made it unsuitable for bulk operations.
+
+**Scripts created:** `scripts/email-cleanup.py` (Pass 1), `scripts/email-cleanup-pass4.py` (Pass 4), `scripts/email-cleanup-pass6.py` (Pass 6), plus ad-hoc scripts for Passes 5 and 7.
+
+**Cleanup passes:**
+
+| Pass | Strategy | Deleted | Notes |
+|------|----------|---------|-------|
+| Pass 1 | Marketing senders from 23K classification sample + empty Junk/Deleted | 52,850 | Used sender list from email-corpus-analyzer RunPod classification |
+| Pass 4 | Delete all non-protected categories (keep only Personal, Jamie, Ashley, Work, Travel, Charity, Government, Utilities) | 26,133 | Superset of Passes 2+3 |
+| Pass 5 | Top 50 senders by volume (except troy, ash, km4ack) | ~10,000 | Original per-sender approach had broken batch delete counter; redone with scan-then-delete |
+| Pass 6 | Pattern-based automated sender sweep (noreply, newsletter, promo, etc.) | 31,467 | Scanned all 85K emails, classified by sender pattern. Protected personal email domains. |
+| Pass 7 | Domain review — deleted 64 non-personal domains (kept halibut.com, paulding.gov) | 5,066 | Troy reviewed top 80 domains, approved deletion list |
+
+**Key findings:**
+- Classification data from email-corpus-analyzer only covered 23K/153K emails (15% of senders). Passes 1+4 missed 130K emails from uncovered senders.
+- Graph API batch delete (`$batch` with DELETE) worked correctly in scan-then-delete approach (Pass 6) but failed in per-sender approach (Pass 5). Root cause: unclear, possibly stale message IDs from paginated queries.
+- 96.2% figure from prior RunPod run was COVERAGE (emails classified), not ACCURACY (correct classification). Classifications are unvalidated.
+- Protected senders: ash.davis@hotmail.com (all emails), troy.davis@hotmail.com, km4ack@arrl.net
+- One-time cleanup only — NOT establishing ongoing retention policies. Future email pipeline classifies and organizes, never auto-deletes.
+
+**Remaining work:** ~48K emails in inbox (many from failed Pass 5/7 deletes being re-run). Target: ~34K after re-runs, then manual review (forwarded email purge, age cut, top personal sender review).
+
+**UPDATE 2026-04-14:** Root cause of failed deletes identified: `ErrorQuotaExceededOnDelete` — Outlook recoverable items quota full from 110K+ deleted emails. `DELETE` and `permanentDelete` both return 403. Workaround: `MOVE` to "To Delete" folder (works), Troy empties via Outlook UI. Moved 32,151 non-personal emails to "To Delete". Then archived 16,258 remaining personal emails by year to Archive/2020-2025 folders. Final inbox: **273 emails** (2026 only). Oldest email in inbox: 2026-01-01.
+
+Additional file cleanup (2026-04-14):
+- Deleted KiCad community footprints (10,539 in Documents/KiCad), kept 31 in Projects/Electronics (Troy's designs)
+- Deleted glif font files (10,549 in Personal/Tech)
+- Deleted CFA, ics-forms, safely-utilities, 12-factor-agents, LegacySync, agents-v1 from Projects (GitHub-backed)
+- Total additional deletions: ~41K files
+- OneDrive corpus: 264,813 → ~53K files
+
+#### 3. Phase 3A Email Pipeline Design
+
+Detailed architecture discussion for the ongoing email pipeline:
+
+**Architecture:**
+```
+email-pipeline.py (open-brain-vm, cron every 15 min)
+  1. FETCH new emails (Graph API, incremental sync)
+  2. DETECT CORRECTIONS — compare parentFolderId to last-known
+  3. CLASSIFY (T0 rules → T1 Jetson for ambiguous)
+  4. ORGANIZE — move to folders (Graph API batch)
+     High confidence: auto-move
+     Low confidence: → "Needs Review" folder
+  5. STAGE in local SQLite
+  Daily (10 PM): SUMMARIZE (claude --print, T2) → POST capture
+```
+
+**Key design decisions:**
+- Graph API direct, not Composio (save 20K calls for calendar/Notion)
+- Correction signal = natural folder moves (no out-of-band API)
+- Per-email embeddings (not just daily summaries)
+- 26 categories from email-corpus-analyzer, ported to config/email-categories.yaml
+- Conservative auto-move threshold (0.85), relaxes as corrections validate rules
+- Active learning retained as concept: corrections → rule updates → improved T0 accuracy
+- SetFit training dropped (T0 rules + T1 Jetson + corrections sufficient for single user)
+
+#### 4. Qdrant vs pgvector Analysis
+
+Evaluated vector database needs at scale:
+- Current: ~200 captures in pgvector — trivial
+- With per-email embeddings: 70K-105K vectors — pgvector handles fine
+- With OneDrive files: 100K-1M+ vectors — decision point
+
+**Decision:** Defer Qdrant until Phase 2B file count exceeds 100K embeddings. Design email pipeline embedding interface to be backend-agnostic. Migration is ~200 LOC when needed. GitHub issue #73 created.
+
+#### 5. OneDrive File Inventory & Cleanup
+
+**rclone sync completed:** 264,813 files, 195 GB at `/mnt/user/storage/onedrive/davistroy/`
+
+**Inventory scan** (file-inventory.py via Docker on homeserver, 7.4 minutes):
+- 60K Python files, 25K .h files, 22K .v1_indexcache — mostly in Projects/
+- Top directory: Projects (152K files, 46 GB), Documents (39K, 37 GB), Pictures (12K, 37 GB)
+- 3,751 zero-byte files, 44,913 version chain candidates
+- No exact duplicates detected (hashing skipped — metadata-only scan)
+
+**Git repo cross-reference:** 36 git repos found in Projects/, 20 matched to GitHub repos.
+
+**Cleanup:**
+
+| Action | Files Removed |
+|--------|-------------|
+| 20 GitHub-backed repos deleted | 182,163 |
+| AIOC + contact-tracker (both versions) | 71,973 |
+| new-scars-website, openproject (both), LegacySync, agents-v1 | 1,039 |
+| **Total** | **255,175 files** |
+
+Kept: Vibe Coding Prompts (79 files), Electronics/digirig (92 files).
+
+Corpus: **264,813 → ~9,638 files** (96% reduction).
+
+**Media moved out of OneDrive:**
+
+| Media | Destination | Files |
+|-------|------------|-------|
+| Pictures | /mnt/user/storage/pictures/immich/onedrive-import/ | 13,918 (moved) |
+| Music | /mnt/user/storage/music/downloads/ | 885 (copied, originals deleted) |
+| Videos | /mnt/user/storage/videos/ (organized by category) | 144 (copied, originals deleted) |
+
+**Video categorization:** All 144 videos were personal/work (Zoom recordings, Stratfield consulting, ham radio, personal). Zero movies/TV shows. Organized into Jellyfin-friendly folders: Zoom Recordings/{date}/, Stratfield Consulting/, Business/, Amateur Radio/, etc.
+
+**Remaining OneDrive corpus:** ~9,600 files minus 15,000 media = actual document files TBD (inventory needs re-run post-cleanup). Ready for Phase B (structural cleanup) and Phase C (content extraction).
+
+#### 6. Infrastructure Work
+
+- **file-inventory.py** deployed to homeserver at `/mnt/user/appdata/open-brain/scripts/`
+- Runs via `python:3.12-slim` Docker container with volume mounts
+- sshfs mount to VM attempted but failed (SSH AllowUsers, connection resets). Docker on homeserver is the correct approach.
+- Scan rate: ~1,100 files/sec metadata-only, estimated 2-4 hours with hashing
+
+#### What Worked
+- GitHub Issues + Projects for tracking — immediate visibility into project state
+- Graph API scan-then-delete approach — reliable batch deletion
+- Docker-based file inventory on homeserver — fast, no dependency issues
+- Pattern-based email cleanup — caught 44K emails that classification data missed
+- Media separation (photos → Immich, music → Beets staging, videos → Jellyfin) — clean separation of concerns
+
+#### What Didn't Work
+- Per-sender batch delete (Pass 5 original) — counter showed 0 deletes, emails not actually removed
+- sshfs from VM to homeserver — SSH connection kept dropping
+- Classification data coverage — 23K sample only covered 15% of 153K inbox
+- Composio for bulk operations — 20K/month limit makes it unsuitable for 100K+ operations
+
+**Decisions:** D59-D67 (see Decision Log above)
+
+**Action Items:** A25-A30 (see Action Items above)
+
+---
+
+--- New session: 2026-04-14 — OneDrive dedup + reorg, Phase 3A email pipeline, Immich setup ---
+
+### Entry 041: OneDrive Dedup & Reorg + Phase 3A Email Pipeline + Immich [infrastructure] [email] [deploy]
+
+**Date:** 2026-04-14
+**Duration:** ~8 hours
+**Tags:** `[infrastructure]` `[email]` `[deploy]` `[cleanup]`
+**Environment:** Laptop (development), homeserver (Docker, file storage), open-brain-vm (email pipeline), Jetson (T1 LLM)
+
+#### Objective
+Complete OneDrive file dedup and reorganization, build and deploy Phase 3A email classification pipeline, configure Immich photo import.
+
+#### 1. OneDrive Dedup (dedup-and-archive.py)
+
+**Script patches applied:**
+- Changed archive destination from OneDrive internal (`_archive/versions/`) to backup share (`/mnt/user/backup/tdavis/onedrive-archive/`)
+- Added version-number-aware keep logic: files with explicit `v1`, `v2` etc. keep the highest version number (not largest file size)
+- Added exclusion list: "Troy Davis Background" versions protected from archival
+- Manifest CSV stored in archive directory (not OneDrive root)
+
+**Results:**
+| Metric | Value |
+|--------|-------|
+| Files moved to archive | 22,541 |
+| Errors | 0 |
+| Duration | ~6 hours (cross-filesystem moves, spinning disks) |
+| Duplicate groups | 13,268 |
+| Version chain groups | 642 |
+| Archive location | `/mnt/user/backup/tdavis/onedrive-archive/` |
+| Manifest | `archive-manifest.csv` (22,542 entries) |
+
+**Key observation:** Actual moves (22,541) were much higher than the initial estimate (7,000-8,000) because the triple-mirrored directories (Documents/Coke, Coke/Current, SkyDrive) each had unique files that weren't exact duplicates of each other but WERE duplicates within their own tree.
+
+#### 2. OneDrive Reorganization (reorganize-onedrive.py)
+
+**Approach:** Script-driven reorganization based on spreadsheet plan reviewed and annotated by Troy.
+
+**Troy's key feedback (from spreadsheet review):**
+- "Career" → "Work" (top-level rename)
+- Resume/career docs under Personal/Career
+- Business Services + BSNA combined (same org)
+- Chick-fil-A spelling (lowercase f)
+- Merge Consulting/Chick-fil-A into Stratfield
+- Charts under Sailing (navigational charts)
+- Raspberry Pi → Amateur Radio (BPQ packet radio)
+- Scouts, First Lego League → Personal/Family/Daniel
+- KiCad, EasyEDA-Pro → Making/Electronics
+- N1MM, Kenwood, Yaesu, VBCABLE, G4FON → Amateur Radio
+- Workspace (Eclipse metadata) → delete
+- Favorites (.url bookmarks) → delete
+- No deletions except explicitly approved items
+
+**Results:**
+| Metric | Value |
+|--------|-------|
+| Files moved | 19,507 |
+| Files deleted | 2,842 (Eclipse metadata, bookmarks, temp files) |
+| Empty dirs removed | 2,599 |
+| Errors | 0 |
+| Manifest | `reorganize-manifest.csv` in OneDrive root |
+
+**New top-level structure:**
+Work/, Amateur Radio/, Sailing/, Making/, Personal/, Projects/, Reference/, App Data/
+
+#### 3. Phase 3A Email Pipeline (email-pipeline.py)
+
+**Architecture:**
+```
+email-pipeline.py (open-brain-vm, daily 5 AM cron)
+  1. FETCH new emails (Graph API for Hotmail, Gmail API for Gmail)
+  2. CLASSIFY (T0 sender rules → T0 keyword rules → T1 Jetson LLM)
+  3. ORGANIZE — move to folders/labels (27 categories + "Needs Review")
+  4. CLEANUP — trash Spam & Junk older than 30 days
+  5. DETECT CORRECTIONS — check if user moved previously-classified emails
+  Daily: SUMMARIZE → POST capture to Open Brain
+```
+
+**Files created:**
+- `scripts/email-pipeline.py` (714 lines) — main pipeline
+- `config/email-categories.yaml` (230 lines) — 26 categories, sender rules, keyword rules, settings
+
+**Classification tiers:**
+| Tier | Method | Cost | Speed |
+|------|--------|------|-------|
+| T0 | Sender domain/email rules (32 rules) | Free | Instant |
+| T0 | Subject keyword rules (16 categories) | Free | Instant |
+| T1 | Jetson GPU (qwen3.5-4b at 192.168.10.58:8080) | Free | ~3-4s/email |
+| Fallback | "Needs Review" folder/label | Free | Instant |
+
+**Dry run results (Hotmail, 7 emails):**
+- 1 sender rule match (Financial & Banking — correct)
+- 2 keyword matches → Needs Review (correct, low confidence)
+- 4 Jetson classifications at 0.95 confidence
+- Added sender rules for sogacobb.org, truelinkfinancial.com, specialolympicsga.org → Jamie
+
+**Gmail setup:** OAuth credentials deployed, 27 labels created, dry run successful (6 emails classified). Testing mode — consider Composio to avoid 7-day token refresh.
+
+**Design decision:** Changed from 15-minute cron to daily 5 AM sweep. Troy manages email during the day; pipeline sweeps overnight. Reduces API calls from ~96/day to 1/day.
+
+**Cron (open-brain-vm):**
+```
+0 5 * * * email-pipeline.py --provider both --since-hours 24 && --summary
+```
+
+#### 4. Immich Configuration
+
+- Upgraded to v2.7.5 (from v2.6.3), DB backed up
+- **Problem:** Photos at `/mnt/user/storage/pictures/immich/onedrive-import/` inside Immich upload dir — rejected as external library
+- **Fix:** Added separate volume mount: `- /mnt/user/storage/pictures/immich/onedrive-import:/usr/src/app/external/onedrive:ro`
+- External library configured in Immich UI → scanning 13,918 photos
+
+#### 5. Jetson Connectivity
+
+- Jetson was offline (powered off), rebooted by Troy
+- Got new local IP: 192.168.10.58 (static, confirmed by Troy)
+- DNS `jetson.k4jda.net` resolves to Tailscale IP (100.x) — unreachable from VM (no Tailscale)
+- Config uses local IP directly: `http://192.168.10.58:8080/v1`
+- VM cannot reach Spark either (same Tailscale issue)
+- Troy explicitly rejected CPU inference on homeserver as fallback
+
+#### What Worked
+- Spreadsheet-based review process for reorg plan — Troy annotated column G with changes
+- Version-number-aware dedup scoring — keeps v24 over v15
+- Cross-filesystem dedup via shutil.move — zero errors on 22K files
+- Jetson GPU inference at 3-4s/email — accurate classifications
+- Reusing MSAL token cache from email-corpus-analyzer — no re-auth needed
+
+#### What Took Long
+- Dedup: 6 hours for 22K files (cross-filesystem copy+delete on spinning disks)
+- Many files in the plan didn't exist (already moved by earlier duplicate group) — script spent time stat'ing non-existent files
+
+#### 7. File Ingestion into Open Brain (Phase 2B)
+
+**Run 1 (overnight, routed to Anthropic API — MISTAKE):**
+- 3,300 files submitted, all pipeline stages hit Anthropic Haiku/Sonnet
+- Cost: ~$100+ in Anthropic API charges
+- Root cause: ai-routing.yaml had (1) wrong Jetson IP causing fallback to paid API, (2) cost_per_1k fields set to 0 (budget breaker blind), (3) no Spark tier defined
+
+**Fix applied:** Added t1_spark tier (Qwen 35B on DGX Spark, free), fixed Jetson IP to 192.168.10.58, populated cost fields, rerouted all routine tasks to Spark. Only governance + weekly brief remain on paid Anthropic.
+
+**Run 4 (after fix, routed to Spark — FREE):**
+- 7,054 files submitted, 375 errors, 146.5 minutes, 48 files/min
+- Zero Anthropic API charges
+
+**Repair run (fallback extractors in Docker):**
+- 930 error files processed with pymupdf, LibreOffice, pdftotext, tesseract OCR, xlrd
+- Repaired: 682, Failed: 24, Submit failed: 9
+- 73% recovery rate on previously-failed files
+
+**Final corpus state:**
+| Metric | Count |
+|--------|-------|
+| Total file captures | 10,966 |
+| With embeddings (searchable) | 8,254 |
+| Pipeline pending (Spark entity extraction) | 2,712 |
+| All captures (all sources) | 11,043 |
+| Truly unrecoverable files | 24 |
+
+**Decisions:** D68-D77 (see Decision Log above)
+
+**Action Items:** A31-A33 (see Action Items above)
+
+---
+
+### Entry 043 — Fix embedding overflow + Spark timeout + config sync [deploy] [pipeline] [embedding] [config]
+**Date:** 2026-04-15
+**Environment:** Homeserver (Docker), DGX Spark (vLLM), laptop (development)
+**Duration:** ~45 minutes
+
+#### Objective
+Fix two production issues discovered during session startup health check:
+1. 2,577+ captures permanently failing embedding due to content exceeding text-embedding-3-large's 8,191-token limit
+2. Entity extraction jobs timing out on Spark (30s timeout vs 20-40s actual processing time)
+
+Also: sync local repo ai-routing.yaml with deployed v3 config, fix misleading error labels.
+
+#### Hypothesis
+1. Adding adaptive content truncation in EmbeddingService will eliminate all token overflow failures
+2. Increasing t1_spark timeout from 30s to 120s will eliminate timeout errors
+3. Adding `openai_compat` to AIClientType will fix misleading `(litellm)` error labels
+
+#### Rollback Plan
+- Revert source files on homeserver, rebuild containers
+- ai-routing.yaml: change timeout_ms back to 30000
+- Redis: failed embed jobs will naturally retry on next daily sweep
+
+#### Results
+
+**Fix 1: Embedding adaptive truncation**
+- Problem: `EmbeddingService.embed()` passed raw content to OpenAI API with zero truncation
+- Impact: 2,641 permanently failed embed jobs; 2,577 captures without embeddings
+- Root cause: No char/token limit enforcement anywhere in the pipeline
+- Fix: Added `embedWithAdaptiveTruncation()` — starts at 16K chars, catches 400 "context length" errors, halves limit and retries (down to 2K min)
+- Result: 58 successful embeddings + 2 overflow retries + 0 failures in first 60 seconds post-deploy. All 2,641 retried jobs processing.
+- Learning: Character estimation (4 chars/token) is unreliable — code and JSON can be as low as 1.5-2 chars/token. Adaptive retry is more robust than picking a single limit.
+
+**Fix 2: Spark timeout increase**
+- Problem: `t1_spark.timeout_ms = 30000` but entity extraction on Qwen 35B takes 20-40s
+- Impact: Jobs timing out at exactly 30.1s, retrying repeatedly, slowing the 7K backlog
+- Fix: Increased to 120s (matches LiteLLM proxy config already set for Spark)
+- Result: +86 completions in first check, no new timeout failures
+
+**Fix 3: Error label fix**
+- Problem: `resolveProviderClient()` mapped `openai_compat` → `'litellm'`, making logs say `(litellm)` for Spark requests
+- Fix: Added `'openai_compat'` to `AIClientType` union, return it from `resolveProviderClient()`
+- Result: Error messages now correctly identify the provider
+
+**Fix 4: Config sync**
+- Problem: Local repo had v2 ai-routing.yaml (no t1_spark tier, old Jetson IP, zero cost fields)
+- Fix: Wrote deployed v3 config to local repo
+- Note: Deployed version had 30s Spark timeout — updated to 120s in the sync
+
+**Queue state after fixes:**
+| Queue | Wait | Active | Completed | Failed |
+|-------|------|--------|-----------|--------|
+| extract-entities | 6,971 | 4 | 4,135 | 10 (stable) |
+| embed-capture | 1,861 | 2 | ~780 | 0 |
+
+**Tests:** 184 shared + 897 workers + 694 core-api = 1,775 tests passing
+
+**Decisions:** D78-D81 (see Decision Log above)
+**Action Items:** A34-A35 (see Action Items above)
+
+---
+
+### Entry 044 — Phase 3 Planning: Operations + Observability + Wiki [decision] [config]
+**Date:** 2026-04-15
+**Environment:** Laptop (planning session)
+**Duration:** ~2 hours
+
+#### Objective
+Comprehensive ultra-plan analysis of 12 items spanning operational fixes, observability, and feature completion. Generate formal implementation plan.
+
+#### Key Investigations & Findings
+
+**1. wiki-ingest bypass (critical discovery):**
+- `wiki-ingest.ts:242` hardcodes `claude-sonnet-4-5-20250929`
+- Uses `runAgent()` with Anthropic SDK directly — does NOT go through ai-routing.yaml task_routing or LLMGatewayService
+- Changing ai-routing.yaml has ZERO effect on wiki-ingest
+- 70% failure rate is Anthropic API connection timeouts during 15-iteration agent loops
+- Fix: configurable model key in ai-routing.yaml, default to Haiku (cheaper, faster, reliable tool use)
+
+**2. BullMQ backup skills all failing (critical discovery):**
+- Workers container has ONLY `config:/app/config:ro` mounted — NO Docker socket, NO /backups volume
+- `skills_log` confirms: every run since Apr 12 is `status:failed, size:0, duration:0s`
+- VM cron scripts are the only working backup (except Redis permission error)
+- Homeserver backup.sh also failing (Docker socket permission since Apr 11)
+- Resolution: remove BullMQ backup jobs, fix VM + homeserver scripts
+
+**3. Email Outbound #69 is 90% built:**
+- HimalayaService, EmailDraftService, email-compose skill, REST routes, Slack commands, MCP tools ALL exist
+- Missing: migration 0015, SMTP config, deployment
+- This is deployment wiring, not feature development
+
+**4. Entity extraction JSON mode:**
+- `completeViaOpenAISDK()` doesn't pass `response_format`
+- vLLM supports `response_format: { type: 'json_object' }` — easy fix
+- ~5% failure rate on Spark (Qwen 35B returns non-JSON)
+
+**5. Observability gap analysis:**
+- Prometheus, Grafana, Pushgateway all running on homeserver
+- ZERO custom Grafana dashboards
+- No app-level metrics export (no prom-client)
+- No log aggregation (Loki plugin installed, no backend)
+- ai_audit_log has every LLM call but no visualization
+- All health checks are container-internal — no external synthetic monitoring
+
+**6. LiteLLM standalone proxy:**
+- Running on port 4000 with its own Postgres spend DB
+- Full model config for all providers
+- Open Brain currently bypasses it (goes direct to api.openai.com)
+- `getMonthlySpend()` in llm-gateway.ts is broken (expects aggregated JSON, gets raw array)
+
+**7. Cron job audit:**
+- Triple backup redundancy: VM cron (2 AM), BullMQ (2 AM, all failing), homeserver (3 AM, failing)
+- 7-8 AM job cluster (6 jobs, some with LLM calls)
+- OneDrive sync still running every 15 min despite reorg being complete
+- Bond offline — cannot audit OpenClaw cron
+
+#### Deliverables
+- `IMPLEMENTATION_PLAN_PHASE-3.md` — 8 phases, 20 work items
+- `IMPLEMENT_MASTER_PLAN.md` — updated with current completion status
+- Archived: `IMPLEMENTATION_PLAN_NEXT.md`, `GITHUB_ERRORS.md` → docs/archived/
+
+**Decisions:** D78-D81 (from Entry 043), plus plan approval (this entry)
+**Action Items:** A34-A35 (from Entry 043), plus IMPLEMENTATION_PLAN_PHASE-3.md execution
+
+---
+
+### Entry 045 — Phase 3 Implementation: Phases 1-5.1 complete [deploy] [pipeline] [config] [debug]
+**Date:** 2026-04-15
+**Environment:** Laptop (development), Homeserver (Docker deploy), open-brain-vm, DGX Spark
+**Duration:** ~3 hours
+**Branch:** `phase-3/ops-observability-wiki`
+
+#### Objective
+Execute IMPLEMENTATION_PLAN_PHASE-3.md Phases 1 through 5. Fix operational issues, improve LLM reliability, wire email outbound, route through LiteLLM proxy.
+
+#### Hypothesis
+1. Flushing dead Redis queues + disabling stale cron + updating board will take <15 min (ops only)
+2. Removing BullMQ backup jobs + fixing scripts will consolidate to one working backup system
+3. Wiki-ingest with Haiku will succeed >90% (was 30% with Sonnet timeouts)
+4. JSON mode will reduce entity extraction empty-parse rate from ~5% to <1%
+5. LiteLLM proxy routing will capture embedding costs for visibility
+
+#### Rollback Plan
+- Git branch: `phase-3/ops-observability-wiki` — revert commits if needed
+- Docker compose backup: `docker-compose.yml.bak-20260415`
+- .env.secrets backup: `.env.secrets.bak-20260415`
+- LiteLLM config backup: `config.yaml.bak-20260415`
+- Homeserver backup.sh backup: `backup.sh.bak`
+
+#### Results — Phase 1: Operational Cleanup ✅
+
+**1.1 Redis queue flush:**
+- Flushed 10,970 failed document-pipeline + 2,641 failed ingest-root jobs
+- Redis memory: 116.26MB → 114.61MB (~1.65MB freed)
+- Verified: both failed counts = 0, active queues unaffected
+
+**1.2 OneDrive sync disabled:**
+- Commented out `*/15 * * * *` cron on homeserver
+- Script preserved for future re-enable if needed
+
+**1.3 GitHub board updated:**
+- Moved #53, #59, #61, #74 to Done column (were in Backlog/Blocked/Up Next)
+- Added #73 (Qdrant Evaluation) to Backlog
+- Board now accurately reflects project state
+
+#### Results — Phase 2: Backup Consolidation ✅
+
+**2.1 BullMQ backup jobs removed:**
+- Removed 3 scheduled job registrations from scheduler.ts (~60 lines)
+- `db-backup`, `wiki-backup`, `redis-snapshot` no longer fire at 2 AM
+- All were failing since Apr 12 (workers container has no Docker socket)
+- 897 workers tests pass after change
+
+**2.2 VM Redis backup fixed:**
+- Changed `cat /tmp/redis-backup.rdb` → `sudo cat /tmp/redis-backup.rdb`
+- Previous: 20-byte empty gzip files for weeks (permission denied on extracted RDB)
+- Awaiting next 2:30 AM run to verify
+
+**2.3 Homeserver backup.sh fixed:**
+- Added `sudo` to all 6 `docker exec`/`docker ps`/`docker inspect` commands
+- Previous: failing since Apr 11 with Docker socket permission error
+- Awaiting next 3 AM run to verify
+
+**Key finding:** There were THREE backup systems (VM cron, BullMQ skills, homeserver cron). Only VM cron was partially working. Now: VM cron is canonical (off-host storage), homeserver cron is supplemental (tiered retention).
+
+#### Results — Phase 3: LLM Reliability ✅
+
+**3.1 Wiki-ingest model configurable:**
+- Added `wiki_agent: "claude-haiku-4-5-20251001"` to ai-routing.yaml models section
+- Added `wiki_agent` to AIModelConfigSchema (optional Zod field)
+- skill-execution.ts resolves model from config at init (same pattern as synthesisModel)
+- Wiki-ingest now uses configurable model, default Haiku (5x cheaper, 3x faster than Sonnet)
+
+**3.2 JSON mode for entity extraction:**
+- Added `jsonMode?: boolean` to LLMCompleteOptions
+- `completeViaOpenAISDK()` passes `response_format: { type: 'json_object' }` when enabled
+- Entity extraction enables jsonMode via `completeByTask('entity_extraction', { jsonMode: true })`
+- Added single retry on empty parse from substantial response (>50 chars)
+- 1,775 tests pass (184 shared + 897 workers + 694 core-api)
+
+**Deployed to homeserver:** Both changes rebuilt and deployed. Verified entity extraction on Spark with no Anthropic fallback (259 calls/hour all on openai_compat).
+
+#### Results — Phase 4: Email Outbound (partial) ✅
+
+**4.1 Migration:** `email_drafts` table already existed in production. Schema verified complete.
+
+**4.2 Himalaya config:**
+- Created `config/himalaya/config.toml` with bytemark-smtp relay
+- Connected bytemark-smtp to open-brain Docker network
+- Himalaya v1.2.0 config parses, account recognized
+- **Blocked:** bytemark-smtp has no auth support, Himalaya v1.2.0 requires auth
+- Config infrastructure is ready; needs real SMTP credentials from Troy
+
+**4.3 Testing:** Blocked pending SMTP credentials. See A36.
+
+#### Results — Phase 5.1: LiteLLM Proxy Routing ✅
+
+- Changed `LITELLM_URL` from `https://api.openai.com/v1` to `http://litellm:4000` (4 services in docker-compose)
+- Changed `LITELLM_API_KEY` to LiteLLM master key in `.env.secrets`
+- Connected `litellm` container to `open-brain_open-brain` Docker network
+- Added `text-embedding-3-large` to LiteLLM proxy model config (was missing)
+- Verified proxy health from workers container
+
+**Key architectural note:** Tier-based routing (Spark, Jetson, Anthropic direct) bypasses the proxy by design — those use dedicated OpenAI SDK clients created by `getClientForTier()`. The proxy captures embeddings and legacy alias calls. For full Anthropic cost tracking, would need to route Anthropic SDK through LiteLLM too (bigger refactor, deferred).
+
+#### COST INCIDENT — $50 Anthropic Invoice ⚠️
+
+**Root cause analysis:**
+
+| Source | Volume (24h) | Model | Tokens | Est. Cost |
+|--------|-------------|-------|--------|-----------|
+| Entity extraction fallback | 3,233 calls | Haiku (t1_fast) | 20.8M prompt + 980K completion | ~$20.50 |
+| Wiki-ingest retry loop | 7,486 queued × retries | Sonnet (hardcoded) | Unknown (not in ai_audit_log) | ~$30 |
+| **Total** | | | | **~$50** |
+
+**Entity extraction:** Spark was timing out (30s limit for 20-40s tasks), causing fallback to Haiku (paid). Fixed in Entry 043 with 120s timeout. Post-fix: 259 calls/hour all on Spark, zero Anthropic fallback.
+
+**Wiki-ingest:** The daily 6 AM wiki-synthesis job queued ALL unintegrated captures (7,486!) for wiki-ingest. Each wiki-ingest attempt ran a 10-15 turn Anthropic Sonnet agent loop (~$0.10-0.15/attempt), hit a git identity error on commit, then BullMQ retried. The git error was `Author identity unknown` — workers container had no git config.
+
+**Emergency actions taken:**
+1. Drained 7,486 wiki-ingest queue jobs (stopped Sonnet bleeding immediately)
+2. Fixed git identity in workers container: `git config --global user.email/name`
+3. Deployed wiki-ingest model change (Haiku, not Sonnet)
+4. Verified entity extraction 100% on Spark (no Anthropic fallback)
+5. Confirmed `cost_usd` in ai_audit_log still shows 0 — cost fields in tiers populate but gateway cost logging needs investigation (Phase 5.2)
+
+**Prevention:**
+- D86: Never re-queue entire corpus for wiki-ingest. Phase 8 bulk uses T2 CLI.
+- D83: Wiki-ingest model now configurable (default Haiku, not Sonnet)
+- D79: Spark timeout 120s prevents fallback to paid API
+- Phase 5 (LiteLLM routing) will provide real-time cost visibility
+
+#### What Worked
+- Parallel subagent execution for independent work items (3.1 + 3.2 ran simultaneously)
+- Immediate deploy after each phase (caught issues fast)
+- Infrastructure audit upfront (found BullMQ backup failure, triple redundancy, stale cron)
+- State file (.implement-plan-state.json) enables clean resume across sessions
+
+#### What Failed / Surprised
+- Wiki-ingest uses `runAgent()` with Anthropic SDK — completely bypasses ai-routing.yaml task routing
+- Himalaya v1.2.0 requires SMTP auth even for no-auth relays
+- `bytemark-smtp` was on a separate Docker network (br0, not open-brain)
+- `cost_usd` in ai_audit_log still shows 0 for all calls — cost calculation in gateway needs investigation
+- LiteLLM `/spend/logs` endpoint timed out on direct query from container
+
+**Decisions:** D82-D87 (see Decision Log above)
+**Action Items:** A36-A42 (see Action Items above)
+
+#### Resumed Implementation — Phases 5.2 through 8.1
+
+**Phase 5.2-5.3 (LiteLLM Cost Routing completion):**
+- Fixed `getMonthlySpend()` to parse `/spend/logs` array (was expecting aggregated object)
+- Uses `LITELLM_SPEND_URL` (separate from inference URL) with fallback to local `ai_audit_log`
+- `CostAnalysisSkill` now combines LiteLLM + local audit for full cost picture
+- Added LiteLLM to container-health skill (`litellm:4000/health/liveliness`)
+
+**Phase 6 (Synthetic Monitoring):**
+- CF Worker created (`cloudflare/synthetic-monitor/`) — cron every 5 min, KV state, Pushover alerts
+- Added CF Access Service Token header support (brain.troy-davis.com uses Zero Trust)
+- VM cron added: curl internal endpoint (192.168.10.3:3002) every 15 min
+- **Note:** CF Worker deployment requires Access Service Token from Cloudflare dashboard
+
+**Phase 7 (Observability Stack):**
+- 7.1: Pushgateway metrics from pipeline-health + container-health skills (10 new tests)
+- 7.2: prom-client `/metrics` in core-api — 4 custom metrics + Node.js defaults, Hono middleware
+- 7.3: 3 Grafana dashboards (56 total panels): System Overview, LLM Cost, Pipeline Health
+- 7.4: Loki config + deploy script + docs (standalone container, 30-day retention)
+- Prometheus scrape config for core-api:3000/metrics
+
+**Phase 8.1 (Wiki Schema & Bootstrap):**
+- WIKI_SCHEMA.md: 6 page types, frontmatter spec, naming conventions, quality criteria
+- 8 domain stubs + 3 entity bootstrap pages with cross-references
+- Wiki-ingest prompt updated with schema reference + domain linking instruction
+
+#### Queue State at End of Session
+
+| Queue | Wait | Active | Completed | Failed |
+|-------|------|--------|-----------|--------|
+| extract-entities | ~6,500 | 2 | ~4,600 | 10 |
+| embed-capture | 0 | 0 | 11,034 | 0 |
+| wiki-ingest | 0 | 0 | ~100 | ~2 |
+| document-pipeline | 0 | 0 | 0 | 0 (flushed) |
+| ingest-root | 0 | 0 | 0 | 0 (flushed) |
+
+#### Commits (branch: phase-3/ops-observability-wiki)
+
+| SHA | Description |
+|-----|-------------|
+| 7abc2c8 | Phase 3 baseline — embedding fix, config sync, plan |
+| f6e4659 | Stage archived file deletions |
+| 1a8fa54 | Phase 1: Operational Cleanup (1.1, 1.2, 1.3) |
+| 27e41ce | Phase 2: Backup Consolidation (2.1, 2.2, 2.3) |
+| 9fff1ab | Phase 3: LLM Reliability (3.1, 3.2) |
+| 8918307 | Phase 4 partial: Email Outbound config (4.1, 4.2) |
+| 3ea0903 | Phase 5.1: LiteLLM proxy routing |
+| 2a61dcd | Phase 5.2-5.3: Spend aggregation + LiteLLM health check |
+| 69a52ac | Phase 6: Synthetic monitoring (CF Worker + VM cron) |
+| 7174d1f | Phase 7.1, 7.2, 7.4: Pushgateway + prom-client + Loki |
+| ba22aaa | Phase 7.3: Grafana dashboards (3 dashboards, 56 panels) |
+| 3a4d3da | LAB_NOTEBOOK Entry 045 update |
+| 02a4cd0 | Phase 8.1: Wiki schema + bootstrap pages |
+
+---
+
+### Entry 046 — Full Infrastructure Deployment + Financial Sprint Planning [deploy] [decision]
+**Date:** 2026-04-15
+**Environment:** Homeserver (Docker), all infrastructure
+**Duration:** ~1 hour
+
+#### Objective
+Deploy all Phase 3 code to homeserver production and plan the financial awareness sprint.
+
+#### Results
+
+**Deployed to production:**
+- Phase 7 code: prom-client `/metrics` endpoint in core-api, Pushgateway wiring in skills
+- Prometheus: connected to open-brain network, scraping core-api at 15s intervals
+- Grafana: 3 dashboards (System Overview, LLM Cost, Pipeline Health) provisioned
+- Loki: container running, data directory permissions fixed, ready for log ingestion
+- Wiki: 11 bootstrap pages (8 domains + 3 entities) pushed to Gitea
+
+**Key operational fixes during deployment:**
+- Prometheus needed `docker network connect` after restart (not persistent)
+- Loki `/loki/data/rules` permission denied — fixed with `chown 10001:10001`
+- Grafana datasource API needed admin auth (not default admin:admin)
+- Git identity in workers container needed re-setting after rebuild
+- `docker network connect` is NOT persistent across container restarts — need startup script or compose config (A42)
+
+**Financial Sprint Investigation:**
+- Analyzed email-pipeline.py as template (661 LOC, complete T0/T1/T2 pattern)
+- Verified Capture API accepts `source: 'api'` for financial data
+- Confirmed Plaid Development tier is free (100 items, 6 accounts needed)
+- Mapped all API endpoints from HAR analysis:
+  - Water: `ccw-csswebapi.cobbcounty.org/api/account/getMeterReadings` (clean JSON, possibly auth-free)
+  - Gas: `manage-api.gassouth.com/oas/api/account/get-account-activity` (authtoken required, therms in PDF only)
+  - Power: SmartHub API via electric-usage-downloader (Go tool, 15-min resolution)
+
+**Generated:** `IMPLEMENTATION_PLAN_PHASE-4.md` — 4 phases, 12 work items covering Plaid financial integration + utility usage + manual inboxes
+
+**Decisions:** Financial pipeline follows email-pipeline.py pattern exactly (SQLite local → POST captures). All synthesis via claude --print (T2, zero API cost). Plaid Dev tier, not Production.
+
+**Action Items:**
+- Troy: sign up Plaid, store keys in Bitwarden
+- Troy: provide SmartHub + Gas South credentials
+- Troy: provide SMTP credentials for email outbound
+- Troy: create CF Access Service Token for synthetic monitor deployment

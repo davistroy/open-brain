@@ -1,474 +1,455 @@
-#!/usr/bin/env python3
 """
-Open Brain File Inventory — Build SQLite inventory of staged files.
+File Inventory Scanner — Phase A of OneDrive corpus analysis.
 
-Walks a staging directory, records file metadata, computes two-tier hashes
-(xxhash-64KB for fast grouping, SHA-256 for exact duplicate confirmation),
-and optionally calls the Python extraction service for text-bearing formats.
+Walks the entire file tree, collects metadata + SHA-256 hashes,
+stores in SQLite, and generates a summary report.
+
+Non-destructive: reads only, never modifies files.
 
 Usage:
-    python scripts/file-inventory.py --staging-dir /mnt/user/openbrain/staging
-    python scripts/file-inventory.py --staging-dir ./test-staging --db ./inventory.db
-    python scripts/file-inventory.py --staging-dir /data --extraction-url http://localhost:8080
-
-Requires: xxhash (pip install xxhash)
+    python file-inventory.py /path/to/files [--db inventory.db] [--skip-hash] [--resume]
 """
 
 import argparse
 import hashlib
-import logging
 import mimetypes
 import os
+import re
 import sqlite3
 import sys
 import time
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import xxhash
-except ImportError:
-    print("ERROR: xxhash not installed. Run: pip install xxhash", file=sys.stderr)
-    sys.exit(1)
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
-try:
-    import requests
-except ImportError:
-    requests = None  # type: ignore[assignment]
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
-logger = logging.getLogger("file-inventory")
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-XXHASH_CHUNK_SIZE = 64 * 1024  # 64KB for partial hash
-SHA256_CHUNK_SIZE = 128 * 1024  # 128KB chunks for full SHA-256
-
-# Extensions the extraction service supports
-EXTRACTABLE_EXTENSIONS = {
-    ".pdf", ".docx", ".pptx", ".xlsx", ".txt", ".md", ".csv", ".html", ".htm",
+# Files/dirs to skip entirely
+SKIP_NAMES = {
+    ".git", ".svn", "__pycache__", "node_modules", ".Trash",
+    "$RECYCLE.BIN", "System Volume Information",
 }
 
-# ---------------------------------------------------------------------------
-# Database setup
-# ---------------------------------------------------------------------------
+# Known junk file patterns
+JUNK_PATTERNS = [
+    r"^thumbs\.db$",
+    r"^desktop\.ini$",
+    r"^\.DS_Store$",
+    r"^~\$",                     # Office temp files
+    r"\.tmp$",
+    r"^\.~lock\.",               # LibreOffice locks
+    r"\.crdownload$",            # Incomplete Chrome downloads
+    r"\.partial$",
+]
+JUNK_RE = [re.compile(p, re.IGNORECASE) for p in JUNK_PATTERNS]
 
-CREATE_TABLE_SQL = """
+# OneDrive conflict pattern
+CONFLICT_RE = re.compile(
+    r"\(.*(?:conflicted|conflict).*copy.*\)", re.IGNORECASE
+)
+
+# Version chain pattern
+VERSION_RE = re.compile(
+    r"[_ -]v?\d+[\._]|[_ -](?:final|draft|revised|updated|copy|old|new|backup)",
+    re.IGNORECASE,
+)
+
+DB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    path TEXT NOT NULL UNIQUE,
+    path TEXT UNIQUE NOT NULL,
     filename TEXT NOT NULL,
-    extension TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    modified_date TEXT NOT NULL,
-    mime_type TEXT NOT NULL,
-    xxhash_partial TEXT NOT NULL,
-    sha256_full TEXT,
-    extracted_text TEXT,
-    extraction_metadata TEXT,
-    extraction_error TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-
-    -- Categorization columns (populated by file-categorize.py)
-    category TEXT,
-    subcategory TEXT,
-    description TEXT,
-    tags TEXT,
-
-    -- Dedup columns (populated by file-dedup.py)
-    is_duplicate INTEGER DEFAULT 0,
-    duplicate_of TEXT,
-    is_near_duplicate INTEGER DEFAULT 0,
-    near_duplicate_of TEXT,
-    near_duplicate_score REAL
+    extension TEXT,
+    size_bytes INTEGER NOT NULL,
+    created_at TEXT,
+    modified_at TEXT,
+    mime_type TEXT,
+    sha256 TEXT,
+    is_junk BOOLEAN DEFAULT 0,
+    is_conflict_copy BOOLEAN DEFAULT 0,
+    is_version_chain BOOLEAN DEFAULT 0,
+    is_zero_byte BOOLEAN DEFAULT 0,
+    parent_dir TEXT,
+    depth INTEGER,
+    scanned_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_files_xxhash ON files(xxhash_partial);
-CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files(sha256_full);
-CREATE INDEX IF NOT EXISTS idx_files_size ON files(size);
+CREATE TABLE IF NOT EXISTS scan_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files(sha256);
 CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
-CREATE INDEX IF NOT EXISTS idx_files_is_duplicate ON files(is_duplicate);
-CREATE INDEX IF NOT EXISTS idx_files_category ON files(category);
+CREATE INDEX IF NOT EXISTS idx_files_size ON files(size_bytes);
+CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_dir);
+CREATE INDEX IF NOT EXISTS idx_files_junk ON files(is_junk);
 """
 
 
-def init_db(db_path: str) -> sqlite3.Connection:
-    """Initialize SQLite database with inventory schema."""
+def init_db(db_path):
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
-    conn.executescript(CREATE_TABLE_SQL)
+    conn.executescript(DB_SCHEMA)
     conn.commit()
-    logger.info("Database initialized at %s", db_path)
     return conn
 
 
-# ---------------------------------------------------------------------------
-# Hashing
-# ---------------------------------------------------------------------------
-
-def compute_xxhash_partial(file_path: Path) -> str:
-    """Compute xxhash64 of the first 64KB of a file."""
-    h = xxhash.xxh64()
-    with open(file_path, "rb") as f:
-        data = f.read(XXHASH_CHUNK_SIZE)
-        h.update(data)
-    return h.hexdigest()
+def file_is_scanned(conn, path):
+    row = conn.execute("SELECT 1 FROM files WHERE path = ?", (path,)).fetchone()
+    return row is not None
 
 
-def compute_sha256_full(file_path: Path) -> str:
-    """Compute full SHA-256 hash of a file, streaming in chunks."""
+def hash_file(filepath, chunk_size=65536):
     h = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        while True:
-            chunk = f.read(SHA256_CHUNK_SIZE)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Content extraction via HTTP service
-# ---------------------------------------------------------------------------
-
-def extract_content(file_path: str, extraction_url: str) -> tuple[str | None, str | None, str | None]:
-    """Call the extraction service for a file. Returns (text, metadata_json, error)."""
-    if requests is None:
-        return None, None, "requests library not installed"
-
     try:
-        resp = requests.post(
-            f"{extraction_url}/extract",
-            json={"file_path": file_path},
-            timeout=120,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            import json
-            return data.get("text", ""), json.dumps(data.get("metadata", {})), None
-        elif resp.status_code == 400:
-            return None, None, f"Unsupported file type (HTTP 400)"
-        else:
-            return None, None, f"HTTP {resp.status_code}: {resp.text[:200]}"
-    except requests.exceptions.ConnectionError:
-        return None, None, "Extraction service unavailable"
-    except requests.exceptions.Timeout:
-        return None, None, "Extraction service timeout (120s)"
-    except Exception as e:
-        return None, None, f"{type(e).__name__}: {e}"
+        with open(filepath, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest()
+    except (PermissionError, OSError):
+        return None
 
 
-# ---------------------------------------------------------------------------
-# File walking and inventory
-# ---------------------------------------------------------------------------
+def classify_filename(filename):
+    is_junk = any(p.search(filename) for p in JUNK_RE)
+    is_conflict = bool(CONFLICT_RE.search(filename))
+    is_version = bool(VERSION_RE.search(filename))
+    return is_junk, is_conflict, is_version
 
-def walk_staging(staging_dir: Path) -> list[Path]:
-    """Walk staging directory and return all files (not directories, not hidden)."""
-    files: list[Path] = []
-    for root, dirs, filenames in os.walk(staging_dir):
-        # Skip hidden directories
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for fname in filenames:
-            if fname.startswith("."):
+
+def get_file_times(filepath):
+    try:
+        stat = os.stat(filepath)
+        created = datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat()
+        modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        return created, modified
+    except (PermissionError, OSError):
+        return None, None
+
+
+def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 1024):
+    root = Path(root_path).resolve()
+    scan_start = datetime.now(timezone.utc).isoformat()
+
+    conn.execute(
+        "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
+        ("scan_start", scan_start),
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
+        ("root_path", str(root)),
+    )
+    conn.commit()
+
+    file_count = 0
+    hash_count = 0
+    skip_count = 0
+    error_count = 0
+    total_size = 0
+    batch = []
+    batch_size = 500
+    start_time = time.time()
+
+    max_hash_mb = max_hash_size / 1024 / 1024
+    print(f"Scanning: {root}", flush=True)
+    print(f"Hash: {'enabled (files < ' + str(int(max_hash_mb)) + 'MB)' if not skip_hash else 'disabled'}", flush=True)
+    print(flush=True)
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Skip known junk directories
+        dirnames[:] = [d for d in dirnames if d not in SKIP_NAMES]
+
+        rel_dir = os.path.relpath(dirpath, root)
+        depth = rel_dir.count(os.sep) + 1 if rel_dir != "." else 0
+
+        for filename in filenames:
+            filepath = os.path.join(dirpath, filename)
+
+            # Resume support: skip if already scanned
+            rel_path = os.path.relpath(filepath, root)
+            if file_is_scanned(conn, rel_path):
+                skip_count += 1
+                if skip_count % 10000 == 0:
+                    print(f"  Skipped {skip_count} already-scanned files...", flush=True)
                 continue
-            files.append(Path(root) / fname)
-    return files
 
-
-def get_mime_type(file_path: Path) -> str:
-    """Detect MIME type from extension."""
-    mime_type, _ = mimetypes.guess_type(str(file_path))
-    return mime_type or "application/octet-stream"
-
-
-def build_inventory(
-    staging_dir: Path,
-    db_path: str,
-    extraction_url: str | None,
-) -> None:
-    """Main inventory builder. Walks staging, hashes, extracts, stores in SQLite."""
-    conn = init_db(db_path)
-
-    # Check how many files already inventoried (for resume)
-    existing = set()
-    cursor = conn.execute("SELECT path FROM files")
-    for row in cursor:
-        existing.add(row[0])
-    logger.info("Found %d existing inventory entries", len(existing))
-
-    # Walk staging directory
-    all_files = walk_staging(staging_dir)
-    logger.info("Found %d files in staging directory", len(all_files))
-
-    new_files = [f for f in all_files if str(f) not in existing]
-    logger.info("New files to inventory: %d (skipping %d already inventoried)",
-                len(new_files), len(all_files) - len(new_files))
-
-    if not new_files:
-        logger.info("No new files to process")
-        _generate_report(conn, staging_dir)
-        conn.close()
-        return
-
-    # Phase 1: Walk and compute xxhash for all files
-    logger.info("Phase 1: Computing xxhash for %d files...", len(new_files))
-    file_records: list[dict] = []
-    errors = 0
-
-    for i, file_path in enumerate(new_files):
-        if (i + 1) % 500 == 0 or i == 0:
-            logger.info("  Hashing file %d/%d...", i + 1, len(new_files))
-
-        try:
-            stat = file_path.stat()
-            record = {
-                "path": str(file_path),
-                "filename": file_path.name,
-                "extension": file_path.suffix.lower(),
-                "size": stat.st_size,
-                "modified_date": datetime.fromtimestamp(
-                    stat.st_mtime, tz=timezone.utc
-                ).isoformat(),
-                "mime_type": get_mime_type(file_path),
-                "xxhash_partial": compute_xxhash_partial(file_path),
-            }
-            file_records.append(record)
-        except (OSError, PermissionError) as e:
-            logger.warning("Cannot read %s: %s", file_path, e)
-            errors += 1
-
-    logger.info("Phase 1 complete: %d files hashed, %d errors", len(file_records), errors)
-
-    # Insert records into database
-    conn.executemany(
-        """INSERT OR IGNORE INTO files (path, filename, extension, size, modified_date, mime_type, xxhash_partial)
-           VALUES (:path, :filename, :extension, :size, :modified_date, :mime_type, :xxhash_partial)""",
-        file_records,
-    )
-    conn.commit()
-    logger.info("Inserted %d file records into database", len(file_records))
-
-    # Phase 2: Compute SHA-256 for files with matching (size, xxhash_partial)
-    logger.info("Phase 2: Computing SHA-256 for size+xxhash collision groups...")
-    cursor = conn.execute("""
-        SELECT size, xxhash_partial, COUNT(*) as cnt
-        FROM files
-        WHERE sha256_full IS NULL
-        GROUP BY size, xxhash_partial
-        HAVING cnt > 1
-    """)
-    collision_groups = cursor.fetchall()
-    logger.info("Found %d collision groups needing SHA-256", len(collision_groups))
-
-    sha256_count = 0
-    for size, xxhash_val, count in collision_groups:
-        cursor2 = conn.execute(
-            "SELECT id, path FROM files WHERE size = ? AND xxhash_partial = ? AND sha256_full IS NULL",
-            (size, xxhash_val),
-        )
-        for file_id, file_path in cursor2.fetchall():
             try:
-                sha256 = compute_sha256_full(Path(file_path))
-                conn.execute(
-                    "UPDATE files SET sha256_full = ? WHERE id = ?",
-                    (sha256, file_id),
+                stat = os.stat(filepath)
+                size = stat.st_size
+            except (PermissionError, OSError):
+                error_count += 1
+                continue
+
+            ext = os.path.splitext(filename)[1].lower() if "." in filename else ""
+            mime = mimetypes.guess_type(filename)[0] or ""
+            created, modified = get_file_times(filepath)
+            is_junk, is_conflict, is_version = classify_filename(filename)
+            is_zero = size == 0
+
+            # Hash if enabled and file is under size limit
+            sha = None
+            if not skip_hash and size <= max_hash_size and size > 0:
+                sha = hash_file(filepath)
+                if sha:
+                    hash_count += 1
+
+            batch.append((
+                rel_path, filename, ext, size, created, modified,
+                mime, sha, is_junk, is_conflict, is_version, is_zero,
+                rel_dir, depth, scan_start,
+            ))
+
+            file_count += 1
+            total_size += size
+
+            # Batch insert
+            if len(batch) >= batch_size:
+                conn.executemany(
+                    """INSERT OR IGNORE INTO files
+                    (path, filename, extension, size_bytes, created_at, modified_at,
+                     mime_type, sha256, is_junk, is_conflict_copy, is_version_chain,
+                     is_zero_byte, parent_dir, depth, scanned_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    batch,
                 )
-                sha256_count += 1
-            except (OSError, PermissionError) as e:
-                logger.warning("Cannot hash %s: %s", file_path, e)
-
-    conn.commit()
-    logger.info("Phase 2 complete: computed SHA-256 for %d files", sha256_count)
-
-    # Phase 3: Content extraction for text-bearing formats
-    if extraction_url:
-        logger.info("Phase 3: Extracting content via %s...", extraction_url)
-        cursor = conn.execute(
-            "SELECT id, path, extension FROM files WHERE extracted_text IS NULL AND extraction_error IS NULL"
-        )
-        extractable = [
-            (fid, fpath, ext) for fid, fpath, ext in cursor.fetchall()
-            if ext in EXTRACTABLE_EXTENSIONS
-        ]
-        logger.info("Files to extract: %d", len(extractable))
-
-        extracted_ok = 0
-        extracted_err = 0
-        for i, (file_id, file_path, ext) in enumerate(extractable):
-            if (i + 1) % 100 == 0 or i == 0:
-                logger.info("  Extracting %d/%d...", i + 1, len(extractable))
-
-            text, metadata_json, error = extract_content(file_path, extraction_url)
-            if error:
-                conn.execute(
-                    "UPDATE files SET extraction_error = ? WHERE id = ?",
-                    (error, file_id),
-                )
-                extracted_err += 1
-            else:
-                conn.execute(
-                    "UPDATE files SET extracted_text = ?, extraction_metadata = ? WHERE id = ?",
-                    (text, metadata_json, file_id),
-                )
-                extracted_ok += 1
-
-            # Commit every 50 files
-            if (i + 1) % 50 == 0:
                 conn.commit()
+                batch.clear()
 
+            # Progress every 10K files
+            if file_count % 10000 == 0:
+                elapsed = time.time() - start_time
+                rate = file_count / elapsed if elapsed > 0 else 0
+                print(
+                    f"  {file_count:,} files scanned | {hash_count:,} hashed | "
+                    f"{total_size/1024/1024/1024:.1f} GB | "
+                    f"{rate:.0f} files/sec | {error_count} errors",
+                    flush=True,
+                )
+
+    # Flush remaining batch
+    if batch:
+        conn.executemany(
+            """INSERT OR IGNORE INTO files
+            (path, filename, extension, size_bytes, created_at, modified_at,
+             mime_type, sha256, is_junk, is_conflict_copy, is_version_chain,
+             is_zero_byte, parent_dir, depth, scanned_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            batch,
+        )
         conn.commit()
-        logger.info(
-            "Phase 3 complete: %d extracted, %d errors", extracted_ok, extracted_err
-        )
-    else:
-        logger.info("Phase 3: Skipping extraction (no --extraction-url provided)")
 
-    _generate_report(conn, staging_dir)
-    conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Report generation
-# ---------------------------------------------------------------------------
-
-def _generate_report(conn: sqlite3.Connection, staging_dir: Path) -> None:
-    """Print a summary report of the inventory."""
-    print("\n" + "=" * 70)
-    print("FILE INVENTORY REPORT")
-    print("=" * 70)
-    print(f"Staging directory: {staging_dir}")
-    print(f"Generated: {datetime.now(timezone.utc).isoformat()}")
-
-    # Total files and size
-    cursor = conn.execute("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM files")
-    total_files, total_size = cursor.fetchone()
-    print(f"\nTotal files: {total_files:,}")
-    print(f"Total size:  {total_size / (1024 * 1024):.1f} MB ({total_size / (1024 * 1024 * 1024):.2f} GB)")
-
-    # By extension
-    print("\n--- Files by Extension ---")
-    cursor = conn.execute("""
-        SELECT extension, COUNT(*) as cnt, SUM(size) as total_size
-        FROM files
-        GROUP BY extension
-        ORDER BY cnt DESC
-        LIMIT 30
-    """)
-    print(f"{'Extension':<12} {'Count':>8} {'Size (MB)':>12}")
-    print("-" * 34)
-    for ext, count, ext_size in cursor:
-        print(f"{ext or '(none)':<12} {count:>8,} {ext_size / (1024 * 1024):>12.1f}")
-
-    # By MIME type
-    print("\n--- Files by MIME Type ---")
-    cursor = conn.execute("""
-        SELECT mime_type, COUNT(*) as cnt
-        FROM files
-        GROUP BY mime_type
-        ORDER BY cnt DESC
-        LIMIT 20
-    """)
-    print(f"{'MIME Type':<50} {'Count':>8}")
-    print("-" * 60)
-    for mime, count in cursor:
-        print(f"{mime:<50} {count:>8,}")
-
-    # SHA-256 status
-    cursor = conn.execute("SELECT COUNT(*) FROM files WHERE sha256_full IS NOT NULL")
-    sha256_count = cursor.fetchone()[0]
-    print(f"\nSHA-256 computed: {sha256_count:,} / {total_files:,}")
-
-    # Extraction status
-    cursor = conn.execute("SELECT COUNT(*) FROM files WHERE extracted_text IS NOT NULL")
-    extracted_ok = cursor.fetchone()[0]
-    cursor = conn.execute("SELECT COUNT(*) FROM files WHERE extraction_error IS NOT NULL")
-    extracted_err = cursor.fetchone()[0]
-    cursor = conn.execute(
-        "SELECT COUNT(*) FROM files WHERE extension IN (" +
-        ",".join(f"'{e}'" for e in EXTRACTABLE_EXTENSIONS) + ")"
+    elapsed = time.time() - start_time
+    conn.execute(
+        "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
+        ("scan_end", datetime.now(timezone.utc).isoformat()),
     )
-    extractable_total = cursor.fetchone()[0]
-
-    print(f"\n--- Extraction Status ---")
-    print(f"Extractable files: {extractable_total:,}")
-    print(f"Successfully extracted: {extracted_ok:,}")
-    print(f"Extraction errors: {extracted_err:,}")
-    if extractable_total > 0:
-        rate = extracted_ok / extractable_total * 100
-        print(f"Extraction success rate: {rate:.1f}%")
-
-    # Potential duplicate groups
-    cursor = conn.execute("""
-        SELECT COUNT(*) FROM (
-            SELECT size, xxhash_partial
-            FROM files
-            GROUP BY size, xxhash_partial
-            HAVING COUNT(*) > 1
-        )
-    """)
-    dup_groups = cursor.fetchone()[0]
-    print(f"\nPotential duplicate groups (size+xxhash match): {dup_groups:,}")
-
-    print("\n" + "=" * 70)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Build SQLite inventory of files in staging directory",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Basic inventory (no content extraction)
-  python scripts/file-inventory.py --staging-dir /mnt/user/openbrain/staging
-
-  # With content extraction via the file-ingestion service
-  python scripts/file-inventory.py \\
-      --staging-dir /mnt/user/openbrain/staging \\
-      --extraction-url http://localhost:8080
-
-  # Custom database path
-  python scripts/file-inventory.py \\
-      --staging-dir ./test-data \\
-      --db ./test-inventory.db
-        """,
+    conn.execute(
+        "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
+        ("scan_duration_seconds", str(int(elapsed))),
     )
-    parser.add_argument(
-        "--staging-dir",
-        required=True,
-        help="Path to the staging directory to inventory",
+    conn.execute(
+        "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
+        ("total_files", str(file_count)),
     )
-    parser.add_argument(
-        "--db",
-        default="/mnt/user/openbrain/inventory.db",
-        help="Path to SQLite database (default: /mnt/user/openbrain/inventory.db)",
+    conn.execute(
+        "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
+        ("total_size_bytes", str(total_size)),
     )
-    parser.add_argument(
-        "--extraction-url",
-        default=None,
-        help="URL of the Python extraction service (e.g., http://localhost:8080)",
-    )
+    conn.commit()
+
+    print(f"\n{'='*60}", flush=True)
+    print(f"  SCAN COMPLETE", flush=True)
+    print(f"  Files scanned: {file_count:,}", flush=True)
+    print(f"  Files hashed: {hash_count:,}", flush=True)
+    print(f"  Skipped (already scanned): {skip_count:,}", flush=True)
+    print(f"  Errors: {error_count:,}", flush=True)
+    print(f"  Total size: {total_size/1024/1024/1024:.2f} GB", flush=True)
+    print(f"  Duration: {elapsed:.0f}s ({elapsed/60:.1f} min)", flush=True)
+    print(f"{'='*60}", flush=True)
+
+    return file_count, hash_count, total_size
+
+
+def generate_report(conn):
+    print(f"\n{'='*60}", flush=True)
+    print(f"  FILE INVENTORY REPORT", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
+    row = conn.execute("SELECT COUNT(*), SUM(size_bytes) FROM files").fetchone()
+    total_files, total_bytes = row[0], row[1] or 0
+    print(f"Total files: {total_files:,}", flush=True)
+    print(f"Total size: {total_bytes/1024/1024/1024:.2f} GB\n", flush=True)
+
+    # File type distribution
+    print("--- FILE TYPES (top 30) ---", flush=True)
+    rows = conn.execute(
+        """SELECT extension, COUNT(*) as cnt, SUM(size_bytes) as total_size
+           FROM files GROUP BY extension ORDER BY cnt DESC LIMIT 30"""
+    ).fetchall()
+    print(f"{'Extension':<12} {'Count':>10} {'Size':>12}", flush=True)
+    print("-" * 36, flush=True)
+    for ext, cnt, sz in rows:
+        ext_display = ext if ext else "(none)"
+        print(f"{ext_display:<12} {cnt:>10,} {(sz or 0)/1024/1024:>10.1f} MB", flush=True)
+
+    # Duplicate analysis
+    print("\n--- EXACT DUPLICATES (by SHA-256) ---", flush=True)
+    row = conn.execute(
+        """SELECT COUNT(*) FROM (
+            SELECT sha256 FROM files WHERE sha256 IS NOT NULL
+            GROUP BY sha256 HAVING COUNT(*) > 1
+        )"""
+    ).fetchone()
+    dup_groups = row[0]
+
+    row = conn.execute(
+        """SELECT COUNT(*), SUM(size_bytes) FROM files WHERE sha256 IN (
+            SELECT sha256 FROM files WHERE sha256 IS NOT NULL
+            GROUP BY sha256 HAVING COUNT(*) > 1
+        )"""
+    ).fetchone()
+    dup_files, dup_bytes = row[0], row[1] or 0
+
+    row = conn.execute(
+        """SELECT SUM(keep_size) FROM (
+            SELECT MIN(size_bytes) as keep_size FROM files
+            WHERE sha256 IN (
+                SELECT sha256 FROM files WHERE sha256 IS NOT NULL
+                GROUP BY sha256 HAVING COUNT(*) > 1
+            )
+            GROUP BY sha256
+        )"""
+    ).fetchone()
+    keep_bytes = row[0] or 0
+    recoverable = dup_bytes - keep_bytes
+
+    print(f"Duplicate groups: {dup_groups:,}", flush=True)
+    print(f"Total duplicate files: {dup_files:,}", flush=True)
+    print(f"Space used by duplicates: {dup_bytes/1024/1024/1024:.2f} GB", flush=True)
+    print(f"Recoverable space: {recoverable/1024/1024/1024:.2f} GB", flush=True)
+
+    print("\nTop 10 most-duplicated files:", flush=True)
+    rows = conn.execute(
+        """SELECT sha256, COUNT(*) as cnt, MIN(size_bytes) as sz, MIN(filename) as sample
+           FROM files WHERE sha256 IS NOT NULL
+           GROUP BY sha256 HAVING COUNT(*) > 1
+           ORDER BY cnt DESC LIMIT 10"""
+    ).fetchall()
+    for sha, cnt, sz, sample in rows:
+        print(f"  {cnt}x copies | {sz/1024:.0f} KB | {sample}", flush=True)
+
+    # Junk files
+    print("\n--- JUNK / CLEANUP CANDIDATES ---", flush=True)
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_junk = 1"
+    ).fetchone()
+    print(f"Junk files (temp, system, cache): {row[0]:,} ({(row[1] or 0)/1024/1024:.1f} MB)", flush=True)
+
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_zero_byte = 1"
+    ).fetchone()
+    print(f"Zero-byte files: {row[0]:,}", flush=True)
+
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_conflict_copy = 1"
+    ).fetchone()
+    print(f"OneDrive conflict copies: {row[0]:,} ({(row[1] or 0)/1024/1024:.1f} MB)", flush=True)
+
+    row = conn.execute(
+        "SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_version_chain = 1"
+    ).fetchone()
+    print(f"Possible version chains: {row[0]:,} ({(row[1] or 0)/1024/1024:.1f} MB)", flush=True)
+
+    # Date distribution
+    print("\n--- DATE DISTRIBUTION (by modified year) ---", flush=True)
+    rows = conn.execute(
+        """SELECT SUBSTR(modified_at, 1, 4) as year, COUNT(*) as cnt
+           FROM files WHERE modified_at IS NOT NULL
+           GROUP BY year ORDER BY year"""
+    ).fetchall()
+    for year, cnt in rows:
+        bar = "#" * min(80, cnt // 500)
+        print(f"  {year}: {cnt:>8,} {bar}", flush=True)
+
+    # Top-level directory breakdown
+    print("\n--- TOP-LEVEL DIRECTORIES ---", flush=True)
+    rows = conn.execute(
+        """SELECT
+            CASE WHEN INSTR(path, '/') > 0 THEN SUBSTR(path, 1, INSTR(path, '/') - 1)
+                 WHEN INSTR(path, '\\') > 0 THEN SUBSTR(path, 1, INSTR(path, '\\') - 1)
+                 ELSE '(root files)'
+            END as top_dir,
+            COUNT(*) as cnt,
+            SUM(size_bytes) as sz
+           FROM files GROUP BY top_dir ORDER BY cnt DESC LIMIT 30"""
+    ).fetchall()
+    print(f"{'Directory':<35} {'Files':>10} {'Size':>12}", flush=True)
+    print("-" * 60, flush=True)
+    for d, cnt, sz in rows:
+        print(f"{d:<35} {cnt:>10,} {(sz or 0)/1024/1024:>10.1f} MB", flush=True)
+
+    # Cleanup potential summary
+    print(f"\n{'='*60}", flush=True)
+    print(f"  CLEANUP POTENTIAL SUMMARY", flush=True)
+    print(f"{'='*60}", flush=True)
+
+    junk = conn.execute("SELECT COUNT(*) FROM files WHERE is_junk = 1").fetchone()[0]
+    zeros = conn.execute("SELECT COUNT(*) FROM files WHERE is_zero_byte = 1").fetchone()[0]
+    conflicts = conn.execute("SELECT COUNT(*) FROM files WHERE is_conflict_copy = 1").fetchone()[0]
+    dup_surplus = conn.execute(
+        """SELECT COALESCE(SUM(surplus), 0) FROM (
+            SELECT COUNT(*) - 1 as surplus FROM files
+            WHERE sha256 IS NOT NULL GROUP BY sha256 HAVING COUNT(*) > 1
+        )"""
+    ).fetchone()[0]
+
+    removable = junk + zeros + conflicts + dup_surplus
+    pct = removable / total_files * 100 if total_files > 0 else 0
+    print(f"  Junk files:          {junk:>10,}", flush=True)
+    print(f"  Zero-byte files:     {zeros:>10,}", flush=True)
+    print(f"  Conflict copies:     {conflicts:>10,}", flush=True)
+    print(f"  Duplicate surplus:   {dup_surplus:>10,}", flush=True)
+    print(f"  ----------------------------", flush=True)
+    print(f"  Total removable:     {removable:>10,} ({pct:.1f}%)", flush=True)
+    print(f"  Remaining after:     {total_files - removable:>10,}", flush=True)
+    print(f"  Recoverable space:   {recoverable/1024/1024/1024:>9.2f} GB", flush=True)
+    print(f"{'='*60}\n", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="File inventory scanner")
+    parser.add_argument("path", help="Root directory to scan")
+    parser.add_argument("--db", default="file-inventory.db", help="SQLite database path (default: file-inventory.db)")
+    parser.add_argument("--skip-hash", action="store_true", help="Skip SHA-256 hashing (metadata only, much faster)")
+    parser.add_argument("--max-hash-mb", type=int, default=500, help="Max file size to hash in MB (default: 500)")
+    parser.add_argument("--report-only", action="store_true", help="Generate report from existing DB without scanning")
+    parser.add_argument("--resume", action="store_true", help="Resume interrupted scan (skip already-scanned files)")
     args = parser.parse_args()
 
-    staging_dir = Path(args.staging_dir)
-    if not staging_dir.is_dir():
-        logger.error("Staging directory does not exist: %s", staging_dir)
+    root = Path(args.path).resolve()
+    if not root.is_dir():
+        print(f"ERROR: {root} is not a directory", flush=True)
         sys.exit(1)
 
-    build_inventory(staging_dir, args.db, args.extraction_url)
-    logger.info("Inventory complete. Database: %s", args.db)
+    conn = init_db(args.db)
+
+    if args.report_only:
+        generate_report(conn)
+    else:
+        if not args.resume:
+            print("Starting fresh scan (use --resume to continue interrupted scan)", flush=True)
+            conn.execute("DELETE FROM files")
+            conn.commit()
+
+        scan_directory(root, conn, skip_hash=args.skip_hash, max_hash_size=args.max_hash_mb * 1024 * 1024)
+        generate_report(conn)
+
+    conn.close()
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 # Master Implementation Plan — Open Brain v3
 
 **Generated:** 2026-04-12
-**Based On:** PRD-UNIFIED.md, IMPLEMENT_UNIFIED.md, LAB_NOTEBOOK entries 029-031, cost-tiering architecture discussion, infrastructure reconnaissance
-**Status:** PLANNING
-**Hardware Available:** Homeserver (i7-9700, 128GB, no GPU), Bond (Ubuntu, general purpose), Jetson Orin Nano (GPU, llama.cpp running), DGX Spark (GPU, vLLM, intermittent)
+**Last Updated:** 2026-04-15
+**Based On:** PRD-UNIFIED.md, IMPLEMENT_UNIFIED.md, LAB_NOTEBOOK entries 029-043, cost-tiering architecture, infrastructure reconnaissance, Phase 3 ultra-plan analysis
+**Status:** IN PROGRESS — Arcs 0-1 substantially complete, Arc 2 in progress, Arc 3 started (email done)
+**Hardware Available:** Homeserver (i7-9700, 128GB, no GPU), Bond (Ubuntu, offline as of 2026-04-15), Jetson Orin Nano (GPU, llama.cpp, static IP 192.168.10.58), DGX Spark (GPU, vLLM, qwen3.5-35b), open-brain-vm (KVM VM, 192.168.10.53)
 
 ---
 
@@ -68,28 +69,33 @@ The critical insight driving everything: Troy pays for a Claude Max subscription
 
 | Tier | Phase | Focus | Key Deliverables | Dependencies | Est. Effort |
 |------|-------|-------|------------------|--------------|-------------|
-| 0 | 0A | Jetson T1 Wiring | ai-routing.yaml + gateway dispatch to Jetson | None | S (~4 files) |
-| 0 | 0B | Bond T2 Setup | Claude Code on bond, job dispatch mechanism | None | Operational |
-| 0 | 0C | OneDrive Sync | Check status, wait, organize | None | Operational |
-| 0 | 0D | Pipecat Voice Soak | 10+ conversations, latency measurement | None | Manual, 2 weeks |
-| 1 | 1A | Three-Tier Model Routing | Tier config, fallback chains, validation suite | 0A | M (~8 files) |
-| 1 | 1B | Slack Auto-Response | 5-signal confidence, DM mode, interactive buttons | 1A | M (~6 files) |
-| 1 | 1C | Voice Container Promotion | Remove voice-capture + faster-whisper | 0D | S (~2 files) |
-| 2 | 2A | Wiki Infrastructure Activation | Verify workers, Wiki.tsx polish | Deployed | S (~3 files) |
-| 2 | 2B | OneDrive File Migration Tooling | Python extraction, inventory DB, dedup, categorization | 0C, 2A | L (~14 files) |
-| 2 | 2C | Wiki Construction | Batch orchestration, pilot + full ingestion via T2 | 2B | M (~5 files) |
-| 3 | 3A | Email Inbox Processing | IMAP sync, classify, daily summary | 0B, 1A | L (~10 files) |
-| 3 | 3B | Financial Monitoring | Plaid/scrape, delta computation, daily briefing | 0B | M (~8 files) |
-| 3 | 3C | Amazon Purchase Tracking | Order export/scrape, monthly analysis | 0B | S (~5 files) |
-| 3 | 3D | Credit Card Categorization | CSV/OFX import, monthly trends | 0B, 3B | S (~4 files) |
-| 3 | 3E | Utility Bill Tracking | PDF scrape, monthly comparison | 0B | S (~3 files) |
-| 3 | 3F | Newsletter Assessment | Email filter, extract claims, weekly assessment | 3A | M (~5 files) |
-| 3 | 3G | Lab Report Analysis | PDF parse, longitudinal trends, deep analysis | 0B | M (~6 files) |
-| 3 | 3H | Insurance Policy Analysis | PDF parse, comparison matrix, gap identification | 0B | M (~5 files) |
-| 4 | 4A | Email Outbound (Himalaya) | SMTP config, auto-send + review modes | 3A | M (~4 files) |
-| 4 | 4B | Dashboard & Settings Polish | System sub-tabs, Settings expansion, Voice page | Tiers 1-2 | M (~6 files) |
-| 4 | 4C | Cognitive Memory Tuning | Hebbian weight tuning, consolidation monitoring, Related UI | Usage data | S (~3 files) |
-| 5 | 5A | RTX PRO 2000 GPU (Optional) | Local T1 + embeddings on homeserver, eliminate API costs | Purchase | Hardware |
+| Tier | Phase | Focus | Status | Key Deliverables | Dependencies | Est. Effort |
+|------|-------|-------|--------|------------------|--------------|-------------|
+| 0 | 0A | Jetson T1 Wiring | ✅ DONE | ai-routing.yaml + gateway dispatch to Jetson | None | S |
+| 0 | 0B | T2 CLI Runner Setup | ✅ DONE | open-brain-vm (192.168.10.53) with Claude CLI | None | Operational |
+| 0 | 0C | OneDrive Sync | ✅ DONE | 264K files synced, reorg into 9 domains, dedup complete | None | Operational |
+| 0 | 0D | Pipecat Voice Soak | ⏳ OPEN | 10+ conversations, latency measurement | None | Manual, 2 weeks |
+| 1 | 1A | Three-Tier Model Routing | ✅ DONE | 4-tier config (T0/T1 Jetson/T1 Spark/T2), fallback chains, openai_compat | 0A | M |
+| 1 | 1B | Slack Auto-Response | ✅ DONE | 5-signal confidence, DM mode, interactive buttons (PR #48) | 1A | M |
+| 1 | 1C | Voice Container Promotion | 🔒 BLOCKED | Keep both (complementary) or consolidate | 0D | S |
+| 2 | 2A | Wiki Infrastructure | ✅ DONE | Gitea repo, WikiGitService, wiki-ingest/lint/synthesis skills | Deployed | S |
+| 2 | 2B | OneDrive File Migration | ✅ DONE | 10,966 file captures, 8,254 embedded, 22,541 deduped+archived | 0C, 2A | L |
+| 2B-pre | Corpus Analysis & Dedup | ✅ DONE | SHA-256 dedup, version chains, 9-domain reorg | 0C | L |
+| 2 | 2C | Wiki Construction | 🔒 BLOCKED | Batch orchestration, pilot + full ingestion | 2B, wiki-ingest fix | M |
+| 3 | 3A | Email Inbox Processing | ✅ DONE | email-pipeline.py on VM, daily 5 AM cron, 26 categories | 0B, 1A | L |
+| 3 | 3B | Financial Monitoring | ⏳ BACKLOG | Plaid/scrape, delta computation, daily briefing | 0B | M |
+| 3 | 3C | Amazon Purchase Tracking | ⏳ BACKLOG | Order export/scrape, monthly analysis | 0B | S |
+| 3 | 3D | Credit Card Categorization | 🔒 BLOCKED | CSV/OFX import, monthly trends | 0B, 3B | S |
+| 3 | 3E | Utility Bill Tracking | ⏳ BACKLOG | PDF scrape, monthly comparison | 0B | S |
+| 3 | 3F | Newsletter Assessment | 🔒 BLOCKED | Email filter, extract claims, weekly assessment | 3A maturity | M |
+| 3 | 3G | Lab Report Analysis | ⏳ BACKLOG | PDF parse, longitudinal trends, deep analysis | 0B | M |
+| 3 | 3H | Insurance Policy Analysis | ⏳ BACKLOG | PDF parse, comparison matrix, gap identification | 0B | M |
+| 4 | 4A | Email Outbound (Himalaya) | 🟡 READY | Code 90% done — needs SMTP config, migration, testing | None (code exists) | S |
+| 4 | 4B | Dashboard & Settings Polish | ⏳ BACKLOG | System sub-tabs, Settings expansion, Voice page | Tiers 1-2 | M |
+| 4 | 4C | Cognitive Memory Tuning | ⏳ BACKLOG | Hebbian weight tuning, consolidation monitoring, Related UI | Usage data | S |
+| 5 | 5A | RTX PRO 2000 GPU (Optional) | ⏳ BACKLOG | Local T1 + embeddings on homeserver, eliminate API costs | Purchase | Hardware |
+| — | NEW | Observability & Monitoring | 🆕 PLANNED | prom-client, Grafana dashboards, Loki, synthetic monitoring | None | M |
+| — | NEW | LiteLLM Cost Routing | 🆕 PLANNED | Route through proxy, fix spend aggregation | None | S |
 
 ---
 
@@ -910,43 +916,37 @@ Revisit after Tier 3 data sources are operational and monthly costs are clearer.
 
 ---
 
-## Execution Timeline
+## Execution Timeline (Updated 2026-04-15)
 
-### Immediate (This Session + Next 1-2 Sessions)
+### Current Sprint — IMPLEMENTATION_PLAN_PHASE-3.md
+See `IMPLEMENTATION_PLAN_PHASE-3.md` for the detailed plan covering:
+- Operational fixes (wiki-ingest, backups, Redis cleanup, JSON reliability)
+- Email Outbound (#69) deployment
+- LiteLLM cost routing
+- Observability stack (prom-client, Grafana dashboards, Loki, synthetic monitoring)
+- Wiki Construction (#60) — schema, pilot, full processing
 
-| Item | What | Who |
-|------|------|-----|
-| 0A | Wire Jetson T1 endpoint | Claude Code (code changes) |
-| 0B | Set up bond with Claude CLI | Troy + Claude Code (operational) |
-| 0D | Start Pipecat voice soak | Troy (manual, 2 weeks) |
+### Completed (Arcs 0-1 + partial Arc 2-3)
+| Phase | Completed | Notes |
+|-------|-----------|-------|
+| 0A | 2026-04-12 | Jetson T1 wired, 4-tier routing |
+| 0B | 2026-04-13 | open-brain-vm at 192.168.10.53 |
+| 0C | 2026-04-14 | 264K files synced, reorg into 9 domains |
+| 1A | 2026-04-12 | 4-tier model routing with Spark |
+| 1B | pre-existing | PR #48, all deliverables production-ready |
+| 2A | 2026-04-13 | Wiki infra verified and working |
+| 2B | 2026-04-15 | 10,966 file captures, entity extraction draining on Spark |
+| 2B-pre | 2026-04-15 | SHA-256 dedup, 22,541 archived, 9-domain reorg |
+| 3A | 2026-04-15 | email-pipeline.py deployed, daily 5 AM cron |
 
-### Near-Term (Weeks 1-4)
+### Blocked (Requires Manual Input)
+| Phase | Blocked By | What's Needed |
+|-------|-----------|--------------|
+| 0D | Troy | 10+ voice conversations over 2 weeks |
+| 1C | 0D | Voice architecture decision after soak test |
 
-| Item | What | Blocked By |
-|------|------|------------|
-| 1A | Complete three-tier routing | 0A |
-| 2A | Wiki infrastructure activation | Deployed |
-| 0C | Check OneDrive sync status | In progress |
-| 1B | Slack auto-response completion | 1A |
-| 1C | Voice container promotion | 0D |
-
-### Mid-Term (Weeks 4-8)
-
-| Item | What | Blocked By |
-|------|------|------------|
-| 2B | OneDrive file migration tooling | 0C, 2A |
-| 3A | Email inbox processing | 0B, 1A |
-| 2C | Wiki construction (runs in background) | 2B |
-
-### Longer-Term (Weeks 8+)
-
-| Item | What | Blocked By |
-|------|------|------------|
-| 3B-3H | Additional data sources (one at a time) | 0B |
-| 4A | Email outbound | 3A |
-| 4B | Dashboard polish | Tiers 1-2 |
-| 4C | Memory tuning | Usage data |
-| 5A | GPU purchase | Decision point |
+### Backlog (Waiting for Arc 3 Sprint)
+3B (Financial), 3C (Amazon), 3D (Credit Card), 3E (Utility), 3F (Newsletter), 3G (Lab Reports), 3H (Insurance), 4B (Dashboard), 4C (Memory Tuning), 5A (GPU)
 
 ---
 

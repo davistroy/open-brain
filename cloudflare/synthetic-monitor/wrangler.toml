@@ -1,0 +1,25 @@
+name = "open-brain-synthetic-monitor"
+main = "src/index.ts"
+compatibility_date = "2025-03-30"
+workers_dev = false
+
+# Custom domain route
+routes = [
+  { pattern = "health.troy-davis.com/*", zone_name = "troy-davis.com" }
+]
+
+# Cron trigger — runs every 5 minutes
+[triggers]
+crons = ["*/5 * * * *"]
+
+# KV namespace for tracking consecutive failure count
+[[kv_namespaces]]
+binding = "HEALTH_STATE"
+id = "9509aff629824832b3b39333e71d85b1"
+
+[vars]
+HEALTH_URL = "https://brain.troy-davis.com/api/v1/health"
+PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
+# PUSHOVER_TOKEN and PUSHOVER_USER are set via wrangler secret:
+#   wrangler secret put PUSHOVER_TOKEN
+#   wrangler secret put PUSHOVER_USER
