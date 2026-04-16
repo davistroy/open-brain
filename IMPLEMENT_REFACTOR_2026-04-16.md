@@ -424,7 +424,7 @@ Now that all 27 skills use BaseSkill, update the dispatcher to use the `createAn
 ### Work Items
 
 #### 4.1 Hotmail Client (MSAL + Graph API)
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan F11, email-pipeline.py HotmailBackend
 **Files Affected:**
 - `packages/shared/src/services/email/hotmail-client.ts` (create)
@@ -458,7 +458,7 @@ The MS_CLIENT_ID (`14d82eec-204b-4c2f-b7e8-296a70dab67e`) is a public client ID 
 ---
 
 #### 4.2 Gmail Client (OAuth + Gmail API)
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan F11, email-pipeline.py GmailBackend
 **Files Affected:**
 - `packages/shared/src/services/email/gmail-client.ts` (create)
@@ -489,7 +489,7 @@ Gmail OAuth token refresh: Google tokens have a 7-day expiry in testing mode. Ev
 ---
 
 #### 4.3 Email Classifications Schema
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan D95, Entry 049
 **Files Affected:**
 - `packages/shared/src/schema/email-classifications.ts` (create)
@@ -519,7 +519,7 @@ Create Postgres table to replace the Python pipeline's SQLite. Same columns, bet
 ---
 
 #### 4.4 Email Classifier Service
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan F11, email-categories.yaml, cost-tiering architecture
 **Files Affected:**
 - `packages/shared/src/services/email/email-classifier.ts` (create)
