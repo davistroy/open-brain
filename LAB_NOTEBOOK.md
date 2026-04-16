@@ -3170,3 +3170,16 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 - A52: Migrate VM backup scripts to homeserver cron (docker exec)
 - A53: Add sender rules for Anthropic + Google security to email-categories.yaml
 - A54: Evaluate: email pipeline SQLite → Postgres `email_classifications` table (cleaner long-term)
+
+### Entry 050 — Refactor Phase 1: Foundation Cleanup (COMPLETE)
+**Date:** 2026-04-16
+**Tags:** `[refactor]` `[config]` `[code-quality]`
+**Environment:** Laptop, branch `refactor/zero-debt-2026-04-16`
+
+**Results:** All 3 items completed in parallel. 2,439 tests passing, 0 failures. Commit `f314489`.
+
+- **1.1** Renamed duplicate migrations: 0014_mcp_activity → 0018, 0015_email_drafts → 0019
+- **1.2** Staggered scheduler: 7 AM cluster spread to 7:00/7:05/7:10, drift-monitor moved to 8:15
+- **1.3** Eliminated 15 `as any` across 14 production files (ExecFileOptions, CaptureFilter, typed SQL, CJS interop)
+
+**Test finding:** pushMetrics() calls in pipeline-health and container-health skills hit `http://pushgateway:9091` in tests — DNS timeout caused 40 tests to fail at 5s. Fix: mock `push-metrics.js` module in 3 test files. **Rule: mock all external service calls (Pushgateway, Prometheus) same as DB/Redis/Pushover.**
