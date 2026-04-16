@@ -1,0 +1,15 @@
+# Prometheus scrape config for Open Brain core-api
+# Add this to your prometheus.yml scrape_configs section, or use file_sd_configs
+# to include this file directly.
+#
+# Example in prometheus.yml:
+#   scrape_configs:
+#     - !include open-brain-scrape.yaml
+# Or copy the job definition below into your existing scrape_configs list.
+
+- job_name: 'open-brain-core-api'
+  static_configs:
+    - targets: ['core-api:3000']
+  metrics_path: '/metrics'
+  scrape_interval: 15s
+  scrape_timeout: 10s

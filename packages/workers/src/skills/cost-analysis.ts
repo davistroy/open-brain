@@ -16,6 +16,10 @@ export interface CostAnalysisOptions {
   dailyAlertThreshold?: number
   /** Wiki output directory (relative to wiki root). Default: operations/cost-reports */
   wikiDir?: string
+  /** LiteLLM spend URL (overrides LITELLM_SPEND_URL env var). Empty string = skip. */
+  litellmSpendUrl?: string
+  /** LiteLLM API key (overrides LITELLM_API_KEY env var). */
+  litellmApiKey?: string
 }
 
 export interface ModelCost {
@@ -73,17 +77,23 @@ export class CostAnalysisSkill {
   private pushover: PushoverService
   private wikiService?: WikiGitService
   private wikiDir: string
+  private litellmSpendUrl: string
+  private litellmApiKey: string
 
   constructor(opts: {
     db: Database
     pushover?: PushoverService
     wikiService?: WikiGitService
     wikiDir?: string
+    litellmSpendUrl?: string
+    litellmApiKey?: string
   }) {
     this.db = opts.db
     this.pushover = opts.pushover ?? new PushoverService()
     this.wikiService = opts.wikiService
     this.wikiDir = opts.wikiDir ?? DEFAULT_WIKI_DIR
+    this.litellmSpendUrl = opts.litellmSpendUrl ?? process.env.LITELLM_SPEND_URL ?? ''
+    this.litellmApiKey = opts.litellmApiKey ?? process.env.LITELLM_API_KEY ?? ''
   }
 
   async execute(options: CostAnalysisOptions = {}): Promise<CostAnalysisResult> {
@@ -100,8 +110,8 @@ export class CostAnalysisSkill {
     const todayStart = new Date(now)
     todayStart.setHours(0, 0, 0, 0)
 
-    // Step 1: Query daily spend
-    const dailySummary = await this.querySpend(yesterday, todayStart)
+    // Step 1: Query daily spend — LiteLLM as primary, local ai_audit_log as supplement
+    const dailySummary = await this.querySpendCombined(yesterday, todayStart)
     const dateStr = yesterday.toISOString().split('T')[0]
     dailySummary.date = dateStr
 
@@ -113,7 +123,7 @@ export class CostAnalysisSkill {
       const weekStart = new Date(now)
       weekStart.setDate(weekStart.getDate() - 7)
       weekStart.setHours(0, 0, 0, 0)
-      weeklySummary = await this.querySpend(weekStart, todayStart)
+      weeklySummary = await this.querySpendCombined(weekStart, todayStart)
       weeklySummary.date = `${weekStart.toISOString().split('T')[0]} to ${dateStr}`
     }
 
@@ -122,7 +132,7 @@ export class CostAnalysisSkill {
     if (now.getDate() === 1) {
       const monthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1)
       const monthEnd = new Date(now.getFullYear(), now.getMonth(), 1)
-      monthlySummary = await this.querySpend(monthStart, monthEnd)
+      monthlySummary = await this.querySpendCombined(monthStart, monthEnd)
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
         'July', 'August', 'September', 'October', 'November', 'December']
       monthlySummary.date = `${monthNames[monthStart.getMonth()]} ${monthStart.getFullYear()}`
@@ -168,7 +178,148 @@ export class CostAnalysisSkill {
   }
 
   // ----------------------------------------------------------
-  // Private: query spend from ai_audit_log
+  // Private: combined spend query (LiteLLM primary + local supplement)
+  // ----------------------------------------------------------
+
+  /**
+   * Queries spend from LiteLLM as primary source (real proxy-tracked costs),
+   * then supplements with local ai_audit_log for calls that bypass the proxy
+   * (e.g., direct Ollama, Anthropic subscription calls logged locally).
+   *
+   * When LITELLM_SPEND_URL is not set, falls back entirely to local data.
+   */
+  private async querySpendCombined(from: Date, to: Date): Promise<DailyCostSummary> {
+    const litellmData = await this.queryLiteLLMSpend(from, to)
+    const localData = await this.querySpend(from, to)
+
+    if (!litellmData) {
+      // No LiteLLM data — use local ai_audit_log as sole source
+      return localData
+    }
+
+    // Merge: LiteLLM costs are authoritative for proxy-routed calls.
+    // Local ai_audit_log supplements with call counts and token totals,
+    // plus any calls that bypassed the proxy (e.g., Ollama, direct Anthropic).
+    // Use LiteLLM cost values where available, fall back to local estimates.
+    const mergedByModel: Map<string, ModelCost> = new Map()
+
+    // Start with local data for call counts and token totals
+    for (const m of localData.byModel) {
+      const key = `${m.model}|${m.task_type}`
+      mergedByModel.set(key, { ...m })
+    }
+
+    // Override costs with LiteLLM data where available
+    for (const [model, cost] of Object.entries(litellmData.by_model)) {
+      // Find matching local entries for this model to update cost
+      let found = false
+      for (const [key, entry] of mergedByModel) {
+        if (entry.model === model) {
+          entry.cost_usd = cost
+          found = true
+        }
+      }
+      // If no local entry for this model, add a placeholder
+      if (!found) {
+        mergedByModel.set(`${model}|proxy`, {
+          model,
+          task_type: 'proxy',
+          call_count: 0,
+          total_tokens: 0,
+          cost_usd: cost,
+        })
+      }
+    }
+
+    const byModel = Array.from(mergedByModel.values()).sort((a, b) => b.cost_usd - a.cost_usd)
+    const totalCost = litellmData.total  // LiteLLM total is authoritative
+    const totalTokens = byModel.reduce((sum, m) => sum + m.total_tokens, 0)
+    const totalCalls = byModel.reduce((sum, m) => sum + m.call_count, 0)
+
+    return {
+      date: '',
+      totalCost: Number(totalCost.toFixed(6)),
+      totalTokens,
+      totalCalls,
+      byModel,
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Private: query LiteLLM spend API
+  // ----------------------------------------------------------
+
+  /**
+   * Queries LiteLLM /spend/logs for a date range.
+   * Returns null if LITELLM_SPEND_URL is not configured or the request fails.
+   *
+   * The /spend/logs endpoint returns a raw JSON array of individual request
+   * records. We iterate, sum the `spend` field, and group by `model`.
+   */
+  private async queryLiteLLMSpend(from: Date, to: Date): Promise<{ total: number; by_model: Record<string, number> } | null> {
+    if (!this.litellmSpendUrl) return null
+
+    try {
+      const startDate = from.toISOString().slice(0, 10)
+      const endDate = to.toISOString().slice(0, 10)
+
+      const url = new URL('/spend/logs', this.litellmSpendUrl)
+      url.searchParams.set('start_date', startDate)
+      url.searchParams.set('end_date', endDate)
+
+      logger.debug({ url: url.toString(), startDate, endDate }, '[cost-analysis] querying LiteLLM spend API')
+
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${this.litellmApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(15_000),
+      })
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        logger.warn({ status: res.status, body }, '[cost-analysis] LiteLLM spend API error')
+        return null
+      }
+
+      const data = await res.json() as unknown
+
+      if (Array.isArray(data)) {
+        const by_model: Record<string, number> = {}
+        let total = 0
+
+        for (const row of data as Array<Record<string, unknown>>) {
+          const rowSpend = typeof row.spend === 'number' ? row.spend
+            : typeof row.total_cost === 'number' ? row.total_cost
+            : 0
+          total += rowSpend
+
+          const model = typeof row.model === 'string' ? row.model : 'unknown'
+          by_model[model] = (by_model[model] ?? 0) + rowSpend
+        }
+
+        logger.debug({ total, records: data.length }, '[cost-analysis] LiteLLM spend data retrieved')
+        return { total, by_model }
+      }
+
+      // Handle unexpected object format
+      const dataObj = data as Record<string, unknown>
+      if (typeof dataObj.total_cost === 'number') {
+        return { total: dataObj.total_cost, by_model: (dataObj.spend_by_model as Record<string, number>) ?? {} }
+      }
+
+      logger.warn({ data }, '[cost-analysis] LiteLLM spend response format not recognized')
+      return null
+    } catch (err) {
+      logger.warn({ err }, '[cost-analysis] failed to query LiteLLM spend API')
+      return null
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Private: query spend from ai_audit_log (local estimation)
   // ----------------------------------------------------------
 
   private async querySpend(from: Date, to: Date): Promise<DailyCostSummary> {
@@ -412,6 +563,8 @@ export async function executeCostAnalysis(
   const skill = new CostAnalysisSkill({
     db,
     wikiService,
+    litellmSpendUrl: options.litellmSpendUrl,
+    litellmApiKey: options.litellmApiKey,
   })
   return skill.execute(options)
 }

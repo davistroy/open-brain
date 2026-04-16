@@ -2,34 +2,16 @@ litellm_url: "https://api.openai.com/v1"
 
 # ============================================================
 # Legacy model aliases (backward compat -- used by existing call sites)
-# Will be removed after all call sites migrate to task_routing.
+# These MUST use client: anthropic | litellm | ollama
+# Actual pipeline routing uses task_routing below (not these aliases)
 # ============================================================
 models:
-  fast:
-    model: "claude-sonnet-4-20250514"
-    client: anthropic
-    cost_per_1k_input: 0
-    cost_per_1k_output: 0
-  synthesis:
-    model: "claude-sonnet-4-20250514"
-    client: anthropic
-    cost_per_1k_input: 0
-    cost_per_1k_output: 0
-  governance:
-    model: "claude-sonnet-4-20250514"
-    client: anthropic
-    cost_per_1k_input: 0
-    cost_per_1k_output: 0
-  intent:
-    model: "claude-sonnet-4-20250514"
-    client: anthropic
-    cost_per_1k_input: 0
-    cost_per_1k_output: 0
-  conversation:
-    model: "claude-sonnet-4-20250514"
-    client: anthropic
-    cost_per_1k_input: 0
-    cost_per_1k_output: 0
+  fast: "gpt-5.4"
+  synthesis: "gpt-5.4"
+  governance: "gpt-5.4"
+  intent: "gpt-5.4"
+  conversation: "gpt-5.4"
+  wiki_agent: "claude-haiku-4-5-20251001"
   embedding:
     model: "text-embedding-3-large"
     client: litellm
@@ -37,7 +19,10 @@ models:
     cost_per_1k_output: 0
 
 # ============================================================
-# Three-tier model definitions (v2)
+# Four-tier model definitions (v3)
+#
+# COST PRINCIPLE: Exhaust free tiers before paid API.
+#   t1_jetson (4B GPU, free) -> t1_spark (35B GPU, free) -> t1_fast (Haiku, PAID) -> t2_quality (Sonnet, PAID)
 # ============================================================
 model_tiers:
   t0_local:
@@ -50,58 +35,68 @@ model_tiers:
   t1_jetson:
     provider: openai_compat
     model: "qwen3.5-4b"
-    base_url: "http://jetson.k4jda.net:8080/v1"
+    base_url: "http://192.168.10.58:8080/v1"
     max_completion_tokens: 256
     timeout_ms: 5000
+    fallback: t1_spark
+  t1_spark:
+    provider: openai_compat
+    model: "qwen3.5-35b"
+    base_url: "http://spark.k4jda.net:8000/v1"
+    max_completion_tokens: 4096
+    timeout_ms: 120000
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
     fallback: t1_fast
   t1_fast:
     provider: anthropic
     model: "claude-haiku-4-5-20251001"
     max_completion_tokens: 4096
     timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
     fallback: t2_quality
   t2_quality:
     provider: anthropic
     model: "claude-sonnet-4-6"
     max_completion_tokens: 8192
     timeout_ms: 30000
+    cost_per_1k_input: 0.003
+    cost_per_1k_output: 0.015
     fallback: null
-  # DeepSeek placeholder (not active -- config ready for future addition per PRD C13)
-  # t_deepseek:
-  #   provider: deepseek
-  #   model: deepseek-chat
-  #   base_url: https://api.deepseek.com/v1
-  #   max_completion_tokens: 4096
-  #   timeout_ms: 20000
-  #   fallback: t2_quality
 
 # ============================================================
-# Task-to-tier routing (17+ tasks per PRD 7.4)
+# Task-to-tier routing
 #
-# Classification tasks route to t1_jetson (Qwen 3.5 4B, 0.67s/call, free).
-# Falls back to t1_fast (Haiku API) if Jetson is unreachable.
-# Complex tasks route to t2_quality (Sonnet API).
+# ALL routine tasks -> t1_spark (free, 35B GPU on DGX Spark)
+# Classification only -> t1_jetson (free, 4B GPU, fastest)
+# Only governance/weekly brief -> t2_quality (Anthropic, PAID, last resort)
 # ============================================================
 task_routing:
+  # Classification (simple, fast) -> Jetson 4B
   intent_classification: t1_jetson
   capture_classification: t1_jetson
   brain_view_classification: t1_jetson
   voice_classification: t1_jetson
   confidence_gating: t1_jetson
-  entity_extraction: t1_fast
-  entity_linking: t1_fast
-  capture_enrichment: t1_fast
   question_detection: t1_jetson
-  search_synthesis: t1_fast
-  daily_sweep: t1_fast
-  mcp_context: t1_fast
-  auto_response_draft: t1_fast
+
+  # Complex but routine -> Spark 35B (FREE)
+  entity_extraction: t1_spark
+  entity_linking: t1_spark
+  capture_enrichment: t1_spark
+  search_synthesis: t1_spark
+  daily_sweep: t1_spark
+  mcp_context: t1_spark
+  auto_response_draft: t1_spark
+  wiki_ingest: t1_spark
+  wiki_synthesis: t1_spark
+  daily_connections: t1_spark
+  drift_monitoring: t1_spark
+
+  # Only human-facing quality-critical -> Anthropic API (PAID)
   weekly_brief: t2_quality
-  daily_connections: t2_quality
-  drift_monitoring: t2_quality
   governance: t2_quality
-  wiki_ingest: t2_quality
-  wiki_synthesis: t2_quality
 
 monthly_budget:
   soft_limit_usd: 20

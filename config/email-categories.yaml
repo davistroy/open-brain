@@ -1,0 +1,232 @@
+# Email Classification Categories for Open Brain Pipeline
+# Used by scripts/email-pipeline.py
+#
+# Categories are organized into groups for display/reporting.
+# Each category has:
+#   - sender_rules: domain or full email -> auto-classify (T0, free)
+#   - keyword_rules: subject keywords -> classify if no sender match (T0, free)
+#   - Anything unmatched -> T1 Jetson LLM classification
+
+groups:
+  People:
+    - Jamie
+    - Ashley
+  Hobbies:
+    - Amateur Radio
+    - News & Commentary
+  Technology:
+    - DevOps
+    - Technology & Development
+  Finance:
+    - Financial & Banking
+  Health:
+    - Healthcare & Medical
+  Shopping:
+    - Shopping & E-commerce
+  Community:
+    - Community & Neighborhood
+  Personal:
+    - Personal & Reminders
+  Professional:
+    - Jobs & Career
+    - Work & Office
+  Lifestyle:
+    - Travel & Transportation
+    - Food & Dining
+    - Entertainment & Streaming
+    - Fitness & Wellness
+    - Education & Learning
+  Essentials:
+    - Account & Security
+    - Newsletters & Marketing
+    - Government & Official
+    - Utilities & Bills
+    - Real Estate & Housing
+    - Charity & Donations
+    - Social Media
+  Catch-all:
+    - Spam & Junk
+
+# Sender rules: exact email or domain suffix -> category
+# Matched against sender email address (case-insensitive)
+# Domain rules match if sender ends with @domain or .domain
+sender_rules:
+  # People
+  ash.davis@hotmail.com: Ashley
+  tommynobiscenter.org: Jamie
+  dbhdd.ga.gov: Jamie
+  truelinkfinancial.com: Jamie
+  specialolympicsga.org: Jamie
+  sogacobb.org: Jamie
+
+  # Amateur Radio
+  groups.io: Amateur Radio
+  arrl.org: Amateur Radio
+  noaa.gov: Amateur Radio
+  mailman.qth.net: Amateur Radio
+  pollen.aaaai.org: Amateur Radio
+
+  # News & Commentary
+  mail.tuckercarlson.com: News & Commentary
+  editor.thepostmillennial.com: News & Commentary
+  news.theamericandossier.com: News & Commentary
+  daily.louder.news: News & Commentary
+  deadsimplenews.com: News & Commentary
+
+  # DevOps
+  github.com: DevOps
+
+  # Technology & Development
+  skool.com: Technology & Development
+  mail.joinsuperhuman.ai: Technology & Development
+
+  # Financial & Banking
+  message.truist.com: Financial & Banking
+  e.usa.experian.com: Financial & Banking
+  send.42macro.com: Financial & Banking
+  paypal.com: Financial & Banking
+  chase.com: Financial & Banking
+
+  # Healthcare & Medical
+  vumedi.com: Healthcare & Medical
+
+  # Shopping & E-commerce
+  discountmugs.com: Shopping & E-commerce
+  e4.llbean.com: Shopping & E-commerce
+  nisolo.com: Shopping & E-commerce
+  ebay.com: Shopping & E-commerce
+
+  # Community & Neighborhood
+  ss.email.nextdoor.com: Community & Neighborhood
+
+  # Social Media
+  facebookmail.com: Social Media
+
+  # Jobs & Career
+  linkedin.com: Jobs & Career
+
+  # Government & Official
+  communications.cobbcounty.gov: Government & Official
+
+# Keyword rules: subject line keywords -> category (OR logic, case-insensitive)
+# Only applied if no sender rule matched
+keyword_rules:
+  Travel & Transportation:
+    - flight
+    - booking
+    - reservation
+    - hotel
+    - itinerary
+  Real Estate & Housing:
+    - property
+    - rent
+    - lease
+    - mortgage
+  Jobs & Career:
+    - job
+    - career
+    - application
+    - interview
+    - position
+  Charity & Donations:
+    - donation
+    - donate
+    - charity
+    - nonprofit
+  Fitness & Wellness:
+    - workout
+    - exercise
+    - gym
+    - fitness
+  Entertainment & Streaming:
+    - streaming
+    - movie
+    - show
+    - netflix
+    - spotify
+  Account & Security:
+    - password
+    - security
+    - verify
+    - authentication
+    - reset
+    - 2FA
+  Newsletters & Marketing:
+    - newsletter
+    - unsubscribe
+    - promotional
+  Government & Official:
+    - tax
+    - license
+    - permit
+    - official
+    - government
+  Utilities & Bills:
+    - bill
+    - electric
+    - water
+    - gas
+    - utility
+  Healthcare & Medical:
+    - appointment
+    - prescription
+    - doctor
+    - medical
+  Shopping & E-commerce:
+    - order
+    - shipped
+    - delivery
+    - purchase
+    - receipt
+  Food & Dining:
+    - delivery
+    - restaurant
+    - reservation
+    - menu
+    - doordash
+    - grubhub
+  Education & Learning:
+    - course
+    - assignment
+    - grade
+    - class
+    - certification
+  Financial & Banking:
+    - invoice
+    - payment
+    - bank
+    - statement
+  Work & Office:
+    - meeting
+    - calendar
+    - deadline
+    - project
+    - agenda
+
+# Protected folders — emails already in these folders are never touched
+protected_folders:
+  - LICW
+  - Receipts
+  - Amateur Radio
+  - Ash
+  - Sent Items
+  - Drafts
+
+# Spam cleanup: auto-trash spam older than this many days
+spam_max_age_days: 30
+
+# Classification confidence threshold for auto-move
+auto_move_threshold: 0.85
+
+# T1 LLM config — Jetson Orin Nano (free local GPU inference)
+jetson:
+  base_url: "http://192.168.10.58:8080/v1"
+  model: "qwen3.5-4b"
+  max_completion_tokens: 256
+  temperature: 0.1
+
+# Daily summary config
+daily_summary:
+  cron_hour: 22  # 10 PM
+  open_brain_url: "https://brain.troy-davis.com/api/v1/captures"
+  open_brain_caller: "email-pipeline"
