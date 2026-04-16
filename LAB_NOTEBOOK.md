@@ -2933,4 +2933,17 @@ Deploy the CF Worker synthetic monitor, complete email outbound setup, resolve P
 - Troy registered subdomain by visiting Workers dashboard (one-time account setup)
 - CF Access service tokens (CF_ACCESS_CLIENT_ID + CF_ACCESS_CLIENT_SECRET) were already in Bitwarden — didn't need to create new ones
 
+**Credential Storage:**
+All utility credentials stored in Bitwarden (project 5022ea9c):
+- `GAS_SOUTH_USERNAME` / `GAS_SOUTH_PASSWORD` — manage.gassouth.com
+- `COBB_EMC_USERNAME` / `COBB_EMC_PASSWORD` — cobbemc.smarthub.coop
+- `COBB_WATER_USERNAME` / `COBB_WATER_PASSWORD` — ccw-css.cobbcounty.org
+
+**Water API Auth Discovery:**
+- HAR showed zero auth headers/cookies on API calls — appeared auth-free
+- Testing from VM: 401 with `www-authenticate: Bearer`
+- Even with Origin/Referer headers matching the SPA: still 401
+- Theory: SPA framework injects auth via mechanism not captured in HAR (HTTP-only cookie, service worker, or Azure B2C token in memory)
+- **Decision: Park water automation.** Monthly frequency, low volume (~10 readings/year). Manual or Playwright later.
+
 **Decisions:** D88-D92 (see Decision Log above)
