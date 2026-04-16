@@ -36,7 +36,6 @@ export interface ScheduledQueues {
  * - secret-rotation: 10:00 AM 1st of month (cron: 0 10 1 * *) — checks API key ages via bws CLI, alerts if > 90 days
  * - capture-dedup-sweep: 4:00 AM Saturdays (cron: 0 4 * * 6) — flags near-duplicate captures (cosine > 0.95) for review
  *
- * Reserved (Phase 5):
  * - email-classify: 5:00 AM daily (cron: 0 5 * * *) — email classification pipeline
  *
  * jobId values are stable — BullMQ treats a repeat job with the same jobId as
@@ -401,9 +400,23 @@ export async function registerScheduledJobs(
   logger.info({ cron: captureDedupSweepCron }, '[scheduler] capture-dedup-sweep repeatable job registered')
 
   // --------------------------------------------------------
-  // RESERVED — email-classify (5:00 AM daily, cron: 0 5 * * *)
-  // Phase 5: EmailClassifySkill — email classification pipeline
+  // Email classify (5:00 AM daily)
   // --------------------------------------------------------
+  const emailClassifyCron = '0 5 * * *'
+
+  await skillExecutionQueue.add(
+    'email-classify',
+    {
+      skillName: 'email-classify',
+      input: { providers: ['hotmail', 'gmail'], sinceHours: 24 },
+    },
+    {
+      repeat: { pattern: emailClassifyCron },
+      jobId: 'scheduled_email-classify',
+    },
+  )
+
+  logger.info({ cron: emailClassifyCron }, '[scheduler] email-classify repeatable job registered')
 
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

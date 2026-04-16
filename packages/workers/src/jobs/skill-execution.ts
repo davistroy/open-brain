@@ -9,7 +9,7 @@ import type { WikiGitService } from '@open-brain/shared'
 import type { BaseResult } from '../skills/types.js'
 import type { BaseSkill } from '../skills/base-skill.js'
 
-// Skill class imports — all 22 dispatchable skills
+// Skill class imports — all 23 dispatchable skills
 import { CaptureReminderSkill } from '../skills/capture-reminder.js'
 import { DailyConnectionsSkill } from '../skills/daily-connections.js'
 import { WikiIngestSkill } from '../skills/wiki-ingest.js'
@@ -31,11 +31,14 @@ import { ContainerHealthSkill } from '../skills/container-health.js'
 import { SecretRotationSkill } from '../skills/secret-rotation.js'
 import { StorageAuditSkill } from '../skills/storage-audit.js'
 import { CaptureDedupSweepSkill } from '../skills/capture-dedup-sweep.js'
+import { EmailClassifySkill } from '../skills/email-classify.js'
+import { HotmailClient, GmailClient, EmailClassifier, loadEmailRules } from '@open-brain/shared'
+import path from 'node:path'
 
 /**
  * Instantiate a BaseSkill subclass and execute it.
  *
- * All 22 dispatchable skills use this helper. Each skill class takes
+ * All 23 dispatchable skills use this helper. Each skill class takes
  * a typed opts object in its constructor, and the input is passed
  * to `execute()`.
  *
@@ -498,6 +501,48 @@ export function createSkillExecutionWorker(
               durationMs: result.durationMs,
             },
             '[skill-execution] wiki-ingest complete',
+          )
+          break
+        }
+
+        // ── Email Pipeline Skills ───────────────────────────────
+
+        case 'email-classify': {
+          const configDir = process.env.CONFIG_DIR ?? '/app/config'
+          const rulesPath = path.join(configDir, 'email-categories.yaml')
+          const rules = loadEmailRules(rulesPath)
+
+          const hotmailClient = new HotmailClient({ db })
+          const gmailClient = new GmailClient({ db })
+          const classifier = new EmailClassifier(rules, opts.llmGateway ?? null)
+
+          const result = await runSkill(
+            EmailClassifySkill,
+            {
+              db,
+              hotmailClient,
+              gmailClient,
+              classifier,
+              llmGateway: opts.llmGateway ?? null,
+              rules,
+              coreApiUrl: opts.coreApiUrl,
+            },
+            {
+              providers: Array.isArray(input?.providers) ? input.providers : undefined,
+              sinceHours: typeof input?.sinceHours === 'number' ? input.sinceHours : undefined,
+              dryRun: typeof input?.dryRun === 'boolean' ? input.dryRun : undefined,
+            },
+          )
+          logger.info(
+            {
+              skillName,
+              hotmailClassified: result.hotmail.classified,
+              gmailClassified: result.gmail.classified,
+              corrections: result.corrections,
+              summaryPosted: result.summaryPosted,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] email-classify complete',
           )
           break
         }

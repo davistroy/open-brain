@@ -580,7 +580,7 @@ Port the Python `classify_email()` function chain to TypeScript. Three tiers: T0
 ### Work Items
 
 #### 5.1 EmailClassifySkill Implementation
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan F11, D94, D96
 **Files Affected:**
 - `packages/workers/src/skills/email-classify.ts` (create)
@@ -615,7 +615,7 @@ Main skill class extending `BaseSkill`. Orchestrates: fetch emails → classify 
 ---
 
 #### 5.2 Register in Scheduler
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan F11
 **Files Affected:**
 - `packages/workers/src/scheduler.ts` (modify)
