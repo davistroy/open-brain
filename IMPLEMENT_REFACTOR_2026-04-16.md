@@ -165,7 +165,7 @@ Replace 5 `as any` assertions in production code with proper types. The DB resul
 ### Work Items
 
 #### 2.1 Create BaseSkill Abstract Class
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2
 **Files Affected:**
 - `packages/workers/src/skills/base-skill.ts` (create)
@@ -198,7 +198,7 @@ Create the abstract base class that all skills will extend. Based on investigati
 ---
 
 #### 2.2 Migrate 3 Pilot Skills
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2
 **Files Affected:**
 - `packages/workers/src/skills/capture-reminder.ts` (modify — simple skill pilot)
@@ -233,7 +233,7 @@ Keep the `execute<SkillName>(db, options, ...)` entry point function for backwar
 ---
 
 #### 2.3 Update Skill-Execution Dispatcher
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2
 **Files Affected:**
 - `packages/workers/src/jobs/skill-execution.ts` (modify)

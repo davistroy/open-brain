@@ -4,13 +4,37 @@ import type OpenAI from 'openai'
 import type { Database, ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { logger, activity_feed } from '@open-brain/shared'
 import { executeWeeklyBrief } from '../skills/weekly-brief.js'
-import { executeDailyConnections } from '../skills/daily-connections.js'
 import { executeDriftMonitor } from '../skills/drift-monitor.js'
 import { executeDailySweep } from '../skills/daily-sweep-skill.js'
 import { executeMemoryConsolidation } from '../skills/memory-consolidation.js'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { WikiGitService } from '@open-brain/shared'
+import type { BaseResult } from '../skills/types.js'
+import type { BaseSkill } from '../skills/base-skill.js'
+import { CaptureReminderSkill } from '../skills/capture-reminder.js'
+import { DailyConnectionsSkill } from '../skills/daily-connections.js'
+import { WikiIngestSkill } from '../skills/wiki-ingest.js'
+
+/**
+ * Instantiate a BaseSkill subclass and execute it.
+ *
+ * Used during Phase 2-3 migration: pilot skills dispatch through this helper
+ * while remaining skills continue using their legacy entry-point functions.
+ * After Phase 3, all skills will use this pattern exclusively.
+ *
+ * @param SkillClass  Constructor that takes a single `opts` argument
+ * @param opts        Constructor options (db, pushover, etc.)
+ * @param input       Skill-specific input passed to `execute()`
+ */
+async function runSkill<TOpts, TInput, TResult extends BaseResult>(
+  SkillClass: new (opts: TOpts) => BaseSkill<TInput, TResult>,
+  opts: TOpts,
+  input: TInput,
+): Promise<TResult> {
+  const skill = new SkillClass(opts)
+  return skill.execute(input)
+}
 
 /**
  * BullMQ worker that consumes the `skill-execution` queue and dispatches
@@ -70,11 +94,15 @@ export function createSkillExecutionWorker(
         }
 
         case 'daily-connections': {
-          const result = await executeDailyConnections(db, {
-            windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
-            tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-            modelAlias: synthesisModel,
-          }, opts.wikiService, opts.anthropicClient, opts.llmGateway)
+          const result = await runSkill(
+            DailyConnectionsSkill,
+            { db, wikiService: opts.wikiService, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            {
+              windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
+              tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
+              modelAlias: synthesisModel,
+            },
+          )
 
           logger.info(
             { skillName, captureCount: result.captureCount, connectionCount: result.output.connections.length, durationMs: result.durationMs },
@@ -136,8 +164,7 @@ export function createSkillExecutionWorker(
         }
 
         case 'capture-reminder-morning': {
-          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
-          const result = await executeCaptureReminder(db, { mode: 'morning' })
+          const result = await runSkill(CaptureReminderSkill, { db }, { mode: 'morning' as const })
           logger.info(
             { skillName, notificationSent: result.notificationSent, durationMs: result.durationMs },
             '[skill-execution] capture-reminder-morning complete',
@@ -146,8 +173,7 @@ export function createSkillExecutionWorker(
         }
 
         case 'capture-reminder-evening': {
-          const { executeCaptureReminder } = await import('../skills/capture-reminder.js')
-          const result = await executeCaptureReminder(db, { mode: 'evening' })
+          const result = await runSkill(CaptureReminderSkill, { db }, { mode: 'evening' as const })
           logger.info(
             { skillName, notificationSent: result.notificationSent, captureCount: result.captureCount, durationMs: result.durationMs },
             '[skill-execution] capture-reminder-evening complete',
@@ -241,12 +267,17 @@ export function createSkillExecutionWorker(
           if (!opts.wikiService) {
             throw new UnrecoverableError('[skill-execution] wiki-ingest requires wikiService — WikiGitService not configured')
           }
-          const { executeWikiIngest } = await import('../skills/wiki-ingest.js')
-          const result = await executeWikiIngest(db, captureId, opts.wikiService, {
-            anthropicClient: opts.anthropicClient,
-            model: wikiAgentModel,
-            promptsDir: opts.promptsDir,
-          })
+          const result = await runSkill(
+            WikiIngestSkill,
+            {
+              db,
+              wikiService: opts.wikiService,
+              anthropicClient: opts.anthropicClient,
+              model: wikiAgentModel,
+              promptsDir: opts.promptsDir,
+            },
+            captureId,
+          )
           logger.info(
             {
               skillName,
