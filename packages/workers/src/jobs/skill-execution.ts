@@ -249,9 +249,12 @@ export function createSkillExecutionWorker(
         }
 
         case 'morning-brief': {
-          const result = await runSkill(MorningBriefSkill, { db }, {})
+          const result = await runSkill(MorningBriefSkill, {
+            db,
+            slackChannelId: process.env.MORNING_BRIEF_SLACK_CHANNEL ?? 'D0AR39RNG4E',
+          }, {})
           logger.info(
-            { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, durationMs: result.durationMs },
+            { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, slackSent: result.slackSent, durationMs: result.durationMs },
             '[skill-execution] morning-brief complete',
           )
           break

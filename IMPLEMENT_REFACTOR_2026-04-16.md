@@ -697,7 +697,7 @@ MSAL tokens have long refresh windows. Gmail OAuth tokens in testing mode expire
 ### Work Items
 
 #### 6.1 Email Triage Section
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan D95, Entry 049
 **Files Affected:**
 - `packages/workers/src/skills/morning-brief.ts` (modify)
@@ -724,7 +724,7 @@ Add a new section to the morning brief: "OVERNIGHT EMAIL." Queries `email_classi
 ---
 
 #### 6.2 Slack DM Delivery
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Ultra Plan A51
 **Files Affected:**
 - `packages/workers/src/skills/morning-brief.ts` (modify)
@@ -749,7 +749,7 @@ Send the morning brief to a configurable Slack DM channel in addition to Pushove
 ---
 
 #### 6.3 Reference Calendars
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** OpenClaw morning brief analysis
 **Files Affected:**
 - `packages/workers/src/skills/morning-brief.ts` (modify)

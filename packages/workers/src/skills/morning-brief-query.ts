@@ -4,7 +4,7 @@ import { logger } from '@open-brain/shared'
 
 // ============================================================
 // Query helpers extracted from morning-brief.ts
-// These are the 4 database query functions used by MorningBriefSkill.
+// These are the 5 database query functions used by MorningBriefSkill.
 // Exported separately for testability and Phase 6 reuse (email triage).
 // ============================================================
 
@@ -125,6 +125,89 @@ export async function queryEveningCaptures(
     return rows.rows as Array<{ content: string }>
   } catch (err) {
     logger.warn({ err }, '[morning-brief] failed to query evening captures')
+    return []
+  }
+}
+
+// ============================================================
+// Email triage — overnight email classifications
+// ============================================================
+
+/** Categories that get subject-level detail in the morning brief */
+export const PRIORITY_EMAIL_CATEGORIES = new Set([
+  'Financial & Banking',
+  'Work & Office',
+  'Jamie',
+  'Ashley',
+  'Account & Security',
+])
+
+export interface OvernightEmailGroup {
+  category: string
+  count: number
+  topSubjects: string[]
+}
+
+/**
+ * Query email classifications processed since `since`, grouped by category.
+ * Returns priority categories first (with top 3 subjects), then remaining
+ * categories ordered by count descending.
+ */
+export async function queryOvernightEmail(
+  db: Database,
+  since: Date,
+): Promise<OvernightEmailGroup[]> {
+  try {
+    // Step 1: Get counts per category
+    const countRows = await db.execute<{ category: string; count: string }>(sql`
+      SELECT category, COUNT(*)::text AS count
+      FROM email_classifications
+      WHERE processed_at >= ${since.toISOString()}::timestamptz
+      GROUP BY category
+      ORDER BY COUNT(*) DESC
+    `)
+
+    if (!countRows.rows || countRows.rows.length === 0) return []
+
+    const categories = countRows.rows as Array<{ category: string; count: string }>
+
+    // Step 2: For priority categories, fetch top 3 subjects
+    const results: OvernightEmailGroup[] = []
+
+    for (const row of categories) {
+      const isPriority = PRIORITY_EMAIL_CATEGORIES.has(row.category)
+      let topSubjects: string[] = []
+
+      if (isPriority) {
+        const subjectRows = await db.execute<{ subject: string }>(sql`
+          SELECT COALESCE(subject, '(no subject)') AS subject
+          FROM email_classifications
+          WHERE processed_at >= ${since.toISOString()}::timestamptz
+            AND category = ${row.category}
+          ORDER BY processed_at DESC
+          LIMIT 3
+        `)
+        topSubjects = (subjectRows.rows as Array<{ subject: string }>).map(r => r.subject)
+      }
+
+      results.push({
+        category: row.category,
+        count: parseInt(row.count, 10),
+        topSubjects,
+      })
+    }
+
+    // Sort: priority categories first, then by count descending
+    results.sort((a, b) => {
+      const aPri = PRIORITY_EMAIL_CATEGORIES.has(a.category) ? 0 : 1
+      const bPri = PRIORITY_EMAIL_CATEGORIES.has(b.category) ? 0 : 1
+      if (aPri !== bPri) return aPri - bPri
+      return b.count - a.count
+    })
+
+    return results
+  } catch (err) {
+    logger.warn({ err }, '[morning-brief] failed to query overnight email')
     return []
   }
 }
