@@ -6,8 +6,8 @@ himalaya:
   default_account: personal
 
 outbound:
-  default_from: troy@troy-davis.com
-  display_name: "Troy Davis"
+  default_from: bond@k4jda.net
+  display_name: "Troy Davis (Open Brain)"
   signature: |
     Troy Davis
     Stratfield Consulting
