@@ -1,0 +1,504 @@
+# Merchant Categorization Engine for Open Brain Financial Pipeline
+# Resolution order: exact_matches -> pattern_matches -> plaid_category_map -> "Uncategorized"
+#
+# Categories are Open Brain financial categories (not Plaid categories).
+# Exact matches are case-insensitive lookups on merchant_name from Plaid.
+# Pattern matches use Python regex (re.IGNORECASE implied).
+# Plaid category map translates Plaid personal_finance_category to OB category.
+
+# --- Open Brain Financial Categories ---
+categories:
+  - Dining
+  - Groceries
+  - Gas/Fuel
+  - Subscriptions
+  - Travel
+  - Household
+  - Medical
+  - Insurance
+  - Utilities
+  - Shopping
+  - Entertainment
+  - Professional
+  - Transfers
+  - Income
+  - Uncategorized
+
+# --- Exact Matches ---
+# merchant_name (lowercased for lookup) -> category
+# These override Plaid categories for known merchants.
+exact_matches:
+  # Groceries
+  kroger: Groceries
+  publix: Groceries
+  walmart grocery: Groceries
+  walmart supercenter: Groceries
+  costco: Groceries
+  costco wholesale: Groceries
+  trader joe's: Groceries
+  trader joes: Groceries
+  whole foods: Groceries
+  whole foods market: Groceries
+  aldi: Groceries
+  lidl: Groceries
+  food lion: Groceries
+  piggly wiggly: Groceries
+  ingles: Groceries
+  harris teeter: Groceries
+  sprouts farmers market: Groceries
+  sprouts: Groceries
+  sam's club: Groceries
+  bi-lo: Groceries
+
+  # Dining
+  chick-fil-a: Dining
+  starbucks: Dining
+  mcdonald's: Dining
+  mcdonalds: Dining
+  waffle house: Dining
+  wendy's: Dining
+  wendys: Dining
+  zaxby's: Dining
+  zaxbys: Dining
+  chili's: Dining
+  chilis: Dining
+  chipotle: Dining
+  panera bread: Dining
+  panera: Dining
+  subway: Dining
+  taco bell: Dining
+  popeyes: Dining
+  cookout: Dining
+  bojangles: Dining
+  cracker barrel: Dining
+  ihop: Dining
+  dunkin: Dining
+  dunkin donuts: Dining
+  domino's: Dining
+  dominos: Dining
+  papa john's: Dining
+  papa johns: Dining
+  pizza hut: Dining
+  five guys: Dining
+  shake shack: Dining
+  panda express: Dining
+  sonic drive-in: Dining
+  sonic: Dining
+  firehouse subs: Dining
+  jersey mike's: Dining
+  jersey mikes: Dining
+  raising cane's: Dining
+  grubhub: Dining
+  doordash: Dining
+  uber eats: Dining
+  postmates: Dining
+
+  # Gas/Fuel
+  shell: Gas/Fuel
+  shell oil: Gas/Fuel
+  chevron: Gas/Fuel
+  qt: Gas/Fuel
+  quiktrip: Gas/Fuel
+  racetrac: Gas/Fuel
+  bp: Gas/Fuel
+  circle k: Gas/Fuel
+  exxon: Gas/Fuel
+  exxonmobil: Gas/Fuel
+  marathon: Gas/Fuel
+  murphy usa: Gas/Fuel
+  murphy express: Gas/Fuel
+  speedway: Gas/Fuel
+  costco gas: Gas/Fuel
+  sam's club fuel: Gas/Fuel
+  wawa: Gas/Fuel
+  sheetz: Gas/Fuel
+  buc-ee's: Gas/Fuel
+  buc-ees: Gas/Fuel
+
+  # Subscriptions
+  netflix: Subscriptions
+  netflix.com: Subscriptions
+  spotify: Subscriptions
+  spotify usa: Subscriptions
+  apple.com/bill: Subscriptions
+  apple: Subscriptions
+  apple music: Subscriptions
+  apple one: Subscriptions
+  apple icloud: Subscriptions
+  amazon prime: Subscriptions
+  prime video: Subscriptions
+  youtube premium: Subscriptions
+  google youtube: Subscriptions
+  disney plus: Subscriptions
+  disney+: Subscriptions
+  hbo max: Subscriptions
+  max: Subscriptions
+  hulu: Subscriptions
+  paramount+: Subscriptions
+  paramount plus: Subscriptions
+  peacock: Subscriptions
+  adobe: Subscriptions
+  adobe creative cloud: Subscriptions
+  adobe systems: Subscriptions
+  microsoft 365: Subscriptions
+  microsoft office: Subscriptions
+  anthropic: Subscriptions
+  claude: Subscriptions
+  openai: Subscriptions
+  chatgpt: Subscriptions
+  github: Subscriptions
+  cloudflare: Subscriptions
+  tailscale: Subscriptions
+  pushover: Subscriptions
+  dropbox: Subscriptions
+  1password: Subscriptions
+  bitwarden: Subscriptions
+  nordvpn: Subscriptions
+  expressvpn: Subscriptions
+  backblaze: Subscriptions
+  google one: Subscriptions
+  google storage: Subscriptions
+  amazon web services: Subscriptions
+  aws: Subscriptions
+  digitalocean: Subscriptions
+  notion: Subscriptions
+  midjourney: Subscriptions
+  cursor: Subscriptions
+  perplexity: Subscriptions
+  deepgram: Subscriptions
+
+  # Utilities
+  cobb emc: Utilities
+  cobb electric: Utilities
+  gas south: Utilities
+  cobb county water: Utilities
+  cobb county water system: Utilities
+  at&t: Utilities
+  att: Utilities
+  comcast: Utilities
+  xfinity: Utilities
+  t-mobile: Utilities
+  tmobile: Utilities
+  verizon: Utilities
+  spectrum: Utilities
+  google fiber: Utilities
+  starlink: Utilities
+
+  # Insurance
+  state farm: Insurance
+  allstate: Insurance
+  usaa: Insurance
+  geico: Insurance
+  progressive: Insurance
+  liberty mutual: Insurance
+  nationwide: Insurance
+  farmers insurance: Insurance
+  erie insurance: Insurance
+
+  # Medical
+  cvs: Medical
+  cvs pharmacy: Medical
+  walgreens: Medical
+  rite aid: Medical
+  kaiser permanente: Medical
+  wellstar: Medical
+  emory healthcare: Medical
+  piedmont healthcare: Medical
+  quest diagnostics: Medical
+  labcorp: Medical
+
+  # Shopping
+  amazon: Shopping
+  amazon.com: Shopping
+  amzn mktp: Shopping
+  target: Shopping
+  home depot: Shopping
+  the home depot: Shopping
+  lowe's: Shopping
+  lowes: Shopping
+  best buy: Shopping
+  micro center: Shopping
+  walmart: Shopping
+  walmart.com: Shopping
+  ikea: Shopping
+  bed bath & beyond: Shopping
+  wayfair: Shopping
+  etsy: Shopping
+  ebay: Shopping
+  harbor freight: Shopping
+  tractor supply: Shopping
+  tractor supply co: Shopping
+  ace hardware: Shopping
+  northern tool: Shopping
+  digikey: Shopping
+  mouser: Shopping
+  adafruit: Shopping
+  sparkfun: Shopping
+
+  # Entertainment
+  amc theatres: Entertainment
+  amc: Entertainment
+  regal cinemas: Entertainment
+  regal: Entertainment
+  topgolf: Entertainment
+  bowlero: Entertainment
+  dave and busters: Entertainment
+  dave & buster's: Entertainment
+  ticketmaster: Entertainment
+  stubhub: Entertainment
+  eventbrite: Entertainment
+  steam: Entertainment
+  playstation: Entertainment
+  xbox: Entertainment
+  nintendo: Entertainment
+  audible: Entertainment
+  kindle: Entertainment
+
+  # Travel
+  delta air lines: Travel
+  delta airlines: Travel
+  delta: Travel
+  united airlines: Travel
+  southwest airlines: Travel
+  southwest: Travel
+  american airlines: Travel
+  marriott: Travel
+  hilton: Travel
+  hilton hotels: Travel
+  hyatt: Travel
+  airbnb: Travel
+  vrbo: Travel
+  uber: Travel
+  lyft: Travel
+  hertz: Travel
+  enterprise rent-a-car: Travel
+  enterprise: Travel
+  national car rental: Travel
+  avis: Travel
+  budget car rental: Travel
+  tsa precheck: Travel
+  clear: Travel
+  global entry: Travel
+  parking: Travel
+
+  # Professional
+  linkedin premium: Professional
+  zoom: Professional
+  squarespace: Professional
+  wix: Professional
+  mailchimp: Professional
+  quickbooks: Professional
+  intuit: Professional
+  freshbooks: Professional
+  hubspot: Professional
+  canva: Professional
+  fiverr: Professional
+  upwork: Professional
+  namecheap: Professional
+  google workspace: Professional
+  usps: Professional
+  ups: Professional
+  fedex: Professional
+
+  # Transfers
+  zelle: Transfers
+  venmo: Transfers
+  paypal transfer: Transfers
+  cash app: Transfers
+  wire transfer: Transfers
+  ach transfer: Transfers
+  schwab transfer: Transfers
+  schwab brokerage: Transfers
+  truist transfer: Transfers
+
+  # Household
+  terminix: Household
+  orkin: Household
+  servpro: Household
+  stanley steemer: Household
+  roto-rooter: Household
+  the cleaning authority: Household
+
+# --- Pattern Matches ---
+# List of {pattern, category} applied in order. First match wins.
+# Patterns are Python regex, applied with re.IGNORECASE.
+pattern_matches:
+  # Dining - broad restaurant patterns
+  - pattern: "(?i)restaurant|grill|pizza|burger|taco|sushi|thai|chinese|bbq|barbecue|steakhouse|diner|cafe|coffee|bakery|deli|wings|seafood|buffet|cantina|bistro|pub|tavern|brewpub|brewery|taphouse|kitchen|eatery|chophouse"
+    category: Dining
+
+  # Gas/Fuel
+  - pattern: "(?i)\\b(gas|fuel|petroleum|petro|sunoco|citgo|valero|phillips 66|conoco|texaco|sinclair|mobil)\\b"
+    category: Gas/Fuel
+
+  # Medical
+  - pattern: "(?i)pharmacy|medical|doctor|hospital|dental|dentist|vision|optometrist|ophthalmol|urgent care|clinic|orthopedic|dermatol|cardiol|pediatr|chiropr|physical therapy|mental health|counseling|therapist"
+    category: Medical
+
+  # Travel
+  - pattern: "(?i)hotel|motel|airline|airport|rental car|resort|inn|suites|lodge|travel|cruise|amtrak|greyhound|taxi|rideshare"
+    category: Travel
+
+  # Insurance
+  - pattern: "(?i)\\b(insurance|insur|premium|underwriter|casualty|indemnity)\\b"
+    category: Insurance
+
+  # Groceries - catch additional grocery stores
+  - pattern: "(?i)\\b(grocery|grocer|supermarket|fresh market|farmers market|food mart|meat market)\\b"
+    category: Groceries
+
+  # Subscriptions - streaming and SaaS patterns
+  - pattern: "(?i)\\b(subscription|recurring|monthly fee|annual fee|membership dues)\\b"
+    category: Subscriptions
+
+  # Utilities
+  - pattern: "(?i)\\b(electric|power company|energy|water authority|sewer|gas utility|telecom|broadband|internet service|cable tv|waste management|sanitation)\\b"
+    category: Utilities
+
+  # Entertainment
+  - pattern: "(?i)\\b(cinema|theater|theatre|museum|zoo|aquarium|amusement|theme park|concert|festival|arcade|bowling|mini golf|escape room|laser tag|trampoline park)\\b"
+    category: Entertainment
+
+  # Professional
+  - pattern: "(?i)\\b(consulting|accountant|attorney|lawyer|legal|notary|tax prep|cpa|bookkeep|payroll)\\b"
+    category: Professional
+
+  # Transfers
+  - pattern: "(?i)\\b(transfer|ach|wire|direct deposit|autopay|payment to|payment from|fund transfer)\\b"
+    category: Transfers
+
+# --- Plaid Category Mapping ---
+# Maps Plaid personal_finance_category (primary.detailed) to Open Brain category.
+# Plaid uses SCREAMING_SNAKE_CASE. Map the most common categories.
+# Reference: https://plaid.com/documents/transactions-personal-finance-category-taxonomy.csv
+plaid_category_map:
+  # Food and Drink
+  FOOD_AND_DRINK.RESTAURANTS: Dining
+  FOOD_AND_DRINK.FAST_FOOD: Dining
+  FOOD_AND_DRINK.COFFEE: Dining
+  FOOD_AND_DRINK.BEER_WINE_AND_LIQUOR: Dining
+  FOOD_AND_DRINK.VENDING_MACHINES: Dining
+  FOOD_AND_DRINK.GROCERIES: Groceries
+  FOOD_AND_DRINK.OTHER_FOOD_AND_DRINK: Dining
+
+  # Transportation
+  TRANSPORTATION.GAS: Gas/Fuel
+  TRANSPORTATION.PARKING: Travel
+  TRANSPORTATION.TOLLS: Travel
+  TRANSPORTATION.PUBLIC_TRANSIT: Travel
+  TRANSPORTATION.TAXIS_AND_RIDE_SHARES: Travel
+  TRANSPORTATION.CAR_RENTALS_AND_LEASES: Travel
+  TRANSPORTATION.FLIGHTS: Travel
+  TRANSPORTATION.OTHER_TRANSPORTATION: Travel
+
+  # Travel
+  TRAVEL.FLIGHTS: Travel
+  TRAVEL.LODGING: Travel
+  TRAVEL.CAR_RENTALS: Travel
+  TRAVEL.OTHER_TRAVEL: Travel
+
+  # General Merchandise
+  GENERAL_MERCHANDISE.SUBSCRIPTIONS: Subscriptions
+  GENERAL_MERCHANDISE.ONLINE_MARKETPLACES: Shopping
+  GENERAL_MERCHANDISE.SUPERSTORES: Shopping
+  GENERAL_MERCHANDISE.CLOTHING_AND_ACCESSORIES: Shopping
+  GENERAL_MERCHANDISE.DEPARTMENT_STORES: Shopping
+  GENERAL_MERCHANDISE.DISCOUNT_STORES: Shopping
+  GENERAL_MERCHANDISE.ELECTRONICS: Shopping
+  GENERAL_MERCHANDISE.GIFTS_AND_NOVELTIES: Shopping
+  GENERAL_MERCHANDISE.OFFICE_SUPPLIES: Shopping
+  GENERAL_MERCHANDISE.SPORTING_GOODS: Shopping
+  GENERAL_MERCHANDISE.BOOKSTORES_AND_NEWSSTANDS: Shopping
+  GENERAL_MERCHANDISE.HOME_IMPROVEMENT: Household
+  GENERAL_MERCHANDISE.PETS: Household
+  GENERAL_MERCHANDISE.TOBACCO_AND_VAPE: Shopping
+  GENERAL_MERCHANDISE.OTHER_GENERAL_MERCHANDISE: Shopping
+
+  # Entertainment
+  ENTERTAINMENT.CASINOS_AND_GAMBLING: Entertainment
+  ENTERTAINMENT.MUSIC_AND_AUDIO: Entertainment
+  ENTERTAINMENT.SPORTING_EVENTS_AMUSEMENT_PARKS_AND_MUSEUMS: Entertainment
+  ENTERTAINMENT.TV_AND_MOVIES: Entertainment
+  ENTERTAINMENT.VIDEO_GAMES: Entertainment
+  ENTERTAINMENT.OTHER_ENTERTAINMENT: Entertainment
+
+  # Medical / Healthcare
+  MEDICAL.DENTAL_CARE: Medical
+  MEDICAL.EYE_CARE: Medical
+  MEDICAL.NURSING_CARE: Medical
+  MEDICAL.PHARMACIES_AND_SUPPLEMENTS: Medical
+  MEDICAL.PRIMARY_CARE: Medical
+  MEDICAL.VETERINARY_SERVICES: Medical
+  MEDICAL.OTHER_MEDICAL: Medical
+
+  # Personal Care
+  PERSONAL_CARE.GYMS_AND_FITNESS_CENTERS: Entertainment
+  PERSONAL_CARE.HAIR_AND_BEAUTY: Shopping
+  PERSONAL_CARE.LAUNDRY_AND_DRY_CLEANING: Household
+  PERSONAL_CARE.OTHER_PERSONAL_CARE: Shopping
+
+  # Government and Non-Profit
+  GOVERNMENT_AND_NON_PROFIT.DONATIONS: Shopping
+  GOVERNMENT_AND_NON_PROFIT.GOVERNMENT_DEPARTMENTS_AND_AGENCIES: Shopping
+  GOVERNMENT_AND_NON_PROFIT.TAX_PAYMENT: Professional
+  GOVERNMENT_AND_NON_PROFIT.OTHER_GOVERNMENT_AND_NON_PROFIT: Shopping
+
+  # Home Improvement
+  HOME_IMPROVEMENT.FURNITURE: Household
+  HOME_IMPROVEMENT.HARDWARE: Household
+  HOME_IMPROVEMENT.REPAIR_AND_MAINTENANCE: Household
+  HOME_IMPROVEMENT.SECURITY: Household
+  HOME_IMPROVEMENT.OTHER_HOME_IMPROVEMENT: Household
+
+  # Rent and Utilities
+  RENT_AND_UTILITIES.GAS_AND_ELECTRICITY: Utilities
+  RENT_AND_UTILITIES.INTERNET_AND_CABLE: Utilities
+  RENT_AND_UTILITIES.RENT: Household
+  RENT_AND_UTILITIES.SEWAGE_AND_WASTE_MANAGEMENT: Utilities
+  RENT_AND_UTILITIES.TELEPHONE: Utilities
+  RENT_AND_UTILITIES.WATER: Utilities
+  RENT_AND_UTILITIES.OTHER_UTILITIES: Utilities
+
+  # Loan Payments
+  LOAN_PAYMENTS.CAR_PAYMENT: Transfers
+  LOAN_PAYMENTS.CREDIT_CARD_PAYMENT: Transfers
+  LOAN_PAYMENTS.MORTGAGE_PAYMENT: Household
+  LOAN_PAYMENTS.PERSONAL_LOAN_PAYMENT: Transfers
+  LOAN_PAYMENTS.STUDENT_LOAN_PAYMENT: Transfers
+  LOAN_PAYMENTS.OTHER_PAYMENT: Transfers
+
+  # Bank Fees
+  BANK_FEES.ATM_FEES: Transfers
+  BANK_FEES.FOREIGN_TRANSACTION_FEES: Transfers
+  BANK_FEES.INSUFFICIENT_FUNDS: Transfers
+  BANK_FEES.INTEREST_CHARGE: Transfers
+  BANK_FEES.OVERDRAFT_FEES: Transfers
+  BANK_FEES.OTHER_BANK_FEES: Transfers
+
+  # Transfer
+  TRANSFER_IN.DEPOSIT: Transfers
+  TRANSFER_IN.INVESTMENT_AND_RETIREMENT_FUNDS: Transfers
+  TRANSFER_IN.SAVINGS: Transfers
+  TRANSFER_IN.ACCOUNT_TRANSFER: Transfers
+  TRANSFER_IN.OTHER_TRANSFER_IN: Transfers
+  TRANSFER_OUT.INVESTMENT_AND_RETIREMENT_FUNDS: Transfers
+  TRANSFER_OUT.SAVINGS: Transfers
+  TRANSFER_OUT.WITHDRAWAL: Transfers
+  TRANSFER_OUT.ACCOUNT_TRANSFER: Transfers
+  TRANSFER_OUT.OTHER_TRANSFER_OUT: Transfers
+
+  # Income
+  INCOME.DIVIDENDS: Income
+  INCOME.INTEREST_EARNED: Income
+  INCOME.RETIREMENT_PENSION: Income
+  INCOME.TAX_REFUND: Income
+  INCOME.UNEMPLOYMENT: Income
+  INCOME.WAGES: Income
+  INCOME.OTHER_INCOME: Income
+
+  # Insurance — Plaid-level
+  INSURANCE.AUTO_INSURANCE: Insurance
+  INSURANCE.HEALTH_INSURANCE: Insurance
+  INSURANCE.HOME_INSURANCE: Insurance
+  INSURANCE.LIFE_INSURANCE: Insurance
+  INSURANCE.OTHER_INSURANCE: Insurance
