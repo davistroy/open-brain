@@ -3,8 +3,10 @@ import { execFile, type ExecFileOptions } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import type { WikiGitService } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 function execFileAsync(cmd: string, args: string[], opts: ExecFileOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -63,10 +65,9 @@ export interface StorageMetrics {
   }
 }
 
-export interface StorageAuditResult {
+export interface StorageAuditResult extends BaseResult {
   metrics: StorageMetrics
   wikiPageWritten: boolean
-  durationMs: number
 }
 
 // ============================================================
@@ -106,25 +107,22 @@ function formatBytes(bytes: number): string {
  * All external calls (docker exec, du) are wrapped in try/catch
  * so partial failures don't prevent the rest of the report.
  */
-export class StorageAuditSkill {
-  private db: Database
-  private pushover: PushoverService
+export interface StorageAuditSkillOpts extends BaseSkillOpts {
+  wikiService?: WikiGitService
+  wikiDir?: string
+  /** Override command executor for testing. */
+  execFn?: typeof execFileAsync
+}
+
+export class StorageAuditSkill extends BaseSkill<StorageAuditOptions, StorageAuditResult> {
   private wikiService?: WikiGitService
   private wikiDir: string
 
   /** Injectable command executor for testing. */
   private execFn: typeof execFileAsync
 
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-    wikiService?: WikiGitService
-    wikiDir?: string
-    /** Override command executor for testing. */
-    execFn?: typeof execFileAsync
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: StorageAuditSkillOpts) {
+    super('storage-audit', opts)
     this.wikiService = opts.wikiService
     this.wikiDir = opts.wikiDir ?? DEFAULT_WIKI_DIR
     this.execFn = opts.execFn ?? execFileAsync
@@ -158,15 +156,26 @@ export class StorageAuditSkill {
 
     const durationMs = Date.now() - startMs
 
-    // Log to skills_log
-    await this.logToSkillsLog(metrics, wikiPageWritten, durationMs)
+    const result: StorageAuditResult = { metrics, wikiPageWritten, durationMs }
+
+    // Log to skills_log via BaseSkill
+    const outputSummary = [
+      `db:${metrics.postgres.dbSizeHuman}`,
+      `redis:${metrics.redis.usedMemoryHuman}`,
+      `backups:${metrics.backups.totalSizeHuman}`,
+      `wiki:${metrics.wiki.repoSizeHuman}`,
+      `captures:${metrics.postgres.captureCount}`,
+      `growth:${metrics.postgres.captureGrowthRate}/day`,
+      `wiki_written:${wikiPageWritten}`,
+    ].join(' | ')
+    await this.logResult(result, 'weekly storage audit', outputSummary)
 
     logger.info(
       { dbSize: postgres.dbSizeHuman, redisMemory: redis.usedMemoryHuman, backupSize: backups.totalSizeHuman, durationMs },
       '[storage-audit] execution complete',
     )
 
-    return { metrics, wikiPageWritten, durationMs }
+    return result
   }
 
   // ----------------------------------------------------------
@@ -403,36 +412,6 @@ export class StorageAuditSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(
-    metrics: StorageMetrics,
-    wikiPageWritten: boolean,
-    durationMs: number,
-  ): Promise<void> {
-    const outputSummary = [
-      `db:${metrics.postgres.dbSizeHuman}`,
-      `redis:${metrics.redis.usedMemoryHuman}`,
-      `backups:${metrics.backups.totalSizeHuman}`,
-      `wiki:${metrics.wiki.repoSizeHuman}`,
-      `captures:${metrics.postgres.captureCount}`,
-      `growth:${metrics.postgres.captureGrowthRate}/day`,
-      `wiki_written:${wikiPageWritten}`,
-    ].join(' | ')
-
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'storage-audit',
-        input_summary: 'weekly storage audit',
-        output_summary: outputSummary,
-        duration_ms: durationMs,
-      })
-    } catch (err) {
-      logger.warn({ err }, '[storage-audit] failed to write skills_log entry')
-    }
-  }
 }
 
 // ============================================================

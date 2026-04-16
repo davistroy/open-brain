@@ -1,54 +1,15 @@
-import { sql } from 'drizzle-orm'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import type { Database } from '@open-brain/shared'
-import { skills_log, logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import type { WikiGitService } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseSkillOpts } from './types.js'
+import { querySpend } from './cost-analysis-query.js'
+import type { CostAnalysisOptions, ModelCost, DailyCostSummary, CostAnalysisResult } from './cost-analysis-query.js'
 
-// ============================================================
-// Types
-// ============================================================
-
-export interface CostAnalysisOptions {
-  /** Override "now" for deterministic testing. */
-  now?: Date
-  /** Daily spend alert threshold in USD. Default: 2.00. */
-  dailyAlertThreshold?: number
-  /** Wiki output directory (relative to wiki root). Default: operations/cost-reports */
-  wikiDir?: string
-  /** LiteLLM spend URL (overrides LITELLM_SPEND_URL env var). Empty string = skip. */
-  litellmSpendUrl?: string
-  /** LiteLLM API key (overrides LITELLM_API_KEY env var). */
-  litellmApiKey?: string
-}
-
-export interface ModelCost {
-  model: string
-  task_type: string
-  call_count: number
-  total_tokens: number
-  cost_usd: number
-}
-
-export interface DailyCostSummary {
-  date: string
-  totalCost: number
-  totalTokens: number
-  totalCalls: number
-  byModel: ModelCost[]
-}
-
-export interface CostAnalysisResult {
-  type: 'daily' | 'weekly' | 'monthly'
-  summary: DailyCostSummary
-  /** Weekly summary (last 7 days), only present on Mondays */
-  weeklySummary?: DailyCostSummary
-  /** Monthly summary (previous month), only present on 1st of month */
-  monthlySummary?: DailyCostSummary
-  alertSent: boolean
-  wikiPageWritten: boolean
-  durationMs: number
-}
+// Re-export types so consumers can import from this file
+export type { CostAnalysisOptions, ModelCost, DailyCostSummary, CostAnalysisResult } from './cost-analysis-query.js'
 
 // ============================================================
 // Constants
@@ -61,6 +22,14 @@ const DEFAULT_WIKI_DIR = 'operations/cost-reports'
 // CostAnalysisSkill
 // ============================================================
 
+/** Constructor options for CostAnalysisSkill. */
+export interface CostAnalysisSkillOpts extends BaseSkillOpts {
+  wikiService?: WikiGitService
+  wikiDir?: string
+  litellmSpendUrl?: string
+  litellmApiKey?: string
+}
+
 /**
  * CostAnalysisSkill — daily LLM cost analysis with weekly/monthly reports.
  *
@@ -72,24 +41,14 @@ const DEFAULT_WIKI_DIR = 'operations/cost-reports'
  * - On 1st of month: includes previous month's full breakdown
  * - Writes reports to wiki/operations/cost-reports/
  */
-export class CostAnalysisSkill {
-  private db: Database
-  private pushover: PushoverService
+export class CostAnalysisSkill extends BaseSkill<CostAnalysisOptions, CostAnalysisResult> {
   private wikiService?: WikiGitService
   private wikiDir: string
   private litellmSpendUrl: string
   private litellmApiKey: string
 
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-    wikiService?: WikiGitService
-    wikiDir?: string
-    litellmSpendUrl?: string
-    litellmApiKey?: string
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: CostAnalysisSkillOpts) {
+    super('cost-analysis', opts)
     this.wikiService = opts.wikiService
     this.wikiDir = opts.wikiDir ?? DEFAULT_WIKI_DIR
     this.litellmSpendUrl = opts.litellmSpendUrl ?? process.env.LITELLM_SPEND_URL ?? ''
@@ -151,22 +110,7 @@ export class CostAnalysisSkill {
 
     const durationMs = Date.now() - startMs
 
-    // Step 6: Log to skills_log
-    await this.logToSkillsLog({
-      dailySummary,
-      weeklySummary,
-      monthlySummary,
-      alertSent,
-      wikiPageWritten,
-      durationMs,
-    })
-
-    logger.info(
-      { type: reportType, totalCost: dailySummary.totalCost, alertSent, wikiPageWritten, durationMs },
-      '[cost-analysis] execution complete',
-    )
-
-    return {
+    const finalResult: CostAnalysisResult = {
       type: reportType,
       summary: dailySummary,
       weeklySummary,
@@ -175,6 +119,31 @@ export class CostAnalysisSkill {
       wikiPageWritten,
       durationMs,
     }
+
+    // Step 6: Log to skills_log via BaseSkill
+    const outputSummary = [
+      `date:${dailySummary.date}`,
+      `cost:$${dailySummary.totalCost.toFixed(4)}`,
+      `calls:${dailySummary.totalCalls}`,
+      `tokens:${dailySummary.totalTokens}`,
+      `alert:${alertSent}`,
+      `wiki:${wikiPageWritten}`,
+      weeklySummary ? `weekly:$${weeklySummary.totalCost.toFixed(4)}` : null,
+      monthlySummary ? `monthly:$${monthlySummary.totalCost.toFixed(4)}` : null,
+    ].filter(Boolean).join(' | ')
+
+    await this.logResult(
+      finalResult,
+      `daily cost analysis for ${dailySummary.date}`,
+      outputSummary,
+    )
+
+    logger.info(
+      { type: reportType, totalCost: dailySummary.totalCost, alertSent, wikiPageWritten, durationMs },
+      '[cost-analysis] execution complete',
+    )
+
+    return finalResult
   }
 
   // ----------------------------------------------------------
@@ -190,7 +159,7 @@ export class CostAnalysisSkill {
    */
   private async querySpendCombined(from: Date, to: Date): Promise<DailyCostSummary> {
     const litellmData = await this.queryLiteLLMSpend(from, to)
-    const localData = await this.querySpend(from, to)
+    const localData = await this.queryLocalSpend(from, to)
 
     if (!litellmData) {
       // No LiteLLM data — use local ai_audit_log as sole source
@@ -319,54 +288,11 @@ export class CostAnalysisSkill {
   }
 
   // ----------------------------------------------------------
-  // Private: query spend from ai_audit_log (local estimation)
+  // Private: query spend from ai_audit_log (delegates to query file)
   // ----------------------------------------------------------
 
-  private async querySpend(from: Date, to: Date): Promise<DailyCostSummary> {
-    try {
-      const rows = await this.db.execute<{
-        model: string
-        task_type: string
-        call_count: string
-        total_tokens: string
-        cost_usd: string
-      }>(sql`
-        SELECT
-          model,
-          task_type,
-          COUNT(*)::text AS call_count,
-          COALESCE(SUM(total_tokens), 0)::text AS total_tokens,
-          COALESCE(SUM(cost_usd::numeric), 0)::text AS cost_usd
-        FROM ai_audit_log
-        WHERE created_at >= ${from.toISOString()}::timestamptz
-          AND created_at < ${to.toISOString()}::timestamptz
-        GROUP BY model, task_type
-        ORDER BY cost_usd DESC
-      `)
-
-      const byModel: ModelCost[] = rows.rows.map(r => ({
-        model: r.model,
-        task_type: r.task_type,
-        call_count: Number(r.call_count),
-        total_tokens: Number(r.total_tokens),
-        cost_usd: Number(Number(r.cost_usd).toFixed(6)),
-      }))
-
-      const totalCost = byModel.reduce((sum, m) => sum + m.cost_usd, 0)
-      const totalTokens = byModel.reduce((sum, m) => sum + m.total_tokens, 0)
-      const totalCalls = byModel.reduce((sum, m) => sum + m.call_count, 0)
-
-      return {
-        date: '',
-        totalCost: Number(totalCost.toFixed(6)),
-        totalTokens,
-        totalCalls,
-        byModel,
-      }
-    } catch (err) {
-      logger.warn({ err }, '[cost-analysis] failed to query ai_audit_log')
-      return { date: '', totalCost: 0, totalTokens: 0, totalCalls: 0, byModel: [] }
-    }
+  private async queryLocalSpend(from: Date, to: Date): Promise<DailyCostSummary> {
+    return querySpend(this.db, from, to)
   }
 
   // ----------------------------------------------------------
@@ -515,40 +441,6 @@ export class CostAnalysisSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    dailySummary: DailyCostSummary
-    weeklySummary?: DailyCostSummary
-    monthlySummary?: DailyCostSummary
-    alertSent: boolean
-    wikiPageWritten: boolean
-    durationMs: number
-  }): Promise<void> {
-    const outputSummary = [
-      `date:${params.dailySummary.date}`,
-      `cost:$${params.dailySummary.totalCost.toFixed(4)}`,
-      `calls:${params.dailySummary.totalCalls}`,
-      `tokens:${params.dailySummary.totalTokens}`,
-      `alert:${params.alertSent}`,
-      `wiki:${params.wikiPageWritten}`,
-      params.weeklySummary ? `weekly:$${params.weeklySummary.totalCost.toFixed(4)}` : null,
-      params.monthlySummary ? `monthly:$${params.monthlySummary.totalCost.toFixed(4)}` : null,
-    ].filter(Boolean).join(' | ')
-
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'cost-analysis',
-        input_summary: `daily cost analysis for ${params.dailySummary.date}`,
-        output_summary: outputSummary,
-        duration_ms: params.durationMs,
-      })
-    } catch (err) {
-      logger.warn({ err }, '[cost-analysis] failed to write skills_log entry')
-    }
-  }
 }
 
 // ============================================================
@@ -560,11 +452,10 @@ export async function executeCostAnalysis(
   options: CostAnalysisOptions = {},
   wikiService?: WikiGitService,
 ): Promise<CostAnalysisResult> {
-  const skill = new CostAnalysisSkill({
+  return new CostAnalysisSkill({
     db,
     wikiService,
     litellmSpendUrl: options.litellmSpendUrl,
     litellmApiKey: options.litellmApiKey,
-  })
-  return skill.execute(options)
+  }).execute(options)
 }

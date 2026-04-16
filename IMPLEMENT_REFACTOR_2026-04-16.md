@@ -287,7 +287,7 @@ Update the skill-execution BullMQ worker to support both old-style entry functio
 ### Work Items
 
 #### 3.1 Migrate Simple Skills (8 skills)
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2, F5
 **Files Affected:**
 - `packages/workers/src/skills/capture-dedup-sweep.ts` (modify)
@@ -316,7 +316,7 @@ Mechanical migration: extend `BaseSkill`, remove constructor boilerplate, use `t
 ---
 
 #### 3.2 Migrate LLM Synthesis Skills (6 skills)
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2, F5
 **Files Affected:**
 - `packages/workers/src/skills/drift-monitor.ts` (modify)
@@ -344,7 +344,7 @@ Migrate to `LLMSkill`. These share the full LLM dependency stack: litellmClient,
 ---
 
 #### 3.3 Migrate Agent & Specialized Skills (7 skills)
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2, F5
 **Files Affected:**
 - `packages/workers/src/skills/monthly-reflection.ts` (modify)
@@ -371,7 +371,7 @@ Agent skills (monthly-reflection, wiki-lint) use Anthropic directly via `runAgen
 ---
 
 #### 3.4 Finalize Skill-Execution Dispatcher
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F2
 **Files Affected:**
 - `packages/workers/src/jobs/skill-execution.ts` (modify)

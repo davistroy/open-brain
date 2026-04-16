@@ -1,238 +1,37 @@
-import { join } from 'node:path'
-import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import { sql } from 'drizzle-orm'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { skills_log, logger, PushoverService, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { logger, callClaude } from '@open-brain/shared'
+import { LLMSkill } from './llm-skill.js'
+import type { LLMSkillOpts } from './types.js'
+import {
+  queryTodayCaptures,
+  queryUnresolvedQuestions,
+  queryNewEntities,
+  queryVoiceStats,
+  assembleContext,
+  fmtDate,
+  formatVoiceStatsLine,
+  DEFAULT_TOKEN_BUDGET,
+  CHARS_PER_TOKEN,
+} from './daily-sweep-query.js'
+import type {
+  DailySweepOutput,
+  DailySweepResult,
+  DailySweepOptions,
+  VoiceStats,
+} from './daily-sweep-query.js'
 
-// ============================================================
-// Types
-// ============================================================
-
-export interface DailySweepOutput {
-  headline: string
-  key_decisions: string[]
-  unresolved_questions: string[]
-  new_entities: string[]
-  tasks_without_followup: string[]
-  notable_captures: string[]
-}
-
-export interface DailySweepResult {
-  output: DailySweepOutput
-  captureCount: number
-  durationMs: number
-  savedCaptureId: string | null
-  notificationSent: boolean
-}
-
-export interface DailySweepOptions {
-  /** Max chars of context to include. Default: 30000 */
-  tokenBudget?: number
-  /** Actual model name (not alias). Required. */
-  modelAlias?: string
-  /** Whether to save the sweep output as a capture. Default: false */
-  storeCapture?: boolean
-}
-
-// ============================================================
-// Constants
-// ============================================================
-
-const DEFAULT_TOKEN_BUDGET = 30_000
-const CHARS_PER_TOKEN = 4
-
-// ============================================================
-// Query helpers
-// ============================================================
-
-interface CaptureRow {
-  [key: string]: unknown
-  id: string
-  content: string
-  capture_type: string
-  brain_view: string
-  source: string
-  tags: string[] | null
-  created_at: string
-}
-
-interface QuestionRow {
-  [key: string]: unknown
-  id: string
-  content: string
-  brain_view: string
-  created_at: string
-  tags: string[] | null
-}
-
-interface EntityRow {
-  [key: string]: unknown
-  name: string
-  entity_type: string
-}
-
-export interface VoiceStats {
-  count: number
-  lastVoiceDate: Date | null
-}
-
-/** Query voice capture stats for the last 7 days. */
-export async function queryVoiceStats(db: Database): Promise<VoiceStats> {
-  const result = await db.execute<{ count: string; last_voice: string | null }>(sql`
-    SELECT
-      COUNT(*)::text AS count,
-      MAX(created_at)::text AS last_voice
-    FROM captures
-    WHERE source = 'voice'
-      AND deleted_at IS NULL
-      AND created_at > NOW() - INTERVAL '7 days'
-  `)
-  const row = result.rows[0]
-  return {
-    count: parseInt(row?.count ?? '0', 10),
-    lastVoiceDate: row?.last_voice ? new Date(row.last_voice) : null,
-  }
-}
-
-/** Query today's completed captures. */
-export async function queryTodayCaptures(db: Database): Promise<CaptureRow[]> {
-  const todayMidnight = new Date()
-  todayMidnight.setHours(0, 0, 0, 0)
-
-  const result = await db.execute<CaptureRow>(sql`
-    SELECT id::text, content, capture_type, brain_view, source, tags, created_at::text
-    FROM captures
-    WHERE deleted_at IS NULL
-      AND pipeline_status = 'complete'
-      AND created_at >= ${todayMidnight.toISOString()}::timestamptz
-    ORDER BY created_at DESC
-  `)
-  return result.rows
-}
-
-/** Query unresolved questions — questions with no follow-up via entity overlap in 7 days. */
-export async function queryUnresolvedQuestions(db: Database): Promise<QuestionRow[]> {
-  const result = await db.execute<QuestionRow>(sql`
-    SELECT c.id::text, c.content, c.brain_view, c.created_at::text, c.tags
-    FROM captures c
-    WHERE c.capture_type = 'question'
-      AND c.pipeline_status = 'complete'
-      AND c.deleted_at IS NULL
-      AND c.created_at >= (NOW() - INTERVAL '30 days')
-      AND NOT EXISTS (
-        SELECT 1 FROM entity_links el1
-        JOIN entity_links el2 ON el1.entity_id = el2.entity_id
-        JOIN captures c2 ON el2.capture_id = c2.id
-        WHERE el1.capture_id = c.id
-          AND c2.id != c.id
-          AND c2.created_at > c.created_at
-          AND c2.created_at <= c.created_at + INTERVAL '7 days'
-          AND c2.deleted_at IS NULL
-          AND c2.pipeline_status = 'complete'
-      )
-    ORDER BY c.created_at DESC
-    LIMIT 10
-  `)
-  return result.rows
-}
-
-/** Query new entities first seen today. */
-export async function queryNewEntities(db: Database): Promise<EntityRow[]> {
-  const todayMidnight = new Date()
-  todayMidnight.setHours(0, 0, 0, 0)
-
-  const result = await db.execute<EntityRow>(sql`
-    SELECT name, entity_type
-    FROM entities
-    WHERE first_seen_at >= ${todayMidnight.toISOString()}::timestamptz
-    ORDER BY first_seen_at DESC
-    LIMIT 20
-  `)
-  return result.rows
-}
-
-// ============================================================
-// Context assembly
-// ============================================================
-
-function formatCapture(c: CaptureRow): string {
-  const tags = c.tags?.length ? ` [${c.tags.join(', ')}]` : ''
-  const date = typeof c.created_at === 'string' ? c.created_at.split('T')[0] : ''
-  return `[${date}] [${c.capture_type}] [${c.brain_view}]${tags} ${c.content}\n`
-}
-
-function formatQuestion(q: QuestionRow): string {
-  const date = typeof q.created_at === 'string' ? q.created_at.split('T')[0] : ''
-  return `[${date}] [${q.brain_view}] ${q.content}\n`
-}
-
-function formatEntity(e: EntityRow): string {
-  return `${e.name} (${e.entity_type})\n`
-}
-
-export function assembleContext(
-  captures: CaptureRow[],
-  questions: QuestionRow[],
-  entities: EntityRow[],
-  maxChars: number,
-): { capturesText: string; questionsText: string; entitiesText: string } {
-  // Allocate budget: 70% captures, 20% questions, 10% entities
-  const captureBudget = Math.floor(maxChars * 0.7)
-  const questionBudget = Math.floor(maxChars * 0.2)
-  const entityBudget = Math.floor(maxChars * 0.1)
-
-  let capturesText = ''
-  let usedChars = 0
-  for (const c of captures) {
-    const line = formatCapture(c)
-    if (usedChars + line.length > captureBudget) break
-    capturesText += line
-    usedChars += line.length
-  }
-  if (captures.length === 0) capturesText = '(no captures today)\n'
-
-  let questionsText = ''
-  usedChars = 0
-  for (const q of questions) {
-    const line = formatQuestion(q)
-    if (usedChars + line.length > questionBudget) break
-    questionsText += line
-    usedChars += line.length
-  }
-  if (questions.length === 0) questionsText = '(no unresolved questions)\n'
-
-  let entitiesText = ''
-  usedChars = 0
-  for (const e of entities) {
-    const line = formatEntity(e)
-    if (usedChars + line.length > entityBudget) break
-    entitiesText += line
-    usedChars += line.length
-  }
-  if (entities.length === 0) entitiesText = '(no new entities today)\n'
-
-  return { capturesText, questionsText, entitiesText }
-}
-
-// ============================================================
-// Date formatting
-// ============================================================
-
-export function fmtDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
-/** Format voice stats line for Pushover notification. */
-export function formatVoiceStatsLine(stats: VoiceStats): string {
-  if (stats.count === 0) {
-    return 'Voice memos this week: 0'
-  }
-  const now = new Date()
-  const daysAgo = Math.floor((now.getTime() - (stats.lastVoiceDate?.getTime() ?? now.getTime())) / (1000 * 60 * 60 * 24))
-  const lastStr = daysAgo === 0 ? 'last: today' : daysAgo === 1 ? 'last: 1 day ago' : `last: ${daysAgo} days ago`
-  return `Voice memos this week: ${stats.count} (${lastStr})`
-}
+// Re-export types so consumers can import from this file
+export type { DailySweepOutput, DailySweepResult, DailySweepOptions, VoiceStats } from './daily-sweep-query.js'
+export {
+  queryTodayCaptures,
+  queryUnresolvedQuestions,
+  queryNewEntities,
+  queryVoiceStats,
+  assembleContext,
+  fmtDate,
+  formatVoiceStatsLine,
+} from './daily-sweep-query.js'
 
 // ============================================================
 // DailySweepSkill class
@@ -245,38 +44,9 @@ export function formatVoiceStatsLine(stats: VoiceStats): string {
  * query data, assemble context, call LLM, parse output, deliver via Pushover,
  * save as capture, log to skills_log.
  */
-export class DailySweepSkill {
-  private db: Database
-  private litellmClient: OpenAI | null
-  private anthropicClient: Anthropic | null
-  private llmGateway: LLMGatewayService | null
-  private pushover: PushoverService
-  private templates: TemplateCache
-  private coreApiUrl: string
-
-  constructor(opts: {
-    db: Database
-    litellmBaseUrl?: string
-    litellmApiKey?: string
-    anthropicClient?: Anthropic
-    llmGateway?: LLMGatewayService
-    pushover?: PushoverService
-    promptsDir?: string
-    coreApiUrl?: string
-    templates?: TemplateCache
-  }) {
-    this.db = opts.db
-    this.litellmClient = createLiteLLMClient({
-      baseUrl: opts.litellmBaseUrl,
-      apiKey: opts.litellmApiKey,
-      timeout: 'extended',
-      maxRetries: 0,
-    })
-    this.anthropicClient = opts.anthropicClient ?? null
-    this.llmGateway = opts.llmGateway ?? null
-    this.pushover = opts.pushover ?? new PushoverService({ onError: 'throw' })
-    this.templates = opts.templates ?? new TemplateCache(opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'))
-    this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResult> {
+  constructor(opts: LLMSkillOpts) {
+    super('daily-sweep-skill', opts)
   }
 
   async execute(options: DailySweepOptions = {}): Promise<DailySweepResult> {
@@ -303,18 +73,19 @@ export class DailySweepSkill {
       logger.info('[daily-sweep-skill] no captures today — producing quiet-day summary')
       const quietOutput = emptyOutput()
       const notificationSent = await this.deliverPushover(quietOutput, voiceStats)
-      await this.logToSkillsLog({
-        inputSummary: '0 captures today',
-        outputSummary: 'Quiet day — no captures',
-        durationMs: Date.now() - startMs,
-      })
-      return {
+      const quietResult: DailySweepResult = {
         output: quietOutput,
         captureCount: 0,
         durationMs: Date.now() - startMs,
         savedCaptureId: null,
         notificationSent,
       }
+      await this.logResult(
+        quietResult,
+        '0 captures today',
+        'Quiet day — no captures',
+      )
+      return quietResult
     }
 
     // Step 2: Query unresolved questions and new entities
@@ -342,21 +113,21 @@ export class DailySweepSkill {
       ? await this.saveSweepCapture(output, fmtDate(today))
       : null
 
-    // Step 7: Log to skills_log
-    await this.logToSkillsLog({
-      inputSummary: `${captureCount} captures, ${questions.length} unresolved questions, ${newEntities.length} new entities`,
-      outputSummary: `headline: "${output.headline}" | decisions:${output.key_decisions.length} questions:${output.unresolved_questions.length} entities:${output.new_entities.length} tasks:${output.tasks_without_followup.length} | notified:${notificationSent}`,
-      durationMs,
-      captureId: savedCaptureId ?? undefined,
-      result: output,
-    })
+    // Step 7: Log to skills_log via BaseSkill
+    const finalResult: DailySweepResult = { output, captureCount, durationMs, savedCaptureId, notificationSent }
+    await this.logResult(
+      finalResult,
+      `${captureCount} captures, ${questions.length} unresolved questions, ${newEntities.length} new entities`,
+      `headline: "${output.headline}" | decisions:${output.key_decisions.length} questions:${output.unresolved_questions.length} entities:${output.new_entities.length} tasks:${output.tasks_without_followup.length} | notified:${notificationSent}`,
+      savedCaptureId ?? undefined,
+    )
 
     logger.info(
       { captureCount, durationMs, notificationSent, savedCaptureId, headline: output.headline },
       '[daily-sweep-skill] execution complete',
     )
 
-    return { output, captureCount, durationMs, savedCaptureId, notificationSent }
+    return finalResult
   }
 
   // ----------------------------------------------------------
@@ -496,30 +267,6 @@ export class DailySweepSkill {
     }
   }
 
-  // ----------------------------------------------------------
-  // Private: skills_log
-  // ----------------------------------------------------------
-
-  private async logToSkillsLog(params: {
-    inputSummary: string
-    outputSummary: string
-    durationMs: number
-    captureId?: string
-    result?: DailySweepOutput
-  }): Promise<void> {
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'daily-sweep-skill',
-        capture_id: params.captureId ?? null,
-        input_summary: params.inputSummary,
-        output_summary: params.outputSummary,
-        result: params.result ?? null,
-        duration_ms: params.durationMs,
-      })
-    } catch {
-      // skills_log failure is non-fatal
-    }
-  }
 }
 
 // ============================================================

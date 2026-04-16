@@ -2,7 +2,9 @@ import { execFile, type ExecFileOptions } from 'node:child_process'
 import { stat, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Database } from '@open-brain/shared'
-import { backup_log, skills_log, logger, PushoverService } from '@open-brain/shared'
+import { backup_log, logger } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 import { pruneBackups, DEFAULT_RETENTION } from '../lib/backup-retention.js'
 import type { RetentionPolicy } from '../lib/backup-retention.js'
 
@@ -32,7 +34,7 @@ export interface DbBackupOptions {
   useDocker?: boolean
 }
 
-export interface DbBackupResult {
+export interface DbBackupResult extends BaseResult {
   status: 'success' | 'failed'
   filePath: string | null
   sizeBytes: number
@@ -68,26 +70,23 @@ const DEFAULT_DB_USER = 'openbrain'
 // DbBackupSkill
 // ============================================================
 
-export class DbBackupSkill {
-  private db: Database
-  private pushover: PushoverService
+export interface DbBackupSkillOpts extends BaseSkillOpts {
+  backupDir?: string
+  containerName?: string
+  dbName?: string
+  dbUser?: string
+  useDocker?: boolean
+}
+
+export class DbBackupSkill extends BaseSkill<DbBackupOptions, DbBackupResult> {
   private backupDir: string
   private containerName: string
   private dbName: string
   private dbUser: string
   private useDocker: boolean
 
-  constructor(opts: {
-    db: Database
-    pushover?: PushoverService
-    backupDir?: string
-    containerName?: string
-    dbName?: string
-    dbUser?: string
-    useDocker?: boolean
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: DbBackupSkillOpts) {
+    super('db-backup', opts)
     this.backupDir = opts.backupDir ?? DEFAULT_BACKUP_DIR
     this.containerName = opts.containerName ?? DEFAULT_CONTAINER
     this.dbName = opts.dbName ?? DEFAULT_DB_NAME
@@ -110,7 +109,7 @@ export class DbBackupSkill {
       await mkdir(backupDir, { recursive: true })
     } catch (err) {
       const result = this.failResult(startMs, `Failed to create backup directory: ${err}`)
-      await this.logResult(result)
+      await this.logBackupResult(result)
       return result
     }
 
@@ -160,17 +159,18 @@ export class DbBackupSkill {
         sizeBytes,
         durationSeconds,
         prunedCount,
+        durationMs: durationSeconds * 1000,
       }
 
-      // Log to backup_log table
-      await this.logResult(result)
+      // Log to backup_log table + skills_log
+      await this.logBackupResult(result)
 
       // Send success notification
       const sizeMB = (sizeBytes / (1024 * 1024)).toFixed(1)
-      await this.notify(
-        'Database Backup Complete',
+      await this.sendNotification(
+        `Open Brain: Database Backup Complete`,
         `Backup: ${filename}\nSize: ${sizeMB} MB\nDuration: ${durationSeconds}s\nPruned: ${prunedCount} old backups`,
-        -1, // low priority
+        -1,
       )
 
       logger.info({ filePath, sizeBytes, durationSeconds, prunedCount }, '[db-backup] backup complete')
@@ -179,11 +179,11 @@ export class DbBackupSkill {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err)
       const result = this.failResult(startMs, errorMsg, filePath)
-      await this.logResult(result)
-      await this.notify(
-        'Database Backup FAILED',
+      await this.logBackupResult(result)
+      await this.sendNotification(
+        'Open Brain: Database Backup FAILED',
         `Error: ${errorMsg.slice(0, 500)}`,
-        1, // high priority
+        1,
       )
       return result
     }
@@ -195,17 +195,23 @@ export class DbBackupSkill {
 
   private failResult(startMs: number, error: string, filePath?: string): DbBackupResult {
     logger.error({ error }, '[db-backup] backup failed')
+    const durationSeconds = Math.round((Date.now() - startMs) / 1000)
     return {
       status: 'failed',
       filePath: filePath ?? null,
       sizeBytes: 0,
-      durationSeconds: Math.round((Date.now() - startMs) / 1000),
+      durationSeconds,
       prunedCount: 0,
       error,
+      durationMs: durationSeconds * 1000,
     }
   }
 
-  private async logResult(result: DbBackupResult): Promise<void> {
+  /**
+   * Writes to both backup_log and skills_log tables.
+   * Renamed from `logResult` to avoid shadowing BaseSkill's protected method.
+   */
+  private async logBackupResult(result: DbBackupResult): Promise<void> {
     try {
       await this.db.insert(backup_log).values({
         backup_type: 'database',
@@ -220,25 +226,11 @@ export class DbBackupSkill {
       logger.warn({ err }, '[db-backup] failed to write backup_log entry')
     }
 
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'db-backup',
-        input_summary: 'database backup',
-        output_summary: `status:${result.status} | size:${result.sizeBytes} | duration:${result.durationSeconds}s | pruned:${result.prunedCount}`,
-        duration_ms: result.durationSeconds * 1000,
-      })
-    } catch (err) {
-      logger.warn({ err }, '[db-backup] failed to write skills_log entry')
-    }
-  }
-
-  private async notify(title: string, message: string, priority: -2 | -1 | 0 | 1 | 2): Promise<void> {
-    if (!this.pushover.isConfigured) return
-    try {
-      await this.pushover.send({ title: `Open Brain: ${title}`, message, priority })
-    } catch (err) {
-      logger.warn({ err }, '[db-backup] Pushover notification failed')
-    }
+    await super.logResult(
+      result,
+      'database backup',
+      `status:${result.status} | size:${result.sizeBytes} | duration:${result.durationSeconds}s | pruned:${result.prunedCount}`,
+    )
   }
 }
 

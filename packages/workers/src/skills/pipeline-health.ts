@@ -1,11 +1,16 @@
-import { sql } from 'drizzle-orm'
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { skills_log } from '@open-brain/shared'
-import { logger, PushoverService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
+import {
+  queryRecentFailures as queryRecentFailuresFromDb,
+  checkCaptureFlow as checkCaptureFlowFromDb,
+  wasCaptureFlowAlertSentRecently as wasCaptureFlowAlertSentRecentlyFromDb,
+} from './pipeline-health-query.js'
 
 // ============================================================
 // Types
@@ -32,14 +37,13 @@ export interface StalledStats {
   stalledCount: number
 }
 
-export interface PipelineHealthResult {
+export interface PipelineHealthResult extends BaseResult {
   healthy: boolean
   queues: QueueStats[]
   recentFailures: RecentFailure[]
   stalledByQueue: StalledStats[]
   captureFlowStale: boolean
   alertSent: boolean
-  durationMs: number
 }
 
 export interface PipelineHealthOptions {
@@ -135,21 +139,19 @@ export function makeRealQueueFactory(connection: ConnectionOptions): QueueFactor
  * - Non-fatal: Redis/DB failures return degraded result, logs warning
  * - QueueFactory injected for testability — tests supply mock queues
  */
-export class PipelineHealthSkill {
-  private db: Database
-  private queueFactory: QueueFactory
-  private pushover: PushoverService
+/** Constructor options for PipelineHealthSkill. */
+export interface PipelineHealthSkillOpts extends BaseSkillOpts {
+  /** Production: omit (uses redisConnection). Tests: supply mock factory. */
+  queueFactory?: QueueFactory
+  /** Redis connection options — used only if queueFactory is not supplied. */
+  redisConnection?: ConnectionOptions
+}
 
-  constructor(opts: {
-    db: Database
-    /** Production: omit (uses redisConnection). Tests: supply mock factory. */
-    queueFactory?: QueueFactory
-    /** Redis connection options — used only if queueFactory is not supplied. */
-    redisConnection?: ConnectionOptions
-    pushover?: PushoverService
-  }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, PipelineHealthResult> {
+  private queueFactory: QueueFactory
+
+  constructor(opts: PipelineHealthSkillOpts) {
+    super('pipeline-health', opts)
 
     if (opts.queueFactory) {
       this.queueFactory = opts.queueFactory
@@ -251,23 +253,8 @@ export class PipelineHealthSkill {
 
     const durationMs = Date.now() - startMs
 
-    // Step 5: Log to skills_log
-    await this.logToSkillsLog({
-      queues,
-      recentFailures,
-      stalledByQueue,
-      captureFlowStale,
-      healthy,
-      alertSent,
-      durationMs,
-    })
-
-    logger.info(
-      { healthy, queueCount: queues.length, recentFailureCount: recentFailures.length, alertSent, durationMs },
-      '[pipeline-health] execution complete',
-    )
-
-    return {
+    // Step 5: Build result and log to skills_log
+    const result: PipelineHealthResult = {
       healthy,
       queues,
       recentFailures,
@@ -276,6 +263,15 @@ export class PipelineHealthSkill {
       alertSent,
       durationMs,
     }
+
+    await this.writeSkillsLog(result)
+
+    logger.info(
+      { healthy, queueCount: queues.length, recentFailureCount: recentFailures.length, alertSent, durationMs },
+      '[pipeline-health] execution complete',
+    )
+
+    return result
   }
 
   // ----------------------------------------------------------
@@ -328,35 +324,11 @@ export class PipelineHealthSkill {
   }
 
   // ----------------------------------------------------------
-  // Private: pipeline_events failure query
+  // Private: pipeline_events failure query (delegated to query file)
   // ----------------------------------------------------------
 
-  /**
-   * Query pipeline_events for 'failed' status entries within the lookback window.
-   * Returns the most recent 50 failures (bounded result without unbounded scan).
-   */
   private async queryRecentFailures(lookbackMinutes: number): Promise<RecentFailure[]> {
-    const since = new Date(Date.now() - lookbackMinutes * 60 * 1000)
-
-    try {
-      const rows = await this.db.execute<{
-        capture_id: string
-        stage: string
-        error: string | null
-        created_at: string
-      }>(sql`
-        SELECT capture_id, stage, error, created_at
-        FROM pipeline_events
-        WHERE status = 'failed'
-          AND created_at >= ${since.toISOString()}::timestamptz
-        ORDER BY created_at DESC
-        LIMIT 50
-      `)
-      return rows.rows as RecentFailure[]
-    } catch (err) {
-      logger.warn({ err }, '[pipeline-health] failed to query pipeline_events — returning empty')
-      return []
-    }
+    return queryRecentFailuresFromDb(this.db, lookbackMinutes)
   }
 
   // ----------------------------------------------------------
@@ -417,60 +389,19 @@ export class PipelineHealthSkill {
   }
 
   // ----------------------------------------------------------
-  // Private: capture flow check
+  // Private: capture flow check (delegated to query file)
   // ----------------------------------------------------------
 
-  /**
-   * Check if captures are flowing. Returns true if no capture has been
-   * created in the last `hoursThreshold` hours.
-   * This detects silent failures where the system is "running" but not processing.
-   */
   private async checkCaptureFlow(hoursThreshold: number): Promise<boolean> {
-    try {
-      const since = new Date(Date.now() - hoursThreshold * 60 * 60 * 1000)
-      const rows = await this.db.execute<{ count: string }>(sql`
-        SELECT COUNT(*)::text as count
-        FROM captures
-        WHERE created_at >= ${since.toISOString()}::timestamptz
-          AND deleted_at IS NULL
-      `)
-      const count = Number(rows.rows[0]?.count ?? 0)
-      if (count === 0) {
-        logger.warn({ hoursThreshold }, '[pipeline-health] no captures in recent window')
-        return true
-      }
-      return false
-    } catch (err) {
-      logger.warn({ err }, '[pipeline-health] failed to check capture flow — assuming OK')
-      return false
-    }
+    return checkCaptureFlowFromDb(this.db, hoursThreshold)
   }
 
   // ----------------------------------------------------------
-  // Private: capture flow alert suppression
+  // Private: capture flow alert suppression (delegated to query file)
   // ----------------------------------------------------------
 
-  /**
-   * Check if a capture-flow-stale alert was already sent within the last N hours.
-   * Queries skills_log for pipeline-health entries where output_summary contains
-   * both 'captureFlowStale:true' and 'alert:true'.
-   */
   private async wasCaptureFlowAlertSentRecently(hours: number): Promise<boolean> {
-    try {
-      const since = new Date(Date.now() - hours * 60 * 60 * 1000)
-      const rows = await this.db.execute<{ count: string }>(sql`
-        SELECT COUNT(*)::text as count
-        FROM skills_log
-        WHERE skill_name = 'pipeline-health'
-          AND created_at >= ${since.toISOString()}::timestamptz
-          AND output_summary LIKE '%captureFlowStale:true%'
-          AND output_summary LIKE '%alert:true%'
-      `)
-      return Number(rows.rows[0]?.count ?? 0) > 0
-    } catch (err) {
-      logger.warn({ err }, '[pipeline-health] failed to check recent alert history — allowing alert')
-      return false
-    }
+    return wasCaptureFlowAlertSentRecentlyFromDb(this.db, hours)
   }
 
   // ----------------------------------------------------------
@@ -556,44 +487,28 @@ export class PipelineHealthSkill {
   // Private: skills_log
   // ----------------------------------------------------------
 
-  private async logToSkillsLog(params: {
-    queues: QueueStats[]
-    recentFailures: RecentFailure[]
-    stalledByQueue: StalledStats[]
-    captureFlowStale: boolean
-    healthy: boolean
-    alertSent: boolean
-    durationMs: number
-  }): Promise<void> {
-    const totalFailed = params.queues.reduce((sum, q) => sum + q.failed, 0)
-    const totalWaiting = params.queues.reduce((sum, q) => sum + q.waiting, 0)
-    const totalActive = params.queues.reduce((sum, q) => sum + q.active, 0)
-    const totalStalled = params.stalledByQueue.reduce((sum, s) => sum + s.stalledCount, 0)
+  private async writeSkillsLog(result: PipelineHealthResult): Promise<void> {
+    const totalFailed = result.queues.reduce((sum, q) => sum + q.failed, 0)
+    const totalWaiting = result.queues.reduce((sum, q) => sum + q.waiting, 0)
+    const totalActive = result.queues.reduce((sum, q) => sum + q.active, 0)
+    const totalStalled = result.stalledByQueue.reduce((sum, s) => sum + s.stalledCount, 0)
 
-    const inputSummary = `${params.queues.length} queues checked`
     const outputSummary = [
-      `healthy:${params.healthy}`,
+      `healthy:${result.healthy}`,
       `failed:${totalFailed}`,
       `waiting:${totalWaiting}`,
       `active:${totalActive}`,
       `stalled:${totalStalled}`,
-      `recentFailures:${params.recentFailures.length}`,
-      `captureFlowStale:${params.captureFlowStale}`,
-      `alert:${params.alertSent}`,
+      `recentFailures:${result.recentFailures.length}`,
+      `captureFlowStale:${result.captureFlowStale}`,
+      `alert:${result.alertSent}`,
     ].join(' | ')
 
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'pipeline-health',
-        capture_id: null,
-        input_summary: inputSummary,
-        output_summary: outputSummary,
-        duration_ms: params.durationMs,
-      })
-    } catch (err) {
-      // skills_log failure is non-fatal
-      logger.warn({ err }, '[pipeline-health] failed to write skills_log entry')
-    }
+    await this.logResult(
+      result,
+      `${result.queues.length} queues checked`,
+      outputSummary,
+    )
   }
 }
 

@@ -1,7 +1,7 @@
-import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { skills_log } from '@open-brain/shared'
-import { logger, PushoverService, ComposioClient } from '@open-brain/shared'
+import { logger, ComposioClient } from '@open-brain/shared'
+import { BaseSkill } from './base-skill.js'
+import type { BaseResult, BaseSkillOpts } from './types.js'
 
 // ============================================================
 // Types
@@ -20,14 +20,13 @@ export interface CalendarEvent {
   calendar: string
 }
 
-export interface MorningBriefResult {
+export interface MorningBriefResult extends BaseResult {
   schedule: CalendarEvent[]
   yesterdayThread: ThreadItem[]
   openLoops: string[]
   people: PersonItem[]
   todayItems: string[]
   notificationSent: boolean
-  durationMs: number
 }
 
 export interface ThreadItem {
@@ -55,128 +54,21 @@ const OPEN_LOOP_PATTERNS = [
 ]
 
 // ============================================================
-// Query helpers (exported for testability)
+// Query helpers — imported from morning-brief-query.ts and re-exported for backward compat
 // ============================================================
 
-/**
- * Query captures from the previous day, excluding auto-generated content.
- * Returns at most 10 captures, ordered by created_at.
- */
-export async function queryYesterdayCaptures(
-  db: Database,
-  now: Date,
-): Promise<Array<{ id: string; content: string }>> {
-  const todayStart = new Date(now)
-  todayStart.setHours(0, 0, 0, 0)
-  const yesterdayStart = new Date(todayStart)
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1)
+import {
+  queryYesterdayCaptures,
+  queryRecentCaptures,
+  queryRecentPeople,
+  queryEveningCaptures,
+} from './morning-brief-query.js'
 
-  try {
-    const rows = await db.execute<{ id: string; content: string }>(sql`
-      SELECT id, content
-      FROM captures
-      WHERE created_at >= ${yesterdayStart.toISOString()}::timestamptz
-        AND created_at < ${todayStart.toISOString()}::timestamptz
-        AND deleted_at IS NULL
-        AND NOT (tags && ARRAY['skill-output', 'connections', 'daily-sweep']::text[])
-      ORDER BY created_at ASC
-      LIMIT 10
-    `)
-    return rows.rows as Array<{ id: string; content: string }>
-  } catch (err) {
-    logger.warn({ err }, '[morning-brief] failed to query yesterday captures')
-    return []
-  }
-}
-
-/**
- * Query captures from the last 3 days for open loop detection.
- */
-export async function queryRecentCaptures(
-  db: Database,
-  now: Date,
-): Promise<Array<{ content: string }>> {
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-
-  try {
-    const rows = await db.execute<{ content: string }>(sql`
-      SELECT content
-      FROM captures
-      WHERE created_at >= ${threeDaysAgo.toISOString()}::timestamptz
-        AND deleted_at IS NULL
-        AND NOT (tags && ARRAY['skill-output', 'connections', 'daily-sweep']::text[])
-      ORDER BY created_at DESC
-      LIMIT 100
-    `)
-    return rows.rows as Array<{ content: string }>
-  } catch (err) {
-    logger.warn({ err }, '[morning-brief] failed to query recent captures')
-    return []
-  }
-}
-
-/**
- * Query people mentioned in captures from the last 3 days.
- * Joins entity_links → entities, groups by person, returns most recent capture snippet.
- */
-export async function queryRecentPeople(
-  db: Database,
-  now: Date,
-): Promise<Array<{ name: string; snippet: string }>> {
-  const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
-
-  try {
-    const rows = await db.execute<{ name: string; snippet: string }>(sql`
-      SELECT DISTINCT ON (e.canonical_name)
-        e.canonical_name AS name,
-        LEFT(c.content, 80) AS snippet
-      FROM entity_links el
-      JOIN entities e ON e.id = el.entity_id
-      JOIN captures c ON c.id = el.capture_id
-      WHERE e.entity_type = 'person'
-        AND c.created_at >= ${threeDaysAgo.toISOString()}::timestamptz
-        AND c.deleted_at IS NULL
-        AND LOWER(e.canonical_name) NOT IN ('troy davis', 'troy')
-      ORDER BY e.canonical_name, c.created_at DESC
-      LIMIT 5
-    `)
-    return rows.rows as Array<{ name: string; snippet: string }>
-  } catch (err) {
-    logger.warn({ err }, '[morning-brief] failed to query recent people')
-    return []
-  }
-}
-
-/**
- * Query yesterday's evening captures (after 6 PM) for mentions of today's
- * day name or "tomorrow" followed by activity text.
- */
-export async function queryEveningCaptures(
-  db: Database,
-  now: Date,
-): Promise<Array<{ content: string }>> {
-  const todayStart = new Date(now)
-  todayStart.setHours(0, 0, 0, 0)
-  const yesterdayEvening = new Date(todayStart)
-  yesterdayEvening.setDate(yesterdayEvening.getDate() - 1)
-  yesterdayEvening.setHours(18, 0, 0, 0)
-
-  try {
-    const rows = await db.execute<{ content: string }>(sql`
-      SELECT content
-      FROM captures
-      WHERE created_at >= ${yesterdayEvening.toISOString()}::timestamptz
-        AND created_at < ${todayStart.toISOString()}::timestamptz
-        AND deleted_at IS NULL
-        AND NOT (tags && ARRAY['skill-output', 'connections', 'daily-sweep']::text[])
-      ORDER BY created_at DESC
-      LIMIT 20
-    `)
-    return rows.rows as Array<{ content: string }>
-  } catch (err) {
-    logger.warn({ err }, '[morning-brief] failed to query evening captures')
-    return []
-  }
+export {
+  queryYesterdayCaptures,
+  queryRecentCaptures,
+  queryRecentPeople,
+  queryEveningCaptures,
 }
 
 // ============================================================
@@ -358,14 +250,16 @@ export async function fetchCalendarEvents(
  *
  * Output: Pushover notification + skills_log entry. No capture created.
  */
-export class MorningBriefSkill {
-  private db: Database
-  private pushover: PushoverService
+/** Constructor options for MorningBriefSkill. */
+export interface MorningBriefSkillOpts extends BaseSkillOpts {
+  composioApiKey?: string
+}
+
+export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBriefResult> {
   private composioKey: string
 
-  constructor(opts: { db: Database; pushover?: PushoverService; composioApiKey?: string }) {
-    this.db = opts.db
-    this.pushover = opts.pushover ?? new PushoverService()
+  constructor(opts: MorningBriefSkillOpts) {
+    super('morning-brief', opts)
     this.composioKey = opts.composioApiKey ?? process.env.COMPOSIO_API_KEY ?? ''
   }
 
@@ -433,25 +327,18 @@ export class MorningBriefSkill {
       durationMs,
     }
 
-    try {
-      await this.db.insert(skills_log).values({
-        skill_name: 'morning-brief',
-        capture_id: null,
-        input_summary: `date:${now.toISOString().slice(0, 10)}`,
-        output_summary: [
-          `schedule:${schedule.length}`,
-          `thread:${yesterdayThread.length}`,
-          `loops:${openLoops.length}`,
-          `people:${people.length}`,
-          `today:${todayItems.length}`,
-          `sent:${notificationSent}`,
-        ].join(' | '),
-        result: result as unknown as Record<string, unknown>,
-        duration_ms: durationMs,
-      })
-    } catch (err) {
-      logger.warn({ err }, '[morning-brief] failed to write skills_log entry')
-    }
+    await this.logResult(
+      result,
+      `date:${now.toISOString().slice(0, 10)}`,
+      [
+        `schedule:${schedule.length}`,
+        `thread:${yesterdayThread.length}`,
+        `loops:${openLoops.length}`,
+        `people:${people.length}`,
+        `today:${todayItems.length}`,
+        `sent:${notificationSent}`,
+      ].join(' | '),
+    )
 
     logger.info(
       { schedule: schedule.length, thread: yesterdayThread.length, loops: openLoops.length, people: people.length, today: todayItems.length, notificationSent, durationMs },
