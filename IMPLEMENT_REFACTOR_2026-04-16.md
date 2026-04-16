@@ -638,7 +638,7 @@ Register `email-classify` as BullMQ repeatable job at 5:00 AM daily. Add dispatc
 ---
 
 #### 5.3 Parallel Validation with Python Pipeline
-**Status: PENDING**
+**Status: DEFERRED — requires deployment + 7-day validation**
 **Requirement Refs:** Ultra Plan risk assessment
 **Files Affected:**
 - No code changes — operational validation
@@ -802,7 +802,7 @@ The existing `fetchCalendarEvents()` function skips certain calendars. Add a "Re
 ### Work Items
 
 #### 7.1 Migrate Backup Scripts to Homeserver
-**Status: PENDING**
+**Status: DEFERRED — operational, post-deployment**
 **Requirement Refs:** Ultra Plan A52, Entry 049
 **Files Affected:**
 - Homeserver crontab (modify)
@@ -827,7 +827,7 @@ The VM runs 3 backup scripts at 2 AM via cron (db-backup, wiki-backup, redis-sna
 ---
 
 #### 7.2 Disable Python Email Pipeline on VM
-**Status: PENDING**
+**Status: DEFERRED — operational, after 5.3 validation**
 **Requirement Refs:** Ultra Plan D94
 **Files Affected:**
 - VM crontab (modify)
@@ -850,7 +850,7 @@ After 7-day parallel validation (Phase 5.3) confirms TypeScript pipeline matches
 ---
 
 #### 7.3 Disable OpenClaw Morning Brief
-**Status: PENDING**
+**Status: DEFERRED — operational, after 5.3 validation**
 **Requirement Refs:** Ultra Plan D94, Entry 049
 **Files Affected:**
 - Bond OpenClaw cron config (modify)
@@ -905,7 +905,7 @@ This requires access to davistroy's OpenClaw config on Bond. May need Troy to di
 ### Work Items
 
 #### 8.1 Decompose Settings.tsx
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F4
 **Files Affected:**
 - `packages/web/src/pages/Settings.tsx` (modify — reduce from 1,377 lines)
@@ -932,11 +932,11 @@ Extract the 11 sections of Settings.tsx into focused components. Priority extrac
 ---
 
 #### 8.2 Decompose System.tsx
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F4
 **Files Affected:**
-- `packages/web/src/pages/System.tsx` (modify — reduce from 1,352 lines)
-- `packages/web/src/components/system/` (create directory + 5 components)
+- `packages/web/src/pages/System.tsx` (modify — reduced from 1,352 to 292 lines)
+- `packages/web/src/components/system/` (created directory + 7 files)
 
 **Description:**
 Extract the 5 tab-based sections into focused components. Each tab becomes its own component: QueuesTab, SkillsTab, FlowsTab, InfrastructureTab, McpActivityTab.
@@ -957,7 +957,7 @@ Extract the 5 tab-based sections into focused components. Each tab becomes its o
 ---
 
 #### 8.3 Integration Tests: Search & Entities
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F6
 **Files Affected:**
 - `packages/core-api/src/__tests__/integration/search.test.ts` (create)
@@ -980,7 +980,7 @@ Add integration tests that exercise real Postgres with pgvector. Search tests va
 ---
 
 #### 8.4 Integration Tests: MCP Tools
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F6
 **Files Affected:**
 - `packages/core-api/src/__tests__/integration/mcp-tools.test.ts` (create)
