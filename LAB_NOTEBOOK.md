@@ -96,7 +96,13 @@
 | D84 | JSON mode opt-in for LLM gateway (`jsonMode: true` → `response_format`) | 2026-04-15 | ACTIVE | Entry 045 | Entity extraction enables it. vLLM supports response_format. ~5% empty parse rate → <1% |
 | D85 | LiteLLM proxy routing for embeddings + legacy calls | 2026-04-15 | ACTIVE | Entry 045 | LITELLM_URL → http://litellm:4000. Tier routing (Spark, Jetson, Anthropic direct) bypasses proxy by design |
 | D86 | Wiki-ingest backlog drained — DO NOT re-queue entire corpus | 2026-04-15 | ACTIVE | Entry 045 | 7,486 jobs burning ~$30 Anthropic Sonnet. Phase 8 will use T2 CLI for bulk, not wiki-ingest |
-| D87 | Email Outbound needs real SMTP creds — local relay has no auth | 2026-04-15 | ACTIVE | Entry 045 | bytemark-smtp connected to open-brain network but Himalaya requires auth. Config infra ready, blocked on credentials |
+| D87 | Email Outbound needs real SMTP creds — local relay has no auth | 2026-04-15 | SUPERSEDED by D90 | Entry 045 | bytemark-smtp connected to open-brain network but Himalaya requires auth. Config infra ready, blocked on credentials |
+| D88 | Plaid requires business compliance signup — not suitable for personal use | 2026-04-16 | ACTIVE | Entry 047 | Development env decommissioned Jun 2024. Only Sandbox (fake) + Production (compliance). |
+| D89 | SimpleFIN ($15/yr) is the preferred API alternative to Plaid for personal use | 2026-04-16 | ACTIVE | Entry 047 | Read-only, 16K+ institutions via MX, token auth, no compliance forms. Troy evaluating. |
+| D90 | Email outbound operational via PrivateEmail SMTP (bond@k4jda.net) | 2026-04-16 | ACTIVE | Entry 047 | Himalaya v1.2.0 + IMAP backend (save-to-sent) + SMTP on mail.privateemail.com:465. |
+| D91 | Financial pipeline primary path: CSV imports (not API) | 2026-04-16 | ACTIVE | Entry 047 | SimpleFIN or Plaid as future automation. Drop CSVs in ~/financial-inbox/. |
+| D92 | Synthetic monitor deployed on health.troy-davis.com | 2026-04-16 | ACTIVE | Entry 047 | CF Worker cron every 5 min, KV state, Pushover alerts. |
+| D93 | Agent SDK "Hive Mind" pattern worth evaluating for Open Brain | 2026-04-16 | ACTIVE | Entry 048 | Multi-agent shared state via skills_log. MCP tool for "what have agents been doing?" |
 
 ## Action Items
 
@@ -134,7 +140,13 @@
 | A32 | ~~Audit all cron jobs across all machines for scheduling conflicts~~ | 2026-04-14 | Entry 041 | DONE 2026-04-15 — triple backup found, BullMQ removed, VM+homeserver fixed |
 | A33 | Add more sender rules as email pipeline runs and corrections accumulate | 2026-04-14 | Entry 041 | ONGOING |
 | A34 | ~~Monitor embed queue drain — 2,641 retried jobs processing~~ | 2026-04-15 | Entry 043 | DONE — 11,034/11,035 embedded (99.99%) |
-| A35 | Monitor entity extraction queue drain — ~6,500 remaining on Spark | 2026-04-15 | Entry 043 | MEDIUM — ~36h at current rate, all on Spark (free) |
+| A35 | Monitor entity extraction queue drain — ~2,400 remaining on Spark | 2026-04-15 | Entry 043 | MEDIUM — ~17h remaining, all on Spark (free) |
+| A43 | Evaluate Agent SDK for persistent named agents (Hive Mind pattern) | 2026-04-16 | Entry 048 | MEDIUM — subscription-covered, no API cost |
+| A44 | Build MCP tool: `get_agent_activity` querying skills_log for recent agent work | 2026-04-16 | Entry 048 | MEDIUM — enables "what has X been doing?" queries |
+| A45 | Evaluate persistent Claude Code sessions via Agent SDK for always-on agents | 2026-04-16 | Entry 048 | LOW — current cron/BullMQ model works, but persistent sessions enable conversational agents |
+| A46 | Add CSV parsers for Amex/Chase/Truist/Schwab/HSA/PayPal to financial-pipeline.py | 2026-04-16 | Entry 047 | HIGH — primary financial data path |
+| A47 | Deploy utility scripts to VM with stored credentials | 2026-04-16 | Entry 047 | HIGH — Cobb EMC + Gas South creds in Bitwarden |
+| A48 | SimpleFIN decision — check institution coverage for 6 accounts | 2026-04-16 | Entry 047 | MEDIUM — $15/yr if institutions match |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
 | A38 | Add LiteLLM to container-health skill check list | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.3 |
@@ -2865,7 +2877,97 @@ Deploy all Phase 3 code to homeserver production and plan the financial awarenes
 **Decisions:** Financial pipeline follows email-pipeline.py pattern exactly (SQLite local → POST captures). All synthesis via claude --print (T2, zero API cost). Plaid Dev tier, not Production.
 
 **Action Items:**
-- Troy: sign up Plaid, store keys in Bitwarden
-- Troy: provide SmartHub + Gas South credentials
-- Troy: provide SMTP credentials for email outbound
-- Troy: create CF Access Service Token for synthetic monitor deployment
+- ~~Troy: sign up Plaid, store keys in Bitwarden~~ SUPERSEDED — CSV first, SimpleFIN under evaluation
+- ~~Troy: provide SmartHub + Gas South credentials~~ DONE — stored in Bitwarden
+- ~~Troy: provide SMTP credentials for email outbound~~ DONE — bond@k4jda.net via PrivateEmail
+- ~~Troy: create CF Access Service Token~~ DONE — already in Bitwarden, Worker deployed
+
+---
+
+### Entry 048 — Video Analysis: Agent SDK Multi-Agent Pattern + Ideas Worth Stealing [decision] [research]
+**Date:** 2026-04-16
+**Source:** YouTube: "I Replaced OpenClaw and Hermes With This Claude Code Setup" (rVzGu5OYYS0)
+**Duration:** ~9 min video, ~30 min analysis
+
+#### What He Built
+
+Mark built a multi-agent personal command center using the **Claude Agent SDK** (Anthropic's framework for remote Claude Code sessions). Key architecture:
+
+- **Agent SDK** as core — runs Claude Code terminal sessions remotely from any interface
+- **Telegram** as primary chat interface (could be Slack, Discord, etc.)
+- **Multiple named agents**: "Maine" (triage/default), "Comms" (communications), "Ops" (operations) — each a separate Claude Code session with its own context
+- **"Hive Mind"** — unified SQLite memory that all agents write to; any agent can see what others have done
+- **Multi-layer memory**: CLAUDE.md + SQLite + pinned memories + decaying memories + Obsidian vault injection per agent
+- **Gemini** as a subsystem for deciding what becomes persistent memory vs throwaway
+- **Mission Control dashboard** via Cloudflare tunnel
+- **Voice** via Daily.co + Pipecat (Google Meet-style conversation with agents)
+- **"LaunchD"** — agents auto-start on boot, always available
+- **Core philosophy**: build on Claude Code subscription infrastructure (skills, plugins, CLAUDE.md), never pay additional API costs
+
+#### Open Brain Comparison
+
+| Dimension | His System | Open Brain | Winner |
+|-----------|-----------|------------|--------|
+| Knowledge depth | SQLite + Obsidian files | 11K captures, pgvector, entity graph, cognitive memory | **Open Brain** by far |
+| Production infrastructure | Synchronous Telegram→Claude→response | BullMQ pipeline, retry logic, async processing | **Open Brain** |
+| Cost engineering | Subscription only, no tiers | 4-tier T0→T1→T2→T3 with local LLMs | **Open Brain** |
+| Observability | None | Prometheus + Grafana + Loki + Pushover + synthetic monitor | **Open Brain** |
+| Data sources | Email, Obsidian notes | Voice, Slack, email, documents, 11K files, financial, utilities | **Open Brain** |
+| Conversational UX | Multi-agent personas, chat from anywhere | Skills/workers, less conversational | **His** |
+| Agent awareness | Hive Mind — agents know what others did | Skills independent, no cross-awareness | **His** |
+| Always-on agents | LaunchD auto-start, persistent sessions | Cron/BullMQ triggered, not persistent | **His** |
+
+#### Ideas Worth Stealing
+
+**1. "Hive Mind" — Shared Agent Activity Feed (HIGH VALUE)**
+
+His best idea. Every agent logs what it does to a shared state, and any agent can query "what has the ops agent been doing?" Open Brain already has the data (`skills_log` table records every skill execution with output_summary), but no MCP tool or conversational query surface for it.
+
+**Implementation for Open Brain:**
+- New MCP tool: `get_agent_activity(agent_name?, hours_back?, limit?)` — queries `skills_log` for recent skill executions
+- Returns: skill name, when it ran, what it produced, duration
+- Enables Claude Code / MCP clients to ask "what has wiki-ingest been doing?" or "show me all skill activity in the last 24 hours"
+- **Effort: ~30 min, 1 file** (add to `packages/core-api/src/mcp/tools/`)
+- Existing data, no new infrastructure needed
+
+**2. Leverage Claude Max Subscription More Aggressively (HIGH VALUE)**
+
+His core insight matches our T2 tier but he pushes it further — his agents ARE Claude Code sessions running all the time on his subscription. We use `claude --print` for batch synthesis but don't run persistent Claude Code sessions.
+
+**What this could look like for Open Brain:**
+- Instead of cron → Python script → `claude --print`, run **persistent Claude Code sessions** on the VM via Agent SDK
+- Each session has full access to the codebase, tools, and context
+- The morning brief could be a Claude Code session that wakes up, reads the capture DB, synthesizes, and sends — not a BullMQ skill with a constrained prompt
+- Monthly financial synthesis could be a Claude Code session that analyzes the full SQLite DB with full reasoning, not a single `--print` call
+- **Trade-off**: persistent sessions consume subscription context; cron + `--print` is more predictable and cheaper on subscription quota
+
+**3. Named Agent Personas for Different Contexts (MEDIUM VALUE)**
+
+His agents have names and personalities — "Maine" handles triage, "Comms" writes content. Open Brain's skills are functional but impersonal. Naming agents and giving them distinct system prompts could improve the Slack/MCP conversational experience.
+
+**What this could look like:**
+- Slack bot recognizes "ask the analyst" or "have the writer draft this" as routing hints
+- Each "agent" is really a different system prompt template + context injection (wiki folder, recent captures from that domain)
+- The morning brief comes from "The Analyst", email drafts from "The Writer"
+- **Trade-off**: adds UX polish but no functional capability. Open Brain's skill architecture already routes correctly — naming is cosmetic.
+
+**4. Obsidian-Style Per-Agent Knowledge Injection (LOW VALUE — We Already Do Better)**
+
+He injects Obsidian vault folders into each agent's context. Open Brain already does this better with:
+- Wiki pages with cross-references
+- MCP `open_brain://context` resource
+- Brain views (career, personal, technical, etc.)
+- Entity graph traversal
+
+No action needed — our approach is more sophisticated.
+
+**5. Agent Auto-Start via LaunchD (LOW VALUE — Docker Handles This)**
+
+His agents start on computer boot via macOS LaunchD. Open Brain's Docker containers already have `restart: unless-stopped`. Not needed.
+
+#### Key Takeaway
+
+The subscription-as-infrastructure insight is the most important pattern. Both systems are building on the same foundation: Claude Max covers Claude Code, which covers CLI synthesis, which covers the entire T2 tier. The difference is Open Brain treats it as a batch processing tier, while his system treats it as an always-on conversational tier. Both are valid — and both can coexist.
+
+**Decisions:** D93 (see Decision Log)
+**Action Items:** A43-A45 (see Action Items)
