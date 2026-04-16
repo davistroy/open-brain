@@ -55,11 +55,11 @@ The critical path is: Phase 1 → Phase 2 → Phase 4 → Phase 5 → Phase 6 �
 ### Work Items
 
 #### 1.1 Fix Migration Numbering Conflicts
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F3
 **Files Affected:**
-- `packages/shared/drizzle/0014_mcp_activity.sql` (rename → `0018_mcp_activity.sql`)
-- `packages/shared/drizzle/0015_email_drafts.sql` (rename → `0019_email_drafts.sql`)
+- `packages/shared/drizzle/0018_mcp_activity.sql` (renamed from `0014_mcp_activity.sql`)
+- `packages/shared/drizzle/0019_email_drafts.sql` (renamed from `0015_email_drafts.sql`)
 - `packages/shared/drizzle/meta/` (update Drizzle Kit metadata if present)
 
 **Description:**
@@ -83,7 +83,7 @@ Both migrations are already applied on homeserver. This is a rename to prevent f
 ---
 
 #### 1.2 Stagger Scheduler Job Overlap
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F10
 **Files Affected:**
 - `packages/workers/src/scheduler.ts` (modify)
@@ -107,7 +107,7 @@ Three jobs fire at 7:00 AM (daily-connections, cost-analysis, capture-reminder-m
 ---
 
 #### 1.3 Clean `as any` from Production Code
-**Status: PENDING**
+**Status: COMPLETE [2026-04-16]**
 **Requirement Refs:** Architectural Review F7
 **Files Affected:**
 - `packages/core-api/src/app.ts` (modify — 1 instance)

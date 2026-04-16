@@ -3,6 +3,12 @@ import { PipelineHealthSkill } from '../skills/pipeline-health.js'
 import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
 import { PushoverService } from '../services/pushover.js'
 
+// Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
+vi.mock('../lib/push-metrics.js', () => ({
+  pushMetrics: vi.fn().mockResolvedValue(undefined),
+  buildExposition: vi.fn().mockReturnValue(''),
+}))
+
 // ============================================================
 // Mock queue factory helpers
 // ============================================================

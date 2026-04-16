@@ -119,7 +119,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   if (captureService && configService) {
     registerCaptureRoutes(app, captureService, configService, pipelineService)
     registerStatsRoutes(app, captureService)
-    registerDocumentRoutes(app, captureService, configService, documentPipelineQueue as any)
+    registerDocumentRoutes(app, captureService, configService, documentPipelineQueue)
   }
 
   if (searchService) {

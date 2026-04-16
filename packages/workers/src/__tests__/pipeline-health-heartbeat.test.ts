@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
 
+// Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
+vi.mock('../lib/push-metrics.js', () => ({
+  pushMetrics: vi.fn().mockResolvedValue(undefined),
+  buildExposition: vi.fn().mockReturnValue(''),
+}))
+
 // ============================================================
 // Helpers
 // ============================================================

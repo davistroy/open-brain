@@ -1,10 +1,10 @@
-import { execFile } from 'node:child_process'
+import { execFile, type ExecFileOptions } from 'node:child_process'
 import type { Database } from '@open-brain/shared'
 import { skills_log, logger, PushoverService } from '@open-brain/shared'
 
-function execFileAsync(cmd: string, args: string[], opts: Record<string, unknown> = {}): Promise<{ stdout: string; stderr: string }> {
+function execFileAsync(cmd: string, args: string[], opts: ExecFileOptions = {}): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts as any, (err, stdout, stderr) => {
+    execFile(cmd, args, opts, (err, stdout, stderr) => {
       if (err) return reject(err)
       resolve({ stdout: String(stdout), stderr: String(stderr) })
     })

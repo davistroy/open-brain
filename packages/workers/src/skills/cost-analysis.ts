@@ -344,7 +344,7 @@ export class CostAnalysisSkill {
         ORDER BY cost_usd DESC
       `)
 
-      const byModel: ModelCost[] = (rows.rows as any[]).map(r => ({
+      const byModel: ModelCost[] = rows.rows.map(r => ({
         model: r.model,
         task_type: r.task_type,
         call_count: Number(r.call_count),

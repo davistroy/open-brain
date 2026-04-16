@@ -19,22 +19,25 @@ export interface ScheduledQueues {
  * Jobs registered:
  * - daily-sweep: 3:00 AM daily (cron: 0 3 * * *) — re-queues stuck pipeline captures
  * - budget-check: 8:00 AM daily (cron: 0 8 * * *) — checks monthly AI spend vs thresholds
- * - daily-connections: 7:00 AM daily (cron: 0 7 * * *) — cross-domain connections + wiki synthesis
- * - drift-monitor: 8:00 AM daily (cron: 0 8 * * *) — detects brain-view classification drift
+ * - daily-connections: 7:00 AM daily (cron: 0 7 * * *) — cross-domain connections + wiki synthesis (anchor)
+ * - capture-reminder-morning: 7:05 AM weekdays (cron: 5 7 * * 1-5) — morning Pushover nudge
+ * - cost-analysis: 7:10 AM daily (cron: 10 7 * * *) — LLM cost tracking, weekly/monthly reports
+ * - morning-brief: 7:15 AM weekdays (cron: 15 7 * * 1-5) — structured morning briefing (no LLM)
+ * - drift-monitor: 8:15 AM daily (cron: 15 8 * * *) — detects brain-view classification drift
  * - pipeline-health: every 6 hours (cron: 0 0,6,12,18 * * *) — checks pipeline + capture flow health
  * - daily-sweep-skill: 8:00 PM daily (cron: 0 20 * * *) — LLM-powered evening summary
- * - memory-consolidation: 4:00 AM Sundays (cron: 0 4 * * 0) — LLM near-duplicate merging
- * - capture-reminder-morning: 7:00 AM weekdays (cron: 0 7 * * 1-5) — morning Pushover nudge
- * - morning-brief: 7:15 AM weekdays (cron: 15 7 * * 1-5) — structured morning briefing (no LLM)
  * - capture-reminder-evening: 9:00 PM daily (cron: 0 21 * * *) — evening Pushover nudge with capture count
+ * - memory-consolidation: 4:00 AM Sundays (cron: 0 4 * * 0) — LLM near-duplicate merging
  * - monthly-reflection: 9:00 AM 1st of month (cron: 0 9 1 * *) — LLM-powered monthly synthesis via runAgent()
  * - wiki-lint: 5:00 AM Sundays (cron: 0 5 * * 0) — scans wiki pages for quality issues
  * - wiki-synthesis: 6:00 AM daily (cron: 0 6 * * *) — queues unintegrated captures for wiki-ingest
- * - cost-analysis: 7:00 AM daily (cron: 0 7 * * *) — LLM cost tracking, weekly/monthly reports
- * - container-health: every 15 min (cron: *\/15 * * * *) — /health checks on all containers
+ * - container-health: every 15 min (cron: 0,15,30,45 * * * *) — /health checks on all containers
  * - storage-audit: 3:00 AM Sundays (cron: 0 3 * * 0) — Postgres, Redis, backup, wiki sizes
  * - secret-rotation: 10:00 AM 1st of month (cron: 0 10 1 * *) — checks API key ages via bws CLI, alerts if > 90 days
  * - capture-dedup-sweep: 4:00 AM Saturdays (cron: 0 4 * * 6) — flags near-duplicate captures (cosine > 0.95) for review
+ *
+ * Reserved (Phase 5):
+ * - email-classify: 5:00 AM daily (cron: 0 5 * * *) — email classification pipeline
  *
  * jobId values are stable — BullMQ treats a repeat job with the same jobId as
  * an upsert, so calling this on every startup is safe.
@@ -113,9 +116,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: connectionsCron }, '[scheduler] daily-connections repeatable job registered')
 
   // --------------------------------------------------------
-  // Drift monitor skill (8:00 AM)
+  // Drift monitor skill (8:15 AM)
   // --------------------------------------------------------
-  const driftCron = '0 8 * * *'
+  const driftCron = '15 8 * * *'
 
   await skillExecutionQueue.add(
     'drift-monitor',
@@ -189,9 +192,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: memoryConsolidationCron }, '[scheduler] memory-consolidation repeatable job registered')
 
   // --------------------------------------------------------
-  // Capture reminder — morning (7 AM weekdays)
+  // Capture reminder — morning (7:05 AM weekdays)
   // --------------------------------------------------------
-  const captureReminderMorningCron = '0 7 * * 1-5'
+  const captureReminderMorningCron = '5 7 * * 1-5'
 
   await skillExecutionQueue.add(
     'capture-reminder-morning',
@@ -303,9 +306,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: monthlyReflectionCron }, '[scheduler] monthly-reflection repeatable job registered')
 
   // --------------------------------------------------------
-  // Cost analysis (7:00 AM daily)
+  // Cost analysis (7:10 AM daily)
   // --------------------------------------------------------
-  const costAnalysisCron = '0 7 * * *'
+  const costAnalysisCron = '10 7 * * *'
 
   await skillExecutionQueue.add(
     'cost-analysis',
@@ -396,6 +399,11 @@ export async function registerScheduledJobs(
   )
 
   logger.info({ cron: captureDedupSweepCron }, '[scheduler] capture-dedup-sweep repeatable job registered')
+
+  // --------------------------------------------------------
+  // RESERVED — email-classify (5:00 AM daily, cron: 0 5 * * *)
+  // Phase 5: EmailClassifySkill — email classification pipeline
+  // --------------------------------------------------------
 
   return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
 }

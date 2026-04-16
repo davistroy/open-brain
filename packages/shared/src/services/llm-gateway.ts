@@ -548,7 +548,7 @@ export class LLMGatewayService {
       const by_model: Record<string, number> = {}
       let total = 0
 
-      for (const row of rows.rows as any[]) {
+      for (const row of rows.rows) {
         const cost = Number(row.cost_usd)
         by_model[row.model] = cost
         total += cost
