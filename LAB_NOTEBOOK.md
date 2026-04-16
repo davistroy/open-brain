@@ -3308,3 +3308,34 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 - Then begin 7-day parallel validation (5.3) with Python pipeline on VM
 
 **CI note:** Phases 4-6 failed CI because pnpm-lock.yaml wasn't committed after adding `@azure/msal-node` and `google-auth-library`. Fixed in commit `6d0fc84`. Rule added to CLAUDE.md: always commit lockfile after adding deps.
+
+### Entry 057 — Session End: Resume Guide
+**Date:** 2026-04-16
+**Tags:** `[session-boundary]`
+
+**Session accomplished:** Full architectural refactor — 23/27 plan items complete, PR #78 merged, deployed to homeserver, migration 0020 applied, all 20 BullMQ jobs running.
+
+**What to do next (in order):**
+
+1. **Seed email auth tokens (A56)** — The TypeScript email pipeline is deployed but needs auth tokens in `app_settings` table before it can fetch emails:
+   - **MSAL (Hotmail):** Run an interactive device code flow to get the initial token. The `HotmailClient.authenticate()` method handles this — it prints a URL + code, you visit the URL, enter the code, and the token is cached in `app_settings` key `ms_token_cache`. Needs to run from a context that can write to the DB (inside the workers container or via a script).
+   - **Gmail:** Similar — `GmailClient.authenticate()` does OAuth consent. Token cached in `app_settings` key `gmail_token_cache`. Needs `gmail_credentials` (OAuth client ID/secret) seeded first from the Python pipeline's `~/.email-pipeline/gmail_credentials.json` on the VM.
+
+2. **Run email-classify manually (A57)** — After auth tokens are seeded, trigger the job manually to validate it classifies, moves, and records correctly. Compare output against the Python pipeline's last run.
+
+3. **Begin 7-day parallel validation (5.3)** — Both TypeScript (homeserver, 5 AM) and Python (VM, 5 AM) pipelines run simultaneously. Compare daily: same emails classified? Same categories? Same move behavior?
+
+4. **After validation: Phase 7 (infrastructure consolidation)**
+   - 7.1: Migrate VM backup scripts to homeserver cron (`docker exec`)
+   - 7.2: Disable Python email pipeline on VM
+   - 7.3: Disable OpenClaw morning brief on Bond
+   - Close issue #77
+
+**Branch:** `main` (refactor merged)
+**State file:** `.implement-plan-state.json` still exists but plan is effectively complete except deferred items — can be deleted.
+**Plan file:** `IMPLEMENT_REFACTOR_2026-04-16.md` has all status fields updated.
+
+**Other open threads:**
+- Voice conversation interface (A55) — architecture in memory, build when ready
+- Cobb County Water API analyzed (docs/cobb-water-api-analysis.md) — ready for utility pipeline work (#65)
+- **Rotate Hotmail password on Cobb Water portal** — HAR file contained plaintext credentials
