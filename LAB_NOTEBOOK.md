@@ -3214,3 +3214,66 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 **Test finding:** admin-queue-clear.test.ts needed ioredis mock — banner feature creates `new Redis()` connection in admin router. Same pattern as pushMetrics finding: mock all external I/O in unit tests.
 
 **The BaseSkill foundation is now complete.** Every future skill (email-classify, financial-collect, utility-collect) extends this hierarchy. The pattern is: extend BaseSkill/LLMSkill, implement `execute()`, extract queries to `*-query.ts`. Constructor boilerplate is zero.
+
+### Entry 053 — Refactor Phases 4-6: Email Pipeline + Morning Brief (COMPLETE)
+**Date:** 2026-04-16
+**Tags:** `[refactor]` `[email]` `[architecture]`
+**Environment:** Laptop, branch `refactor/zero-debt-2026-04-16`
+
+**Phase 4** (commit `29ab3f9`): Email auth clients + schema + classifier
+- HotmailClient: MSAL device code + Graph API, token cache in app_settings, 429 retry. 20 tests.
+- GmailClient: google-auth-library + direct fetch (no heavy googleapis). 21 tests.
+- Schema: email_classifications + email_corrections + email_daily_summaries. Migration 0020.
+- EmailClassifier: T0 sender → T0 keyword → T1 Jetson via LLMGateway. 32 tests.
+
+**Phase 5** (commit `7122fc8`): Email pipeline skill + scheduler
+- EmailClassifySkill extends BaseSkill. Full pipeline: auth → fetch → classify → move → record → summarize → capture. 16 tests.
+- Registered as BullMQ job #20 at 5 AM daily. Dispatcher wires auth clients + classifier.
+- Item 5.3 (parallel validation) deferred to deployment.
+
+**Phase 6** (commit `eb6f836`): Morning brief enhancement
+- Email triage section: queries email_classifications for overnight emails by priority category. Zero LLM cost. 8 tests.
+- Slack DM delivery: SlackMessenger (zero-dep, raw fetch) + Block Kit formatting. Parallel with Pushover. 11 tests.
+- Reference calendars: Ashley's Calendar + SCARS always shown. 4 tests.
+
+**CI fix:** pnpm-lock.yaml wasn't committed after adding @azure/msal-node and google-auth-library. CI uses --frozen-lockfile. **Rule: always commit lockfile after adding deps.**
+
+### Entry 054 — Refactor Phase 8: UI Decomposition + Integration Tests (COMPLETE)
+**Date:** 2026-04-16
+**Tags:** `[refactor]` `[web]` `[testing]`
+**Environment:** Laptop, branch `refactor/zero-debt-2026-04-16`
+
+**Results:** All 4 items completed in parallel. 2,585 tests passing. Commit `e8bcc38`.
+
+- **8.1** Settings.tsx: 1,377 → 293 lines (79% reduction). 11 section components + utils extracted to `components/settings/`.
+- **8.2** System.tsx: 1,352 → 292 lines (78% reduction). 5 tab components + overview strip + helpers extracted to `components/system/`.
+- **8.3** Search + entity integration tests: already existed (40 tests). Verified and marked complete.
+- **8.4** MCP tools integration tests: 30 new tests across all 8 MCP tools.
+
+**PR created:** davistroy/open-brain#78. 23/27 items complete. 4 deferred to deployment (5.3 validation, 7.1-7.3 infrastructure).
+
+### Entry 055 — Refactor Session Summary
+**Date:** 2026-04-16
+**Tags:** `[decision]` `[architecture]`
+
+**Full session accomplishments:**
+- Architectural review (4/5 overall score) across homeserver, VM, Bond
+- 8-phase zero-debt refactor plan designed, approved, and executed
+- 23/27 items complete in a single session
+- All 27 skills on BaseSkill/LLMSkill (net -204 lines of boilerplate)
+- Email pipeline fully ported from Python/SQLite/cron → TypeScript/Postgres/BullMQ
+- Morning brief enhanced with email triage (free), Slack DM, reference calendars
+- UI pages decomposed (Settings 79%, System 78% reduction)
+- 30 new MCP integration tests
+- 2,585 tests passing (up from ~2,439 at start)
+- Zero `as any` in production code
+- Decisions D94-D97 documented
+- GitHub board and issues updated (#77 created, #62/#65 moved to Up Next)
+- Cobb County Water API analyzed from HAR file
+- Voice conversation interface idea stashed for future
+
+**Deferred to deployment:**
+- 5.3: 7-day parallel validation (email pipeline vs Python)
+- 7.1: Backup migration to homeserver cron
+- 7.2: Disable Python pipeline on VM
+- 7.3: Disable OpenClaw morning brief on Bond
