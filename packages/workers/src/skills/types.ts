@@ -18,7 +18,7 @@ export interface BaseResult {
 /**
  * Options for simple skills that only need DB and optional Pushover.
  * Used by: capture-reminder, container-health, secret-rotation,
- * stale-captures, db-backup, wiki-backup, redis-snapshot, storage-audit.
+ * stale-captures, storage-audit.
  */
 export interface BaseSkillOpts {
   db: Database

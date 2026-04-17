@@ -3771,3 +3771,72 @@ Decision needed from Troy: A, B, or C. Recommendation is B.
 - Phase G-A: A36 email outbound (add `HIMALAYA_CONFIG` env var, close #69, 30 min).
 - Phase G-B.4: wiki + redis backup parity, delete 710 LOC dead backup skills (in parallel with G-A, sibling branch or same branch).
 - Troy input needed to unblock G-C: platform decision (Python sidecar recommended) + confirm data/ CSVs cover the 6 parsers.
+
+---
+
+### Entry 066 — Phase G-A (A36) + G-B.4 shipped to `feature/phase-g-consolidation`
+
+**Date:** 2026-04-17
+**Tags:** `[himalaya]` `[backup]` `[cleanup]` `[docker-compose]` `[g-a]` `[g-b-4]`
+**Environment:** Laptop, branch `feature/phase-g-consolidation` off main@7aaba39
+**Duration:** ~40 min
+
+**Objective:** Bundle two independent Phase G items into one PR since they touch disjoint code:
+- G-A: wire `HIMALAYA_CONFIG` env var into workers + core-api so outbound email (via `HimalayaService.send()`) actually works in production. Closes issue #69.
+- G-B.4: extend `scripts/backup.sh` to cover wiki (git bundle) and Redis (BGSAVE + RDB copy) backups, then delete 3 dead `*-backup.ts` BullMQ skills (710 LOC production + 726 LOC tests = 1,436 LOC net) that the scheduler never invoked.
+
+**Hypothesis:**
+- `HimalayaService` reads `process.env.HIMALAYA_CONFIG` in its constructor. Setting the env var in docker-compose.yml (both workers and core-api services) + mounting `./config:/app/config:ro` (already in place) unblocks weekly-brief email delivery and all `email-compose` / `email-draft` send paths.
+- `db-backup.ts`, `wiki-backup.ts`, `redis-snapshot.ts` were registered in the dispatcher and `skill-config.ts` but never scheduled. Deleting them removes an easy foot-gun (someone enqueuing a legacy skill by name and getting inconsistent retention vs. `backup.sh`). `backup.sh` is the single source of truth for backups on homeserver.
+
+**Rollback:** `git revert <PR-sha>` restores the dispatcher cases + skill-config entries; deleted skill files recoverable from git history. For the Himalaya env var: unset and restart — weekly-brief falls through to Pushover (existing fallback chain).
+
+**Changes:**
+
+- `docker-compose.yml`
+  - Added `HIMALAYA_CONFIG: /app/config/himalaya/config.toml` to `core-api` service `environment:` block with comment linking back to Bitwarden `BOND_EMAIL_PASSWORD`.
+  - Added the same env var to `workers` service with a cross-reference to the three-tier delivery cascade (Himalaya → nodemailer → Pushover) that lives in `weekly-brief.ts:120`.
+  - Rewrote the stale `# SMTP_HOST` / `# SMTP_PORT` etc. comments to state the reality: nodemailer fallback is intentional, `SMTP_*` is optional, current homeserver skips that tier and cascades to Pushover directly.
+  - Did NOT remove `SMTP_*` comment placeholders entirely (Entry 064's plan said remove — on reinvestigation the nodemailer fallback at `weekly-brief.ts:136` is real, not dead).
+
+- `scripts/backup.sh`
+  - Stage numbering: "[1/4]..[4/4]" → "[1/6]..[6/6]".
+  - New stage 4: wiki git bundle. Shells into `open-brain-core-api` (or falls back to `open-brain-workers`) to run `git bundle create /tmp/wiki.bundle --all`, then `docker cp` to the daily backup dir. Robust against either container lacking the clone.
+  - New stage 5: Redis RDB snapshot. Reads `LASTSAVE` pre-call, issues `BGSAVE`, polls `LASTSAVE` up to 60 times at 1s intervals until it changes (signals BGSAVE completion), then `docker cp` the RDB file. Timeout with a WARNING if BGSAVE never completes.
+  - Summary section extended to report wiki bundle size and Redis RDB size alongside DB dump size.
+  - Retention pruning unchanged — the wiki + Redis artifacts live inside each daily directory so existing `prune_dir()` logic covers them.
+
+- `packages/workers/src/skills/db-backup.ts` + `wiki-backup.ts` + `redis-snapshot.ts` **DELETED** (254 + 206 + 250 = 710 LOC).
+- `packages/workers/src/__tests__/{db-backup,wiki-backup,redis-snapshot}.test.ts` **DELETED** (271 + 212 + 243 = 726 LOC of tests).
+- `packages/workers/src/jobs/skill-execution.ts` — removed 3 imports and 3 dispatcher case branches (-65 LOC).
+- `packages/core-api/src/services/skill-config.ts` — removed 3 schedule entries (-12 LOC).
+- `packages/shared/src/schema/supporting.ts` — `backup_log` table retained (historical rows remain queryable) but the header comment relabels it as legacy / no longer written.
+- `packages/workers/src/skills/types.ts` — removed the deleted skills from the `BaseSkillOpts` docstring list.
+
+**Test counts (post-change):**
+- shared: 260 (unchanged)
+- workers: 980 → **941** (−39 tests, all from the three deleted backup skill suites). Full suite green.
+- `pnpm -r lint` clean across all 6 packages.
+
+**Deploy plan (after PR merge):**
+1. Pull on homeserver.
+2. `docker compose up -d core-api workers` (env var change; no rebuild needed, but rebuild is safe and covers the deleted code so the new images don't include dead skill files).
+3. Rebuild path: `docker compose build core-api workers && up -d core-api workers`.
+4. Validate email outbound:
+   - `docker exec open-brain-workers himalaya -c /app/config/himalaya/config.toml account check` (expects "OK")
+   - Enqueue a weekly-brief dry-run OR send a one-off via `email-compose` skill and watch for `[weekly-brief] delivered via Himalaya` log line.
+5. Validate backup cleanup: next cron run (3 AM local) executes `scripts/backup.sh` with the new stages; verify `/mnt/user/backup/openbrain/daily/<today>/` contains `openbrain.pgdump`, `wiki.bundle`, `redis.rdb`, `manifest.json`, and `schema.sql`.
+6. Close GitHub issue #69 once manual send succeeds.
+
+**Scope boundary:**
+- `backup_log` table left in place — deleting it would require a migration and is not worth the churn. New backup runs from `backup.sh` don't write to it; historical data stays queryable.
+- Legacy `packages/workers/src/services/email.ts` (nodemailer) left in place — the 3-tier fallback in weekly-brief relies on it. Deleting it is a separate decision with user-visible impact if SMTP creds are later configured. Out of scope.
+- `himalaya` CLI install path inside the workers Dockerfile (L87-89 per Entry 062 investigation) unchanged — already correct.
+
+**What Worked:**
+- Catching the "stale SMTP_* comments" plan claim during implementation instead of blindly following it. The plan doc's Entry 062 premise ("code uses Himalaya TOML, not env vars") was true for Himalaya but ignored the intentional nodemailer fallback. Correct fix: clarify the comments, not delete them. Matches the CLAUDE.md rule about not patching around structural reality.
+- Using `LASTSAVE` change-detection for Redis BGSAVE instead of a fixed sleep. Much faster on small DBs (few seconds) and safer on large ones (up to 60s before warning).
+
+**What to Watch:**
+- First post-deploy `himalaya account check` — if the TOML password field has drifted from Bitwarden (password rotation), send will fail silently and cascade to Pushover. Weekly-brief test exercises both silently; need to check logs.
+- First post-deploy `backup.sh` run (3 AM local on homeserver) — wiki bundle and Redis RDB stages are new and could surface "wiki clone not present in core-api" or "Redis not at expected RDB path" issues.
