@@ -26,6 +26,10 @@ class PgNotify {
     'skill_complete',
     'bet_expiring',
     'activity_feed',
+    // CS3.6 — upload lifecycle events emitted by workers/ingest-process.ts
+    // and core-api routes/ingest.ts. events.ts re-emits as SSE event
+    // name `upload:status` per the plan contract.
+    'upload_status',
   ])
   private postgresUrl: string | null = null
   private reconnecting = false

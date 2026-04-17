@@ -29,7 +29,26 @@ import requests, yaml
 # Shared capture-API helper (CS2.1/CS2.3). Same import strategy as
 # financial-pipeline.py — resolves against scripts/lib/ in both Docker and
 # local invocations.
-from lib.capture_api import post_capture as _post_capture_raw  # noqa: E402
+from lib.capture_api import post_capture as _post_capture_unwrapped  # noqa: E402
+
+# CS3.9 --json-output support: wrap post_capture so the ingest sidecar
+# (docker/ingest-sidecar/trigger_server.py) can read a JSON summary as the
+# final stdout line. Passthrough when --json-output is not set.
+_JSON_OUTPUT_MODE = False
+_JSON_CAPTURES_POSTED: list[str] = []
+_JSON_ERRORS: list[str] = []
+
+
+def _post_capture_raw(cfg, content, source_metadata, capture_type="observation", brain_view="personal"):
+    ok = _post_capture_unwrapped(cfg, content, source_metadata,
+                                 capture_type=capture_type, brain_view=brain_view)
+    if _JSON_OUTPUT_MODE:
+        if ok:
+            _JSON_CAPTURES_POSTED.append(content[:80])
+        else:
+            _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
+    return ok
+
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -875,6 +894,8 @@ def main():
     ap.add_argument("--power-summary", action="store_true", help="Aggregate power CSV data (stub)")
     ap.add_argument("--monthly-comparison", action="store_true", help="Unified utility synthesis + capture")
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
+    ap.add_argument("--json-output", action="store_true",
+                    help="Emit a JSON summary as the final stdout line (for ingest sidecar)")
     args = ap.parse_args()
 
     # Require at least one action
@@ -882,25 +903,50 @@ def main():
         ap.print_help()
         sys.exit(1)
 
-    conn = init_db()
+    global _JSON_OUTPUT_MODE
+    _JSON_OUTPUT_MODE = bool(args.json_output)
+    _json_t0 = time.monotonic()
 
-    if args.status:
-        show_status(conn)
+    exit_code = 0
+    try:
+        conn = init_db()
+
+        if args.status:
+            show_status(conn)
+            conn.close()
+            return
+
+        cfg = load_config()
+
+        if args.water:
+            cmd_water(cfg, conn)
+        if args.gas:
+            cmd_gas(cfg, conn)
+        if args.power_summary:
+            cmd_power_summary(cfg, conn)
+        if args.monthly_comparison:
+            cmd_monthly_comparison(cfg, conn)
+
         conn.close()
-        return
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("utility-pipeline: unhandled error")
+        _JSON_ERRORS.append(f"unhandled: {e}")
+        exit_code = 1
 
-    cfg = load_config()
+    if _JSON_OUTPUT_MODE:
+        summary = {
+            "status": "ok" if exit_code == 0 and not _JSON_ERRORS else "error",
+            "captures_posted": list(_JSON_CAPTURES_POSTED),
+            "errors": list(_JSON_ERRORS),
+            "duration_ms": int((time.monotonic() - _json_t0) * 1000),
+        }
+        sys.stdout.flush()
+        print(json.dumps(summary))
 
-    if args.water:
-        cmd_water(cfg, conn)
-    if args.gas:
-        cmd_gas(cfg, conn)
-    if args.power_summary:
-        cmd_power_summary(cfg, conn)
-    if args.monthly_comparison:
-        cmd_monthly_comparison(cfg, conn)
-
-    conn.close()
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

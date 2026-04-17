@@ -71,6 +71,9 @@ const templateCache = new TemplateCache(promptsDir)
 const capturePipelineQueue = new Queue('capture-pipeline', { connection: redisConnection })
 const skillQueue = new Queue('skill-execution', { connection: redisConnection })
 const documentPipelineQueue = new Queue('document-pipeline', { connection: redisConnection })
+// CS3.4/CS3.5 — ingest-process queue drives the batch-ingest pipeline for
+// uploaded files (CSVs, PDFs, images) from the web UI and sidecars.
+const ingestProcessQueue = new Queue('ingest-process', { connection: redisConnection })
 
 // Services — instantiation order respects dependency graph
 const pipelineService = new PipelineService(capturePipelineQueue)
@@ -164,6 +167,7 @@ const app = createApp({
   betService,
   sessionService,
   documentPipelineQueue,
+  ingestProcessQueue,
   llmGateway,
   systemHealthService,
   wikiService,
@@ -194,6 +198,7 @@ const shutdown = async () => {
     capturePipelineQueue.close(),
     skillQueue.close(),
     documentPipelineQueue.close(),
+    ingestProcessQueue.close(),
   ]
   if (wikiIngestQueue) queueClosePromises.push(wikiIngestQueue.close())
   if (wikiLintQueue) queueClosePromises.push(wikiLintQueue.close())

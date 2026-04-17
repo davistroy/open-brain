@@ -782,3 +782,123 @@ export const voiceSessionApi = {
     return mapRawVoiceSession(raw)
   },
 }
+
+// ---------- Ingest API (CS3.10) ----------
+// Matches shared ingest schemas (packages/shared/src/schema/ingest.ts).
+// Types are redeclared inline because the web package is a standalone Vite
+// bundle and doesn't import from @open-brain/shared.
+
+export type IngestSourceType =
+  | 'financial'
+  | 'utility'
+  | 'document'
+  | 'image'
+  | 'email'
+  | 'other'
+
+export type FileUploadStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+
+export interface UploadCaptureSummary {
+  id: string
+  title_snippet: string
+}
+
+export interface FileUploadRow {
+  id: string
+  filename: string
+  size_bytes: number
+  mime_type: string | null
+  source_type: IngestSourceType
+  parser_hint: string | null
+  destination_path: string
+  uploaded_at: string
+  status: FileUploadStatus
+  capture_ids: string[]
+  captures: UploadCaptureSummary[]
+  error_message: string | null
+  processed_at: string | null
+  duration_ms: number | null
+}
+
+export interface UploadFileResponse {
+  upload_id: string
+  status: FileUploadStatus
+  filename: string
+  size_bytes: number
+  source_type: IngestSourceType
+  parser_hint: string | null
+  destination_path: string
+  uploaded_at: string
+}
+
+export interface ListUploadsResponse {
+  uploads: FileUploadRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ProcessNowResponse {
+  source: IngestSourceType
+  enqueued: boolean
+  message?: string
+}
+
+export const ingestApi = {
+  /** POST /api/v1/ingest/upload — multipart file upload. */
+  upload: async (
+    file: File,
+    opts?: { source_type?: IngestSourceType; parser_hint?: string },
+  ): Promise<UploadFileResponse> => {
+    const form = new FormData()
+    form.append('file', file)
+    if (opts?.source_type) form.append('source_type', opts.source_type)
+    if (opts?.parser_hint) form.append('parser_hint', opts.parser_hint)
+
+    const res = await fetch(`${API_BASE}/ingest/upload`, {
+      method: 'POST',
+      body: form,
+      // Intentionally do not set Content-Type — the browser sets the
+      // multipart boundary automatically.
+    })
+    if (!res.ok) {
+      const txt = await res.text()
+      throw new Error(`API ${res.status}: ${txt}`)
+    }
+    return res.json() as Promise<UploadFileResponse>
+  },
+
+  /** GET /api/v1/ingest/uploads — paginated list with optional filters. */
+  list: async (params?: {
+    limit?: number
+    offset?: number
+    status?: FileUploadStatus
+    source_type?: IngestSourceType
+  }): Promise<ListUploadsResponse> => {
+    const qs = buildQueryString(params ?? {})
+    return request<ListUploadsResponse>(`/ingest/uploads${qs}`)
+  },
+
+  /** GET /api/v1/ingest/uploads/:id — single upload detail. */
+  get: async (id: string): Promise<FileUploadRow> => {
+    return request<FileUploadRow>(`/ingest/uploads/${encodeURIComponent(id)}`)
+  },
+
+  /** POST /api/v1/ingest/uploads/:id/process — re-enqueue ingest-process. */
+  process: async (id: string): Promise<{ enqueued: boolean }> => {
+    return request<{ enqueued: boolean }>(
+      `/ingest/uploads/${encodeURIComponent(id)}/process`,
+      { method: 'POST' },
+    )
+  },
+
+  /** POST /api/v1/ingest/process-now — trigger a sidecar run by source. */
+  processNow: async (source?: IngestSourceType): Promise<ProcessNowResponse> => {
+    const qs = buildQueryString(source ? { source } : {})
+    return request<ProcessNowResponse>(`/ingest/process-now${qs}`, { method: 'POST' })
+  },
+}

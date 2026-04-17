@@ -162,6 +162,8 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
       'internal:email-worker',
       'internal:financial-pipeline',
       'internal:utility-pipeline',
+      // CS3 — batch ingest sidecar + ingest-process worker callbacks
+      'internal:ingest',
     ])
     if (BYPASS_CALLERS.has(key)) {
       await next()

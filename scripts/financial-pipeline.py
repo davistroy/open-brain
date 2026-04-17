@@ -31,7 +31,28 @@ import requests, yaml
 # Shared capture-API helper (CS2.1/CS2.2). Works both in Docker (`/app/lib/`
 # after COPY) and locally (`scripts/` is sys.path[0] when running the script
 # directly), so `from lib.capture_api import …` resolves in both cases.
-from lib.capture_api import get_capture_api_config as _get_capture_api, post_capture as _post_capture  # noqa: E402
+from lib.capture_api import get_capture_api_config as _get_capture_api, post_capture as _post_capture_raw  # noqa: E402
+
+# CS3.9 --json-output support: wrap _post_capture to track results so the
+# ingest sidecar (docker/ingest-sidecar/trigger_server.py) can parse a JSON
+# summary as the final stdout line. When --json-output is NOT set this is a
+# transparent passthrough and output is unchanged.
+_JSON_OUTPUT_MODE = False
+_JSON_CAPTURES_POSTED: list[str] = []
+_JSON_ERRORS: list[str] = []
+
+
+def _post_capture(cfg, content, source_metadata, capture_type="observation", brain_view="personal"):
+    ok = _post_capture_raw(cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view)
+    if _JSON_OUTPUT_MODE:
+        if ok:
+            # Content preview is a stable, human-readable id — the helper
+            # does not return the capture UUID.
+            _JSON_CAPTURES_POSTED.append(content[:80])
+        else:
+            _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
+    return ok
+
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
@@ -2748,6 +2769,8 @@ def main():
     ap.add_argument("--monthly-report", action="store_true", help="Monthly financial synthesis (prior month)")
     ap.add_argument("--process-inbox", action="store_true", help="Process 401k PDFs and Amazon CSVs from ~/financial-inbox/")
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
+    ap.add_argument("--json-output", action="store_true",
+                    help="Emit a JSON summary as the final stdout line (for ingest sidecar)")
     args = ap.parse_args()
 
     # Require at least one action
@@ -2756,29 +2779,55 @@ def main():
         ap.print_help()
         sys.exit(1)
 
-    conn = init_db()
+    global _JSON_OUTPUT_MODE
+    _JSON_OUTPUT_MODE = bool(args.json_output)
+    _json_t0 = time.monotonic()
 
-    if args.status:
-        show_status(conn)
+    exit_code = 0
+    try:
+        conn = init_db()
+
+        if args.status:
+            show_status(conn)
+            conn.close()
+            return
+
+        cfg = load_config()
+
+        if args.sync:
+            cmd_sync(cfg, conn)
+        if args.balances:
+            cmd_balances(cfg, conn)
+        if args.daily_summary:
+            cmd_daily_summary(cfg, conn)
+        if args.investments:
+            cmd_investments(cfg, conn)
+        if args.monthly_report:
+            cmd_monthly_report(cfg, conn)
+        if args.process_inbox:
+            cmd_process_inbox(cfg, conn)
+
         conn.close()
-        return
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("financial-pipeline: unhandled error")
+        _JSON_ERRORS.append(f"unhandled: {e}")
+        exit_code = 1
 
-    cfg = load_config()
+    if _JSON_OUTPUT_MODE:
+        summary = {
+            "status": "ok" if exit_code == 0 and not _JSON_ERRORS else "error",
+            "captures_posted": list(_JSON_CAPTURES_POSTED),
+            "errors": list(_JSON_ERRORS),
+            "duration_ms": int((time.monotonic() - _json_t0) * 1000),
+        }
+        # Final line of stdout must be valid JSON — the sidecar parses it.
+        sys.stdout.flush()
+        print(json.dumps(summary))
 
-    if args.sync:
-        cmd_sync(cfg, conn)
-    if args.balances:
-        cmd_balances(cfg, conn)
-    if args.daily_summary:
-        cmd_daily_summary(cfg, conn)
-    if args.investments:
-        cmd_investments(cfg, conn)
-    if args.monthly_report:
-        cmd_monthly_report(cfg, conn)
-    if args.process_inbox:
-        cmd_process_inbox(cfg, conn)
-
-    conn.close()
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

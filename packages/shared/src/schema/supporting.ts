@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar, bigint } from 'drizzle-orm/pg-core'
+import { pgTable, pgEnum, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar, bigint } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { captures } from './core.js'
 import { vector } from './types.js'
@@ -412,3 +412,47 @@ export const voice_sessions = pgTable(
     started_at_desc_idx: index('voice_sessions_started_at_desc_idx').on(table.started_at),
   }),
 )
+
+// ============================================================
+// file_uploads table — browser/API file ingest tracking (CS3, Waves 2026-04-17)
+//
+// Tracks files uploaded via the dashboard Ingest UI or API, their
+// routing decision (source_type + parser_hint), and the BullMQ-driven
+// processing status through to the captures produced by the sidecar
+// pipeline. Rows transition pending → processing → parsed|failed.
+// Migration: packages/shared/drizzle/0021_file_uploads.sql (canonical).
+// Added as part of CS3.5 to unblock worker build (CS3.2 completion).
+// ============================================================
+export const fileUploadStatus = pgEnum('file_upload_status', [
+  'pending',
+  'processing',
+  'parsed',
+  'failed',
+])
+
+export const file_uploads = pgTable(
+  'file_uploads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    filename: text('filename').notNull(),
+    size_bytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    mime_type: text('mime_type'),
+    source_type: text('source_type').notNull(),              // 'financial' | 'utility'
+    parser_hint: text('parser_hint'),                         // e.g. 'amex'; null if unknown
+    destination_path: text('destination_path').notNull(),    // path inside container volume
+    uploaded_at: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
+    status: fileUploadStatus('status').notNull().default('pending'),
+    capture_ids: uuid('capture_ids').array().default(sql`'{}'::uuid[]`),
+    error_message: text('error_message'),
+    processed_at: timestamp('processed_at', { withTimezone: true }),
+    duration_ms: integer('duration_ms'),
+  },
+  (table) => ({
+    uploaded_at_idx: index('idx_file_uploads_uploaded_at').on(table.uploaded_at),
+    // Partial index on in-flight rows (status IN ('pending','processing'))
+    // created via SQL migration 0021 (Drizzle cannot generate partial indexes).
+  }),
+)
+
+export type FileUpload = typeof file_uploads.$inferSelect
+export type NewFileUpload = typeof file_uploads.$inferInsert

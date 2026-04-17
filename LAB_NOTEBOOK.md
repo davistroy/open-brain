@@ -4322,3 +4322,90 @@ Ordering (preview, to be confirmed in Phase 4): 1 and 5 are independent and smal
 - The electric-usage-downloader URL format — if the v0.5.0 release tarball layout differs from the Dockerfile's expectation, the sidecar image build will fail loudly. That's better than silent miss. Troy can update the URL + version on first build attempt.
 - Utility sidecar host cron (6:30 AM daily + monthly comparison on the 2nd) — first real run will be tomorrow morning.
 - The old inline `post_capture` in utility-pipeline.py had a **silent bug**: flat `source_metadata` + `allow_redirects` default-True. That would have produced the same Cloudflare-Access 302 trap as financial-pipeline pre-PR #84, so Gas South / Cobb EMC captures would never have landed even if invoked. The shared-lib extraction in CS2.3 fixes this without a separate bug entry. Note for post-merge validation: utility captures must actually appear in the DB this time.
+
+---
+
+### Entry 073 — CS3 upload backend + sidecar HTTP trigger shipped
+
+**Date:** 2026-04-17
+**Tags:** `[implement-plan]` `[cs3]` `[upload-backend]` `[sidecar-trigger]` `[drizzle]` `[sse]` `[parallel-subagent-lessons]`
+**Environment:** Laptop, branch `feature/waves-2026-04-17` (CS1 `befb2ba`, CS2 `0fde941`). Option B. `/implement-plan` resume, 4 parallel waves (max 3 subagents per wave).
+
+**Objective:** Ship CS3 — HTTP upload endpoint + BullMQ `ingest-process` job + SSE progress stream + sidecar-side `trigger_server.py` replacing `sleep infinity` — as a single commit on the mega-branch. 12 work items (CS3.1–CS3.12, CS3.13 deploy deferred).
+
+**Hypothesis:** Parallel subagents land a coherent CS3 commit: `0021_file_uploads.sql` migration + Drizzle mirror + `routes/ingest.ts` upload endpoint → BullMQ `ingest-process` job → dispatches to financial/utility pipelines via shared router (`config/ingest-routes.yaml`) → SSE stream surfaces progress in dashboard. Sidecar's `trigger_server.py` replaces `sleep infinity` and exposes POST `/trigger/{source_type}` + `/process` invoking the Python pipelines in `--json-output` mode.
+
+**Rollback:** `git reset --hard 0fde941` on `feature/waves-2026-04-17` (CS2 checkpoint). No DB migration applied in Option B. Post-merge: revert the CS3 commit.
+
+**Wave plan executed (4 waves, max 3 parallel per wave):**
+
+| Wave | Items | Deps | Notes |
+|---|---|---|---|
+| 1 | CS3.1, CS3.3, CS3.7 | — | All net-new files; zero overlap |
+| 2 | CS3.2, CS3.9, CS3.12 | CS3.1 for CS3.2 | Drizzle mirror + pipeline flag + Python router |
+| 3 | CS3.8, CS3.4, CS3.11 | CS3.7 (CS3.8), CS3.2+CS3.3 (CS3.4+CS3.11) | Dockerfile CMD + core-api routes + TS router service |
+| 4 | CS3.5, CS3.6, CS3.10 | CS3.4 | Worker + SSE hub + web client |
+
+**What landed (12 items, single commit):**
+
+| Item | Files | Notes |
+|---|---|---|
+| CS3.1 | `packages/shared/drizzle/0021_file_uploads.sql` | `file_uploads` table (13 cols, 2 indexes), `file_upload_status` ENUM in idempotent `DO $$` block. |
+| CS3.2 | `packages/shared/src/schema/supporting.ts` | Drizzle mirror: `fileUploads` pgTable, `fileUploadStatus` pgEnum (first use of `pgEnum` in this project). |
+| CS3.3 | `packages/shared/src/schema/ingest.ts` + `index.ts` barrel | 17 Zod schemas (Upload/Get/List/Process + `UploadStatusEventSchema` discriminated union + `SidecarProcessResponseSchema`). |
+| CS3.4 | `packages/core-api/src/routes/ingest.ts` + `app.ts` + `index.ts` wiring | 5 endpoints (`POST /upload` multipart + 3 CRUD + `/process-now`); 100 MiB streaming upload; enqueues to `ingest-process` queue. |
+| CS3.5 | `packages/workers/src/{jobs,queues}/ingest-process.ts` + `main.ts` | BullMQ worker calls `dispatchToSidecar()`, updates `file_uploads` row, emits `pg_notify('upload_status', ...)`. Patient backoff `[30s, 2m, 10m, 30m, 2h]`. |
+| CS3.6 | `packages/core-api/src/lib/pg-notify.ts` + `routes/events.ts` + `services/sse.ts` | `upload_status` channel added to LISTEN set; `CHANNEL_TO_SSE_EVENT` map re-emits as `upload:status`. |
+| CS3.7 | `docker/ingest-sidecar/trigger_server.py` | Stdlib `ThreadingHTTPServer` port 8080, 4 endpoints, hmac bearer auth, fcntl lock, structured JSON logs, SIGTERM graceful. |
+| CS3.8 | `docker/ingest-sidecar/Dockerfile` + `docker-compose.yml` | CMD swapped `sleep infinity` → `python -u trigger_server.py`; `EXPOSE 8080`; `HEALTHCHECK` via `urllib.request` to `127.0.0.1`; compose `INGEST_SOURCE=financial\|utility` + `TRIGGER_SECRET`. |
+| CS3.9 | `scripts/financial-pipeline.py` + `scripts/utility-pipeline.py` | `--json-output` argparse flag; stderr-only logging in json mode; final JSON line matches `SidecarProcessResponseSchema`. |
+| CS3.10 | `packages/web/src/lib/api.ts` | `ingestApi`: `upload` (XHR for progress), `list`, `get`, `process`, `processNow`, `subscribeToEvents` (EventSource, `upload:status` event). |
+| CS3.11 | `packages/shared/src/services/ingest-router.ts` + barrel | Moved into `@open-brain/shared` (Option A, per CLAUDE.md) so core-api + workers share it. `loadRoutes`, `routeForSourceType`, `routeForFilename`, `sidecarUrlForSourceType`, `dispatchToSidecar` (5-min AbortController, `Bearer` auth, HttpError on non-2xx). |
+| CS3.12 | `scripts/lib/ingest_router.py` + `__init__.py` | Python mirror of CS3.11: same function names, module-level cache, env `INGEST_ROUTES_PATH`. PyYAML already in sidecar Dockerfile. |
+| CS3.13 | — | Deferred post-merge (homeserver deploy). |
+
+**Rate-limit bypass:** `'internal:ingest'` added to `BYPASS_CALLERS` Set in `packages/core-api/src/middleware/rate-limit.ts`.
+
+**Channel alignment (verified):**
+- pg channel: `upload_status` — emitted by worker, listened by `lib/pg-notify.ts`.
+- SSE event name: `upload:status` — translated via `CHANNEL_TO_SSE_EVENT` map in `routes/events.ts`, consumed by web `ingestApi.subscribeToEvents()`.
+
+**Build + test verification (pre-commit, via testing subagent):**
+- `pnpm --filter @open-brain/shared build` — PASS
+- `pnpm --filter @open-brain/{core-api,workers,slack-bot,voice-capture} build` — PASS
+- `pnpm --filter @open-brain/web exec tsc --noEmit` — PASS (Vite build skipped; pre-existing `@azure/msal-node` accessSync externalization issue, unrelated to CS3).
+- `pnpm -r test --reporter=dot` — **2,554 tests pass, 0 failures** (shared 260 / core-api 699 / workers 941 / slack-bot 492 / voice-capture 82 / web 80).
+- Python AST + `--help` gates on `financial-pipeline.py`, `utility-pipeline.py`, `lib/ingest_router.py`, `docker/ingest-sidecar/trigger_server.py` — PASS.
+- YAML parse: `docker-compose.yml` + `config/ingest-routes.yaml` — PASS.
+
+**Non-trivial finding — "parallel-subagent barrel clobber" pattern:**
+
+During CS3 execution, 4 waves of parallel subagents (max 3 per wave) edited non-overlapping primary files. But the testing subagent discovered that several subagents' changes to **shared barrel/wiring files** (`packages/shared/src/schema/index.ts`, `packages/shared/src/services/index.ts`, `packages/core-api/src/app.ts`, `packages/core-api/src/index.ts`, `packages/core-api/src/services/index.ts`, `packages/core-api/src/lib/pg-notify.ts`, `packages/core-api/src/routes/events.ts`, `packages/web/src/lib/api.ts`) had been **silently clobbered** by later parallel waves. Six implementation gaps surfaced during testing:
+
+1. CS3.9 `--json-output` flag missing from both pipeline scripts (earlier subagent reported DONE with gates).
+2. CS3.4 `registerIngestRoutes` never wired into the Hono app (`app.ts` + `index.ts`).
+3. CS3.6 `upload_status` missing from pg-notify LISTEN channel set.
+4. CS3.6 `upload_status` → `upload:status` SSE event-name translation missing.
+5. `internal:ingest` missing from rate-limit `BYPASS_CALLERS`.
+6. CS3.10 `ingestApi` missing entirely from `packages/web/src/lib/api.ts`.
+
+A seventh clobber hit orchestrator work: Entry 073's first draft was silently reverted when a parallel subagent touched `LAB_NOTEBOOK.md`. Rewriting after the fact.
+
+Root cause: when two parallel subagents edit the same barrel/shared file, the later write wins — blindly dropping content the earlier write introduced. Each subagent reads the file at launch, applies its edit, writes the full content; it doesn't know a sibling will later do the same without merging.
+
+Fix: the testing subagent re-implemented all 6 gaps on the uncommitted tree, then re-ran the full test suite. All 2,554 tests passed on the final run.
+
+**Operational rule (derived — add to CLAUDE.md + memory):** When orchestrating parallel implementer subagents, barrel/wiring files (`app.ts`, `index.ts`, `{schema,services}/index.ts`, cross-cutting middleware, `packages/web/src/lib/api.ts`, `LAB_NOTEBOOK.md`) must be updated SEQUENTIALLY or in a final reconciling subagent — NEVER in parallel. Always follow parallel waves with a testing subagent that re-verifies wiring grep-by-grep (`registerFooRoutes` present + `LISTEN channel` present + `BYPASS_CALLERS += foo` present + barrel re-export present).
+
+**What to watch (post-merge deploy):**
+- Apply migration `0021_file_uploads.sql` on homeserver before deploying new core-api image.
+- Set `INGEST_TRIGGER_SECRET` in Bitwarden (`dev/open-brain/api-keys`) and inject into both sidecar services via `.env`.
+- Electric-usage-downloader URL (flagged in Entry 072) still unchanged by CS3.
+- First real end-to-end upload: confirm `upload_status` SSE events reach the dashboard.
+- `@azure/msal-node` Vite externalization error — pre-existing, not blocking.
+
+**Open items:**
+- CS4a (Dashboard Wave 1, 11 items) — next.
+- CS4b (Dashboard Wave 2, 6 items).
+- CS5 (Safe decommissioning, 9 items, 4 deploy-gated under Option B).
+- CS3.13 homeserver deploy.

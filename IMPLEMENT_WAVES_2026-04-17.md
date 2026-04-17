@@ -218,12 +218,14 @@ Backend plumbing for Wave 1 of the dashboard. Users drop files in the browser �
   - `POST /api/v1/ingest/upload` — multipart/form-data. Max 100MB. Streams to `/app/inbox-volumes/<source>/<uuid>-<safe-filename>`. Uses Hono's `c.req.raw.body` → `pipeline(readable, createWriteStream)` (Node streams, no full-buffer). Inserts `file_uploads` row; enqueues `ingest-process` job. Returns `{upload_id, status: 'pending'}`.
   - `GET /api/v1/ingest/uploads?limit=20&offset=0&status=?` — paginated list with capture_ids joined to capture title snippets.
   - `POST /api/v1/ingest/process-now?source=<financial|utility>` — manual re-trigger without a new upload. Useful for "process inbox now" UX button.
-- [ ] **CS3.5** `packages/workers/src/jobs/ingest-process.ts` (new) — BullMQ job:
-  - Reads `file_uploads.id` from job data → loads row → marks `processing`.
-  - HTTP POST to `http://open-brain-<source>-ingest:8080/process` with 5-min timeout.
-  - On 200: parse response JSON for `capture_ids` + `duration_ms` + `errors`. Update row to `parsed`/`failed` accordingly.
-  - On timeout/network error: retry 2x with 30s backoff, then `failed`.
-  - Emits SSE `upload:status` events at every transition.
+- [x] **CS3.5** ✅ Completed 2026-04-17 — `packages/workers/src/jobs/ingest-process.ts` (new) + `packages/workers/src/queues/ingest-process.ts` (new) — BullMQ job:
+  - Reads `file_uploads.id` from job data → loads row → marks `processing` (skips row load for synthetic `00000000-…` scan-inbox jobs from `POST /ingest/process-now`).
+  - POSTs `/process` to `http://<source>-ingest:8080` via `dispatchToSidecar()` from `@open-brain/shared/services/ingest-router` (moved from core-api — Option A — so both core-api and workers share a single implementation). Timeout configurable via `INGEST_TIMEOUT_MS` env (default 300_000 ms / 5 min).
+  - On sidecar 2xx + `status:'ok'`: UPDATE row to `parsed` with `capture_ids`, `processed_at`, `duration_ms`; emits `completed` pg_notify event.
+  - On sidecar 2xx + `status:'error'` / non-2xx / timeout / network error: UPDATE row to `failed` with `error_message`, emits `failed` pg_notify event, and rethrows so BullMQ records the failure and schedules the next retry.
+  - Retry policy: 5 attempts with patient backoff [30s, 2m, 10m, 30m, 2h] via custom BullMQ backoff strategy (matches CLAUDE.md canonical pipeline retry rule). `INGEST_PROCESS_BACKOFF_DELAYS_MS` exported from the queue factory.
+  - pg_notify channel: `upload_status` (underscore, matches `packages/core-api/src/lib/pg-notify.ts` channel list). Event payloads follow the `UploadStatusEventSchema` discriminated union (`started` | `progress` | `completed` | `failed`) from `@open-brain/shared/schema/ingest`. CS3.6's SSE hub LISTENs on this channel and fans out to browser clients as `upload:status` events.
+  - `dispatchToSidecar()` + helpers `loadRoutes`, `routeForSourceType`, `routeForFilename`, `sidecarUrlForSourceType` relocated from `packages/core-api/src/services/ingest-router.ts` → `packages/shared/src/services/ingest-router.ts`; re-exported from `@open-brain/shared` and the old file deleted. Also added `file_uploads` + `fileUploadStatus` pgEnum to `packages/shared/src/schema/supporting.ts` (CS3.2 completion needed to unblock the worker build) and `export * from './ingest.js'` to `packages/shared/src/schema/index.ts` so `IngestProcessJobData`, `UploadStatusEvent`, and `SidecarProcessResponse` are reachable via `@open-brain/shared`. Registered in `packages/workers/src/main.ts`. **Status:** COMPLETE 2026-04-17. Both `@open-brain/shared` and `@open-brain/workers` (and `@open-brain/core-api`) builds pass.
 - [ ] **CS3.6** `packages/core-api/src/services/sse.ts` — extend the hub with `upload:status` channel.
 - [ ] **CS3.7** `docker/ingest-sidecar/trigger_server.py` (new) — Python `http.server` + threading. Single endpoint `POST /process`:
   - Reads body JSON for optional source hint (or defaults to the pipeline bound to this container).

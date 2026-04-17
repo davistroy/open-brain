@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { logger as honoLogger } from 'hono/logger'
 import { cors } from 'hono/cors'
 import type { ConnectionOptions, Queue } from 'bullmq'
-import type { ConfigService, Database } from '@open-brain/shared'
+import type { ConfigService, Database, IngestProcessJobData } from '@open-brain/shared'
 import { errorHandler } from './middleware/error-handler.js'
 import { RateLimiter, RATE_LIMIT_TIERS, rateLimit } from './middleware/rate-limit.js'
 import { registerHealthRoutes } from './routes/health.js'
@@ -28,6 +28,7 @@ import { registerConfigRoutes } from './routes/config.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
+import { registerIngestRoutes } from './routes/ingest.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -76,11 +77,13 @@ interface AppDependencies {
   emailDraftService?: EmailDraftService
   /** Voice session service — required for voice conversation session endpoints */
   voiceSessionService?: VoiceSessionService
+  /** Ingest-process BullMQ queue — required for POST /api/v1/ingest/upload pipeline dispatch (CS3.4/CS3.5) */
+  ingestProcessQueue?: Queue<IngestProcessJobData>
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, voiceSessionService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, voiceSessionService, ingestProcessQueue } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -195,6 +198,13 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // MCP activity log API (read-only, requires db)
   if (db) {
     registerMcpActivityRoutes(app, db)
+  }
+
+  // Ingest API — file upload + list/get/process-now (CS3.4).
+  // Works without the queue (persists uploads, logs a warning); adding the
+  // queue enables the ingest-process pipeline.
+  if (db) {
+    registerIngestRoutes(app, db, ingestProcessQueue)
   }
 
   // MCP endpoint — requires all services to be available
