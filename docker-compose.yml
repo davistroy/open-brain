@@ -355,6 +355,11 @@ services:
       FINANCIAL_INBOX_DIR: /inbox
       FINANCIAL_PIPE_DIR: /data
       FINANCIAL_CONFIG_DIR: /app/config/financial
+      # Post captures to core-api over the internal Docker network, not via
+      # the public brain.troy-davis.com URL. Public URL is fronted by
+      # Cloudflare Access which 302s unauthenticated POSTs.
+      CAPTURE_API_URL: http://core-api:3000/api/v1/captures
+      CAPTURE_API_CALLER: financial-pipeline
       TZ: America/New_York
     volumes:
       # Host inbox — drop CSVs here and they'll be processed on next cron run.
