@@ -166,7 +166,7 @@ These PRD features were planned but not implemented. They remain candidates for 
 
 - Docker + Docker Compose
 - `bws` CLI v2.0.0 at `~/bin/bws.exe` with `BWS_ACCESS_TOKEN` set
-- LiteLLM proxy running at `https://llm.k4jda.net` with model aliases configured
+- OpenAI API key (all AI calls route directly to `https://api.openai.com/v1`; model aliases configured in `config/ai-routing.yaml`)
 - Bitwarden secrets populated for the `ai-work` project (see `scripts/load-secrets.sh`)
 
 ### 1. Clone and install
@@ -184,7 +184,7 @@ Secrets are never stored in `.env` files. Load them into a `.env.secrets` file t
 ```bash
 # Retrieve your secrets from Bitwarden and write to .env.secrets (git-ignored)
 # Required keys:
-#   LITELLM_API_KEY       — virtual key for LiteLLM proxy
+#   OPENAI_API_KEY        — OpenAI API key for all LLM + embedding calls
 #   MCP_API_KEY           — bearer token for MCP endpoint
 #   POSTGRES_PASSWORD     — Postgres password (default: openbrain_dev for local)
 #   SLACK_BOT_TOKEN       — xoxb-... Slack bot token
@@ -265,7 +265,7 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `packages/web/src/content/USER_GUIDE.md` | Detailed user guide (rendered in Help page) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
 | `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
-| `config/ai-routing.yaml` | LiteLLM model aliases and budget thresholds |
+| `config/ai-routing.yaml` | OpenAI model aliases and budget thresholds |
 | `config/brain-views.yaml` | Brain view definitions |
 | `config/pipeline.yaml` | Pipeline stage definitions + retry/backoff settings |
 | `docs/archived/` | Completed implementation plans and historical test results |

@@ -281,7 +281,7 @@ On the machine running LiteLLM, edit the LiteLLM `config.yaml` — add an `mcp_s
 mcp_servers:
   open-brain:
     url: "https://brain.troy-davis.com/mcp"
-    transport: "streamable_http"
+    transport: "http"
     auth_type: "bearer_token"
     auth_value: "<MCP_API_KEY>"        # value from Open Brain's .env.secrets
 ```
