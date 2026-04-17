@@ -192,7 +192,12 @@ export function createSkillExecutionWorker(
           }
           const result = await runSkill(
             EmailComposeSkill,
-            { db, anthropicClient: opts.anthropicClient, coreApiUrl: opts.coreApiUrl },
+            {
+              db,
+              anthropicClient: opts.anthropicClient,
+              coreApiUrl: opts.coreApiUrl,
+              configService: opts.configService,
+            },
             { instruction, coreApiUrl: opts.coreApiUrl, anthropicClient: opts.anthropicClient },
           )
           logger.info(

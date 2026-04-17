@@ -2,7 +2,7 @@ import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import { createOpenAIClient, TemplateCache, PushoverService } from '@open-brain/shared'
-import type { LLMGatewayService } from '@open-brain/shared'
+import type { LLMGatewayService, ConfigService } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, LLMSkillOpts } from './types.js'
 
@@ -27,6 +27,7 @@ export abstract class LLMSkill<TInput, TResult extends BaseResult> extends BaseS
   protected templates: TemplateCache
   protected promptsDir: string
   protected coreApiUrl: string
+  protected configService: ConfigService | null
 
   constructor(skillName: string, opts: LLMSkillOpts) {
     super(skillName, {
@@ -50,6 +51,8 @@ export abstract class LLMSkill<TInput, TResult extends BaseResult> extends BaseS
     this.templates = opts.templates ?? new TemplateCache(this.promptsDir)
 
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+
+    this.configService = opts.configService ?? null
   }
 
   /**
