@@ -72,20 +72,23 @@ The unit-test vitest config uses default `threads` pool + default 10s hookTimeou
 
 ### Work items
 
-- [ ] **1.1** Edit `packages/core-api/vitest.config.ts`:
+- [x] **1.1** Edit `packages/core-api/vitest.config.ts`: ✅ Completed 2026-04-17
   - Add `pool: 'forks'`
   - Add `poolOptions: { forks: { singleFork: false, maxForks: 4 } }`
   - Add `hookTimeout: 30_000`
   - Add `testTimeout: 30_000`
   - Preserve all existing config (environment, exclude, coverage).
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Item 6, ultra-plan CS-δ step 1
-- [ ] **1.2** Edit `packages/workers/vitest.config.ts` with identical additions (defensive — not currently flaking but uses same bullmq+ioredis pattern).
-  - **Status:** PENDING
+  - **Notes:** Added `minForks: 1` alongside `maxForks: 4` to avoid vitest 1.6 Tinypool "minThreads and maxThreads must not conflict" RangeError. Verified `pnpm --filter @open-brain/core-api test` green: 41 test files / **718 tests passed**, 81.96s wall-clock.
+- [x] **1.2** Edit `packages/workers/vitest.config.ts` with identical additions (defensive — not currently flaking but uses same bullmq+ioredis pattern). ✅ Completed 2026-04-17
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** ultra-plan CS-δ step 2
-- [ ] **1.3** Run `pnpm --filter @open-brain/core-api test` and `pnpm --filter @open-brain/workers test` 3 times back-to-back locally on Windows. Record pass/fail per run in the PR description. Zero flake required.
-  - **Status:** PENDING
+  - **Notes:** Added `pool: 'forks'`, `poolOptions.forks: { minForks: 1, maxForks: 4 }`, `hookTimeout: 30_000`, `testTimeout: 30_000`. Mirrors 1.1 pattern (needed `minForks: 1` to avoid Tinypool "minThreads and maxThreads must not conflict" RangeError on vitest 1.6). Verified `pnpm --filter @open-brain/workers test` green: 46 test files / **941 tests passed**, 94.97s wall-clock.
+- [x] **1.3** Run `pnpm --filter @open-brain/core-api test` and `pnpm --filter @open-brain/workers test` 3 times back-to-back locally on Windows. Record pass/fail per run in the PR description. Zero flake required. ✅ Completed 2026-04-17
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** ultra-plan CS-δ verification
+  - **Results:** ZERO_FLAKE. core-api: 3/3 green, 41 files / 718 tests each run, durations 30.49s / 26.59s / 27.96s. workers: 3/3 green, 46 files / 941 tests each run, durations 35.27s / 34.95s / 31.53s. No timeouts, no unhandled rejections, no "test suite failed to run". Identical pass counts across all 6 runs confirms the `pool: 'forks'` + `minForks: 1` / `maxForks: 4` + `hookTimeout/testTimeout: 30_000` profile from 1.1/1.2 eliminates the Windows ioredis/bullmq race.
 
 ### Acceptance criteria
 - `pnpm --filter @open-brain/core-api test` green 3/3 consecutive runs with <2× slowdown vs. previous threads-pool baseline.
