@@ -205,6 +205,8 @@ Remove:
 - `resolveClient()` and `getEntry()` (legacy helpers).
 - `LLMModelAlias` type.
 
+**Result (C.1):** Deleted `complete()` (~110 LOC), `completeFallback()` (~55 LOC), `completeWithPromptTemplate()` (~18 LOC) from `packages/shared/src/services/llm-gateway.ts`. Also deleted the now-orphaned `getEntry()`, `resolveClient()`, `getOpenAIClient()` private helpers, the `estimateCostUsd()` module-level function, the `LLMModelAlias` exported type, and the unused `getModelEntry`/`AIModelEntry` imports. Kept `shouldAttemptFallback()` — it's called by `completeWithTierFallback()`. Kept `completeViaAnthropic()` and `completeViaOpenAISDK()` — both used by the tier-fallback path. Grepped for `completeWithPromptTemplate` / `completeAndRender` before deleting: only the gateway itself and one test mock in `governance-engine.test.ts` referenced them; the production code path uses `completeByTask` exclusively. Total shared file: 885 → 662 lines (~223 LOC removed, excluding the prior Phase-B aliasMap delete).
+
 ### C.2 Remove `litellmClient` constructor argument
 
 Update constructor:
@@ -223,6 +225,8 @@ constructor(
 ```
 
 Update `getOpenAIClient()` — it currently falls back to `this.litellmClient`. With the litellm client removed, callers that need an OpenAI-compat client for a tier MUST go through `getClientForTier()`, which builds from the tier's `base_url`. Any code path that falls through to `getOpenAIClient()` without a tier is dead after Phase B and should be removed.
+
+**Result (C.2):** Dropped the `litellmClient` positional argument and renamed the corresponding field to `openaiClient` (optional, trailing position). New signature: `(configService, db, templateCache, anthropicClient?, ollamaClient?, openaiClient?)`. Constructor now logs `clients` without the hard-coded `'LiteLLM'` entry — only appends `OpenAI` when `openaiClient` is non-null. Deleted `getOpenAIClient()`; inlined its logic into `getClientForTier()` so non-openai_compat tiers use `ollamaClient` (for `ollama` provider) or `openaiClient` (for `litellm`/`openai` provider) and throw `LLMGatewayError` if neither is available. Also updated `getMonthlySpend()` to read the Bearer token from `this.openaiClient?.apiKey` (falls back to omitting the auth header if null — endpoint can still be queried if it's unauthenticated, otherwise returns non-OK and we fall back to local spend estimation).
 
 ### C.3 Update `core-api/src/index.ts`
 
@@ -244,6 +248,8 @@ governanceEngine = new GovernanceEngine(llmGateway, templateCache)
 
 The gateway is always constructed (no conditional on `litellmClient`). If any tier uses `provider: 'litellm' | 'openai'`, it gets its client via `getClientForTier()` from its own `base_url` — but currently no tier does that (all tiers use `anthropic`, `ollama`, or `openai_compat`). If we add one later, it declares `base_url: https://api.openai.com/v1` + `provider: openai_compat` with its own key handling.
 
+**Result (C.3):** `packages/core-api/src/index.ts` now always constructs `llmGateway` and `governanceEngine` unconditionally. Renamed `litellmClient` local to `openaiClient` (factory still imported as `createLiteLLMClient` — Phase D.1 will rename it). Dropped the `if (litellmClient)` guard and the associated `LITELLM_API_KEY not set — GovernanceEngine ... disabled` warning. Also updated the `ANTHROPIC_API_KEY not set` warning wording to drop the LiteLLM-only-mode reference.
+
 ### C.4 Update tests in `core-api/src/__tests__/llm-gateway.test.ts`
 
 - Constructor test signatures change — drop the first positional arg in every `new LLMGatewayService(...)`.
@@ -251,13 +257,19 @@ The gateway is always constructed (no conditional on `litellmClient`). If any ti
 - Delete all "legacy complete()" tests (the `describe('legacy complete() with ollama client')` block, ~40 lines).
 - Keep all `completeByTask`, tier-fallback, model-loading-retry, and budget tests.
 
+**Result (C.4):** Updated all 31 `new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)` call sites to the new signature `(config, db, templateCache, anthropic, ollama, litellm)` via pattern-based replace_all edits. Deleted the 30-line `describe('legacy complete() with ollama client')` block containing the two `gw.complete('Test.', 'fast')` tests. Replaced the `it('works with only litellm client')` constructor test with `it('constructs with no optional clients (config + db + templateCache only)')` which exercises the new minimum-argument path (all three backend clients default to null). No `completeByTask`, tier-fallback, model-loading, or budget tests were touched. Also cleaned up the `completeWithPromptTemplate` field from the `makeLlmGateway()` mock in `governance-engine.test.ts` (the method no longer exists so listing it in the mock was dead code).
+
 ### C.5 Update `GovernanceEngine` + other consumers
 
 Grep for `new LLMGatewayService` — update each call site to the new signature. Expected: just `core-api/src/index.ts` and test files.
 
+**Result (C.5):** Grep found one additional production consumer beyond `core-api/src/index.ts`: `packages/workers/src/main.ts` line 95. Updated it to the new signature, renamed its local `litellmClient` to `openaiClient`, dropped the `if (litellmClient)` guard + `let llmGateway: LLMGatewayService | undefined` — the gateway is now always constructed (non-optional) and `createSkillExecutionWorker` still accepts the `llmGateway` param unchanged (TS assignability preserved). No changes needed in `GovernanceEngine` itself (it only takes the constructed gateway as a param). No other `new LLMGatewayService(...)` call sites were found in `packages/`.
+
 **Checkpoint:** commit + full test suite + type-check all packages.
 
 **Verification:** `pnpm -r build` succeeds; `pnpm -r test` green.
+
+**Test counts (post-C.1..C.5):** shared 257/257 passed (14 files); core-api 699/699 passed (40 files, down 2 from 701 — the two deleted legacy-`complete()` tests); workers 980/980 passed (49 files). `pnpm --filter @open-brain/shared build` succeeds (ESM 118.85 KB, DTS 206.95 KB). `ALL_TESTS_PASS`.
 
 ---
 
@@ -429,7 +441,7 @@ Open an issue with the failure mode; do not re-attempt without diagnosis.
 |---|---|---|---|
 | A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1, A.4, A.2, A.3 done; A.5 pending) | — |
 | B | B.1 throw on unrouted, B.2 tests, B.3 grep check | COMPLETE 2026-04-16 | — |
-| C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | Pending | — |
+| C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | COMPLETE 2026-04-16 | — |
 | D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | Pending | — |
 | E | E.1 checklist, E.2 deploy, E.3 validate, E.4 rollback-if-needed, E.5 post-deploy | Pending | — |
 

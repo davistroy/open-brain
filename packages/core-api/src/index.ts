@@ -70,28 +70,26 @@ const entityResolutionService = new EntityResolutionService(db)
 const entityService = new EntityService(db, entityResolutionService)
 const betService = new BetService(db)
 
-let governanceEngine: GovernanceEngine | undefined
-let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
-const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
 const anthropicClient = createAnthropicClient({ maxRetries: 2 })
 const ollamaClient = createOllamaClient()
+// Optional generic OpenAI client — only used if a tier declares provider: 'litellm'/'openai'
+// (no openai_compat). Currently no tier does; kept as an escape hatch. Factory returns null
+// when the API key is empty. Phase D will rename createLiteLLMClient -> createOpenAIClient.
+const openaiClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
 if (anthropicClient) {
   logger.info('Anthropic client initialized (Claude subscription)')
 } else {
-  logger.warn('ANTHROPIC_API_KEY not set — Claude SDK routing unavailable, LiteLLM-only mode')
+  logger.warn('ANTHROPIC_API_KEY not set — Anthropic tiers will be unavailable')
 }
 if (ollamaClient) {
   logger.info('Ollama client initialized (local inference)')
 } else {
   logger.info('OLLAMA_URL not set — Ollama local inference unavailable, tier fallback will skip T0')
 }
-if (litellmClient) {
-  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache, anthropicClient, ollamaClient)
-  governanceEngine = new GovernanceEngine(llmGateway, templateCache)
-  logger.info('GovernanceEngine initialized')
-} else {
-  logger.warn('LITELLM_API_KEY not set — GovernanceEngine and synthesize endpoint disabled')
-}
+
+const llmGateway = new LLMGatewayService(configService, db, templateCache, anthropicClient, ollamaClient, openaiClient)
+const governanceEngine: GovernanceEngine = new GovernanceEngine(llmGateway, templateCache)
+logger.info('GovernanceEngine initialized')
 
 const sessionService = new SessionService(db, captureService, governanceEngine)
 

@@ -88,15 +88,17 @@ async function main() {
   configService.load()
   logger.info('Config loaded')
 
-  // LLM Gateway — shared across skill-execution and extract-entities workers
-  const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
-  let llmGateway: LLMGatewayService | undefined
-  if (litellmClient) {
-    llmGateway = new LLMGatewayService(litellmClient, configService, db, templates, anthropicClient, ollamaClient)
-    logger.info('LLMGatewayService initialized in workers')
-  } else {
-    logger.warn('LITELLM_API_KEY not set — LLMGatewayService unavailable in workers')
-  }
+  // LLM Gateway — shared across skill-execution and extract-entities workers.
+  // Optional generic OpenAI client is an escape hatch for tiers declaring
+  // provider: 'litellm'/'openai' (no openai_compat). Currently no tier does;
+  // the factory returns null when the API key is empty, and the gateway is
+  // still usable for anthropic / openai_compat tiers. Phase D will rename
+  // createLiteLLMClient -> createOpenAIClient.
+  const openaiClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
+  const llmGateway: LLMGatewayService = new LLMGatewayService(
+    configService, db, templates, anthropicClient, ollamaClient, openaiClient,
+  )
+  logger.info('LLMGatewayService initialized in workers')
 
   // Redis
   const connection = parseRedisUrl(redisUrl)
