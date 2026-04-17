@@ -1,11 +1,10 @@
 /**
  * Ingest — unified drop-anything upload page.
  *
- * Drop CSVs, HTML exports, PDFs, images, or text files. The core-api classifies
- * the file (or uses an optional manual override) and routes it to the right
- * sidecar (financial, utility, document, image, email, other). Uploads stream
- * through ingest SSE events so the UI reflects pending → processing → completed
- * without polling.
+ * Drop CSVs, HTML exports, or PDFs. The core-api classifies the file (or uses
+ * an optional manual override) and routes it to the right sidecar (financial
+ * or utility — the two accepted source types). Uploads stream through ingest
+ * SSE events so the UI reflects pending → processing → parsed without polling.
  *
  * Top-right controls let you force a source type (`auto` lets the backend
  * classify) and kick all configured sidecars via `POST /ingest/process-now`.
@@ -40,14 +39,10 @@ import { cn } from '@/lib/utils'
 
 type SourceTypeChoice = 'auto' | IngestSourceType
 
-const SOURCE_TYPE_OPTIONS: SourceTypeChoice[] = [
-  'auto',
-  'financial',
-  'utility',
-  'document',
-  'image',
-  'email',
-  'other',
+const SOURCE_TYPE_OPTIONS: { value: SourceTypeChoice; label: string }[] = [
+  { value: 'auto', label: 'auto (classify)' },
+  { value: 'financial', label: 'Financial data (CSV)' },
+  { value: 'utility', label: 'Utility bill' },
 ]
 
 const ACCEPT_MAP = {
@@ -108,7 +103,7 @@ function statusPercent(status: FileUploadStatus | 'starting' | 'error'): number 
       return 25
     case 'processing':
       return 50
-    case 'completed':
+    case 'parsed':
       return 100
     case 'failed':
     case 'error':
@@ -120,7 +115,7 @@ function statusPercent(status: FileUploadStatus | 'starting' | 'error'): number 
 
 function statusBadgeVariant(status: FileUploadStatus): 'default' | 'secondary' | 'destructive' | 'outline' {
   switch (status) {
-    case 'completed':
+    case 'parsed':
       return 'default'
     case 'processing':
       return 'secondary'
@@ -265,7 +260,7 @@ export function Ingest() {
                     : t,
                 ),
               )
-              if (row.status === 'completed' || row.status === 'failed') {
+              if (row.status === 'parsed' || row.status === 'failed') {
                 // Refresh the recent uploads list to reflect server-side state
                 void fetchRecent()
               }
@@ -339,14 +334,14 @@ export function Ingest() {
   const activeTrackers = useMemo(
     () =>
       trackers.filter(
-        (t) => t.status !== 'completed' && t.status !== 'failed' && t.status !== 'error',
+        (t) => t.status !== 'parsed' && t.status !== 'failed' && t.status !== 'error',
       ),
     [trackers],
   )
   const finishedTrackers = useMemo(
     () =>
       trackers.filter(
-        (t) => t.status === 'completed' || t.status === 'failed' || t.status === 'error',
+        (t) => t.status === 'parsed' || t.status === 'failed' || t.status === 'error',
       ),
     [trackers],
   )
@@ -372,8 +367,8 @@ export function Ingest() {
               aria-label="Force source type"
             >
               {SOURCE_TYPE_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt === 'auto' ? 'auto (classify)' : opt}
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </select>
