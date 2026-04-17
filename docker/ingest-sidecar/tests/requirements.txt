@@ -1,0 +1,3 @@
+# Test-only deps for docker/ingest-sidecar/tests.
+# trigger_server.py itself is pure stdlib, so runtime requirements are empty.
+pytest>=8.0,<9.0
