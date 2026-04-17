@@ -55,6 +55,22 @@ function estimateTierCostUsd(clientUsed: AIClientType, _promptTokens: number, _c
 /** Maximum number of tier fallback hops (T0 -> T1 -> T2) */
 const MAX_FALLBACK_HOPS = 2
 
+/**
+ * Backoff schedule (ms) for retrying the SAME tier when the model is still loading.
+ * Matches llama.cpp's "Loading model" 503s during cold-start on the Jetson.
+ * Length of the array is the number of retries (3 retries = 4 total attempts).
+ */
+const MODEL_LOADING_BACKOFF_MS = [3_000, 6_000, 12_000]
+
+/**
+ * Detect transient "model is warming up" errors where the same tier should be
+ * retried instead of falling back. Specific enough not to match ordinary 503s.
+ */
+function isModelLoadingError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  return /loading\s+model|model\s+is\s+loading|warming\s+up/i.test(err.message)
+}
+
 export type LLMModelAlias = 'fast' | 'synthesis' | 'governance' | 'intent' | 'conversation'
 
 export interface LLMCompleteOptions {
@@ -312,101 +328,119 @@ export class LLMGatewayService {
     // Budget check — skip for free clients (Ollama, Anthropic subscription)
     await this.checkBudget(client)
 
-    const startMs = Date.now()
+    // Retry the SAME tier on "Loading model" errors (llama.cpp cold start).
+    // Other errors fall through to the tier-fallback chain below.
+    for (let attempt = 0; attempt <= MODEL_LOADING_BACKOFF_MS.length; attempt++) {
+      const startMs = Date.now()
 
-    try {
-      let text: string
-      let promptTokens = 0
-      let completionTokens = 0
-      let totalTokens = 0
+      try {
+        let text: string
+        let promptTokens = 0
+        let completionTokens = 0
+        let totalTokens = 0
 
-      if (client === 'anthropic') {
-        const result = await this.completeViaAnthropic(prompt, model, {
-          ...options,
-          maxTokens: options.maxTokens ?? maxTokens,
-        })
-        text = result.text
-        promptTokens = result.inputTokens
-        completionTokens = result.outputTokens
-        totalTokens = promptTokens + completionTokens
-      } else {
-        // Ollama, LiteLLM, and openai_compat tiers all use OpenAI SDK.
-        // getClientForTier respects the tier's base_url for custom endpoints.
-        const openaiClient = this.getClientForTier(tier, tierKey, client)
-        const result = await this.completeViaOpenAISDK(
-          openaiClient, prompt, model,
-          { ...options, maxTokens: options.maxTokens ?? maxTokens },
-          timeoutMs,
-        )
-        text = result.text
-        promptTokens = result.promptTokens
-        completionTokens = result.completionTokens
-        totalTokens = result.totalTokens
-      }
-
-      const durationMs = Date.now() - startMs
-      const costUsd = estimateTierCostUsd(client, promptTokens, completionTokens)
-
-      await this.logAudit({
-        taskType: taskName,
-        model,
-        clientUsed: client,
-        costUsd,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        durationMs,
-        captureId: options.captureId,
-        sessionId: options.sessionId,
-      })
-
-      return text
-    } catch (err) {
-      const durationMs = Date.now() - startMs
-
-      if (err instanceof LLMBudgetExceededError) throw err
-
-      const message = err instanceof Error ? err.message : String(err)
-
-      // Log the failed attempt
-      await this.logAudit({
-        taskType: taskName,
-        model,
-        clientUsed: client,
-        costUsd: null,
-        durationMs,
-        captureId: options.captureId,
-        sessionId: options.sessionId,
-        error: message,
-      })
-
-      // Attempt tier fallback if within hop limit and tier has a fallback
-      if (hopCount < MAX_FALLBACK_HOPS && tier.fallback && this.shouldAttemptFallback(err, client)) {
-        const fallbackTier = this.configService.getModelTier(tier.fallback)
-        if (fallbackTier) {
-          const fallbackClient = this.resolveProviderClient(fallbackTier.provider)
-          logger.warn(
-            { taskName, tierKey, fallbackTier: tier.fallback, hopCount: hopCount + 1, error: message },
-            `Tier ${tierKey} (${client}) failed — falling back to ${tier.fallback} (${fallbackClient})`,
+        if (client === 'anthropic') {
+          const result = await this.completeViaAnthropic(prompt, model, {
+            ...options,
+            maxTokens: options.maxTokens ?? maxTokens,
+          })
+          text = result.text
+          promptTokens = result.inputTokens
+          completionTokens = result.outputTokens
+          totalTokens = promptTokens + completionTokens
+        } else {
+          // Ollama, LiteLLM, and openai_compat tiers all use OpenAI SDK.
+          // getClientForTier respects the tier's base_url for custom endpoints.
+          const openaiClient = this.getClientForTier(tier, tierKey, client)
+          const result = await this.completeViaOpenAISDK(
+            openaiClient, prompt, model,
+            { ...options, maxTokens: options.maxTokens ?? maxTokens },
+            timeoutMs,
           )
-
-          const fallbackResolution: TaskResolution = {
-            client: fallbackClient,
-            model: fallbackTier.model,
-            tierKey: tier.fallback,
-            tier: fallbackTier,
-            maxTokens: fallbackTier.max_completion_tokens,
-            timeoutMs: fallbackTier.timeout_ms,
-          }
-
-          return this.completeWithTierFallback(prompt, `${taskName}:fallback`, fallbackResolution, options, hopCount + 1)
+          text = result.text
+          promptTokens = result.promptTokens
+          completionTokens = result.completionTokens
+          totalTokens = result.totalTokens
         }
-      }
 
-      throw new LLMGatewayError(
-        `LLM request failed for task '${taskName}' tier '${tierKey}' (${client}): ${message}`,
-      )
+        const durationMs = Date.now() - startMs
+        const costUsd = estimateTierCostUsd(client, promptTokens, completionTokens)
+
+        await this.logAudit({
+          taskType: taskName,
+          model,
+          clientUsed: client,
+          costUsd,
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          durationMs,
+          captureId: options.captureId,
+          sessionId: options.sessionId,
+        })
+
+        return text
+      } catch (err) {
+        const durationMs = Date.now() - startMs
+
+        if (err instanceof LLMBudgetExceededError) throw err
+
+        const message = err instanceof Error ? err.message : String(err)
+
+        // Log the failed attempt
+        await this.logAudit({
+          taskType: taskName,
+          model,
+          clientUsed: client,
+          costUsd: null,
+          durationMs,
+          captureId: options.captureId,
+          sessionId: options.sessionId,
+          error: message,
+        })
+
+        // Same-tier retry window: llama.cpp "Loading model" 503s during cold start.
+        if (isModelLoadingError(err) && attempt < MODEL_LOADING_BACKOFF_MS.length) {
+          const backoffMs = MODEL_LOADING_BACKOFF_MS[attempt]!
+          logger.warn(
+            { taskName, tierKey, attempt: attempt + 1, maxAttempts: MODEL_LOADING_BACKOFF_MS.length + 1, backoffMs, error: message },
+            `Tier ${tierKey} (${client}) loading model — retrying same tier in ${backoffMs}ms`,
+          )
+          await new Promise((resolve) => setTimeout(resolve, backoffMs))
+          continue
+        }
+
+        // Attempt tier fallback if within hop limit and tier has a fallback
+        if (hopCount < MAX_FALLBACK_HOPS && tier.fallback && this.shouldAttemptFallback(err, client)) {
+          const fallbackTier = this.configService.getModelTier(tier.fallback)
+          if (fallbackTier) {
+            const fallbackClient = this.resolveProviderClient(fallbackTier.provider)
+            logger.warn(
+              { taskName, tierKey, fallbackTier: tier.fallback, hopCount: hopCount + 1, error: message },
+              `Tier ${tierKey} (${client}) failed — falling back to ${tier.fallback} (${fallbackClient})`,
+            )
+
+            const fallbackResolution: TaskResolution = {
+              client: fallbackClient,
+              model: fallbackTier.model,
+              tierKey: tier.fallback,
+              tier: fallbackTier,
+              maxTokens: fallbackTier.max_completion_tokens,
+              timeoutMs: fallbackTier.timeout_ms,
+            }
+
+            return this.completeWithTierFallback(prompt, `${taskName}:fallback`, fallbackResolution, options, hopCount + 1)
+          }
+        }
+
+        throw new LLMGatewayError(
+          `LLM request failed for task '${taskName}' tier '${tierKey}' (${client}): ${message}`,
+        )
+      }
     }
+
+    // Unreachable — the loop either returns on success, recurses on fallback, or throws.
+    throw new LLMGatewayError(`LLM request failed for task '${taskName}' tier '${tierKey}' (${client}): exhausted retries`)
   }
 
   /**
