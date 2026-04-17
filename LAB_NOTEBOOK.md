@@ -3986,3 +3986,76 @@ VM cron runs continue to work (no env vars set, defaults kick in). Docker sideca
 - #62 Phase 3B Financial Account Monitoring: **kept open**. Plaid live-sync and alerting (balance drops > $1k, transactions > $500) not yet implemented. CSV import path is enough for a commented status update, not a close.
 - #77 Architectural Refactor: **kept open, status comment added**. Phases 5 ✅, 6 🔄, 7 🔄 (partial — G-B.4 shipped, G-B.2/3 gated), 8 ⬜. Master tracker stays until Phase 8 lands.
 - Project board totals after cleanup: 12 Done / 7 Backlog / 3 Blocked / 2 Up Next / 1 In Progress.
+
+---
+
+### Entry 068 — G-C.1 sixth parser: PayPal Activity CSV
+
+**Date:** 2026-04-17
+**Tags:** `[financial]` `[paypal]` `[csv-parser]` `[g-c-1]`
+**Environment:** Laptop, branch `feature/g-c-1-paypal-parser` off main@db19e9b
+**Duration:** ~45 min (exploration + parser + filter-bug fix)
+
+**Objective:** Troy dropped PayPal's Activity Download CSV (`Download.CSV`) into `data/`. Build the 6th `_parse_*_csv` to round out the set of bank/credit-card parsers from G-C.1.
+
+**Hypothesis:** Same parser pattern as the other 5. PayPal's quirk is its double-entry model — most user-initiated spend writes two rows, one Debit (the actual purchase) and one matching Credit that mirrors it ("General Card Deposit" or "Bank Deposit to PP Account"). If we don't exclude the funding-side credits, they'd fake an equal `total_credit` against every Debit and make the net look like zero.
+
+**Rollback:** `git revert <sha>` restores pre-paypal state. The other 5 parsers and router don't reference paypal.
+
+**CSV structure (from real file, 117 rows):**
+
+```
+"Date","Time","TimeZone","Name","Type","Status","Currency","Gross","Fee","Net",
+"From Email Address","To Email Address","Transaction ID", ...,
+"Receipt ID","Balance","Address Line 1",...,"Country Code","Balance Impact"
+```
+
+Balance Impact values: `Debit`, `Credit`, `Memo`, or blank. Type distribution across the 117 rows:
+
+| Type | Count | Sum (Net) | Impacts |
+|---|---|---|---|
+| PreApproved Payment Bill User Payment | 40 | −$2,546.74 | Debit |
+| General Card Deposit | 31 | +$1,623.66 | Credit + some blank |
+| General Authorization | 20 | −$1,577.86 | Memo |
+| Bank Deposit to PP Account (trailing space) | 16 | +$1,148.67 | Credit |
+| Express Checkout Payment | 5 | −$184.50 | Debit |
+| User Initiated Withdrawal | 2 | −$67.08 | Memo + Debit |
+| Donation / Website / Refund | 3 | various | Debit / Credit |
+
+Sum by Balance Impact: Debit −$2,805.87, Credit +$2,805.87, Memo −$1,611.40. So raw credits and debits cancel (self-funded pass-through), and memos are dual-entry holds that would double-count.
+
+**Design calls:**
+1. Drop `Balance Impact == "Memo"` — holds + dual-sided withdrawal rows.
+2. Drop any row whose `Type` matches the funding set (General Card Deposit / Bank Deposit to PP Account, with and without trailing space) — **regardless of Balance Impact**. First draft only filtered these when impact was "Credit"; smoke test caught 4 General Card Deposit rows with blank impact that leaked through and corrupted both the category list (4-txn phantom) and `total_credit` (+$208.01 phantom). The blank-impact rows are still funding counterparts to the actual spend; Type-only filter is cleaner.
+3. Amount = `Net` (post-fee, balance-impacting). Fall through to `Gross` only if `Net` is empty.
+4. Category = `Name` (merchant) when present, else `Type`. PayPal's Type is mostly "PreApproved Payment Bill User Payment" across subscriptions — not useful as a category; merchant names are.
+5. Description stitches Type, Name, and Item Title with " — ". Item Title is surprisingly informative (e.g., "Microsoft 365 Family" or "seaside watercolor workbook, tropical watercolor workbook, winter watercolor").
+6. `account_id = "paypal"` (fixed). Unlike the other parsers there's no card mask; the one PayPal account is the account.
+
+**Router — filename-based dispatch with header-sniff confirm:** PayPal's default filename is `Download.CSV`, which is dangerously generic. Matching only by filename would rope in any CSV someone drops with that name. Added a header signature check: the file must contain `"Balance Impact"`, `"Transaction ID"`, `"Gross"`, and `"Net"` column headers (all four) before dispatching to the PayPal parser. Also matches filenames containing `paypal` case-insensitively for future downloads.
+
+**Smoke test (real Troy data, 117 rows):**
+
+| | Before filter fix | After filter fix |
+|---|---|---|
+| Kept txns | 60 | **55** |
+| total_debit | $3,180.79 | **$3,180.79** (unchanged) |
+| total_credit | $276.50 (phantom) | **$33.54** (actual LinkedIn refund) |
+| net | −$2,904.29 | **−$3,147.25** |
+| Categories | 21 (includes phantom "General Card Deposit") | **19** (all real merchants) |
+
+Top 3 categories after fix: Mint Mobile ($545.88 across 3 txn), Lex Ventures LLC ($478.11), eBay Commerce ($453.66). Subscriptions dominate the tail: Disney Plus 13x, LinkedIn 11x.
+
+**Decision D109:** For provider-specific double-entry semantics (e.g., PayPal's funding-side Credits, future Stripe-like refund mirrors), filter by transaction Type not Balance Impact. Impact is provider-internal accounting; Type is the user-facing semantic. Type is also more resilient to blank/missing impact fields.
+
+**Decision D110:** `Download.CSV` is the only generic-named source in the parser set. Header-sniff confirmation is worth the ~5 LOC cost even though all other parsers dispatch purely on filename.
+
+**Other files Troy dropped this turn (not parsed):**
+- `statement-2026.zip` → three PayPal monthly PDFs (Jan/Feb/Mar 2026). Redundant with `Download.CSV` (same data, smaller window per file, harder to parse). Not worth a PDF parser.
+- `92c1c7a3…_1776433242.pdf` → HSA Bank March 2026 monthly statement. Balance snapshot + transaction summary duplicate of what `HSATransactionsAsOf_04172026.csv` already covers. No new parser needed.
+
+**Process improvement:** This time I cut a proper feature branch (`feature/g-c-1-paypal-parser`) BEFORE touching code, unlike G-C.1 yesterday which went direct to main. Correction from Entry 067's process-miss flag.
+
+**What to Watch:**
+- If PayPal adds new funding Type names, the `FUNDING_TYPES` set needs to grow. Low-churn — PayPal hasn't changed this format in years.
+- The 2 "User Initiated Withdrawal" rows are split Memo+Debit — current filter keeps the Debit, drops the Memo, which is correct (one row net, one informational).
