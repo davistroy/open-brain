@@ -20,7 +20,7 @@ Cron (daily 6:30 AM):
     30 6 * * * cd ~/open-brain && venv/bin/python scripts/financial-pipeline.py --sync --daily-summary >> ~/logs/financial-pipeline.log 2>&1
 """
 
-import argparse, csv, json, logging, os, re, sqlite3, subprocess, sys, time
+import argparse, csv, io, json, logging, os, re, sqlite3, subprocess, sys, time
 from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -537,34 +537,14 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
         }
 
     # POST to Open Brain
-    url, caller = _get_capture_api(cfg)
-
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "content": summary_text,
-                "source": "api",
-                "source_metadata": {
-                    "type": "financial_daily",
-                    "date": today,
-                    "transaction_count": len(rows),
-                    "grand_total": round(grand_total, 2),
-                    "accounts": categories_summary,
-                },
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Open-Brain-Caller": caller,
-            },
-            timeout=30,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Daily summary posted ({len(rows)} transactions)")
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
+    if _post_capture(cfg, summary_text, {
+        "type": "financial_daily",
+        "date": today,
+        "transaction_count": len(rows),
+        "grand_total": round(grand_total, 2),
+        "accounts": categories_summary,
+    }, capture_type="observation", brain_view="personal"):
+        log.info(f"Daily summary posted ({len(rows)} transactions)")
 
 
 # ── Balances ─────────────────────────────────────────────────────────────────
@@ -724,34 +704,14 @@ def cmd_balances(cfg: dict, conn: sqlite3.Connection):
         }
 
     # ── POST capture to Open Brain ───────────────────────────────────────
-    url, caller = _get_capture_api(cfg)
-
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "content": capture_text,
-                "source": "api",
-                "source_metadata": {
-                    "type": "balance_snapshot",
-                    "date": today,
-                    "net_worth": round(net_worth, 2),
-                    "account_count": len(balance_rows),
-                    "accounts": accounts_meta,
-                },
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Open-Brain-Caller": caller,
-            },
-            timeout=30,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Balance snapshot posted ({len(balance_rows)} accounts, net worth ${net_worth:,.2f})")
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
+    if _post_capture(cfg, capture_text, {
+        "type": "balance_snapshot",
+        "date": today,
+        "net_worth": round(net_worth, 2),
+        "account_count": len(balance_rows),
+        "accounts": accounts_meta,
+    }, capture_type="observation", brain_view="personal"):
+        log.info(f"Balance snapshot posted ({len(balance_rows)} accounts, net worth ${net_worth:,.2f})")
 
 
 # ── Future stubs ─────────────────────────────────────────────────────────────
@@ -966,8 +926,6 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
               if weekly_delta is not None else ""))
 
     # ── POST capture to Open Brain ───────────────────────────────────────
-    url, caller = _get_capture_api(cfg)
-
     source_meta = {
         "type": "investment_weekly",
         "date": today,
@@ -980,26 +938,9 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
         source_meta["change_pct"] = round(weekly_pct, 2)
         source_meta["prior_snapshot_date"] = prior_date
 
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "content": capture_text,
-                "source": "api",
-                "source_metadata": source_meta,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Open-Brain-Caller": caller,
-            },
-            timeout=30,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Investment summary posted ({len(all_holdings)} holdings, ${total_value:,.2f})")
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
+    if _post_capture(cfg, capture_text, source_meta,
+                     capture_type="observation", brain_view="personal"):
+        log.info(f"Investment summary posted ({len(all_holdings)} holdings, ${total_value:,.2f})")
 
 
 def _get_prior_month_range(year: int, month: int) -> tuple:
@@ -1361,28 +1302,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     if has_yoy:
         source_metadata["yoy_prior_total"] = round(sum(abs(v) for v in yoy_cat.values()), 2)
 
-    url, caller = _get_capture_api(cfg)
-
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "content": capture_text,
-                "source": "api",
-                "source_metadata": source_metadata,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Open-Brain-Caller": caller,
-            },
-            timeout=30,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Monthly report posted: {month_label} ({len(rows)} txns, ${total_spend:,.2f})")
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
+    if _post_capture(cfg, capture_text, source_metadata,
+                     capture_type="observation", brain_view="personal"):
+        log.info(f"Monthly report posted: {month_label} ({len(rows)} txns, ${total_spend:,.2f})")
 
 
 INBOX_DIR = Path(os.environ.get("FINANCIAL_INBOX_DIR", str(Path.home() / "financial-inbox")))
@@ -1966,6 +1888,241 @@ def _parse_paypal_csv(filepath: Path) -> Optional[dict]:
     )
 
 
+def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
+    """Parse a Schwab "Balances" snapshot CSV.
+
+    Schwab balance exports are not clean CSV: line 0 is a prose preamble wrapped
+    in quotes, line 1 is blank, then sections follow separated by blank lines.
+    Each section starts with a label line (key only, trailing comma) and contains
+    key,value pairs. Some sections are nested one level (e.g. "Bank Sweep," is
+    a sub-header under "Cash & Cash Investments"). IRA / Margin sections are
+    optional depending on account type.
+
+    Returns a tolerant, section-indexed dict. Missing sections are simply absent.
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+            raw_lines = f.readlines()
+    except Exception as e:
+        log.error(f"Failed to read Schwab balance CSV {filepath.name}: {e}")
+        return None
+
+    if not raw_lines:
+        return None
+
+    # Preamble: "Balances for account  XXXX-1252 as of 04/17/2026 08:36 AM ET"
+    preamble = raw_lines[0].strip()
+    m = re.match(
+        r'"?Balances for account\s+XXXX-(\d+)\s+as of\s+'
+        r'(\d{2}/\d{2}/\d{4}\s+\d{1,2}:\d{2}\s+(?:AM|PM)\s+ET)"?',
+        preamble,
+    )
+    if not m:
+        log.warning(f"Schwab balance preamble did not match: {preamble[:80]}")
+        return None
+    account_mask = m.group(1)
+    as_of = m.group(2)
+
+    # Parse remaining lines as CSV rows (so quoted values with commas parse correctly).
+    body = "".join(raw_lines[1:])
+    reader = csv.reader(io.StringIO(body))
+    rows = list(reader)
+
+    # Walk rows. Blank rows separate sections. The first non-blank block is the
+    # "headline" (no section header). Subsequent blocks begin with a lone-label
+    # row (one non-empty cell plus one empty cell, or just one cell).
+    headline: dict = {}
+    sections: dict = {}
+
+    # Group rows by blank-line separators.
+    groups: list[list[list[str]]] = []
+    current: list[list[str]] = []
+    for row in rows:
+        if not row or all((c or "").strip() == "" for c in row):
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        current.append(row)
+    if current:
+        groups.append(current)
+
+    def _is_label_row(row: list[str]) -> bool:
+        """A label-only row: first cell is non-empty, remaining cells are empty."""
+        if not row:
+            return False
+        if not (row[0] or "").strip():
+            return False
+        return all((c or "").strip() == "" for c in row[1:])
+
+    for idx, group in enumerate(groups):
+        if idx == 0:
+            # Headline block — key,value pairs, no section header.
+            for row in group:
+                if len(row) >= 2 and (row[0] or "").strip():
+                    headline[row[0].strip()] = (row[1] or "").strip()
+            continue
+
+        # First row is the section name (label-only, e.g., "Investments,"),
+        # OR a compact label like "Option Details" that has just one cell.
+        if not _is_label_row(group[0]):
+            # Unexpected shape — treat first cell as section name regardless.
+            section_name = (group[0][0] or "").strip() or f"section_{idx}"
+            data_rows = group[1:]
+        else:
+            section_name = (group[0][0] or "").strip().rstrip(",")
+            data_rows = group[1:]
+
+        section_dict: dict = {}
+        current_subsection: Optional[str] = None
+        for row in data_rows:
+            if not row:
+                continue
+            key = (row[0] or "").strip()
+            if not key:
+                continue
+            # Sub-section header (e.g., "Bank Sweep,", "To Trade,", "To Withdraw,")
+            if _is_label_row(row):
+                current_subsection = key
+                section_dict[current_subsection] = {}
+                continue
+            val_raw = (row[1] if len(row) > 1 else "").strip()
+            # Decide numeric vs string: money-ish (starts with $, -$, ($) or is
+            # a plain number / percent) → float via _parse_money. Percent-only
+            # strings (e.g. "8.350%", "100%", "0%") stay strings to preserve
+            # the literal display. Pure-numeric year keys in IRA sections
+            # also stay strings-as-values (e.g. "2026" → "$0.00").
+            if val_raw.startswith("$") or val_raw.startswith("-$") or val_raw.startswith("("):
+                val: object = _parse_money(val_raw)
+            elif val_raw.endswith("%"):
+                val = val_raw
+            elif val_raw == "":
+                val = None
+            else:
+                # Try money parse; if it yields 0.0 for a non-"0" string, keep as string.
+                parsed = _parse_money(val_raw)
+                val = parsed if (parsed != 0.0 or val_raw.strip() in ("0", "0.0", "0.00")) else val_raw
+
+            if current_subsection and current_subsection in section_dict:
+                section_dict[current_subsection][key] = val
+            else:
+                section_dict[key] = val
+
+        sections[section_name] = section_dict
+
+    # Extract headline numbers with tolerance.
+    def _h(k: str) -> Optional[float]:
+        v = headline.get(k)
+        return _parse_money(v) if v else None
+
+    investments = sections.get("Investments", {}) or {}
+    non_margin = investments.get("Non-Margin")
+    margin = investments.get("Margin")
+
+    result = {
+        "account_mask": account_mask,
+        "as_of": as_of,
+        "account_value": _h("Account Value") or 0.0,
+        "day_change": _h("Day Change") or 0.0,
+        "day_change_pct": headline.get("Day Change %", ""),
+        "cash": _h("Cash & Cash Investments") or 0.0,
+        "market_value": _h("Market Value") or 0.0,
+        "non_margin": non_margin if isinstance(non_margin, (int, float)) else None,
+        "margin": margin if isinstance(margin, (int, float)) else None,
+        "sections": sections,
+        "source_file": filepath.name,
+    }
+    return result
+
+
+def _parse_schwab_position_csv(filepath: Path) -> Optional[dict]:
+    """Parse a Schwab "Positions" CSV snapshot.
+
+    Layout: line 0 preamble ("Positions for account <type> ...<mask> as of
+    HH:MM AM/PM ET, YYYY/MM/DD"), line 1 blank, line 2 header with trailing
+    empty column (trailing comma), line 3+ per-holding rows, final
+    `"Positions Total"` row captured as `totals`.
+
+    Numeric cells with "--" become None; the Cash row uses "--" for qty/price
+    but has a real Mkt Val.
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+            raw_lines = f.readlines()
+    except Exception as e:
+        log.error(f"Failed to read Schwab position CSV {filepath.name}: {e}")
+        return None
+
+    if len(raw_lines) < 4:
+        return None
+
+    preamble = raw_lines[0].strip()
+    m = re.match(
+        r'"?Positions for account\s+(.+?)\s+\.\.\.(\d+)\s+as of\s+'
+        r'(\d{1,2}:\d{2}\s+(?:AM|PM)\s+ET,\s+\d{4}/\d{2}/\d{2})"?',
+        preamble,
+    )
+    if not m:
+        log.warning(f"Schwab position preamble did not match: {preamble[:80]}")
+        return None
+    account_type = m.group(1).strip()
+    account_mask = m.group(2)
+    as_of = m.group(3)
+
+    # Parse lines 2+ as CSV (line 1 is blank, line 2 is the real header).
+    body = "".join(raw_lines[2:])
+    reader = csv.DictReader(io.StringIO(body))
+    rows = list(reader)
+
+    def _num_or_none(s: str) -> Optional[float]:
+        """Parse money; return None for '--' / blank / 'N/A' sentinels."""
+        if s is None:
+            return None
+        s = s.strip()
+        if s in ("", "--", "N/A"):
+            return None
+        return _parse_money(s)
+
+    positions: list[dict] = []
+    totals: dict = {}
+    for row in rows:
+        symbol = (row.get("Symbol") or "").strip()
+        if not symbol:
+            continue
+        if symbol == "Positions Total":
+            totals = {
+                "mkt_val": _num_or_none(row.get("Mkt Val (Market Value)", "")),
+                "cost_basis": _num_or_none(row.get("Cost Basis", "")),
+                "gain_dollar": _num_or_none(row.get("Gain $ (Gain/Loss $)", "")),
+                "gain_pct": (row.get("Gain % (Gain/Loss %)") or "").strip(),
+            }
+            continue
+
+        positions.append({
+            "symbol": symbol,
+            "description": (row.get("Description") or "").strip(),
+            "qty": _num_or_none(row.get("Qty (Quantity)", "")),
+            "price": _num_or_none(row.get("Price", "")),
+            "mkt_val": _num_or_none(row.get("Mkt Val (Market Value)", "")),
+            "cost_basis": _num_or_none(row.get("Cost Basis", "")),
+            "gain_dollar": _num_or_none(row.get("Gain $ (Gain/Loss $)", "")),
+            "gain_pct": (row.get("Gain % (Gain/Loss %)") or "").strip(),
+            "asset_type": (row.get("Asset Type") or "").strip(),
+        })
+
+    if not positions and not totals:
+        return None
+
+    return {
+        "account_mask": account_mask,
+        "account_type": account_type,
+        "as_of": as_of,
+        "positions": positions,
+        "totals": totals,
+        "source_file": filepath.name,
+    }
+
+
 def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
     """Dispatch a CSV to the right parser by filename pattern.
 
@@ -1989,6 +2146,18 @@ def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
     if re.match(r"acct_\d+_.+\.csv$", lower):
         r = _parse_truist_csv(filepath)
         return ("truist", r) if r else None
+
+    # Schwab balance snapshots: "XXXX<mask>_Balances_<timestamp>.CSV"
+    if re.search(r'_balances_[\d-]+\.csv$', lower):
+        r = _parse_schwab_balance_csv(filepath)
+        return ("schwab_balance", r) if r else None
+
+    # Schwab position snapshots: "<AccountType>-Positions-<timestamp>.csv"
+    # Filenames may contain spaces (e.g., "Simple IRA-Positions-...csv"); normalize to dashes.
+    normalized = lower.replace(' ', '-')
+    if re.search(r'-positions-[\d-]+\.csv$', normalized):
+        r = _parse_schwab_position_csv(filepath)
+        return ("schwab_position", r) if r else None
 
     # Schwab brokerage transactions: "*Transactions_*.csv" with an IRA/account-type prefix
     if "_transactions_" in lower and re.search(r"(contributory|simple_ira|designated_bene)", lower):
@@ -2079,6 +2248,174 @@ def _format_bank_capture(result: dict) -> tuple[str, dict]:
         "net": result["net"],
         "transaction_count": result["transaction_count"],
         "by_category": result["by_category"],
+        "source_file": result["source_file"],
+    }
+    return content, meta
+
+
+def _format_schwab_balance_capture(result: dict) -> tuple[str, dict]:
+    """Format a Schwab balance snapshot as (capture_content, source_metadata).
+
+    Content is a half-screen summary; metadata carries the full section tree
+    for downstream wiki / report synthesis.
+    """
+    mask = result["account_mask"]
+    as_of = result["as_of"]
+    # Infer account "type" prefix from section shape: IRA Details present → IRA-ish;
+    # Margin Details → taxable margin; otherwise plain. Left generic — real account
+    # type/name comes from the positions snapshot, not balances.
+    account_id = f"Schwab-{mask}"
+
+    sections = result.get("sections", {}) or {}
+    lines = [
+        f"Schwab Balance — {account_id} (as of {as_of})",
+        "",
+        f"Account Value: ${result['account_value']:>12,.2f}",
+        f"Cash:          ${result['cash']:>12,.2f}",
+        f"Market Value:  ${result['market_value']:>12,.2f}",
+        f"Day Change:    ${result['day_change']:>12,.2f} ({result['day_change_pct']})",
+    ]
+
+    # Cash detail — flatten one level, naming sub-sections for clarity.
+    cash_section = sections.get("Cash & Cash Investments") or {}
+    cash_detail_lines: list[str] = []
+    for k, v in cash_section.items():
+        if isinstance(v, dict):
+            for sk, sv in v.items():
+                if isinstance(sv, (int, float)):
+                    cash_detail_lines.append(f"  {k} / {sk}: ${sv:,.2f}")
+        elif isinstance(v, (int, float)) and k != "Cash & Cash Investments Total":
+            cash_detail_lines.append(f"  {k}: ${v:,.2f}")
+    if cash_detail_lines:
+        lines.extend(["", "Cash detail:"])
+        lines.extend(cash_detail_lines)
+
+    # Investments detail — margin vs non-margin split when present.
+    inv = sections.get("Investments") or {}
+    inv_lines: list[str] = []
+    non_margin = inv.get("Non-Margin")
+    margin = inv.get("Margin")
+    securities = inv.get("Securities")
+    if isinstance(non_margin, (int, float)) and non_margin > 0:
+        inv_lines.append(f"  Securities (Non-Margin): ${non_margin:,.2f}")
+    if isinstance(margin, (int, float)) and margin > 0:
+        inv_lines.append(f"  Securities (Margin): ${margin:,.2f}")
+    if not inv_lines and isinstance(securities, (int, float)):
+        inv_lines.append(f"  Securities: ${securities:,.2f}")
+    if inv_lines:
+        lines.extend(["", "Investments:"])
+        lines.extend(inv_lines)
+
+    # Funds available — pull the "To Trade" subsection's top number.
+    funds = sections.get("Funds Available") or {}
+    to_trade = funds.get("To Trade") if isinstance(funds.get("To Trade"), dict) else None
+    if to_trade:
+        tradable = to_trade.get("Cash & Cash Investments")
+        if isinstance(tradable, (int, float)):
+            lines.append("")
+            lines.append(f"Funds available to trade: ${tradable:,.2f}")
+
+    content = "\n".join(lines)
+    meta = {
+        "type": "schwab_balance_snapshot",
+        "source_provider": "schwab",
+        "account_id": account_id,
+        "account_mask": mask,
+        "as_of": as_of,
+        "account_value": result["account_value"],
+        "cash": result["cash"],
+        "market_value": result["market_value"],
+        "day_change": result["day_change"],
+        "day_change_pct": result["day_change_pct"],
+        "non_margin": result.get("non_margin"),
+        "margin": result.get("margin"),
+        "sections": sections,
+        "source_file": result["source_file"],
+    }
+    return content, meta
+
+
+def _format_schwab_position_capture(result: dict) -> tuple[str, dict]:
+    """Format a Schwab positions snapshot as (capture_content, source_metadata).
+
+    Shows top-N holdings by market value with allocation %, plus per-asset-type
+    aggregation in metadata. Cash is listed alongside equity holdings so the
+    allocation view reconciles to total portfolio value.
+    """
+    mask = result["account_mask"]
+    acct_type = result.get("account_type") or ""
+    as_of = result["as_of"]
+    account_id = f"{acct_type}-{mask}" if acct_type else f"Schwab-{mask}"
+
+    totals = result.get("totals") or {}
+    total_value = totals.get("mkt_val") or 0.0
+    cost_basis = totals.get("cost_basis")
+    gain_dollar = totals.get("gain_dollar")
+    gain_pct = totals.get("gain_pct") or ""
+
+    lines = [f"Schwab Positions — {account_id} (as of {as_of})", ""]
+    if total_value:
+        pieces = [f"Portfolio value: ${total_value:,.2f}"]
+        if cost_basis is not None and gain_dollar is not None:
+            pieces.append(
+                f"(cost basis ${cost_basis:,.2f}, gain ${gain_dollar:,.2f} / {gain_pct})"
+            )
+        lines.append(" ".join(pieces))
+
+    positions = result.get("positions") or []
+    # Rank by market value, descending, nulls last.
+    ranked = sorted(
+        positions,
+        key=lambda p: (p.get("mkt_val") or 0.0),
+        reverse=True,
+    )
+
+    if ranked:
+        lines.extend(["", "Top holdings by market value:"])
+        for p in ranked[:10]:
+            sym = p.get("symbol") or ""
+            mv = p.get("mkt_val") or 0.0
+            pct = (mv / total_value * 100.0) if total_value else 0.0
+            desc = (p.get("description") or "")[:60]
+            qty = p.get("qty")
+            price = p.get("price")
+            atype = p.get("asset_type") or ""
+            # Cash row carries "Cash & Cash Investments" as its symbol; shorten
+            # for display and suppress the "--" description.
+            display_sym = "Cash" if sym == "Cash & Cash Investments" else sym
+            if desc in ("--", ""):
+                desc = "Cash & Cash Investments" if sym == "Cash & Cash Investments" else ""
+            # For cash rows, qty/price are None — render with em-dashes.
+            if qty is None or price is None:
+                qty_price = "—"
+            else:
+                qty_price = f"{qty:,.0f} @ ${price:,.2f}"
+            lines.append(
+                f"  {display_sym:<6} ${mv:>12,.2f}  ({pct:>4.1f}%)  {desc} — {qty_price} — {atype}"
+            )
+
+    # Asset-type aggregation for metadata.
+    by_asset_type: dict = defaultdict(lambda: {"count": 0, "mkt_val": 0.0})
+    for p in positions:
+        atype = p.get("asset_type") or "Unknown"
+        mv = p.get("mkt_val") or 0.0
+        by_asset_type[atype]["count"] += 1
+        by_asset_type[atype]["mkt_val"] += mv
+
+    content = "\n".join(lines)
+    meta = {
+        "type": "schwab_position_snapshot",
+        "source_provider": "schwab",
+        "account_id": account_id,
+        "account_mask": mask,
+        "account_type": acct_type,
+        "as_of": as_of,
+        "total_value": total_value,
+        "cost_basis": cost_basis,
+        "gain_dollar": gain_dollar,
+        "gain_pct": gain_pct,
+        "positions": positions,
+        "asset_types": dict(by_asset_type),
         "source_file": result["source_file"],
     }
     return content, meta
@@ -2325,7 +2662,12 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
             routed = _route_bank_csv(filepath)
             if routed is not None:
                 _source, result = routed
-                content, meta = _format_bank_capture(result)
+                if _source == "schwab_balance":
+                    content, meta = _format_schwab_balance_capture(result)
+                elif _source == "schwab_position":
+                    content, meta = _format_schwab_position_capture(result)
+                else:
+                    content, meta = _format_bank_capture(result)
                 if _post_capture(cfg, content, meta):
                     filepath.rename(PROCESSED_DIR / filepath.name)
                     processed += 1

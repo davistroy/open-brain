@@ -4227,3 +4227,31 @@ Ordering (preview, to be confirmed in Phase 4): 1 and 5 are independent and smal
 **What to Watch:**
 - The sidecar HTTP trigger (BE-3) is a new moving part. Python's `http.server` is battle-tested for this, but we're adding a second process to the container. Keep its threading model dead simple.
 - File upload size caps — 50MB default should cover everything except the Amazon `Your Orders.zip` edge (30MB today, could grow). Bump to 100MB preemptively.
+
+---
+
+### Entry 071 — Waves 2026-04-17 implementation begins (CS1 in progress, single-branch Option B)
+
+**Date:** 2026-04-17
+**Tags:** `[implement-plan]` `[cs1]` `[financial-pipeline]` `[schwab]` `[option-b]`
+**Environment:** Laptop, branch `feature/waves-2026-04-17` off main@103c1e0. Running `/implement-plan --input IMPLEMENT_WAVES_2026-04-17.md` in Option B (single mega-branch, one PR at the end).
+
+**Objective:** Execute CS1 through CS5 from the ultra-plan on a single branch. Start with CS1 — refactor 4 direct-POST sites in `scripts/financial-pipeline.py` to use `_post_capture` + add Schwab Balances/Positions snapshot parsers + router entries + format helpers + laptop smoke test.
+
+**Hypothesis (CS1):**
+- Refactoring `cmd_sync` / `cmd_balances` / `cmd_investments` / `cmd_monthly_report` to call `_post_capture(cfg, content, meta, capture_type='observation', brain_view='personal')` eliminates the envelope-shape drift that PRs #85/#86 already fixed for the inbox path. Each site keeps its own inline meta-building; only the POST call collapses to one line.
+- The two new Schwab parsers mirror the pattern already established by the 6 bank/credit-card parsers: preamble sniff + regex-driven metadata + per-row data shape. Balances are section-based (Account Value / Cash / Market Value / IRA / Funds Available, varying per account type). Positions are header-based CSV with a final "Positions Total" summary row.
+- Laptop smoke test against the 6 `data/` Schwab files should produce captures with totals matching Schwab's own displays: Contributory 252 = $880,554.63, Designated Bene 6448 = $66,876.62, Simple IRA 7324 = $140,612.99; GLDM 1,833 shares @ $94.84 = $173,841.72 in the Contributory Positions file.
+
+**Rollback (CS1):** `git revert <CS1-squash-sha>` from the eventual merge. Before merge: `git reset --hard origin/main` wipes the branch. No DB/config/deploy changes in CS1.
+
+**Plan structure reminder — Option B (single-branch) mode:**
+- All 5 change sets (CS1–CS5) land as commits on `feature/waves-2026-04-17`.
+- Deploy+verify gates in the plan (homeserver rebuild, host cron, DB operations) are **post-merge manual steps**; implementation subagents write the artifacts but do not execute them.
+- One PR at the end covering +4,500 / −475 LOC across ~40 files + 1 migration + 1 new config + 1 new DB table + 1 new Docker service. **Large blast radius — intentional trade-off for Troy's "do them all together" preference.**
+
+**What to Watch:**
+- Mega-PR diff hygiene — with 5 change sets in one PR, commit messages need to make the diff navigable. Commit per sub-phase (one commit per CSx.y or per CSx phase) rather than one giant commit.
+- CS4a/4b involve shadcn CLI additions — `npx shadcn@latest add ...` auto-generates components/ui/ files. These will pile up in the branch; confirm they're minimal and necessary.
+- CS3's migration 0021 cannot be applied mid-branch — deploy step post-merge runs the migration once, then core-api restarts. If there's a deploy-time problem with the migration, roll back by reverting the PR and re-applying a reverse migration.
+- LAB_NOTEBOOK Rule 11 precondition still applies across the branch — each significant phase boundary (completion of each CS) should carry its own entry documenting outcomes.

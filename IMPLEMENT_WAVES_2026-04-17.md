@@ -10,7 +10,7 @@
 
 | CS | Name | Branch | Status | PR |
 |---|---|---|---|---|
-| CS1 | Financial pipeline completion (#87 refactor + Schwab Balances/Positions parsers) | `feature/g-c-1-finish` | Pending | — |
+| CS1 | Financial pipeline completion (#87 refactor + Schwab Balances/Positions parsers) | `feature/g-c-1-finish` | COMPLETE 2026-04-17 | — |
 | CS2 | Utility sidecar deploy (Gas South + Cobb EMC + host cron) | `feature/g-c-2-utilities` | Pending | — |
 | CS3 | Upload backend + sidecar HTTP trigger | `feature/ingest-upload-backend` | Pending | — |
 | CS4a | Dashboard Wave 1 (upload UI + Financial page + pulse card) | `feature/dashboard-wave-1` | Pending | — |
@@ -44,18 +44,18 @@ Close out the post-deploy tech-debt from G-C.1 (#87) by moving the 4 remaining d
 
 ### Work items
 
-- [ ] **CS1.1** Refactor `cmd_sync` (L521 area) to `_post_capture(cfg, summary_text, meta, capture_type='observation', brain_view='personal')`. Keep the per-call meta shape (`type='financial_daily'`, `date`, `transaction_count`, `grand_total`, `accounts`).
-- [ ] **CS1.2** Refactor `cmd_balances` (L710) similarly (`type='balance_snapshot'`).
-- [ ] **CS1.3** Refactor `cmd_investments` (L954) similarly (`type='investment_weekly'`).
-- [ ] **CS1.4** Refactor `cmd_monthly_report` (L1352) similarly (`type='financial_monthly'`).
-- [ ] **CS1.5** `_parse_schwab_balance_csv(filepath)` — preamble regex `"Balances for account  XXXX-(\d+) as of (MM/DD/YYYY HH:MM (AM|PM) ET)"`, section loop, returns `{account_mask, as_of, account_value, cash, market_value, non_margin, margin, sections: {...}}`. Tolerant of missing sections.
-- [ ] **CS1.6** `_parse_schwab_position_csv(filepath)` — preamble regex `"Positions for account <account_type> ...(\d+) as of HH:MM (AM|PM) ET, YYYY/MM/DD"`, header line, per-holding rows, final `"Positions Total"` row captured as `totals`. Returns `{account_mask, account_type, as_of, positions:[...], totals:{...}}`.
-- [ ] **CS1.7** `_format_schwab_balance_capture(result)` and `_format_schwab_position_capture(result)` helpers returning `(content, source_metadata)`. Content stays short + skimmable; metadata carries the full structured record.
-- [ ] **CS1.8** Router additions in `_route_bank_csv`:
+- [x] **CS1.1** Refactor `cmd_sync` (L521 area) to `_post_capture(cfg, summary_text, meta, capture_type='observation', brain_view='personal')`. Keep the per-call meta shape (`type='financial_daily'`, `date`, `transaction_count`, `grand_total`, `accounts`).
+- [x] **CS1.2** Refactor `cmd_balances` (L710) similarly (`type='balance_snapshot'`).
+- [x] **CS1.3** Refactor `cmd_investments` (L954) similarly (`type='investment_weekly'`).
+- [x] **CS1.4** Refactor `cmd_monthly_report` (L1352) similarly (`type='financial_monthly'`).
+- [x] **CS1.5** `_parse_schwab_balance_csv(filepath)` — preamble regex `"Balances for account  XXXX-(\d+) as of (MM/DD/YYYY HH:MM (AM|PM) ET)"`, section loop, returns `{account_mask, as_of, account_value, cash, market_value, non_margin, margin, sections: {...}}`. Tolerant of missing sections.
+- [x] **CS1.6** `_parse_schwab_position_csv(filepath)` — preamble regex `"Positions for account <account_type> ...(\d+) as of HH:MM (AM|PM) ET, YYYY/MM/DD"`, header line, per-holding rows, final `"Positions Total"` row captured as `totals`. Returns `{account_mask, account_type, as_of, positions:[...], totals:{...}}`.
+- [x] **CS1.7** `_format_schwab_balance_capture(result)` and `_format_schwab_position_capture(result)` helpers returning `(content, source_metadata)`. Content stays short + skimmable; metadata carries the full structured record.
+- [x] **CS1.8** Router additions in `_route_bank_csv`:
   - `re.search(r'_balances_[\d-]+\.csv$', lower)` → `_parse_schwab_balance_csv`
   - `re.search(r'-positions-[\d-]+\.csv$', lower)` (space-tolerant via `lower.replace(' ', '-')` OR regex `[ -]?`) → `_parse_schwab_position_csv`
-- [ ] **CS1.9** Wire into `cmd_process_inbox` dispatch (should work with zero extra code if the router covers the new types; confirm).
-- [ ] **CS1.10** Laptop smoke test against all 6 CSVs in `data/` (3 Balances + 3 Positions). Verify expected totals: Contributory 252 = $880,554.63; Designated Bene 6448 = $66,876.62; Simple IRA 7324 = $140,612.99. Contributory Positions GLDM = 1,833 @ $94.84 = $173,841.72.
+- [x] **CS1.9** Wire into `cmd_process_inbox` dispatch (dispatches on `_source` to the matching `_format_schwab_balance_capture` / `_format_schwab_position_capture`; `_format_bank_capture` remains the default for Amex/Chase/Truist/Schwab-transactions/HSA/PayPal).
+- [x] **CS1.10** Laptop smoke test against all 6 CSVs in `data/` (3 Balances + 3 Positions). Verify expected totals: Contributory 252 = $880,554.63; Designated Bene 6448 = $66,876.62; Simple IRA 7324 = $140,612.99. Contributory Positions GLDM = 1,833 @ $94.84 = $173,841.72.
 
 ### Acceptance criteria
 
