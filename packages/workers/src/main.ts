@@ -41,9 +41,8 @@ async function main() {
   if (!postgresUrl) throw new Error('POSTGRES_URL is required')
 
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
-  // Legacy shim: read new env var names first, fall back to LITELLM_* for deploy window.
-  const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'http://localhost:4000'
-  const openaiApiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY ?? ''
+  const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
+  const openaiApiKey = process.env.OPENAI_API_KEY ?? ''
   const pushoverAppToken = process.env.PUSHOVER_APP_TOKEN
   const pushoverUserKey = process.env.PUSHOVER_USER_KEY
   const configDir = process.env.CONFIG_DIR ?? '/app/config'
@@ -178,14 +177,14 @@ async function main() {
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))
   workers.push(createEmailWorker(connection))
   workers.push(createAccessStatsWorker(connection, db))
-  // Budget-check uses LLM_SPEND_URL (new canonical) with legacy LITELLM_SPEND_URL shim.
-  // Distinct from the inference OPENAI_BASE_URL — spend tracking may point at a
-  // different proxy. Uses LLM_SPEND_API_KEY for auth (falls back to OPENAI_API_KEY).
+  // Budget-check uses LLM_SPEND_URL — distinct from the inference
+  // OPENAI_BASE_URL since spend tracking may point at a different proxy.
+  // Uses LLM_SPEND_API_KEY for auth, falling back to OPENAI_API_KEY.
   const spendApiKey = process.env.LLM_SPEND_API_KEY ?? openaiApiKey
   workers.push(createBudgetCheckWorker(connection, db, {
     appToken: pushoverAppToken,
     userKey: pushoverUserKey,
-    llmSpendUrl: process.env.LLM_SPEND_URL ?? process.env.LITELLM_SPEND_URL ?? '',
+    llmSpendUrl: process.env.LLM_SPEND_URL ?? '',
     spendApiKey,
   }))
   workers.push(createSkillExecutionWorker(connection, db, {

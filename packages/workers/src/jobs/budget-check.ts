@@ -55,11 +55,11 @@ const LLM_SPEND_TIMEOUT_MS = 15_000
  * - Logs spend regardless of whether an alert fires
  *
  * Environment variables:
- * - LLM_SPEND_URL (legacy shim: LITELLM_SPEND_URL): spend proxy URL (e.g., https://llm.k4jda.net).
- *   When empty/unset, spend query is skipped entirely. Distinct from OPENAI_BASE_URL which
- *   points at the inference API (api.openai.com/v1).
- * - LLM_SPEND_API_KEY (legacy shim: LITELLM_API_KEY): API key for spend endpoint.
- *   May differ from the inference key since it authenticates to a different service.
+ * - LLM_SPEND_URL: spend proxy URL (e.g., https://llm.k4jda.net). When
+ *   empty/unset, spend query is skipped entirely. Distinct from
+ *   OPENAI_BASE_URL which points at the inference API (api.openai.com/v1).
+ * - LLM_SPEND_API_KEY: API key for the spend endpoint. May differ from
+ *   the inference key since it authenticates to a different service.
  * - BUDGET_SOFT_LIMIT: soft alert threshold in USD (default: 30)
  * - BUDGET_HARD_LIMIT: hard alert threshold in USD (default: 50)
  * - PUSHOVER_APP_TOKEN, PUSHOVER_USER_KEY: Pushover credentials
@@ -75,14 +75,8 @@ export async function processBudgetCheckJob(
     hardLimit?: number
   },
 ): Promise<BudgetCheckResult> {
-  const llmSpendUrl = opts?.llmSpendUrl
-    ?? process.env.LLM_SPEND_URL
-    ?? process.env.LITELLM_SPEND_URL
-    ?? ''
-  const spendApiKey = opts?.spendApiKey
-    ?? process.env.LLM_SPEND_API_KEY
-    ?? process.env.LITELLM_API_KEY
-    ?? ''
+  const llmSpendUrl = opts?.llmSpendUrl ?? process.env.LLM_SPEND_URL ?? ''
+  const spendApiKey = opts?.spendApiKey ?? process.env.LLM_SPEND_API_KEY ?? ''
   const softLimit = opts?.softLimit ?? Number(process.env.BUDGET_SOFT_LIMIT ?? DEFAULT_SOFT_LIMIT)
   const hardLimit = opts?.hardLimit ?? Number(process.env.BUDGET_HARD_LIMIT ?? DEFAULT_HARD_LIMIT)
 

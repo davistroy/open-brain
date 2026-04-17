@@ -183,7 +183,7 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
       return result.text
     }
 
-    if (!this.litellmClient) throw new Error('[drift-monitor] No LLM client configured — set ANTHROPIC_API_KEY or LITELLM_API_KEY')
+    if (!this.litellmClient) throw new Error('[drift-monitor] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,

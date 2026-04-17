@@ -97,34 +97,40 @@ export class HotmailClient implements EmailProvider {
     this.graphBase = opts.graphBase ?? GRAPH_BASE
     this.fetchFn = opts.fetchFn ?? globalThis.fetch.bind(globalThis)
 
-    const cachePlugin: msal.ICachePlugin = {
-      beforeCacheAccess: async (ctx: msal.TokenCacheContext) => {
-        const serialized = await loadTokenCache(this.db)
-        if (serialized) {
-          ctx.tokenCache.deserialize(serialized)
-        }
-      },
-      afterCacheAccess: async (ctx: msal.TokenCacheContext) => {
-        if (ctx.cacheHasChanged) {
-          await saveTokenCache(this.db, ctx.tokenCache.serialize())
-        }
-      },
-    }
-
+    // No ICachePlugin — MSAL Node's beforeCacheAccess hook does NOT fire on
+    // direct reads like getAllAccounts(), only during acquire* operations.
+    // That left getAllAccounts returning empty after container restart even
+    // with a valid cache in the DB. Manage hydration explicitly instead.
     this.app = new msal.PublicClientApplication({
       auth: {
         clientId: opts.clientId ?? MS_CLIENT_ID,
         authority: opts.authority ?? MS_AUTHORITY,
       },
-      cache: { cachePlugin },
     })
     this.cache = this.app.getTokenCache()
+  }
+
+  // ── Cache lifecycle (explicit, not plugin-driven) ────────────────────────
+
+  /** Load the serialized MSAL cache from app_settings into the in-memory cache. */
+  private async hydrateCache(): Promise<void> {
+    const serialized = await loadTokenCache(this.db)
+    if (serialized) {
+      this.cache.deserialize(serialized)
+    }
+  }
+
+  /** Serialize the current in-memory cache back to app_settings. */
+  private async persistCache(): Promise<void> {
+    await saveTokenCache(this.db, this.cache.serialize())
   }
 
   // ── Authentication ───────────────────────────────────────────────────────
 
   async authenticate(): Promise<boolean> {
-    // Try silent token acquisition from cache first
+    // Explicitly hydrate BEFORE any cache read — see constructor note.
+    await this.hydrateCache()
+
     const accounts = await this.cache.getAllAccounts()
     if (accounts.length > 0) {
       try {
@@ -134,6 +140,7 @@ export class HotmailClient implements EmailProvider {
         })
         if (result?.accessToken) {
           this.accessToken = result.accessToken
+          await this.persistCache()
           log.info({ username: accounts[0].username }, 'Hotmail: cached auth')
           return true
         }
@@ -148,13 +155,12 @@ export class HotmailClient implements EmailProvider {
         scopes: MS_SCOPES,
         deviceCodeCallback: (response) => {
           log.info({ message: response.message }, 'Hotmail: device code auth required')
-          // In a server context, this message should be relayed to the user
-          // via Slack DM or Pushover notification
           console.log(`\n${'='.repeat(60)}\nMICROSOFT AUTHENTICATION\n${'='.repeat(60)}\n${response.message}\n${'='.repeat(60)}\n`)
         },
       })
       if (result?.accessToken) {
         this.accessToken = result.accessToken
+        await this.persistCache()
         log.info('Hotmail: authenticated via device code')
         return true
       }
@@ -269,6 +275,7 @@ export class HotmailClient implements EmailProvider {
       })
       if (result?.accessToken) {
         this.accessToken = result.accessToken
+        await this.persistCache()
         return true
       }
     } catch {

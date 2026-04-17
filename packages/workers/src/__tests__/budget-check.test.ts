@@ -60,10 +60,8 @@ describe('processBudgetCheckJob', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     delete process.env.OPENAI_API_KEY
-    delete process.env.LITELLM_API_KEY
     delete process.env.LLM_SPEND_API_KEY
     delete process.env.LLM_SPEND_URL
-    delete process.env.LITELLM_SPEND_URL
     delete process.env.BUDGET_SOFT_LIMIT
     delete process.env.BUDGET_HARD_LIMIT
     delete process.env.PUSHOVER_APP_TOKEN
@@ -369,8 +367,8 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
-        litellmSpendUrl: 'https://llm.test.local',
-        // no litellmApiKey provided
+        llmSpendUrl: 'https://llm.test.local',
+        // no spendApiKey provided
         softLimit: 30,
         hardLimit: 50,
       })
@@ -389,8 +387,8 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
-        // no litellmSpendUrl — defaults to empty string
-        litellmApiKey: 'test-key',
+        // no llmSpendUrl — defaults to empty string
+        spendApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
       })
@@ -537,24 +535,6 @@ describe('processBudgetCheckJob', () => {
       })
 
       // $35 > $30 soft limit → alert
-      expect(result.thresholdCrossed).toBe('soft')
-      expect(sendSpy).toHaveBeenCalledOnce()
-    })
-
-    it('falls back to legacy LITELLM_SPEND_URL env var for shim compatibility', async () => {
-      process.env.LITELLM_SPEND_URL = 'https://llm.legacy.local'
-
-      vi.stubGlobal('fetch', makeLiteLLMFetch({ total_cost: 32.00 }))
-
-      const db = makeDb(null)
-      const pushover = new PushoverService('tok', 'usr')
-      const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
-
-      const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
-        spendApiKey: 'test-key',
-        // no llmSpendUrl override — should fall back to LITELLM_SPEND_URL via shim
-      })
-
       expect(result.thresholdCrossed).toBe('soft')
       expect(sendSpy).toHaveBeenCalledOnce()
     })

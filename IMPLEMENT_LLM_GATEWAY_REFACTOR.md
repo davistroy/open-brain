@@ -457,15 +457,159 @@ Open an issue with the failure mode; do not re-attempt without diagnosis.
 
 ---
 
+## Phase F — Post-refactor cleanup (A60/A61/A63)
+
+**Intent:** Fix the three follow-up issues that surfaced during Phase E validation, before declaring the refactor truly complete. Minimize tech debt — each fix removes a workaround rather than patching around it. Branch: `fix/post-refactor-cleanup`.
+
+### F.1 MSAL cache explicit hydration (A60) — COMPLETE 3f3714c
+
+**Problem:** MSAL Node's `ICachePlugin.beforeCacheAccess` does NOT fire on direct reads like `getAllAccounts()` — only on acquire* operations. Container restart left the in-memory cache empty, `getAllAccounts()` returned `[]`, and the flow fell through to device code even with a valid serialized cache in `app_settings.ms_token_cache`.
+
+**Fix:** Removed the ICachePlugin registration. Added two explicit helpers on `HotmailClient`: `hydrateCache()` (DB → deserialize) called at the top of `authenticate()` before `getAllAccounts()`, and `persistCache()` (serialize → DB) called after any successful acquire*. Tests assert the invocation ordering. File-level diff: -25/+72 LOC.
+
+### F.2 Git bot identity for wiki-ingest (A61) — COMPLETE 0e270f1
+
+**Problem:** `wiki-ingest` skill calls `simple-git` commit from inside the workers container; the container has no `~/.gitconfig`, so every commit fails with `Author identity unknown`. Cascading failures stalled one embed job.
+
+**Fix:** Added `GIT_AUTHOR_NAME/EMAIL` and `GIT_COMMITTER_NAME/EMAIL` env vars to the workers service in `docker-compose.yml` with identity `Open Brain Bot <bot@brain.troy-davis.com>`. Env vars override missing gitconfig at the git-process level — no Dockerfile rebuild. Resolves A62 as a byproduct (embed stalls were caused by A61's cascade).
+
+### F.3 Shim removal (A63) — COMPLETE fb7f57f
+
+**Problem:** Phase D's transition shim (`process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY`) was kept as a deploy safety net during the rename. Homeserver now canonical on `OPENAI_API_KEY`; shim is dead weight that could silently reactivate the stale `sk-litellm-…` virtual key if someone rolls back `.env.secrets`.
+
+**Fix:** Removed every `?? process.env.LITELLM_*` fallback across 20 files (shared, core-api, workers, slack-bot, voice-capture). Skill error messages updated from `"set ANTHROPIC_API_KEY or LITELLM_API_KEY"` → `"... or OPENAI_API_KEY"`. Deleted the `falls back to legacy LITELLM_SPEND_URL` shim-compat test. Kept the startup validation (workers/main.ts + core-api/index.ts) that fatals on `sk-litellm-` keys — redundant now but free protection. Net -65 LOC.
+
+Instance field names `this.litellmClient` / `litellmSpendUrl` / `litellmApiKey` remain on several skill classes — naming refactor deferred as follow-up (not A63 scope).
+
+### F.4 Deploy + validate — PENDING
+
+1. Create PR on `fix/post-refactor-cleanup`, squash-merge to main.
+2. On homeserver: `git pull`, `docker compose build workers core-api slack-bot voice-capture`, `up -d`.
+3. Remove `LITELLM_API_KEY` line from `/mnt/user/appdata/open-brain/.env.secrets` (no longer read).
+4. Trigger email-classify manually: confirm zero device-code prompts (A60 validated — cache rehydrates), wiki-ingest commits succeed (A61 validated), and no `sk-litellm-` log warnings (A63 validated).
+5. Tomorrow morning (first 5 AM cron post-F): confirm unattended run — no device-code interrupt.
+
+---
+
+## Phase G — Ultra-plan consolidation (A36 / Phase 7 / A46 / A47)
+
+**Source:** `/ultra-plan` analysis on 2026-04-17 of 7 stalled/deferred items (A36 SMTP staleness verify, Phase 7.1-7.3 infrastructure consolidation, `open-brain-vm` decommission, A46 financial CSV parsers, A47 utility script deployment). Three change sets identified; items grouped by shared files/systems and deployment ordering.
+
+**Key findings from investigation:**
+- **A36 is NOT resolved** despite D90's wording. `HimalayaService` reads `process.env.HIMALAYA_CONFIG` but that env var is never set in `docker-compose.yml` for either workers or core-api. The binary is installed (Dockerfile L87-89), the `config/himalaya/config.toml` exists locally (gitignored), but the one env var wiring them together is missing. 30-minute fix.
+- **Phase 7.1 is ~80% done already.** `scripts/backup.sh` runs Postgres+configs+schema from homeserver cron. Missing: wiki backup + Redis snapshot on homeserver. Plus 710 LOC of dead skill files (`db-backup.ts`, `wiki-backup.ts`, `redis-snapshot.ts`) still wired in dispatcher but with no scheduler invocation — delete.
+- **Phase 7.2 gated on 7-day parallel validation.** Post-Entry-059 Jetson cold-start fix, tomorrow's 5 AM cron is the first honest parity measurement.
+- **Phase 7.3 gated on 2-3 successful Open Brain morning briefs.** PR #78 Phase 6 ported the brief; Bond still runs OpenClaw's version in parallel.
+- **VM decommission is coupled to Phase G's architectural decision** (Change Set C below).
+- **A46 CSV parsers**: 6-8 hours once platform decided + sample CSVs gathered. Use existing `_parse_amazon_csv` pattern (financial-pipeline.py:1481).
+- **A47 utility deployment**: Gas South + Cobb EMC ready-to-deploy (3 hours). **Cobb Water = 40+ hours of B2C OIDC+JWT+MFA work — split as separate backlog, NOT A47 scope.**
+
+### Change Set G-A — Finish A36 email outbound (30 min, independent)
+
+**G-A.1** Edit `docker-compose.yml`: add `HIMALAYA_CONFIG: /app/config/himalaya/config.toml` to the `environment:` block for both `workers` and `core-api` services. Remove the 5 misleading `# SMTP_*: set in .env.secrets` comments (code uses Himalaya TOML, not env vars).
+
+**G-A.2** Verify `config/himalaya/config.toml` exists on homeserver (gitignored; may need to be generated from Bitwarden `BOND_EMAIL_PASSWORD` on first deploy).
+
+**G-A.3** Manual validation: `docker exec open-brain-workers himalaya -c /app/config/himalaya/config.toml account check`, then one test send to self.
+
+**G-A.4** Close GitHub issue #69.
+
+**Rollback:** Unset the env var. Feature returns to "drafts work, send disabled" state.
+
+### Change Set G-B — Infrastructure consolidation (Phase 7)
+
+**G-B.1** Monitor TS email-classify for 5-7 days (no code change). Baseline: Entry 061 showed 93/93 classified, 0 errors. Gate: ≥5 days, ≤±10% classification counts vs Python, <20% "Needs Review" rate. Failure → disable TS cron, keep Python as canonical, open issue.
+
+**G-B.2** Disable Python email pipeline on VM (after G-B.1 passes): `crontab -e` on `open-brain-vm`, comment out `0 5 * * *` email-pipeline line. Keep script + token cache for 7 days as rollback.
+
+**G-B.3** Disable OpenClaw morning-brief on Bond (after ≥2 successful Open Brain morning briefs delivered via Pushover + Slack DM): edit OpenClaw scheduled-jobs config. Also disable `daily-usage-report` if Open Brain's `cost-analysis` covers it. Close GitHub issue #77.
+
+**G-B.4** Homeserver backup coverage parity: add wiki backup (`git clone` from Gitea) and Redis snapshot (`docker exec redis redis-cli BGSAVE` + copy RDB) to `scripts/backup.sh` or sibling scripts. Delete 710 LOC of dead skill code: `db-backup.ts`, `wiki-backup.ts`, `redis-snapshot.ts` + their test files + dispatcher cases at `skill-execution.ts:315-366` + imports at L25-27. Verify one backup cycle lands in `/mnt/user/backup/openbrain/daily/` with all three artifacts.
+
+**G-B.5** VM decommission decision (blocked by G-C.0 — see below). If G-C lands as "keep Python on homeserver sidecar", VM becomes optional; if as "keep on VM", VM stays alive as Python+cron box.
+
+### Change Set G-C — Data ingestion scripts (A46 + A47)
+
+**G-C.0** Architectural decision (MUST come first — ask Troy). Three options:
+
+| Option | Where scripts run | Effort | Debt |
+|--------|-------------------|--------|------|
+| Keep Python on VM (status quo) | VM cron, extend `financial-pipeline.py` / `utility-pipeline.py` in place | Low | Medium — VM stays load-bearing forever |
+| **Python Docker sidecar on homeserver (RECOMMENDED)** | New `open-brain-financial-ingest` + `open-brain-utility-ingest` containers with Python+cron base image | Medium | Low — mirrors pre-D96 path |
+| TypeScript BullMQ skills | `FinancialIngestSkill` + `UtilityIngestSkill` extending BaseSkill | High (1-2 weeks incl. Cobb Water B2C) | Zero — matches refactor trajectory |
+
+Recommendation: **Option 2 (Python sidecar)**. Python scripts already work; CSV parser rewrite + B2C OIDC rewrite in TS buys no functional upside since these are monthly/daily cron batch, not BullMQ-native.
+
+**G-C.1** A46 CSV parsers (6-8 hours, after G-C.0 + sample CSVs from Troy). Extend `scripts/financial-pipeline.py` with `_parse_amex_csv`, `_parse_chase_csv`, `_parse_truist_csv`, `_parse_schwab_csv`, `_parse_hsa_csv`, `_parse_paypal_csv` — each ~30-80 LOC following the existing `_parse_amazon_csv` pattern (dialect sniff, encoding fallback, header-variant matching). Filename-routing integration in `cmd_process_inbox()` at line 1630.
+
+**G-C.2** A47 utility deployment (3 hours, Gas South + Cobb EMC only). Install `electric-usage-downloader` Go binary; write `~/.electric-usage/config.yaml` with SmartHub creds from Bitwarden. Gas South code is ready — deploy config.yaml, wire `bws secret` at sidecar startup. First cron run 2nd of next month. **Cobb Water is SEPARATE BACKLOG** (B2C OIDC, 40+ hours) — leave the current `cmd_water()` silent-skip on 401 in place.
+
+**G-C.3** (Dropped per Troy 2026-04-17 — not rotating Hotmail password for Cobb Water; treating plaintext-HAR as known-and-accepted risk.)
+
+### Phase G implementation sequence
+
+```
+Day 0 (today or resume day):
+  - Ship Phase F (PR merge + homeserver deploy + validate A60/A61)
+  - G-A.1..G-A.4 (A36 email outbound, 30 min)
+  - Ask Troy: G-C.0 platform decision
+  - Request sample CSVs from Troy (Amex, Chase, Truist, Schwab, HSA, PayPal)
+
+Day 1-3:
+  - G-B.4 (wiki + redis backup scripts on homeserver)
+  - G-C.1 build (CSV parsers, if G-C.0 approved)
+  - G-C.2 build (utility sidecar, if G-C.0 approved)
+  - Monitor: G-B.1 email parity, Open Brain morning-brief quality
+
+Day 3-5:
+  - Morning-brief validation passes → G-B.3 (Bond OpenClaw brief off, close #77)
+  - G-B.4 backups verified → prep G-B.2
+
+Day 7+:
+  - Email parity validation passes → G-B.2 (disable VM email cron)
+
+Day 10-14:
+  - Deploy G-C.1 + G-C.2 sidecars on homeserver
+  - Verify one run each, captures land in brain
+  - G-B.5 VM decommission decision execution
+  - Delete 710 LOC dead backup skills
+```
+
+### Phase G risk register
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| A36: `config/himalaya/config.toml` missing on homeserver after deploy | Medium | High | Pre-deploy check; pull creds from Bitwarden `BOND_EMAIL_PASSWORD` on first deploy |
+| G-B.1: TS email parity worse than Python | Medium | Medium | 7-day window catches this; rollback = re-enable Python cron on VM |
+| G-B.3: Morning-brief regression vs. OpenClaw | Medium | Low | Run both in parallel for 2-3 days before shutting Bond off |
+| G-B.4: Wiki backup git clone silently broken (nobody notices until Gitea dies) | Medium | High | Validation step: `git clone` from backup file works end-to-end |
+| G-C.0: Sidecar containers proliferate | Medium | Low | One image, two runtime configs — different volume per pipeline |
+| G-C.1: Bank CSV schema drift (Amex changes column order) | Medium | Low | Fail loudly with exact error message; manual re-run after fix |
+| A47 scope creep: someone tries to build Cobb Water B2C flow inside A47 | High (if not separated) | High (40+ hrs burned) | Already split — keep water silent-skip in place, separate backlog item |
+
+### Phase G scope boundaries
+
+**In scope:** A36 env var fix · G-B.1..G-B.4 (validation-gated cutovers + backup parity + dead-code cleanup) · A46 6 CSV parsers · A47 Gas South + Cobb EMC · close #69 and #77.
+
+**Out of scope (separate tickets):** Cobb Water B2C OIDC flow · full VM decommission + `claude` CLI in workers container (defer until a skill needs it) · Financial TS rewrite · SimpleFIN integration (A48) · A44 `get_agent_activity` MCP tool.
+
+### Phase G branch strategy
+
+New branch off `main` after Phase F merges: `feature/phase-g-consolidation` OR split into two: `feature/g-a-email-outbound` (fast, independent) + `feature/g-c-ingest-sidecars` (larger, after G-C.0 decision). G-B items are mostly no-code-change validation + small script edits — can commit to main directly OR fold into one of the above branches.
+
+---
+
 ## Phase tracker
 
 | Phase | Items | Status | Commit SHA |
 |---|---|---|---|
-| A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1, A.4, A.2, A.3 done; A.5 pending) | — |
-| B | B.1 throw on unrouted, B.2 tests, B.3 grep check | COMPLETE 2026-04-16 | — |
-| C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | COMPLETE 2026-04-16 | — |
-| D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | COMPLETE 2026-04-17 | — |
-| E | E.1 checklist, E.2 deploy, E.3 validate, E.4 rollback-if-needed, E.5 post-deploy | Pending | — |
+| A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | COMPLETE 2026-04-17 | b73d2f4, 35c3801 |
+| B | B.1 throw on unrouted, B.2 tests, B.3 grep check | COMPLETE 2026-04-17 | 2ba89f6 |
+| C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | COMPLETE 2026-04-17 | 2422151 |
+| D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | COMPLETE 2026-04-17 | 7154b32 (PR #79 merged as 5020082) |
+| E | E.1 checklist, E.2 deploy, E.3 validate (w/ follow-up brain_view fix), E.4 rollback-if-needed, E.5 post-deploy | COMPLETE 2026-04-17 | 3dbe028, 8abdccf |
+| F | F.1 MSAL explicit cache (A60), F.2 git identity (A61), F.3 shim removal (A63) | Shipped to branch; pending deploy | 3f3714c, 0e270f1, fb7f57f |
+| G | Ultra-plan consolidation + financial/utility (7 items, 3 change sets) | Pending — planned in Phase G below | — |
 
 ## Risk register
 
