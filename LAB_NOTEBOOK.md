@@ -161,7 +161,11 @@
 | A56 | ~~Seed MSAL + Gmail OAuth tokens into app_settings for email-classify skill~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Gmail seeded via token port + refresh; Hotmail via device code (cache now Node-native, future runs silent) |
 | A57 | ~~Run email-classify manually after auth seeded, validate classification~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Hotmail 66/66/8rev, Gmail 27/27/24rev, 320s, pipeline complete |
 | A58 | ~~Jetson qwen3.5-4b cold-start latency — pre-warm or raise 5xx retry backoff in LLM gateway~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 059 — same-tier retry on "Loading model" with 3s/6s/12s backoff (21s window before fallback) |
-| A59 | Summary synthesis 401 — `fast` alias keeps routing through LiteLLM proxy with virtual key that OpenAI rejects; also Zod 400 on summary capture (missing `capture_type`) | 2026-04-17 | Entry 058 | MEDIUM — breaks daily summary capture on every run, but core pipeline works |
+| A59 | ~~Summary synthesis 401 — `fast` alias keeps routing through LiteLLM proxy with virtual key that OpenAI rejects; also Zod 400 on summary capture~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 061 — gateway refactor (PR #79) + brain_view fix. Digest capture lands clean. |
+| A60 | MSAL Node cache does not rehydrate across workers container restarts — forces interactive device code each deploy | 2026-04-17 | Entry 061 | MEDIUM — blocks unattended 5 AM cron runs after any container recycle |
+| A61 | wiki-ingest fails with "Author identity unknown" — git needs user.email/name in workers container | 2026-04-17 | Entry 061 | LOW — pre-existing; blocks wiki auto-maintenance but not captures |
+| A62 | One embed job stalled after wiki-ingest cascade — watch for pattern | 2026-04-17 | Entry 061 | LOW — possibly transient restart symptom |
+| A63 | Remove OPENAI_* ?? LITELLM_* transition shim from D.1 after one verified week | 2026-04-24 | Entry 061 | LOW — shim is free, startup validation prevents silent fails |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3476,3 +3480,52 @@ Success criteria:
 **Decision D100:** Parallel work policy during refactor — run unrelated ultra-plan and supporting work in parallel subagents where file domains don't overlap. Worked for A.1+A.4 (YAML vs. plan doc audit). Used again while Phase B runs in foreground + ultra-plan for A36 / Phase 7 / A46 / A47 runs in background.
 
 **What to watch:** Phase D env-var rename has a deploy ordering risk. `.env.secrets` on homeserver must be updated with the real OpenAI key (from Bitwarden `open-brain-openai-api-key`) before the new image starts, OR the transition shim in Phase D.1 must be merged with both old+new env names readable. Both strategies documented in the plan.
+
+### Entry 061 — Refactor shipped (PR #79 merged) + A59 validated on homeserver
+
+**Date:** 2026-04-17
+**Tags:** `[deploy]` `[validation]` `[llm-gateway]` `[a59]`
+**Environment:** Homeserver
+**Duration:** Phases B-E end-to-end in ~2 hours
+
+**Phases B-E shipped:**
+- Phase B (sha `2ba89f6`): `completeByTask` throws on unrouted. `aliasMap` deleted.
+- Phase C (sha `2422151`): -223 LOC gateway cleanup. `litellmClient` removed from constructor. `LLMModelAlias` type deleted.
+- Phase D (sha `7154b32`): full rename LiteLLM→OpenAI. 27 files. Shim kept (OPENAI_* ?? LITELLM_*). Startup validation fatals on `sk-litellm-` keys. 2,511 tests green.
+- Squash-merged to main as `5020082` via PR #79.
+- Follow-up fix (sha `3dbe028`): `brain_view: 'personal'` added to daily-digest capture body — surfaced during Phase E validation as a second Zod 400 on the capture POST.
+
+**Deploy:**
+- `.env.secrets` on homeserver: backed up to `.env.secrets.bak.pre-phase-E`. Added `OPENAI_API_KEY=sk-svcacct-…` (from Bitwarden item `open-brain-openai-api-key`) and `OPENAI_BASE_URL=https://api.openai.com/v1`. Kept `LITELLM_API_KEY` in place as shim fallback.
+- `docker compose build core-api workers slack-bot voice-capture` + `up -d` — all 4 services started healthy.
+- Startup logs: `LLMGatewayService: 3-client routing enabled (Anthropic, Ollama, OpenAI)`. No `sk-litellm-` fatal triggered.
+
+**A59 validation (manual email-classify trigger):**
+- 1st run: hit MSAL device code prompt (cache-rehydration issue — see below). Troy authenticated. Hotmail 5/5 classified, Gmail 3/3 classified, zero 401s. But summary POST 400'd on **`brain_view` Required** (new issue).
+- Committed `3dbe028` with `brain_view: 'personal'` in digest body, rebuilt workers.
+- 2nd run (34s): Hotmail 1/1, Gmail 0/0, `[email-classify] daily summary posted` emailCount=102, `summaryPosted: true`, Pushover sent. DB row verified:
+  ```
+   capture_type | brain_view | source | preview
+   observation  | personal   | email  | [Email Daily Digest] 2026-04-17
+  ```
+  **Both 401 and 400 bugs gone.** `completeByTask('email_daily_digest') → t1_spark` confirmed.
+
+**Decision D101 (architectural outcome):** The refactor's primary goal — "one routing path, loud errors on misconfig" — is achieved and provably working. Zero legacy `complete()` calls remain. Zero `aliasMap` fallback. Every `completeByTask` hits `task_routing:` or throws.
+
+**New issues surfaced during deploy (NOT refactor-related):**
+
+- **A60 [MEDIUM]:** MSAL Node cache does not rehydrate across container restarts. Yesterday's Entry 058 device-code flow wrote a native MSAL Node serialization to `app_settings.ms_token_cache` (11,508-char string, confirmed shape-valid). On today's workers container restart (fresh in-memory state), `getAllAccounts()` returns empty and falls through to device code. Same symptom as Entry 058's Python→Node cache problem, but this is Node→Node and shouldn't have the authority mismatch. Possibly: `beforeCacheAccess` plugin timing, or `acquireTokenSilent` requiring unexpired access-token (24h-old). **Workaround:** interactive device code every container restart. **Fix:** investigate; log inside `beforeCacheAccess` to confirm it's firing and deserializing correctly.
+- **A61 [LOW]:** `wiki-ingest` skill fails on every run with `Author identity unknown`. The workers container's `git` has no `user.email`/`user.name` set in global config. Pre-existing; surfaced because wiki-ingest runs after every capture now. **Fix:** add `git config --global user.email/name` to the workers Dockerfile, OR set `GIT_AUTHOR_*`/`GIT_COMMITTER_*` env vars in compose.
+- **A62 [LOW]:** One embed job stalled on the digest capture after wiki-ingest failures cascaded. May be transient (restart noise) or coupled to A61. Re-runs succeed. Watch for pattern.
+
+**Shim kept in place (follow-up cleanup):**
+- D.1's transition shim (`process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY`, etc.) remains live on main. Removing it requires a follow-up commit + redeploy. Deferred — the shim is free cost, removes a deploy-ordering risk, and the `sk-litellm-` startup validation guarantees we never silently run with the stale key. Mark as **A63 [LOW]** — remove shim after one verified week of OPENAI_API_KEY being canonical in `.env.secrets`.
+
+**What Worked:**
+- Backing up `.env.secrets` before touching it (preserve-unrecoverable rule paid off immediately).
+- Startup validation catching `sk-litellm-` patterns before any request fires — never tripped in practice, but would have prevented a silent-fail deploy.
+- Small follow-up fix pattern: find bug in Phase E validation, fix forward with a small commit rather than reverting the whole branch.
+
+**What to Watch:**
+- Overnight 5 AM cron run tomorrow — first scheduled (not manual) run post-refactor. If MSAL cache issue (A60) isn't fixed by then, it'll need a device code entry each morning, which is untenable. **Actionable: fix A60 before tomorrow 5 AM or set an alarm to authenticate manually.**
+- Parallel validation against VM Python pipeline (deferred item 5.3) — first compare point is tomorrow's 5 AM run.
