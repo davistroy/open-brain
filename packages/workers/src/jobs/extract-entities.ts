@@ -4,7 +4,7 @@ import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { captures, pipeline_events, logger, createLiteLLMClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { captures, pipeline_events, logger, createOpenAIClient, TemplateCache, callClaude } from '@open-brain/shared'
 import type { ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { EXTRACT_ENTITIES_BACKOFF_DELAYS_MS } from '../queues/extract-entities.js'
 import type { ExtractEntitiesJobData } from '../queues/extract-entities.js'
@@ -291,9 +291,9 @@ export function createExtractEntitiesWorker(
   llmGateway?: LLMGatewayService,
 ): Worker<ExtractEntitiesJobData> {
   const aiConfig = configService.get('ai')
-  const synthesisModel: string = aiConfig.models['synthesis'].model
+  const synthesisModel: string = aiConfig.models['synthesis']?.model ?? 'gpt-5.4'
 
-  const litellmClient = createLiteLLMClient({
+  const openaiClient = createOpenAIClient({
     baseUrl: litellmBaseUrl,
     apiKey: litellmApiKey,
     timeout: 'standard',
@@ -302,7 +302,7 @@ export function createExtractEntitiesWorker(
 
   if (llmGateway) {
     logger.info('[extract-entities] Using LLMGatewayService for entity extraction (task-based routing)')
-  } else if (!litellmClient && !anthropicClient) {
+  } else if (!openaiClient && !anthropicClient) {
     logger.warn('[extract-entities] No LLM client available — entity extraction will fail')
   } else if (anthropicClient) {
     logger.info('[extract-entities] Using Anthropic Claude for entity extraction (legacy)')
@@ -311,11 +311,11 @@ export function createExtractEntitiesWorker(
   const worker = new Worker<ExtractEntitiesJobData>(
     'extract-entities',
     async (job) => {
-      if (!llmGateway && !litellmClient && !anthropicClient) throw new Error('[extract-entities] No LLM client configured — both ANTHROPIC_API_KEY and LITELLM_API_KEY missing')
+      if (!llmGateway && !openaiClient && !anthropicClient) throw new Error('[extract-entities] No LLM client configured — both ANTHROPIC_API_KEY and OPENAI_API_KEY missing')
       await processExtractEntitiesJob(
         job.data,
         db,
-        litellmClient!,
+        openaiClient!,
         synthesisModel,
         templates,
         anthropicClient,
@@ -324,7 +324,7 @@ export function createExtractEntitiesWorker(
     },
     {
       connection,
-      concurrency: 2, // entity extraction can be parallelized; LiteLLM handles rate limiting
+      concurrency: 2, // entity extraction can be parallelized; API handles rate limiting
       settings: {
         backoffStrategy: extractEntitiesBackoffStrategy,
       },

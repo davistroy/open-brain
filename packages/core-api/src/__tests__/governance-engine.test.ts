@@ -47,7 +47,6 @@ function makeTranscript(entries: Array<{ role: 'user' | 'assistant'; content: st
 function makeLlmGateway(response = 'Board response here.') {
   return {
     completeByTask: vi.fn().mockResolvedValue(response),
-    completeWithPromptTemplate: vi.fn().mockResolvedValue(response),
   } as any
 }
 

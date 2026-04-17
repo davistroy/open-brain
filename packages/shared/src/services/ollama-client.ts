@@ -26,7 +26,7 @@ export interface CreateOllamaClientOptions {
  * so we reuse the existing OpenAI SDK. No API key is needed for local Ollama.
  *
  * Returns `null` if OLLAMA_URL is empty or missing — callers should check
- * and disable local inference accordingly (same pattern as createLiteLLMClient).
+ * and disable local inference accordingly (same pattern as createOpenAIClient).
  */
 export function createOllamaClient(opts?: CreateOllamaClientOptions): OpenAI | null {
   const baseURL = opts?.baseUrl ?? process.env.OLLAMA_URL ?? ''

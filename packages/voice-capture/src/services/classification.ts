@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import { createLogger, createLiteLLMClient, callClaude } from '@open-brain/shared'
+import { createLogger, createOpenAIClient, callClaude } from '@open-brain/shared'
 
 const logger = createLogger('voice-classification')
 
@@ -74,11 +74,12 @@ export class ClassificationService {
   private anthropicClient: Anthropic | null
 
   constructor(opts?: { anthropicClient?: Anthropic }) {
-    // Prefer shared LiteLLM client factory (reads LITELLM_URL / LITELLM_API_KEY from env).
+    // Prefer shared OpenAI client factory (reads OPENAI_BASE_URL / OPENAI_API_KEY,
+    // with legacy LITELLM_URL / LITELLM_API_KEY shim).
     // Falls back to a direct OpenAI construction for test compatibility (tests vi.mock('openai')).
-    this.client = createLiteLLMClient({ timeout: 'fast' }) ?? new OpenAI({
-      baseURL: process.env.LITELLM_URL ?? 'https://llm.k4jda.net',
-      apiKey: process.env.LITELLM_API_KEY || 'unconfigured',
+    this.client = createOpenAIClient({ timeout: 'fast' }) ?? new OpenAI({
+      baseURL: process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1',
+      apiKey: process.env.OPENAI_API_KEY || process.env.LITELLM_API_KEY || 'unconfigured',
       timeout: 30_000,
     })
     this.anthropicClient = opts?.anthropicClient ?? null

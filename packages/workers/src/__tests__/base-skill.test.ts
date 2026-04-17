@@ -326,8 +326,10 @@ describe('LLMSkill', () => {
     const db = makeMockDb()
     const pushover = makePushoverService()
 
-    // Clear env vars to ensure createLiteLLMClient returns null
-    const origKey = process.env.LITELLM_API_KEY
+    // Clear env vars to ensure createOpenAIClient returns null
+    const origOpenAI = process.env.OPENAI_API_KEY
+    const origLiteLLM = process.env.LITELLM_API_KEY
+    delete process.env.OPENAI_API_KEY
     delete process.env.LITELLM_API_KEY
 
     const skill = new ConcreteLLMSkill({
@@ -338,7 +340,8 @@ describe('LLMSkill', () => {
     expect(skill.getLitellmClient()).toBeNull()
 
     // Restore
-    if (origKey !== undefined) process.env.LITELLM_API_KEY = origKey
+    if (origOpenAI !== undefined) process.env.OPENAI_API_KEY = origOpenAI
+    if (origLiteLLM !== undefined) process.env.LITELLM_API_KEY = origLiteLLM
   })
 
   it('accepts pre-constructed litellmClient', () => {

@@ -53,18 +53,29 @@ function isTokenOverflowError(err: unknown): boolean {
  *
  * No fallback on failure — throws EmbeddingUnavailableError so BullMQ can retry.
  */
+export interface EmbeddingServiceOpts {
+  /** Defaults to OPENAI_BASE_URL env var, then LITELLM_URL (legacy shim), then https://api.openai.com/v1. */
+  baseUrl?: string
+  apiKey: string
+  configService: ConfigService
+}
+
 export class EmbeddingService {
   private client: OpenAI
   private configService: ConfigService
 
-  constructor(baseUrl: string, apiKey: string, configService: ConfigService) {
+  constructor(opts: EmbeddingServiceOpts) {
+    const baseURL = opts.baseUrl
+      ?? process.env.OPENAI_BASE_URL
+      ?? process.env.LITELLM_URL
+      ?? 'https://api.openai.com/v1'
     this.client = new OpenAI({
-      baseURL: baseUrl,
-      apiKey,
+      baseURL,
+      apiKey: opts.apiKey,
       timeout: EMBEDDING_TIMEOUT_MS,
       maxRetries: 0,  // BullMQ handles retries with patient backoff; no SDK-level retries
     })
-    this.configService = configService
+    this.configService = opts.configService
   }
 
   /**
@@ -190,10 +201,14 @@ export class EmbeddingService {
    */
   getModelInfo(): { model: string; dimensions: number; source: string } {
     const aiConfig = this.configService.get('ai')
+    const source = aiConfig.litellm_url
+      ?? process.env.OPENAI_BASE_URL
+      ?? process.env.LITELLM_URL
+      ?? 'https://api.openai.com/v1'
     return {
       model: resolveModelName(aiConfig, 'embedding'),
       dimensions: EMBEDDING_DIMENSIONS,
-      source: aiConfig.litellm_url,
+      source,
     }
   }
 }

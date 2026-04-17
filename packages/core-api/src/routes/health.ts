@@ -67,7 +67,7 @@ async function checkRedis(url: string): Promise<ServiceCheck> {
 
 async function checkLLMProvider(baseUrl: string): Promise<ServiceCheck> {
   const start = Date.now()
-  const apiKey = process.env.LITELLM_API_KEY
+  const apiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY
   try {
     // baseUrl may or may not include /v1 (OpenAI: /v1, LiteLLM: no /v1)
     const modelsUrl = baseUrl.endsWith('/v1')
@@ -89,7 +89,7 @@ async function checkLLMProvider(baseUrl: string): Promise<ServiceCheck> {
 async function buildHealthResponse(): Promise<HealthResponse> {
   const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
-  const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
+  const litellmUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1'
 
   const [postgres, redis, llm] = await Promise.all([
     checkPostgres(postgresUrl),

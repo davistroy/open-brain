@@ -59,12 +59,12 @@ services:
       PORT: "3000"
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
-      LITELLM_URL: https://api.openai.com/v1
+      OPENAI_BASE_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       GITEA_TOKEN: ${GITEA_TOKEN}
-      # LITELLM_API_KEY: set in .env.secrets
+      # OPENAI_API_KEY: set in .env.secrets
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
       # SLACK_USER_TOKEN: set in .env.secrets (xoxp-... user token for channel cleanup — requires channels:history, chat:write scopes)
@@ -98,7 +98,7 @@ services:
       NODE_ENV: production
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
       REDIS_URL: redis://redis:6379
-      LITELLM_URL: https://api.openai.com/v1
+      OPENAI_BASE_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
@@ -107,7 +107,8 @@ services:
       GITEA_TOKEN: ${GITEA_TOKEN}
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
       # COMPOSIO_API_KEY: set in .env.secrets (Composio MCP — calendar, email integrations)
-      # LITELLM_API_KEY: set in .env.secrets
+      # OPENAI_API_KEY: set in .env.secrets
+      # LLM_SPEND_URL: set in .env.secrets (optional — spend proxy for budget-check)
       # PUSHOVER_APP_TOKEN: set in .env.secrets
       # PUSHOVER_USER_KEY: set in .env.secrets
       # SMTP_HOST: set in .env.secrets
@@ -137,10 +138,10 @@ services:
       NODE_ENV: production
       CORE_API_URL: http://core-api:3000
       REDIS_URL: redis://redis:6379
-      LITELLM_URL: https://api.openai.com/v1
+      OPENAI_BASE_URL: https://api.openai.com/v1
       # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
       # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
-      # LITELLM_API_KEY: set in .env.secrets
+      # OPENAI_API_KEY: set in .env.secrets
     volumes:
       - ./config:/app/config:ro
     depends_on:
@@ -262,8 +263,8 @@ services:
       PORT: "3001"
       CORE_API_URL: http://core-api:3000
       WHISPER_URL: http://faster-whisper:8000
-      LITELLM_URL: https://api.openai.com/v1
-      # LITELLM_API_KEY: set in .env.secrets
+      OPENAI_BASE_URL: https://api.openai.com/v1
+      # OPENAI_API_KEY: set in .env.secrets
       # PUSHOVER_TOKEN: set in .env.secrets
       # PUSHOVER_USER: set in .env.secrets
     ports:

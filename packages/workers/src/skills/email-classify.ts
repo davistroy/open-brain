@@ -460,7 +460,7 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
           'Write a concise daily digest (3-5 paragraphs): volume highlights, ' +
           'actionable items by category, notable senders, patterns worth noting.'
 
-        summaryText = await this.llmGateway.completeByTask(prompt, 'synthesis', {
+        summaryText = await this.llmGateway.completeByTask(prompt, 'email_daily_digest', {
           maxTokens: 1024,
         })
       } catch (err) {
@@ -475,6 +475,7 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
     try {
       const captureBody = {
         content: `[Email Daily Digest] ${today}\n\n${summaryText}`,
+        capture_type: 'observation',
         source: 'email',
         source_metadata: {
           type: 'daily_digest',
