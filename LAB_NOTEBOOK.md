@@ -4059,3 +4059,35 @@ Top 3 categories after fix: Mint Mobile ($545.88 across 3 txn), Lex Ventures LLC
 **What to Watch:**
 - If PayPal adds new funding Type names, the `FUNDING_TYPES` set needs to grow. Low-churn — PayPal hasn't changed this format in years.
 - The 2 "User Initiated Withdrawal" rows are split Memo+Debit — current filter keeps the Debit, drops the Memo, which is correct (one row net, one informational).
+
+---
+
+### Entry 069 — G-C.1 sidecar deploy to homeserver
+
+**Date:** 2026-04-17
+**Tags:** `[deploy]` `[financial]` `[docker-sidecar]` `[g-c-1]`
+**Environment:** Homeserver (Unraid, Docker Compose); main at `db19e9b` locally, needs pull on homeserver (currently at `3c226e8` — 3 commits behind).
+
+**Objective:** Ship and validate the financial-ingest sidecar end-to-end: build the new `open-brain-financial-ingest` container on homeserver, drop a known-good CSV into `/mnt/user/appdata/open-brain/financial-inbox/`, run `--process-inbox`, and verify a capture lands in core-api.
+
+**Hypothesis:**
+- `docker compose build financial-ingest` produces a working image (Python 3.12 + bws CLI + requests + PyYAML).
+- `docker compose up -d financial-ingest` starts the container in `sleep infinity` state. Host cron is NOT added in this entry — that comes after manual smoke test succeeds.
+- `docker exec open-brain-financial-ingest python /app/financial-pipeline.py --status` imports cleanly and opens the SQLite DB at `/data/financial.db` (new, empty).
+- With one real CSV dropped into `/mnt/user/appdata/open-brain/financial-inbox/`, `--process-inbox` parses, formats a capture, POSTs to `https://brain.troy-davis.com/api/v1/captures`, receives 201, and moves the file to `processed/`.
+- Capture visible in `GET /api/v1/captures?limit=1` with `source="api"` and `source_metadata.source_provider="<expected>"`.
+
+**Rollback:** `docker compose down financial-ingest && docker image rm open-brain-financial-ingest` returns the host to pre-deploy state. No DB or config changes outside the sidecar's own named volume. If partial ingest corrupts captures, `POST /admin/reset-data` with the confirmation phrase can purge — but this is unlikely since each CSV becomes one capture, easy to delete individually by ID.
+
+**Pre-deploy notes:**
+- Homeserver `.env.secrets` has `OPENAI_API_KEY` but NOT `BWS_ACCESS_TOKEN`. The `--process-inbox` path does NOT need bws (bws is only for `--sync` Plaid flow). Sidecar will start fine; `--sync` would fail, not in scope for this deploy.
+- `plaid-config.yaml` sets `capture_api.url = https://brain.troy-davis.com/api/v1/captures` — external URL via Cloudflare Tunnel rather than `http://core-api:3000` internal. Follow-up: add env-var override for a shorter internal path. Not a blocker — Tunnel has been healthy all day.
+- `config/financial/plaid-config.yaml` present on homeserver (gitignored but populated).
+- Rate limiter `BYPASS_CALLERS` already includes `internal:financial-pipeline` (shipped in G-C.1).
+
+**Smoke-test CSV choice:** Amex `activity.csv` (834 txns, 46 categories, known-good from laptop smoke test). Largest / most-category-rich of the 6 — if this works, the others will too.
+
+**Follow-up once validated:**
+1. Drop the other 5 CSVs into the inbox (Chase, Truist × 2, Schwab × 3, HSA, PayPal), run `--process-inbox` again, confirm 5 more captures land.
+2. Host cron entry — Troy's call on cadence. Monthly seems right for most sources (bank statements are monthly); Amex/Chase exports are ad-hoc. Proposed: `0 6 * * *` check inbox daily, process whatever's there, move to `processed/`.
+3. Add internal-URL env override so the sidecar doesn't round-trip through Cloudflare.
