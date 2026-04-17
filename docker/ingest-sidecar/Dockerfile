@@ -2,11 +2,11 @@
 # Runs the financial-pipeline.py and (optionally) utility-pipeline.py scripts
 # against CSVs dropped into /inbox. Posts captures to the core-api.
 #
-# Designed to be exec'd into by host cron:
+# Exposes a stdlib HTTP trigger on :8080 (trigger_server.py) for core-api's
+# ingest-process worker to dispatch POST /process over the internal Docker
+# network with HMAC auth (INGEST_TRIGGER_SECRET). Host cron also exec's into
+# this container for scheduled batch runs:
 #   docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox
-#
-# Container sleeps forever by default. A long-lived container keeps image
-# pull + startup cost out of the cron path.
 
 FROM python:3.12-slim
 
@@ -70,9 +70,16 @@ COPY scripts/utility-pipeline.py  /app/utility-pipeline.py
 # Shared Python helpers (capture_api, ingest_router when CS3 lands)
 COPY scripts/lib /app/lib
 COPY config /app/config
+# HTTP trigger server (stdlib) — core-api dispatches POST /process here via
+# INGEST_TRIGGER_SECRET HMAC. Serializes pipeline runs via fcntl file lock.
+COPY docker/ingest-sidecar/trigger_server.py /app/trigger_server.py
 
 # Directories the script writes to at runtime. Named volumes mount over these.
 RUN mkdir -p /inbox /inbox/processed /data
 
-# Long-lived container; host cron exec's into this to run the pipelines.
-CMD ["sleep", "infinity"]
+# Trigger server listens on :8080; compose networks expose it to core-api.
+EXPOSE 8080
+
+# Long-lived: runs the HTTP trigger server. Host cron still exec's into the
+# container for scheduled runs — those bypass the HTTP path and go direct.
+CMD ["python", "/app/trigger_server.py"]
