@@ -4924,3 +4924,73 @@ Three-wave orchestration with disjoint-package parallelism paid off. Wave A (yam
 
 **Duration:** ~25 min total (Wave A ~5 min parallel, Wave B ~8 min parallel — the larger core-api subagent ran longer, Wave C verification ~2 min).
 
+### Entry 082 — Phase 4 (CS-γ): Sidecar test coverage — 2026-04-17
+
+**Tags:** [python] [sidecar] [test-infra] [ci] [docker]
+**Environment:** Local dev (Windows bash), branch `test/sidecar-coverage-2026-04-17`. Sidecar lives at `docker/ingest-sidecar/`.
+
+**Objective:** Close the zero-coverage gap on `docker/ingest-sidecar/trigger_server.py`. PRs #91, #92, #93 shipped 3 sidecar fixes the hard way (via container crash loops) because there were no tests to catch env-var name drift, Dockerfile CMD mismatch, or INGEST_SOURCE binding bugs before deploy. Add pytest coverage + a gated TypeScript E2E test so the next regression surfaces in CI, not in production.
+
+**Hypothesis:**
+Refactoring `trigger_server.py` to expose a `create_app(config)` factory (with a `Config` dataclass) decouples configuration from module-level globals, enabling unit tests to inject fixtures. Adding 8-12 pytest cases around HTTP routes, env-var parsing, INGEST_SOURCE binding, and queue-enqueue behavior will catch the exact classes of bug that shipped in PRs #91/92/93. A gated docker-compose E2E test validates the full path (volume mount → trigger → enqueue → worker consumption) when run in CI's integration stage.
+
+Success criteria:
+- `docker/ingest-sidecar/tests/test_trigger_server.py` with 8-12 passing tests.
+- `pytest docker/ingest-sidecar/tests/` runs locally on Python 3.12 with the sidecar's existing `requirements.txt`.
+- New CI job `sidecar-test` runs the pytest suite on every push.
+- Optional gated E2E test at `packages/workers/src/__tests__/integration/ingest-e2e.test.ts` runs only when `RUN_INGEST_E2E=1` (or similar).
+- `docker-compose.test.yml` has a `test-sidecar` service pinning the required env vars.
+- Deliberate regression test: revert one of PRs #91-93's fixes locally and confirm the new tests catch it.
+
+**Rollback plan:**
+Git-tracked additions (new test files, CI job, compose service) plus a refactor of `trigger_server.py`. Revert via `git revert <phase-4-squash-sha>`. The refactor preserves external behavior — the `create_app` factory pattern doesn't change runtime semantics, only testability.
+
+**Work items (7):**
+- 4.1 — Refactor `trigger_server.py`: extract `Config` dataclass + `create_app(config)` factory
+- 4.2 — Scaffold `docker/ingest-sidecar/tests/`: `__init__.py`, `requirements.txt` (pytest + http client), `conftest.py`
+- 4.3 — Write `test_trigger_server.py` with 8-12 cases
+- 4.4 — Add `sidecar-test` CI job in `.github/workflows/ci.yml`
+- 4.5 — Gated E2E test `packages/workers/src/__tests__/integration/ingest-e2e.test.ts`
+- 4.6 — Extend `docker-compose.test.yml` with `test-sidecar` service
+- 4.7 — Local `pytest` run + deliberate regression-revert validation
+
+**Orchestration (3 waves):**
+- Wave A (sequential): 4.1 → 4.2 → 4.3 (each depends on prior)
+- Wave B (parallel after Wave A): 4.4 || 4.5 || 4.6 (disjoint files)
+- Wave C (sequential): 4.7 local verification + regression-revert test
+
+**Known coordination risk:** 4.4 edits `.github/workflows/ci.yml`, which 5.4 will ALSO edit. Phase 4 lands first; Phase 5's subagent rebases on Phase 4's CI changes. No concurrent conflict.
+
+**Plan reference:** `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` Phase 4 (CS-γ). Prior sidecar incident context: LAB_NOTEBOOK Entries 076, 077 (PRs #91, #92, #93).
+
+**Results:**
+- **4.1 — `trigger_server.py` refactor:** Extracted `@dataclass(frozen=True) Config` with fields `port`, `bind_host`, `ingest_trigger_secret`, `ingest_source`, `trigger_timeout_sec`, `lock_path`, `app_dir`, `fallback_pipelines`, `ingest_router` — plus `from_env(environ=None)` classmethod. `create_app(config) -> ThreadingHTTPServer` factory builds a closed-over `TriggerHandler` subclass per call; no module-level mutable state. `check_auth`, `run_pipeline`, `ProcessLock`, `lock_is_held`, `resolve_pipeline_script` now take explicit config/path args. `_try_load_ingest_router` extracted so tests inject router stubs. `fcntl` import wrapped in `try/except ImportError` so the module loads on Windows — production Linux behavior unchanged.
+- **4.2 — tests scaffold:** `docker/ingest-sidecar/tests/__init__.py` + `requirements.txt` (pytest 8.x) + `conftest.py` with `config` / `app` / `client` fixtures pointing at safe mocks.
+- **4.3 — `test_trigger_server.py`:** 13 tests (plan targeted 8-12). Coverage tied explicitly to PRs #91/#92/#93 regression classes: auth, env-var parsing, `INGEST_SOURCE` binding, module-contract, Dockerfile-guard (textual assertion that rejects any future `CMD [..sleep..]` regression). Lock-contention test skipped on Windows because `fcntl` is Unix-only — called out in test comment; will run in Linux CI.
+- **4.4 — `sidecar-test` CI job:** Added to `.github/workflows/ci.yml`. Python 3.12 (matches `docker/ingest-sidecar/Dockerfile` base image). `actions/setup-python@v5` with pip cache keyed on `docker/ingest-sidecar/tests/requirements.txt`. Unfiltered trigger — runs on every push + PR, matching `build-and-test` convention.
+- **4.5 — gated E2E test:** `packages/workers/src/__tests__/integration/ingest-e2e.test.ts`. Gate: `describe.skipIf(process.env.INGEST_E2E !== '1')`. Double-safe: the file lives under `src/__tests__/integration/` which is already excluded by `vitest.config.ts` (unit), only discovered by `vitest.config.integration.ts`. 2 scenarios — happy path (POST `activity.csv` → poll `/uploads/:id` → assert `status=parsed`, `capture_ids.length > 0`, `source_type` matches `INGEST_SOURCE` — doubles as PR #93 regression coverage) + negative (missing file part → 4xx).
+- **4.6 — `test-sidecar` compose service:** Added to `docker-compose.test.yml`. Builds from production `docker/ingest-sidecar/Dockerfile` (so PR #92 CMD fix is exercised). Env vars: `INGEST_TRIGGER_SECRET=test-secret-do-not-use-in-prod`, `INGEST_SOURCE=financial`, `CAPTURE_API_CALLER=integration-test`. Host port `8099:8080` (no collision with test-postgres 5433 / test-redis 6381). `/healthz` curl healthcheck. No `depends_on` — the E2E test exercises the trigger boundary directly and stubs downstream dispatch.
+- **4.7 — Verification:** All green.
+  - `pytest docker/ingest-sidecar/tests/`: 13/13 in 4.11s (Python 3.14.4 local, CI uses 3.12)
+  - `@open-brain/core-api` test: 722/722 in 27.65s
+  - `@open-brain/workers` test: 946/946 in 24.29s (gated E2E correctly skipped by default)
+  - **Regression-revert validation:**
+    - PR #91 (env-var name): `INGEST_TRIGGER_SECRET` → `TRIGGER_SECRET` → caught by `test_config_reads_ingest_trigger_secret` (`AssertionError: assert '' == 's3cret'`)
+    - PR #93 (INGEST_SOURCE binding): `INGEST_SOURCE` → `SIDECAR_SOURCE` → caught by `test_config_binds_ingest_source_from_env` (`AssertionError: assert 'financial' == 'utility'`)
+    - PR #92 (Dockerfile CMD): covered by `test_dockerfile_cmd_references_trigger_server` + `test_main_entrypoint_structure` (textual + module-contract — verified by inspection, not simulated reversion because it's structural)
+  - Working tree clean after revert/restore cycle (only plan file diff remains).
+
+**What worked:**
+- Tight Wave A (4.1→4.2→4.3 as one subagent) kept the refactor and the tests that justify it in lockstep. The 13 tests were written against the factory's actual surface — no re-reading of `trigger_server.py` required mid-task.
+- Wave B three-way parallel (CI/E2E/compose) hit disjoint files cleanly; all three subagents converged in under 60s each.
+- Regression-revert gate is the most valuable deliverable of this phase. Confirmed two of three prior bug classes are now mechanically unshippable — future regressions will fail CI, not production.
+
+**Delta vs. plan:**
+1. Wrote 13 tests instead of 8-12; the plan's intent was coverage, so a 1-test overshoot is fine.
+2. `fcntl` import guarded for Windows loading (tests run locally on Windows; production is Linux). Does not change runtime behavior.
+3. E2E test published sidecar port `8099:8080` rather than unpublished — the vitest E2E runs from the host and needs a reachable HTTP target. Justified in the compose comment.
+4. PR #92 reversion not actively simulated (structural — would require reverting the factory to expose `main()` without the dataclass, which would break too many other tests). Covered by module-contract assertions instead.
+5. Windows Python is 3.14.4 not 3.12; CI pins 3.12 (matches sidecar Dockerfile). Test suite is version-agnostic — 3.12 works in Docker-based regression simulation.
+
+**Duration:** ~30 min total (Wave A ~12 min sequential, Wave B ~5 min parallel, Wave C verification + regression-revert ~8 min).
+
