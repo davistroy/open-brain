@@ -4727,6 +4727,49 @@ All three would have been caught by an integration test that actually built + ex
 
 **Status:** COMPLETE for this deploy cycle. 7 post-merge checklist items + 3 deploy-discovered gaps resolved in one session. Homeserver running `09ac073`. 13 containers healthy. End-to-end upload verified. Autonomy round-trips. ms_token_cache stale row deleted with recoverable backup. utility-ingest cron installed for tomorrow's 6:30 AM first run.
 
+---
+
+### Entry 078 — Tech debt cleanup plan authored (ready for execution)
+
+**Date:** 2026-04-17
+**Tags:** [planning] [decision]
+**Environment:** laptop — main at `0d64d38` (post-PR #94); homeserver live at `09ac073` (Waves 2026-04-17 fully deployed).
+**Status:** PLAN READY — awaiting `/implement-plan --input IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` to begin execution.
+
+**Context.** After PR #88 merge + homeserver deploy (Entry 077), I surveyed the remaining tech debt. Invoked `/ultra-plan` with 7 initial items + invitation to discover follow-ups. Investigation verified actual code state for each item (reading files, running greps, reproducing builds) rather than trusting the open-items list. Findings:
+- Item 1 (FileUploadStatus) confirmed real — web has `'completed'` literal, DB/Drizzle/Zod all have `'parsed'`. Plus adjacent drift: `IngestSourceType` declares 6 values, Zod accepts 2.
+- Item 3 confirmed real — and a sibling defect discovered at `packages/workers/src/skills/email-compose.ts:28` (same hardcoded Anthropic model literal).
+- Item 4 confirmed — but the bug is in the TS mapper `toPositionsRecord`, not the Python pipeline. The prior CS4b.5+6 subagent's assumption "per-position gain fields not emitted" was wrong; Python DOES emit them.
+- Item 5 NO LONGER REPRODUCES — `pnpm --filter @open-brain/web build` completes cleanly in 9.24s (PWA precache 32 entries). LAB_NOTEBOOK entries 074/075 claim is stale.
+- Item 7 scope narrower than CLAUDE.md claims — `pnpm why punycode --prod` returns empty; only dev-dep path via `vitest→jsdom→whatwg-url→tr46→punycode`. The "psl via @slack/bolt or BullMQ" bullet in CLAUDE.md is wrong.
+
+**Plan structure.** 5 phases mapping to 5 ultra-plan change sets:
+- **Phase 1 — CS-δ** Test-infra stability (prerequisite for reliable CI; 20 min, 12 LOC).
+- **Phase 2 — CS-α** Contract drift fix + prevention (Items 1, 4 + F2 drift-guard; 60 min, ~120 LOC).
+- **Phase 3 — CS-β** LLM model alias resolution (Item 3 + sibling; 75 min, ~110 LOC, new `resolveTaskModel` helper).
+- **Phase 4 — CS-γ** Sidecar test coverage (Items 2 + F1 e2e; 2.5 hr, ~450 LOC, new Python test harness + gated vitest e2e).
+- **Phase 5 — CS-ε** Stale-docs cleanup (Items 5, 7 + F3; 45 min, ~60 LOC in docs).
+
+Phases 2/3/4 can ship as 3 parallel PRs once Phase 1 lands (they touch disjoint packages). Phase 5 requires 1-4 merged first so docs reflect final state.
+
+**Plan file:** `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` at repo root. Includes full work-item breakdown with PENDING statuses, risk register, parallelization matrix, success metrics, traceability table. Flagged OUT OF SCOPE: F4 `import type` experiment, Drizzle `pgEnum` tightening for `source_type`, LLMGatewayService integration for email-compose, comprehensive CLAUDE.md audit, Python lint/typecheck infrastructure.
+
+**State management for next session.**
+- Previous state file archived: `.implement-plan-state.json` → `.implement-plan-state.json.2026-04-17-waves-complete` (follows existing `.2026-04-16-refactor` convention).
+- No new state file yet — `/implement-plan --input IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` will initialize fresh.
+- Next session picks up at Phase 1.1.
+
+**Hypothesis for the plan.** Following the barrel-clobber discipline established during Waves 2026-04-17 (tight per-subagent scope fences + dedicated reconcilers + post-wave wiring verify), these 5 phases should land without the kind of deploy-discovered gaps that produced PRs #91/#92/#93. Phase 4 itself is designed to prevent that class of defect going forward (Python unit tests for sidecar + gated e2e integration test).
+
+**Rollback.** Each phase is one feature branch + one PR; reverting any single PR is cheap. The riskiest change is Phase 3's model-routing swap — mitigated by a post-deploy manual smoke of Compose-with-AI and the ability to rotate the tier alias back via config change only.
+
+**Open items carried forward (independent of this plan):**
+- Schwab per-position `gain_pct` per-position emission — needs verification during Phase 2 work. Python emits it in totals but may also emit per-position (position dict's explicit fields weren't fully enumerated during investigation).
+- F4 (Vite `import type` experiment) could make F2 obsolete; deferred as a separate experiment PR.
+- Pre-existing `admin-queue-clear.test.ts` and `slack-channel-routes.test.ts` test-mock completeness (Redis `.on()`, `.status`, `.connect()` stubs) — Phase 1 widens the timeout; deeper fix at the mock level is a belt-and-suspenders follow-up.
+
+**Status:** PLAN READY. Next action: clear context, then run `/implement-plan --input IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` to start Phase 1.
+
 
 
 
