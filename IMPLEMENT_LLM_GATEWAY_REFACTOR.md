@@ -80,6 +80,8 @@ summaryText = await this.llmGateway.completeByTask(prompt, 'synthesis', { maxTok
 summaryText = await this.llmGateway.completeByTask(prompt, 'email_daily_digest', { maxTokens: 1024 })
 ```
 
+**Result (A.2):** Rename applied at line 463 in `packages/workers/src/skills/email-classify.ts`; `'synthesis'` → `'email_daily_digest'`, prompt and options unchanged.
+
 ### A.3 Add `capture_type` to daily-digest capture body
 
 `packages/workers/src/skills/email-classify.ts:476-485`:
@@ -97,6 +99,8 @@ const captureBody = {
   },
 }
 ```
+
+**Result (A.3):** `capture_type: 'observation'` added as the second property (immediately after `content`, before `source`) in the `captureBody` object literal inside `generateAndPostSummary()`.
 
 ### A.4 Audit sibling skills for the same omission
 
@@ -131,6 +135,13 @@ Files inspected (all POSTs to `/api/v1/captures` under `packages/workers/src/ski
 **Checkpoint:** commit + run full workspace test suite. Deploy-ready but do NOT deploy yet — Phase A is safe to deploy alone, but we want to bundle with B+C+D.
 
 **Verification:** `pnpm --filter @open-brain/workers exec vitest run email-classify` passes. `pnpm -r test` still green.
+
+**Result (A.5):** Extended the existing `'posts daily summary as capture when not dry run'` test in `packages/workers/src/__tests__/email-classify.test.ts` (rather than adding a duplicate case) with two new assertions after the existing fetch-shape check:
+
+1. `llmGateway.completeByTask` was called with the literal task name `'email_daily_digest'` (not the legacy `'synthesis'` alias), plus the expected `maxTokens: 1024` option. The spy is retrieved from `makeSkill({ withLLM: true })`'s returned `llmGateway` handle.
+2. The `POST /api/v1/captures` fetch call's body parses to an object matching `{ capture_type: 'observation', source: 'email', source_metadata: { type: 'daily_digest', ... } }`, with `content` being a string starting with `[Email Daily Digest]`. The test now locates the capture POST by URL-suffix match against `fetch.mock.calls` so it is resilient to other fetches occurring in the same run.
+
+Targeted file result: `src/__tests__/email-classify.test.ts` — 16 tests passed (16 total). Full workers suite: 980 passed / 980 total across 49 test files. No other tests required changes; no regressions introduced. Only the test file was modified — no source under `packages/workers/src/skills/` was touched in this sub-step.
 
 ---
 
@@ -408,7 +419,7 @@ Open an issue with the failure mode; do not re-attempt without diagnosis.
 
 | Phase | Items | Status | Commit SHA |
 |---|---|---|---|
-| A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1 done; A.2–A.5 pending) | — |
+| A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1, A.4, A.2, A.3 done; A.5 pending) | — |
 | B | B.1 throw on unrouted, B.2 tests, B.3 grep check | Pending | — |
 | C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | Pending | — |
 | D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | Pending | — |
