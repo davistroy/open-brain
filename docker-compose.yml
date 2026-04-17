@@ -6,6 +6,7 @@ volumes:
   postgres_data:
   redis_data:
   whisper_model_cache:
+  financial_ingest_data:
 
 services:
   postgres:
@@ -332,6 +333,39 @@ services:
       core-api:
         condition: service_healthy
       web:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  # Python batch-ingest sidecar — hosts financial-pipeline.py + utility-pipeline.py.
+  # Long-lived container; host cron shells in with `docker exec` to run tasks.
+  # Replaces the per-script deployment on open-brain-vm (G-C.0 decision: Python
+  # sidecar on homeserver, not TS rewrite).
+  financial-ingest:
+    build:
+      context: .
+      dockerfile: docker/financial-ingest/Dockerfile
+    image: open-brain-financial-ingest
+    container_name: open-brain-financial-ingest
+    env_file:
+      - .env.secrets
+    environment:
+      # BWS_ACCESS_TOKEN set in .env.secrets — required for bws secret list
+      FINANCIAL_INBOX_DIR: /inbox
+      FINANCIAL_PIPE_DIR: /data
+      FINANCIAL_CONFIG_DIR: /app/config/financial
+      TZ: America/New_York
+    volumes:
+      # Host inbox — drop CSVs here and they'll be processed on next cron run.
+      # Matches backup-path convention under /mnt/user/appdata on Unraid host.
+      - /mnt/user/appdata/open-brain/financial-inbox:/inbox
+      # SQLite DB + any future sidecar state
+      - financial_ingest_data:/data
+      # Config (plaid-config.yaml, merchants.yaml) read-only
+      - ./config:/app/config:ro
+    depends_on:
+      core-api:
         condition: service_healthy
     networks:
       - open-brain

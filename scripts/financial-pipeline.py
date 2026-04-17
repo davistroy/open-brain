@@ -20,7 +20,7 @@ Cron (daily 6:30 AM):
     30 6 * * * cd ~/open-brain && venv/bin/python scripts/financial-pipeline.py --sync --daily-summary >> ~/logs/financial-pipeline.log 2>&1
 """
 
-import argparse, csv, json, logging, re, sqlite3, subprocess, sys, time
+import argparse, csv, json, logging, os, re, sqlite3, subprocess, sys, time
 from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
@@ -38,10 +38,15 @@ logging.basicConfig(
 log = logging.getLogger("financial-pipeline")
 
 # --- Paths & constants ---
-PIPE_DIR = Path.home() / ".financial-pipeline"
+# All directory paths accept env-var overrides so the same script works in
+# both the VM environment (home-dir defaults) and the Docker sidecar where
+# paths are mounted at known locations.
+PIPE_DIR = Path(os.environ.get("FINANCIAL_PIPE_DIR", str(Path.home() / ".financial-pipeline")))
 DB_PATH = PIPE_DIR / "financial.db"
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "financial" / "plaid-config.yaml"
-MERCHANTS_PATH = Path(__file__).resolve().parent.parent / "config" / "financial" / "merchants.yaml"
+CONFIG_DIR_ENV = os.environ.get("FINANCIAL_CONFIG_DIR")
+CONFIG_BASE = Path(CONFIG_DIR_ENV) if CONFIG_DIR_ENV else Path(__file__).resolve().parent.parent / "config" / "financial"
+CONFIG_PATH = CONFIG_BASE / "plaid-config.yaml"
+MERCHANTS_PATH = CONFIG_BASE / "merchants.yaml"
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -1368,7 +1373,7 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         log.warning(f"Brain unreachable: {e}")
 
 
-INBOX_DIR = Path.home() / "financial-inbox"
+INBOX_DIR = Path(os.environ.get("FINANCIAL_INBOX_DIR", str(Path.home() / "financial-inbox")))
 PROCESSED_DIR = INBOX_DIR / "processed"
 
 
@@ -1476,6 +1481,499 @@ def _parse_401k_pdf(filepath: Path) -> Optional[dict]:
         "year": year,
         "raw_text": text[:2000],
     }
+
+
+# ── Bank / credit-card CSV parsers (G-C.1) ──────────────────────────────────
+#
+# All five parsers return the same result shape so downstream aggregation +
+# capture formatting is uniform:
+#
+#   {
+#     "source": "amex" | "chase" | "truist" | "schwab" | "hsa",
+#     "account_id": str,                               # last-4 or mask from filename/header
+#     "date_range": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"},
+#     "total_debit": float,                            # money OUT (spend)
+#     "total_credit": float,                           # money IN (payments, refunds, deposits)
+#     "net": float,                                    # credit − debit
+#     "transaction_count": int,
+#     "by_category": {name: {"count": int, "amount": float}, ...},
+#     "top_transactions": [{"date", "description", "amount", "category"}, ...],
+#     "source_file": str,
+#   }
+#
+# `amount` in by_category and top_transactions is always the absolute spend
+# value so sorting is meaningful regardless of sign convention. Sign handling
+# is per-institution and lives inside each parser.
+
+
+def _read_csv_robust(filepath: Path, skip_lines: int = 0) -> Optional[list[dict]]:
+    """Read a CSV with encoding + dialect sniffing. Returns list of dicts or None."""
+    for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+        try:
+            with open(filepath, "r", encoding=enc, newline="") as f:
+                for _ in range(skip_lines):
+                    f.readline()
+                sample = f.read(4096)
+                f.seek(0)
+                for _ in range(skip_lines):
+                    f.readline()
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
+                except csv.Error:
+                    dialect = csv.excel
+                reader = csv.DictReader(f, dialect=dialect)
+                rows = list(reader)
+            if rows:
+                return rows
+        except (UnicodeDecodeError, csv.Error):
+            continue
+        except Exception as e:
+            log.error(f"Failed to read CSV {filepath.name}: {e}")
+            return None
+    return None
+
+
+def _parse_money(s: str) -> float:
+    """Parse a monetary string. Handles $, commas, and parentheses-for-negative.
+
+    Examples:
+      "$1,234.56"     -> 1234.56
+      "-$1,234.56"    -> -1234.56
+      "($137.00)"     -> -137.00
+      "25.07"         -> 25.07
+      ""              -> 0.0
+    """
+    if not s:
+        return 0.0
+    s = s.strip()
+    if not s:
+        return 0.0
+    is_paren_neg = s.startswith("(") and s.endswith(")")
+    if is_paren_neg:
+        s = s[1:-1]
+    clean = re.sub(r"[^\d.\-]", "", s)
+    if not clean or clean in ("-", ".", "-."):
+        return 0.0
+    try:
+        val = float(clean)
+    except ValueError:
+        return 0.0
+    return -val if is_paren_neg else val
+
+
+def _parse_mdy(s: str) -> Optional[str]:
+    """Parse MM/DD/YYYY or MM/DD/YYYY-prefixed date strings. Returns ISO YYYY-MM-DD or None.
+
+    Handles Schwab's "04/16/2026 as of 04/15/2026" form by taking the first date.
+    """
+    if not s:
+        return None
+    m = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", s.strip())
+    if not m:
+        return None
+    mm, dd, yyyy = m.groups()
+    try:
+        return f"{yyyy}-{int(mm):02d}-{int(dd):02d}"
+    except ValueError:
+        return None
+
+
+def _summarize_transactions(
+    source: str,
+    account_id: str,
+    txns: list[dict],
+    source_file: str,
+    top_n: int = 10,
+) -> dict:
+    """Given a list of normalized txn dicts, compute aggregates.
+
+    Each txn must have: date (ISO), description, amount (signed float — negative=debit),
+    category (str).
+    """
+    total_debit = 0.0
+    total_credit = 0.0
+    # by_category tracks BOTH sides so investment-account Sells/Dividends don't
+    # drop out of the breakdown. Spending-focused callers sort by debit; net
+    # callers sort by (credit − debit).
+    by_category: dict = defaultdict(lambda: {"count": 0, "debit": 0.0, "credit": 0.0})
+    dates = []
+    for t in txns:
+        amt = t["amount"]
+        cat = t["category"]
+        by_category[cat]["count"] += 1
+        if amt < 0:
+            total_debit += -amt
+            by_category[cat]["debit"] += -amt
+        elif amt > 0:
+            total_credit += amt
+            by_category[cat]["credit"] += amt
+        if t.get("date"):
+            dates.append(t["date"])
+
+    # Top debit transactions only (spend-focused)
+    debits = [t for t in txns if t["amount"] < 0]
+    debits.sort(key=lambda t: t["amount"])  # most negative first
+    top = [
+        {
+            "date": t["date"],
+            "description": (t["description"] or "")[:120],
+            "amount": round(-t["amount"], 2),
+            "category": t["category"],
+        }
+        for t in debits[:top_n]
+    ]
+
+    return {
+        "source": source,
+        "account_id": account_id,
+        "date_range": {
+            "start": min(dates) if dates else None,
+            "end": max(dates) if dates else None,
+        },
+        "total_debit": round(total_debit, 2),
+        "total_credit": round(total_credit, 2),
+        "net": round(total_credit - total_debit, 2),
+        "transaction_count": len(txns),
+        "by_category": {
+            k: {
+                "count": v["count"],
+                "debit": round(v["debit"], 2),
+                "credit": round(v["credit"], 2),
+            }
+            for k, v in by_category.items()
+        },
+        "top_transactions": top,
+        "source_file": source_file,
+    }
+
+
+def _parse_amex_csv(filepath: Path) -> Optional[dict]:
+    """Parse American Express activity CSV.
+
+    Sign convention: Amex `Amount` is POSITIVE for charges, NEGATIVE for refunds
+    and payments. We invert to internal convention (negative = outflow).
+
+    Header: Date,Description,Card Member,Account #,Amount,Extended Details,
+            Appears On Your Statement As,Address,City/State,Zip Code,Country,
+            Reference,Category
+    """
+    rows = _read_csv_robust(filepath)
+    if not rows:
+        log.error(f"Amex CSV {filepath.name} has no parseable rows")
+        return None
+
+    txns = []
+    account_mask = ""
+    for row in rows:
+        date = _parse_mdy(row.get("Date", ""))
+        desc = (row.get("Description") or "").strip()
+        category = (row.get("Category") or "Uncategorized").strip() or "Uncategorized"
+        raw_amt = _parse_money(row.get("Amount", ""))
+        account_mask = account_mask or (row.get("Account #") or "").strip()
+        if not date or not desc:
+            continue
+        # Amex sign inversion: positive = charge (debit), negative = credit
+        txns.append({
+            "date": date,
+            "description": desc,
+            "amount": -raw_amt,
+            "category": category,
+        })
+
+    if not txns:
+        return None
+
+    return _summarize_transactions(
+        source="amex",
+        account_id=account_mask or "unknown",
+        txns=txns,
+        source_file=filepath.name,
+    )
+
+
+def _parse_chase_csv(filepath: Path) -> Optional[dict]:
+    """Parse Chase credit-card activity CSV.
+
+    Sign convention: Chase `Amount` is NEGATIVE for charges, POSITIVE for
+    payments and refunds. Use as-is.
+
+    Header: Transaction Date,Post Date,Description,Category,Type,Amount,Memo
+    Account: derived from the filename (e.g., Chase2726_...).
+    """
+    rows = _read_csv_robust(filepath)
+    if not rows:
+        return None
+
+    m = re.match(r"chase(\d+)_", filepath.name, re.IGNORECASE)
+    account_mask = m.group(1) if m else "unknown"
+
+    txns = []
+    for row in rows:
+        date = _parse_mdy(row.get("Transaction Date") or row.get("Post Date", ""))
+        desc = (row.get("Description") or "").strip()
+        category = (row.get("Category") or "Uncategorized").strip() or "Uncategorized"
+        amount = _parse_money(row.get("Amount", ""))
+        if not date or not desc:
+            continue
+        txns.append({
+            "date": date,
+            "description": desc,
+            "amount": amount,
+            "category": category,
+        })
+
+    if not txns:
+        return None
+
+    return _summarize_transactions(
+        source="chase",
+        account_id=account_mask,
+        txns=txns,
+        source_file=filepath.name,
+    )
+
+
+def _parse_truist_csv(filepath: Path) -> Optional[dict]:
+    """Parse Truist checking/savings activity CSV.
+
+    Sign convention: Truist `Amount` uses ($x) notation for negative.
+    Already handled by `_parse_money`. Negative = outflow.
+
+    Header: Posted Date,Transaction Date,Transaction Type,Check/Serial #,
+            Full description,Merchant name,Category name,Sub-category name,
+            Amount,Daily Posted Balance
+    Account: from filename (e.g., acct_9675_...).
+    """
+    rows = _read_csv_robust(filepath)
+    if not rows:
+        return None
+
+    m = re.match(r"acct_(\d+)_", filepath.name, re.IGNORECASE)
+    account_mask = m.group(1) if m else "unknown"
+
+    txns = []
+    for row in rows:
+        date = _parse_mdy(row.get("Posted Date") or row.get("Transaction Date", ""))
+        desc = (row.get("Full description") or row.get("Merchant name") or "").strip()
+        category = (row.get("Category name") or "Uncategorized").strip() or "Uncategorized"
+        amount = _parse_money(row.get("Amount", ""))
+        if not date or not desc:
+            continue
+        txns.append({
+            "date": date,
+            "description": desc,
+            "amount": amount,
+            "category": category,
+        })
+
+    if not txns:
+        return None
+
+    return _summarize_transactions(
+        source="truist",
+        account_id=account_mask,
+        txns=txns,
+        source_file=filepath.name,
+    )
+
+
+def _parse_schwab_csv(filepath: Path) -> Optional[dict]:
+    """Parse Schwab brokerage transactions CSV (Contributory IRA, Simple IRA, etc.).
+
+    Sign convention: Schwab `Amount` is signed — negative for Buys/outflows,
+    positive for Sells/dividends/interest/deposits.
+
+    Header: Date,Action,Symbol,Description,Quantity,Price,Fees & Comm,Amount
+    Account: parsed from filename (e.g., Contributory_XXX252_Transactions_...).
+
+    `Action` is treated as the category (e.g., "Buy", "Sell", "Bank Interest",
+    "MoneyLink Transfer") — this is Schwab's own classification and is more
+    useful than the ticker symbol for category-level aggregation.
+    """
+    rows = _read_csv_robust(filepath)
+    if not rows:
+        return None
+
+    m = re.match(r"(.+?)_XXX(\d+)_Transactions", filepath.name, re.IGNORECASE)
+    if m:
+        account_type = m.group(1)
+        account_mask = f"{account_type}-{m.group(2)}"
+    else:
+        account_mask = filepath.stem
+
+    txns = []
+    for row in rows:
+        date = _parse_mdy(row.get("Date", ""))
+        action = (row.get("Action") or "Uncategorized").strip() or "Uncategorized"
+        symbol = (row.get("Symbol") or "").strip()
+        desc_raw = (row.get("Description") or "").strip()
+        desc = f"{action} {symbol} {desc_raw}".strip() if symbol else f"{action} {desc_raw}".strip()
+        amount = _parse_money(row.get("Amount", ""))
+        if not date:
+            continue
+        txns.append({
+            "date": date,
+            "description": desc,
+            "amount": amount,
+            "category": action,
+        })
+
+    if not txns:
+        return None
+
+    return _summarize_transactions(
+        source="schwab",
+        account_id=account_mask,
+        txns=txns,
+        source_file=filepath.name,
+    )
+
+
+def _parse_hsa_csv(filepath: Path) -> Optional[dict]:
+    """Parse HSA transactions CSV.
+
+    Sign convention: `Amount` is already signed — negative for withdrawals,
+    positive for deposits.
+
+    Header: Transaction Status,Effective Date,Posting Date,Payment Date,Type,
+            Description,Amount,Running Balance,Check Number,Claim Payment Method,
+            Claim Number
+    `Type` ("Deposit" / "Withdrawal") is used as the category.
+    """
+    rows = _read_csv_robust(filepath)
+    if not rows:
+        return None
+
+    txns = []
+    for row in rows:
+        # Only include posted (not pending) transactions
+        status = (row.get("Transaction Status") or "").strip().lower()
+        if status and status != "posted":
+            continue
+        date = _parse_mdy(row.get("Effective Date") or row.get("Posting Date", ""))
+        desc = (row.get("Description") or "").strip()
+        category = (row.get("Type") or "Uncategorized").strip() or "Uncategorized"
+        amount = _parse_money(row.get("Amount", ""))
+        if not date or not desc:
+            continue
+        txns.append({
+            "date": date,
+            "description": desc,
+            "amount": amount,
+            "category": category,
+        })
+
+    if not txns:
+        return None
+
+    return _summarize_transactions(
+        source="hsa",
+        account_id="hsa",
+        txns=txns,
+        source_file=filepath.name,
+    )
+
+
+def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
+    """Dispatch a CSV to the right parser by filename pattern.
+
+    Returns (source, result_dict) on success, or None if no parser matched.
+    Tried in specificity order; filename matching is case-insensitive.
+    """
+    name = filepath.name
+    lower = name.lower()
+
+    # Amex: exact filename (the only "activity.csv" we expect is Amex)
+    if lower == "activity.csv":
+        r = _parse_amex_csv(filepath)
+        return ("amex", r) if r else None
+
+    # Chase: starts with "chase" and contains "activity" in the filename
+    if lower.startswith("chase") and "activity" in lower:
+        r = _parse_chase_csv(filepath)
+        return ("chase", r) if r else None
+
+    # Truist: "acct_<digits>_..."
+    if re.match(r"acct_\d+_.+\.csv$", lower):
+        r = _parse_truist_csv(filepath)
+        return ("truist", r) if r else None
+
+    # Schwab brokerage transactions: "*Transactions_*.csv" with an IRA/account-type prefix
+    if "_transactions_" in lower and re.search(r"(contributory|simple_ira|designated_bene)", lower):
+        r = _parse_schwab_csv(filepath)
+        return ("schwab", r) if r else None
+
+    # HSA: filename starts with HSA (e.g., HSATransactionsAsOf_04172026.csv)
+    if lower.startswith("hsa"):
+        r = _parse_hsa_csv(filepath)
+        return ("hsa", r) if r else None
+
+    # Fallback: Amazon orders CSV (legacy path retained for the existing inbox contents)
+    if "amazon" in lower or "order" in lower:
+        return None  # handled by legacy Amazon branch in cmd_process_inbox
+
+    log.warning(f"No parser matched for CSV {name}")
+    return None
+
+
+def _format_bank_capture(result: dict) -> tuple[str, dict]:
+    """Format a parsed-bank result dict as (capture_content, source_metadata).
+
+    Keeps the capture small and human-readable. Category aggregates and top
+    transactions go into the content; full raw amounts go into metadata for
+    downstream wiki / brief synthesis.
+    """
+    src = result["source"]
+    acct = result["account_id"]
+    dr = result["date_range"]
+    period = f"{dr['start']} to {dr['end']}" if dr.get("start") else "unknown period"
+
+    lines = [
+        f"{src.title()} Activity — {acct} ({period})",
+        "",
+        f"Transactions: {result['transaction_count']}",
+        f"Spent:  ${result['total_debit']:,.2f}",
+        f"Income: ${result['total_credit']:,.2f}",
+        f"Net:    ${result['net']:,.2f}",
+    ]
+
+    if result["by_category"]:
+        lines.extend(["", "By category:"])
+        # Sort categories by total volume (debit + credit) descending so both
+        # spend-heavy and transfer-heavy categories surface on investment accts.
+        cats = sorted(
+            result["by_category"].items(),
+            key=lambda kv: kv[1]["debit"] + kv[1]["credit"],
+            reverse=True,
+        )
+        for cat, data in cats[:15]:
+            if data["credit"] > 0 and data["debit"] > 0:
+                line = f"  {cat}: {data['count']} txn, out ${data['debit']:,.2f} / in ${data['credit']:,.2f}"
+            elif data["credit"] > 0:
+                line = f"  {cat}: {data['count']} txn, in ${data['credit']:,.2f}"
+            else:
+                line = f"  {cat}: {data['count']} txn, out ${data['debit']:,.2f}"
+            lines.append(line)
+
+    if result["top_transactions"]:
+        lines.extend(["", "Top 10 charges:"])
+        for t in result["top_transactions"][:10]:
+            lines.append(f"  {t['date']}  ${t['amount']:>9,.2f}  {t['category']:<20}  {t['description']}")
+
+    content = "\n".join(lines)
+    meta = {
+        "type": f"{src}_activity",
+        "source_provider": src,
+        "account_id": acct,
+        "date_range": result["date_range"],
+        "total_debit": result["total_debit"],
+        "total_credit": result["total_credit"],
+        "net": result["net"],
+        "transaction_count": result["transaction_count"],
+        "by_category": result["by_category"],
+        "source_file": result["source_file"],
+    }
+    return content, meta
 
 
 def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
@@ -1686,6 +2184,21 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
                 log.error(f"Failed to post 401k capture — leaving {filepath.name} in inbox")
 
         elif ext == ".csv":
+            # First try the bank/credit-card router (Amex, Chase, Truist, Schwab, HSA).
+            # Falls through to the legacy Amazon parser only if filename doesn't match.
+            routed = _route_bank_csv(filepath)
+            if routed is not None:
+                _source, result = routed
+                content, meta = _format_bank_capture(result)
+                if _post_capture(cfg, content, meta):
+                    filepath.rename(PROCESSED_DIR / filepath.name)
+                    processed += 1
+                    log.info(f"{_source} CSV processed and moved to processed/")
+                else:
+                    log.error(f"Failed to post {_source} capture — leaving {filepath.name} in inbox")
+                continue
+
+            # Legacy Amazon orders fallback
             result = _parse_amazon_csv(filepath)
             if result is None:
                 log.error(f"Skipping {filepath.name} — parse failed (leaving in inbox)")
