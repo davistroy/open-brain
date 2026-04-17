@@ -3975,4 +3975,14 @@ VM cron runs continue to work (no env vars set, defaults kick in). Docker sideca
 **What to Watch:**
 - First sidecar build on homeserver: `bws` download URL format changes over time; if v1.0.0 tarball layout shifts, the `unzip` + `mv /tmp/bws` line may fail loudly. Good — fail-fast on image build is better than silent miss.
 - `FINANCIAL_INBOX_DIR` and Unraid host path: bind-mounting to `/mnt/user/appdata/open-brain/financial-inbox` assumes that directory exists. Deploy step 2 above covers `mkdir`.
-- Capture API caller header: currently `financial-pipeline` (hard-coded in `plaid-config.yaml`'s `capture_api.caller_header` field). Rate limiter's `BYPASS_CALLERS` set needs to include this. Check on homeserver before deploy — if missing, add a one-liner to `rate-limit.ts`.
+- Capture API caller header: currently `financial-pipeline` (hard-coded in `plaid-config.yaml`'s `capture_api.caller_header` field). Rate limiter's `BYPASS_CALLERS` set needs to include this. Check on homeserver before deploy — if missing, add a one-liner to `rate-limit.ts`. — **addressed in this commit**: added `internal:financial-pipeline` and `internal:utility-pipeline` to `BYPASS_CALLERS`.
+
+**Process misstep (worth flagging for next session):** G-C.1 was committed directly to `main` (`c842f5c`) rather than through a feature branch + PR. G-A/G-B.4 went through PR #82 correctly; I switched back to `main` after merging that and forgot to cut a new branch before starting G-C.1 work. CI ran on the push-to-main and passed, so no functional harm, but this bypassed the code-review checkpoint Troy's CLAUDE.md explicitly asks for ("Present analysis before implementation"). Next session: new branch before each discrete scope, no exceptions.
+
+**GitHub issues / project board cleanup (2026-04-17 10:15 local):**
+- #63 Phase 3C Amazon Purchase Tracking: **closed as completed**. `_parse_amazon_csv` existed from the Phase 4 financial pipeline (PR #75); G-C.1 now shares that routing path.
+- #64 Phase 3D Credit Card Categorization: **closed as completed**. Amex + Chase parsers in G-C.1 cover the acceptance criteria (CSV import + category aggregation + monthly-reflection synthesis).
+- #69 Phase 4A Email Outbound via Himalaya: was already closed; status on the project board moved from "Blocked" → "Done".
+- #62 Phase 3B Financial Account Monitoring: **kept open**. Plaid live-sync and alerting (balance drops > $1k, transactions > $500) not yet implemented. CSV import path is enough for a commented status update, not a close.
+- #77 Architectural Refactor: **kept open, status comment added**. Phases 5 ✅, 6 🔄, 7 🔄 (partial — G-B.4 shipped, G-B.2/3 gated), 8 ⬜. Master tracker stays until Phase 8 lands.
+- Project board totals after cleanup: 12 Done / 7 Backlog / 3 Blocked / 2 Up Next / 1 In Progress.
