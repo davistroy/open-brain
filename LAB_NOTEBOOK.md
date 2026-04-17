@@ -4618,6 +4618,50 @@ These are documented because a future pipeline change that adds per-position gai
 
 **Status:** READY FOR COMMIT — CS4b tip will be the next SHA on `feature/waves-2026-04-17`.
 
+---
+
+### Entry 076 — CS5 safe decommission (5 config/doc edits, Option B subset)
+
+**Date:** 2026-04-17
+**Tags:** [cleanup] [config] [decommission] [decision]
+**Environment:** laptop — feature/waves-2026-04-17 branch. Parent SHA before CS5: `b456ac4` (CS4b shipped).
+**Status:** READY FOR COMMIT.
+
+**Objective.** CS5 cleans up stale `LITELLM_*` naming and `.services.litellm.*` references left over from the LiteLLM proxy era. The code path already migrated to direct OpenAI API (`OPENAI_API_KEY` / `OPENAI_BASE_URL`) some time ago; config templates + docs had drift.
+
+**Option B scope (what's IN this commit):**
+- CS5.4 `.env.example` — `LITELLM_URL`/`LITELLM_API_KEY` → `OPENAI_API_KEY`/`OPENAI_BASE_URL`.
+- CS5.5 `deploy/.env.secrets.template` line 26 — `LITELLM_API_KEY=` → `OPENAI_API_KEY=` (NOTE: this was an active line under a stale name, not a deletable relic — so a rename not a removal).
+- CS5.6 `scripts/monthly-maintenance.sh` line 161 — `.services.litellm.status` → `.services.llm.status` (aligns with D22 rename already in effect).
+- CS5.7 `CLAUDE.md` line 193 — "passed via `LITELLM_API_KEY` env var" → "passed via `OPENAI_API_KEY` env var".
+- CS5.9 `MEMORY.md` — `ms_token_cache` whole-word grep returned only the filesystem path `~/.email-analyzer/ms_token_cache.json` (not a stale setting-key reference); NO-OP for that item. But as a bonus cleanup under the same decommission intent, fixed the stale memory entry `Env var LITELLM_API_KEY (name kept for backward compat)` → `Env vars: OPENAI_API_KEY and OPENAI_BASE_URL` to match the code's actual behavior.
+
+**Option B scope (what's DEFERRED post-merge):**
+- CS5.1 homeserver DB backup (`ms_token_cache` row to `/mnt/user/backup/openbrain/adhoc/`) — requires SSH.
+- CS5.2 homeserver DB DELETE — requires SSH; backup must run first.
+- CS5.3 local-laptop deletion of untracked `scripts/seed_email_auth.py` — not a git artifact; can be done anytime; deferred.
+- CS5.8 remote branch deletes (`feature/phases-0b-1a-0d`, `phase-3/ops-observability-wiki`, `claude/review-second-brain-starter-CvHPf`) — requires explicit Troy confirmation per the plan's preamble. 90-day GitHub ref retention gives a comfortable window.
+
+**Verification before commit.**
+- Critical check: did CS5.5's rename of `LITELLM_API_KEY=` → `OPENAI_API_KEY=` break the deploy contract? Grepped `packages/**/*.ts` for `process.env.LITELLM_API_KEY` — **zero matches**. All active code reads `OPENAI_API_KEY` / `OPENAI_BASE_URL` directly. The template line was stale-named-but-active; the rename aligns label with reality. No runtime impact.
+- `git diff --stat` confirms 4 files changed, 6 insertions/6 deletions — surgical.
+- No code files modified, no tests affected, tsc not re-run (no TS changes).
+
+**Rollback.** `git revert <commit>` restores every line. No DB changes in this commit, no branch deletions, no external-state mutations — fully reversible within the repo.
+
+**What Worked.**
+- Grepping `packages/**` for the env-var names BEFORE trusting the plan's assertion that they were stale. CS5.5's spec called for a removal; the actual state was an active line with a legacy label. A blind removal would have broken the deploy `.env.secrets.template` contract for anyone using it as a template. The verification saved ~30 min of debugging later.
+- Aligning `MEMORY.md` with the fresh reality rather than leaving the drift. Future sessions that hit that entry would believe the legacy names were still canonical.
+
+**Open items / follow-ups (not in this commit).**
+- CS5.1, CS5.2, CS5.3, CS5.8 carried forward to post-merge deploy checklist (documented in the PR body).
+- CS3.13 homeserver deploy (migration 0021 + sidecar compose) also post-merge.
+- The existing `@azure/msal-node` Vite externalization blocker remains pre-existing.
+- Pre-existing Windows ioredis hookTimeout flakes unchanged.
+
+**Status:** READY FOR COMMIT — CS5 tip will be the third (and final for this branch) SHA.
+
+
 
 
 

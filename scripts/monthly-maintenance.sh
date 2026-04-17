@@ -158,7 +158,7 @@ HEALTH=$(curl -sf "$CORE_API_URL/health" 2>&1 || echo '{"status":"unreachable"}'
 STATUS=$(echo "$HEALTH" | jq -r '.status' 2>/dev/null || echo "unknown")
 PG_STATUS=$(echo "$HEALTH" | jq -r '.services.postgres.status' 2>/dev/null || echo "?")
 REDIS_STATUS=$(echo "$HEALTH" | jq -r '.services.redis.status' 2>/dev/null || echo "?")
-LLM_STATUS=$(echo "$HEALTH" | jq -r '.services.litellm.status' 2>/dev/null || echo "?")
+LLM_STATUS=$(echo "$HEALTH" | jq -r '.services.llm.status' 2>/dev/null || echo "?")
 
 if [[ "$STATUS" == "healthy" ]]; then
   record pass "✅" "All services healthy (pg=$PG_STATUS redis=$REDIS_STATUS llm=$LLM_STATUS)"

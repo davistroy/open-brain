@@ -417,28 +417,28 @@ Five independent small acts that reduce clutter without touching hot paths. Each
 
 ### Work items
 
-- [ ] **CS5.1** Backup the DB row before delete:
+- [ ] **CS5.1** DEFERRED post-merge (Option B, requires homeserver SSH). Backup the DB row before delete:
   ```bash
   ssh homeserver 'sudo docker exec open-brain-postgres psql -U openbrain -d openbrain -tAc "SELECT value FROM app_settings WHERE key='\''ms_token_cache'\'';"' \
     > /tmp/ms_token_cache_backup_20260417.json
   ```
   Copy to a durable location (homeserver `/mnt/user/backup/openbrain/adhoc/`).
-- [ ] **CS5.2** Delete the row:
+- [ ] **CS5.2** DEFERRED post-merge (Option B). Delete the row:
   ```sql
   DELETE FROM app_settings WHERE key = 'ms_token_cache';
   ```
   Single row. `ms_token_cache_node` (the live one) untouched.
-- [ ] **CS5.3** Delete `scripts/seed_email_auth.py` — confirmed untracked locally. Remove from laptop. No git change needed (not tracked).
-- [ ] **CS5.4** `.env.example` — remove `LITELLM_URL=https://llm.k4jda.net` and `LITELLM_API_KEY=get-from-bitwarden`; replace with `OPENAI_API_KEY=get-from-bitwarden` + `OPENAI_BASE_URL=https://api.openai.com/v1`.
-- [ ] **CS5.5** `deploy/.env.secrets.template` — remove stale `LITELLM_API_KEY=` line (verify via grep first). Keep SMTP_* lines (nodemailer fallback is intentional, per Entry 066).
-- [ ] **CS5.6** `scripts/monthly-maintenance.sh:161` — `.services.litellm.status` → `.services.llm.status` (D22 rename, already in effect in code).
-- [ ] **CS5.7** `CLAUDE.md:193` — "passed via `LITELLM_API_KEY` env var" → "passed via `OPENAI_API_KEY` env var" (A63 reality).
-- [ ] **CS5.8** Git branch deletes (requires Troy confirmation before push):
+- [ ] **CS5.3** DEFERRED post-merge (Option B, not git-tracked so no PR artifact). Delete `scripts/seed_email_auth.py` — confirmed untracked locally. Remove from laptop. No git change needed (not tracked).
+- [x] **CS5.4** `.env.example` — remove `LITELLM_URL=https://llm.k4jda.net` and `LITELLM_API_KEY=get-from-bitwarden`; replace with `OPENAI_API_KEY=get-from-bitwarden` + `OPENAI_BASE_URL=https://api.openai.com/v1`. ✅ 2026-04-17
+- [x] **CS5.5** `deploy/.env.secrets.template` — remove stale `LITELLM_API_KEY=` line (verify via grep first). Keep SMTP_* lines (nodemailer fallback is intentional, per Entry 066). ✅ 2026-04-17 (renamed to OPENAI_API_KEY; the stale name was in active use under the old label — renaming is the correct fix)
+- [x] **CS5.6** `scripts/monthly-maintenance.sh:161` — `.services.litellm.status` → `.services.llm.status` (D22 rename, already in effect in code). ✅ 2026-04-17
+- [x] **CS5.7** `CLAUDE.md:193` — "passed via `LITELLM_API_KEY` env var" → "passed via `OPENAI_API_KEY` env var" (A63 reality). ✅ 2026-04-17
+- [ ] **CS5.8** DEFERRED post-merge (Option B, requires Troy confirmation). Git branch deletes:
   ```bash
   git push origin --delete feature/phases-0b-1a-0d phase-3/ops-observability-wiki claude/review-second-brain-starter-CvHPf
   ```
   Pre-check: `gh pr list --state all --search 'head:<branch>'` for each — if any have open/merged PRs, reference them in the comment and defer the delete. As of 2026-04-17: all 3 are stale with no associated open PRs.
-- [ ] **CS5.9** Memory housekeeping — `memory/MEMORY.md` grep for `ms_token_cache` (without `_node`); if stale references exist, update.
+- [x] **CS5.9** Memory housekeeping — `memory/MEMORY.md` grep for `ms_token_cache` (without `_node`); if stale references exist, update. ✅ 2026-04-17 (no-op for `ms_token_cache` — only filesystem path `~/.email-analyzer/ms_token_cache.json` matched, not a stale key ref. Bonus: updated stale `LITELLM_API_KEY (name kept for backward compat)` memory line to reflect actual `OPENAI_API_KEY` env var the code reads.)
 
 ### Acceptance criteria
 
