@@ -105,6 +105,12 @@ services:
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       GITEA_TOKEN: ${GITEA_TOKEN}
+      # wiki-ingest makes git commits from inside this container; env vars
+      # override lack of ~/.gitconfig and identify the bot author (A61).
+      GIT_AUTHOR_NAME: "Open Brain Bot"
+      GIT_AUTHOR_EMAIL: "bot@brain.troy-davis.com"
+      GIT_COMMITTER_NAME: "Open Brain Bot"
+      GIT_COMMITTER_EMAIL: "bot@brain.troy-davis.com"
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
       # COMPOSIO_API_KEY: set in .env.secrets (Composio MCP — calendar, email integrations)
       # OPENAI_API_KEY: set in .env.secrets
