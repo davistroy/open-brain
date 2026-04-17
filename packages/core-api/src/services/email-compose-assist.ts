@@ -2,10 +2,16 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { sql } from 'drizzle-orm'
 import {
   logger,
+  resolveTaskModel,
   runAgent,
   ServiceUnavailableError,
 } from '@open-brain/shared'
-import type { AgentTool, Database } from '@open-brain/shared'
+import type {
+  AgentTool,
+  ConfigService,
+  Database,
+  ResolvedTaskModel,
+} from '@open-brain/shared'
 
 // ============================================================
 // Types
@@ -52,10 +58,29 @@ export interface EmailComposeAssistResult {
  * circular workspace dependency (core-api does not depend on @open-brain/workers).
  */
 export class EmailComposeAssistService {
+  /**
+   * Resolved `{ model, tierKey }` for the `email_compose` task alias, looked
+   * up once at construction time via `config/ai-routing.yaml`. Caching here
+   * avoids a per-request config read on every compose call and makes model
+   * drift a startup-time failure instead of a request-time one.
+   */
+  private readonly resolvedModel: ResolvedTaskModel
+
   constructor(
     private db: Database,
     private anthropicClient: Anthropic | null,
-  ) {}
+    configService: ConfigService,
+  ) {
+    // Resolve the model for the `email_compose` task alias at INIT time.
+    // Fail loud on ModelResolverError — no silent fallback to a hardcoded
+    // default, because a silent fallback is exactly what landed the
+    // now-removed `'claude-sonnet-4-5-20250929'` literal in this file.
+    this.resolvedModel = resolveTaskModel(configService.get('ai'), 'email_compose')
+    logger.info(
+      { model: this.resolvedModel.model, tier: this.resolvedModel.tierKey },
+      '[email-compose-assist] resolved email_compose model',
+    )
+  }
 
   async compose(input: EmailComposeAssistInput): Promise<EmailComposeAssistResult> {
     if (!this.anthropicClient) {
@@ -71,7 +96,7 @@ export class EmailComposeAssistService {
     try {
       agentResult = await runAgent(SYSTEM_PROMPT, tools, userMessage, {
         client: this.anthropicClient,
-        model: 'claude-sonnet-4-5-20250929',
+        model: this.resolvedModel.model,
         maxIterations: 8,
         maxTokens: 4096,
         temperature: 0.3,

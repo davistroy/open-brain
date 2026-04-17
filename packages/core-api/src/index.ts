@@ -121,7 +121,7 @@ emailDraftService.setActivityFeedService(activityFeedService)
 
 // Email-compose AI-assist service — used by POST /api/v1/email/compose-draft.
 // Disabled gracefully if no Anthropic client (returns 503).
-const emailComposeAssistService = new EmailComposeAssistService(db, anthropicClient)
+const emailComposeAssistService = new EmailComposeAssistService(db, anthropicClient, configService)
 if (himalayaService.isConfigured) {
   logger.info('HimalayaService configured — outbound email enabled')
 } else {

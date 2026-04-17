@@ -92,6 +92,7 @@ task_routing:
   # Only human-facing quality-critical -> Anthropic API (PAID)
   weekly_brief: t2_quality
   governance: t2_quality
+  email_compose: t2_quality   # Outbound email drafting — synthesis-class reasoning for tone + structure
 
 monthly_budget:
   soft_limit_usd: 20

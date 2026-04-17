@@ -205,50 +205,59 @@ Both call sites hardcode `claude-sonnet-4-5-20250929`. Swap to tier-resolved loo
 
 ### Work items
 
-- [ ] **3.1** Edit `config/ai-routing.yaml`:
+- [x] **3.1** Edit `config/ai-routing.yaml`:
   - Add `email_compose: t2_quality` to `task_routing` (the t2_quality tier currently specifies `claude-sonnet-4-6` — a newer Sonnet than the hardcoded 4-5. This is a deliberate upgrade in alignment with the model_tiers canon).
   - Preserve the file's comment structure.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Item 3; ultra-plan CS-β step 1
-- [ ] **3.2** Create `packages/shared/src/services/model-resolver.ts` (~40 LOC):
+- [x] **3.2** Create `packages/shared/src/services/model-resolver.ts` (~40 LOC):
   - Export `resolveTaskModel(config: AIConfig, taskName: string): { model: string; tierKey: string }`.
   - Implementation: `const tierKey = config.task_routing[taskName]; if (!tierKey) throw new Error(...); const tier = config.model_tiers[tierKey]; if (!tier) throw new Error(...); return { model: tier.model, tierKey };`
   - Export from `packages/shared/src/index.ts`.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** ultra-plan CS-β step 2
-- [ ] **3.3** Add unit test `packages/shared/src/services/__tests__/model-resolver.test.ts`:
+- [x] **3.3** Add unit test `packages/shared/src/services/__tests__/model-resolver.test.ts`:
   - Stub config with `task_routing: { email_compose: 't2_quality' }`, `model_tiers: { t2_quality: { model: 'claude-sonnet-4-6', ... } }`.
   - Assert `resolveTaskModel(config, 'email_compose')` returns `{ model: 'claude-sonnet-4-6', tierKey: 't2_quality' }`.
   - Assert unmapped task name throws with a clear message.
   - Assert unmapped tier throws with a clear message.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** ultra-plan CS-β step 7
-- [ ] **3.4** Refactor `packages/core-api/src/services/email-compose-assist.ts`:
+- [x] **3.4** Refactor `packages/core-api/src/services/email-compose-assist.ts`:
   - Add `private configService: ConfigService` to constructor.
   - In `compose()`: `const { model } = resolveTaskModel(this.configService.get('ai'), 'email_compose')`.
   - Pass resolved `model` to `runAgent(...)` instead of the literal.
   - Remove the hardcoded `'claude-sonnet-4-5-20250929'`.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17 (resolved once at INIT into `this.resolvedModel`, passed to `runAgent` per-call; fails loud on `ModelResolverError` at construction — no silent fallback)
   - **Ref:** Item 3; ultra-plan CS-β step 3
-- [ ] **3.5** Wire `ConfigService` into `EmailComposeAssistService` in `packages/core-api/src/index.ts`:
+- [x] **3.5** Wire `ConfigService` into `EmailComposeAssistService` in `packages/core-api/src/index.ts`:
   - Locate the `new EmailComposeAssistService(...)` instantiation.
   - Pass `configService` as a new constructor arg.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17 (already-loaded `configService` singleton at line 30 passed as third arg at line 124)
   - **Ref:** ultra-plan CS-β step 4
-- [ ] **3.6** Refactor `packages/workers/src/skills/email-compose.ts`:
+- [x] **3.6** Refactor `packages/workers/src/skills/email-compose.ts`:
   - Add `configService: ConfigService` to the skill's LLMSkill options / init.
   - Replace the hardcoded model default (line 28) with `resolveTaskModel(configService.get('ai'), 'email_compose').model`.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Item 3; ultra-plan CS-β step 5
-- [ ] **3.7** Wire ConfigService into the EmailCompose skill in `packages/workers/src/main.ts`:
+- [x] **3.7** Wire ConfigService into the EmailCompose skill in `packages/workers/src/main.ts`:
   - Locate the skill registration.
   - Ensure `configService` is passed.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17 (main.ts already passed `configService` to `createSkillExecutionWorker`; pass-through added at the `EmailComposeSkill` instantiation in `jobs/skill-execution.ts`).
   - **Ref:** ultra-plan CS-β step 6
 - [ ] **3.8** Add unit tests for both refactored call sites:
   - `packages/core-api/src/__tests__/email-compose-assist.test.ts` (new or extended): stub `configService.get('ai')` with a fake tier, stub `runAgent` as a spy, call `service.compose()`, assert `runAgent` received the stubbed model string.
   - `packages/workers/src/__tests__/email-compose.test.ts` (extend existing): same pattern.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
+  - **Verification results (2026-04-17):**
+    1. `pnpm --filter @open-brain/shared build` — PASS (ESM + DTS build success, 132.75 KB / 241.23 KB).
+    2. `pnpm --filter @open-brain/shared test` — PASS, 16 files / **269 tests** (includes new `services/__tests__/model-resolver.test.ts`).
+    3. `pnpm --filter @open-brain/core-api exec tsc --noEmit` — PASS (no output, clean).
+    4. `pnpm --filter @open-brain/core-api test` — PASS, 42 files / **722 tests** (includes the 4 new `email-compose-assist` ConfigService DI tests).
+    5. `pnpm --filter @open-brain/workers exec tsc --noEmit` — PASS (no output, clean).
+    6. `pnpm --filter @open-brain/workers test` — PASS, 46 files / **946 tests** (includes the 5 new `LLMSkill` ConfigService DI tests).
+    7. `grep email_compose config/ai-routing.yaml` — PASS, line 95: `email_compose: t2_quality`.
+  - **Verdict:** PHASE_3_VERIFIED. No cross-package drift detected. No test mocks had to be updated for new interfaces.
   - **Ref:** Acceptance verification
 
 ### Acceptance criteria

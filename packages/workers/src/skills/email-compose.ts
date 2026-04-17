@@ -1,10 +1,16 @@
 import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import { logger, runAgent } from '@open-brain/shared'
+import { logger, runAgent, resolveTaskModel, ModelResolverError } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts, BaseResult } from './types.js'
+
+/**
+ * Task alias resolved at skill init via `resolveTaskModel()`.
+ * Routes through `task_routing.email_compose` in `config/ai-routing.yaml`.
+ */
+const EMAIL_COMPOSE_TASK = 'email_compose'
 
 // ============================================================
 // Types
@@ -24,7 +30,12 @@ export interface EmailComposeOptions {
   instruction: string
   /** Anthropic client instance (required for runAgent). Overrides class-level client. */
   anthropicClient?: Anthropic
-  /** Model to use for the agent. Default: 'claude-sonnet-4-5-20250929'. */
+  /**
+   * Optional model override. When omitted, the skill uses the model
+   * resolved at init from `resolveTaskModel(ai, 'email_compose')`.
+   * Explicit overrides are discouraged in production — prefer rotating
+   * the `t2_quality` tier in `config/ai-routing.yaml`.
+   */
   model?: string
   /** Max agent iterations. Default: 10. */
   maxIterations?: number
@@ -236,10 +247,43 @@ Always create the draft via the draft_email tool — do not just describe what y
  *
  * Uses runAgent() with Anthropic to compose and create email drafts.
  * Extends LLMSkill for access to anthropicClient and coreApiUrl.
+ *
+ * Model resolution: the agent's model is resolved at construction time
+ * via `resolveTaskModel(configService.get('ai'), 'email_compose')`. The
+ * resolved model string is cached on the instance and reused for every
+ * `execute()` call. Constructor throws `ModelResolverError` (fail loud)
+ * when `configService` is provided but the task cannot be resolved.
+ *
+ * When `configService` is omitted, the resolved model is null and
+ * callers must supply `options.model` explicitly at `execute()` time.
+ * This escape hatch exists for targeted unit tests of the tool builder;
+ * production callers (skill-execution worker) always pass the wired
+ * `ConfigService`.
  */
 export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailComposeResult> {
+  /** Resolved concrete model string (e.g. `claude-sonnet-4-6`). */
+  private readonly resolvedModel: string | null
+  /** Tier key the task resolved to (e.g. `t2_quality`). Logged for observability. */
+  private readonly resolvedTierKey: string | null
+
   constructor(opts: LLMSkillOpts) {
     super('email-compose', opts)
+
+    if (this.configService) {
+      // Fail loud on misconfiguration: callers wire ConfigService so resolution
+      // MUST succeed at init — silent fallback to a hardcoded model would mask
+      // ai-routing.yaml drift for weeks.
+      const resolved = resolveTaskModel(this.configService.get('ai'), EMAIL_COMPOSE_TASK)
+      this.resolvedModel = resolved.model
+      this.resolvedTierKey = resolved.tierKey
+      logger.info(
+        { task: EMAIL_COMPOSE_TASK, model: resolved.model, tierKey: resolved.tierKey },
+        '[email-compose] resolved task model at init',
+      )
+    } else {
+      this.resolvedModel = null
+      this.resolvedTierKey = null
+    }
   }
 
   async execute(options: EmailComposeOptions): Promise<EmailComposeResult> {
@@ -248,7 +292,18 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
     const coreApiUrl = options.coreApiUrl ?? this.coreApiUrl
     const anthropicClient = options.anthropicClient ?? this.anthropicClient
 
-    logger.info({ instruction: instruction.slice(0, 200) }, '[email-compose] starting')
+    // Prefer the init-time resolved model. `options.model` is a per-call
+    // override (discouraged in production; useful only for tool-level tests).
+    const model = options.model ?? this.resolvedModel
+    if (!model) {
+      throw new ModelResolverError(
+        `EmailComposeSkill cannot determine model: no configService was passed at construction and no options.model override was supplied at execute() time. ` +
+          `Wire ConfigService in main.ts (see workers/src/main.ts skill-execution registration).`,
+        EMAIL_COMPOSE_TASK,
+      )
+    }
+
+    logger.info({ instruction: instruction.slice(0, 200), model }, '[email-compose] starting')
 
     const tools = buildEmailComposeTools(this.db, coreApiUrl)
 
@@ -260,7 +315,7 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
         instruction,
         {
           client: anthropicClient ?? undefined,
-          model: options.model ?? 'claude-sonnet-4-5-20250929',
+          model,
           maxIterations: options.maxIterations ?? 10,
           maxTokens: 4096,
           temperature: 0.3,
@@ -325,6 +380,12 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
  *
  * Takes a natural language instruction (e.g. "Email John about the project update")
  * and uses an LLM agent with tools to compose and create a draft.
+ *
+ * NOTE: This helper does NOT wire a `ConfigService` — callers must supply
+ * `options.model` to bypass task-model resolution, or use the
+ * `EmailComposeSkill` class directly with a configured ConfigService.
+ * The skill-execution worker (`jobs/skill-execution.ts`) uses the class
+ * form with a wired ConfigService; this helper is legacy/ad-hoc only.
  */
 export async function executeEmailCompose(
   db: Database,

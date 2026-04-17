@@ -1,6 +1,6 @@
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database, PushoverService, LLMGatewayService, TemplateCache } from '@open-brain/shared'
+import type { Database, PushoverService, LLMGatewayService, TemplateCache, ConfigService } from '@open-brain/shared'
 
 // ============================================================
 // Shared result interface — all skills return at least durationMs
@@ -39,4 +39,10 @@ export interface LLMSkillOpts extends BaseSkillOpts {
   templates?: TemplateCache
   promptsDir?: string
   coreApiUrl?: string
+  /**
+   * Loaded ConfigService instance. Required by skills that resolve
+   * task-indexed model aliases via `resolveTaskModel()` at init time
+   * (e.g., EmailComposeSkill routes `email_compose` via ai-routing.yaml).
+   */
+  configService?: ConfigService
 }

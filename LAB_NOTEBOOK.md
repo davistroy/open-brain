@@ -4861,3 +4861,66 @@ Git-tracked changes only. Revert via `git revert <phase-2-squash-sha>` or branch
 **Duration:** ~20 min total (Wave A ~10 min parallel, Wave B ~10 min parallel, verification ~2 min).
 
 
+### Entry 081 — Phase 3 (CS-β): LLM model alias resolution via ConfigService — 2026-04-17
+
+**Tags:** [llm] [config] [refactor] [shared-package] [test]
+**Environment:** Local dev (Windows bash), branch `refactor/model-alias-resolution-2026-04-17`
+
+**Objective:** Eliminate the last two call sites (core-api `email-compose-assist.ts`, workers `email-compose.ts` skill) that pass model-alias strings (e.g., `'synthesis'`, `'email_compose'`) directly to the OpenAI SDK. Route them through a shared `model-resolver` that reads `config/ai-routing.yaml` via ConfigService — same pattern as `extract-entities.ts` and `llm-gateway.ts`.
+
+**Hypothesis:**
+Two call sites currently pass raw alias strings to `openai.chat.completions.create({ model: ... })`. OpenAI rejects these with 404 unless the alias happens to resolve to a real model on the proxy. Adding a shared `model-resolver` (reads `configService.get('ai').models[alias]` with a hard-fail on unknown alias) and routing both call sites through it will:
+- Unify the pattern across all LLM call sites (no more per-site config reads).
+- Guarantee that alias drift (missing entry in ai-routing.yaml) fails fast and loud at init, not at first request.
+- Add `email_compose: t2_quality` to `config/ai-routing.yaml` task_routing so the skill has a canonical home.
+
+Success criteria:
+- `packages/shared/src/services/model-resolver.ts` exported from shared's barrel; unit tests cover happy path, unknown-alias error, and missing-config error.
+- `email-compose-assist.ts` and `email-compose.ts` both consume resolved model names, not alias strings.
+- ConfigService wired in `packages/core-api/src/index.ts` and `packages/workers/src/main.ts` (if not already — audit first).
+- tsc clean, core-api + workers test suites green.
+
+**Rollback plan:**
+Git-tracked refactor. Revert via `git revert <phase-3-squash-sha>`. If the refactor introduces a 404 on an alias that used to "work" because the proxy silently rewrote it, roll back and investigate the proxy side first. No runtime state modified.
+
+**Work items (8):**
+- 3.1 — Add `email_compose: t2_quality` to `config/ai-routing.yaml` task_routing
+- 3.2 — Create `packages/shared/src/services/model-resolver.ts` + export from barrel
+- 3.3 — Unit test `packages/shared/src/services/__tests__/model-resolver.test.ts`
+- 3.4 — Refactor `packages/core-api/src/services/email-compose-assist.ts`
+- 3.5 — Wire ConfigService in `packages/core-api/src/index.ts` (audit: may already be wired)
+- 3.6 — Refactor `packages/workers/src/skills/email-compose.ts`
+- 3.7 — Wire ConfigService in `packages/workers/src/main.ts` (audit: may already be wired)
+- 3.8 — Unit tests for both call sites + verification (tsc + test suites)
+
+**Orchestration (3 waves):**
+- **Wave A** (parallel): 3.1 || 3.2+3.3
+- **Wave B** (parallel after Wave A lands + shared rebuilt): 3.4+3.5 (core-api subagent) || 3.6+3.7 (workers subagent)
+- **Wave C** (sequential): 3.8 tests + tsc + full test verification
+
+**Plan reference:** `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` Phase 3 (CS-β).
+
+**Results:**
+- **3.1 — `ai-routing.yaml`:** Added `email_compose: t2_quality` to `task_routing` under the "Only human-facing quality-critical → Anthropic API (PAID)" section, alongside `governance` and `weekly_brief`.
+- **3.2 — shared `model-resolver`:** `resolveTaskModel(config: AIConfig, taskName: string): { model, tierKey }` at `packages/shared/src/services/model-resolver.ts`. Pure, DI-driven. `ModelResolverError` class carries `taskName` for metrics. Re-exported via `packages/shared/src/services/index.ts`. Bundled into `dist/index.{js,d.ts}` by tsup (no per-service dist file — matches project pattern).
+- **3.3 — model-resolver tests:** 7 tests covering happy path, multi-alias-same-tier, unknown alias, missing tier, both maps missing, empty task_routing.
+- **3.4 — core-api `EmailComposeAssistService`:** Takes `ConfigService` as 3rd constructor arg. Resolves `email_compose` once at construction, caches `this.resolvedModel`. Per-request calls don't re-read config. `ModelResolverError` propagates from constructor — no silent fallback. **Key finding:** this call site uses Anthropic SDK via `runAgent` (not OpenAI). The removed hardcoded `'claude-sonnet-4-5-20250929'` literal now flows from `t2_quality` tier in ai-routing.yaml.
+- **3.5 — core-api `index.ts`:** No new wiring needed — `configService` was already loaded at startup (line 30) and passed down; only the third constructor arg was missing.
+- **3.6 — workers `EmailComposeSkill`:** Refactored via shared `LLMSkillOpts` — added `configService?: ConfigService` to the base skill options type so all LLM skills inherit the pattern. `LLMSkill` base class caches `this.configService`. `EmailComposeSkill` constructor calls `resolveTaskModel` once, caches `{ model, tierKey }`. `execute()` passes cached model to `runAgent`; fails loud on `ModelResolverError` at init and on missing config at execute time. Hardcoded `'claude-sonnet-4-5-20250929'` removed.
+- **3.7 — workers `main.ts`:** No new wiring needed. `createSkillExecutionWorker` already received `configService`. Fixed the thread-through gap at `packages/workers/src/jobs/skill-execution.ts` (where `EmailComposeSkill` was instantiated).
+- **3.8 — Verification:** All green.
+  - shared build + tests: 269/269 (16 files, +4 model-resolver)
+  - core-api tsc: 0 errors; tests: 722/722 (42 files, +4 email-compose-assist DI)
+  - workers tsc: 0 errors; tests: 946/946 (46 files, +5 LLMSkill DI)
+  - `grep email_compose config/ai-routing.yaml` → line 95 confirms alias present.
+
+**What worked:**
+Three-wave orchestration with disjoint-package parallelism paid off. Wave A (yaml + shared resolver, ~5 min) ran concurrently; Wave B (core-api vs workers, disjoint packages, ~4 min) ran concurrently; Wave C (verification) was fast because both packages' subagents wrote their own tests as part of their refactor. The shared `LLMSkillOpts` extension (3.6) was a nice bonus — all future LLM skills now inherit ConfigService DI without new boilerplate. No cross-package drift after shared rebuild.
+
+**Delta vs. plan:**
+1. The plan assumed core-api's `email-compose-assist.ts` used the OpenAI SDK. It actually uses the Anthropic SDK via `runAgent`. The resolver returns a concrete model string regardless of SDK flavor, so the refactor worked unchanged — but this is worth noting: `resolveTaskModel` is SDK-agnostic.
+2. Plan item 3.6 ("Refactor email-compose skill") implicitly required extending `LLMSkillOpts` (shared skill type). That's a minor shared-type surface change; no downstream skills broke because the field is `configService?: ConfigService` (optional). Documented inline.
+3. `ModelResolverError` class (not in plan spec) added so call sites can distinguish resolver failures from other errors.
+
+**Duration:** ~25 min total (Wave A ~5 min parallel, Wave B ~8 min parallel — the larger core-api subagent ran longer, Wave C verification ~2 min).
+

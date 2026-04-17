@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { Database } from '@open-brain/shared'
+import type { Database, ConfigService } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Mock DB
@@ -21,6 +21,45 @@ function makeDb(): Database {
       offset: vi.fn().mockResolvedValue([]),
     }),
   } as unknown as Database
+}
+
+// ---------------------------------------------------------------------------
+// Mock @open-brain/shared — intercept runAgent so no real Anthropic client is hit.
+// ---------------------------------------------------------------------------
+
+const runAgentMock = vi.fn()
+
+vi.mock('@open-brain/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@open-brain/shared')>()
+  return {
+    ...actual,
+    runAgent: runAgentMock,
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Fake ConfigService — returns a minimal AIConfig with task_routing + model_tiers.
+// ---------------------------------------------------------------------------
+
+function makeConfigService(taskModel: string, tierKey = 't2_quality'): ConfigService {
+  return {
+    get: vi.fn((slice: string) => {
+      if (slice === 'ai') {
+        return {
+          models: {},
+          task_routing: { email_compose: tierKey },
+          model_tiers: {
+            [tierKey]: {
+              model: taskModel,
+              provider: 'anthropic',
+              timeout_tier: 'extended',
+            },
+          },
+        }
+      }
+      return undefined
+    }),
+  } as unknown as ConfigService
 }
 
 // ---------------------------------------------------------------------------
@@ -182,5 +221,124 @@ describe('buildEmailComposeTools', () => {
 
       vi.unstubAllGlobals()
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EmailComposeSkill tests — model resolution via resolveTaskModel
+// ---------------------------------------------------------------------------
+
+describe('EmailComposeSkill model resolution', () => {
+  let EmailComposeSkill: typeof import('../skills/email-compose.js').EmailComposeSkill
+  let ModelResolverError: typeof import('@open-brain/shared').ModelResolverError
+
+  beforeEach(async () => {
+    vi.resetModules()
+    runAgentMock.mockReset()
+    const skillMod = await import('../skills/email-compose.js')
+    EmailComposeSkill = skillMod.EmailComposeSkill
+    const sharedMod = await import('@open-brain/shared')
+    ModelResolverError = sharedMod.ModelResolverError
+  })
+
+  it('resolves model from ai-routing.yaml task_routing at init and passes it to runAgent', async () => {
+    const db = makeDb()
+    const configService = makeConfigService('claude-sonnet-4-6')
+
+    runAgentMock.mockResolvedValue({
+      iterations: 1,
+      toolCalls: [],
+      finalMessage: { role: 'assistant', content: [] },
+      stopReason: 'end_turn',
+      totalTokens: { input: 10, output: 10 },
+    })
+
+    const skill = new EmailComposeSkill({
+      db,
+      configService,
+      anthropicClient: {} as never,
+    })
+
+    await skill.execute({ instruction: 'Email Alice about the deck' })
+
+    expect(runAgentMock).toHaveBeenCalledTimes(1)
+    const [, , , runAgentOpts] = runAgentMock.mock.calls[0]
+    expect(runAgentOpts.model).toBe('claude-sonnet-4-6')
+  })
+
+  it('uses the configured tier model even when options.model is omitted at execute time', async () => {
+    const db = makeDb()
+    const configService = makeConfigService('claude-opus-99')
+
+    runAgentMock.mockResolvedValue({
+      iterations: 1,
+      toolCalls: [],
+      finalMessage: { role: 'assistant', content: [] },
+      stopReason: 'end_turn',
+      totalTokens: { input: 10, output: 10 },
+    })
+
+    const skill = new EmailComposeSkill({
+      db,
+      configService,
+      anthropicClient: {} as never,
+    })
+
+    await skill.execute({ instruction: 'test' })
+
+    const [, , , runAgentOpts] = runAgentMock.mock.calls[0]
+    expect(runAgentOpts.model).toBe('claude-opus-99')
+  })
+
+  it('throws ModelResolverError at construction when task_routing lacks email_compose', () => {
+    const db = makeDb()
+    // Config without email_compose in task_routing
+    const brokenConfig = {
+      get: vi.fn((slice: string) => {
+        if (slice === 'ai') {
+          return {
+            models: {},
+            task_routing: {},
+            model_tiers: { t2_quality: { model: 'x', provider: 'anthropic', timeout_tier: 'extended' } },
+          }
+        }
+        return undefined
+      }),
+    } as unknown as ConfigService
+
+    expect(() => new EmailComposeSkill({ db, configService: brokenConfig })).toThrow(ModelResolverError)
+  })
+
+  it('throws at execute() when neither configService nor options.model is supplied', async () => {
+    const db = makeDb()
+    const skill = new EmailComposeSkill({ db, anthropicClient: {} as never })
+
+    await expect(skill.execute({ instruction: 'hi' })).rejects.toBeInstanceOf(ModelResolverError)
+    // runAgent should never be invoked on this failure path
+    expect(runAgentMock).not.toHaveBeenCalled()
+  })
+
+  it('allows options.model to override the init-time resolved model', async () => {
+    const db = makeDb()
+    const configService = makeConfigService('claude-sonnet-4-6')
+
+    runAgentMock.mockResolvedValue({
+      iterations: 1,
+      toolCalls: [],
+      finalMessage: { role: 'assistant', content: [] },
+      stopReason: 'end_turn',
+      totalTokens: { input: 10, output: 10 },
+    })
+
+    const skill = new EmailComposeSkill({
+      db,
+      configService,
+      anthropicClient: {} as never,
+    })
+
+    await skill.execute({ instruction: 'test', model: 'claude-override-xyz' })
+
+    const [, , , runAgentOpts] = runAgentMock.mock.calls[0]
+    expect(runAgentOpts.model).toBe('claude-override-xyz')
   })
 })
