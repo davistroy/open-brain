@@ -16,6 +16,7 @@ import {
   Brain,
   Upload,
   DollarSign,
+  LineChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { to: '/voice', label: 'Voice', icon: Mic },
   { to: '/email', label: 'Email', icon: Mail },
   { to: '/financial', label: 'Financial', icon: DollarSign },
+  { to: '/investments', label: 'Investments', icon: LineChart },
   { to: '/system', label: 'System', icon: Monitor },
 ];
 

@@ -2,13 +2,19 @@ import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { AutonomyCard } from '@/components/settings/AutonomyCard';
 import { skillsApi, triggersApi, settingsApi, configApi, voiceSessionApi, wikiApi } from '@/lib/api';
-import type { Skill, Trigger, AutonomyLevel, AIRoutingResponse, IntegrationStatus, WikiLintReport } from '@/lib/types';
+import type { Skill, Trigger, AIRoutingResponse, IntegrationStatus, WikiLintReport } from '@/lib/types';
 import {
   VersionUptimeSection,
   ServiceHealthSection,
   TriggersSection,
-  AutonomyLevelSection,
   EmailAllowlistSection,
   AIRoutingSection,
   VoiceSection,
@@ -48,10 +54,6 @@ export default function Settings() {
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [triggersLoading, setTriggersLoading] = useState(true);
   const [triggersError, setTriggersError] = useState<string | null>(null);
-
-  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel>('observe');
-  const [autonomyLoading, setAutonomyLoading] = useState(true);
-  const [autonomyError, setAutonomyError] = useState<string | null>(null);
 
   const [allowlist, setAllowlist] = useState<string[]>([]);
   const [allowlistLoading, setAllowlistLoading] = useState(true);
@@ -107,22 +109,6 @@ export default function Settings() {
       setTriggersError(err instanceof Error ? err.message : 'Failed to load triggers');
     } finally {
       setTriggersLoading(false);
-    }
-  }, []);
-
-  const loadAutonomy = useCallback(async () => {
-    setAutonomyError(null);
-    try {
-      const res = await settingsApi.get<string>('autonomy_level');
-      setAutonomyLevel(res.value as AutonomyLevel);
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('404')) {
-        setAutonomyLevel('observe');
-      } else {
-        setAutonomyError(err instanceof Error ? err.message : 'Failed to load autonomy level');
-      }
-    } finally {
-      setAutonomyLoading(false);
     }
   }, []);
 
@@ -213,8 +199,17 @@ export default function Settings() {
   }, []);
 
   const loadAll = useCallback(async () => {
-    await Promise.allSettled([loadHealth(), loadSkills(), loadTriggers(), loadAutonomy(), loadAllowlist(), loadAiRouting(), loadIntegrations(), loadVoiceStats(), loadWikiStats()]);
-  }, [loadHealth, loadSkills, loadTriggers, loadAutonomy, loadAllowlist, loadAiRouting, loadIntegrations, loadVoiceStats, loadWikiStats]);
+    await Promise.allSettled([
+      loadHealth(),
+      loadSkills(),
+      loadTriggers(),
+      loadAllowlist(),
+      loadAiRouting(),
+      loadIntegrations(),
+      loadVoiceStats(),
+      loadWikiStats(),
+    ]);
+  }, [loadHealth, loadSkills, loadTriggers, loadAllowlist, loadAiRouting, loadIntegrations, loadVoiceStats, loadWikiStats]);
 
   useEffect(() => {
     loadAll();
@@ -238,11 +233,6 @@ export default function Settings() {
     await loadTriggers();
   }
 
-  async function handleAutonomyChange(level: AutonomyLevel) {
-    await settingsApi.put('autonomy_level', level);
-    setAutonomyLevel(level);
-  }
-
   async function handleAddAllowlistEntry(entry: string) {
     const updated = [...allowlist, entry];
     await settingsApi.put('email_allowlist', updated);
@@ -258,7 +248,7 @@ export default function Settings() {
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Settings</h1>
         <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="gap-2">
@@ -267,27 +257,107 @@ export default function Settings() {
         </Button>
       </div>
 
-      <VersionUptimeSection version={health?.version} uptime_s={health?.uptime_s} loading={healthLoading} error={healthError} />
-      <Separator />
-      <ServiceHealthSection services={health?.services} loading={healthLoading} />
-      <Separator />
-      <TriggersSection triggers={triggers} loading={triggersLoading} error={triggersError} onAdd={handleAddTrigger} onDelete={handleDeleteTrigger} />
-      <Separator />
-      <AutonomyLevelSection level={autonomyLevel} loading={autonomyLoading} error={autonomyError} onChange={handleAutonomyChange} />
-      <Separator />
-      <EmailAllowlistSection entries={allowlist} loading={allowlistLoading} error={allowlistError} onAdd={handleAddAllowlistEntry} onRemove={handleRemoveAllowlistEntry} />
-      <Separator />
-      <AIRoutingSection routing={aiRouting} loading={aiRoutingLoading} error={aiRoutingError} />
-      <Separator />
-      <VoiceSection integrations={integrations} voiceStats={voiceStats} loading={voiceStatsLoading} />
-      <Separator />
-      <WikiSection skills={skills} integrations={integrations} wikiStats={wikiStats} loading={skillsLoading || wikiStatsLoading} />
-      <Separator />
-      <EmailConfigSection integrations={integrations} loading={integrationsLoading} />
-      <Separator />
-      <IntegrationsSection integrations={integrations} loading={integrationsLoading} error={integrationsError} />
-      <Separator />
-      <DangerZoneSection />
+      <Accordion type="multiple" defaultValue={["general"]} className="w-full">
+        {/*
+          General: site-wide status + preferences. Version/Uptime, Service Health,
+          Triggers (saved-search proactive alerts — UI-layer), and Danger Zone (admin
+          reset) live here because they don't fit a specific domain bucket.
+        */}
+        <AccordionItem value="general">
+          <AccordionTrigger className="text-lg">General</AccordionTrigger>
+          <AccordionContent className="space-y-8 pt-2">
+            <VersionUptimeSection
+              version={health?.version}
+              uptime_s={health?.uptime_s}
+              loading={healthLoading}
+              error={healthError}
+            />
+            <Separator />
+            <ServiceHealthSection services={health?.services} loading={healthLoading} />
+            <Separator />
+            <TriggersSection
+              triggers={triggers}
+              loading={triggersLoading}
+              error={triggersError}
+              onAdd={handleAddTrigger}
+              onDelete={handleDeleteTrigger}
+            />
+            <Separator />
+            <DangerZoneSection />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* AI Routing: model selection, budget, routing tiers. */}
+        <AccordionItem value="ai-routing">
+          <AccordionTrigger className="text-lg">AI Routing</AccordionTrigger>
+          <AccordionContent className="space-y-8 pt-2">
+            <AIRoutingSection
+              routing={aiRouting}
+              loading={aiRoutingLoading}
+              error={aiRoutingError}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Voice: voice capture / transcription controls. */}
+        <AccordionItem value="voice">
+          <AccordionTrigger className="text-lg">Voice</AccordionTrigger>
+          <AccordionContent className="space-y-8 pt-2">
+            <VoiceSection
+              integrations={integrations}
+              voiceStats={voiceStats}
+              loading={voiceStatsLoading}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Email: allowlist + pipeline config + Gmail/Outlook auth status. */}
+        <AccordionItem value="email">
+          <AccordionTrigger className="text-lg">Email</AccordionTrigger>
+          <AccordionContent className="space-y-8 pt-2">
+            <EmailAllowlistSection
+              entries={allowlist}
+              loading={allowlistLoading}
+              error={allowlistError}
+              onAdd={handleAddAllowlistEntry}
+              onRemove={handleRemoveAllowlistEntry}
+            />
+            <Separator />
+            <EmailConfigSection integrations={integrations} loading={integrationsLoading} />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Integrations: Composio connectors, Slack, webhooks, Wiki sync. */}
+        <AccordionItem value="integrations">
+          <AccordionTrigger className="text-lg">Integrations</AccordionTrigger>
+          <AccordionContent className="space-y-8 pt-2">
+            <IntegrationsSection
+              integrations={integrations}
+              loading={integrationsLoading}
+              error={integrationsError}
+            />
+            <Separator />
+            <WikiSection
+              skills={skills}
+              integrations={integrations}
+              wikiStats={wikiStats}
+              loading={skillsLoading || wikiStatsLoading}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/*
+          Autonomy: AutonomyCard is the canonical control (self-fetches/saves via
+          settings key 'autonomy_level'). It replaces the prior AutonomyLevelSection
+          — same backing setting, richer UX with upgrade confirmation.
+        */}
+        <AccordionItem value="autonomy">
+          <AccordionTrigger className="text-lg">Autonomy</AccordionTrigger>
+          <AccordionContent className="space-y-8 pt-2">
+            <AutonomyCard />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 }

@@ -349,25 +349,25 @@ Surface the three remaining new capabilities: outbound email (Himalaya), autonom
 
 ### Work items — Group 1 (can ship without waiting for snapshots)
 
-- [ ] **CS4b.1** Run `npx shadcn@latest add accordion dropdown-menu sheet` — more primitives for Settings accordion + Compose drawer.
-- [ ] **CS4b.2** `packages/web/src/pages/Email.tsx` extension + `components/EmailComposeDrawer.tsx` + `components/EmailDraftsList.tsx`:
+- [x] **CS4b.1** Run `npx shadcn@latest add accordion dropdown-menu sheet` — more primitives for Settings accordion + Compose drawer. ✅ 2026-04-17
+- [x] **CS4b.2** `packages/web/src/pages/Email.tsx` extension + `components/EmailComposeDrawer.tsx` + `components/EmailDraftsList.tsx`: ✅ 2026-04-17 (EmailDraftsList shipped as reusable component + tests; Email.tsx uses its pre-existing richer `DraftsTab` — EmailDraftsList wiring deferred, see Entry 075)
   - Current Email.tsx shows classified inbox; add a "Compose" button (opens Sheet) + a "Drafts" tab.
   - Compose Sheet: To/Cc/Subject/Body textarea. "LLM-assist" button calls existing `email-compose` skill to fill body based on a short prompt. "Save as draft" → POST `/api/v1/email/drafts`. "Send" → POST `/drafts/:id/send`.
   - Drafts tab: list from `/drafts?status=<x>`, click to reopen in Sheet.
   - ~500 LOC.
-- [ ] **CS4b.3** `components/settings/AutonomyCard.tsx`:
+- [x] **CS4b.3** `components/settings/AutonomyCard.tsx`: ✅ 2026-04-17
   - Segmented control (shadcn or custom with Button variants): observe / assist / advise / partner.
   - Description string per level + warning banner ("moving to `advise` lets Open Brain act on Slack threads without asking") when moving up.
   - Reads/writes existing `/api/v1/settings/autonomy_level`.
   - ~140 LOC.
-- [ ] **CS4b.4** `packages/web/src/pages/Settings.tsx` rework (W2.4):
+- [x] **CS4b.4** `packages/web/src/pages/Settings.tsx` rework (W2.4): ✅ 2026-04-17 (6 accordion sections, AutonomyCard replaces prior AutonomyLevelSection)
   - Collapse flat list into accordion sections: General / AI Routing / Voice / Email / Integrations / Autonomy.
   - Each section is a shadcn AccordionItem; existing settings move into appropriate ones. No behavior change, pure reorganization.
   - ~300 LOC (most is moving existing JSX into new scaffolding).
 
 ### Work items — Group 2 (data-gated, ship after ≥1 week of snapshots)
 
-- [ ] **CS4b.5** `packages/web/src/pages/Investments.tsx` + route + `components/AllocationDonut.tsx` + `components/NetWorthChart.tsx`:
+- [x] **CS4b.5** `packages/web/src/pages/Investments.tsx` + route + `components/AllocationDonut.tsx` + `components/NetWorthChart.tsx`: ✅ 2026-04-17 (hand-rolled SVG — no recharts dep; account picker uses URL-synced ?account=)
   - Add a minimal charting dep (`recharts` or similar — pick one, pin version). Alternatively: hand-rolled SVG for both if we want to keep deps minimal.
   - Account picker at top (segmented: Contributory / Simple IRA / Designated Bene Joint).
   - Allocation donut: reads latest `schwab_position_snapshot` captures, groups holdings by `asset_type`, renders donut sectors.
@@ -375,7 +375,7 @@ Surface the three remaining new capabilities: outbound email (Himalaya), autonom
   - Holdings table: per-holding symbol / qty / mkt_val / cost_basis / gain_dollar / gain_pct / asset_type.
   - Empty-state UX: "Drop a Schwab Balances or Positions CSV in Ingest to populate this page."
   - ~400 LOC.
-- [ ] **CS4b.6** `packages/web/src/lib/api.ts` — extend `capturesApi` or add `investmentsApi` for convenience queries (latest snapshot per account).
+- [x] **CS4b.6** `packages/web/src/lib/api.ts` — extend `capturesApi` or add `investmentsApi` for convenience queries (latest snapshot per account). ✅ 2026-04-17 (bundled with CS4b.5; `investmentsApi` composed on `capturesApi.list({ source_provider: 'schwab' })` client-side)
 
 ### Acceptance criteria
 

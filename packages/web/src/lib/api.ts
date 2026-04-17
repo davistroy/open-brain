@@ -921,3 +921,251 @@ export const ingestApi = {
     })
   },
 }
+
+// ---------- Investments API (CS4b.5) ----------
+// Client-side composition over capturesApi.list — no new backend endpoint.
+// Pulls Schwab captures, filters to balance/positions snapshots via the
+// discriminated union predicates in `@/lib/types`, and reshapes into
+// chart-friendly rows.
+//
+// NOTE on field-shape assumptions (see types.ts):
+//   - SchwabBalanceMetadata has no `account_name` field — the Python
+//     pipeline only emits `account_mask` + `account_id` (e.g., "Schwab-1234").
+//     To get a human-readable name ("Contributory", "Simple IRA",
+//     "Designated Bene Joint") we join balance snapshots to positions
+//     snapshots on `account_mask` and read `account_type` from positions.
+//   - Positions use `mkt_val` (not `market_value`). We rename on the way out.
+//   - Per-position cost_basis / gain_dollar / gain_pct are NOT emitted by the
+//     pipeline — only account-level totals exist. Holdings therefore surface
+//     those as 0 / empty, and the top-gainers / top-losers UI degrades
+//     gracefully when every row is zero.
+
+import type {
+  FinancialSourceMetadata,
+  SchwabBalanceMetadata,
+  SchwabPositionsMetadata,
+} from './types'
+import {
+  isFinancialSourceMetadata,
+  isSchwabBalanceMetadata,
+  isSchwabPositionsMetadata,
+} from './types'
+
+/** One balance snapshot row, normalized for chart + table consumption. */
+export interface SchwabSnapshotRecord {
+  capture_id: string
+  created_at: string
+  /** Human-friendly account name — from positions.account_type when available,
+   * otherwise falls back to `"••{account_mask}"`. */
+  account_name: string
+  account_mask: string
+  as_of: string
+  account_value: number
+  cash_value: number
+  market_value: number
+  day_change: number
+  day_change_pct: string
+}
+
+/** One holding row for the allocation donut + positions table. */
+export interface SchwabHolding {
+  symbol: string
+  description: string
+  qty: number
+  price: number
+  market_value: number
+  cost_basis: number
+  gain_dollar: number
+  gain_pct: string
+  asset_type: string
+}
+
+/** Positions snapshot, flattened with the derived account_name. */
+export interface SchwabPositionsRecord {
+  capture_id: string
+  created_at: string
+  account_name: string
+  account_mask: string
+  as_of: string
+  total_value: number
+  cost_basis: number
+  gain_dollar: number
+  gain_pct: string
+  holdings: SchwabHolding[]
+}
+
+/**
+ * Pull a generous window of Schwab captures in one request. We ask for enough
+ * to cover several months of snapshots across all three accounts without
+ * paginating; older history can be added later with `since`.
+ */
+async function fetchSchwabCaptures(limit = 200): Promise<Capture[]> {
+  const res = await capturesApi.list({ source_provider: 'schwab', limit })
+  return res.data ?? []
+}
+
+/** Typed narrowing: keep only captures whose source_metadata is Schwab. */
+function asSchwabMeta(c: Capture): FinancialSourceMetadata | null {
+  const meta = c.source_metadata
+  if (!isFinancialSourceMetadata(meta)) return null
+  if (meta.source_provider !== 'schwab') return null
+  return meta
+}
+
+/**
+ * Build a mask → account_type lookup from positions snapshots. Positions are
+ * the only Schwab shape that carries `account_type` (e.g., "Contributory"),
+ * so this lets us name balance snapshots by joining on account_mask.
+ */
+function buildAccountNameIndex(captures: Capture[]): Map<string, string> {
+  const idx = new Map<string, string>()
+  for (const c of captures) {
+    const meta = asSchwabMeta(c)
+    if (!meta || !isSchwabPositionsMetadata(meta)) continue
+    const mask = meta.account_mask
+    const atype = meta.account_type?.trim()
+    if (mask && atype && !idx.has(mask)) {
+      idx.set(mask, atype)
+    }
+  }
+  return idx
+}
+
+function resolveAccountName(mask: string, nameIndex: Map<string, string>): string {
+  return nameIndex.get(mask) ?? (mask ? `••${mask}` : 'Unknown')
+}
+
+function toBalanceRecord(
+  c: Capture,
+  meta: SchwabBalanceMetadata,
+  nameIndex: Map<string, string>,
+): SchwabSnapshotRecord {
+  return {
+    capture_id: c.id,
+    created_at: c.created_at,
+    account_name: resolveAccountName(meta.account_mask, nameIndex),
+    account_mask: meta.account_mask,
+    as_of: meta.as_of,
+    account_value: meta.account_value ?? 0,
+    cash_value: meta.cash ?? 0,
+    market_value: meta.market_value ?? 0,
+    day_change: meta.day_change ?? 0,
+    day_change_pct: meta.day_change_pct ?? '',
+  }
+}
+
+function toPositionsRecord(
+  c: Capture,
+  meta: SchwabPositionsMetadata,
+  nameIndex: Map<string, string>,
+): SchwabPositionsRecord {
+  const positions = Array.isArray(meta.positions) ? meta.positions : []
+  const holdings: SchwabHolding[] = positions.map((p) => ({
+    symbol: p.symbol ?? '',
+    description: p.description ?? '',
+    qty: typeof p.qty === 'number' ? p.qty : 0,
+    price: typeof p.price === 'number' ? p.price : 0,
+    market_value: typeof p.mkt_val === 'number' ? p.mkt_val : 0,
+    // Per-position cost_basis / gain are not emitted by the Python pipeline —
+    // only account-level totals. Default to 0 / empty.
+    cost_basis: 0,
+    gain_dollar: 0,
+    gain_pct: '',
+    asset_type: p.asset_type ?? 'Unknown',
+  }))
+  return {
+    capture_id: c.id,
+    created_at: c.created_at,
+    account_name:
+      meta.account_type?.trim() || resolveAccountName(meta.account_mask, nameIndex),
+    account_mask: meta.account_mask,
+    as_of: meta.as_of,
+    total_value: meta.total_value ?? 0,
+    cost_basis: meta.cost_basis ?? 0,
+    gain_dollar: meta.gain_dollar ?? 0,
+    gain_pct: meta.gain_pct ?? '',
+    holdings,
+  }
+}
+
+/** Parse an ISO date for ordering; NaN sorts last. */
+function tsOf(iso: string): number {
+  const t = new Date(iso).getTime()
+  return Number.isNaN(t) ? 0 : t
+}
+
+export const investmentsApi = {
+  /**
+   * Latest balance snapshot per account_name. Pulls recent Schwab captures,
+   * groups balance snapshots by account_name, and keeps the most recent one
+   * per group (by created_at).
+   */
+  latestBalances: async (): Promise<SchwabSnapshotRecord[]> => {
+    const caps = await fetchSchwabCaptures(200)
+    const nameIndex = buildAccountNameIndex(caps)
+    const byAccount = new Map<string, SchwabSnapshotRecord>()
+    for (const c of caps) {
+      const meta = asSchwabMeta(c)
+      if (!meta || !isSchwabBalanceMetadata(meta)) continue
+      const rec = toBalanceRecord(c, meta, nameIndex)
+      const existing = byAccount.get(rec.account_name)
+      if (!existing || tsOf(rec.created_at) > tsOf(existing.created_at)) {
+        byAccount.set(rec.account_name, rec)
+      }
+    }
+    return Array.from(byAccount.values()).sort((a, b) =>
+      a.account_name.localeCompare(b.account_name),
+    )
+  },
+
+  /**
+   * All balance snapshots, ordered by created_at ascending (chart-ready).
+   * Optional filters:
+   *   - `since` (ISO date): drop captures older than this.
+   *   - `account` (account_name): keep only the named account.
+   */
+  balanceHistory: async (opts?: {
+    since?: string
+    account?: string
+  }): Promise<SchwabSnapshotRecord[]> => {
+    const caps = await fetchSchwabCaptures(200)
+    const nameIndex = buildAccountNameIndex(caps)
+    const sinceMs = opts?.since ? tsOf(opts.since) : 0
+    const rows: SchwabSnapshotRecord[] = []
+    for (const c of caps) {
+      const meta = asSchwabMeta(c)
+      if (!meta || !isSchwabBalanceMetadata(meta)) continue
+      const rec = toBalanceRecord(c, meta, nameIndex)
+      if (sinceMs > 0 && tsOf(rec.created_at) < sinceMs) continue
+      if (opts?.account && rec.account_name !== opts.account) continue
+      rows.push(rec)
+    }
+    rows.sort((a, b) => tsOf(a.created_at) - tsOf(b.created_at))
+    return rows
+  },
+
+  /**
+   * Latest positions snapshot per account_name, with holdings[] flattened.
+   * `opts.account` filters to a single account_name.
+   */
+  latestPositions: async (opts?: {
+    account?: string
+  }): Promise<SchwabPositionsRecord[]> => {
+    const caps = await fetchSchwabCaptures(200)
+    const nameIndex = buildAccountNameIndex(caps)
+    const byAccount = new Map<string, SchwabPositionsRecord>()
+    for (const c of caps) {
+      const meta = asSchwabMeta(c)
+      if (!meta || !isSchwabPositionsMetadata(meta)) continue
+      const rec = toPositionsRecord(c, meta, nameIndex)
+      if (opts?.account && rec.account_name !== opts.account) continue
+      const existing = byAccount.get(rec.account_name)
+      if (!existing || tsOf(rec.created_at) > tsOf(existing.created_at)) {
+        byAccount.set(rec.account_name, rec)
+      }
+    }
+    return Array.from(byAccount.values()).sort((a, b) =>
+      a.account_name.localeCompare(b.account_name),
+    )
+  },
+}

@@ -4517,5 +4517,107 @@ CS4a landed in 3 parallel waves + 2 sequential reconciles without a single barre
 
 **Status:** READY FOR COMMIT — CS4a tip will be the next SHA on `feature/waves-2026-04-17`.
 
+---
+
+### Entry 075 — CS4b Dashboard Wave 2 (Email compose + AutonomyCard + Settings accordion + Investments)
+
+**Date:** 2026-04-17
+**Tags:** [implement] [web] [dashboard] [settings] [email] [investments] [decision]
+**Environment:** laptop — feature/waves-2026-04-17 branch, Option B single-branch/single-PR mode. Parent SHA before CS4b: `d68a875` (CS4a shipped).
+**Status:** READY FOR COMMIT.
+
+**Objective.** Dashboard Wave 2 — surface outbound email compose (Himalaya), autonomy level control with upgrade-warnings, sectioned Settings accordion, and a Schwab-backed Investments page with allocation donut + net-worth chart + holdings table. 6 work items, estimated +1350 / −400 LOC.
+
+**Hypothesis.** CS4b lands clean in one commit (like CS1-CS4a did). Success criteria:
+- `pnpm --filter @open-brain/web exec tsc --noEmit` passes (Vite build intentionally skipped — pre-existing `@azure/msal-node` externalization error, out of scope).
+- `pnpm -r test` passes with the CS4a baseline (89 web) + new CS4b tests.
+- `/investments` route mounts + nav item visible in sidebar.
+- Settings accordion preserves all existing section functionality (no save/load regression).
+- AutonomyCard round-trips through `/api/v1/settings/autonomy_level`.
+- EmailComposeDrawer Save + Send flows end-to-end against existing `/email/drafts` routes.
+
+**Orchestration plan (barrel-clobber rule applied — Entry 073 lesson).**
+- **Seq CS4b.1** — `npx shadcn@latest add accordion dropdown-menu sheet` in `packages/web/`. Mutates `package.json`, `pnpm-lock.yaml`, `tailwind.config.ts` (accordion keyframes).
+- **Wave A (3 parallel):** CS4b.2 (Email compose drawer + drafts list, additive edits to `Email.tsx`), CS4b.3 (AutonomyCard self-fetching component), CS4b.5+4b.6 combined (Investments page + 2 SVG charts + `investmentsApi` appended to `lib/api.ts`).
+- **Wave B (2 parallel):** CS4b.4 (Settings.tsx accordion rework, imports AutonomyCard from Wave A), Route reconcile (adds `/investments` to App.tsx + Investments nav to Layout.tsx).
+- **Final wiring-verify subagent** covers both waves + reconcile.
+
+CS4b.5 and CS4b.6 were intentionally combined into one subagent because CS4b.6's `investmentsApi` is only consumed by CS4b.5's Investments page, and `lib/api.ts` is a barrel file — having one subagent own both eliminates the clobber risk. Same pattern as other single-owner barrel edits this wave.
+
+**Barrel files in CS4b that must never be touched by two parallel subagents in the same wave:**
+- `packages/web/src/App.tsx` — route registration (route reconciler only).
+- `packages/web/src/components/Layout.tsx` — nav registration (route reconciler only).
+- `packages/web/src/lib/api.ts` — CS4b.5+4b.6 subagent appended `investmentsApi`; CS4b.3 avoided it entirely (used existing `settingsApi`); CS4b.2 did not touch it.
+- `packages/web/src/pages/Email.tsx` — CS4b.2 only (additive).
+- `packages/web/src/pages/Settings.tsx` — CS4b.4 only.
+
+**Rollback Plan.**
+```
+git log --oneline d68a875..HEAD       # inspect CS4b commit
+git reset --hard d68a875              # back to CS4a tip, local only
+git push --force-with-lease origin feature/waves-2026-04-17
+```
+CS1/CS2/CS3/CS4a intact. No DB changes. Laptop-only verification — no homeserver changes in this wave.
+
+**Results (2026-04-17).**
+
+CS4b landed across 3 waves (seq + Wave A parallel + Wave B parallel) with ONE intentional deferral (see below). No barrel clobbers. The pattern established in CS4a held: tight per-subagent scope fences + dedicated reconcilers for shared barrels + post-wave wiring-verify = clean waves. Every parallel subagent ran with zero collisions.
+
+**What shipped (6/6 items + route reconcile, branch `feature/waves-2026-04-17`):**
+- CS4b.1 — shadcn primitives `accordion.tsx`, `dropdown-menu.tsx`, `sheet.tsx` in `packages/web/src/components/ui/`. `tailwind.config.ts` also gained accordion animation keyframes (standard shadcn add).
+- CS4b.2 — `EmailComposeDrawer.tsx` (~340 LOC): right-side shadcn `Sheet` with To/Cc/Subject/Body, LLM-assist row calling `synthesizeApi.query()` as a stopgap (see integration gaps), Save-as-draft → `emailApi.create()`, Send → `emailApi.send()`. `EmailDraftsList.tsx` (~125 LOC): reusable self-fetching drafts list. `Email.tsx` modified additively — Compose header button, Edit button on existing `DraftCard` for draft-status rows, drawer mounted at end, refresh counter wires Save/Send back to drafts list. `EmailDraftsList.test.tsx` 2/2 green.
+- CS4b.3 — `components/settings/AutonomyCard.tsx` (~185 LOC): segmented `role="radiogroup"` of 4 levels, upgrade-confirmation `Dialog` with yellow warning banner, inline descriptions, optimistic state with revert on error, reads/writes `/api/v1/settings/autonomy_level` via existing `settingsApi.get`/`settingsApi.put`. Backend uses PUT (not POST as spec said — subagent corrected). No `api.ts` touch — avoided the parallel collision with CS4b.5+4b.6.
+- CS4b.4 — `pages/Settings.tsx` rewritten as 6-section `<Accordion type="multiple" defaultValue={["general"]}>`:
+  - **General** — VersionUptimeSection, ServiceHealthSection, TriggersSection, DangerZoneSection (fallback home).
+  - **AI Routing** — AIRoutingSection.
+  - **Voice** — VoiceSection.
+  - **Email** — EmailAllowlistSection + EmailConfigSection.
+  - **Integrations** — IntegrationsSection + WikiSection.
+  - **Autonomy** — `<AutonomyCard />` (replaces prior AutonomyLevelSection since both bind same settings key; duplicate fetch eliminated).
+- CS4b.5+4b.6 combined — `investmentsApi` appended to end of `lib/api.ts` (3 methods: `latestBalances`, `balanceHistory`, `latestPositions`; types `SchwabSnapshotRecord`, `SchwabHolding`, `SchwabPositionsRecord`). Client composition on `capturesApi.list({ source_provider: 'schwab', limit: 200 })` + `isSchwabBalanceMetadata` / `isSchwabPositionsMetadata` predicates. `AllocationDonut.tsx` (~120 LOC): hand-rolled SVG donut with Tailwind-colored asset_type sectors. `NetWorthChart.tsx` (~160 LOC): hand-rolled SVG multi-line chart (per-account lines + bold Total). `Investments.tsx` (~320 LOC): 3-row grid (donut+gainers/losers, balance chart, sortable holdings table), URL-synced `?account=` picker via `useSearchParams`, skeleton/error/empty-state paths.
+- Route reconcile — `/investments` lazy route in `App.tsx` (alphabetical among existing lazy pages); "Investments" nav item in `Layout.tsx` with lucide `LineChart` icon, placed after "Financial".
+
+**Field-shape assumptions surfaced by CS4b.5+4b.6 (the Python pipeline emits different field names than the spec).** CS4b's investments code must tolerate these because the capture data is already in production:
+- `SchwabBalanceMetadata` has **no** `account_name` — only `account_mask` + `account_id` (e.g., `"Schwab-1234"`). Human-readable names are derived by joining against a `mask → account_type` lookup built from positions snapshots. Unjoinable masks render as `"••{account_mask}"`.
+- Positions use `mkt_val`, not `market_value`. Normalized on the way out.
+- Per-position `cost_basis` / `gain_dollar` / `gain_pct` are **not** emitted by the pipeline — only account-level totals. Holdings rows render em-dashes for those; "top gainers / losers" lists degrade to empty until the pipeline starts emitting per-position gain data. Net-worth chart, allocation donut, and balance-history chart all work on real data today.
+- Schwab balance uses `cash`, not `cash_value`; exposed as `cash_value` on the normalized record type.
+
+These are documented because a future pipeline change that adds per-position gain fields will automatically light up the top gainers/losers section without frontend changes.
+
+**Intentional deferral — the one `WIRING_GAP`.** CS4b.2 shipped `EmailDraftsList.tsx` + passing test as spec'd, but Email.tsx wires drafts through its pre-existing richer `DraftsTab` component (which has approve/reject/edit functionality that the plain `EmailDraftsList` doesn't cover). Wiring `EmailDraftsList` in place of `DraftsTab` would be a feature regression; wiring it alongside would create duplicate UI. Decision: ship `EmailDraftsList.tsx` + test as a reusable building-block component (zero runtime cost — tree-shaken by Vite since nothing imports it at runtime). Follow-up task: either (a) delete it if the pattern never needs reuse, or (b) migrate `DraftsTab`'s approve/reject actions into the Compose drawer, then consume `EmailDraftsList` as the drafts tab. Neither path is blocking CS4b merge.
+
+**Integration gaps CS4b.2 flagged (non-blocking, follow-up tickets):**
+1. No dedicated HTTP endpoint for the `email-compose` skill. Drawer's "Draft with AI" uses `synthesizeApi.query()` as a stopgap — works but bypasses the agent's tool-use (search_brain, get_entity), so AI-drafted bodies are less context-aware than the full skill would produce. Follow-up: add `POST /email/compose-draft` invoking the skill.
+2. No `PATCH /email/drafts/:id` route. Saving changes to an existing draft creates a new draft (original preserved; user can reject via existing Reject button). Follow-up: add PATCH route + `emailApi.update()`.
+3. `emailApi.create()`'s return type in `lib/api.ts` is `EmailDraft` but the backend returns `{ id, status, send_mode, created_at }`. Worked around via immediate `emailApi.get(created.id)`. Type fix out of scope for CS4b.
+
+**Verification (final, before commit).**
+- `pnpm --filter @open-brain/web exec tsc --noEmit`: PASS.
+- `pnpm --filter @open-brain/core-api exec tsc --noEmit`: PASS (core-api not modified in CS4b).
+- `pnpm --filter @open-brain/web exec vitest run`: **99/99** green (15 test files, includes new 2 EmailDraftsList + 3 AllocationDonut + 3 NetWorthChart + 2 Investments).
+- `pnpm --filter @open-brain/core-api exec vitest run`: **701/702** green in bulk; the 1 failure was `slack-channel-routes.test.ts > some test — Hook timed out in 10000ms`. Same pre-existing Windows ioredis flake class as the CS4a run; re-ran `slack-channel-routes.test.ts` in isolation with `--hookTimeout=30000` and got **7/7 green**. Not CS4b-induced (core-api files untouched in CS4b).
+- Wiring grep: 13 PASS, 1 intentional gap (EmailDraftsList — documented deferral above). Investments route mounted, nav wired, AutonomyCard imported by Settings, 6 AccordionItems present, Sheet primitive import path correct in EmailComposeDrawer.
+- `git status --short` surprises: none. Only expected CS4b artifacts plus pre-existing untracked files carried from prior CSx (not committed).
+
+**What Worked.**
+- Combining CS4b.5 + CS4b.6 into ONE subagent eliminated the api.ts barrel risk entirely — because api.ts's `investmentsApi` is only consumed by Investments.tsx, having one subagent own both is architecturally cleaner anyway.
+- CS4b.3 noticed via reconnaissance that `settingsApi` already exists in `lib/api.ts` and used it directly — NO api.ts edit needed, which prevented any potential clobber with CS4b.5+4b.6.
+- Route reconciler was dispatched in parallel with CS4b.4 Settings rework because they touch entirely disjoint files. Zero conflict.
+- Accepting the EmailDraftsList deferral rather than forcing integration: preserved the richer existing `DraftsTab` behavior while still delivering the spec's component-level deliverable.
+
+**Open items / follow-ups.**
+- EmailDraftsList integration — delete-or-wire decision for follow-up.
+- Dedicated `/email/compose-draft` endpoint (non-blocking for merge).
+- `PATCH /email/drafts/:id` route + `emailApi.update()` for in-place draft edits (non-blocking).
+- `emailApi.create()` return-type fix in `lib/api.ts` (non-blocking).
+- Schwab per-position gain fields — pipeline change will auto-light top gainers/losers when emitted.
+- CS5 (9 items) remains.
+- Pre-existing Vite `@azure/msal-node` externalization error, unchanged.
+- Pre-existing Windows ioredis hookTimeout flakes (`admin-queue-clear.test.ts`, `slack-channel-routes.test.ts`) — pass in isolation, unchanged by CS4b.
+
+**Status:** READY FOR COMMIT — CS4b tip will be the next SHA on `feature/waves-2026-04-17`.
+
+
 
 
