@@ -411,33 +411,38 @@ Several CLAUDE.md / LAB_NOTEBOOK claims are now stale: Vite build is no longer b
   - Search for `punycode` / `DEP0040` / `psl → punycode`. Rewrite the current bullet: keep the note that the warning is cosmetic, but correct the transitive path to `vitest→jsdom→whatwg-url→tr46→punycode` (dev-only). Remove the `@slack/bolt or BullMQ` claim.
   - Search for `LITELLM_API_KEY`, `LITELLM_URL`, `LITELLM_SPEND_URL` — confirm each remaining reference describes historical behavior or a different env var (`LITELLM_SPEND_URL` is a distinct env still documented correctly). Update any that describe current runtime behavior to use `OPENAI_API_KEY` / `OPENAI_BASE_URL`.
   - Search for `sleep infinity` as a current-state description (CS3.8 assumption). Remove or mark as historical.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Items 5, 7, F3; ultra-plan CS-ε step 2
-- [ ] **5.2** Audit `memory/MEMORY.md` (Claude's auto-memory):
+  - **Resolution:** Audited CLAUDE.md (project root) end-to-end against the 5 plan targets. Two bullets edited: (1) **punycode** bullet (line 103) rewritten — dropped the "psl → punycode via @slack/bolt or BullMQ" claim, replaced with correct dev-only path `vitest → jsdom → whatwg-url → tr46 → punycode` (verified via `pnpm why --prod`); kept the "cosmetic / awaiting upstream fix" framing. (2) **Budget-check** bullet (line 113) rewritten — removed stale "`LITELLM_URL` points to `api.openai.com/v1`" claim, replaced with note that `LITELLM_URL` / `LITELLM_API_KEY` were retired in CS5 (PR #88) and code now reads `OPENAI_BASE_URL` + `OPENAI_API_KEY` directly; preserved the `LITELLM_SPEND_URL` distinction (still a real env var). Three other plan targets NOT FOUND in CLAUDE.md and required no edits: **Vite build disable** — no "Vite build error" / "build is blocked" / "pre-existing Vite" language present; **`sleep infinity`** — no current-state reference in CLAUDE.md (was only in historical LAB_NOTEBOOK entries); **`msal` / `@azure/msal-node`** — only match is line 108 "Direct Graph API (MSAL)" which correctly describes the still-current Hotmail/Outlook auth path used by `email-pipeline.py` (token cache lives at `~/.email-analyzer/ms_token_cache.json` with recovery backup at `/mnt/user/backup/openbrain/adhoc/ms_token_cache_backup_20260417.json` per MEMORY.md session status — so the MSAL reference is accurate, not stale). No structural changes; surgical two-bullet rewrite. Net line count: 344 → 343 (−1, both edits replaced bullets in place; one-line net drop from tightening the punycode copy). Section header count (`##`) unchanged at 32.
+- [x] **5.2** Audit `memory/MEMORY.md` (Claude's auto-memory):
   - Repeat the same searches as 5.1.
   - The `LITELLM_API_KEY (name kept for backward compat)` line was already updated in CS5.9 — verify.
   - Update any other stale references found.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** F3; ultra-plan CS-ε step 3
-- [ ] **5.3** Grep for stale references in other project docs (README, docs/*.md, LAB_NOTEBOOK.md for pre-2026-04-17 entries):
+  - **Results:** MEMORY.md trimmed 208→158 lines (under 200-line soft cap). Consolidated 3 historical session-status blocks (2026-04-15, 2026-04-16 Phase 3+4, 2026-04-16 Refactor) and wrote a new COMPLETE session-status block covering PRs #96-#100. Verified no stale references to `@azure/msal-node`, `accessSync`, "Vite build error", `sleep infinity`, or `punycode`/`DEP0040`. Single `LITELLM_API_KEY` / `LITELLM_URL` mention already correctly framed as retired-in-CS5. All 19 topic-file links verified present. Added shared `model-resolver` to Key Patterns and vitest-forks Windows profile rule.
+- [x] **5.3** Grep for stale references in other project docs (README, docs/*.md, LAB_NOTEBOOK.md for pre-2026-04-17 entries):
   - Do NOT modify historical LAB_NOTEBOOK entries (they're experiment-log records — leave as-is per Rule 10).
   - Only update active / instructional docs.
   - Record which files were changed in the PR description.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** F3
-- [ ] **5.4** Re-enable `pnpm --filter @open-brain/web build` in CI:
+  - **Resolution:** Ran all five grep targets from the plan spec across `README.md` + `docs/*.md` (excluding `docs/archived/`). Found 4 current-behavior stale refs and edited them: (1) README.md line 169 "LiteLLM proxy running at `https://llm.k4jda.net`" prerequisite → rewrote as "OpenAI API key (all AI calls route directly to `https://api.openai.com/v1`; model aliases configured in `config/ai-routing.yaml`)"; (2) README.md line 187 required-key comment `LITELLM_API_KEY — virtual key for LiteLLM proxy` → `OPENAI_API_KEY — OpenAI API key for all LLM + embedding calls`; (3) README.md line 268 reference table cell `LiteLLM model aliases and budget thresholds` → `OpenAI model aliases and budget thresholds`; (4) `docs/setup-slack-cloudflare.md` line 284 `transport: "streamable_http"` in the LiteLLM `mcp_servers` example → `transport: "http"` (per CLAUDE.md rule — LiteLLM v1.81+ rejects `streamable_http` with a Pydantic validation error; the doc would break a fresh install). **Left as historical/correct-context:**  all LiteLLM references in `docs/PRD.md` v0.6 (dated 2026-03-05 — describes the then-current architecture before the OpenAI-direct migration; marked "Status: Draft" as a versioned spec, not a current-state guide), `docs/PRD-V2.md` (forward-looking dual-client proposal, aspirational — contrasts Claude SDK vs. LiteLLM proxy paths), `docs/PRD-UNIFIED.md` + `.backup-20260412.md` (unified proposal docs, same category), and `docs/PRD-PHASE7.md` (historical `createLiteLLMClient()` API reference in a design doc about replacing it). README line 79 `Status flow: pending → processing → extracted → embedded` is a pipeline state name, not a project status — not stale. README line 148 "planned but not implemented" introduces the Deferred Features table (F21/F22/F24/F25/F26/F27) which accurately describes features that are still deferred — not stale. `sleep infinity`, `192.168.10.44`, and "vite build disabled" — zero matches in active-doc scope. **Net:** 4 stale references updated across 2 files; 0 historical references disturbed.
+- [x] **5.4** Re-enable `pnpm --filter @open-brain/web build` in CI:
   - Locate the CI workflow(s) that currently skip or don't run the Vite build.
   - Add a `web-build` job (or step) that runs `pnpm --filter @open-brain/web build`.
   - Runs after `web-test` job for fast-fail on type errors before spending build time.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Item 5; ultra-plan CS-ε step 4
-- [ ] **5.5** Add LAB_NOTEBOOK Entry 078 recording the cleanup:
+  - **Resolution:** Case D — already active. `.github/workflows/ci.yml` line 43 already runs `pnpm --filter !@open-brain/shared -r build`, which recursively builds every workspace package except `@open-brain/shared` (which is explicitly built first on line 40). That filter set includes `@open-brain/web`, whose `build` script is `tsc --noEmit && vite build` (per `packages/web/package.json`). No ci.yml edit required; no separate `web-build` job needed — the existing step already exercises the Vite build + `tsc --noEmit` on every push / PR. Verified locally: `pnpm --filter @open-brain/web build` exits 0 in 8.68s producing 32 precache entries (942.48 KiB) incl. vendor-Bk6naO1I.js 180.42 kB, index-DbUTjgTp.js 167.92 kB, sw.js + workbox chunk. YAML re-parsed clean: `jobs: ['build-and-test', 'sidecar-test']` — Phase 4's `sidecar-test` job untouched.
+- [x] **5.5** Add LAB_NOTEBOOK Entry 078 recording the cleanup:
   - Tags: `[cleanup]` `[docs]` `[decision]`
   - Header: hypothesis (the stale claims are stale; removing them improves future-session accuracy), rollback plan (git revert).
   - Body: list of stale claims removed + why each is stale (Vite build works verified post-PR #90; punycode has no prod path per `pnpm why --prod`).
   - Results: grep verifications showing zero matches for each stale string in active-doc scope.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Process rule Rule 1 + Rule 11
+  - **Resolution:** Entry 083 Results block finalized in-place with per-item outcomes (5.1 through 5.5). New Entry 084 appended as plan close-out covering all 5 phases, PR/SHA table (#96 → #100), cumulative test deltas (+33 tests), CLAUDE.md rules added (2), what-this-plan-bought section, and carried-forward items. Decision Log updated with D99 (tech-debt cleanup complete, DONE). Action Items A65-A68 added for carried-forward work (F4 import type, Drizzle pgEnum tightening, LLMGatewayService email-compose, Python lint/typecheck CI). Files modified: `LAB_NOTEBOOK.md` + this plan file. Closes the 5-phase 2026-04-17 tech-debt cleanup.
 
 ### Acceptance criteria
 - `grep -in 'accessSync\|azure/msal-node' CLAUDE.md docs/ README.md` returns zero matches describing active state.
