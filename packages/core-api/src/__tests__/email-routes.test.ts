@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+import { ConflictError, NotFoundError } from '@open-brain/shared'
 import { createApp } from '../app.js'
 import type { EmailDraftService } from '../services/email-draft.js'
 
@@ -40,6 +41,7 @@ function makeMockService(overrides: Partial<EmailDraftService> = {}): EmailDraft
     create: vi.fn().mockResolvedValue(SAMPLE_DRAFT),
     list: vi.fn().mockResolvedValue({ items: [SAMPLE_DRAFT], total: 1 }),
     get: vi.fn().mockResolvedValue(SAMPLE_DRAFT),
+    update: vi.fn().mockResolvedValue(SAMPLE_DRAFT),
     approve: vi.fn().mockResolvedValue({ ...SAMPLE_DRAFT, status: 'approved' }),
     reject: vi.fn().mockResolvedValue(REJECTED_DRAFT),
     send: vi.fn().mockResolvedValue(SENT_DRAFT),
@@ -286,5 +288,172 @@ describe('DELETE /api/v1/email/drafts/:id', () => {
     const body = await res.json() as any
     expect(body.status).toBe('rejected')
     expect(emailDraftService.reject).toHaveBeenCalledWith('draft-uuid-1')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PATCH /api/v1/email/drafts/:id
+// ---------------------------------------------------------------------------
+
+describe('PATCH /api/v1/email/drafts/:id', () => {
+  it('updates a draft-status draft and returns the full record', async () => {
+    const emailDraftService = makeMockService({
+      update: vi.fn().mockResolvedValue({ ...SAMPLE_DRAFT, subject: 'Updated Subject' }),
+    })
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({ subject: 'Updated Subject', body: 'Updated body' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.id).toBe('draft-uuid-1')
+    expect(body.subject).toBe('Updated Subject')
+    expect(emailDraftService.update).toHaveBeenCalledWith(
+      'draft-uuid-1',
+      expect.objectContaining({ subject: 'Updated Subject', body: 'Updated body' }),
+    )
+  })
+
+  it('joins array to/cc into comma-separated strings before passing to service', async () => {
+    const emailDraftService = makeMockService()
+    const app = createApp({ emailDraftService })
+
+    await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({
+        to: ['a@example.com', 'b@example.com'],
+        cc: ['c@example.com'],
+      }),
+    })
+
+    expect(emailDraftService.update).toHaveBeenCalledWith(
+      'draft-uuid-1',
+      expect.objectContaining({
+        to: 'a@example.com, b@example.com',
+        cc: 'c@example.com',
+      }),
+    )
+  })
+
+  it('passes cc: null when the cc array is empty (clears the field)', async () => {
+    const emailDraftService = makeMockService()
+    const app = createApp({ emailDraftService })
+
+    await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({ cc: [] }),
+    })
+
+    expect(emailDraftService.update).toHaveBeenCalledWith(
+      'draft-uuid-1',
+      expect.objectContaining({ cc: null }),
+    )
+  })
+
+  it('returns 400 when no fields are provided', async () => {
+    const emailDraftService = makeMockService()
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 400 for invalid body shape (non-string subject)', async () => {
+    const emailDraftService = makeMockService()
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({ subject: 42 }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 for invalid JSON', async () => {
+    const emailDraftService = makeMockService()
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: 'not-json',
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 404 when the draft is missing', async () => {
+    const emailDraftService = makeMockService({
+      update: vi.fn().mockRejectedValue(new NotFoundError('Email draft not found: missing-id')),
+    })
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/missing-id', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({ subject: 'Hi' }),
+    })
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+  })
+
+  it('returns 409 when the draft is not in draft status', async () => {
+    const emailDraftService = makeMockService({
+      update: vi
+        .fn()
+        .mockRejectedValue(new ConflictError("Cannot update draft in status 'sent' — only 'draft' status can be edited")),
+    })
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'integration-test',
+      },
+      body: JSON.stringify({ subject: 'Hi' }),
+    })
+
+    expect(res.status).toBe(409)
+    const body = await res.json() as any
+    expect(body.code).toBe('CONFLICT')
   })
 })

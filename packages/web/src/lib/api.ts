@@ -667,6 +667,42 @@ export const mcpActivityApi = {
 
 // Email Drafts API
 
+/**
+ * What `POST /api/v1/email/drafts` actually returns — NOT a full EmailDraft.
+ * The backend returns only `{ id, status, send_mode, created_at }` and callers
+ * must `emailApi.get(id)` for the full record. (See `packages/core-api/src/routes/email.ts`.)
+ */
+export interface CreatedEmailDraftResponse {
+  id: string
+  status: string
+  send_mode: string
+  created_at: string
+}
+
+/** Patch body for PATCH /api/v1/email/drafts/:id. At least one field required. */
+export interface UpdateEmailDraftPatch {
+  to?: string[]
+  cc?: string[]
+  subject?: string
+  body?: string
+}
+
+/** Existing-draft context for POST /api/v1/email/compose-draft. */
+export interface ComposeDraftExisting {
+  to?: string[]
+  cc?: string[]
+  subject?: string
+  body?: string
+}
+
+/** Response shape from POST /api/v1/email/compose-draft. */
+export interface ComposeDraftResponse {
+  body: string
+  subject?: string
+  to?: string[]
+  cc?: string[]
+}
+
 export const emailApi = {
   /** List email drafts with optional status filter */
   list: async (params?: { status?: string; limit?: number; offset?: number }) => {
@@ -681,11 +717,22 @@ export const emailApi = {
     return request<EmailDraft>(`/email/drafts/${id}`)
   },
 
-  /** Create a new email draft */
+  /** Create a new email draft. Backend returns a minimal response — use `get()` for the full draft. */
   create: (payload: { to: string; subject: string; body: string; cc?: string; source?: string }) => {
-    return request<EmailDraft>('/email/drafts', {
+    return request<CreatedEmailDraftResponse>('/email/drafts', {
       method: 'POST',
       body: JSON.stringify(payload),
+    })
+  },
+
+  /**
+   * Partial update of a draft. Only drafts with status='draft' can be updated —
+   * the backend returns 409 CONFLICT for any other status.
+   */
+  update: (id: string, patch: UpdateEmailDraftPatch) => {
+    return request<EmailDraft>(`/email/drafts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
     })
   },
 
@@ -700,6 +747,18 @@ export const emailApi = {
   reject: (id: string) => {
     return request<EmailDraft>(`/email/drafts/${id}`, {
       method: 'DELETE',
+    })
+  },
+
+  /**
+   * Synchronous AI-assist: returns a proposed draft (not persisted).
+   * Calls the email-compose agent server-side with `search_brain` / `get_entity`
+   * tools for context-aware composition. Returns at least `{ body }`.
+   */
+  composeDraft: (instruction: string, existing?: ComposeDraftExisting) => {
+    return request<ComposeDraftResponse>('/email/compose-draft', {
+      method: 'POST',
+      body: JSON.stringify({ instruction, existing_draft: existing }),
     })
   },
 }
