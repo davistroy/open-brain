@@ -279,36 +279,11 @@ export class LLMGatewayService {
     options: LLMCompleteOptions = {},
   ): Promise<string> {
     const resolution = this.resolveByTask(taskName)
-
     if (!resolution) {
-      // Three-tier routing not configured — fall back to legacy alias routing.
-      // Map common task names to model aliases for backward compat.
-      const aliasMap: Record<string, LLMModelAlias> = {
-        intent_classification: 'intent',
-        capture_classification: 'fast',
-        brain_view_classification: 'fast',
-        voice_classification: 'fast',
-        confidence_gating: 'fast',
-        entity_extraction: 'fast',
-        entity_linking: 'fast',
-        capture_enrichment: 'fast',
-        question_detection: 'fast',
-        search_synthesis: 'synthesis',
-        daily_sweep: 'synthesis',
-        mcp_context: 'synthesis',
-        auto_response_draft: 'synthesis',
-        weekly_brief: 'synthesis',
-        daily_connections: 'synthesis',
-        drift_monitoring: 'synthesis',
-        governance: 'governance',
-        wiki_ingest: 'synthesis',
-        wiki_synthesis: 'synthesis',
-      }
-      const alias = aliasMap[taskName] ?? 'fast'
-      logger.debug({ taskName, alias }, 'Three-tier routing not configured — using legacy alias')
-      return this.complete(prompt, alias, options)
+      throw new LLMGatewayError(
+        `Task '${taskName}' has no routing entry. Add it to task_routing: in config/ai-routing.yaml.`,
+      )
     }
-
     return this.completeWithTierFallback(prompt, taskName, resolution, options, 0)
   }
 

@@ -167,19 +167,27 @@ async completeByTask(prompt: string, taskName: string, options: LLMCompleteOptio
 
 Delete the `aliasMap` constant entirely.
 
+**Result (B.1):** `completeByTask` in `packages/shared/src/services/llm-gateway.ts` now throws `LLMGatewayError('Task \'<name>\' has no routing entry. Add it to task_routing: in config/ai-routing.yaml.')` when `resolveByTask()` returns null. The ~27-line `aliasMap` silent-fallback block (including the debug-log line and call to legacy `complete(prompt, alias, options)`) was deleted. Legacy `complete()` method body retained untouched (Phase C scope).
+
 ### B.2 Update tests
 
 `packages/core-api/src/__tests__/llm-gateway.test.ts`:
 - Add a positive test: `completeByTask('unregistered_task_xyz')` rejects with `LLMGatewayError` and message matching `/has no routing entry/`.
 - Delete / rewrite any test that asserts the legacy-alias-fallback behavior (there's one: "falls back to legacy alias routing when three-tier is not configured"). Replace it with an assertion that when three-tier routing is NOT configured, `completeByTask` throws (it should — there's no legacy path to fall back to).
 
+**Result (B.2):** In `packages/core-api/src/__tests__/llm-gateway.test.ts`: (1) rewrote existing test `'falls back to legacy alias routing when three-tier is not configured'` → `'throws LLMGatewayError when three-tier routing is not configured'` — now asserts the throw + `/has no routing entry/` message + that `anthropic.messages.create` is never called; (2) added new test `'throws LLMGatewayError when task has no routing entry'` using task name `'unregistered_task_xyz'` and verifying no client was invoked.
+
 ### B.3 Verify no production caller depends on the removed behavior
 
 Grep every `completeByTask` call and confirm the task name string exists in `task_routing:` (Phase A ensured this).
 
+**Result (B.3):** Ran `grep -rhE "completeByTask\([^,]+,\s*['\"][^'\"]+['\"]" packages/ --include="*.ts"` and extracted unique task-name literals: `confidence_gating`, `daily_connections`, `daily_sweep`, `drift_monitoring`, `email_classification`, `email_daily_digest`, `entity_extraction`, `entity_linking`, `governance`, `intent_classification` (test-only), `search_synthesis`, `unregistered_task_xyz` (test-only, deliberate), `weekly_brief`. Cross-referenced against `task_routing:` in `config/ai-routing.yaml`: every production literal has a matching entry. **0 gaps.** The only literal not in task_routing is `unregistered_task_xyz`, which is the new B.2 test case designed to assert the throw.
+
 **Checkpoint:** commit + run full test suite.
 
 **Verification:** no tests fail. No skill breaks at dev-time.
+
+**Test counts (post-B.1/B.2/B.3):** shared 257/257 passed (14 files). core-api 701/701 passed (40 files). workers 980/980 passed (49 files). All green. No unintended regressions.
 
 ---
 
@@ -420,7 +428,7 @@ Open an issue with the failure mode; do not re-attempt without diagnosis.
 | Phase | Items | Status | Commit SHA |
 |---|---|---|---|
 | A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1, A.4, A.2, A.3 done; A.5 pending) | — |
-| B | B.1 throw on unrouted, B.2 tests, B.3 grep check | Pending | — |
+| B | B.1 throw on unrouted, B.2 tests, B.3 grep check | COMPLETE 2026-04-16 | — |
 | C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | Pending | — |
 | D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | Pending | — |
 | E | E.1 checklist, E.2 deploy, E.3 validate, E.4 rollback-if-needed, E.5 post-deploy | Pending | — |

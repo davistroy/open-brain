@@ -279,18 +279,38 @@ describe('LLMGatewayService', () => {
       expect(anthropic.messages.create).toHaveBeenCalledOnce()
     })
 
-    it('falls back to legacy alias routing when three-tier is not configured', async () => {
+    it('throws LLMGatewayError when three-tier routing is not configured', async () => {
       const litellm = makeOpenAIClient()
       const anthropic = makeAnthropicClient('legacy response')
       const config = makeConfigService()
       config.hasThreeTierRouting.mockReturnValue(false)
 
       const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
-      const result = await gw.completeByTask('Some prompt.', 'intent_classification')
 
-      // Should have fallen back to complete() with alias 'intent'
-      expect(result).toBe('legacy response')
-      expect(anthropic.messages.create).toHaveBeenCalledOnce()
+      await expect(gw.completeByTask('Some prompt.', 'intent_classification'))
+        .rejects.toThrow(LLMGatewayError)
+      await expect(gw.completeByTask('Some prompt.', 'intent_classification'))
+        .rejects.toThrow(/has no routing entry/)
+      // Legacy alias path must not be taken
+      expect(anthropic.messages.create).not.toHaveBeenCalled()
+    })
+
+    it('throws LLMGatewayError when task has no routing entry', async () => {
+      const litellm = makeOpenAIClient()
+      const anthropic = makeAnthropicClient()
+      const ollama = makeOllamaClient()
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+
+      await expect(gw.completeByTask('Test.', 'unregistered_task_xyz'))
+        .rejects.toThrow(LLMGatewayError)
+      await expect(gw.completeByTask('Test.', 'unregistered_task_xyz'))
+        .rejects.toThrow(/has no routing entry/)
+      // No client should have been called
+      expect(anthropic.messages.create).not.toHaveBeenCalled()
+      expect(ollama.chat.completions.create).not.toHaveBeenCalled()
+      expect(litellm.chat.completions.create).not.toHaveBeenCalled()
     })
 
     it('logs audit entry on success', async () => {
