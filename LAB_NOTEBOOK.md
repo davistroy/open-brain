@@ -3571,3 +3571,9 @@ Success criteria:
 **What Worked:** Identifying the MSAL plugin behavior as wrong-assumption rather than an incidental bug; switching to explicit lifecycle is both simpler code AND more correct. Test-first for F.1 proved the behavior before shipping.
 
 **What to Watch:** Overnight 5 AM cron tomorrow still runs the OLD code (Phase F not deployed yet) — will hit MSAL device-code prompt unless Phase F is deployed first. **Deploy Phase F before tomorrow 5 AM OR plan to authenticate manually in the morning.**
+
+**Addendum 2026-04-17 08:50 — CI lint-fix on PR #80:** Three TypeScript strict-null/rename errors that `vitest`/`tsx` tolerated but `tsc --noEmit` surfaced:
+- `packages/shared/src/config/__tests__/loader.test.ts:331` — `aiConfig.models.fast` is now optional (Phase D deprecation) → use `?.model`.
+- `packages/workers/src/__tests__/budget-check.test.ts:370,391` — `litellmSpendUrl` / `litellmApiKey` option keys were renamed to `llmSpendUrl` / `spendApiKey` during Phase D but the test still used the old names. Updated.
+
+No runtime changes; test expectations unchanged. Shared 260 + workers budget-check 26 tests green locally post-fix. Committing as `test-fix` on the same branch before re-requesting CI.

@@ -367,8 +367,8 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
-        litellmSpendUrl: 'https://llm.test.local',
-        // no litellmApiKey provided
+        llmSpendUrl: 'https://llm.test.local',
+        // no spendApiKey provided
         softLimit: 30,
         hardLimit: 50,
       })
@@ -387,8 +387,8 @@ describe('processBudgetCheckJob', () => {
       vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
 
       const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, {
-        // no litellmSpendUrl — defaults to empty string
-        litellmApiKey: 'test-key',
+        // no llmSpendUrl — defaults to empty string
+        spendApiKey: 'test-key',
         softLimit: 30,
         hardLimit: 50,
       })

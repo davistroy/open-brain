@@ -328,7 +328,7 @@ monthly_budget:
       service.load()
 
       const aiConfig = service.get('ai')
-      expect(aiConfig.models.fast.model).toBe('claude-sonnet-4-20250514')
+      expect(aiConfig.models.fast?.model).toBe('claude-sonnet-4-20250514')
       expect(aiConfig.models.embedding.model).toBe('text-embedding-3-large')
     })
 
