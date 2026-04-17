@@ -166,7 +166,7 @@
 | A61 | wiki-ingest fails with "Author identity unknown" | 2026-04-17 | Entry 061 | F.2 code-fix deployed to homeserver — validation deferred (email-classify blocked by A64 before reaching wiki-ingest stage). |
 | A62 | ~~One embed job stalled after wiki-ingest cascade~~ | 2026-04-17 | Entry 061 | Resolved as byproduct of A61 |
 | A63 | ~~Remove OPENAI_* ?? LITELLM_* transition shim~~ | 2026-04-17 | Entry 063 | DONE — deployed 59b78b9; workers startup shows clean `["Anthropic","Ollama","OpenAI"]` gateway, no LITELLM warnings. |
-| A64 | MSAL refresh token rejected with AADSTS70000 invalid_grant — silent refresh unable to recover | 2026-04-17 | Entry 063 | BLOCKS unattended 5 AM cron until Troy does one device-code auth + (likely) we split MSAL cache keys between Python + Node pipelines. |
+| A64 | MSAL refresh token rejected with AADSTS70000 invalid_grant — silent refresh unable to recover | 2026-04-17 | Entry 063 | Code-fix in-flight on `fix/msal-cache-key-split` (Entry 064): isolate TS cache to `ms_token_cache_node` + one device-code re-auth. Pending merge + deploy. |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3664,3 +3664,50 @@ Decision needed from Troy: A, B, or C. Recommendation is B.
 **What to Watch:**
 - Tomorrow 5 AM cron (both VM Python + homeserver TS) — if Python wins the rotation race, TS will prompt device-code again. If TS wins, Python will fail silently (likely suppressed since email-pipeline.py treats 401 as retry-with-reauth, not fatal).
 - Option B, once shipped, validates within one 5 AM cycle.
+
+---
+
+### Entry 064 — A64 fix (Option B): split MSAL cache keys, branch `fix/msal-cache-key-split`
+
+**Date:** 2026-04-17
+**Tags:** `[msal]` `[hotmail]` `[refactor]` `[fix]`
+**Environment:** Laptop, new branch off main@b057138
+**Duration:** ~15 min to ship, homeserver deploy + device-code pending
+
+**Objective:** Troy picked Option B. Isolate the TS pipeline's MSAL token cache under a distinct `app_settings` key (`ms_token_cache_node`) so it cannot be disturbed by any Python-side re-auth that might write to the shared `ms_token_cache` key (e.g., via `seed_email_auth.py` or future one-shots). One device-code auth is needed after deploy to seed the new isolated key.
+
+**Hypothesis:** Changing `SETTINGS_KEY = 'ms_token_cache'` → `'ms_token_cache_node'` in `hotmail-client.ts` means:
+- First post-deploy run finds no row at the new key → forces one device-code auth → writes a freshly-acquired RT in MSAL-Node-native format.
+- Subsequent runs read back exactly what MSAL-Node itself wrote → silent acquire succeeds indefinitely (90-day RT, auto-rotated in place).
+- Python's `seed_email_auth.py` and `email-pipeline.py` (which use `/tmp/ms_token_cache.json` on the VM and previously wrote into `ms_token_cache` only via the one-shot seeder) can no longer affect the TS cache.
+
+**Rollback:** `git revert <sha>` + `docker compose up -d workers core-api slack-bot voice-capture`; the old `ms_token_cache` row is still present in the DB (not deleted) so the rollback returns to the pre-Entry-063 state with no data loss.
+
+**Changes (one commit on `fix/msal-cache-key-split`):**
+- `packages/shared/src/services/email/hotmail-client.ts` — `SETTINGS_KEY` → `'ms_token_cache_node'` + comment update explaining the isolation.
+- `packages/core-api/src/routes/settings.ts` — `VALID_SETTINGS_KEYS` updated (replace `ms_token_cache` with `ms_token_cache_node`).
+- `packages/shared/src/services/email/__tests__/hotmail-client.test.ts` — all mock-store keys updated via `replace_all`.
+
+**Scope boundary:**
+- Python scripts (`email-pipeline.py`, `email-cleanup*.py`, `seed_email_auth.py`) are untouched. Python's refs to `ms_token_cache.json` are LOCAL files on the VM, not the Postgres row. The one-shot `seed_email_auth.py` line that wrote to `ms_token_cache` is now stale (the TS code no longer reads that key) but not harmful — leave it to be deleted with the VM decommission work under Phase G-B.5.
+- Old `ms_token_cache` row in `app_settings` left in place. Clean-up deferred — when `ms_token_cache_node` is proven stable for 7+ days, drop the old row with a one-line SQL in Entry 065+.
+
+**Tests:** `pnpm --filter @open-brain/shared exec vitest run src/services/email/__tests__/hotmail-client.test.ts` → 23/23 pass. Full suite: shared 260 · workers budget-check 26 · core-api hotmail-adjacent green; one pre-existing flake in `core-api/src/__tests__/entity-resolution.test.ts:284` (LLM timeout under full-suite concurrency — unrelated to this change; passes cleanly in isolation). Lint (`pnpm -r lint`, `tsc --noEmit`) green across all 6 packages.
+
+**Deploy plan (post-merge):**
+1. SSH homeserver → `git pull` → `docker compose build workers core-api` (slack-bot + voice-capture don't consume HotmailClient; rebuild skipped).
+2. `docker compose up -d workers core-api`.
+3. Validate startup: no LITELLM_* warns (A63 regression check), `LLMGatewayService: 3-client routing enabled` line present.
+4. Manual trigger: `scp scripts/enqueue-email-classify.mjs` + `docker cp` → `docker exec node /tmp/enqueue-email-classify.mjs`.
+5. **Expect device-code prompt on first run** (by design — new isolated cache has no entry). Troy enters the code; MSAL-Node writes fresh cache under `ms_token_cache_node`.
+6. **Immediately re-trigger** email-classify a second time. Expect `Hotmail: cached auth` (silent success). This proves A60 F.1 + A64 fix together: cache hydrates → getAllAccounts returns 1+ → silent acquire succeeds.
+7. Watch wiki-ingest commits from the same run for A61 validation (should see commits authored as `Open Brain Bot <bot@brain.troy-davis.com>`).
+
+**Success criteria (Entry 065 will capture):**
+- Two consecutive manual email-classify runs: first triggers device-code, second is silent.
+- Tomorrow 5 AM cron completes unattended.
+- wiki-ingest commits show "Open Brain Bot" author (A61).
+
+**What to Watch:**
+- If the second run ALSO prompts device-code, hypothesis 3 from Entry 063 (MSAL Python/Node serialization incompatibility) is real and the MSAL-Node-native cache still fails → escalate to client-credentials migration (Option C).
+- If `seed_email_auth.py` runs again (e.g., manual re-seed), it writes to the OLD `ms_token_cache` key — TS pipeline is unaffected, but the VM still has a usable path to bulk-seed its local file. No conflict either direction.

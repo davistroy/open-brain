@@ -2,8 +2,11 @@
  * Hotmail/Outlook email provider — Microsoft Graph API + MSAL device code auth.
  *
  * Ported from Python email-pipeline.py HotmailBackend.
- * Token cache is stored in the app_settings table (key: ms_token_cache),
- * not on the filesystem, so any container can authenticate.
+ * Token cache is stored in the app_settings table (key: ms_token_cache_node),
+ * not on the filesystem, so any container can authenticate. The `_node` suffix
+ * keeps this cache isolated from the Python email-pipeline's MSAL state
+ * (which keeps its own file cache on the VM) — refresh-token rotation from a
+ * different MSAL implementation has caused invalid_grant failures in the past.
  */
 import * as msal from '@azure/msal-node'
 import { eq } from 'drizzle-orm'
@@ -27,7 +30,7 @@ const BATCH_SIZE = 50
 const MAX_INBOX_MESSAGES = 200
 const MAX_SPAM_CLEANUP = 200
 
-const SETTINGS_KEY = 'ms_token_cache'
+const SETTINGS_KEY = 'ms_token_cache_node'
 
 /** Maximum number of retry attempts for rate-limited (429) requests. */
 const MAX_RETRIES = 3
