@@ -103,7 +103,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
       return result.text
     }
 
-    if (!this.litellmClient) throw new Error('[weekly-brief] No LLM client configured — set ANTHROPIC_API_KEY or LITELLM_API_KEY')
+    if (!this.litellmClient) throw new Error('[weekly-brief] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias, messages: [{ role: 'user', content: prompt }],
       temperature: 0.3, max_completion_tokens: 2048,

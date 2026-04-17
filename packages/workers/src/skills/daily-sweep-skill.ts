@@ -175,7 +175,7 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
       return result.text
     }
 
-    if (!this.litellmClient) throw new Error('[daily-sweep-skill] No LLM client configured — set ANTHROPIC_API_KEY or LITELLM_API_KEY')
+    if (!this.litellmClient) throw new Error('[daily-sweep-skill] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,

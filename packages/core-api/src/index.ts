@@ -50,9 +50,8 @@ const redisConnection = {
 
 // LLM Gateway + Governance Engine
 // OPENAI_BASE_URL / OPENAI_API_KEY come from environment (set via bws secrets at startup).
-// Legacy shim: falls back to LITELLM_URL / LITELLM_API_KEY during deploy rename window.
-const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1'
-const openaiApiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY ?? ''
+const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
+const openaiApiKey = process.env.OPENAI_API_KEY ?? ''
 
 // Startup validation — catch the "old LiteLLM virtual key deployed against api.openai.com" mistake.
 if (openaiApiKey.startsWith('sk-litellm-')) {

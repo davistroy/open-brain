@@ -370,7 +370,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
     }
 
     if (!this.litellmClient) {
-      throw new Error('[memory-consolidation] No LLM client configured -- set ANTHROPIC_API_KEY or LITELLM_API_KEY')
+      throw new Error('[memory-consolidation] No LLM client configured -- set ANTHROPIC_API_KEY or OPENAI_API_KEY')
     }
 
     const response = await this.litellmClient.chat.completions.create({

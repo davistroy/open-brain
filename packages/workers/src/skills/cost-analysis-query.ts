@@ -14,9 +14,9 @@ export interface CostAnalysisOptions {
   dailyAlertThreshold?: number
   /** Wiki output directory (relative to wiki root). Default: operations/cost-reports */
   wikiDir?: string
-  /** LiteLLM spend URL (overrides LITELLM_SPEND_URL env var). Empty string = skip. */
+  /** Spend proxy URL (overrides LLM_SPEND_URL env var). Empty string = skip. */
   litellmSpendUrl?: string
-  /** LiteLLM API key (overrides LITELLM_API_KEY env var). */
+  /** Spend proxy API key (overrides LLM_SPEND_API_KEY env var). */
   litellmApiKey?: string
 }
 
