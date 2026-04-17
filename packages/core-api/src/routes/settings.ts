@@ -4,7 +4,7 @@ import type { Database } from '@open-brain/shared'
 import { logger, app_settings, AUTONOMY_LEVELS } from '@open-brain/shared'
 
 /** Valid settings keys — prevents unbounded key creation */
-const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days', 'monitored_channels', 'email_classification', 'ms_token_cache', 'gmail_token_cache', 'gmail_credentials'])
+const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days', 'monitored_channels', 'email_classification', 'ms_token_cache_node', 'gmail_token_cache', 'gmail_credentials'])
 
 /** Type-specific value validators for settings that need them */
 const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
