@@ -121,44 +121,55 @@ Resolve type drift between the web package and `@open-brain/shared`. The web bun
 
 ### Work items
 
-- [ ] **2.1** Fix `packages/web/src/lib/api.ts`:
+- [x] **2.1** Fix `packages/web/src/lib/api.ts`:
   - Line 859-863: `FileUploadStatus` — replace `'completed'` with `'parsed'`.
   - Line 791-797: `IngestSourceType` — narrow to `'financial' | 'utility'` (drop `'document'`, `'image'`, `'email'`, `'other'` — none are accepted by the backend Zod schema).
   - Line 1122-1134: `toPositionsRecord` — replace hardcoded `cost_basis: 0`, `gain_dollar: 0`, `gain_pct: ''` with `p.cost_basis ?? 0`, `p.gain_dollar ?? 0`, `p.gain_pct ?? ''`. Update the stale comment.
   - Verify `tsc --noEmit` green after each change.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
+  - **Resolution:** `FileUploadStatus` narrowed to `'pending' | 'processing' | 'parsed' | 'failed'` (matches `FileUploadStatusSchema` in `packages/shared/src/schema/ingest.ts`). `IngestSourceType` narrowed to `'financial' | 'utility'` (matches `IngestSourceTypeSchema`). `toPositionsRecord` now reads `p.cost_basis`, `p.gain_dollar`, `p.gain_pct` via `typeof`-guarded coercion — same defensive pattern used for adjacent `qty`/`price`/`mkt_val` fields; compiles cleanly against the `number | null | undefined` shape added by 2.4 and correctly treats `null` (cash rows from `_num_or_none`) as 0 / empty. Stale comment updated to reflect that per-position fields ARE emitted by the Python pipeline when available. Remaining tsc errors live exclusively in `Ingest.tsx` and are in scope for 2.2.
   - **Ref:** Items 1, 4; ultra-plan CS-α steps 1
-- [ ] **2.2** Audit `packages/web/src/pages/Ingest.tsx` source-type dropdown:
+- [x] **2.2** Audit `packages/web/src/pages/Ingest.tsx` source-type dropdown:
   - Grep for string literals `'document'`, `'image'`, `'email'`, `'other'` in the Ingest page.
   - For each dropdown option not in the narrowed set: either remove it OR map it client-side to an accepted value before calling `ingestApi.upload`.
   - Preferred UX: keep `auto` (client-side = no `source_type` passed) + the 2 accepted values only. Remove the others.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
+  - **Resolution:** `SOURCE_TYPE_OPTIONS` reshaped to `{ value, label }[]` with only 3 entries: `auto (classify)`, `Financial data (CSV)`, `Utility bill` — all `'document' | 'image' | 'email' | 'other'` literals removed. Dropdown render updated to read `opt.value` / `opt.label`. All 5 `status === 'completed'` comparisons (in `statusPercent`, `statusBadgeVariant`, SSE refresh trigger, and the two `useMemo` filters for active/finished trackers) swapped to `'parsed'` — canonical terminal-success state per the narrowed `FileUploadStatus` union. Default `sourceType` state left at `'auto'` (unchanged — still valid in narrowed set). Module JSDoc updated to drop the obsolete `document, image, email, other` enumeration and mention `parsed` (not `completed`) in the SSE flow description. `pnpm --filter @open-brain/web exec tsc --noEmit` exits 0.
   - **Ref:** Item 1 blast radius; ultra-plan CS-α step 2
-- [ ] **2.3** Audit any other consumers of the narrowed types:
+- [x] **2.3** Audit any other consumers of the narrowed types:
   - Grep `packages/web/src` for `IngestSourceType` and `FileUploadStatus` usage.
   - Check status-badge rendering code for `'completed'` (should show `'parsed'`).
   - Check any switch/if that branches on these literals.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
+  - **Resolution:** Grep audit: `IngestSourceType` and `FileUploadStatus` are imported ONLY by `packages/web/src/pages/Ingest.tsx` (owned by 2.2) and declared in `packages/web/src/lib/api.ts` (owned by 2.1). No other TS consumers to narrow. Literal `'completed'` string audit: all non-Ingest occurrences are in unrelated domains — BullMQ queue state (`api.ts:305 clearQueue`), skill/pipeline status rendering (`Dashboard.tsx`, `SkillHistoryCard.tsx`, `Briefs.tsx`, `Intelligence.tsx`, `FlowsTab.tsx`), and SSE test fixtures that emit `data: unknown` payloads (`sse.test.ts`) — none are file-upload statuses. Literal `'document'`/`'image'`/`'email'`/`'other'` audit: all non-Ingest occurrences are in unrelated domains (capture source types, email categories, Settings). No consumer fixes required outside 2.2's scope. Narrowing was effectively contravariant — no callers broke.
   - **Ref:** Item 1 blast radius
-- [ ] **2.4** Verify `SchwabPositionsMetadata` in `packages/web/src/lib/types.ts` declares the per-position fields used by `toPositionsRecord`:
+- [x] **2.4** Verify `SchwabPositionsMetadata` in `packages/web/src/lib/types.ts` declares the per-position fields used by `toPositionsRecord`:
   - Each `SchwabHolding` must have optional `cost_basis?: number`, `gain_dollar?: number`, `gain_pct?: string`, `asset_type?: string` typed so `p.cost_basis ?? 0` compiles.
   - If missing, add them to the interface.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
+  - **Resolution:** Added `cost_basis?: number | null`, `gain_dollar?: number | null`, `gain_pct?: string` to the inline element type of `SchwabPositionsMetadata.positions[]` in `packages/web/src/lib/types.ts`. `asset_type?: string` was already present. Nullable numerics match the Python parser's `_num_or_none` sentinel (emits `None` for '--' / blank / 'N/A' rows, e.g. cash). `gain_pct` is a pre-formatted string from the CSV. Inline JSDoc pins the fields to `_parse_schwab_position_csv` as the source of truth. Backend canonical shape: `scripts/financial-pipeline.py` lines 2107-2117 (parser) + 2412-2426 (formatter `_format_schwab_position_capture`). `tsc --noEmit` shows zero errors touching `types.ts`, `SchwabHolding`, or `SchwabPositionsMetadata`; remaining tsc errors are all in `src/pages/Ingest.tsx` under items 2.2/2.3 scope.
   - **Ref:** Item 4
-- [ ] **2.5** Add drift-guard test at `packages/shared/src/__tests__/web-type-drift.test.ts` (F2):
+- [x] **2.5** Add drift-guard test at `packages/shared/src/__tests__/web-type-drift.test.ts` (F2): ✅ Completed 2026-04-17
   - Read `packages/web/src/lib/api.ts` as a string.
   - Parse out the `FileUploadStatus` and `IngestSourceType` union literals via regex (pattern like `export type FileUploadStatus\s*=\s*([^=]+?)(?=\n\n|\nexport)`).
   - Import `FileUploadStatusSchema.options` and `IngestSourceTypeSchema.options` from the shared package.
   - `expect(webLiterals).toEqual(sharedOptions)` for each.
   - Test includes a clear failure message pointing at the exact literal and file+line to update.
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** F2, ultra-plan CS-α step 3
-- [ ] **2.6** Run full test suites for both packages after all edits:
+  - **Resolution:** Added `packages/shared/src/__tests__/web-type-drift.test.ts`. Mechanism: regex-on-source against `packages/web/src/lib/api.ts` — web is a standalone Vite bundle and intentionally does NOT import from `@open-brain/shared` (see the explicit note above the inline type decls at api.ts:847-859). Test imports `FileUploadStatusSchema` + `IngestSourceTypeSchema` from `../schema/ingest.js` and compares sorted `.options` tuples against the web literals. Extractor normalizes CRLF→LF (Windows git checkout emits `\r\n`) and uses a non-multiline regex `/export\s+type\s+${name}\s*=\s*([\s\S]*?)(?=\n\n|\nexport\s|$)/` — crucially without the `m` flag, since `$` under multiline would stop the lazy body at the first `| 'literal'` line. Failure message names both sides verbatim, cites the canonical file (`packages/shared/src/schema/ingest.ts`) as source of truth, and tells reviewers to update the WEB declaration. Validated: `pnpm --filter @open-brain/shared test` → 15 test files / **262 tests passed** (was 14/260 pre-change; +1 file / +2 cases for this guard). Self-verified the failure path during development: while the regex was broken (captured only first literal), the guard surfaced exactly the actionable message — `web: ["pending"]` vs `shared: ["failed","parsed","pending","processing"]` — proving drift is caught with precise remediation text, not a bare `AssertionError`.
+- [x] **2.6** Run full test suites for both packages after all edits:
   - `pnpm --filter @open-brain/web exec tsc --noEmit` → PASS
   - `pnpm --filter @open-brain/web test` → all prior tests + new test green
   - `pnpm --filter @open-brain/shared test` → new drift-guard green
-  - **Status:** PENDING
+  - **Status:** COMPLETE 2026-04-17
   - **Ref:** Acceptance verification
+  - **Results:**
+    - `pnpm --filter @open-brain/shared build` → PASS (ESM 131.45 KB, DTS 239.22 KB, tsup build success in 97ms / DTS 5182ms, zero TS errors). Rebuilt first so dependent packages consume fresh `.d.ts` per project convention.
+    - `pnpm --filter @open-brain/web exec tsc --noEmit` → PASS (zero output = zero errors).
+    - `pnpm --filter @open-brain/shared test` → **15 test files / 262 tests passed** in 5.81s — matches expected count (includes new `web-type-drift.test.ts` with 2 cases).
+    - `pnpm --filter @open-brain/web test` → **14 test files / 97 tests passed** in 8.22s — no failures, no new regressions from Phase 2 changes.
+  - **Verdict:** PHASE_2_VERIFIED. Phase 2 (Web Type Drift Guard + related web/shared alignment) lands clean. No commits from this verification step per scope.
 
 ### Acceptance criteria
 - Web `tsc --noEmit` green.
