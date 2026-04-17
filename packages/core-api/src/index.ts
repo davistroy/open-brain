@@ -20,6 +20,7 @@ import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
 import { ActivityFeedService } from './services/activity-feed.js'
 import { EmailDraftService } from './services/email-draft.js'
+import { EmailComposeAssistService } from './services/email-compose-assist.js'
 import { VoiceSessionService } from './services/voice-session.js'
 import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
@@ -117,6 +118,10 @@ const himalayaService = new HimalayaService()
 const emailPushover = new PushoverService({ onError: 'swallow' })
 const emailDraftService = new EmailDraftService(db, himalayaService, emailPushover)
 emailDraftService.setActivityFeedService(activityFeedService)
+
+// Email-compose AI-assist service — used by POST /api/v1/email/compose-draft.
+// Disabled gracefully if no Anthropic client (returns 503).
+const emailComposeAssistService = new EmailComposeAssistService(db, anthropicClient)
 if (himalayaService.isConfigured) {
   logger.info('HimalayaService configured — outbound email enabled')
 } else {
@@ -173,6 +178,7 @@ const app = createApp({
   wikiService,
   activityFeedService,
   emailDraftService,
+  emailComposeAssistService,
   voiceSessionService,
 })
 const port = Number(process.env.PORT ?? 3000)
