@@ -4091,3 +4091,56 @@ Top 3 categories after fix: Mint Mobile ($545.88 across 3 txn), Lex Ventures LLC
 1. Drop the other 5 CSVs into the inbox (Chase, Truist × 2, Schwab × 3, HSA, PayPal), run `--process-inbox` again, confirm 5 more captures land.
 2. Host cron entry — Troy's call on cadence. Monthly seems right for most sources (bank statements are monthly); Amex/Chase exports are ad-hoc. Proposed: `0 6 * * *` check inbox daily, process whatever's there, move to `processed/`.
 3. Add internal-URL env override so the sidecar doesn't round-trip through Cloudflare.
+
+**Outcome — 3 deploy-time fixes + full validation:**
+
+Deploy surfaced three independent bugs that weren't caught by laptop smoke-test. Each one required a branch + PR + rebuild + retry cycle:
+
+**Fix 1 (PR #84 `fix/sidecar-internal-capture-url`) — Cloudflare Access 302 trap.**
+- `brain.troy-davis.com/api/v1/captures` is now fronted by Cloudflare Access. Unauthenticated POSTs get 302 → login HTML page. `requests.post()` followed the redirect and returned 200 on the login page, so `_post_capture` logged "Capture posted" and moved the CSV to `processed/` while zero captures hit the DB.
+- Fix: `_get_capture_api(cfg)` helper with `CAPTURE_API_URL` + `CAPTURE_API_CALLER` env-var override (wins over `plaid-config.yaml`). Sidecar compose sets `CAPTURE_API_URL=http://core-api:3000/api/v1/captures` — stays on the internal `open-brain` Docker network, bypassing Cloudflare entirely. `allow_redirects=False` + explicit 3xx logging for belt-and-suspenders.
+- 5 copies of the same 3-line cap_cfg pattern DRY'd down to one-liner.
+
+**Fix 2 (PR #85 `fix/capture-schema-fields`) — missing `capture_type` + `brain_view`.**
+- After Fix 1 landed, POST reached core-api but returned 400: `expected 'observation' | ... received 'undefined' at path ['capture_type']`.
+- Fix: `_post_capture` defaults `capture_type='observation'` + `brain_view='personal'` (financial activity is factual, personal).
+
+**Fix 3 (PR #86 `fix/capture-metadata-nesting`) — source_metadata stripped by Zod.**
+- After Fix 2 landed, POST returned 201, file moved to `processed/`. But `source_metadata` column stored only `{trace_id}` — no `source_provider`, `transaction_count`, `by_category`, etc.
+- Root cause: `createCaptureSchema` (in `packages/core-api/src/schemas/capture.ts`) nests `source_metadata` inside a `metadata` object: `{metadata: {source_metadata, tags, pre_extracted, captured_at}}`. Script was sending `source_metadata` at top-level, so Zod silently stripped it.
+- Fix: wrap in `metadata: {source_metadata: ...}`.
+
+**Fix 0 (PR separate, before deploy) — .dockerignore negation.**
+- `scripts/` is `.dockerignore`'d. Dockerfile's `COPY scripts/financial-pipeline.py` failed with "not found" on first build. Added negation rules for the two Python scripts only; other scripts stay hidden from all Docker build contexts.
+
+**Validation — final state (homeserver):**
+
+All 9 CSVs processed in one `--process-inbox` run after Fix 3. Numbers match laptop smoke-test byte-for-byte:
+
+| Provider | Account | Txns | Debit | Credit |
+|---|---|---|---|---|
+| amex | −24000 | 834 | $58,605.55 | $60,709.94 |
+| chase | 2726 | 779 | $85,568.36 | $73,948.49 |
+| truist | 9675 (Q1) | 42 | $55,857.99 | $52,724.46 |
+| truist | 9675 (Q4 2025) | 47 | $61,736.01 | $65,533.05 |
+| schwab | Contributory-252 | 959 | $19,115,818.56 | $19,136,811.48 |
+| schwab | Simple_IRA-324 | 303 | $1,957,812.37 | $1,958,276.48 |
+| schwab | Designated_Bene_Joint-448 | 330 | $629,412.53 | $633,181.48 |
+| hsa | hsa | 131 | $56,831.12 | $57,831.12 |
+| paypal | paypal | 55 | $3,180.79 | $33.54 |
+
+All 9 captures: `capture_type=observation, brain_view=personal, pipeline_status=pending` (will transition to `embedded` → `extracted` as the downstream pipeline runs). Source files moved to `/mnt/user/appdata/open-brain/financial-inbox/processed/`.
+
+**Decision D111:** `requests.post()` against an endpoint protected by Cloudflare Access without service-token auth is a silent footgun. Always `allow_redirects=False` when the auth model of the destination is uncertain. More important: prefer internal Docker-network URLs for container-to-container traffic even when the public URL is reachable.
+
+**Decision D112:** For scripts that POST to core-api from multiple sites, add a single helper that encapsulates URL + headers + schema envelope. Prevents N-way drift when schema changes (as it did between the original 2026-02 captures route and the current Zod nested-metadata shape). The remaining 4 direct-POST sites in financial-pipeline.py (`--sync`, `--balances`, `--investments`, `--monthly-report`) are still on the old shape and would fail if invoked — tracked as follow-up.
+
+**What Worked:**
+- Cutting a branch + PR for EACH of the three fixes. Forced clear commit messages and kept the diff reviewable. This session proves the value of the process-correction I flagged in Entry 067.
+- Laptop smoke test caught the PayPal funding-row bug; deploy-time surface caught the three auth/schema bugs. Both layers paid for themselves.
+- Moving the file back from `processed/` → inbox and reprocessing after each fix means I never had to re-scp CSVs; the deploy-retry loop was self-contained.
+
+**Follow-up items:**
+- 4 remaining direct-POST sites (`cmd_sync`, `cmd_balances`, `cmd_investments`, `cmd_monthly_report`) need the same metadata-nesting + `capture_type` + `brain_view` fix. Not urgent (VM cron is the only thing invoking those today, and the deploy plan is to phase out the VM). Filed as tech-debt note, not separate issue.
+- `--status` command still works against an empty SQLite DB in the sidecar. The `financial.db` at `/data/financial.db` is populated only when `--sync` runs (Plaid integration). For inbox-only processing that DB is unused. Possible future simplification: skip SQLite entirely for the inbox path.
+- Host cron entry not yet added. Troy's call on cadence.
