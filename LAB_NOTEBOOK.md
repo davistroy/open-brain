@@ -162,10 +162,11 @@
 | A57 | ~~Run email-classify manually after auth seeded, validate classification~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Hotmail 66/66/8rev, Gmail 27/27/24rev, 320s, pipeline complete |
 | A58 | ~~Jetson qwen3.5-4b cold-start latency — pre-warm or raise 5xx retry backoff in LLM gateway~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 059 — same-tier retry on "Loading model" with 3s/6s/12s backoff (21s window before fallback) |
 | A59 | ~~Summary synthesis 401 — `fast` alias keeps routing through LiteLLM proxy with virtual key that OpenAI rejects; also Zod 400 on summary capture~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 061 — gateway refactor (PR #79) + brain_view fix. Digest capture lands clean. |
-| A60 | ~~MSAL Node cache does not rehydrate across workers container restarts~~ | 2026-04-17 | Entry 061 | Code-fix shipped 3f3714c — pending homeserver deploy |
-| A61 | ~~wiki-ingest fails with "Author identity unknown"~~ | 2026-04-17 | Entry 061 | Code-fix shipped 0e270f1 — pending homeserver deploy |
+| A60 | MSAL Node cache does not rehydrate across workers container restarts | 2026-04-17 | Entry 061 | F.1 code-fix deployed — `hydrateCache()` works (accounts load), but silent refresh fails (see A64). PARTIAL. |
+| A61 | wiki-ingest fails with "Author identity unknown" | 2026-04-17 | Entry 061 | F.2 code-fix deployed to homeserver — validation deferred (email-classify blocked by A64 before reaching wiki-ingest stage). |
 | A62 | ~~One embed job stalled after wiki-ingest cascade~~ | 2026-04-17 | Entry 061 | Resolved as byproduct of A61 |
-| A63 | ~~Remove OPENAI_* ?? LITELLM_* transition shim~~ | 2026-04-17 | Entry 061 | Code-fix shipped fb7f57f — pending homeserver deploy |
+| A63 | ~~Remove OPENAI_* ?? LITELLM_* transition shim~~ | 2026-04-17 | Entry 063 | DONE — deployed 59b78b9; workers startup shows clean `["Anthropic","Ollama","OpenAI"]` gateway, no LITELLM warnings. |
+| A64 | MSAL refresh token rejected with AADSTS70000 invalid_grant — silent refresh unable to recover | 2026-04-17 | Entry 063 | BLOCKS unattended 5 AM cron until Troy does one device-code auth + (likely) we split MSAL cache keys between Python + Node pipelines. |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3577,3 +3578,89 @@ Success criteria:
 - `packages/workers/src/__tests__/budget-check.test.ts:370,391` — `litellmSpendUrl` / `litellmApiKey` option keys were renamed to `llmSpendUrl` / `spendApiKey` during Phase D but the test still used the old names. Updated.
 
 No runtime changes; test expectations unchanged. Shared 260 + workers budget-check 26 tests green locally post-fix. Committing as `test-fix` on the same branch before re-requesting CI.
+
+---
+
+### Entry 063 — Phase F deployed, A63 validated, A60 partial, new issue A64 uncovered
+
+**Date:** 2026-04-17
+**Tags:** `[deploy]` `[msal]` `[hotmail]` `[validation]` `[blocker]`
+**Environment:** Homeserver (Unraid, Docker Compose), `/mnt/user/appdata/open-brain` @ main `59b78b9` (PR #80 squash-merge)
+**Duration:** ~45 min (deploy + validation + diagnosis)
+
+**Objective:** Deploy Phase F (A60 MSAL hydration, A61 git identity, A63 shim removal) and validate the three fixes via a manual email-classify trigger before tomorrow's 5 AM cron.
+
+**Hypothesis (per Entry 062):** After F.1 ships, workers can authenticate to Hotmail silently on container restart. No device-code prompt expected. A61 surfaces on first wiki-ingest; A63 surfaces in startup logs.
+
+**Rollback:** `git revert 59b78b9` on homeserver + restore `.env.secrets` from `.env.secrets.bak-20260417-phaseF` + `docker compose up -d` to roll back to Entry 061 baseline. Left the backup in place.
+
+**What happened, step by step:**
+
+1. **PR #80 created + CI.** CI's `pnpm -r lint` (runs `tsc --noEmit`) caught three strict-TS errors that vitest/tsx tolerate:
+   - `shared/loader.test.ts:331` — `aiConfig.models.fast` is now optional after Phase D deprecation (`fast: AIModelValueSchema.optional()`). Fixed with `?.model`.
+   - `workers/budget-check.test.ts:370,391` — option keys `litellmSpendUrl`/`litellmApiKey` renamed to `llmSpendUrl`/`spendApiKey` during Phase D. Updated. Documented in Entry 062 addendum.
+2. **Squash-merge to main** as `59b78b9`. Branch `fix/post-refactor-cleanup` deleted.
+3. **Homeserver deploy.** `git pull` → `sudo docker compose build workers core-api slack-bot voice-capture` → recreate. All four containers healthy.
+4. **Removed `LITELLM_API_KEY=sk-litellm-…` from `.env.secrets`** (after backup to `.env.secrets.bak-20260417-phaseF`). Confirmed `OPENAI_API_KEY=sk-svcacct-…` is the sole key. Workers restarted.
+5. **A63 VALIDATED.** Workers startup log shows `LLMGatewayService: 3-client routing enabled (Anthropic, Ollama, OpenAI)`. No `LITELLM_*` warnings, no `sk-litellm-` fatals. Shim removal fully effective.
+6. **A60 F.1 structurally validated.** Copied `scripts/enqueue-email-classify.mjs` into the container and triggered. Ran a standalone MSAL diagnostic (`/app/packages/shared/diag.mjs`, since removed) that loads the exact same code path as production:
+   - `loadTokenCache()` → DB → `{ cache: "..." }` shape → 11619 chars serialized ✓
+   - `cache.deserialize(serialized)` → no throw ✓
+   - `cache.getAllAccounts()` → **2 accounts returned** (troy.davis@hotmail.com + 1 other) ✓
+   - `app.acquireTokenSilent({account: accounts[0]})` → **FAILS with `AADSTS70000: invalid_grant`** ✗
+   The Entry 062 theory (`getAllAccounts` returns empty) is REFUTED. F.1 does load the cache. But the stored refresh token is dead at the AAD level.
+7. **New issue A64 identified.** Silent refresh failure is the real blocker. AAD error code 70000 means "the user must sign in and grant access" — a hard revocation, not a scope/param issue.
+8. **A61 NOT YET VALIDATED.** email-classify never reached wiki-ingest because hotmail auth failed first. Deferred to post-A64.
+9. **Cleanup.** Killed the hung device-code-waiting job: restarted workers container (kills MSAL's in-process device-code flow), deleted Redis job key `bull:skill-execution:manual-email-classify-1776430470633` + its lock. Active queue count fell from 1 → 1 (another job, unrelated — pipeline-health scheduled run).
+
+**Root-cause analysis — A64:**
+
+Three plausible causes for the `invalid_grant`:
+
+| # | Hypothesis | Likelihood | Evidence |
+|---|-----------|------------|----------|
+| 1 | Refresh token rotation race: Python (open-brain-vm @ 5 AM) and TS (homeserver @ 5 AM) both use the same `ms_token_cache` row. Each silent auth rotates the RT; whichever writes second invalidates the first | HIGH | `ms_token_cache` stores a single shared refresh token; both pipelines read+write it; `updated_at` on the cache is 2026-04-17 03:01:17 UTC (6+ hrs before validation attempt, plenty of window for a second actor to rotate) |
+| 2 | AAD policy revocation (MFA policy change, password reset, admin revoke) | MEDIUM | No known Troy-side event; but cannot be ruled out from endpoint alone |
+| 3 | MSAL Python ↔ MSAL Node serialization incompatibility — format-compatible on read, but refresh mechanics differ (e.g., `home_account_id` normalization, `last_modification_time` usage) so AAD rejects cross-language refresh | LOW-MEDIUM | Both use Unified Cache Schema; format overlap is documented compatible but edge cases exist in RT rotation |
+
+Hypothesis 1 is most likely given the infra shape. The TS pipeline was deployed Entry 061 without disabling the Python VM pipeline — Phase G-B.2 (disable VM cron) was gated on 7-day validation window. Both pipelines hit the same cache key.
+
+**Decision D105 (proposed, awaiting Troy):** Split the MSAL cache per pipeline language. `ms_token_cache_python` (Python VM owns) and `ms_token_cache_node` (TS on homeserver owns). First deploy requires one device-code per pipeline, but eliminates the rotation race permanently. Code change is 1 line in `hotmail-client.ts` (`const SETTINGS_KEY = 'ms_token_cache_node'`) plus mirror in Python (for a brief parallel period). G-B.2 still fires after parity window; at that point we drop the Python key.
+
+**What Worked:**
+- Phase F's F.1 fix IS correct — `cache.deserialize()` → `getAllAccounts()` returns populated accounts. The Entry 062 diagnosis (plugin-vs-explicit cache lifecycle) was right, but didn't surface the deeper token-rotation issue because that only bites when two MSAL clients share a cache row.
+- A63 validation is clean: no LITELLM log pollution, three-client gateway wiring shows only canonical names.
+- Diagnostic scaffolding (direct MSAL replay from production env) was fast to write and decisive — moved from "it still prompts device-code" to "silent fails with 70000" in one script.
+
+**What Didn't Work:**
+- Relying on the hypothesis from Entry 062 without independently reproducing the failure mode. The "device-code prompt on restart" symptom had two possible causes (cache not hydrating OR silent refresh failing); Entry 062 assumed the former and shipped that fix. The latter was the real issue. Next time: write the diagnostic script BEFORE shipping the fix, not after.
+
+**Next steps (awaiting Troy's call):**
+
+Option A (minimal, blocks on parity window completion):
+1. Troy does one device-code auth via manual email-classify trigger (12-15 min window).
+2. Watch tomorrow's 5 AM cron. If TS silent-auth works for 24-48 hrs before Python rotates the RT, we quantify the race.
+3. Then ship A64 fix (split cache keys) as a small PR.
+
+Option B (recommended, unblocks unattended cron tonight):
+1. Ship A64 fix now — change `SETTINGS_KEY` in `hotmail-client.ts` to `ms_token_cache_node`. Deploy. This creates an isolated cache slot.
+2. Troy does one device-code auth via manual trigger → fresh RT in the new isolated slot.
+3. Tomorrow's 5 AM cron: silent auth works (no Python interference).
+4. G-B.2 (disable Python VM cron) still fires on its own schedule after parity window.
+
+Option C (heaviest, out of scope for tonight):
+1. Drop MSAL cache entirely; migrate to a long-lived client credentials flow. Requires Azure app registration changes and user consent re-grant.
+
+Decision needed from Troy: A, B, or C. Recommendation is B.
+
+**Validation status summary for PR #80:**
+
+| Fix | Status | Evidence |
+|-----|--------|----------|
+| A60 F.1 (MSAL explicit hydration) | PARTIAL — structural fix works, surfaced a deeper issue | Diagnostic script confirms `hydrateCache() → 2 accounts`; silent fails independently |
+| A61 F.2 (git identity env vars) | NOT TESTED — email-classify blocked by A64 before reaching wiki-ingest | Env vars present in container (`docker compose exec workers env | grep GIT_`) |
+| A63 F.3 (shim removal) | VALIDATED | Workers startup shows 3-client gateway cleanly, no LITELLM_* warnings |
+
+**What to Watch:**
+- Tomorrow 5 AM cron (both VM Python + homeserver TS) — if Python wins the rotation race, TS will prompt device-code again. If TS wins, Python will fail silently (likely suppressed since email-pipeline.py treats 401 as retry-with-reauth, not fatal).
+- Option B, once shipped, validates within one 5 AM cycle.
