@@ -413,6 +413,7 @@ describe('EmailClassifySkill', () => {
     const parsedBody = JSON.parse((init as RequestInit).body as string)
     expect(parsedBody).toMatchObject({
       capture_type: 'observation',
+      brain_view: 'personal',
       source: 'email',
       source_metadata: expect.objectContaining({ type: 'daily_digest' }),
     })

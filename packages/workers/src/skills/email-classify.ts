@@ -476,6 +476,7 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
       const captureBody = {
         content: `[Email Daily Digest] ${today}\n\n${summaryText}`,
         capture_type: 'observation',
+        brain_view: 'personal',
         source: 'email',
         source_metadata: {
           type: 'daily_digest',
