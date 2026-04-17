@@ -2210,8 +2210,14 @@ def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
     }
 
 
-def _post_capture(cfg: dict, content: str, source_metadata: dict):
-    """POST a capture to the Open Brain API."""
+def _post_capture(cfg: dict, content: str, source_metadata: dict,
+                  capture_type: str = "observation", brain_view: str = "personal"):
+    """POST a capture to the Open Brain API.
+
+    Financial captures default to ``capture_type=observation`` (factual
+    activity, no claim / decision) and ``brain_view=personal`` (Troy's
+    personal money data). Both are required by the core-api Zod schema.
+    """
     url, caller = _get_capture_api(cfg)
     try:
         # allow_redirects=False — if the endpoint is fronted by Cloudflare
@@ -2222,7 +2228,13 @@ def _post_capture(cfg: dict, content: str, source_metadata: dict):
         # the void. Fail fast on 302 instead.
         resp = requests.post(
             url,
-            json={"content": content, "source": "api", "source_metadata": source_metadata},
+            json={
+                "content": content,
+                "source": "api",
+                "capture_type": capture_type,
+                "brain_view": brain_view,
+                "source_metadata": source_metadata,
+            },
             headers={"Content-Type": "application/json", "X-Open-Brain-Caller": caller},
             timeout=30,
             allow_redirects=False,
