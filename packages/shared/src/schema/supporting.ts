@@ -293,11 +293,12 @@ export const mcp_activity = pgTable(
 )
 
 // ============================================================
-// backup_log table — tracks infrastructure backup operations
+// backup_log table — legacy, retained for historical rows
 //
-// Each backup skill (db-backup, wiki-backup, redis-snapshot) writes
-// a row on completion. Retention pruning counts are recorded so the
-// log is self-documenting about cleanup actions.
+// Populated by the deleted db-backup / wiki-backup / redis-snapshot
+// BullMQ skills prior to consolidation onto scripts/backup.sh
+// (Phase G-B.4). Kept in the schema so historical rows remain
+// queryable; no new rows are written as of 2026-04-17.
 // ============================================================
 export const backup_log = pgTable(
   'backup_log',

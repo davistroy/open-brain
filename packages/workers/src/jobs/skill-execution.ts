@@ -22,9 +22,6 @@ import { MorningBriefSkill } from '../skills/morning-brief.js'
 import { WikiLintSkill } from '../skills/wiki-lint.js'
 import { WikiSynthesisSkill } from '../skills/wiki-synthesis.js'
 import { MonthlyReflectionSkill } from '../skills/monthly-reflection.js'
-import { DbBackupSkill } from '../skills/db-backup.js'
-import { WikiBackupSkill } from '../skills/wiki-backup.js'
-import { RedisSnapshotSkill } from '../skills/redis-snapshot.js'
 import { EmailComposeSkill } from '../skills/email-compose.js'
 import { CostAnalysisSkill } from '../skills/cost-analysis.js'
 import { ContainerHealthSkill } from '../skills/container-health.js'
@@ -309,62 +306,6 @@ export function createSkillExecutionWorker(
               durationMs: result.durationMs,
             },
             '[skill-execution] capture-dedup-sweep complete',
-          )
-          break
-        }
-
-        case 'db-backup': {
-          const result = await runSkill(DbBackupSkill, { db }, {
-            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
-            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
-            dbName: typeof input?.dbName === 'string' ? input.dbName : undefined,
-            dbUser: typeof input?.dbUser === 'string' ? input.dbUser : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              status: result.status,
-              sizeBytes: result.sizeBytes,
-              durationSeconds: result.durationSeconds,
-              prunedCount: result.prunedCount,
-            },
-            '[skill-execution] db-backup complete',
-          )
-          break
-        }
-
-        case 'wiki-backup': {
-          const result = await runSkill(WikiBackupSkill, { db }, {
-            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
-            wikiRepoPath: typeof input?.wikiRepoPath === 'string' ? input.wikiRepoPath : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              status: result.status,
-              sizeBytes: result.sizeBytes,
-              durationSeconds: result.durationSeconds,
-              prunedCount: result.prunedCount,
-            },
-            '[skill-execution] wiki-backup complete',
-          )
-          break
-        }
-
-        case 'redis-snapshot': {
-          const result = await runSkill(RedisSnapshotSkill, { db }, {
-            backupDir: typeof input?.backupDir === 'string' ? input.backupDir : undefined,
-            containerName: typeof input?.containerName === 'string' ? input.containerName : undefined,
-          })
-          logger.info(
-            {
-              skillName,
-              status: result.status,
-              sizeBytes: result.sizeBytes,
-              durationSeconds: result.durationSeconds,
-              prunedCount: result.prunedCount,
-            },
-            '[skill-execution] redis-snapshot complete',
           )
           break
         }
