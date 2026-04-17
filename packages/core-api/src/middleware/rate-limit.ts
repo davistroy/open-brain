@@ -156,7 +156,13 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
     const key = getClientKey(c.req.raw.headers)
 
     // Bypass rate limiting for trusted internal callers
-    const BYPASS_CALLERS = new Set(['internal:integration-test', 'internal:web-ui', 'internal:email-worker'])
+    const BYPASS_CALLERS = new Set([
+      'internal:integration-test',
+      'internal:web-ui',
+      'internal:email-worker',
+      'internal:financial-pipeline',
+      'internal:utility-pipeline',
+    ])
     if (BYPASS_CALLERS.has(key)) {
       await next()
       return

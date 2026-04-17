@@ -3849,3 +3849,130 @@ Decision needed from Troy: A, B, or C. Recommendation is B.
 - Live send test: piped `From:/To:/Subject:/body` into `himalaya message send` from inside workers container. Output: `Message successfully sent!`. Expect arrival in troy.e.davis@gmail.com shortly.
 - A36 validated end-to-end. GitHub issue #69 already closed; left a comment linking to this entry.
 - G-B.4 backup.sh validation deferred to tomorrow's 3 AM cron (need Phase G-A merged first to unblock anything that depends on this branch).
+
+---
+
+### Entry 067 — G-C.1 parsers shipped + Python sidecar scaffolded
+
+**Date:** 2026-04-17
+**Tags:** `[financial]` `[csv-parsers]` `[docker-sidecar]` `[g-c-1]`
+**Environment:** Laptop, branch `feature/phase-g-consolidation` (carried over from G-A/G-B.4)
+**Duration:** ~90 min (design + parsers + smoke test + sidecar scaffolding)
+
+**Objective:** G-C.0 approved Option 2 (Python Docker sidecar). Ship:
+1. Five CSV parsers in `scripts/financial-pipeline.py` — Amex, Chase, Truist, Schwab, HSA.
+2. Filename-based routing in `cmd_process_inbox` so the right parser runs based on filename pattern.
+3. Common result shape so all parsers produce equivalent captures.
+4. Env-var path overrides so the same script runs on the VM (legacy) and in the new Docker sidecar.
+5. Dockerfile + docker-compose entry for the sidecar itself.
+
+**Hypothesis:** A single common transaction shape (`date`, `description`, `amount`, `category`) can fit all 5 sources despite their wildly different column layouts and sign conventions. Each parser does format-specific normalization; a shared `_summarize_transactions()` + `_format_bank_capture()` pair handles aggregation + capture formatting. Host cron shells into the sidecar to run the pipeline (same pattern as `scripts/backup.sh`).
+
+**Rollback:** `git revert <sha>` removes parsers, router, and sidecar. Existing Amazon CSV + 401k PDF paths untouched. Old VM Python cron continues working — the env-var override is default-unchanged (`Path.home() / "financial-inbox"` when `FINANCIAL_INBOX_DIR` not set).
+
+**Design — common result shape:**
+
+```python
+{
+  "source": "amex" | "chase" | "truist" | "schwab" | "hsa",
+  "account_id": str,                                # last-4 or mask from filename/header
+  "date_range": {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD"},
+  "total_debit": float,                             # money OUT (absolute)
+  "total_credit": float,                            # money IN (absolute)
+  "net": float,                                     # credit − debit
+  "transaction_count": int,
+  "by_category": {name: {"count", "debit", "credit"}, ...},
+  "top_transactions": [{"date", "description", "amount", "category"}, ...],
+  "source_file": str,
+}
+```
+
+Important design-call: `by_category` tracks BOTH `debit` and `credit` per category, not just the spend side. First draft only tracked debits — that made investment-account breakdowns (Schwab) lose Sells/Interest/Dividends because those rows have positive `amount`. Two revisions:
+1. First test pass: Schwab Contributory IRA showed only 3 categories out of expected ~10. Symptom was credits being silently dropped.
+2. Revised `_summarize_transactions()` + `_format_bank_capture()` to count every transaction and surface both sides (`out $X / in $Y`). Second test pass: Schwab now shows 11 categories (Buy, Sell, Bank Interest, MoneyLink Transfer, Journal, Qualified Dividend, Reinvest Dividend, ...), which matches Schwab's typical action set.
+
+**Sign-convention per source (documented inside each parser):**
+
+| Source | `Amount` column sign |
+|---|---|
+| Amex | positive = charge, negative = refund/credit → **inverted** to internal convention |
+| Chase | negative = charge, positive = payment/refund → used as-is |
+| Truist | `($x)` parentheses for negative; `_parse_money()` handles → used as-is |
+| Schwab | negative for Buys/outflows, positive for Sells/dividends → used as-is |
+| HSA | negative for Withdrawal, positive for Deposit → used as-is |
+
+**Helper functions added:**
+- `_read_csv_robust(filepath, skip_lines)` — tries utf-8-sig/utf-8/latin-1/cp1252 in order, sniffs dialect. `skip_lines` param reserved for Schwab Positions/Balances formats with preamble rows (not used in the 5-parser set but useful for follow-ons).
+- `_parse_money(s)` — handles `$`, commas, `$1,234.56`, `-$1,234.56`, `($137.00)`, `25.07`, empty string.
+- `_parse_mdy(s)` — MM/DD/YYYY → ISO. Handles Schwab's compound `"04/16/2026 as of 04/15/2026"` by taking the first date.
+- `_summarize_transactions(source, account_id, txns, source_file, top_n=10)` — shared aggregator.
+- `_format_bank_capture(result)` — returns `(content, source_metadata)` tuple suitable for `_post_capture()`.
+- `_route_bank_csv(filepath)` — dispatcher by filename pattern.
+
+**Smoke test against real CSVs in `data/` (gitignored, Troy-provided):**
+
+| Source | File | Period | Txns | Spend | Income | Cats |
+|---|---|---|---|---|---|---|
+| Amex | `activity.csv` | 2025-04-18 to 2026-04-15 | 834 | $58,605.55 | $60,709.94 | 46 |
+| Chase | `Chase2726_Activity20250418_...CSV` | 2025-04-17 to 2026-04-15 | 779 | $85,568.36 | $73,948.49 | 15 |
+| Truist | `acct_9675_01_18_2026_...csv` | 2026-01-23 to 2026-04-16 | 42 | $55,857.99 | $52,724.46 | 4 |
+| Truist | `acct_9675_10_20_2025_...csv` | 2025-10-21 to 2026-01-16 | 47 | $61,736.01 | $65,533.05 | 4 |
+| Schwab (Contributory IRA) | `Contributory_XXX252_Transactions_...csv` | 2022-04-29 to 2026-04-16 | 959 | $19.1M | $19.1M | 11 |
+| Schwab (Simple IRA) | `Simple_IRA_XXX324_Transactions_...csv` | 2022-04-18 to 2026-04-16 | 303 | $1.96M | $1.96M | — |
+| Schwab (Designated Bene) | `Designated_Bene_Joint_XXX448_...csv` | 2022-04-18 to 2026-04-16 | 330 | $629K | $633K | 10 |
+| HSA | `HSATransactionsAsOf_04172026.csv` | 2024-04-01 to 2026-04-17 | 131 | $56,831.12 | $57,831.12 | 2 (Withdrawal, Deposit) |
+
+Formatted capture for Amex top-of-file output (visual check): clean markdown-ish layout, top 10 charges + 15 top categories, period, spend/income/net summary. Fits ~40 lines for a year of transactions. Categories sorted by total volume.
+
+**Env-var path overrides (one-line change each):**
+- `PIPE_DIR` → reads `FINANCIAL_PIPE_DIR` (defaults to `~/.financial-pipeline`)
+- `INBOX_DIR` → reads `FINANCIAL_INBOX_DIR` (defaults to `~/financial-inbox`)
+- `CONFIG_BASE` → reads `FINANCIAL_CONFIG_DIR` (defaults to repo `config/financial/`)
+
+VM cron runs continue to work (no env vars set, defaults kick in). Docker sidecar mounts `/inbox` + `/data` and sets the env vars accordingly.
+
+**Docker sidecar — `docker/financial-ingest/Dockerfile`:**
+- Base: `python:3.12-slim`
+- Adds: `bws` CLI v1.0.0 (pinned), `curl`, `tzdata`
+- Installs `requests==2.32.3` + `PyYAML==6.0.2` (kept minimal — `pdfplumber` deliberately excluded; adding later is cheap)
+- Copies `scripts/financial-pipeline.py`, `scripts/utility-pipeline.py`, and `config/` into `/app`
+- `CMD ["sleep", "infinity"]` — long-lived container; host cron shells in via `docker exec`
+
+**docker-compose.yml — new service `financial-ingest`:**
+- Container name `open-brain-financial-ingest`
+- env_file `.env.secrets` (picks up `BWS_ACCESS_TOKEN`)
+- Volume mounts:
+  - host `/mnt/user/appdata/open-brain/financial-inbox` → `/inbox` (drop CSVs here)
+  - named volume `financial_ingest_data` → `/data` (SQLite DB)
+  - `./config:/app/config:ro` (merchants.yaml, plaid-config.yaml)
+- Depends on `core-api` healthy (capture POST target)
+- Networks: `open-brain`
+- `restart: unless-stopped`
+
+**Decision D107:** Host cron + long-lived sidecar rather than cron-in-container. Matches existing `scripts/backup.sh` invocation pattern (`docker exec open-brain-postgres pg_dump ...`). Simpler than setting up `cron` + `crond` inside a Python base image, and the `docker exec` invocation is observable in the host cron log.
+
+**Decision D108:** Do NOT bake `claude` CLI into the sidecar image. The pipeline's `claude --print` calls for T2 synthesis will continue to best-effort-fail inside the container (catches `FileNotFoundError`). Downstream captures carry enough structured data in `source_metadata` that Open Brain's own `weekly-brief` and `monthly-reflection` skills pick up the context during their normal runs. Rebuilds the T2 synthesis under the standard Open Brain pattern instead of bolting Claude Code auth into a detached container.
+
+**Deploy plan (after PR merge):**
+1. `git pull` on homeserver.
+2. `mkdir -p /mnt/user/appdata/open-brain/financial-inbox` (bind-mount target).
+3. `docker compose build financial-ingest && up -d financial-ingest`.
+4. Smoke test: `docker exec open-brain-financial-ingest python /app/financial-pipeline.py --status` — confirms imports + SQLite init + capture API reachability.
+5. Drop one Troy-provided CSV into `/mnt/user/appdata/open-brain/financial-inbox/` and run `docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox`. Expect capture landing in core-api.
+6. Add host cron entry: `0 6 * * * docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox >> /var/log/financial-ingest.log 2>&1`.
+
+**Scope boundary:**
+- PayPal stubbed (no parser) — Troy provided monthly PDF statements, not a CSV. PDF parsing is brittle and out of scope. Asked Troy if PayPal Activity → Download CSV is an option; pending response. When CSV arrives, add `_parse_paypal_csv()` following the same pattern as the other 5.
+- Schwab `Balances` + `Positions` files (separate exports from Transactions) have a different header layout (preamble rows + different columns). Not parsed in this PR — Transactions files provide the activity-level data we want; Balances/Positions are complementary snapshots. Deferred as a follow-up.
+- Utility pipeline (G-C.2 Gas South + Cobb EMC) not in this PR. Next session, or same branch if Troy prefers to land everything together.
+- pytest test suite not added. Smoke test via ad-hoc Python confirmed all 5 parsers against real data. Formalizing pytest requires setting up the workspace's Python test infrastructure (conftest, pyproject, CI wiring) — scope-creep risk. Deferred.
+
+**What Worked:**
+- Reading each CSV's first 5 rows BEFORE designing the common shape. Caught the Schwab compound-date format and the Truist parentheses-negative convention in the design pass, not during debugging.
+- Catching the debit-only-breakdown bug via the 959-txn / 3-category smell test. Investment accounts were the forcing function for fixing the by-category shape correctly; a spend-only test would have shipped the broken version.
+- Env-var overrides via `os.environ.get(..., default)` — zero behavior change for existing VM cron, clean Docker integration.
+
+**What to Watch:**
+- First sidecar build on homeserver: `bws` download URL format changes over time; if v1.0.0 tarball layout shifts, the `unzip` + `mv /tmp/bws` line may fail loudly. Good — fail-fast on image build is better than silent miss.
+- `FINANCIAL_INBOX_DIR` and Unraid host path: bind-mounting to `/mnt/user/appdata/open-brain/financial-inbox` assumes that directory exists. Deploy step 2 above covers `mkdir`.
+- Capture API caller header: currently `financial-pipeline` (hard-coded in `plaid-config.yaml`'s `capture_api.caller_header` field). Rate limiter's `BYPASS_CALLERS` set needs to include this. Check on homeserver before deploy — if missing, add a one-liner to `rate-limit.ts`.
