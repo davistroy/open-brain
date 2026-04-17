@@ -67,6 +67,8 @@ Expected set (from Phase 1 investigation): `intent_classification`, `capture_cla
 
 Add `email_daily_digest` to the list; confirm no other gaps.
 
+**Result (A.1):** Added `email_daily_digest: t1_spark` to `config/ai-routing.yaml` under the "Complex but routine -> Spark" group (after `drift_monitoring`). Audit grep against `packages/` found the following unique task-name literals passed to `completeByTask`: `confidence_gating`, `daily_connections`, `daily_sweep`, `drift_monitoring`, `email_classification`, `entity_extraction`, `entity_linking`, `governance`, `intent_classification` (tests only), `search_synthesis`, `synthesis` (the stray in `email-classify.ts:463`, to be fixed in A.2), `weekly_brief`. Every non-stray task name is already present in `task_routing`. Unused-but-preregistered keys (`capture_classification`, `brain_view_classification`, `voice_classification`, `question_detection`, `capture_enrichment`, `mcp_context`, `auto_response_draft`, `wiki_ingest`, `wiki_synthesis`) are left in place — they are expected to be wired up by other consumers or future work. No silent renames applied.
+
 ### A.2 Update `email-classify.ts` call site
 
 `packages/workers/src/skills/email-classify.ts:463`:
@@ -105,6 +107,21 @@ rg "/api/v1/captures" packages/workers/src/skills/ -l
 ```
 
 For each hit, verify `capture_type` is present in the body. Fix any miss with the appropriate enum value (`observation` for digests/summaries, `reflection` for briefs).
+
+**Result (audit 2026-04-16):**
+
+Files inspected (all POSTs to `/api/v1/captures` under `packages/workers/src/skills/`, excluding `email-classify.ts` which is being fixed in A.2/A.3):
+
+| File | `capture_type` status | Value used | Notes |
+|---|---|---|---|
+| `weekly-brief.ts` | PRESENT | `'reflection'` | Line 166. Weekly brief output — correct per guidance (briefs/reflections). |
+| `monthly-reflection.ts` | PRESENT | `'reflection'` | Line 462. Monthly reflection capture — correct. |
+| `memory-consolidation.ts` | PRESENT | `'reflection'` | Line 442. Consolidated merge capture. Note: source is `'consolidation'`; `capture_type` stays within enum. |
+| `drift-monitor.ts` | PRESENT | `'reflection'` | Line 289. Drift analysis capture. |
+| `daily-sweep-skill.ts` | PRESENT | `'reflection'` | Line 249. Evening summary — arguably could be `'observation'`, but existing value is in-enum and not our scope to second-guess. |
+| `daily-connections.ts` | PRESENT | `'reflection'` | Line 265. Cross-capture connections. |
+
+**No edits required.** All 6 sibling skills already set `capture_type` to a valid enum value. `email-classify.ts` was the only offender, being fixed separately in A.2/A.3. No test files needed updating because no production code changed.
 
 ### A.5 Tests
 
@@ -391,7 +408,7 @@ Open an issue with the failure mode; do not re-attempt without diagnosis.
 
 | Phase | Items | Status | Commit SHA |
 |---|---|---|---|
-| A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | Pending | — |
+| A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1 done; A.2–A.5 pending) | — |
 | B | B.1 throw on unrouted, B.2 tests, B.3 grep check | Pending | — |
 | C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | Pending | — |
 | D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | Pending | — |

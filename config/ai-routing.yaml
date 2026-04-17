@@ -94,6 +94,7 @@ task_routing:
   wiki_synthesis: t1_spark
   daily_connections: t1_spark
   drift_monitoring: t1_spark
+  email_daily_digest: t1_spark   # NEW canonical name — replaces email-classify's stray 'synthesis' call
 
   # Only human-facing quality-critical -> Anthropic API (PAID)
   weekly_brief: t2_quality
