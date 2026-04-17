@@ -4227,3 +4227,441 @@ Ordering (preview, to be confirmed in Phase 4): 1 and 5 are independent and smal
 **What to Watch:**
 - The sidecar HTTP trigger (BE-3) is a new moving part. Python's `http.server` is battle-tested for this, but we're adding a second process to the container. Keep its threading model dead simple.
 - File upload size caps — 50MB default should cover everything except the Amazon `Your Orders.zip` edge (30MB today, could grow). Bump to 100MB preemptively.
+
+---
+
+### Entry 071 — Waves 2026-04-17 implementation begins (CS1 in progress, single-branch Option B)
+
+**Date:** 2026-04-17
+**Tags:** `[implement-plan]` `[cs1]` `[financial-pipeline]` `[schwab]` `[option-b]`
+**Environment:** Laptop, branch `feature/waves-2026-04-17` off main@103c1e0. Running `/implement-plan --input IMPLEMENT_WAVES_2026-04-17.md` in Option B (single mega-branch, one PR at the end).
+
+**Objective:** Execute CS1 through CS5 from the ultra-plan on a single branch. Start with CS1 — refactor 4 direct-POST sites in `scripts/financial-pipeline.py` to use `_post_capture` + add Schwab Balances/Positions snapshot parsers + router entries + format helpers + laptop smoke test.
+
+**Hypothesis (CS1):**
+- Refactoring `cmd_sync` / `cmd_balances` / `cmd_investments` / `cmd_monthly_report` to call `_post_capture(cfg, content, meta, capture_type='observation', brain_view='personal')` eliminates the envelope-shape drift that PRs #85/#86 already fixed for the inbox path. Each site keeps its own inline meta-building; only the POST call collapses to one line.
+- The two new Schwab parsers mirror the pattern already established by the 6 bank/credit-card parsers: preamble sniff + regex-driven metadata + per-row data shape. Balances are section-based (Account Value / Cash / Market Value / IRA / Funds Available, varying per account type). Positions are header-based CSV with a final "Positions Total" summary row.
+- Laptop smoke test against the 6 `data/` Schwab files should produce captures with totals matching Schwab's own displays: Contributory 252 = $880,554.63, Designated Bene 6448 = $66,876.62, Simple IRA 7324 = $140,612.99; GLDM 1,833 shares @ $94.84 = $173,841.72 in the Contributory Positions file.
+
+**Rollback (CS1):** `git revert <CS1-squash-sha>` from the eventual merge. Before merge: `git reset --hard origin/main` wipes the branch. No DB/config/deploy changes in CS1.
+
+**Plan structure reminder — Option B (single-branch) mode:**
+- All 5 change sets (CS1–CS5) land as commits on `feature/waves-2026-04-17`.
+- Deploy+verify gates in the plan (homeserver rebuild, host cron, DB operations) are **post-merge manual steps**; implementation subagents write the artifacts but do not execute them.
+- One PR at the end covering +4,500 / −475 LOC across ~40 files + 1 migration + 1 new config + 1 new DB table + 1 new Docker service. **Large blast radius — intentional trade-off for Troy's "do them all together" preference.**
+
+**What to Watch:**
+- Mega-PR diff hygiene — with 5 change sets in one PR, commit messages need to make the diff navigable. Commit per sub-phase (one commit per CSx.y or per CSx phase) rather than one giant commit.
+- CS4a/4b involve shadcn CLI additions — `npx shadcn@latest add ...` auto-generates components/ui/ files. These will pile up in the branch; confirm they're minimal and necessary.
+- CS3's migration 0021 cannot be applied mid-branch — deploy step post-merge runs the migration once, then core-api restarts. If there's a deploy-time problem with the migration, roll back by reverting the PR and re-applying a reverse migration.
+- LAB_NOTEBOOK Rule 11 precondition still applies across the branch — each significant phase boundary (completion of each CS) should carry its own entry documenting outcomes.
+
+---
+
+### Entry 072 — CS2 shipped to branch + pause-for-context-clear resume pointer
+
+**Date:** 2026-04-17
+**Tags:** `[implement-plan]` `[cs2]` `[utility-sidecar]` `[resume-pointer]`
+**Environment:** Laptop, branch `feature/waves-2026-04-17`. CS1 at `befb2ba`; CS2 about to commit as the next commit on this branch.
+
+**Objective:** Ship CS2 (utility sidecar + shared capture_api lib + Dockerfile rename + electric-usage-downloader + compose updates) to the branch, then pause at a clean checkpoint so Troy can clear context.
+
+**Hypothesis:** Disk state after parallel subagents lands a coherent CS2 commit; no deploy execution in Option B mode.
+
+**Rollback:** `git reset --hard befb2ba` (pre-CS2 CS1 checkpoint) from the feature branch, or revert the CS2 commit post-merge.
+
+**What landed on disk (verified):**
+
+| Item | File | Status |
+|---|---|---|
+| CS2.1 | `scripts/lib/__init__.py` + `scripts/lib/capture_api.py` | NEW — byte-compatible extract of the financial-pipeline helper; utility gains a nested-envelope + `allow_redirects=False` + 3xx-distinct-logging POST for free (silently fixes utility's old flat `source_metadata` bug) |
+| CS2.2 | `scripts/financial-pipeline.py` | Replaced in-file `_get_capture_api`/`_post_capture` with `from lib.capture_api import …` alias. All 4 CS1 call sites + `cmd_process_inbox` dispatch untouched. |
+| CS2.3 | `scripts/utility-pipeline.py` | 3-fix pattern: `UTILITY_PIPE_DIR` / `UTILITY_CONFIG_DIR` env overrides; shared `post_capture` import; `cmd_monthly_comparison`'s single POST site now passes `capture_type='observation', brain_view='personal'`. |
+| CS2.4 | `docker/financial-ingest/` → `docker/ingest-sidecar/` | `git mv` rename. Compose build context updated accordingly. |
+| CS2.5 | `docker/ingest-sidecar/Dockerfile` | Added `electric-usage-downloader` Go binary install (pinned `EUD_VERSION=0.5.0`, x86_64 + aarch64 branches; **TODO flag** inside the Dockerfile — release URL format may need adjustment on first build, flagged for Troy post-merge). Added `COPY scripts/lib /app/lib`. Kept `CMD ["sleep", "infinity"]` (CS3 replaces with `trigger_server.py`). |
+| CS2.6 | `.dockerignore` | Added `!scripts/lib/` + `!scripts/lib/**` negations alongside existing `!scripts/*.py`. |
+| CS2.7 | `docker-compose.yml` | Renamed `financial-ingest` build dockerfile path, image `open-brain-ingest-sidecar:latest`. New `utility-ingest` service cloned with `UTILITY_*` env vars, its own bind-mount (`/mnt/user/appdata/open-brain/utility-inbox`), named volume `utility_ingest_data`, `CAPTURE_API_CALLER=utility-pipeline`. Both services share the same build context + image. |
+| CS2.8 | `config/utility/utility-config.example.yaml` | NEW example file documenting the expected shape (capture_api / gas / power / water — water skip=true). Real file stays gitignored on homeserver. |
+| CS2.9 | `config/ingest-routes.yaml` | NEW — shared filename→source-type/parser YAML consumed by CS3.11 (TS router) + CS3.12 (Python router). Prevents future drift. |
+| CS2.11 | `deploy/cron/unraid-ingest.cron` | NEW — 3 host cron lines documented for post-merge Unraid install (with install/rollback instructions in the file header). |
+| CS2.10 / CS2.12 | deploy + GitHub issue close | **Deferred to post-merge** (Option B — no homeserver execution mid-branch, no issue close until the PR lands). |
+
+**Verification (run just before commit):**
+- `python -c "import ast; ast.parse(open('scripts/financial-pipeline.py').read())"` — OK
+- `python -c "import ast; ast.parse(open('scripts/utility-pipeline.py').read())"` — OK
+- `python -c "import ast; ast.parse(open('scripts/lib/capture_api.py').read())"` — OK
+- `yaml.safe_load(open('docker-compose.yml'))` — OK, 13 services (utility-ingest added), 5 volumes (utility_ingest_data added)
+- 15-CSV regression via shared-lib import — all 8 sampled routes match CS1.10 baseline exactly (amex/chase/truist/schwab/hsa/paypal/schwab_balance/schwab_position).
+
+**Resume pointer (for next session after context clear):**
+
+1. **Current branch:** `feature/waves-2026-04-17`. CS1 shipped (befb2ba), CS2 shipping in the next commit before pause.
+2. **State file:** `.implement-plan-state.json` reflects CS1 complete. After the CS2 commit below, update it to include CS2.1–CS2.9 + CS2.11 in `completed`, `current_item=CS3.1`, `last_good_sha=<new-sha>`, `checkpoints.CS2=<new-sha>`.
+3. **Next change set:** **CS3** — Upload backend + sidecar HTTP trigger. 13 work items, 3 parallel groups per the parallelization map. Starting items per the map:
+   - Parallel group A: `CS3.1` (migration `0021_file_uploads.sql`), `CS3.3` (Zod schemas), `CS3.7` (`docker/ingest-sidecar/trigger_server.py`), `CS3.9` (`--json-output` flag on both pipelines), `CS3.12` (`scripts/lib/ingest_router.py`).
+   - After CS3.1 lands: `CS3.2` (Drizzle schema mirror in `packages/shared/src/schema/supporting.ts`).
+   - After CS3.2 + CS3.3: parallel group B: `CS3.4` (core-api `routes/ingest.ts`), `CS3.11` (`services/ingest-router.ts`).
+   - After CS3.4: parallel group C: `CS3.5` (workers `jobs/ingest-process.ts`), `CS3.6` (SSE hub extension), `CS3.10` (`lib/api.ts` ingestApi).
+   - `CS3.8` (Dockerfile CMD swap to `trigger_server.py`) after CS3.7.
+   - `CS3.13` (deploy) deferred to post-merge.
+4. **Plan doc:** `IMPLEMENT_WAVES_2026-04-17.md` — see the CS3 section for full work-item spec.
+5. **Constraint reminder:** Option B. Subagents implement; no ssh/docker/psql execution.
+6. **Unread background-agent summary captured:** both CS2 subagents (code + infra) returned successfully. Their reports are in the conversation; if context is cleared, the summaries in this notebook entry are sufficient to resume.
+
+**What's left in this plan after CS2 commit:**
+- CS3 — 13 work items (upload backend). Est 4 hrs. Touches `packages/shared/drizzle/`, `packages/core-api/src/{routes,schemas,services}/`, `packages/workers/src/jobs/`, `packages/web/src/lib/api.ts`, `docker/ingest-sidecar/{Dockerfile,trigger_server.py}`, `scripts/{financial-pipeline.py,utility-pipeline.py,lib/ingest_router.py}`, `config/ingest-routes.yaml` (consumption).
+- CS4a — 11 work items (dashboard Wave 1). Est 5 hrs.
+- CS4b — 6 work items (dashboard Wave 2, some data-gated). Est 6 hrs.
+- CS5 — 9 work items, 4 of which are deploy-gated in Option B (DB delete, branch deletes, laptop rm, backup). 5 config-edit items shippable.
+
+**Total remaining:** 43 work items across 4 change sets.
+
+**Commit message for CS2 (outgoing commit):** see git log; summarizes CS2.1–CS2.9 + CS2.11 with electric-usage-downloader URL TODO flag.
+
+**What to watch (post-merge deploy):**
+- The electric-usage-downloader URL format — if the v0.5.0 release tarball layout differs from the Dockerfile's expectation, the sidecar image build will fail loudly. That's better than silent miss. Troy can update the URL + version on first build attempt.
+- Utility sidecar host cron (6:30 AM daily + monthly comparison on the 2nd) — first real run will be tomorrow morning.
+- The old inline `post_capture` in utility-pipeline.py had a **silent bug**: flat `source_metadata` + `allow_redirects` default-True. That would have produced the same Cloudflare-Access 302 trap as financial-pipeline pre-PR #84, so Gas South / Cobb EMC captures would never have landed even if invoked. The shared-lib extraction in CS2.3 fixes this without a separate bug entry. Note for post-merge validation: utility captures must actually appear in the DB this time.
+
+---
+
+### Entry 073 — CS3 upload backend + sidecar HTTP trigger shipped
+
+**Date:** 2026-04-17
+**Tags:** `[implement-plan]` `[cs3]` `[upload-backend]` `[sidecar-trigger]` `[drizzle]` `[sse]` `[parallel-subagent-lessons]`
+**Environment:** Laptop, branch `feature/waves-2026-04-17` (CS1 `befb2ba`, CS2 `0fde941`). Option B. `/implement-plan` resume, 4 parallel waves (max 3 subagents per wave).
+
+**Objective:** Ship CS3 — HTTP upload endpoint + BullMQ `ingest-process` job + SSE progress stream + sidecar-side `trigger_server.py` replacing `sleep infinity` — as a single commit on the mega-branch. 12 work items (CS3.1–CS3.12, CS3.13 deploy deferred).
+
+**Hypothesis:** Parallel subagents land a coherent CS3 commit: `0021_file_uploads.sql` migration + Drizzle mirror + `routes/ingest.ts` upload endpoint → BullMQ `ingest-process` job → dispatches to financial/utility pipelines via shared router (`config/ingest-routes.yaml`) → SSE stream surfaces progress in dashboard. Sidecar's `trigger_server.py` replaces `sleep infinity` and exposes POST `/trigger/{source_type}` + `/process` invoking the Python pipelines in `--json-output` mode.
+
+**Rollback:** `git reset --hard 0fde941` on `feature/waves-2026-04-17` (CS2 checkpoint). No DB migration applied in Option B. Post-merge: revert the CS3 commit.
+
+**Wave plan executed (4 waves, max 3 parallel per wave):**
+
+| Wave | Items | Deps | Notes |
+|---|---|---|---|
+| 1 | CS3.1, CS3.3, CS3.7 | — | All net-new files; zero overlap |
+| 2 | CS3.2, CS3.9, CS3.12 | CS3.1 for CS3.2 | Drizzle mirror + pipeline flag + Python router |
+| 3 | CS3.8, CS3.4, CS3.11 | CS3.7 (CS3.8), CS3.2+CS3.3 (CS3.4+CS3.11) | Dockerfile CMD + core-api routes + TS router service |
+| 4 | CS3.5, CS3.6, CS3.10 | CS3.4 | Worker + SSE hub + web client |
+
+**What landed (12 items, single commit):**
+
+| Item | Files | Notes |
+|---|---|---|
+| CS3.1 | `packages/shared/drizzle/0021_file_uploads.sql` | `file_uploads` table (13 cols, 2 indexes), `file_upload_status` ENUM in idempotent `DO $$` block. |
+| CS3.2 | `packages/shared/src/schema/supporting.ts` | Drizzle mirror: `fileUploads` pgTable, `fileUploadStatus` pgEnum (first use of `pgEnum` in this project). |
+| CS3.3 | `packages/shared/src/schema/ingest.ts` + `index.ts` barrel | 17 Zod schemas (Upload/Get/List/Process + `UploadStatusEventSchema` discriminated union + `SidecarProcessResponseSchema`). |
+| CS3.4 | `packages/core-api/src/routes/ingest.ts` + `app.ts` + `index.ts` wiring | 5 endpoints (`POST /upload` multipart + 3 CRUD + `/process-now`); 100 MiB streaming upload; enqueues to `ingest-process` queue. |
+| CS3.5 | `packages/workers/src/{jobs,queues}/ingest-process.ts` + `main.ts` | BullMQ worker calls `dispatchToSidecar()`, updates `file_uploads` row, emits `pg_notify('upload_status', ...)`. Patient backoff `[30s, 2m, 10m, 30m, 2h]`. |
+| CS3.6 | `packages/core-api/src/lib/pg-notify.ts` + `routes/events.ts` + `services/sse.ts` | `upload_status` channel added to LISTEN set; `CHANNEL_TO_SSE_EVENT` map re-emits as `upload:status`. |
+| CS3.7 | `docker/ingest-sidecar/trigger_server.py` | Stdlib `ThreadingHTTPServer` port 8080, 4 endpoints, hmac bearer auth, fcntl lock, structured JSON logs, SIGTERM graceful. |
+| CS3.8 | `docker/ingest-sidecar/Dockerfile` + `docker-compose.yml` | CMD swapped `sleep infinity` → `python -u trigger_server.py`; `EXPOSE 8080`; `HEALTHCHECK` via `urllib.request` to `127.0.0.1`; compose `INGEST_SOURCE=financial\|utility` + `TRIGGER_SECRET`. |
+| CS3.9 | `scripts/financial-pipeline.py` + `scripts/utility-pipeline.py` | `--json-output` argparse flag; stderr-only logging in json mode; final JSON line matches `SidecarProcessResponseSchema`. |
+| CS3.10 | `packages/web/src/lib/api.ts` | `ingestApi`: `upload` (XHR for progress), `list`, `get`, `process`, `processNow`, `subscribeToEvents` (EventSource, `upload:status` event). |
+| CS3.11 | `packages/shared/src/services/ingest-router.ts` + barrel | Moved into `@open-brain/shared` (Option A, per CLAUDE.md) so core-api + workers share it. `loadRoutes`, `routeForSourceType`, `routeForFilename`, `sidecarUrlForSourceType`, `dispatchToSidecar` (5-min AbortController, `Bearer` auth, HttpError on non-2xx). |
+| CS3.12 | `scripts/lib/ingest_router.py` + `__init__.py` | Python mirror of CS3.11: same function names, module-level cache, env `INGEST_ROUTES_PATH`. PyYAML already in sidecar Dockerfile. |
+| CS3.13 | — | Deferred post-merge (homeserver deploy). |
+
+**Rate-limit bypass:** `'internal:ingest'` added to `BYPASS_CALLERS` Set in `packages/core-api/src/middleware/rate-limit.ts`.
+
+**Channel alignment (verified):**
+- pg channel: `upload_status` — emitted by worker, listened by `lib/pg-notify.ts`.
+- SSE event name: `upload:status` — translated via `CHANNEL_TO_SSE_EVENT` map in `routes/events.ts`, consumed by web `ingestApi.subscribeToEvents()`.
+
+**Build + test verification (pre-commit, via testing subagent):**
+- `pnpm --filter @open-brain/shared build` — PASS
+- `pnpm --filter @open-brain/{core-api,workers,slack-bot,voice-capture} build` — PASS
+- `pnpm --filter @open-brain/web exec tsc --noEmit` — PASS (Vite build skipped; pre-existing `@azure/msal-node` accessSync externalization issue, unrelated to CS3).
+- `pnpm -r test --reporter=dot` — **2,554 tests pass, 0 failures** (shared 260 / core-api 699 / workers 941 / slack-bot 492 / voice-capture 82 / web 80).
+- Python AST + `--help` gates on `financial-pipeline.py`, `utility-pipeline.py`, `lib/ingest_router.py`, `docker/ingest-sidecar/trigger_server.py` — PASS.
+- YAML parse: `docker-compose.yml` + `config/ingest-routes.yaml` — PASS.
+
+**Non-trivial finding — "parallel-subagent barrel clobber" pattern:**
+
+During CS3 execution, 4 waves of parallel subagents (max 3 per wave) edited non-overlapping primary files. But the testing subagent discovered that several subagents' changes to **shared barrel/wiring files** (`packages/shared/src/schema/index.ts`, `packages/shared/src/services/index.ts`, `packages/core-api/src/app.ts`, `packages/core-api/src/index.ts`, `packages/core-api/src/services/index.ts`, `packages/core-api/src/lib/pg-notify.ts`, `packages/core-api/src/routes/events.ts`, `packages/web/src/lib/api.ts`) had been **silently clobbered** by later parallel waves. Six implementation gaps surfaced during testing:
+
+1. CS3.9 `--json-output` flag missing from both pipeline scripts (earlier subagent reported DONE with gates).
+2. CS3.4 `registerIngestRoutes` never wired into the Hono app (`app.ts` + `index.ts`).
+3. CS3.6 `upload_status` missing from pg-notify LISTEN channel set.
+4. CS3.6 `upload_status` → `upload:status` SSE event-name translation missing.
+5. `internal:ingest` missing from rate-limit `BYPASS_CALLERS`.
+6. CS3.10 `ingestApi` missing entirely from `packages/web/src/lib/api.ts`.
+
+A seventh clobber hit orchestrator work: Entry 073's first draft was silently reverted when a parallel subagent touched `LAB_NOTEBOOK.md`. Rewriting after the fact.
+
+Root cause: when two parallel subagents edit the same barrel/shared file, the later write wins — blindly dropping content the earlier write introduced. Each subagent reads the file at launch, applies its edit, writes the full content; it doesn't know a sibling will later do the same without merging.
+
+Fix: the testing subagent re-implemented all 6 gaps on the uncommitted tree, then re-ran the full test suite. All 2,554 tests passed on the final run.
+
+**Operational rule (derived — add to CLAUDE.md + memory):** When orchestrating parallel implementer subagents, barrel/wiring files (`app.ts`, `index.ts`, `{schema,services}/index.ts`, cross-cutting middleware, `packages/web/src/lib/api.ts`, `LAB_NOTEBOOK.md`) must be updated SEQUENTIALLY or in a final reconciling subagent — NEVER in parallel. Always follow parallel waves with a testing subagent that re-verifies wiring grep-by-grep (`registerFooRoutes` present + `LISTEN channel` present + `BYPASS_CALLERS += foo` present + barrel re-export present).
+
+**What to watch (post-merge deploy):**
+- Apply migration `0021_file_uploads.sql` on homeserver before deploying new core-api image.
+- Set `INGEST_TRIGGER_SECRET` in Bitwarden (`dev/open-brain/api-keys`) and inject into both sidecar services via `.env`.
+- Electric-usage-downloader URL (flagged in Entry 072) still unchanged by CS3.
+- First real end-to-end upload: confirm `upload_status` SSE events reach the dashboard.
+- `@azure/msal-node` Vite externalization error — pre-existing, not blocking.
+
+**Open items:**
+- CS4a (Dashboard Wave 1, 11 items) — next.
+- CS4b (Dashboard Wave 2, 6 items).
+- CS5 (Safe decommissioning, 9 items, 4 deploy-gated under Option B).
+- CS3.13 homeserver deploy.
+
+---
+
+### Entry 074 — CS4a Dashboard Wave 1 (Ingest page + Financial page + FinancialPulseCard)
+
+**Date:** 2026-04-17
+**Tags:** [implement] [web] [dashboard] [decision]
+**Environment:** laptop — feature/waves-2026-04-17 branch, Option B single-branch/single-PR mode. Parent SHA before CS4a: `9a77d34` (CS3 shipped).
+**Status:** IN PROGRESS — orchestrating.
+
+**Objective.** Ship the first user-visible benefit of the CS3 upload backend: a drag-drop Ingest page, a per-provider Financial browse page reading the 9+ existing financial captures, and a top-of-dashboard FinancialPulseCard aggregating the last 30 days. 11 work items, estimated +1250 / −30 LOC.
+
+**Hypothesis.** CS4a will land cleanly in a single commit at the end of the phase, with all 11 work items implemented per `IMPLEMENT_WAVES_2026-04-17.md` lines 286–309. Success criteria:
+- `pnpm --filter @open-brain/web exec tsc --noEmit` passes (web type-check only; Vite build skipped per pre-existing @azure/msal-node externalization blocker).
+- `pnpm -r test` passes with the same 2,554+ tests green seen on CS3 (`9a77d34`). New component tests from CS4a.3/Ingest integration add coverage on the drop zone + upload flow.
+- All new routes (`/ingest`, `/financial`) mounted in `packages/web/src/App.tsx` via a single reconciling edit, not parallel edits.
+- All new `ingestApi` / `capturesApi` consumers actually wired (grep test for each method reference).
+- Dark mode preserved; shadcn primitives inherit tokens.
+
+**Orchestration plan (barrel-clobber rule applied — Entry 073 lesson).**
+- **Sequential foundations (2 items, both mutate `pnpm-lock.yaml`):**
+  - CS4a.1 — `npx shadcn@latest add dialog tabs progress` in `packages/web/`.
+  - CS4a.2 — `pnpm --filter @open-brain/web add react-dropzone`.
+- **Parallel Group A (4 items, no shared barrel overlap):**
+  - CS4a.3 — `components/FileDropZone.tsx` (new file).
+  - CS4a.4 — `lib/types.ts` (new/expanded file; not `lib/api.ts`).
+  - CS4a.5 — `lib/api.ts` **ingestApi section only** (single subagent owns this barrel).
+  - CS4a.7 — `packages/core-api/src/schemas/capture.ts` + `routes/captures.ts` backend `source_provider` filter (different package, no web barrel conflict).
+  - → Testing/wiring-verify subagent follows.
+- **Parallel Group B (3 items, each creates a standalone page/component — NO App.tsx edit):**
+  - CS4a.6 — `pages/Ingest.tsx` (new page file only; route registration deferred).
+  - CS4a.8 — `pages/Financial.tsx` + `components/FinancialSummaryCard.tsx` (page + helper card; route registration deferred).
+  - CS4a.9 — `components/FinancialPulseCard.tsx` (new file; Dashboard mount deferred to CS4a.10).
+  - → Reconciling subagent adds `/ingest` + `/financial` routes to `App.tsx` in a single sequential edit.
+  - → Testing/wiring-verify subagent follows (grep each route mounted, each imported).
+- **Parallel Group C (2 items, touch different existing files):**
+  - CS4a.10 — `pages/Dashboard.tsx` mounts `FinancialPulseCard`.
+  - CS4a.11 — `components/Layout.tsx` adds "Ingest" + "Financial" sidebar nav items.
+  - → Testing/wiring-verify subagent + full test suite.
+
+**Barrel files in CS4a that must never be touched by two parallel subagents in the same wave:**
+- `packages/web/src/App.tsx` — route registration.
+- `packages/web/src/lib/api.ts` — API barrel (already disputed in CS3.10).
+- `packages/web/src/lib/types.ts` — shared types.
+- `packages/web/src/components/Layout.tsx` — nav barrel.
+- `packages/web/src/pages/Dashboard.tsx` — home-page composition.
+
+**Rollback Plan.** Because Option B is single-PR, rollback is performed by dropping the CS4a commit from the feature branch:
+```
+git log --oneline 9a77d34..HEAD    # inspect CS4a commit(s)
+git reset --hard 9a77d34           # back to CS3 tip, local only (branch not yet merged)
+git push --force-with-lease origin feature/waves-2026-04-17
+```
+CS1/CS2/CS3 remain intact on the branch. Backend ingest endpoints (shipped CS3) continue to accept uploads via curl. No DB rollback needed (CS4a is pure frontend + one backend query filter). Laptop-only verification — no homeserver changes in this wave.
+
+**What Worked / What Will Be Tested Per Wave.** Per Entry 073 rule: every parallel wave is followed by a testing subagent that re-verifies wiring via explicit grep:
+- `registerFooRoutes` present + imported in `app.ts`.
+- Every new `api.ts` method present + exported.
+- Every route in `App.tsx` mounted with a matching import.
+- Every new nav item in `Layout.tsx` has a corresponding route.
+- `pnpm --filter @open-brain/web exec tsc --noEmit` returns 0.
+- `pnpm -r test` passes.
+If the testing subagent finds gaps, it re-implements them on the uncommitted tree before the commit is created (exactly as in CS3). Results + any gaps filled will be appended below this entry as the wave lands.
+
+**Results (2026-04-17).**
+
+CS4a landed in 3 parallel waves + 2 sequential reconciles without a single barrel clobber — a clean sweep versus CS3's 6 gaps. Attributing this to explicit per-subagent scope fences ("stay in your lane — other parallel subagents own X/Y/Z") plus up-front reconnaissance that armed subagents with the shape of existing code (CS3.10's `ingestApi` surface, the `capturesApi.list` param gap, the `Select` primitive absence → native `<select>`, existing `buildQueryString` forwarding). Two post-wave wiring-verify subagents were launched (after Group A, and again after Group C as the comprehensive final); the first found zero gaps, the second found zero gaps. Entry 073's pattern held: the verify step itself is cheap insurance — even when it finds nothing, it justifies the commit.
+
+**What shipped (11/11 items + App.tsx reconcile, branch `feature/waves-2026-04-17`):**
+- CS4a.1 — shadcn primitives `dialog.tsx`, `tabs.tsx`, `progress.tsx` added to `packages/web/src/components/ui/`.
+- CS4a.2 — `react-dropzone@^15.0.0` added to `packages/web/package.json`.
+- CS4a.3 — `components/FileDropZone.tsx` (~135 LOC) + `__tests__/FileDropZone.test.tsx` (4/4 green). Reusable drop zone with accept map / size guard / keyboard accessibility / rejection surfacing / shadcn tokens for dark mode.
+- CS4a.4 — `lib/types.ts` appended with `FinancialSourceProvider` literal, 7 per-provider metadata interfaces (Amex/Chase/Truist/HSA/PayPal share a `BankLikeFinancialMetadataBase`; Schwab splits into `SchwabBalanceMetadata` + `SchwabPositionsMetadata` discriminated by nested `type: 'schwab_balance_snapshot' | 'schwab_position_snapshot'`), and predicates `isFinancialSourceMetadata` / `isSchwabBalanceMetadata` / `isSchwabPositionsMetadata`.
+- CS4a.5 — `'upload:status'` added to both eventTypes arrays in `lib/sse.ts`; `ingestApi.subscribeToEvents(uploadId, cb)` helper appended (static `import { sseClient } from './sse'` at top of api.ts); `__tests__/sse.test.ts` extended (8/8 green). `ingestApi` core methods were already shipped by CS3.10.
+- CS4a.6 — `pages/Ingest.tsx` (~380 LOC) + smoke test. Source-type override select, "Process inbox now" button, hero FileDropZone (25 MB, multi-file, CSV/HTML/PDF/image/text), per-file progress via `ingestApi.subscribeToEvents`, result pills, recent-uploads table (`ingestApi.list({ limit: 20 })`), click-through JSON dialog + re-process button. No toast hook exists so used inline status banners.
+- CS4a.7 — `schemas/capture.ts` `listCapturesSchema` + `source_provider: z.string().min(1).max(50).optional()`; `routes/captures.ts` forwards; `services/capture.ts` builds `source_metadata->>'source_provider' = ${filter.source_provider}` (parameterized, NOT `sql.raw`). `CaptureFilter` shared type left untouched — field accepted via local intersection type. 3 new route tests, 25+21 tests green.
+- CS4a.8 — `capturesApi.list` extended with `source_provider?: string` (1 LOC additive); `components/FinancialSummaryCard.tsx` (~370 LOC) with color-coded provider badges + 3 body variants (bank-like / Schwab balance / Schwab positions); `pages/Financial.tsx` (~220 LOC) with shadcn Tabs + `useSearchParams` URL-synced tab state + per-tab count prefetch.
+- CS4a.9 — `components/FinancialPulseCard.tsx` (~150 LOC) + smoke test. Self-fetching dashboard card: pulls 400 `personal`/`observation` captures, client-side filters by `isFinancialSourceMetadata` or `type` ending in `_activity`, splits into current-30d vs prior-30d windows, aggregates total spend (`total_debit` with `total_amount` fallback), MoM delta (red=up/bad, green=down/good), top 3 merchants unioned, 30-day plain-SVG polyline sparkline. Navigates to `/financial` on click/Enter/Space.
+- App.tsx reconcile — `/ingest` and `/financial` routes mounted inside the existing `<Route path="/" element={<Layout />}>` shell; two lazy imports added alphabetically. Single atomic edit, not a parallel one.
+- CS4a.10 — `pages/Dashboard.tsx` mounts `<FinancialPulseCard />` as a full-width row immediately above `<StatsCards />`.
+- CS4a.11 — `components/Layout.tsx` adds "Ingest" nav item (lucide `Upload` icon, after Timeline) and "Financial" nav item (lucide `DollarSign`, after Email, before System).
+
+**Verification (final, before commit).**
+- `pnpm --filter @open-brain/web exec tsc --noEmit`: PASS.
+- `pnpm --filter @open-brain/core-api exec tsc --noEmit`: PASS.
+- `pnpm --filter @open-brain/web exec vitest run`: **89/89** green (11 test files, 12.86s).
+- `pnpm --filter @open-brain/core-api exec vitest run`: **701/702** green in bulk; the 1 failure (`admin-queue-clear.test.ts > clears failed jobs from a valid queue with default options` — `Hook timed out in 10000ms`) was re-run in isolation with `--hookTimeout=30000` and passed 10/10. This is the same pre-existing Windows ioredis timing flake seen during Group A verification — last-modified date in an unrelated PR, not CS4a-induced.
+- Vite build intentionally NOT run (pre-existing `@azure/msal-node accessSync` externalization error is out of scope).
+- Wiring grep: all 18 checks PASS (routes mounted, imports resolved, upload:status in both eventTypes arrays, subscribeToEvents method present, source_provider parameterized in SQL, FinancialSummaryCard declared + consumed, Layout nav linked to both new routes, lucide icons imported).
+- `git status --short` surprises: none — only expected CS4a artifacts plus the pre-existing untracked files (`data/`, `reference/`, `scripts/*`, `senders.xlsx`, `=0.0.60`, `cloudflare/synthetic-monitor/package-lock.json`, `.implement-plan-state.json.2026-04-16-refactor`) which are not committed.
+
+**Tags added to the LoC estimate.** Original estimate was +1250 / −30. Actual diff spans: 3 new shadcn primitives (~180 LOC combined from the CLI), FileDropZone ~135, FinancialSummaryCard ~370, FinancialPulseCard ~150, Ingest ~380, Financial ~220, types.ts +165, plus modest edits to App/Layout/Dashboard/api/sse/schemas/routes/services/captures-routes-test/sse-test. Ballpark +1800 LOC — above estimate because CS4a.8's card grew with the Schwab branch handling and because tests for FileDropZone/FinancialPulseCard/Ingest/sse added real coverage.
+
+**What Worked.**
+- Reading existing code BEFORE dispatching subagents to tell each one precisely what already exists and what not to re-build (e.g., "CS3.10 already shipped `ingestApi.upload/list/get/process/processNow`; your job is just `subscribeToEvents` + sse.ts").
+- Mandating that parallel subagents in a wave touching any shared barrel MUST NOT include any other subagent that writes to that same barrel. Every barrel-touching subagent this wave was solo.
+- App.tsx route registration moved out of the component-creating subagents and into a dedicated sequential reconciler. Zero clobber.
+- Running a comprehensive wiring-verify subagent AFTER the final wave, not relying on each implementer's "yes it compiles" self-report.
+
+**Open items / follow-ups (not in this commit).**
+- Vite build error on `@azure/msal-node accessSync` — pre-existing, tracked in Entry 073 open items.
+- Manual browser verification of drag-drop flow, dashboard pulse card aggregation correctness, and Financial page tabs — user will verify post-deploy in Entry 074 continuation. Not blocking commit.
+- The 1 ioredis hookTimeout flake in `admin-queue-clear.test.ts` — pre-existing Windows flake, unchanged by CS4a.
+- CS4b (6 items) and CS5 (9 items) remain.
+- Pending post-merge deploys carried from CS1-CS3: migration `0021_file_uploads.sql`, `INGEST_TRIGGER_SECRET` in Bitwarden, electric-usage-downloader URL pin, deploy scripts to open-brain-vm.
+
+**Status:** READY FOR COMMIT — CS4a tip will be the next SHA on `feature/waves-2026-04-17`.
+
+---
+
+### Entry 075 — CS4b Dashboard Wave 2 (Email compose + AutonomyCard + Settings accordion + Investments)
+
+**Date:** 2026-04-17
+**Tags:** [implement] [web] [dashboard] [settings] [email] [investments] [decision]
+**Environment:** laptop — feature/waves-2026-04-17 branch, Option B single-branch/single-PR mode. Parent SHA before CS4b: `d68a875` (CS4a shipped).
+**Status:** READY FOR COMMIT.
+
+**Objective.** Dashboard Wave 2 — surface outbound email compose (Himalaya), autonomy level control with upgrade-warnings, sectioned Settings accordion, and a Schwab-backed Investments page with allocation donut + net-worth chart + holdings table. 6 work items, estimated +1350 / −400 LOC.
+
+**Hypothesis.** CS4b lands clean in one commit (like CS1-CS4a did). Success criteria:
+- `pnpm --filter @open-brain/web exec tsc --noEmit` passes (Vite build intentionally skipped — pre-existing `@azure/msal-node` externalization error, out of scope).
+- `pnpm -r test` passes with the CS4a baseline (89 web) + new CS4b tests.
+- `/investments` route mounts + nav item visible in sidebar.
+- Settings accordion preserves all existing section functionality (no save/load regression).
+- AutonomyCard round-trips through `/api/v1/settings/autonomy_level`.
+- EmailComposeDrawer Save + Send flows end-to-end against existing `/email/drafts` routes.
+
+**Orchestration plan (barrel-clobber rule applied — Entry 073 lesson).**
+- **Seq CS4b.1** — `npx shadcn@latest add accordion dropdown-menu sheet` in `packages/web/`. Mutates `package.json`, `pnpm-lock.yaml`, `tailwind.config.ts` (accordion keyframes).
+- **Wave A (3 parallel):** CS4b.2 (Email compose drawer + drafts list, additive edits to `Email.tsx`), CS4b.3 (AutonomyCard self-fetching component), CS4b.5+4b.6 combined (Investments page + 2 SVG charts + `investmentsApi` appended to `lib/api.ts`).
+- **Wave B (2 parallel):** CS4b.4 (Settings.tsx accordion rework, imports AutonomyCard from Wave A), Route reconcile (adds `/investments` to App.tsx + Investments nav to Layout.tsx).
+- **Final wiring-verify subagent** covers both waves + reconcile.
+
+CS4b.5 and CS4b.6 were intentionally combined into one subagent because CS4b.6's `investmentsApi` is only consumed by CS4b.5's Investments page, and `lib/api.ts` is a barrel file — having one subagent own both eliminates the clobber risk. Same pattern as other single-owner barrel edits this wave.
+
+**Barrel files in CS4b that must never be touched by two parallel subagents in the same wave:**
+- `packages/web/src/App.tsx` — route registration (route reconciler only).
+- `packages/web/src/components/Layout.tsx` — nav registration (route reconciler only).
+- `packages/web/src/lib/api.ts` — CS4b.5+4b.6 subagent appended `investmentsApi`; CS4b.3 avoided it entirely (used existing `settingsApi`); CS4b.2 did not touch it.
+- `packages/web/src/pages/Email.tsx` — CS4b.2 only (additive).
+- `packages/web/src/pages/Settings.tsx` — CS4b.4 only.
+
+**Rollback Plan.**
+```
+git log --oneline d68a875..HEAD       # inspect CS4b commit
+git reset --hard d68a875              # back to CS4a tip, local only
+git push --force-with-lease origin feature/waves-2026-04-17
+```
+CS1/CS2/CS3/CS4a intact. No DB changes. Laptop-only verification — no homeserver changes in this wave.
+
+**Results (2026-04-17).**
+
+CS4b landed across 3 waves (seq + Wave A parallel + Wave B parallel) with ONE intentional deferral (see below). No barrel clobbers. The pattern established in CS4a held: tight per-subagent scope fences + dedicated reconcilers for shared barrels + post-wave wiring-verify = clean waves. Every parallel subagent ran with zero collisions.
+
+**What shipped (6/6 items + route reconcile, branch `feature/waves-2026-04-17`):**
+- CS4b.1 — shadcn primitives `accordion.tsx`, `dropdown-menu.tsx`, `sheet.tsx` in `packages/web/src/components/ui/`. `tailwind.config.ts` also gained accordion animation keyframes (standard shadcn add).
+- CS4b.2 — `EmailComposeDrawer.tsx` (~340 LOC): right-side shadcn `Sheet` with To/Cc/Subject/Body, LLM-assist row calling `synthesizeApi.query()` as a stopgap (see integration gaps), Save-as-draft → `emailApi.create()`, Send → `emailApi.send()`. `EmailDraftsList.tsx` (~125 LOC): reusable self-fetching drafts list. `Email.tsx` modified additively — Compose header button, Edit button on existing `DraftCard` for draft-status rows, drawer mounted at end, refresh counter wires Save/Send back to drafts list. `EmailDraftsList.test.tsx` 2/2 green.
+- CS4b.3 — `components/settings/AutonomyCard.tsx` (~185 LOC): segmented `role="radiogroup"` of 4 levels, upgrade-confirmation `Dialog` with yellow warning banner, inline descriptions, optimistic state with revert on error, reads/writes `/api/v1/settings/autonomy_level` via existing `settingsApi.get`/`settingsApi.put`. Backend uses PUT (not POST as spec said — subagent corrected). No `api.ts` touch — avoided the parallel collision with CS4b.5+4b.6.
+- CS4b.4 — `pages/Settings.tsx` rewritten as 6-section `<Accordion type="multiple" defaultValue={["general"]}>`:
+  - **General** — VersionUptimeSection, ServiceHealthSection, TriggersSection, DangerZoneSection (fallback home).
+  - **AI Routing** — AIRoutingSection.
+  - **Voice** — VoiceSection.
+  - **Email** — EmailAllowlistSection + EmailConfigSection.
+  - **Integrations** — IntegrationsSection + WikiSection.
+  - **Autonomy** — `<AutonomyCard />` (replaces prior AutonomyLevelSection since both bind same settings key; duplicate fetch eliminated).
+- CS4b.5+4b.6 combined — `investmentsApi` appended to end of `lib/api.ts` (3 methods: `latestBalances`, `balanceHistory`, `latestPositions`; types `SchwabSnapshotRecord`, `SchwabHolding`, `SchwabPositionsRecord`). Client composition on `capturesApi.list({ source_provider: 'schwab', limit: 200 })` + `isSchwabBalanceMetadata` / `isSchwabPositionsMetadata` predicates. `AllocationDonut.tsx` (~120 LOC): hand-rolled SVG donut with Tailwind-colored asset_type sectors. `NetWorthChart.tsx` (~160 LOC): hand-rolled SVG multi-line chart (per-account lines + bold Total). `Investments.tsx` (~320 LOC): 3-row grid (donut+gainers/losers, balance chart, sortable holdings table), URL-synced `?account=` picker via `useSearchParams`, skeleton/error/empty-state paths.
+- Route reconcile — `/investments` lazy route in `App.tsx` (alphabetical among existing lazy pages); "Investments" nav item in `Layout.tsx` with lucide `LineChart` icon, placed after "Financial".
+
+**Field-shape assumptions surfaced by CS4b.5+4b.6 (the Python pipeline emits different field names than the spec).** CS4b's investments code must tolerate these because the capture data is already in production:
+- `SchwabBalanceMetadata` has **no** `account_name` — only `account_mask` + `account_id` (e.g., `"Schwab-1234"`). Human-readable names are derived by joining against a `mask → account_type` lookup built from positions snapshots. Unjoinable masks render as `"••{account_mask}"`.
+- Positions use `mkt_val`, not `market_value`. Normalized on the way out.
+- Per-position `cost_basis` / `gain_dollar` / `gain_pct` are **not** emitted by the pipeline — only account-level totals. Holdings rows render em-dashes for those; "top gainers / losers" lists degrade to empty until the pipeline starts emitting per-position gain data. Net-worth chart, allocation donut, and balance-history chart all work on real data today.
+- Schwab balance uses `cash`, not `cash_value`; exposed as `cash_value` on the normalized record type.
+
+These are documented because a future pipeline change that adds per-position gain fields will automatically light up the top gainers/losers section without frontend changes.
+
+**Intentional deferral — the one `WIRING_GAP`.** CS4b.2 shipped `EmailDraftsList.tsx` + passing test as spec'd, but Email.tsx wires drafts through its pre-existing richer `DraftsTab` component (which has approve/reject/edit functionality that the plain `EmailDraftsList` doesn't cover). Wiring `EmailDraftsList` in place of `DraftsTab` would be a feature regression; wiring it alongside would create duplicate UI. Decision: ship `EmailDraftsList.tsx` + test as a reusable building-block component (zero runtime cost — tree-shaken by Vite since nothing imports it at runtime). Follow-up task: either (a) delete it if the pattern never needs reuse, or (b) migrate `DraftsTab`'s approve/reject actions into the Compose drawer, then consume `EmailDraftsList` as the drafts tab. Neither path is blocking CS4b merge.
+
+**Integration gaps CS4b.2 flagged (non-blocking, follow-up tickets):**
+1. No dedicated HTTP endpoint for the `email-compose` skill. Drawer's "Draft with AI" uses `synthesizeApi.query()` as a stopgap — works but bypasses the agent's tool-use (search_brain, get_entity), so AI-drafted bodies are less context-aware than the full skill would produce. Follow-up: add `POST /email/compose-draft` invoking the skill.
+2. No `PATCH /email/drafts/:id` route. Saving changes to an existing draft creates a new draft (original preserved; user can reject via existing Reject button). Follow-up: add PATCH route + `emailApi.update()`.
+3. `emailApi.create()`'s return type in `lib/api.ts` is `EmailDraft` but the backend returns `{ id, status, send_mode, created_at }`. Worked around via immediate `emailApi.get(created.id)`. Type fix out of scope for CS4b.
+
+**Verification (final, before commit).**
+- `pnpm --filter @open-brain/web exec tsc --noEmit`: PASS.
+- `pnpm --filter @open-brain/core-api exec tsc --noEmit`: PASS (core-api not modified in CS4b).
+- `pnpm --filter @open-brain/web exec vitest run`: **99/99** green (15 test files, includes new 2 EmailDraftsList + 3 AllocationDonut + 3 NetWorthChart + 2 Investments).
+- `pnpm --filter @open-brain/core-api exec vitest run`: **701/702** green in bulk; the 1 failure was `slack-channel-routes.test.ts > some test — Hook timed out in 10000ms`. Same pre-existing Windows ioredis flake class as the CS4a run; re-ran `slack-channel-routes.test.ts` in isolation with `--hookTimeout=30000` and got **7/7 green**. Not CS4b-induced (core-api files untouched in CS4b).
+- Wiring grep: 13 PASS, 1 intentional gap (EmailDraftsList — documented deferral above). Investments route mounted, nav wired, AutonomyCard imported by Settings, 6 AccordionItems present, Sheet primitive import path correct in EmailComposeDrawer.
+- `git status --short` surprises: none. Only expected CS4b artifacts plus pre-existing untracked files carried from prior CSx (not committed).
+
+**What Worked.**
+- Combining CS4b.5 + CS4b.6 into ONE subagent eliminated the api.ts barrel risk entirely — because api.ts's `investmentsApi` is only consumed by Investments.tsx, having one subagent own both is architecturally cleaner anyway.
+- CS4b.3 noticed via reconnaissance that `settingsApi` already exists in `lib/api.ts` and used it directly — NO api.ts edit needed, which prevented any potential clobber with CS4b.5+4b.6.
+- Route reconciler was dispatched in parallel with CS4b.4 Settings rework because they touch entirely disjoint files. Zero conflict.
+- Accepting the EmailDraftsList deferral rather than forcing integration: preserved the richer existing `DraftsTab` behavior while still delivering the spec's component-level deliverable.
+
+**Open items / follow-ups.**
+- EmailDraftsList integration — delete-or-wire decision for follow-up.
+- Dedicated `/email/compose-draft` endpoint (non-blocking for merge).
+- `PATCH /email/drafts/:id` route + `emailApi.update()` for in-place draft edits (non-blocking).
+- `emailApi.create()` return-type fix in `lib/api.ts` (non-blocking).
+- Schwab per-position gain fields — pipeline change will auto-light top gainers/losers when emitted.
+- CS5 (9 items) remains.
+- Pre-existing Vite `@azure/msal-node` externalization error, unchanged.
+- Pre-existing Windows ioredis hookTimeout flakes (`admin-queue-clear.test.ts`, `slack-channel-routes.test.ts`) — pass in isolation, unchanged by CS4b.
+
+**Status:** READY FOR COMMIT — CS4b tip will be the next SHA on `feature/waves-2026-04-17`.
+
+---
+
+### Entry 076 — CS5 safe decommission (5 config/doc edits, Option B subset)
+
+**Date:** 2026-04-17
+**Tags:** [cleanup] [config] [decommission] [decision]
+**Environment:** laptop — feature/waves-2026-04-17 branch. Parent SHA before CS5: `b456ac4` (CS4b shipped).
+**Status:** READY FOR COMMIT.
+
+**Objective.** CS5 cleans up stale `LITELLM_*` naming and `.services.litellm.*` references left over from the LiteLLM proxy era. The code path already migrated to direct OpenAI API (`OPENAI_API_KEY` / `OPENAI_BASE_URL`) some time ago; config templates + docs had drift.
+
+**Option B scope (what's IN this commit):**
+- CS5.4 `.env.example` — `LITELLM_URL`/`LITELLM_API_KEY` → `OPENAI_API_KEY`/`OPENAI_BASE_URL`.
+- CS5.5 `deploy/.env.secrets.template` line 26 — `LITELLM_API_KEY=` → `OPENAI_API_KEY=` (NOTE: this was an active line under a stale name, not a deletable relic — so a rename not a removal).
+- CS5.6 `scripts/monthly-maintenance.sh` line 161 — `.services.litellm.status` → `.services.llm.status` (aligns with D22 rename already in effect).
+- CS5.7 `CLAUDE.md` line 193 — "passed via `LITELLM_API_KEY` env var" → "passed via `OPENAI_API_KEY` env var".
+- CS5.9 `MEMORY.md` — `ms_token_cache` whole-word grep returned only the filesystem path `~/.email-analyzer/ms_token_cache.json` (not a stale setting-key reference); NO-OP for that item. But as a bonus cleanup under the same decommission intent, fixed the stale memory entry `Env var LITELLM_API_KEY (name kept for backward compat)` → `Env vars: OPENAI_API_KEY and OPENAI_BASE_URL` to match the code's actual behavior.
+
+**Option B scope (what's DEFERRED post-merge):**
+- CS5.1 homeserver DB backup (`ms_token_cache` row to `/mnt/user/backup/openbrain/adhoc/`) — requires SSH.
+- CS5.2 homeserver DB DELETE — requires SSH; backup must run first.
+- CS5.3 local-laptop deletion of untracked `scripts/seed_email_auth.py` — not a git artifact; can be done anytime; deferred.
+- CS5.8 remote branch deletes (`feature/phases-0b-1a-0d`, `phase-3/ops-observability-wiki`, `claude/review-second-brain-starter-CvHPf`) — requires explicit Troy confirmation per the plan's preamble. 90-day GitHub ref retention gives a comfortable window.
+
+**Verification before commit.**
+- Critical check: did CS5.5's rename of `LITELLM_API_KEY=` → `OPENAI_API_KEY=` break the deploy contract? Grepped `packages/**/*.ts` for `process.env.LITELLM_API_KEY` — **zero matches**. All active code reads `OPENAI_API_KEY` / `OPENAI_BASE_URL` directly. The template line was stale-named-but-active; the rename aligns label with reality. No runtime impact.
+- `git diff --stat` confirms 4 files changed, 6 insertions/6 deletions — surgical.
+- No code files modified, no tests affected, tsc not re-run (no TS changes).
+
+**Rollback.** `git revert <commit>` restores every line. No DB changes in this commit, no branch deletions, no external-state mutations — fully reversible within the repo.
+
+**What Worked.**
+- Grepping `packages/**` for the env-var names BEFORE trusting the plan's assertion that they were stale. CS5.5's spec called for a removal; the actual state was an active line with a legacy label. A blind removal would have broken the deploy `.env.secrets.template` contract for anyone using it as a template. The verification saved ~30 min of debugging later.
+- Aligning `MEMORY.md` with the fresh reality rather than leaving the drift. Future sessions that hit that entry would believe the legacy names were still canonical.
+
+**Open items / follow-ups (not in this commit).**
+- CS5.1, CS5.2, CS5.3, CS5.8 carried forward to post-merge deploy checklist (documented in the PR body).
+- CS3.13 homeserver deploy (migration 0021 + sidecar compose) also post-merge.
+- The existing `@azure/msal-node` Vite externalization blocker remains pre-existing.
+- Pre-existing Windows ioredis hookTimeout flakes unchanged.
+
+**Status:** READY FOR COMMIT — CS5 tip will be the third (and final for this branch) SHA.
+
+
+
+
+

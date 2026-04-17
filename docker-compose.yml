@@ -7,6 +7,7 @@ volumes:
   redis_data:
   whisper_model_cache:
   financial_ingest_data:
+  utility_ingest_data:
 
 services:
   postgres:
@@ -345,8 +346,8 @@ services:
   financial-ingest:
     build:
       context: .
-      dockerfile: docker/financial-ingest/Dockerfile
-    image: open-brain-financial-ingest
+      dockerfile: docker/ingest-sidecar/Dockerfile
+    image: open-brain-ingest-sidecar:latest
     container_name: open-brain-financial-ingest
     env_file:
       - .env.secrets
@@ -368,6 +369,35 @@ services:
       # SQLite DB + any future sidecar state
       - financial_ingest_data:/data
       # Config (plaid-config.yaml, merchants.yaml) read-only
+      - ./config:/app/config:ro
+    depends_on:
+      core-api:
+        condition: service_healthy
+    networks:
+      - open-brain
+    restart: unless-stopped
+
+  # Utility batch-ingest sidecar — same image as financial-ingest, different
+  # config + inbox. Handles utility-pipeline.py (gas, power, water summaries).
+  # Build block is duplicated so either service can rebuild the shared image.
+  utility-ingest:
+    build:
+      context: .
+      dockerfile: docker/ingest-sidecar/Dockerfile
+    image: open-brain-ingest-sidecar:latest
+    container_name: open-brain-utility-ingest
+    env_file:
+      - .env.secrets
+    environment:
+      UTILITY_INBOX_DIR: /inbox
+      UTILITY_PIPE_DIR: /data
+      UTILITY_CONFIG_DIR: /app/config/utility
+      CAPTURE_API_URL: http://core-api:3000/api/v1/captures
+      CAPTURE_API_CALLER: utility-pipeline
+      TZ: America/New_York
+    volumes:
+      - /mnt/user/appdata/open-brain/utility-inbox:/inbox
+      - utility_ingest_data:/data
       - ./config:/app/config:ro
     depends_on:
       core-api:

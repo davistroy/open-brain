@@ -1,0 +1,22 @@
+# Example utility-pipeline configuration.
+# Real file `utility-config.yaml` is gitignored; populated on homeserver
+# with credentials + capture_api block.
+
+capture_api:
+  url: "https://brain.troy-davis.com/api/v1/captures"   # sidecar overrides via CAPTURE_API_URL env
+  caller_header: "utility-pipeline"
+
+gas:
+  api_url: "https://manage-api.gassouth.com/oas/api"
+  account_number: "<from bitwarden>"
+  lookback_months: 3
+  # password via Bitwarden: key "gas-south-password"
+
+power:
+  data_dir: "~/.electric-usage"
+  rate_kwh: 0.12
+  # SmartHub creds via Bitwarden; electric-usage-downloader reads its own ~/.electric-usage/config.yaml
+
+water:
+  # Cobb Water — out of scope, separate backlog item
+  skip: true

@@ -10,7 +10,7 @@
 
 | CS | Name | Branch | Status | PR |
 |---|---|---|---|---|
-| CS1 | Financial pipeline completion (#87 refactor + Schwab Balances/Positions parsers) | `feature/g-c-1-finish` | Pending | — |
+| CS1 | Financial pipeline completion (#87 refactor + Schwab Balances/Positions parsers) | `feature/g-c-1-finish` | COMPLETE 2026-04-17 | — |
 | CS2 | Utility sidecar deploy (Gas South + Cobb EMC + host cron) | `feature/g-c-2-utilities` | Pending | — |
 | CS3 | Upload backend + sidecar HTTP trigger | `feature/ingest-upload-backend` | Pending | — |
 | CS4a | Dashboard Wave 1 (upload UI + Financial page + pulse card) | `feature/dashboard-wave-1` | Pending | — |
@@ -44,18 +44,18 @@ Close out the post-deploy tech-debt from G-C.1 (#87) by moving the 4 remaining d
 
 ### Work items
 
-- [ ] **CS1.1** Refactor `cmd_sync` (L521 area) to `_post_capture(cfg, summary_text, meta, capture_type='observation', brain_view='personal')`. Keep the per-call meta shape (`type='financial_daily'`, `date`, `transaction_count`, `grand_total`, `accounts`).
-- [ ] **CS1.2** Refactor `cmd_balances` (L710) similarly (`type='balance_snapshot'`).
-- [ ] **CS1.3** Refactor `cmd_investments` (L954) similarly (`type='investment_weekly'`).
-- [ ] **CS1.4** Refactor `cmd_monthly_report` (L1352) similarly (`type='financial_monthly'`).
-- [ ] **CS1.5** `_parse_schwab_balance_csv(filepath)` — preamble regex `"Balances for account  XXXX-(\d+) as of (MM/DD/YYYY HH:MM (AM|PM) ET)"`, section loop, returns `{account_mask, as_of, account_value, cash, market_value, non_margin, margin, sections: {...}}`. Tolerant of missing sections.
-- [ ] **CS1.6** `_parse_schwab_position_csv(filepath)` — preamble regex `"Positions for account <account_type> ...(\d+) as of HH:MM (AM|PM) ET, YYYY/MM/DD"`, header line, per-holding rows, final `"Positions Total"` row captured as `totals`. Returns `{account_mask, account_type, as_of, positions:[...], totals:{...}}`.
-- [ ] **CS1.7** `_format_schwab_balance_capture(result)` and `_format_schwab_position_capture(result)` helpers returning `(content, source_metadata)`. Content stays short + skimmable; metadata carries the full structured record.
-- [ ] **CS1.8** Router additions in `_route_bank_csv`:
+- [x] **CS1.1** Refactor `cmd_sync` (L521 area) to `_post_capture(cfg, summary_text, meta, capture_type='observation', brain_view='personal')`. Keep the per-call meta shape (`type='financial_daily'`, `date`, `transaction_count`, `grand_total`, `accounts`).
+- [x] **CS1.2** Refactor `cmd_balances` (L710) similarly (`type='balance_snapshot'`).
+- [x] **CS1.3** Refactor `cmd_investments` (L954) similarly (`type='investment_weekly'`).
+- [x] **CS1.4** Refactor `cmd_monthly_report` (L1352) similarly (`type='financial_monthly'`).
+- [x] **CS1.5** `_parse_schwab_balance_csv(filepath)` — preamble regex `"Balances for account  XXXX-(\d+) as of (MM/DD/YYYY HH:MM (AM|PM) ET)"`, section loop, returns `{account_mask, as_of, account_value, cash, market_value, non_margin, margin, sections: {...}}`. Tolerant of missing sections.
+- [x] **CS1.6** `_parse_schwab_position_csv(filepath)` — preamble regex `"Positions for account <account_type> ...(\d+) as of HH:MM (AM|PM) ET, YYYY/MM/DD"`, header line, per-holding rows, final `"Positions Total"` row captured as `totals`. Returns `{account_mask, account_type, as_of, positions:[...], totals:{...}}`.
+- [x] **CS1.7** `_format_schwab_balance_capture(result)` and `_format_schwab_position_capture(result)` helpers returning `(content, source_metadata)`. Content stays short + skimmable; metadata carries the full structured record.
+- [x] **CS1.8** Router additions in `_route_bank_csv`:
   - `re.search(r'_balances_[\d-]+\.csv$', lower)` → `_parse_schwab_balance_csv`
   - `re.search(r'-positions-[\d-]+\.csv$', lower)` (space-tolerant via `lower.replace(' ', '-')` OR regex `[ -]?`) → `_parse_schwab_position_csv`
-- [ ] **CS1.9** Wire into `cmd_process_inbox` dispatch (should work with zero extra code if the router covers the new types; confirm).
-- [ ] **CS1.10** Laptop smoke test against all 6 CSVs in `data/` (3 Balances + 3 Positions). Verify expected totals: Contributory 252 = $880,554.63; Designated Bene 6448 = $66,876.62; Simple IRA 7324 = $140,612.99. Contributory Positions GLDM = 1,833 @ $94.84 = $173,841.72.
+- [x] **CS1.9** Wire into `cmd_process_inbox` dispatch (dispatches on `_source` to the matching `_format_schwab_balance_capture` / `_format_schwab_position_capture`; `_format_bank_capture` remains the default for Amex/Chase/Truist/Schwab-transactions/HSA/PayPal).
+- [x] **CS1.10** Laptop smoke test against all 6 CSVs in `data/` (3 Balances + 3 Positions). Verify expected totals: Contributory 252 = $880,554.63; Designated Bene 6448 = $66,876.62; Simple IRA 7324 = $140,612.99. Contributory Positions GLDM = 1,833 @ $94.84 = $173,841.72.
 
 ### Acceptance criteria
 
@@ -93,25 +93,25 @@ Extend the G-C.1 pattern to utilities. Same Python sidecar shape (long-lived con
 
 ### Work items
 
-- [ ] **CS2.1** Create `scripts/lib/capture_api.py` with `get_capture_api_config(cfg) -> (url, caller)` and `post_capture(cfg, content, metadata, capture_type='observation', brain_view='personal') -> bool`. Implements env-var override precedence + nested metadata envelope + `allow_redirects=False` + 3xx logging. Net −duplication across both pipelines.
-- [ ] **CS2.2** `scripts/financial-pipeline.py` — replace its in-file `_get_capture_api` and `_post_capture` with imports from `scripts.lib.capture_api`. Confirm by running the parser smoke test again.
-- [ ] **CS2.3** `scripts/utility-pipeline.py` — three-fix pattern:
+- [x] **CS2.1** Create `scripts/lib/capture_api.py` with `get_capture_api_config(cfg) -> (url, caller)` and `post_capture(cfg, content, metadata, capture_type='observation', brain_view='personal') -> bool`. Implements env-var override precedence + nested metadata envelope + `allow_redirects=False` + 3xx logging. Net −duplication across both pipelines.
+- [x] **CS2.2** `scripts/financial-pipeline.py` — replace its in-file `_get_capture_api` and `_post_capture` with imports from `scripts.lib.capture_api`. Confirm by running the parser smoke test again.
+- [x] **CS2.3** `scripts/utility-pipeline.py` — three-fix pattern:
   - Env-var overrides: `UTILITY_PIPE_DIR` (default `~/.utility-pipeline`), `UTILITY_CONFIG_DIR` (default repo `config/utility/`).
   - Replace in-file `post_capture` with import from `scripts.lib.capture_api`.
   - Update `cmd_monthly_comparison` + any other POST sites to pass `capture_type='observation'`, `brain_view='personal'`.
-- [ ] **CS2.4** Rename `docker/financial-ingest/` → `docker/ingest-sidecar/`. Update compose build context accordingly.
-- [ ] **CS2.5** Dockerfile additions:
+- [x] **CS2.4** Rename `docker/financial-ingest/` → `docker/ingest-sidecar/`. Update compose build context accordingly.
+- [x] **CS2.5** Dockerfile additions:
   - Install `electric-usage-downloader` Go binary from pinned GitHub release (verify sha256).
   - `COPY scripts/lib /app/lib` (new shared module).
   - Keep existing Python + bws + requests/PyYAML layer.
   - Keep `CMD ["sleep", "infinity"]` for now (CS3 replaces it with `trigger_server.py`).
-- [ ] **CS2.6** `.dockerignore` — add negation for `!scripts/lib/` alongside the two pipeline scripts.
-- [ ] **CS2.7** `docker-compose.yml`:
+- [x] **CS2.6** `.dockerignore` — add negation for `!scripts/lib/` alongside the two pipeline scripts.
+- [x] **CS2.7** `docker-compose.yml`:
   - `financial-ingest` service: update build context to `docker/ingest-sidecar/`, image name `open-brain-ingest-sidecar:latest`.
   - New `utility-ingest` service cloned from financial-ingest with container name `open-brain-utility-ingest`, UTILITY_* env vars, bind-mount `/mnt/user/appdata/open-brain/utility-inbox:/inbox`, separate named volume `utility_ingest_data`.
   - Both services reference the same image.
-- [ ] **CS2.8** `config/utility/utility-config.yaml` — confirm `capture_api` block exists or add if missing (homeserver has it; local may not). Make the `caller_header` default `utility-pipeline`.
-- [ ] **CS2.9** `config/ingest-routes.yaml` (new) — shared filename→source-type table (used in CS3 by both TS router and Python dispatcher). Preliminary shape:
+- [x] **CS2.8** `config/utility/utility-config.yaml` — confirm `capture_api` block exists or add if missing (homeserver has it; local may not). Make the `caller_header` default `utility-pipeline`.
+- [x] **CS2.9** `config/ingest-routes.yaml` (new) — shared filename→source-type table (used in CS3 by both TS router and Python dispatcher). Preliminary shape:
   ```yaml
   routes:
     financial:
@@ -218,12 +218,14 @@ Backend plumbing for Wave 1 of the dashboard. Users drop files in the browser �
   - `POST /api/v1/ingest/upload` — multipart/form-data. Max 100MB. Streams to `/app/inbox-volumes/<source>/<uuid>-<safe-filename>`. Uses Hono's `c.req.raw.body` → `pipeline(readable, createWriteStream)` (Node streams, no full-buffer). Inserts `file_uploads` row; enqueues `ingest-process` job. Returns `{upload_id, status: 'pending'}`.
   - `GET /api/v1/ingest/uploads?limit=20&offset=0&status=?` — paginated list with capture_ids joined to capture title snippets.
   - `POST /api/v1/ingest/process-now?source=<financial|utility>` — manual re-trigger without a new upload. Useful for "process inbox now" UX button.
-- [ ] **CS3.5** `packages/workers/src/jobs/ingest-process.ts` (new) — BullMQ job:
-  - Reads `file_uploads.id` from job data → loads row → marks `processing`.
-  - HTTP POST to `http://open-brain-<source>-ingest:8080/process` with 5-min timeout.
-  - On 200: parse response JSON for `capture_ids` + `duration_ms` + `errors`. Update row to `parsed`/`failed` accordingly.
-  - On timeout/network error: retry 2x with 30s backoff, then `failed`.
-  - Emits SSE `upload:status` events at every transition.
+- [x] **CS3.5** ✅ Completed 2026-04-17 — `packages/workers/src/jobs/ingest-process.ts` (new) + `packages/workers/src/queues/ingest-process.ts` (new) — BullMQ job:
+  - Reads `file_uploads.id` from job data → loads row → marks `processing` (skips row load for synthetic `00000000-…` scan-inbox jobs from `POST /ingest/process-now`).
+  - POSTs `/process` to `http://<source>-ingest:8080` via `dispatchToSidecar()` from `@open-brain/shared/services/ingest-router` (moved from core-api — Option A — so both core-api and workers share a single implementation). Timeout configurable via `INGEST_TIMEOUT_MS` env (default 300_000 ms / 5 min).
+  - On sidecar 2xx + `status:'ok'`: UPDATE row to `parsed` with `capture_ids`, `processed_at`, `duration_ms`; emits `completed` pg_notify event.
+  - On sidecar 2xx + `status:'error'` / non-2xx / timeout / network error: UPDATE row to `failed` with `error_message`, emits `failed` pg_notify event, and rethrows so BullMQ records the failure and schedules the next retry.
+  - Retry policy: 5 attempts with patient backoff [30s, 2m, 10m, 30m, 2h] via custom BullMQ backoff strategy (matches CLAUDE.md canonical pipeline retry rule). `INGEST_PROCESS_BACKOFF_DELAYS_MS` exported from the queue factory.
+  - pg_notify channel: `upload_status` (underscore, matches `packages/core-api/src/lib/pg-notify.ts` channel list). Event payloads follow the `UploadStatusEventSchema` discriminated union (`started` | `progress` | `completed` | `failed`) from `@open-brain/shared/schema/ingest`. CS3.6's SSE hub LISTENs on this channel and fans out to browser clients as `upload:status` events.
+  - `dispatchToSidecar()` + helpers `loadRoutes`, `routeForSourceType`, `routeForFilename`, `sidecarUrlForSourceType` relocated from `packages/core-api/src/services/ingest-router.ts` → `packages/shared/src/services/ingest-router.ts`; re-exported from `@open-brain/shared` and the old file deleted. Also added `file_uploads` + `fileUploadStatus` pgEnum to `packages/shared/src/schema/supporting.ts` (CS3.2 completion needed to unblock the worker build) and `export * from './ingest.js'` to `packages/shared/src/schema/index.ts` so `IngestProcessJobData`, `UploadStatusEvent`, and `SidecarProcessResponse` are reachable via `@open-brain/shared`. Registered in `packages/workers/src/main.ts`. **Status:** COMPLETE 2026-04-17. Both `@open-brain/shared` and `@open-brain/workers` (and `@open-brain/core-api`) builds pass.
 - [ ] **CS3.6** `packages/core-api/src/services/sse.ts` — extend the hub with `upload:status` channel.
 - [ ] **CS3.7** `docker/ingest-sidecar/trigger_server.py` (new) — Python `http.server` + threading. Single endpoint `POST /process`:
   - Reads body JSON for optional source hint (or defaults to the pipeline bound to this container).
@@ -281,30 +283,30 @@ Ship the first user-visible benefit of the upload backend: a drag-drop Ingest pa
 
 ### Work items
 
-- [ ] **CS4a.1** Run `npx shadcn@latest add dialog tabs progress` in `packages/web/` — adds the new primitives to `components/ui/`. One commit at the top of the branch.
-- [ ] **CS4a.2** Add `react-dropzone` (if not already in lockfile) — `pnpm --filter @open-brain/web add react-dropzone`.
-- [ ] **CS4a.3** `packages/web/src/components/FileDropZone.tsx` — shared drop-zone with onFiles callback + accept-type list + max-size guard + keyboard accessibility. ~180 LOC.
-- [ ] **CS4a.4** `packages/web/src/lib/types.ts` — discriminated union for financial `source_metadata` keyed on `source_provider`. ~40 LOC.
-- [ ] **CS4a.5** `packages/web/src/lib/api.ts` — add `ingestApi` section (W1.3 spec): `upload(file, sourceType?)`, `listRecent(limit)`, `getStatus(uploadId)`, `processNow(source?)`. ~60 LOC.
-- [ ] **CS4a.6** `packages/web/src/pages/Ingest.tsx` (new) + route in `App.tsx`:
+- [x] **CS4a.1** Run `npx shadcn@latest add dialog tabs progress` in `packages/web/` — adds the new primitives to `components/ui/`. One commit at the top of the branch. ✅ 2026-04-17
+- [x] **CS4a.2** Add `react-dropzone` (if not already in lockfile) — `pnpm --filter @open-brain/web add react-dropzone`. ✅ 2026-04-17
+- [x] **CS4a.3** `packages/web/src/components/FileDropZone.tsx` — shared drop-zone with onFiles callback + accept-type list + max-size guard + keyboard accessibility. ~180 LOC. ✅ 2026-04-17
+- [x] **CS4a.4** `packages/web/src/lib/types.ts` — discriminated union for financial `source_metadata` keyed on `source_provider`. ~40 LOC. ✅ 2026-04-17 (shipped at ~165 LOC with per-provider interfaces + Schwab balance/positions split)
+- [x] **CS4a.5** `packages/web/src/lib/api.ts` — add `ingestApi` section (W1.3 spec): `upload(file, sourceType?)`, `listRecent(limit)`, `getStatus(uploadId)`, `processNow(source?)`. ~60 LOC. ✅ 2026-04-17 (core `ingestApi` shipped in CS3.10; CS4a.5 added `subscribeToEvents` + wired `'upload:status'` into both sse.ts eventTypes arrays)
+- [x] **CS4a.6** `packages/web/src/pages/Ingest.tsx` (new) + route in `App.tsx`: ✅ 2026-04-17
   - Hero drop zone (reuses FileDropZone). On drop: call `ingestApi.upload()`, show progress bar (Progress primitive), wait for SSE `upload:status` events, render result pill.
   - Manual source-type override dropdown (shadcn Select).
   - Recent uploads table (below drop zone) — pulls `ingestApi.listRecent(20)`, shows filename / size / source / status / capture-id chips (link to `/timeline?capture=<id>` OR `/financial?capture=<id>`).
   - "Process inbox now" button (W2.5) — calls `ingestApi.processNow()` for manual re-trigger; moved into Wave 1 since it's a 30-LOC addition.
   - ~380 LOC total.
-- [ ] **CS4a.7** `packages/core-api/src/schemas/capture.ts` — add `source_provider` to `listCapturesSchema`. ~2 LOC. Plus matching SQL WHERE in `routes/captures.ts` listCaptures handler. ~5 LOC.
-- [ ] **CS4a.8** `packages/web/src/pages/Financial.tsx` (new) + route + `components/FinancialSummaryCard.tsx`:
+- [x] **CS4a.7** `packages/core-api/src/schemas/capture.ts` — add `source_provider` to `listCapturesSchema`. ~2 LOC. Plus matching SQL WHERE in `routes/captures.ts` listCaptures handler. ~5 LOC. ✅ 2026-04-17 (schema + route forward + services/capture.ts parameterized JSONB WHERE)
+- [x] **CS4a.8** `packages/web/src/pages/Financial.tsx` (new) + route + `components/FinancialSummaryCard.tsx`: ✅ 2026-04-17
   - Tabs per provider (Amex / Chase / Truist / Schwab / HSA / PayPal). Tab count + $ badge from prefetched counts.
   - Each tab: reverse-chron list of captures filtered via `capturesApi.list({ source_provider: 'amex', ... })`. Each capture rendered as an expandable `FinancialSummaryCard` showing category breakdown (horizontal bars, plain CSS — no chart library needed for Wave 1) + top 10 transactions table.
   - Empty state when a provider has no captures: "Upload an [X] CSV in Ingest to see data here."
   - ~450 LOC total.
-- [ ] **CS4a.9** `packages/web/src/components/FinancialPulseCard.tsx`:
+- [x] **CS4a.9** `packages/web/src/components/FinancialPulseCard.tsx`: ✅ 2026-04-17
   - Client-side aggregates the last-30-day financial captures (pulls via `capturesApi.list({ brain_view: 'personal', capture_type: 'observation', ... })` filtered by `source_metadata.type LIKE '%_activity'`).
   - Renders total spend, MoM delta arrow + %, top 3 merchants (from per-capture top_transactions arrays unioned), inline sparkline (plain SVG, 30 daily aggregates).
   - Clickable → routes to `/financial`.
   - ~150 LOC.
-- [ ] **CS4a.10** `packages/web/src/pages/Dashboard.tsx` — slot `FinancialPulseCard` into the existing grid, above or alongside StatsCards. Minor touch.
-- [ ] **CS4a.11** `packages/web/src/components/Layout.tsx` — add 2 sidebar nav items: "Ingest" (Upload icon) + "Financial" ($ icon).
+- [x] **CS4a.10** `packages/web/src/pages/Dashboard.tsx` — slot `FinancialPulseCard` into the existing grid, above or alongside StatsCards. Minor touch. ✅ 2026-04-17 (full-width row above StatsCards)
+- [x] **CS4a.11** `packages/web/src/components/Layout.tsx` — add 2 sidebar nav items: "Ingest" (Upload icon) + "Financial" ($ icon). ✅ 2026-04-17
 
 ### Acceptance criteria
 
@@ -347,25 +349,25 @@ Surface the three remaining new capabilities: outbound email (Himalaya), autonom
 
 ### Work items — Group 1 (can ship without waiting for snapshots)
 
-- [ ] **CS4b.1** Run `npx shadcn@latest add accordion dropdown-menu sheet` — more primitives for Settings accordion + Compose drawer.
-- [ ] **CS4b.2** `packages/web/src/pages/Email.tsx` extension + `components/EmailComposeDrawer.tsx` + `components/EmailDraftsList.tsx`:
+- [x] **CS4b.1** Run `npx shadcn@latest add accordion dropdown-menu sheet` — more primitives for Settings accordion + Compose drawer. ✅ 2026-04-17
+- [x] **CS4b.2** `packages/web/src/pages/Email.tsx` extension + `components/EmailComposeDrawer.tsx` + `components/EmailDraftsList.tsx`: ✅ 2026-04-17 (EmailDraftsList shipped as reusable component + tests; Email.tsx uses its pre-existing richer `DraftsTab` — EmailDraftsList wiring deferred, see Entry 075)
   - Current Email.tsx shows classified inbox; add a "Compose" button (opens Sheet) + a "Drafts" tab.
   - Compose Sheet: To/Cc/Subject/Body textarea. "LLM-assist" button calls existing `email-compose` skill to fill body based on a short prompt. "Save as draft" → POST `/api/v1/email/drafts`. "Send" → POST `/drafts/:id/send`.
   - Drafts tab: list from `/drafts?status=<x>`, click to reopen in Sheet.
   - ~500 LOC.
-- [ ] **CS4b.3** `components/settings/AutonomyCard.tsx`:
+- [x] **CS4b.3** `components/settings/AutonomyCard.tsx`: ✅ 2026-04-17
   - Segmented control (shadcn or custom with Button variants): observe / assist / advise / partner.
   - Description string per level + warning banner ("moving to `advise` lets Open Brain act on Slack threads without asking") when moving up.
   - Reads/writes existing `/api/v1/settings/autonomy_level`.
   - ~140 LOC.
-- [ ] **CS4b.4** `packages/web/src/pages/Settings.tsx` rework (W2.4):
+- [x] **CS4b.4** `packages/web/src/pages/Settings.tsx` rework (W2.4): ✅ 2026-04-17 (6 accordion sections, AutonomyCard replaces prior AutonomyLevelSection)
   - Collapse flat list into accordion sections: General / AI Routing / Voice / Email / Integrations / Autonomy.
   - Each section is a shadcn AccordionItem; existing settings move into appropriate ones. No behavior change, pure reorganization.
   - ~300 LOC (most is moving existing JSX into new scaffolding).
 
 ### Work items — Group 2 (data-gated, ship after ≥1 week of snapshots)
 
-- [ ] **CS4b.5** `packages/web/src/pages/Investments.tsx` + route + `components/AllocationDonut.tsx` + `components/NetWorthChart.tsx`:
+- [x] **CS4b.5** `packages/web/src/pages/Investments.tsx` + route + `components/AllocationDonut.tsx` + `components/NetWorthChart.tsx`: ✅ 2026-04-17 (hand-rolled SVG — no recharts dep; account picker uses URL-synced ?account=)
   - Add a minimal charting dep (`recharts` or similar — pick one, pin version). Alternatively: hand-rolled SVG for both if we want to keep deps minimal.
   - Account picker at top (segmented: Contributory / Simple IRA / Designated Bene Joint).
   - Allocation donut: reads latest `schwab_position_snapshot` captures, groups holdings by `asset_type`, renders donut sectors.
@@ -373,7 +375,7 @@ Surface the three remaining new capabilities: outbound email (Himalaya), autonom
   - Holdings table: per-holding symbol / qty / mkt_val / cost_basis / gain_dollar / gain_pct / asset_type.
   - Empty-state UX: "Drop a Schwab Balances or Positions CSV in Ingest to populate this page."
   - ~400 LOC.
-- [ ] **CS4b.6** `packages/web/src/lib/api.ts` — extend `capturesApi` or add `investmentsApi` for convenience queries (latest snapshot per account).
+- [x] **CS4b.6** `packages/web/src/lib/api.ts` — extend `capturesApi` or add `investmentsApi` for convenience queries (latest snapshot per account). ✅ 2026-04-17 (bundled with CS4b.5; `investmentsApi` composed on `capturesApi.list({ source_provider: 'schwab' })` client-side)
 
 ### Acceptance criteria
 
@@ -415,28 +417,28 @@ Five independent small acts that reduce clutter without touching hot paths. Each
 
 ### Work items
 
-- [ ] **CS5.1** Backup the DB row before delete:
+- [ ] **CS5.1** DEFERRED post-merge (Option B, requires homeserver SSH). Backup the DB row before delete:
   ```bash
   ssh homeserver 'sudo docker exec open-brain-postgres psql -U openbrain -d openbrain -tAc "SELECT value FROM app_settings WHERE key='\''ms_token_cache'\'';"' \
     > /tmp/ms_token_cache_backup_20260417.json
   ```
   Copy to a durable location (homeserver `/mnt/user/backup/openbrain/adhoc/`).
-- [ ] **CS5.2** Delete the row:
+- [ ] **CS5.2** DEFERRED post-merge (Option B). Delete the row:
   ```sql
   DELETE FROM app_settings WHERE key = 'ms_token_cache';
   ```
   Single row. `ms_token_cache_node` (the live one) untouched.
-- [ ] **CS5.3** Delete `scripts/seed_email_auth.py` — confirmed untracked locally. Remove from laptop. No git change needed (not tracked).
-- [ ] **CS5.4** `.env.example` — remove `LITELLM_URL=https://llm.k4jda.net` and `LITELLM_API_KEY=get-from-bitwarden`; replace with `OPENAI_API_KEY=get-from-bitwarden` + `OPENAI_BASE_URL=https://api.openai.com/v1`.
-- [ ] **CS5.5** `deploy/.env.secrets.template` — remove stale `LITELLM_API_KEY=` line (verify via grep first). Keep SMTP_* lines (nodemailer fallback is intentional, per Entry 066).
-- [ ] **CS5.6** `scripts/monthly-maintenance.sh:161` — `.services.litellm.status` → `.services.llm.status` (D22 rename, already in effect in code).
-- [ ] **CS5.7** `CLAUDE.md:193` — "passed via `LITELLM_API_KEY` env var" → "passed via `OPENAI_API_KEY` env var" (A63 reality).
-- [ ] **CS5.8** Git branch deletes (requires Troy confirmation before push):
+- [ ] **CS5.3** DEFERRED post-merge (Option B, not git-tracked so no PR artifact). Delete `scripts/seed_email_auth.py` — confirmed untracked locally. Remove from laptop. No git change needed (not tracked).
+- [x] **CS5.4** `.env.example` — remove `LITELLM_URL=https://llm.k4jda.net` and `LITELLM_API_KEY=get-from-bitwarden`; replace with `OPENAI_API_KEY=get-from-bitwarden` + `OPENAI_BASE_URL=https://api.openai.com/v1`. ✅ 2026-04-17
+- [x] **CS5.5** `deploy/.env.secrets.template` — remove stale `LITELLM_API_KEY=` line (verify via grep first). Keep SMTP_* lines (nodemailer fallback is intentional, per Entry 066). ✅ 2026-04-17 (renamed to OPENAI_API_KEY; the stale name was in active use under the old label — renaming is the correct fix)
+- [x] **CS5.6** `scripts/monthly-maintenance.sh:161` — `.services.litellm.status` → `.services.llm.status` (D22 rename, already in effect in code). ✅ 2026-04-17
+- [x] **CS5.7** `CLAUDE.md:193` — "passed via `LITELLM_API_KEY` env var" → "passed via `OPENAI_API_KEY` env var" (A63 reality). ✅ 2026-04-17
+- [ ] **CS5.8** DEFERRED post-merge (Option B, requires Troy confirmation). Git branch deletes:
   ```bash
   git push origin --delete feature/phases-0b-1a-0d phase-3/ops-observability-wiki claude/review-second-brain-starter-CvHPf
   ```
   Pre-check: `gh pr list --state all --search 'head:<branch>'` for each — if any have open/merged PRs, reference them in the comment and defer the delete. As of 2026-04-17: all 3 are stale with no associated open PRs.
-- [ ] **CS5.9** Memory housekeeping — `memory/MEMORY.md` grep for `ms_token_cache` (without `_node`); if stale references exist, update.
+- [x] **CS5.9** Memory housekeeping — `memory/MEMORY.md` grep for `ms_token_cache` (without `_node`); if stale references exist, update. ✅ 2026-04-17 (no-op for `ms_token_cache` — only filesystem path `~/.email-analyzer/ms_token_cache.json` matched, not a stale key ref. Bonus: updated stale `LITELLM_API_KEY (name kept for backward compat)` memory line to reflect actual `OPENAI_API_KEY` env var the code reads.)
 
 ### Acceptance criteria
 

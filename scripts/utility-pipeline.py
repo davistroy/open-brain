@@ -26,6 +26,30 @@ from typing import Optional
 
 import requests, yaml
 
+# Shared capture-API helper (CS2.1/CS2.3). Same import strategy as
+# financial-pipeline.py — resolves against scripts/lib/ in both Docker and
+# local invocations.
+from lib.capture_api import post_capture as _post_capture_unwrapped  # noqa: E402
+
+# CS3.9 --json-output support: wrap post_capture so the ingest sidecar
+# (docker/ingest-sidecar/trigger_server.py) can read a JSON summary as the
+# final stdout line. Passthrough when --json-output is not set.
+_JSON_OUTPUT_MODE = False
+_JSON_CAPTURES_POSTED: list[str] = []
+_JSON_ERRORS: list[str] = []
+
+
+def _post_capture_raw(cfg, content, source_metadata, capture_type="observation", brain_view="personal"):
+    ok = _post_capture_unwrapped(cfg, content, source_metadata,
+                                 capture_type=capture_type, brain_view=brain_view)
+    if _JSON_OUTPUT_MODE:
+        if ok:
+            _JSON_CAPTURES_POSTED.append(content[:80])
+        else:
+            _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
+    return ok
+
+
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 logging.basicConfig(
@@ -36,9 +60,14 @@ logging.basicConfig(
 log = logging.getLogger("utility-pipeline")
 
 # --- Paths & constants ---
-PIPE_DIR = Path.home() / ".utility-pipeline"
+# Env-var overrides mirror financial-pipeline.py so the same script works in
+# both the VM environment (home-dir defaults) and the Docker sidecar where
+# paths are mounted at known locations.
+PIPE_DIR = Path(os.environ.get("UTILITY_PIPE_DIR", str(Path.home() / ".utility-pipeline")))
 DB_PATH = PIPE_DIR / "utility.db"
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "utility" / "utility-config.yaml"
+CONFIG_DIR_ENV = os.environ.get("UTILITY_CONFIG_DIR")
+CONFIG_BASE = Path(CONFIG_DIR_ENV) if CONFIG_DIR_ENV else Path(__file__).resolve().parent.parent / "config" / "utility"
+CONFIG_PATH = CONFIG_BASE / "utility-config.yaml"
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -126,39 +155,6 @@ def init_db() -> sqlite3.Connection:
     """)
     conn.commit()
     return conn
-
-
-# ── Capture posting helper ───────────────────────────────────────────────────
-
-def post_capture(cfg: dict, content: str, source_metadata: dict) -> bool:
-    """POST a capture to the Open Brain API. Returns True on success."""
-    cap_cfg = cfg.get("capture_api", {})
-    url = cap_cfg.get("url", "https://brain.troy-davis.com/api/v1/captures")
-    caller = cap_cfg.get("caller_header", "utility-pipeline")
-
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "content": content,
-                "source": "api",
-                "source_metadata": source_metadata,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Open-Brain-Caller": caller,
-            },
-            timeout=30,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Capture posted successfully")
-            return True
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-            return False
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
-        return False
 
 
 # ── Water (Cobb County) ─────────────────────────────────────────────────────
@@ -818,7 +814,8 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
         if water_mom_pct is not None:
             source_metadata["water_mom_pct"] = round(water_mom_pct, 1)
 
-    post_capture(cfg, capture_text, source_metadata)
+    _post_capture_raw(cfg, capture_text, source_metadata,
+                      capture_type="observation", brain_view="personal")
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
@@ -897,6 +894,8 @@ def main():
     ap.add_argument("--power-summary", action="store_true", help="Aggregate power CSV data (stub)")
     ap.add_argument("--monthly-comparison", action="store_true", help="Unified utility synthesis + capture")
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
+    ap.add_argument("--json-output", action="store_true",
+                    help="Emit a JSON summary as the final stdout line (for ingest sidecar)")
     args = ap.parse_args()
 
     # Require at least one action
@@ -904,25 +903,50 @@ def main():
         ap.print_help()
         sys.exit(1)
 
-    conn = init_db()
+    global _JSON_OUTPUT_MODE
+    _JSON_OUTPUT_MODE = bool(args.json_output)
+    _json_t0 = time.monotonic()
 
-    if args.status:
-        show_status(conn)
+    exit_code = 0
+    try:
+        conn = init_db()
+
+        if args.status:
+            show_status(conn)
+            conn.close()
+            return
+
+        cfg = load_config()
+
+        if args.water:
+            cmd_water(cfg, conn)
+        if args.gas:
+            cmd_gas(cfg, conn)
+        if args.power_summary:
+            cmd_power_summary(cfg, conn)
+        if args.monthly_comparison:
+            cmd_monthly_comparison(cfg, conn)
+
         conn.close()
-        return
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.exception("utility-pipeline: unhandled error")
+        _JSON_ERRORS.append(f"unhandled: {e}")
+        exit_code = 1
 
-    cfg = load_config()
+    if _JSON_OUTPUT_MODE:
+        summary = {
+            "status": "ok" if exit_code == 0 and not _JSON_ERRORS else "error",
+            "captures_posted": list(_JSON_CAPTURES_POSTED),
+            "errors": list(_JSON_ERRORS),
+            "duration_ms": int((time.monotonic() - _json_t0) * 1000),
+        }
+        sys.stdout.flush()
+        print(json.dumps(summary))
 
-    if args.water:
-        cmd_water(cfg, conn)
-    if args.gas:
-        cmd_gas(cfg, conn)
-    if args.power_summary:
-        cmd_power_summary(cfg, conn)
-    if args.monthly_comparison:
-        cmd_monthly_comparison(cfg, conn)
-
-    conn.close()
+    if exit_code:
+        sys.exit(exit_code)
 
 
 if __name__ == "__main__":

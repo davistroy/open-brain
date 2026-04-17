@@ -19,6 +19,7 @@ import { createAccessStatsWorker } from './jobs/update-access-stats.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
 import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { createIngestRootWorker } from './jobs/ingest-root.js'
+import { createIngestProcessWorker } from './jobs/ingest-process.js'
 import { createWikiIngestWorker } from './jobs/wiki-ingest-worker.js'
 import { registerScheduledJobs } from './scheduler.js'
 import { SpendTracker } from './lib/spend-tracker.js'
@@ -197,6 +198,14 @@ async function main() {
     ollamaClient: ollamaClient ?? undefined,
     wikiService,
     llmGateway,
+  }))
+
+  // Ingest-process worker (CS3.5) — consumes `ingest-process` queue, dispatches
+  // to per-source sidecar HTTP trigger, updates file_uploads row, and emits
+  // pg_notify('upload_status', …) events consumed by the CS3.6 SSE hub.
+  workers.push(createIngestProcessWorker(connection, db, {
+    secret: process.env.INGEST_TRIGGER_SECRET ?? '',
+    timeoutMs: process.env.INGEST_TIMEOUT_MS ? Number(process.env.INGEST_TIMEOUT_MS) : undefined,
   }))
 
   // Wiki-ingest worker — dedicated worker for wiki integration (rate-limited, concurrency=1)

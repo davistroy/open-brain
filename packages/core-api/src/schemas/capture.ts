@@ -36,6 +36,7 @@ export const listCapturesSchema = z.object({
   date_from: z.string().datetime().optional(),
   date_to: z.string().datetime().optional(),
   pipeline_status: z.string().optional(),
+  source_provider: z.string().min(1).max(50).optional(),
 })
 
 export type CreateCaptureInput = z.infer<typeof createCaptureSchema>

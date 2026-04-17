@@ -9,6 +9,13 @@ import { stream } from 'hono/streaming'
 import { pgNotify } from '../lib/pg-notify.js'
 import { logger } from '@open-brain/shared'
 
+// CS3.6 — translate pg_notify channels (identifier-safe, no colons) to
+// the SSE event names surfaced to browsers. Only channels that need
+// renaming appear here; others pass through verbatim.
+const CHANNEL_TO_SSE_EVENT: Record<string, string> = {
+  upload_status: 'upload:status',
+}
+
 export function registerEventsRoutes(app: Hono): void {
   app.get('/api/v1/events', (c) => {
     // Set SSE headers
@@ -28,7 +35,8 @@ export function registerEventsRoutes(app: Hono): void {
         if (closed) return
         try {
           const data = JSON.stringify(payload.data)
-          await s.write(`event: ${payload.channel}\ndata: ${data}\n\n`)
+          const eventName = CHANNEL_TO_SSE_EVENT[payload.channel] ?? payload.channel
+          await s.write(`event: ${eventName}\ndata: ${data}\n\n`)
         } catch (err) {
           logger.debug({ err }, 'SSE write error')
         }

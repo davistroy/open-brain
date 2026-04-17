@@ -190,7 +190,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 
 - **Runtime**: TypeScript, Hono framework, Drizzle ORM
 - **Database**: Postgres 16 + pgvector (pgvector/pgvector:pg16 image, no Supabase)
-- **LLM Provider**: OpenAI API (api.openai.com/v1) for ALL AI requests — both embeddings and LLM inference. No local LLM dependency. API key in Bitwarden (`open-brain-openai-api-key`), passed via `LITELLM_API_KEY` env var.
+- **LLM Provider**: OpenAI API (api.openai.com/v1) for ALL AI requests — both embeddings and LLM inference. No local LLM dependency. API key in Bitwarden (`open-brain-openai-api-key`), passed via `OPENAI_API_KEY` env var.
 - **Embeddings**: OpenAI `text-embedding-3-large` with `dimensions: 768` API parameter. The API handles dimension reduction via trained MRL (not naive truncation). NO fallback — queue and retry if API is down.
 - **LLM Inference**: Model aliases fast, synthesis, governance, intent — all `gpt-5.4` (configured in `config/ai-routing.yaml`). Uses `max_completion_tokens` (not `max_tokens`).
 - **Schema**: `vector(768)` everywhere. Do not use 1536.

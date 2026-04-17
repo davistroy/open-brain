@@ -44,7 +44,7 @@ export function registerCaptureRoutes(
   app.get('/api/v1/captures', zValidator('query', listCapturesSchema), async (c) => {
     const query = c.req.valid('query')
 
-    const filter: import('@open-brain/shared').CaptureFilter = {
+    const filter: import('@open-brain/shared').CaptureFilter & { source_provider?: string } = {
       brain_view: query.brain_view,
       capture_type: query.capture_type,
       source: query.source,
@@ -52,6 +52,7 @@ export function registerCaptureRoutes(
       date_from: query.date_from ? new Date(query.date_from) : undefined,
       date_to: query.date_to ? new Date(query.date_to) : undefined,
       pipeline_status: query.pipeline_status,
+      source_provider: query.source_provider,
     }
 
     const { items, total } = await captureService.list(filter, query.limit, query.offset)

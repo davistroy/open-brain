@@ -14,6 +14,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import StatsCards from '@/components/StatsCards';
 import ActivityFeedItemComponent from '@/components/ActivityFeedItem';
+import { FinancialPulseCard } from '@/components/FinancialPulseCard';
 import { statsApi, pipelineApi, adminApi, intelligenceApi, activityApi } from '@/lib/api';
 import { sseClient } from '@/lib/sse';
 import type { AdminBanner } from '@/lib/api';
@@ -437,6 +438,9 @@ export default function Dashboard() {
 
       {/* Pipeline health */}
       {pipelineHealth && <PipelineHealthBanner health={pipelineHealth} />}
+
+      {/* Financial Pulse */}
+      <FinancialPulseCard />
 
       {/* Stats cards */}
       {stats && <StatsCards stats={stats} />}

@@ -278,6 +278,45 @@ describe('GET /api/v1/captures', () => {
 
     expect(res.status).toBe(400)
   })
+
+  it('forwards source_provider filter to service', async () => {
+    const matching = makeCaptureRecord({
+      id: 'cap-amex-1',
+      source_metadata: { source_provider: 'amex' } as any,
+    })
+    captureService.list.mockResolvedValueOnce({ items: [matching], total: 1 })
+
+    const app = createApp({ captureService: captureService as any, configService: configService as any })
+    const res = await app.request('/api/v1/captures?source_provider=amex')
+
+    expect(res.status).toBe(200)
+    expect(captureService.list).toHaveBeenCalledWith(
+      expect.objectContaining({ source_provider: 'amex' }),
+      expect.any(Number),
+      expect.any(Number),
+    )
+    const body = await res.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0].id).toBe('cap-amex-1')
+  })
+
+  it('omits source_provider from filter when not provided', async () => {
+    captureService.list.mockResolvedValueOnce({ items: [], total: 0 })
+
+    const app = createApp({ captureService: captureService as any, configService: configService as any })
+    const res = await app.request('/api/v1/captures')
+
+    expect(res.status).toBe(200)
+    const filterArg = captureService.list.mock.calls[0][0]
+    expect(filterArg.source_provider).toBeUndefined()
+  })
+
+  it('returns 400 when source_provider is empty string', async () => {
+    const app = createApp({ captureService: captureService as any, configService: configService as any })
+    const res = await app.request('/api/v1/captures?source_provider=')
+
+    expect(res.status).toBe(400)
+  })
 })
 
 // ---------------------------------------------------------------------------
