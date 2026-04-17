@@ -113,6 +113,7 @@ After any non-trivial finding during deployment, testing, or debugging:
 - **Budget-check uses `LITELLM_SPEND_URL` (not `LITELLM_URL`)** — since migrating to direct OpenAI API, `LITELLM_URL` points to `api.openai.com/v1`. Budget-check has a separate `LITELLM_SPEND_URL` env var for querying a LiteLLM proxy's spend API. When unset (default), skips the HTTP call and uses local `ai_audit_log` estimation only.
 - **CRITICAL: Verify ai-routing.yaml cost path before ANY bulk operation** — 3,230 file captures cost $100+ because entity extraction routed to Anthropic API (Haiku) instead of Spark (free). The cost_per_1k fields were all 0, so the budget circuit breaker was blind. Always check `task_routing` in ai-routing.yaml before batch ingestion. The t1_spark tier (Qwen 35B on DGX Spark) handles all routine tasks for free.
 - **Jetson Orin Nano IP is 192.168.10.58** (static, not 192.168.10.44). Updated in ai-routing.yaml 2026-04-15. Old IP caused classification fallback to paid Haiku API.
+- **Vitest `pool: 'forks'` requires both `minForks` and `maxForks`** — setting only `maxForks: N` trips Tinypool `RangeError: options.minThreads and options.maxThreads must not conflict` on vitest 1.6. Always specify `poolOptions.forks: { minForks: 1, maxForks: N }`. Discovered in Phase 1 of the 2026-04-17 tech-debt cleanup; applied to both `packages/core-api/vitest.config.ts` and `packages/workers/vitest.config.ts`.
 
 ---
 

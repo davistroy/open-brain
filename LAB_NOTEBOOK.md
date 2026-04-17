@@ -4770,6 +4770,45 @@ Phases 2/3/4 can ship as 3 parallel PRs once Phase 1 lands (they touch disjoint 
 
 **Status:** PLAN READY. Next action: clear context, then run `/implement-plan --input IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` to start Phase 1.
 
+---
+
+### Entry 079 — Phase 1 (CS-δ): Vitest config stability hardening — 2026-04-17
+
+**Tags:** [test-infra] [vitest] [windows] [decision]
+**Environment:** Local dev (Windows bash), branch `chore/tech-debt-phase-1-2026-04-17`
+
+**Objective:** Eliminate unit-test flake on Windows in `@open-brain/core-api` and `@open-brain/workers` by switching vitest to the `forks` pool with bounded concurrency and generous hook timeouts. Part of the 5-phase tech-debt cleanup plan (`IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md`).
+
+**Hypothesis:**
+Default vitest `threads` pool on Windows occasionally hangs or double-runs hooks under heavy fs/network mocking, causing intermittent CI flake. Switching to `pool: 'forks'` with `maxForks: 4` and `hookTimeout/testTimeout: 30_000` should:
+- Serialize per-suite state into isolated processes (no thread race on module graph).
+- Give slow beforeAll/afterAll hooks enough headroom to avoid spurious timeouts.
+- Keep total runtime within acceptable bounds (bounded concurrency).
+Success criteria: `pnpm --filter @open-brain/core-api test` and `pnpm --filter @open-brain/workers test` each run 3 times back-to-back on Windows with zero test failures and zero timeouts.
+
+**Rollback plan:**
+Git-tracked change only. Revert via `git revert <phase-1-commit-sha>` or `git checkout main -- packages/core-api/vitest.config.ts packages/workers/vitest.config.ts`. No system state modified.
+
+**Work items:**
+- 1.1 — `packages/core-api/vitest.config.ts`: add forks pool, maxForks:4, hookTimeout:30_000, testTimeout:30_000
+- 1.2 — `packages/workers/vitest.config.ts`: identical additions (defensive)
+- 1.3 — Run both test suites 3× back-to-back; zero-flake gate
+
+**Plan reference:** `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` Phase 1 (CS-δ). Phase spans items 1.1–1.3. Ships as single PR `fix/vitest-unit-stability` (branch name in this session is `chore/tech-debt-phase-1-2026-04-17`).
+
+**Results:**
+- **1.1 — core-api vitest.config.ts:** Added `pool: 'forks'`, `poolOptions.forks: { minForks: 1, maxForks: 4 }`, `hookTimeout: 30_000`, `testTimeout: 30_000`. First attempt tripped a Tinypool `RangeError: options.minThreads and options.maxThreads must not conflict` when `maxForks` was set without an explicit lower bound. Adding `minForks: 1` resolved it. Initial validation: 718/718 tests pass, 81.96s.
+- **1.2 — workers vitest.config.ts:** Identical additions. Same `minForks: 1` requirement discovered independently by the parallel subagent. Initial validation: 941/941 tests pass, 94.97s.
+- **1.3 — 3x back-to-back flake gate:** Zero flake confirmed.
+  - core-api: 3/3 green — 718/718 each run, 26-31s
+  - workers: 3/3 green — 941/941 each run, 31-35s
+  - No timeouts, no unhandled rejections, no "test suite failed to run" symptoms.
+- **Delta vs. plan:** Plan prescribed `poolOptions.forks = { maxForks: 4 }`. Actual shipped config uses `{ minForks: 1, maxForks: 4 }` — the `minForks` addition is required by vitest 1.6 / Tinypool when `maxForks` is set. Documented as new operational rule in CLAUDE.md.
+
+**What worked:** Parallel subagent pattern caught the `minForks` requirement from both sides independently, so the fix converged. No retries needed for the flake gate — runs were ~30-35s each (well under the 30s testTimeout threshold), which suggests the forks pool is actually faster than the prior default on Windows, not just more stable.
+
+**Duration:** ~15 min (parallel implementation + 6-run flake gate).
+
 
 
 
