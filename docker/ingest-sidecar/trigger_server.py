@@ -12,7 +12,7 @@ Design constraints
   (``/tmp/process.lock``) serializes pipeline invocations so two concurrent
   uploads don't corrupt the shared SQLite DB.
 * Auth: ``X-Open-Brain-Caller: ingest`` + ``Authorization: Bearer <secret>``
-  where the secret comes from ``TRIGGER_SECRET``. Constant-time comparison.
+  where the secret comes from ``INGEST_TRIGGER_SECRET``. Constant-time comparison.
 * Source binding: each sidecar container is bound to exactly one pipeline
   via the ``INGEST_SOURCE`` env var (``financial`` or ``utility``). The body
   may override with ``{"source": "..."}`` when the ingest_router says so,
@@ -63,7 +63,7 @@ from typing import Any
 
 PORT = int(os.environ.get("PORT", "8080"))
 BIND_HOST = os.environ.get("BIND_HOST", "0.0.0.0")  # internal network only
-TRIGGER_SECRET = os.environ.get("TRIGGER_SECRET", "")
+INGEST_TRIGGER_SECRET = os.environ.get("INGEST_TRIGGER_SECRET", "")
 INGEST_SOURCE = os.environ.get("INGEST_SOURCE", "financial")  # bound pipeline
 TRIGGER_TIMEOUT_SEC = int(os.environ.get("TRIGGER_TIMEOUT_SEC", "300"))
 LOCK_PATH = os.environ.get("PROCESS_LOCK_PATH", "/tmp/process.lock")
@@ -154,7 +154,7 @@ def log_request(
 def check_auth(headers) -> tuple[bool, str | None]:
     """Validate X-Open-Brain-Caller + Authorization: Bearer headers.
 
-    Returns ``(ok, caller_value_or_reason)``. If ``TRIGGER_SECRET`` is not
+    Returns ``(ok, caller_value_or_reason)``. If ``INGEST_TRIGGER_SECRET`` is not
     set in the environment, auth is refused — refuse to silently no-op.
     """
     caller = headers.get("X-Open-Brain-Caller", "")
@@ -164,9 +164,9 @@ def check_auth(headers) -> tuple[bool, str | None]:
     if not authz.startswith("Bearer "):
         return False, "missing-bearer"
     token = authz[len("Bearer "):].strip()
-    if not TRIGGER_SECRET:
+    if not INGEST_TRIGGER_SECRET:
         return False, "server-missing-secret"
-    if not hmac.compare_digest(token.encode("utf-8"), TRIGGER_SECRET.encode("utf-8")):
+    if not hmac.compare_digest(token.encode("utf-8"), INGEST_TRIGGER_SECRET.encode("utf-8")):
         return False, "bad-token"
     return True, caller
 
@@ -509,11 +509,11 @@ def _install_signal_handlers(server: ThreadingHTTPServer, stop_event: threading.
 
 
 def main() -> int:
-    if not TRIGGER_SECRET:
+    if not INGEST_TRIGGER_SECRET:
         log.warning(json.dumps({
             "event": "startup_warning",
-            "message": "TRIGGER_SECRET is not set — all POST requests will be rejected. "
-                       "Set TRIGGER_SECRET in the compose env.",
+            "message": "INGEST_TRIGGER_SECRET is not set — all POST requests will be rejected. "
+                       "Set INGEST_TRIGGER_SECRET in the compose env.",
         }))
 
     if INGEST_SOURCE not in _FALLBACK_PIPELINES:
