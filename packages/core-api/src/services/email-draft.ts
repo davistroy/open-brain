@@ -4,6 +4,7 @@ import {
   captures,
   logger,
   NotFoundError,
+  ConflictError,
   contentHash,
   HimalayaService,
   PushoverService,
@@ -26,6 +27,17 @@ export interface CreateEmailDraftInput {
   source?: string
   sendMode?: EmailSendMode
   metadata?: Record<string, unknown>
+}
+
+/**
+ * Partial-update input for PATCH /api/v1/email/drafts/:id.
+ * All fields are optional; only provided fields are updated.
+ */
+export interface UpdateEmailDraftInput {
+  to?: string
+  cc?: string | null
+  subject?: string
+  body?: string
 }
 
 export interface EmailDraftRecord {
@@ -195,6 +207,43 @@ export class EmailDraftService {
     }
 
     return rows[0] as EmailDraftRecord
+  }
+
+  /**
+   * Partially update an existing draft's recipient/content fields.
+   *
+   * Only drafts with status='draft' can be updated. Any other status
+   * (approved, sent, failed, rejected) raises ConflictError. Undefined
+   * fields are left unchanged.
+   */
+  async update(id: string, patch: UpdateEmailDraftInput): Promise<EmailDraftRecord> {
+    const draft = await this.get(id)
+
+    if (draft.status !== 'draft') {
+      throw new ConflictError(
+        `Cannot update draft in status '${draft.status}' — only 'draft' status can be edited`,
+      )
+    }
+
+    // Build the update set, only including provided fields
+    const set: Record<string, unknown> = { updated_at: new Date() }
+    if (patch.to !== undefined) set.to_address = patch.to
+    if (patch.cc !== undefined) set.cc_address = patch.cc === null || patch.cc === '' ? null : patch.cc
+    if (patch.subject !== undefined) set.subject = patch.subject
+    if (patch.body !== undefined) set.body = patch.body
+
+    const [updated] = await this.db
+      .update(email_drafts)
+      .set(set)
+      .where(eq(email_drafts.id, id))
+      .returning()
+
+    logger.info(
+      { draftId: id, fields: Object.keys(patch) },
+      '[email-draft] draft updated',
+    )
+
+    return updated as EmailDraftRecord
   }
 
   /**

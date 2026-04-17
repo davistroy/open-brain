@@ -1,9 +1,43 @@
 import type { Hono } from 'hono'
+import { z } from 'zod'
 import { logger } from '@open-brain/shared'
 import type { EmailDraftService } from '../services/email-draft.js'
+import type { EmailComposeAssistService } from '../services/email-compose-assist.js'
 
 const VALID_STATUSES = ['draft', 'approved', 'sent', 'rejected', 'failed'] as const
 const VALID_SEND_MODES = ['review-required', 'auto-send'] as const
+
+// ---------------------------------------------------------------------------
+// Zod schemas
+// ---------------------------------------------------------------------------
+
+const patchDraftSchema = z
+  .object({
+    to: z.array(z.string()).optional(),
+    cc: z.array(z.string()).optional(),
+    subject: z.string().optional(),
+    body: z.string().optional(),
+  })
+  .refine(
+    (v) =>
+      v.to !== undefined ||
+      v.cc !== undefined ||
+      v.subject !== undefined ||
+      v.body !== undefined,
+    { message: 'At least one of to, cc, subject, body must be provided' },
+  )
+
+const composeDraftSchema = z.object({
+  instruction: z.string().min(1, 'instruction is required'),
+  existing_draft: z
+    .object({
+      to: z.array(z.string()).optional(),
+      cc: z.array(z.string()).optional(),
+      subject: z.string().optional(),
+      body: z.string().optional(),
+    })
+    .optional(),
+})
 
 /**
  * Register email draft management API routes.
@@ -11,12 +45,15 @@ const VALID_SEND_MODES = ['review-required', 'auto-send'] as const
  * GET    /api/v1/email/drafts         — list drafts (optional ?status= filter, ?limit=, ?offset=)
  * GET    /api/v1/email/drafts/:id     — get a single draft
  * POST   /api/v1/email/drafts         — create a new draft
+ * PATCH  /api/v1/email/drafts/:id     — partially update an existing draft (status='draft' only)
  * POST   /api/v1/email/drafts/:id/send — approve and send a draft
  * DELETE /api/v1/email/drafts/:id     — reject/discard a draft
+ * POST   /api/v1/email/compose-draft  — AI-assist: generate a proposed draft (not persisted)
  */
 export function registerEmailRoutes(
   app: Hono,
   emailDraftService: EmailDraftService,
+  emailComposeAssistService?: EmailComposeAssistService,
 ): void {
   // -----------------------------------------------------------------------
   // GET /api/v1/email/drafts
@@ -118,6 +155,57 @@ export function registerEmailRoutes(
   })
 
   // -----------------------------------------------------------------------
+  // PATCH /api/v1/email/drafts/:id — partial update of a draft-status draft
+  // Body: { to?: string[]; cc?: string[]; subject?: string; body?: string }
+  //
+  // Notes:
+  //  - EmailDraftService stores to/cc as comma-joined strings; arrays coming
+  //    from the web client are joined with ', ' here before hitting the
+  //    service layer to keep the storage shape consistent.
+  //  - 409 CONFLICT if the draft is not in status='draft' (already sent,
+  //    approved, failed, or rejected).
+  // -----------------------------------------------------------------------
+  app.patch('/api/v1/email/drafts/:id', async (c) => {
+    const id = c.req.param('id')
+
+    let rawBody: unknown
+    try {
+      rawBody = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+    }
+
+    const parsed = patchDraftSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid body',
+          code: 'VALIDATION_ERROR',
+        },
+        400,
+      )
+    }
+
+    const patch = parsed.data
+
+    const draft = await emailDraftService.update(id, {
+      to: patch.to !== undefined ? patch.to.join(', ') : undefined,
+      cc: patch.cc !== undefined
+        ? (patch.cc.length > 0 ? patch.cc.join(', ') : null)
+        : undefined,
+      subject: patch.subject,
+      body: patch.body,
+    })
+
+    logger.info(
+      { draftId: id, fields: Object.keys(patch) },
+      '[email-routes] draft patched',
+    )
+
+    return c.json(draft)
+  })
+
+  // -----------------------------------------------------------------------
   // POST /api/v1/email/drafts/:id/send — approve and send
   // -----------------------------------------------------------------------
   app.post('/api/v1/email/drafts/:id/send', async (c) => {
@@ -148,5 +236,71 @@ export function registerEmailRoutes(
       id: draft.id,
       status: draft.status,
     })
+  })
+
+  // -----------------------------------------------------------------------
+  // POST /api/v1/email/compose-draft — synchronous AI-assist
+  // Body: { instruction: string, existing_draft?: { to?, cc?, subject?, body? } }
+  // Returns: { body, subject?, to?, cc? }
+  //
+  // Invokes the shared runAgent() tool-use loop against the brain DB
+  // (search_brain / get_entity) to produce a context-aware proposed draft.
+  // The result is NOT persisted — the web drawer saves via POST/PATCH
+  // /email/drafts when the user chooses to.
+  // -----------------------------------------------------------------------
+  app.post('/api/v1/email/compose-draft', async (c) => {
+    if (!emailComposeAssistService) {
+      return c.json(
+        {
+          error: 'AI compose is unavailable — compose service is not configured',
+          code: 'SERVICE_UNAVAILABLE',
+        },
+        503,
+      )
+    }
+
+    let rawBody: unknown
+    try {
+      rawBody = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+    }
+
+    const parsed = composeDraftSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid body',
+          code: 'VALIDATION_ERROR',
+        },
+        400,
+      )
+    }
+
+    try {
+      const result = await emailComposeAssistService.compose({
+        instruction: parsed.data.instruction,
+        existingDraft: parsed.data.existing_draft,
+      })
+
+      return c.json(result)
+    } catch (err) {
+      // ServiceUnavailableError and other AppError subclasses propagate to
+      // the global onError handler (returns their statusCode). Unknown
+      // errors from the agent loop get a generic 500 with a safe message.
+      const message = err instanceof Error ? err.message : 'AI compose failed'
+      logger.warn(
+        { err: message },
+        '[email-routes] compose-draft failed',
+      )
+      // Re-throw AppErrors so the global handler maps them correctly.
+      if (err && typeof err === 'object' && 'statusCode' in err) {
+        throw err
+      }
+      return c.json(
+        { error: message, code: 'COMPOSE_FAILED' },
+        500,
+      )
+    }
   })
 }

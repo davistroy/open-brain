@@ -42,6 +42,7 @@ import type { SystemHealthService } from './services/system-health.js'
 import type { WikiService } from './services/wiki.js'
 import type { ActivityFeedService } from './services/activity-feed.js'
 import type { EmailDraftService } from './services/email-draft.js'
+import type { EmailComposeAssistService } from './services/email-compose-assist.js'
 import type { VoiceSessionService } from './services/voice-session.js'
 
 interface AppDependencies {
@@ -75,6 +76,8 @@ interface AppDependencies {
   activityFeedService?: ActivityFeedService
   /** Email draft service — required for email draft management endpoints */
   emailDraftService?: EmailDraftService
+  /** Email-compose AI-assist service — optional, enables POST /api/v1/email/compose-draft */
+  emailComposeAssistService?: EmailComposeAssistService
   /** Voice session service — required for voice conversation session endpoints */
   voiceSessionService?: VoiceSessionService
   /** Ingest-process BullMQ queue — required for POST /api/v1/ingest/upload pipeline dispatch (CS3.4/CS3.5) */
@@ -83,7 +86,7 @@ interface AppDependencies {
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, voiceSessionService, ingestProcessQueue } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -187,7 +190,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
 
   // Email drafts API
   if (emailDraftService) {
-    registerEmailRoutes(app, emailDraftService)
+    registerEmailRoutes(app, emailDraftService, emailComposeAssistService)
   }
 
   // Voice session API

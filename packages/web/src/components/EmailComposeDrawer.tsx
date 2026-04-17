@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { emailApi, synthesizeApi } from '@/lib/api'
+import { emailApi } from '@/lib/api'
 import type { EmailDraft } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -34,9 +34,10 @@ interface FormState {
 const EMPTY_FORM: FormState = { to: '', cc: '', subject: '', body: '' }
 
 /**
- * Drawer UI for composing or editing an email draft. Provides LLM-assist via
- * the existing `/synthesize` endpoint (no dedicated compose-skill HTTP route
- * exists yet — see CS4b.2 notes). Save persists via POST /email/drafts; Send
+ * Drawer UI for composing or editing an email draft. LLM-assist hits the
+ * dedicated `POST /email/compose-draft` endpoint (context-aware agent with
+ * search_brain + get_entity tools). Save persists via POST /email/drafts for
+ * new drafts or PATCH /email/drafts/:id for existing ones. Send
  * approves-and-sends via POST /email/drafts/:id/send.
  */
 export function EmailComposeDrawer({
@@ -117,25 +118,34 @@ export function EmailComposeDrawer({
     setAssisting(true)
     setAssistWarning(null)
     try {
-      const contextBits: string[] = []
-      if (form.to.trim()) contextBits.push(`Recipient: ${form.to.trim()}`)
-      if (form.subject.trim()) contextBits.push(`Subject: ${form.subject.trim()}`)
-      if (form.body.trim())
-        contextBits.push(`Existing draft body (revise if relevant):\n${form.body.trim()}`)
+      // Build existing-draft context from current form fields. The server-side
+      // compose agent uses this to refine rather than rewrite wholesale.
+      const existing: {
+        to?: string[]
+        subject?: string
+        body?: string
+      } = {}
+      const toList = form.to
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+      if (toList.length > 0) existing.to = toList
+      if (form.subject.trim()) existing.subject = form.subject.trim()
+      if (form.body.trim()) existing.body = form.body.trim()
 
-      const prompt =
-        `Draft the BODY of a professional email based on this instruction:\n` +
-        `"${assistPrompt.trim()}"\n\n` +
-        (contextBits.length ? `Context:\n${contextBits.join('\n')}\n\n` : '') +
-        `Return only the email body text — no subject line, no "To:" header, no salutation markers like "[Your Name]". ` +
-        `Keep it concise, natural, and ready to send.`
-
-      const result = await synthesizeApi.query(prompt, 8)
-      const body = (result.response ?? '').trim()
+      const result = await emailApi.composeDraft(
+        assistPrompt.trim(),
+        Object.keys(existing).length > 0 ? existing : undefined,
+      )
+      const body = (result.body ?? '').trim()
       if (!body) {
         setAssistWarning('AI returned an empty response. Try rephrasing.')
       } else {
         update('body', body)
+        // If the agent proposed a subject and the user hadn't set one, fill it in.
+        if (result.subject && !form.subject.trim()) {
+          update('subject', result.subject)
+        }
         setAssistPrompt('')
       }
     } catch (err) {
@@ -155,9 +165,29 @@ export function EmailComposeDrawer({
     setSaving(true)
     setError(null)
     try {
-      // Backend has no PATCH endpoint for drafts. When editing an existing
-      // draft, we create a fresh draft (original is preserved for reference).
-      // New drafts go through POST /email/drafts directly.
+      // Editing existing draft → PATCH in place. The server returns the full
+      // updated EmailDraft (not the minimal create response).
+      if (loadedDraftId) {
+        const toList = form.to
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+        const ccList = form.cc
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+        const updated = await emailApi.update(loadedDraftId, {
+          to: toList,
+          cc: ccList,
+          subject: form.subject.trim(),
+          body: form.body.trim(),
+        })
+        onSaved?.(updated)
+        return updated
+      }
+
+      // New draft → POST. Backend returns { id, status, send_mode, created_at };
+      // refetch for the full draft record to hand back to the caller.
       const created = await emailApi.create({
         to: form.to.trim(),
         subject: form.subject.trim(),
@@ -165,7 +195,6 @@ export function EmailComposeDrawer({
         cc: form.cc.trim() || undefined,
         source: 'web-compose',
       })
-      // `create` returns a partial shape; refetch for full draft record.
       const full = await emailApi.get(created.id)
       setLoadedDraftId(full.id)
       onSaved?.(full)
