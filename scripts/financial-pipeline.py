@@ -2226,6 +2226,11 @@ def _post_capture(cfg: dict, content: str, source_metadata: dict,
         # follow and return a 200 for the login HTML, which would appear
         # successful to the status-code check but dump the capture into
         # the void. Fail fast on 302 instead.
+        # NOTE: source_metadata must be nested inside `metadata`, not a
+        # top-level key. core-api's createCaptureSchema defines:
+        #   { content, capture_type, brain_view, source,
+        #     metadata: { source_metadata, tags, pre_extracted, captured_at } }
+        # Top-level `source_metadata` would be silently stripped by Zod.
         resp = requests.post(
             url,
             json={
@@ -2233,7 +2238,9 @@ def _post_capture(cfg: dict, content: str, source_metadata: dict,
                 "source": "api",
                 "capture_type": capture_type,
                 "brain_view": brain_view,
-                "source_metadata": source_metadata,
+                "metadata": {
+                    "source_metadata": source_metadata,
+                },
             },
             headers={"Content-Type": "application/json", "X-Open-Brain-Caller": caller},
             timeout=30,
