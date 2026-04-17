@@ -76,7 +76,7 @@ describe('EmbeddingService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     configService = makeMockConfigService()
-    service = new EmbeddingService('https://llm.k4jda.net', 'test-api-key', configService as any)
+    service = new EmbeddingService({ baseUrl: 'https://llm.k4jda.net', apiKey: 'test-api-key', configService: configService as any })
   })
 
   // -------------------------------------------------------------------------

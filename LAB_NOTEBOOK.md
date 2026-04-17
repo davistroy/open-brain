@@ -3445,3 +3445,34 @@ Success criteria:
    - b. Enqueue email-classify (or wait for 5 AM cron).
    - c. Grep worker logs for `loading model — retrying same tier` — expect 1-3 occurrences on Jetson's first cold call per day.
    - d. Confirm tomorrow's Gmail classifications come from Jetson (not Spark fallback) — measured by Needs Review rate. Baseline was 24/27. Target: <10/27.
+
+### Entry 060 — LLM gateway refactor session (A59 root-cause fix)
+
+**Date:** 2026-04-17
+**Tags:** `[refactor]` `[llm-gateway]` `[architecture]` `[decision]`
+**Environment:** Laptop, branch `refactor/llm-gateway-single-path` off `main@5625280`
+**Related issue:** A59 (summary synthesis 401)
+**Plan doc:** `IMPLEMENT_LLM_GATEWAY_REFACTOR.md`
+
+**Objective:** Eliminate the dual-routing debt in `LLMGatewayService`. Make `completeByTask` the only routing path, force every production task into `task_routing:`, delete the `complete()`/`aliasMap`/`litellmClient` trifecta, and rename all `LITELLM_*` env/factory names to `OPENAI_*`. Fix the A59 symptom (email-classify's 401 + Zod 400) as a prerequisite in Phase A.
+
+**Hypothesis:** A59 is the visible tip of a three-way drift (silent-fallback + dead aliases + wrong env vars). Fixing the symptom alone leaves loaded guns for future skills. A single-path refactor that makes unrouted tasks loud errors and decouples client identity from env vars pays down the debt permanently. Downstream: net -300 LOC (deletes > adds), zero test count loss, every new skill forced to declare its task in YAML.
+
+**Rollback plan:** The branch is self-contained. If Phase E deploy fails validation: `git checkout main && ssh homeserver.k4jda.net 'cd /mnt/user/appdata/open-brain && git pull --ff-only && sudo docker compose build … && sudo docker compose up -d'`. Restore prior `.env.secrets` from a backup taken at Phase D start. State file `.implement-plan-state.json` allows resume from any phase; worst case is deleting it and re-running from scratch.
+
+**Success criteria:** (1) All unit + integration tests green; (2) unrouted task name throws with a clear message; (3) manual `email-classify` run: digest capture lands with `capture_type: 'observation'`, zero 401s, routed via `t1_spark`; (4) no active code references `LITELLM_*` env vars; (5) gateway constructor no longer takes `litellmClient`.
+
+**Progress so far (2026-04-17):**
+- Phase A complete (5/5 items, commits `b73d2f4`, `35c3801`)
+  - A.1: `email_daily_digest: t1_spark` added to `task_routing:`; audit confirmed only the known `'synthesis'` stray missing
+  - A.2: email-classify.ts call site renamed
+  - A.3: `capture_type: 'observation'` added to digest body (fixes secondary Zod 400)
+  - A.4: sibling skills audited — all 6 already had `capture_type`
+  - A.5: test extended to assert task name + capture_type
+- Phase B starting (B.1/B.2/B.3, sequential, all same file).
+
+**Decision D99:** Refactor approach = single-path task-based routing with loud errors, NOT a patch. Alternatives considered: (a) two-line routing fix (add 'synthesis' to task_routing) — rejected because it leaves dual-routing + legacy aliases + env-var drift in place; (b) full gateway rewrite with a new interface — rejected as over-scoped for the debt being paid down. Why: the user explicitly asked for least-debt long-term fix, not the quickest symptom mitigation.
+
+**Decision D100:** Parallel work policy during refactor — run unrelated ultra-plan and supporting work in parallel subagents where file domains don't overlap. Worked for A.1+A.4 (YAML vs. plan doc audit). Used again while Phase B runs in foreground + ultra-plan for A36 / Phase 7 / A46 / A47 runs in background.
+
+**What to watch:** Phase D env-var rename has a deploy ordering risk. `.env.secrets` on homeserver must be updated with the real OpenAI key (from Bitwarden `open-brain-openai-api-key`) before the new image starts, OR the transition shim in Phase D.1 must be merged with both old+new env names readable. Both strategies documented in the plan.

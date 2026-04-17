@@ -9,8 +9,8 @@ import { NotificationService } from './services/notification.js'
 
 const log = createLogger('voice-capture')
 
-if (!process.env.LITELLM_API_KEY) {
-  log.warn('LITELLM_API_KEY not set — voice classification will fail')
+if (!process.env.OPENAI_API_KEY && !process.env.LITELLM_API_KEY) {
+  log.warn('OPENAI_API_KEY not set — voice classification will fail')
 }
 
 const SUPPORTED_FORMATS = new Set(['m4a', 'wav', 'mp3', 'ogg'])

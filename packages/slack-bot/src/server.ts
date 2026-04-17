@@ -72,12 +72,13 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
     logger.info({ path: aiConfigPath }, 'ai-routing.yaml not found — using default intent model')
   }
 
-  // Build IntentRouter from environment — falls back to CAPTURE if LiteLLM unavailable
-  const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
-  const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
+  // Build IntentRouter from environment — falls back to CAPTURE if LLM unavailable.
+  // Legacy shim: new OPENAI_* env vars preferred, falls back to LITELLM_* during deploy rename window.
+  const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1'
+  const openaiApiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY ?? ''
   const intentRouter = new IntentRouter({
-    litellm_url: litellmUrl,
-    litellm_api_key: litellmApiKey,
+    litellm_url: openaiBaseUrl,
+    litellm_api_key: openaiApiKey,
     intent_model: intentModel,
     llm_timeout_ms: 5_000,
   })

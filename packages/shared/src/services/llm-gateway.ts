@@ -4,11 +4,10 @@ import { sql } from 'drizzle-orm'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import { ai_audit_log } from '../schema/index.js'
 import { logger } from '../lib/logger.js'
-import { getModelEntry } from '../types/config.js'
 import type { ConfigService } from '../config/loader.js'
 import type { Database } from '../db/index.js'
 import type { TemplateCache } from '../lib/prompt-template.js'
-import type { AIModelEntry, AIClientType, ModelTierEntry } from '../types/config.js'
+import type { AIClientType, ModelTierEntry } from '../types/config.js'
 
 /**
  * Thrown when the LLM gateway is over budget (hard limit).
@@ -31,24 +30,12 @@ export class LLMGatewayError extends ServiceUnavailableError {
 }
 
 /**
- * Estimate cost for LiteLLM calls using config-defined rates.
- * Anthropic calls are always $0 (subscription-covered).
- */
-function estimateCostUsd(entry: AIModelEntry, promptTokens: number, completionTokens: number): number {
-  return (promptTokens / 1000) * entry.cost_per_1k_input
-    + (completionTokens / 1000) * entry.cost_per_1k_output
-}
-
-/**
  * Estimate cost for tier-based calls. Ollama and Anthropic are $0.
- * LiteLLM/OpenAI uses the legacy cost rates if an alias mapping exists,
- * otherwise defaults to $0 (cost tracking for tier-based calls will be
- * refined as tier-specific rates are added to config).
+ * LiteLLM/OpenAI tiers default to $0 until per-tier cost config is added.
+ * The ai_audit_log records all calls, enabling retroactive cost analysis.
  */
 function estimateTierCostUsd(clientUsed: AIClientType, _promptTokens: number, _completionTokens: number): number {
   if (clientUsed === 'ollama' || clientUsed === 'anthropic') return 0
-  // Without per-tier cost config, LiteLLM/OpenAI costs default to 0.
-  // The ai_audit_log records all calls, enabling retroactive cost analysis.
   return 0
 }
 
@@ -70,8 +57,6 @@ function isModelLoadingError(err: unknown): boolean {
   if (!(err instanceof Error)) return false
   return /loading\s+model|model\s+is\s+loading|warming\s+up/i.test(err.message)
 }
-
-export type LLMModelAlias = 'fast' | 'synthesis' | 'governance' | 'intent' | 'conversation'
 
 export interface LLMCompleteOptions {
   temperature?: number
@@ -98,22 +83,24 @@ export interface TaskResolution {
 }
 
 /**
- * LLMGatewayService wraps three LLM backends: Ollama (local), Anthropic (subscription),
- * and LiteLLM/OpenAI (API). Routes calls via two mechanisms:
+ * LLMGatewayService routes LLM calls via task-based tier routing only.
  *
- * 1. **Legacy alias-based**: `complete(prompt, modelAlias)` uses the `models:` map in
- *    ai-routing.yaml. Backward-compatible with all existing call sites.
+ * Single entry point: `completeByTask(prompt, taskName)` uses `task_routing`
+ * + `model_tiers` from ai-routing.yaml. Supports automatic fallback chains
+ * (max 2 hops, e.g. T0 Ollama -> T1 Haiku -> T2 Sonnet). Unrouted task
+ * names throw LLMGatewayError — no silent fall-through.
  *
- * 2. **Task-based tier routing**: `completeByTask(prompt, taskName)` uses `task_routing`
- *    + `model_tiers` sections. Supports three-way dispatch with automatic fallback
- *    chain (max 2 hops, e.g. T0 Ollama -> T1 Haiku -> T2 Sonnet).
+ * Backends: Ollama (local), Anthropic (subscription), and OpenAI-SDK-compatible
+ * endpoints (per-tier clients built from each tier's base_url). An optional
+ * generic OpenAI client is kept as an escape hatch for tiers declaring
+ * provider: 'litellm' or 'openai' (no openai_compat) — currently no tier does.
  *
  * Audit log records which client was used and cost ($0 for Ollama and Claude subscription).
  */
 export class LLMGatewayService {
-  private litellmClient: OpenAI
   private anthropicClient: Anthropic | null
   private ollamaClient: OpenAI | null
+  private openaiClient: OpenAI | null
   private configService: ConfigService
   private db: Database
   private templateCache: TemplateCache
@@ -121,54 +108,39 @@ export class LLMGatewayService {
   private tierClientCache: Map<string, OpenAI> = new Map()
 
   constructor(
-    litellmClient: OpenAI,
     configService: ConfigService,
     db: Database,
     templateCache: TemplateCache,
     anthropicClient?: Anthropic | null,
     ollamaClient?: OpenAI | null,
+    /**
+     * Optional OpenAI-SDK-compatible client used only when a tier declares
+     * provider: 'litellm' or 'openai' (no openai_compat). For openai_compat
+     * tiers, per-tier clients are built from the tier's base_url via
+     * getClientForTier() and this argument is ignored. Currently no tier
+     * uses provider: 'litellm' — kept as an escape hatch.
+     */
+    openaiClient?: OpenAI | null,
   ) {
-    this.litellmClient = litellmClient
     this.configService = configService
     this.db = db
     this.templateCache = templateCache
     this.anthropicClient = anthropicClient ?? null
     this.ollamaClient = ollamaClient ?? null
+    this.openaiClient = openaiClient ?? null
 
-    const clients: string[] = ['LiteLLM']
+    const clients: string[] = []
     if (this.anthropicClient) clients.push('Anthropic')
     if (this.ollamaClient) clients.push('Ollama')
+    if (this.openaiClient) clients.push('OpenAI')
     logger.info(
       { clients },
-      `LLMGatewayService: ${clients.length}-client routing enabled (${clients.join(', ')})`,
+      `LLMGatewayService: ${clients.length}-client routing enabled (${clients.length ? clients.join(', ') : 'none — tiers must use openai_compat base_url'})`,
     )
   }
 
-  /**
-   * Resolves a model alias to its full config entry from ai-routing.yaml.
-   */
-  private getEntry(alias: LLMModelAlias): AIModelEntry {
-    const aiConfig = this.configService.get('ai')
-    return getModelEntry(aiConfig, alias)
-  }
-
-  /**
-   * Determines which client to use for a given model alias.
-   * Falls back to litellm if the preferred client is unavailable.
-   */
-  private resolveClient(entry: AIModelEntry): AIClientType {
-    if (entry.client === 'anthropic' && this.anthropicClient) {
-      return 'anthropic'
-    }
-    if (entry.client === 'ollama' && this.ollamaClient) {
-      return 'ollama'
-    }
-    // Fallback: if preferred client is null, use litellm
-    return 'litellm'
-  }
-
   // ---------------------------------------------------------------------------
-  // Task-based tier routing (v2 three-way dispatch)
+  // Task-based tier routing (single entry point)
   // ---------------------------------------------------------------------------
 
   /**
@@ -222,20 +194,13 @@ export class LLMGatewayService {
   }
 
   /**
-   * Returns the OpenAI SDK client for a given resolved client type.
-   * Ollama and LiteLLM both use OpenAI SDK clients (different base URLs).
-   */
-  private getOpenAIClient(clientType: AIClientType): OpenAI {
-    if (clientType === 'ollama' && this.ollamaClient) return this.ollamaClient
-    return this.litellmClient
-  }
-
-  /**
    * Returns the OpenAI SDK client for a specific tier, respecting its base_url.
    *
    * For 'openai_compat' provider tiers (custom OpenAI-compatible endpoints like
-   * Jetson llama.cpp), creates a dedicated cached client using the tier's base_url.
+   * Jetson llama.cpp, Spark vLLM), creates a dedicated cached client using the
+   * tier's base_url.
    * For 'ollama' tiers, uses the pre-constructed ollamaClient (from OLLAMA_URL env).
+   * For 'litellm'/'openai' tiers, uses the optional pre-constructed openaiClient.
    * For 'anthropic' tiers, the caller handles dispatch separately.
    */
   private getClientForTier(tier: ModelTierEntry, tierKey: string, clientType: AIClientType): OpenAI {
@@ -257,8 +222,17 @@ export class LLMGatewayService {
       return client
     }
 
-    // ollama, litellm, openai — use pre-constructed clients
-    return this.getOpenAIClient(clientType)
+    // ollama tiers use the pre-constructed ollamaClient
+    if (clientType === 'ollama' && this.ollamaClient) return this.ollamaClient
+
+    // litellm/openai tiers use the optional pre-constructed openaiClient
+    if (this.openaiClient) return this.openaiClient
+
+    // No client available for this tier — misconfiguration
+    throw new LLMGatewayError(
+      `No OpenAI-SDK client available for tier '${tierKey}' (provider: ${tier.provider}). ` +
+      `Either add base_url for openai_compat, or supply an openaiClient to the gateway.`,
+    )
   }
 
   /**
@@ -279,36 +253,11 @@ export class LLMGatewayService {
     options: LLMCompleteOptions = {},
   ): Promise<string> {
     const resolution = this.resolveByTask(taskName)
-
     if (!resolution) {
-      // Three-tier routing not configured — fall back to legacy alias routing.
-      // Map common task names to model aliases for backward compat.
-      const aliasMap: Record<string, LLMModelAlias> = {
-        intent_classification: 'intent',
-        capture_classification: 'fast',
-        brain_view_classification: 'fast',
-        voice_classification: 'fast',
-        confidence_gating: 'fast',
-        entity_extraction: 'fast',
-        entity_linking: 'fast',
-        capture_enrichment: 'fast',
-        question_detection: 'fast',
-        search_synthesis: 'synthesis',
-        daily_sweep: 'synthesis',
-        mcp_context: 'synthesis',
-        auto_response_draft: 'synthesis',
-        weekly_brief: 'synthesis',
-        daily_connections: 'synthesis',
-        drift_monitoring: 'synthesis',
-        governance: 'governance',
-        wiki_ingest: 'synthesis',
-        wiki_synthesis: 'synthesis',
-      }
-      const alias = aliasMap[taskName] ?? 'fast'
-      logger.debug({ taskName, alias }, 'Three-tier routing not configured — using legacy alias')
-      return this.complete(prompt, alias, options)
+      throw new LLMGatewayError(
+        `Task '${taskName}' has no routing entry. Add it to task_routing: in config/ai-routing.yaml.`,
+      )
     }
-
     return this.completeWithTierFallback(prompt, taskName, resolution, options, 0)
   }
 
@@ -479,11 +428,12 @@ export class LLMGatewayService {
   }
 
   /**
-   * Queries LiteLLM /spend/logs for the current month's spend.
+   * Queries an LLM-spend proxy's /spend/logs for the current month's spend.
    *
-   * Uses LITELLM_SPEND_URL env var (separate from litellm_url which points to
-   * the inference API at api.openai.com/v1). When LITELLM_SPEND_URL is unset,
-   * falls back to local ai_audit_log estimation via queryLocalMonthlySpend().
+   * Uses `LLM_SPEND_URL` env var (with legacy `LITELLM_SPEND_URL` shim) —
+   * distinct from `OPENAI_BASE_URL` which points at the inference API
+   * (api.openai.com/v1). When unset, falls back to local `ai_audit_log`
+   * estimation via `queryLocalMonthlySpend()`.
    *
    * The /spend/logs endpoint returns a raw JSON array of individual request
    * records (each with `spend`, `model`, `startTime`, etc.), NOT an aggregated
@@ -491,7 +441,7 @@ export class LLMGatewayService {
    * groups by `model`.
    */
   async getMonthlySpend(): Promise<MonthlySpend> {
-    const spendUrl = process.env.LITELLM_SPEND_URL ?? ''
+    const spendUrl = process.env.LLM_SPEND_URL ?? process.env.LITELLM_SPEND_URL ?? ''
 
     if (!spendUrl) {
       // No LiteLLM spend endpoint configured — use local ai_audit_log estimation
@@ -507,9 +457,10 @@ export class LLMGatewayService {
       url.searchParams.set('start_date', startDate)
       url.searchParams.set('end_date', endDate)
 
+      const spendApiKey = process.env.LLM_SPEND_API_KEY ?? this.openaiClient?.apiKey ?? ''
       const response = await fetch(url.toString(), {
         headers: {
-          Authorization: `Bearer ${this.litellmClient.apiKey}`,
+          ...(spendApiKey ? { Authorization: `Bearer ${spendApiKey}` } : {}),
           'Content-Type': 'application/json',
         },
         signal: AbortSignal.timeout(15_000),
@@ -518,7 +469,7 @@ export class LLMGatewayService {
       if (!response.ok) {
         logger.warn(
           { status: response.status },
-          'LiteLLM spend API returned non-OK — falling back to local estimation',
+          'LLM spend API returned non-OK — falling back to local estimation',
         )
         return this.queryLocalMonthlySpend()
       }
@@ -549,17 +500,17 @@ export class LLMGatewayService {
         return { total: dataObj.total_cost, by_model: (dataObj.spend_by_model as Record<string, number>) ?? {} }
       }
 
-      logger.warn({ data }, 'LiteLLM spend response format not recognized — using local estimation')
+      logger.warn({ data }, 'LLM spend response format not recognized — using local estimation')
       return this.queryLocalMonthlySpend()
     } catch (err) {
-      logger.warn({ err }, 'Failed to query LiteLLM spend API — using local estimation')
+      logger.warn({ err }, 'Failed to query LLM spend API — using local estimation')
       return this.queryLocalMonthlySpend()
     }
   }
 
   /**
    * Estimates monthly spend from local ai_audit_log table.
-   * Used as fallback when LITELLM_SPEND_URL is not configured or unreachable.
+   * Used as fallback when LLM_SPEND_URL (legacy: LITELLM_SPEND_URL) is not configured or unreachable.
    */
   private async queryLocalMonthlySpend(): Promise<MonthlySpend> {
     try {
@@ -696,125 +647,10 @@ export class LLMGatewayService {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API — unchanged interface
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Calls the appropriate LLM provider with the given model alias and prompt.
-   * Routes to Anthropic SDK or LiteLLM based on ai-routing.yaml config.
-   * Logs to ai_audit_log on success or failure.
-   * Returns the completion text.
-   */
-  async complete(
-    prompt: string,
-    modelAlias: LLMModelAlias,
-    options: LLMCompleteOptions = {},
-  ): Promise<string> {
-    const entry = this.getEntry(modelAlias)
-    const clientUsed = this.resolveClient(entry)
-    const model = entry.model
-
-    await this.checkBudget(clientUsed)
-
-    const startMs = Date.now()
-
-    try {
-      let text: string
-      let promptTokens = 0
-      let completionTokens = 0
-      let totalTokens = 0
-
-      if (clientUsed === 'anthropic') {
-        const result = await this.completeViaAnthropic(prompt, model, options)
-        text = result.text
-        promptTokens = result.inputTokens
-        completionTokens = result.outputTokens
-        totalTokens = promptTokens + completionTokens
-      } else {
-        // Both 'litellm' and 'ollama' use the OpenAI SDK
-        const openaiClient = this.getOpenAIClient(clientUsed)
-        const result = await this.completeViaOpenAISDK(openaiClient, prompt, model, options)
-        text = result.text
-        promptTokens = result.promptTokens
-        completionTokens = result.completionTokens
-        totalTokens = result.totalTokens
-      }
-
-      const durationMs = Date.now() - startMs
-
-      // Cost: $0 for Anthropic (subscription) and Ollama (local), estimated for LiteLLM
-      const costUsd = (clientUsed === 'anthropic' || clientUsed === 'ollama')
-        ? 0
-        : estimateCostUsd(entry, promptTokens, completionTokens)
-
-      await this.logAudit({
-        taskType: modelAlias,
-        model,
-        clientUsed,
-        costUsd,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        durationMs,
-        captureId: options.captureId,
-        sessionId: options.sessionId,
-      })
-
-      // Warn on expensive LiteLLM calls
-      if (clientUsed === 'litellm' && costUsd > 0.10) {
-        logger.warn(
-          { costUsd, modelAlias, totalTokens },
-          `Single LiteLLM call estimated cost $${costUsd.toFixed(4)} for alias '${modelAlias}' (${totalTokens} tokens)`,
-        )
-      }
-
-      return text
-    } catch (err) {
-      const durationMs = Date.now() - startMs
-
-      if (err instanceof LLMBudgetExceededError) throw err
-
-      const message = err instanceof Error ? err.message : String(err)
-
-      await this.logAudit({
-        taskType: modelAlias,
-        model,
-        clientUsed,
-        costUsd: null,
-        durationMs,
-        captureId: options.captureId,
-        sessionId: options.sessionId,
-        error: message,
-      })
-
-      // Attempt fallback to the other client on transient errors (429, 500, 502, 503)
-      if (this.shouldAttemptFallback(err, clientUsed)) {
-        const fallbackClient: AIClientType = clientUsed === 'anthropic' ? 'litellm' : 'anthropic'
-        logger.warn(
-          { modelAlias, primaryClient: clientUsed, fallbackClient, error: message },
-          `Primary client ${clientUsed} failed — attempting fallback to ${fallbackClient}`,
-        )
-
-        try {
-          return await this.completeFallback(prompt, model, modelAlias, fallbackClient, options)
-        } catch (fallbackErr) {
-          const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)
-          logger.error(
-            { modelAlias, fallbackClient, error: fallbackMsg },
-            `Fallback to ${fallbackClient} also failed`,
-          )
-          // Fall through to throw the original error
-        }
-      }
-
-      throw new LLMGatewayError(`LLM request failed for alias '${modelAlias}' (${clientUsed}): ${message}`)
-    }
-  }
-
   /**
    * Determines if a fallback should be attempted on error.
    * Only on transient server errors — not on client errors or budget issues.
+   * Used by completeWithTierFallback to decide whether to hop tiers.
    */
   private shouldAttemptFallback(err: unknown, _clientUsed: AIClientType): boolean {
     if (err instanceof Error) {
@@ -823,88 +659,5 @@ export class LLMGatewayService {
       return /429|500|502|503|rate.limit|overloaded|timeout|ECONNREFUSED|ETIMEDOUT/i.test(msg)
     }
     return false
-  }
-
-  /**
-   * Attempt a completion via the fallback client.
-   */
-  private async completeFallback(
-    prompt: string,
-    model: string,
-    modelAlias: LLMModelAlias,
-    fallbackClient: AIClientType,
-    options: LLMCompleteOptions,
-  ): Promise<string> {
-    const startMs = Date.now()
-    const entry = this.getEntry(modelAlias)
-
-    let text: string
-    let promptTokens = 0
-    let completionTokens = 0
-    let totalTokens = 0
-
-    if (fallbackClient === 'anthropic') {
-      const result = await this.completeViaAnthropic(prompt, model, options)
-      text = result.text
-      promptTokens = result.inputTokens
-      completionTokens = result.outputTokens
-      totalTokens = promptTokens + completionTokens
-    } else {
-      const openaiClient = this.getOpenAIClient(fallbackClient)
-      const result = await this.completeViaOpenAISDK(openaiClient, prompt, model, options)
-      text = result.text
-      promptTokens = result.promptTokens
-      completionTokens = result.completionTokens
-      totalTokens = result.totalTokens
-    }
-
-    const durationMs = Date.now() - startMs
-    const costUsd = (fallbackClient === 'anthropic' || fallbackClient === 'ollama')
-      ? 0
-      : estimateCostUsd(entry, promptTokens, completionTokens)
-
-    await this.logAudit({
-      taskType: `${modelAlias}:fallback`,
-      model,
-      clientUsed: fallbackClient,
-      costUsd,
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      durationMs,
-      captureId: options.captureId,
-      sessionId: options.sessionId,
-    })
-
-    logger.info(
-      { modelAlias, fallbackClient, durationMs, totalTokens },
-      `Fallback to ${fallbackClient} succeeded`,
-    )
-
-    return text
-  }
-
-  /**
-   * Loads a versioned prompt template from config/prompts/{name}.v1.txt,
-   * substitutes {{variable}} placeholders with vars, then calls complete().
-   *
-   * Template files use {{variable}} syntax for substitution.
-   * Missing variables are left as-is; extra vars are silently ignored.
-   */
-  async completeWithPromptTemplate(
-    templateName: string,
-    vars: Record<string, string>,
-    modelAlias: string,
-    options: LLMCompleteOptions = {},
-  ): Promise<string> {
-    try {
-      const rendered = this.templateCache.render(`${templateName}.v1.txt`, vars)
-      return this.complete(rendered, modelAlias as LLMModelAlias, options)
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('Prompt template not found')) {
-        throw new LLMGatewayError(err.message)
-      }
-      throw err
-    }
   }
 }

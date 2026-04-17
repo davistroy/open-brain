@@ -142,13 +142,14 @@ describe('LLMGatewayService', () => {
       const ollama = makeOllamaClient()
 
       // Should not throw
-      const gw = new LLMGatewayService(litellm, makeConfigService(), db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(makeConfigService(), db, templateCache, anthropic, ollama, litellm)
       expect(gw).toBeDefined()
     })
 
-    it('works with only litellm client', () => {
-      const litellm = makeOpenAIClient()
-      const gw = new LLMGatewayService(litellm, makeConfigService(), db, templateCache, null, null)
+    it('constructs with no optional clients (config + db + templateCache only)', () => {
+      // anthropic, ollama, and openai clients are all optional. For openai_compat
+      // tiers the gateway builds per-tier clients from base_url at call time.
+      const gw = new LLMGatewayService(makeConfigService(), db, templateCache)
       expect(gw).toBeDefined()
     })
   })
@@ -163,7 +164,7 @@ describe('LLMGatewayService', () => {
       const ollama = makeOllamaClient()
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, null, ollama, litellm)
       const result = gw.resolveByTask('intent_classification')
 
       expect(result).not.toBeNull()
@@ -178,7 +179,7 @@ describe('LLMGatewayService', () => {
       const litellm = makeOpenAIClient()
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, null)
+      const gw = new LLMGatewayService(config, db, templateCache, null, null, litellm)
       const result = gw.resolveByTask('intent_classification')
 
       expect(result).not.toBeNull()
@@ -191,7 +192,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient()
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, null, litellm)
       const result = gw.resolveByTask('entity_extraction')
 
       expect(result).not.toBeNull()
@@ -205,7 +206,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient()
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, null, litellm)
       const result = gw.resolveByTask('governance')
 
       expect(result).not.toBeNull()
@@ -218,7 +219,7 @@ describe('LLMGatewayService', () => {
       const litellm = makeOpenAIClient()
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, null)
+      const gw = new LLMGatewayService(config, db, templateCache, null, null, litellm)
       const result = gw.resolveByTask('nonexistent_task')
 
       expect(result).toBeNull()
@@ -229,7 +230,7 @@ describe('LLMGatewayService', () => {
       const config = makeConfigService()
       config.hasThreeTierRouting.mockReturnValue(false)
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, null)
+      const gw = new LLMGatewayService(config, db, templateCache, null, null, litellm)
       const result = gw.resolveByTask('intent_classification')
 
       expect(result).toBeNull()
@@ -246,7 +247,7 @@ describe('LLMGatewayService', () => {
       const ollama = makeOllamaClient('classified: idea')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, null, ollama, litellm)
       const result = await gw.completeByTask('Classify this.', 'intent_classification')
 
       expect(result).toBe('classified: idea')
@@ -260,7 +261,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('entities found')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, null, litellm)
       const result = await gw.completeByTask('Extract entities.', 'entity_extraction')
 
       expect(result).toBe('entities found')
@@ -272,25 +273,45 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('governance assessment')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, null, litellm)
       const result = await gw.completeByTask('Governance prompt.', 'governance')
 
       expect(result).toBe('governance assessment')
       expect(anthropic.messages.create).toHaveBeenCalledOnce()
     })
 
-    it('falls back to legacy alias routing when three-tier is not configured', async () => {
+    it('throws LLMGatewayError when three-tier routing is not configured', async () => {
       const litellm = makeOpenAIClient()
       const anthropic = makeAnthropicClient('legacy response')
       const config = makeConfigService()
       config.hasThreeTierRouting.mockReturnValue(false)
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
-      const result = await gw.completeByTask('Some prompt.', 'intent_classification')
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, null, litellm)
 
-      // Should have fallen back to complete() with alias 'intent'
-      expect(result).toBe('legacy response')
-      expect(anthropic.messages.create).toHaveBeenCalledOnce()
+      await expect(gw.completeByTask('Some prompt.', 'intent_classification'))
+        .rejects.toThrow(LLMGatewayError)
+      await expect(gw.completeByTask('Some prompt.', 'intent_classification'))
+        .rejects.toThrow(/has no routing entry/)
+      // Legacy alias path must not be taken
+      expect(anthropic.messages.create).not.toHaveBeenCalled()
+    })
+
+    it('throws LLMGatewayError when task has no routing entry', async () => {
+      const litellm = makeOpenAIClient()
+      const anthropic = makeAnthropicClient()
+      const ollama = makeOllamaClient()
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
+
+      await expect(gw.completeByTask('Test.', 'unregistered_task_xyz'))
+        .rejects.toThrow(LLMGatewayError)
+      await expect(gw.completeByTask('Test.', 'unregistered_task_xyz'))
+        .rejects.toThrow(/has no routing entry/)
+      // No client should have been called
+      expect(anthropic.messages.create).not.toHaveBeenCalled()
+      expect(ollama.chat.completions.create).not.toHaveBeenCalled()
+      expect(litellm.chat.completions.create).not.toHaveBeenCalled()
     })
 
     it('logs audit entry on success', async () => {
@@ -298,7 +319,7 @@ describe('LLMGatewayService', () => {
       const ollama = makeOllamaClient('ok')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, null, ollama, litellm)
       await gw.completeByTask('Test.', 'intent_classification')
 
       expect(db.insert).toHaveBeenCalled()
@@ -322,7 +343,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('fallback T1 response')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const result = await gw.completeByTask('Test.', 'intent_classification')
 
       expect(result).toBe('fallback T1 response')
@@ -337,7 +358,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('T1 response')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const result = await gw.completeByTask('Test.', 'intent_classification')
 
       expect(result).toBe('T1 response')
@@ -350,7 +371,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('T1 fallback')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const result = await gw.completeByTask('Test.', 'intent_classification')
 
       expect(result).toBe('T1 fallback')
@@ -370,7 +391,7 @@ describe('LLMGatewayService', () => {
         })
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const result = await gw.completeByTask('Test.', 'intent_classification')
 
       expect(result).toBe('T2 fallback response')
@@ -389,7 +410,7 @@ describe('LLMGatewayService', () => {
         .mockRejectedValueOnce(new Error('503 Service Unavailable'))
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
 
       await expect(gw.completeByTask('Test.', 'intent_classification'))
         .rejects.toThrow(LLMGatewayError)
@@ -406,7 +427,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('should not reach')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
 
       await expect(gw.completeByTask('Test.', 'intent_classification'))
         .rejects.toThrow(LLMGatewayError)
@@ -421,7 +442,7 @@ describe('LLMGatewayService', () => {
       anthropic.messages.create.mockRejectedValue(new Error('500 Internal Server Error'))
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, null)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, null, litellm)
 
       await expect(gw.completeByTask('Test.', 'governance'))
         .rejects.toThrow(LLMGatewayError)
@@ -434,7 +455,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('fallback ok')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       await gw.completeByTask('Test.', 'intent_classification')
 
       // Should have 2 audit log entries: failed T0 + successful T1
@@ -475,7 +496,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('should not be called')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const resultPromise = gw.completeByTask('Test.', 'intent_classification')
 
       // Advance past the first backoff (3000ms) so the retry fires
@@ -495,7 +516,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('T1 response after T0 exhausted retries')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const resultPromise = gw.completeByTask('Test.', 'intent_classification')
 
       // 3 retries: 3s + 6s + 12s = 21s total backoff
@@ -515,7 +536,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('T1 took over immediately')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const result = await gw.completeByTask('Test.', 'intent_classification')
 
       // No timer advancement needed — fallback should be synchronous
@@ -531,7 +552,7 @@ describe('LLMGatewayService', () => {
       const anthropic = makeAnthropicClient('T1 fallback')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, anthropic, ollama, litellm)
       const result = await gw.completeByTask('Test.', 'intent_classification')
 
       expect(result).toBe('T1 fallback')
@@ -549,7 +570,7 @@ describe('LLMGatewayService', () => {
         })
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, null, ollama, litellm)
       const resultPromise = gw.completeByTask('Test.', 'intent_classification')
       await vi.advanceTimersByTimeAsync(3_500)
 
@@ -570,7 +591,7 @@ describe('LLMGatewayService', () => {
         })
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, null, ollama, litellm)
       const p = gw.completeByTask('Test.', 'intent_classification')
       await vi.advanceTimersByTimeAsync(3_500)  // after first backoff
       await vi.advanceTimersByTimeAsync(6_500)  // after second backoff
@@ -595,7 +616,7 @@ describe('LLMGatewayService', () => {
       const ollama = makeOllamaClient('local response')
       const config = makeConfigService()
 
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const gw = new LLMGatewayService(config, db, templateCache, null, ollama, litellm)
 
       // Even if getMonthlySpend would exceed limits, Ollama calls should succeed
       // since budget check is skipped for Ollama
@@ -604,38 +625,4 @@ describe('LLMGatewayService', () => {
     })
   })
 
-  // ---------------------------------------------------------------------------
-  // Tests: Legacy complete() method with Ollama
-  // ---------------------------------------------------------------------------
-
-  describe('legacy complete() with ollama client', () => {
-    it('routes to Ollama when model alias has client: ollama', async () => {
-      const litellm = makeOpenAIClient()
-      const ollama = makeOllamaClient('ollama legacy response')
-      const config = makeConfigService()
-      // Override model config so 'fast' alias uses ollama client
-      const aiConfig = config.get('ai')
-      aiConfig.models.fast = { model: 'gemma4:12b', client: 'ollama', cost_per_1k_input: 0, cost_per_1k_output: 0 }
-
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
-      const result = await gw.complete('Test.', 'fast')
-
-      expect(result).toBe('ollama legacy response')
-      expect(ollama.chat.completions.create).toHaveBeenCalledOnce()
-      expect(litellm.chat.completions.create).not.toHaveBeenCalled()
-    })
-
-    it('falls back to litellm when ollama client is null but model alias specifies ollama', async () => {
-      const litellm = makeOpenAIClient('litellm fallback')
-      const config = makeConfigService()
-      const aiConfig = config.get('ai')
-      aiConfig.models.fast = { model: 'gemma4:12b', client: 'ollama', cost_per_1k_input: 0, cost_per_1k_output: 0 }
-
-      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, null)
-      const result = await gw.complete('Test.', 'fast')
-
-      expect(result).toBe('litellm fallback')
-      expect(litellm.chat.completions.create).toHaveBeenCalledOnce()
-    })
-  })
 })

@@ -376,7 +376,7 @@ export function createDocumentPipelineWorker(
   litellmApiKey: string,
   embedCaptureQueue?: EmbedCaptureQueue,
 ): Worker<DocumentPipelineJobData> {
-  const embeddingService = new EmbeddingService(litellmBaseUrl, litellmApiKey, configService)
+  const embeddingService = new EmbeddingService({ baseUrl: litellmBaseUrl, apiKey: litellmApiKey, configService })
   const parserService = new DocumentParserService()
 
   const worker = new Worker<DocumentPipelineJobData>(

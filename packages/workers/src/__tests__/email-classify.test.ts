@@ -341,7 +341,7 @@ describe('EmailClassifySkill', () => {
   // ────────────────────────────────────────────────────────────
 
   it('posts daily summary as capture when not dry run', async () => {
-    const { skill, db } = makeSkill({ withLLM: true })
+    const { skill, db, llmGateway } = makeSkill({ withLLM: true })
 
     // The pipeline flow makes these select() calls in order:
     //   1..3 = isProcessed checks (one per hotmail email) -> return []
@@ -393,6 +393,31 @@ describe('EmailClassifySkill', () => {
         }),
       }),
     )
+
+    // A.5 Test 1: LLM gateway must be invoked with the 'email_daily_digest' task name
+    // (not the legacy 'synthesis' alias that caused A59 401s).
+    expect(llmGateway?.completeByTask).toHaveBeenCalledWith(
+      expect.any(String),
+      'email_daily_digest',
+      expect.objectContaining({ maxTokens: 1024 }),
+    )
+
+    // A.5 Test 2: the capture POST body must include capture_type: 'observation'
+    // plus the expected content/source/source_metadata shape.
+    const fetchMock = global.fetch as ReturnType<typeof vi.fn>
+    const capturePostCall = fetchMock.mock.calls.find(
+      ([url]) => typeof url === 'string' && url.endsWith('/api/v1/captures'),
+    )
+    expect(capturePostCall).toBeDefined()
+    const [, init] = capturePostCall!
+    const parsedBody = JSON.parse((init as RequestInit).body as string)
+    expect(parsedBody).toMatchObject({
+      capture_type: 'observation',
+      source: 'email',
+      source_metadata: expect.objectContaining({ type: 'daily_digest' }),
+    })
+    expect(typeof parsedBody.content).toBe('string')
+    expect(parsedBody.content).toContain('[Email Daily Digest]')
   })
 
   // ────────────────────────────────────────────────────────────

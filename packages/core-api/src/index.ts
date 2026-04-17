@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { join } from 'node:path'
 import { Queue } from 'bullmq'
-import { ConfigService, createDb, createLiteLLMClient, createAnthropicClient, createOllamaClient, TemplateCache } from '@open-brain/shared'
+import { ConfigService, createDb, createOpenAIClient, createAnthropicClient, createOllamaClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
 import { EmbeddingService } from '@open-brain/shared'
@@ -49,9 +49,22 @@ const redisConnection = {
 }
 
 // LLM Gateway + Governance Engine
-// LITELLM_URL and LITELLM_API_KEY come from environment (set via bws secrets at startup)
-const litellmUrl = process.env.LITELLM_URL ?? 'https://llm.k4jda.net'
-const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
+// OPENAI_BASE_URL / OPENAI_API_KEY come from environment (set via bws secrets at startup).
+// Legacy shim: falls back to LITELLM_URL / LITELLM_API_KEY during deploy rename window.
+const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1'
+const openaiApiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY ?? ''
+
+// Startup validation — catch the "old LiteLLM virtual key deployed against api.openai.com" mistake.
+if (openaiApiKey.startsWith('sk-litellm-')) {
+  logger.fatal(
+    { keyPrefix: openaiApiKey.slice(0, 12) + '...' },
+    'OPENAI_API_KEY appears to be a LiteLLM proxy virtual key (sk-litellm-…). ' +
+    'This is the old deploy config and will fail against api.openai.com/v1 with 401. ' +
+    'Update .env.secrets with the real OpenAI key from Bitwarden item open-brain-openai-api-key.',
+  )
+  process.exit(1)
+}
+
 const promptsDir = join(configDir, 'prompts')
 const templateCache = new TemplateCache(promptsDir)
 
@@ -63,35 +76,33 @@ const documentPipelineQueue = new Queue('document-pipeline', { connection: redis
 // Services — instantiation order respects dependency graph
 const pipelineService = new PipelineService(capturePipelineQueue)
 const captureService = new CaptureService(db, pipelineService)
-const embeddingService = new EmbeddingService(litellmUrl, litellmApiKey, configService)
+const embeddingService = new EmbeddingService({ baseUrl: openaiBaseUrl, apiKey: openaiApiKey, configService })
 const searchService = new SearchService(db, embeddingService)
 const triggerService = new TriggerService(db, embeddingService)
 const entityResolutionService = new EntityResolutionService(db)
 const entityService = new EntityService(db, entityResolutionService)
 const betService = new BetService(db)
 
-let governanceEngine: GovernanceEngine | undefined
-let llmGateway: InstanceType<typeof LLMGatewayService> | undefined
-const litellmClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
 const anthropicClient = createAnthropicClient({ maxRetries: 2 })
 const ollamaClient = createOllamaClient()
+// Optional generic OpenAI client — only used if a tier declares provider: 'litellm'/'openai'
+// (no openai_compat). Currently no tier does; kept as an escape hatch. Factory returns null
+// when the API key is empty.
+const openaiClient = createOpenAIClient({ baseUrl: openaiBaseUrl, apiKey: openaiApiKey })
 if (anthropicClient) {
   logger.info('Anthropic client initialized (Claude subscription)')
 } else {
-  logger.warn('ANTHROPIC_API_KEY not set — Claude SDK routing unavailable, LiteLLM-only mode')
+  logger.warn('ANTHROPIC_API_KEY not set — Anthropic tiers will be unavailable')
 }
 if (ollamaClient) {
   logger.info('Ollama client initialized (local inference)')
 } else {
   logger.info('OLLAMA_URL not set — Ollama local inference unavailable, tier fallback will skip T0')
 }
-if (litellmClient) {
-  llmGateway = new LLMGatewayService(litellmClient, configService, db, templateCache, anthropicClient, ollamaClient)
-  governanceEngine = new GovernanceEngine(llmGateway, templateCache)
-  logger.info('GovernanceEngine initialized')
-} else {
-  logger.warn('LITELLM_API_KEY not set — GovernanceEngine and synthesize endpoint disabled')
-}
+
+const llmGateway = new LLMGatewayService(configService, db, templateCache, anthropicClient, ollamaClient, openaiClient)
+const governanceEngine: GovernanceEngine = new GovernanceEngine(llmGateway, templateCache)
+logger.info('GovernanceEngine initialized')
 
 const sessionService = new SessionService(db, captureService, governanceEngine)
 
