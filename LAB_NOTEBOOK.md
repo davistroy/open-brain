@@ -3840,3 +3840,12 @@ Decision needed from Troy: A, B, or C. Recommendation is B.
 **What to Watch:**
 - First post-deploy `himalaya account check` — if the TOML password field has drifted from Bitwarden (password rotation), send will fail silently and cascade to Pushover. Weekly-brief test exercises both silently; need to check logs.
 - First post-deploy `backup.sh` run (3 AM local on homeserver) — wiki bundle and Redis RDB stages are new and could surface "wiki clone not present in core-api" or "Redis not at expected RDB path" issues.
+
+**Validation (2026-04-17 09:35 local, post-deploy on homeserver):**
+- `docker exec open-brain-workers printenv HIMALAYA_CONFIG` → `/app/config/himalaya/config.toml` ✓ (same for core-api)
+- `himalaya --version` → `v1.2.0 +maildir +smtp +wizard +sendmail +pgp-commands +imap` ✓
+- `himalaya account list` → single `personal` account, backends: IMAP + SMTP, default: yes ✓
+- `himalaya account doctor` → `Checking TOML configuration integrity for default account… OK / IMAP integrity… OK / SMTP integrity… OK` ✓
+- Live send test: piped `From:/To:/Subject:/body` into `himalaya message send` from inside workers container. Output: `Message successfully sent!`. Expect arrival in troy.e.davis@gmail.com shortly.
+- A36 validated end-to-end. GitHub issue #69 already closed; left a comment linking to this entry.
+- G-B.4 backup.sh validation deferred to tomorrow's 3 AM cron (need Phase G-A merged first to unblock anything that depends on this branch).
