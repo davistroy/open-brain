@@ -4144,3 +4144,86 @@ All 9 captures: `capture_type=observation, brain_view=personal, pipeline_status=
 - 4 remaining direct-POST sites (`cmd_sync`, `cmd_balances`, `cmd_investments`, `cmd_monthly_report`) need the same metadata-nesting + `capture_type` + `brain_view` fix. Not urgent (VM cron is the only thing invoking those today, and the deploy plan is to phase out the VM). Filed as tech-debt note, not separate issue.
 - `--status` command still works against an empty SQLite DB in the sidecar. The `financial.db` at `/data/financial.db` is populated only when `--sync` runs (Plaid integration). For inbox-only processing that DB is unused. Possible future simplification: skip SQLite entirely for the inbox path.
 - Host cron entry not yet added. Troy's call on cadence.
+
+---
+
+### Entry 070 — Dashboard upgrade task list (frontend-design skill) + ultra-plan scope expansion
+
+**Date:** 2026-04-17
+**Tags:** `[planning]` `[ultra-plan]` `[dashboard]` `[frontend-design]` `[scope]`
+**Environment:** Laptop, planning session; no system changes this entry.
+**Duration:** ~30 min frontend-design skill output + integration decision.
+
+**Objective:** After the G-C.1 deploy wrapped, Troy asked for a dashboard-upgrade task list via the `frontend-design` skill, then directed that the output fold into a single comprehensive `/ultra-plan` alongside the already-scoped A+C+D+decom items. Item F from the original menu (Dashboard polish #70) is superseded by this more expansive Wave 1+2 scope. Wave 3 is documented as "later" (nice-to-have, out of scope for this plan).
+
+**Scope decision (locked in for the ultra-plan):**
+
+| Original item | Status in ultra-plan |
+|---|---|
+| A — G-C.2 utilities + sidecar cron | IN |
+| C — #87 direct-POST refactor | IN |
+| D — Schwab Balances/Positions parsers | IN |
+| F — Dashboard polish (#70) | SUPERSEDED by Wave 1+2 below |
+| Decommissioning (safe subset) | IN |
+| Wave 1 (upload + Financial view + dashboard card) | IN |
+| Wave 2 (email compose, autonomy control, investments page, settings rework) | IN |
+| Wave 3 (memory insights, ingest timeline, utility dashboard, etc.) | DOCUMENTED AS LATER |
+
+**Dashboard upgrade — task list produced by frontend-design skill (verbatim capture):**
+
+**Wave 1 — ship this week:**
+- W1.1 `/ingest` page (Ingest.tsx + route, ~350 LOC) — drag-drop upload, source auto-detect + manual override, progress bar, result pill, recent uploads table with capture-id deep links
+- W1.2 `<FileDropZone>` shared component (~180 LOC) — reusable drop area with size/type guards, emits `onFiles`
+- W1.3 `ingestApi` in lib/api.ts (~60 LOC) — typed `upload()`, `listRecent()`, `getStatus()`
+- W1.4 Financial detail page (Financial.tsx + FinancialSummaryCard, ~450 LOC) — per-provider tabs (Amex/Chase/Truist/Schwab/HSA/PayPal), category bars, top-charges table; data from existing `/api/v1/captures`
+- W1.5 Dashboard "Financial pulse" card (FinancialPulseCard, ~150 LOC) — last-30-day spend, MoM delta, top merchants, sparkline. Click → /financial
+- W1.6 Types in lib/types.ts (~40 LOC) — typed discriminated union for financial `source_metadata`
+- W1.7 Nav updates (Layout.tsx, ~10 LOC) — add Ingest + Financial items
+
+Wave 1 backend support:
+- BE-1 `POST /api/v1/ingest/upload` — streaming multipart → bind-mounted inbox, writes `file_uploads` row
+- BE-2 `GET /api/v1/ingest/uploads?limit=N` — recent uploads with status + capture_ids
+- BE-3 Sidecar on-demand trigger — add `/process` HTTP endpoint on `open-brain-financial-ingest` (Python http.server + subprocess, ~80 LOC). core-api POSTs to it after file save. **NOT** docker-socket exec (no new privilege surface).
+- BE-4 Migration 0021 `file_uploads` table `(id, filename, size_bytes, mime_type, source_type, destination_path, uploaded_at, status enum, capture_ids[], error_message, processed_at)`
+- BE-5 SSE `upload:status` event channel
+
+**Wave 2 — near-term:**
+- W2.1 Email compose + drafts UI (Email.tsx extension + EmailComposeDrawer + EmailDraftsList, ~500 LOC) — Inbox/Compose split; LLM-assisted compose; approve → send via Himalaya
+- W2.2 Autonomy level control (Settings extension + AutonomyCard, ~140 LOC) — segmented control + ramp-up warnings
+- W2.3 Schwab allocation + net-worth page (Investments.tsx + AllocationDonut + NetWorthChart, ~400 LOC) — per-account allocation donut, net worth trend line, holdings table. **Blocked on D-parser + ≥2 snapshots accumulated.**
+- W2.4 Settings structural rework (~300 LOC) — sectioned accordion (General/AI/Voice/Email/Integrations/Autonomy)
+- W2.5 "Process inbox now" button on Ingest (~30 LOC)
+
+Wave 2 backend support:
+- BE-6 `/api/v1/email/drafts` CRUD + `POST /drafts/:id/send` (EmailDraftService already exists; just expose routes)
+- BE-7 `/api/v1/financial/allocation?account=<mask>` — optional convenience endpoint, client-side aggregation works without it
+
+**Wave 3 — DOCUMENTED AS LATER, NOT in this plan:**
+- W3.1 Cognitive-memory insights page (association graph, consolidation review)
+- W3.2 Ingest activity timeline (7-day horizontal)
+- W3.3 Utility dashboard (once G-C.2 captures accumulate)
+- W3.4 Spreading-activation chips on search results
+- W3.5 Capture file preview panel (download original)
+- W3.6 Autonomy dry-run preview
+
+**Flagged (bigger than they look):**
+- Upload auto-detection heuristics must match the sidecar's `_route_bank_csv` header-sniff logic. **Decision to make in Phase 3:** duplicate the heuristic in TS OR move both to a shared `config/ingest-routes.yaml` declaration. Recommend shared config to avoid drift.
+- W2.3 Investments page is data-gated on the Schwab parser shipping AND snapshots accumulating over time (≥1 week) to make the "over time" charts meaningful.
+- W3.1 Association graph perf — will need filter controls if the graph gets dense; budget when we get there.
+
+**Decision D113:** The `/ultra-plan` continuing after this entry covers 5 change sets:
+1. **Financial sidecar completion** — Schema refactor for the 4 direct-POST sites (item C) + Schwab Balances/Positions parsers (item D). One package of financial-pipeline.py work.
+2. **Utility sidecar deployment** — item A. Utility-pipeline env-var overrides + schema fix + Gas South + Cobb EMC + host cron for BOTH sidecars.
+3. **Upload backend** — Wave 1 BE-1..BE-5 + new Dockerfile change for BE-3 HTTP endpoint on sidecar.
+4. **Dashboard frontend** — Wave 1 + Wave 2 UI work.
+5. **Decommissioning** — stale branches + seed_email_auth.py + old ms_token_cache row + LiteLLM config cruft.
+
+Ordering (preview, to be confirmed in Phase 4): 1 and 5 are independent and smallest → ship first. 2 depends on nothing new. 3 depends on 2's sidecar pattern being stable. 4 depends on 3's endpoints. But 1+2+5 can ship in parallel on independent branches while 3 scaffolds.
+
+**What Worked:**
+- Asking the frontend-design skill for a task list rather than code — got a structured, prioritized spec with backend support called out separately, which is exactly what's needed to feed into ultra-plan Phase 3.
+- Explicitly marking Wave 3 as "later" prevents scope creep. The plan that emerges here is large enough.
+
+**What to Watch:**
+- The sidecar HTTP trigger (BE-3) is a new moving part. Python's `http.server` is battle-tested for this, but we're adding a second process to the container. Keep its threading model dead simple.
+- File upload size caps — 50MB default should cover everything except the Amazon `Your Orders.zip` edge (30MB today, could grow). Bump to 100MB preemptively.
