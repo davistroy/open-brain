@@ -4255,3 +4255,70 @@ Ordering (preview, to be confirmed in Phase 4): 1 and 5 are independent and smal
 - CS4a/4b involve shadcn CLI additions — `npx shadcn@latest add ...` auto-generates components/ui/ files. These will pile up in the branch; confirm they're minimal and necessary.
 - CS3's migration 0021 cannot be applied mid-branch — deploy step post-merge runs the migration once, then core-api restarts. If there's a deploy-time problem with the migration, roll back by reverting the PR and re-applying a reverse migration.
 - LAB_NOTEBOOK Rule 11 precondition still applies across the branch — each significant phase boundary (completion of each CS) should carry its own entry documenting outcomes.
+
+---
+
+### Entry 072 — CS2 shipped to branch + pause-for-context-clear resume pointer
+
+**Date:** 2026-04-17
+**Tags:** `[implement-plan]` `[cs2]` `[utility-sidecar]` `[resume-pointer]`
+**Environment:** Laptop, branch `feature/waves-2026-04-17`. CS1 at `befb2ba`; CS2 about to commit as the next commit on this branch.
+
+**Objective:** Ship CS2 (utility sidecar + shared capture_api lib + Dockerfile rename + electric-usage-downloader + compose updates) to the branch, then pause at a clean checkpoint so Troy can clear context.
+
+**Hypothesis:** Disk state after parallel subagents lands a coherent CS2 commit; no deploy execution in Option B mode.
+
+**Rollback:** `git reset --hard befb2ba` (pre-CS2 CS1 checkpoint) from the feature branch, or revert the CS2 commit post-merge.
+
+**What landed on disk (verified):**
+
+| Item | File | Status |
+|---|---|---|
+| CS2.1 | `scripts/lib/__init__.py` + `scripts/lib/capture_api.py` | NEW — byte-compatible extract of the financial-pipeline helper; utility gains a nested-envelope + `allow_redirects=False` + 3xx-distinct-logging POST for free (silently fixes utility's old flat `source_metadata` bug) |
+| CS2.2 | `scripts/financial-pipeline.py` | Replaced in-file `_get_capture_api`/`_post_capture` with `from lib.capture_api import …` alias. All 4 CS1 call sites + `cmd_process_inbox` dispatch untouched. |
+| CS2.3 | `scripts/utility-pipeline.py` | 3-fix pattern: `UTILITY_PIPE_DIR` / `UTILITY_CONFIG_DIR` env overrides; shared `post_capture` import; `cmd_monthly_comparison`'s single POST site now passes `capture_type='observation', brain_view='personal'`. |
+| CS2.4 | `docker/financial-ingest/` → `docker/ingest-sidecar/` | `git mv` rename. Compose build context updated accordingly. |
+| CS2.5 | `docker/ingest-sidecar/Dockerfile` | Added `electric-usage-downloader` Go binary install (pinned `EUD_VERSION=0.5.0`, x86_64 + aarch64 branches; **TODO flag** inside the Dockerfile — release URL format may need adjustment on first build, flagged for Troy post-merge). Added `COPY scripts/lib /app/lib`. Kept `CMD ["sleep", "infinity"]` (CS3 replaces with `trigger_server.py`). |
+| CS2.6 | `.dockerignore` | Added `!scripts/lib/` + `!scripts/lib/**` negations alongside existing `!scripts/*.py`. |
+| CS2.7 | `docker-compose.yml` | Renamed `financial-ingest` build dockerfile path, image `open-brain-ingest-sidecar:latest`. New `utility-ingest` service cloned with `UTILITY_*` env vars, its own bind-mount (`/mnt/user/appdata/open-brain/utility-inbox`), named volume `utility_ingest_data`, `CAPTURE_API_CALLER=utility-pipeline`. Both services share the same build context + image. |
+| CS2.8 | `config/utility/utility-config.example.yaml` | NEW example file documenting the expected shape (capture_api / gas / power / water — water skip=true). Real file stays gitignored on homeserver. |
+| CS2.9 | `config/ingest-routes.yaml` | NEW — shared filename→source-type/parser YAML consumed by CS3.11 (TS router) + CS3.12 (Python router). Prevents future drift. |
+| CS2.11 | `deploy/cron/unraid-ingest.cron` | NEW — 3 host cron lines documented for post-merge Unraid install (with install/rollback instructions in the file header). |
+| CS2.10 / CS2.12 | deploy + GitHub issue close | **Deferred to post-merge** (Option B — no homeserver execution mid-branch, no issue close until the PR lands). |
+
+**Verification (run just before commit):**
+- `python -c "import ast; ast.parse(open('scripts/financial-pipeline.py').read())"` — OK
+- `python -c "import ast; ast.parse(open('scripts/utility-pipeline.py').read())"` — OK
+- `python -c "import ast; ast.parse(open('scripts/lib/capture_api.py').read())"` — OK
+- `yaml.safe_load(open('docker-compose.yml'))` — OK, 13 services (utility-ingest added), 5 volumes (utility_ingest_data added)
+- 15-CSV regression via shared-lib import — all 8 sampled routes match CS1.10 baseline exactly (amex/chase/truist/schwab/hsa/paypal/schwab_balance/schwab_position).
+
+**Resume pointer (for next session after context clear):**
+
+1. **Current branch:** `feature/waves-2026-04-17`. CS1 shipped (befb2ba), CS2 shipping in the next commit before pause.
+2. **State file:** `.implement-plan-state.json` reflects CS1 complete. After the CS2 commit below, update it to include CS2.1–CS2.9 + CS2.11 in `completed`, `current_item=CS3.1`, `last_good_sha=<new-sha>`, `checkpoints.CS2=<new-sha>`.
+3. **Next change set:** **CS3** — Upload backend + sidecar HTTP trigger. 13 work items, 3 parallel groups per the parallelization map. Starting items per the map:
+   - Parallel group A: `CS3.1` (migration `0021_file_uploads.sql`), `CS3.3` (Zod schemas), `CS3.7` (`docker/ingest-sidecar/trigger_server.py`), `CS3.9` (`--json-output` flag on both pipelines), `CS3.12` (`scripts/lib/ingest_router.py`).
+   - After CS3.1 lands: `CS3.2` (Drizzle schema mirror in `packages/shared/src/schema/supporting.ts`).
+   - After CS3.2 + CS3.3: parallel group B: `CS3.4` (core-api `routes/ingest.ts`), `CS3.11` (`services/ingest-router.ts`).
+   - After CS3.4: parallel group C: `CS3.5` (workers `jobs/ingest-process.ts`), `CS3.6` (SSE hub extension), `CS3.10` (`lib/api.ts` ingestApi).
+   - `CS3.8` (Dockerfile CMD swap to `trigger_server.py`) after CS3.7.
+   - `CS3.13` (deploy) deferred to post-merge.
+4. **Plan doc:** `IMPLEMENT_WAVES_2026-04-17.md` — see the CS3 section for full work-item spec.
+5. **Constraint reminder:** Option B. Subagents implement; no ssh/docker/psql execution.
+6. **Unread background-agent summary captured:** both CS2 subagents (code + infra) returned successfully. Their reports are in the conversation; if context is cleared, the summaries in this notebook entry are sufficient to resume.
+
+**What's left in this plan after CS2 commit:**
+- CS3 — 13 work items (upload backend). Est 4 hrs. Touches `packages/shared/drizzle/`, `packages/core-api/src/{routes,schemas,services}/`, `packages/workers/src/jobs/`, `packages/web/src/lib/api.ts`, `docker/ingest-sidecar/{Dockerfile,trigger_server.py}`, `scripts/{financial-pipeline.py,utility-pipeline.py,lib/ingest_router.py}`, `config/ingest-routes.yaml` (consumption).
+- CS4a — 11 work items (dashboard Wave 1). Est 5 hrs.
+- CS4b — 6 work items (dashboard Wave 2, some data-gated). Est 6 hrs.
+- CS5 — 9 work items, 4 of which are deploy-gated in Option B (DB delete, branch deletes, laptop rm, backup). 5 config-edit items shippable.
+
+**Total remaining:** 43 work items across 4 change sets.
+
+**Commit message for CS2 (outgoing commit):** see git log; summarizes CS2.1–CS2.9 + CS2.11 with electric-usage-downloader URL TODO flag.
+
+**What to watch (post-merge deploy):**
+- The electric-usage-downloader URL format — if the v0.5.0 release tarball layout differs from the Dockerfile's expectation, the sidecar image build will fail loudly. That's better than silent miss. Troy can update the URL + version on first build attempt.
+- Utility sidecar host cron (6:30 AM daily + monthly comparison on the 2nd) — first real run will be tomorrow morning.
+- The old inline `post_capture` in utility-pipeline.py had a **silent bug**: flat `source_metadata` + `allow_redirects` default-True. That would have produced the same Cloudflare-Access 302 trap as financial-pipeline pre-PR #84, so Gas South / Cobb EMC captures would never have landed even if invoked. The shared-lib extraction in CS2.3 fixes this without a separate bug entry. Note for post-merge validation: utility captures must actually appear in the DB this time.

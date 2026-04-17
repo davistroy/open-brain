@@ -1,0 +1,44 @@
+# Source of truth for filename -> source-type + parser-hint routing.
+#
+# Consumed by both the TypeScript upload endpoint
+# (packages/core-api/src/services/ingest-router.ts — CS3.11) and the Python
+# inbox dispatcher (scripts/lib/ingest_router.py — CS3.12).
+#
+# Patterns are case-insensitive glob-like; regex is used under the hood.
+# Each route declares:
+#   - pattern:       filename match (glob-style, case-insensitive)
+#   - parser:        short parser identifier consumed by the dispatcher
+#   - header_sniff:  (optional) literal string that must appear in the CSV
+#                    header row for the route to match — used to disambiguate
+#                    generic filenames like "Download.csv" (PayPal).
+#
+# When multiple patterns match a file, the first match wins. Keep the most
+# specific patterns at the top of each list.
+
+routes:
+  financial:
+    - pattern: "activity.csv"
+      parser: amex
+    - pattern: "Chase*Activity*.CSV"
+      parser: chase
+    - pattern: "acct_*.csv"
+      parser: truist
+    - pattern: "*_Transactions_*.csv"
+      parser: schwab_transactions
+    - pattern: "*_Balances_*.CSV"
+      parser: schwab_balance
+    - pattern: "*-Positions-*.csv"
+      parser: schwab_position
+    - pattern: "HSA*.csv"
+      parser: hsa
+    - pattern: "Download*.csv"
+      parser: paypal
+      header_sniff: '"Balance Impact"'
+
+  utility:
+    - pattern: "*gas*.pdf"
+      parser: gas_bill
+    - pattern: "*power*.csv"
+      parser: power
+    - pattern: "*electric*.csv"
+      parser: power

@@ -93,25 +93,25 @@ Extend the G-C.1 pattern to utilities. Same Python sidecar shape (long-lived con
 
 ### Work items
 
-- [ ] **CS2.1** Create `scripts/lib/capture_api.py` with `get_capture_api_config(cfg) -> (url, caller)` and `post_capture(cfg, content, metadata, capture_type='observation', brain_view='personal') -> bool`. Implements env-var override precedence + nested metadata envelope + `allow_redirects=False` + 3xx logging. Net −duplication across both pipelines.
-- [ ] **CS2.2** `scripts/financial-pipeline.py` — replace its in-file `_get_capture_api` and `_post_capture` with imports from `scripts.lib.capture_api`. Confirm by running the parser smoke test again.
-- [ ] **CS2.3** `scripts/utility-pipeline.py` — three-fix pattern:
+- [x] **CS2.1** Create `scripts/lib/capture_api.py` with `get_capture_api_config(cfg) -> (url, caller)` and `post_capture(cfg, content, metadata, capture_type='observation', brain_view='personal') -> bool`. Implements env-var override precedence + nested metadata envelope + `allow_redirects=False` + 3xx logging. Net −duplication across both pipelines.
+- [x] **CS2.2** `scripts/financial-pipeline.py` — replace its in-file `_get_capture_api` and `_post_capture` with imports from `scripts.lib.capture_api`. Confirm by running the parser smoke test again.
+- [x] **CS2.3** `scripts/utility-pipeline.py` — three-fix pattern:
   - Env-var overrides: `UTILITY_PIPE_DIR` (default `~/.utility-pipeline`), `UTILITY_CONFIG_DIR` (default repo `config/utility/`).
   - Replace in-file `post_capture` with import from `scripts.lib.capture_api`.
   - Update `cmd_monthly_comparison` + any other POST sites to pass `capture_type='observation'`, `brain_view='personal'`.
-- [ ] **CS2.4** Rename `docker/financial-ingest/` → `docker/ingest-sidecar/`. Update compose build context accordingly.
-- [ ] **CS2.5** Dockerfile additions:
+- [x] **CS2.4** Rename `docker/financial-ingest/` → `docker/ingest-sidecar/`. Update compose build context accordingly.
+- [x] **CS2.5** Dockerfile additions:
   - Install `electric-usage-downloader` Go binary from pinned GitHub release (verify sha256).
   - `COPY scripts/lib /app/lib` (new shared module).
   - Keep existing Python + bws + requests/PyYAML layer.
   - Keep `CMD ["sleep", "infinity"]` for now (CS3 replaces it with `trigger_server.py`).
-- [ ] **CS2.6** `.dockerignore` — add negation for `!scripts/lib/` alongside the two pipeline scripts.
-- [ ] **CS2.7** `docker-compose.yml`:
+- [x] **CS2.6** `.dockerignore` — add negation for `!scripts/lib/` alongside the two pipeline scripts.
+- [x] **CS2.7** `docker-compose.yml`:
   - `financial-ingest` service: update build context to `docker/ingest-sidecar/`, image name `open-brain-ingest-sidecar:latest`.
   - New `utility-ingest` service cloned from financial-ingest with container name `open-brain-utility-ingest`, UTILITY_* env vars, bind-mount `/mnt/user/appdata/open-brain/utility-inbox:/inbox`, separate named volume `utility_ingest_data`.
   - Both services reference the same image.
-- [ ] **CS2.8** `config/utility/utility-config.yaml` — confirm `capture_api` block exists or add if missing (homeserver has it; local may not). Make the `caller_header` default `utility-pipeline`.
-- [ ] **CS2.9** `config/ingest-routes.yaml` (new) — shared filename→source-type table (used in CS3 by both TS router and Python dispatcher). Preliminary shape:
+- [x] **CS2.8** `config/utility/utility-config.yaml` — confirm `capture_api` block exists or add if missing (homeserver has it; local may not). Make the `caller_header` default `utility-pipeline`.
+- [x] **CS2.9** `config/ingest-routes.yaml` (new) — shared filename→source-type table (used in CS3 by both TS router and Python dispatcher). Preliminary shape:
   ```yaml
   routes:
     financial:

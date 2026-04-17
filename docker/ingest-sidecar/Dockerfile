@@ -28,6 +28,29 @@ RUN ARCH="$(uname -m)" && case "$ARCH" in \
     chmod +x /usr/local/bin/bws && \
     rm -rf /tmp/bws.zip
 
+# electric-usage-downloader — SmartHub cooperative usage downloader used by
+# utility-pipeline.py --power-summary. Pinned to a known-good release.
+# Repository: https://github.com/typ0/electric-usage-downloader
+# (the plan doc references github.com/tom/electric-usage-downloader — if
+#  that URL 404s, use typ0's fork which is the active one as of 2026-04)
+#
+# TODO: The exact GitHub release asset name format is unverified against the
+# upstream repo (no network access during this build). Version 0.5.0 is a
+# placeholder. If the build fails here, adjust EUD_VERSION and/or the asset
+# filename pattern below to match an actual release from
+# https://github.com/typ0/electric-usage-downloader/releases
+ARG EUD_VERSION=0.5.0
+RUN ARCH="$(uname -m)" && case "$ARCH" in \
+      x86_64)  EUD_ARCH="linux_amd64" ;; \
+      aarch64) EUD_ARCH="linux_arm64" ;; \
+      *) echo "unsupported arch for electric-usage-downloader: $ARCH"; exit 1 ;; \
+    esac && \
+    curl -sL "https://github.com/typ0/electric-usage-downloader/releases/download/v${EUD_VERSION}/electric-usage-downloader_${EUD_VERSION}_${EUD_ARCH}.tar.gz" -o /tmp/eud.tar.gz && \
+    tar -xzf /tmp/eud.tar.gz -C /tmp && \
+    mv /tmp/electric-usage-downloader /usr/local/bin/electric-usage-downloader && \
+    chmod +x /usr/local/bin/electric-usage-downloader && \
+    rm -rf /tmp/eud.tar.gz /tmp/LICENSE /tmp/README.md 2>/dev/null || true
+
 # Pipeline dependencies. Kept minimal — pdfplumber etc. deliberately excluded
 # until a script actually needs them. Adding a package here is cheap.
 RUN pip install --no-cache-dir \
@@ -44,6 +67,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 COPY scripts/financial-pipeline.py /app/financial-pipeline.py
 COPY scripts/utility-pipeline.py  /app/utility-pipeline.py
+# Shared Python helpers (capture_api, ingest_router when CS3 lands)
+COPY scripts/lib /app/lib
 COPY config /app/config
 
 # Directories the script writes to at runtime. Named volumes mount over these.

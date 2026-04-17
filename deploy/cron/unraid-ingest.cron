@@ -1,0 +1,47 @@
+# Open Brain — Ingest sidecar cron entries (Unraid host)
+#
+# INSTALL (post-merge, once):
+#   1. SSH to homeserver as `claude` (has passwordless sudo for cron operations).
+#   2. Append these lines to the Unraid system crontab:
+#        sudo tee -a /boot/config/plugins/dynamix/custom.cron < deploy/cron/unraid-ingest.cron
+#      Unraid reads /boot/config/plugins/dynamix/*.cron on boot and merges them
+#      into the live crontab (same persistence path as the existing
+#      scripts/backup.sh entry).
+#   3. Reload cron so the lines take effect without a reboot:
+#        sudo /usr/local/sbin/update_cron
+#   4. Verify:
+#        crontab -l | grep ingest
+#
+# ROLLBACK:
+#   Remove the three lines from /boot/config/plugins/dynamix/custom.cron and
+#   run update_cron again.
+#
+# LOGS:
+#   /var/log/financial-ingest.log and /var/log/utility-ingest*.log rotate
+#   via Unraid's default logrotate. Truncate manually with
+#   `sudo : > /var/log/financial-ingest.log` if they grow large.
+#
+# CONSTRAINTS:
+#   - Each command shells into a long-lived sidecar container via `docker exec`.
+#     The container is `sleep infinity` today; CS3 replaces the CMD with
+#     trigger_server.py, but the `docker exec python /app/<script>.py ...`
+#     invocation keeps working either way (bypasses the main CMD).
+#   - Lock contention is the sidecar script's responsibility. financial-pipeline
+#     uses filesystem-based processed-dir moves which are naturally serialized
+#     by the one-cron-at-a-time schedule.
+
+# Financial inbox — scan daily at 6:00 AM local, parse anything dropped in
+# /mnt/user/appdata/open-brain/financial-inbox/, post captures, move to
+# processed/.
+0 6 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox >> /var/log/financial-ingest.log 2>&1
+
+# Utility gas + power — daily at 6:30 AM. Gas South billing fetch + Cobb EMC
+# power-summary (reads CSVs produced by electric-usage-downloader — that tool
+# is itself scheduled separately via the sidecar's own cron entry if/when
+# it's wired; for now --power-summary is a no-op if no CSVs present).
+30 6 * * * /usr/bin/docker exec open-brain-utility-ingest python /app/utility-pipeline.py --gas --power-summary >> /var/log/utility-ingest.log 2>&1
+
+# Utility monthly comparison — 2nd of each month at 2 AM. Aggregates the
+# prior month's water/gas/power data and posts a single synthesized capture.
+# (Water is a no-op today — Cobb Water B2C OIDC is a separate backlog.)
+0 2 2 * * /usr/bin/docker exec open-brain-utility-ingest python /app/utility-pipeline.py --monthly-comparison >> /var/log/utility-monthly.log 2>&1

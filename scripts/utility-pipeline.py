@@ -26,6 +26,11 @@ from typing import Optional
 
 import requests, yaml
 
+# Shared capture-API helper (CS2.1/CS2.3). Same import strategy as
+# financial-pipeline.py — resolves against scripts/lib/ in both Docker and
+# local invocations.
+from lib.capture_api import post_capture as _post_capture_raw  # noqa: E402
+
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 logging.basicConfig(
@@ -36,9 +41,14 @@ logging.basicConfig(
 log = logging.getLogger("utility-pipeline")
 
 # --- Paths & constants ---
-PIPE_DIR = Path.home() / ".utility-pipeline"
+# Env-var overrides mirror financial-pipeline.py so the same script works in
+# both the VM environment (home-dir defaults) and the Docker sidecar where
+# paths are mounted at known locations.
+PIPE_DIR = Path(os.environ.get("UTILITY_PIPE_DIR", str(Path.home() / ".utility-pipeline")))
 DB_PATH = PIPE_DIR / "utility.db"
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "utility" / "utility-config.yaml"
+CONFIG_DIR_ENV = os.environ.get("UTILITY_CONFIG_DIR")
+CONFIG_BASE = Path(CONFIG_DIR_ENV) if CONFIG_DIR_ENV else Path(__file__).resolve().parent.parent / "config" / "utility"
+CONFIG_PATH = CONFIG_BASE / "utility-config.yaml"
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -126,39 +136,6 @@ def init_db() -> sqlite3.Connection:
     """)
     conn.commit()
     return conn
-
-
-# ── Capture posting helper ───────────────────────────────────────────────────
-
-def post_capture(cfg: dict, content: str, source_metadata: dict) -> bool:
-    """POST a capture to the Open Brain API. Returns True on success."""
-    cap_cfg = cfg.get("capture_api", {})
-    url = cap_cfg.get("url", "https://brain.troy-davis.com/api/v1/captures")
-    caller = cap_cfg.get("caller_header", "utility-pipeline")
-
-    try:
-        resp = requests.post(
-            url,
-            json={
-                "content": content,
-                "source": "api",
-                "source_metadata": source_metadata,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "X-Open-Brain-Caller": caller,
-            },
-            timeout=30,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Capture posted successfully")
-            return True
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-            return False
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
-        return False
 
 
 # ── Water (Cobb County) ─────────────────────────────────────────────────────
@@ -818,7 +795,8 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
         if water_mom_pct is not None:
             source_metadata["water_mom_pct"] = round(water_mom_pct, 1)
 
-    post_capture(cfg, capture_text, source_metadata)
+    _post_capture_raw(cfg, capture_text, source_metadata,
+                      capture_type="observation", brain_view="personal")
 
 
 # ── Status ───────────────────────────────────────────────────────────────────

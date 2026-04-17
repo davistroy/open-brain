@@ -28,6 +28,11 @@ from typing import Optional
 
 import requests, yaml
 
+# Shared capture-API helper (CS2.1/CS2.2). Works both in Docker (`/app/lib/`
+# after COPY) and locally (`scripts/` is sys.path[0] when running the script
+# directly), so `from lib.capture_api import …` resolves in both cases.
+from lib.capture_api import get_capture_api_config as _get_capture_api, post_capture as _post_capture  # noqa: E402
+
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 logging.basicConfig(
@@ -97,26 +102,6 @@ def _load_bws_secrets() -> list:
     except subprocess.TimeoutExpired:
         log.error("bws timed out — is BWS_ACCESS_TOKEN set?")
         sys.exit(1)
-
-
-def _get_capture_api(cfg: dict) -> tuple[str, str]:
-    """Resolve the (url, caller_header) for POSTing captures.
-
-    Precedence: CAPTURE_API_URL / CAPTURE_API_CALLER env vars win over the
-    plaid-config.yaml `capture_api` block. This lets the Docker sidecar post
-    to the internal container URL (http://core-api:3000/api/v1/captures)
-    while the VM deployment keeps hitting the external Cloudflare Tunnel
-    URL out of the same config file.
-
-    Default url falls back to the public endpoint for backward compat, but
-    that path is fronted by Cloudflare Access — unauthenticated POSTs get
-    302'd to the login page, which requests follows and silently "succeeds"
-    as 200. Using the internal URL from the sidecar avoids that entirely.
-    """
-    cap_cfg = cfg.get("capture_api", {}) if cfg else {}
-    url = os.environ.get("CAPTURE_API_URL") or cap_cfg.get("url", "https://brain.troy-davis.com/api/v1/captures")
-    caller = os.environ.get("CAPTURE_API_CALLER") or cap_cfg.get("caller_header", "financial-pipeline")
-    return url, caller
 
 
 def get_bws_secret(secret_name: str) -> str:
@@ -2545,57 +2530,6 @@ def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
         "quarter": quarter,
         "year": year,
     }
-
-
-def _post_capture(cfg: dict, content: str, source_metadata: dict,
-                  capture_type: str = "observation", brain_view: str = "personal"):
-    """POST a capture to the Open Brain API.
-
-    Financial captures default to ``capture_type=observation`` (factual
-    activity, no claim / decision) and ``brain_view=personal`` (Troy's
-    personal money data). Both are required by the core-api Zod schema.
-    """
-    url, caller = _get_capture_api(cfg)
-    try:
-        # allow_redirects=False — if the endpoint is fronted by Cloudflare
-        # Access without a service token, an unauthenticated POST returns
-        # 302 -> login page (HTML). With redirects enabled, requests would
-        # follow and return a 200 for the login HTML, which would appear
-        # successful to the status-code check but dump the capture into
-        # the void. Fail fast on 302 instead.
-        # NOTE: source_metadata must be nested inside `metadata`, not a
-        # top-level key. core-api's createCaptureSchema defines:
-        #   { content, capture_type, brain_view, source,
-        #     metadata: { source_metadata, tags, pre_extracted, captured_at } }
-        # Top-level `source_metadata` would be silently stripped by Zod.
-        resp = requests.post(
-            url,
-            json={
-                "content": content,
-                "source": "api",
-                "capture_type": capture_type,
-                "brain_view": brain_view,
-                "metadata": {
-                    "source_metadata": source_metadata,
-                },
-            },
-            headers={"Content-Type": "application/json", "X-Open-Brain-Caller": caller},
-            timeout=30,
-            allow_redirects=False,
-        )
-        if resp.status_code in (200, 201):
-            log.info(f"Capture posted: {content[:60]}...")
-            return True
-        elif resp.status_code in (301, 302, 303, 307, 308):
-            loc = resp.headers.get("Location", "")[:120]
-            log.warning(f"Brain POST {resp.status_code} redirect to {loc} — likely Cloudflare Access; set CAPTURE_API_URL to an internal URL")
-            return False
-        else:
-            log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-            return False
-    except requests.exceptions.RequestException as e:
-        log.warning(f"Brain unreachable: {e}")
-        return False
 
 
 def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
