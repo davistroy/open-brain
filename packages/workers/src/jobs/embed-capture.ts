@@ -210,7 +210,7 @@ export function createEmbedCaptureWorker(
   litellmApiKey: string,
   spendTracker?: SpendTracker,
 ): Worker<EmbedCaptureJobData> {
-  const embeddingService = new EmbeddingService(litellmBaseUrl, litellmApiKey, configService)
+  const embeddingService = new EmbeddingService({ baseUrl: litellmBaseUrl, apiKey: litellmApiKey, configService })
 
   const worker = new Worker<EmbedCaptureJobData>(
     'embed-capture',

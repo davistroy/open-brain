@@ -5,7 +5,7 @@
  * and scheduled jobs, then keeps the process alive until SIGTERM/SIGINT.
  */
 import { Redis } from 'ioredis'
-import { createDb, ConfigService, createAnthropicClient, createOllamaClient, createLiteLLMClient, LLMGatewayService } from '@open-brain/shared'
+import { createDb, ConfigService, createAnthropicClient, createOllamaClient, createOpenAIClient, LLMGatewayService } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
@@ -41,16 +41,28 @@ async function main() {
   if (!postgresUrl) throw new Error('POSTGRES_URL is required')
 
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
-  const litellmUrl = process.env.LITELLM_URL ?? 'http://localhost:4000'
-  const litellmApiKey = process.env.LITELLM_API_KEY ?? ''
+  // Legacy shim: read new env var names first, fall back to LITELLM_* for deploy window.
+  const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'http://localhost:4000'
+  const openaiApiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY ?? ''
   const pushoverAppToken = process.env.PUSHOVER_APP_TOKEN
   const pushoverUserKey = process.env.PUSHOVER_USER_KEY
   const configDir = process.env.CONFIG_DIR ?? '/app/config'
   const promptsDir = process.env.PROMPTS_DIR ?? `${configDir}/prompts`
 
-  // LITELLM_API_KEY check
-  if (!litellmApiKey) {
-    logger.warn('LITELLM_API_KEY not set — embedding, entity extraction, and skill execution will fail')
+  // Startup validation — catch the "old LiteLLM virtual key deployed against api.openai.com" mistake.
+  if (openaiApiKey.startsWith('sk-litellm-')) {
+    logger.fatal(
+      { keyPrefix: openaiApiKey.slice(0, 12) + '...' },
+      'OPENAI_API_KEY appears to be a LiteLLM proxy virtual key (sk-litellm-…). ' +
+      'This is the old deploy config and will fail against api.openai.com/v1 with 401. ' +
+      'Update .env.secrets with the real OpenAI key from Bitwarden item open-brain-openai-api-key.',
+    )
+    process.exit(1)
+  }
+
+  // OPENAI_API_KEY check
+  if (!openaiApiKey) {
+    logger.warn('OPENAI_API_KEY not set — embedding, entity extraction, and skill execution will fail')
   }
 
   // Anthropic client for Claude SDK routing (used by skill-execution and future agentic workers)
@@ -92,9 +104,8 @@ async function main() {
   // Optional generic OpenAI client is an escape hatch for tiers declaring
   // provider: 'litellm'/'openai' (no openai_compat). Currently no tier does;
   // the factory returns null when the API key is empty, and the gateway is
-  // still usable for anthropic / openai_compat tiers. Phase D will rename
-  // createLiteLLMClient -> createOpenAIClient.
-  const openaiClient = createLiteLLMClient({ baseUrl: litellmUrl, apiKey: litellmApiKey })
+  // still usable for anthropic / openai_compat tiers.
+  const openaiClient = createOpenAIClient({ baseUrl: openaiBaseUrl, apiKey: openaiApiKey })
   const llmGateway: LLMGatewayService = new LLMGatewayService(
     configService, db, templates, anthropicClient, ollamaClient, openaiClient,
   )
@@ -154,28 +165,32 @@ async function main() {
 
   workers.push(createIngestionWorker(connection, db, flowProducer, ingestDedup))
   workers.push(createEmbedCaptureWorker(
-    connection, db, configService, litellmUrl, litellmApiKey, spendTracker,
+    connection, db, configService, openaiBaseUrl, openaiApiKey, spendTracker,
   ))
   // Ingest-root worker — processes the FlowProducer root job after children complete
   // Always registered so it can drain jobs if flows were previously enabled
   workers.push(createIngestRootWorker(connection, db, queues.checkTriggers))
 
   workers.push(createCheckTriggersWorker(connection, db, pushoverAppToken, pushoverUserKey))
-  workers.push(createExtractEntitiesWorker(connection, db, configService, litellmUrl, litellmApiKey, templates, anthropicClient, llmGateway))
-  workers.push(createDocumentPipelineWorker(connection, db, configService, litellmUrl, litellmApiKey, queues.embedCapture))
+  workers.push(createExtractEntitiesWorker(connection, db, configService, openaiBaseUrl, openaiApiKey, templates, anthropicClient, llmGateway))
+  workers.push(createDocumentPipelineWorker(connection, db, configService, openaiBaseUrl, openaiApiKey, queues.embedCapture))
   workers.push(createDailySweepWorker(connection, db, queues.capturePipeline))
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))
   workers.push(createEmailWorker(connection))
   workers.push(createAccessStatsWorker(connection, db))
+  // Budget-check uses LLM_SPEND_URL (new canonical) with legacy LITELLM_SPEND_URL shim.
+  // Distinct from the inference OPENAI_BASE_URL — spend tracking may point at a
+  // different proxy. Uses LLM_SPEND_API_KEY for auth (falls back to OPENAI_API_KEY).
+  const spendApiKey = process.env.LLM_SPEND_API_KEY ?? openaiApiKey
   workers.push(createBudgetCheckWorker(connection, db, {
     appToken: pushoverAppToken,
     userKey: pushoverUserKey,
-    litellmSpendUrl: process.env.LITELLM_SPEND_URL ?? '',
-    litellmApiKey,
+    llmSpendUrl: process.env.LLM_SPEND_URL ?? process.env.LITELLM_SPEND_URL ?? '',
+    spendApiKey,
   }))
   workers.push(createSkillExecutionWorker(connection, db, {
-    litellmUrl,
-    litellmApiKey,
+    litellmUrl: openaiBaseUrl,
+    litellmApiKey: openaiApiKey,
     promptsDir,
     coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
     configService,

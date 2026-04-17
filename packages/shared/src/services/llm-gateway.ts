@@ -428,11 +428,12 @@ export class LLMGatewayService {
   }
 
   /**
-   * Queries LiteLLM /spend/logs for the current month's spend.
+   * Queries an LLM-spend proxy's /spend/logs for the current month's spend.
    *
-   * Uses LITELLM_SPEND_URL env var (separate from litellm_url which points to
-   * the inference API at api.openai.com/v1). When LITELLM_SPEND_URL is unset,
-   * falls back to local ai_audit_log estimation via queryLocalMonthlySpend().
+   * Uses `LLM_SPEND_URL` env var (with legacy `LITELLM_SPEND_URL` shim) —
+   * distinct from `OPENAI_BASE_URL` which points at the inference API
+   * (api.openai.com/v1). When unset, falls back to local `ai_audit_log`
+   * estimation via `queryLocalMonthlySpend()`.
    *
    * The /spend/logs endpoint returns a raw JSON array of individual request
    * records (each with `spend`, `model`, `startTime`, etc.), NOT an aggregated
@@ -440,7 +441,7 @@ export class LLMGatewayService {
    * groups by `model`.
    */
   async getMonthlySpend(): Promise<MonthlySpend> {
-    const spendUrl = process.env.LITELLM_SPEND_URL ?? ''
+    const spendUrl = process.env.LLM_SPEND_URL ?? process.env.LITELLM_SPEND_URL ?? ''
 
     if (!spendUrl) {
       // No LiteLLM spend endpoint configured — use local ai_audit_log estimation
@@ -456,7 +457,7 @@ export class LLMGatewayService {
       url.searchParams.set('start_date', startDate)
       url.searchParams.set('end_date', endDate)
 
-      const spendApiKey = this.openaiClient?.apiKey ?? ''
+      const spendApiKey = process.env.LLM_SPEND_API_KEY ?? this.openaiClient?.apiKey ?? ''
       const response = await fetch(url.toString(), {
         headers: {
           ...(spendApiKey ? { Authorization: `Bearer ${spendApiKey}` } : {}),
@@ -468,7 +469,7 @@ export class LLMGatewayService {
       if (!response.ok) {
         logger.warn(
           { status: response.status },
-          'LiteLLM spend API returned non-OK — falling back to local estimation',
+          'LLM spend API returned non-OK — falling back to local estimation',
         )
         return this.queryLocalMonthlySpend()
       }
@@ -499,17 +500,17 @@ export class LLMGatewayService {
         return { total: dataObj.total_cost, by_model: (dataObj.spend_by_model as Record<string, number>) ?? {} }
       }
 
-      logger.warn({ data }, 'LiteLLM spend response format not recognized — using local estimation')
+      logger.warn({ data }, 'LLM spend response format not recognized — using local estimation')
       return this.queryLocalMonthlySpend()
     } catch (err) {
-      logger.warn({ err }, 'Failed to query LiteLLM spend API — using local estimation')
+      logger.warn({ err }, 'Failed to query LLM spend API — using local estimation')
       return this.queryLocalMonthlySpend()
     }
   }
 
   /**
    * Estimates monthly spend from local ai_audit_log table.
-   * Used as fallback when LITELLM_SPEND_URL is not configured or unreachable.
+   * Used as fallback when LLM_SPEND_URL (legacy: LITELLM_SPEND_URL) is not configured or unreachable.
    */
   private async queryLocalMonthlySpend(): Promise<MonthlySpend> {
     try {

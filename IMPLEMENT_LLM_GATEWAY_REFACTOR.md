@@ -289,6 +289,8 @@ Grep for `new LLMGatewayService` — update each call site to the new signature.
 
 **Transition shim:** for one commit (reverted in the same PR), the factory reads `process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY` and logs a `warn` if it fell back to the old name. Keeps the deploy window survivable. Same for `OPENAI_BASE_URL ?? LITELLM_URL`. Remove shim at the end of Phase D.
 
+**Result (D.1):** File renamed via `git mv packages/shared/src/services/litellm-client.ts packages/shared/src/services/openai-client.ts`. Rewrote internals: `createLiteLLMClient` → `createOpenAIClient`; `LiteLLMTimeoutTier` → `OpenAITimeoutTier`; `DEFAULT_LITELLM_URL = 'https://llm.k4jda.net'` → `DEFAULT_OPENAI_URL = 'https://api.openai.com/v1'`; `CreateLiteLLMClientOptions` → `CreateOpenAIClientOptions`. Factory env read is now `OPENAI_API_KEY ?? LITELLM_API_KEY` (legacy shim) and `OPENAI_BASE_URL ?? LITELLM_URL ?? DEFAULT_OPENAI_URL`. When the legacy env var is used, logs `warn` `'createOpenAIClient: using legacy LITELLM_<NAME> env var — rename to OPENAI_<NAME>'`. Exports updated in `packages/shared/src/services/index.ts` (removed old re-export entirely, per task guidance: no external consumers).
+
 ### D.2 `EmbeddingService` constructor object-style
 
 `packages/shared/src/services/embedding.ts`:
@@ -311,6 +313,8 @@ constructor(opts: EmbeddingServiceOpts) {
   ...
 }
 ```
+
+**Result (D.2):** `EmbeddingService` constructor now takes `EmbeddingServiceOpts { baseUrl?, apiKey, configService }` (object-style). `baseURL` resolution order: `opts.baseUrl ?? OPENAI_BASE_URL ?? LITELLM_URL (legacy shim) ?? 'https://api.openai.com/v1'`. Both positional call sites updated: `packages/core-api/src/index.ts:66` (`{ baseUrl: openaiBaseUrl, apiKey: openaiApiKey, configService }`) and the two worker factories (`embed-capture.ts:213`, `document-pipeline.ts:379`) plus the test fixture in `embedding-service.test.ts:79`. `getModelInfo()` source field also gets a shim since the YAML `litellm_url` is being deleted.
 
 ### D.3 Update all call sites
 
@@ -336,6 +340,8 @@ constructor(opts: EmbeddingServiceOpts) {
   - `LITELLM_API_KEY` (for spend auth) → `LLM_SPEND_API_KEY` (new, distinct — the spend proxy might have a different key than the inference API).
   - Clarify comment block distinguishing inference creds (`OPENAI_API_KEY`) vs. spend-tracking creds (`LLM_SPEND_API_KEY`).
 
+**Result (D.3):** All production call sites updated. `createLiteLLMClient` → `createOpenAIClient` in `core-api/src/index.ts`, `workers/src/main.ts`, `workers/src/jobs/extract-entities.ts`, `workers/src/skills/llm-skill.ts`, `voice-capture/src/services/classification.ts`. Local vars renamed: `litellmUrl` / `litellmApiKey` → `openaiBaseUrl` / `openaiApiKey` in `core-api/src/index.ts` and `workers/src/main.ts`; `litellmClient` local → `openaiClient` in `extract-entities.ts`. Env reads use the shim pattern (`OPENAI_* ?? LITELLM_*`). Error strings updated ("LITELLM_API_KEY missing" → "OPENAI_API_KEY missing" in `extract-entities.ts`). `voice-capture/src/server.ts:12` warn rewritten to `OPENAI_API_KEY not set …` (gated on both old+new missing). Classification fallback baseURL is `OPENAI_BASE_URL ?? LITELLM_URL ?? 'https://api.openai.com/v1'`. `slack-bot/src/server.ts` keeps `IntentRouter` config shape (`litellm_url`/`litellm_api_key`) but reads from new env names (decision per plan). `slack-bot/src/app.ts` doc comment updated. `budget-check.ts` option fields: `litellmSpendUrl` → `llmSpendUrl`, `litellmApiKey` → `spendApiKey`; env reads: `LLM_SPEND_URL ?? LITELLM_SPEND_URL` and `LLM_SPEND_API_KEY ?? LITELLM_API_KEY`; internal constant `LITELLM_TIMEOUT_MS` → `LLM_SPEND_TIMEOUT_MS`; log/doc strings generalized to "LLM spend"; `spendSource` enum value `'litellm'` → `'llm_spend'`. `core-api/src/routes/health.ts` now reads `OPENAI_API_KEY ?? LITELLM_API_KEY` and `OPENAI_BASE_URL ?? LITELLM_URL`.
+
 ### D.4 YAML: `litellm_url` removal
 
 `config/ai-routing.yaml`:
@@ -343,12 +349,16 @@ constructor(opts: EmbeddingServiceOpts) {
 - Delete `models:` scalar entries (`fast`, `synthesis`, `governance`, `intent`, `conversation`, `wiki_agent`).
 - Keep `models.embedding` for now, OR elevate it to a top-level `embedding:` key. Decision: **keep it under `models:` as an exception** to minimize schema churn — embedding config is orthogonal and doesn't intersect with the legacy-alias gateway concerns any more.
 
+**Result (D.4):** `config/ai-routing.yaml` top-level `litellm_url:` field removed. `models:` block reduced from 7 entries to 1 — only `embedding:` remains (structured, per decision). The AIConfigSchema in `packages/shared/src/types/config.ts` updated to match: `litellm_url` and the six scalar aliases (`fast`, `synthesis`, `governance`, `intent`, `conversation`, `wiki_agent`) now all `.optional()`. Callers that still read `aiConfig.models['synthesis'].model` (extract-entities, skill-execution) now use `?.model ?? 'gpt-5.4'` fallback — the scalar serves as an input-level `modelAlias` hint to skills but the real routing goes through `LLMGatewayService.completeByTask` (Phase A-C). Test fixtures in `shared/src/config/__tests__/loader.test.ts` and `shared/src/types/__tests__/config-tiers.test.ts` still include the scalar aliases — they parse cleanly against the now-optional schema (backward compat).
+
 ### D.5 `docker-compose.yml` env renames
 
 Across all 4 services (core-api, workers, slack-bot, voice-capture):
 - `LITELLM_URL` → `OPENAI_BASE_URL`
 - `LITELLM_API_KEY` → `OPENAI_API_KEY`
 - `LITELLM_SPEND_URL` → `LLM_SPEND_URL` (add if not present; remove `LITELLM_SPEND_URL` if it exists)
+
+**Result (D.5):** `docker-compose.yml` edited for all 4 services. Each service's `environment:` block now sets `OPENAI_BASE_URL: https://api.openai.com/v1` (replacing `LITELLM_URL`). All 4 `# LITELLM_API_KEY: set in .env.secrets` comments rewritten to `# OPENAI_API_KEY: set in .env.secrets`. Workers block also gained `# LLM_SPEND_URL: set in .env.secrets (optional — spend proxy for budget-check)`. `grep LITELLM docker-compose.yml` returns zero hits — clean.
 
 ### D.6 Deploy-time homeserver secret update (documented, not automated)
 
@@ -359,6 +369,8 @@ Add to Phase E runbook:
    - Replace `LITELLM_URL=…` with `OPENAI_BASE_URL=https://api.openai.com/v1` (or delete — default works).
 3. Verify: `bws secret list | grep open-brain-openai-api-key` returns the correct real key.
 
+**Result (D.6):** Phase E.1 pre-deploy checklist in this same document expanded with the exact `.env.secrets` edit recipe (see section above). Code changes are NOT required for D.6 — this is a runbook-only item documenting the secret rename for deploy time. The shim in D.1/D.3 (OPENAI_API_KEY ?? LITELLM_API_KEY) means the rename can land before OR after the deploy without downtime.
+
 ### D.7 Tests
 
 - Update test fixtures that hardcode `LITELLM_*` env var names or pass `litellm_url` to mocked configs.
@@ -366,9 +378,13 @@ Add to Phase E runbook:
 - `llm-gateway.test.ts` — verify no references to litellm in test setup; the service behavior is unchanged (tier-based routing).
 - `budget-check.test.ts` — update env var cleanup blocks to use new names.
 
+**Result (D.7):** `packages/core-api/src/__tests__/embedding-service.test.ts` uses new object-style constructor: `new EmbeddingService({ baseUrl: 'https://llm.k4jda.net', apiKey: 'test-api-key', configService })`. `packages/workers/src/__tests__/budget-check.test.ts`: env cleanup in `beforeEach` now deletes both `OPENAI_API_KEY` + `LITELLM_API_KEY` + `LLM_SPEND_API_KEY` + `LLM_SPEND_URL` + `LITELLM_SPEND_URL` (clears both old + new names between tests); all 10+ call sites using `litellmSpendUrl`/`litellmApiKey` opt fields renamed to `llmSpendUrl`/`spendApiKey`; `reads LITELLM_SPEND_URL from environment` test renamed to `reads LLM_SPEND_URL from environment`; added new test `falls back to legacy LITELLM_SPEND_URL env var for shim compatibility` that exercises the env shim path. `packages/workers/src/__tests__/base-skill.test.ts` `initializes litellmClient as null` now deletes both OPENAI_* and LITELLM_* env vars before constructing the skill. `intent-router.test.ts` left untouched (decision per plan — kept `litellm_url` config field name on IntentRouter during transition). No test fixture changes needed in `loader.test.ts` / `config-tiers.test.ts` since the now-optional scalar aliases still accept the legacy fixture shapes.
+
 ### D.8 Startup validation
 
 In `core-api/src/index.ts` and `workers/src/main.ts`: add a startup check — if `process.env.OPENAI_API_KEY` starts with `sk-litellm-` (old proxy virtual key pattern), log a loud error and refuse to initialize OpenAI-dependent services. Detects the most obvious deploy mistake.
+
+**Result (D.8):** Both `packages/core-api/src/index.ts` and `packages/workers/src/main.ts` now contain a pre-client-construction guard that `logger.fatal`+`process.exit(1)` if the resolved `openaiApiKey` starts with `sk-litellm-`. The fatal log includes the first 12 chars of the key (for debugging) and a pointer to the Bitwarden item `open-brain-openai-api-key` for recovery. Placement: after the env-read block that resolves `openaiApiKey`, before any client factory call.
 
 **Checkpoint:** commit + full test suite + typecheck. Delete the transition shim from D.1 in a follow-up commit in this phase.
 
@@ -386,7 +402,13 @@ In `core-api/src/index.ts` and `workers/src/main.ts`: add a startup check — if
 ### E.1 Pre-deploy checklist
 
 - [ ] Branch merged to `main` (or PR approved, ready for squash-merge).
-- [ ] `.env.secrets` on homeserver has `OPENAI_API_KEY=<real-key>` (D.6). Verify with: `ssh homeserver.k4jda.net 'sudo docker exec open-brain-workers printenv | grep -E ^OPENAI'` AFTER deploy, but the secret must be set BEFORE deploy.
+- [ ] `.env.secrets` on homeserver updated to the new env var names. Exact edits on `/mnt/user/appdata/open-brain/.env.secrets`:
+  - Replace `LITELLM_API_KEY=sk-litellm-…` with `OPENAI_API_KEY=<real-key-from-Bitwarden-open-brain-openai-api-key>`.
+  - Replace `LITELLM_URL=…` with `OPENAI_BASE_URL=https://api.openai.com/v1` (or delete the line; the default works).
+  - If a LiteLLM spend proxy is still in use, rename `LITELLM_SPEND_URL=…` → `LLM_SPEND_URL=…` and set `LLM_SPEND_API_KEY=<spend-proxy-key>` (may differ from the inference key).
+  - Legacy shim: the D.1-D.5 code reads both old and new names during this window, so the rename can happen before OR after the deploy without downtime. Prefer before.
+- [ ] Verify with: `ssh homeserver.k4jda.net 'sudo docker exec open-brain-workers printenv | grep -E ^OPENAI'` AFTER deploy — should show the new names.
+- [ ] `bws secret get open-brain-openai-api-key` returns a real `sk-proj-…` / `sk-…` OpenAI key (not `sk-litellm-…`).
 - [ ] LAB_NOTEBOOK Entry 060 written with hypothesis + rollback.
 
 ### E.2 Deploy
@@ -442,7 +464,7 @@ Open an issue with the failure mode; do not re-attempt without diagnosis.
 | A | A.1 task_routing, A.2 email-classify name, A.3 capture_type, A.4 audit siblings, A.5 tests | In progress (A.1, A.4, A.2, A.3 done; A.5 pending) | — |
 | B | B.1 throw on unrouted, B.2 tests, B.3 grep check | COMPLETE 2026-04-16 | — |
 | C | C.1 delete legacy methods, C.2 drop litellmClient ctor arg, C.3 index.ts update, C.4 tests, C.5 consumer updates | COMPLETE 2026-04-16 | — |
-| D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | Pending | — |
+| D | D.1 openai-client rename, D.2 EmbeddingService ctor, D.3 call sites, D.4 YAML edits, D.5 compose renames, D.6 homeserver secrets doc, D.7 tests, D.8 startup validation | COMPLETE 2026-04-17 | — |
 | E | E.1 checklist, E.2 deploy, E.3 validate, E.4 rollback-if-needed, E.5 post-deploy | Pending | — |
 
 ## Risk register

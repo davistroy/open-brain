@@ -1,17 +1,10 @@
-litellm_url: "https://api.openai.com/v1"
-
 # ============================================================
-# Legacy model aliases (backward compat -- used by existing call sites)
-# These MUST use client: anthropic | litellm | ollama
-# Actual pipeline routing uses task_routing below (not these aliases)
+# Model config
+# Pipeline routing uses task_routing below. The `embedding` entry is
+# structured and kept here because it has a distinct purpose (dimension,
+# cost, client preference); OPENAI_BASE_URL env var controls the endpoint.
 # ============================================================
 models:
-  fast: "gpt-5.4"
-  synthesis: "gpt-5.4"
-  governance: "gpt-5.4"
-  intent: "gpt-5.4"
-  conversation: "gpt-5.4"
-  wiki_agent: "claude-haiku-4-5-20251001"
   embedding:
     model: "text-embedding-3-large"
     client: litellm

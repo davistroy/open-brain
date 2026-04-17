@@ -52,13 +52,16 @@ const AIModelValueSchema = z.union([
 ])
 
 export const AIModelConfigSchema = z.object({
-  fast: AIModelValueSchema,
-  synthesis: AIModelValueSchema,
-  governance: AIModelValueSchema,
-  intent: AIModelValueSchema,
+  // Legacy scalar aliases — all optional. Phase D removed them from
+  // config/ai-routing.yaml. Production routing uses task_routing + tiers.
+  fast: AIModelValueSchema.optional(),
+  synthesis: AIModelValueSchema.optional(),
+  governance: AIModelValueSchema.optional(),
+  intent: AIModelValueSchema.optional(),
   conversation: AIModelValueSchema.optional(),
-  embedding: AIModelValueSchema,
   wiki_agent: AIModelValueSchema.optional(),
+  // Structured — kept (embedding has distinct purpose)
+  embedding: AIModelValueSchema,
 })
 
 export type AIModelConfig = z.infer<typeof AIModelConfigSchema>
@@ -116,7 +119,8 @@ export type TaskName =
   | 'wiki_synthesis'
 
 export const AIConfigSchema = z.object({
-  litellm_url: z.string().url(),
+  /** Legacy field — Phase D removed from config/ai-routing.yaml. Optional for backward compat. */
+  litellm_url: z.string().url().optional(),
   models: AIModelConfigSchema,
   /** Three-tier model definitions (v2) -- optional for backward compat */
   model_tiers: ModelTiersConfigSchema.optional(),

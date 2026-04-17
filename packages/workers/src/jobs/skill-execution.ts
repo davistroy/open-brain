@@ -83,10 +83,11 @@ export function createSkillExecutionWorker(
     llmGateway?: LLMGatewayService
   },
 ): Worker {
-  // Resolve model aliases from ai-routing.yaml so skills send actual model
-  // names (e.g. 'claude-sonnet-4-20250514') to the API, not LiteLLM aliases.
+  // Resolve legacy model aliases (best-effort fallback for skills that still
+  // accept a `modelAlias` param). After Phase D, scalar aliases are optional
+  // in ai-routing.yaml; skills are expected to route via LLMGateway.completeByTask.
   const aiConfig = opts.configService.get('ai')
-  const synthesisModel: string = aiConfig.models['synthesis'].model
+  const synthesisModel: string = aiConfig.models['synthesis']?.model ?? 'gpt-5.4'
   const wikiAgentModel: string = aiConfig.models.wiki_agent?.model ?? 'claude-haiku-4-5-20251001'
 
   const worker = new Worker<SkillExecutionJobData>(

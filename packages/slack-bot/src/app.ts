@@ -16,7 +16,7 @@ export interface BotConfig {
  *   SLACK_APP_TOKEN  — xapp-... app-level token (Socket Mode)
  *   CORE_API_URL     — http://core-api:3000
  *   REDIS_URL        — redis://redis:6379
- *   LITELLM_URL      — https://llm.k4jda.net (for intent classification)
+ *   OPENAI_BASE_URL  — https://api.openai.com/v1 (for intent classification; legacy shim: LITELLM_URL)
  */
 export function createBoltApp(config: BotConfig): { app: App; coreApiClient: CoreApiClient } {
   const app = new App({

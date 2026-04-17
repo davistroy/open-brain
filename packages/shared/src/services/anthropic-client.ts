@@ -22,7 +22,7 @@ export interface CreateAnthropicClientOptions {
  *
  * Returns `null` if the API key is empty or missing — callers should check
  * and disable Claude features accordingly (following the same pattern as
- * createLiteLLMClient).
+ * createOpenAIClient).
  *
  * The Claude Code subscription provides API access at $0 marginal cost.
  * This client is used for all LLM inference tasks (fast, synthesis,

@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
-import { createLiteLLMClient, TemplateCache, PushoverService } from '@open-brain/shared'
+import { createOpenAIClient, TemplateCache, PushoverService } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, LLMSkillOpts } from './types.js'
@@ -17,7 +17,7 @@ import type { BaseResult, LLMSkillOpts } from './types.js'
  * - `coreApiUrl` — URL for internal API calls (e.g., saving captures)
  *
  * Constructor initialization mirrors the pattern in DailyConnectionsSkill:
- * uses createLiteLLMClient() for litellm, falls back to env vars for
+ * uses createOpenAIClient() for the OpenAI SDK client, falls back to env vars for
  * config, and provides sensible defaults for promptsDir and coreApiUrl.
  */
 export abstract class LLMSkill<TInput, TResult extends BaseResult> extends BaseSkill<TInput, TResult> {
@@ -34,8 +34,8 @@ export abstract class LLMSkill<TInput, TResult extends BaseResult> extends BaseS
       pushover: opts.pushover ?? new PushoverService({ onError: 'throw' }),
     })
 
-    // LiteLLM client: use provided client, or create one from base URL + API key
-    this.litellmClient = opts.litellmClient ?? createLiteLLMClient({
+    // OpenAI SDK client: use provided client, or create one from base URL + API key
+    this.litellmClient = opts.litellmClient ?? createOpenAIClient({
       baseUrl: opts.litellmBaseUrl,
       apiKey: opts.litellmApiKey,
       timeout: 'extended',
