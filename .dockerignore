@@ -20,6 +20,10 @@ reference/
 .claude/
 .github/
 scripts/
+# Python ingest scripts are shipped in the financial-ingest sidecar image.
+# Negations here make them available to that build context.
+!scripts/financial-pipeline.py
+!scripts/utility-pipeline.py
 
 # Test files (not needed in production image)
 **/__tests__/
