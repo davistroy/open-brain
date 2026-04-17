@@ -1874,6 +1874,86 @@ def _parse_hsa_csv(filepath: Path) -> Optional[dict]:
     )
 
 
+def _parse_paypal_csv(filepath: Path) -> Optional[dict]:
+    """Parse PayPal 'Activity Download' CSV.
+
+    PayPal uses a double-entry model where most user-initiated spend creates
+    TWO rows: the Debit (e.g., "PreApproved Payment Bill User Payment") and a
+    matching funding-side Credit ("General Card Deposit" or "Bank Deposit to
+    PP Account"). The sum of Debits + Credits is often zero because PP is a
+    pass-through. Reporting those funding counterparts as "income" would be
+    misleading, so we exclude them from `total_credit` while keeping actual
+    refunds and external transfers.
+
+    - `Balance Impact == "Memo"` rows (holds, dual-sided Withdrawals): dropped.
+    - `Balance Impact == "Debit"`: counted as spending.
+    - `Balance Impact == "Credit"` with Type in the funding set: dropped.
+    - `Balance Impact == "Credit"` otherwise (refunds, external deposits): counted.
+
+    Category = merchant `Name` when present, else `Type` (e.g., "Donation Payment").
+    """
+    rows = _read_csv_robust(filepath)
+    if not rows:
+        return None
+
+    FUNDING_TYPES = {
+        "General Card Deposit",
+        "Bank Deposit to PP Account",
+        # PayPal often pads the type string with a trailing space; guard both forms
+        "General Card Deposit ",
+        "Bank Deposit to PP Account ",
+    }
+
+    txns = []
+    for row in rows:
+        impact = (row.get("Balance Impact") or "").strip()
+        if impact == "Memo":
+            continue
+        ttype = (row.get("Type") or "").strip()
+        # Funding-side counterparts mirror actual spend rows. Drop them
+        # regardless of Balance Impact — we've observed rows where the
+        # Impact column is blank, so filtering purely on Type is safer.
+        if ttype in FUNDING_TYPES:
+            continue
+
+        date = _parse_mdy(row.get("Date", ""))
+        if not date:
+            continue
+
+        # Gross / Net both present; Net is post-fee and what actually hits the
+        # balance, matching the sign conventions of the other parsers.
+        amount = _parse_money(row.get("Net") or row.get("Gross") or "")
+        if amount == 0.0:
+            continue
+
+        name = (row.get("Name") or "").strip()
+        category = name if name else (ttype or "Uncategorized")
+        item = (row.get("Item Title") or "").strip()
+        desc_parts = [ttype]
+        if name:
+            desc_parts.append(name)
+        if item and item not in (name, ttype):
+            desc_parts.append(item)
+        desc = " — ".join(p for p in desc_parts if p)
+
+        txns.append({
+            "date": date,
+            "description": desc,
+            "amount": amount,
+            "category": category,
+        })
+
+    if not txns:
+        return None
+
+    return _summarize_transactions(
+        source="paypal",
+        account_id="paypal",
+        txns=txns,
+        source_file=filepath.name,
+    )
+
+
 def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
     """Dispatch a CSV to the right parser by filename pattern.
 
@@ -1907,6 +1987,22 @@ def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
     if lower.startswith("hsa"):
         r = _parse_hsa_csv(filepath)
         return ("hsa", r) if r else None
+
+    # PayPal: either the default export name (Download.CSV / Download(N).CSV)
+    # or explicitly paypal-prefixed. To avoid matching any random "Download.csv"
+    # we header-sniff: PayPal's CSV has "Balance Impact" as the final column
+    # plus "Transaction ID" + "Gross" + "Net" — a very specific combination.
+    is_download_name = bool(re.match(r"download(\s*\(\d+\))?\.csv$", lower))
+    if is_download_name or "paypal" in lower:
+        try:
+            with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+                header = f.readline()
+            paypal_signature = all(s in header for s in ('"Balance Impact"', '"Transaction ID"', '"Gross"', '"Net"'))
+        except Exception:
+            paypal_signature = False
+        if paypal_signature:
+            r = _parse_paypal_csv(filepath)
+            return ("paypal", r) if r else None
 
     # Fallback: Amazon orders CSV (legacy path retained for the existing inbox contents)
     if "amazon" in lower or "order" in lower:
