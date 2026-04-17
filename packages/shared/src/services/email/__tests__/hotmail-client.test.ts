@@ -28,16 +28,16 @@ function createMockDb() {
   const store = new Map<string, unknown>()
 
   const mockWhere = vi.fn().mockImplementation(() => {
-    // Return whatever is in the store for ms_token_cache
-    const val = store.get('ms_token_cache')
-    return val ? [{ key: 'ms_token_cache', value: val, updated_at: new Date() }] : []
+    // Return whatever is in the store for ms_token_cache_node
+    const val = store.get('ms_token_cache_node')
+    return val ? [{ key: 'ms_token_cache_node', value: val, updated_at: new Date() }] : []
   })
 
   const mockFrom = vi.fn().mockReturnValue({ where: mockWhere })
   const mockSelect = vi.fn().mockReturnValue({ from: mockFrom })
 
   const mockOnConflictDoUpdate = vi.fn().mockImplementation(({ set }) => {
-    store.set('ms_token_cache', set.value)
+    store.set('ms_token_cache_node', set.value)
     return Promise.resolve()
   })
   const mockValues = vi.fn().mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate })
@@ -486,7 +486,7 @@ describe('HotmailClient', () => {
   describe('token cache lifecycle', () => {
     it('hydrates cache from app_settings before reading accounts (A60 fix)', async () => {
       // Seed the DB mock with a previously-persisted MSAL cache.
-      dbMock.store.set('ms_token_cache', { cache: '{"Account":{"existing":"data"}}' })
+      dbMock.store.set('ms_token_cache_node', { cache: '{"Account":{"existing":"data"}}' })
 
       const client = createClient(dbMock.db, vi.fn())
       await client.authenticate()
