@@ -162,11 +162,11 @@
 | A57 | ~~Run email-classify manually after auth seeded, validate classification~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Hotmail 66/66/8rev, Gmail 27/27/24rev, 320s, pipeline complete |
 | A58 | ~~Jetson qwen3.5-4b cold-start latency — pre-warm or raise 5xx retry backoff in LLM gateway~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 059 — same-tier retry on "Loading model" with 3s/6s/12s backoff (21s window before fallback) |
 | A59 | ~~Summary synthesis 401 — `fast` alias keeps routing through LiteLLM proxy with virtual key that OpenAI rejects; also Zod 400 on summary capture~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 061 — gateway refactor (PR #79) + brain_view fix. Digest capture lands clean. |
-| A60 | MSAL Node cache does not rehydrate across workers container restarts | 2026-04-17 | Entry 061 | F.1 code-fix deployed — `hydrateCache()` works (accounts load), but silent refresh fails (see A64). PARTIAL. |
-| A61 | wiki-ingest fails with "Author identity unknown" | 2026-04-17 | Entry 061 | F.2 code-fix deployed to homeserver — validation deferred (email-classify blocked by A64 before reaching wiki-ingest stage). |
+| A60 | ~~MSAL Node cache does not rehydrate across workers container restarts~~ | 2026-04-17 | Entry 065 | DONE — F.1 hydrateCache() + A64 isolated cache: silent auth proved in 17ms on second run |
+| A61 | ~~wiki-ingest fails with "Author identity unknown"~~ | 2026-04-17 | Entry 065 | DONE — F.2 env-based git identity validated; empty commit authored as "Open Brain Bot <bot@brain.troy-davis.com>" |
 | A62 | ~~One embed job stalled after wiki-ingest cascade~~ | 2026-04-17 | Entry 061 | Resolved as byproduct of A61 |
 | A63 | ~~Remove OPENAI_* ?? LITELLM_* transition shim~~ | 2026-04-17 | Entry 063 | DONE — deployed 59b78b9; workers startup shows clean `["Anthropic","Ollama","OpenAI"]` gateway, no LITELLM warnings. |
-| A64 | MSAL refresh token rejected with AADSTS70000 invalid_grant — silent refresh unable to recover | 2026-04-17 | Entry 063 | Code-fix in-flight on `fix/msal-cache-key-split` (Entry 064): isolate TS cache to `ms_token_cache_node` + one device-code re-auth. Pending merge + deploy. |
+| A64 | ~~MSAL refresh token rejected with AADSTS70000 invalid_grant — silent refresh unable to recover~~ | 2026-04-17 | Entry 065 | DONE — PR #81 shipped ms_token_cache_node isolation; one device-code re-auth at 13:16 UTC; silent auth proved immediately after |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3711,3 +3711,63 @@ Decision needed from Troy: A, B, or C. Recommendation is B.
 **What to Watch:**
 - If the second run ALSO prompts device-code, hypothesis 3 from Entry 063 (MSAL Python/Node serialization incompatibility) is real and the MSAL-Node-native cache still fails → escalate to client-credentials migration (Option C).
 - If `seed_email_auth.py` runs again (e.g., manual re-seed), it writes to the OLD `ms_token_cache` key — TS pipeline is unaffected, but the VM still has a usable path to bulk-seed its local file. No conflict either direction.
+
+---
+
+### Entry 065 — A60/A61/A64 ALL VALIDATED end-to-end; Phase F closed
+
+**Date:** 2026-04-17
+**Tags:** `[deploy]` `[msal]` `[hotmail]` `[wiki-ingest]` `[validation]` `[close]`
+**Environment:** Homeserver, main @ `16d8c28` (PR #81 merged as squash). Workers + core-api rebuilt and up.
+**Duration:** ~20 min (merge + deploy + two-run validation)
+
+**Objective:** Execute Entry 064's deploy plan and confirm A60 (MSAL hydration), A61 (git identity), A63 (shim removal), A64 (cache key isolation) are all validated on production homeserver.
+
+**Hypothesis:** With the isolated `ms_token_cache_node` key:
+- Run 1 hits the empty cache → device-code prompt → after Troy enters code, fresh MSAL-Node-native RT lands in the new app_settings row.
+- Run 2 finds a populated cache → `hydrateCache() → getAllAccounts() → acquireTokenSilent()` all succeed → `"Hotmail: cached auth"` log, no device code.
+- wiki-ingest commits land with the F.2-env-provided identity (`Open Brain Bot <bot@brain.troy-davis.com>`).
+
+**Rollback:** `git revert 16d8c28` + `docker compose up -d workers core-api`. Previous `ms_token_cache` row still in DB untouched; rollback returns to Entry 063 state.
+
+**Timeline:**
+
+1. PR #81 CI green → squash-merged as `16d8c28`.
+2. Homeserver: `git pull` → build workers + core-api → `up -d`. Both healthy.
+3. Verified `ms_token_cache_node` string present in workers bundle: `grep -c ms_token_cache_node /app/packages/shared/dist/index.js` → 1.
+4. Run 1 trigger: `enqueue-email-classify.mjs` at 13:14:02 UTC. Workers log shows device-code prompt at 13:14:04. Code: `BA8HCHT9U`.
+5. Troy completes device auth at 13:16:30 UTC (Microsoft returns `res=success`).
+6. Run 1 completes at 13:17:32 UTC: Hotmail 24/24 moved, 2 needs-review, 0 errors. Gmail 2/2 moved, 1 needs-review, 0 errors. 210s total. `summaryPosted: false` (already posted earlier today, before deploy).
+7. DB check: new row `ms_token_cache_node` written at 13:16:37 UTC, 5950 bytes. Old `ms_token_cache` row untouched at 03:01:17 UTC, 12010 bytes.
+8. Run 2 trigger at 13:18:44 UTC. Workers log: `"Hotmail: cached auth"` at 13:18:44.941 — **17ms from pipeline start to authenticated.** No device code. 1 new email classified (received between runs). 13.5s total duration.
+9. A61 validation: empty commit inside `/tmp/open-brain-wiki` authored cleanly as `Open Brain Bot <bot@brain.troy-davis.com>`. Commit reset immediately (no push). Env vars present: `GIT_AUTHOR_NAME=Open Brain Bot`, `GIT_AUTHOR_EMAIL=bot@brain.troy-davis.com`, committer variants.
+
+**Validation matrix (final):**
+
+| Fix | Evidence | Status |
+|---|---|---|
+| A60 F.1 (MSAL explicit hydration) | Run 2 silent-auth in 17ms; accounts loaded from hydrated cache | VALIDATED |
+| A61 F.2 (git identity env vars) | Empty commit in wiki repo authored as "Open Brain Bot" | VALIDATED |
+| A63 F.3 (LITELLM_* shim removed) | Startup log: `["Anthropic","Ollama","OpenAI"]`, no LITELLM warnings | VALIDATED (Entry 063) |
+| A64 (isolated cache key) | New `ms_token_cache_node` row; old row untouched; silent refresh works on that row | VALIDATED |
+
+**Decision D106:** For any external service whose token-rotation semantics are owned by a single SDK (MSAL, OAuth2), give each language/implementation its own app_settings key. Cross-language shared caches for rotating credentials are a latent footgun — the shared DB row reads fine but the rotation arithmetic diverges. Precedent locked in for future Gmail, Outlook, Slack OAuth token handling.
+
+**What Worked:**
+- Writing Entry 064 as a deploy plan BEFORE cutting code let us step through each success criterion as a testable claim. Two deliberate runs (expect device-code, expect silent) made the validation unambiguous.
+- Keeping the old `ms_token_cache` row in place preserves a rollback path AND a historical data point for Entry 063's hypothesis investigation (if we ever care to figure out whether it was revocation, rotation race, or serialization incompatibility).
+- The 17ms silent-auth timing on run 2 is concrete evidence, not just "it didn't error."
+
+**What Could Be Better:**
+- Entry 062's diagnosis of A60 was incomplete — F.1 was necessary but not sufficient. If I had written the MSAL diagnostic replay script BEFORE Phase F (instead of after failure), we could have caught A64 in the same PR. New rule-of-thumb: for auth/token issues, always verify the END-TO-END silent-auth path (deserialize → getAllAccounts → acquireTokenSilent), not just the cache-load path.
+- The Pushgateway DNS error repeats in logs every 15 min (container-health) and every 6h (pipeline-health). Noise in the logs. Low-priority follow-up: either wire Pushgateway to the open-brain network or gate metric pushes on env var presence.
+
+**Close-out:**
+- A60, A61, A62, A63, A64 all marked DONE in the Action Items table.
+- PR #80 (Phase F) + PR #81 (A64) both shipped and validated. Branch `fix/post-refactor-cleanup` and `fix/msal-cache-key-split` deleted.
+- Tomorrow 5 AM cron expected to run unattended. If it prompts device-code again, that's Hypothesis 2 (AAD policy revocation) resurfacing and we need a different fix.
+
+**Next work this session:**
+- Phase G-A: A36 email outbound (add `HIMALAYA_CONFIG` env var, close #69, 30 min).
+- Phase G-B.4: wiki + redis backup parity, delete 710 LOC dead backup skills (in parallel with G-A, sibling branch or same branch).
+- Troy input needed to unblock G-C: platform decision (Python sidecar recommended) + confirm data/ CSVs cover the 6 parsers.
