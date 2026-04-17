@@ -51,8 +51,9 @@ export class CostAnalysisSkill extends BaseSkill<CostAnalysisOptions, CostAnalys
     super('cost-analysis', opts)
     this.wikiService = opts.wikiService
     this.wikiDir = opts.wikiDir ?? DEFAULT_WIKI_DIR
-    this.litellmSpendUrl = opts.litellmSpendUrl ?? process.env.LITELLM_SPEND_URL ?? ''
-    this.litellmApiKey = opts.litellmApiKey ?? process.env.LITELLM_API_KEY ?? ''
+    // Field names predate rename; read from LLM_SPEND_URL / LLM_SPEND_API_KEY env vars.
+    this.litellmSpendUrl = opts.litellmSpendUrl ?? process.env.LLM_SPEND_URL ?? ''
+    this.litellmApiKey = opts.litellmApiKey ?? process.env.LLM_SPEND_API_KEY ?? ''
   }
 
   async execute(options: CostAnalysisOptions = {}): Promise<CostAnalysisResult> {

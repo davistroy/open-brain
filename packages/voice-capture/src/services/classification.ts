@@ -74,12 +74,11 @@ export class ClassificationService {
   private anthropicClient: Anthropic | null
 
   constructor(opts?: { anthropicClient?: Anthropic }) {
-    // Prefer shared OpenAI client factory (reads OPENAI_BASE_URL / OPENAI_API_KEY,
-    // with legacy LITELLM_URL / LITELLM_API_KEY shim).
+    // Prefer shared OpenAI client factory (reads OPENAI_BASE_URL / OPENAI_API_KEY).
     // Falls back to a direct OpenAI construction for test compatibility (tests vi.mock('openai')).
     this.client = createOpenAIClient({ timeout: 'fast' }) ?? new OpenAI({
-      baseURL: process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1',
-      apiKey: process.env.OPENAI_API_KEY || process.env.LITELLM_API_KEY || 'unconfigured',
+      baseURL: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
+      apiKey: process.env.OPENAI_API_KEY || 'unconfigured',
       timeout: 30_000,
     })
     this.anthropicClient = opts?.anthropicClient ?? null

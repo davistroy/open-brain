@@ -73,9 +73,8 @@ function registerHandlers(app: App, coreApiClient: CoreApiClient, redis: Redis):
   }
 
   // Build IntentRouter from environment — falls back to CAPTURE if LLM unavailable.
-  // Legacy shim: new OPENAI_* env vars preferred, falls back to LITELLM_* during deploy rename window.
-  const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? process.env.LITELLM_URL ?? 'https://api.openai.com/v1'
-  const openaiApiKey = process.env.OPENAI_API_KEY ?? process.env.LITELLM_API_KEY ?? ''
+  const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
+  const openaiApiKey = process.env.OPENAI_API_KEY ?? ''
   const intentRouter = new IntentRouter({
     litellm_url: openaiBaseUrl,
     litellm_api_key: openaiApiKey,

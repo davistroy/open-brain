@@ -430,10 +430,9 @@ export class LLMGatewayService {
   /**
    * Queries an LLM-spend proxy's /spend/logs for the current month's spend.
    *
-   * Uses `LLM_SPEND_URL` env var (with legacy `LITELLM_SPEND_URL` shim) —
-   * distinct from `OPENAI_BASE_URL` which points at the inference API
-   * (api.openai.com/v1). When unset, falls back to local `ai_audit_log`
-   * estimation via `queryLocalMonthlySpend()`.
+   * Uses `LLM_SPEND_URL` env var — distinct from `OPENAI_BASE_URL` which
+   * points at the inference API (api.openai.com/v1). When unset, falls back
+   * to local `ai_audit_log` estimation via `queryLocalMonthlySpend()`.
    *
    * The /spend/logs endpoint returns a raw JSON array of individual request
    * records (each with `spend`, `model`, `startTime`, etc.), NOT an aggregated
@@ -441,10 +440,10 @@ export class LLMGatewayService {
    * groups by `model`.
    */
   async getMonthlySpend(): Promise<MonthlySpend> {
-    const spendUrl = process.env.LLM_SPEND_URL ?? process.env.LITELLM_SPEND_URL ?? ''
+    const spendUrl = process.env.LLM_SPEND_URL ?? ''
 
     if (!spendUrl) {
-      // No LiteLLM spend endpoint configured — use local ai_audit_log estimation
+      // No spend proxy configured — use local ai_audit_log estimation
       return this.queryLocalMonthlySpend()
     }
 
@@ -510,7 +509,7 @@ export class LLMGatewayService {
 
   /**
    * Estimates monthly spend from local ai_audit_log table.
-   * Used as fallback when LLM_SPEND_URL (legacy: LITELLM_SPEND_URL) is not configured or unreachable.
+   * Used as fallback when LLM_SPEND_URL is not configured or unreachable.
    */
   private async queryLocalMonthlySpend(): Promise<MonthlySpend> {
     try {

@@ -326,11 +326,9 @@ describe('LLMSkill', () => {
     const db = makeMockDb()
     const pushover = makePushoverService()
 
-    // Clear env vars to ensure createOpenAIClient returns null
+    // Clear OPENAI_API_KEY to ensure createOpenAIClient returns null
     const origOpenAI = process.env.OPENAI_API_KEY
-    const origLiteLLM = process.env.LITELLM_API_KEY
     delete process.env.OPENAI_API_KEY
-    delete process.env.LITELLM_API_KEY
 
     const skill = new ConcreteLLMSkill({
       db: db as unknown as import('@open-brain/shared').Database,
@@ -339,9 +337,7 @@ describe('LLMSkill', () => {
 
     expect(skill.getLitellmClient()).toBeNull()
 
-    // Restore
     if (origOpenAI !== undefined) process.env.OPENAI_API_KEY = origOpenAI
-    if (origLiteLLM !== undefined) process.env.LITELLM_API_KEY = origLiteLLM
   })
 
   it('accepts pre-constructed litellmClient', () => {
