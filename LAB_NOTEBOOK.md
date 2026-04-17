@@ -162,10 +162,10 @@
 | A57 | ~~Run email-classify manually after auth seeded, validate classification~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Hotmail 66/66/8rev, Gmail 27/27/24rev, 320s, pipeline complete |
 | A58 | ~~Jetson qwen3.5-4b cold-start latency — pre-warm or raise 5xx retry backoff in LLM gateway~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 059 — same-tier retry on "Loading model" with 3s/6s/12s backoff (21s window before fallback) |
 | A59 | ~~Summary synthesis 401 — `fast` alias keeps routing through LiteLLM proxy with virtual key that OpenAI rejects; also Zod 400 on summary capture~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 061 — gateway refactor (PR #79) + brain_view fix. Digest capture lands clean. |
-| A60 | MSAL Node cache does not rehydrate across workers container restarts — forces interactive device code each deploy | 2026-04-17 | Entry 061 | MEDIUM — blocks unattended 5 AM cron runs after any container recycle |
-| A61 | wiki-ingest fails with "Author identity unknown" — git needs user.email/name in workers container | 2026-04-17 | Entry 061 | LOW — pre-existing; blocks wiki auto-maintenance but not captures |
-| A62 | One embed job stalled after wiki-ingest cascade — watch for pattern | 2026-04-17 | Entry 061 | LOW — possibly transient restart symptom |
-| A63 | Remove OPENAI_* ?? LITELLM_* transition shim from D.1 after one verified week | 2026-04-24 | Entry 061 | LOW — shim is free, startup validation prevents silent fails |
+| A60 | ~~MSAL Node cache does not rehydrate across workers container restarts~~ | 2026-04-17 | Entry 061 | Code-fix shipped 3f3714c — pending homeserver deploy |
+| A61 | ~~wiki-ingest fails with "Author identity unknown"~~ | 2026-04-17 | Entry 061 | Code-fix shipped 0e270f1 — pending homeserver deploy |
+| A62 | ~~One embed job stalled after wiki-ingest cascade~~ | 2026-04-17 | Entry 061 | Resolved as byproduct of A61 |
+| A63 | ~~Remove OPENAI_* ?? LITELLM_* transition shim~~ | 2026-04-17 | Entry 061 | Code-fix shipped fb7f57f — pending homeserver deploy |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3529,3 +3529,45 @@ Success criteria:
 **What to Watch:**
 - Overnight 5 AM cron run tomorrow — first scheduled (not manual) run post-refactor. If MSAL cache issue (A60) isn't fixed by then, it'll need a device code entry each morning, which is untenable. **Actionable: fix A60 before tomorrow 5 AM or set an alarm to authenticate manually.**
 - Parallel validation against VM Python pipeline (deferred item 5.3) — first compare point is tomorrow's 5 AM run.
+
+### Entry 062 — Post-refactor cleanup (A60/A61/A63) shipped to branch + Phase G planned
+
+**Date:** 2026-04-17
+**Tags:** `[cleanup]` `[refactor]` `[msal]` `[git]` `[shim]` `[planning]`
+**Environment:** Laptop, branch `fix/post-refactor-cleanup` off main@8abdccf
+**Duration:** ~90 min (all three fixes + full test suite + plan additions)
+
+**Objective:** Close out A60 (MSAL cache rehydration), A61 (wiki-ingest git identity), A63 (shim removal) with fixes that **minimize tech debt** rather than patch around the issues. Then document the ultra-plan's Phase G items into the existing plan file so the next session can resume without re-investigating.
+
+**Hypothesis (all three fixes):** Each issue has a root cause that can be fixed structurally rather than worked around. A60 is MSAL plugin timing (wrong assumption that `beforeCacheAccess` fires on reads — it doesn't); fix is to manage cache lifecycle explicitly. A61 is missing git env vars in the container; fix is four env var lines in compose. A63 is transition-shim dead weight; remove now that homeserver is on canonical names.
+
+**Rollback:** Each commit is independent — `git revert <sha>` safe. F.1 restores ICachePlugin + device-code-on-restart behavior (same as Entry 058). F.2 restores `Author identity unknown` error on wiki-ingest (same as Entry 061). F.3 restores the shim (no behavioral impact since env vars are canonical now).
+
+**Commits on `fix/post-refactor-cleanup` (pushed, not deployed yet):**
+
+**F.1 — 3f3714c** MSAL explicit cache hydration. Removed the ICachePlugin registration; added `hydrateCache()` / `persistCache()` helpers called explicitly at the top of `authenticate()` and after each successful acquire*. Key fix: `getAllAccounts()` in MSAL Node does NOT trigger cache plugin callbacks — only `acquire*` operations do. The plugin approach was relying on behavior MSAL doesn't guarantee. 3 new tests assert `deserialize()` invocation order is BEFORE `getAllAccounts()`. Shared: 257 → 260 tests pass.
+
+**F.2 — 0e270f1** `GIT_AUTHOR_NAME/EMAIL` and `GIT_COMMITTER_NAME/EMAIL` env vars added to the workers service in `docker-compose.yml`. Identity: `Open Brain Bot <bot@brain.troy-davis.com>`. Env vars override missing `~/.gitconfig` at the git-process level — no Dockerfile rebuild. Resolves A62 as byproduct (embed stalls were caused by A61's cascade).
+
+**F.3 — fb7f57f** Removed `?? process.env.LITELLM_*` fallback across 20 files (shared, core-api, workers, slack-bot, voice-capture). Skill error messages updated from `"set ANTHROPIC_API_KEY or LITELLM_API_KEY"` → `"... or OPENAI_API_KEY"`. Deleted the shim-compat test. Kept the `sk-litellm-` startup-fatal validation as belt-and-suspenders. Net -65 LOC.
+
+**Test counts (pre-deploy):** shared 260 · core-api 699 · workers 980 · slack-bot 492 · voice-capture 82 = **2,513 green**.
+
+**Decision D102:** When MSAL Node cache plugins behave weirdly, manage cache lifecycle explicitly rather than relying on implicit plugin callbacks. Plugin callbacks fire only on a subset of operations; making the lifecycle explicit makes the flow linear and reviewable.
+
+**Decision D103:** Remove transition shims once deployment target is canonical. Leaving the shim in place "as free protection" is a trap — it makes the system tolerant of the broken state. Startup validation (`sk-litellm-` fatal) is the correct protection mechanism; the shim is tech debt.
+
+**Decision D104:** Skill instance field names (`this.litellmClient`, `litellmSpendUrl`, `litellmApiKey`) remain unchanged in this scope. Renaming them is a wider surface change spanning ~20 call sites — tracked as a separate follow-up.
+
+**Phase G documented in `IMPLEMENT_LLM_GATEWAY_REFACTOR.md`:** The 7-item ultra-plan (A36 email outbound + Phase 7.1/7.2/7.3 consolidation + open-brain-vm decommission + A46 financial CSVs + A47 utility deployment) is now a full phase with 3 change sets (G-A: A36, G-B: infrastructure consolidation, G-C: data ingestion scripts), implementation sequence, risk register, and scope boundaries. Key findings: A36 is NOT resolved (missing `HIMALAYA_CONFIG` env var); Phase 7.1 is ~80% done + 710 LOC of dead backup skills to delete; Phase 7.2/7.3 gated on validation windows (tomorrow's 5 AM cron is first parity point); VM decommission gated on G-C.0 architectural decision (recommend Python Docker sidecar); Cobb Water B2C OIDC flow split as separate backlog (40+ hrs, NOT A47 scope).
+
+**Pending (next session):**
+1. **Deploy Phase F**: PR + merge `fix/post-refactor-cleanup`; homeserver rebuild workers + core-api + slack-bot + voice-capture; remove `LITELLM_API_KEY` from `.env.secrets` (no longer read); validate A60/A61/A63 via manual email-classify trigger + 5 AM cron observation.
+2. **Approve Phase G plan + execute G-A (A36 email outbound fix — 30 min)** — unblocks issue #69.
+3. **Troy decision on G-C.0 platform question** (Python sidecar on homeserver vs. keep on VM vs. TS rewrite).
+4. **Gather sample CSVs from Troy** for G-C.1 (Amex, Chase, Truist, Schwab, HSA, PayPal).
+5. **Start validation counters**: morning-brief quality (G-B.3 gate), email-classify parity vs VM Python (G-B.1 gate). Both first observable tomorrow morning.
+
+**What Worked:** Identifying the MSAL plugin behavior as wrong-assumption rather than an incidental bug; switching to explicit lifecycle is both simpler code AND more correct. Test-first for F.1 proved the behavior before shipping.
+
+**What to Watch:** Overnight 5 AM cron tomorrow still runs the OLD code (Phase F not deployed yet) — will hit MSAL device-code prompt unless Phase F is deployed first. **Deploy Phase F before tomorrow 5 AM OR plan to authenticate manually in the morning.**
