@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { LLMGatewayService, LLMBudgetExceededError, LLMGatewayError } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
@@ -447,6 +447,141 @@ describe('LLMGatewayService', () => {
       const secondCall = db._insertValues.mock.calls[1][0]
       expect(secondCall.client_used).toBe('anthropic')
       expect(secondCall.error).toBeNull()
+    })
+  })
+
+  // ---------------------------------------------------------------------------
+  // Tests: "Loading model" same-tier retry backoff (A58)
+  // ---------------------------------------------------------------------------
+
+  describe('model-loading same-tier retry', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('retries the same tier on "Loading model" 503 and succeeds without fallback', async () => {
+      const litellm = makeOpenAIClient()
+      const ollama = makeOllamaClient('warm response')
+      ollama.chat.completions.create
+        .mockRejectedValueOnce(new Error('503 Loading model'))
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'warm response' } }],
+          usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 },
+        })
+      const anthropic = makeAnthropicClient('should not be called')
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const resultPromise = gw.completeByTask('Test.', 'intent_classification')
+
+      // Advance past the first backoff (3000ms) so the retry fires
+      await vi.advanceTimersByTimeAsync(3_500)
+
+      const result = await resultPromise
+
+      expect(result).toBe('warm response')
+      expect(ollama.chat.completions.create).toHaveBeenCalledTimes(2)
+      expect(anthropic.messages.create).not.toHaveBeenCalled()
+    })
+
+    it('falls back to next tier after 3 same-tier retries all return "Loading model"', async () => {
+      const litellm = makeOpenAIClient()
+      const ollama = makeOllamaClient()
+      ollama.chat.completions.create.mockRejectedValue(new Error('503 Loading model'))
+      const anthropic = makeAnthropicClient('T1 response after T0 exhausted retries')
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const resultPromise = gw.completeByTask('Test.', 'intent_classification')
+
+      // 3 retries: 3s + 6s + 12s = 21s total backoff
+      await vi.advanceTimersByTimeAsync(21_500)
+
+      const result = await resultPromise
+
+      expect(result).toBe('T1 response after T0 exhausted retries')
+      expect(ollama.chat.completions.create).toHaveBeenCalledTimes(4) // initial + 3 retries
+      expect(anthropic.messages.create).toHaveBeenCalledOnce()
+    })
+
+    it('does NOT retry same tier on generic 503 (only on "Loading model")', async () => {
+      const litellm = makeOpenAIClient()
+      const ollama = makeOllamaClient()
+      ollama.chat.completions.create.mockRejectedValueOnce(new Error('503 Service Unavailable'))
+      const anthropic = makeAnthropicClient('T1 took over immediately')
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const result = await gw.completeByTask('Test.', 'intent_classification')
+
+      // No timer advancement needed — fallback should be synchronous
+      expect(result).toBe('T1 took over immediately')
+      expect(ollama.chat.completions.create).toHaveBeenCalledOnce()
+      expect(anthropic.messages.create).toHaveBeenCalledOnce()
+    })
+
+    it('does NOT retry same tier on ECONNREFUSED (falls back immediately)', async () => {
+      const litellm = makeOpenAIClient()
+      const ollama = makeOllamaClient()
+      ollama.chat.completions.create.mockRejectedValueOnce(new Error('ECONNREFUSED'))
+      const anthropic = makeAnthropicClient('T1 fallback')
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, anthropic, ollama)
+      const result = await gw.completeByTask('Test.', 'intent_classification')
+
+      expect(result).toBe('T1 fallback')
+      expect(ollama.chat.completions.create).toHaveBeenCalledOnce()
+    })
+
+    it('matches "model is loading" variant (vLLM-style)', async () => {
+      const litellm = makeOpenAIClient()
+      const ollama = makeOllamaClient('warm response')
+      ollama.chat.completions.create
+        .mockRejectedValueOnce(new Error('503 model is loading'))
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'warm response' } }],
+          usage: { prompt_tokens: 5, completion_tokens: 10, total_tokens: 15 },
+        })
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const resultPromise = gw.completeByTask('Test.', 'intent_classification')
+      await vi.advanceTimersByTimeAsync(3_500)
+
+      const result = await resultPromise
+      expect(result).toBe('warm response')
+      expect(ollama.chat.completions.create).toHaveBeenCalledTimes(2)
+    })
+
+    it('logs each retry attempt as a separate audit entry', async () => {
+      const litellm = makeOpenAIClient()
+      const ollama = makeOllamaClient('warm')
+      ollama.chat.completions.create
+        .mockRejectedValueOnce(new Error('503 Loading model'))
+        .mockRejectedValueOnce(new Error('503 Loading model'))
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: 'warm' } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      const config = makeConfigService()
+
+      const gw = new LLMGatewayService(litellm, config, db, templateCache, null, ollama)
+      const p = gw.completeByTask('Test.', 'intent_classification')
+      await vi.advanceTimersByTimeAsync(3_500)  // after first backoff
+      await vi.advanceTimersByTimeAsync(6_500)  // after second backoff
+
+      await p
+
+      // 2 failed attempts + 1 successful attempt
+      expect(db._insertValues).toHaveBeenCalledTimes(3)
+      expect(db._insertValues.mock.calls[0][0].error).toContain('Loading model')
+      expect(db._insertValues.mock.calls[1][0].error).toContain('Loading model')
+      expect(db._insertValues.mock.calls[2][0].error).toBeNull()
     })
   })
 

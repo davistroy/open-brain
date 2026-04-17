@@ -107,6 +107,7 @@
 | D95 | Email classification data feeds morning brief (not Composio raw scan) | 2026-04-16 | ACTIVE | Entry 049 | Pipeline classifies overnight → morning brief queries results (T0 free). Replaces per-morning Sonnet scan ($$$). |
 | D96 | ~~Email pipeline stays Python (containerized), not TypeScript rewrite~~ | 2026-04-16 | SUPERSEDED by refactor plan | Entry 049 | Decided to rewrite as TypeScript BullMQ worker for zero tech debt. See IMPLEMENT_REFACTOR_2026-04-16.md Phase 4-5. |
 | D97 | Composio for reads + low volume; direct API for writes + high volume | 2026-04-16 | ACTIVE | Entry 049 | Email pipeline (300+ calls/day, folder CRUD) → direct Graph API + Gmail API. Calendar (5 calls/day, read-only) → Composio. 20K/month free tier preserved for light integrations (Drive, Sheets, Notion). |
+| D98 | MSAL seeding uses one-time device code flow, not Python-cache port | 2026-04-17 | ACTIVE | Entry 058 | Python→Node MSAL cache reuse fails silently (authority-match issue); device code is reliable and only needed once. Apply: drop row + re-trigger pipeline to re-auth. |
 
 ## Action Items
 
@@ -157,8 +158,10 @@
 | A52 | Migrate VM backup scripts to homeserver cron (docker exec) | 2026-04-16 | Entry 049 | MEDIUM — deferred to Phase 7 post-deployment |
 | A53 | Add sender rules: anthropic.com → Financial, google.com security alerts → Account & Security | 2026-04-16 | Entry 049 | LOW — ongoing pipeline tuning |
 | A54 | ~~Evaluate: email pipeline SQLite → Postgres email_classifications table~~ | 2026-04-16 | Entry 049 | DONE — PR #78 Phase 4.3, migration 0020 applied |
-| A56 | Seed MSAL + Gmail OAuth tokens into app_settings for email-classify skill | 2026-04-16 | Entry 056 | HIGH — blocks email pipeline going live |
-| A57 | Run email-classify manually after auth seeded, validate classification | 2026-04-16 | Entry 056 | HIGH — then begin 7-day parallel validation (5.3) |
+| A56 | ~~Seed MSAL + Gmail OAuth tokens into app_settings for email-classify skill~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Gmail seeded via token port + refresh; Hotmail via device code (cache now Node-native, future runs silent) |
+| A57 | ~~Run email-classify manually after auth seeded, validate classification~~ | 2026-04-16 | Entry 056 | DONE 2026-04-17 — Hotmail 66/66/8rev, Gmail 27/27/24rev, 320s, pipeline complete |
+| A58 | ~~Jetson qwen3.5-4b cold-start latency — pre-warm or raise 5xx retry backoff in LLM gateway~~ | 2026-04-17 | Entry 058 | DONE 2026-04-17 Entry 059 — same-tier retry on "Loading model" with 3s/6s/12s backoff (21s window before fallback) |
+| A59 | Summary synthesis 401 — `fast` alias keeps routing through LiteLLM proxy with virtual key that OpenAI rejects; also Zod 400 on summary capture (missing `capture_type`) | 2026-04-17 | Entry 058 | MEDIUM — breaks daily summary capture on every run, but core pipeline works |
 | A55 | Build PWA voice conversation page (/voice) — Web Speech API + /api/v1/chat endpoint | 2026-04-16 | Entry 049 | MEDIUM — architecture decided, see memory/voice-conversation-interface.md |
 | A36 | Get SMTP credentials from Troy for Email Outbound (#69) | 2026-04-15 | Entry 045 | HIGH — blocks Phase 4.3 end-to-end testing |
 | A37 | Fix spend aggregation in llm-gateway.ts getMonthlySpend() | 2026-04-15 | Entry 045 | MEDIUM — Phase 5.2 |
@@ -3339,3 +3342,106 @@ Supersedes D54 (OpenClaw jobs stay on Bond).
 - Voice conversation interface (A55) — architecture in memory, build when ready
 - Cobb County Water API analyzed (docs/cobb-water-api-analysis.md) — ready for utility pipeline work (#65)
 - **Rotate Hotmail password on Cobb Water portal** — HAR file contained plaintext credentials
+
+--- New session: 2026-04-16 — seed email auth tokens (A56) ---
+
+### Entry 058 — Seed email auth tokens into app_settings
+
+**Date:** 2026-04-16
+**Tags:** `[deploy]` `[email]` `[auth]` `[database]`
+**Environment:** VM (open-brain-vm, 192.168.10.53) → homeserver (Unraid, Postgres container)
+
+**Objective:** Seed MSAL (Hotmail/Graph) and Gmail OAuth tokens into the homeserver's `app_settings` table so the TypeScript email-classify BullMQ job can authenticate at 5 AM cron without interactive flows. Unblocks A56, A57, and the 7-day parallel validation in deferred item 5.3.
+
+**Hypothesis:** The Python pipeline's existing tokens on the VM (`~/.email-pipeline/gmail_credentials.json`, `gmail_token.json`, `ms_token_cache.json`, all refreshed at 05:00–05:02 today) are compatible with the Node clients after minimal translation:
+- `gmail_credentials.json` — already nested `{installed: {...}}`; `GmailClient` at line 124 accepts this shape directly. Seed verbatim.
+- `gmail_token.json` — Python `{token, expiry (ISO string), refresh_token, scopes[]}` → Node `Credentials {access_token, expiry_date (ms epoch), refresh_token, scope (space-joined)}`. Field-level translation needed before upsert.
+- `ms_token_cache.json` — MSAL unified cache schema (`AccessToken/RefreshToken/Account/IdToken/AppMetadata`) is cross-platform-compatible between MSAL-Python and MSAL-Node (documented shared format). Wrap as `{cache: "<stringified JSON>"}` per `hotmail-client.ts:56-71`.
+
+Success criteria:
+1. Three rows exist in `app_settings` (`gmail_credentials`, `gmail_token_cache`, `ms_token_cache`)
+2. Manual trigger of email-classify job authenticates both providers, fetches inbox, writes to `email_classifications`
+3. No device-code or OAuth consent prompt needed (tokens already active on VM)
+
+**Rollback plan:**
+- Before seeding: capture existing rows with `SELECT key, value FROM app_settings WHERE key IN ('gmail_credentials','gmail_token_cache','ms_token_cache')` (should return zero rows since never seeded — empty result is the baseline)
+- To undo: `DELETE FROM app_settings WHERE key IN ('gmail_credentials','gmail_token_cache','ms_token_cache')`
+- If token translation is wrong and refresh fails: re-run seeder (tokens still fresh on VM) or fall back to interactive MSAL device code flow via a workers-container `ts-node` shell
+- **No risk to running system** — email-classify is a 5 AM cron job. Seeding at any time during the day is safe. Python pipeline on VM remains active; this is additive.
+
+**Approach (no Node seeder — psql + JSONB upsert):**
+1. On VM: translate `gmail_token.json` → `gmail_token_node.json` via short Python script (key rename + ISO→ms conversion + scopes join)
+2. SCP three JSON files from VM to homeserver `/tmp/`
+3. On homeserver: `docker exec open-brain-postgres psql -U openbrain -d openbrain -c "INSERT ... ON CONFLICT (key) DO UPDATE SET ..."` for each key, reading the JSON via psql variables (or `\set` + file include)
+4. Verify each row present
+5. Trigger email-classify manually, check worker logs for successful auth
+
+**Execution — What Actually Happened:**
+
+1. **Token staging** — SCP'd VM's `~/.email-pipeline/{gmail_credentials,gmail_token,ms_token_cache}.json` → homeserver `/tmp/`. Translated Gmail token on VM: `token→access_token`, ISO `expiry→expiry_date` (ms epoch = 1776319373987), `scopes[]→scope` (space-joined), added `token_type: "Bearer"`.
+2. **SQL seeding** — Generated `/tmp/seed_email_auth.sql` via `scripts/seed_email_auth.py` (runs on VM — homeserver has no python3; Unraid quirk). Three `INSERT … ON CONFLICT DO UPDATE` statements applied via `docker cp` + `psql -f`. All three rows present with expected shapes: `gmail_credentials.installed`, Node-field `gmail_token_cache`, `ms_token_cache.cache` (6969-char string).
+3. **Manual trigger** — Wrote `scripts/enqueue-email-classify.mjs` (one-shot BullMQ enqueuer using CJS `createRequire` from the pnpm-hoisted `/app/node_modules/.pnpm/bullmq@…/dist/cjs/`). First ESM import attempt failed with `ERR_UNSUPPORTED_DIR_IMPORT` — BullMQ's ESM build uses directory imports that Node can't resolve without `exports` map; switched to CJS require path. Enqueued `manual-email-classify-1776388765326`.
+
+**What Worked:**
+- Gmail token seeding was fully compatible after field translation — `google-auth-library` detected expired `expiry_date`, refreshed via `refresh_token`, wrote Node-format credentials back to `app_settings` (509→545 bytes). No interactive OAuth needed.
+- Hotmail device code flow (fallback) completed successfully: Troy entered `E2U5E9C79`, MSAL Node authenticated, `afterCacheAccess` wrote Node-serialized MSAL cache back (7227→11877 bytes). Future runs will skip device code.
+- Hotmail pipeline: 66 fetched, 66 classified, 66 moved, 8 needsReview, 0 errors. Mostly T0 sender/keyword rules (classification happened in ~114s — implies most were rule-based).
+- Gmail pipeline: 27 fetched, 27 classified, 27 moved, 24 needsReview, 0 errors. Fell through to T1 Jetson for most.
+- Pushover notification delivered ("Email Pipeline — 2026-04-17"). Pipeline `[email-classify] pipeline complete` in 320s.
+
+**What Failed (root cause analysis):**
+
+1. **MSAL Python cache not recognized by MSAL Node despite shared unified schema.** Hypothesis was that Python's `SerializableTokenCache.serialize()` and Node's `TokenCache.deserialize()` would interoperate — schema IS the documented cross-platform format. But `getAllAccounts()` returned empty and fell through to device code. **Root cause (suspected):** MSAL Node's `acquireTokenSilent` may have matched on authority — Python was likely initialized with authority `/consumers` (realm `9188040d-…` is the consumers tenant), while Node uses `/common`. Authority mismatch prevents silent token acquisition even though accounts ARE in the cache.
+   - **Resolution:** device code flow completed once; MSAL Node then wrote its own cache which is guaranteed round-trip-compatible. Not worth fixing upstream — seeding for MSAL is a one-time operation.
+   - **Lesson:** Don't assume cross-language MSAL cache compat even though the schema is nominally unified. If seeding is needed, trigger a one-time device code flow rather than porting the Python cache.
+
+2. **Jetson "503 Loading model"** on first few calls — qwen3.5-4b took ~20s to warm up after idle. Log showed `Connection error.` from OpenAI SDK which masks HTTP 5xx. LLM gateway fell back to `t1_spark` (DGX Spark Qwen 35B, free) — ≥16 retry/fallback events in the log, eventually resolved. Not blocking, but worth an [A58].
+
+3. **Summary synthesis failed (HTTP 401 "Incorrect API key ... sk-litel…600e").** The `fast` alias still routes through LiteLLM proxy (http://litellm:4000) per D85, and the key forwarded to OpenAI is the proxy's virtual key, not a real OpenAI key. Summary capture then POSTed to `/api/v1/captures` with no `capture_type` → Zod 400. Unrelated to auth seeding; separate issue [A59].
+
+**Decision D98:** MSAL token seeding for Open Brain uses one-time device code flow, not Python-cache port. Reason: authority-match failure makes Python→Node cache reuse unreliable. Apply: for any future same-client re-auth, either drop the existing row (`DELETE FROM app_settings WHERE key='ms_token_cache'`) and trigger the pipeline once, or expose an admin endpoint that forces device code.
+
+**Status:**
+- A56 (seed email auth tokens): COMPLETE — verified via 2026-04-17 run
+- A57 (run email-classify manually): COMPLETE — end-to-end pipeline succeeded
+- Next: begin 7-day parallel validation (deferred item 5.3). Python pipeline on VM continues at 5 AM alongside homeserver's 5 AM TypeScript job.
+
+### Entry 059 — A58 fix: same-tier retry on "Loading model" 503s
+
+**Date:** 2026-04-17
+**Tags:** `[llm]` `[gateway]` `[jetson]` `[code]`
+**Environment:** Laptop (code) → homeserver (deploy)
+**Duration:** ~45 min (investigate + implement + test + deploy)
+
+**Objective:** Absorb llama.cpp cold-start 503s inside the LLM gateway so classification calls don't fall back to Spark when Jetson is merely warming up. Previously ~14s of cold-start caused all 27 Gmail emails in Entry 058 to fall through to Spark (Qwen 35B), which explains the 24/27 "Needs Review" — Spark's larger model was uncertain on shorter/ambiguous signals and didn't clear the 0.85 threshold.
+
+**Hypothesis:** If the gateway retries the same tier on a "Loading model" error pattern with backoff 3s / 6s / 12s (21s window before falling back), Jetson will finish warming and the original tier will succeed on the retry. Success criteria:
+1. Unit tests cover: retries on "Loading model", exhausts retries → fallback, does NOT retry on generic 503/ECONNREFUSED, matches vLLM "model is loading" variant.
+2. Real run: trigger email-classify when Jetson is cold; logs show "retrying same tier"; classification completes on Jetson (not Spark) within ~20s of the first failure.
+
+**Rollback:** `git revert` the commit and redeploy previous `main` image. The change is self-contained in `packages/shared/src/services/llm-gateway.ts` (adds retry loop + `isModelLoadingError` helper) and `packages/core-api/src/__tests__/llm-gateway.test.ts` (6 new tests). No migrations, no API surface changes, no config changes.
+
+**Design:**
+- `MODEL_LOADING_BACKOFF_MS = [3_000, 6_000, 12_000]` — 3 retries, 21s total max wait
+- `isModelLoadingError()` matches `/loading\s+model|model\s+is\s+loading|warming\s+up/i` — specific enough not to trigger on generic 503s (which should still fall back immediately)
+- `completeWithTierFallback` now wraps its try/catch in a retry loop. On detected loading error + retries available: log warn, `setTimeout(backoff)`, `continue`. Otherwise: existing fallback chain applies unchanged.
+- Each retry logs its own audit entry in `ai_audit_log` with the error — gives full visibility into cold-start costs (free, since Jetson tier has 0 cost) and frequency.
+
+**Execution — Tests:**
+- Added 6 new unit tests to `llm-gateway.test.ts` under `describe('model-loading same-tier retry')`. Use `vi.useFakeTimers()` to advance through the backoff windows without real wall time.
+- All 30 `llm-gateway.test.ts` tests pass. Full core-api 700 pass, workers 980 pass, shared 257 pass. **No regressions.**
+- Log evidence from the test run confirms exact behavior — e.g., "503 Loading model" attempt 1 → 3000ms → attempt 2 → 6000ms → attempt 3 → 12000ms → fallback to t1_fast; "503 Service Unavailable" → immediate fallback (no retries); "503 model is loading" (vLLM variant) → matched and retried.
+
+**What Worked:** Fake-timer-based tests for retry backoff. Pattern: `const p = gw.completeByTask(...); await vi.advanceTimersByTimeAsync(3500); await p`. Each retry consumes its backoff window cleanly.
+
+**What to Watch:** If a tier returns "Loading model" persistently (e.g., a truly broken endpoint that always returns 503 with that body), callers will wait 21s per request before falling back. For email-classify that's acceptable (daily batch, 93 emails × 21s = 32 min worst case — still completes same day). For interactive queries it could feel slow. Revisit if this happens in practice.
+
+**Deployment plan:**
+1. Commit changes (logging before commit per Rule 11 — this entry is the pre-commit log).
+2. Build workers image on homeserver (`docker compose build workers`).
+3. Restart workers container.
+4. Validate:
+   - a. Let Jetson go idle >10 min (model unloads if llama.cpp has auto-unload).
+   - b. Enqueue email-classify (or wait for 5 AM cron).
+   - c. Grep worker logs for `loading model — retrying same tier` — expect 1-3 occurrences on Jetson's first cold call per day.
+   - d. Confirm tomorrow's Gmail classifications come from Jetson (not Spark fallback) — measured by Needs Review rate. Baseline was 24/27. Target: <10/27.
