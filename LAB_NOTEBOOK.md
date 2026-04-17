@@ -4811,6 +4811,53 @@ Git-tracked change only. Revert via `git revert <phase-1-commit-sha>` or `git ch
 
 
 
+### Entry 080 — Phase 2 (CS-α): Web contract drift fix + drift-guard — 2026-04-17
 
+**Tags:** [web] [typescript] [contract-drift] [test-infra] [decision]
+**Environment:** Local dev (Windows bash), branch `fix/web-contract-drift-2026-04-17`
+
+**Objective:** Eliminate drift between `packages/web/src/lib/api.ts` frontend types and the actual backend API contract — tighten union types that are currently `string` or overly broad, verify `SchwabHolding` field coverage, and add a compile-time drift-guard test so future drift fails CI loudly.
+
+**Hypothesis:**
+The web package has accumulated contract drift in 3 places (per plan investigation):
+1. `FileUploadStatus` is too broad — should be narrowed to the actual enum emitted by the ingest API.
+2. `IngestSourceType` is a free-form string when the backend emits a known closed set.
+3. `toPositionsRecord` may silently accept drifted shapes because `SchwabHolding` fields aren't constrained to the backend's actual response.
+
+Success criteria:
+- Narrowed unions in `packages/web/src/lib/api.ts`.
+- `Ingest.tsx` dropdown values match the narrowed `IngestSourceType`.
+- `SchwabHolding` fields cover the backend response (spot-audit).
+- A drift-guard test in `packages/shared/src/__tests__/web-type-drift.test.ts` asserts the canonical literal sets — regression in either direction (web narrows vs. backend expands) fails the test.
+- `pnpm --filter @open-brain/web exec tsc --noEmit` green; `pnpm --filter @open-brain/shared test` green.
+
+**Rollback plan:**
+Git-tracked changes only. Revert via `git revert <phase-2-squash-sha>` or branch deletion before merge. No runtime state touched.
+
+**Work items (6):**
+- 2.1 — Narrow `FileUploadStatus`, `IngestSourceType`, audit `toPositionsRecord` in `packages/web/src/lib/api.ts`
+- 2.2 — Audit `packages/web/src/pages/Ingest.tsx` dropdown values against narrowed `IngestSourceType`
+- 2.3 — Grep audit all web consumers of narrowed types for compile errors
+- 2.4 — Verify/extend `packages/web/src/lib/types.ts` `SchwabHolding` fields
+- 2.5 — Add drift-guard test at `packages/shared/src/__tests__/web-type-drift.test.ts`
+- 2.6 — Run tsc + `@open-brain/web` + `@open-brain/shared` test suites clean
+
+**Orchestration:** 2.1 → (2.3, 2.5 sequential on same subagent that owns `lib/api.ts`); 2.2 blocks on 2.1; 2.4 parallel throughout; 2.6 last.
+
+**Plan reference:** `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` Phase 2 (CS-α).
+
+**Results:**
+- **2.1 — `api.ts` narrowing:** `FileUploadStatus = 'pending' | 'processing' | 'parsed' | 'failed'`, `IngestSourceType = 'financial' | 'utility'`. `toPositionsRecord` reworked to read per-position `cost_basis`/`gain_dollar`/`gain_pct` via `typeof`-guarded coercion against `number | null`.
+- **2.2 — `Ingest.tsx`:** Dropdown narrowed to 3 options (`auto`, `financial`, `utility`) with friendly labels. 5 `status === 'completed'` comparisons flipped to `'parsed'` (canonical backend success state). Default `sourceType` remains `'auto'` (in-set). Zero tsc errors after fix.
+- **2.3 — Consumer audit:** No web consumers outside `Ingest.tsx` broke. Narrowing was contravariant.
+- **2.4 — `types.ts` SchwabPositionsMetadata:** Added `cost_basis?: number | null`, `gain_dollar?: number | null`, `gain_pct?: string` to the inline `positions[]` element. Source of truth: `scripts/financial-pipeline.py` lines 2092-2117 (`_parse_schwab_position_csv`) and 2344-2427 (`_format_schwab_position_capture`). Pinned in inline JSDoc.
+- **2.5 — Drift-guard test:** `packages/shared/src/__tests__/web-type-drift.test.ts` extracts the web inline union from `packages/web/src/lib/api.ts` via regex-on-source (web cannot re-export from shared — it's a standalone Vite bundle per inline comment at api.ts:846-859), compares against `FileUploadStatusSchema.options` / `IngestSourceTypeSchema.options` from shared. Failure messages name the canonical file. 2 test cases added.
+- **2.6 — Verification:** shared build green, `pnpm --filter @open-brain/web exec tsc --noEmit` 0 errors, shared tests 262/262 (15 files — includes new drift-guard), web tests 97/97 (14 files).
+
+**What worked:** Two-wave parallelization. Wave A ran 2.1+2.3 on one subagent (sequential file ownership — both touch `lib/api.ts`) concurrently with 2.4 (disjoint `types.ts`). Wave A's literal-set output flowed cleanly into Wave B (2.2 + 2.5, disjoint files, both dependent on 2.1's shape). No merge conflicts on the plan file despite 3–5 subagents editing it — each agent was scoped to its own item's section.
+
+**Delta vs. plan:** Plan implied web could re-export from shared, but `api.ts:846-859` explicitly declares the inline redeclaration is a deliberate Vite-bundling constraint. Drift-guard therefore uses regex-on-source rather than deepEqual-on-reexport. Failure messages direct reviewers to the canonical file and remind them why web can't re-export.
+
+**Duration:** ~20 min total (Wave A ~10 min parallel, Wave B ~10 min parallel, verification ~2 min).
 
 

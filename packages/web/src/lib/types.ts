@@ -554,6 +554,15 @@ export interface SchwabPositionsMetadata {
     qty?: number | null
     price?: number | null
     mkt_val?: number | null
+    // Per-position cost basis and gain metrics emitted by the Schwab CSV parser
+    // (`_parse_schwab_position_csv` in scripts/financial-pipeline.py). Each
+    // position row maps "Cost Basis", "Gain $ (Gain/Loss $)", "Gain %
+    // (Gain/Loss %)" to these fields; `_num_or_none` returns null for '--' /
+    // blank / 'N/A' sentinels (e.g. cash rows), so numeric fields are
+    // nullable and `gain_pct` may be an empty string.
+    cost_basis?: number | null
+    gain_dollar?: number | null
+    gain_pct?: string
     asset_type?: string
     [key: string]: unknown
   }>

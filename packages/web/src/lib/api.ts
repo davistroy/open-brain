@@ -851,15 +851,11 @@ export const voiceSessionApi = {
 export type IngestSourceType =
   | 'financial'
   | 'utility'
-  | 'document'
-  | 'image'
-  | 'email'
-  | 'other'
 
 export type FileUploadStatus =
   | 'pending'
   | 'processing'
-  | 'completed'
+  | 'parsed'
   | 'failed'
 
 export interface UploadCaptureSummary {
@@ -1125,11 +1121,12 @@ function toPositionsRecord(
     qty: typeof p.qty === 'number' ? p.qty : 0,
     price: typeof p.price === 'number' ? p.price : 0,
     market_value: typeof p.mkt_val === 'number' ? p.mkt_val : 0,
-    // Per-position cost_basis / gain are not emitted by the Python pipeline —
-    // only account-level totals. Default to 0 / empty.
-    cost_basis: 0,
-    gain_dollar: 0,
-    gain_pct: '',
+    // Per-position cost_basis / gain ARE emitted by the Python pipeline
+    // (financial-ingest) when available. Coerce via typeof to survive the
+    // `[key: string]: unknown` index signature and missing-field cases.
+    cost_basis: typeof p.cost_basis === 'number' ? p.cost_basis : 0,
+    gain_dollar: typeof p.gain_dollar === 'number' ? p.gain_dollar : 0,
+    gain_pct: typeof p.gain_pct === 'string' ? p.gain_pct : '',
     asset_type: p.asset_type ?? 'Unknown',
   }))
   return {
