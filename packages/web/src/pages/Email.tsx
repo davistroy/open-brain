@@ -15,6 +15,7 @@ import {
   Filter,
   Calendar,
   User,
+  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +23,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { emailApi, capturesApi } from '@/lib/api';
 import CaptureCard from '@/components/CaptureCard';
+import { EmailComposeDrawer } from '@/components/EmailComposeDrawer';
 import type { EmailDraft, Capture } from '@/lib/types';
 import { cn, formatRelativeTime } from '@/lib/utils';
 
@@ -49,10 +51,11 @@ interface DraftCardProps {
   draft: EmailDraft;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onEdit?: (id: string) => void;
   actionLoading: string | null;
 }
 
-function DraftCard({ draft, onApprove, onReject, actionLoading }: DraftCardProps) {
+function DraftCard({ draft, onApprove, onReject, onEdit, actionLoading }: DraftCardProps) {
   const [expanded, setExpanded] = useState(false);
   const StatusIcon = STATUS_ICONS[draft.status] ?? Mail;
   const isActionable = draft.status === 'draft';
@@ -100,6 +103,18 @@ function DraftCard({ draft, onApprove, onReject, actionLoading }: DraftCardProps
           {/* Action buttons (inline, always visible for drafts) */}
           {isActionable && (
             <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+              {onEdit && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1"
+                  onClick={() => onEdit(draft.id)}
+                  disabled={isLoading}
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -247,6 +262,10 @@ export default function Email() {
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Compose drawer state
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+
   const loadInbound = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -391,6 +410,18 @@ export default function Email() {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              setEditingDraftId(null);
+              setComposeOpen(true);
+            }}
+            className="gap-2"
+          >
+            <Mail className="h-4 w-4" />
+            <Pencil className="h-4 w-4" />
+            Compose
+          </Button>
         </div>
       </div>
 
@@ -534,6 +565,10 @@ export default function Email() {
           onFilterChange={setDraftFilter}
           onApprove={handleApprove}
           onReject={handleReject}
+          onEdit={(id) => {
+            setEditingDraftId(id);
+            setComposeOpen(true);
+          }}
           actionLoading={actionLoading}
         />
       )}
@@ -544,6 +579,25 @@ export default function Email() {
           hasFilters={hasActiveFilters}
         />
       )}
+
+      {/* Compose drawer — mounts always so transitions are smooth */}
+      <EmailComposeDrawer
+        open={composeOpen}
+        onOpenChange={(next) => {
+          setComposeOpen(next);
+          if (!next) setEditingDraftId(null);
+        }}
+        draftId={editingDraftId}
+        onSaved={() => {
+          // Refresh the drafts list if we're currently looking at it.
+          if (tab === 'drafts') void loadDrafts();
+        }}
+        onSent={() => {
+          setActionMsg('Email sent.');
+          setTimeout(() => setActionMsg(null), 5000);
+          if (tab === 'drafts') void loadDrafts();
+        }}
+      />
     </div>
   );
 }
@@ -632,6 +686,7 @@ function DraftsTab({
   onFilterChange,
   onApprove,
   onReject,
+  onEdit,
   actionLoading,
 }: {
   drafts: EmailDraft[];
@@ -641,6 +696,7 @@ function DraftsTab({
   onFilterChange: (v: string) => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
+  onEdit?: (id: string) => void;
   actionLoading: string | null;
 }) {
   if (loading) {
@@ -692,6 +748,7 @@ function DraftsTab({
                 draft={draft}
                 onApprove={onApprove}
                 onReject={onReject}
+                onEdit={onEdit}
                 actionLoading={actionLoading}
               />
             ))}

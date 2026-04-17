@@ -442,3 +442,163 @@ export interface VoiceSession {
   transcript: TranscriptTurn[]
   capture_ids: string[]
 }
+
+// ─── Financial source_metadata (CS4a.4) ────────────────────────────────────
+//
+// Narrow type for `Capture.source_metadata` when the capture was produced by
+// `scripts/financial-pipeline.py`. The Python pipeline writes one of seven
+// metadata shapes, discriminated by `source_provider` (and, for Schwab, by
+// the secondary `type` field, since Schwab has two snapshot variants that
+// both carry `source_provider: 'schwab'`).
+
+/** Financial provider identifiers emitted by the Python pipeline. */
+export type FinancialSourceProvider =
+  | 'amex' | 'chase' | 'truist' | 'schwab' | 'hsa' | 'paypal'
+
+/** Per-category aggregate emitted by `_format_bank_capture`. */
+export interface FinancialCategoryAggregate {
+  count: number
+  debit: number
+  credit: number
+}
+
+/** Inclusive date range over the transactions in a bank-style capture. */
+export interface FinancialDateRange {
+  start: string | null
+  end: string | null
+}
+
+/**
+ * Common fields shared by all transactional (bank-style) financial captures:
+ * amex, chase, truist, hsa, paypal. Produced by `_format_bank_capture`.
+ */
+interface BankLikeFinancialMetadataBase {
+  /** Internal Python discriminator, e.g. `amex_activity`, `hsa_activity`. */
+  type?: string
+  account_id: string
+  date_range: FinancialDateRange
+  total_debit: number
+  total_credit: number
+  net: number
+  transaction_count: number
+  by_category: Record<string, FinancialCategoryAggregate>
+  source_file?: string
+}
+
+/** Amex transaction-summary capture. */
+export interface AmexSourceMetadata extends BankLikeFinancialMetadataBase {
+  source_provider: 'amex'
+}
+
+/** Chase transaction-summary capture. */
+export interface ChaseSourceMetadata extends BankLikeFinancialMetadataBase {
+  source_provider: 'chase'
+}
+
+/** Truist transaction-summary capture. */
+export interface TruistSourceMetadata extends BankLikeFinancialMetadataBase {
+  source_provider: 'truist'
+}
+
+/** HSA transaction-summary capture. */
+export interface HsaSourceMetadata extends BankLikeFinancialMetadataBase {
+  source_provider: 'hsa'
+}
+
+/** PayPal transaction-summary capture. */
+export interface PaypalSourceMetadata extends BankLikeFinancialMetadataBase {
+  source_provider: 'paypal'
+}
+
+/**
+ * Schwab balance snapshot (no transactions — account cash/market value as of a
+ * point in time). Produced by `_format_schwab_balance_capture`. Discriminated
+ * from positions via `type: 'schwab_balance_snapshot'`.
+ */
+export interface SchwabBalanceMetadata {
+  source_provider: 'schwab'
+  type: 'schwab_balance_snapshot'
+  account_id: string
+  account_mask: string
+  as_of: string
+  account_value: number
+  cash: number
+  market_value: number
+  day_change: number
+  day_change_pct: string
+  non_margin?: number | null
+  margin?: number | null
+  sections?: Record<string, unknown>
+  source_file?: string
+}
+
+/**
+ * Schwab positions snapshot (holdings by market value). Produced by
+ * `_format_schwab_position_capture`. Discriminated from balance via
+ * `type: 'schwab_position_snapshot'`.
+ */
+export interface SchwabPositionsMetadata {
+  source_provider: 'schwab'
+  type: 'schwab_position_snapshot'
+  account_id: string
+  account_mask: string
+  account_type?: string
+  as_of: string
+  total_value: number
+  cost_basis?: number | null
+  gain_dollar?: number | null
+  gain_pct?: string
+  positions: Array<{
+    symbol?: string
+    description?: string
+    qty?: number | null
+    price?: number | null
+    mkt_val?: number | null
+    asset_type?: string
+    [key: string]: unknown
+  }>
+  asset_types: Record<string, { count: number; mkt_val: number }>
+  source_file?: string
+}
+
+/** Discriminated union of all financial capture metadata shapes. */
+export type FinancialSourceMetadata =
+  | AmexSourceMetadata
+  | ChaseSourceMetadata
+  | TruistSourceMetadata
+  | SchwabBalanceMetadata
+  | SchwabPositionsMetadata
+  | HsaSourceMetadata
+  | PaypalSourceMetadata
+
+/** Set of valid `source_provider` values, used by the type guard. */
+const FINANCIAL_PROVIDERS: ReadonlySet<FinancialSourceProvider> = new Set<FinancialSourceProvider>([
+  'amex', 'chase', 'truist', 'schwab', 'hsa', 'paypal',
+])
+
+/**
+ * Type predicate: narrows an opaque `source_metadata` record to
+ * `FinancialSourceMetadata` when its `source_provider` is one of the known
+ * financial provider keys.
+ */
+export function isFinancialSourceMetadata(
+  meta: unknown
+): meta is FinancialSourceMetadata {
+  if (!meta || typeof meta !== 'object') return false
+  const provider = (meta as { source_provider?: unknown }).source_provider
+  return typeof provider === 'string' && FINANCIAL_PROVIDERS.has(provider as FinancialSourceProvider)
+}
+
+/** Narrower helper for Schwab balance snapshots. */
+export function isSchwabBalanceMetadata(
+  meta: FinancialSourceMetadata
+): meta is SchwabBalanceMetadata {
+  return meta.source_provider === 'schwab' && (meta as SchwabBalanceMetadata).type === 'schwab_balance_snapshot'
+}
+
+/** Narrower helper for Schwab positions snapshots. */
+export function isSchwabPositionsMetadata(
+  meta: FinancialSourceMetadata
+): meta is SchwabPositionsMetadata {
+  return meta.source_provider === 'schwab' && (meta as SchwabPositionsMetadata).type === 'schwab_position_snapshot'
+}

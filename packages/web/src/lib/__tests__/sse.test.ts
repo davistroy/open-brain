@@ -41,7 +41,8 @@ class MockEventSource {
 vi.stubGlobal('EventSource', MockEventSource)
 
 // Import AFTER stubbing so the module closes over the mock
-import { sseClient, type SseEvent } from '../sse'
+import { sseClient, type SseEvent, createSSEConnection } from '../sse'
+import { ingestApi, type FileUploadRow } from '../api'
 
 beforeEach(() => {
   MockEventSource.instances = []
@@ -100,5 +101,64 @@ describe('SseClient', () => {
     // After stop a new start should create a fresh EventSource
     sseClient.start()
     expect(MockEventSource.instances.length).toBe(2)
+  })
+
+  it('registers a listener for upload:status when started', () => {
+    sseClient.start()
+    const es = MockEventSource.instances[0]
+    // Verify the listener is already installed by emitting and checking delivery.
+    const received: SseEvent[] = []
+    const off = sseClient.on((evt) => received.push(evt))
+    es.emit('upload:status', { id: 'u-1', status: 'processing' })
+    expect(received).toHaveLength(1)
+    expect(received[0].type).toBe('upload:status')
+    off()
+  })
+})
+
+describe('createSSEConnection', () => {
+  it('registers a listener for upload:status', () => {
+    const cleanup = createSSEConnection(() => {})
+    const es = MockEventSource.instances[MockEventSource.instances.length - 1]
+    const received: SseEvent[] = []
+    // Re-wire: replace the no-op handler by wrapping via another createSSEConnection call
+    cleanup()
+
+    const cleanup2 = createSSEConnection((evt) => received.push(evt))
+    const es2 = MockEventSource.instances[MockEventSource.instances.length - 1]
+    expect(es2).not.toBe(es)
+    es2.emit('upload:status', { id: 'u-2', status: 'completed' })
+    expect(received).toHaveLength(1)
+    expect(received[0].type).toBe('upload:status')
+    expect(received[0].data).toEqual({ id: 'u-2', status: 'completed' })
+    cleanup2()
+  })
+})
+
+describe('ingestApi.subscribeToEvents', () => {
+  it('only invokes callback when upload:status event id matches', () => {
+    const received: FileUploadRow[] = []
+    const off = ingestApi.subscribeToEvents('upload-abc', (row) => received.push(row))
+
+    const es = MockEventSource.instances[0]
+
+    // Mismatched id — should be ignored
+    es.emit('upload:status', { id: 'upload-xyz', status: 'processing' })
+    expect(received).toHaveLength(0)
+
+    // Non-upload event with matching-looking id — should be ignored
+    es.emit('capture_created', { id: 'upload-abc' })
+    expect(received).toHaveLength(0)
+
+    // Matching id — should fire
+    es.emit('upload:status', { id: 'upload-abc', status: 'completed', filename: 'f.pdf' })
+    expect(received).toHaveLength(1)
+    expect(received[0].id).toBe('upload-abc')
+
+    off()
+
+    // After unsubscribe — should not fire
+    es.emit('upload:status', { id: 'upload-abc', status: 'failed' })
+    expect(received).toHaveLength(1)
   })
 })

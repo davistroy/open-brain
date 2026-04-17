@@ -144,7 +144,7 @@ export class CaptureService {
     return rows[0] as CaptureRecord
   }
 
-  async list(filter: CaptureFilter = {}, limit = 20, offset = 0): Promise<{ items: CaptureRecord[]; total: number }> {
+  async list(filter: CaptureFilter & { source_provider?: string } = {}, limit = 20, offset = 0): Promise<{ items: CaptureRecord[]; total: number }> {
     const conditions = [isNull(captures.deleted_at)]
 
     if (filter.brain_view) conditions.push(eq(captures.brain_view, filter.brain_view))
@@ -156,6 +156,10 @@ export class CaptureService {
     if (filter.tags && filter.tags.length > 0) {
       // Array overlap: captures where any tag matches
       conditions.push(sql`${captures.tags} && ${filter.tags}::text[]`)
+    }
+    if (filter.source_provider) {
+      // JSONB text extraction: captures whose source_metadata JSONB contains the given provider
+      conditions.push(sql`${captures.source_metadata}->>'source_provider' = ${filter.source_provider}`)
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined

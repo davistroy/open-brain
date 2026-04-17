@@ -14,6 +14,9 @@ import {
   Settings,
   HelpCircle,
   Brain,
+  Upload,
+  DollarSign,
+  LineChart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -30,6 +33,7 @@ const navItems: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/search', label: 'Search', icon: Search },
   { to: '/timeline', label: 'Timeline', icon: Clock },
+  { to: '/ingest', label: 'Ingest', icon: Upload },
   { to: '/entities', label: 'Entities', icon: Users },
   { to: '/wiki', label: 'Wiki', icon: BookOpenText },
   { to: '/briefs', label: 'Briefs', icon: FileText },
@@ -37,6 +41,8 @@ const navItems: NavItem[] = [
   { to: '/intelligence', label: 'Intelligence', icon: Lightbulb },
   { to: '/voice', label: 'Voice', icon: Mic },
   { to: '/email', label: 'Email', icon: Mail },
+  { to: '/financial', label: 'Financial', icon: DollarSign },
+  { to: '/investments', label: 'Investments', icon: LineChart },
   { to: '/system', label: 'System', icon: Monitor },
 ];
 
