@@ -3,6 +3,7 @@
  */
 
 import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession, InfrastructureData, PipelineFlowEntry } from './types'
+import { sseClient } from './sse'
 
 const API_BASE = '/api/v1'
 
@@ -38,7 +39,7 @@ function buildQueryString(params: Record<string, unknown>): string {
 // Captures API
 
 export const capturesApi = {
-  list: async (params?: { limit?: number; offset?: number; source?: string; capture_type?: string; brain_view?: string }) => {
+  list: async (params?: { limit?: number; offset?: number; source?: string; source_provider?: string; capture_type?: string; brain_view?: string }) => {
     const qs = buildQueryString(params ?? {})
     // API returns { items, total, limit, offset } — normalize to { data, total, limit, offset }
     const raw = await request<{ items: Capture[]; total: number; limit: number; offset: number }>(`/captures${qs}`)
@@ -900,5 +901,23 @@ export const ingestApi = {
   processNow: async (source?: IngestSourceType): Promise<ProcessNowResponse> => {
     const qs = buildQueryString(source ? { source } : {})
     return request<ProcessNowResponse>(`/ingest/process-now${qs}`, { method: 'POST' })
+  },
+
+  /**
+   * Subscribe to upload:status SSE events for a specific upload_id.
+   * Returns an unsubscribe function.
+   *
+   * Uses the shared sseClient singleton so multiple subscribers share one EventSource.
+   */
+  subscribeToEvents: (
+    uploadId: string,
+    onStatus: (row: FileUploadRow) => void,
+  ): (() => void) => {
+    sseClient.start()
+    return sseClient.on((evt) => {
+      if (evt.type !== 'upload:status') return
+      const row = evt.data as unknown as FileUploadRow
+      if (row.id === uploadId) onStatus(row)
+    })
   },
 }

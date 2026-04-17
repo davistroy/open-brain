@@ -30,7 +30,7 @@ export function createSSEConnection(
   }
 
   // Handle named event types
-  const eventTypes = ['capture_created', 'pipeline_complete', 'skill_complete', 'bet_expiring']
+  const eventTypes = ['capture_created', 'pipeline_complete', 'skill_complete', 'bet_expiring', 'upload:status']
 
   for (const eventType of eventTypes) {
     eventSource.addEventListener(eventType, (event: MessageEvent) => {
@@ -73,7 +73,7 @@ class SseClient {
   start() {
     if (this.es) return
     this.es = new EventSource('/api/v1/events')
-    const eventTypes = ['capture_created', 'pipeline_complete', 'skill_complete', 'bet_expiring']
+    const eventTypes = ['capture_created', 'pipeline_complete', 'skill_complete', 'bet_expiring', 'upload:status']
     for (const eventType of eventTypes) {
       this.es.addEventListener(eventType, (event: MessageEvent) => {
         try {

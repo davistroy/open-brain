@@ -283,30 +283,30 @@ Ship the first user-visible benefit of the upload backend: a drag-drop Ingest pa
 
 ### Work items
 
-- [ ] **CS4a.1** Run `npx shadcn@latest add dialog tabs progress` in `packages/web/` — adds the new primitives to `components/ui/`. One commit at the top of the branch.
-- [ ] **CS4a.2** Add `react-dropzone` (if not already in lockfile) — `pnpm --filter @open-brain/web add react-dropzone`.
-- [ ] **CS4a.3** `packages/web/src/components/FileDropZone.tsx` — shared drop-zone with onFiles callback + accept-type list + max-size guard + keyboard accessibility. ~180 LOC.
-- [ ] **CS4a.4** `packages/web/src/lib/types.ts` — discriminated union for financial `source_metadata` keyed on `source_provider`. ~40 LOC.
-- [ ] **CS4a.5** `packages/web/src/lib/api.ts` — add `ingestApi` section (W1.3 spec): `upload(file, sourceType?)`, `listRecent(limit)`, `getStatus(uploadId)`, `processNow(source?)`. ~60 LOC.
-- [ ] **CS4a.6** `packages/web/src/pages/Ingest.tsx` (new) + route in `App.tsx`:
+- [x] **CS4a.1** Run `npx shadcn@latest add dialog tabs progress` in `packages/web/` — adds the new primitives to `components/ui/`. One commit at the top of the branch. ✅ 2026-04-17
+- [x] **CS4a.2** Add `react-dropzone` (if not already in lockfile) — `pnpm --filter @open-brain/web add react-dropzone`. ✅ 2026-04-17
+- [x] **CS4a.3** `packages/web/src/components/FileDropZone.tsx` — shared drop-zone with onFiles callback + accept-type list + max-size guard + keyboard accessibility. ~180 LOC. ✅ 2026-04-17
+- [x] **CS4a.4** `packages/web/src/lib/types.ts` — discriminated union for financial `source_metadata` keyed on `source_provider`. ~40 LOC. ✅ 2026-04-17 (shipped at ~165 LOC with per-provider interfaces + Schwab balance/positions split)
+- [x] **CS4a.5** `packages/web/src/lib/api.ts` — add `ingestApi` section (W1.3 spec): `upload(file, sourceType?)`, `listRecent(limit)`, `getStatus(uploadId)`, `processNow(source?)`. ~60 LOC. ✅ 2026-04-17 (core `ingestApi` shipped in CS3.10; CS4a.5 added `subscribeToEvents` + wired `'upload:status'` into both sse.ts eventTypes arrays)
+- [x] **CS4a.6** `packages/web/src/pages/Ingest.tsx` (new) + route in `App.tsx`: ✅ 2026-04-17
   - Hero drop zone (reuses FileDropZone). On drop: call `ingestApi.upload()`, show progress bar (Progress primitive), wait for SSE `upload:status` events, render result pill.
   - Manual source-type override dropdown (shadcn Select).
   - Recent uploads table (below drop zone) — pulls `ingestApi.listRecent(20)`, shows filename / size / source / status / capture-id chips (link to `/timeline?capture=<id>` OR `/financial?capture=<id>`).
   - "Process inbox now" button (W2.5) — calls `ingestApi.processNow()` for manual re-trigger; moved into Wave 1 since it's a 30-LOC addition.
   - ~380 LOC total.
-- [ ] **CS4a.7** `packages/core-api/src/schemas/capture.ts` — add `source_provider` to `listCapturesSchema`. ~2 LOC. Plus matching SQL WHERE in `routes/captures.ts` listCaptures handler. ~5 LOC.
-- [ ] **CS4a.8** `packages/web/src/pages/Financial.tsx` (new) + route + `components/FinancialSummaryCard.tsx`:
+- [x] **CS4a.7** `packages/core-api/src/schemas/capture.ts` — add `source_provider` to `listCapturesSchema`. ~2 LOC. Plus matching SQL WHERE in `routes/captures.ts` listCaptures handler. ~5 LOC. ✅ 2026-04-17 (schema + route forward + services/capture.ts parameterized JSONB WHERE)
+- [x] **CS4a.8** `packages/web/src/pages/Financial.tsx` (new) + route + `components/FinancialSummaryCard.tsx`: ✅ 2026-04-17
   - Tabs per provider (Amex / Chase / Truist / Schwab / HSA / PayPal). Tab count + $ badge from prefetched counts.
   - Each tab: reverse-chron list of captures filtered via `capturesApi.list({ source_provider: 'amex', ... })`. Each capture rendered as an expandable `FinancialSummaryCard` showing category breakdown (horizontal bars, plain CSS — no chart library needed for Wave 1) + top 10 transactions table.
   - Empty state when a provider has no captures: "Upload an [X] CSV in Ingest to see data here."
   - ~450 LOC total.
-- [ ] **CS4a.9** `packages/web/src/components/FinancialPulseCard.tsx`:
+- [x] **CS4a.9** `packages/web/src/components/FinancialPulseCard.tsx`: ✅ 2026-04-17
   - Client-side aggregates the last-30-day financial captures (pulls via `capturesApi.list({ brain_view: 'personal', capture_type: 'observation', ... })` filtered by `source_metadata.type LIKE '%_activity'`).
   - Renders total spend, MoM delta arrow + %, top 3 merchants (from per-capture top_transactions arrays unioned), inline sparkline (plain SVG, 30 daily aggregates).
   - Clickable → routes to `/financial`.
   - ~150 LOC.
-- [ ] **CS4a.10** `packages/web/src/pages/Dashboard.tsx` — slot `FinancialPulseCard` into the existing grid, above or alongside StatsCards. Minor touch.
-- [ ] **CS4a.11** `packages/web/src/components/Layout.tsx` — add 2 sidebar nav items: "Ingest" (Upload icon) + "Financial" ($ icon).
+- [x] **CS4a.10** `packages/web/src/pages/Dashboard.tsx` — slot `FinancialPulseCard` into the existing grid, above or alongside StatsCards. Minor touch. ✅ 2026-04-17 (full-width row above StatsCards)
+- [x] **CS4a.11** `packages/web/src/components/Layout.tsx` — add 2 sidebar nav items: "Ingest" (Upload icon) + "Financial" ($ icon). ✅ 2026-04-17
 
 ### Acceptance criteria
 

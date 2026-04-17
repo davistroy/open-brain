@@ -14,7 +14,9 @@ const VoiceConversations = lazy(() => import('@/pages/VoiceConversations'));
 const VoiceUpload = lazy(() => import('@/pages/Voice'));
 const Intelligence = lazy(() => import('@/pages/Intelligence'));
 const Email = lazy(() => import('@/pages/Email'));
+const Financial = lazy(() => import('@/pages/Financial'));
 const Help = lazy(() => import('@/pages/Help'));
+const Ingest = lazy(() => import('@/pages/Ingest'));
 const SlackCleanup = lazy(() => import('@/pages/SlackCleanup'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const System = lazy(() => import('@/pages/System'));
@@ -45,6 +47,8 @@ export default function App() {
           <Route path="voice" element={<VoiceConversations />} />
           <Route path="voice-upload" element={<VoiceUpload />} />
           <Route path="email" element={<Email />} />
+          <Route path="ingest" element={<Ingest />} />
+          <Route path="financial" element={<Financial />} />
           <Route path="intelligence" element={<Intelligence />} />
           <Route path="help" element={<Help />} />
           <Route path="slack-cleanup" element={<SlackCleanup />} />

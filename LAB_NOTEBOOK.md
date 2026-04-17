@@ -4409,3 +4409,113 @@ Fix: the testing subagent re-implemented all 6 gaps on the uncommitted tree, the
 - CS4b (Dashboard Wave 2, 6 items).
 - CS5 (Safe decommissioning, 9 items, 4 deploy-gated under Option B).
 - CS3.13 homeserver deploy.
+
+---
+
+### Entry 074 — CS4a Dashboard Wave 1 (Ingest page + Financial page + FinancialPulseCard)
+
+**Date:** 2026-04-17
+**Tags:** [implement] [web] [dashboard] [decision]
+**Environment:** laptop — feature/waves-2026-04-17 branch, Option B single-branch/single-PR mode. Parent SHA before CS4a: `9a77d34` (CS3 shipped).
+**Status:** IN PROGRESS — orchestrating.
+
+**Objective.** Ship the first user-visible benefit of the CS3 upload backend: a drag-drop Ingest page, a per-provider Financial browse page reading the 9+ existing financial captures, and a top-of-dashboard FinancialPulseCard aggregating the last 30 days. 11 work items, estimated +1250 / −30 LOC.
+
+**Hypothesis.** CS4a will land cleanly in a single commit at the end of the phase, with all 11 work items implemented per `IMPLEMENT_WAVES_2026-04-17.md` lines 286–309. Success criteria:
+- `pnpm --filter @open-brain/web exec tsc --noEmit` passes (web type-check only; Vite build skipped per pre-existing @azure/msal-node externalization blocker).
+- `pnpm -r test` passes with the same 2,554+ tests green seen on CS3 (`9a77d34`). New component tests from CS4a.3/Ingest integration add coverage on the drop zone + upload flow.
+- All new routes (`/ingest`, `/financial`) mounted in `packages/web/src/App.tsx` via a single reconciling edit, not parallel edits.
+- All new `ingestApi` / `capturesApi` consumers actually wired (grep test for each method reference).
+- Dark mode preserved; shadcn primitives inherit tokens.
+
+**Orchestration plan (barrel-clobber rule applied — Entry 073 lesson).**
+- **Sequential foundations (2 items, both mutate `pnpm-lock.yaml`):**
+  - CS4a.1 — `npx shadcn@latest add dialog tabs progress` in `packages/web/`.
+  - CS4a.2 — `pnpm --filter @open-brain/web add react-dropzone`.
+- **Parallel Group A (4 items, no shared barrel overlap):**
+  - CS4a.3 — `components/FileDropZone.tsx` (new file).
+  - CS4a.4 — `lib/types.ts` (new/expanded file; not `lib/api.ts`).
+  - CS4a.5 — `lib/api.ts` **ingestApi section only** (single subagent owns this barrel).
+  - CS4a.7 — `packages/core-api/src/schemas/capture.ts` + `routes/captures.ts` backend `source_provider` filter (different package, no web barrel conflict).
+  - → Testing/wiring-verify subagent follows.
+- **Parallel Group B (3 items, each creates a standalone page/component — NO App.tsx edit):**
+  - CS4a.6 — `pages/Ingest.tsx` (new page file only; route registration deferred).
+  - CS4a.8 — `pages/Financial.tsx` + `components/FinancialSummaryCard.tsx` (page + helper card; route registration deferred).
+  - CS4a.9 — `components/FinancialPulseCard.tsx` (new file; Dashboard mount deferred to CS4a.10).
+  - → Reconciling subagent adds `/ingest` + `/financial` routes to `App.tsx` in a single sequential edit.
+  - → Testing/wiring-verify subagent follows (grep each route mounted, each imported).
+- **Parallel Group C (2 items, touch different existing files):**
+  - CS4a.10 — `pages/Dashboard.tsx` mounts `FinancialPulseCard`.
+  - CS4a.11 — `components/Layout.tsx` adds "Ingest" + "Financial" sidebar nav items.
+  - → Testing/wiring-verify subagent + full test suite.
+
+**Barrel files in CS4a that must never be touched by two parallel subagents in the same wave:**
+- `packages/web/src/App.tsx` — route registration.
+- `packages/web/src/lib/api.ts` — API barrel (already disputed in CS3.10).
+- `packages/web/src/lib/types.ts` — shared types.
+- `packages/web/src/components/Layout.tsx` — nav barrel.
+- `packages/web/src/pages/Dashboard.tsx` — home-page composition.
+
+**Rollback Plan.** Because Option B is single-PR, rollback is performed by dropping the CS4a commit from the feature branch:
+```
+git log --oneline 9a77d34..HEAD    # inspect CS4a commit(s)
+git reset --hard 9a77d34           # back to CS3 tip, local only (branch not yet merged)
+git push --force-with-lease origin feature/waves-2026-04-17
+```
+CS1/CS2/CS3 remain intact on the branch. Backend ingest endpoints (shipped CS3) continue to accept uploads via curl. No DB rollback needed (CS4a is pure frontend + one backend query filter). Laptop-only verification — no homeserver changes in this wave.
+
+**What Worked / What Will Be Tested Per Wave.** Per Entry 073 rule: every parallel wave is followed by a testing subagent that re-verifies wiring via explicit grep:
+- `registerFooRoutes` present + imported in `app.ts`.
+- Every new `api.ts` method present + exported.
+- Every route in `App.tsx` mounted with a matching import.
+- Every new nav item in `Layout.tsx` has a corresponding route.
+- `pnpm --filter @open-brain/web exec tsc --noEmit` returns 0.
+- `pnpm -r test` passes.
+If the testing subagent finds gaps, it re-implements them on the uncommitted tree before the commit is created (exactly as in CS3). Results + any gaps filled will be appended below this entry as the wave lands.
+
+**Results (2026-04-17).**
+
+CS4a landed in 3 parallel waves + 2 sequential reconciles without a single barrel clobber — a clean sweep versus CS3's 6 gaps. Attributing this to explicit per-subagent scope fences ("stay in your lane — other parallel subagents own X/Y/Z") plus up-front reconnaissance that armed subagents with the shape of existing code (CS3.10's `ingestApi` surface, the `capturesApi.list` param gap, the `Select` primitive absence → native `<select>`, existing `buildQueryString` forwarding). Two post-wave wiring-verify subagents were launched (after Group A, and again after Group C as the comprehensive final); the first found zero gaps, the second found zero gaps. Entry 073's pattern held: the verify step itself is cheap insurance — even when it finds nothing, it justifies the commit.
+
+**What shipped (11/11 items + App.tsx reconcile, branch `feature/waves-2026-04-17`):**
+- CS4a.1 — shadcn primitives `dialog.tsx`, `tabs.tsx`, `progress.tsx` added to `packages/web/src/components/ui/`.
+- CS4a.2 — `react-dropzone@^15.0.0` added to `packages/web/package.json`.
+- CS4a.3 — `components/FileDropZone.tsx` (~135 LOC) + `__tests__/FileDropZone.test.tsx` (4/4 green). Reusable drop zone with accept map / size guard / keyboard accessibility / rejection surfacing / shadcn tokens for dark mode.
+- CS4a.4 — `lib/types.ts` appended with `FinancialSourceProvider` literal, 7 per-provider metadata interfaces (Amex/Chase/Truist/HSA/PayPal share a `BankLikeFinancialMetadataBase`; Schwab splits into `SchwabBalanceMetadata` + `SchwabPositionsMetadata` discriminated by nested `type: 'schwab_balance_snapshot' | 'schwab_position_snapshot'`), and predicates `isFinancialSourceMetadata` / `isSchwabBalanceMetadata` / `isSchwabPositionsMetadata`.
+- CS4a.5 — `'upload:status'` added to both eventTypes arrays in `lib/sse.ts`; `ingestApi.subscribeToEvents(uploadId, cb)` helper appended (static `import { sseClient } from './sse'` at top of api.ts); `__tests__/sse.test.ts` extended (8/8 green). `ingestApi` core methods were already shipped by CS3.10.
+- CS4a.6 — `pages/Ingest.tsx` (~380 LOC) + smoke test. Source-type override select, "Process inbox now" button, hero FileDropZone (25 MB, multi-file, CSV/HTML/PDF/image/text), per-file progress via `ingestApi.subscribeToEvents`, result pills, recent-uploads table (`ingestApi.list({ limit: 20 })`), click-through JSON dialog + re-process button. No toast hook exists so used inline status banners.
+- CS4a.7 — `schemas/capture.ts` `listCapturesSchema` + `source_provider: z.string().min(1).max(50).optional()`; `routes/captures.ts` forwards; `services/capture.ts` builds `source_metadata->>'source_provider' = ${filter.source_provider}` (parameterized, NOT `sql.raw`). `CaptureFilter` shared type left untouched — field accepted via local intersection type. 3 new route tests, 25+21 tests green.
+- CS4a.8 — `capturesApi.list` extended with `source_provider?: string` (1 LOC additive); `components/FinancialSummaryCard.tsx` (~370 LOC) with color-coded provider badges + 3 body variants (bank-like / Schwab balance / Schwab positions); `pages/Financial.tsx` (~220 LOC) with shadcn Tabs + `useSearchParams` URL-synced tab state + per-tab count prefetch.
+- CS4a.9 — `components/FinancialPulseCard.tsx` (~150 LOC) + smoke test. Self-fetching dashboard card: pulls 400 `personal`/`observation` captures, client-side filters by `isFinancialSourceMetadata` or `type` ending in `_activity`, splits into current-30d vs prior-30d windows, aggregates total spend (`total_debit` with `total_amount` fallback), MoM delta (red=up/bad, green=down/good), top 3 merchants unioned, 30-day plain-SVG polyline sparkline. Navigates to `/financial` on click/Enter/Space.
+- App.tsx reconcile — `/ingest` and `/financial` routes mounted inside the existing `<Route path="/" element={<Layout />}>` shell; two lazy imports added alphabetically. Single atomic edit, not a parallel one.
+- CS4a.10 — `pages/Dashboard.tsx` mounts `<FinancialPulseCard />` as a full-width row immediately above `<StatsCards />`.
+- CS4a.11 — `components/Layout.tsx` adds "Ingest" nav item (lucide `Upload` icon, after Timeline) and "Financial" nav item (lucide `DollarSign`, after Email, before System).
+
+**Verification (final, before commit).**
+- `pnpm --filter @open-brain/web exec tsc --noEmit`: PASS.
+- `pnpm --filter @open-brain/core-api exec tsc --noEmit`: PASS.
+- `pnpm --filter @open-brain/web exec vitest run`: **89/89** green (11 test files, 12.86s).
+- `pnpm --filter @open-brain/core-api exec vitest run`: **701/702** green in bulk; the 1 failure (`admin-queue-clear.test.ts > clears failed jobs from a valid queue with default options` — `Hook timed out in 10000ms`) was re-run in isolation with `--hookTimeout=30000` and passed 10/10. This is the same pre-existing Windows ioredis timing flake seen during Group A verification — last-modified date in an unrelated PR, not CS4a-induced.
+- Vite build intentionally NOT run (pre-existing `@azure/msal-node accessSync` externalization error is out of scope).
+- Wiring grep: all 18 checks PASS (routes mounted, imports resolved, upload:status in both eventTypes arrays, subscribeToEvents method present, source_provider parameterized in SQL, FinancialSummaryCard declared + consumed, Layout nav linked to both new routes, lucide icons imported).
+- `git status --short` surprises: none — only expected CS4a artifacts plus the pre-existing untracked files (`data/`, `reference/`, `scripts/*`, `senders.xlsx`, `=0.0.60`, `cloudflare/synthetic-monitor/package-lock.json`, `.implement-plan-state.json.2026-04-16-refactor`) which are not committed.
+
+**Tags added to the LoC estimate.** Original estimate was +1250 / −30. Actual diff spans: 3 new shadcn primitives (~180 LOC combined from the CLI), FileDropZone ~135, FinancialSummaryCard ~370, FinancialPulseCard ~150, Ingest ~380, Financial ~220, types.ts +165, plus modest edits to App/Layout/Dashboard/api/sse/schemas/routes/services/captures-routes-test/sse-test. Ballpark +1800 LOC — above estimate because CS4a.8's card grew with the Schwab branch handling and because tests for FileDropZone/FinancialPulseCard/Ingest/sse added real coverage.
+
+**What Worked.**
+- Reading existing code BEFORE dispatching subagents to tell each one precisely what already exists and what not to re-build (e.g., "CS3.10 already shipped `ingestApi.upload/list/get/process/processNow`; your job is just `subscribeToEvents` + sse.ts").
+- Mandating that parallel subagents in a wave touching any shared barrel MUST NOT include any other subagent that writes to that same barrel. Every barrel-touching subagent this wave was solo.
+- App.tsx route registration moved out of the component-creating subagents and into a dedicated sequential reconciler. Zero clobber.
+- Running a comprehensive wiring-verify subagent AFTER the final wave, not relying on each implementer's "yes it compiles" self-report.
+
+**Open items / follow-ups (not in this commit).**
+- Vite build error on `@azure/msal-node accessSync` — pre-existing, tracked in Entry 073 open items.
+- Manual browser verification of drag-drop flow, dashboard pulse card aggregation correctness, and Financial page tabs — user will verify post-deploy in Entry 074 continuation. Not blocking commit.
+- The 1 ioredis hookTimeout flake in `admin-queue-clear.test.ts` — pre-existing Windows flake, unchanged by CS4a.
+- CS4b (6 items) and CS5 (9 items) remain.
+- Pending post-merge deploys carried from CS1-CS3: migration `0021_file_uploads.sql`, `INGEST_TRIGGER_SECRET` in Bitwarden, electric-usage-downloader URL pin, deploy scripts to open-brain-vm.
+
+**Status:** READY FOR COMMIT — CS4a tip will be the next SHA on `feature/waves-2026-04-17`.
+
+
+
