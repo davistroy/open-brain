@@ -27,13 +27,23 @@ import {
  * If this test fails, the error message names both sides and the exact
  * files to reconcile; fix the WEB declaration to match SHARED, not the
  * other way around. SHARED is the source of truth.
+ *
+ * P01 extension (phase-P01/3.1): also guards CaptureSource parity across:
+ *   - packages/shared/src/types/capture.ts (canonical TS union, 9 values)
+ *   - packages/web/src/lib/types.ts (redeclared union, must stay in sync)
+ *   - packages/web/src/components/SearchFilters.tsx (CAPTURE_SOURCES array,
+ *     must list all values from the web type union)
  */
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const WEB_API_PATH = resolve(__dirname, '../../../web/src/lib/api.ts')
+const WEB_TYPES_PATH = resolve(__dirname, '../../../web/src/lib/types.ts')
+const SEARCH_FILTERS_PATH = resolve(__dirname, '../../../web/src/components/SearchFilters.tsx')
 const SHARED_SCHEMA_PATH = 'packages/shared/src/schema/ingest.ts'
 const WEB_API_REL = 'packages/web/src/lib/api.ts'
+const WEB_TYPES_REL = 'packages/web/src/lib/types.ts'
+const SEARCH_FILTERS_REL = 'packages/web/src/components/SearchFilters.tsx'
 
 /**
  * Extract the string-literal members of a `export type Name = 'a' | 'b' | ...`
@@ -80,6 +90,47 @@ function sorted<T extends string>(xs: readonly T[]): T[] {
   return [...xs].sort()
 }
 
+/**
+ * Extract the string-literal members of a `const NAME[: Type[]]* = ['a', 'b', ...]`
+ * declaration from a source file. Handles both single-line and multi-line array
+ * syntax, trailing commas, and arbitrary whitespace.
+ *
+ * Returns the literals in source order. Throws with an actionable message if
+ * the declaration is missing or malformed.
+ */
+function extractArrayLiterals(source: string, constName: string): string[] {
+  const normalized = source.replace(/\r\n/g, '\n')
+  // Match: const NAME (optional type annotation) = [ ... ] (possibly multi-line)
+  // The type annotation is optional and may contain generics, e.g. `: CaptureSource[]`
+  // The array body ends at the first `]` that closes the opening `[`.
+  const re = new RegExp(
+    `const\\s+${constName}\\s*(?::[^=]+)?=\\s*\\[([\\s\\S]*?)\\]`,
+  )
+  const match = normalized.match(re)
+  if (!match) {
+    throw new Error(
+      `Drift-guard could not locate \`const ${constName} = [...]\` in source. ` +
+        `The declaration may have been renamed or restructured. ` +
+        `Update extractArrayLiterals() in packages/shared/src/__tests__/web-type-drift.test.ts.`,
+    )
+  }
+  const body = match[1] ?? ''
+  const literals = Array.from(body.matchAll(/'([^']+)'/g)).map((m) => m[1])
+  if (literals.length === 0) {
+    throw new Error(
+      `Drift-guard matched \`${constName}\` array but extracted zero literal members. ` +
+        `Regex body was:\n${body}\n\n` +
+        `Update the extractArrayLiterals() regex in this test.`,
+    )
+  }
+  return literals
+}
+
+// Canonical 9-value CaptureSource set (source of truth: packages/shared/src/types/capture.ts)
+const CANONICAL_CAPTURE_SOURCES = [
+  'api', 'consolidation', 'document', 'email', 'file', 'mcp', 'slack', 'system', 'voice',
+] as const
+
 describe('web <-> shared contract drift guard (CS-α / F2)', () => {
   const webSource = readFileSync(WEB_API_PATH, 'utf8')
 
@@ -119,5 +170,46 @@ describe('web <-> shared contract drift guard (CS-α / F2)', () => {
         `union in ${WEB_API_REL} to match the \`IngestSourceTypeSchema\` z.enum([...]) ` +
         `tuple in ${SHARED_SCHEMA_PATH}.`,
     ).toEqual(sharedSorted)
+  })
+})
+
+describe('CaptureSource drift guard (phase-P01 / #110)', () => {
+  const webTypesSource = readFileSync(WEB_TYPES_PATH, 'utf8')
+  const searchFiltersSource = readFileSync(SEARCH_FILTERS_PATH, 'utf8')
+
+  it('CaptureSource web literal set (types.ts) matches canonical 9-value list', () => {
+    const webLiterals = extractUnionLiterals(webTypesSource, 'CaptureSource')
+    const webSorted = sorted(webLiterals)
+    const canonicalSorted = sorted(CANONICAL_CAPTURE_SOURCES)
+
+    expect(
+      webSorted,
+      `Drift detected in CaptureSource:\n` +
+        `  web    (${WEB_TYPES_REL}): ${JSON.stringify(webSorted)}\n` +
+        `  canonical (packages/shared/src/types/capture.ts): ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type CaptureSource = ...\` union in ${WEB_TYPES_REL} ` +
+        `to match the canonical TS union in packages/shared/src/types/capture.ts. ` +
+        `Also update CANONICAL_CAPTURE_SOURCES in this test file and the Zod enum ` +
+        `in packages/core-api/src/schemas/capture.ts.`,
+    ).toEqual(canonicalSorted)
+  })
+
+  it('SearchFilters CAPTURE_SOURCES array matches web CaptureSource type', () => {
+    const arrayLiterals = extractArrayLiterals(searchFiltersSource, 'CAPTURE_SOURCES')
+    const webUnionLiterals = extractUnionLiterals(webTypesSource, 'CaptureSource')
+
+    const arraySorted = sorted(arrayLiterals)
+    const unionSorted = sorted(webUnionLiterals)
+
+    expect(
+      arraySorted,
+      `Drift detected in SearchFilters.CAPTURE_SOURCES:\n` +
+        `  array  (${SEARCH_FILTERS_REL}): ${JSON.stringify(arraySorted)}\n` +
+        `  union  (${WEB_TYPES_REL}):      ${JSON.stringify(unionSorted)}\n` +
+        `\n` +
+        `CAPTURE_SOURCES must list every value in the CaptureSource union. ` +
+        `Update the \`const CAPTURE_SOURCES\` array in ${SEARCH_FILTERS_REL}.`,
+    ).toEqual(unionSorted)
   })
 })

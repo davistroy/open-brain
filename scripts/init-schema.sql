@@ -551,4 +551,104 @@ CREATE TABLE IF NOT EXISTS voice_sessions (
 );
 CREATE INDEX IF NOT EXISTS voice_sessions_started_at_desc_idx ON voice_sessions (started_at DESC);
 
+-- ============================================================
+-- Migration 0020: email_classifications, email_corrections, email_daily_summaries
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS email_classifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  subject TEXT,
+  category TEXT NOT NULL,
+  confidence NUMERIC(3,2),
+  tier TEXT NOT NULL,
+  folder_id TEXT,
+  moved BOOLEAN DEFAULT false,
+  processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ec_provider_message_idx
+  ON email_classifications (provider, message_id);
+
+CREATE INDEX IF NOT EXISTS ec_category_processed_idx
+  ON email_classifications (category, processed_at);
+
+CREATE INDEX IF NOT EXISTS ec_processed_at_idx
+  ON email_classifications (processed_at);
+
+CREATE TABLE IF NOT EXISTS email_corrections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  old_category TEXT NOT NULL,
+  new_category TEXT NOT NULL,
+  detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS email_daily_summaries (
+  date TEXT PRIMARY KEY,
+  email_count INTEGER NOT NULL,
+  categories JSONB,
+  summary_text TEXT,
+  posted_to_brain BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- Migration 0021: file_upload_status ENUM + file_uploads table
+-- ============================================================
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'file_upload_status') THEN
+    CREATE TYPE file_upload_status AS ENUM ('pending', 'processing', 'parsed', 'failed');
+  END IF;
+END$$;
+
+CREATE TABLE IF NOT EXISTS file_uploads (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  filename TEXT NOT NULL,
+  size_bytes BIGINT NOT NULL,
+  mime_type TEXT,
+  source_type TEXT NOT NULL,
+  parser_hint TEXT,
+  destination_path TEXT NOT NULL,
+  uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status file_upload_status NOT NULL DEFAULT 'pending',
+  capture_ids UUID[] DEFAULT '{}',
+  error_message TEXT,
+  processed_at TIMESTAMPTZ,
+  duration_ms INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_uploads_uploaded_at
+  ON file_uploads (uploaded_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_file_uploads_status
+  ON file_uploads (status)
+  WHERE status IN ('pending', 'processing');
+
+-- ============================================================
+-- Migration 0022: captures_source_check CHECK constraint
+-- ============================================================
+
+ALTER TABLE captures
+  DROP CONSTRAINT IF EXISTS captures_source_check;
+
+ALTER TABLE captures
+  ADD CONSTRAINT captures_source_check
+  CHECK (source IN (
+    'slack',
+    'voice',
+    'api',
+    'document',
+    'mcp',
+    'email',
+    'file',
+    'consolidation',
+    'system'
+  ));
+
 SELECT 'Schema initialization complete' AS result;
