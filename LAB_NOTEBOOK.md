@@ -180,7 +180,8 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — must merge before autopilot can begin |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged 2026-04-18 (PR #123); P02a-c + P03 in progress |
+| A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -5642,7 +5643,25 @@ Success criteria:
 
 **Merge command:** `gh pr merge 123 --squash --delete-branch` (after CI re-green on the mode-fix commit).
 
-**Gate 5.5 (homeserver deploy):** P01 touches docker-compose.yml. Post-merge, `homeserver-advisor` subagent will generate exact SSH + docker commands for operator; operator runs them manually per ORCHESTRATOR.md "homeserver boundary — what orchestrator does NOT do" section.
+**Gate 5.5 (homeserver deploy):** P01 touches docker-compose.yml. Post-merge commands were generated for operator (git pull + docker compose build web + docker compose up -d + docker stats verify + web dropdown smoke test). Operator elected to **defer deploy** to batch with subsequent bootstrap phases (P02a-c + P03). Action Item A70 tracks the deferred deploy.
+
+**Final Gate 5 result (2026-04-18T22:29 UTC):**
+- Squash-merged as `3afc0a2` on main
+- Issues auto-closed by "Closes #103, #105, #110" in PR body
+- Branch deleted on remote; local tracking ref pruned
+- CI green on mode-fix commit `16452e4` (build-and-test, sidecar-test, python-lint, validate-schema all pass)
+
+**Duration (entire P01 lifecycle):** ~1 hour wall-clock (orchestrator kickoff → merge)
+
+**What Worked (orchestration):**
+- Plan → branch → implement → review → merge sequence took ~1 hour for a 3-issue bundle. The 5-gate pipeline added discipline without bloating the timeline.
+- Gate 1 phase-planner caught 3 real drift items (SearchFilters still needs fix, drift-guard reads from api.ts not types.ts, init-schema missing 5 migrations) before Gate 3 wasted time on stale assumptions.
+- Gate 4 Opus reviewer caught 1 non-blocking nit (mode bit) that Sonnet would have overlooked. Worth the cost delta for the pre-merge gate.
+- Operator-in-the-loop at Gate 5 (bootstrap rule) added ~5 minutes of review time — the cost of the safety is tiny relative to the blast radius of a bad phase slipping through while the budget circuit breaker is still being built (P02-P03).
+
+**Pattern established:** CI re-runs validate-schema conditionally on mode-only changes to the validator script itself (because the script path is NOT in the trigger list — only schema files are). When the reviewer-flagged mode-fix commit went up, the validate-schema job still executed — investigation showed the CI check picked up the change because scripts/ is being watched broadly in the trigger detection. Good accident.
+
+**Status:** P01 ✅ COMPLETE. Orchestrator advances to P02a (Zod config validation for ai-routing.yaml).
 
 ---
 
