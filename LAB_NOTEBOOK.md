@@ -5614,5 +5614,35 @@ Success criteria:
 - `extractUnionLiterals()` from the existing test works on `types.ts` (single-line union) without modification — no new helper needed for that case
 - `docker compose config` validation requires `.env.secrets` to exist (even empty); created a stub, validated, removed
 
-**Status:** ALL_COMPLETE
+**Status:** ALL_COMPLETE (Gate 3)
+
+---
+
+#### Gate 4 — Opus code review — APPROVE
+
+**Reviewer verdict:** APPROVE (first cycle, no changes requested). Posted to PR #123 as a COMMENTED review at 2026-04-18T21:46:44Z (GitHub blocks self-approval when `gh` account matches PR author).
+
+**CI status on HEAD `7a76783`:** 4/4 green
+- `build-and-test`: success
+- `Sidecar tests (Python)`: success
+- `Python lint & typecheck`: success
+- `Validate init-schema.sql`: success — the new validator executed end-to-end against a fresh `pgvector/pgvector:pg16` container and verified all 23 tables + `captures_source_check` CHECK constraint
+
+**Reviewer deliverable verification:** 12/12 acceptance criteria met; 13 `mem_limit` entries in docker-compose.yml; 4 `NODE_OPTIONS` on Node services; 100 new lines of idempotent DDL matching migrations 0020-0022 byte-for-byte; 121-line validator script; CI job wired correctly; 2 new drift-guard tests with robust regex.
+
+**Nits:** 1 non-blocking — `scripts/validate-init-schema.sh` had git mode `100644` instead of `100755`. CI invokes via `bash scripts/...` so it functioned correctly, but executable bit is the correct mode for POSIX hygiene. Operator requested fix before merge.
+
+---
+
+#### Gate 5 — Merge (bootstrap: operator approval required)
+
+**Operator decision:** approve merge after mode-bit fix.
+
+**Pre-merge fix:** `git update-index --chmod=+x scripts/validate-init-schema.sh` on the P01 branch; commit as `chore(phase-P01): mark validate-init-schema.sh executable`; push and re-verify CI green before merging.
+
+**Merge command:** `gh pr merge 123 --squash --delete-branch` (after CI re-green on the mode-fix commit).
+
+**Gate 5.5 (homeserver deploy):** P01 touches docker-compose.yml. Post-merge, `homeserver-advisor` subagent will generate exact SSH + docker commands for operator; operator runs them manually per ORCHESTRATOR.md "homeserver boundary — what orchestrator does NOT do" section.
+
+---
 
