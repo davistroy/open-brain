@@ -5103,3 +5103,42 @@ All 5 phases of `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` shipped as 5 separat
 - **LAB_NOTEBOOK Rules 1 + 11** caught one near-miss (forgot hypothesis entry once early; corrected before action).
 - **Regression-revert validation** (Phase 4's key deliverable) is a repeatable pattern — worth stealing for future test-coverage gaps.
 
+---
+
+### Entry 085 — Phase 1 (CS-ζ): A65 F4 import-type experiment CLOSED — 2026-04-18
+
+**Tags:** [decision] [cleanup] [import-type] [eslint]
+**Environment:** Branch `feat/action-items-a65-a68`. Read-only investigation.
+
+**Objective:** Resolve A65 from the 2026-04-17 carry-forward list: "F4 import-type experiment (drift-guard in PR #97 covers symptomatic case)."
+
+**Hypothesis:** The codebase already follows `import type` discipline de facto; PR #97's drift-guard test covers the specific runtime failure F4 was concerned about (web ↔ shared Zod-enum contract drift). A repo-wide `@typescript-eslint/consistent-type-imports` rule would be cosmetic enforcement with near-zero defect rate.
+
+**Rollback Plan:** N/A — read-only investigation + docs change. No code modified. If future evidence shows value in the eslint rule, reopen as a fresh item.
+
+**Investigation (via ultra-plan Phase 1):**
+- `tsconfig.base.json` has no `verbatimModuleSyntax`, `isolatedModules`, or `importsNotUsedAsValues` — TypeScript does NOT enforce type-only imports at compile time.
+- No root `eslint.config.*` or `.eslintrc.*`; no `@typescript-eslint/consistent-type-imports` rule active anywhere.
+- Sampled imports across core-api, workers, slack-bot, shared, web: every type-only import already uses `import type` or inline `type` keyword correctly. No type-as-value import defects spotted in the sample.
+- PR #97 drift-guard (`packages/shared/src/__tests__/web-type-drift.test.ts`) regex-parses `packages/web/src/lib/api.ts` for `IngestSourceType` + `FileUploadStatus` literals and asserts parity with the Zod enum `.options` in `packages/shared/src/schema/ingest.ts`. Fails CI merge on divergence. This is the specific runtime failure mode F4 targeted.
+
+**Decision gate result:**
+The plan's grep `grep "import {" packages/ | grep ", type "` returned 30+ matches — BUT every match is legitimate *inline-type-import* syntax (`import { foo, type Bar } from 'x'`), which is modern TS style, not a defect. The grep metric was counting the wrong thing. No type-as-value leakage defects found.
+
+**Decision:** **Close A65 (Path 2).** Do NOT add `@typescript-eslint/consistent-type-imports`. Rationale:
+1. Discipline is de facto holding — no defects observed.
+2. Drift-guard covers the one runtime failure mode (Zod-enum drift between web and shared) that F4 would have caught.
+3. Adding the rule with `fixStyle: 'separate-type-imports'` would rewrite 30+ files cosmetically with zero runtime benefit.
+4. If a future incident shows value (e.g., a new contributor introduces a type-as-value import that Vite emits as a runtime require), reopen then.
+
+**What worked:**
+- Ultra-plan Phase 1 investigation correctly diagnosed de facto discipline before writing any code.
+- Decision gate in the plan forced explicit measurement rather than reflexive "add the rule."
+
+**What didn't:**
+- The grep metric in the decision gate was miscalibrated — it counted mixed-style imports (which include legitimate inline-type-imports) instead of defective type-as-value imports. A proper defect detector needs `tsc --noEmit` with `verbatimModuleSyntax` or an eslint dry-run. Not worth building.
+
+**Outcome:** A65 closed. Phase 1 of the A65-A68 implementation plan complete. No code change in this commit.
+
+---
+

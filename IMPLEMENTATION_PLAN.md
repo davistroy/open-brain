@@ -47,11 +47,12 @@ All four phases are independent — merge order can swap based on reviewer avail
 
 <!-- BEGIN PHASES -->
 
-## Phase 1: CS-ζ — A65 Import Type Experiment (Close or Lightweight Enforce)
+## Phase 1: CS-ζ — A65 Import Type Experiment (Close or Lightweight Enforce) ✅ Completed 2026-04-18
 
 **Complexity:** Trivial
 **Dependencies:** None
 **Parallelizable:** Yes
+**Status:** COMPLETE 2026-04-18 — Path 2 (close with rationale). See LAB_NOTEBOOK Entry 085. Path 1.2 (eslint rule) not triggered — decision gate showed no defective imports, only legitimate inline-type-import style.
 
 ### Goals
 
