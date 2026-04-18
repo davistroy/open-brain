@@ -19,15 +19,26 @@ Usage (inside Docker container):
     python ingest-repair.py
 """
 
-import argparse, json, logging, os, re, sqlite3, struct, subprocess, sys, tempfile, time
+import argparse
+import json
+import logging
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 
 import requests
 
 sys.stdout.reconfigure(line_buffering=True)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 log = logging.getLogger("ingest-repair")
 
 PROGRESS_DB = os.environ.get("PROGRESS_DB", "/progress/repair-progress.db")
@@ -38,9 +49,15 @@ CALLER_HEADER = "X-Open-Brain-Caller"
 CALLER_VALUE = "file-ingestion-repair"
 
 DOMAIN_TO_VIEW = {
-    "Work": "work-internal", "Amateur Radio": "technical", "Making": "technical",
-    "Personal": "personal", "Sailing": "personal", "Projects": "technical",
-    "Reference": "technical", "App Data": "technical", "_Archive": "personal",
+    "Work": "work-internal",
+    "Amateur Radio": "technical",
+    "Making": "technical",
+    "Personal": "personal",
+    "Sailing": "personal",
+    "Projects": "technical",
+    "Reference": "technical",
+    "App Data": "technical",
+    "_Archive": "personal",
 }
 
 
@@ -74,12 +91,16 @@ def classify_error(path, error):
 
 # ── Extractors ──────────────────────────────────────────────────────────────
 
+
 def extract_doc_via_libreoffice(filepath):
     """Convert .doc to .docx via LibreOffice, then extract with python-docx."""
     with tempfile.TemporaryDirectory() as tmpdir:
         result = subprocess.run(
             ["libreoffice", "--headless", "--convert-to", "docx", "--outdir", tmpdir, filepath],
-            capture_output=True, text=True, timeout=90)
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
         if result.returncode != 0:
             return None, f"libreoffice failed: {result.stderr[:200]}"
         docx_files = list(Path(tmpdir).glob("*.docx"))
@@ -87,6 +108,7 @@ def extract_doc_via_libreoffice(filepath):
             return None, "libreoffice produced no output"
         try:
             from docx import Document
+
             doc = Document(str(docx_files[0]))
             text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
             return text, None
@@ -98,6 +120,7 @@ def extract_pdf_pymupdf(filepath):
     """Extract text from PDF using pymupdf (fast C-based parser)."""
     try:
         import fitz
+
         doc = fitz.open(filepath)
         pages = []
         for i, page in enumerate(doc):
@@ -116,8 +139,8 @@ def extract_pdf_pdftotext(filepath):
     """Extract text using poppler's pdftotext (very fast, handles most PDFs)."""
     try:
         result = subprocess.run(
-            ["pdftotext", "-layout", filepath, "-"],
-            capture_output=True, text=True, timeout=120)
+            ["pdftotext", "-layout", filepath, "-"], capture_output=True, text=True, timeout=120
+        )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout, None
         return None, f"pdftotext failed: rc={result.returncode}"
@@ -131,6 +154,7 @@ def extract_pdf_ocr(filepath):
     """OCR a scanned PDF using tesseract via pymupdf."""
     try:
         import fitz
+
         doc = fitz.open(filepath)
         pages = []
         max_pages = min(len(doc), 100)  # cap OCR at 100 pages
@@ -141,7 +165,10 @@ def extract_pdf_ocr(filepath):
             pix.save(img_path)
             result = subprocess.run(
                 ["tesseract", img_path, "stdout", "-l", "eng"],
-                capture_output=True, text=True, timeout=30)
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
             if result.returncode == 0 and result.stdout.strip():
                 pages.append(result.stdout)
             os.unlink(img_path)
@@ -158,6 +185,7 @@ def extract_xlsx_skip_charts(filepath):
     try:
         from openpyxl import load_workbook
         from openpyxl.chartsheet import Chartsheet
+
         wb = load_workbook(filepath, read_only=True, data_only=True)
         sheets = []
         for name in wb.sheetnames:
@@ -183,13 +211,17 @@ def extract_xlsx_via_xlrd(filepath):
     """Extract text from old .xls binary format using xlrd."""
     try:
         import xlrd
+
         wb = xlrd.open_workbook(filepath)
         sheets = []
         for sheet in wb.sheets():
             rows = []
             for r in range(min(sheet.nrows, 10000)):
-                vals = [str(sheet.cell_value(r, c)) for c in range(sheet.ncols)
-                        if sheet.cell_value(r, c)]
+                vals = [
+                    str(sheet.cell_value(r, c))
+                    for c in range(sheet.ncols)
+                    if sheet.cell_value(r, c)
+                ]
                 if vals:
                     rows.append("\t".join(vals))
             if rows:
@@ -205,6 +237,7 @@ def extract_large_pptx(filepath):
     """Extract text from large PPTX via python-pptx with timeout protection."""
     try:
         from pptx import Presentation
+
         prs = Presentation(filepath)
         slides = []
         for i, slide in enumerate(prs.slides):
@@ -231,11 +264,11 @@ def check_file_magic(filepath):
     try:
         with open(filepath, "rb") as f:
             header = f.read(8)
-        if header[:4] == b'\xd0\xcf\x11\xe0':
+        if header[:4] == b"\xd0\xcf\x11\xe0":
             return "ole2"  # old binary Office format
-        if header[:4] == b'\x50\x4b\x03\x04':
-            return "zip"   # modern Office (xlsx/docx/pptx)
-        if header[:5] == b'%PDF-':
+        if header[:4] == b"\x50\x4b\x03\x04":
+            return "zip"  # modern Office (xlsx/docx/pptx)
+        if header[:5] == b"%PDF-":
             return "pdf"
         return "unknown"
     except Exception:
@@ -265,7 +298,10 @@ def extract_with_strategy(strategy, filepath, ext):
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(
                 ["libreoffice", "--headless", "--convert-to", "xlsx", "--outdir", tmpdir, filepath],
-                capture_output=True, text=True, timeout=60)
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
             if result.returncode == 0:
                 repaired = list(Path(tmpdir).glob("*.xlsx"))
                 if repaired:
@@ -283,8 +319,19 @@ def extract_with_strategy(strategy, filepath, ext):
         # For other large files, try LibreOffice text export
         with tempfile.TemporaryDirectory() as tmpdir:
             result = subprocess.run(
-                ["libreoffice", "--headless", "--convert-to", "txt:Text", "--outdir", tmpdir, filepath],
-                capture_output=True, text=True, timeout=120)
+                [
+                    "libreoffice",
+                    "--headless",
+                    "--convert-to",
+                    "txt:Text",
+                    "--outdir",
+                    tmpdir,
+                    filepath,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
             if result.returncode == 0:
                 txt_files = list(Path(tmpdir).glob("*.txt"))
                 if txt_files:
@@ -303,6 +350,7 @@ def extract_with_strategy(strategy, filepath, ext):
         elif ext in (".docx",):
             try:
                 from docx import Document
+
                 doc = Document(filepath)
                 text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
                 return (text, None) if text.strip() else (None, "empty docx")
@@ -337,17 +385,24 @@ def submit_capture(path, text, session):
         tags.append(parts[1])
 
     try:
-        resp = session.post(f"{CORE_API}/api/v1/documents/batch",
-            json={"files": [{
-                "title": filename,
-                "original_path": path,
-                "mime_type": "application/octet-stream",
-                "brain_view": brain_view,
-                "tags": tags,
-                "content": text[:50000],
-                "category": top_dir,
-                "taxonomy_path": "/".join(parts[:-1]),
-            }]}, timeout=30)
+        resp = session.post(
+            f"{CORE_API}/api/v1/documents/batch",
+            json={
+                "files": [
+                    {
+                        "title": filename,
+                        "original_path": path,
+                        "mime_type": "application/octet-stream",
+                        "brain_view": brain_view,
+                        "tags": tags,
+                        "content": text[:50000],
+                        "category": top_dir,
+                        "taxonomy_path": "/".join(parts[:-1]),
+                    }
+                ]
+            },
+            timeout=30,
+        )
         if resp.status_code in (200, 201):
             data = resp.json()
             results = data.get("results", [])
@@ -403,7 +458,7 @@ def run_repair(args):
     still_failed = 0
     skipped = 0
 
-    for i, (path, orig_error, strategy) in enumerate(classified):
+    for i, (path, _orig_error, strategy) in enumerate(classified):
         if strategy == "encrypted_skip":
             skipped += 1
             continue
@@ -420,33 +475,43 @@ def run_repair(args):
         text, err = extract_with_strategy(strategy, filepath, ext)
 
         if not text or len(text.strip()) < 50:
-            conn.execute("INSERT OR REPLACE INTO repair_log(path, status, error) VALUES(?,?,?)",
-                         (path, "failed", err or "empty after repair"))
+            conn.execute(
+                "INSERT OR REPLACE INTO repair_log(path, status, error) VALUES(?,?,?)",
+                (path, "failed", err or "empty after repair"),
+            )
             conn.commit()
             still_failed += 1
             if (i + 1) % 50 == 0:
-                log.info(f"  [{i+1}/{len(classified)}] repaired={repaired} failed={still_failed} skipped={skipped}")
+                log.info(
+                    f"  [{i+1}/{len(classified)}] repaired={repaired} failed={still_failed} skipped={skipped}"
+                )
             continue
 
         # Submit to API
         cid, submit_err = submit_capture(path, text, session)
         if cid:
-            conn.execute("INSERT OR REPLACE INTO repair_log(path, status, capture_id) VALUES(?,?,?)",
-                         (path, "ok", cid))
+            conn.execute(
+                "INSERT OR REPLACE INTO repair_log(path, status, capture_id) VALUES(?,?,?)",
+                (path, "ok", cid),
+            )
             repaired += 1
         else:
-            conn.execute("INSERT OR REPLACE INTO repair_log(path, status, error) VALUES(?,?,?)",
-                         (path, "submit_failed", submit_err or "submit failed"))
+            conn.execute(
+                "INSERT OR REPLACE INTO repair_log(path, status, error) VALUES(?,?,?)",
+                (path, "submit_failed", submit_err or "submit failed"),
+            )
             still_failed += 1
 
         conn.commit()
 
         if (i + 1) % 50 == 0:
-            log.info(f"  [{i+1}/{len(classified)}] repaired={repaired} failed={still_failed} skipped={skipped}")
+            log.info(
+                f"  [{i+1}/{len(classified)}] repaired={repaired} failed={still_failed} skipped={skipped}"
+            )
 
         time.sleep(0.1)
 
-    log.info(f"\n=== REPAIR COMPLETE ===")
+    log.info("\n=== REPAIR COMPLETE ===")
     log.info(f"  Repaired: {repaired}")
     log.info(f"  Still failed: {still_failed}")
     log.info(f"  Skipped (encrypted): {skipped}")
@@ -459,7 +524,7 @@ def show_status():
     strategies = Counter()
     for path, error in errors:
         strategies[classify_error(path, error)] += 1
-    print(f"\n=== Repair Status ===")
+    print("\n=== Repair Status ===")
     print(f"Total errors to repair: {len(errors)}")
     for s, c in strategies.most_common():
         print(f"  {s}: {c}")
@@ -467,7 +532,9 @@ def show_status():
     conn = init_repair_db()
     repaired = conn.execute("SELECT COUNT(*) FROM repair_log WHERE status='ok'").fetchone()[0]
     failed = conn.execute("SELECT COUNT(*) FROM repair_log WHERE status='failed'").fetchone()[0]
-    submit_failed = conn.execute("SELECT COUNT(*) FROM repair_log WHERE status='submit_failed'").fetchone()[0]
+    submit_failed = conn.execute(
+        "SELECT COUNT(*) FROM repair_log WHERE status='submit_failed'"
+    ).fetchone()[0]
     print(f"\nRepaired: {repaired}")
     print(f"Failed: {failed}")
     print(f"Submit failed: {submit_failed}")

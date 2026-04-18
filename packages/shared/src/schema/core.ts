@@ -13,7 +13,7 @@ export const captures = pgTable(
     content_hash: text('content_hash').notNull(),
     capture_type: text('capture_type').notNull(), // decision | idea | observation | task | win | blocker | question | reflection
     brain_view: text('brain_view').notNull(),      // career | personal | technical | work-internal | client
-    source: text('source').notNull(),              // slack | voice | api | document | mcp | email | file | consolidation
+    source: text('source').notNull(),              // slack | voice | api | document | mcp | email | file | consolidation — DB-level CHECK constraint in migration 0022; canonical TS union: CaptureSource in packages/shared/src/types/capture.ts
     source_metadata: jsonb('source_metadata'),
     tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
     embedding: vector('embedding'),

@@ -18,13 +18,22 @@ Cron (2nd of month, 5 AM):
     0 8 2 * * cd ~/open-brain && venv/bin/python scripts/utility-pipeline.py --monthly-comparison >> ~/logs/utility-pipeline.log 2>&1
 """
 
-import argparse, json, logging, os, re, sqlite3, subprocess, sys, tempfile, time
-from collections import defaultdict
-from datetime import datetime, date, timedelta, timezone
+import argparse
+import contextlib
+import json
+import logging
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
-import requests, yaml
+import requests
+import yaml
 
 # Shared capture-API helper (CS2.1/CS2.3). Same import strategy as
 # financial-pipeline.py — resolves against scripts/lib/ in both Docker and
@@ -39,9 +48,12 @@ _JSON_CAPTURES_POSTED: list[str] = []
 _JSON_ERRORS: list[str] = []
 
 
-def _post_capture_raw(cfg, content, source_metadata, capture_type="observation", brain_view="personal"):
-    ok = _post_capture_unwrapped(cfg, content, source_metadata,
-                                 capture_type=capture_type, brain_view=brain_view)
+def _post_capture_raw(
+    cfg, content, source_metadata, capture_type="observation", brain_view="personal"
+):
+    ok = _post_capture_unwrapped(
+        cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
+    )
     if _JSON_OUTPUT_MODE:
         if ok:
             _JSON_CAPTURES_POSTED.append(content[:80])
@@ -66,11 +78,16 @@ log = logging.getLogger("utility-pipeline")
 PIPE_DIR = Path(os.environ.get("UTILITY_PIPE_DIR", str(Path.home() / ".utility-pipeline")))
 DB_PATH = PIPE_DIR / "utility.db"
 CONFIG_DIR_ENV = os.environ.get("UTILITY_CONFIG_DIR")
-CONFIG_BASE = Path(CONFIG_DIR_ENV) if CONFIG_DIR_ENV else Path(__file__).resolve().parent.parent / "config" / "utility"
+CONFIG_BASE = (
+    Path(CONFIG_DIR_ENV)
+    if CONFIG_DIR_ENV
+    else Path(__file__).resolve().parent.parent / "config" / "utility"
+)
 CONFIG_PATH = CONFIG_BASE / "utility-config.yaml"
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
+
 
 def load_config() -> dict:
     """Load utility-config.yaml."""
@@ -81,7 +98,7 @@ def load_config() -> dict:
 
 # ── Secrets ──────────────────────────────────────────────────────────────────
 
-_bws_secrets_cache: Optional[list] = None
+_bws_secrets_cache: list | None = None
 
 
 def _load_bws_secrets() -> list:
@@ -92,7 +109,9 @@ def _load_bws_secrets() -> list:
     try:
         result = subprocess.run(
             ["bws", "secret", "list"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             log.error(f"bws failed: {result.stderr.strip()}")
@@ -118,6 +137,7 @@ def get_bws_secret(secret_name: str) -> str:
 
 
 # ── Database ─────────────────────────────────────────────────────────────────
+
 
 def init_db() -> sqlite3.Connection:
     """Initialize SQLite with utility tables."""
@@ -159,6 +179,7 @@ def init_db() -> sqlite3.Connection:
 
 # ── Water (Cobb County) ─────────────────────────────────────────────────────
 
+
 def cmd_water(cfg: dict, conn: sqlite3.Connection):
     """--water: Fetch water meter readings from Cobb County Water REST API.
 
@@ -176,17 +197,23 @@ def cmd_water(cfg: dict, conn: sqlite3.Connection):
     log.info(f"Fetching readings: accountId={account_id}, serviceId={service_id}")
 
     try:
-        resp = requests.get(url, timeout=30, headers={
-            "Accept": "application/json",
-            "User-Agent": "OpenBrain-UtilityPipeline/1.0",
-        })
+        resp = requests.get(
+            url,
+            timeout=30,
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "OpenBrain-UtilityPipeline/1.0",
+            },
+        )
     except requests.exceptions.RequestException as e:
         log.error(f"Water API request failed: {e}")
         return
 
     if resp.status_code == 401:
-        log.error("Water API returned 401 — authentication may now be required. "
-                   "Implement session cookie from https://ccw-css.cobbcounty.org/ portal login.")
+        log.error(
+            "Water API returned 401 — authentication may now be required. "
+            "Implement session cookie from https://ccw-css.cobbcounty.org/ portal login."
+        )
         return
     if resp.status_code != 200:
         log.error(f"Water API returned {resp.status_code}: {resp.text[:300]}")
@@ -230,7 +257,7 @@ def cmd_water(cfg: dict, conn: sqlite3.Connection):
             net_match = re.match(r"/Date\((\d+)\)/", read_date)
             if net_match:
                 ts_ms = int(net_match.group(1))
-                read_date = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+                read_date = datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
             elif "T" in read_date:
                 read_date = read_date[:10]  # strip time portion
             # else assume already YYYY-MM-DD or similar
@@ -279,7 +306,8 @@ def cmd_water(cfg: dict, conn: sqlite3.Connection):
 
 # ── Gas South ────────────────────────────────────────────────────────────────
 
-def _gas_south_login(cfg: dict) -> Optional[str]:
+
+def _gas_south_login(cfg: dict) -> str | None:
     """Login to Gas South portal and return authtoken UUID.
 
     Tries the known authentication endpoint. Returns None on failure.
@@ -296,8 +324,10 @@ def _gas_south_login(cfg: dict) -> Optional[str]:
         password = creds.get("password", "")
     except json.JSONDecodeError:
         # If the secret is not JSON, try key=value format or single value
-        log.error(f"Gas South credentials secret is not valid JSON. "
-                  f"Expected: {{\"username\": \"...\", \"password\": \"...\"}}")
+        log.error(
+            "Gas South credentials secret is not valid JSON. "
+            'Expected: {"username": "...", "password": "..."}'
+        )
         return None
 
     if not username or not password:
@@ -305,7 +335,6 @@ def _gas_south_login(cfg: dict) -> Optional[str]:
         return None
 
     # Try the authentication endpoint
-    auth_url = f"{login_url}/api/authorize"
     auth_endpoints = [
         f"{login_url}/api/authorize",
         "https://manage-api.gassouth.com/oas/api/authorize",
@@ -313,13 +342,15 @@ def _gas_south_login(cfg: dict) -> Optional[str]:
     ]
 
     session = requests.Session()
-    session.headers.update({
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Origin": "https://manage.gassouth.com",
-        "Referer": "https://manage.gassouth.com/",
-    })
+    session.headers.update(
+        {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Origin": "https://manage.gassouth.com",
+            "Referer": "https://manage.gassouth.com/",
+        }
+    )
 
     for endpoint in auth_endpoints:
         try:
@@ -354,8 +385,10 @@ def _gas_south_login(cfg: dict) -> Optional[str]:
         except requests.exceptions.RequestException as e:
             log.debug(f"  {endpoint}: request failed — {e}")
 
-    log.error("Gas South login failed — all auth endpoints returned errors. "
-              "Check credentials in Bitwarden or update login URL.")
+    log.error(
+        "Gas South login failed — all auth endpoints returned errors. "
+        "Check credentials in Bitwarden or update login URL."
+    )
     return None
 
 
@@ -370,8 +403,10 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
     try:
         import fitz  # PyMuPDF
     except ImportError:
-        log.warning("PyMuPDF (fitz) not installed — cannot parse gas bill PDFs. "
-                    "Install with: pip install PyMuPDF")
+        log.warning(
+            "PyMuPDF (fitz) not installed — cannot parse gas bill PDFs. "
+            "Install with: pip install PyMuPDF"
+        )
         return result
 
     try:
@@ -388,10 +423,8 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
     except Exception as e:
         log.warning(f"PDF parse error: {e}")
         if "tmp_path" in locals():
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
         return result
 
     # Extract CCFs: look for patterns like "66 CCFs" or "66 CCF"
@@ -402,7 +435,8 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
     # Extract therm factor: "1.034" near "therm factor" or "conversion"
     factor_match = re.search(
         r"(?:therm\s*factor|conversion\s*factor)[:\s]*(\d+\.?\d*)",
-        full_text, re.IGNORECASE,
+        full_text,
+        re.IGNORECASE,
     )
     if factor_match:
         result["therm_factor"] = float(factor_match.group(1))
@@ -415,7 +449,8 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
     # Extract rate per therm: "$0.65/therm" or "0.65 per therm"
     rate_match = re.search(
         r"\$?(\d+\.?\d*)\s*(?:/\s*therm|per\s*therm)",
-        full_text, re.IGNORECASE,
+        full_text,
+        re.IGNORECASE,
     )
     if rate_match:
         result["rate_per_therm"] = float(rate_match.group(1))
@@ -424,8 +459,10 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
     if result["ccfs"] and result["therm_factor"] and not result["therms"]:
         result["therms"] = round(result["ccfs"] * result["therm_factor"], 2)
 
-    log.info(f"  PDF parsed: CCFs={result['ccfs']}, factor={result['therm_factor']}, "
-             f"therms={result['therms']}, rate={result['rate_per_therm']}")
+    log.info(
+        f"  PDF parsed: CCFs={result['ccfs']}, factor={result['therm_factor']}, "
+        f"therms={result['therms']}, rate={result['rate_per_therm']}"
+    )
     return result
 
 
@@ -483,15 +520,14 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
         log.error(f"Gas South response is not valid JSON: {e}")
         return
 
-    if not isinstance(activities, list):
-        if isinstance(activities, dict):
-            for key in ("activities", "data", "result", "accountActivity"):
-                if key in activities and isinstance(activities[key], list):
-                    activities = activities[key]
-                    break
-            else:
-                log.error(f"Unexpected response structure: {json.dumps(activities)[:300]}")
-                return
+    if not isinstance(activities, list) and isinstance(activities, dict):
+        for key in ("activities", "data", "result", "accountActivity"):
+            if key in activities and isinstance(activities[key], list):
+                activities = activities[key]
+                break
+        else:
+            log.error(f"Unexpected response structure: {json.dumps(activities)[:300]}")
+            return
 
     new_count = 0
     skip_count = 0
@@ -501,7 +537,7 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
         activity_date = activity.get("ActivityDate") or activity.get("activityDate") or ""
         activity_amount = activity.get("ActivityAmount") or activity.get("activityAmount") or 0
         bill_url = activity.get("Url") or activity.get("url") or ""
-        bill_segment = activity.get("BillSegmentInfo") or activity.get("billSegmentInfo")
+        activity.get("BillSegmentInfo") or activity.get("billSegmentInfo")
 
         # Only process bill records (skip payments, adjustments)
         if "bill" not in activity_type.lower() and "statement" not in activity_type.lower():
@@ -513,7 +549,7 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
             net_match = re.match(r"/Date\((\d+)\)/", activity_date)
             if net_match:
                 ts_ms = int(net_match.group(1))
-                activity_date = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%Y-%m-%d")
+                activity_date = datetime.fromtimestamp(ts_ms / 1000, tz=UTC).strftime("%Y-%m-%d")
             elif "T" in activity_date:
                 activity_date = activity_date[:10]
 
@@ -544,8 +580,10 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
                 if pdf_resp.status_code == 200 and len(pdf_resp.content) > 100:
                     pdf_data = _parse_gas_bill_pdf(pdf_resp.content)
                 else:
-                    log.warning(f"  Bill PDF download failed: {pdf_resp.status_code} "
-                                f"({len(pdf_resp.content)} bytes)")
+                    log.warning(
+                        f"  Bill PDF download failed: {pdf_resp.status_code} "
+                        f"({len(pdf_resp.content)} bytes)"
+                    )
             except requests.exceptions.RequestException as e:
                 log.warning(f"  Bill PDF download error: {e}")
 
@@ -553,8 +591,14 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
         conn.execute(
             "INSERT INTO gas_readings (date, bill_amount, ccfs, therm_factor, therms, rate_per_therm) "
             "VALUES (?, ?, ?, ?, ?, ?)",
-            (activity_date, bill_amount, pdf_data["ccfs"], pdf_data["therm_factor"],
-             pdf_data["therms"], pdf_data["rate_per_therm"]),
+            (
+                activity_date,
+                bill_amount,
+                pdf_data["ccfs"],
+                pdf_data["therm_factor"],
+                pdf_data["therms"],
+                pdf_data["rate_per_therm"],
+            ),
         )
         new_count += 1
         therms_val = pdf_data["therms"]
@@ -567,6 +611,7 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
 
 # ── Power (Cobb EMC — stub) ─────────────────────────────────────────────────
 
+
 def cmd_power_summary(cfg: dict, conn: sqlite3.Connection):
     """--power-summary: Aggregate power data from electric-usage-downloader output.
 
@@ -577,7 +622,7 @@ def cmd_power_summary(cfg: dict, conn: sqlite3.Connection):
 
     power_cfg = cfg.get("power", {})
     data_dir = Path(os.path.expanduser(power_cfg.get("data_dir", "~/.electric-usage")))
-    rate_kwh = power_cfg.get("rate_kwh", 0.12)
+    power_cfg.get("rate_kwh", 0.12)
 
     if not data_dir.exists():
         log.info("Power data directory not found — electric-usage-downloader not configured yet.")
@@ -598,6 +643,7 @@ def cmd_power_summary(cfg: dict, conn: sqlite3.Connection):
 
 
 # ── Monthly Comparison ───────────────────────────────────────────────────────
+
 
 def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
     """--monthly-comparison: Unified utility comparison with T2 synthesis.
@@ -649,9 +695,13 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
         if water_two_back:
             water_prior_consumption = water_prior[1] - water_two_back[1]
             if water_prior_consumption and water_prior_consumption > 0:
-                water_mom_pct = ((water_consumption - water_prior_consumption) / water_prior_consumption) * 100
+                water_mom_pct = (
+                    (water_consumption - water_prior_consumption) / water_prior_consumption
+                ) * 100
     elif water_current:
-        log.info(f"Water: reading at {water_current[0]} ({water_current[1]} TGAL cumulative), no prior for delta")
+        log.info(
+            f"Water: reading at {water_current[0]} ({water_current[1]} TGAL cumulative), no prior for delta"
+        )
     else:
         log.info("Water: no readings for this period")
 
@@ -670,8 +720,7 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
     if gas_current:
         gas_amount = gas_current[1]
         gas_therms = gas_current[2]
-        log.info(f"Gas: ${gas_amount:.2f}"
-                 f"{f', {gas_therms:.1f} therms' if gas_therms else ''}")
+        log.info(f"Gas: ${gas_amount:.2f}" f"{f', {gas_therms:.1f} therms' if gas_therms else ''}")
 
         # MoM: find prior month's reading
         gas_prior = conn.execute(
@@ -688,8 +737,7 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
 
     # ── Power data ──────────────────────────────────────────────────────
     power_row = conn.execute(
-        "SELECT SUM(kwh), SUM(cost_estimate) FROM power_readings "
-        "WHERE date >= ? AND date <= ?",
+        "SELECT SUM(kwh), SUM(cost_estimate) FROM power_readings " "WHERE date >= ? AND date <= ?",
         (month_start, month_end),
     ).fetchone()
 
@@ -771,7 +819,9 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
     try:
         result = subprocess.run(
             ["claude", "--print", "-p", prompt],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode == 0 and result.stdout.strip():
             synthesis = result.stdout.strip()
@@ -814,11 +864,13 @@ def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
         if water_mom_pct is not None:
             source_metadata["water_mom_pct"] = round(water_mom_pct, 1)
 
-    _post_capture_raw(cfg, capture_text, source_metadata,
-                      capture_type="observation", brain_view="personal")
+    _post_capture_raw(
+        cfg, capture_text, source_metadata, capture_type="observation", brain_view="personal"
+    )
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
+
 
 def show_status(conn: sqlite3.Connection):
     """Print pipeline statistics."""
@@ -855,9 +907,7 @@ def show_status(conn: sqlite3.Connection):
         latest = conn.execute(
             "SELECT date, bill_amount, therms FROM gas_readings ORDER BY date DESC LIMIT 1"
         ).fetchone()
-        oldest = conn.execute(
-            "SELECT date FROM gas_readings ORDER BY date ASC LIMIT 1"
-        ).fetchone()
+        oldest = conn.execute("SELECT date FROM gas_readings ORDER BY date ASC LIMIT 1").fetchone()
         print(f"  Range: {oldest[0]} to {latest[0]}")
         therms_str = f"{latest[2]:.1f} therms" if latest[2] else "therms N/A"
         print(f"  Latest: {latest[0]} — ${latest[1]:.2f}, {therms_str}")
@@ -887,15 +937,21 @@ def show_status(conn: sqlite3.Connection):
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
+
 def main():
     ap = argparse.ArgumentParser(description="Utility Pipeline for Open Brain")
     ap.add_argument("--water", action="store_true", help="Fetch water meter readings (Cobb County)")
     ap.add_argument("--gas", action="store_true", help="Fetch gas billing + parse PDFs (Gas South)")
     ap.add_argument("--power-summary", action="store_true", help="Aggregate power CSV data (stub)")
-    ap.add_argument("--monthly-comparison", action="store_true", help="Unified utility synthesis + capture")
+    ap.add_argument(
+        "--monthly-comparison", action="store_true", help="Unified utility synthesis + capture"
+    )
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
-    ap.add_argument("--json-output", action="store_true",
-                    help="Emit a JSON summary as the final stdout line (for ingest sidecar)")
+    ap.add_argument(
+        "--json-output",
+        action="store_true",
+        help="Emit a JSON summary as the final stdout line (for ingest sidecar)",
+    )
     args = ap.parse_args()
 
     # Require at least one action

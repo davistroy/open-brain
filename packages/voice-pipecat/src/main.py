@@ -12,6 +12,7 @@ session state tracked in Redis.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import signal
@@ -104,9 +105,7 @@ async def run_websocket_server(session_manager: SessionManager) -> None:
             settings.host,
             settings.websocket_port,
         )
-        logger.info(
-            f"WebSocket server listening on ws://{settings.host}:{settings.websocket_port}"
-        )
+        logger.info(f"WebSocket server listening on ws://{settings.host}:{settings.websocket_port}")
         await server.wait_closed()
     except ImportError:
         logger.error(
@@ -170,11 +169,9 @@ async def main() -> None:
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        try:
+        # Windows doesn't support add_signal_handler
+        with contextlib.suppress(NotImplementedError):
             loop.add_signal_handler(sig, signal_handler)
-        except NotImplementedError:
-            # Windows doesn't support add_signal_handler
-            pass
 
     try:
         # Run both servers concurrently

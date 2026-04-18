@@ -26,7 +26,6 @@ import subprocess
 import sys
 import time
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 
 try:
@@ -102,6 +101,7 @@ Return ONLY the JSON object, no other text."""
 # Backend: DGX Spark (SSH → vLLM)
 # ---------------------------------------------------------------------------
 
+
 class SparkBackend:
     """Access vLLM on DGX Spark via SSH tunnel."""
 
@@ -117,9 +117,14 @@ class SparkBackend:
         try:
             self.tunnel_proc = subprocess.Popen(
                 [
-                    "ssh", "-i", SPARK_SSH_KEY,
-                    "-L", f"{self.local_port}:localhost:{SPARK_VLLM_PORT}",
-                    "-N", "-o", "StrictHostKeyChecking=no",
+                    "ssh",
+                    "-i",
+                    SPARK_SSH_KEY,
+                    "-L",
+                    f"{self.local_port}:localhost:{SPARK_VLLM_PORT}",
+                    "-N",
+                    "-o",
+                    "StrictHostKeyChecking=no",
                     f"claude@{SPARK_HOST}",
                 ],
                 stdout=subprocess.DEVNULL,
@@ -203,7 +208,8 @@ class OllamaBackend:
                 if self.model not in models and not any(self.model in m for m in models):
                     logger.warning(
                         "Model '%s' not found. Available: %s. Will attempt to use anyway.",
-                        self.model, models,
+                        self.model,
+                        models,
                     )
                 return True
             else:
@@ -250,6 +256,7 @@ class OllamaBackend:
 # ---------------------------------------------------------------------------
 # JSON response parsing
 # ---------------------------------------------------------------------------
+
 
 def _parse_json_response(text: str) -> dict | None:
     """Extract and parse JSON from LLM response, handling markdown fences and thinking blocks."""
@@ -301,6 +308,7 @@ def _validate_classification(result: dict) -> bool:
 # Batch categorization
 # ---------------------------------------------------------------------------
 
+
 def categorize_files(
     conn: sqlite3.Connection,
     backend,
@@ -340,7 +348,9 @@ def categorize_files(
 
     start_time = time.monotonic()
 
-    for i, (file_id, path, filename, ext, mime_type, size, modified_date, text) in enumerate(files):
+    for i, (file_id, _path, filename, _ext, mime_type, size, modified_date, text) in enumerate(
+        files
+    ):
         # Progress bar
         pct = (i + 1) / total * 100
         elapsed = time.monotonic() - start_time
@@ -377,17 +387,20 @@ def categorize_files(
         if result:
             # Store results
             tags_json = json.dumps(result.get("tags", []))
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE files
                 SET category = ?, subcategory = ?, description = ?, tags = ?
                 WHERE id = ?
-            """, (
-                result["category"],
-                result["subcategory"],
-                result["description"],
-                tags_json,
-                file_id,
-            ))
+            """,
+                (
+                    result["category"],
+                    result["subcategory"],
+                    result["description"],
+                    tags_json,
+                    file_id,
+                ),
+            )
             stats["classified_ok"] += 1
         else:
             stats["classification_errors"] += 1
@@ -404,7 +417,10 @@ def categorize_files(
     elapsed_total = time.monotonic() - start_time
     logger.info(
         "Categorization complete: %d/%d classified in %.0fs (%.1f files/min)",
-        stats["classified_ok"], total, elapsed_total, total / elapsed_total * 60 if elapsed_total > 0 else 0,
+        stats["classified_ok"],
+        total,
+        elapsed_total,
+        total / elapsed_total * 60 if elapsed_total > 0 else 0,
     )
 
     return stats
@@ -413,6 +429,7 @@ def categorize_files(
 # ---------------------------------------------------------------------------
 # Taxonomy analysis
 # ---------------------------------------------------------------------------
+
 
 def analyze_taxonomy(conn: sqlite3.Connection) -> None:
     """Analyze category distribution and propose folder taxonomies."""
@@ -509,7 +526,7 @@ def analyze_taxonomy(conn: sqlite3.Connection) -> None:
             print(f"  /{cat}/")
             current_cat = cat
         print(f"    /{year}/  ({count:,} files)")
-    print(f"      /<subcategory>/")
+    print("      /<subcategory>/")
 
     print("\n" + "=" * 70)
 
@@ -517,6 +534,7 @@ def analyze_taxonomy(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -618,8 +636,8 @@ Examples:
         print(f"Total processed: {stats['total_processed']:,}")
         print(f"Successfully classified: {stats['classified_ok']:,}")
         print(f"Classification errors: {stats['classification_errors']:,}")
-        if stats['total_processed'] > 0:
-            rate = stats['classified_ok'] / stats['total_processed'] * 100
+        if stats["total_processed"] > 0:
+            rate = stats["classified_ok"] / stats["total_processed"] * 100
             print(f"Success rate: {rate:.1f}%")
 
         # Run taxonomy analysis on results

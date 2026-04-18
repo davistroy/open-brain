@@ -50,9 +50,7 @@ async def search_brain(query: str, limit: int = 5) -> dict[str, Any]:
             resp.raise_for_status()
             data = resp.json()
             results = data.get("results", [])
-            logger.info(
-                f"search_brain: query={query!r} returned {len(results)} results"
-            )
+            logger.info(f"search_brain: query={query!r} returned {len(results)} results")
             return {
                 "results": results,
                 "total": data.get("total", len(results)),

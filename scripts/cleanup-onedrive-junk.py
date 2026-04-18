@@ -1,4 +1,5 @@
-import os, shutil
+import os
+import shutil
 
 base = "/data"
 deleted_files = 0
@@ -41,11 +42,7 @@ music_dir = "/data/Music"
 print("\n=== Deleting Music directory (iTunes cache) ===", flush=True)
 if os.path.isdir(music_dir):
     count = sum(1 for _, _, files in os.walk(music_dir) for f in files)
-    sz = sum(
-        os.path.getsize(os.path.join(r, f))
-        for r, _, fs in os.walk(music_dir)
-        for f in fs
-    )
+    sz = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(music_dir) for f in fs)
     shutil.rmtree(music_dir)
     deleted_files += count
     freed_bytes += sz
@@ -54,10 +51,18 @@ if os.path.isdir(music_dir):
 # 4. Delete Python venvs and build caches in Projects
 print("\n=== Deleting Python venvs and build caches ===", flush=True)
 junk_dirs = {
-    ".venv", "venv", "env",
-    "__pycache__", "node_modules",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    ".tox", "dist", "build", "*.egg-info",
+    ".venv",
+    "venv",
+    "env",
+    "__pycache__",
+    "node_modules",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    "dist",
+    "build",
+    "*.egg-info",
 }
 for root, dirs, files in os.walk(base):
     for d in dirs[:]:
@@ -66,9 +71,7 @@ for root, dirs, files in os.walk(base):
             try:
                 count = sum(1 for _, _, fs in os.walk(path) for f in fs)
                 sz = sum(
-                    os.path.getsize(os.path.join(r, f))
-                    for r, _, fs in os.walk(path)
-                    for f in fs
+                    os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(path) for f in fs
                 )
                 shutil.rmtree(path)
                 deleted_files += count
@@ -81,7 +84,7 @@ for root, dirs, files in os.walk(base):
                 print(f"  Error: {path}: {e}", flush=True)
 
 print(f"\n{'='*60}", flush=True)
-print(f"  CLEANUP COMPLETE", flush=True)
+print("  CLEANUP COMPLETE", flush=True)
 print(f"  Files deleted: {deleted_files:,}", flush=True)
 print(f"  Directories removed: {deleted_dirs:,}", flush=True)
 print(f"  Space freed: {freed_bytes/1024/1024/1024:.2f} GB", flush=True)

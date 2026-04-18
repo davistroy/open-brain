@@ -13,7 +13,6 @@ Usage:
 import argparse
 import csv
 import os
-import re
 import shutil
 import sqlite3
 import sys
@@ -43,7 +42,11 @@ MOVE_RULES = [
     ("Coke/Current/Commercial Leadership/", "Work/Coca-Cola/Commercial Leadership/", ""),
     ("Coke/Current/Customer Care/", "Work/Coca-Cola/Customer Care/", ""),
     ("Coke/Current/Email Downloads/", "Work/Coca-Cola/Email Downloads/", ""),
-    ("Coke/Current/General Coke IT and Business/", "Work/Coca-Cola/General Coke IT and Business/", ""),
+    (
+        "Coke/Current/General Coke IT and Business/",
+        "Work/Coca-Cola/General Coke IT and Business/",
+        "",
+    ),
     ("Coke/Current/Region Sales/", "Work/Coca-Cola/Region Sales/", ""),
     ("Coke/Current/CokeONE and SCALE/", "Work/Coca-Cola/CokeONE and SCALE/", ""),
     ("Coke/Current/National Retail Sales/", "Work/Coca-Cola/National Retail Sales/", ""),
@@ -59,7 +62,6 @@ MOVE_RULES = [
     ("Coke/Current/Other Bottlers/", "Work/Coca-Cola/Other Bottlers/", ""),
     ("Coke/Current/Favorites/", "Work/Coca-Cola/Favorites/", ""),
     ("Coke/Current/", "Work/Coca-Cola/", "Catch-all for remaining Coke/Current"),
-
     # Other Coke top-level dirs
     ("Coke/BASIS Replacement/", "Work/Coca-Cola/Projects/BASIS Replacement/", ""),
     ("Coke/BSNA/", "Work/Coca-Cola/BSNA/", ""),
@@ -70,33 +72,38 @@ MOVE_RULES = [
     ("Coke/Status/", "Work/Coca-Cola/Admin/Status/", ""),
     ("Coke/T-E/", "Work/Coca-Cola/Admin/Time and Exp/", ""),
     ("Coke/", "Work/Coca-Cola/", "Catch-all Coke top-level"),
-
     # Documents/Coke → merge into Work/Coca-Cola (unique files after dedup)
     ("Documents/Coke/", "Work/Coca-Cola/", "Documents/Coke merge"),
-
     # Top-level Admin (Coke expense reports)
     ("Admin/", "Work/Coca-Cola/Admin/", "Top-level Admin → Coke Admin"),
-
     # BSNA Backup → combined BSNA
     ("BSNA Backup/", "Work/Coca-Cola/BSNA/", "BSNA Backup → combined BSNA"),
-
     # Top-level Business Services → combined BSNA
-    ("Business Services/", "Work/Coca-Cola/BSNA/Business Services/", "Business Services → combined BSNA"),
-
+    (
+        "Business Services/",
+        "Work/Coca-Cola/BSNA/Business Services/",
+        "Business Services → combined BSNA",
+    ),
     # ---------------------------------------------------------
     # WORK / STRATFIELD
     # ---------------------------------------------------------
-    ("Consulting/Chick-Fil-A/", "Work/Stratfield/Chick-fil-A/", "Merge Consulting CFA → Stratfield"),
-    ("Consulting/Chick-fil-A/", "Work/Stratfield/Chick-fil-A/", "Merge Consulting CFA → Stratfield"),
+    (
+        "Consulting/Chick-Fil-A/",
+        "Work/Stratfield/Chick-fil-A/",
+        "Merge Consulting CFA → Stratfield",
+    ),
+    (
+        "Consulting/Chick-fil-A/",
+        "Work/Stratfield/Chick-fil-A/",
+        "Merge Consulting CFA → Stratfield",
+    ),
     ("Business/Stratfield/Chick-Fil-A/", "Work/Stratfield/Chick-fil-A/", "Fix CFA capitalization"),
     ("Business/Stratfield/", "Work/Stratfield/", ""),
-
     # ---------------------------------------------------------
     # WORK / CONSULTING (pre-Stratfield, minus CFA which merged above)
     # ---------------------------------------------------------
     ("Consulting/Stratfield/", "Work/Consulting/Admin/", "Consulting admin/receipts"),
     ("Consulting/", "Work/Consulting/", ""),
-
     # ---------------------------------------------------------
     # WORK / OTHER
     # ---------------------------------------------------------
@@ -106,7 +113,6 @@ MOVE_RULES = [
     ("Business/Valley Hill Trading Co/", "Work/Valley Hill Trading Co/", ""),
     ("GV Documents/", "Work/GV/", ""),
     ("Product Launch Workspace/", "Work/GV/Product Launch Workspace/", ""),
-
     # ---------------------------------------------------------
     # AMATEUR RADIO
     # ---------------------------------------------------------
@@ -118,21 +124,23 @@ MOVE_RULES = [
     ("Documents/EchoLink/", "Amateur Radio/Software/EchoLink/", ""),
     ("Documents/HDSDR/", "Amateur Radio/Software/HDSDR/", ""),
     ("Documents/Packet Engine Pro/", "Amateur Radio/Software/Packet Engine Pro/", ""),
-    ("Documents/VBCABLE_A_Driver_Pack43/", "Amateur Radio/Software/VBCABLE Driver/", "Virtual audio cable"),
+    (
+        "Documents/VBCABLE_A_Driver_Pack43/",
+        "Amateur Radio/Software/VBCABLE Driver/",
+        "Virtual audio cable",
+    ),
     ("Documents/VARA FM v4.2.2 Setup/", "Amateur Radio/Software/VARA FM/", ""),
     ("Documents/VARA HF v4.6.1 Setup/", "Amateur Radio/Software/VARA HF/", ""),
     ("Projects/Raspberry Pi/", "Amateur Radio/Projects/Raspberry Pi/", "BPQ packet radio"),
     ("Projects/Amateur Radio/", "Amateur Radio/Projects/", ""),
     # Amateur Radio itself stays in place
     ("Amateur Radio/", "Amateur Radio/", "Keep as-is"),
-
     # ---------------------------------------------------------
     # SAILING
     # ---------------------------------------------------------
     ("Boat/", "Sailing/Boat Manuals/", ""),
     ("Documents/Charts/", "Sailing/Charts/", "Navigational charts"),
     ("Sailing/", "Sailing/", "Keep as-is"),
-
     # ---------------------------------------------------------
     # MAKING
     # ---------------------------------------------------------
@@ -143,26 +151,26 @@ MOVE_RULES = [
     ("3D Printer Stuff/Prusa_i3", "Making/3D Printing/Printer Mods/Prusa_i3", ""),
     ("3D Printer Stuff/", "Making/3D Printing/", ""),
     ("Projects/3D Printing/", "Making/3D Printing/", ""),
-
     # Woodworking
     ("Workshop/FWW Issues/", "Making/Woodworking/Fine Woodworking/", ""),
-    ("Workshop/T4570_The_American_Woodworker_Magazine_Collection/", "Making/Woodworking/American Woodworker/", ""),
+    (
+        "Workshop/T4570_The_American_Woodworker_Magazine_Collection/",
+        "Making/Woodworking/American Woodworker/",
+        "",
+    ),
     ("Workshop/1000 Tips and Tricks/", "Making/Woodworking/1000 Tips and Tricks/", ""),
     ("Workshop/", "Making/Woodworking/", "Catch-all Workshop"),
     ("Personal/bandsaw_plans/", "Making/Woodworking/Bandsaw Plans/", ""),
     ("Personal/lawnchair/", "Making/Woodworking/Lawnchair Plans/", ""),
-
     # CNC
     ("Projects/CNC Milling/", "Making/CNC/", ""),
     ("Personal/Joes CNC Model 2006 R-2/", "Making/CNC/Joes CNC Model 2006/", ""),
-
     # Electronics merge
     ("Projects/Electronics/", "Making/Electronics/", ""),
     ("Projects/PCB/", "Making/Electronics/", ""),
     ("Documents/KiCad/", "Making/Electronics/KiCad/", "KiCad libraries"),
     ("Documents/EasyEDA-Pro/", "Making/Electronics/EasyEDA-Pro/", ""),
     ("Electronics/", "Making/Electronics/", "Top-level Electronics"),
-
     # ---------------------------------------------------------
     # PERSONAL
     # ---------------------------------------------------------
@@ -207,7 +215,6 @@ MOVE_RULES = [
     ("Personal/Home/", "Personal/Home/", "Keep"),
     ("Personal/Funny/", "Personal/Family/Funny/", ""),
     ("Personal/", "Personal/", "Catch-all Personal"),
-
     # ---------------------------------------------------------
     # PROJECTS
     # ---------------------------------------------------------
@@ -216,7 +223,6 @@ MOVE_RULES = [
     ("Projects/Code/", "Projects/Code/", "Keep"),
     ("Projects/Utilities/", "Projects/Utilities/", "Keep"),
     ("Projects/", "Projects/", "Catch-all Projects"),
-
     # ---------------------------------------------------------
     # REFERENCE
     # ---------------------------------------------------------
@@ -228,7 +234,6 @@ MOVE_RULES = [
     ("Documents/ARIS Express/", "Reference/ARIS Express/", ""),
     ("Documents/External Docs/", "Reference/External Docs/", ""),
     ("Documents/iPad/", "Reference/iPad PDFs/", ""),
-
     # ---------------------------------------------------------
     # APP DATA (remaining app configs)
     # ---------------------------------------------------------
@@ -256,7 +261,6 @@ MOVE_RULES = [
     ("Documents/CommunityPlugins/", "App Data/CommunityPlugins/", ""),
     ("Documents/My Meetings/", "App Data/My Meetings/", ""),
     ("Documents/TaskSeparator11/", "App Data/TaskSeparator11/", ""),
-
     # ---------------------------------------------------------
     # ARCHIVE — catch-all for Documents/* not matched above
     # ---------------------------------------------------------
@@ -270,7 +274,6 @@ MOVE_RULES = [
     ("Documents/Programming/", "Work/Coca-Cola/Programming/", "Coke-era programming"),
     ("Documents/Personal/", "Personal/", "Documents/Personal merge"),
     ("Documents/", "_Archive/Documents/", "Catch-all remaining Documents"),
-
     # SkyDrive — merge unique files into main structure
     ("SkyDrive/Documents/Coke/", "Work/Coca-Cola/", "SkyDrive Coke merge"),
     ("SkyDrive/Coke/", "Work/Coca-Cola/", "SkyDrive Coke merge"),
@@ -280,11 +283,9 @@ MOVE_RULES = [
     ("SkyDrive/Documents/", "_Archive/SkyDrive/Documents/", "SkyDrive remaining docs"),
     ("SkyDrive/Favorites/", None, "DELETE — old bookmarks"),
     ("SkyDrive/", "_Archive/SkyDrive/", "Catch-all SkyDrive"),
-
     # Favorites — delete
     ("Favorites/", None, "DELETE — old bookmarks"),
     ("Documents/Favorites/", None, "DELETE — old bookmarks"),
-
     # Remaining top-level misc
     ("Home Share/", "_Archive/Home Share/", ""),
     ("Apps/", "_Archive/Apps/", ""),
@@ -354,7 +355,7 @@ def find_dest(path, filename):
             # If source == dest prefix, file stays in place
             if prefix == dest_prefix:
                 return path, "no-move"
-            remainder = path[len(prefix):]
+            remainder = path[len(prefix) :]
             return dest_prefix + remainder, desc or "rule"
 
     # No rule matched — move to archive
@@ -368,7 +369,9 @@ def main():
     parser.add_argument("--report-only", action="store_true", help="Just print the plan")
     parser.add_argument("--dry-run", action="store_true", help="Report only, don't move")
     parser.add_argument("--manifest", default="reorganize-manifest.csv", help="Manifest CSV name")
-    parser.add_argument("--archive-dir", default=None, help="External archive dir for _Archive items")
+    parser.add_argument(
+        "--archive-dir", default=None, help="External archive dir for _Archive items"
+    )
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -384,18 +387,15 @@ def main():
     print(f"Total files in inventory: {len(rows):,}\n", flush=True)
 
     # Classify each file
-    moves = []       # (src_path, dest_path, reason)
-    no_moves = []     # files staying in place
-    deletes = []      # files to delete
-    unmatched = []    # files with no rule
+    moves = []  # (src_path, dest_path, reason)
+    no_moves = []  # files staying in place
+    deletes = []  # files to delete
 
     for path, filename, size in rows:
         dest, reason = find_dest(path, filename)
         if dest is None:
             deletes.append((path, reason, size))
-        elif reason == "no-move":
-            no_moves.append(path)
-        elif dest == path:
+        elif reason == "no-move" or dest == path:
             no_moves.append(path)
         else:
             moves.append((path, dest, reason, size))
@@ -409,7 +409,9 @@ def main():
     print("=" * 60, flush=True)
     print(f"  Files to move:    {len(moves):,}  ({move_size/1024/1024/1024:.2f} GB)", flush=True)
     print(f"  Files staying:    {len(no_moves):,}", flush=True)
-    print(f"  Files to delete:  {len(deletes):,}  ({delete_size/1024/1024/1024:.2f} GB)", flush=True)
+    print(
+        f"  Files to delete:  {len(deletes):,}  ({delete_size/1024/1024/1024:.2f} GB)", flush=True
+    )
     print(f"  Total:            {len(moves) + len(no_moves) + len(deletes):,}", flush=True)
 
     # Show destination breakdown
@@ -421,14 +423,17 @@ def main():
         dest_counts[top]["count"] += 1
         dest_counts[top]["size"] += size or 0
 
-    print(f"\n  Destination breakdown:", flush=True)
+    print("\n  Destination breakdown:", flush=True)
     for top in sorted(dest_counts.keys()):
         info = dest_counts[top]
-        print(f"    {top:30s} {info['count']:>6,} files  {info['size']/1024/1024/1024:>7.2f} GB", flush=True)
+        print(
+            f"    {top:30s} {info['count']:>6,} files  {info['size']/1024/1024/1024:>7.2f} GB",
+            flush=True,
+        )
 
     # Show deletes
     if deletes:
-        print(f"\n  Files to delete:", flush=True)
+        print("\n  Files to delete:", flush=True)
         delete_groups = {}
         for path, reason, size in deletes:
             key = reason
@@ -437,20 +442,23 @@ def main():
             delete_groups[key]["count"] += 1
             delete_groups[key]["size"] += size or 0
         for reason, info in sorted(delete_groups.items()):
-            print(f"    {reason:40s} {info['count']:>5,} files  {info['size']/1024/1024:.0f} MB", flush=True)
+            print(
+                f"    {reason:40s} {info['count']:>5,} files  {info['size']/1024/1024:.0f} MB",
+                flush=True,
+            )
 
     # Show sample moves
-    print(f"\n  Sample moves (first 20):", flush=True)
+    print("\n  Sample moves (first 20):", flush=True)
     for src, dest, reason, size in moves[:20]:
         print(f"    {src}", flush=True)
         print(f"      -> {dest}", flush=True)
 
     if args.report_only:
-        print(f"\n  REPORT ONLY — no files moved.\n", flush=True)
+        print("\n  REPORT ONLY — no files moved.\n", flush=True)
         return
 
     if args.dry_run:
-        print(f"\n  DRY RUN — no files moved.", flush=True)
+        print("\n  DRY RUN — no files moved.", flush=True)
         return
 
     # === EXECUTE ===
@@ -513,7 +521,7 @@ def main():
     print(f"  Manifest: {manifest_path}", flush=True)
 
     # Clean up empty directories
-    print(f"\n  Cleaning empty directories...", flush=True)
+    print("\n  Cleaning empty directories...", flush=True)
     empty_removed = 0
     for dirpath, dirnames, filenames in os.walk(str(root), topdown=False):
         if not dirnames and not filenames:

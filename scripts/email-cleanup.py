@@ -8,15 +8,15 @@ Actions:
 3. Empty Deleted Items folder
 """
 
+import argparse
 import json
 import os
 import sys
 import time
-import argparse
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import msal
 import requests
@@ -48,10 +48,10 @@ def authenticate():
     print(f"  Token cache: {TOKEN_CACHE_FILE}", flush=True)
     cache = msal.SerializableTokenCache()
     if TOKEN_CACHE_FILE.exists():
-        print(f"  Loading cached token...", flush=True)
+        print("  Loading cached token...", flush=True)
         cache.deserialize(TOKEN_CACHE_FILE.read_text())
     else:
-        print(f"  No token cache found, will need device code auth", flush=True)
+        print("  No token cache found, will need device code auth", flush=True)
 
     app = msal.PublicClientApplication(
         CLIENT_ID,
@@ -91,7 +91,7 @@ def save_cache(cache):
 
 def api_get(url, params=None, retries=3):
     """GET with retry on 429."""
-    for attempt in range(retries):
+    for _attempt in range(retries):
         resp = session.get(url, params=params, timeout=30)
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 10))
@@ -109,7 +109,7 @@ def api_get(url, params=None, retries=3):
 
 def api_post(url, json_data, retries=3):
     """POST with retry on 429."""
-    for attempt in range(retries):
+    for _attempt in range(retries):
         resp = session.post(url, json=json_data, timeout=60)
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 10))
@@ -159,22 +159,26 @@ def batch_delete(message_ids, label="", dry_run=False):
     batch_url = f"{GRAPH_BASE}/$batch"
 
     for i in range(0, total, BATCH_SIZE):
-        chunk = message_ids[i:i + BATCH_SIZE]
+        chunk = message_ids[i : i + BATCH_SIZE]
         if dry_run:
             deleted += len(chunk)
             continue
 
         requests_payload = []
         for j, mid in enumerate(chunk):
-            requests_payload.append({
-                "id": str(j),
-                "method": "DELETE",
-                "url": f"/me/messages/{mid}",
-            })
+            requests_payload.append(
+                {
+                    "id": str(j),
+                    "method": "DELETE",
+                    "url": f"/me/messages/{mid}",
+                }
+            )
 
         try:
             result = api_post(batch_url, {"requests": requests_payload})
-            successes = sum(1 for r in result.get("responses", []) if 200 <= r.get("status", 500) < 300)
+            successes = sum(
+                1 for r in result.get("responses", []) if 200 <= r.get("status", 500) < 300
+            )
             deleted += successes
         except Exception as e:
             print(f"    Batch error at offset {i}: {e}")
@@ -194,8 +198,7 @@ def batch_delete(message_ids, label="", dry_run=False):
 def collect_ids_for_sender(sender, cutoff_iso, folder="inbox"):
     """Query inbox for a sender's emails before cutoff date."""
     odata_filter = (
-        f"from/emailAddress/address eq '{sender}' "
-        f"and receivedDateTime lt {cutoff_iso}"
+        f"from/emailAddress/address eq '{sender}' " f"and receivedDateTime lt {cutoff_iso}"
     )
     try:
         return collect_message_ids(folder, odata_filter, label=sender)
@@ -229,14 +232,29 @@ def load_marketing_senders():
             sender_cats[sender][info["category"]] += 1
 
     spam_categories = {
-        "Spam & Junk", "Newsletters & Marketing", "Shopping & E-commerce",
-        "Marketing & Newsletters", "Shipping & E-commerce",
-        "Events & Entertainment", "Events & Conferences", "Events",
+        "Spam & Junk",
+        "Newsletters & Marketing",
+        "Shopping & E-commerce",
+        "Marketing & Newsletters",
+        "Shipping & E-commerce",
+        "Events & Entertainment",
+        "Events & Conferences",
+        "Events",
     }
     marketing_signals = [
-        "noreply", "no-reply", "newsletter", "marketing", "promo",
-        "deals", "offers", "sale", "welcome@", "mail.beehiiv",
-        "substack.com", "mailchimp", "sendgrid",
+        "noreply",
+        "no-reply",
+        "newsletter",
+        "marketing",
+        "promo",
+        "deals",
+        "offers",
+        "sale",
+        "welcome@",
+        "mail.beehiiv",
+        "substack.com",
+        "mailchimp",
+        "sendgrid",
     ]
 
     senders = []
@@ -258,7 +276,9 @@ def main():
     parser.add_argument("--skip-junk", action="store_true", help="Skip emptying Junk folder")
     parser.add_argument("--skip-deleted", action="store_true", help="Skip emptying Deleted Items")
     parser.add_argument("--skip-senders", action="store_true", help="Skip sender-based cleanup")
-    parser.add_argument("--days", type=int, default=3, help="Keep emails newer than N days (default: 3)")
+    parser.add_argument(
+        "--days", type=int, default=3, help="Keep emails newer than N days (default: 3)"
+    )
     args = parser.parse_args()
 
     mode = "DRY RUN" if args.dry_run else "LIVE"
@@ -271,7 +291,7 @@ def main():
     token = authenticate()
     session.headers["Authorization"] = f"Bearer {token}"
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    cutoff = datetime.now(UTC) - timedelta(days=args.days)
     cutoff_iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
     print(f"  Cutoff: delete emails before {cutoff_iso} ({args.days} days ago)")
 
@@ -279,7 +299,7 @@ def main():
 
     # Phase 1: Empty Junk
     if not args.skip_junk:
-        print(f"\n[2/4] Emptying Junk Email folder...")
+        print("\n[2/4] Emptying Junk Email folder...")
         junk_ids = collect_message_ids("junkemail")
         print(f"  Found {len(junk_ids)} emails in Junk")
         deleted = batch_delete(junk_ids, label="Junk", dry_run=args.dry_run)
@@ -290,7 +310,7 @@ def main():
 
     # Phase 2: Empty Deleted Items
     if not args.skip_deleted:
-        print(f"\n[3/4] Emptying Deleted Items folder...")
+        print("\n[3/4] Emptying Deleted Items folder...")
         del_ids = collect_message_ids("deleteditems")
         print(f"  Found {len(del_ids)} emails in Deleted Items")
         deleted = batch_delete(del_ids, label="Deleted Items", dry_run=args.dry_run)
@@ -301,7 +321,7 @@ def main():
 
     # Phase 3: Marketing senders
     if not args.skip_senders:
-        print(f"\n[4/4] Loading marketing senders from classification data...")
+        print("\n[4/4] Loading marketing senders from classification data...")
         senders = load_marketing_senders()
         print(f"  Found {len(senders)} marketing senders (excluding {PROTECTED_SENDERS})")
         print(f"  Querying inbox for emails older than {args.days} days...")
@@ -324,7 +344,9 @@ def main():
                     print(f"    Error for {sender}: {e}")
                 completed += 1
                 if completed % 50 == 0:
-                    print(f"    Queried {completed}/{len(senders)} senders, {len(all_ids)} emails to delete so far...")
+                    print(
+                        f"    Queried {completed}/{len(senders)} senders, {len(all_ids)} emails to delete so far..."
+                    )
 
         print(f"  Total emails to delete from marketing senders: {len(all_ids)}")
         if all_ids:
@@ -335,7 +357,9 @@ def main():
         print("\n[4/4] Skipping sender-based cleanup")
 
     print(f"\n{'='*60}")
-    print(f"  CLEANUP COMPLETE — {total_deleted} total emails {'would be ' if args.dry_run else ''}deleted")
+    print(
+        f"  CLEANUP COMPLETE — {total_deleted} total emails {'would be ' if args.dry_run else ''}deleted"
+    )
     print(f"{'='*60}\n")
 
 

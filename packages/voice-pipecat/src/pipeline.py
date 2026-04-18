@@ -8,14 +8,12 @@ Transcript turns are accumulated in Redis for capture extraction at session end.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
 from pipecat.frames.frames import (
     EndFrame,
     LLMMessagesFrame,
-    TranscriptionFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -26,11 +24,10 @@ from pipecat.processors.aggregators.llm_response import (
 )
 from pipecat.services.anthropic import AnthropicLLMService
 from pipecat.services.deepgram import DeepgramSTTService, DeepgramTTSService
-from pipecat.transports.services.daily import DailyParams, DailyTransport
+from pipecat.transports.services.daily import DailyTransport
 
 from .config import settings
 from .session import SessionManager
-from .tools import get_tool_definitions, handle_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -154,13 +151,13 @@ async def create_pipeline(
     # Build the pipeline
     pipeline = Pipeline(
         [
-            transport.input(),       # WebSocket audio in
-            stt,                     # Deepgram STT
-            user_aggregator,         # Collect user utterance
-            llm,                     # Claude generates response
-            tts,                     # TTS synthesizes audio
-            transport.output(),      # WebSocket audio out
-            assistant_aggregator,    # Track assistant response in context
+            transport.input(),  # WebSocket audio in
+            stt,  # Deepgram STT
+            user_aggregator,  # Collect user utterance
+            llm,  # Claude generates response
+            tts,  # TTS synthesizes audio
+            transport.output(),  # WebSocket audio out
+            assistant_aggregator,  # Track assistant response in context
         ]
     )
 
@@ -212,8 +209,6 @@ async def run_websocket_pipeline(
         session_manager: Session manager for state tracking.
         session_id: Unique session identifier.
     """
-    from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper
-    from pipecat.serializers.protobuf import ProtobufFrameSerializer
 
     stt = create_stt_service()
     tts = create_tts_service()

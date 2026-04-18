@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
 import { logger, runAgent, resolveTaskModel, ModelResolverError } from '@open-brain/shared'
-import type { AgentTool, AgentResult } from '@open-brain/shared'
+import type { AgentTool, AgentResult, AgentClientResolution } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts, BaseResult } from './types.js'
 
@@ -307,24 +307,78 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
 
     const tools = buildEmailComposeTools(this.db, coreApiUrl)
 
+    // When the LLMGateway is wired and no per-call model override is set, use
+    // the gateway's agent-client resolver: same-provider tier fallback on
+    // transient errors + post-run audit logging. Falls back to the classic
+    // direct-runAgent path when the gateway isn't available (e.g., targeted
+    // unit tests) or when the caller passes an explicit `options.model`
+    // override (escape hatch for ad-hoc testing — bypasses tier routing).
+    const useGateway = this.llmGateway !== null && options.model === undefined
+    let agentResolution: AgentClientResolution | null = null
+    let resolvedTierKey: string | null = this.resolvedTierKey
+
+    if (useGateway) {
+      try {
+        agentResolution = this.llmGateway!.resolveAgentClient(EMAIL_COMPOSE_TASK)
+        resolvedTierKey = agentResolution.tierKey
+      } catch (err) {
+        // If gateway resolution fails, fall back to the direct path rather
+        // than failing the whole execute — the init-time `resolvedModel`
+        // already has the answer and the agent can still run.
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          '[email-compose] llmGateway.resolveAgentClient failed — falling back to direct client',
+        )
+        agentResolution = null
+      }
+    }
+
     let agentResult: AgentResult
     try {
       agentResult = await runAgent(
         EMAIL_COMPOSE_SYSTEM_PROMPT,
         tools,
         instruction,
-        {
-          client: anthropicClient ?? undefined,
-          model,
-          maxIterations: options.maxIterations ?? 10,
-          maxTokens: 4096,
-          temperature: 0.3,
-        },
+        agentResolution
+          ? {
+              clientResolver: () => agentResolution!,
+              maxIterations: options.maxIterations ?? 10,
+              maxTokens: agentResolution.maxTokens,
+              temperature: 0.3,
+            }
+          : {
+              client: anthropicClient ?? undefined,
+              model,
+              maxIterations: options.maxIterations ?? 10,
+              maxTokens: 4096,
+              temperature: 0.3,
+            },
       )
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       logger.error({ err: msg }, '[email-compose] agent loop failed')
       throw err
+    }
+
+    // Record the agent run in ai_audit_log (one row per run, not per iteration).
+    // Fire-and-forget pattern mirrors gateway.logAudit — audit failures never
+    // break the caller's success path.
+    if (this.llmGateway && resolvedTierKey) {
+      try {
+        await this.llmGateway.recordAgentCompletion(EMAIL_COMPOSE_TASK, resolvedTierKey, {
+          iterations: agentResult.iterations,
+          tokenUsage: {
+            input: agentResult.tokenUsage.inputTokens,
+            output: agentResult.tokenUsage.outputTokens,
+          },
+          latencyMs: Date.now() - startMs,
+        })
+      } catch (err) {
+        logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          '[email-compose] recordAgentCompletion failed — continuing',
+        )
+      }
     }
 
     // Extract draft info from tool calls

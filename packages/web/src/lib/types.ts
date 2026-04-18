@@ -6,7 +6,7 @@ export type AutonomyLevel = 'observe' | 'assist' | 'advise' | 'partner'
 
 export type CaptureType = 'decision' | 'idea' | 'observation' | 'task' | 'win' | 'blocker' | 'question' | 'reflection'
 export type BrainView = 'career' | 'personal' | 'technical' | 'work-internal' | 'client'
-export type CaptureSource = 'api' | 'slack' | 'voice' | 'document' | 'mcp' | 'email'
+export type CaptureSource = 'api' | 'slack' | 'voice' | 'document' | 'mcp' | 'email' | 'file' | 'consolidation' | 'system'
 export type PipelineStatus = 'pending' | 'processing' | 'complete' | 'partial' | 'failed'
 
 export interface PreExtracted {

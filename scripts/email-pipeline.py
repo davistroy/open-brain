@@ -14,18 +14,29 @@ Usage:
     python email-pipeline.py --status                      # pipeline stats
 """
 
-import argparse, json, logging, re, sqlite3, subprocess, sys, time
+import argparse
+import json
+import logging
+import re
+import sqlite3
+import subprocess
+import sys
+import time
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
-import msal, requests, yaml
+import msal
+import requests
+import yaml
 
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 log = logging.getLogger("email-pipeline")
 
 # --- Paths & constants ---
@@ -45,6 +56,7 @@ BATCH = 50
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
+
 def load_config() -> dict:
     """Load and normalize email-categories.yaml."""
     if not CONFIG_PATH.exists():
@@ -57,6 +69,7 @@ def load_config() -> dict:
 
 
 # ── Database ─────────────────────────────────────────────────────────────────
+
 
 def init_db() -> sqlite3.Connection:
     """Initialize SQLite with pipeline tables."""
@@ -92,36 +105,47 @@ def init_db() -> sqlite3.Connection:
 
 
 def is_processed(conn, mid: str) -> bool:
-    return conn.execute("SELECT 1 FROM processed_emails WHERE message_id=?", (mid,)).fetchone() is not None
+    return (
+        conn.execute("SELECT 1 FROM processed_emails WHERE message_id=?", (mid,)).fetchone()
+        is not None
+    )
 
 
 def record_email(conn, mid, provider, sender, subject, cat, conf, tier, fid, moved):
-    conn.execute("INSERT OR REPLACE INTO processed_emails "
-                 "(message_id,provider,sender,subject,category,confidence,tier,folder_id,moved) "
-                 "VALUES(?,?,?,?,?,?,?,?,?)",
-                 (mid, provider, sender, subject[:500], cat, conf, tier, fid, int(moved)))
+    conn.execute(
+        "INSERT OR REPLACE INTO processed_emails "
+        "(message_id,provider,sender,subject,category,confidence,tier,folder_id,moved) "
+        "VALUES(?,?,?,?,?,?,?,?,?)",
+        (mid, provider, sender, subject[:500], cat, conf, tier, fid, int(moved)),
+    )
     conn.commit()
 
 
 def record_correction(conn, mid, provider, old_cat, new_cat):
-    conn.execute("INSERT INTO corrections(message_id,provider,old_category,new_category) VALUES(?,?,?,?)",
-                 (mid, provider, old_cat, new_cat))
+    conn.execute(
+        "INSERT INTO corrections(message_id,provider,old_category,new_category) VALUES(?,?,?,?)",
+        (mid, provider, old_cat, new_cat),
+    )
     conn.commit()
 
 
-def get_folder_id(conn, provider, category) -> Optional[str]:
-    r = conn.execute("SELECT folder_id FROM folder_map WHERE provider=? AND category=?",
-                     (provider, category)).fetchone()
+def get_folder_id(conn, provider, category) -> str | None:
+    r = conn.execute(
+        "SELECT folder_id FROM folder_map WHERE provider=? AND category=?", (provider, category)
+    ).fetchone()
     return r[0] if r else None
 
 
 def save_folder_id(conn, provider, category, fid, fname):
-    conn.execute("INSERT OR REPLACE INTO folder_map(provider,category,folder_id,folder_name) VALUES(?,?,?,?)",
-                 (provider, category, fid, fname))
+    conn.execute(
+        "INSERT OR REPLACE INTO folder_map(provider,category,folder_id,folder_name) VALUES(?,?,?,?)",
+        (provider, category, fid, fname),
+    )
     conn.commit()
 
 
 # ── Graph API helpers ────────────────────────────────────────────────────────
+
 
 def _graph_request(session, method, url, json_data=None, refresh_fn=None):
     """Generic Graph API call with retry, rate limit, and 401 refresh."""
@@ -130,7 +154,7 @@ def _graph_request(session, method, url, json_data=None, refresh_fn=None):
             resp = getattr(session, method)(url, json=json_data, timeout=30)
         except requests.exceptions.RequestException as e:
             log.warning(f"Request error (attempt {attempt+1}): {e}")
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
             continue
         if resp.status_code == 429:
             time.sleep(int(resp.headers.get("Retry-After", 10)))
@@ -147,6 +171,7 @@ def _graph_request(session, method, url, json_data=None, refresh_fn=None):
 
 # ── Hotmail Backend ──────────────────────────────────────────────────────────
 
+
 class HotmailBackend:
     def __init__(self, conn, cfg):
         self.conn, self.cfg = conn, cfg
@@ -159,8 +184,10 @@ class HotmailBackend:
         if MS_TOKEN_CACHE.exists():
             self._cache.deserialize(MS_TOKEN_CACHE.read_text())
         self._app = msal.PublicClientApplication(
-            MS_CLIENT_ID, authority="https://login.microsoftonline.com/common",
-            token_cache=self._cache)
+            MS_CLIENT_ID,
+            authority="https://login.microsoftonline.com/common",
+            token_cache=self._cache,
+        )
         accounts = self._app.get_accounts()
         if accounts:
             r = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
@@ -201,12 +228,12 @@ class HotmailBackend:
         return False
 
     def _get(self, url, params=None):
-        return _graph_request(self.session, "get", url if not params else url,
-                              refresh_fn=self._refresh)
+        return _graph_request(
+            self.session, "get", url if not params else url, refresh_fn=self._refresh
+        )
 
     def _post(self, url, data):
-        return _graph_request(self.session, "post", url, json_data=data,
-                              refresh_fn=self._refresh)
+        return _graph_request(self.session, "post", url, json_data=data, refresh_fn=self._refresh)
 
     def list_folders(self) -> dict:
         folders = {}
@@ -230,8 +257,9 @@ class HotmailBackend:
             if cat in existing:
                 fid = existing[cat]
             else:
-                r = self._post(f"{GRAPH}/me/mailFolders/{inbox_id}/childFolders",
-                               {"displayName": cat})
+                r = self._post(
+                    f"{GRAPH}/me/mailFolders/{inbox_id}/childFolders", {"displayName": cat}
+                )
                 fid = r.get("id") if r else None
                 if not fid:
                     log.error(f"Failed to create: {cat}")
@@ -241,24 +269,33 @@ class HotmailBackend:
         log.info("Hotmail: folders ready")
 
     def fetch_inbox(self, since_hours=1) -> list:
-        since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        emails, url = [], (
-            f"{GRAPH}/me/mailFolders/inbox/messages?$top={BATCH}"
-            f"&$select=id,subject,from,receivedDateTime,bodyPreview"
-            f"&$filter=receivedDateTime ge {since}&$orderby=receivedDateTime desc")
+        since = (datetime.now(UTC) - timedelta(hours=since_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        emails, url = (
+            [],
+            (
+                f"{GRAPH}/me/mailFolders/inbox/messages?$top={BATCH}"
+                f"&$select=id,subject,from,receivedDateTime,bodyPreview"
+                f"&$filter=receivedDateTime ge {since}&$orderby=receivedDateTime desc"
+            ),
+        )
         while url and len(emails) < 200:
             data = self._get(url)
             if not data:
                 break
             for m in data.get("value", []):
-                emails.append({
-                    "id": m["id"],
-                    "subject": m.get("subject", ""),
-                    "sender": m.get("from", {}).get("emailAddress", {}).get("address", "").lower(),
-                    "date": m.get("receivedDateTime", ""),
-                    "preview": m.get("bodyPreview", "")[:500],
-                    "provider": "hotmail",
-                })
+                emails.append(
+                    {
+                        "id": m["id"],
+                        "subject": m.get("subject", ""),
+                        "sender": m.get("from", {})
+                        .get("emailAddress", {})
+                        .get("address", "")
+                        .lower(),
+                        "date": m.get("receivedDateTime", ""),
+                        "preview": m.get("bodyPreview", "")[:500],
+                        "provider": "hotmail",
+                    }
+                )
             url = data.get("@odata.nextLink")
         return emails
 
@@ -266,7 +303,9 @@ class HotmailBackend:
         return self._post(f"{GRAPH}/me/messages/{mid}/move", {"destinationId": fid}) is not None
 
     def cleanup_spam(self):
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=self.cfg.get("spam_max_age_days", 30))).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cutoff = (
+            datetime.now(UTC) - timedelta(days=self.cfg.get("spam_max_age_days", 30))
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
         folders = self.list_folders()
         junk_id, del_id = folders.get("Junk Email"), folders.get("Deleted Items")
         if not (junk_id and del_id):
@@ -291,8 +330,11 @@ class HotmailBackend:
         ).fetchall()
         if not rows:
             return
-        fid_to_cat = dict(self.conn.execute(
-            "SELECT folder_id,category FROM folder_map WHERE provider='hotmail'").fetchall())
+        fid_to_cat = dict(
+            self.conn.execute(
+                "SELECT folder_id,category FROM folder_map WHERE provider='hotmail'"
+            ).fetchall()
+        )
         found = 0
         for mid, old_cat, old_fid in rows:
             data = self._get(f"{GRAPH}/me/messages/{mid}?$select=parentFolderId")
@@ -300,13 +342,16 @@ class HotmailBackend:
                 continue
             cur = data.get("parentFolderId")
             if cur and cur != old_fid:
-                record_correction(self.conn, mid, "hotmail", old_cat, fid_to_cat.get(cur, "unknown"))
+                record_correction(
+                    self.conn, mid, "hotmail", old_cat, fid_to_cat.get(cur, "unknown")
+                )
                 found += 1
         if found:
             log.info(f"Hotmail: {found} corrections detected")
 
 
 # ── Gmail Backend ────────────────────────────────────────────────────────────
+
 
 class GmailBackend:
     def __init__(self, conn, cfg):
@@ -338,7 +383,9 @@ class GmailBackend:
             if not GMAIL_CREDS.exists():
                 log.error(f"Download OAuth JSON to {GMAIL_CREDS}")
                 return False
-            creds = InstalledAppFlow.from_client_secrets_file(str(GMAIL_CREDS), SCOPES).run_local_server(port=0)
+            creds = InstalledAppFlow.from_client_secrets_file(
+                str(GMAIL_CREDS), SCOPES
+            ).run_local_server(port=0)
         PIPE_DIR.mkdir(parents=True, exist_ok=True)
         GMAIL_TOKEN.write_text(creds.to_json())
         self.svc = build("gmail", "v1", credentials=creds)
@@ -356,9 +403,19 @@ class GmailBackend:
                 lid = existing[cat]
             else:
                 try:
-                    r = self.svc.users().labels().create(userId="me", body={
-                        "name": cat, "labelListVisibility": "labelShow",
-                        "messageListVisibility": "show"}).execute()
+                    r = (
+                        self.svc.users()
+                        .labels()
+                        .create(
+                            userId="me",
+                            body={
+                                "name": cat,
+                                "labelListVisibility": "labelShow",
+                                "messageListVisibility": "show",
+                            },
+                        )
+                        .execute()
+                    )
                     lid = r["id"]
                     log.info(f"Created label: {cat}")
                 except Exception as e:
@@ -368,26 +425,43 @@ class GmailBackend:
         log.info("Gmail: labels ready")
 
     def fetch_inbox(self, since_hours=1) -> list:
-        since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).strftime("%Y/%m/%d")
+        since = (datetime.now(UTC) - timedelta(hours=since_hours)).strftime("%Y/%m/%d")
         emails, page_token = [], None
         while len(emails) < 200:
-            r = self.svc.users().messages().list(userId="me", q=f"in:inbox after:{since}",
-                                                 maxResults=BATCH, pageToken=page_token).execute()
+            r = (
+                self.svc.users()
+                .messages()
+                .list(
+                    userId="me", q=f"in:inbox after:{since}", maxResults=BATCH, pageToken=page_token
+                )
+                .execute()
+            )
             for stub in r.get("messages", []):
-                m = self.svc.users().messages().get(userId="me", id=stub["id"], format="metadata",
-                                                    metadataHeaders=["From", "Subject"]).execute()
+                m = (
+                    self.svc.users()
+                    .messages()
+                    .get(
+                        userId="me",
+                        id=stub["id"],
+                        format="metadata",
+                        metadataHeaders=["From", "Subject"],
+                    )
+                    .execute()
+                )
                 time.sleep(API_DELAY)
                 hdrs = {h["name"]: h["value"] for h in m.get("payload", {}).get("headers", [])}
                 raw_from = hdrs.get("From", "")
                 match = re.search(r"<([^>]+)>", raw_from)
-                emails.append({
-                    "id": m["id"],
-                    "subject": hdrs.get("Subject", ""),
-                    "sender": (match.group(1) if match else raw_from).lower().strip(),
-                    "date": hdrs.get("Date", ""),
-                    "preview": m.get("snippet", "")[:500],
-                    "provider": "gmail",
-                })
+                emails.append(
+                    {
+                        "id": m["id"],
+                        "subject": hdrs.get("Subject", ""),
+                        "sender": (match.group(1) if match else raw_from).lower().strip(),
+                        "date": hdrs.get("Date", ""),
+                        "preview": m.get("snippet", "")[:500],
+                        "provider": "gmail",
+                    }
+                )
             page_token = r.get("nextPageToken")
             if not page_token:
                 break
@@ -395,8 +469,9 @@ class GmailBackend:
 
     def label_email(self, mid, lid) -> bool:
         try:
-            self.svc.users().messages().modify(userId="me", id=mid,
-                body={"addLabelIds": [lid], "removeLabelIds": ["INBOX"]}).execute()
+            self.svc.users().messages().modify(
+                userId="me", id=mid, body={"addLabelIds": [lid], "removeLabelIds": ["INBOX"]}
+            ).execute()
             time.sleep(API_DELAY)
             return True
         except Exception as e:
@@ -407,11 +482,17 @@ class GmailBackend:
         return self.label_email(mid, lid)
 
     def cleanup_spam(self):
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=self.cfg.get("spam_max_age_days", 30))).strftime("%Y/%m/%d")
+        cutoff = (
+            datetime.now(UTC) - timedelta(days=self.cfg.get("spam_max_age_days", 30))
+        ).strftime("%Y/%m/%d")
         trashed, pt = 0, None
         while trashed < 200:
-            r = self.svc.users().messages().list(userId="me", q=f"in:spam before:{cutoff}",
-                                                 maxResults=BATCH, pageToken=pt).execute()
+            r = (
+                self.svc.users()
+                .messages()
+                .list(userId="me", q=f"in:spam before:{cutoff}", maxResults=BATCH, pageToken=pt)
+                .execute()
+            )
             for m in r.get("messages", []):
                 try:
                     self.svc.users().messages().trash(userId="me", id=m["id"]).execute()
@@ -432,8 +513,11 @@ class GmailBackend:
         ).fetchall()
         if not rows:
             return
-        lid_to_cat = dict(self.conn.execute(
-            "SELECT folder_id,category FROM folder_map WHERE provider='gmail'").fetchall())
+        lid_to_cat = dict(
+            self.conn.execute(
+                "SELECT folder_id,category FROM folder_map WHERE provider='gmail'"
+            ).fetchall()
+        )
         found = 0
         for mid, old_cat, old_lid in rows:
             try:
@@ -452,7 +536,8 @@ class GmailBackend:
 
 # ── Classifier ───────────────────────────────────────────────────────────────
 
-def classify_by_sender(email, sender_rules) -> Optional[tuple]:
+
+def classify_by_sender(email, sender_rules) -> tuple | None:
     """T0: exact email or domain suffix match. Returns (category, 1.0, 'sender')."""
     sender = email["sender"]
     if sender in sender_rules:
@@ -465,7 +550,7 @@ def classify_by_sender(email, sender_rules) -> Optional[tuple]:
     return None
 
 
-def classify_by_keyword(email, keyword_rules) -> Optional[tuple]:
+def classify_by_keyword(email, keyword_rules) -> tuple | None:
     """T0: subject keyword match. Confidence 0.5-0.9 based on hit count."""
     subj = email["subject"].lower()
     best, best_n = None, 0
@@ -478,7 +563,7 @@ def classify_by_keyword(email, keyword_rules) -> Optional[tuple]:
     return None
 
 
-def classify_by_jetson(email, cfg) -> Optional[tuple]:
+def classify_by_jetson(email, cfg) -> tuple | None:
     """T1: Jetson LLM classification. Returns (category, confidence, 'jetson')."""
     jcfg = cfg.get("jetson", {})
     cats = sorted(cfg["_categories"])
@@ -489,12 +574,19 @@ def classify_by_jetson(email, cfg) -> Optional[tuple]:
         'Respond with ONLY valid JSON: {"category": "...", "confidence": 0.0-1.0}'
     )
     try:
-        resp = requests.post(f"{jcfg.get('base_url', 'http://jetson.k4jda.net:8080/v1')}/chat/completions",
-            json={"model": jcfg.get("model", "qwen3.5-4b"),
-                  "messages": [{"role": "system", "content": "Email classifier. JSON only."},
-                               {"role": "user", "content": prompt}],
-                  "max_completion_tokens": jcfg.get("max_completion_tokens", 256),
-                  "temperature": jcfg.get("temperature", 0.1)}, timeout=jcfg.get("timeout", 90))
+        resp = requests.post(
+            f"{jcfg.get('base_url', 'http://jetson.k4jda.net:8080/v1')}/chat/completions",
+            json={
+                "model": jcfg.get("model", "qwen3.5-4b"),
+                "messages": [
+                    {"role": "system", "content": "Email classifier. JSON only."},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_completion_tokens": jcfg.get("max_completion_tokens", 256),
+                "temperature": jcfg.get("temperature", 0.1),
+            },
+            timeout=jcfg.get("timeout", 90),
+        )
         if resp.status_code != 200:
             log.warning(f"Jetson {resp.status_code}: {resp.text[:200]}")
             return None
@@ -512,13 +604,16 @@ def classify_by_jetson(email, cfg) -> Optional[tuple]:
 
 def classify_email(email, cfg) -> tuple:
     """Tiered classification: sender -> keyword -> Jetson -> Needs Review."""
-    return (classify_by_sender(email, cfg["sender_rules"])
-            or classify_by_keyword(email, cfg["keyword_rules"])
-            or classify_by_jetson(email, cfg)
-            or ("Needs Review", 0.0, "none"))
+    return (
+        classify_by_sender(email, cfg["sender_rules"])
+        or classify_by_keyword(email, cfg["keyword_rules"])
+        or classify_by_jetson(email, cfg)
+        or ("Needs Review", 0.0, "none")
+    )
 
 
 # ── Pipeline Orchestrator ────────────────────────────────────────────────────
+
 
 def run_pipeline(backend, conn, cfg, dry_run=False, since_hours=1):
     """Fetch -> classify -> organize -> cleanup -> detect corrections."""
@@ -544,8 +639,9 @@ def run_pipeline(backend, conn, cfg, dry_run=False, since_hours=1):
             moved = backend.move_email(e["id"], fid)
             if moved:
                 stats["moved"] += 1
-        record_email(conn, e["id"], provider, e["sender"], e["subject"],
-                     cat, conf, tier, fid or "", moved)
+        record_email(
+            conn, e["id"], provider, e["sender"], e["subject"], cat, conf, tier, fid or "", moved
+        )
         action = "DRY" if dry_run else ("MOV" if moved else "REC")
         log.info(f"  [{action}] {tier}({conf:.2f}) -> {target}: {e['subject'][:60]}")
 
@@ -553,24 +649,31 @@ def run_pipeline(backend, conn, cfg, dry_run=False, since_hours=1):
         backend.cleanup_spam()
         backend.detect_corrections()
 
-    log.info(f"--- {provider.upper()} done: {len(new)} classified, "
-             f"sender={stats['sender']}, kw={stats['keyword']}, "
-             f"llm={stats['jetson']}, unclass={stats['none']}, "
-             f"moved={stats['moved']}, review={stats['needs_review']} ---")
+    log.info(
+        f"--- {provider.upper()} done: {len(new)} classified, "
+        f"sender={stats['sender']}, kw={stats['keyword']}, "
+        f"llm={stats['jetson']}, unclass={stats['none']}, "
+        f"moved={stats['moved']}, review={stats['needs_review']} ---"
+    )
 
 
 # ── Daily Summary ────────────────────────────────────────────────────────────
 
+
 def generate_daily_summary(conn, cfg):
     """Aggregate today's emails, synthesize via claude --print, POST to brain."""
     today = datetime.now().strftime("%Y-%m-%d")
-    existing = conn.execute("SELECT posted_to_brain FROM daily_summaries WHERE date=?", (today,)).fetchone()
+    existing = conn.execute(
+        "SELECT posted_to_brain FROM daily_summaries WHERE date=?", (today,)
+    ).fetchone()
     if existing and existing[0]:
         return log.info(f"Summary for {today} already posted")
 
     rows = conn.execute(
         "SELECT provider,sender,subject,category,confidence,tier FROM processed_emails "
-        "WHERE date(processed_at)=? ORDER BY processed_at", (today,)).fetchall()
+        "WHERE date(processed_at)=? ORDER BY processed_at",
+        (today,),
+    ).fetchall()
     if not rows:
         return log.info(f"No emails on {today}, skipping summary")
 
@@ -589,30 +692,45 @@ def generate_daily_summary(conn, cfg):
     )
 
     try:
-        r = subprocess.run(["claude", "--print", "-p", prompt],
-                           capture_output=True, text=True, timeout=120)
+        r = subprocess.run(
+            ["claude", "--print", "-p", prompt], capture_output=True, text=True, timeout=120
+        )
         summary = r.stdout.strip() if r.returncode == 0 else None
     except (FileNotFoundError, subprocess.TimeoutExpired):
         summary = None
     if not summary:
-        summary = (f"[Auto] {len(rows)} emails. Top: "
-                   + ", ".join(f"{c}({n})" for c, n in cat_counts.most_common(5)))
+        summary = f"[Auto] {len(rows)} emails. Top: " + ", ".join(
+            f"{c}({n})" for c, n in cat_counts.most_common(5)
+        )
 
-    conn.execute("INSERT OR REPLACE INTO daily_summaries(date,email_count,categories_json,summary_text) "
-                 "VALUES(?,?,?,?)", (today, len(rows), json.dumps(dict(cat_counts)), summary))
+    conn.execute(
+        "INSERT OR REPLACE INTO daily_summaries(date,email_count,categories_json,summary_text) "
+        "VALUES(?,?,?,?)",
+        (today, len(rows), json.dumps(dict(cat_counts)), summary),
+    )
     conn.commit()
 
     scfg = cfg.get("daily_summary", {})
     url = scfg.get("open_brain_url", "https://brain.troy-davis.com/api/v1/captures")
     try:
-        resp = requests.post(url, json={
-            "content": f"[Email Daily Digest] {today}\n\n{summary}",
-            "source": "email",
-            "source_metadata": {"type": "daily_digest", "date": today,
-                                "email_count": len(rows), "categories": dict(cat_counts)},
-        }, headers={"Content-Type": "application/json",
-                    "X-Open-Brain-Caller": scfg.get("open_brain_caller", "email-pipeline")},
-                             timeout=30)
+        resp = requests.post(
+            url,
+            json={
+                "content": f"[Email Daily Digest] {today}\n\n{summary}",
+                "source": "email",
+                "source_metadata": {
+                    "type": "daily_digest",
+                    "date": today,
+                    "email_count": len(rows),
+                    "categories": dict(cat_counts),
+                },
+            },
+            headers={
+                "Content-Type": "application/json",
+                "X-Open-Brain-Caller": scfg.get("open_brain_caller", "email-pipeline"),
+            },
+            timeout=30,
+        )
         if resp.status_code in (200, 201):
             conn.execute("UPDATE daily_summaries SET posted_to_brain=1 WHERE date=?", (today,))
             conn.commit()
@@ -625,25 +743,30 @@ def generate_daily_summary(conn, cfg):
 
 # ── Status ───────────────────────────────────────────────────────────────────
 
+
 def show_status(conn):
     """Print pipeline statistics."""
     print("\n=== Email Pipeline Status ===\n")
     total = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
     print(f"Total processed: {total}")
     for p in ("hotmail", "gmail"):
-        n = conn.execute("SELECT COUNT(*) FROM processed_emails WHERE provider=?", (p,)).fetchone()[0]
+        n = conn.execute("SELECT COUNT(*) FROM processed_emails WHERE provider=?", (p,)).fetchone()[
+            0
+        ]
         print(f"  {p}: {n}")
 
     print("\nTiers (7d):")
     for tier, n in conn.execute(
         "SELECT tier,COUNT(*) FROM processed_emails WHERE processed_at>datetime('now','-7 days') "
-        "GROUP BY tier ORDER BY COUNT(*) DESC").fetchall():
+        "GROUP BY tier ORDER BY COUNT(*) DESC"
+    ).fetchall():
         print(f"  {tier}: {n}")
 
     print("\nTop categories (7d):")
     for cat, n in conn.execute(
         "SELECT category,COUNT(*) FROM processed_emails WHERE processed_at>datetime('now','-7 days') "
-        "GROUP BY category ORDER BY COUNT(*) DESC LIMIT 10").fetchall():
+        "GROUP BY category ORDER BY COUNT(*) DESC LIMIT 10"
+    ).fetchall():
         print(f"  {cat}: {n}")
 
     corr = conn.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
@@ -651,20 +774,24 @@ def show_status(conn):
     if corr:
         for old, new, n in conn.execute(
             "SELECT old_category,new_category,COUNT(*) FROM corrections "
-            "GROUP BY old_category,new_category ORDER BY COUNT(*) DESC LIMIT 5").fetchall():
+            "GROUP BY old_category,new_category ORDER BY COUNT(*) DESC LIMIT 5"
+        ).fetchall():
             print(f"  {old} -> {new}: {n}x")
 
     for p in ("hotmail", "gmail"):
         n = conn.execute("SELECT COUNT(*) FROM folder_map WHERE provider=?", (p,)).fetchone()[0]
         print(f"\n{p} folders mapped: {n}")
 
-    r = conn.execute("SELECT date,email_count,posted_to_brain FROM daily_summaries ORDER BY date DESC LIMIT 1").fetchone()
+    r = conn.execute(
+        "SELECT date,email_count,posted_to_brain FROM daily_summaries ORDER BY date DESC LIMIT 1"
+    ).fetchone()
     if r:
         print(f"\nLast summary: {r[0]} ({r[1]} emails, {'posted' if r[2] else 'pending'})")
     print()
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
+
 
 def main():
     ap = argparse.ArgumentParser(description="Email Classification Pipeline")

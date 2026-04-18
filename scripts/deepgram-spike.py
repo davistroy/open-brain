@@ -32,10 +32,9 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
-from deepgram import DeepgramClient, PrerecordedOptions, LiveOptions, LiveTranscriptionEvents
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -67,23 +66,26 @@ ESTIMATED_LLM_TTS_OVERHEAD = 1.2
 # Data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TranscriptResult:
     """Holds results from a single streaming transcription run."""
+
     clip_name: str
     clip_duration_s: float
-    time_to_first_word_s: Optional[float] = None
+    time_to_first_word_s: float | None = None
     total_time_s: float = 0.0
     word_count: int = 0
     transcript: str = ""
     is_final: bool = False
-    error: Optional[str] = None
+    error: str | None = None
     partial_results: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # WAV generation (synthetic test tones)
 # ---------------------------------------------------------------------------
+
 
 def generate_wav_bytes(duration_s: float, freq_start: float = 200, freq_end: float = 800) -> bytes:
     """Generate a WAV file in memory with a frequency-sweep sine wave.
@@ -94,7 +96,7 @@ def generate_wav_bytes(duration_s: float, freq_start: float = 200, freq_end: flo
     - Round-trip timing
     """
     num_samples = int(SAMPLE_RATE * duration_s)
-    t = np.linspace(0, duration_s, num_samples, endpoint=False)
+    np.linspace(0, duration_s, num_samples, endpoint=False)
 
     # Linear frequency sweep
     freqs = np.linspace(freq_start, freq_end, num_samples)
@@ -155,6 +157,7 @@ def load_wav_file(path: Path) -> tuple[bytes, float]:
 # Deepgram streaming test
 # ---------------------------------------------------------------------------
 
+
 async def test_streaming_latency(
     client: DeepgramClient,
     audio_bytes: bytes,
@@ -168,13 +171,13 @@ async def test_streaming_latency(
         clip_duration_s=clip_duration_s,
     )
 
-    first_word_time: Optional[float] = None
-    start_time: Optional[float] = None
+    first_word_time: float | None = None
+    start_time: float | None = None
     transcript_parts: list[str] = []
     total_words = 0
     connection_ready = asyncio.Event()
     done_event = asyncio.Event()
-    error_captured: Optional[str] = None
+    error_captured: str | None = None
 
     try:
         dg_connection = client.listen.asyncwebsocket.v("1")
@@ -251,7 +254,7 @@ async def test_streaming_latency(
         # Wait for final results (timeout after 5s past end of audio)
         try:
             await asyncio.wait_for(done_event.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # Some clips may not trigger close; that's OK
 
         end_time = time.perf_counter()
@@ -276,6 +279,7 @@ async def test_streaming_latency(
 # ---------------------------------------------------------------------------
 # Pre-recorded (batch) test for comparison
 # ---------------------------------------------------------------------------
+
 
 async def test_prerecorded_latency(
     client: DeepgramClient,
@@ -321,6 +325,7 @@ async def test_prerecorded_latency(
 # Report formatting
 # ---------------------------------------------------------------------------
 
+
 def format_report(results: list[TranscriptResult]) -> str:
     """Format test results into a readable report with go/no-go recommendation."""
 
@@ -346,22 +351,28 @@ def format_report(results: list[TranscriptResult]) -> str:
     lines.append("-" * 76)
     lines.append("  STREAMING RESULTS (simulated real-time)")
     lines.append("-" * 76)
-    lines.append(f"  {'Clip':<28} {'Duration':>8} {'TTFW':>10} {'Total':>10} {'Words':>6} {'Status':>8}")
-    lines.append(f"  {'----':<28} {'--------':>8} {'----':>10} {'-----':>10} {'-----':>6} {'------':>8}")
+    lines.append(
+        f"  {'Clip':<28} {'Duration':>8} {'TTFW':>10} {'Total':>10} {'Words':>6} {'Status':>8}"
+    )
+    lines.append(
+        f"  {'----':<28} {'--------':>8} {'----':>10} {'-----':>10} {'-----':>6} {'------':>8}"
+    )
 
     ttfw_values: list[float] = []
     total_values: list[float] = []
-    all_pass = True
 
     for r in streaming:
         dur = f"{r.clip_duration_s:.1f}s"
         if r.error:
             lines.append(f"  {r.clip_name:<28} {dur:>8} {'ERROR':>10} {'':>10} {'':>6} {'FAIL':>8}")
             lines.append(f"    Error: {r.error}")
-            all_pass = False
             continue
 
-        ttfw_str = f"{r.time_to_first_word_s * 1000:.0f}ms" if r.time_to_first_word_s is not None else "N/A"
+        ttfw_str = (
+            f"{r.time_to_first_word_s * 1000:.0f}ms"
+            if r.time_to_first_word_s is not None
+            else "N/A"
+        )
         total_str = f"{r.total_time_s * 1000:.0f}ms"
         words_str = str(r.word_count)
 
@@ -373,9 +384,11 @@ def format_report(results: list[TranscriptResult]) -> str:
             total_values.append(r.total_time_s)
 
         if status == "FAIL":
-            all_pass = False
+            pass
 
-        lines.append(f"  {r.clip_name:<28} {dur:>8} {ttfw_str:>10} {total_str:>10} {words_str:>6} {status:>8}")
+        lines.append(
+            f"  {r.clip_name:<28} {dur:>8} {ttfw_str:>10} {total_str:>10} {words_str:>6} {status:>8}"
+        )
         if r.transcript:
             preview = r.transcript[:60] + "..." if len(r.transcript) > 60 else r.transcript
             lines.append(f"    Transcript: {preview}")
@@ -411,7 +424,9 @@ def format_report(results: list[TranscriptResult]) -> str:
         avg_ttfw = sum(ttfw_values) / len(ttfw_values)
         min_ttfw = min(ttfw_values)
         max_ttfw = max(ttfw_values)
-        p90_ttfw = sorted(ttfw_values)[int(len(ttfw_values) * 0.9)] if len(ttfw_values) >= 3 else max_ttfw
+        p90_ttfw = (
+            sorted(ttfw_values)[int(len(ttfw_values) * 0.9)] if len(ttfw_values) >= 3 else max_ttfw
+        )
 
         avg_total = sum(total_values) / len(total_values)
         estimated_rtt = avg_ttfw + ESTIMATED_LLM_TTS_OVERHEAD
@@ -419,16 +434,22 @@ def format_report(results: list[TranscriptResult]) -> str:
         lines.append(f"  Streaming clips tested:     {len(streaming)}")
         lines.append(f"  Clips with transcription:   {len(ttfw_values)}")
         lines.append("")
-        lines.append(f"  Time-to-first-word (TTFW):")
-        lines.append(f"    Average:  {avg_ttfw * 1000:>8.0f} ms   (target: < {TARGET_TTFW * 1000:.0f} ms)")
+        lines.append("  Time-to-first-word (TTFW):")
+        lines.append(
+            f"    Average:  {avg_ttfw * 1000:>8.0f} ms   (target: < {TARGET_TTFW * 1000:.0f} ms)"
+        )
         lines.append(f"    Min:      {min_ttfw * 1000:>8.0f} ms")
         lines.append(f"    Max:      {max_ttfw * 1000:>8.0f} ms")
         lines.append(f"    P90:      {p90_ttfw * 1000:>8.0f} ms")
         lines.append("")
         lines.append(f"  Total streaming time (avg): {avg_total * 1000:>8.0f} ms")
-        lines.append(f"  Est. round-trip (TTFW + LLM + TTS overhead):")
-        lines.append(f"    {avg_ttfw * 1000:.0f}ms STT + {ESTIMATED_LLM_TTS_OVERHEAD * 1000:.0f}ms overhead = {estimated_rtt * 1000:.0f}ms")
-        lines.append(f"    Target: < {TARGET_ROUNDTRIP * 1000:.0f} ms  {'PASS' if estimated_rtt < TARGET_ROUNDTRIP else 'FAIL'}")
+        lines.append("  Est. round-trip (TTFW + LLM + TTS overhead):")
+        lines.append(
+            f"    {avg_ttfw * 1000:.0f}ms STT + {ESTIMATED_LLM_TTS_OVERHEAD * 1000:.0f}ms overhead = {estimated_rtt * 1000:.0f}ms"
+        )
+        lines.append(
+            f"    Target: < {TARGET_ROUNDTRIP * 1000:.0f} ms  {'PASS' if estimated_rtt < TARGET_ROUNDTRIP else 'FAIL'}"
+        )
     else:
         lines.append("  No successful streaming transcriptions to analyze.")
         lines.append("  (Synthetic tones may not produce words — try real speech WAV files)")
@@ -476,7 +497,9 @@ def format_report(results: list[TranscriptResult]) -> str:
     else:
         lines.append("  RECOMMENDATION:  NO-GO")
         lines.append("")
-        lines.append(f"  Average TTFW ({avg_ttfw * 1000:.0f}ms) exceeds target ({TARGET_TTFW * 1000:.0f}ms).")
+        lines.append(
+            f"  Average TTFW ({avg_ttfw * 1000:.0f}ms) exceeds target ({TARGET_TTFW * 1000:.0f}ms)."
+        )
         lines.append("  Options: try nova-2-general, reduce chunk size, accept higher latency.")
 
     lines.append("=" * 76)
@@ -488,6 +511,7 @@ def format_report(results: list[TranscriptResult]) -> str:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 async def main() -> int:
     # Check API key
@@ -538,7 +562,9 @@ async def main() -> int:
         if r.error:
             print(f" ERROR: {r.error}")
         elif r.time_to_first_word_s is not None:
-            print(f" TTFW={r.time_to_first_word_s * 1000:.0f}ms, total={r.total_time_s * 1000:.0f}ms, words={r.word_count}")
+            print(
+                f" TTFW={r.time_to_first_word_s * 1000:.0f}ms, total={r.total_time_s * 1000:.0f}ms, words={r.word_count}"
+            )
         else:
             print(f" no words detected, total={r.total_time_s * 1000:.0f}ms")
         results.append(r)

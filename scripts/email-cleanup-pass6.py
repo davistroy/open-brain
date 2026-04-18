@@ -6,12 +6,10 @@ directly to identify automated/marketing senders. Flipped approach: protect
 personal email domains and known keepers, delete everything matching patterns.
 """
 
-import sys
-import os
-import re
-import time
-import json
 import argparse
+import re
+import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -37,49 +35,122 @@ PROTECTED_ADDRESSES = {
 
 # Personal email domains — real humans, keep all
 PERSONAL_DOMAINS = {
-    "gmail.com", "hotmail.com", "outlook.com", "yahoo.com", "aol.com",
-    "comcast.net", "att.net", "icloud.com", "me.com", "mac.com",
-    "live.com", "msn.com", "sbcglobal.net", "bellsouth.net",
-    "charter.net", "cox.net", "verizon.net", "earthlink.net",
-    "windstream.net", "frontier.com", "centurylink.net",
+    "gmail.com",
+    "hotmail.com",
+    "outlook.com",
+    "yahoo.com",
+    "aol.com",
+    "comcast.net",
+    "att.net",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "live.com",
+    "msn.com",
+    "sbcglobal.net",
+    "bellsouth.net",
+    "charter.net",
+    "cox.net",
+    "verizon.net",
+    "earthlink.net",
+    "windstream.net",
+    "frontier.com",
+    "centurylink.net",
 }
 
 # --- AUTOMATED SENDER PATTERNS (local part) ---
 AUTO_LOCAL_PATTERNS = [
-    "noreply", "donotreply", "no-reply", "do-not-reply", "do_not_reply",
-    "newsletter", "newsletters", "digest", "daily", "weekly",
-    "promo", "promotions", "marketing", "offers", "deals", "sale",
-    "notifications", "notification", "alert", "alerts", "updates",
-    "info@", "hello@", "team@", "welcome@", "support@",
-    "news@", "editor@", "editorial@",
-    "mail@", "email@", "contact@",
-    "subscribe", "unsubscribe",
-    "feedback@", "survey@",
-    "billing@", "invoice@", "receipt@",
-    "shipping@", "order@", "orders@",
-    "rewards@", "loyalty@", "members@",
-    "store@", "shop@",
+    "noreply",
+    "donotreply",
+    "no-reply",
+    "do-not-reply",
+    "do_not_reply",
+    "newsletter",
+    "newsletters",
+    "digest",
+    "daily",
+    "weekly",
+    "promo",
+    "promotions",
+    "marketing",
+    "offers",
+    "deals",
+    "sale",
+    "notifications",
+    "notification",
+    "alert",
+    "alerts",
+    "updates",
+    "info@",
+    "hello@",
+    "team@",
+    "welcome@",
+    "support@",
+    "news@",
+    "editor@",
+    "editorial@",
+    "mail@",
+    "email@",
+    "contact@",
+    "subscribe",
+    "unsubscribe",
+    "feedback@",
+    "survey@",
+    "billing@",
+    "invoice@",
+    "receipt@",
+    "shipping@",
+    "order@",
+    "orders@",
+    "rewards@",
+    "loyalty@",
+    "members@",
+    "store@",
+    "shop@",
 ]
 
 # --- AUTOMATED SENDER DOMAIN PATTERNS ---
 AUTO_DOMAIN_PATTERNS = [
-    r"^mail\.", r"^email\.", r"^email\d?\.", r"^e\d?\.", r"^e\.",
-    r"^promo\.", r"^news\.", r"^marketing\.",
-    r"^send\.", r"^reply\.", r"^bounce\.",
-    r"^notifications?\.", r"^alerts?\.",
-    r"^campaign\.", r"^bulk\.",
+    r"^mail\.",
+    r"^email\.",
+    r"^email\d?\.",
+    r"^e\d?\.",
+    r"^e\.",
+    r"^promo\.",
+    r"^news\.",
+    r"^marketing\.",
+    r"^send\.",
+    r"^reply\.",
+    r"^bounce\.",
+    r"^notifications?\.",
+    r"^alerts?\.",
+    r"^campaign\.",
+    r"^bulk\.",
 ]
 AUTO_DOMAIN_RE = [re.compile(p, re.IGNORECASE) for p in AUTO_DOMAIN_PATTERNS]
 
 # Known bulk/newsletter platform domains
 PLATFORM_DOMAINS = {
-    "beehiiv.com", "substack.com", "groups.io", "mailchimp.com",
-    "sendgrid.net", "constantcontact.com", "mailgun.org",
-    "amazonses.com", "exacttarget.com", "sailthru.com",
-    "responsys.net", "mktomail.com", "hubspotemail.net",
-    "createsend.com", "cmail19.com", "cmail20.com",
-    "feedproxy.google.com", "feedblitz.com",
-    "returnpath.net", "litmus.com",
+    "beehiiv.com",
+    "substack.com",
+    "groups.io",
+    "mailchimp.com",
+    "sendgrid.net",
+    "constantcontact.com",
+    "mailgun.org",
+    "amazonses.com",
+    "exacttarget.com",
+    "sailthru.com",
+    "responsys.net",
+    "mktomail.com",
+    "hubspotemail.net",
+    "createsend.com",
+    "cmail19.com",
+    "cmail20.com",
+    "feedproxy.google.com",
+    "feedblitz.com",
+    "returnpath.net",
+    "litmus.com",
 }
 
 
@@ -162,7 +233,7 @@ def api_get(url, params=None):
         try:
             resp = session.get(url, params=params, timeout=30)
         except requests.exceptions.ReadTimeout:
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
             continue
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 10))
@@ -182,7 +253,7 @@ def api_post(url, json_data):
         try:
             resp = session.post(url, json=json_data, timeout=60)
         except requests.exceptions.ReadTimeout:
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
             continue
         if resp.status_code == 429:
             wait = int(resp.headers.get("Retry-After", 10))
@@ -241,7 +312,9 @@ def main():
         url = data.get("@odata.nextLink")
         page += 1
         if total % 10000 == 0:
-            print(f"  Scanned {total:,} | Auto: {len(auto_ids):,} | Keep: {keep_count:,}", flush=True)
+            print(
+                f"  Scanned {total:,} | Auto: {len(auto_ids):,} | Keep: {keep_count:,}", flush=True
+            )
 
     print(f"\n  Scan complete: {total:,} total emails", flush=True)
     print(f"  Automated/marketing (to delete): {len(auto_ids):,}", flush=True)
@@ -249,16 +322,16 @@ def main():
     print(f"  Unique auto senders: {len(auto_senders):,}", flush=True)
     print(f"  Unique keep senders: {len(keep_senders):,}", flush=True)
 
-    print(f"\n  Top 20 automated senders to delete:", flush=True)
+    print("\n  Top 20 automated senders to delete:", flush=True)
     for addr, count in auto_senders.most_common(20):
         print(f"    {count:>5}  {addr}", flush=True)
 
-    print(f"\n  Top 20 senders being KEPT:", flush=True)
+    print("\n  Top 20 senders being KEPT:", flush=True)
     for addr, count in keep_senders.most_common(20):
         print(f"    {count:>5}  {addr}", flush=True)
 
     if args.dry_run:
-        print(f"\n  DRY RUN — no emails deleted.", flush=True)
+        print("\n  DRY RUN — no emails deleted.", flush=True)
         print(f"  Would delete {len(auto_ids):,} emails, keep {keep_count:,}", flush=True)
         return
 
@@ -268,11 +341,16 @@ def main():
     batch_url = f"{GRAPH_BASE}/$batch"
 
     for i in range(0, len(auto_ids), BATCH_SIZE):
-        chunk = auto_ids[i:i + BATCH_SIZE]
-        reqs = [{"id": str(j), "method": "DELETE", "url": f"/me/messages/{mid}"} for j, mid in enumerate(chunk)]
+        chunk = auto_ids[i : i + BATCH_SIZE]
+        reqs = [
+            {"id": str(j), "method": "DELETE", "url": f"/me/messages/{mid}"}
+            for j, mid in enumerate(chunk)
+        ]
         try:
             result = api_post(batch_url, {"requests": reqs})
-            deleted += sum(1 for r in result.get("responses", []) if 200 <= r.get("status", 500) < 300)
+            deleted += sum(
+                1 for r in result.get("responses", []) if 200 <= r.get("status", 500) < 300
+            )
         except Exception as e:
             print(f"    Batch error: {e}", flush=True)
 

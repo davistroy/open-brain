@@ -6,12 +6,10 @@ and error handling. Fixtures are created programmatically in conftest.
 """
 
 import csv
-import os
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-
 from src.extract import app
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"

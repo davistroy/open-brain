@@ -197,6 +197,7 @@ export function createSkillExecutionWorker(
               anthropicClient: opts.anthropicClient,
               coreApiUrl: opts.coreApiUrl,
               configService: opts.configService,
+              llmGateway: opts.llmGateway,
             },
             { instruction, coreApiUrl: opts.coreApiUrl, anthropicClient: opts.anthropicClient },
           )

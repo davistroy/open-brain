@@ -31,6 +31,7 @@ describe('resolveTaskModel', () => {
           max_completion_tokens: 4096,
           timeout_ms: 60_000,
           fallback: null,
+          provider: 'openai',
         },
       },
     })
@@ -53,12 +54,14 @@ describe('resolveTaskModel', () => {
           max_completion_tokens: 4096,
           timeout_ms: 60_000,
           fallback: null,
+          provider: 'openai',
         },
         t1_fast: {
           model: 'gpt-5.4',
           max_completion_tokens: 1024,
           timeout_ms: 30_000,
           fallback: null,
+          provider: 'openai',
         },
       },
     })
@@ -79,12 +82,14 @@ describe('resolveTaskModel', () => {
           max_completion_tokens: 4096,
           timeout_ms: 60_000,
           fallback: null,
+          provider: 'openai',
         },
         t1_fast: {
           model: 'gpt-5.4',
           max_completion_tokens: 1024,
           timeout_ms: 30_000,
           fallback: null,
+          provider: 'openai',
         },
       },
     })
@@ -112,6 +117,7 @@ describe('resolveTaskModel', () => {
           max_completion_tokens: 1024,
           timeout_ms: 30_000,
           fallback: null,
+          provider: 'openai',
         },
       },
     })
@@ -137,6 +143,7 @@ describe('resolveTaskModel', () => {
           max_completion_tokens: 1024,
           timeout_ms: 30_000,
           fallback: null,
+          provider: 'openai',
         },
       },
     })
@@ -173,6 +180,7 @@ describe('resolveTaskModel', () => {
           max_completion_tokens: 1024,
           timeout_ms: 30_000,
           fallback: null,
+          provider: 'openai',
         },
       },
     })
