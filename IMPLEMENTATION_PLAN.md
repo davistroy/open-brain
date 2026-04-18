@@ -115,6 +115,7 @@ export default [
 **Complexity:** Small
 **Dependencies:** None
 **Parallelizable:** Yes
+**Status:** Local steps COMPLETE 2026-04-18 (2.1, 2.3, 2.4, 2.6). Homeserver steps (2.2 pre-flight audit + 2.5 apply migration) PENDING — require SSH; surfaced to user. See LAB_NOTEBOOK Entry 086.
 
 ### Goals
 

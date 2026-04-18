@@ -5142,3 +5142,47 @@ The plan's grep `grep "import {" packages/ | grep ", type "` returned 30+ matche
 
 ---
 
+### Entry 086 — Phase 2 (CS-η): A66 captures.source CHECK constraint (local prep) — 2026-04-18
+
+**Tags:** [database] [migration] [schema] [claude-md]
+**Environment:** Branch `feat/action-items-a65-a68`. Local-only: code + SQL + docs. Homeserver apply pending (steps 2.2 + 2.5).
+
+**Objective:** Tighten `captures.source` from unconstrained TEXT to a CHECK constraint covering the 8 canonical values. Fix CLAUDE.md source-list undercount.
+
+**Hypothesis:** Every row in production `captures.source` is one of `slack, voice, api, document, mcp, email, file, consolidation`. Applying a CHECK constraint will succeed without rejecting existing rows. Writers that attempt an out-of-allowlist source value (e.g., typo, new source not yet documented) will be rejected at DB layer with `23514 check_violation` — a louder failure than silent insertion of bad data.
+
+**Rollback Plan:**
+- **Local (if tests fail):** `git revert` the commit containing this migration + CLAUDE.md fix + schema comment. SQL file deletion is safe — it's not yet applied anywhere.
+- **After homeserver apply (future):** `docker exec open-brain-postgres psql -U openbrain -d openbrain -c "ALTER TABLE captures DROP CONSTRAINT captures_source_check;"` on homeserver.
+
+**Local changes made (2.1, 2.3, 2.4):**
+1. **CLAUDE.md line 83** — replaced 6-value list with full 8-value canonical list. Added pointers to TS union (`CaptureSource` in `packages/shared/src/types/capture.ts`), Zod validator (`CAPTURE_SOURCES` in `packages/core-api/src/schemas/capture.ts`), and migration filename. Explained the role of `'file'` (document-router file-references) and `'consolidation'` (memory-consolidation merges).
+2. **`packages/shared/drizzle/0022_captures_source_check.sql`** — new migration. `ALTER TABLE ... DROP CONSTRAINT IF EXISTS captures_source_check; ALTER TABLE ... ADD CONSTRAINT captures_source_check CHECK (source IN (8 values));`. Header comment explains the pgEnum-vs-CHECK rationale and the pre-flight audit requirement.
+3. **`packages/shared/src/schema/core.ts:16`** — extended inline comment on `source` column to reference the CHECK constraint (migration 0022) and the canonical TS union. Runtime type unchanged (`text('source').notNull()`).
+
+**Why CHECK, not pgEnum:** Postgres `ALTER TYPE ADD VALUE` commits immediately and cannot run in a transaction with other DDL on some setups. Removing values requires table-rewriting. `'file'` and `'consolidation'` were added to the de facto source list post-schema-v1, and more will be added (e.g., if we ever pipe in RSS feeds or MCP tool event captures). CHECK is one `DROP + ADD` migration; pgEnum would be a multi-step dance.
+
+**Pending (pre-homeserver-apply) — 2.2 pre-flight audit:**
+```bash
+ssh root@homeserver.k4jda.net
+docker exec open-brain-postgres psql -U openbrain -d openbrain \
+  -c "SELECT source, COUNT(*) FROM captures GROUP BY source ORDER BY source;"
+```
+Expected output: every row's source ∈ 8-value allowlist. If NOT, stop and investigate before applying.
+
+**Pending — 2.5 apply migration:**
+```bash
+scp packages/shared/drizzle/0022_captures_source_check.sql root@homeserver.k4jda.net:/tmp/
+ssh root@homeserver.k4jda.net \
+  "docker exec -i open-brain-postgres psql -U openbrain -d openbrain < /tmp/0022_captures_source_check.sql"
+ssh root@homeserver.k4jda.net \
+  "docker exec open-brain-postgres psql -U openbrain -d openbrain -c '\d captures' | grep -i check"
+```
+Verification: constraint appears in `\d captures` output; out-of-band INSERT returns `23514`.
+
+**Risk:** Low. CHECK on clean data can't fail. The only risk is the pre-flight audit revealing a stale or unknown source value, which would be a finding worth investigating regardless.
+
+**Status:** Local steps (2.1, 2.3, 2.4, 2.6) complete. Committing now. Steps 2.2 + 2.5 require homeserver SSH — surfaced to user.
+
+---
+
