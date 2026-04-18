@@ -180,7 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged 2026-04-18 (PR #123); P02a-c + P03 in progress |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged 2026-04-18 (PR #123); P02a in progress (Entry 093); P02b-c + P03 remaining |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -5662,6 +5662,53 @@ Success criteria:
 **Pattern established:** CI re-runs validate-schema conditionally on mode-only changes to the validator script itself (because the script path is NOT in the trigger list — only schema files are). When the reviewer-flagged mode-fix commit went up, the validate-schema job still executed — investigation showed the CI check picked up the change because scripts/ is being watched broadly in the trigger detection. Good accident.
 
 **Status:** P01 ✅ COMPLETE. Orchestrator advances to P02a (Zod config validation for ai-routing.yaml).
+
+---
+
+### Entry 093 — P02a Gate 1+2: Zod config validation for ai-routing.yaml plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [config] [zod] [cost-tracking] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P02a-zod-config-validation` (created in this entry's commit). Main at `574a3b5` before branch.
+**Phase:** P02a of PHASED_PLAN.md (Wave 1, bootstrap phase 2 of 5)
+**PR:** TBD (will be created after Gate 3)
+
+**Objective:** Add startup Zod validation to `ConfigService.load()` that catches missing or `undefined` `cost_per_1k_input` / `cost_per_1k_output` on paid-provider tiers (anthropic, openai, openai_compat, litellm, deepseek) in `config/ai-routing.yaml`. Also validates `task_routing` tier existence, `fallback` chain integrity, and `monthly_budget` positivity. Fail-fast on violation — this is the first half of the bootstrap cost-tracking fix that unblocks P03's `estimateTierCostUsd()` rewrite. Without it, a silently-stripped cost field would let the $100+ overnight ingestion cost incident (Entry 042, 2026-04-15) recur.
+
+**Hypothesis:** Adding `cost_per_1k_input?: number` + `cost_per_1k_output?: number` to `ModelTierEntrySchema` plus a pure-function validator `validateAiRoutingConfig(config)` hooked into `ConfigService.load()` will (a) surface the actual cost values on the TS type (previously stripped silently by Zod), (b) throw with actionable messages on any missing cost field for paid-provider tiers, (c) throw on task_routing → nonexistent tier, fallback → nonexistent tier, or hard_limit <= soft_limit. Expect the `t1_jetson` tier must gain explicit `cost_per_1k_input: 0` + `cost_per_1k_output: 0` in YAML (self-declared free local GPU) to pass validation. Expect 7 failure-case unit tests + 1 production-config drift-guard test. Expect 283 existing shared tests to remain green.
+
+Success criteria:
+- `pnpm --filter @open-brain/shared test -- loader.test.ts`: 7 new failure tests + 1 production drift-guard test, all green
+- `pnpm --filter @open-brain/shared test`: 291/291 passing (was 283 + 8 new)
+- `pnpm -r test`: full repo green
+- `pnpm --filter @open-brain/shared build`: clean
+- Manual: `configService.getModelTier('t1_fast').cost_per_1k_input === 0.0008` (was `undefined`)
+- PR body closes #102 partially (subset)
+- No regressions in core-api/workers/slack-bot consumers of `ModelTierEntry`
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` on main — pure TypeScript + YAML, no DB migrations.
+2. `ModelTierEntrySchema` reverts to 6-field form — cost fields stripped at parse time as before.
+3. `ConfigService.load()` reverts to non-fatal `validateTaskRouting()` only.
+4. `config/ai-routing.yaml` `t1_jetson` reverts to no-cost-field form — no functional impact (tier still works; cost just unknown).
+5. **Critical:** P02b + P03 cannot land before P02a re-lands — they depend on `cost_per_1k_input`/`cost_per_1k_output` existing on `ModelTierEntry`.
+6. No homeserver compose restart required.
+
+**Gate 1 scope drifts (5 found, all documented in plan; none invalidate acceptance):**
+
+1. Field names are `cost_per_1k_input` / `cost_per_1k_output` (full suffix), not `_in` / `_out` as the P02a card + ORCHESTRATOR.md bootstrap check said. Plan uses the authoritative names. ORCHESTRATOR.md's bootstrap check will need a follow-up doc fix (not P02a scope).
+2. **`ModelTierEntrySchema` has NO cost fields currently** — Zod silently strips them from the parsed object. P02a must extend the schema AND add the validator. This is the biggest surprise but is essential for P03.
+3. `ConfigService` lives in `packages/shared/src/config/loader.ts`, not `services/config-service.ts`. Plan corrected.
+4. `estimateTierCostUsd()` is a stub returning 0 — confirmed P02a does NOT modify it (P03 scope).
+5. ORCHESTRATOR.md uses `budget.monthly_hard_cap_usd` but actual field is `monthly_budget.hard_limit_usd`. Doc-only drift in ORCHESTRATOR.md; not P02a scope.
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P02a.md` — 6-work-item plan covering schema extension (3.1), validator module (3.2), ConfigService hook (3.3), 7 failure-case tests (3.4), 1 production drift-guard test (3.5), barrel export (3.6).
+- Added LAB_NOTEBOOK Entry 093 (this entry).
+- Updated Action Item A69 to reflect P02a in progress.
+
+**Next (Gate 3):** dispatch `implement-executor` subagent (Sonnet 4.6) to execute all 6 work items. Per-work-item sub-sections will be appended to this entry.
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02a-zod-config-validation`.
 
 ---
 
