@@ -28,5 +28,6 @@ ALTER TABLE captures
     'mcp',
     'email',
     'file',
-    'consolidation'
+    'consolidation',
+    'system'
   ));

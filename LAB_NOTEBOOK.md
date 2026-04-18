@@ -5184,6 +5184,50 @@ Verification: constraint appears in `\d captures` output; out-of-band INSERT ret
 
 **Status:** Local steps (2.1, 2.3, 2.4, 2.6) complete. Committing now. Steps 2.2 + 2.5 require homeserver SSH — surfaced to user.
 
+**UPDATE 2026-04-18 post-pre-flight-audit:** Audit (step 2.2) revealed a **9th undocumented source value: `'system'`** (1 row, from bet resolution at `packages/core-api/src/services/bet.ts:254`). Migration SQL + TS union + Zod enum + CLAUDE.md + web duplicated-type all amended to 9-value canonical list. See Entry 089 for full discovery + fix. Migration still pending apply.
+
+---
+
+### Entry 089 — Phase 2 UPDATE (CS-η): pre-flight audit discovered 9th source — 2026-04-18
+
+**Tags:** [database] [migration] [pre-flight] [investigation-gap]
+**Environment:** Branch `feat/action-items-a65-a68`, PR #101 open. Homeserver pre-flight SSH audit before applying migration 0022.
+
+**Objective:** Execute pre-flight audit 2.2 per CLAUDE.md Rule "If any unexpected value appears, STOP and investigate before applying migration."
+
+**Hypothesis (original, Entry 086):** All production rows in `captures.source` will be in the 8-value allowlist.
+**Result:** **FALSIFIED.** Audit output:
+```
+ source | count
+--------+-------
+ api    |    79
+ email  |     4
+ file   | 10966
+ mcp    |     2
+ slack  |     2
+ system |     1   ← not in allowlist
+ voice  |     7
+```
+
+**Investigation:** Grep for `source: 'system'` located `packages/core-api/src/services/bet.ts:254`. The bet feature (governance/prediction tracking) writes a `reflection` capture with `source: 'system'` on bet resolution — legitimate but undocumented. The single prod row is `bet_id: a37ce608-e764-4a4a-86de-0e55340d4ad3`, a regression-test bet resolved correctly on 2026-04-12.
+
+**Why the ultra-plan Phase 1 investigation missed it:** Grep across consumer call sites enumerated 8 values from active hot paths. `bet.ts` is a rarely-exercised code path (bet resolution is manual + infrequent), so it didn't surface in the writer-files sample.
+
+**Secondary discovery:** `packages/web/src/lib/types.ts:9` had its own duplicated `CaptureSource` listing only **6 values** — pre-existing drift from shared's 8-value canonical. Drift-guard (PR #97) covers `IngestSourceType` + `FileUploadStatus`, NOT `CaptureSource`, so this drift was invisible to CI. (Flagged follow-up: extend drift-guard to cover `CaptureSource` — separate PR.)
+
+**Rollback Plan:** If the amended migration fails to apply, `git revert` the amendment commit; SQL was not yet applied to production, so local revert is sufficient.
+
+**Fix (amendment commit on PR #101):**
+1. **Migration SQL** (`0022_captures_source_check.sql`): added `'system'` as 9th value.
+2. **TS union** (`packages/shared/src/types/capture.ts`): 9 values.
+3. **Zod enum** (`packages/core-api/src/schemas/capture.ts`): 9 values.
+4. **CLAUDE.md**: bullet updated 8→9 with `'system'` usage note (bet resolution) + "update all four surfaces in lockstep" operational rule.
+5. **Web duplicated type** (`packages/web/src/lib/types.ts`): 6→9 values (bonus: fixes pre-existing drift).
+
+**Apply plan (unchanged):** After amendment pushes, re-run 2.5 (apply migration) + verify via `\d captures | grep check`.
+
+**Lesson — add to CLAUDE.md:** Pre-flight DB audits are MANDATORY before CHECK-constraint migrations. Grep-based enumeration reveals hot paths but misses cold paths. Always `SELECT DISTINCT <column> FROM <table>` on prod BEFORE writing the migration SQL.
+
 ---
 
 ### Entry 087 — Phase 3 (CS-θ): A68 Python lint+typecheck CI — 2026-04-18
