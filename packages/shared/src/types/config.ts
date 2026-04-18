@@ -82,6 +82,8 @@ export const ModelTierEntrySchema = z.object({
   max_completion_tokens: z.number(),
   timeout_ms: z.number(),
   fallback: z.string().nullable().default(null),
+  cost_per_1k_input: z.number().optional(),
+  cost_per_1k_output: z.number().optional(),
 })
 
 export type ModelTierEntry = z.infer<typeof ModelTierEntrySchema>
