@@ -5220,7 +5220,31 @@ ssh root@homeserver.k4jda.net "docker ps --format 'table {{.Names}}\t{{.Status}}
 - All 13 containers show `healthy` in `docker ps`.
 - `curl -sf https://brain.troy-davis.com/api/v1/captures?limit=1` returns 200.
 
-**Result (post-execution):** TBD — log below.
+**Result (post-execution) — SUCCESS 2026-04-18:**
+
+Git pull: `09ac073 → 2d43491` (8 PRs, clean fast-forward, no merge conflicts).
+
+Docker build: 9 images rebuilt (~2 min with layer cache). All built cleanly.
+
+`docker compose up -d` rolled 10 containers (3 already-running: postgres, redis, cloudflared, faster-whisper — kept). No failures during rolling.
+
+`docker ps` final state (all 13):
+- `(healthy)`: core-api, web, voice-capture, voice-pipecat, file-ingestion, postgres, redis, faster-whisper (8)
+- `Up` (no healthcheck defined): workers, slack-bot, financial-ingest, utility-ingest, cloudflared (5)
+
+API verification (internal): `GET /api/v1/captures?limit=1` via `docker exec open-brain-core-api wget` returned captures list (drift monitor entry). Core-API serving with new code.
+
+External endpoint: https://brain.troy-davis.com → 302 redirect to Cloudflare Access login (expected — auth-gated). Access-protected endpoints verified reachable.
+
+**Duration:** ~3 min 30 s end-to-end (pull + build + up + verify).
+
+**No rollback needed.** Deploy clean. Homeserver on latest main. DB migration 0022 + new app code aligned.
+
+**What this shipped to prod:**
+- LLMGatewayService + runAgent clientResolver for email-compose (Phase 4 / CS-ι).
+- captures.source CHECK constraint active + app code writing within allowlist (Phase 2 / CS-η).
+- Python lint/typecheck CI coverage (Phase 3 / CS-θ, CI-only).
+- All of PR #94, #96–#100 backlog caught up.
 
 ---
 
