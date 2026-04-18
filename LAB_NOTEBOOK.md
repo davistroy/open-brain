@@ -5228,6 +5228,39 @@ Verification: constraint appears in `\d captures` output; out-of-band INSERT ret
 
 **Lesson — add to CLAUDE.md:** Pre-flight DB audits are MANDATORY before CHECK-constraint migrations. Grep-based enumeration reveals hot paths but misses cold paths. Always `SELECT DISTINCT <column> FROM <table>` on prod BEFORE writing the migration SQL.
 
+**APPLY RESULTS — 2026-04-18 (completed):**
+
+```bash
+scp packages/shared/drizzle/0022_captures_source_check.sql root@homeserver.k4jda.net:/tmp/
+# (silent success)
+
+ssh root@homeserver.k4jda.net "docker exec -i open-brain-postgres psql -U openbrain -d openbrain < /tmp/0022_captures_source_check.sql"
+# ALTER TABLE
+# NOTICE:  constraint "captures_source_check" of relation "captures" does not exist, skipping
+# ALTER TABLE
+
+ssh root@homeserver.k4jda.net "docker exec open-brain-postgres psql -U openbrain -d openbrain -c '\d captures'" | grep -iE "check|constraint"
+# Check constraints:
+#     "captures_source_check" CHECK (source = ANY (ARRAY['slack'::text, 'voice'::text, 'api'::text,
+#       'document'::text, 'mcp'::text, 'email'::text, 'file'::text, 'consolidation'::text, 'system'::text]))
+```
+
+**Rejection test (confirms enforcement):**
+```sql
+INSERT INTO captures (..., source) VALUES (..., 'bogus');
+-- ERROR:  new row for relation "captures" violates check constraint "captures_source_check"
+```
+
+**Final state:**
+- Migration 0022 applied to homeserver production DB.
+- CHECK constraint active, enforcing 9-value allowlist.
+- Existing `'system'` row (bet resolution) preserved — no data loss.
+- Out-of-band INSERT rejected with `23514`.
+- PR #101 amendment commit `57783fd` carries all 5-surface fixes.
+- Phase 2 (CS-η) **fully COMPLETE** — no homeserver follow-up remaining.
+
+**Duration:** ~25 min from audit-surprise to constraint live.
+
 ---
 
 ### Entry 087 — Phase 3 (CS-θ): A68 Python lint+typecheck CI — 2026-04-18
