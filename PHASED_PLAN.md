@@ -837,12 +837,75 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P28–P32 — scripts/ pyright coverage, staged
-**Scope:** #120 add type hints to 20 ops scripts across 5 PRs (~4 scripts each)
+### P28 — scripts/ pyright part 1: financial + utility pipelines
+**Scope:** #120 subset — most-active ops scripts
 **Severity:** Low
 **Dependencies:** None
-**Effort:** ~4-6 hours per PR × 5 = ~20-30 hours total
-**Strategy:** Start with most-active scripts (financial-pipeline, utility-pipeline, email-pipeline) first. Each PR enables pyright coverage for its scripts via `pyrightconfig.json` include.
+**Effort:** ~6 hours
+
+**Deliverables:**
+- Type hints added to `scripts/financial-pipeline.py` (3,035 LOC — god module flagged in arch review as SW-M1) and `scripts/utility-pipeline.py`
+- `pyproject.toml`: add these two paths to `[tool.pyright].include`
+- `pyright` clean on both; no errors on existing tests
+
+**Acceptance:** CI `python-lint` job green with these two added to include.
+
+**Rollback:** Remove include lines; ruff-only coverage resumes.
+
+---
+
+### P29 — scripts/ pyright part 2: email scripts cluster
+**Scope:** #120 subset — all email-* scripts
+**Severity:** Low
+**Dependencies:** None
+**Effort:** ~5 hours
+
+**Deliverables:**
+- Type hints on `email-pipeline.py`, `email-cleanup.py`, `email-cleanup-pass{2,4,6}.py`, `email-archive-by-year.py`, `enqueue-email-classify.mjs` (last is JS/MJS; scope TBD)
+- `pyproject.toml` include extended
+- pyright clean
+
+**Acceptance:** All email scripts in include, pyright clean.
+
+---
+
+### P30 — scripts/ pyright part 3: file-* scripts cluster
+**Scope:** #120 subset — file categorize/dedup/inventory/reorganize
+**Severity:** Low
+**Dependencies:** None
+**Effort:** ~4 hours
+
+**Deliverables:**
+- Type hints on `file-categorize.py`, `file-dedup.py`, `file-inventory.py`, `reorganize-onedrive.py`, `dedup-and-archive.py`, `cleanup-onedrive-junk.py`, `create_reorg_sheet.py`
+- pyright clean
+
+---
+
+### P31 — scripts/ pyright part 4: ingestion + Plaid + Deepgram
+**Scope:** #120 subset — ingest/financial-data/voice
+**Severity:** Low
+**Dependencies:** None
+**Effort:** ~4 hours
+
+**Deliverables:**
+- Type hints on `ingest-onedrive.py`, `ingest-repair.py`, `batch-wiki-ingest.py`, `plaid-link-server.py`, `deepgram-spike.py`
+- pyright clean
+
+---
+
+### P32 — scripts/ pyright part 5: remaining scripts + final include
+**Scope:** #120 final subset — mop up
+**Severity:** Low
+**Dependencies:** P28-P31 (lands on top of the accumulated include list)
+**Effort:** ~3 hours
+
+**Deliverables:**
+- Any remaining `scripts/*.py` files not covered in P28-P31
+- Final `pyproject.toml` change: drop the `exclude = ["scripts", ...]` line; scripts/ is now fully included
+- pyright clean on all of scripts/
+- Documentation update in CLAUDE.md: "scripts/ is fully type-checked"
+
+**Acceptance:** `pyright` clean against full repo include path (sidecar + 3 Python packages + all scripts).
 
 ---
 
