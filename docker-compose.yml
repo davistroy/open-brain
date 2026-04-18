@@ -28,6 +28,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 8g
     networks:
       - open-brain
     restart: unless-stopped
@@ -45,6 +46,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 512m
     networks:
       - open-brain
     restart: unless-stopped
@@ -66,6 +68,7 @@ services:
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       GITEA_TOKEN: ${GITEA_TOKEN}
+      NODE_OPTIONS: "--max-old-space-size=1200"
       # Himalaya TOML config lives on the mounted config volume. Credentials live
       # inside the TOML file (gitignored; sourced from Bitwarden BOND_EMAIL_PASSWORD).
       HIMALAYA_CONFIG: /app/config/himalaya/config.toml
@@ -88,6 +91,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
@@ -110,6 +114,7 @@ services:
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       GITEA_TOKEN: ${GITEA_TOKEN}
+      NODE_OPTIONS: "--max-old-space-size=1200"
       # wiki-ingest makes git commits from inside this container; env vars
       # override lack of ~/.gitconfig and identify the bot author (A61).
       GIT_AUTHOR_NAME: "Open Brain Bot"
@@ -136,6 +141,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
@@ -152,6 +158,7 @@ services:
       CORE_API_URL: http://core-api:3000
       REDIS_URL: redis://redis:6379
       OPENAI_BASE_URL: https://api.openai.com/v1
+      NODE_OPTIONS: "--max-old-space-size=1200"
       # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
       # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
       # OPENAI_API_KEY: set in .env.secrets
@@ -160,6 +167,7 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
@@ -277,6 +285,7 @@ services:
       CORE_API_URL: http://core-api:3000
       WHISPER_URL: http://faster-whisper:8000
       OPENAI_BASE_URL: https://api.openai.com/v1
+      NODE_OPTIONS: "--max-old-space-size=1200"
       # OPENAI_API_KEY: set in .env.secrets
       # PUSHOVER_TOKEN: set in .env.secrets
       # PUSHOVER_USER: set in .env.secrets
@@ -293,6 +302,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
@@ -316,6 +326,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    mem_limit: 256m
     networks:
       - open-brain
     restart: unless-stopped
@@ -335,6 +346,7 @@ services:
         condition: service_healthy
       web:
         condition: service_healthy
+    mem_limit: 256m
     networks:
       - open-brain
     restart: unless-stopped
@@ -375,6 +387,7 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
@@ -406,6 +419,7 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped

@@ -32,10 +32,12 @@ senders.xlsx
 reference/open-brain_claude-code.txt
 
 # ============================================================
-# Ephemeral session state (implement-plan)
+# Ephemeral session state (implement-plan + orchestrator)
 # ============================================================
 .implement-plan-state.json
 .implement-plan-state.json.*
+.orchestrator-state.json
+.orchestrator-state.json.*
 
 # ============================================================
 # Test and coverage artifacts

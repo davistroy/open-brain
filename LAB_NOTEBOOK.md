@@ -180,6 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — must merge before autopilot can begin |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -5527,6 +5528,121 @@ All three commits are atomic and independently revertable.
 **Results:** `@open-brain/shared` build clean; 281 shared tests pass (was 269 + 12 new). `@open-brain/workers` build clean; 948 workers tests pass (was 946 + 2 new fault-injection). No regressions.
 
 **Status:** All six work items (4.1–4.6) complete locally. Ready for review and commit (three atomic commits per plan rollback spec).
+
+---
+
+--- New session: 2026-04-18 — Orchestrator kickoff: P01 infra hardening kit (bootstrap Wave 1) ---
+
+### Entry 092 — P01 Gate 1+2: Infra Hardening Kit plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [docker] [database] [drift-guard] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P01-infra-hardening-kit` (created in this entry's commit). Main at `76146a4` before branch.
+**Phase:** P01 of PHASED_PLAN.md (Wave 1, bootstrap)
+**PR:** TBD (will be created after Gate 3)
+
+**Objective:** Start autonomous execution of PHASED_PLAN.md via the ORCHESTRATOR.md 5-gate pipeline. First phase is P01 — infra hardening kit bundling #103 mem_limits (Critical), #105 init-schema.sql (High), and #110 drift-guard for CaptureSource (High) into one PR. Until P03 merges to main, every phase requires operator approval at Gate 5 (bootstrap rule — the budget circuit breaker isn't yet installed, so autopilot is unsafe).
+
+**Hypothesis:** P01's three items are small, self-contained, and independent. Expect (a) 10 docker-compose services get `mem_limit` + 4 Node services get `NODE_OPTIONS=--max-old-space-size=1200`; (b) `scripts/init-schema.sql` regenerates to include missing migrations 0020-0022 (email_classifications/corrections/daily_summaries tables, file_upload_status ENUM + file_uploads table, captures_source_check CHECK); (c) `packages/web/src/components/SearchFilters.tsx` CAPTURE_SOURCES array grows 6→9 values to match the canonical `CaptureSource` union in `packages/shared/src/types/capture.ts`; (d) drift-guard test in `packages/shared/src/__tests__/web-type-drift.test.ts` extends to cover CaptureSource.
+
+Success criteria:
+- `docker compose config` exits 0 after mem_limit edits
+- `bash scripts/validate-init-schema.sh` exits 0 locally (ephemeral Postgres + init-schema + all 22 migrations round-trip clean)
+- `pnpm --filter @open-brain/shared test -- web-type-drift` green with 2 new CaptureSource test cases
+- PR body closes #103, #105, #110
+- No regressions in the 1,569 unit + 95 regression tests
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` on main.
+2. No data-touching changes in this PR — init-schema.sql is for fresh DB initialization only, never applied to running homeserver.
+3. Migration 0022 (applied to homeserver 2026-04-18 per Entry 086/089) is NOT touched — only added to init-schema.sql.
+4. Docker mem_limit revert returns containers to unlimited memory (prior baseline behavior).
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `.orchestrator-state.json` — session state for the 45-phase orchestrator run (gitignored).
+- Created `IMPLEMENT_PHASE-P01.md` — drift-corrected plan produced by the Gate 1 phase-planner subagent (Sonnet 4.6). Three scope-drift items were surfaced and documented; none invalidate acceptance criteria:
+  - Drift 1: `CaptureSource` in `packages/web/src/lib/types.ts` is already 9 values; only `SearchFilters.tsx` hardcoded array needs updating.
+  - Drift 2: existing drift-guard reads from `api.ts` but `CaptureSource` lives in `types.ts` — plan adds a second path constant.
+  - Drift 3: `init-schema.sql` is missing migrations 0020-0022 (not just the most recent); regeneration scope is slightly larger than the P01 card implied but still ~1 day.
+- Extended `.gitignore` to cover `.orchestrator-state.json` + wildcarded backup variant.
+- Added Action Item A69 to track the bootstrap execution.
+
+**Next (Gate 3):** dispatch `implement-executor` subagent (Sonnet 4.6) to run the `personal-plugin:implement-plan` skill against `IMPLEMENT_PHASE-P01.md`. Per-work-item LAB_NOTEBOOK updates will be appended to this entry.
+
+**Status:** Gate 2 complete. Gate 3 (implement-executor) complete — 2026-04-18T21:29:25Z → 2026-04-18T21:45:30Z.
+
+---
+
+#### Gate 3 — Work item 1 (all 10 docker mem_limits) — COMPLETE
+
+**Hypothesis:** Adding `mem_limit` + `NODE_OPTIONS` across the 10 un-capped services in `docker-compose.yml` is a pure declarative change. `docker compose config > /dev/null` will validate the YAML; no container restart needed for plan to be correct.
+
+**Result:** All 10 services now have `mem_limit`. 4 Node services (core-api, workers, slack-bot, voice-capture) have `NODE_OPTIONS: "--max-old-space-size=1200"`. 3 pre-existing limits preserved (voice-pipecat 4g, file-ingestion 1536m, faster-whisper 8g). `docker compose config` exits 0. Commit `8ef56aa`.
+
+---
+
+#### Gate 3 — Work item 2 (init-schema + validator + CI) — COMPLETE
+
+**Hypothesis:** Appending idempotent `CREATE TABLE IF NOT EXISTS` / `DO $$ ... $$` blocks for migrations 0020-0022 to `scripts/init-schema.sql` will allow a fresh pgvector/pgvector:pg16 container to come up clean with all 23 expected tables and the CHECK constraint. The validator script exits 0. The CI job wires it up for PRs that touch schema.
+
+**Result:**
+- 2.1: `init-schema.sql` extended with 100 new lines covering migrations 0020 (3 tables + 3 indexes), 0021 (ENUM guard + file_uploads table + 2 indexes), 0022 (DROP + ADD constraint). Commit `95dfbe9`.
+- 2.2: `scripts/validate-init-schema.sh` created and chmod +x. Runs ephemeral pgvector:pg16 container on port 5499, applies init-schema.sql + all 23 drizzle migrations, verifies all 23 tables and the CHECK constraint, exits 0 with "validate-init-schema: PASSED". YAML validated. Commit `6115246`. NOTE: Docker Desktop was not running locally; CI will execute the validator.
+- 2.3: `validate-schema` CI job added to `.github/workflows/ci.yml`. Detects changes to schema files via git diff, runs validator conditionally. YAML passes `python -c "import yaml; yaml.safe_load(...)"`. Commit `4fc4449`.
+
+---
+
+#### Gate 3 — Work item 3 (CaptureSource drift-guard) — COMPLETE
+
+**Hypothesis:** Adding two new test cases to `web-type-drift.test.ts` (one that checks `types.ts` union against hardcoded canonical, one that checks `SearchFilters.tsx` array against `types.ts` union) plus fixing the 6→9 value array in `SearchFilters.tsx` will produce green tests. The fix lands before the test commit to ensure no red commits.
+
+**Result:**
+- 3.2: SearchFilters.tsx CAPTURE_SOURCES array expanded from 6 to 9 values (`'file'`, `'consolidation'`, `'system'` added). Commit `1eb1926`.
+- 3.1: `web-type-drift.test.ts` extended with `WEB_TYPES_PATH`, `SEARCH_FILTERS_PATH` constants, `extractArrayLiterals()` helper, `CANONICAL_CAPTURE_SOURCES` array, and two new test cases in a new describe block. All 4 tests pass (2 pre-existing + 2 new). Commit `14b054a`.
+
+---
+
+**Results (Gate 3 overall):**
+- Commits: 6 feat commits + 1 LAB_NOTEBOOK commit = 7 total on branch
+- Shared tests: 283 passing (no regressions)
+- Workers tests: 948 passing (no regressions)
+- `docker compose config`: exit 0
+- `pnpm --filter @open-brain/shared test -- web-type-drift`: 4/4 green
+- Docker Desktop not running locally — `validate-init-schema.sh` will run in CI
+
+**What Worked:**
+- Ordered 3.2 before 3.1 to keep all commits green at point of commit
+- `extractUnionLiterals()` from the existing test works on `types.ts` (single-line union) without modification — no new helper needed for that case
+- `docker compose config` validation requires `.env.secrets` to exist (even empty); created a stub, validated, removed
+
+**Status:** ALL_COMPLETE (Gate 3)
+
+---
+
+#### Gate 4 — Opus code review — APPROVE
+
+**Reviewer verdict:** APPROVE (first cycle, no changes requested). Posted to PR #123 as a COMMENTED review at 2026-04-18T21:46:44Z (GitHub blocks self-approval when `gh` account matches PR author).
+
+**CI status on HEAD `7a76783`:** 4/4 green
+- `build-and-test`: success
+- `Sidecar tests (Python)`: success
+- `Python lint & typecheck`: success
+- `Validate init-schema.sql`: success — the new validator executed end-to-end against a fresh `pgvector/pgvector:pg16` container and verified all 23 tables + `captures_source_check` CHECK constraint
+
+**Reviewer deliverable verification:** 12/12 acceptance criteria met; 13 `mem_limit` entries in docker-compose.yml; 4 `NODE_OPTIONS` on Node services; 100 new lines of idempotent DDL matching migrations 0020-0022 byte-for-byte; 121-line validator script; CI job wired correctly; 2 new drift-guard tests with robust regex.
+
+**Nits:** 1 non-blocking — `scripts/validate-init-schema.sh` had git mode `100644` instead of `100755`. CI invokes via `bash scripts/...` so it functioned correctly, but executable bit is the correct mode for POSIX hygiene. Operator requested fix before merge.
+
+---
+
+#### Gate 5 — Merge (bootstrap: operator approval required)
+
+**Operator decision:** approve merge after mode-bit fix.
+
+**Pre-merge fix:** `git update-index --chmod=+x scripts/validate-init-schema.sh` on the P01 branch; commit as `chore(phase-P01): mark validate-init-schema.sh executable`; push and re-verify CI green before merging.
+
+**Merge command:** `gh pr merge 123 --squash --delete-branch` (after CI re-green on the mode-fix commit).
+
+**Gate 5.5 (homeserver deploy):** P01 touches docker-compose.yml. Post-merge, `homeserver-advisor` subagent will generate exact SSH + docker commands for operator; operator runs them manually per ORCHESTRATOR.md "homeserver boundary — what orchestrator does NOT do" section.
 
 ---
 
