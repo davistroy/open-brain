@@ -5188,6 +5188,42 @@ Verification: constraint appears in `\d captures` output; out-of-band INSERT ret
 
 ---
 
+### Entry 090 — Homeserver catch-up deploy: 8 PRs backlog → main — 2026-04-18
+
+**Tags:** [deploy] [docker] [homeserver] [catch-up]
+**Environment:** homeserver (Unraid, `/mnt/user/appdata/open-brain`). Currently at commit `09ac073` (PR #93). Target: `5d37860` (main HEAD, post-PR #101 merge + triage commit).
+
+**Objective:** Pull latest main and rebuild containers so app code matches the DB schema (migration 0022 already applied in Entry 089).
+
+**Catch-up scope:** 8 PRs — #94, #96, #97, #98, #99, #100, #101 + the triage chore commit. Material changes include:
+- LLMGatewayService + runAgent clientResolver (#101 Phase 4)
+- captures.source CHECK constraint (#101 Phase 2 — migration already applied)
+- Python lint/typecheck CI (#101 Phase 3 — CI-only, no container impact)
+- Shared model-resolver (#98)
+- Web drift-guard, vitest Windows fix (#96, #97)
+- Sidecar pytest coverage (#99)
+
+**Hypothesis:** `git pull && docker compose build && docker compose up -d` will rebuild images incrementally (Docker layer caching) and roll the 13 containers with brief (~3-5 min) disruption per container. All 13 containers healthy afterward. Web UI reachable at brain.troy-davis.com. Email allowlist still functional. Core-API MCP still serving.
+
+**Rollback Plan:**
+- **Light:** `git reset --hard 09ac073 && docker compose build && docker compose up -d` reverts the code. DB migration 0022 is forward-compatible with pre-#101 code (the app code never wrote invalid sources; the constraint is invisible to readers), so no DB rollback needed.
+- **Heavy (if migration 0022 causes problems):** `docker exec open-brain-postgres psql -U openbrain -d openbrain -c "ALTER TABLE captures DROP CONSTRAINT captures_source_check;"` + light rollback above.
+
+**Execution plan:**
+```bash
+ssh root@homeserver.k4jda.net "cd /mnt/user/appdata/open-brain && git pull && docker compose build && docker compose up -d"
+ssh root@homeserver.k4jda.net "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+```
+
+**Success criteria:**
+- `git log -1` on homeserver matches `5d37860`.
+- All 13 containers show `healthy` in `docker ps`.
+- `curl -sf https://brain.troy-davis.com/api/v1/captures?limit=1` returns 200.
+
+**Result (post-execution):** TBD — log below.
+
+---
+
 ### Entry 089 — Phase 2 UPDATE (CS-η): pre-flight audit discovered 9th source — 2026-04-18
 
 **Tags:** [database] [migration] [pre-flight] [investigation-gap]
