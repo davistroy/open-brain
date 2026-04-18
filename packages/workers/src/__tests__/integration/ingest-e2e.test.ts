@@ -100,18 +100,20 @@ async function uploadStubCsv(): Promise<{ upload_id: string; source_type: string
   return body
 }
 
-/**
- * Poll `GET /api/v1/ingest/uploads/:id` until status transitions out of `pending`.
- * Throws on timeout; returns the final row otherwise.
- */
-async function pollUntilTerminal(upload_id: string): Promise<{
+type PollResult = {
   status: string
   source_type: string
   capture_ids: string[]
   error_message: string | null
-}> {
+}
+
+/**
+ * Poll `GET /api/v1/ingest/uploads/:id` until status transitions out of `pending`.
+ * Throws on timeout; returns the final row otherwise.
+ */
+async function pollUntilTerminal(upload_id: string): Promise<PollResult> {
   const deadline = Date.now() + UPLOAD_POLL_TIMEOUT_MS
-  let last: Awaited<ReturnType<typeof pollUntilTerminal>> | null = null
+  let last: PollResult | null = null
 
   while (Date.now() < deadline) {
     const res = await fetch(`${CORE_API_URL}/api/v1/ingest/uploads/${upload_id}`, {
@@ -125,8 +127,8 @@ async function pollUntilTerminal(upload_id: string): Promise<{
         throw new Error(`poll failed: ${res.status} ${res.statusText} — ${bodyText}`)
       }
     } else {
-      last = (await res.json()) as typeof last
-      if (last && last.status !== 'pending' && last.status !== 'processing') {
+      last = (await res.json()) as PollResult
+      if (last.status !== 'pending' && last.status !== 'processing') {
         return last
       }
     }

@@ -164,26 +164,27 @@ describe('email-compose fault injection — gateway fallback', () => {
     expect(fallbackCreate).toHaveBeenCalledTimes(1)
 
     // Assertion 3: fallback call used the fallback model
-    const [fallbackParams] = fallbackCreate.mock.calls[0]
-    expect((fallbackParams as { model: string }).model).toBe('claude-haiku-fallback')
+    const fallbackCall = fallbackCreate.mock.calls[0] as unknown as [{ model: string }]
+    expect(fallbackCall[0].model).toBe('claude-haiku-fallback')
 
     // Assertion 4: recordAgentCompletion called with the final (succeeding) tier
     // NOTE: The current implementation records with the *initial* resolved tier
     // rather than the one that succeeded. We assert on what's actually recorded
     // and flag it in the test as the observed behavior.
     expect(recordSpy).toHaveBeenCalledTimes(1)
-    const [taskArg, tierArg, metricsArg] = recordSpy.mock.calls[0]
-    expect(taskArg).toBe('email_compose')
+    const recordCall = recordSpy.mock.calls[0] as unknown as [
+      string,
+      string,
+      { iterations: number; tokenUsage: { input: number; output: number }; latencyMs: number },
+    ]
+    expect(recordCall[0]).toBe('email_compose')
     // Tier key recorded is the one the skill knows about at init time
     // (t2_quality). This is acceptable: the gateway can cross-reference via
     // ai_audit_log.model for the actual serving tier if needed.
-    expect(tierArg).toBe('t2_quality')
-    expect((metricsArg as { iterations: number }).iterations).toBe(1)
-    expect((metricsArg as { tokenUsage: { input: number; output: number } }).tokenUsage).toEqual({
-      input: 100,
-      output: 50,
-    })
-    expect((metricsArg as { latencyMs: number }).latencyMs).toBeGreaterThanOrEqual(0)
+    expect(recordCall[1]).toBe('t2_quality')
+    expect(recordCall[2].iterations).toBe(1)
+    expect(recordCall[2].tokenUsage).toEqual({ input: 100, output: 50 })
+    expect(recordCall[2].latencyMs).toBeGreaterThanOrEqual(0)
 
     // Assertion 5: skill completed without error
     expect(result.agentIterations).toBe(1)
