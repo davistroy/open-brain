@@ -49,6 +49,7 @@ config, mock ``run_pipeline``, and assert HTTP contract without touching
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import json
 import logging
@@ -106,7 +107,7 @@ class Config:
     ingest_router: Any = None
 
     @classmethod
-    def from_env(cls, environ: dict[str, str] | None = None) -> "Config":
+    def from_env(cls, environ: dict[str, str] | None = None) -> Config:
         """Read config from ``environ`` (defaults to ``os.environ``).
 
         No required-field validation here — ``main()`` emits warnings for the
@@ -142,6 +143,7 @@ def _try_load_ingest_router(app_dir: Path) -> Any:
         if str(app_dir) not in sys.path:
             sys.path.insert(0, str(app_dir))
         from lib import ingest_router as _router  # type: ignore  # noqa: E402
+
         return _router
     except Exception:  # noqa: BLE001 — any import failure is non-fatal
         return None
@@ -220,7 +222,7 @@ def check_auth(config: Config, headers) -> tuple[bool, str | None]:
         return False, "bad-caller"
     if not authz.startswith("Bearer "):
         return False, "missing-bearer"
-    token = authz[len("Bearer "):].strip()
+    token = authz[len("Bearer ") :].strip()
     if not config.ingest_trigger_secret:
         return False, "server-missing-secret"
     if not hmac.compare_digest(
@@ -252,7 +254,7 @@ class ProcessLock:
         self.fh = None
         self.acquired = False
 
-    def __enter__(self) -> "ProcessLock":
+    def __enter__(self) -> ProcessLock:
         if _fcntl is None:
             # No fcntl available (Windows test env). Degrade to "always
             # acquires" — production is Linux so this branch is test-only.
@@ -281,7 +283,7 @@ def lock_is_held(path: str) -> bool:
     if _fcntl is None:
         return False
     try:
-        fh = open(path, "a+")
+        fh = open(path, "a+")  # noqa: SIM115 (closed in finally below)
     except OSError:
         return False
     try:
@@ -443,10 +445,8 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            try:
+            with contextlib.suppress(BrokenPipeError):
                 self.wfile.write(data)
-            except BrokenPipeError:
-                pass
 
         def _read_json_body(self) -> dict[str, Any]:
             length = int(self.headers.get("Content-Length", "0") or "0")
@@ -470,7 +470,9 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                 if path == "/healthz":
                     self._write_json(HTTPStatus.OK, {"status": "ok"})
                     log_request(
-                        "GET", path, 200,
+                        "GET",
+                        path,
+                        200,
                         int((time.monotonic() - t0) * 1000),
                     )
                     return
@@ -485,13 +487,17 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                         },
                     )
                     log_request(
-                        "GET", path, int(status),
+                        "GET",
+                        path,
+                        int(status),
                         int((time.monotonic() - t0) * 1000),
                     )
                     return
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 log_request(
-                    "GET", path, 404,
+                    "GET",
+                    path,
+                    404,
                     int((time.monotonic() - t0) * 1000),
                 )
             except Exception as e:  # noqa: BLE001
@@ -500,7 +506,9 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                     {"error": str(e), "traceback": traceback.format_exc()[-2000:]},
                 )
                 log_request(
-                    "GET", path, 500,
+                    "GET",
+                    path,
+                    500,
                     int((time.monotonic() - t0) * 1000),
                 )
 
@@ -517,7 +525,9 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                         {"error": "unauthorized", "reason": caller_or_reason},
                     )
                     log_request(
-                        "POST", path, 401,
+                        "POST",
+                        path,
+                        401,
                         int((time.monotonic() - t0) * 1000),
                         caller=caller_or_reason,
                     )
@@ -529,16 +539,19 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                     body = self._read_json_body()
                     source = body.get("source") or self.config.ingest_source
                 elif path.startswith("/trigger/"):
-                    source = path[len("/trigger/"):].strip("/") or None
+                    source = path[len("/trigger/") :].strip("/") or None
                     # body is optional; reading it consumes it so downstream
                     # code doesn't see a dangling body on keep-alive sockets.
                     self._read_json_body()
                 else:
                     self._write_json(
-                        HTTPStatus.NOT_FOUND, {"error": "not found"},
+                        HTTPStatus.NOT_FOUND,
+                        {"error": "not found"},
                     )
                     log_request(
-                        "POST", path, 404,
+                        "POST",
+                        path,
+                        404,
                         int((time.monotonic() - t0) * 1000),
                         caller=caller_or_reason,
                     )
@@ -550,13 +563,14 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                         {
                             "error": "missing source",
                             "hint": (
-                                "POST /process with bound INGEST_SOURCE or "
-                                "/trigger/{source}"
+                                "POST /process with bound INGEST_SOURCE or " "/trigger/{source}"
                             ),
                         },
                     )
                     log_request(
-                        "POST", path, 400,
+                        "POST",
+                        path,
+                        400,
                         int((time.monotonic() - t0) * 1000),
                         caller=caller_or_reason,
                     )
@@ -573,7 +587,9 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                             },
                         )
                         log_request(
-                            "POST", path, 409,
+                            "POST",
+                            path,
+                            409,
                             int((time.monotonic() - t0) * 1000),
                             caller=caller_or_reason,
                             extra={"source": source},
@@ -583,12 +599,13 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                     result = run_pipeline(self.config, source)
 
                 http_status = (
-                    HTTPStatus.OK if result["status"] == "ok"
-                    else HTTPStatus.INTERNAL_SERVER_ERROR
+                    HTTPStatus.OK if result["status"] == "ok" else HTTPStatus.INTERNAL_SERVER_ERROR
                 )
                 self._write_json(int(http_status), result)
                 log_request(
-                    "POST", path, int(http_status),
+                    "POST",
+                    path,
+                    int(http_status),
                     int((time.monotonic() - t0) * 1000),
                     caller=caller_or_reason,
                     extra={
@@ -606,7 +623,9 @@ def _make_handler_class(app_config: Config) -> type[BaseHTTPRequestHandler]:
                     },
                 )
                 log_request(
-                    "POST", path, 500,
+                    "POST",
+                    path,
+                    500,
                     int((time.monotonic() - t0) * 1000),
                 )
 
@@ -629,14 +648,20 @@ def create_app(config: Config) -> ThreadingHTTPServer:
 
 
 def _install_signal_handlers(
-    server: ThreadingHTTPServer, stop_event: threading.Event,
+    server: ThreadingHTTPServer,
+    stop_event: threading.Event,
 ) -> None:
     def _shutdown(signum: int, _frame: Any) -> None:
-        log.info(json.dumps({
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime()),
-            "event": "shutdown",
-            "signal": signum,
-        }, separators=(",", ":")))
+        log.info(
+            json.dumps(
+                {
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime()),
+                    "event": "shutdown",
+                    "signal": signum,
+                },
+                separators=(",", ":"),
+            )
+        )
         stop_event.set()
         # server.shutdown() must run from a different thread than serve_forever
         threading.Thread(target=server.shutdown, daemon=True).start()
@@ -666,35 +691,46 @@ def main(config: Config | None = None) -> int:
                 )
 
     if not config.ingest_trigger_secret:
-        log.warning(json.dumps({
-            "event": "startup_warning",
-            "message": (
-                "INGEST_TRIGGER_SECRET is not set — all POST requests will be "
-                "rejected. Set INGEST_TRIGGER_SECRET in the compose env."
-            ),
-        }))
+        log.warning(
+            json.dumps(
+                {
+                    "event": "startup_warning",
+                    "message": (
+                        "INGEST_TRIGGER_SECRET is not set — all POST requests will be "
+                        "rejected. Set INGEST_TRIGGER_SECRET in the compose env."
+                    ),
+                }
+            )
+        )
 
     if config.ingest_source not in config.fallback_pipelines:
-        log.warning(json.dumps({
-            "event": "startup_warning",
-            "message": (
-                f"INGEST_SOURCE={config.ingest_source!r} is not a known pipeline"
-            ),
-            "known": list(config.fallback_pipelines.keys()),
-        }))
+        log.warning(
+            json.dumps(
+                {
+                    "event": "startup_warning",
+                    "message": (f"INGEST_SOURCE={config.ingest_source!r} is not a known pipeline"),
+                    "known": list(config.fallback_pipelines.keys()),
+                }
+            )
+        )
 
     server = create_app(config)
     stop_event = threading.Event()
     _install_signal_handlers(server, stop_event)
 
-    log.info(json.dumps({
-        "event": "startup",
-        "port": config.port,
-        "bind": config.bind_host,
-        "source": config.ingest_source,
-        "timeout_sec": config.trigger_timeout_sec,
-        "router_loaded": config.ingest_router is not None,
-    }, separators=(",", ":")))
+    log.info(
+        json.dumps(
+            {
+                "event": "startup",
+                "port": config.port,
+                "bind": config.bind_host,
+                "source": config.ingest_source,
+                "timeout_sec": config.trigger_timeout_sec,
+                "router_loaded": config.ingest_router is not None,
+            },
+            separators=(",", ":"),
+        )
+    )
 
     try:
         server.serve_forever(poll_interval=0.5)

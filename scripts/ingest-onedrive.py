@@ -15,25 +15,47 @@ Usage:
     python ingest-onedrive.py --batch-size 25             # smaller batches
 """
 
-import argparse, json, logging, os, sqlite3, sys, time
-from pathlib import Path
+import argparse
+import json
+import logging
+import os
+import sqlite3
+import sys
+import time
 from collections import Counter
+from pathlib import Path
 
 import requests
 
 sys.stdout.reconfigure(line_buffering=True)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
-                    datefmt="%Y-%m-%d %H:%M:%S")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 log = logging.getLogger("ingest-onedrive")
 
 # --- Config ---
-INVENTORY_DB = os.environ.get("INVENTORY_DB", "/mnt/user/appdata/open-brain/file-inventory-reorg.db")
+INVENTORY_DB = os.environ.get(
+    "INVENTORY_DB", "/mnt/user/appdata/open-brain/file-inventory-reorg.db"
+)
 PROGRESS_DB = os.environ.get("PROGRESS_DB", os.path.expanduser("~/.file-ingestion/progress.db"))
 CORE_API = os.environ.get("CORE_API_URL", "http://192.168.10.50:3002")
 FILE_INGESTION = os.environ.get("FILE_INGESTION_URL", "http://192.168.10.50:3007")
 ONEDRIVE_CONTAINER_PATH = "/data/onedrive"  # Path inside file-ingestion container
 
-EXTRACTABLE_EXTS = {'.pdf', '.docx', '.doc', '.pptx', '.xlsx', '.txt', '.md', '.csv', '.html', '.htm'}
+EXTRACTABLE_EXTS = {
+    ".pdf",
+    ".docx",
+    ".doc",
+    ".pptx",
+    ".xlsx",
+    ".txt",
+    ".md",
+    ".csv",
+    ".html",
+    ".htm",
+}
 
 # Map top-level dirs to brain_views
 DOMAIN_TO_VIEW = {
@@ -76,34 +98,46 @@ def is_ingested(pconn, path):
 
 
 def get_cached_extraction(pconn, path):
-    r = pconn.execute("SELECT text_content, metadata_json FROM extraction_cache WHERE path=?", (path,)).fetchone()
+    r = pconn.execute(
+        "SELECT text_content, metadata_json FROM extraction_cache WHERE path=?", (path,)
+    ).fetchone()
     if r:
         return r[0], json.loads(r[1]) if r[1] else {}
     return None, None
 
 
 def cache_extraction(pconn, path, text, metadata):
-    pconn.execute("INSERT OR REPLACE INTO extraction_cache(path, text_content, metadata_json) VALUES(?,?,?)",
-                  (path, text[:500000], json.dumps(metadata)))
+    pconn.execute(
+        "INSERT OR REPLACE INTO extraction_cache(path, text_content, metadata_json) VALUES(?,?,?)",
+        (path, text[:500000], json.dumps(metadata)),
+    )
     pconn.commit()
 
 
 def record_ingestion(pconn, path, capture_id, status, error=None):
-    pconn.execute("INSERT OR REPLACE INTO ingested(path, capture_id, status, error) VALUES(?,?,?,?)",
-                  (path, capture_id, status, error))
+    pconn.execute(
+        "INSERT OR REPLACE INTO ingested(path, capture_id, status, error) VALUES(?,?,?,?)",
+        (path, capture_id, status, error),
+    )
     pconn.commit()
 
 
 MAX_FILE_SIZE_MB = 50  # Skip files larger than this to avoid choking the extractor
 
+
 def extract_text(path, session, size_bytes=0):
     """Call file-ingestion /extract to get text from a file. Skip oversized files."""
     if size_bytes and size_bytes > MAX_FILE_SIZE_MB * 1024 * 1024:
-        return None, None, f"skipped: file too large ({size_bytes/1024/1024:.0f} MB > {MAX_FILE_SIZE_MB} MB)"
+        return (
+            None,
+            None,
+            f"skipped: file too large ({size_bytes/1024/1024:.0f} MB > {MAX_FILE_SIZE_MB} MB)",
+        )
     container_path = f"{ONEDRIVE_CONTAINER_PATH}/{path}"
     try:
-        resp = session.post(f"{FILE_INGESTION}/extract",
-                           json={"file_path": container_path}, timeout=60)
+        resp = session.post(
+            f"{FILE_INGESTION}/extract", json={"file_path": container_path}, timeout=60
+        )
         if resp.status_code != 200:
             return None, None, f"extract {resp.status_code}: {resp.text[:200]}"
         data = resp.json()
@@ -111,7 +145,7 @@ def extract_text(path, session, size_bytes=0):
         metadata = {k: v for k, v in data.items() if k != "text" and v}
         return text, metadata, None
     except requests.exceptions.Timeout:
-        return None, None, f"skipped: extraction timeout (>60s)"
+        return None, None, "skipped: extraction timeout (>60s)"
     except Exception as e:
         return None, None, str(e)
 
@@ -138,8 +172,9 @@ def submit_batch(batch, session):
         files_payload.append(entry)
 
     try:
-        resp = session.post(f"{CORE_API}/api/v1/documents/batch",
-                           json={"files": files_payload}, timeout=120)
+        resp = session.post(
+            f"{CORE_API}/api/v1/documents/batch", json={"files": files_payload}, timeout=120
+        )
         if resp.status_code in (200, 201):
             return resp.json(), None
         return None, f"batch {resp.status_code}: {resp.text[:300]}"
@@ -172,7 +207,9 @@ def run_ingestion(args):
     # Filter already ingested
     remaining = [f for f in files if not is_ingested(pconn, f[0])]
 
-    log.info(f"Total extractable: {len(files)}, already ingested: {len(files) - len(remaining)}, remaining: {len(remaining)}")
+    log.info(
+        f"Total extractable: {len(files)}, already ingested: {len(files) - len(remaining)}, remaining: {len(remaining)}"
+    )
 
     if args.dry_run:
         domains = Counter()
@@ -220,18 +257,20 @@ def run_ingestion(args):
         if len(parts) > 1:
             tags.append(parts[1])
 
-        batch.append({
-            "path": path,
-            "filename": filename,
-            "text": text[:50000],  # API limit
-            "mime_type": mime or f"application/{ext.lstrip('.')}",
-            "size": size,
-            "modified_at": modified or "",
-            "content_hash": sha256 or "",
-            "brain_view": brain_view,
-            "category": top_dir,
-            "tags": tags,
-        })
+        batch.append(
+            {
+                "path": path,
+                "filename": filename,
+                "text": text[:50000],  # API limit
+                "mime_type": mime or f"application/{ext.lstrip('.')}",
+                "size": size,
+                "modified_at": modified or "",
+                "content_hash": sha256 or "",
+                "brain_view": brain_view,
+                "category": top_dir,
+                "tags": tags,
+            }
+        )
 
         # Submit batch when full
         if len(batch) >= args.batch_size:
@@ -251,8 +290,10 @@ def run_ingestion(args):
 
             elapsed = time.monotonic() - batch_start
             rate = (extracted + submitted) / max(elapsed, 1)
-            log.info(f"  [{i+1}/{len(remaining)}] extracted={extracted} submitted={submitted} "
-                     f"errors={errors} rate={rate:.1f}/s")
+            log.info(
+                f"  [{i+1}/{len(remaining)}] extracted={extracted} submitted={submitted} "
+                f"errors={errors} rate={rate:.1f}/s"
+            )
             batch = []
             time.sleep(0.5)  # Brief pause between batches
 
@@ -273,7 +314,7 @@ def run_ingestion(args):
                 record_ingestion(pconn, item["path"], cid, "ok")
 
     elapsed = time.monotonic() - batch_start
-    log.info(f"\n=== INGESTION COMPLETE ===")
+    log.info("\n=== INGESTION COMPLETE ===")
     log.info(f"  Extracted: {extracted}")
     log.info(f"  Submitted: {submitted}")
     log.info(f"  Errors: {errors}")
@@ -292,7 +333,7 @@ def show_status():
     empty = pconn.execute("SELECT COUNT(*) FROM ingested WHERE status='empty'").fetchone()[0]
     cached = pconn.execute("SELECT COUNT(*) FROM extraction_cache").fetchone()[0]
 
-    print(f"\n=== File Ingestion Status ===")
+    print("\n=== File Ingestion Status ===")
     print(f"  Total processed: {total}")
     print(f"  Successfully ingested: {ok}")
     print(f"  Errors: {errs}")
@@ -300,7 +341,7 @@ def show_status():
     print(f"  Extraction cache: {cached}")
 
     if errs > 0:
-        print(f"\n  Recent errors:")
+        print("\n  Recent errors:")
         for path, err in pconn.execute(
             "SELECT path, error FROM ingested WHERE status LIKE '%error%' ORDER BY ingested_at DESC LIMIT 5"
         ).fetchall():

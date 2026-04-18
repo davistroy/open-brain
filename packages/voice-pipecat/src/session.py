@@ -23,8 +23,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -78,7 +79,7 @@ class SessionManager:
             Session data dict.
         """
         r = await self._get_redis()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         session_data = {
             "session_id": session_id,
             "status": "active",
@@ -111,23 +112,18 @@ class SessionManager:
 
         session_data = json.loads(raw)
         session_data["status"] = "ended"
-        session_data["ended_at"] = datetime.now(timezone.utc).isoformat()
+        session_data["ended_at"] = datetime.now(UTC).isoformat()
         # Keep the session data around for a while after ending (for review)
         await r.set(key, json.dumps(session_data), ex=settings.session_ttl_seconds)
         await r.srem(ACTIVE_SESSIONS_KEY, session_id)
-        logger.info(
-            f"Session ended: {session_id} "
-            f"(turns: {session_data.get('turn_count', 0)})"
-        )
+        logger.info(f"Session ended: {session_id} " f"(turns: {session_data.get('turn_count', 0)})")
 
         # Fire session-end callbacks (capture extraction, etc.)
         for callback in self._on_session_end_callbacks:
             try:
                 await callback(session_id, session_data)
             except Exception:
-                logger.exception(
-                    f"Session end callback failed for {session_id}"
-                )
+                logger.exception(f"Session end callback failed for {session_id}")
 
         return session_data
 
@@ -157,7 +153,7 @@ class SessionManager:
         turn = {
             "role": role,
             "text": text,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         session_data["transcript"].append(turn)
         session_data["turn_count"] = len(session_data["transcript"])

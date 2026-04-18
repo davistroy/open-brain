@@ -5186,3 +5186,54 @@ Verification: constraint appears in `\d captures` output; out-of-band INSERT ret
 
 ---
 
+### Entry 087 — Phase 3 (CS-θ): A68 Python lint+typecheck CI — 2026-04-18
+
+**Tags:** [ci] [python] [ruff] [pyright]
+**Environment:** Branch `feat/action-items-a65-a68`. Local: Windows, Python 3.14.4, `ruff 0.6.9`, `pyright 1.1.408` (installed via `pip install --user`). CI target: ubuntu-latest + Python 3.12.
+
+**Objective:** Add `ruff` (lint+format) and `pyright` (typecheck) coverage to CI for the three strongly-typed Python surfaces: `docker/ingest-sidecar/`, `packages/voice-pipecat/src/`, `packages/file-ingestion/src/`. Scripts/ gets ruff lint (with relaxed style rules for ops-script patterns) but is deferred from pyright.
+
+**Hypothesis:** The three included packages already follow modern Python conventions (`from __future__ import annotations`, typed signatures, Pydantic models). Auto-fix should resolve the bulk of lint issues; remaining pyright errors should be narrow enough to fix in 1-3 lines or scope-out with TODO markers. CI job adds ~30-45s runtime; does not block existing pnpm/sidecar-test jobs.
+
+**Rollback Plan:** Revert the workflow job addition + `pyproject.toml` creation. Auto-fixed Python files stay — they're improvements regardless. Per-file `# type: ignore` comments can also stay (they're narrow).
+
+**Work item 3.1 — `pyproject.toml`:** Created at repo root per plan spec. Deviations from the plan's literal spec (all additive, documented inline):
+- `extend-exclude` adds `packages/file-ingestion/tests` (matches plan's intent of excluding test dirs; only voice-pipecat/tests was spelled out).
+- `[tool.ruff.lint.per-file-ignores]` section added: `scripts/*` relaxes `B007, E701, E402, E741, SIM102, SIM105` — ops-script style warnings (unused loop vars named for documentation, one-line conditionals) not worth blocking CI. The three strongly-typed packages remain strict.
+- `pythonPlatform = "Linux"` added to `[tool.pyright]` — production is Linux containers, this ensures Unix-only stubs (`fcntl`) resolve even when pyright runs from Windows dev machines.
+- voice-pipecat/src commented out of `[tool.pyright].include` with a TODO — see 3.3.
+
+**Work item 3.2 — Auto-fix pass:**
+- `ruff check --fix .` first pass: **201 fixes applied, 78 remaining**.
+- `ruff check --fix --unsafe-fixes .` second pass (after package-level manual fixes): **43 additional fixes, 32 remaining** (all in `scripts/`).
+- `ruff format .`: **30 files reformatted, 7 unchanged**.
+- Remaining 32 scripts/ warnings absorbed by the per-file-ignores block.
+
+**Work item 3.3 — Pyright baseline:**
+- Initial run: **23 errors across 4 files**.
+- **Fixed (1-3 line changes):**
+  - `docker/ingest-sidecar/trigger_server.py`: replaced `try/except: pass` with `contextlib.suppress(BrokenPipeError)`; added `# noqa: SIM115` for lock-file handle that's closed in `finally`. Fcntl attrs resolved via `pythonPlatform = "Linux"` (10 errors cleared).
+  - `packages/file-ingestion/src/extract.py`: three targeted fixes — (a) `enumerate()` replacing manual row counter, (b) `raise ... from e` in HTTPException re-raise, (c) bs4 `meta.get()` narrowing via `isinstance(v, str)` before `.lower()`, (d) two `# type: ignore[attr-defined]` comments for python-pptx's dynamic `BaseShape.text_frame` / `.table` attrs that only exist when `has_text_frame`/`has_table` is true.
+  - `packages/voice-pipecat/src/main.py`: `with contextlib.suppress(NotImplementedError):` replacing try/except pass.
+- **Scoped out (extensive issues, TODO comment in pyproject.toml):**
+  - `packages/voice-pipecat/src/` — 9 pyright errors + 11 unresolved-import warnings. Root causes: (1) `redis.asyncio` stubs incomplete for `sadd`/`srem`/set-membership awaitable returns (4 errors in session.py), (2) Anthropic SDK content-block union narrowing — iterating over `ContentBlock` types that include `ThinkingBlock`/`ToolUseBlock` without `.text` attr (5 errors in capture_extractor.py), (3) pipecat/kokoro/piper import warnings from optional TTS backends. None are 1-3 line fixes — session.py needs explicit cast-or-annotate of every awaitable redis call; capture_extractor.py needs an `isinstance(block, TextBlock)` narrowing pass. Filed as follow-up.
+- **Final run: `0 errors, 0 warnings, 0 informations`** across `docker/ingest-sidecar` + `packages/file-ingestion/src`.
+
+**What worked:** Ruff's auto-fixer handled 244/279 original findings (87%). `pythonPlatform = "Linux"` eliminated the entire Windows/Linux stub mismatch for fcntl in one config knob (much cleaner than per-line `# type: ignore`). Narrowing bs4 return types via `isinstance` preserves runtime behavior while satisfying the type checker.
+
+**Work item 3.4 — CI job:** Added `python-lint` job to `.github/workflows/ci.yml` alongside `build-and-test` and `sidecar-test`. Uses `actions/setup-python@v5` with pip caching and pinned versions (`ruff==0.6.*`, `pyright==1.1.*`). Runs `ruff check . && ruff format --check . && pyright` sequentially — fail-fast. Not marked required; observe for 1-2 PRs before promoting (per plan).
+
+**Files created/modified:**
+- Created: `pyproject.toml` (root, tool config only, not a package definition).
+- Modified: `.github/workflows/ci.yml` (new `python-lint` job).
+- Modified: `docker/ingest-sidecar/trigger_server.py` (3 edits: contextlib import, SIM115 noqa, BrokenPipeError suppress).
+- Modified: `packages/file-ingestion/src/extract.py` (4 edits: enumerate, raise-from, bs4 narrowing, 2 pptx type-ignores).
+- Modified: `packages/voice-pipecat/src/main.py` (2 edits: contextlib import, NotImplementedError suppress).
+- Auto-reformatted by ruff: ~30 files in scripts/ + the 3 included packages.
+
+**Result:** Local `ruff check .` + `ruff format --check .` + `pyright` all clean. CI job awaiting push.
+
+**Status:** All four work items (3.1–3.4) complete locally. Ready for commit.
+
+---
+

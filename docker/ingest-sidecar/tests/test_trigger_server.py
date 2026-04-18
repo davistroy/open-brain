@@ -31,8 +31,6 @@ from http.client import HTTPConnection
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 # conftest.py adds the sidecar dir to sys.path.
 import trigger_server  # noqa: E402
 
@@ -141,13 +139,20 @@ def test_process_uses_bound_source_when_body_omits_it(client, server):
     def fake_run(config, source, extra_args=None):
         observed["source"] = source
         return {
-            "status": "ok", "exit_code": 0, "stderr": "",
-            "duration_ms": 1, "captures_posted": [], "errors": [],
+            "status": "ok",
+            "exit_code": 0,
+            "stderr": "",
+            "duration_ms": 1,
+            "captures_posted": [],
+            "errors": [],
         }
 
     with patch.object(trigger_server, "run_pipeline", fake_run):
         client.request(
-            "POST", "/process", body=b"{}", headers=auth_headers(),
+            "POST",
+            "/process",
+            body=b"{}",
+            headers=auth_headers(),
         )
         resp = client.getresponse()
         assert resp.status == 200
@@ -161,9 +166,12 @@ def test_process_body_can_override_bound_source(utility_config):
     # Build a one-off server bound to utility.
     port = _pick_port()
     bound = trigger_server.Config(
-        port=port, bind_host="127.0.0.1",
-        ingest_trigger_secret="test-secret", ingest_source="utility",
-        trigger_timeout_sec=5, lock_path=utility_config.lock_path,
+        port=port,
+        bind_host="127.0.0.1",
+        ingest_trigger_secret="test-secret",
+        ingest_source="utility",
+        trigger_timeout_sec=5,
+        lock_path=utility_config.lock_path,
         app_dir=utility_config.app_dir,
     )
     httpd = trigger_server.create_app(bound)
@@ -176,15 +184,20 @@ def test_process_body_can_override_bound_source(utility_config):
     def fake_run(config, source, extra_args=None):
         observed["source"] = source
         return {
-            "status": "ok", "exit_code": 0, "stderr": "",
-            "duration_ms": 1, "captures_posted": [], "errors": [],
+            "status": "ok",
+            "exit_code": 0,
+            "stderr": "",
+            "duration_ms": 1,
+            "captures_posted": [],
+            "errors": [],
         }
 
     try:
         with patch.object(trigger_server, "run_pipeline", fake_run):
             conn = HTTPConnection("127.0.0.1", port, timeout=5)
             conn.request(
-                "POST", "/process",
+                "POST",
+                "/process",
                 body=json.dumps({"source": "financial"}).encode(),
                 headers=auth_headers(),
             )
@@ -212,13 +225,19 @@ def test_trigger_path_source_routed_to_correct_script(client):
     def fake_run(config, source, extra_args=None):
         observed["source"] = source
         return {
-            "status": "ok", "exit_code": 0, "stderr": "",
-            "duration_ms": 1, "captures_posted": [], "errors": [],
+            "status": "ok",
+            "exit_code": 0,
+            "stderr": "",
+            "duration_ms": 1,
+            "captures_posted": [],
+            "errors": [],
         }
 
     with patch.object(trigger_server, "run_pipeline", fake_run):
         client.request(
-            "POST", "/trigger/utility", body=b"",
+            "POST",
+            "/trigger/utility",
+            body=b"",
             headers=auth_headers(),
         )
         resp = client.getresponse()
@@ -235,18 +254,23 @@ def test_trigger_path_source_routed_to_correct_script(client):
 
 def test_unknown_source_returns_500_with_structured_error(client):
     """run_pipeline returns ``status=error`` → handler surfaces HTTP 500."""
+
     def fake_run(config, source, extra_args=None):
         return {
             "status": "error",
             "error": f"unknown source: {source!r}",
-            "exit_code": -1, "stderr": "",
-            "duration_ms": 0, "captures_posted": [],
+            "exit_code": -1,
+            "stderr": "",
+            "duration_ms": 0,
+            "captures_posted": [],
             "errors": [f"unknown source: {source!r}"],
         }
 
     with patch.object(trigger_server, "run_pipeline", fake_run):
         client.request(
-            "POST", "/trigger/mystery", body=b"",
+            "POST",
+            "/trigger/mystery",
+            body=b"",
             headers=auth_headers(),
         )
         resp = client.getresponse()
@@ -301,6 +325,6 @@ def test_dockerfile_cmd_references_trigger_server():
     # Must invoke trigger_server.py.
     assert "trigger_server.py" in text
     # Must NOT revert to sleep-as-pid-1.
-    assert not re.search(r'^\s*CMD\s*\[?\s*"?sleep', text, re.MULTILINE), (
-        "Dockerfile CMD uses sleep — PR #92 regression"
-    )
+    assert not re.search(
+        r'^\s*CMD\s*\[?\s*"?sleep', text, re.MULTILINE
+    ), "Dockerfile CMD uses sleep — PR #92 regression"

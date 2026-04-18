@@ -28,8 +28,14 @@ logger = logging.getLogger(__name__)
 
 # Valid capture types — must match core-api createCaptureSchema
 CAPTURE_TYPES = [
-    "decision", "idea", "observation", "task",
-    "win", "blocker", "question", "reflection",
+    "decision",
+    "idea",
+    "observation",
+    "task",
+    "win",
+    "blocker",
+    "question",
+    "reflection",
 ]
 
 # Valid brain views — must match config/brain-views.yaml
@@ -144,9 +150,7 @@ async def extract_captures(
         # Parse JSON response
         captures = json.loads(result_text.strip())
         if not isinstance(captures, list):
-            logger.warning(
-                f"Session {session_id}: extraction returned non-list: {type(captures)}"
-            )
+            logger.warning(f"Session {session_id}: extraction returned non-list: {type(captures)}")
             return []
 
         # Validate and clean each capture
@@ -165,11 +169,13 @@ async def extract_captures(
             if brain_view not in BRAIN_VIEWS:
                 brain_view = "personal"
 
-            valid_captures.append({
-                "content": content,
-                "capture_type": capture_type,
-                "brain_view": brain_view,
-            })
+            valid_captures.append(
+                {
+                    "content": content,
+                    "capture_type": capture_type,
+                    "brain_view": brain_view,
+                }
+            )
 
         logger.info(
             f"Session {session_id}: extracted {len(valid_captures)} captures "
@@ -233,22 +239,16 @@ async def post_captures_to_core_api(
                         f"({cap['capture_type']}/{cap['brain_view']})"
                     )
                 elif resp.status_code == 409:
-                    logger.info(
-                        f"Session {session_id}: duplicate capture skipped (409)"
-                    )
+                    logger.info(f"Session {session_id}: duplicate capture skipped (409)")
                 else:
                     logger.error(
                         f"Session {session_id}: capture POST failed "
                         f"({resp.status_code}): {resp.text}"
                     )
             except httpx.RequestError as e:
-                logger.error(
-                    f"Session {session_id}: capture POST request error: {e}"
-                )
+                logger.error(f"Session {session_id}: capture POST request error: {e}")
 
-    logger.info(
-        f"Session {session_id}: posted {len(results)}/{len(captures)} captures"
-    )
+    logger.info(f"Session {session_id}: posted {len(results)}/{len(captures)} captures")
     return results
 
 

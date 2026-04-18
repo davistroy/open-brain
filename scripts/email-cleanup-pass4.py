@@ -9,15 +9,14 @@ Uses an inverted approach: identify senders in KEEP categories, then delete
 all emails NOT from those senders (plus a date safety net for uncategorized).
 """
 
+import argparse
 import json
 import os
 import sys
 import time
-import argparse
-from datetime import datetime, timezone
-from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import msal
 import requests
@@ -58,7 +57,7 @@ def authenticate():
     print(f"  Token cache: {TOKEN_CACHE_FILE}", flush=True)
     cache = msal.SerializableTokenCache()
     if TOKEN_CACHE_FILE.exists():
-        print(f"  Loading cached token...", flush=True)
+        print("  Loading cached token...", flush=True)
         cache.deserialize(TOKEN_CACHE_FILE.read_text())
 
     app = msal.PublicClientApplication(
@@ -97,7 +96,7 @@ def api_get(url, params=None, retries=5):
             resp = session.get(url, params=params, timeout=30)
         except requests.exceptions.ReadTimeout:
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             raise
         if resp.status_code == 429:
@@ -120,7 +119,7 @@ def api_post(url, json_data, retries=5):
             resp = session.post(url, json=json_data, timeout=60)
         except requests.exceptions.ReadTimeout:
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             raise
         if resp.status_code == 429:
@@ -171,7 +170,7 @@ def batch_delete(message_ids, label="", dry_run=False):
     batch_url = f"{GRAPH_BASE}/$batch"
 
     for i in range(0, total, BATCH_SIZE):
-        chunk = message_ids[i:i + BATCH_SIZE]
+        chunk = message_ids[i : i + BATCH_SIZE]
         if dry_run:
             deleted += len(chunk)
         else:
@@ -181,8 +180,9 @@ def batch_delete(message_ids, label="", dry_run=False):
             ]
             try:
                 result = api_post(batch_url, {"requests": requests_payload})
-                deleted += sum(1 for r in result.get("responses", [])
-                               if 200 <= r.get("status", 500) < 300)
+                deleted += sum(
+                    1 for r in result.get("responses", []) if 200 <= r.get("status", 500) < 300
+                )
             except Exception as e:
                 print(f"    Batch error at offset {i}: {e}", flush=True)
 
@@ -241,7 +241,9 @@ def load_sender_sets():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Email cleanup pass 4 — delete all except protected categories")
+    parser = argparse.ArgumentParser(
+        description="Email cleanup pass 4 — delete all except protected categories"
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -277,10 +279,7 @@ def main():
     completed = 0
 
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:
-        futures = {
-            pool.submit(collect_ids_for_sender, s): s
-            for s in delete_senders
-        }
+        futures = {pool.submit(collect_ids_for_sender, s): s for s in delete_senders}
         for future in as_completed(futures):
             try:
                 ids = future.result()
@@ -290,22 +289,24 @@ def main():
                 print(f"    Error: {e}", flush=True)
             completed += 1
             if completed % 50 == 0:
-                print(f"    Queried {completed}/{len(delete_senders)} senders, "
-                      f"{len(all_delete_ids)} emails to delete...", flush=True)
+                print(
+                    f"    Queried {completed}/{len(delete_senders)} senders, "
+                    f"{len(all_delete_ids)} emails to delete...",
+                    flush=True,
+                )
 
     print(f"\n  Total emails to delete: {len(all_delete_ids)}", flush=True)
 
     # Delete
-    print(f"\n[4/5] Deleting emails...", flush=True)
+    print("\n[4/5] Deleting emails...", flush=True)
     deleted = batch_delete(all_delete_ids, label="Pass 4", dry_run=args.dry_run)
     total_deleted += deleted
     print(f"  Deleted: {deleted}", flush=True)
 
     # Sent Items older than 2025-01-01
-    print(f"\n[5/7] Deleting Sent Items older than 2025-01-01...", flush=True)
+    print("\n[5/7] Deleting Sent Items older than 2025-01-01...", flush=True)
     sent_ids = collect_message_ids(
-        "sentitems",
-        odata_filter="receivedDateTime lt 2025-01-01T00:00:00Z"
+        "sentitems", odata_filter="receivedDateTime lt 2025-01-01T00:00:00Z"
     )
     print(f"  Found {len(sent_ids)} sent items before 2025-01-01", flush=True)
     deleted = batch_delete(sent_ids, label="Old Sent Items", dry_run=args.dry_run)
@@ -313,17 +314,17 @@ def main():
     print(f"  Sent Items: {deleted}", flush=True)
 
     # Empty Junk (in case new junk arrived since Pass 1)
-    print(f"\n[6/7] Emptying Junk Email...", flush=True)
+    print("\n[6/7] Emptying Junk Email...", flush=True)
     junk_ids = collect_message_ids("junkemail")
     if junk_ids:
         print(f"  Found {len(junk_ids)} in Junk", flush=True)
         deleted = batch_delete(junk_ids, label="Junk", dry_run=args.dry_run)
         total_deleted += deleted
     else:
-        print(f"  Junk is empty", flush=True)
+        print("  Junk is empty", flush=True)
 
     # Empty Deleted Items
-    print(f"\n[7/7] Emptying Deleted Items...", flush=True)
+    print("\n[7/7] Emptying Deleted Items...", flush=True)
     del_ids = collect_message_ids("deleteditems")
     print(f"  Found {len(del_ids)} in Deleted Items", flush=True)
     deleted = batch_delete(del_ids, label="Deleted Items", dry_run=args.dry_run)
@@ -331,7 +332,10 @@ def main():
     print(f"  Deleted Items: {deleted}", flush=True)
 
     print(f"\n{'='*60}", flush=True)
-    print(f"  PASS 4 COMPLETE — {total_deleted} total emails {'would be ' if args.dry_run else ''}deleted", flush=True)
+    print(
+        f"  PASS 4 COMPLETE — {total_deleted} total emails {'would be ' if args.dry_run else ''}deleted",
+        flush=True,
+    )
     print(f"{'='*60}\n", flush=True)
 
 

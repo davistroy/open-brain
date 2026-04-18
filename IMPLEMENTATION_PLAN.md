@@ -169,11 +169,13 @@ ALTER TABLE captures
 
 ---
 
-## Phase 3: CS-θ — A68 Python Lint & Typecheck CI
+## Phase 3: CS-θ — A68 Python Lint & Typecheck CI ✅ Completed 2026-04-18
 
 **Complexity:** Small-Medium
 **Dependencies:** None
 **Parallelizable:** Yes
+
+**Completion notes (see LAB_NOTEBOOK Entry 087):** All 4 work items complete. `pyproject.toml` created with `pythonPlatform = "Linux"` + `scripts/*` per-file-ignores for ops-script style. Ruff auto-fixed 244/279 findings. Pyright clean on `docker/ingest-sidecar` and `packages/file-ingestion/src`. `packages/voice-pipecat/src` scoped out with TODO — `redis.asyncio` stub gaps + Anthropic content-block union narrowing need a separate effort. CI job added to `.github/workflows/ci.yml`; not yet marked required (observe for 1–2 PRs per plan).
 
 ### Goals
 
