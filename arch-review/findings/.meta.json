@@ -1,0 +1,227 @@
+{
+  "software-engineer": {
+    "agent": "software-engineer",
+    "role": "Senior Software Engineer",
+    "started_at": "2026-04-18T14:47:23Z",
+    "completed_at": "2026-04-18T14:56:31Z",
+    "runtime_seconds": 548,
+    "confidence": "High",
+    "confidence_rationale": "Read every critical-path module end-to-end (llm-gateway.ts, captures route, ingest route, skill-execution.ts, base-skill.ts/llm-skill.ts, error-handler, rate-limit, sidecar trigger_server.py, capture_api.py, call-claude.ts, model-resolver.ts); verified `as any`/`@ts-ignore` discipline by grep across all production code; cross-checked CLAUDE.md rules against the codebase; ran ruff + pyright clean on scoped Python.",
+    "tools": {
+      "cloc":     { "available": false, "findings_count": null },
+      "eslint":   { "available": false, "findings_count": null },
+      "pylint":   { "available": false, "findings_count": null },
+      "flake8":   { "available": false, "findings_count": null },
+      "radon":    { "available": false, "findings_count": null },
+      "lizard":   { "available": false, "findings_count": null },
+      "semgrep":  { "available": false, "findings_count": null },
+      "ruff":     { "available": true,  "findings_count": 0 },
+      "pyright":  { "available": true,  "findings_count": 0 }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 3,
+      "medium": 6,
+      "low": 6,
+      "requires_investigation": 0,
+      "total": 15
+    },
+    "coverage_notes": "No complexity/duplication tools available (lizard/radon/semgrep/cloc all missing on Windows host); line counts from wc, duplication assessed manually. Cannot execute test suites in this environment — test coverage is by file inventory + spot-read, not runtime % measured. Homeserver-side verification (actual ai_audit_log entries, runtime RSS, LLM_SPEND_URL configuration state) requires SSH and was not performed."
+  },
+  "qa-architect": {
+    "agent": "qa-architect",
+    "role": "QA Architect",
+    "started_at": "2026-04-18T14:47:49Z",
+    "completed_at": "2026-04-18T14:52:54Z",
+    "runtime_seconds": 305,
+    "confidence": "High",
+    "confidence_rationale": "Read all 4 vitest configs + 2 integration configs, both CI workflows, docker-compose.test.yml, regression-test.mjs, e2e-*.sh, 8 sampled test files (unit + integration + pytest + fault-injection + drift-guard), pyproject.toml, USER_TEST_PLAN.md, and full pytest inventory across all three Python packages — evidence is first-hand from file contents.",
+    "tools": {
+      "jest": { "available": false, "findings_count": null },
+      "pytest": { "available": true, "findings_count": 3 },
+      "vitest": { "available": false, "findings_count": 12 },
+      "cypress": { "available": false, "findings_count": null },
+      "playwright": { "available": false, "findings_count": null },
+      "nyc": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 4,
+      "medium": 6,
+      "low": 5,
+      "requires_investigation": 0,
+      "total": 15
+    },
+    "coverage_notes": "Could not execute the test suites directly (vitest not on PATH); counts of it()/test() blocks and expect() calls are grep-based, not runtime reported. Actual runtime coverage %, flaky-test history, and CI green/red trend over time were not inspected — this is a static posture review, not a pass-rate analysis."
+  },
+  "data-architect": {
+    "agent": "data-architect",
+    "role": "Data Architect",
+    "started_at": "2026-04-18T14:47:00Z",
+    "completed_at": "2026-04-18T14:52:29Z",
+    "runtime_seconds": 329,
+    "confidence": "High",
+    "confidence_rationale": "Read all 23 migration files, both Drizzle schema modules, init-schema.sql, backup.sh, and the CaptureSource type + SearchFilters UI literal end-to-end; drift between declared and actual types verified by direct file reads.",
+    "tools": {
+      "psql": { "available": false, "findings_count": null },
+      "mysql": { "available": false, "findings_count": null },
+      "sqlite3": { "available": false, "findings_count": null },
+      "mongosh": { "available": false, "findings_count": null },
+      "redis-cli": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 3,
+      "medium": 7,
+      "low": 5,
+      "requires_investigation": 2,
+      "total": 17
+    },
+    "coverage_notes": "No live DB clients available locally — assessment is static-analysis only against code, schema, migrations, and scripts. Actual row counts, index bloat, query plans, and pg_stat_statements data were not inspected. Homeserver-side verification (crontab -l, actual retention sizes, rclone config presence) would upgrade several 'requires_investigation' items to confirmed findings."
+  },
+  "platform-engineer": {
+    "agent": "platform-engineer",
+    "role": "Platform Engineer",
+    "started_at": "2026-04-18T14:48:14Z",
+    "completed_at": "2026-04-18T14:52:36Z",
+    "runtime_seconds": 262,
+    "confidence": "High",
+    "confidence_rationale": "Direct filesystem + CI + compose inspection confirmed every assertion; observability stack state confirmed via both compose absence and scripts/deploy-loki.sh presence.",
+    "tools": {
+      "terraform": { "available": false, "findings_count": null },
+      "helm": { "available": false, "findings_count": null },
+      "kubectl": { "available": true, "findings_count": 0 },
+      "docker": { "available": true, "findings_count": 12 }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 3,
+      "medium": 6,
+      "low": 3,
+      "requires_investigation": 0,
+      "total": 12
+    },
+    "coverage_notes": "Could not observe live homeserver state — observability stack deployment (Prometheus/Grafana/Loki/Pushgateway) verified only through in-repo scripts + dashboard JSON, not via SSH. Actual ingestion status of Loki and presence of a Pushgateway container is inferred from file-system evidence."
+  },
+  "performance-engineer": {
+    "agent": "performance-engineer",
+    "role": "Performance Engineer",
+    "started_at": "2026-04-18T14:47:32Z",
+    "completed_at": "2026-04-18T14:50:47Z",
+    "runtime_seconds": 195,
+    "confidence": "Medium",
+    "confidence_rationale": "Code and config review only; no live metrics, no ai_audit_log access, no production RSS data, and no load-testing tool available on this host (k6/ab/wrk/hey/vegeta all absent). Findings are structural risk identification — should be validated with actual measurements on homeserver.",
+    "tools": {
+      "k6": { "available": false, "findings_count": null },
+      "ab": { "available": false, "findings_count": null },
+      "wrk": { "available": false, "findings_count": null },
+      "hey": { "available": false, "findings_count": null },
+      "vegeta": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 1,
+      "high": 4,
+      "medium": 6,
+      "low": 3,
+      "requires_investigation": 0,
+      "total": 14
+    },
+    "coverage_notes": "No load-testing execution; no live RSS metrics; HNSW recall cannot be measured from code alone; pg_stat_statements not enabled so slow-query identification is not possible. Findings focus on structural risks that would emerge under scale, not currently-measured violations."
+  },
+  "integration-architect": {
+    "agent": "integration-architect",
+    "role": "Integration Architect",
+    "started_at": "2026-04-18T14:47:14Z",
+    "completed_at": "2026-04-18T14:54:03Z",
+    "runtime_seconds": 409,
+    "confidence": "High",
+    "confidence_rationale": "Direct inspection of MCP server + auth, rate-limit middleware, LLMGatewayService + runAgent + resolveAgentClient, Cloudflare email-worker + tunnel.yaml, Slack Bolt wiring + CoreApiClient, voice-capture IngestService, Composio MCP client, Pushover service, Embedding service, BullMQ queue configs (capture-pipeline, ingest-process, skill-execution), ingest-pipeline flow, sidecar trigger_server.py HMAC + ProcessLock, ai-routing.yaml, docker-compose.yml, and web nginx.conf. Cross-referenced against CLAUDE.md + MEMORY.md operational rules.",
+    "tools": {
+      "curl": { "available": true, "findings_count": null },
+      "jq": { "available": false, "findings_count": null },
+      "openapi-generator": { "available": false, "findings_count": null },
+      "spectral": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 3,
+      "medium": 6,
+      "low": 6,
+      "requires_investigation": 1,
+      "total": 16
+    },
+    "coverage_notes": "No live traffic captured — findings are static-analysis of code, config, and policy. Actual Composio call volume, OpenAI/Anthropic latency distributions, Pushover success rate, and rate-limit 429 frequency are not measured. Homeserver-side inspection of running BullMQ queue depths, ai_audit_log entries, and pg-notify reconnect events would tighten several Medium findings."
+  },
+  "security-architect": {
+    "agent": "security-architect",
+    "role": "Security Architect",
+    "started_at": "2026-04-18T14:47:59Z",
+    "completed_at": "2026-04-18T14:55:04Z",
+    "runtime_seconds": 425,
+    "confidence": "Medium-High",
+    "confidence_rationale": "Full source read of every auth, SQL, IO, and secret-touching path plus pnpm audit (34 vulns triaged) and pip-audit on 3 Python requirements files; SAST tooling (semgrep/bandit/eslint/trivy) unavailable on Windows host, so injection + XSS risks assessed via targeted grep + manual inspection rather than automated scan, and Postgres at-rest encryption state on Unraid could not be verified without SSH.",
+    "tools": {
+      "semgrep":     { "available": false, "findings_count": null },
+      "bandit":      { "available": false, "findings_count": null },
+      "eslint":      { "available": false, "findings_count": null },
+      "pip-audit":   { "available": true,  "findings_count": 7 },
+      "safety":      { "available": false, "findings_count": null },
+      "trivy":       { "available": false, "findings_count": null },
+      "govulncheck": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 2,
+      "medium": 5,
+      "low": 6,
+      "requires_investigation": 1,
+      "total": 14
+    },
+    "coverage_notes": "No automated SAST (semgrep/bandit/eslint/trivy not installed on Windows host); dependency vuln count is from pnpm audit and pip-audit only. Runtime container inspection (non-root posture at run-time, Postgres at-rest encryption on Unraid, Docker volume permissions, Cloudflare Access actual gate config) requires SSH to homeserver and was not performed. Git-history secret scanning was a manual `git log -G` grep rather than GitGuardian output."
+  },
+  "risk-compliance": {
+    "agent": "risk-compliance",
+    "role": "Risk & Compliance",
+    "started_at": "2026-04-18T14:48:33Z",
+    "completed_at": "2026-04-18T14:54:57Z",
+    "runtime_seconds": 384,
+    "confidence": "High",
+    "confidence_rationale": "Read LICENSE, .gitignore, all 23 Drizzle migrations, core + supporting schema, ai-routing.yaml, backup.sh, budget-check job, admin router, autonomy helper + every call site, email-draft auto-send path, MCP activity sanitizer, monthly-audit workflow, and docker-compose vendor env surface; cross-checked every claim in CLAUDE.md and intake against code.",
+    "tools": {
+      "git": { "available": true, "findings_count": null },
+      "jq": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 3,
+      "medium": 6,
+      "low": 5,
+      "requires_investigation": 0,
+      "total": 14
+    },
+    "coverage_notes": "Consumer-terms posture of OpenAI/Anthropic accounts (zero-retention, training opt-out) cannot be confirmed from code — lives in each provider's account settings. Verified offsite-backup presence (VM cron) not confirmed from this host; repo only shows homeserver-local backup script. Composio actual call volume and scope inventory not inspected. License scan is by direct dependency read, not a full `pnpm licenses list` run."
+  },
+  "solutions-architect": {
+    "agent": "solutions-architect",
+    "role": "Solutions Architect",
+    "started_at": "2026-04-18T14:46:51Z",
+    "completed_at": "2026-04-18T14:55:32Z",
+    "runtime_seconds": 521,
+    "confidence": "High",
+    "confidence_rationale": "Read all 8 package roots, Docker compose (main + test), all config YAML files, init-schema.sql + all 23 Drizzle migrations, LLMGatewayService (844 LOC) end-to-end, scheduler.ts (19 scheduled jobs), search service, mcp server/auth, admin router, rate-limit middleware, prometheus metrics route, backup.sh, CI workflow, and cross-referenced LAB_NOTEBOOK D1-D93 + CLAUDE.md rules against code reality.",
+    "tools": {
+      "cloc": { "available": false, "findings_count": null },
+      "tokei": { "available": false, "findings_count": null },
+      "plantuml": { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 1,
+      "high": 5,
+      "medium": 8,
+      "low": 4,
+      "requires_investigation": 0,
+      "total": 18
+    },
+    "coverage_notes": "Could not compute LOC metrics (cloc/tokei absent on Windows) or render architecture diagrams (plantuml absent); LOC estimates cited in intake (~78K TS) taken as given. Homeserver-side verification (actual Prometheus/Grafana/Loki deployment state, live cron entries, running Ollama + Jetson + Spark connectivity) was not performed; findings assume the intake's production-status claims are accurate and focus on structural risks identifiable from the repo alone."
+  }
+}
