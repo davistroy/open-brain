@@ -180,6 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — must merge before autopilot can begin |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -5527,6 +5528,47 @@ All three commits are atomic and independently revertable.
 **Results:** `@open-brain/shared` build clean; 281 shared tests pass (was 269 + 12 new). `@open-brain/workers` build clean; 948 workers tests pass (was 946 + 2 new fault-injection). No regressions.
 
 **Status:** All six work items (4.1–4.6) complete locally. Ready for review and commit (three atomic commits per plan rollback spec).
+
+---
+
+--- New session: 2026-04-18 — Orchestrator kickoff: P01 infra hardening kit (bootstrap Wave 1) ---
+
+### Entry 092 — P01 Gate 1+2: Infra Hardening Kit plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [docker] [database] [drift-guard] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P01-infra-hardening-kit` (created in this entry's commit). Main at `76146a4` before branch.
+**Phase:** P01 of PHASED_PLAN.md (Wave 1, bootstrap)
+**PR:** TBD (will be created after Gate 3)
+
+**Objective:** Start autonomous execution of PHASED_PLAN.md via the ORCHESTRATOR.md 5-gate pipeline. First phase is P01 — infra hardening kit bundling #103 mem_limits (Critical), #105 init-schema.sql (High), and #110 drift-guard for CaptureSource (High) into one PR. Until P03 merges to main, every phase requires operator approval at Gate 5 (bootstrap rule — the budget circuit breaker isn't yet installed, so autopilot is unsafe).
+
+**Hypothesis:** P01's three items are small, self-contained, and independent. Expect (a) 10 docker-compose services get `mem_limit` + 4 Node services get `NODE_OPTIONS=--max-old-space-size=1200`; (b) `scripts/init-schema.sql` regenerates to include missing migrations 0020-0022 (email_classifications/corrections/daily_summaries tables, file_upload_status ENUM + file_uploads table, captures_source_check CHECK); (c) `packages/web/src/components/SearchFilters.tsx` CAPTURE_SOURCES array grows 6→9 values to match the canonical `CaptureSource` union in `packages/shared/src/types/capture.ts`; (d) drift-guard test in `packages/shared/src/__tests__/web-type-drift.test.ts` extends to cover CaptureSource.
+
+Success criteria:
+- `docker compose config` exits 0 after mem_limit edits
+- `bash scripts/validate-init-schema.sh` exits 0 locally (ephemeral Postgres + init-schema + all 22 migrations round-trip clean)
+- `pnpm --filter @open-brain/shared test -- web-type-drift` green with 2 new CaptureSource test cases
+- PR body closes #103, #105, #110
+- No regressions in the 1,569 unit + 95 regression tests
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` on main.
+2. No data-touching changes in this PR — init-schema.sql is for fresh DB initialization only, never applied to running homeserver.
+3. Migration 0022 (applied to homeserver 2026-04-18 per Entry 086/089) is NOT touched — only added to init-schema.sql.
+4. Docker mem_limit revert returns containers to unlimited memory (prior baseline behavior).
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `.orchestrator-state.json` — session state for the 45-phase orchestrator run (gitignored).
+- Created `IMPLEMENT_PHASE-P01.md` — drift-corrected plan produced by the Gate 1 phase-planner subagent (Sonnet 4.6). Three scope-drift items were surfaced and documented; none invalidate acceptance criteria:
+  - Drift 1: `CaptureSource` in `packages/web/src/lib/types.ts` is already 9 values; only `SearchFilters.tsx` hardcoded array needs updating.
+  - Drift 2: existing drift-guard reads from `api.ts` but `CaptureSource` lives in `types.ts` — plan adds a second path constant.
+  - Drift 3: `init-schema.sql` is missing migrations 0020-0022 (not just the most recent); regeneration scope is slightly larger than the P01 card implied but still ~1 day.
+- Extended `.gitignore` to cover `.orchestrator-state.json` + wildcarded backup variant.
+- Added Action Item A69 to track the bootstrap execution.
+
+**Next (Gate 3):** dispatch `implement-executor` subagent (Sonnet 4.6) to run the `personal-plugin:implement-plan` skill against `IMPLEMENT_PHASE-P01.md`. Per-work-item LAB_NOTEBOOK updates will be appended to this entry.
+
+**Status:** Gate 2 in progress — committing plan + gitignore + this entry to `feat/phase-P01-infra-hardening-kit`.
 
 ---
 
