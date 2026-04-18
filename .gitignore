@@ -23,6 +23,21 @@ deploy/.env.secrets*
 *.key
 
 # ============================================================
+# Personal data — NEVER commit
+# ============================================================
+# Financial, tax, brokerage, and PII-bearing workspace dumps.
+# If you're about to git-add one of these, stop and think.
+data/
+senders.xlsx
+reference/open-brain_claude-code.txt
+
+# ============================================================
+# Ephemeral session state (implement-plan)
+# ============================================================
+.implement-plan-state.json
+.implement-plan-state.json.*
+
+# ============================================================
 # Test and coverage artifacts
 # ============================================================
 coverage/
