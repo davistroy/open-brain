@@ -18,7 +18,7 @@ import re
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -26,8 +26,13 @@ sys.stderr.reconfigure(line_buffering=True)
 
 # Files/dirs to skip entirely
 SKIP_NAMES = {
-    ".git", ".svn", "__pycache__", "node_modules", ".Trash",
-    "$RECYCLE.BIN", "System Volume Information",
+    ".git",
+    ".svn",
+    "__pycache__",
+    "node_modules",
+    ".Trash",
+    "$RECYCLE.BIN",
+    "System Volume Information",
 }
 
 # Known junk file patterns
@@ -35,18 +40,16 @@ JUNK_PATTERNS = [
     r"^thumbs\.db$",
     r"^desktop\.ini$",
     r"^\.DS_Store$",
-    r"^~\$",                     # Office temp files
+    r"^~\$",  # Office temp files
     r"\.tmp$",
-    r"^\.~lock\.",               # LibreOffice locks
-    r"\.crdownload$",            # Incomplete Chrome downloads
+    r"^\.~lock\.",  # LibreOffice locks
+    r"\.crdownload$",  # Incomplete Chrome downloads
     r"\.partial$",
 ]
 JUNK_RE = [re.compile(p, re.IGNORECASE) for p in JUNK_PATTERNS]
 
 # OneDrive conflict pattern
-CONFLICT_RE = re.compile(
-    r"\(.*(?:conflicted|conflict).*copy.*\)", re.IGNORECASE
-)
+CONFLICT_RE = re.compile(r"\(.*(?:conflicted|conflict).*copy.*\)", re.IGNORECASE)
 
 # Version chain pattern
 VERSION_RE = re.compile(
@@ -125,8 +128,8 @@ def classify_filename(filename):
 def get_file_times(filepath):
     try:
         stat = os.stat(filepath)
-        created = datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat()
-        modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+        created = datetime.fromtimestamp(stat.st_ctime, tz=UTC).isoformat()
+        modified = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
         return created, modified
     except (PermissionError, OSError):
         return None, None
@@ -134,7 +137,7 @@ def get_file_times(filepath):
 
 def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 1024):
     root = Path(root_path).resolve()
-    scan_start = datetime.now(timezone.utc).isoformat()
+    scan_start = datetime.now(UTC).isoformat()
 
     conn.execute(
         "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
@@ -157,7 +160,10 @@ def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 
 
     max_hash_mb = max_hash_size / 1024 / 1024
     print(f"Scanning: {root}", flush=True)
-    print(f"Hash: {'enabled (files < ' + str(int(max_hash_mb)) + 'MB)' if not skip_hash else 'disabled'}", flush=True)
+    print(
+        f"Hash: {'enabled (files < ' + str(int(max_hash_mb)) + 'MB)' if not skip_hash else 'disabled'}",
+        flush=True,
+    )
     print(flush=True)
 
     for dirpath, dirnames, filenames in os.walk(root):
@@ -198,11 +204,25 @@ def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 
                 if sha:
                     hash_count += 1
 
-            batch.append((
-                rel_path, filename, ext, size, created, modified,
-                mime, sha, is_junk, is_conflict, is_version, is_zero,
-                rel_dir, depth, scan_start,
-            ))
+            batch.append(
+                (
+                    rel_path,
+                    filename,
+                    ext,
+                    size,
+                    created,
+                    modified,
+                    mime,
+                    sha,
+                    is_junk,
+                    is_conflict,
+                    is_version,
+                    is_zero,
+                    rel_dir,
+                    depth,
+                    scan_start,
+                )
+            )
 
             file_count += 1
             total_size += size
@@ -246,7 +266,7 @@ def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 
     elapsed = time.time() - start_time
     conn.execute(
         "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
-        ("scan_end", datetime.now(timezone.utc).isoformat()),
+        ("scan_end", datetime.now(UTC).isoformat()),
     )
     conn.execute(
         "INSERT OR REPLACE INTO scan_metadata (key, value) VALUES (?, ?)",
@@ -263,7 +283,7 @@ def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 
     conn.commit()
 
     print(f"\n{'='*60}", flush=True)
-    print(f"  SCAN COMPLETE", flush=True)
+    print("  SCAN COMPLETE", flush=True)
     print(f"  Files scanned: {file_count:,}", flush=True)
     print(f"  Files hashed: {hash_count:,}", flush=True)
     print(f"  Skipped (already scanned): {skip_count:,}", flush=True)
@@ -277,7 +297,7 @@ def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 
 
 def generate_report(conn):
     print(f"\n{'='*60}", flush=True)
-    print(f"  FILE INVENTORY REPORT", flush=True)
+    print("  FILE INVENTORY REPORT", flush=True)
     print(f"{'='*60}\n", flush=True)
 
     row = conn.execute("SELECT COUNT(*), SUM(size_bytes) FROM files").fetchone()
@@ -340,15 +360,16 @@ def generate_report(conn):
            GROUP BY sha256 HAVING COUNT(*) > 1
            ORDER BY cnt DESC LIMIT 10"""
     ).fetchall()
-    for sha, cnt, sz, sample in rows:
+    for _sha, cnt, sz, sample in rows:
         print(f"  {cnt}x copies | {sz/1024:.0f} KB | {sample}", flush=True)
 
     # Junk files
     print("\n--- JUNK / CLEANUP CANDIDATES ---", flush=True)
-    row = conn.execute(
-        "SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_junk = 1"
-    ).fetchone()
-    print(f"Junk files (temp, system, cache): {row[0]:,} ({(row[1] or 0)/1024/1024:.1f} MB)", flush=True)
+    row = conn.execute("SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_junk = 1").fetchone()
+    print(
+        f"Junk files (temp, system, cache): {row[0]:,} ({(row[1] or 0)/1024/1024:.1f} MB)",
+        flush=True,
+    )
 
     row = conn.execute(
         "SELECT COUNT(*), SUM(size_bytes) FROM files WHERE is_zero_byte = 1"
@@ -395,7 +416,7 @@ def generate_report(conn):
 
     # Cleanup potential summary
     print(f"\n{'='*60}", flush=True)
-    print(f"  CLEANUP POTENTIAL SUMMARY", flush=True)
+    print("  CLEANUP POTENTIAL SUMMARY", flush=True)
     print(f"{'='*60}", flush=True)
 
     junk = conn.execute("SELECT COUNT(*) FROM files WHERE is_junk = 1").fetchone()[0]
@@ -414,7 +435,7 @@ def generate_report(conn):
     print(f"  Zero-byte files:     {zeros:>10,}", flush=True)
     print(f"  Conflict copies:     {conflicts:>10,}", flush=True)
     print(f"  Duplicate surplus:   {dup_surplus:>10,}", flush=True)
-    print(f"  ----------------------------", flush=True)
+    print("  ----------------------------", flush=True)
     print(f"  Total removable:     {removable:>10,} ({pct:.1f}%)", flush=True)
     print(f"  Remaining after:     {total_files - removable:>10,}", flush=True)
     print(f"  Recoverable space:   {recoverable/1024/1024/1024:>9.2f} GB", flush=True)
@@ -424,11 +445,25 @@ def generate_report(conn):
 def main():
     parser = argparse.ArgumentParser(description="File inventory scanner")
     parser.add_argument("path", help="Root directory to scan")
-    parser.add_argument("--db", default="file-inventory.db", help="SQLite database path (default: file-inventory.db)")
-    parser.add_argument("--skip-hash", action="store_true", help="Skip SHA-256 hashing (metadata only, much faster)")
-    parser.add_argument("--max-hash-mb", type=int, default=500, help="Max file size to hash in MB (default: 500)")
-    parser.add_argument("--report-only", action="store_true", help="Generate report from existing DB without scanning")
-    parser.add_argument("--resume", action="store_true", help="Resume interrupted scan (skip already-scanned files)")
+    parser.add_argument(
+        "--db",
+        default="file-inventory.db",
+        help="SQLite database path (default: file-inventory.db)",
+    )
+    parser.add_argument(
+        "--skip-hash", action="store_true", help="Skip SHA-256 hashing (metadata only, much faster)"
+    )
+    parser.add_argument(
+        "--max-hash-mb", type=int, default=500, help="Max file size to hash in MB (default: 500)"
+    )
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="Generate report from existing DB without scanning",
+    )
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume interrupted scan (skip already-scanned files)"
+    )
     args = parser.parse_args()
 
     root = Path(args.path).resolve()
@@ -446,7 +481,9 @@ def main():
             conn.execute("DELETE FROM files")
             conn.commit()
 
-        scan_directory(root, conn, skip_hash=args.skip_hash, max_hash_size=args.max_hash_mb * 1024 * 1024)
+        scan_directory(
+            root, conn, skip_hash=args.skip_hash, max_hash_size=args.max_hash_mb * 1024 * 1024
+        )
         generate_report(conn)
 
     conn.close()

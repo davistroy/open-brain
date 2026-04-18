@@ -23,8 +23,7 @@ import logging
 import sqlite3
 import sys
 import time
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 try:
@@ -111,6 +110,7 @@ def init_tracking(conn: sqlite3.Connection) -> None:
 # Inventory queries
 # ---------------------------------------------------------------------------
 
+
 def get_domains(conn: sqlite3.Connection) -> list[tuple[str, int]]:
     """Return (category, file_count) for all categorized, non-duplicate files."""
     cursor = conn.execute("""
@@ -151,12 +151,13 @@ def get_domain_files(
         query += f" LIMIT {limit}"
     cursor = conn.execute(query, (domain,))
     columns = [desc[0] for desc in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 
 
 # ---------------------------------------------------------------------------
 # API submission
 # ---------------------------------------------------------------------------
+
 
 def submit_batch(
     api_url: str,
@@ -172,12 +173,14 @@ def submit_batch(
 
     if dry_run:
         for f in files:
-            results.append({
-                "file_id": f["id"],
-                "capture_id": None,
-                "status": "dry_run",
-                "error": None,
-            })
+            results.append(
+                {
+                    "file_id": f["id"],
+                    "capture_id": None,
+                    "status": "dry_run",
+                    "error": None,
+                }
+            )
         return results
 
     # Build batch payload
@@ -206,10 +209,7 @@ def submit_batch(
         if f.get("extracted_text"):
             # Truncate to reasonable size for capture content
             text = f["extracted_text"].strip()
-            if len(text) > 10000:
-                content = text[:10000] + "\n\n[...truncated...]"
-            else:
-                content = text
+            content = text[:10000] + "\n\n[...truncated...]" if len(text) > 10000 else text
 
         item = {
             "title": f.get("description") or f["filename"],
@@ -255,50 +255,60 @@ def submit_batch(
                     continue
 
                 if item.get("capture_id"):
-                    results.append({
-                        "file_id": file_id,
-                        "capture_id": item["capture_id"],
-                        "status": "submitted",
-                        "error": None,
-                    })
+                    results.append(
+                        {
+                            "file_id": file_id,
+                            "capture_id": item["capture_id"],
+                            "status": "submitted",
+                            "error": None,
+                        }
+                    )
                 else:
-                    results.append({
-                        "file_id": file_id,
-                        "capture_id": None,
-                        "status": "error",
-                        "error": item.get("error", "Unknown API error"),
-                    })
+                    results.append(
+                        {
+                            "file_id": file_id,
+                            "capture_id": None,
+                            "status": "error",
+                            "error": item.get("error", "Unknown API error"),
+                        }
+                    )
         else:
             error_msg = f"HTTP {resp.status_code}: {resp.text[:300]}"
             logger.error("Batch API error: %s", error_msg)
             for idx, file_id in file_id_map.items():
-                results.append({
-                    "file_id": file_id,
-                    "capture_id": None,
-                    "status": "error",
-                    "error": error_msg,
-                })
+                results.append(
+                    {
+                        "file_id": file_id,
+                        "capture_id": None,
+                        "status": "error",
+                        "error": error_msg,
+                    }
+                )
 
     except requests.exceptions.ConnectionError:
         error_msg = f"Cannot connect to API at {api_url}"
         logger.error(error_msg)
         for idx, file_id in file_id_map.items():
-            results.append({
-                "file_id": file_id,
-                "capture_id": None,
-                "status": "error",
-                "error": error_msg,
-            })
+            results.append(
+                {
+                    "file_id": file_id,
+                    "capture_id": None,
+                    "status": "error",
+                    "error": error_msg,
+                }
+            )
     except requests.exceptions.Timeout:
         error_msg = "API request timed out (120s)"
         logger.error(error_msg)
         for idx, file_id in file_id_map.items():
-            results.append({
-                "file_id": file_id,
-                "capture_id": None,
-                "status": "error",
-                "error": error_msg,
-            })
+            results.append(
+                {
+                    "file_id": file_id,
+                    "capture_id": None,
+                    "status": "error",
+                    "error": error_msg,
+                }
+            )
 
     return results
 
@@ -310,7 +320,7 @@ def record_results(
     batch_id: str,
 ) -> tuple[int, int]:
     """Write submission results to wiki_ingest_status. Returns (submitted, errors)."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     submitted = 0
     errors = 0
 
@@ -319,19 +329,22 @@ def record_results(
         if status == "dry_run":
             status = "skipped"
 
-        conn.execute("""
+        conn.execute(
+            """
             INSERT OR REPLACE INTO wiki_ingest_status
             (file_id, capture_id, status, error_message, submitted_at, domain, batch_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            r["file_id"],
-            r.get("capture_id"),
-            status,
-            r.get("error"),
-            now if status == "submitted" else None,
-            domain,
-            batch_id,
-        ))
+        """,
+            (
+                r["file_id"],
+                r.get("capture_id"),
+                status,
+                r.get("error"),
+                now if status == "submitted" else None,
+                domain,
+                batch_id,
+            ),
+        )
 
         if status == "submitted":
             submitted += 1
@@ -345,6 +358,7 @@ def record_results(
 # ---------------------------------------------------------------------------
 # Wiki-lint trigger
 # ---------------------------------------------------------------------------
+
 
 def trigger_wiki_lint(api_url: str) -> dict | None:
     """Trigger wiki-lint skill via the skills API. Returns result or None on failure."""
@@ -373,6 +387,7 @@ def trigger_wiki_lint(api_url: str) -> dict | None:
 # Domain batch processing
 # ---------------------------------------------------------------------------
 
+
 def process_domain(
     conn: sqlite3.Connection,
     domain: str,
@@ -383,24 +398,32 @@ def process_domain(
     skip_lint: bool,
 ) -> dict:
     """Process all files in a domain. Returns stats dict."""
-    batch_id = f"{domain}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    batch_id = f"{domain}_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}"
     start_time = time.monotonic()
 
     files = get_domain_files(conn, domain, limit=max_files)
     total = len(files)
 
-    logger.info("Domain '%s': %d files to process (batch_size=%d, dry_run=%s)",
-                domain, total, batch_size, dry_run)
+    logger.info(
+        "Domain '%s': %d files to process (batch_size=%d, dry_run=%s)",
+        domain,
+        total,
+        batch_size,
+        dry_run,
+    )
 
     if total == 0:
         logger.info("Domain '%s': no unprocessed files", domain)
         return {"domain": domain, "total": 0, "submitted": 0, "errors": 0, "skipped": 0}
 
     # Record batch start
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO wiki_ingest_batches (batch_id, domain, started_at, files_total)
         VALUES (?, ?, ?, ?)
-    """, (batch_id, domain, datetime.now(timezone.utc).isoformat(), total))
+    """,
+        (batch_id, domain, datetime.now(UTC).isoformat(), total),
+    )
     conn.commit()
 
     total_submitted = 0
@@ -409,16 +432,17 @@ def process_domain(
 
     # Process in chunks of batch_size
     for offset in range(0, total, batch_size):
-        chunk = files[offset:offset + batch_size]
+        chunk = files[offset : offset + batch_size]
         chunk_num = offset // batch_size + 1
         total_chunks = (total + batch_size - 1) // batch_size
 
-        logger.info("  Batch %d/%d: %d files (offset %d)",
-                     chunk_num, total_chunks, len(chunk), offset)
+        logger.info(
+            "  Batch %d/%d: %d files (offset %d)", chunk_num, total_chunks, len(chunk), offset
+        )
 
         # Respect API max batch size
         for api_offset in range(0, len(chunk), MAX_API_BATCH_SIZE):
-            api_chunk = chunk[api_offset:api_offset + MAX_API_BATCH_SIZE]
+            api_chunk = chunk[api_offset : api_offset + MAX_API_BATCH_SIZE]
 
             results = submit_batch(api_url, api_chunk, domain, dry_run=dry_run)
             submitted, errors = record_results(conn, results, domain, batch_id)
@@ -426,8 +450,7 @@ def process_domain(
             total_errors += errors
             total_skipped += sum(1 for r in results if r["status"] in ("dry_run", "skipped"))
 
-            logger.info("    API batch: %d submitted, %d errors",
-                         submitted, errors)
+            logger.info("    API batch: %d submitted, %d errors", submitted, errors)
 
         # Pause between batches to respect rate limits
         if offset + batch_size < total:
@@ -442,14 +465,17 @@ def process_domain(
         logger.info("  Triggering wiki-lint for post-batch quality check...")
         lint_result = trigger_wiki_lint(api_url)
         if lint_result:
-            logger.info("  Wiki-lint: scanned=%s, issues=%s",
-                         lint_result.get("pagesScanned", "?"),
-                         lint_result.get("issuesFound", "?"))
+            logger.info(
+                "  Wiki-lint: scanned=%s, issues=%s",
+                lint_result.get("pagesScanned", "?"),
+                lint_result.get("issuesFound", "?"),
+            )
         else:
             logger.warning("  Wiki-lint trigger failed (non-fatal)")
 
     # Update batch record
-    conn.execute("""
+    conn.execute(
+        """
         UPDATE wiki_ingest_batches
         SET completed_at = ?,
             files_submitted = ?,
@@ -459,16 +485,18 @@ def process_domain(
             lint_pages_scanned = ?,
             lint_issues_found = ?
         WHERE batch_id = ?
-    """, (
-        datetime.now(timezone.utc).isoformat(),
-        total_submitted,
-        total_errors,
-        total_skipped,
-        1 if lint_result else 0,
-        lint_result.get("pagesScanned") if lint_result else None,
-        lint_result.get("issuesFound") if lint_result else None,
-        batch_id,
-    ))
+    """,
+        (
+            datetime.now(UTC).isoformat(),
+            total_submitted,
+            total_errors,
+            total_skipped,
+            1 if lint_result else 0,
+            lint_result.get("pagesScanned") if lint_result else None,
+            lint_result.get("issuesFound") if lint_result else None,
+            batch_id,
+        ),
+    )
     conn.commit()
 
     stats = {
@@ -484,8 +512,14 @@ def process_domain(
         "lint_issues_found": lint_result.get("issuesFound") if lint_result else None,
     }
 
-    logger.info("Domain '%s' complete: %d submitted, %d errors, %d skipped (%.1fs)",
-                domain, total_submitted, total_errors, total_skipped, elapsed)
+    logger.info(
+        "Domain '%s' complete: %d submitted, %d errors, %d skipped (%.1fs)",
+        domain,
+        total_submitted,
+        total_errors,
+        total_skipped,
+        elapsed,
+    )
 
     return stats
 
@@ -494,12 +528,13 @@ def process_domain(
 # Report generation
 # ---------------------------------------------------------------------------
 
+
 def generate_report(conn: sqlite3.Connection, domain_stats: list[dict] | None = None) -> None:
     """Print a comprehensive batch completion report."""
     print("\n" + "=" * 70)
     print("BATCH WIKI-INGEST REPORT")
     print("=" * 70)
-    print(f"Generated: {datetime.now(timezone.utc).isoformat()}")
+    print(f"Generated: {datetime.now(UTC).isoformat()}")
 
     # Overall status
     cursor = conn.execute("""
@@ -569,14 +604,27 @@ def generate_report(conn: sqlite3.Connection, domain_stats: list[dict] | None = 
     batches = cursor.fetchall()
     if batches:
         print("\n--- Recent Batch History (last 20) ---")
-        for (batch_id, domain, started, completed, total, submitted, errors,
-             skipped, lint, lint_pages, lint_issues) in batches:
+        for (
+            batch_id,
+            domain,
+            _started,
+            completed,
+            total,
+            submitted,
+            errors,
+            _skipped,
+            lint,
+            lint_pages,
+            lint_issues,
+        ) in batches:
             status = "DONE" if completed else "IN PROGRESS"
             lint_info = ""
             if lint:
                 lint_info = f" | lint: {lint_pages}pp/{lint_issues}issues"
-            print(f"  {batch_id}: {submitted}/{total} submitted, "
-                  f"{errors} errors [{status}]{lint_info}")
+            print(
+                f"  {batch_id}: {submitted}/{total} submitted, "
+                f"{errors} errors [{status}]{lint_info}"
+            )
 
     # Current session stats (if provided)
     if domain_stats:
@@ -604,6 +652,7 @@ def generate_report(conn: sqlite3.Connection, domain_stats: list[dict] | None = 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -700,8 +749,7 @@ Examples:
             logger.error("No files found for domain '%s'", args.domain)
             available = get_domains(conn)
             if available:
-                logger.info("Available domains: %s",
-                           ", ".join(f"{d} ({c})" for d, c in available))
+                logger.info("Available domains: %s", ", ".join(f"{d} ({c})" for d, c in available))
             conn.close()
             sys.exit(1)
         domains = [(args.domain, count)]
@@ -713,8 +761,7 @@ Examples:
             conn.close()
             return
 
-    logger.info("Domains to process: %s",
-               ", ".join(f"{d} ({c} files)" for d, c in domains))
+    logger.info("Domains to process: %s", ", ".join(f"{d} ({c} files)" for d, c in domains))
 
     if args.dry_run:
         logger.info("DRY RUN MODE — no API calls will be made")
@@ -738,14 +785,16 @@ Examples:
             break
         except Exception as e:
             logger.error("Error processing domain '%s': %s", domain, e)
-            all_stats.append({
-                "domain": domain,
-                "total": file_count,
-                "submitted": 0,
-                "errors": file_count,
-                "skipped": 0,
-                "elapsed_secs": 0,
-            })
+            all_stats.append(
+                {
+                    "domain": domain,
+                    "total": file_count,
+                    "submitted": 0,
+                    "errors": file_count,
+                    "skipped": 0,
+                    "elapsed_secs": 0,
+                }
+            )
 
     # Generate completion report
     generate_report(conn, domain_stats=all_stats)

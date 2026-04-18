@@ -20,18 +20,27 @@ Cron (daily 6:30 AM):
     30 6 * * * cd ~/open-brain && venv/bin/python scripts/financial-pipeline.py --sync --daily-summary >> ~/logs/financial-pipeline.log 2>&1
 """
 
-import argparse, csv, io, json, logging, os, re, sqlite3, subprocess, sys, time
+import argparse
+import csv
+import io
+import json
+import logging
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import time
 from collections import defaultdict
-from datetime import datetime, date, timedelta, timezone
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
-import requests, yaml
+import yaml
 
 # Shared capture-API helper (CS2.1/CS2.2). Works both in Docker (`/app/lib/`
 # after COPY) and locally (`scripts/` is sys.path[0] when running the script
 # directly), so `from lib.capture_api import …` resolves in both cases.
-from lib.capture_api import get_capture_api_config as _get_capture_api, post_capture as _post_capture_raw  # noqa: E402
+from lib.capture_api import post_capture as _post_capture_raw  # noqa: E402
 
 # CS3.9 --json-output support: wrap _post_capture to track results so the
 # ingest sidecar (docker/ingest-sidecar/trigger_server.py) can parse a JSON
@@ -43,7 +52,9 @@ _JSON_ERRORS: list[str] = []
 
 
 def _post_capture(cfg, content, source_metadata, capture_type="observation", brain_view="personal"):
-    ok = _post_capture_raw(cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view)
+    ok = _post_capture_raw(
+        cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
+    )
     if _JSON_OUTPUT_MODE:
         if ok:
             # Content preview is a stable, human-readable id — the helper
@@ -70,12 +81,17 @@ log = logging.getLogger("financial-pipeline")
 PIPE_DIR = Path(os.environ.get("FINANCIAL_PIPE_DIR", str(Path.home() / ".financial-pipeline")))
 DB_PATH = PIPE_DIR / "financial.db"
 CONFIG_DIR_ENV = os.environ.get("FINANCIAL_CONFIG_DIR")
-CONFIG_BASE = Path(CONFIG_DIR_ENV) if CONFIG_DIR_ENV else Path(__file__).resolve().parent.parent / "config" / "financial"
+CONFIG_BASE = (
+    Path(CONFIG_DIR_ENV)
+    if CONFIG_DIR_ENV
+    else Path(__file__).resolve().parent.parent / "config" / "financial"
+)
 CONFIG_PATH = CONFIG_BASE / "plaid-config.yaml"
 MERCHANTS_PATH = CONFIG_BASE / "merchants.yaml"
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
+
 
 def load_config() -> dict:
     """Load plaid-config.yaml."""
@@ -84,7 +100,7 @@ def load_config() -> dict:
     return yaml.safe_load(CONFIG_PATH.read_text())
 
 
-def load_merchants() -> Optional[dict]:
+def load_merchants() -> dict | None:
     """Load merchants.yaml if it exists. Returns None if not found."""
     if not MERCHANTS_PATH.exists():
         log.info("merchants.yaml not found — using Plaid categories only")
@@ -99,7 +115,7 @@ def load_merchants() -> Optional[dict]:
 # ── Secrets ──────────────────────────────────────────────────────────────────
 
 # Cache bws secret list to avoid repeated subprocess calls
-_bws_secrets_cache: Optional[list] = None
+_bws_secrets_cache: list | None = None
 
 
 def _load_bws_secrets() -> list:
@@ -110,7 +126,9 @@ def _load_bws_secrets() -> list:
     try:
         result = subprocess.run(
             ["bws", "secret", "list"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             log.error(f"bws failed: {result.stderr.strip()}")
@@ -136,6 +154,7 @@ def get_bws_secret(secret_name: str) -> str:
 
 
 # ── Plaid Client ─────────────────────────────────────────────────────────────
+
 
 def create_plaid_client(cfg: dict, client_id: str, secret: str):
     """Create Plaid API client for the configured environment."""
@@ -192,6 +211,7 @@ def get_access_token(cfg: dict, account_key: str) -> str:
 
 
 # ── Database ─────────────────────────────────────────────────────────────────
+
 
 def init_db() -> sqlite3.Connection:
     """Initialize SQLite with financial tables."""
@@ -266,13 +286,18 @@ def ensure_account(conn: sqlite3.Connection, account_key: str, cfg_account: dict
     conn.execute(
         "INSERT OR REPLACE INTO accounts (id, name, type, institution, plaid_access_token_key) "
         "VALUES (?, ?, ?, ?, ?)",
-        (account_key, cfg_account["name"], cfg_account["type"],
-         cfg_account["institution"], account_key),
+        (
+            account_key,
+            cfg_account["name"],
+            cfg_account["type"],
+            cfg_account["institution"],
+            account_key,
+        ),
     )
     conn.commit()
 
 
-def get_sync_cursor(conn: sqlite3.Connection, account_id: str) -> Optional[str]:
+def get_sync_cursor(conn: sqlite3.Connection, account_id: str) -> str | None:
     """Get stored sync cursor for an account."""
     row = conn.execute(
         "SELECT cursor FROM sync_cursors WHERE account_id = ?", (account_id,)
@@ -343,7 +368,7 @@ PLAID_CATEGORY_MAP = {
 }
 
 
-def categorize_transaction(txn: dict, merchants: Optional[dict]) -> str:
+def categorize_transaction(txn: dict, merchants: dict | None) -> str:
     """T0 categorization: exact merchant → pattern → Plaid category → Uncategorized.
 
     Resolution order:
@@ -391,8 +416,10 @@ def categorize_transaction(txn: dict, merchants: Optional[dict]) -> str:
 
 # ── Sync ─────────────────────────────────────────────────────────────────────
 
-def sync_account(client, conn: sqlite3.Connection, account_key: str, access_token: str,
-                 merchants: Optional[dict]) -> dict:
+
+def sync_account(
+    client, conn: sqlite3.Connection, account_key: str, access_token: str, merchants: dict | None
+) -> dict:
     """Sync transactions for a single account using /transactions/sync.
 
     Returns stats dict: {added, modified, removed, error}.
@@ -414,7 +441,9 @@ def sync_account(client, conn: sqlite3.Connection, account_key: str, access_toke
             error_str = str(e)
             # Handle ITEM_LOGIN_REQUIRED gracefully
             if "ITEM_LOGIN_REQUIRED" in error_str:
-                log.warning(f"  {account_key}: bank login required — re-run Plaid Link for this account")
+                log.warning(
+                    f"  {account_key}: bank login required — re-run Plaid Link for this account"
+                )
                 return {"added": 0, "modified": 0, "removed": 0, "error": "ITEM_LOGIN_REQUIRED"}
             log.error(f"  {account_key}: sync error — {e}")
             return {"added": 0, "modified": 0, "removed": 0, "error": str(e)}
@@ -435,7 +464,11 @@ def sync_account(client, conn: sqlite3.Connection, account_key: str, access_toke
 
         # Process removed transactions
         for txn in response.removed:
-            txn_id = txn.transaction_id if hasattr(txn, "transaction_id") else txn.get("transaction_id", "")
+            txn_id = (
+                txn.transaction_id
+                if hasattr(txn, "transaction_id")
+                else txn.get("transaction_id", "")
+            )
             if txn_id:
                 remove_transaction(conn, txn_id)
                 stats["removed"] += 1
@@ -476,16 +509,21 @@ def cmd_sync(cfg: dict, conn: sqlite3.Connection):
             total_stats["added"] += stats["added"]
             total_stats["modified"] += stats["modified"]
             total_stats["removed"] += stats["removed"]
-        log.info(f"    +{stats['added']} added, ~{stats['modified']} modified, -{stats['removed']} removed")
+        log.info(
+            f"    +{stats['added']} added, ~{stats['modified']} modified, -{stats['removed']} removed"
+        )
 
-    log.info(f"Sync complete: +{total_stats['added']} added, ~{total_stats['modified']} modified, "
-             f"-{total_stats['removed']} removed, {len(total_stats['errors'])} errors")
+    log.info(
+        f"Sync complete: +{total_stats['added']} added, ~{total_stats['modified']} modified, "
+        f"-{total_stats['removed']} removed, {len(total_stats['errors'])} errors"
+    )
     if total_stats["errors"]:
         for err in total_stats["errors"]:
             log.warning(f"  Error: {err}")
 
 
 # ── Daily Summary ────────────────────────────────────────────────────────────
+
 
 def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
     """--daily-summary: Aggregate today's transactions and POST capture to Open Brain."""
@@ -507,10 +545,17 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
         return
 
     # Aggregate by account
-    by_account = defaultdict(lambda: {"name": "", "total": 0.0, "count": 0, "categories": defaultdict(lambda: {"total": 0.0, "count": 0})})
+    by_account = defaultdict(
+        lambda: {
+            "name": "",
+            "total": 0.0,
+            "count": 0,
+            "categories": defaultdict(lambda: {"total": 0.0, "count": 0}),
+        }
+    )
     grand_total = 0.0
 
-    for account_id, account_name, amount, merchant, ob_category, pending in rows:
+    for account_id, account_name, amount, _merchant, ob_category, _pending in rows:
         acct = by_account[account_id]
         acct["name"] = account_name or account_id
         acct["total"] += amount
@@ -526,7 +571,9 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
 
     for account_id, acct in sorted(by_account.items()):
         lines.append(f"{acct['name']}: {acct['count']} transactions, ${abs(acct['total']):,.2f}")
-        for cat, cat_data in sorted(acct["categories"].items(), key=lambda x: abs(x[1]["total"]), reverse=True):
+        for cat, cat_data in sorted(
+            acct["categories"].items(), key=lambda x: abs(x[1]["total"]), reverse=True
+        ):
             lines.append(f"  {cat}: ${abs(cat_data['total']):,.2f} ({cat_data['count']} txns)")
         lines.append("")
 
@@ -543,13 +590,19 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
         }
 
     # POST to Open Brain
-    if _post_capture(cfg, summary_text, {
-        "type": "financial_daily",
-        "date": today,
-        "transaction_count": len(rows),
-        "grand_total": round(grand_total, 2),
-        "accounts": categories_summary,
-    }, capture_type="observation", brain_view="personal"):
+    if _post_capture(
+        cfg,
+        summary_text,
+        {
+            "type": "financial_daily",
+            "date": today,
+            "transaction_count": len(rows),
+            "grand_total": round(grand_total, 2),
+            "accounts": categories_summary,
+        },
+        capture_type="observation",
+        brain_view="personal",
+    ):
         log.info(f"Daily summary posted ({len(rows)} transactions)")
 
 
@@ -568,8 +621,14 @@ def fetch_account_balances(client, access_token: str) -> list:
     return [acct.to_dict() for acct in response.accounts]
 
 
-def store_balances(conn: sqlite3.Connection, today: str, account_key: str,
-                   current: float, available: float, limit: float):
+def store_balances(
+    conn: sqlite3.Connection,
+    today: str,
+    account_key: str,
+    current: float,
+    available: float,
+    limit: float,
+):
     """Insert a daily balance row (one per account per day)."""
     # Avoid duplicates: delete existing row for this account+date, then insert
     conn.execute(
@@ -638,23 +697,32 @@ def cmd_balances(cfg: dict, conn: sqlite3.Connection):
             if len(plaid_accounts) > 1:
                 sub_key = f"{account_key}_{pa.get('account_id', '')[:8]}"
 
-            store_balances(conn, today, sub_key, current,
-                           available if available is not None else 0.0,
-                           limit if limit is not None else 0.0)
-
-            balance_rows.append((
+            store_balances(
+                conn,
+                today,
                 sub_key,
-                account_cfg["name"],
-                acct_type,
-                acct_subtype,
                 current,
-                available,
-                limit,
-            ))
-            log.info(f"  {account_cfg['name']}: current=${current:,.2f}"
-                     f"{f', available=${available:,.2f}' if available is not None else ''}"
-                     f"{f', limit=${limit:,.2f}' if limit is not None else ''}"
-                     f" ({acct_type}/{acct_subtype})")
+                available if available is not None else 0.0,
+                limit if limit is not None else 0.0,
+            )
+
+            balance_rows.append(
+                (
+                    sub_key,
+                    account_cfg["name"],
+                    acct_type,
+                    acct_subtype,
+                    current,
+                    available,
+                    limit,
+                )
+            )
+            log.info(
+                f"  {account_cfg['name']}: current=${current:,.2f}"
+                f"{f', available=${available:,.2f}' if available is not None else ''}"
+                f"{f', limit=${limit:,.2f}' if limit is not None else ''}"
+                f" ({acct_type}/{acct_subtype})"
+            )
 
         time.sleep(0.1)  # rate limit courtesy
 
@@ -677,7 +745,15 @@ def cmd_balances(cfg: dict, conn: sqlite3.Connection):
     # ── Format capture text ──────────────────────────────────────────────
     lines = [f"Financial Snapshot -- {today}", ""]
 
-    for account_key, display_name, acct_type, acct_subtype, current, available, limit in balance_rows:
+    for (
+        account_key,
+        display_name,
+        acct_type,
+        acct_subtype,
+        current,
+        available,
+        limit,
+    ) in balance_rows:
         if acct_type in CREDIT_ACCOUNT_TYPES:
             # Show as negative for credit cards, with limit
             line = f"{display_name}: -${current:,.2f}"
@@ -699,7 +775,15 @@ def cmd_balances(cfg: dict, conn: sqlite3.Connection):
 
     # ── Build source_metadata ────────────────────────────────────────────
     accounts_meta = {}
-    for account_key, display_name, acct_type, acct_subtype, current, available, limit in balance_rows:
+    for (
+        account_key,
+        display_name,
+        acct_type,
+        acct_subtype,
+        current,
+        available,
+        limit,
+    ) in balance_rows:
         accounts_meta[account_key] = {
             "name": display_name,
             "type": acct_type,
@@ -710,17 +794,26 @@ def cmd_balances(cfg: dict, conn: sqlite3.Connection):
         }
 
     # ── POST capture to Open Brain ───────────────────────────────────────
-    if _post_capture(cfg, capture_text, {
-        "type": "balance_snapshot",
-        "date": today,
-        "net_worth": round(net_worth, 2),
-        "account_count": len(balance_rows),
-        "accounts": accounts_meta,
-    }, capture_type="observation", brain_view="personal"):
-        log.info(f"Balance snapshot posted ({len(balance_rows)} accounts, net worth ${net_worth:,.2f})")
+    if _post_capture(
+        cfg,
+        capture_text,
+        {
+            "type": "balance_snapshot",
+            "date": today,
+            "net_worth": round(net_worth, 2),
+            "account_count": len(balance_rows),
+            "accounts": accounts_meta,
+        },
+        capture_type="observation",
+        brain_view="personal",
+    ):
+        log.info(
+            f"Balance snapshot posted ({len(balance_rows)} accounts, net worth ${net_worth:,.2f})"
+        )
 
 
 # ── Future stubs ─────────────────────────────────────────────────────────────
+
 
 def cmd_investments(cfg: dict, conn: sqlite3.Connection):
     """--investments: Weekly investment report from Schwab via Plaid investments API.
@@ -739,8 +832,7 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
 
     # Find investment/brokerage accounts
     investment_keys = [
-        key for key, acfg in accounts_cfg.items()
-        if acfg.get("type") in ("brokerage", "investment")
+        key for key, acfg in accounts_cfg.items() if acfg.get("type") in ("brokerage", "investment")
     ]
     if not investment_keys:
         log.warning("No brokerage/investment accounts configured — skipping")
@@ -796,7 +888,9 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
             }
             all_holdings.append(holding_row)
 
-        log.info(f"  {accounts_cfg[account_key]['name']}: {len(response.holdings)} positions retrieved")
+        log.info(
+            f"  {accounts_cfg[account_key]['name']}: {len(response.holdings)} positions retrieved"
+        )
         time.sleep(0.1)  # rate limit courtesy
 
     if not all_holdings:
@@ -810,8 +904,17 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
         conn.execute(
             "INSERT INTO holdings (date, security_id, name, ticker, quantity, close_price, value, type, account_id) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (h["date"], h["security_id"], h["name"], h["ticker"],
-             h["quantity"], h["close_price"], h["value"], h["type"], h["account_id"]),
+            (
+                h["date"],
+                h["security_id"],
+                h["name"],
+                h["ticker"],
+                h["quantity"],
+                h["close_price"],
+                h["value"],
+                h["type"],
+                h["account_id"],
+            ),
         )
     conn.commit()
     log.info(f"  Stored {len(all_holdings)} holdings for {today}")
@@ -879,12 +982,14 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
             if prev_val is not None and prev_val > 0:
                 change = h["value"] - prev_val
                 change_pct = (change / prev_val) * 100
-                movers.append({
-                    "name": h["name"],
-                    "ticker": h["ticker"],
-                    "change": change,
-                    "change_pct": change_pct,
-                })
+                movers.append(
+                    {
+                        "name": h["name"],
+                        "ticker": h["ticker"],
+                        "change": change,
+                        "change_pct": change_pct,
+                    }
+                )
 
         # Sort by absolute % change, take top 5 movers
         movers.sort(key=lambda m: abs(m["change_pct"]), reverse=True)
@@ -913,7 +1018,9 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
     lines.append("Top Holdings:")
     for h in top_holdings:
         ticker_str = f" ({h['ticker']})" if h["ticker"] else ""
-        lines.append(f"  {h['name']}{ticker_str}: ${h['value']:,.2f} — {h['quantity']:.2f} shares @ ${h['close_price']:,.2f}")
+        lines.append(
+            f"  {h['name']}{ticker_str}: ${h['value']:,.2f} — {h['quantity']:.2f} shares @ ${h['close_price']:,.2f}"
+        )
     lines.append("")
 
     # Top movers
@@ -922,14 +1029,21 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
         for m in movers:
             ticker_str = f" ({m['ticker']})" if m["ticker"] else ""
             sign = "+" if m["change"] >= 0 else ""
-            lines.append(f"  {m['name']}{ticker_str}: {sign}${m['change']:,.2f} ({sign}{m['change_pct']:.1f}%)")
+            lines.append(
+                f"  {m['name']}{ticker_str}: {sign}${m['change']:,.2f} ({sign}{m['change_pct']:.1f}%)"
+            )
     else:
         lines.append("Top Movers: (no prior week data for comparison)")
 
     capture_text = "\n".join(lines)
-    log.info(f"Portfolio: ${total_value:,.2f}" +
-             (f", weekly change: {'+' if weekly_delta >= 0 else ''}${weekly_delta:,.2f} ({weekly_pct:+.1f}%)"
-              if weekly_delta is not None else ""))
+    log.info(
+        f"Portfolio: ${total_value:,.2f}"
+        + (
+            f", weekly change: {'+' if weekly_delta >= 0 else ''}${weekly_delta:,.2f} ({weekly_pct:+.1f}%)"
+            if weekly_delta is not None
+            else ""
+        )
+    )
 
     # ── POST capture to Open Brain ───────────────────────────────────────
     source_meta = {
@@ -944,8 +1058,9 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
         source_meta["change_pct"] = round(weekly_pct, 2)
         source_meta["prior_snapshot_date"] = prior_date
 
-    if _post_capture(cfg, capture_text, source_meta,
-                     capture_type="observation", brain_view="personal"):
+    if _post_capture(
+        cfg, capture_text, source_meta, capture_type="observation", brain_view="personal"
+    ):
         log.info(f"Investment summary posted ({len(all_holdings)} holdings, ${total_value:,.2f})")
 
 
@@ -956,10 +1071,7 @@ def _get_prior_month_range(year: int, month: int) -> tuple:
     else:
         py, pm = year, month - 1
     start = f"{py}-{pm:02d}-01"
-    if pm == 12:
-        end_d = date(py, 12, 31)
-    else:
-        end_d = date(py, pm + 1, 1) - timedelta(days=1)
+    end_d = date(py, 12, 31) if pm == 12 else date(py, pm + 1, 1) - timedelta(days=1)
     return start, end_d.isoformat()
 
 
@@ -1015,7 +1127,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     for _, _, amount, merchant, _, _ in rows:
         merchant_totals[merchant]["amount"] += amount
         merchant_totals[merchant]["count"] += 1
-    top_merchants = sorted(merchant_totals.items(), key=lambda x: abs(x[1]["amount"]), reverse=True)[:10]
+    top_merchants = sorted(
+        merchant_totals.items(), key=lambda x: abs(x[1]["amount"]), reverse=True
+    )[:10]
 
     # 2c. Transaction count by account
     account_stats = defaultdict(lambda: {"name": "", "count": 0, "total": 0.0})
@@ -1040,21 +1154,25 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     # 2f. Large transactions (>$200)
     large_txns = [
         {"date": r[5], "merchant": r[3], "amount": r[2], "category": r[4], "account": r[1] or r[0]}
-        for r in rows if abs(r[2]) > 200
+        for r in rows
+        if abs(r[2]) > 200
     ]
     large_txns.sort(key=lambda x: abs(x["amount"]), reverse=True)
 
     # 2g. Subscription changes (compare recurring merchants to prior month)
     prior_month_start, prior_month_end = _get_prior_month_range(target_year, target_month)
     prior_month_merchants = set(
-        r[0] for r in conn.execute(
+        r[0]
+        for r in conn.execute(
             "SELECT DISTINCT merchant FROM transactions "
             "WHERE date >= ? AND date <= ? AND merchant IS NOT NULL AND pending = 0",
             (prior_month_start, prior_month_end),
         ).fetchall()
     )
     new_subs = sorted(current_merchants - prior_month_merchants) if prior_month_merchants else []
-    cancelled_subs = sorted(prior_month_merchants - current_merchants) if prior_month_merchants else []
+    cancelled_subs = (
+        sorted(prior_month_merchants - current_merchants) if prior_month_merchants else []
+    )
 
     # ── 3. MoM comparison ───────────────────────────────────────────────
     prior_rows = conn.execute(
@@ -1067,7 +1185,8 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     has_prior_month = len(prior_rows) > 0
     prior_month_label = datetime(
         target_year if target_month > 1 else target_year - 1,
-        target_month - 1 if target_month > 1 else 12, 1,
+        target_month - 1 if target_month > 1 else 12,
+        1,
     ).strftime("%B %Y")
 
     mom_comparison = []
@@ -1078,11 +1197,15 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
             prev = prior_cat.get(cat, 0.0)
             delta = curr - prev
             pct = (delta / abs(prev) * 100) if prev != 0 else 0.0
-            mom_comparison.append({
-                "category": cat, "current": round(curr, 2),
-                "prior": round(prev, 2), "delta": round(delta, 2),
-                "pct_change": round(pct, 1),
-            })
+            mom_comparison.append(
+                {
+                    "category": cat,
+                    "current": round(curr, 2),
+                    "prior": round(prev, 2),
+                    "delta": round(delta, 2),
+                    "pct_change": round(pct, 1),
+                }
+            )
 
     # ── 4. YoY comparison ──────────────────────────────────────────────
     yoy_year = target_year - 1
@@ -1110,11 +1233,15 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
             prev_y = yoy_cat.get(cat, 0.0)
             delta = curr - prev_y
             pct = (delta / abs(prev_y) * 100) if prev_y != 0 else 0.0
-            yoy_comparison.append({
-                "category": cat, "current": round(curr, 2),
-                "prior_year": round(prev_y, 2), "delta": round(delta, 2),
-                "pct_change": round(pct, 1),
-            })
+            yoy_comparison.append(
+                {
+                    "category": cat,
+                    "current": round(curr, 2),
+                    "prior_year": round(prev_y, 2),
+                    "delta": round(delta, 2),
+                    "pct_change": round(pct, 1),
+                }
+            )
 
     # ── 5. End-of-month net worth from daily_balances ──────────────────
     net_worth_row = conn.execute(
@@ -1124,7 +1251,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         "WHERE db.date = (SELECT MAX(date) FROM daily_balances WHERE date <= ?)",
         (month_end,),
     ).fetchone()
-    net_worth_eom = round(net_worth_row[0], 2) if net_worth_row and net_worth_row[0] is not None else None
+    net_worth_eom = (
+        round(net_worth_row[0], 2) if net_worth_row and net_worth_row[0] is not None else None
+    )
 
     # ── 6. Build raw data tables for the capture ────────────────────────
     raw_lines = ["--- Raw Data ---", ""]
@@ -1147,14 +1276,16 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
 
     raw_lines.append("")
     raw_lines.append("BY ACCOUNT:")
-    for acct_id, data in sorted(account_stats.items()):
+    for _acct_id, data in sorted(account_stats.items()):
         raw_lines.append(f"  {data['name']}: {data['count']} txns, ${abs(data['total']):,.2f}")
 
     if large_txns:
         raw_lines.append("")
         raw_lines.append("LARGE TRANSACTIONS (>$200):")
         for lt in large_txns:
-            raw_lines.append(f"  {lt['date']} | {lt['merchant']} | ${abs(lt['amount']):,.2f} | {lt['category']} | {lt['account']}")
+            raw_lines.append(
+                f"  {lt['date']} | {lt['merchant']} | ${abs(lt['amount']):,.2f} | {lt['category']} | {lt['account']}"
+            )
 
     if new_merchants:
         raw_lines.append("")
@@ -1176,21 +1307,29 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         raw_lines.append(f"MONTH-OVER-MONTH ({prior_month_label} -> {month_label}):")
         for m in mom_comparison:
             direction = "+" if m["delta"] >= 0 else ""
-            raw_lines.append(f"  {m['category']}: ${abs(m['current']):,.2f} ({direction}{m['pct_change']}%)")
+            raw_lines.append(
+                f"  {m['category']}: ${abs(m['current']):,.2f} ({direction}{m['pct_change']}%)"
+            )
 
     if yoy_comparison:
         raw_lines.append("")
-        raw_lines.append(f"YEAR-OVER-YEAR ({last_of_prior.strftime('%b')} {yoy_year} -> {month_label}):")
+        raw_lines.append(
+            f"YEAR-OVER-YEAR ({last_of_prior.strftime('%b')} {yoy_year} -> {month_label}):"
+        )
         for y in yoy_comparison:
             direction = "+" if y["delta"] >= 0 else ""
-            raw_lines.append(f"  {y['category']}: ${abs(y['current']):,.2f} ({direction}{y['pct_change']}%)")
+            raw_lines.append(
+                f"  {y['category']}: ${abs(y['current']):,.2f} ({direction}{y['pct_change']}%)"
+            )
 
     raw_data_text = "\n".join(raw_lines)
 
     # ── 7. Build Claude CLI prompt (keep under 4000 chars) ─────────────
     pp = []
     pp.append(f"Analyze this monthly financial report for {month_label}.")
-    pp.append(f"Total: ${total_spend:,.2f} across {len(rows)} transactions, avg ${avg_txn:,.2f}/txn.")
+    pp.append(
+        f"Total: ${total_spend:,.2f} across {len(rows)} transactions, avg ${avg_txn:,.2f}/txn."
+    )
     if net_worth_eom is not None:
         pp.append(f"End-of-month net worth: ${net_worth_eom:,.2f}.")
     pp.append("")
@@ -1208,7 +1347,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         pp.append("")
         pp.append("LARGE TRANSACTIONS (>$200):")
         for lt in large_txns[:10]:
-            pp.append(f"  {lt['date']} {lt['merchant']}: ${abs(lt['amount']):,.2f} ({lt['category']})")
+            pp.append(
+                f"  {lt['date']} {lt['merchant']}: ${abs(lt['amount']):,.2f} ({lt['category']})"
+            )
 
     if new_merchants:
         pp.append("")
@@ -1226,7 +1367,8 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         pp.append(f"MOM CHANGES (vs {prior_month_label}):")
         significant = sorted(
             [m for m in mom_comparison if abs(m["delta"]) > 10],
-            key=lambda x: abs(x["delta"]), reverse=True,
+            key=lambda x: abs(x["delta"]),
+            reverse=True,
         )
         for m in significant[:10]:
             d = "+" if m["delta"] >= 0 else ""
@@ -1237,7 +1379,8 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         pp.append(f"YOY CHANGES (vs {last_of_prior.strftime('%b')} {yoy_year}):")
         significant_y = sorted(
             [y for y in yoy_comparison if abs(y["delta"]) > 20],
-            key=lambda x: abs(x["delta"]), reverse=True,
+            key=lambda x: abs(x["delta"]),
+            reverse=True,
         )
         for y in significant_y[:8]:
             d = "+" if y["delta"] >= 0 else ""
@@ -1261,7 +1404,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     try:
         result = subprocess.run(
             ["claude", "--print", "-p", prompt],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode == 0 and result.stdout.strip():
             synthesis = result.stdout.strip()
@@ -1296,7 +1441,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
         "transaction_count": len(rows),
         "avg_transaction": round(avg_txn, 2),
         "category_totals": category_totals_meta,
-        "top_merchants": {m: {"amount": round(d["amount"], 2), "count": d["count"]} for m, d in top_merchants},
+        "top_merchants": {
+            m: {"amount": round(d["amount"], 2), "count": d["count"]} for m, d in top_merchants
+        },
         "new_merchant_count": len(new_merchants),
         "large_txn_count": len(large_txns),
         "has_synthesis": synthesis is not None,
@@ -1308,8 +1455,9 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     if has_yoy:
         source_metadata["yoy_prior_total"] = round(sum(abs(v) for v in yoy_cat.values()), 2)
 
-    if _post_capture(cfg, capture_text, source_metadata,
-                     capture_type="observation", brain_view="personal"):
+    if _post_capture(
+        cfg, capture_text, source_metadata, capture_type="observation", brain_view="personal"
+    ):
         log.info(f"Monthly report posted: {month_label} ({len(rows)} txns, ${total_spend:,.2f})")
 
 
@@ -1317,7 +1465,7 @@ INBOX_DIR = Path(os.environ.get("FINANCIAL_INBOX_DIR", str(Path.home() / "financ
 PROCESSED_DIR = INBOX_DIR / "processed"
 
 
-def _parse_401k_pdf(filepath: Path) -> Optional[dict]:
+def _parse_401k_pdf(filepath: Path) -> dict | None:
     """Extract balance, contributions, and fund allocation from a 401k ReadySave PDF.
 
     Returns dict with keys: balance, ytd_employee, ytd_match, funds (list of dicts),
@@ -1381,8 +1529,7 @@ def _parse_401k_pdf(filepath: Path) -> Optional[dict]:
     # Pattern: fund name ... XX.XX% ... $X,XXX.XX
     fund_pat = re.compile(
         r"([A-Za-z][A-Za-z0-9 &/\-]{5,50}?)\s+"
-        r"(\d{1,3}(?:\.\d{1,2})?)\s*%\s+.*?"
-        + r"(" + dollar_re + r")",
+        r"(\d{1,3}(?:\.\d{1,2})?)\s*%\s+.*?" + r"(" + dollar_re + r")",
         re.MULTILINE,
     )
     for m in fund_pat.finditer(text):
@@ -1397,7 +1544,9 @@ def _parse_401k_pdf(filepath: Path) -> Optional[dict]:
     year = today.year
     quarter = (today.month - 1) // 3 + 1
     # Try to find a date in the PDF
-    date_m = re.search(r"(?:as of|through|ending)\s*(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", text, re.IGNORECASE)
+    date_m = re.search(
+        r"(?:as of|through|ending)\s*(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})", text, re.IGNORECASE
+    )
     if date_m:
         try:
             y = int(date_m.group(3))
@@ -1446,11 +1595,11 @@ def _parse_401k_pdf(filepath: Path) -> Optional[dict]:
 # is per-institution and lives inside each parser.
 
 
-def _read_csv_robust(filepath: Path, skip_lines: int = 0) -> Optional[list[dict]]:
+def _read_csv_robust(filepath: Path, skip_lines: int = 0) -> list[dict] | None:
     """Read a CSV with encoding + dialect sniffing. Returns list of dicts or None."""
     for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
         try:
-            with open(filepath, "r", encoding=enc, newline="") as f:
+            with open(filepath, encoding=enc, newline="") as f:
                 for _ in range(skip_lines):
                     f.readline()
                 sample = f.read(4096)
@@ -1501,7 +1650,7 @@ def _parse_money(s: str) -> float:
     return -val if is_paren_neg else val
 
 
-def _parse_mdy(s: str) -> Optional[str]:
+def _parse_mdy(s: str) -> str | None:
     """Parse MM/DD/YYYY or MM/DD/YYYY-prefixed date strings. Returns ISO YYYY-MM-DD or None.
 
     Handles Schwab's "04/16/2026 as of 04/15/2026" form by taking the first date.
@@ -1587,7 +1736,7 @@ def _summarize_transactions(
     }
 
 
-def _parse_amex_csv(filepath: Path) -> Optional[dict]:
+def _parse_amex_csv(filepath: Path) -> dict | None:
     """Parse American Express activity CSV.
 
     Sign convention: Amex `Amount` is POSITIVE for charges, NEGATIVE for refunds
@@ -1613,12 +1762,14 @@ def _parse_amex_csv(filepath: Path) -> Optional[dict]:
         if not date or not desc:
             continue
         # Amex sign inversion: positive = charge (debit), negative = credit
-        txns.append({
-            "date": date,
-            "description": desc,
-            "amount": -raw_amt,
-            "category": category,
-        })
+        txns.append(
+            {
+                "date": date,
+                "description": desc,
+                "amount": -raw_amt,
+                "category": category,
+            }
+        )
 
     if not txns:
         return None
@@ -1631,7 +1782,7 @@ def _parse_amex_csv(filepath: Path) -> Optional[dict]:
     )
 
 
-def _parse_chase_csv(filepath: Path) -> Optional[dict]:
+def _parse_chase_csv(filepath: Path) -> dict | None:
     """Parse Chase credit-card activity CSV.
 
     Sign convention: Chase `Amount` is NEGATIVE for charges, POSITIVE for
@@ -1655,12 +1806,14 @@ def _parse_chase_csv(filepath: Path) -> Optional[dict]:
         amount = _parse_money(row.get("Amount", ""))
         if not date or not desc:
             continue
-        txns.append({
-            "date": date,
-            "description": desc,
-            "amount": amount,
-            "category": category,
-        })
+        txns.append(
+            {
+                "date": date,
+                "description": desc,
+                "amount": amount,
+                "category": category,
+            }
+        )
 
     if not txns:
         return None
@@ -1673,7 +1826,7 @@ def _parse_chase_csv(filepath: Path) -> Optional[dict]:
     )
 
 
-def _parse_truist_csv(filepath: Path) -> Optional[dict]:
+def _parse_truist_csv(filepath: Path) -> dict | None:
     """Parse Truist checking/savings activity CSV.
 
     Sign convention: Truist `Amount` uses ($x) notation for negative.
@@ -1699,12 +1852,14 @@ def _parse_truist_csv(filepath: Path) -> Optional[dict]:
         amount = _parse_money(row.get("Amount", ""))
         if not date or not desc:
             continue
-        txns.append({
-            "date": date,
-            "description": desc,
-            "amount": amount,
-            "category": category,
-        })
+        txns.append(
+            {
+                "date": date,
+                "description": desc,
+                "amount": amount,
+                "category": category,
+            }
+        )
 
     if not txns:
         return None
@@ -1717,7 +1872,7 @@ def _parse_truist_csv(filepath: Path) -> Optional[dict]:
     )
 
 
-def _parse_schwab_csv(filepath: Path) -> Optional[dict]:
+def _parse_schwab_csv(filepath: Path) -> dict | None:
     """Parse Schwab brokerage transactions CSV (Contributory IRA, Simple IRA, etc.).
 
     Sign convention: Schwab `Amount` is signed — negative for Buys/outflows,
@@ -1751,12 +1906,14 @@ def _parse_schwab_csv(filepath: Path) -> Optional[dict]:
         amount = _parse_money(row.get("Amount", ""))
         if not date:
             continue
-        txns.append({
-            "date": date,
-            "description": desc,
-            "amount": amount,
-            "category": action,
-        })
+        txns.append(
+            {
+                "date": date,
+                "description": desc,
+                "amount": amount,
+                "category": action,
+            }
+        )
 
     if not txns:
         return None
@@ -1769,7 +1926,7 @@ def _parse_schwab_csv(filepath: Path) -> Optional[dict]:
     )
 
 
-def _parse_hsa_csv(filepath: Path) -> Optional[dict]:
+def _parse_hsa_csv(filepath: Path) -> dict | None:
     """Parse HSA transactions CSV.
 
     Sign convention: `Amount` is already signed — negative for withdrawals,
@@ -1796,12 +1953,14 @@ def _parse_hsa_csv(filepath: Path) -> Optional[dict]:
         amount = _parse_money(row.get("Amount", ""))
         if not date or not desc:
             continue
-        txns.append({
-            "date": date,
-            "description": desc,
-            "amount": amount,
-            "category": category,
-        })
+        txns.append(
+            {
+                "date": date,
+                "description": desc,
+                "amount": amount,
+                "category": category,
+            }
+        )
 
     if not txns:
         return None
@@ -1814,7 +1973,7 @@ def _parse_hsa_csv(filepath: Path) -> Optional[dict]:
     )
 
 
-def _parse_paypal_csv(filepath: Path) -> Optional[dict]:
+def _parse_paypal_csv(filepath: Path) -> dict | None:
     """Parse PayPal 'Activity Download' CSV.
 
     PayPal uses a double-entry model where most user-initiated spend creates
@@ -1876,12 +2035,14 @@ def _parse_paypal_csv(filepath: Path) -> Optional[dict]:
             desc_parts.append(item)
         desc = " — ".join(p for p in desc_parts if p)
 
-        txns.append({
-            "date": date,
-            "description": desc,
-            "amount": amount,
-            "category": category,
-        })
+        txns.append(
+            {
+                "date": date,
+                "description": desc,
+                "amount": amount,
+                "category": category,
+            }
+        )
 
     if not txns:
         return None
@@ -1894,7 +2055,7 @@ def _parse_paypal_csv(filepath: Path) -> Optional[dict]:
     )
 
 
-def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
+def _parse_schwab_balance_csv(filepath: Path) -> dict | None:
     """Parse a Schwab "Balances" snapshot CSV.
 
     Schwab balance exports are not clean CSV: line 0 is a prose preamble wrapped
@@ -1907,7 +2068,7 @@ def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
     Returns a tolerant, section-indexed dict. Missing sections are simply absent.
     """
     try:
-        with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+        with open(filepath, encoding="utf-8-sig", newline="") as f:
             raw_lines = f.readlines()
     except Exception as e:
         log.error(f"Failed to read Schwab balance CSV {filepath.name}: {e}")
@@ -1980,7 +2141,7 @@ def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
             data_rows = group[1:]
 
         section_dict: dict = {}
-        current_subsection: Optional[str] = None
+        current_subsection: str | None = None
         for row in data_rows:
             if not row:
                 continue
@@ -2007,7 +2168,11 @@ def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
             else:
                 # Try money parse; if it yields 0.0 for a non-"0" string, keep as string.
                 parsed = _parse_money(val_raw)
-                val = parsed if (parsed != 0.0 or val_raw.strip() in ("0", "0.0", "0.00")) else val_raw
+                val = (
+                    parsed
+                    if (parsed != 0.0 or val_raw.strip() in ("0", "0.0", "0.00"))
+                    else val_raw
+                )
 
             if current_subsection and current_subsection in section_dict:
                 section_dict[current_subsection][key] = val
@@ -2017,7 +2182,7 @@ def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
         sections[section_name] = section_dict
 
     # Extract headline numbers with tolerance.
-    def _h(k: str) -> Optional[float]:
+    def _h(k: str) -> float | None:
         v = headline.get(k)
         return _parse_money(v) if v else None
 
@@ -2033,15 +2198,15 @@ def _parse_schwab_balance_csv(filepath: Path) -> Optional[dict]:
         "day_change_pct": headline.get("Day Change %", ""),
         "cash": _h("Cash & Cash Investments") or 0.0,
         "market_value": _h("Market Value") or 0.0,
-        "non_margin": non_margin if isinstance(non_margin, (int, float)) else None,
-        "margin": margin if isinstance(margin, (int, float)) else None,
+        "non_margin": non_margin if isinstance(non_margin, int | float) else None,
+        "margin": margin if isinstance(margin, int | float) else None,
         "sections": sections,
         "source_file": filepath.name,
     }
     return result
 
 
-def _parse_schwab_position_csv(filepath: Path) -> Optional[dict]:
+def _parse_schwab_position_csv(filepath: Path) -> dict | None:
     """Parse a Schwab "Positions" CSV snapshot.
 
     Layout: line 0 preamble ("Positions for account <type> ...<mask> as of
@@ -2053,7 +2218,7 @@ def _parse_schwab_position_csv(filepath: Path) -> Optional[dict]:
     but has a real Mkt Val.
     """
     try:
-        with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+        with open(filepath, encoding="utf-8-sig", newline="") as f:
             raw_lines = f.readlines()
     except Exception as e:
         log.error(f"Failed to read Schwab position CSV {filepath.name}: {e}")
@@ -2080,7 +2245,7 @@ def _parse_schwab_position_csv(filepath: Path) -> Optional[dict]:
     reader = csv.DictReader(io.StringIO(body))
     rows = list(reader)
 
-    def _num_or_none(s: str) -> Optional[float]:
+    def _num_or_none(s: str) -> float | None:
         """Parse money; return None for '--' / blank / 'N/A' sentinels."""
         if s is None:
             return None
@@ -2104,17 +2269,19 @@ def _parse_schwab_position_csv(filepath: Path) -> Optional[dict]:
             }
             continue
 
-        positions.append({
-            "symbol": symbol,
-            "description": (row.get("Description") or "").strip(),
-            "qty": _num_or_none(row.get("Qty (Quantity)", "")),
-            "price": _num_or_none(row.get("Price", "")),
-            "mkt_val": _num_or_none(row.get("Mkt Val (Market Value)", "")),
-            "cost_basis": _num_or_none(row.get("Cost Basis", "")),
-            "gain_dollar": _num_or_none(row.get("Gain $ (Gain/Loss $)", "")),
-            "gain_pct": (row.get("Gain % (Gain/Loss %)") or "").strip(),
-            "asset_type": (row.get("Asset Type") or "").strip(),
-        })
+        positions.append(
+            {
+                "symbol": symbol,
+                "description": (row.get("Description") or "").strip(),
+                "qty": _num_or_none(row.get("Qty (Quantity)", "")),
+                "price": _num_or_none(row.get("Price", "")),
+                "mkt_val": _num_or_none(row.get("Mkt Val (Market Value)", "")),
+                "cost_basis": _num_or_none(row.get("Cost Basis", "")),
+                "gain_dollar": _num_or_none(row.get("Gain $ (Gain/Loss $)", "")),
+                "gain_pct": (row.get("Gain % (Gain/Loss %)") or "").strip(),
+                "asset_type": (row.get("Asset Type") or "").strip(),
+            }
+        )
 
     if not positions and not totals:
         return None
@@ -2129,7 +2296,7 @@ def _parse_schwab_position_csv(filepath: Path) -> Optional[dict]:
     }
 
 
-def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
+def _route_bank_csv(filepath: Path) -> tuple[str, dict] | None:
     """Dispatch a CSV to the right parser by filename pattern.
 
     Returns (source, result_dict) on success, or None if no parser matched.
@@ -2154,14 +2321,14 @@ def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
         return ("truist", r) if r else None
 
     # Schwab balance snapshots: "XXXX<mask>_Balances_<timestamp>.CSV"
-    if re.search(r'_balances_[\d-]+\.csv$', lower):
+    if re.search(r"_balances_[\d-]+\.csv$", lower):
         r = _parse_schwab_balance_csv(filepath)
         return ("schwab_balance", r) if r else None
 
     # Schwab position snapshots: "<AccountType>-Positions-<timestamp>.csv"
     # Filenames may contain spaces (e.g., "Simple IRA-Positions-...csv"); normalize to dashes.
-    normalized = lower.replace(' ', '-')
-    if re.search(r'-positions-[\d-]+\.csv$', normalized):
+    normalized = lower.replace(" ", "-")
+    if re.search(r"-positions-[\d-]+\.csv$", normalized):
         r = _parse_schwab_position_csv(filepath)
         return ("schwab_position", r) if r else None
 
@@ -2182,9 +2349,11 @@ def _route_bank_csv(filepath: Path) -> Optional[tuple[str, dict]]:
     is_download_name = bool(re.match(r"download(\s*\(\d+\))?\.csv$", lower))
     if is_download_name or "paypal" in lower:
         try:
-            with open(filepath, "r", encoding="utf-8-sig", newline="") as f:
+            with open(filepath, encoding="utf-8-sig", newline="") as f:
                 header = f.readline()
-            paypal_signature = all(s in header for s in ('"Balance Impact"', '"Transaction ID"', '"Gross"', '"Net"'))
+            paypal_signature = all(
+                s in header for s in ('"Balance Impact"', '"Transaction ID"', '"Gross"', '"Net"')
+            )
         except Exception:
             paypal_signature = False
         if paypal_signature:
@@ -2241,7 +2410,9 @@ def _format_bank_capture(result: dict) -> tuple[str, dict]:
     if result["top_transactions"]:
         lines.extend(["", "Top 10 charges:"])
         for t in result["top_transactions"][:10]:
-            lines.append(f"  {t['date']}  ${t['amount']:>9,.2f}  {t['category']:<20}  {t['description']}")
+            lines.append(
+                f"  {t['date']}  ${t['amount']:>9,.2f}  {t['category']:<20}  {t['description']}"
+            )
 
     content = "\n".join(lines)
     meta = {
@@ -2288,9 +2459,9 @@ def _format_schwab_balance_capture(result: dict) -> tuple[str, dict]:
     for k, v in cash_section.items():
         if isinstance(v, dict):
             for sk, sv in v.items():
-                if isinstance(sv, (int, float)):
+                if isinstance(sv, int | float):
                     cash_detail_lines.append(f"  {k} / {sk}: ${sv:,.2f}")
-        elif isinstance(v, (int, float)) and k != "Cash & Cash Investments Total":
+        elif isinstance(v, int | float) and k != "Cash & Cash Investments Total":
             cash_detail_lines.append(f"  {k}: ${v:,.2f}")
     if cash_detail_lines:
         lines.extend(["", "Cash detail:"])
@@ -2302,11 +2473,11 @@ def _format_schwab_balance_capture(result: dict) -> tuple[str, dict]:
     non_margin = inv.get("Non-Margin")
     margin = inv.get("Margin")
     securities = inv.get("Securities")
-    if isinstance(non_margin, (int, float)) and non_margin > 0:
+    if isinstance(non_margin, int | float) and non_margin > 0:
         inv_lines.append(f"  Securities (Non-Margin): ${non_margin:,.2f}")
-    if isinstance(margin, (int, float)) and margin > 0:
+    if isinstance(margin, int | float) and margin > 0:
         inv_lines.append(f"  Securities (Margin): ${margin:,.2f}")
-    if not inv_lines and isinstance(securities, (int, float)):
+    if not inv_lines and isinstance(securities, int | float):
         inv_lines.append(f"  Securities: ${securities:,.2f}")
     if inv_lines:
         lines.extend(["", "Investments:"])
@@ -2317,7 +2488,7 @@ def _format_schwab_balance_capture(result: dict) -> tuple[str, dict]:
     to_trade = funds.get("To Trade") if isinstance(funds.get("To Trade"), dict) else None
     if to_trade:
         tradable = to_trade.get("Cash & Cash Investments")
-        if isinstance(tradable, (int, float)):
+        if isinstance(tradable, int | float):
             lines.append("")
             lines.append(f"Funds available to trade: ${tradable:,.2f}")
 
@@ -2363,9 +2534,7 @@ def _format_schwab_position_capture(result: dict) -> tuple[str, dict]:
     if total_value:
         pieces = [f"Portfolio value: ${total_value:,.2f}"]
         if cost_basis is not None and gain_dollar is not None:
-            pieces.append(
-                f"(cost basis ${cost_basis:,.2f}, gain ${gain_dollar:,.2f} / {gain_pct})"
-            )
+            pieces.append(f"(cost basis ${cost_basis:,.2f}, gain ${gain_dollar:,.2f} / {gain_pct})")
         lines.append(" ".join(pieces))
 
     positions = result.get("positions") or []
@@ -2392,10 +2561,7 @@ def _format_schwab_position_capture(result: dict) -> tuple[str, dict]:
             if desc in ("--", ""):
                 desc = "Cash & Cash Investments" if sym == "Cash & Cash Investments" else ""
             # For cash rows, qty/price are None — render with em-dashes.
-            if qty is None or price is None:
-                qty_price = "—"
-            else:
-                qty_price = f"{qty:,.0f} @ ${price:,.2f}"
+            qty_price = "—" if qty is None or price is None else f"{qty:,.0f} @ ${price:,.2f}"
             lines.append(
                 f"  {display_sym:<6} ${mv:>12,.2f}  ({pct:>4.1f}%)  {desc} — {qty_price} — {atype}"
             )
@@ -2427,7 +2593,7 @@ def _format_schwab_position_capture(result: dict) -> tuple[str, dict]:
     return content, meta
 
 
-def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
+def _parse_amazon_csv(filepath: Path) -> dict | None:
     """Parse Amazon 'Request My Data' order CSV and aggregate spending.
 
     Returns dict with keys: total_spend, order_count, categories (dict),
@@ -2438,7 +2604,7 @@ def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
     # Try common encodings
     for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
         try:
-            with open(filepath, "r", encoding=enc, newline="") as f:
+            with open(filepath, encoding=enc, newline="") as f:
                 # Sniff delimiter
                 sample = f.read(4096)
                 f.seek(0)
@@ -2465,7 +2631,7 @@ def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
         return re.sub(r"[^a-z]", "", (key or "").lower())
 
     header_map = {}
-    for key in rows[0].keys():
+    for key in rows[0]:
         header_map[norm(key)] = key
 
     def col(row, *candidates):
@@ -2483,8 +2649,16 @@ def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
 
     for row in rows:
         title = col(row, "Title", "ProductName", "ItemDescription", "Product Name")
-        price_str = col(row, "ItemTotal", "Item Total", "TotalOwed", "Total Owed",
-                        "PurchasePricePerUnit", "Purchase Price Per Unit", "Price")
+        price_str = col(
+            row,
+            "ItemTotal",
+            "Item Total",
+            "TotalOwed",
+            "Total Owed",
+            "PurchasePricePerUnit",
+            "Purchase Price Per Unit",
+            "Price",
+        )
         category = col(row, "Category", "ProductCategory", "Product Category") or "Uncategorized"
         order_date = col(row, "OrderDate", "Order Date", "Ship Date", "ShipDate")
         qty_str = col(row, "Quantity", "Qty")
@@ -2546,7 +2720,9 @@ def _parse_amazon_csv(filepath: Path) -> Optional[dict]:
     return {
         "total_spend": round(total_spend, 2),
         "order_count": order_count,
-        "categories": {k: {"count": v["count"], "amount": round(v["amount"], 2)} for k, v in cat_sorted.items()},
+        "categories": {
+            k: {"count": v["count"], "amount": round(v["amount"], 2)} for k, v in cat_sorted.items()
+        },
         "top_items": top_items,
         "quarter": quarter,
         "year": year,
@@ -2559,8 +2735,7 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     files = sorted(
-        f for f in INBOX_DIR.iterdir()
-        if f.is_file() and f.suffix.lower() in (".pdf", ".csv")
+        f for f in INBOX_DIR.iterdir() if f.is_file() and f.suffix.lower() in (".pdf", ".csv")
     )
     if not files:
         log.info("No files in financial inbox")
@@ -2607,7 +2782,7 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
             if _post_capture(cfg, content, meta):
                 filepath.rename(PROCESSED_DIR / filepath.name)
                 processed += 1
-                log.info(f"401k PDF processed and moved to processed/")
+                log.info("401k PDF processed and moved to processed/")
             else:
                 log.error(f"Failed to post 401k capture — leaving {filepath.name} in inbox")
 
@@ -2628,7 +2803,9 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
                     processed += 1
                     log.info(f"{_source} CSV processed and moved to processed/")
                 else:
-                    log.error(f"Failed to post {_source} capture — leaving {filepath.name} in inbox")
+                    log.error(
+                        f"Failed to post {_source} capture — leaving {filepath.name} in inbox"
+                    )
                 continue
 
             # Legacy Amazon orders fallback
@@ -2651,7 +2828,7 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
                 f"Amazon Spending Data — {q_label}\n"
                 f"Total: ${result['total_spend']:,.2f} across {result['order_count']} orders\n\n"
                 f"By category:\n" + "\n".join(cat_lines) + "\n\n"
-                f"Top items by price:\n" + "\n".join(top_lines)
+                "Top items by price:\n" + "\n".join(top_lines)
             )
 
             # T2 synthesis via claude --print
@@ -2667,7 +2844,9 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
             try:
                 cli_result = subprocess.run(
                     ["claude", "--print", "-p", prompt],
-                    capture_output=True, text=True, timeout=120,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
                 )
                 if cli_result.returncode == 0 and cli_result.stdout.strip():
                     synthesis = cli_result.stdout.strip()
@@ -2705,7 +2884,7 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
             if _post_capture(cfg, content, meta):
                 filepath.rename(PROCESSED_DIR / filepath.name)
                 processed += 1
-                log.info(f"Amazon CSV processed and moved to processed/")
+                log.info("Amazon CSV processed and moved to processed/")
             else:
                 log.error(f"Failed to post Amazon capture — leaving {filepath.name} in inbox")
 
@@ -2716,6 +2895,7 @@ def cmd_process_inbox(cfg: dict, conn: sqlite3.Connection):
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
+
 
 def show_status(conn: sqlite3.Connection):
     """Print pipeline statistics."""
@@ -2760,22 +2940,43 @@ def show_status(conn: sqlite3.Connection):
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
+
 def main():
     ap = argparse.ArgumentParser(description="Financial Pipeline for Open Brain")
     ap.add_argument("--sync", action="store_true", help="Sync transactions from Plaid")
     ap.add_argument("--balances", action="store_true", help="Daily balance snapshot")
     ap.add_argument("--daily-summary", action="store_true", help="Post daily transaction summary")
-    ap.add_argument("--investments", action="store_true", help="Weekly investment report (Schwab holdings)")
-    ap.add_argument("--monthly-report", action="store_true", help="Monthly financial synthesis (prior month)")
-    ap.add_argument("--process-inbox", action="store_true", help="Process 401k PDFs and Amazon CSVs from ~/financial-inbox/")
+    ap.add_argument(
+        "--investments", action="store_true", help="Weekly investment report (Schwab holdings)"
+    )
+    ap.add_argument(
+        "--monthly-report", action="store_true", help="Monthly financial synthesis (prior month)"
+    )
+    ap.add_argument(
+        "--process-inbox",
+        action="store_true",
+        help="Process 401k PDFs and Amazon CSVs from ~/financial-inbox/",
+    )
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
-    ap.add_argument("--json-output", action="store_true",
-                    help="Emit a JSON summary as the final stdout line (for ingest sidecar)")
+    ap.add_argument(
+        "--json-output",
+        action="store_true",
+        help="Emit a JSON summary as the final stdout line (for ingest sidecar)",
+    )
     args = ap.parse_args()
 
     # Require at least one action
-    if not any([args.sync, args.balances, args.daily_summary, args.investments,
-                args.monthly_report, args.process_inbox, args.status]):
+    if not any(
+        [
+            args.sync,
+            args.balances,
+            args.daily_summary,
+            args.investments,
+            args.monthly_report,
+            args.process_inbox,
+            args.status,
+        ]
+    ):
         ap.print_help()
         sys.exit(1)
 

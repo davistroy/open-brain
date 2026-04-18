@@ -69,3 +69,17 @@ jobs:
 
       - name: Run pytest
         run: python3 -m pytest docker/ingest-sidecar/tests/ -v --tb=short
+
+  python-lint:
+    name: Python lint & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install ruff==0.6.* pyright==1.1.*
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pyright

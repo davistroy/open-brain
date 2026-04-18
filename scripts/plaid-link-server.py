@@ -33,9 +33,9 @@ import yaml
 from flask import Flask, jsonify, request
 from plaid.api import plaid_api
 from plaid.model.country_code import CountryCode
+from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.link_token_create_request import LinkTokenCreateRequest
 from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
-from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 from plaid.model.products import Products
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -55,12 +55,15 @@ linked_accounts: list[dict] = []
 
 # ── Secrets ─────────────────────────────────────────────────────────────────
 
+
 def get_bws_secret(secret_name: str) -> str:
     """Retrieve a secret value from Bitwarden Secrets Manager via bws CLI."""
     try:
         result = subprocess.run(
             ["bws", "secret", "list"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if result.returncode != 0:
             log.error(f"bws failed: {result.stderr.strip()}")
@@ -80,6 +83,7 @@ def get_bws_secret(secret_name: str) -> str:
 
 
 # ── Config & Plaid Client ──────────────────────────────────────────────────
+
 
 def load_config() -> dict:
     """Load plaid-config.yaml."""
@@ -275,6 +279,7 @@ LINK_HTML = """<!DOCTYPE html>
 
 # ── Flask App ───────────────────────────────────────────────────────────────
 
+
 def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
     """Create and configure the Flask app."""
     app = Flask(__name__)
@@ -336,13 +341,15 @@ def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
             item_id = resp.item_id
 
             # Store in session list
-            linked_accounts.append({
-                "account_key": account_key,
-                "institution": institution,
-                "access_token": access_token,
-                "item_id": item_id,
-                "linked_at": datetime.now().isoformat(),
-            })
+            linked_accounts.append(
+                {
+                    "account_key": account_key,
+                    "institution": institution,
+                    "access_token": access_token,
+                    "item_id": item_id,
+                    "linked_at": datetime.now().isoformat(),
+                }
+            )
 
             # Print to console for manual Bitwarden storage
             print("\n" + "=" * 70)
@@ -350,7 +357,7 @@ def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
             print(f"  Item ID:       {item_id}")
             print(f"  Access Token:  {access_token}")
             print("=" * 70)
-            print(f"\n  Store in Bitwarden as: dev/open-brain/plaid-tokens")
+            print("\n  Store in Bitwarden as: dev/open-brain/plaid-tokens")
             print(f"  Field name: {account_key}_access_token")
             print(f"  Field value: {access_token}")
             print(f"\n  Linked so far: {len(linked_accounts)}/{len(cfg.get('accounts', {}))}")
@@ -380,6 +387,7 @@ def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
+
 
 def main():
     ap = argparse.ArgumentParser(description="Plaid Link Server — one-time bank account linking")

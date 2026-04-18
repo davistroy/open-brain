@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import { ai_audit_log } from '../schema/index.js'
 import { logger } from '../lib/logger.js'
+import { ModelResolverError } from './model-resolver.js'
 import type { ConfigService } from '../config/loader.js'
 import type { Database } from '../db/index.js'
 import type { TemplateCache } from '../lib/prompt-template.js'
@@ -80,6 +81,39 @@ export interface TaskResolution {
   tier: ModelTierEntry
   maxTokens: number
   timeoutMs: number
+}
+
+/**
+ * Resolved client bundle for agent-loop callers (e.g., `runAgent`).
+ *
+ * Carries the live SDK client instance (not just the client-type enum), the
+ * concrete model string, and a `fallback` closure that advances through the
+ * same-provider fallback chain. Returning `null` from `fallback` signals the
+ * chain is exhausted.
+ *
+ * Agent-loop fallback is **restricted to same-provider tiers**: mid-loop
+ * Anthropic→OpenAI swap would break tool-use block compatibility. The
+ * resolver filters the chain accordingly.
+ */
+export interface AgentClientResolution {
+  /** Live SDK client instance. Anthropic for anthropic tiers; OpenAI SDK otherwise. */
+  client: Anthropic | OpenAI
+  /** Concrete model id suitable for the client's API call. */
+  model: string
+  /** Tier key (e.g., `t2_quality`) the task routed to. */
+  tierKey: string
+  /** Provider string from ai-routing.yaml (e.g., `anthropic`, `openai_compat`). */
+  provider: string
+  /** Per-tier max completion tokens (from `model_tiers[tierKey].max_completion_tokens`). */
+  maxTokens: number
+  /** Per-tier request timeout (from `model_tiers[tierKey].timeout_ms`). */
+  timeoutMs: number
+  /**
+   * Advance to the next same-provider tier. Returns `null` when exhausted.
+   * Each invocation consumes one step in the chain — caller is responsible
+   * for tracking swap count if it wants to cap retries.
+   */
+  fallback?: () => AgentClientResolution | null
 }
 
 /**
@@ -658,5 +692,153 @@ export class LLMGatewayService {
       return /429|500|502|503|rate.limit|overloaded|timeout|ECONNREFUSED|ETIMEDOUT/i.test(msg)
     }
     return false
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent-loop client resolution (Option C: factory injection into runAgent)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compute the fallback chain for a primary tier key, walking `tier.fallback`
+   * links in `model_tiers`. Does NOT include the primary itself. Stops when
+   * `fallback` is null or a cycle is detected. Bounded by `MAX_FALLBACK_HOPS`.
+   */
+  private computeFallbackChain(primaryTierKey: string): Array<{ tierKey: string; tier: ModelTierEntry }> {
+    const chain: Array<{ tierKey: string; tier: ModelTierEntry }> = []
+    const seen = new Set<string>([primaryTierKey])
+    let currentKey: string | null | undefined = this.configService.getModelTier(primaryTierKey)?.fallback
+
+    while (currentKey && !seen.has(currentKey) && chain.length < MAX_FALLBACK_HOPS) {
+      const tier = this.configService.getModelTier(currentKey)
+      if (!tier) break
+      chain.push({ tierKey: currentKey, tier })
+      seen.add(currentKey)
+      currentKey = tier.fallback
+    }
+
+    return chain
+  }
+
+  /**
+   * Build an `AgentClientResolution` from a tier key — resolves the live SDK
+   * client, model string, per-tier limits, and attaches a `fallback` closure
+   * that walks the remaining chain (same-provider only).
+   */
+  private buildAgentResolution(
+    tierKey: string,
+    tier: ModelTierEntry,
+    remainingChain: Array<{ tierKey: string; tier: ModelTierEntry }>,
+  ): AgentClientResolution {
+    const clientType = this.resolveProviderClient(tier.provider)
+
+    let client: Anthropic | OpenAI
+    if (clientType === 'anthropic') {
+      if (!this.anthropicClient) {
+        throw new LLMGatewayError(
+          `Tier '${tierKey}' requires Anthropic client but none was supplied to LLMGatewayService`,
+        )
+      }
+      client = this.anthropicClient
+    } else {
+      client = this.getClientForTier(tier, tierKey, clientType)
+    }
+
+    return {
+      client,
+      model: tier.model,
+      tierKey,
+      provider: tier.provider,
+      maxTokens: tier.max_completion_tokens,
+      timeoutMs: tier.timeout_ms,
+      fallback: () => {
+        // Pop the head of the remaining chain; return null when exhausted.
+        const next = remainingChain.shift()
+        if (!next) return null
+        return this.buildAgentResolution(next.tierKey, next.tier, remainingChain)
+      },
+    }
+  }
+
+  /**
+   * Resolve a task name to a live agent-loop client bundle.
+   *
+   * Used by multi-turn skills (e.g., `email-compose`) that run their own
+   * tool-use loop via `runAgent()`. The gateway pre-computes tier selection
+   * and returns an `AgentClientResolution`; the agent loop owns dispatch but
+   * can call `resolution.fallback()` on transient errors to hop tiers.
+   *
+   * Fallback chain is filtered to **same-provider tiers only**: cross-provider
+   * fallback mid-loop (e.g., Anthropic→OpenAI) would break tool-use block
+   * compatibility. A separate design is required for cross-provider agent
+   * fallback — see IMPLEMENTATION_PLAN.md flagged follow-up.
+   *
+   * @throws {ModelResolverError} if the task has no tier mapping
+   * @throws {LLMGatewayError} if the primary tier's required client is unavailable
+   */
+  resolveAgentClient(taskName: string): AgentClientResolution {
+    const primary = this.resolveByTask(taskName)
+    if (!primary) {
+      throw new ModelResolverError(
+        `Task '${taskName}' has no routing entry — add it to task_routing: in config/ai-routing.yaml.`,
+        taskName,
+      )
+    }
+
+    // Filter fallback chain to tiers sharing the primary's provider.
+    // Prevents cross-provider swap mid-agent-loop (tool-use format mismatch).
+    const fullChain = this.computeFallbackChain(primary.tierKey)
+    const sameProviderChain = fullChain.filter(({ tier }) => tier.provider === primary.tier.provider)
+
+    return this.buildAgentResolution(primary.tierKey, primary.tier, [...sameProviderChain])
+  }
+
+  /**
+   * Record a completed agent-loop run in `ai_audit_log`.
+   *
+   * Used by multi-turn skills (e.g., `email-compose`) that manage their own
+   * loop via `runAgent()` and can't lean on `completeByTask`'s per-call
+   * audit log. One row per agent run (not per iteration) — `duration_ms`
+   * covers the full loop wall-clock.
+   *
+   * Failures are swallowed (logged, not thrown) — audit-log failures must
+   * never break the caller's success path. Same policy as `logAudit`.
+   */
+  async recordAgentCompletion(
+    taskName: string,
+    tierKey: string,
+    result: {
+      iterations: number
+      tokenUsage: { input: number; output: number }
+      latencyMs: number
+    },
+  ): Promise<void> {
+    const tier = this.configService.getModelTier(tierKey)
+    const model = tier?.model ?? 'unknown'
+    const clientUsed: AIClientType = tier ? this.resolveProviderClient(tier.provider) : 'litellm'
+    const costUsd = estimateTierCostUsd(clientUsed, result.tokenUsage.input, result.tokenUsage.output)
+
+    await this.logAudit({
+      taskType: taskName,
+      model,
+      clientUsed,
+      costUsd,
+      promptTokens: result.tokenUsage.input,
+      completionTokens: result.tokenUsage.output,
+      totalTokens: result.tokenUsage.input + result.tokenUsage.output,
+      durationMs: result.latencyMs,
+    })
+
+    logger.info(
+      {
+        task: taskName,
+        tierKey,
+        model,
+        iterations: result.iterations,
+        inputTokens: result.tokenUsage.input,
+        outputTokens: result.tokenUsage.output,
+        latencyMs: result.latencyMs,
+      },
+      '[llm-gateway] agent completion recorded',
+    )
   }
 }

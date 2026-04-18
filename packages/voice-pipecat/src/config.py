@@ -61,9 +61,7 @@ class Settings(BaseSettings):
     deepgram_smart_format: bool = _stt_config.get("smart_format", True)
 
     # --- TTS ---
-    tts_provider: Literal["kokoro", "piper", "deepgram"] = _tts_config.get(
-        "provider", "deepgram"
-    )
+    tts_provider: Literal["kokoro", "piper", "deepgram"] = _tts_config.get("provider", "deepgram")
     tts_voice: str = _tts_config.get("voice", "aura-asteria-en")
     tts_sample_rate: int = _tts_config.get("sample_rate", 16000)
 

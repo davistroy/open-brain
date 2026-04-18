@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type Anthropic from '@anthropic-ai/sdk'
 import { runAgent, type AgentTool } from '../run-agent.js'
+import type { AgentClientResolution } from '../llm-gateway.js'
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -716,5 +717,156 @@ describe('runAgent', () => {
     // The signal should be passed as the second argument (request options)
     const [, requestOpts] = createSpy.mock.calls[0]
     expect(requestOpts.signal).toBe(controller.signal)
+  })
+
+  // -------------------------------------------------------------------------
+  // clientResolver option (Phase 4 / CS-ι)
+  // -------------------------------------------------------------------------
+
+  describe('clientResolver option', () => {
+    /** Build a resolution fixture with a programmable fallback. */
+    function makeResolution(
+      client: Anthropic,
+      model: string,
+      tierKey: string,
+      fallback?: () => AgentClientResolution | null,
+    ): AgentClientResolution {
+      return {
+        client,
+        model,
+        tierKey,
+        provider: 'anthropic',
+        maxTokens: 4096,
+        timeoutMs: 60_000,
+        fallback: fallback ?? (() => null),
+      }
+    }
+
+    it('uses resolution.client and resolution.model, ignoring options.client/model', async () => {
+      const createSpy = vi.fn().mockResolvedValue(
+        mockMessage({ content: [textBlock('Done')], stopReason: 'end_turn' }),
+      )
+      const resolvedClient = createMockClient(createSpy)
+      const resolution = makeResolution(resolvedClient, 'claude-sonnet-resolved', 't2_quality')
+
+      const result = await runAgent(
+        'System',
+        [],
+        'Hi',
+        {
+          // These should be ignored when clientResolver is supplied
+          client: createMockClient(vi.fn().mockRejectedValue(new Error('should not be used'))),
+          model: 'claude-ignored',
+          clientResolver: () => resolution,
+        },
+      )
+
+      expect(createSpy).toHaveBeenCalledTimes(1)
+      const [params] = createSpy.mock.calls[0]
+      expect(params.model).toBe('claude-sonnet-resolved')
+      expect(result.text).toBe('Done')
+    })
+
+    it('invokes clientResolver exactly once at loop start', async () => {
+      const createSpy = vi.fn().mockResolvedValue(
+        mockMessage({ content: [textBlock('Done')], stopReason: 'end_turn' }),
+      )
+      const resolvedClient = createMockClient(createSpy)
+      const resolverSpy = vi.fn(() => makeResolution(resolvedClient, 'claude-x', 't2_quality'))
+
+      await runAgent('System', [], 'Hi', { clientResolver: resolverSpy })
+
+      expect(resolverSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('swaps to fallback tier on transient 429 and retries the same iteration', async () => {
+      // Primary client throws a 429 on first call; fallback client succeeds.
+      const primarySpy = vi.fn().mockRejectedValue(
+        Object.assign(new Error('rate limited'), { status: 429 }),
+      )
+      const primaryClient = createMockClient(primarySpy)
+
+      const fallbackSpy = vi.fn().mockResolvedValue(
+        mockMessage({ content: [textBlock('Recovered')], stopReason: 'end_turn' }),
+      )
+      const fallbackClient = createMockClient(fallbackSpy)
+
+      const fallbackResolution = makeResolution(fallbackClient, 'claude-haiku-fallback', 't1_fast')
+      const primaryResolution = makeResolution(
+        primaryClient,
+        'claude-sonnet-primary',
+        't2_quality',
+        () => fallbackResolution,
+      )
+
+      const result = await runAgent('System', [], 'Hi', {
+        clientResolver: () => primaryResolution,
+      })
+
+      expect(primarySpy).toHaveBeenCalledTimes(1)
+      expect(fallbackSpy).toHaveBeenCalledTimes(1)
+
+      // Fallback retry should use the fallback model
+      const [fallbackParams] = fallbackSpy.mock.calls[0]
+      expect(fallbackParams.model).toBe('claude-haiku-fallback')
+      expect(result.text).toBe('Recovered')
+      expect(result.iterations).toBe(1)
+    })
+
+    it('propagates the error when fallback chain is exhausted', async () => {
+      const primarySpy = vi.fn().mockRejectedValue(
+        Object.assign(new Error('overloaded'), { status: 503 }),
+      )
+      const primaryClient = createMockClient(primarySpy)
+
+      // No fallback available — returns null
+      const primaryResolution = makeResolution(primaryClient, 'claude-sonnet', 't2_quality', () => null)
+
+      await expect(
+        runAgent('System', [], 'Hi', { clientResolver: () => primaryResolution }),
+      ).rejects.toThrow('overloaded')
+      expect(primarySpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('propagates non-transient errors without fallback swap', async () => {
+      // 400 = non-transient, should NOT trigger a fallback even if available
+      const primarySpy = vi.fn().mockRejectedValue(
+        Object.assign(new Error('invalid_request_error'), { status: 400 }),
+      )
+      const primaryClient = createMockClient(primarySpy)
+
+      const fallbackSpy = vi.fn()
+      const fallbackClient = createMockClient(fallbackSpy)
+      const fallbackResolution = makeResolution(fallbackClient, 'claude-haiku', 't1_fast')
+      const primaryResolution = makeResolution(
+        primaryClient,
+        'claude-sonnet',
+        't2_quality',
+        () => fallbackResolution,
+      )
+
+      await expect(
+        runAgent('System', [], 'Hi', { clientResolver: () => primaryResolution }),
+      ).rejects.toThrow('invalid_request_error')
+
+      // Fallback should not have been tried
+      expect(fallbackSpy).not.toHaveBeenCalled()
+    })
+
+    it('legacy signature (client + model) still works — no regression', async () => {
+      const createSpy = vi.fn().mockResolvedValue(
+        mockMessage({ content: [textBlock('Legacy works')], stopReason: 'end_turn' }),
+      )
+      const mockClient = createMockClient(createSpy)
+
+      const result = await runAgent('System', [], 'Hi', {
+        client: mockClient,
+        model: 'claude-legacy-model',
+      })
+
+      const [params] = createSpy.mock.calls[0]
+      expect(params.model).toBe('claude-legacy-model')
+      expect(result.text).toBe('Legacy works')
+    })
   })
 })

@@ -4,8 +4,6 @@ Run once: python -m tests.create_fixtures
 """
 
 import csv
-import os
-import sys
 from pathlib import Path
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"

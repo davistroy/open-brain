@@ -7,13 +7,12 @@ Keeps current year (2026) emails in inbox.
 
 import sys
 import time
-from collections import Counter
 from pathlib import Path
 
 import msal
 import requests
 
-sys.stdout.reconfigure(line_buffering=True, encoding='utf-8', errors='replace')
+sys.stdout.reconfigure(line_buffering=True, encoding="utf-8", errors="replace")
 
 CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
 SCOPES = ["Mail.ReadWrite", "User.Read"]
@@ -27,7 +26,9 @@ KEEP_IN_INBOX_YEAR = 2026
 
 cache = msal.SerializableTokenCache()
 cache.deserialize(TOKEN_CACHE_FILE.read_text())
-app = msal.PublicClientApplication(CLIENT_ID, authority="https://login.microsoftonline.com/common", token_cache=cache)
+app = msal.PublicClientApplication(
+    CLIENT_ID, authority="https://login.microsoftonline.com/common", token_cache=cache
+)
 
 
 def get_token():
@@ -36,7 +37,9 @@ def get_token():
 
 
 session = requests.Session()
-session.headers.update({"Authorization": f"Bearer {get_token()}", "Content-Type": "application/json"})
+session.headers.update(
+    {"Authorization": f"Bearer {get_token()}", "Content-Type": "application/json"}
+)
 
 
 def api_get(url, params=None):
@@ -44,7 +47,7 @@ def api_get(url, params=None):
         try:
             resp = session.get(url, params=params, timeout=30)
         except requests.exceptions.ReadTimeout:
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
             continue
         if resp.status_code == 429:
             time.sleep(int(resp.headers.get("Retry-After", 10)))
@@ -61,7 +64,7 @@ def api_post(url, json_data):
         try:
             resp = session.post(url, json=json_data, timeout=60)
         except requests.exceptions.ReadTimeout:
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
             continue
         if resp.status_code == 429:
             time.sleep(int(resp.headers.get("Retry-After", 10)))
@@ -74,7 +77,7 @@ def api_post(url, json_data):
 
 
 print(f"{'='*60}", flush=True)
-print(f"  ARCHIVE BY YEAR — Move inbox emails to Archive/YYYY", flush=True)
+print("  ARCHIVE BY YEAR — Move inbox emails to Archive/YYYY", flush=True)
 print(f"  Keep in inbox: {KEEP_IN_INBOX_YEAR} and newer", flush=True)
 print(f"{'='*60}\n", flush=True)
 
@@ -93,8 +96,10 @@ if not archive_id:
 
 # Get year subfolders
 year_folders = {}
-children = api_get(f"{GRAPH_BASE}/me/mailFolders/{archive_id}/childFolders",
-                   params={"$top": 50, "$select": "id,displayName"})
+children = api_get(
+    f"{GRAPH_BASE}/me/mailFolders/{archive_id}/childFolders",
+    params={"$top": 50, "$select": "id,displayName"},
+)
 for cf in children.get("value", []):
     name = cf["displayName"]
     if name.isdigit() and len(name) == 4:
@@ -115,10 +120,7 @@ while url:
     for msg in data.get("value", []):
         total += 1
         date_str = msg.get("receivedDateTime", "")
-        if date_str:
-            year = int(date_str[:4])
-        else:
-            year = 0
+        year = int(date_str[:4]) if date_str else 0
 
         if year >= KEEP_IN_INBOX_YEAR:
             keep_count += 1
@@ -129,7 +131,9 @@ while url:
             print(f"  Creating Archive/{year}...", flush=True)
             resp = session.post(
                 f"{GRAPH_BASE}/me/mailFolders/{archive_id}/childFolders",
-                json={"displayName": str(year)}, timeout=30)
+                json={"displayName": str(year)},
+                timeout=30,
+            )
             if resp.status_code == 201:
                 year_folders[year] = resp.json()["id"]
             else:
@@ -145,7 +149,7 @@ while url:
 
 print(f"\n  Scan complete: {total:,} total", flush=True)
 print(f"  Keep in inbox ({KEEP_IN_INBOX_YEAR}+): {keep_count:,}", flush=True)
-print(f"  Move to archive:", flush=True)
+print("  Move to archive:", flush=True)
 for year in sorted(by_year.keys()):
     print(f"    {year}: {len(by_year[year]):,} emails", flush=True)
 
@@ -168,14 +172,17 @@ for year in sorted(by_year.keys()):
     print(f"  {year}: moving {len(ids):,} emails...", flush=True)
 
     for i in range(0, len(ids), BATCH_SIZE):
-        chunk = ids[i:i + BATCH_SIZE]
-        reqs = [{
-            "id": str(j),
-            "method": "POST",
-            "url": f"/me/messages/{mid}/move",
-            "headers": {"Content-Type": "application/json"},
-            "body": {"destinationId": dest_id},
-        } for j, mid in enumerate(chunk)]
+        chunk = ids[i : i + BATCH_SIZE]
+        reqs = [
+            {
+                "id": str(j),
+                "method": "POST",
+                "url": f"/me/messages/{mid}/move",
+                "headers": {"Content-Type": "application/json"},
+                "body": {"destinationId": dest_id},
+            }
+            for j, mid in enumerate(chunk)
+        ]
 
         try:
             result = api_post(batch_url, {"requests": reqs})
@@ -184,7 +191,7 @@ for year in sorted(by_year.keys()):
                     moved += 1
                 else:
                     errors += 1
-        except Exception as e:
+        except Exception:
             errors += len(chunk)
 
         if (i // BATCH_SIZE) % 25 == 0 and i > 0:
@@ -195,7 +202,7 @@ for year in sorted(by_year.keys()):
     print(f"    {year}: done", flush=True)
 
 print(f"\n{'='*60}", flush=True)
-print(f"  ARCHIVE COMPLETE", flush=True)
+print("  ARCHIVE COMPLETE", flush=True)
 print(f"  Moved: {moved:,}", flush=True)
 print(f"  Errors: {errors:,}", flush=True)
 print(f"  Kept in inbox: {keep_count:,} ({KEEP_IN_INBOX_YEAR}+)", flush=True)

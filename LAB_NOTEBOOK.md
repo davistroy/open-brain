@@ -5103,3 +5103,266 @@ All 5 phases of `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md` shipped as 5 separat
 - **LAB_NOTEBOOK Rules 1 + 11** caught one near-miss (forgot hypothesis entry once early; corrected before action).
 - **Regression-revert validation** (Phase 4's key deliverable) is a repeatable pattern — worth stealing for future test-coverage gaps.
 
+---
+
+### Entry 085 — Phase 1 (CS-ζ): A65 F4 import-type experiment CLOSED — 2026-04-18
+
+**Tags:** [decision] [cleanup] [import-type] [eslint]
+**Environment:** Branch `feat/action-items-a65-a68`. Read-only investigation.
+
+**Objective:** Resolve A65 from the 2026-04-17 carry-forward list: "F4 import-type experiment (drift-guard in PR #97 covers symptomatic case)."
+
+**Hypothesis:** The codebase already follows `import type` discipline de facto; PR #97's drift-guard test covers the specific runtime failure F4 was concerned about (web ↔ shared Zod-enum contract drift). A repo-wide `@typescript-eslint/consistent-type-imports` rule would be cosmetic enforcement with near-zero defect rate.
+
+**Rollback Plan:** N/A — read-only investigation + docs change. No code modified. If future evidence shows value in the eslint rule, reopen as a fresh item.
+
+**Investigation (via ultra-plan Phase 1):**
+- `tsconfig.base.json` has no `verbatimModuleSyntax`, `isolatedModules`, or `importsNotUsedAsValues` — TypeScript does NOT enforce type-only imports at compile time.
+- No root `eslint.config.*` or `.eslintrc.*`; no `@typescript-eslint/consistent-type-imports` rule active anywhere.
+- Sampled imports across core-api, workers, slack-bot, shared, web: every type-only import already uses `import type` or inline `type` keyword correctly. No type-as-value import defects spotted in the sample.
+- PR #97 drift-guard (`packages/shared/src/__tests__/web-type-drift.test.ts`) regex-parses `packages/web/src/lib/api.ts` for `IngestSourceType` + `FileUploadStatus` literals and asserts parity with the Zod enum `.options` in `packages/shared/src/schema/ingest.ts`. Fails CI merge on divergence. This is the specific runtime failure mode F4 targeted.
+
+**Decision gate result:**
+The plan's grep `grep "import {" packages/ | grep ", type "` returned 30+ matches — BUT every match is legitimate *inline-type-import* syntax (`import { foo, type Bar } from 'x'`), which is modern TS style, not a defect. The grep metric was counting the wrong thing. No type-as-value leakage defects found.
+
+**Decision:** **Close A65 (Path 2).** Do NOT add `@typescript-eslint/consistent-type-imports`. Rationale:
+1. Discipline is de facto holding — no defects observed.
+2. Drift-guard covers the one runtime failure mode (Zod-enum drift between web and shared) that F4 would have caught.
+3. Adding the rule with `fixStyle: 'separate-type-imports'` would rewrite 30+ files cosmetically with zero runtime benefit.
+4. If a future incident shows value (e.g., a new contributor introduces a type-as-value import that Vite emits as a runtime require), reopen then.
+
+**What worked:**
+- Ultra-plan Phase 1 investigation correctly diagnosed de facto discipline before writing any code.
+- Decision gate in the plan forced explicit measurement rather than reflexive "add the rule."
+
+**What didn't:**
+- The grep metric in the decision gate was miscalibrated — it counted mixed-style imports (which include legitimate inline-type-imports) instead of defective type-as-value imports. A proper defect detector needs `tsc --noEmit` with `verbatimModuleSyntax` or an eslint dry-run. Not worth building.
+
+**Outcome:** A65 closed. Phase 1 of the A65-A68 implementation plan complete. No code change in this commit.
+
+---
+
+### Entry 086 — Phase 2 (CS-η): A66 captures.source CHECK constraint (local prep) — 2026-04-18
+
+**Tags:** [database] [migration] [schema] [claude-md]
+**Environment:** Branch `feat/action-items-a65-a68`. Local-only: code + SQL + docs. Homeserver apply pending (steps 2.2 + 2.5).
+
+**Objective:** Tighten `captures.source` from unconstrained TEXT to a CHECK constraint covering the 8 canonical values. Fix CLAUDE.md source-list undercount.
+
+**Hypothesis:** Every row in production `captures.source` is one of `slack, voice, api, document, mcp, email, file, consolidation`. Applying a CHECK constraint will succeed without rejecting existing rows. Writers that attempt an out-of-allowlist source value (e.g., typo, new source not yet documented) will be rejected at DB layer with `23514 check_violation` — a louder failure than silent insertion of bad data.
+
+**Rollback Plan:**
+- **Local (if tests fail):** `git revert` the commit containing this migration + CLAUDE.md fix + schema comment. SQL file deletion is safe — it's not yet applied anywhere.
+- **After homeserver apply (future):** `docker exec open-brain-postgres psql -U openbrain -d openbrain -c "ALTER TABLE captures DROP CONSTRAINT captures_source_check;"` on homeserver.
+
+**Local changes made (2.1, 2.3, 2.4):**
+1. **CLAUDE.md line 83** — replaced 6-value list with full 8-value canonical list. Added pointers to TS union (`CaptureSource` in `packages/shared/src/types/capture.ts`), Zod validator (`CAPTURE_SOURCES` in `packages/core-api/src/schemas/capture.ts`), and migration filename. Explained the role of `'file'` (document-router file-references) and `'consolidation'` (memory-consolidation merges).
+2. **`packages/shared/drizzle/0022_captures_source_check.sql`** — new migration. `ALTER TABLE ... DROP CONSTRAINT IF EXISTS captures_source_check; ALTER TABLE ... ADD CONSTRAINT captures_source_check CHECK (source IN (8 values));`. Header comment explains the pgEnum-vs-CHECK rationale and the pre-flight audit requirement.
+3. **`packages/shared/src/schema/core.ts:16`** — extended inline comment on `source` column to reference the CHECK constraint (migration 0022) and the canonical TS union. Runtime type unchanged (`text('source').notNull()`).
+
+**Why CHECK, not pgEnum:** Postgres `ALTER TYPE ADD VALUE` commits immediately and cannot run in a transaction with other DDL on some setups. Removing values requires table-rewriting. `'file'` and `'consolidation'` were added to the de facto source list post-schema-v1, and more will be added (e.g., if we ever pipe in RSS feeds or MCP tool event captures). CHECK is one `DROP + ADD` migration; pgEnum would be a multi-step dance.
+
+**Pending (pre-homeserver-apply) — 2.2 pre-flight audit:**
+```bash
+ssh root@homeserver.k4jda.net
+docker exec open-brain-postgres psql -U openbrain -d openbrain \
+  -c "SELECT source, COUNT(*) FROM captures GROUP BY source ORDER BY source;"
+```
+Expected output: every row's source ∈ 8-value allowlist. If NOT, stop and investigate before applying.
+
+**Pending — 2.5 apply migration:**
+```bash
+scp packages/shared/drizzle/0022_captures_source_check.sql root@homeserver.k4jda.net:/tmp/
+ssh root@homeserver.k4jda.net \
+  "docker exec -i open-brain-postgres psql -U openbrain -d openbrain < /tmp/0022_captures_source_check.sql"
+ssh root@homeserver.k4jda.net \
+  "docker exec open-brain-postgres psql -U openbrain -d openbrain -c '\d captures' | grep -i check"
+```
+Verification: constraint appears in `\d captures` output; out-of-band INSERT returns `23514`.
+
+**Risk:** Low. CHECK on clean data can't fail. The only risk is the pre-flight audit revealing a stale or unknown source value, which would be a finding worth investigating regardless.
+
+**Status:** Local steps (2.1, 2.3, 2.4, 2.6) complete. Committing now. Steps 2.2 + 2.5 require homeserver SSH — surfaced to user.
+
+**UPDATE 2026-04-18 post-pre-flight-audit:** Audit (step 2.2) revealed a **9th undocumented source value: `'system'`** (1 row, from bet resolution at `packages/core-api/src/services/bet.ts:254`). Migration SQL + TS union + Zod enum + CLAUDE.md + web duplicated-type all amended to 9-value canonical list. See Entry 089 for full discovery + fix. Migration still pending apply.
+
+---
+
+### Entry 089 — Phase 2 UPDATE (CS-η): pre-flight audit discovered 9th source — 2026-04-18
+
+**Tags:** [database] [migration] [pre-flight] [investigation-gap]
+**Environment:** Branch `feat/action-items-a65-a68`, PR #101 open. Homeserver pre-flight SSH audit before applying migration 0022.
+
+**Objective:** Execute pre-flight audit 2.2 per CLAUDE.md Rule "If any unexpected value appears, STOP and investigate before applying migration."
+
+**Hypothesis (original, Entry 086):** All production rows in `captures.source` will be in the 8-value allowlist.
+**Result:** **FALSIFIED.** Audit output:
+```
+ source | count
+--------+-------
+ api    |    79
+ email  |     4
+ file   | 10966
+ mcp    |     2
+ slack  |     2
+ system |     1   ← not in allowlist
+ voice  |     7
+```
+
+**Investigation:** Grep for `source: 'system'` located `packages/core-api/src/services/bet.ts:254`. The bet feature (governance/prediction tracking) writes a `reflection` capture with `source: 'system'` on bet resolution — legitimate but undocumented. The single prod row is `bet_id: a37ce608-e764-4a4a-86de-0e55340d4ad3`, a regression-test bet resolved correctly on 2026-04-12.
+
+**Why the ultra-plan Phase 1 investigation missed it:** Grep across consumer call sites enumerated 8 values from active hot paths. `bet.ts` is a rarely-exercised code path (bet resolution is manual + infrequent), so it didn't surface in the writer-files sample.
+
+**Secondary discovery:** `packages/web/src/lib/types.ts:9` had its own duplicated `CaptureSource` listing only **6 values** — pre-existing drift from shared's 8-value canonical. Drift-guard (PR #97) covers `IngestSourceType` + `FileUploadStatus`, NOT `CaptureSource`, so this drift was invisible to CI. (Flagged follow-up: extend drift-guard to cover `CaptureSource` — separate PR.)
+
+**Rollback Plan:** If the amended migration fails to apply, `git revert` the amendment commit; SQL was not yet applied to production, so local revert is sufficient.
+
+**Fix (amendment commit on PR #101):**
+1. **Migration SQL** (`0022_captures_source_check.sql`): added `'system'` as 9th value.
+2. **TS union** (`packages/shared/src/types/capture.ts`): 9 values.
+3. **Zod enum** (`packages/core-api/src/schemas/capture.ts`): 9 values.
+4. **CLAUDE.md**: bullet updated 8→9 with `'system'` usage note (bet resolution) + "update all four surfaces in lockstep" operational rule.
+5. **Web duplicated type** (`packages/web/src/lib/types.ts`): 6→9 values (bonus: fixes pre-existing drift).
+
+**Apply plan (unchanged):** After amendment pushes, re-run 2.5 (apply migration) + verify via `\d captures | grep check`.
+
+**Lesson — add to CLAUDE.md:** Pre-flight DB audits are MANDATORY before CHECK-constraint migrations. Grep-based enumeration reveals hot paths but misses cold paths. Always `SELECT DISTINCT <column> FROM <table>` on prod BEFORE writing the migration SQL.
+
+**APPLY RESULTS — 2026-04-18 (completed):**
+
+```bash
+scp packages/shared/drizzle/0022_captures_source_check.sql root@homeserver.k4jda.net:/tmp/
+# (silent success)
+
+ssh root@homeserver.k4jda.net "docker exec -i open-brain-postgres psql -U openbrain -d openbrain < /tmp/0022_captures_source_check.sql"
+# ALTER TABLE
+# NOTICE:  constraint "captures_source_check" of relation "captures" does not exist, skipping
+# ALTER TABLE
+
+ssh root@homeserver.k4jda.net "docker exec open-brain-postgres psql -U openbrain -d openbrain -c '\d captures'" | grep -iE "check|constraint"
+# Check constraints:
+#     "captures_source_check" CHECK (source = ANY (ARRAY['slack'::text, 'voice'::text, 'api'::text,
+#       'document'::text, 'mcp'::text, 'email'::text, 'file'::text, 'consolidation'::text, 'system'::text]))
+```
+
+**Rejection test (confirms enforcement):**
+```sql
+INSERT INTO captures (..., source) VALUES (..., 'bogus');
+-- ERROR:  new row for relation "captures" violates check constraint "captures_source_check"
+```
+
+**Final state:**
+- Migration 0022 applied to homeserver production DB.
+- CHECK constraint active, enforcing 9-value allowlist.
+- Existing `'system'` row (bet resolution) preserved — no data loss.
+- Out-of-band INSERT rejected with `23514`.
+- PR #101 amendment commit `57783fd` carries all 5-surface fixes.
+- Phase 2 (CS-η) **fully COMPLETE** — no homeserver follow-up remaining.
+
+**Duration:** ~25 min from audit-surprise to constraint live.
+
+---
+
+### Entry 087 — Phase 3 (CS-θ): A68 Python lint+typecheck CI — 2026-04-18
+
+**Tags:** [ci] [python] [ruff] [pyright]
+**Environment:** Branch `feat/action-items-a65-a68`. Local: Windows, Python 3.14.4, `ruff 0.6.9`, `pyright 1.1.408` (installed via `pip install --user`). CI target: ubuntu-latest + Python 3.12.
+
+**Objective:** Add `ruff` (lint+format) and `pyright` (typecheck) coverage to CI for the three strongly-typed Python surfaces: `docker/ingest-sidecar/`, `packages/voice-pipecat/src/`, `packages/file-ingestion/src/`. Scripts/ gets ruff lint (with relaxed style rules for ops-script patterns) but is deferred from pyright.
+
+**Hypothesis:** The three included packages already follow modern Python conventions (`from __future__ import annotations`, typed signatures, Pydantic models). Auto-fix should resolve the bulk of lint issues; remaining pyright errors should be narrow enough to fix in 1-3 lines or scope-out with TODO markers. CI job adds ~30-45s runtime; does not block existing pnpm/sidecar-test jobs.
+
+**Rollback Plan:** Revert the workflow job addition + `pyproject.toml` creation. Auto-fixed Python files stay — they're improvements regardless. Per-file `# type: ignore` comments can also stay (they're narrow).
+
+**Work item 3.1 — `pyproject.toml`:** Created at repo root per plan spec. Deviations from the plan's literal spec (all additive, documented inline):
+- `extend-exclude` adds `packages/file-ingestion/tests` (matches plan's intent of excluding test dirs; only voice-pipecat/tests was spelled out).
+- `[tool.ruff.lint.per-file-ignores]` section added: `scripts/*` relaxes `B007, E701, E402, E741, SIM102, SIM105` — ops-script style warnings (unused loop vars named for documentation, one-line conditionals) not worth blocking CI. The three strongly-typed packages remain strict.
+- `pythonPlatform = "Linux"` added to `[tool.pyright]` — production is Linux containers, this ensures Unix-only stubs (`fcntl`) resolve even when pyright runs from Windows dev machines.
+- voice-pipecat/src commented out of `[tool.pyright].include` with a TODO — see 3.3.
+
+**Work item 3.2 — Auto-fix pass:**
+- `ruff check --fix .` first pass: **201 fixes applied, 78 remaining**.
+- `ruff check --fix --unsafe-fixes .` second pass (after package-level manual fixes): **43 additional fixes, 32 remaining** (all in `scripts/`).
+- `ruff format .`: **30 files reformatted, 7 unchanged**.
+- Remaining 32 scripts/ warnings absorbed by the per-file-ignores block.
+
+**Work item 3.3 — Pyright baseline:**
+- Initial run: **23 errors across 4 files**.
+- **Fixed (1-3 line changes):**
+  - `docker/ingest-sidecar/trigger_server.py`: replaced `try/except: pass` with `contextlib.suppress(BrokenPipeError)`; added `# noqa: SIM115` for lock-file handle that's closed in `finally`. Fcntl attrs resolved via `pythonPlatform = "Linux"` (10 errors cleared).
+  - `packages/file-ingestion/src/extract.py`: three targeted fixes — (a) `enumerate()` replacing manual row counter, (b) `raise ... from e` in HTTPException re-raise, (c) bs4 `meta.get()` narrowing via `isinstance(v, str)` before `.lower()`, (d) two `# type: ignore[attr-defined]` comments for python-pptx's dynamic `BaseShape.text_frame` / `.table` attrs that only exist when `has_text_frame`/`has_table` is true.
+  - `packages/voice-pipecat/src/main.py`: `with contextlib.suppress(NotImplementedError):` replacing try/except pass.
+- **Scoped out (extensive issues, TODO comment in pyproject.toml):**
+  - `packages/voice-pipecat/src/` — 9 pyright errors + 11 unresolved-import warnings. Root causes: (1) `redis.asyncio` stubs incomplete for `sadd`/`srem`/set-membership awaitable returns (4 errors in session.py), (2) Anthropic SDK content-block union narrowing — iterating over `ContentBlock` types that include `ThinkingBlock`/`ToolUseBlock` without `.text` attr (5 errors in capture_extractor.py), (3) pipecat/kokoro/piper import warnings from optional TTS backends. None are 1-3 line fixes — session.py needs explicit cast-or-annotate of every awaitable redis call; capture_extractor.py needs an `isinstance(block, TextBlock)` narrowing pass. Filed as follow-up.
+- **Final run: `0 errors, 0 warnings, 0 informations`** across `docker/ingest-sidecar` + `packages/file-ingestion/src`.
+
+**What worked:** Ruff's auto-fixer handled 244/279 original findings (87%). `pythonPlatform = "Linux"` eliminated the entire Windows/Linux stub mismatch for fcntl in one config knob (much cleaner than per-line `# type: ignore`). Narrowing bs4 return types via `isinstance` preserves runtime behavior while satisfying the type checker.
+
+**Work item 3.4 — CI job:** Added `python-lint` job to `.github/workflows/ci.yml` alongside `build-and-test` and `sidecar-test`. Uses `actions/setup-python@v5` with pip caching and pinned versions (`ruff==0.6.*`, `pyright==1.1.*`). Runs `ruff check . && ruff format --check . && pyright` sequentially — fail-fast. Not marked required; observe for 1-2 PRs before promoting (per plan).
+
+**Files created/modified:**
+- Created: `pyproject.toml` (root, tool config only, not a package definition).
+- Modified: `.github/workflows/ci.yml` (new `python-lint` job).
+- Modified: `docker/ingest-sidecar/trigger_server.py` (3 edits: contextlib import, SIM115 noqa, BrokenPipeError suppress).
+- Modified: `packages/file-ingestion/src/extract.py` (4 edits: enumerate, raise-from, bs4 narrowing, 2 pptx type-ignores).
+- Modified: `packages/voice-pipecat/src/main.py` (2 edits: contextlib import, NotImplementedError suppress).
+- Auto-reformatted by ruff: ~30 files in scripts/ + the 3 included packages.
+
+**Result:** Local `ruff check .` + `ruff format --check .` + `pyright` all clean. CI job awaiting push.
+
+**Status:** All four work items (3.1–3.4) complete locally. Ready for commit.
+
+---
+
+### Entry 088 — Phase 4 (CS-ι): A67 LLMGatewayService integration for email-compose — 2026-04-18
+
+**Tags:** [llm] [gateway] [email-compose] [agent-loop] [refactor]
+**Environment:** Branch `feat/action-items-a65-a68`. Local: Windows, Node 22, pnpm workspaces. Verified via `pnpm --filter @open-brain/shared build/test` and `pnpm --filter @open-brain/workers build/test`.
+
+**Objective:** Route `email-compose` through `LLMGatewayService` for same-provider tier fallback on transient 429/503 errors + post-run audit logging, without breaking the multi-turn agent loop or other `runAgent()` callers. Implements Option C from the A67 ultra-plan (factory injection into `runAgent`); the gateway pre-computes tier selection but does not own the loop.
+
+**Hypothesis:** Injecting an `AgentClientResolution` via an optional `clientResolver` factory on `runAgent()` preserves backward compatibility for every existing caller (they continue to pass `client` + `model`) while letting email-compose opt in to gateway-managed fallback. Expect the fault-injection test to exercise the 429 → fallback swap → same-iteration retry path without destabilizing the 946 existing workers tests. Success criteria: (a) shared + workers builds compile, (b) all pre-existing tests still pass, (c) new fault-injection test demonstrates provider-bounded tier fallback.
+
+**Rollback Plan:** Three layers, revert in reverse dependency order:
+1. Revert the email-compose call-site change (`packages/workers/src/skills/email-compose.ts` + `jobs/skill-execution.ts`) — skill falls back to direct `runAgent(client, model)` using the init-time `resolvedModel`.
+2. Revert `run-agent.ts` — `clientResolver` option is additive, zero impact on legacy callers.
+3. Revert gateway additions (`resolveAgentClient`, `recordAgentCompletion`, `AgentClientResolution` interface) — inert without a caller.
+
+All three commits are atomic and independently revertable.
+
+**What changed (3 additive pieces):**
+
+1. **`LLMGatewayService.resolveAgentClient(taskName)`** + **`recordAgentCompletion(task, tier, result)`** (`packages/shared/src/services/llm-gateway.ts`). `resolveAgentClient` returns an `AgentClientResolution` bundle carrying the live SDK client, model, tier key, provider, per-tier limits, and a `fallback` closure that walks the same-provider chain (no cross-provider hops — tool-use format mismatch would break the loop). `recordAgentCompletion` writes one `ai_audit_log` row per agent run via the existing `logAudit` helper.
+2. **`runAgent(..., { clientResolver })`** (`packages/shared/src/services/run-agent.ts`). When provided, `clientResolver` is invoked once at loop start. On transient errors (detected via `.status ∈ {429, 502, 503, 504}`, `ECONNREFUSED/RESET/ETIMEDOUT`, `APITimeoutError`, or narrow message regex), the loop calls `resolution.fallback()`; if non-null and Anthropic-shaped, swaps `client` + `model` and retries the same iteration exactly once. Further transients in that iteration propagate. Legacy `client + model` signature unchanged.
+3. **`EmailComposeSkill.execute()`** (`packages/workers/src/skills/email-compose.ts`). When `llmGateway` is injected and no per-call `options.model` override is set, resolves the agent client via the gateway and passes `clientResolver: () => resolution` into `runAgent`; records completion via `gateway.recordAgentCompletion`. Per-call `options.model` override still bypasses the gateway (preserves test escape hatch). If gateway resolution throws at runtime, falls back to direct-client path rather than failing the whole skill. Wired `llmGateway: opts.llmGateway` into `skill-execution.ts`'s `email-compose` case.
+
+**Why Option C beat Options A + B:**
+- **Option A (push the whole loop into the gateway):** would require mirroring `runAgent`'s tool-use dispatch logic inside `LLMGatewayService`, duplicating ~150 lines and coupling the gateway to Anthropic's tool-use block format. Future Slack-bot/voice skills that need custom loops (different tool sets, different termination logic) would either re-duplicate or bypass — same problem we have today.
+- **Option B (pull the gateway into `runAgent`):** would make `runAgent` import `LLMGatewayService`, creating a layering cycle (gateway already depends on audit log + config service; run-agent would then depend on both). Circular package compilation risk.
+- **Option C (factory injection):** caller owns the loop, gateway owns the tier selection + audit. Clean boundary: resolver is a pure function type (`() => AgentClientResolution`); run-agent never imports gateway directly, only the type. Other skills can opt in without rewriting.
+
+**Test coverage added:**
+- `packages/shared/src/services/__tests__/llm-gateway.test.ts` (NEW, 6 tests): `resolveAgentClient` resolves primary, excludes cross-provider fallback, returns null when same-provider chain exhausted, throws `ModelResolverError` on unmapped task; `recordAgentCompletion` writes correct row shape + tolerates unknown tier keys.
+- `packages/shared/src/services/__tests__/run-agent.test.ts` (EXTENDED, +6 tests): legacy signature still works (regression guard); `clientResolver` resolves once at start; 429 triggers same-iteration retry with fallback client; exhausted chain propagates original error; 400 (non-transient) never swaps; `options.client`/`model` are ignored when resolver present.
+- `packages/workers/src/__tests__/email-compose-fault-injection.test.ts` (NEW, 2 tests): full skill → gateway → runAgent integration — 429 on primary Anthropic client → swap to fallback tier → success → `recordAgentCompletion` called with initial tier key and correct metrics; fallback exhaustion propagates the error and skips completion recording.
+
+**Surprises during implementation:**
+- The existing `shouldAttemptFallback` helper in LLMGatewayService uses a message-regex only; the agent-loop path benefits from an `.status`-based check (Anthropic SDK errors expose HTTP status directly), so I added a narrower `isTransientAgentError` in `run-agent.ts` instead of reusing the gateway's helper. Rationale: agent loops care about one class (429/503/502/504 + network), not the gateway's broader set. Keeping them separate prevents accidental broadening of one affecting the other.
+- `recordAgentCompletion` records the *initial* resolved tier key, not the tier that ultimately succeeded after fallback swap. Documented in the fault-injection test. This is acceptable because `ai_audit_log.model` captures the actual serving model — operators can reconcile tier via the `model` column if they ever need post-hoc "did we fall back?" analysis. A follow-up to plumb the *final* tier key through `AgentResult` would require a new return field on `runAgent`; punted.
+- `runAgent` needed a defensive `isAnthropicLike` duck-type check: same-provider filtering in `resolveAgentClient` guarantees this at construction time, but a custom `clientResolver` written by a future skill could technically return an OpenAI SDK client. The check re-throws the original error rather than silently failing the loop.
+
+**Files created/modified:**
+- Modified: `packages/shared/src/services/llm-gateway.ts` — `AgentClientResolution` interface, `resolveAgentClient()`, `recordAgentCompletion()`, private `computeFallbackChain()` + `buildAgentResolution()` helpers.
+- Modified: `packages/shared/src/services/run-agent.ts` — `RunAgentOptions.clientResolver`, `isTransientAgentError()`, `isAnthropicLike()`, try/catch swap-and-retry around `client.messages.create`.
+- Created: `packages/shared/src/services/__tests__/llm-gateway.test.ts` (6 tests).
+- Extended: `packages/shared/src/services/__tests__/run-agent.test.ts` (+6 clientResolver tests).
+- Modified: `packages/workers/src/skills/email-compose.ts` — gateway-aware `execute()` branch; `options.model` escape hatch preserved.
+- Modified: `packages/workers/src/jobs/skill-execution.ts` — passed `llmGateway: opts.llmGateway` into EmailComposeSkill constructor.
+- Created: `packages/workers/src/__tests__/email-compose-fault-injection.test.ts` (2 tests).
+
+**Results:** `@open-brain/shared` build clean; 281 shared tests pass (was 269 + 12 new). `@open-brain/workers` build clean; 948 workers tests pass (was 946 + 2 new fault-injection). No regressions.
+
+**Status:** All six work items (4.1–4.6) complete locally. Ready for review and commit (three atomic commits per plan rollback spec).
+
+---
+

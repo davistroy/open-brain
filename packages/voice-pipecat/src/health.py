@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI
@@ -45,6 +45,7 @@ def _check_tts_provider() -> dict[str, Any]:
     if provider == "kokoro":
         try:
             import kokoro  # noqa: F401
+
             result["status"] = "available"
             result["type"] = "local"
         except ImportError:
@@ -53,6 +54,7 @@ def _check_tts_provider() -> dict[str, Any]:
     elif provider == "piper":
         try:
             import piper  # noqa: F401
+
             result["status"] = "available"
             result["type"] = "local"
         except ImportError:
@@ -130,7 +132,7 @@ async def health_check() -> JSONResponse:
             "status": overall,
             "service": "voice-pipecat",
             "version": "0.1.0",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "uptime_seconds": uptime_seconds,
             "components": {
                 "stt": {
@@ -146,7 +148,9 @@ async def health_check() -> JSONResponse:
                 "tts": tts_status,
                 "redis": {
                     "status": redis_status,
-                    "url": settings.redis_url.split("@")[-1] if "@" in settings.redis_url else settings.redis_url,
+                    "url": settings.redis_url.split("@")[-1]
+                    if "@" in settings.redis_url
+                    else settings.redis_url,
                 },
             },
             "sessions": {

@@ -6,15 +6,15 @@ Email Cleanup Pass 2+3 — Direct Graph API
 - Delete Sent Items older than 2025-01-01
 """
 
+import argparse
 import json
 import os
 import sys
 import time
-import argparse
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import msal
 import requests
@@ -64,7 +64,7 @@ def authenticate():
     print(f"  Token cache: {TOKEN_CACHE_FILE}", flush=True)
     cache = msal.SerializableTokenCache()
     if TOKEN_CACHE_FILE.exists():
-        print(f"  Loading cached token...", flush=True)
+        print("  Loading cached token...", flush=True)
         cache.deserialize(TOKEN_CACHE_FILE.read_text())
 
     app = msal.PublicClientApplication(
@@ -103,7 +103,7 @@ def api_get(url, params=None, retries=5):
             resp = session.get(url, params=params, timeout=30)
         except requests.exceptions.ReadTimeout:
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             raise
         if resp.status_code == 429:
@@ -126,7 +126,7 @@ def api_post(url, json_data, retries=5):
             resp = session.post(url, json=json_data, timeout=60)
         except requests.exceptions.ReadTimeout:
             if attempt < retries - 1:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             raise
         if resp.status_code == 429:
@@ -179,7 +179,7 @@ def batch_delete(message_ids, label="", dry_run=False):
     batch_url = f"{GRAPH_BASE}/$batch"
 
     for i in range(0, total, BATCH_SIZE):
-        chunk = message_ids[i:i + BATCH_SIZE]
+        chunk = message_ids[i : i + BATCH_SIZE]
         if dry_run:
             deleted += len(chunk)
         else:
@@ -189,8 +189,9 @@ def batch_delete(message_ids, label="", dry_run=False):
             ]
             try:
                 result = api_post(batch_url, {"requests": requests_payload})
-                deleted += sum(1 for r in result.get("responses", [])
-                               if 200 <= r.get("status", 500) < 300)
+                deleted += sum(
+                    1 for r in result.get("responses", []) if 200 <= r.get("status", 500) < 300
+                )
             except Exception as e:
                 print(f"    Batch error at offset {i}: {e}", flush=True)
 
@@ -242,10 +243,7 @@ def query_senders_parallel(senders, date_filter=None, label=""):
     total = len(senders)
 
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:
-        futures = {
-            pool.submit(collect_ids_for_sender, s, "inbox", date_filter): s
-            for s in senders
-        }
+        futures = {pool.submit(collect_ids_for_sender, s, "inbox", date_filter): s for s in senders}
         for future in as_completed(futures):
             try:
                 ids = future.result()
@@ -255,7 +253,10 @@ def query_senders_parallel(senders, date_filter=None, label=""):
                 print(f"    Error: {e}", flush=True)
             completed += 1
             if completed % 50 == 0:
-                print(f"    {label}: queried {completed}/{total} senders, {len(all_ids)} emails found...", flush=True)
+                print(
+                    f"    {label}: queried {completed}/{total} senders, {len(all_ids)} emails found...",
+                    flush=True,
+                )
 
     return all_ids
 
@@ -274,7 +275,7 @@ def main():
     token = authenticate()
     session.headers["Authorization"] = f"Bearer {token}"
 
-    thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    thirty_days_ago = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     total_deleted = 0
 
     # Load category senders
@@ -286,11 +287,14 @@ def main():
     for key in cat_senders:
         cat_senders[key] -= PROTECTED_SENDERS
 
-    print(f"  Delete-all senders (Amateur Radio + News + Jobs + Notifications): {len(cat_senders['delete_all'])}", flush=True)
+    print(
+        f"  Delete-all senders (Amateur Radio + News + Jobs + Notifications): {len(cat_senders['delete_all'])}",
+        flush=True,
+    )
     print(f"  Shopping senders (>30 days): {len(cat_senders['shopping'])}", flush=True)
 
     # Pass 2a: Delete ALL from Amateur Radio, News, Jobs senders
-    print(f"\n[3/6] Querying delete-all senders (no retention)...", flush=True)
+    print("\n[3/6] Querying delete-all senders (no retention)...", flush=True)
     delete_all_ids = query_senders_parallel(
         cat_senders["delete_all"], date_filter=None, label="Delete-all"
     )
@@ -300,7 +304,7 @@ def main():
     print(f"  Delete-all: {deleted} deleted", flush=True)
 
     # Pass 2b: Shopping — keep last 30 days
-    print(f"\n[4/6] Querying shopping senders (>30 days)...", flush=True)
+    print("\n[4/6] Querying shopping senders (>30 days)...", flush=True)
     shopping_ids = query_senders_parallel(
         cat_senders["shopping"], date_filter=thirty_days_ago, label="Shopping"
     )
@@ -310,10 +314,9 @@ def main():
     print(f"  Shopping: {deleted} deleted", flush=True)
 
     # Pass 3: Sent Items older than 1/1/2025
-    print(f"\n[5/6] Querying Sent Items older than 2025-01-01...", flush=True)
+    print("\n[5/6] Querying Sent Items older than 2025-01-01...", flush=True)
     sent_ids = collect_message_ids(
-        "sentitems",
-        odata_filter="receivedDateTime lt 2025-01-01T00:00:00Z"
+        "sentitems", odata_filter="receivedDateTime lt 2025-01-01T00:00:00Z"
     )
     print(f"  Found {len(sent_ids)} sent items before 2025-01-01", flush=True)
     deleted = batch_delete(sent_ids, label="Old Sent Items", dry_run=args.dry_run)
@@ -321,7 +324,7 @@ def main():
     print(f"  Sent Items: {deleted} deleted", flush=True)
 
     # Final: Empty Deleted Items (everything we just deleted landed there)
-    print(f"\n[6/6] Emptying Deleted Items (cleanup residue)...", flush=True)
+    print("\n[6/6] Emptying Deleted Items (cleanup residue)...", flush=True)
     del_ids = collect_message_ids("deleteditems")
     print(f"  Found {len(del_ids)} emails in Deleted Items", flush=True)
     deleted = batch_delete(del_ids, label="Deleted Items", dry_run=args.dry_run)
@@ -329,7 +332,10 @@ def main():
     print(f"  Deleted Items: {deleted} deleted", flush=True)
 
     print(f"\n{'='*60}", flush=True)
-    print(f"  PASS 2+3 COMPLETE — {total_deleted} total emails {'would be ' if args.dry_run else ''}deleted", flush=True)
+    print(
+        f"  PASS 2+3 COMPLETE — {total_deleted} total emails {'would be ' if args.dry_run else ''}deleted",
+        flush=True,
+    )
     print(f"{'='*60}\n", flush=True)
 
 

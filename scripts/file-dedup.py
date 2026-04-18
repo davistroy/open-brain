@@ -19,10 +19,9 @@ import argparse
 import difflib
 import html
 import logging
-import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -44,6 +43,7 @@ MAX_TEXT_COMPARE_CHARS = 50_000  # Limit text comparison to 50K chars for memory
 # ---------------------------------------------------------------------------
 # Exact duplicate detection
 # ---------------------------------------------------------------------------
+
 
 def detect_exact_duplicates(conn: sqlite3.Connection, dry_run: bool) -> dict:
     """Detect exact duplicates via (size, sha256_full) grouping.
@@ -70,14 +70,17 @@ def detect_exact_duplicates(conn: sqlite3.Connection, dry_run: bool) -> dict:
     groups = cursor.fetchall()
     logger.info("Found %d exact duplicate groups (by SHA-256)", len(groups))
 
-    for size, sha256, count in groups:
+    for size, sha256, _count in groups:
         # Get all files in this group, ordered by modified_date DESC (newest first)
-        cursor2 = conn.execute("""
+        cursor2 = conn.execute(
+            """
             SELECT id, path, filename, modified_date, size
             FROM files
             WHERE size = ? AND sha256_full = ? AND is_duplicate = 0
             ORDER BY modified_date DESC
-        """, (size, sha256))
+        """,
+            (size, sha256),
+        )
         members = cursor2.fetchall()
 
         if len(members) < 2:
@@ -87,32 +90,39 @@ def detect_exact_duplicates(conn: sqlite3.Connection, dry_run: bool) -> dict:
         keeper = members[0]  # Newest file
         duplicates = members[1:]
 
-        stats["kept"].append({
-            "id": keeper[0],
-            "path": keeper[1],
-            "filename": keeper[2],
-            "modified_date": keeper[3],
-            "size": keeper[4],
-            "sha256": sha256,
-            "duplicate_count": len(duplicates),
-        })
+        stats["kept"].append(
+            {
+                "id": keeper[0],
+                "path": keeper[1],
+                "filename": keeper[2],
+                "modified_date": keeper[3],
+                "size": keeper[4],
+                "sha256": sha256,
+                "duplicate_count": len(duplicates),
+            }
+        )
 
         for dup in duplicates:
             stats["total_duplicates"] += 1
             stats["space_saved_bytes"] += dup[4]
-            stats["removed"].append({
-                "id": dup[0],
-                "path": dup[1],
-                "filename": dup[2],
-                "modified_date": dup[3],
-                "size": dup[4],
-                "kept_path": keeper[1],
-            })
+            stats["removed"].append(
+                {
+                    "id": dup[0],
+                    "path": dup[1],
+                    "filename": dup[2],
+                    "modified_date": dup[3],
+                    "size": dup[4],
+                    "kept_path": keeper[1],
+                }
+            )
 
             if not dry_run:
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE files SET is_duplicate = 1, duplicate_of = ? WHERE id = ?
-                """, (keeper[1], dup[0]))
+                """,
+                    (keeper[1], dup[0]),
+                )
 
     if not dry_run:
         conn.commit()
@@ -123,6 +133,7 @@ def detect_exact_duplicates(conn: sqlite3.Connection, dry_run: bool) -> dict:
 # ---------------------------------------------------------------------------
 # Near-duplicate detection
 # ---------------------------------------------------------------------------
+
 
 def detect_near_duplicates(
     conn: sqlite3.Connection,
@@ -170,7 +181,8 @@ def detect_near_duplicates(
         if len(files) > 500:
             logger.warning(
                 "Extension %s has %d files, limiting near-dup to first 500 by size",
-                ext, len(files),
+                ext,
+                len(files),
             )
             files = files[:500]
 
@@ -192,15 +204,11 @@ def detect_near_duplicates(
                     continue
 
                 # SequenceMatcher with autojunk for speed
-                ratio = difflib.SequenceMatcher(
-                    None, text_a, text_b
-                ).quick_ratio()
+                ratio = difflib.SequenceMatcher(None, text_a, text_b).quick_ratio()
 
                 # Only compute full ratio if quick_ratio passes threshold
                 if ratio >= threshold:
-                    ratio = difflib.SequenceMatcher(
-                        None, text_a, text_b
-                    ).ratio()
+                    ratio = difflib.SequenceMatcher(None, text_a, text_b).ratio()
 
                 if ratio >= threshold:
                     stats["near_duplicates_found"] += 1
@@ -223,13 +231,16 @@ def detect_near_duplicates(
 
                     if not dry_run:
                         # Flag both files, record the pairing
-                        conn.execute("""
+                        conn.execute(
+                            """
                             UPDATE files
                             SET is_near_duplicate = 1,
                                 near_duplicate_of = ?,
                                 near_duplicate_score = ?
                             WHERE id = ?
-                        """, (file_a[1], ratio, file_b[0]))
+                        """,
+                            (file_a[1], ratio, file_b[0]),
+                        )
 
         if stats["pairs_compared"] % 10000 == 0 and stats["pairs_compared"] > 0:
             logger.info("  Compared %d pairs so far...", stats["pairs_compared"])
@@ -243,6 +254,7 @@ def detect_near_duplicates(
 # ---------------------------------------------------------------------------
 # HTML report generation
 # ---------------------------------------------------------------------------
+
 
 def generate_html_report(
     exact_stats: dict,
@@ -328,7 +340,7 @@ def generate_html_report(
 </head>
 <body>
     <h1>File Deduplication Report</h1>
-    <p>Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</p>
+    <p>Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}</p>
 
     <div class="summary">
         <div class="stat"><div class="number">{exact_groups}</div><div class="label">Exact Duplicate Groups</div></div>
@@ -368,26 +380,29 @@ def generate_html_report(
 # Console summary
 # ---------------------------------------------------------------------------
 
+
 def print_summary(exact_stats: dict, near_stats: dict) -> None:
     """Print a console summary of dedup results."""
     print("\n" + "=" * 70)
     print("DEDUPLICATION RESULTS")
     print("=" * 70)
 
-    print(f"\n--- Exact Duplicates ---")
+    print("\n--- Exact Duplicates ---")
     print(f"Duplicate groups found: {exact_stats['groups']:,}")
     print(f"Files marked as duplicate: {exact_stats['total_duplicates']:,}")
-    space_mb = exact_stats['space_saved_bytes'] / (1024 * 1024)
+    space_mb = exact_stats["space_saved_bytes"] / (1024 * 1024)
     print(f"Space recoverable: {space_mb:.1f} MB")
 
-    print(f"\n--- Near-Duplicates ---")
+    print("\n--- Near-Duplicates ---")
     print(f"Text pairs compared: {near_stats['pairs_compared']:,}")
     print(f"Near-duplicate pairs flagged: {near_stats['near_duplicates_found']:,}")
 
     if near_stats["pairs"]:
         print("\nTop near-duplicate pairs:")
         for pair in sorted(near_stats["pairs"], key=lambda p: -p["similarity"])[:10]:
-            print(f"  {pair['similarity']*100:.1f}% | {pair['filename_a']} <-> {pair['filename_b']}")
+            print(
+                f"  {pair['similarity']*100:.1f}% | {pair['filename_a']} <-> {pair['filename_b']}"
+            )
 
     print("\n" + "=" * 70)
 
@@ -395,6 +410,7 @@ def print_summary(exact_stats: dict, near_stats: dict) -> None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -457,8 +473,9 @@ Examples:
     exact_stats = detect_exact_duplicates(conn, dry_run=args.dry_run)
 
     # Phase 2: Near-duplicates
-    logger.info("Phase 2: Detecting near-duplicates (text similarity >= %.0f%%)...",
-                args.threshold * 100)
+    logger.info(
+        "Phase 2: Detecting near-duplicates (text similarity >= %.0f%%)...", args.threshold * 100
+    )
     near_stats = detect_near_duplicates(conn, threshold=args.threshold, dry_run=args.dry_run)
 
     # Generate report

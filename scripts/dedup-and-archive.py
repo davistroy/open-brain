@@ -23,26 +23,26 @@ import shutil
 import sqlite3
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.stdout.reconfigure(line_buffering=True)
 
 # Patterns to strip when computing base name for version grouping
 VERSION_PATTERNS = [
-    r"\s*[-_]?\s*v(\d+)\s*$",           # v1, v2, -v3
-    r"\s*[-_]?\s*version\s*(\d+)\s*$",   # version 1
-    r"\s*[-_]?\s*rev\.?\s*(\d+)\s*$",    # rev1, rev 2
-    r"\s*\((\d+)\)\s*$",                 # (1), (2) — copy numbering
-    r"\s*[-_]?\s*copy\s*(\d*)?\s*$",     # copy, copy 2
-    r"\s*[-_]?\s*final\s*$",             # final
-    r"\s*[-_]?\s*final\s*(\d+)\s*$",     # final2
-    r"\s*[-_]?\s*draft\s*(\d*)?\s*$",    # draft, draft 2
+    r"\s*[-_]?\s*v(\d+)\s*$",  # v1, v2, -v3
+    r"\s*[-_]?\s*version\s*(\d+)\s*$",  # version 1
+    r"\s*[-_]?\s*rev\.?\s*(\d+)\s*$",  # rev1, rev 2
+    r"\s*\((\d+)\)\s*$",  # (1), (2) — copy numbering
+    r"\s*[-_]?\s*copy\s*(\d*)?\s*$",  # copy, copy 2
+    r"\s*[-_]?\s*final\s*$",  # final
+    r"\s*[-_]?\s*final\s*(\d+)\s*$",  # final2
+    r"\s*[-_]?\s*draft\s*(\d*)?\s*$",  # draft, draft 2
     r"\s*[-_]?\s*revised\s*(\d*)?\s*$",  # revised
     r"\s*[-_]?\s*updated\s*(\d*)?\s*$",  # updated
-    r"\s*[-_]?\s*old\s*$",               # old
-    r"\s*[-_]?\s*new\s*$",               # new
-    r"\s*[-_]?\s*backup\s*$",            # backup
+    r"\s*[-_]?\s*old\s*$",  # old
+    r"\s*[-_]?\s*new\s*$",  # new
+    r"\s*[-_]?\s*backup\s*$",  # backup
     r"\s*[-_]?\s*\d{4}[-_]\d{2}[-_]\d{2}\s*$",  # date suffix 2024-01-15
 ]
 VERSION_RE = [re.compile(p, re.IGNORECASE) for p in VERSION_PATTERNS]
@@ -74,7 +74,7 @@ def score_file(row):
     if modified:
         try:
             dt = datetime.fromisoformat(modified.replace("Z", "+00:00"))
-            days_old = (datetime.now(timezone.utc) - dt).days
+            days_old = (datetime.now(UTC) - dt).days
             score += max(0, 3650 - days_old)  # up to 3650 points (10 years)
         except Exception:
             pass
@@ -107,13 +107,16 @@ def find_exact_duplicates(conn):
     """).fetchall()
 
     groups = []
-    for sha256, cnt in rows:
-        files = conn.execute("""
+    for sha256, _cnt in rows:
+        files = conn.execute(
+            """
             SELECT path, filename, size_bytes, modified_at, sha256
             FROM files
             WHERE sha256 = ?
             ORDER BY modified_at DESC
-        """, (sha256,)).fetchall()
+        """,
+            (sha256,),
+        ).fetchall()
         groups.append(files)
 
     return groups
@@ -131,7 +134,7 @@ def find_version_chains(conn):
 
     # Group by directory + base name + extension
     chains = defaultdict(list)
-    for path, filename, size, modified, sha256, parent, ext in rows:
+    for path, filename, size, modified, sha256, parent, _ext in rows:
         base = compute_base_name(filename)
         key = (parent, base.lower())
         chains[key].append((path, filename, size, modified, sha256))
@@ -144,8 +147,11 @@ def main():
     parser = argparse.ArgumentParser(description="Dedup and version archive")
     parser.add_argument("--db", required=True, help="Path to file inventory SQLite DB")
     parser.add_argument("--root", required=True, help="Root directory of the file corpus")
-    parser.add_argument("--archive-dir", default="_archive/versions",
-                        help="Archive subdirectory name (default: _archive/versions)")
+    parser.add_argument(
+        "--archive-dir",
+        default="_archive/versions",
+        help="Archive subdirectory name (default: _archive/versions)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Report only, don't move files")
     parser.add_argument("--report-only", action="store_true", help="Just print the report")
     parser.add_argument("--manifest", default="archive-manifest.csv", help="Manifest CSV path")
@@ -156,7 +162,9 @@ def main():
     archive_base = root / args.archive_dir
 
     # Check DB has hashes
-    hashed = conn.execute("SELECT COUNT(*) FROM files WHERE sha256 IS NOT NULL AND sha256 != ''").fetchone()[0]
+    hashed = conn.execute(
+        "SELECT COUNT(*) FROM files WHERE sha256 IS NOT NULL AND sha256 != ''"
+    ).fetchone()[0]
     total = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
     print(f"Inventory: {total:,} files, {hashed:,} hashed ({hashed*100//total}%)\n", flush=True)
 
@@ -181,7 +189,7 @@ def main():
         keep = scored[0][1]
         archive = [f for _, f in scored[1:]]
 
-        for path, filename, size, modified, sha256 in archive:
+        for path, filename, size, modified, _sha256 in archive:
             dup_archive_count += 1
             dup_archive_bytes += size
             moves.append(("duplicate", path, keep[0]))
@@ -191,10 +199,10 @@ def main():
     print(f"  Space recoverable: {dup_archive_bytes/1024/1024/1024:.2f} GB", flush=True)
 
     if dup_groups:
-        print(f"\n  Top 10 duplicate groups:", flush=True)
+        print("\n  Top 10 duplicate groups:", flush=True)
         for group in dup_groups[:10]:
             print(f"    {len(group)}x — {group[0][1]} ({group[0][2]/1024:.0f} KB)", flush=True)
-            for path, filename, size, modified, sha256 in group:
+            for path, filename, size, modified, _sha256 in group:
                 print(f"      {path}", flush=True)
 
     # === VERSION CHAINS ===
@@ -222,7 +230,7 @@ def main():
         keep = scored[0][1]
         archive = [f for _, f in scored[1:]]
 
-        for path, filename, size, modified, sha256 in archive:
+        for path, filename, size, modified, _sha256 in archive:
             chain_archive_count += 1
             chain_archive_bytes += size
             moves.append(("version", path, keep[0]))
@@ -232,13 +240,13 @@ def main():
     print(f"  Space recoverable: {chain_archive_bytes/1024/1024/1024:.2f} GB", flush=True)
 
     if filtered_chains:
-        print(f"\n  Top 20 version chains:", flush=True)
+        print("\n  Top 20 version chains:", flush=True)
         sorted_chains = sorted(filtered_chains.items(), key=lambda x: len(x[1]), reverse=True)
         for (parent, base), files in sorted_chains[:20]:
             print(f"    {len(files)} versions — {base} (in {parent})", flush=True)
             scored = [(score_file(f), f) for f in files]
             scored.sort(key=lambda x: x[0], reverse=True)
-            for i, (score, (path, filename, size, modified, sha256)) in enumerate(scored):
+            for i, (_score, (path, filename, size, modified, _sha256)) in enumerate(scored):
                 tag = "KEEP" if i == 0 else "archive"
                 mod = modified[:10] if modified else "?"
                 print(f"      [{tag:7s}] {mod} {filename} ({size/1024:.0f} KB)", flush=True)
@@ -247,7 +255,7 @@ def main():
     total_archive = dup_archive_count + chain_archive_count
     total_bytes = dup_archive_bytes + chain_archive_bytes
     print(f"\n{'='*60}", flush=True)
-    print(f"  ARCHIVE SUMMARY", flush=True)
+    print("  ARCHIVE SUMMARY", flush=True)
     print(f"{'='*60}", flush=True)
     print(f"  Exact duplicates to archive: {dup_archive_count:,}", flush=True)
     print(f"  Version chains to archive:   {chain_archive_count:,}", flush=True)
@@ -256,12 +264,12 @@ def main():
     print(f"  Files remaining:             {total - total_archive:,}", flush=True)
 
     if args.report_only:
-        print(f"\n  REPORT ONLY — no files moved.", flush=True)
+        print("\n  REPORT ONLY — no files moved.", flush=True)
         conn.close()
         return
 
     if args.dry_run:
-        print(f"\n  DRY RUN — no files moved.", flush=True)
+        print("\n  DRY RUN — no files moved.", flush=True)
         print(f"  Would archive {total_archive:,} files to {archive_base}", flush=True)
         conn.close()
         return
