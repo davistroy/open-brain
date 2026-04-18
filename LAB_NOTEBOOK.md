@@ -5188,6 +5188,110 @@ Verification: constraint appears in `\d captures` output; out-of-band INSERT ret
 
 ---
 
+### Entry 091 — Full architecture review + 21-issue remediation backlog — 2026-04-18
+
+**Tags:** [arch-review] [milestone] [backlog] [governance]
+**Environment:** main @ `3d9cf8c` (post-catch-up-deploy). arch-review/ directory committed to repo root. GitHub Projects board updated with new milestone + 21 new issues.
+
+**Objective:** Run a comprehensive 9-agent architecture review on the full repo; weave findings into LAB_NOTEBOOK (this entry) + GitHub Issues board so nothing is lost.
+
+**Process:** Invoked `/personal-plugin:arch-review` with full scope. 9 domain specialists ran in parallel (solutions, data, integration, software, performance, QA, security, platform, risk-compliance), each producing structured findings to `arch-review/findings/<agent>.md`. 55-minute wall-clock review.
+
+**Results:** 135 findings — **2 Critical / 30 High / 56 Medium / 43 Low** / 4 Requires-Investigation — consolidated into **17 cross-domain themes** in `arch-review/reports/executive-summary.md`.
+
+**Go/No-Go verdict:** **CONDITIONAL GO** for continued production use. Four 30-day conditions:
+1. Theme 1 — close the cost-tracking paper-tiger (the $100-incident mechanism is still live)
+2. Theme 3 — enforce mem_limits on all Docker services (CLAUDE.md 1.5 GB rule not actually enforced)
+3. Theme 4 — `/admin/reset-data` safety rails (pre-wipe backup + admin audit + staged confirm)
+4. Theme 12 — regenerate `init-schema.sql` to current schema (5 migrations missing, volume recreation = brick)
+
+**Top 2 criticals (cross-domain consensus):**
+- **SOL-C1:** No startup Zod validation of `ai-routing.yaml` cost fields → budget circuit breaker can be blinded by null `cost_per_1k_*`. Exact mechanism of 2026-04-15 $100 Anthropic incident.
+- **PERF-P1:** 9 of 12 Docker containers lack `mem_limit`, directly violating the 1.5 GB CLAUDE.md hard rule. Host OOM risk.
+
+**Other Cross-Domain Consensus Findings:**
+- `/admin/reset-data` blast radius (3-way: SEC-S04, RISK-H2, SOL-H3)
+- Backup `.env.secrets` leak (DATA-H1 + RISK-H1)
+- Web `CaptureSource` drift + drift-guard gap (SW-H2 + DATA-H3)
+- Resource ceilings (PERF-P1 + PLAT-Mem)
+- memory-consolidation/weekly-brief bypass gateway (INT-H1 + SW-H1 cost-tracking)
+
+**Surprising unique findings (single-agent):**
+- **RISK-H3 — Autonomy gating is false-uniform.** CLAUDE.md claims autonomy levels gate all proactive features; `meetsAutonomyLevel()` is only called in ONE file (slack-bot auto-response). email-compose auto-send, memory-consolidation, daily-sweep-skill, weekly-brief all run regardless of `autonomy_level`. The safety model as documented is not implemented.
+- **PERF-P2/P3/P4 — Cognitive memory layer shipped 2026-04-09 is dormant.** The Hebbian `access-stats` queue has a consumer but no producer; `capture_associations` never populated; `pruneStaleAssociations()` never scheduled. #71 (Phase 4C Cognitive Memory Tuning) is blocked on this discovery.
+- **SEC-S01 — Prompt injection** via raw capture content concatenated into `synthesize.ts` prompts with no delimiters.
+- **SOL-H4 — init-schema.sql stops at migration 0017**; volume recreation would brick the system because of the "no auto-migration on startup" design choice (D9).
+- **PLAT-F1 — `scripts/load-secrets.sh` is a stub**; `.env.secrets` populated by manual Bitwarden copy-paste with no reconciliation.
+- **SOL-H5 — Doc drift:** `package.json` v1.2.0 vs `CLAUDE.md` v1.5.0; PRD + TDD still describe LiteLLM proxy (198 occurrences) though LiteLLM was retired in CS5 (2026-04-17).
+
+**Strong points noted (preserve):**
+- MCP Bearer auth (timing-safe, fail-closed, never logged)
+- Bitwarden-only secret storage — no committed secrets in git history
+- `0 @ts-ignore` in production; `1 as any` outside tests
+- Healthcheck discipline (`127.0.0.1` not `localhost` — CLAUDE.md rule enforced)
+- Drift-guard pattern (PR #97) is clever; should be extended (Theme 8)
+- LAB_NOTEBOOK as primary architectural record (now 91 entries)
+- `BaseSkill`/`LLMSkill` inheritance eliminates boilerplate
+- Consolidated `@open-brain/shared` package (logger, PushoverService, HTTP helpers, TemplateCache, model-resolver)
+- Cost-tiered processing POLICY is well-articulated — the gap is mechanical enforcement, not design
+
+**GitHub board updates (21 issues created):**
+
+Created milestone **"Arc 6: Hardening (2026-04-18 arch review)"** (milestone #7) + new labels: `severity:critical`, `severity:high`, `severity:medium`, `severity:low`, `source:arch-review`.
+
+| # | Theme / Item | Severity | Effort |
+|---|---|---|---|
+| #102 | Theme 1 — Cost-tracking paper tiger | Critical | ~2 d |
+| #103 | Theme 3 — mem_limits | Critical | ~4 h |
+| #104 | Theme 4 — /admin/reset-data blast radius | High | ~1 d |
+| #105 | Theme 12 — init-schema.sql missing 5 migrations | High | ~2 h |
+| #106 | Theme 2 — Composio quota unmetered | High | ~4 h |
+| #107 | Theme 5 — Backup hygiene + restore rehearsal + image registry | High | ~3 d |
+| #108 | Theme 6 — Autonomy gating false-uniform | High | ~2 d |
+| #109 | Theme 7 — Cognitive memory layer dormant (Hebbian producer missing) | High | ~2 d |
+| #110 | Theme 8 — Drift-guard for CaptureSource | High | ~1 h |
+| #111 | Theme 9 — Doc drift (version + LiteLLM scrub) | High | ~2-3 d |
+| #112 | Theme 10 — Search perf cliff (LIMIT push-down + hnsw.ef_search) | High | ~1 d |
+| #113 | Theme 11 — Observability stack incomplete (Loki + alerts + IaC) | High | ~1 wk |
+| #114 | Theme 13 — Rate-limit self-contention | High | ~2 h |
+| #115 | Theme 14 — CI gating gaps | High | ~1-2 d |
+| #116 | Theme 15 — Prompt injection | High | ~2-3 d |
+| #117 | Theme 16 — Scheduled job thunderstorm at 7 AM | Medium | ~2 h |
+| #118 | Theme 17 — load-secrets.sh is a stub | High | ~4 h |
+| #119 | Sibling enum-smell CHECK constraints (capture_type, pipeline_status, etc.) | Medium | ~4-6 h |
+| #120 | scripts/ pyright coverage (20 files) | Low | ~30 h staged |
+| #121 | voice-pipecat pyright re-enable | Medium | ~4-6 h |
+| #122 | recordAgentCompletion final-tier plumb-through | Low | ~2 h |
+
+Also commented on **#71 (Phase 4C Cognitive Memory Tuning)** that it is blocked by #109.
+
+**Total open issues on the board after this wave:** 12 prior + 21 new = **33 open**.
+
+**Priority stack (recommended execution order):**
+1. Immediate (~4 days): #102, #103, #104, #105
+2. Short-term (~6 days): #107, #108, #109, #106, #110, #114
+3. Medium-term (~2 weeks): #112, #113, #115, #116, #117, #118, #111
+4. Opportunistic: #117 (low-sev), #119, #120, #121, #122
+
+**Rollback plan:** None needed — this is a documentation + tracking wave. No code changed. All 21 issues are independently resolvable in future PRs; tracking is additive.
+
+**Duration:** ~75 minutes end-to-end (intake + 9 parallel agents + synthesis + commit + issue creation + this entry).
+
+**What worked:**
+- Parallel 9-agent review surfaced consensus findings (same issue flagged by multiple agents = high confidence signal)
+- Theme consolidation in the executive summary made the 135 findings actionable — otherwise they would have been a pile
+- GitHub milestone + severity labels let the board be filtered in any direction (severity:critical across all arcs, or arc:pipeline across all severities)
+
+**What didn't:**
+- Initial `gh issue create --milestone 7` failed — the flag takes the TITLE not the number. Had to switch to full quoted title. Noted for future use.
+- Account auto-switched back to `davistroy-cfa` after the deploy sequence — had to re-switch to `davistroy` for write operations. This happens silently; worth a durable fix (CLAUDE.md rule: always verify active account before GitHub write operations).
+
+**Operational rule to add to CLAUDE.md:** For GitHub CLI operations, verify active account via `gh auth status` before any write operation (issue/label/milestone create). The `gh` client can auto-switch to a read-only account (davistroy-cfa) silently, causing opaque 404s.
+
+**Next actions:** User to prioritize the backlog. Recommendation: tackle Immediate (#102–#105) as the next implementation wave, which would let us close the last open $100-incident-class risk.
+
+---
+
 ### Entry 090 — Homeserver catch-up deploy: 8 PRs backlog → main — 2026-04-18
 
 **Tags:** [deploy] [docker] [homeserver] [catch-up]
