@@ -5712,3 +5712,58 @@ Success criteria:
 
 ---
 
+#### Gate 3 — Work item 3.1 in progress (ModelTierEntrySchema + YAML)
+
+**Hypothesis:** Adding `cost_per_1k_input: z.number().optional()` and `cost_per_1k_output: z.number().optional()` to `ModelTierEntrySchema` (using `.optional()` not `.default(0)` to preserve the "absent vs zero" distinction) and adding explicit `cost_per_1k_input: 0` / `cost_per_1k_output: 0` to the `t1_jetson` tier in `config/ai-routing.yaml` will cause the parsed `ModelTierEntry` type to expose these fields and allow the upcoming validator to distinguish undefined from explicitly-zero. After this commit, `getModelTier('t1_fast').cost_per_1k_input` will return `0.0008` (previously silently stripped to `undefined`). No existing tests should break — the new fields are optional.
+
+---
+
+#### Gate 3 — Work item 3.2 + 3.6 in progress (validator module + barrel export)
+
+**Hypothesis:** Creating `packages/shared/src/services/ai-config-schema.ts` with `validateAiRoutingConfig()` and `PAID_PROVIDERS` exports — and adding a named re-export to `packages/shared/src/services/index.ts` (which already exists as a barrel using `export *` pattern) — will compile cleanly and be importable by ConfigService in Commit C. The four validation rules (cost completeness, task_routing existence, fallback existence, budget positivity) are pure logic over the already-parsed `AIConfig` object; no IO or external dependencies. Build should succeed; no test changes yet.
+
+---
+
+#### Gate 3 — Work item 3.3 in progress (hook into ConfigService.load())
+
+**Hypothesis:** Adding `import { validateAiRoutingConfig } from '../services/ai-config-schema.js'` and calling `validateAiRoutingConfig(this.configs.ai)` after `this.validateTaskRouting(this.configs.ai)` in `ConfigService.load()` will cause fail-fast behavior at startup. Existing test fixtures in `validAiWithTiers` use `anthropic` provider tiers (`t1_fast`, `t2_quality`) WITHOUT cost fields — these tests will NOW FAIL because the validator enforces cost fields on paid providers. This is expected and will be fixed in Commit D by updating those fixtures. The `validAi` fixture (legacy config, no `model_tiers`) will NOT be affected since the validator only fires Rules 1-3 when `model_tiers`/`task_routing` are present.
+
+---
+
+#### Gate 3 — Work item 3.4 + 3.5 in progress (8 new tests)
+
+**Hypothesis:** Adding a `describe('ai-routing cost validation')` block with 8 new tests will bring the total from 283 to 291. The existing `validAiWithTiers` fixture in `describe('three-tier routing')` needs to gain cost fields on the `anthropic` tiers (`t1_fast`, `t2_quality`) to satisfy the newly-hooked validator (fixing the breakage from Commit C). The production drift-guard test (3.5.1) copies `config/ai-routing.yaml` using `copyFileSync` with a path computed as 5 `..` segments up from `packages/shared/src/config/__tests__/` to the repo root. All 8 new tests + all 283 pre-existing = 291 total.
+
+---
+
+#### Gate 3 — Work items 3.1, 3.2+3.6, 3.3, 3.4+3.5 — COMPLETE
+
+**Commits:**
+- `e61ebfb` — feat(phase-P02a)/3.1: extend ModelTierEntrySchema with cost fields + declare t1_jetson costs
+- `94caadc` — feat(phase-P02a)/3.2+3.6: add validateAiRoutingConfig validator + barrel export
+- `7f3f543` — feat(phase-P02a)/3.3: hook validateAiRoutingConfig into ConfigService.load()
+- `e29b06c` — feat(phase-P02a)/3.4+3.5: add 8 cost-validation tests + fix fixtures for new validator
+
+**Results:**
+- `pnpm --filter @open-brain/shared build` — clean (ESM + DTS, all 4 commits)
+- `pnpm --filter @open-brain/shared test` — 291/291 passing (283 pre-existing + 8 new)
+- `pnpm --filter @open-brain/workers test` — 948/948 passing (no regressions)
+- `git status --porcelain` after all commits — only LAB_NOTEBOOK.md unstaged (this file)
+
+**Fixture adjustments required (not a new work item — prerequisite fix):**
+Two existing fixtures needed cost fields added to pass the newly-wired validator:
+1. `validAiWithTiers` — added `cost_per_1k_input: 0.0008` + `cost_per_1k_output: 0.004` to `t1_fast`; `cost_per_1k_input: 0.003` + `cost_per_1k_output: 0.015` to `t2_quality`.
+2. `aiWithBadRef` inline fixture — added cost fields to `t1_fast`; updated test expectation from `.not.toThrow()` to `.toThrow(/t0_nonexistent/)` and renamed the test to "throws on invalid tier references in task_routing" — reflecting the semantic upgrade from non-fatal warn to fail-fast throw. The old test description was a contract statement that P02a intentionally violated.
+
+**Barrel pattern note:** `packages/shared/src/services/index.ts` already exists (uses `export *` pattern for most exports). Added a named `export { validateAiRoutingConfig, PAID_PROVIDERS }` to avoid re-exporting internal implementation helpers from `ai-config-schema.ts`. Both exports are now available via `@open-brain/shared`.
+
+**What Worked:**
+- Plan's expectation that `validAiWithTiers` would need fixing was exactly right — the Commit D work was well-scoped.
+- Using `.optional()` (not `.default(0)`) on cost fields correctly preserves the "absent vs zero" distinction the validator relies on.
+- The 5-level `../../../../../../../config/ai-routing.yaml` path in the drift-guard test (`__dirname` → `packages/shared/src/config/__tests__` → 5 `..` → repo root) resolved correctly on the first attempt.
+- Rule 4 (budget positivity + ordering) triggers on `hard_limit_usd <= soft_limit_usd` covering both the equal-case and inverted-case in one test.
+
+**Status:** ALL_COMPLETE (Gate 3)
+
+---
+
