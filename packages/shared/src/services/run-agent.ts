@@ -1,7 +1,36 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type OpenAI from 'openai'
 import { createLogger } from '../lib/logger.js'
+import type { AgentClientResolution } from './llm-gateway.js'
 
 const logger = createLogger('run-agent')
+
+/**
+ * Detect transient API errors worth a one-shot fallback swap in the agent loop.
+ *
+ * Intentionally narrow: checks Anthropic-style `.status` (429 rate-limit,
+ * 503 overloaded), timeout error codes, and the common network error codes
+ * (ECONNREFUSED, ETIMEDOUT). Does NOT match 4xx client errors other than 429
+ * (no point swapping models on a 400 schema error) and does NOT match generic
+ * `Error` instances without a clear transient signature.
+ */
+function isTransientAgentError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const e = err as { status?: number; code?: string; name?: string; message?: string }
+
+  // Anthropic/OpenAI SDK errors carry HTTP status on the thrown error
+  if (e.status === 429 || e.status === 503 || e.status === 502 || e.status === 504) return true
+
+  // Node/undici transient network errors
+  if (e.code === 'ECONNREFUSED' || e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT') return true
+
+  // Explicit timeout / abort classes
+  if (e.name === 'APITimeoutError' || e.name === 'AbortError') return true
+
+  // Last-resort message match for SDKs that don't set status (defensive, narrow)
+  const msg = typeof e.message === 'string' ? e.message : ''
+  return /\b(429|503)\b|rate[_ -]?limit|overloaded|timeout/i.test(msg)
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,9 +92,16 @@ export interface AgentResult {
 
 /** Options for runAgent(). */
 export interface RunAgentOptions {
-  /** Anthropic client instance. If not provided, creates one from ANTHROPIC_API_KEY env var. */
+  /**
+   * Anthropic client instance. If not provided (and no `clientResolver`),
+   * creates one from ANTHROPIC_API_KEY env var. Ignored when `clientResolver`
+   * is supplied.
+   */
   client?: Anthropic
-  /** Model to use. Default: 'claude-sonnet-4-5-20250929'. */
+  /**
+   * Model to use. Default: `'claude-sonnet-4-5-20250929'`. Ignored when
+   * `clientResolver` is supplied — the resolution's `model` wins.
+   */
   model?: string
   /** Maximum tool-use loop iterations. Default: 10. */
   maxIterations?: number
@@ -75,11 +111,43 @@ export interface RunAgentOptions {
   temperature?: number
   /** Abort signal for cancellation. */
   abortSignal?: AbortSignal
+  /**
+   * Optional factory that returns a live `AgentClientResolution`.
+   *
+   * When supplied, `runAgent` uses `resolution.client` + `resolution.model`
+   * instead of the `client` + `model` fields above. On transient API errors
+   * (429, 503, timeouts, ECONNREFUSED/RESET) inside the loop, `runAgent`
+   * calls `resolution.fallback()`; if it returns a non-null resolution, the
+   * client and model are swapped and the **same iteration** is retried once.
+   *
+   * Hard cap: one fallback swap per iteration. Further transients in the same
+   * iteration propagate (prevents runaway loops on persistent provider outage).
+   *
+   * Source: the LLMGatewayService-native pattern; see
+   * `LLMGatewayService.resolveAgentClient()`. The factory is called **once**
+   * at loop start (agent state is stateful and cannot swap mid-conversation
+   * gracefully); fallback closures advance within that single resolution.
+   */
+  clientResolver?: () => AgentClientResolution
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Duck-type check: does the object look like an Anthropic SDK client?
+ * Used to guard against cross-provider `clientResolver` misconfigurations.
+ * An OpenAI SDK client has `.chat.completions.create`, not `.messages.create`.
+ */
+function isAnthropicLike(client: Anthropic | OpenAI): client is Anthropic {
+  return (
+    typeof client === 'object' &&
+    client !== null &&
+    'messages' in client &&
+    typeof (client as { messages?: { create?: unknown } }).messages?.create === 'function'
+  )
+}
 
 /** Convert AgentTool[] to the Anthropic SDK tool format. */
 function toAnthropicTools(tools: AgentTool[]): Anthropic.Tool[] {
@@ -145,10 +213,28 @@ export async function runAgent(
 ): Promise<AgentResult> {
   const startTime = Date.now()
 
-  const client = options?.client ?? new Anthropic()
-  const model = options?.model ?? 'claude-sonnet-4-5-20250929'
+  // If a clientResolver is provided, it owns client/model resolution + fallback
+  // chain. Resolved once at loop start; fallback hops happen via resolution.fallback().
+  let resolution: AgentClientResolution | null = options?.clientResolver ? options.clientResolver() : null
+
+  // `client` and `model` are mutable: they may swap mid-loop when resolution.fallback()
+  // returns a non-null next hop on transient errors.
+  let client: Anthropic = resolution
+    ? (resolution.client as Anthropic)
+    : (options?.client ?? new Anthropic())
+  let model: string = resolution ? resolution.model : (options?.model ?? 'claude-sonnet-4-5-20250929')
   const maxIterations = options?.maxIterations ?? 10
   const maxTokens = options?.maxTokens ?? 4096
+
+  // Runtime assertion: when a clientResolver is supplied the primary resolution
+  // must give us an Anthropic client. Cross-provider agent fallback is out of scope
+  // (see LLMGatewayService.resolveAgentClient — chain is filtered same-provider).
+  if (resolution && !isAnthropicLike(client)) {
+    throw new Error(
+      `runAgent requires an Anthropic SDK client; resolver returned provider '${resolution.provider}'. ` +
+        `Cross-provider agent loops are not supported — route email-compose etc. to an 'anthropic' tier in ai-routing.yaml.`,
+    )
+  }
 
   // Build a lookup map for fast tool resolution
   const toolMap = new Map<string, AgentTool>()
@@ -182,19 +268,65 @@ export async function runAgent(
       'sending messages to Claude',
     )
 
-    // Make the API call
-    const requestParams: Anthropic.MessageCreateParamsNonStreaming = {
+    // Make the API call. When a clientResolver is active, a single transient
+    // error (429/503/timeout) triggers one fallback-swap-and-retry per iteration.
+    const buildParams = (): Anthropic.MessageCreateParamsNonStreaming => ({
       model,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages,
       ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
       ...(options?.temperature !== undefined ? { temperature: options.temperature } : {}),
-    }
-
-    const response = await client.messages.create(requestParams, {
-      signal: options?.abortSignal,
     })
+
+    let response: Anthropic.Message
+    try {
+      response = await client.messages.create(buildParams(), { signal: options?.abortSignal })
+    } catch (err) {
+      // Only the clientResolver path participates in fallback. Legacy callers
+      // get the original behavior: errors propagate unchanged.
+      if (!resolution || !isTransientAgentError(err)) throw err
+
+      const nextResolution = resolution.fallback?.() ?? null
+      if (!nextResolution) {
+        // Chain exhausted — propagate the original error unchanged.
+        throw err
+      }
+
+      if (!isAnthropicLike(nextResolution.client)) {
+        // Defensive: same-provider filter in resolveAgentClient should prevent
+        // this, but if a custom resolver returns a non-Anthropic client we
+        // can't continue the loop gracefully. Re-throw the original error.
+        logger.error(
+          { fallbackProvider: nextResolution.provider },
+          'clientResolver fallback returned non-Anthropic client — cannot swap mid-loop',
+        )
+        throw err
+      }
+
+      logger.warn(
+        {
+          iteration,
+          fromTier: resolution.tierKey,
+          fromModel: model,
+          toTier: nextResolution.tierKey,
+          toModel: nextResolution.model,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        'transient agent-loop error — swapping to fallback tier and retrying same iteration',
+      )
+
+      // Swap for the retry. We do NOT update `resolution` for subsequent
+      // iterations' fallback starting point — resolution.fallback() already
+      // advanced the chain cursor, so the next transient in a later iteration
+      // will continue where we left off.
+      resolution = nextResolution
+      client = nextResolution.client as Anthropic
+      model = nextResolution.model
+
+      // Retry once. If this also throws, the error propagates — no infinite loop.
+      response = await client.messages.create(buildParams(), { signal: options?.abortSignal })
+    }
 
     accumulateUsage(tokenUsage, response.usage)
     lastStopReason = response.stop_reason ?? 'end_turn'

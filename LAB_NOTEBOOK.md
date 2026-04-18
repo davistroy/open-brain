@@ -5237,3 +5237,55 @@ Verification: constraint appears in `\d captures` output; out-of-band INSERT ret
 
 ---
 
+### Entry 088 — Phase 4 (CS-ι): A67 LLMGatewayService integration for email-compose — 2026-04-18
+
+**Tags:** [llm] [gateway] [email-compose] [agent-loop] [refactor]
+**Environment:** Branch `feat/action-items-a65-a68`. Local: Windows, Node 22, pnpm workspaces. Verified via `pnpm --filter @open-brain/shared build/test` and `pnpm --filter @open-brain/workers build/test`.
+
+**Objective:** Route `email-compose` through `LLMGatewayService` for same-provider tier fallback on transient 429/503 errors + post-run audit logging, without breaking the multi-turn agent loop or other `runAgent()` callers. Implements Option C from the A67 ultra-plan (factory injection into `runAgent`); the gateway pre-computes tier selection but does not own the loop.
+
+**Hypothesis:** Injecting an `AgentClientResolution` via an optional `clientResolver` factory on `runAgent()` preserves backward compatibility for every existing caller (they continue to pass `client` + `model`) while letting email-compose opt in to gateway-managed fallback. Expect the fault-injection test to exercise the 429 → fallback swap → same-iteration retry path without destabilizing the 946 existing workers tests. Success criteria: (a) shared + workers builds compile, (b) all pre-existing tests still pass, (c) new fault-injection test demonstrates provider-bounded tier fallback.
+
+**Rollback Plan:** Three layers, revert in reverse dependency order:
+1. Revert the email-compose call-site change (`packages/workers/src/skills/email-compose.ts` + `jobs/skill-execution.ts`) — skill falls back to direct `runAgent(client, model)` using the init-time `resolvedModel`.
+2. Revert `run-agent.ts` — `clientResolver` option is additive, zero impact on legacy callers.
+3. Revert gateway additions (`resolveAgentClient`, `recordAgentCompletion`, `AgentClientResolution` interface) — inert without a caller.
+
+All three commits are atomic and independently revertable.
+
+**What changed (3 additive pieces):**
+
+1. **`LLMGatewayService.resolveAgentClient(taskName)`** + **`recordAgentCompletion(task, tier, result)`** (`packages/shared/src/services/llm-gateway.ts`). `resolveAgentClient` returns an `AgentClientResolution` bundle carrying the live SDK client, model, tier key, provider, per-tier limits, and a `fallback` closure that walks the same-provider chain (no cross-provider hops — tool-use format mismatch would break the loop). `recordAgentCompletion` writes one `ai_audit_log` row per agent run via the existing `logAudit` helper.
+2. **`runAgent(..., { clientResolver })`** (`packages/shared/src/services/run-agent.ts`). When provided, `clientResolver` is invoked once at loop start. On transient errors (detected via `.status ∈ {429, 502, 503, 504}`, `ECONNREFUSED/RESET/ETIMEDOUT`, `APITimeoutError`, or narrow message regex), the loop calls `resolution.fallback()`; if non-null and Anthropic-shaped, swaps `client` + `model` and retries the same iteration exactly once. Further transients in that iteration propagate. Legacy `client + model` signature unchanged.
+3. **`EmailComposeSkill.execute()`** (`packages/workers/src/skills/email-compose.ts`). When `llmGateway` is injected and no per-call `options.model` override is set, resolves the agent client via the gateway and passes `clientResolver: () => resolution` into `runAgent`; records completion via `gateway.recordAgentCompletion`. Per-call `options.model` override still bypasses the gateway (preserves test escape hatch). If gateway resolution throws at runtime, falls back to direct-client path rather than failing the whole skill. Wired `llmGateway: opts.llmGateway` into `skill-execution.ts`'s `email-compose` case.
+
+**Why Option C beat Options A + B:**
+- **Option A (push the whole loop into the gateway):** would require mirroring `runAgent`'s tool-use dispatch logic inside `LLMGatewayService`, duplicating ~150 lines and coupling the gateway to Anthropic's tool-use block format. Future Slack-bot/voice skills that need custom loops (different tool sets, different termination logic) would either re-duplicate or bypass — same problem we have today.
+- **Option B (pull the gateway into `runAgent`):** would make `runAgent` import `LLMGatewayService`, creating a layering cycle (gateway already depends on audit log + config service; run-agent would then depend on both). Circular package compilation risk.
+- **Option C (factory injection):** caller owns the loop, gateway owns the tier selection + audit. Clean boundary: resolver is a pure function type (`() => AgentClientResolution`); run-agent never imports gateway directly, only the type. Other skills can opt in without rewriting.
+
+**Test coverage added:**
+- `packages/shared/src/services/__tests__/llm-gateway.test.ts` (NEW, 6 tests): `resolveAgentClient` resolves primary, excludes cross-provider fallback, returns null when same-provider chain exhausted, throws `ModelResolverError` on unmapped task; `recordAgentCompletion` writes correct row shape + tolerates unknown tier keys.
+- `packages/shared/src/services/__tests__/run-agent.test.ts` (EXTENDED, +6 tests): legacy signature still works (regression guard); `clientResolver` resolves once at start; 429 triggers same-iteration retry with fallback client; exhausted chain propagates original error; 400 (non-transient) never swaps; `options.client`/`model` are ignored when resolver present.
+- `packages/workers/src/__tests__/email-compose-fault-injection.test.ts` (NEW, 2 tests): full skill → gateway → runAgent integration — 429 on primary Anthropic client → swap to fallback tier → success → `recordAgentCompletion` called with initial tier key and correct metrics; fallback exhaustion propagates the error and skips completion recording.
+
+**Surprises during implementation:**
+- The existing `shouldAttemptFallback` helper in LLMGatewayService uses a message-regex only; the agent-loop path benefits from an `.status`-based check (Anthropic SDK errors expose HTTP status directly), so I added a narrower `isTransientAgentError` in `run-agent.ts` instead of reusing the gateway's helper. Rationale: agent loops care about one class (429/503/502/504 + network), not the gateway's broader set. Keeping them separate prevents accidental broadening of one affecting the other.
+- `recordAgentCompletion` records the *initial* resolved tier key, not the tier that ultimately succeeded after fallback swap. Documented in the fault-injection test. This is acceptable because `ai_audit_log.model` captures the actual serving model — operators can reconcile tier via the `model` column if they ever need post-hoc "did we fall back?" analysis. A follow-up to plumb the *final* tier key through `AgentResult` would require a new return field on `runAgent`; punted.
+- `runAgent` needed a defensive `isAnthropicLike` duck-type check: same-provider filtering in `resolveAgentClient` guarantees this at construction time, but a custom `clientResolver` written by a future skill could technically return an OpenAI SDK client. The check re-throws the original error rather than silently failing the loop.
+
+**Files created/modified:**
+- Modified: `packages/shared/src/services/llm-gateway.ts` — `AgentClientResolution` interface, `resolveAgentClient()`, `recordAgentCompletion()`, private `computeFallbackChain()` + `buildAgentResolution()` helpers.
+- Modified: `packages/shared/src/services/run-agent.ts` — `RunAgentOptions.clientResolver`, `isTransientAgentError()`, `isAnthropicLike()`, try/catch swap-and-retry around `client.messages.create`.
+- Created: `packages/shared/src/services/__tests__/llm-gateway.test.ts` (6 tests).
+- Extended: `packages/shared/src/services/__tests__/run-agent.test.ts` (+6 clientResolver tests).
+- Modified: `packages/workers/src/skills/email-compose.ts` — gateway-aware `execute()` branch; `options.model` escape hatch preserved.
+- Modified: `packages/workers/src/jobs/skill-execution.ts` — passed `llmGateway: opts.llmGateway` into EmailComposeSkill constructor.
+- Created: `packages/workers/src/__tests__/email-compose-fault-injection.test.ts` (2 tests).
+
+**Results:** `@open-brain/shared` build clean; 281 shared tests pass (was 269 + 12 new). `@open-brain/workers` build clean; 948 workers tests pass (was 946 + 2 new fault-injection). No regressions.
+
+**Status:** All six work items (4.1–4.6) complete locally. Ready for review and commit (three atomic commits per plan rollback spec).
+
+---
+

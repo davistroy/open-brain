@@ -261,11 +261,12 @@ python-lint:
 
 ---
 
-## Phase 4: CS-ι — A67 LLMGatewayService Integration for email-compose
+## Phase 4: CS-ι — A67 LLMGatewayService Integration for email-compose ✅ Completed 2026-04-18
 
 **Complexity:** Medium
 **Dependencies:** None (independent of Phases 1–3)
 **Parallelizable:** Yes
+**Status:** COMPLETE 2026-04-18 — Option C (factory injection). `LLMGatewayService.resolveAgentClient()` + `recordAgentCompletion()`, `runAgent({ clientResolver })` with one-shot same-iteration fallback on transient errors, email-compose migrated, fault-injection test landed. See LAB_NOTEBOOK Entry 088. 281 shared + 948 workers tests pass.
 
 ### Goals
 
