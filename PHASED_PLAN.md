@@ -136,11 +136,13 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P01 — Infra hardening kit
+### P01 — Infra hardening kit  ✅ Completed 2026-04-18 (PR #123)
 **Scope:** #103 mem_limits + #105 init-schema.sql + #110 drift-guard for CaptureSource
 **Severity:** 2 Critical + 1 High (in one PR because each is tiny + self-contained)
 **Dependencies:** None
 **Effort:** ~1 day
+
+**Result:** Merged as squash `3afc0a2`. 7 implementation commits + 1 plan + 1 mode-fix. CI all green including new `validate-schema` job (validator ran end-to-end in 15-17s in CI against fresh pgvector container, asserted 23 tables + CHECK constraint). Tests: shared 283/283 (+2 new drift-guard cases), workers 948/948, no regressions. Closed #103, #105, #110. Homeserver deploy deferred (will batch with future phases). See LAB_NOTEBOOK Entry 092.
 
 **Deliverables:**
 - `docker-compose.yml`: every service has explicit `mem_limit` (1500m standard, 8GB for postgres + faster-whisper); Node services get `NODE_OPTIONS=--max-old-space-size=1200`
@@ -946,14 +948,14 @@ Hard dependencies only (soft groupings in phase cards below):
 | GH # | Title | Phase(s) | Wave | Severity |
 |-----:|-------|----------|-----:|----------|
 | 102 | Theme 1 — Cost-tracking paper tiger | P02a + P02b + P03 | 1 | Critical |
-| 103 | Theme 3 — mem_limits | P01 | 1 | Critical |
+| 103 | Theme 3 — mem_limits | P01 ✅ | 1 | Critical |
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a | 1 | High |
-| 105 | Theme 12 — init-schema.sql missing | P01 | 1 | High |
+| 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
 | 106 | Theme 2 — Composio quota unmetered | P03 | 1 | High |
 | 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b, P16, P17 | 1, 3 | High |
 | 108 | Theme 6 — Autonomy false-uniform | P05 | 2 | High |
 | 109 | Theme 7 — Cognitive memory dormant | P06 | 2 | High |
-| 110 | Theme 8 — Drift-guard for CaptureSource | P01 | 1 | High |
+| 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
 | 111 | Theme 9 — Doc drift | P15a + P15b | 3 | High |
 | 112 | Theme 10 — Search perf cliff | P13 | 3 | High |
 | 113 | Theme 11 — Observability (split 3 ways) | P11a + P11b + P12 | 2, 3 | High |
