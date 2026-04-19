@@ -4,7 +4,7 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 ## Status
 
-**Implementation complete** — 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
+**v1.5.0** — Implementation complete. 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. P08–P15a: secrets reconciliation, sibling enum CHECKs, CI expansion, observability, search perf, prompt injection hardening, doc alignment shipped 2026-04-19. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
 ---
 
@@ -54,7 +54,7 @@ scripts/
   monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
 docs/
   PRD.md           # Product requirements (v0.6)
-  TDD.md           # Technical design (v0.5)
+  TDD.md           # Technical design (v0.6)
   ios-shortcut.md  # iOS Shortcut setup guide for voice capture
 ```
 

@@ -8,21 +8,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.5.0] — 2026-04-19
+
+P08–P15a: secrets reconciliation, sibling enum CHECK constraints, CI expansion, observability, search performance, prompt injection hardening, doc alignment.
+
+### Added
+- **BWS secrets reconciliation** (P08): `scripts/load-secrets.sh` — full Bitwarden Secrets Manager reconciliation, round-trip invariant, `verify-secrets.sh` drift audit, `test-secrets-roundtrip.sh` 5-case fixture.
+- **Sibling enum CHECK constraints** (P09a/b/c): DB-level CHECK constraints for `capture_type` (8 values), `pipeline_status` (8 values), `pipeline_events.stage` (11 values), `pipeline_events.status` (3 values), `sessions.session_type` (3 values), `sessions.status` (4 values). Migrations 0024–0026.
+- **CI integration test job** (P10a): Real Postgres + Redis in CI via `docker-compose.test.yml`; `integration-test` job in CI (observe mode, `continue-on-error: true`).
+- **CI Python test jobs** (P10b): `sidecar-test`, `voice-pipecat-test`, `file-ingestion-test` jobs in CI; test counts updated in docs.
+- **Loki log driver** (P11a): All 13 Docker Compose services write to Loki via `loki` log driver. `LOKI_URL` env var. Grafana Loki explorer cross-container search.
+- **Prometheus alert rules + Grafana dashboards** (P11b): `config/prometheus/rules/open-brain-alerts.yml` (pipeline-stall, high-error-rate, budget-soft/hard, Composio-quota, embedding-latency). 4 Grafana dashboard panels. Budget + Composio metrics exposed by core-api.
+- **Search performance cliff fix** (P13): `hybrid_search` LIMIT push-down (`match_count * 4`) on both `fts_ranked` and `vector_ranked` CTEs. `SET LOCAL hnsw.ef_search` per-query from `pipeline.yaml`. Migration 0027. `scripts/benchmark-search.mjs`.
+- **SafePromptBuilder module** (P14a): `packages/shared/src/lib/prompt-builder.ts` — 14 injection patterns stripped, session-random XML-style delimiters. `docs/SECURITY.md` threat model.
+- **Doc sync script + CI job** (P15a): `scripts/sync-docs.sh` validates package.json / PRD / README / CHANGELOG version agreement. `doc-sync` CI job (observe mode). Source enum corrected to 9 canonical values in PRD + TDD.
+
 ### Changed
-- **Switched from local Qwen to OpenAI API**: All LLM inference now uses `gpt-5.4` (via `config/ai-routing.yaml`). Embeddings use `text-embedding-3-large` with `dimensions: 768` API parameter (trained MRL, not naive truncation). Removes dependency on DGX Spark / LiteLLM proxy.
+- **Switched from local Qwen to OpenAI API** (CS1–CS5): All LLM inference now uses `gpt-5.4` (via `config/ai-routing.yaml`). Embeddings use `text-embedding-3-large` with `dimensions: 768` API parameter (trained MRL, not naive truncation). Removes dependency on DGX Spark / LiteLLM proxy.
 - **Docker base images upgraded to Node 22 LTS** (from Node 20, EOL April 2026).
 - **CI actions upgraded**: checkout v5, setup-node v5, cache v5 (Node 24-compatible).
 
-### Added
+### Fixed
 - **Voice capture location** (PR #33): Optional GPS coordinates on voice captures from iOS Shortcut. Parses `latitude`, `longitude`, `location_name`, `location_accuracy` form fields; validates ranges; stores in `source_metadata.location` JSONB. No schema migration.
 - **CaptureDetail structured metadata display**: Replaced raw JSON dump with `SourceMetadataDisplay` component — device icon, formatted duration, language, location with MapPin + Google Maps link. Unknown keys fall back to key-value pairs.
-- **5 location validation tests**: Valid coords, backward compat, partial coords (400), out-of-range (400), non-numeric (400).
-- **Monthly maintenance script** (`scripts/monthly-maintenance.sh`): Runs 5 checks (docker rebuild, dependency audit, GitHub security alerts, error log scan, health check). Posts results to Slack + dashboard admin banner.
-- **Monthly audit GitHub Action** (`monthly-audit.yml`): Scheduled workflow for `pnpm outdated` + Dependabot alert check, posts to Slack.
-- **Admin banner API** (`POST/GET/DELETE /api/v1/admin/banner`): Redis-backed banner with 30-day TTL, displayed at top of dashboard.
-- **Web UI rate-limit bypass**: nginx adds `X-Open-Brain-Caller: web-ui` header; rate limiter exempts it alongside `integration-test`.
-
-### Fixed
 - **Search broken in web UI**: `SearchFilters` sent `q` field but API expected `query`. Renamed across types, component, and tests.
 - **OpenAI API compatibility**: Removed Qwen/vLLM-specific `extra_body` params (5 call sites), changed `max_tokens` to `max_completion_tokens` (7 call sites).
 - **Health check 404**: Fixed double `/v1/v1/models` URL when `LITELLM_URL` ends with `/v1`.
@@ -31,6 +41,59 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **e2e test scripts**: Added rate-limit bypass header, MCP SSE response parsing, bash arithmetic fix, document title uniqueness.
 - **Voice-capture classification model**: Resolved hardcoded `'fast'` alias to `'gpt-5.4'` (OpenAI rejects unknown model names).
 - **iOS Shortcut docs**: Form field name was `'file'` not `'audio'`.
+- **Admin banner API** (`POST/GET/DELETE /api/v1/admin/banner`): Redis-backed banner with 30-day TTL, displayed at top of dashboard.
+- **Web UI rate-limit bypass**: nginx adds `X-Open-Brain-Caller: web-ui` header; rate limiter exempts it alongside `integration-test`.
+
+---
+
+## [1.4.0] — 2026-04-19
+
+Arch-review hardening (P01–P07): rate limiting, admin reset two-step, backup secrets redaction, autonomy gate, Hebbian co-access, internal traffic hygiene.
+
+### Added
+- **Mem limits + init-schema.sql** (P01): Docker Compose memory limits on all containers. Idempotent `scripts/init-schema.sql` for fresh-box provisioning.
+- **callClaude removal** (P02a/b): All LLM skills use `LLMGatewayService.completeByTask()`. No direct Anthropic SDK in skill code. LiteLLM proxy dependency removed from pipeline.
+- **Cost estimator + ai_audit_log** (P02c): `estimateTierCostUsd()` from tier config. `ai_audit_log.cost_usd` reflects real Anthropic costs. Budget circuit breaker live end-to-end.
+- **Composio quota meter** (P03): `ComposioClient` increments `composio:monthly_usage:YYYY-MM`. Hard stop 19K/month (95%). Pushover warn at 15K (75%).
+- **Admin reset two-step** (P04a): `POST /admin/reset-data` two-step (token + confirmation phrase). Pre-wipe `pg_dump`. `admin_audit` table excluded from TRUNCATE. Cloudflare Access email attribution. Origin allowlist fail-closed.
+- **Backup secrets redaction** (P04b): `scripts/backup.sh` strips `.env.secrets`. Regression guard `scripts/test-backup-secrets-redaction.sh`. `BACKUP_ROOT`/`APP_DIR` env overrides.
+- **Autonomy gate via BaseSkill** (P05): `BaseSkill.execute()` checks `static minimum_autonomy` before delegating to `run()`. 4 proactive skills gated (email-compose → advise; memory-consolidation + daily-sweep-skill → assist; weekly-brief → observe).
+- **Hebbian co-access tracking** (P06): `update-access-stats` BullMQ job. Batch-UPSERT invariant. Spreading activation `include_related` (API default false / MCP default true). Building on migrations 0011-0012.
+- **Internal traffic hygiene** (P07): 16-entry `BYPASS_CALLERS` Set in rate-limit middleware. `X-Open-Brain-Caller` header on all internal callers. nginx `proxy_set_header` explicit per location. Scheduler cron slot registry (no two jobs on same minute).
+- **CaptureSource drift-guard test** (P01): Shared package test asserts `CaptureSource` union matches Zod `CAPTURE_SOURCES` array — no silent enum drift.
+- **Zod config validation** (P02c): `ConfigService.load()` validates `ai-routing.yaml` at startup; fails fast on missing cost fields for paid providers.
+
+### Changed
+- Monthly audit GitHub Action added (`monthly-audit.yml`). Monthly maintenance script (`scripts/monthly-maintenance.sh`).
+
+---
+
+## [1.3.0] — 2026-04-01
+
+CS1–CS5: full OpenAI API migration, Node 22 upgrade, CI modernization, shared utilities, web synthesis, email pipeline, proactive intelligence, cognitive memory.
+
+### Added
+- **OpenAI API migration** (CS1–CS5): All AI through `api.openai.com/v1`. `gpt-5.4` for all inference aliases. `text-embedding-3-large` with `dimensions: 768`. Retired `LITELLM_URL`/`LITELLM_API_KEY` env vars (now `OPENAI_BASE_URL`/`OPENAI_API_KEY`).
+- **Shared utilities package** (Phase 7): `@open-brain/shared` now exports `createLogger`, `createLiteLLMClient`, `PushoverService`, `assertOk`/`HttpError`, `TemplateCache`, `model-resolver`. Removed per-package duplication.
+- **Email pipeline**: Cloudflare Email Worker → core-api captures. Sender allowlist in `app_settings` via dashboard Settings page. Migration 0010.
+- **Web synthesis**: Questions on search page get LLM-synthesized answer card. `POST /api/v1/synthesize`.
+- **Proactive intelligence**: Autonomy levels (observe/assist/advise/partner). `daily-sweep-skill` (8pm LLM evening summary). MCP `open_brain://context` resource. Pipeline-health heartbeat monitor. Slack auto-response with confidence scoring.
+- **Cognitive memory** (Hebbian, spreading activation, memory consolidation): Migrations 0011–0012. `capture_associations` table. `spreading_activation` SQL function. Memory consolidation skill (Sunday 4 AM, cosine > 0.92, min cluster 3). Source `consolidation` + soft-delete.
+- **Voice capture location**: GPS coordinates on voice captures from iOS Shortcut.
+- **CaptureCard unification**: Single shared component across Dashboard, Timeline, EntityDetail, Search.
+- **Financial + utility pipelines** (Phase 4): External financial data ingestion, utility pipeline parsers.
+- **Phase 3 ops**: Prometheus + Grafana + Loki observability stack. Gitea wiki (11 pages). Email outbound. Synthetic monitor (health.troy-davis.com).
+
+### Changed
+- Docker base images upgraded to Node 22 LTS (from Node 20, EOL April 2026).
+- CI actions upgraded: checkout v5, setup-node v5, cache v5 (Node 24-compatible).
+- Vitest `pool: 'forks'` with `minForks: 1` / `maxForks: 4`, `hookTimeout/testTimeout: 30_000` for Windows ioredis/bullmq race avoidance.
+
+### Fixed
+- Entity resolver: indexed SQL query (not in-memory), shared between `extract-entities` and `link-entities`.
+- pg-notify auto-reconnects: exponential backoff 1s→30s, 5 attempts. Re-registers all LISTEN channels.
+- Model alias resolution: all OpenAI-calling code resolves aliases from `configService.get('ai').models[alias]` at init time.
+- Slack-bot lightweight `ai-routing.yaml` load (not full `ConfigService`, which requires all 4 YAML files).
 
 ---
 
@@ -155,7 +218,10 @@ Initial complete implementation of all 16 phases.
 
 ---
 
-[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/davistroy/open-brain/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/davistroy/open-brain/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/davistroy/open-brain/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/davistroy/open-brain/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/davistroy/open-brain/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/davistroy/open-brain/releases/tag/v1.0.0

@@ -1,10 +1,18 @@
 # Product Requirements Document (PRD)
 # Open Brain — Personal AI Knowledge Infrastructure
 
-**Version**: 0.6
+**Version**: 0.6 (P15a alignment pass — full v0.7 rewrite in P15b)
 **Author**: Troy Davis / Claude
-**Date**: 2026-03-05
-**Status**: Draft — Architectural Review v2 Applied
+**Date**: 2026-04-19
+**Status**: Draft — Architectural Review v2 Applied; P15a alignment in progress
+
+> **Doc status note (2026-04-19):** This document is PRD v0.6 with a P15a partial alignment
+> pass. The LiteLLM proxy architecture documented throughout this file reflects the original
+> design (through v1.2.0). The current system (v1.5.0) uses the OpenAI API directly
+> (`gpt-5.4` + `text-embedding-3-large`) with no LiteLLM proxy. The full replacement of
+> LiteLLM references with the current architecture is planned for PRD v0.7 (P15b). See
+> `docs/TDD.md` and `README.md` for current architecture. The `source` enum has been corrected
+> in this pass to reflect all 9 canonical values; all other body content is unchanged from v0.6.
 
 ---
 
@@ -258,7 +266,7 @@ This is a single-user personal tool. The sole user is a senior technology execut
 ```json
 {
   "content": "raw text or transcript",
-  "source": "slack|voice|web|api|email|document",
+  "source": "slack|voice|api|document|mcp|email|file|consolidation|system",
   "source_metadata": {
     "slack_ts": "...",
     "device": "apple_watch",
@@ -330,7 +338,7 @@ create table captures (
 
   -- Classification
   metadata jsonb default '{}'::jsonb,             -- extracted metadata (people, topics, type, action_items, dates)
-  source text not null,                           -- slack, voice, web, api, email, document
+  source text not null,                           -- slack, voice, api, document, mcp, email, file, consolidation, system (see CaptureSource in packages/shared/src/types/capture.ts)
   source_metadata jsonb default '{}'::jsonb,      -- source-specific details
   pre_extracted jsonb default '{}'::jsonb,        -- classification from input adapter (e.g., voice-capture templates)
 
