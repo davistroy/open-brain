@@ -7052,6 +7052,64 @@ Multi-chunk documents WILL set `pipeline_status: 'chunked'`. The DB has 0 rows b
 - No `_journal.json` in `packages/shared/drizzle/meta/` — manual SQL migration model (per CLAUDE.md "no auto-migration on startup").
 
 ### Result
-(filled in below per work item)
+
+**Status:** ALL_COMPLETE.
+
+**Commits (in order, after Gate 2 plan-only commit `aa66a3e`):**
+1. `7707beb` — docs(phase-P09a)/0: lab-notebook pre-action entry 102 (BLOCKING precondition)
+2. `ef8be71` — feat(phase-P09a)/4+5+6+9: migration 0024 + TS union + Zod enum + schema comment
+3. `4b30315` — test(phase-P09a)/7: drift-guard for CaptureType + PipelineStatus (10 tests total)
+4. `1d0bebf` — feat(phase-P09a)/8+10: web PipelineStatus + CaptureCard color map + stale fixture
+
+**Files touched (8):**
+- `packages/shared/drizzle/0024_captures_enum_checks.sql` (new) — both CHECK constraints, idempotent
+- `packages/shared/src/types/capture.ts` — adds `PipelineStatus` union; tightens `CaptureRecord` + `CaptureFilter`
+- `packages/shared/src/schema/core.ts` — updates inline column comments for `capture_type` + `pipeline_status`
+- `packages/shared/src/__tests__/web-type-drift.test.ts` — 7 new assertions (1 PipelineStatus + 4 CaptureType incl. parametrized StatsCards)
+- `packages/core-api/src/schemas/capture.ts` — adds `PIPELINE_STATUSES` const; tightens `listCapturesSchema.pipeline_status`
+- `packages/web/src/lib/types.ts` — `PipelineStatus` union: 5-value -> 8-value canonical
+- `packages/web/src/components/CaptureCard.tsx` — `PIPELINE_STATUS_COLORS`: drops `partial`, adds `extracted`/`embedded`/`chunked`/`deleted`
+- `packages/slack-bot/src/__tests__/capture-handler.test.ts` — stale `'received'` fixture -> `'processing'`
+
+**Test results (all green, 2,578 + web build):**
+| Package | Files | Tests |
+|---------|-------|-------|
+| shared | 17 | 292 (incl. 10 drift-guard, +7 from P09a) |
+| core-api | 43 | 732 |
+| workers | 49 | 980 |
+| slack-bot | 14 | 492 |
+| voice-capture | 5 | 82 |
+| **Total** | **128** | **2,578** |
+
+`tsc --noEmit` clean on all 4 backend packages + web. Web `pnpm build` succeeded (PWA precache 943 KiB).
+
+**Key reconciliation outcome (vs. plan):**
+- Plan proposed `PipelineStatus` = 6 values. Final = **8 values** (added `extracted` from DB audit, `chunked` from production-code audit). Both additions are mandatory — see Hypothesis section table for full justification. Without `chunked` in canonical, the next multi-chunk document would 23514-violate.
+- `received` excluded from canonical (zero producers, zero DB rows). Production read filters in `stale-captures.ts` and `daily-sweep.ts` reference `'received'` for legacy detection — these are unaffected by the CHECK (it constrains writes only) and were left intact.
+
+**Stale-fixture cleanup (work item 10) — partial deviation:**
+- Plan called out 3 stale fixtures. Only 1 (`capture-handler.test.ts:168`) was actually stale post-reconciliation:
+  - `core-api-client.test.ts:37` — `'pending'` is canonical, no change needed (planner flagged for investigation, not fix).
+  - `document-pipeline.test.ts:379` — `'chunked'` is now canonical (test exercises a real production path), no change needed.
+  - `stale-captures.test.ts:15,29` — `'received'` is referenced by the production read filter the test exercises; changing it would mask the legacy-detection behavior under test. Left intact.
+- Net: only `capture-handler.test.ts:168` updated.
+
+**Acceptance criteria (per IMPLEMENT_PHASE-P09a.md, all met):**
+- [x] 2 CHECK constraints active locally (validated by file inspection — homeserver apply at Gate 5.5)
+- [x] Migration `0024_captures_enum_checks.sql` exists, idempotent (DROP IF EXISTS + ADD), follows 0022 template
+- [x] `PipelineStatus` TS union exported from `packages/shared/src/types/capture.ts`
+- [x] `PIPELINE_STATUSES` Zod const + `listCapturesSchema.pipeline_status` tightened to `z.enum(...)`
+- [x] Drift-guard extended for `CaptureType` (4 tests) and `PipelineStatus` (1 test) — green
+- [x] Web type `PipelineStatus` updated; CaptureCard color map covers all 8 canonical values
+- [x] All 4 surfaces (TS / Zod / DB CHECK / drift-guard) implementing the lockstep — to be added to CLAUDE.md at Gate 5 doc-sweep (P09a Gate 5 task)
+- [x] Pre-flight DB audit results recorded in this entry; canonical value sets reconciled
+- [x] Homeserver migration ready for Gate 5.5 (file lives in repo; apply commands in IMPLEMENT_PHASE-P09a.md "Homeserver Gate 5.5 commands" section)
+
+**Methodology lessons captured (for Gate 5 CLAUDE.md sweep):**
+1. Pre-flight DB audit MUST cover ALL CHECK-constraint columns in the migration, not just the headline one. The audit caught `extracted` for `pipeline_status`; without it the constraint would have rejected 11 existing rows.
+2. Producer-side audit MUST grep both keyed-property assignments (`pipeline_status: 'value'`) AND ternary expressions (`? 'a' : 'b'`) AND variable-bound assignments (`.set({ col: var })` where `var` is computed). Planner's grep regex missed `chunked` because it came from a ternary. Add to CLAUDE.md "Pre-flight DB audit" rule.
+3. Read-only references (`WHERE col IN ('legacy_value')`) are unaffected by CHECK; do NOT confuse with producers. Document the distinction.
+
+**Duration:** ~50 minutes (Gate 3 only; Gate 1 + Gate 2 + operator pre-flight separate).
 
 
