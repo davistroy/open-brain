@@ -7276,6 +7276,14 @@ Add a new `integration-test` job to `.github/workflows/ci.yml` that runs the cor
 - Unit tests (shared + core-api) run to confirm no regressions
 - 2 files changed, zero application code
 
+### Final / Merged
+
+**PR #141 merged** — SHA `fef1948`, 2026-04-19. Opus APPROVE cycle 2.
+- Cycle 1 blocker: `--cache-from` is not a valid flag for `docker compose up`; fixed in `a3c93a3` (plain `docker compose up --build`).
+- CI: `build-and-test` job green. `integration-test` job reports 1 MCP `search_brain` flaky test failure — expected and non-blocking (`continue-on-error: true`, observe mode). This is not a regression; the flake is pre-existing in the local integration suite and will be triaged before promotion to required status check.
+- No homeserver deploy. No migration. Zero application code touched.
+- P10a fully complete. P10b remains for issue #115.
+
 ---
 
 ### Entry 104 — P09c Gate 3: Sibling enum CHECKs on sessions (session_type + status) — 2026-04-19
