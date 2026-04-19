@@ -180,9 +180,9 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 + P02a + P02b + P02c merged (PRs #123, #124, #125, #126); P03 (final bootstrap) in progress |
+| A69 | ~~Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline~~ | 2026-04-18 | Entry 092-096 | **DONE 2026-04-19** — all 5 bootstrap phases merged (PRs #123, #124, #125, #126, #127). Budget circuit breaker live end-to-end. bootstrap_mode flipped to false. Orchestrator transitions to normal ORCHESTRATOR.md approval matrix from P04a onward. |
 | A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
-| A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N (partial)`; manually close after final PR merges | 2026-04-18 | Entry 094 | LOW — process improvement. #102 auto-closed twice (P02a + P02b) despite "(partial)" wording. GitHub's parser ignores the qualifier. Apply to P03 PR body. |
+| A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N`; AVOID any close-keyword (closes/closed/close/fixes/fixed/fix/resolves/resolved/resolve) anywhere in PR body with `#N` — GitHub's parser is case-insensitive and scans entire body, not just top level | 2026-04-18 | Entry 094 | LOW — **UPDATED 2026-04-19 after P03 accidentally closed #102 via "(closes final #102 subset)" in a section header despite `Refs #102` at top.** Rule strengthened: scrub ALL close-keyword instances from PR body when you want an issue to stay open. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -6281,4 +6281,94 @@ Success criteria:
 **Status:** Gate 3 COMPLETE. Advance to Gate 4 (code-reviewer Opus).
 
 ---
+
+#### Gate 4 cycle 1 — REQUEST_CHANGES · TS2322 lint errors
+
+**Verdict:** REQUEST_CHANGES. Build-and-test lint failing with 4 TS2322 on `composio-quota.test.ts`: helper factory return-type annotations `ReturnType<typeof vi.fn>` (resolves to `Mock<any[], unknown>`) don't unify with the strict `Mock<[_key: string], Promise<number>>` that vitest infers from typed arrow bodies. Runtime tests pass 286/286. Pure `tsc` strict-mode unification issue.
+
+Every other dimension verified clean: estimator math, Composio thresholds, INCR atomicity, backward-compat overload, wiring, CLAUDE.md rules, `Refs #102` convention.
+
+---
+
+#### Gate 4 cycle 1 → Gate 3 re-entry: TS2322 annotation surgery
+
+**Fix:** dropped `ReturnType<typeof vi.fn>` / `ReturnType<typeof vi.spyOn>` return-type annotations on 3 helper factories (`makeRedis`, `makePushover`, `stubFetchSuccess`). Added `_opts: PushoverSendOptions` typed param to `send` mock body — fixed 2 masked TS2352/TS2493 errors that would have surfaced once the primary errors were resolved.
+
+Net change: +5 / −5 LoC on the test file (pure annotation surgery).
+
+**Verification:** `pnpm --filter @open-brain/shared build` clean; 286/286 tests still green.
+
+**Commit:** `5337ff4` — `fix(phase-P03): drop loose ReturnType<typeof vi.fn> annotations`.
+
+---
+
+#### Gate 4 cycle 2 — APPROVE
+
+**Verdict:** APPROVE. Narrow re-verification confirmed cycle 1 blocker resolved cleanly: `ReturnType<typeof …>` matches gone from test file; `PushoverSendOptions` import is a real exported interface (no circular dep). All 9 CI checks green on `5337ff4`. LAB_NOTEBOOK cycle 1→2 transition documented per Rule 2. Bootstrap-exit-ready.
+
+**Review posted:** PR #127 as COMMENTED (self-review fallback; gh blocks `--approve` when author = reviewer).
+
+---
+
+#### Gate 5 + post-merge — MERGED 2026-04-19 · BOOTSTRAP COMPLETE
+
+**Merge SHA:** `32b17f2` (squash). Branch deleted on remote; local pruned.
+
+**Issue closure:**
+- **#106 closed** by bare `Closes #106` (sole PR — expected).
+- **#102 closed** by GitHub's keyword parser picking up "(closes final #102 subset)" from a section header inside the PR body, despite my explicit `Refs #102` at the top. **Outcome is correct** (P03 was meant to fully close #102) but the mechanism was accidental prose — not the intended `Refs` + manual-comment-close path. **Action Item A72 updated** to reflect the stronger rule: GitHub's parser is case-insensitive and scans the ENTIRE body, not just the top. Scrub ALL close-keyword instances from PR body when you want an issue to stay open.
+- **Attribution comment** posted to #102 referencing PRs #124/#125/#127 and LAB_NOTEBOOK Entries 093-096.
+
+**CI on merge HEAD `5337ff4`:** 9/9 green.
+
+**Gate 5.5:** NOT triggered — pure TS, no compose/migration.
+
+**Duration (P03 lifecycle):** ~2 hours (Gate 1 → merge), including ~30 min cycle-2 TS fix round trip.
+
+**BOOTSTRAP SUMMARY (5 phases, ~8 hours total orchestrator wall-clock):**
+
+| Phase | PR | Merge SHA | Reviewer cycles | Duration | Notes |
+|---|---|---|---|---|---|
+| P01 | #123 | 3afc0a2 | 1 | 60 min | infra hardening kit (mem_limits + init-schema + drift-guard-CaptureSource) |
+| P02a | #124 | e8f7c52 | 1 | 120 min | Zod validator for ai-routing.yaml cost fields + 2 pre-merge nit fixes + 3 CLAUDE.md rules |
+| P02b | #125 | fad793e | 2 | 180 min | callClaude removal from all 7 call sites + 2 pre-merge nit fixes; cycle 1 caught a 7th site in voice-capture |
+| P02c | #126 | 7b8407a | 1 | 60 min | smallest phase — AgentResult.finalTierKey threading |
+| P03 | #127 | 32b17f2 | 2 | 120 min | estimator widening + Composio quota meter; cycle 1 TS lint fix |
+
+**What the bootstrap achieved:**
+- P01: infra safety rails (Docker memory limits, schema validation CI, web/shared type parity)
+- P02a: startup Zod validation blocks misconfigured `ai-routing.yaml` — paid-provider cost fields are now mandatory
+- P02b: all LLM skills route through `LLMGatewayService` — no untracked escape hatches — every call writes to `ai_audit_log`
+- P02c: audit rows now reflect the tier that ACTUALLY served (not initial tier after fallback)
+- P03: `ai_audit_log.cost_usd` is non-zero for paid completions; Composio free-tier quota has a hard-stop circuit breaker
+
+**The budget circuit breaker is live end-to-end.** The 2026-04-15 $100+ overnight ingestion cost scenario cannot recur silently — costs would now be tracked, and the budget check in `checkBudget()` (already present since PR #88) would actually have data to enforce against.
+
+**Orchestrator transitions:**
+- `bootstrap_mode` flipped to false
+- Normal ORCHESTRATOR.md operator-approval matrix applies from P04a onward
+- Operator-touch drops from "every phase" to ~15-20 across the remaining 40 phases
+- Auto-merge eligible: ~30 of 45 remaining phases
+
+**Operational rules captured during bootstrap (inline in CLAUDE.md):**
+- 3 from P02a (paid-provider cost mandatory; explicit-0 ≠ undefined; test fixtures must include cost fields)
+- 1 from P02b (callClaude removed; gateway is canonical; litellmClient is test-compat fallback only)
+- 2 from P03 (estimator formula + no-allowlist; Composio quota meter injection pattern)
+- Total: 6 new operational rules
+
+**Action Items added during bootstrap:**
+- A70: homeserver deploy batch (5 phases queued; deferred per operator)
+- A71: `memory-consolidation` task-key rename (P02b-DRIFT3 follow-up)
+- A72: PR body close-keyword scrub convention (learned during P02a, strengthened after P03 #102 accident)
+
+**Action Items completed:**
+- A69: bootstrap execution ✅
+
+**Pending homeserver deploys (A70):** P01 (docker-compose.yml mem_limits + init-schema + SearchFilters.tsx), P02a (t1_jetson cost declaration in ai-routing.yaml), P02b (callClaude removal — workers restart only), P02c (pure TS), P03 (new composioMeterRedis client in workers/main.ts). Batched for one deploy cycle when operator is ready.
+
+**Status:** P03 ✅ COMPLETE. **BOOTSTRAP COMPLETE.** Orchestrator advances to **P04a** — the first post-bootstrap phase (`/admin/reset-data` safety rails + `admin_audit` table via migration 0023). P04a still requires operator approval (homeserver migration per ORCHESTRATOR.md matrix), but from P05 onward autopilot is enabled for most phases.
+
+---
+
+
 
