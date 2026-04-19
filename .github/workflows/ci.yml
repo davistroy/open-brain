@@ -87,10 +87,11 @@ jobs:
           cache-dependency-path: packages/voice-pipecat/tests/requirements.txt
 
       - name: Install test dependencies
-        run: pip install -r packages/voice-pipecat/tests/requirements.txt
+        run: pip install -r tests/requirements.txt
+        working-directory: packages/voice-pipecat
 
       - name: Run pytest
-        run: python3 -m pytest packages/voice-pipecat/tests/ -v --tb=short
+        run: python3 -m pytest tests/ -v --tb=short
         working-directory: packages/voice-pipecat
 
   file-ingestion-test:
