@@ -5943,5 +5943,32 @@ Success criteria:
 
 **Status: ALL_COMPLETE**
 
+#### Gate 4 cycle 1 → Gate 3 re-entry: 7th callClaude site fix (voice-capture)
+
+**Root cause:** First Gate 3 pass grep scope was `packages/workers/src` + `packages/shared/src` — missed `packages/voice-capture/src/services/classification.ts`. CI `build-and-test` caught it with `TS2305: Module '@open-brain/shared' has no exported member 'callClaude'` after the shared barrel export was removed in commit `c5ba6cd`.
+
+**Fix:** Removed 3 items from `packages/voice-capture/src/services/classification.ts`:
+1. `import type Anthropic from '@anthropic-ai/sdk'` — removed (line 2)
+2. `callClaude` from the `@open-brain/shared` import (line 3)
+3. `private anthropicClient: Anthropic | null` field + `constructor(opts?: { anthropicClient?: Anthropic })` parameter + the entire `if (this.anthropicClient) { ... callClaude(...) ... }` branch in `classify()` (lines 74-101)
+
+The OpenAI path (`this.client.chat.completions.create(...)`) was always the only live dispatch path — confirmed by `server.ts` which calls `new ClassificationService()` with no arguments. Constructor simplified to no-parameter form, matching test expectations exactly.
+
+**LoC delta:** -14 lines net (removed 17 lines, kept 3 restructured).
+
+**Test counts after fix:**
+- voice-capture: 82 tests / 5 files — unchanged (tests already mocked OpenAI, not Anthropic)
+- workers: 963 tests — unchanged
+- shared: 277 tests — unchanged
+- core-api: 722 tests — unchanged
+- slack-bot: 492 tests — unchanged
+- web: 97 tests — unchanged
+
+**Grep:** `grep -rn "callClaude\|call-claude" packages/` → zero matches (exit code 1).
+
+**Build verification:** shared → voice-capture → workers all build clean. `pnpm -r test` — all 2,633 tests pass across 6 packages.
+
+**Status: READY FOR GATE 4 CYCLE 2**
+
 ---
 
