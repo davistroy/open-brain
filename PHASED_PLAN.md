@@ -487,11 +487,12 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P11b — Observability part 1b: Prometheus alert rules + Grafana dashboards
+### P11b — Observability part 1b: Prometheus alert rules + Grafana dashboards  ✅ Completed 2026-04-19 (PR #146)
 **Scope:** #113 subset — initial alert catalog
 **Severity:** High
 **Dependencies:** P11a (log driver wired first so alerts correlate with logs)
 **Effort:** ~1-1.5 days
+**Status:** COMPLETE — PR #146 merged `3e0a941`, LAB_NOTEBOOK Entry 109. Homeserver: core-api + workers restarted; 10 alert rules + 2 new gauges live.
 
 **Deliverables:**
 - Alert rule files in `config/prometheus/alerts/`:
@@ -505,6 +506,10 @@ Hard dependencies only (soft groupings in phase cards below):
 - Each alert verified by staged test (synthetic trigger + confirmation Pushover fires)
 
 **Acceptance:** 5 alert rules active and each verified firing.
+- [x] 5 alert YAML files in `config/prometheus/alerts/` (10 rules total)
+- [x] `openbrain_budget_spent_usd` + `openbrain_composio_monthly_usage` gauges in `/metrics`
+- [x] 5 runbooks in `docs/runbooks/`
+- [x] Grafana dashboards updated (threshold panels, alertlist)
 
 **Rollback:** Remove rule files; alerts go silent.
 
@@ -558,18 +563,23 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P14a — Prompt-builder module + threat-model doc
+### P14a — Prompt-builder module + threat-model doc  ✅ Completed 2026-04-19 (PR #145)
 **Scope:** #116 subset — foundational prompt-builder library + docs/SECURITY.md
 **Severity:** High
 **Dependencies:** None
 **Effort:** ~1-1.5 days
+**Status:** COMPLETE — PR #145 merged `fe0b332`, LAB_NOTEBOOK Entry 110. Additive shared lib only; no homeserver deploy required.
 
 **Deliverables:**
-- `packages/shared/src/services/prompt-builder.ts` (new): wraps user-content in fenced delimiters (e.g., `<capture id="X">...</capture>`); strips known prompt-injection patterns (`"Ignore previous instructions"`, role-change markers, `[INST]`, `<|im_start|>`, etc.)
-- Unit tests: known injection strings either stripped or escaped; delimiter uniqueness (generates session-random delimiter to defeat exact-match evasion)
-- `docs/SECURITY.md` (new): threat model, current mitigations, residual risks, process for responding to a confirmed injection
+- `packages/shared/src/lib/prompt-builder.ts` (new, placed in lib/ not services/ — stateless per convention): `SafePromptBuilder` class, 14 injection patterns, `wrapContent`, `wrapCaptures`, `sanitizeInline`
+- Unit tests (28 tests, 4 groups): injection stripping, delimiter uniqueness, wrapCaptures, edge cases
+- `docs/SECURITY.md` (new): threat model, 6 injection surfaces, 3 attack scenarios, mitigations, residual risks, incident response
 
 **Acceptance:** prompt-builder tests pass; SECURITY.md reviewed by operator.
+- [x] 324/324 shared tests pass (includes 28 new prompt-builder tests)
+- [x] `tsc --noEmit` clean (shared + workers)
+- [x] 6 injection surfaces documented in docs/SECURITY.md
+- [x] No production call sites modified (P14b scope)
 
 **Rollback:** Module removal; no call sites use it yet.
 
@@ -971,10 +981,10 @@ Hard dependencies only (soft groupings in phase cards below):
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
 | 111 | Theme 9 — Doc drift | P15a + P15b | 3 | High |
 | 112 | Theme 10 — Search perf cliff | P13 ✅ | 3 | High |
-| 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b + P12 | 2, 3 | High |
+| 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b ✅ + P12 | 2, 3 | High |
 | 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
 | 115 | Theme 14 — CI gating gaps | P10a ✅ + P10b ✅ | 2 | High |
-| 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
+| 116 | Theme 15 — Prompt injection | P14a ✅ + P14b | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
 | 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c ✅ | 2 | Medium |
@@ -1015,8 +1025,8 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 ```
 
 **Parallelization opportunities (after P01 lands):**
-- **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a → P14b
-- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 → P10a → P10b → P11a → P11b → P12 → P17
+- **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a ✅ → P14b
+- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 → P17
 - **Track C (Polish + search):** P13 → P15a → P15b → P18
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16
 - **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
