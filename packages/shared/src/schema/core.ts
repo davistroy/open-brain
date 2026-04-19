@@ -51,8 +51,8 @@ export const pipeline_events = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     capture_id: uuid('capture_id').notNull().references(() => captures.id, { onDelete: 'cascade' }),
-    stage: text('stage').notNull(),               // classify | embed | extract | link_entities | check_triggers | notify
-    status: text('status').notNull(),             // started | success | failed
+    stage: text('stage').notNull(),               // 11 values; CHECK constraint in migration 0025; canonical TS union: PipelineEventStage in packages/shared/src/types/pipeline-event.ts
+    status: text('status').notNull(),             // 3 values; CHECK constraint in migration 0025; canonical TS union: PipelineEventStatus in packages/shared/src/types/pipeline-event.ts
     duration_ms: integer('duration_ms'),
     error: text('error'),
     metadata: jsonb('metadata'),
