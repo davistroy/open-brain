@@ -2,9 +2,15 @@
 # Connect standalone containers to the Open Brain Docker network.
 # Run after every: docker compose up -d
 #
-# Both Ollama and Gitea run as standalone containers outside docker-compose.
+# Ollama and Gitea run as standalone containers outside docker-compose
+# (Unraid community applications — D31 decision: not moving into compose).
 # Compose recreates the bridge network on every `up`, so these containers
 # must be re-connected each time.
+#
+# NOTE: Loki, Prometheus, Grafana, and Pushgateway are NOT handled here.
+# They are managed via the observability compose profile (P12):
+#   docker compose --profile observability up -d
+# See docs/runbooks/observability.md for the full bring-up procedure.
 
 set -euo pipefail
 
