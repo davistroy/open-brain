@@ -37,8 +37,6 @@ export interface DailyConnectionsOptions {
   windowDays?: number
   /** Approximate token budget for assembled captures context. Default: 30_000. */
   tokenBudget?: number
-  /** Override the AI model alias. Default: 'synthesis'. */
-  modelAlias?: string
 }
 
 /**

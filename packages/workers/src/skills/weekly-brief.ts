@@ -1,6 +1,5 @@
-import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { logger, HimalayaService, callClaude } from '@open-brain/shared'
+import { logger, HimalayaService } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -40,7 +39,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
   }
 
   async execute(options: WeeklyBriefOptions = {}): Promise<WeeklyBriefResult> {
-    const { windowDays = DEFAULT_WINDOW_DAYS, tokenBudget = DEFAULT_TOKEN_BUDGET, modelAlias = 'synthesis', emailTo = process.env.WEEKLY_BRIEF_EMAIL } = options
+    const { windowDays = DEFAULT_WINDOW_DAYS, tokenBudget = DEFAULT_TOKEN_BUDGET, emailTo = process.env.WEEKLY_BRIEF_EMAIL } = options
     const startMs = Date.now()
     const now = new Date()
     const windowStart = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000)
@@ -61,7 +60,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
     const weekStart = fmtDate(windowStart)
     const weekEnd = fmtDate(now)
 
-    const rawOutput = await this.callLLM(contextText, dateRange, captureCount, modelAlias)
+    const rawOutput = await this.callLLM(contextText, dateRange, captureCount, 'synthesis')
     const brief = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 
@@ -94,16 +93,8 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
       return raw
     }
 
-    // Legacy fallback: Anthropic (Claude) client; fall back to OpenAI/LiteLLM
-    if (this.anthropicClient) {
-      const result = await callClaude(this.anthropicClient, prompt, {
-        model: modelAlias, maxTokens: 2048, temperature: 0.3,
-      })
-      logger.info({ inputTokens: result.inputTokens, outputTokens: result.outputTokens }, '[weekly-brief] LLM call complete (Claude)')
-      return result.text
-    }
-
-    if (!this.litellmClient) throw new Error('[weekly-brief] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
+    // Test-compat fallback: OpenAI/LiteLLM client (injected in unit tests)
+    if (!this.litellmClient) throw new Error('[weekly-brief] No LLM client configured — set OPENAI_API_KEY or inject llmGateway')
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias, messages: [{ role: 'user', content: prompt }],
       temperature: 0.3, max_completion_tokens: 2048,
@@ -175,8 +166,8 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
 }
 
 /** Top-level entry point called by BullMQ worker. */
-export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptions = {}, anthropicClient?: Anthropic, llmGateway?: LLMGatewayService): Promise<WeeklyBriefResult> {
-  return new WeeklyBriefSkill({ db, anthropicClient, llmGateway }).execute(options)
+export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptions = {}, llmGateway?: LLMGatewayService): Promise<WeeklyBriefResult> {
+  return new WeeklyBriefSkill({ db, llmGateway }).execute(options)
 }
 
 function emptyBrief(): WeeklyBriefOutput {

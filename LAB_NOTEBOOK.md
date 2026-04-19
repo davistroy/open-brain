@@ -180,7 +180,8 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged (PR #123), P02a merged (PR #124); P02b + P02c + P03 remaining |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged (PR #123), P02a merged (PR #124); P02b in progress (Entry 094); P02c + P03 remaining |
+| A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -5827,6 +5828,161 @@ Two existing fixtures needed cost fields added to pass the newly-wired validator
 - `AIClientType` drift was pre-existing (merged before P02a) — reviewer correctly flagged it anyway. Good reminder that the pre-merge review isn't just for the PR's own deltas.
 
 **Status:** P02a ✅ COMPLETE. Orchestrator advances to P02b (callClaude removal + memory-consolidation/weekly-brief migration through LLM gateway).
+
+---
+
+### Entry 094 — P02b Gate 1+2: callClaude removal plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [callClaude] [gateway] [cost-tracking] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P02b-callclaude-removal` (created in this entry's commit). Main at `810c421` before branch.
+**Phase:** P02b of PHASED_PLAN.md (Wave 1, bootstrap phase 3 of 5)
+**PR:** TBD (after Gate 3)
+
+**Objective:** Remove the legacy `callClaude` fallback from all 6 call sites (5 skills + extract-entities job's primary + retry path) so every LLM call in workers runs through `LLMGatewayService.completeByTask()` — which writes `ai_audit_log` and participates in the budget-check machinery. Delete `packages/shared/src/services/call-claude.ts` (+ test file, ~14 tests). This is the half of #102 that makes the budget circuit breaker non-blind on paid skill calls. P03 (next phase) widens `estimateTierCostUsd` to consume the cost fields added by P02a — after P03 merges the end-to-end cost tracking is live.
+
+**Hypothesis:** Removing the `callClaude` / `anthropicClient` branch from each of the 6 consumers (all of which already have gateway-first code in place) and retaining only the `litellmClient` fallback (for test-compat) will produce: (a) zero behavioral regression for workloads where `llmGateway` is injected (which is the prod config); (b) net-equivalent test coverage (948/948 workers unchanged; shared drops from 291 to ~277 after deleting `call-claude.test.ts`); (c) every subsequent skill call writes `ai_audit_log` with `tier_key` populated. Expect ~6 small commits (one per consumer) + a new `memory-consolidation.test.ts` file + an extension of `weekly-brief.test.ts` for gateway-mock coverage + file deletions at the end.
+
+Success criteria:
+- `grep -r "callClaude" packages/workers/src packages/shared/src`: 0 matches (production + test)
+- `pnpm --filter @open-brain/workers test`: 948/948 + new tests
+- `pnpm --filter @open-brain/shared test`: ~277/277 (was 291; delta = deleted `call-claude.test.ts`)
+- `pnpm --filter @open-brain/workers build` + `pnpm --filter @open-brain/shared build`: clean
+- PR body uses `Closes #102 (partial — full closure after P03)` — NOT bare `Closes #102` (which auto-closes; we want #102 to remain open until P03 also lands)
+- No homeserver deploy required (batched with A70)
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` on main — all skill changes revert + `call-claude.ts` restored + test file restored + barrel export restored.
+2. Workers/shared test baselines return to 948/291.
+3. No DB migrations or compose changes — pure code.
+4. Homeserver revert: `git pull && docker compose up -d workers`.
+5. Create git tag `pre-p02b-callclaude-removal` at branch HEAD before merging — provides a quick checkpoint reference for 1 week.
+
+**Gate 1 scope drifts (5 found, all documented in plan; PROCEEDED with expanded scope):**
+
+1. **6 callClaude call sites across 5 files, not 2.** Scope expands from memory-consolidation + weekly-brief to include daily-connections, daily-sweep-skill, drift-monitor, and extract-entities (which has 2 callClaude sites — primary + retry). All 6 already have gateway-first paths; `callClaude` is dead-code fallback.
+2. **`call-claude.ts` is in `packages/shared`, not `packages/workers/src/lib/`.** Sibling test file in shared (~14 tests) must also be deleted, dropping shared test baseline to ~277.
+3. **memory-consolidation uses task key `'search_synthesis'`, not `'memory_consolidation'`** — the name mismatch means audit log will record `task_type: 'search_synthesis'` for consolidation runs. Cleanup deferred to A71; P02b does not add new task_routing entries.
+4. **memory-consolidation has NO existing unit test.** Must write new.
+5. **weekly-brief tests mock `litellmClient`, not `callClaude` directly.** Existing tests continue to work through litellm fallback; new gateway-mock test must be added.
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P02b.md` — 13-work-item plan covering all 6 consumers + 3 test files + `call-claude.ts` deletion + grep verification.
+- Added LAB_NOTEBOOK Entry 094 (this entry).
+- Added Action Item A71 for memory_consolidation task-key rename (deferred out of P02b scope).
+- Updated Action Item A69 to reflect P02b in progress.
+
+**Next (Gate 3):** dispatch `implement-executor` subagent (Sonnet 4.6) to execute all 13 work items. Per-work-item sub-sections will be appended to this entry.
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02b-callclaude-removal`.
+
+#### Gate 3 — implement-executor execution (2026-04-19)
+
+**Baseline confirmed:** Workers 948/948, Shared 291/291. `call-claude.test.ts` has 14 tests.
+
+**Work Item 1 in progress — remove callClaude from memory-consolidation.ts**
+- Hypothesis: Remove `callClaude` from import and delete the `if (this.anthropicClient)` branch (L358-370). Retain litellmClient fallback. Add DRIFT-3 TODO comment. Remove `modelAlias` from `MemoryConsolidationOptions`.
+- Rollback: `git revert` the commit.
+
+**Work Item 2 in progress — remove callClaude from weekly-brief.ts**
+- Hypothesis: Remove `callClaude` from import (L3). Delete `if (this.anthropicClient)` branch (L98-104). Retain litellmClient fallback. Remove `modelAlias` from execute destructure (keep in WeeklyBriefOptions for now — skill-execution still passes it).
+
+**Work Item 3 in progress — remove callClaude from daily-connections.ts**
+- Hypothesis: Remove `callClaude` import. Delete anthropicClient branch (L151-162). Retain litellmClient fallback.
+
+**Work Item 4 in progress — remove callClaude from daily-sweep-skill.ts**
+- Hypothesis: Remove `callClaude` import. Delete anthropicClient branch (L165-176). Retain litellmClient fallback.
+
+**Work Item 5 in progress — remove callClaude from drift-monitor.ts**
+- Hypothesis: Remove `callClaude` import. Delete anthropicClient branch (L173-184). Retain litellmClient fallback.
+
+**Work Item 6 in progress — remove callClaude from extract-entities.ts (primary + retry)**
+- Hypothesis: Remove `callClaude` from import. Delete anthropicClient branches at both primary (L137-144) and retry (L180-185) sites. Check external callers in main.ts before dropping `anthropicClient` parameter.
+
+**Work Item 7 in progress — harden skill-execution.ts**
+- Hypothesis: Remove `anthropicClient: opts.anthropicClient` and `modelAlias: synthesisModel` from all 5 LLM skill cases. Add soft warning when llmGateway not configured.
+
+**Work Items 8-10 in progress — new/updated tests**
+- memory-consolidation.test.ts: new file, 5 test cases for gateway path
+- weekly-brief.test.ts: add gateway-mock describe block (3 new tests)
+- extract-entities.test.ts: remove callClaude / anthropicClient mock, add gateway-path coverage
+
+**Work Item 11 complete — delete source files**
+- Deleted `packages/shared/src/services/call-claude.ts` (callClaude function + types)
+- Deleted `packages/shared/src/services/__tests__/call-claude.test.ts` (14 tests)
+- Removed `export * from './call-claude.js'` from `packages/shared/src/services/index.ts`
+- Shared build: clean. Shared tests: 291 → 277 (delta = 14 deleted, matches plan).
+
+**Work Item 12 complete — grep verification**
+- `grep -r "callClaude" packages/workers/src packages/shared/src` → CLEAN
+- `grep -r "call-claude" packages/workers/src packages/shared/src` → CLEAN
+
+**Work Item 13 complete — CLAUDE.md update**
+- Added callClaude removal rule, memory-consolidation task key note (A71 pending).
+
+#### Gate 3 — Results
+
+| Metric | Before P02b | After P02b | Delta |
+|--------|-------------|------------|-------|
+| Workers tests | 948 | 963 | +15 (9 mem-consol + 3 wb-gateway + 3 ee-gateway) |
+| Shared tests | 291 | 277 | -14 (call-claude.test.ts deleted) |
+| callClaude references | 6 (workers) | 0 | -6 |
+| call-claude.ts | exists | deleted | — |
+
+**anthropicClient parameter disposition:** Kept in `processExtractEntitiesJob` and `createExtractEntitiesWorker` signatures with `_` prefix convention and TODO comment — `main.ts` still passes `anthropicClient` to `createExtractEntitiesWorker`. Fully unused at runtime. Also removed from all 5 standalone `execute*()` function signatures (no prod callers).
+
+**Commits (4 total):**
+1. `fd2a462` — feat(phase-P02b)/1-7: remove callClaude from all 6 consumers + harden skill-execution
+2. `9e6978e` — feat(phase-P02b)/8-10: new memory-consolidation tests + gateway-mock tests
+3. `c5ba6cd` — feat(phase-P02b)/11: delete call-claude.ts + test + barrel export
+4. (pending) — docs(phase-P02b)/13: CLAUDE.md + LAB_NOTEBOOK Gate 3 overall
+
+**What Worked:**
+- Build-first approach caught the `executeWeeklyBrief` / `Anthropic` type residual early (after first failed build, fixed immediately).
+- Mocking `findConsolidationCandidates` via `vi.mock()` at the module level worked cleanly for memory-consolidation tests.
+- Keeping `litellmClient` fallback in skills enabled all existing tests to pass unchanged.
+
+**Status: ALL_COMPLETE**
+
+#### Gate 4 cycle 1 → Gate 3 re-entry: 7th callClaude site fix (voice-capture)
+
+**Root cause:** First Gate 3 pass grep scope was `packages/workers/src` + `packages/shared/src` — missed `packages/voice-capture/src/services/classification.ts`. CI `build-and-test` caught it with `TS2305: Module '@open-brain/shared' has no exported member 'callClaude'` after the shared barrel export was removed in commit `c5ba6cd`.
+
+**Fix:** Removed 3 items from `packages/voice-capture/src/services/classification.ts`:
+1. `import type Anthropic from '@anthropic-ai/sdk'` — removed (line 2)
+2. `callClaude` from the `@open-brain/shared` import (line 3)
+3. `private anthropicClient: Anthropic | null` field + `constructor(opts?: { anthropicClient?: Anthropic })` parameter + the entire `if (this.anthropicClient) { ... callClaude(...) ... }` branch in `classify()` (lines 74-101)
+
+The OpenAI path (`this.client.chat.completions.create(...)`) was always the only live dispatch path — confirmed by `server.ts` which calls `new ClassificationService()` with no arguments. Constructor simplified to no-parameter form, matching test expectations exactly.
+
+**LoC delta:** -14 lines net (removed 17 lines, kept 3 restructured).
+
+**Test counts after fix:**
+- voice-capture: 82 tests / 5 files — unchanged (tests already mocked OpenAI, not Anthropic)
+- workers: 963 tests — unchanged
+- shared: 277 tests — unchanged
+- core-api: 722 tests — unchanged
+- slack-bot: 492 tests — unchanged
+- web: 97 tests — unchanged
+
+**Grep:** `grep -rn "callClaude\|call-claude" packages/` → zero matches (exit code 1).
+
+**Build verification:** shared → voice-capture → workers all build clean. `pnpm -r test` — all 2,633 tests pass across 6 packages.
+
+**Status: READY FOR GATE 4 CYCLE 2**
+
+#### Gate 4 cycle 2 cleanup: I1 + I2 addressed pre-merge
+
+**Operator decision:** fix both non-blocking secondary issues inline before P02b merge.
+
+**I1 (modelAlias orphan):** 4 option type interfaces (`WeeklyBriefOptions`, `DailyConnectionsOptions`, `DriftMonitorOptions`, `DailySweepOptions`) still declared `modelAlias?: string` as an override knob, and the 4 skill `execute()` methods still destructured it. However, `skill-execution.ts` explicitly builds the options objects for each skill case and never passes `modelAlias` from `job.data.input` — making the field unreachable from any queue caller. Removed `modelAlias?: string` from all 4 option type interfaces (in the `-query.ts` files), removed `modelAlias = 'synthesis'` from all 4 `execute()` destructures (in the skill `.ts` files), and replaced the 4 `this.callLLM(..., modelAlias)` call-site args with the literal `'synthesis'`. The private `callLLM()` methods still accept `modelAlias: string` as a parameter (correct internal plumbing — they pass it to `model:` in the OpenAI call). Also removed 3 test cases that exercised the now-unreachable `modelAlias` override path (`daily-connections.test.ts`, `daily-sweep-skill.test.ts`, `drift-monitor.test.ts`).
+
+**Files changed for I1:** `weekly-brief-query.ts`, `daily-connections-query.ts`, `drift-monitor-query.ts`, `daily-sweep-query.ts` (option types); `weekly-brief.ts`, `daily-connections.ts`, `drift-monitor.ts`, `daily-sweep-skill.ts` (execute + callLLM call sites); `daily-connections.test.ts`, `daily-sweep-skill.test.ts`, `drift-monitor.test.ts` (tests removed).
+
+**I2 (_anthropicClient in extract-entities):** Removed `_anthropicClient?: Anthropic | null` from both `processExtractEntitiesJob()` and `createExtractEntitiesWorker()` function signatures in `extract-entities.ts`. Also removed the internal call inside `createExtractEntitiesWorker` that passed `undefined` as the old 6th positional arg before `llmGateway`. Removed the now-unused `import type Anthropic from '@anthropic-ai/sdk'` import. Updated `main.ts` line 175 to drop `anthropicClient` from the `createExtractEntitiesWorker` call. Updated `extract-entities.test.ts` lines 376 + 390 (gateway-path tests) that passed `undefined, gateway` — now pass just `gateway` as the 6th arg. The `anthropicClient` variable in `main.ts` remains constructed and is still passed to `createSkillExecutionWorker` (which serves wiki-lint, monthly-reflection, and email-compose) and `createWikiIngestWorker`.
+
+**Verification:** `grep -rn "modelAlias" packages/workers/src packages/shared/src` — zero matches on option types and execute destructures; only private `callLLM` method bodies retain the param (intentional). `grep -rn "_anthropicClient" packages/workers/src` — zero matches. `grep -rn "callClaude\|call-claude" packages/` — zero matches. Workers: 960/960 tests pass (3 fewer than pre-cleanup — the 3 removed `modelAlias` override tests). Shared: 277/277 unchanged. All builds clean.
+
+**Status:** Ready for final merge.
 
 ---
 
