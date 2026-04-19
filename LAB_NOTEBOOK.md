@@ -180,7 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged 2026-04-18 (PR #123); P02a in progress (Entry 093); P02b-c + P03 remaining |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged (PR #123), P02a merged (PR #124); P02b + P02c + P03 remaining |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -5803,6 +5803,30 @@ Two existing fixtures needed cost fields added to pass the newly-wired validator
 **Verification:** `pnpm --filter @open-brain/shared build && test` + `pnpm --filter @open-brain/workers test` after fixes. Expect tests still 291/291 and 948/948.
 
 **Merge command (when CI green):** `gh auth switch -u davistroy && gh pr merge 124 --squash --delete-branch`.
+
+---
+
+#### Gate 5 + post-merge — MERGED 2026-04-18
+
+**Merge SHA:** `e8f7c52` (squash merge). Remote branch deleted; local pruned.
+
+**CI on nit-fix HEAD `8e86926`:** all 9 checks green (`build-and-test` x2, `python-lint` x2, `sidecar-test` x2, `validate-init-schema` x2, `GitGuardian`).
+
+**Issue #102 state:** initially auto-closed by `Closes #102` in PR body; **REOPENED** with explanatory comment noting P02a was partial closure. P02b + P03 must close before #102 is canonical-closed.
+
+**Gate 5.5 homeserver deploy:** NOT triggered — pure TS + YAML, no compose/migration changes. Batched with future phases under Action Item A70.
+
+**Duration (P02a lifecycle):** ~2 hours wall-clock (orchestrator restart through merge), ~30 min of that was nit-fix iteration + CI re-run.
+
+**What Worked:**
+- Gate 1 planner caught 3 real scope drifts (field names, schema missing cost fields, ConfigService path). Without that Gate 3 would have wasted time on stale assumptions (especially #2 — schema widening was doubled scope).
+- Gate 4 Opus reviewer caught 2 nits (double-log, AIClientType drift) that Sonnet would have missed or deprioritized. Validator of the bootstrap safety net is worth the cost delta.
+- Operator's decision to fix nits inline + capture rules in CLAUDE.md now (instead of post-P03 sweep) closes the "rules-active-but-undocumented" gap that the rules themselves warn about.
+
+**Surprises:**
+- `AIClientType` drift was pre-existing (merged before P02a) — reviewer correctly flagged it anyway. Good reminder that the pre-merge review isn't just for the PR's own deltas.
+
+**Status:** P02a ✅ COMPLETE. Orchestrator advances to P02b (callClaude removal + memory-consolidation/weekly-brief migration through LLM gateway).
 
 ---
 

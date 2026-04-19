@@ -160,11 +160,13 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P02a — Zod config validation for ai-routing.yaml
+### P02a — Zod config validation for ai-routing.yaml  ✅ Completed 2026-04-18 (PR #124)
 **Scope:** #102 subset — Zod startup validation of cost fields
 **Severity:** Critical
 **Dependencies:** None (gates P02b/P03)
 **Effort:** ~1 day
+
+**Result:** Merged as squash `e8f7c52`. Gate 1 surfaced 5 scope drifts (most significant: `ModelTierEntrySchema` was silently stripping cost fields, so P02a also extends the schema). 6 implementation commits + 1 plan + 1 nit-fix (post-Gate-4 Opus review). Tests: shared 283→291 (+8 new validation tests), workers 948 unchanged. CI all 9 green. Captured 3 new operational rules in CLAUDE.md. Bonus fixes at merge: widened `AIClientType` to include `'openai'`+`'deepseek'` (pre-existing drift), eliminated `validateTaskRouting` double-log. Issue #102 remains open (P02b + P03 to close). See LAB_NOTEBOOK Entry 093.
 
 **Deliverables:**
 - `packages/shared/src/services/ai-config-schema.ts` (new): Zod schema validating every paid-provider tier has non-null `cost_per_1k_in` / `cost_per_1k_out`; called at `ConfigService.load()`; fail-fast on violation with actionable error
@@ -947,7 +949,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 | GH # | Title | Phase(s) | Wave | Severity |
 |-----:|-------|----------|-----:|----------|
-| 102 | Theme 1 — Cost-tracking paper tiger | P02a + P02b + P03 | 1 | Critical |
+| 102 | Theme 1 — Cost-tracking paper tiger | P02a ✅ + P02b + P03 | 1 | Critical |
 | 103 | Theme 3 — mem_limits | P01 ✅ | 1 | Critical |
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
