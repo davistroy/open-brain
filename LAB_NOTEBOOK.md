@@ -6370,5 +6370,67 @@ Net change: +5 / −5 LoC on the test file (pure annotation surgery).
 
 ---
 
+### Entry 097 — P04a Gate 1+2: /admin/reset-data two-step + audit plan authored — 2026-04-19
+
+**Tags:** [orchestrator] [phased-plan] [post-bootstrap] [admin] [migration] [csrf] [audit] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P04a-admin-reset` (created in this entry's commit). Main at `2699160` before branch.
+**Phase:** P04a of PHASED_PLAN.md (Wave 1, **first post-bootstrap phase**)
+**Issue:** #104
+
+**Objective:** Close #104 — `/admin/reset-data` blast radius mitigation. Current endpoint has rate-limit + phrase check but no CSRF protection, no two-step confirmation, no audit trail, no pre-wipe backup. P04a adds: (1) single-use 5-min Redis token flow (two POSTs), (2) `Origin`/`Referer` allowlist (`brain.troy-davis.com` in prod, dev bypass), (3) pre-wipe `pg_dump` subprocess to `/backup/pre-wipe/<timestamp>.sql`, (4) new `admin_audit` table (migration 0023) recording every attempt with CF Access email attribution.
+
+**Hypothesis:** The 10-work-item plan produces a surgical refactor of `admin.ts` with new Redis token state + pg_dump subprocess + audit row writes. Scope touches: admin.ts (bulk of work), schema/supporting.ts (new table), drizzle/0023_admin_audit.sql (new migration), init-schema.sql (append), nginx.conf (CF header forwarding), docker-compose.yml (new volume), Dockerfile (postgresql-client), 2 new test files. Expected test count delta: +10 unit + ~3 integration. No regression in existing 277+960+722+82+492+97 = 2,630 tests. Gate 5.5 triggers: migration + compose volume + Dockerfile change.
+
+Success criteria:
+- Step 1 POST issues single-use token; step 2 with valid token + phrase executes the wipe
+- Origin `https://evil.com` → 403 in prod; dev bypass works
+- Token is single-use (GETDEL atomicity) and expires after 5 min
+- pg_dump runs before TRUNCATE; failure aborts wipe
+- `admin_audit` row written on every attempt (requested/executed/blocked/error); table NOT in TRUNCATE list
+- nginx forwards `CF-Access-Authenticated-User-Email` for actor attribution
+- `pnpm --filter @open-brain/core-api test`: unchanged + 10 new admin-reset tests
+- `bash scripts/validate-init-schema.sh`: passes with new `admin_audit` DDL
+- LAB_NOTEBOOK Entry 097 complete with Hypothesis + Rollback + per-item results
+- PR body: bare `Closes #104` (sole PR, full closure — safe per A72 since there's no prose ambiguity)
+
+**Rollback Plan:**
+1. `git revert` the PR; all 10 work items revert atomically if committed in one squash
+2. If migration 0023 applied + audit rows present: conditional `0024_drop_admin_audit_if_empty.sql`
+3. `docker volume rm open-brain_admin_prewipe_backup` if empty
+4. Revert nginx.conf + Dockerfile; rebuild core-api + web images
+5. `docker compose up -d --build core-api web`
+
+**Gate 1 scope drifts (7 cleared; PROCEEDED):**
+1. CF Access email header needs nginx forwarding (added as work item 4.9)
+2. `/backup/pre-wipe/` not in compose — new named volume `admin_prewipe_backup`
+3. `pg_dump` not in core-api image — add `postgresql-client` to Dockerfile
+4. Redis already imported (ioredis in admin.ts) — confirms token storage choice
+5. Other admin endpoints (queue-clear, slack-archive) NOT in P04a scope — potential future P04c
+6. `admin_audit` exclusion from TRUNCATE — explicit code comment + integration test assertion
+7. **Origin is `brain.troy-davis.com` (not `web.troy-davis.com`) — plan card was wrong; tunnel.yaml is authoritative.**
+
+**Key design decisions:**
+- Redis `GETDEL` for atomic single-use (Redis 7, compose uses `redis:7-alpine`)
+- Token format: `randomBytes(32).toString('base64url')` = 43-char URL-safe
+- `ADMIN_RESET_SKIP_PGDUMP=true` env flag skips pg_dump for unit/integration tests
+- `NODE_ENV !== 'production'` bypasses origin check for dev/test
+- Named volume for backup path (portable across Unraid/other hosts); operator can override to host bind-mount via `docker-compose.override.yml` if desired
+- postgresql-client in prod-base stage adds ~6MB to core-api image (acceptable)
+
+**Top 3 risks flagged by Gate 1:**
+1. CSRF edge cases: nginx strips/modifies Origin header under certain proxy configs — must verify in integration test
+2. pg_dump reliability: PGPASSWORD env injection is secure but URL parsing must handle edge cases (special chars in password)
+3. Integration test coverage: Redis GETDEL mocking for expiry simulation — null-vs-undefined return-value mismatch could cause false positives
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P04a.md` — 10-work-item plan bundled into Scope Drift section + Work Items section + Acceptance + Rollback + Deploy Notes + Rules
+- Added LAB_NOTEBOOK Entry 097 (this entry)
+
+**Next (Gate 3):** dispatch `implement-executor` (Sonnet 4.6) for the substantive work. Expected multi-commit structure given the spread across files (admin.ts + schema + migration + nginx + compose + Dockerfile + tests).
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P04a-admin-reset`.
+
+---
+
 
 
