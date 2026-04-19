@@ -328,7 +328,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P06 — Cognitive memory producer + schedule
+### P06 — Cognitive memory producer + schedule  ✅ Completed 2026-04-19 (PR #132)
 **Scope:** #109 wire Hebbian producer in search path + batch upsert + schedule pruneStaleAssociations
 **Severity:** High
 **Dependencies:** None
@@ -966,7 +966,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 106 | Theme 2 — Composio quota unmetered | P03 ✅ | 1 | High |
 | 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b ✅ + P16 + P17 | 1, 3 | High |
 | 108 | Theme 6 — Autonomy false-uniform | P05 ✅ | 2 | High |
-| 109 | Theme 7 — Cognitive memory dormant | P06 | 2 | High |
+| 109 | Theme 7 — Cognitive memory dormant | P06 ✅ | 2 | High |
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
 | 111 | Theme 9 — Doc drift | P15a + P15b | 3 | High |
 | 112 | Theme 10 — Search perf cliff | P13 | 3 | High |
@@ -1014,7 +1014,7 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 ```
 
 **Parallelization opportunities (after P01 lands):**
-- **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 → P14a → P14b
+- **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a → P14b
 - **Track B (Infra/Ops):** P01 → P07 → P08 → P10a → P10b → P11a → P11b → P12 → P17
 - **Track C (Polish + search):** P13 → P15a → P15b → P18
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16
