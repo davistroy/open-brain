@@ -12,7 +12,9 @@ async function fetchAutonomyLevel(coreApiUrl: string): Promise<AutonomyLevel> {
     return _autonomyCache.level
   }
   try {
-    const response = await fetch(`${coreApiUrl}/api/v1/settings/autonomy_level`)
+    const response = await fetch(`${coreApiUrl}/api/v1/settings/autonomy_level`, {
+      headers: { 'X-Open-Brain-Caller': 'workers' },
+    })
     if (response.ok) {
       const data = (await response.json()) as { value: string }
       const level = (['observe', 'assist', 'advise', 'partner'].includes(data.value)

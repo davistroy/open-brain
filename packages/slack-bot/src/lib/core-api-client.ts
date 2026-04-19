@@ -44,6 +44,7 @@ export class CoreApiClient {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'X-Open-Brain-Caller': 'slack-bot',
         ...options.headers,
       },
     })
