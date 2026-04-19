@@ -351,7 +351,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P07 — Internal traffic hygiene (rate-limit + job thunderstorm)
+### P07 — Internal traffic hygiene (rate-limit + job thunderstorm)  ✅ Completed 2026-04-19 (PR #133)
 **Scope:** #114 internal HTTP caller headers + #117 spread 19 scheduled jobs across the hour
 **Severity:** 1 High + 1 Medium
 **Dependencies:** None
@@ -971,10 +971,10 @@ Hard dependencies only (soft groupings in phase cards below):
 | 111 | Theme 9 — Doc drift | P15a + P15b | 3 | High |
 | 112 | Theme 10 — Search perf cliff | P13 | 3 | High |
 | 113 | Theme 11 — Observability (split 3 ways) | P11a + P11b + P12 | 2, 3 | High |
-| 114 | Theme 13 — Rate-limit self-contention | P07 | 2 | High |
+| 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
 | 115 | Theme 14 — CI gating gaps | P10a + P10b | 2 | High |
 | 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
-| 117 | Theme 16 — Job thunderstorm | P07 | 2 | Medium |
+| 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 | 2 | High |
 | 119 | Sibling enum CHECKs (split by table) | P09a + P09b + P09c | 2 | Medium |
 | 120 | scripts/ pyright coverage (staged) | P28 → P32 (5 PRs) | 8 | Low |
@@ -1015,7 +1015,7 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 
 **Parallelization opportunities (after P01 lands):**
 - **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a → P14b
-- **Track B (Infra/Ops):** P01 → P07 → P08 → P10a → P10b → P11a → P11b → P12 → P17
+- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 → P10a → P10b → P11a → P11b → P12 → P17
 - **Track C (Polish + search):** P13 → P15a → P15b → P18
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16
 - **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
