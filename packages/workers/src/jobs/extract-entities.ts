@@ -1,7 +1,6 @@
 import { Worker } from 'bullmq'
 import { eq } from 'drizzle-orm'
 import type OpenAI from 'openai'
-import type Anthropic from '@anthropic-ai/sdk'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures, pipeline_events, logger, createOpenAIClient, TemplateCache } from '@open-brain/shared'
@@ -81,7 +80,6 @@ export async function processExtractEntitiesJob(
   litellmClient: OpenAI,
   synthesisModel: string,
   templatesOrDir: TemplateCache | string,
-  _anthropicClient?: Anthropic | null, // TODO(P02b): drop param in follow-up once main.ts no longer passes anthropicClient
   llmGateway?: LLMGatewayService,
 ): Promise<void> {
   const templates = typeof templatesOrDir === 'string'
@@ -271,7 +269,6 @@ export function createExtractEntitiesWorker(
   litellmBaseUrl: string,
   litellmApiKey: string,
   templates: TemplateCache,
-  _anthropicClient?: Anthropic | null, // TODO(P02b): drop param in follow-up once main.ts no longer passes anthropicClient
   llmGateway?: LLMGatewayService,
 ): Worker<ExtractEntitiesJobData> {
   const aiConfig = configService.get('ai')
@@ -300,7 +297,6 @@ export function createExtractEntitiesWorker(
         openaiClient!,
         synthesisModel,
         templates,
-        undefined,
         llmGateway,
       )
     },

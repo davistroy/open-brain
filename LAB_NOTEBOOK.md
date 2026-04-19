@@ -5970,5 +5970,19 @@ The OpenAI path (`this.client.chat.completions.create(...)`) was always the only
 
 **Status: READY FOR GATE 4 CYCLE 2**
 
+#### Gate 4 cycle 2 cleanup: I1 + I2 addressed pre-merge
+
+**Operator decision:** fix both non-blocking secondary issues inline before P02b merge.
+
+**I1 (modelAlias orphan):** 4 option type interfaces (`WeeklyBriefOptions`, `DailyConnectionsOptions`, `DriftMonitorOptions`, `DailySweepOptions`) still declared `modelAlias?: string` as an override knob, and the 4 skill `execute()` methods still destructured it. However, `skill-execution.ts` explicitly builds the options objects for each skill case and never passes `modelAlias` from `job.data.input` — making the field unreachable from any queue caller. Removed `modelAlias?: string` from all 4 option type interfaces (in the `-query.ts` files), removed `modelAlias = 'synthesis'` from all 4 `execute()` destructures (in the skill `.ts` files), and replaced the 4 `this.callLLM(..., modelAlias)` call-site args with the literal `'synthesis'`. The private `callLLM()` methods still accept `modelAlias: string` as a parameter (correct internal plumbing — they pass it to `model:` in the OpenAI call). Also removed 3 test cases that exercised the now-unreachable `modelAlias` override path (`daily-connections.test.ts`, `daily-sweep-skill.test.ts`, `drift-monitor.test.ts`).
+
+**Files changed for I1:** `weekly-brief-query.ts`, `daily-connections-query.ts`, `drift-monitor-query.ts`, `daily-sweep-query.ts` (option types); `weekly-brief.ts`, `daily-connections.ts`, `drift-monitor.ts`, `daily-sweep-skill.ts` (execute + callLLM call sites); `daily-connections.test.ts`, `daily-sweep-skill.test.ts`, `drift-monitor.test.ts` (tests removed).
+
+**I2 (_anthropicClient in extract-entities):** Removed `_anthropicClient?: Anthropic | null` from both `processExtractEntitiesJob()` and `createExtractEntitiesWorker()` function signatures in `extract-entities.ts`. Also removed the internal call inside `createExtractEntitiesWorker` that passed `undefined` as the old 6th positional arg before `llmGateway`. Removed the now-unused `import type Anthropic from '@anthropic-ai/sdk'` import. Updated `main.ts` line 175 to drop `anthropicClient` from the `createExtractEntitiesWorker` call. Updated `extract-entities.test.ts` lines 376 + 390 (gateway-path tests) that passed `undefined, gateway` — now pass just `gateway` as the 6th arg. The `anthropicClient` variable in `main.ts` remains constructed and is still passed to `createSkillExecutionWorker` (which serves wiki-lint, monthly-reflection, and email-compose) and `createWikiIngestWorker`.
+
+**Verification:** `grep -rn "modelAlias" packages/workers/src packages/shared/src` — zero matches on option types and execute destructures; only private `callLLM` method bodies retain the param (intentional). `grep -rn "_anthropicClient" packages/workers/src` — zero matches. `grep -rn "callClaude\|call-claude" packages/` — zero matches. Workers: 960/960 tests pass (3 fewer than pre-cleanup — the 3 removed `modelAlias` override tests). Shared: 277/277 unchanged. All builds clean.
+
+**Status:** Ready for final merge.
+
 ---
 

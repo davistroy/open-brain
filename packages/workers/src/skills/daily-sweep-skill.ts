@@ -51,7 +51,6 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
   async execute(options: DailySweepOptions = {}): Promise<DailySweepResult> {
     const {
       tokenBudget: rawBudget = DEFAULT_TOKEN_BUDGET,
-      modelAlias = 'synthesis',
       storeCapture = false,
     } = options
     const tokenBudget = Math.max(1_000, Math.min(rawBudget, 100_000))
@@ -100,7 +99,7 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
     const { capturesText, questionsText, entitiesText } = assembleContext(captures, questions, newEntities, maxChars)
 
     // Step 4: Call LLM
-    const rawOutput = await this.callLLM(capturesText, questionsText, entitiesText, captureCount, fmtDate(today), modelAlias)
+    const rawOutput = await this.callLLM(capturesText, questionsText, entitiesText, captureCount, fmtDate(today), 'synthesis')
     const output = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 

@@ -54,7 +54,6 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
       betActivityDays: rawBetDays = DEFAULT_BET_ACTIVITY_DAYS,
       commitmentDays: rawCommitDays = DEFAULT_COMMITMENT_DAYS,
       entityWindowDays: rawEntityDays = DEFAULT_ENTITY_WINDOW_DAYS,
-      modelAlias = 'synthesis',
     } = options
     const betActivityDays = Math.max(1, Math.min(rawBetDays, 365))
     const commitmentDays = Math.max(1, Math.min(rawCommitDays, 365))
@@ -105,7 +104,7 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
     const entityFrequencyText = formatEntityFrequency(entityFrequency)
     const analysisDate = fmtDate(now)
 
-    const rawOutput = await this.callLLM(pendingBetsText, commitmentsText, entityFrequencyText, analysisDate, modelAlias)
+    const rawOutput = await this.callLLM(pendingBetsText, commitmentsText, entityFrequencyText, analysisDate, 'synthesis')
     const output = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 

@@ -36,8 +36,6 @@ export interface WeeklyBriefOptions {
   windowDays?: number
   /** Approximate token budget for assembled captures context. Default: 50_000. */
   tokenBudget?: number
-  /** Override the AI model alias. Default: 'synthesis'. */
-  modelAlias?: string
   /** Email recipient override — falls back to WEEKLY_BRIEF_EMAIL env var */
   emailTo?: string
 }

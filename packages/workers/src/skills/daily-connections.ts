@@ -48,7 +48,6 @@ export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, Dai
     const {
       windowDays: rawWindowDays = DEFAULT_WINDOW_DAYS,
       tokenBudget: rawTokenBudget = DEFAULT_TOKEN_BUDGET,
-      modelAlias = 'synthesis',
     } = options
     const windowDays = Math.max(1, Math.min(rawWindowDays, 365))
     const tokenBudget = Math.max(1_000, Math.min(rawTokenBudget, 100_000))
@@ -90,7 +89,7 @@ export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, Dai
     const dateRange = `${fmtDate(windowStart)} to ${fmtDate(now)}`
 
     // Step 4: Call LLM
-    const rawOutput = await this.callLLM(contextText, coOccurrenceText, dateRange, captureCount, modelAlias)
+    const rawOutput = await this.callLLM(contextText, coOccurrenceText, dateRange, captureCount, 'synthesis')
     const output = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 

@@ -373,7 +373,7 @@ describe('processExtractEntitiesJob — gateway path', () => {
       completeByTask: vi.fn().mockResolvedValue(llmResponse),
     } as any
 
-    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir, undefined, gateway)
+    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir, gateway)
 
     expect(gateway.completeByTask).toHaveBeenCalledOnce()
     expect(gateway.completeByTask.mock.calls[0][1]).toBe('entity_extraction')
@@ -387,7 +387,7 @@ describe('processExtractEntitiesJob — gateway path', () => {
       completeByTask: vi.fn().mockResolvedValue('{"people":[],"organizations":[],"concepts":[],"decisions":[],"projects":[]}'),
     } as any
 
-    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir, undefined, gateway)
+    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir, gateway)
 
     const opts = gateway.completeByTask.mock.calls[0][2]
     expect(opts.jsonMode).toBe(true)

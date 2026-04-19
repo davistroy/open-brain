@@ -39,7 +39,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
   }
 
   async execute(options: WeeklyBriefOptions = {}): Promise<WeeklyBriefResult> {
-    const { windowDays = DEFAULT_WINDOW_DAYS, tokenBudget = DEFAULT_TOKEN_BUDGET, modelAlias = 'synthesis', emailTo = process.env.WEEKLY_BRIEF_EMAIL } = options
+    const { windowDays = DEFAULT_WINDOW_DAYS, tokenBudget = DEFAULT_TOKEN_BUDGET, emailTo = process.env.WEEKLY_BRIEF_EMAIL } = options
     const startMs = Date.now()
     const now = new Date()
     const windowStart = new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000)
@@ -60,7 +60,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
     const weekStart = fmtDate(windowStart)
     const weekEnd = fmtDate(now)
 
-    const rawOutput = await this.callLLM(contextText, dateRange, captureCount, modelAlias)
+    const rawOutput = await this.callLLM(contextText, dateRange, captureCount, 'synthesis')
     const brief = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 
