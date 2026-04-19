@@ -7286,6 +7286,65 @@ Add a new `integration-test` job to `.github/workflows/ci.yml` that runs the cor
 
 ---
 
+## Entry 106 — P11a: Loki log driver wiring for all compose services — 2026-04-19
+
+**Tags:** [docker] [config] [deploy] [decision]
+**Environment:** laptop (branch `feat/phase-P11a-observability-logging`)
+
+### Objective
+
+Route all 13 active compose services to the standalone Loki container on homeserver via the Docker `loki` log driver. Adds `logging:` stanzas to every service in `docker-compose.yml`, parameterized by `LOKI_URL` in `.env`. Also provisions the Grafana Loki datasource as code (currently manual-only in Grafana UI) and adds a validation script for post-deploy verification.
+
+No TypeScript changes. No migrations. Production infra file change requiring Gate 5 operator approval + `docker compose up -d --force-recreate` on homeserver.
+
+### Hypothesis
+
+After adding `logging: driver: loki` to all 13 services and recreating containers on homeserver:
+- Each container's logs appear in Loki under `{container_name="open-brain-<name>"}` within 30s of startup
+- Pino JSON services additionally expose `{level="..."}` and `{name="..."}` labels from the pipeline-stages config
+- Grafana Loki datasource provisioned from `config/grafana/provisioning/datasources/datasources.yaml` shows "connected" status
+- `scripts/test-loki-routing.sh` exits 0 (13/13 PASS)
+
+### Rollback plan
+
+Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -d --force-recreate`. Containers revert to default json-file driver. Logs already shipped to Loki remain (30-day retention per loki-config.yaml). No data loss. No schema changes. Plugin can remain installed on host — no effect on containers using default driver.
+
+### Implementation
+
+**WI 1.1 — LAB_NOTEBOOK pre-action entry:** This entry.
+
+**WI 1.2 — `.env` LOKI_URL:** Appended `LOKI_URL` to `.env` after `LOG_LEVEL=info`.
+
+**WI 1.3 — `docker-compose.yml` logging stanzas:** Added `logging:` block to all 13 services (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web, cloudflared, financial-ingest, utility-ingest). Driver: loki. loki-pipeline-stages extracts `level` + `name` labels from pino JSON. Non-pino services (postgres, redis, faster-whisper, cloudflared, web/nginx) accept the driver without issue — pipeline stages produce empty labels (raw text still routed to Loki under container_name label).
+
+**WI 1.4 — Grafana datasource provisioning:** Created `config/grafana/provisioning/datasources/datasources.yaml` with Prometheus (uid: DS_PROMETHEUS, isDefault: true) + Loki (uid: DS_LOKI). Prometheus UID matches template variable used in existing dashboards. Loki URL: `http://loki:3100` (operator must verify Grafana and Loki share a Docker network; fallback to homeserver IP if not).
+
+**WI 1.5 — Grafana dashboards.yaml:** No change needed — datasources are discovered automatically from the provisioning directory.
+
+**WI 1.6 — CLAUDE.md rule:** Added to Docker/infra section: loki driver behavior, LOKI_URL parameterization, drop-on-disconnect failure mode, plugin install command.
+
+**WI 1.7 — Validation script:** Created `scripts/test-loki-routing.sh` — queries Loki API for each of 13 container names over last 5 minutes, reports PASS/FAIL per service, exits 0 iff all pass.
+
+### Decisions
+
+**D-P11a-1:** Docker `loki` log driver (not Promtail sidecar). Simpler: zero new containers, wired at compose level. Failure mode (Loki unreachable → driver drops logs) is acceptable for personal system.
+
+**D-P11a-2:** `loki-batch-size: "400"` — intentionally low. Pino single-line JSON logs are short; default 100K would batch too long before flushing. 400 bytes flushes quickly for near-real-time log visibility.
+
+**D-P11a-3:** Pipeline stages extract `level` + `name` labels only. No capture IDs, no user input, no high-cardinality values. Loki label cardinality is safe.
+
+**D-P11a-4:** Prometheus datasource provisioned in same file with UID `DS_PROMETHEUS` — this was previously manual-only in Grafana UI. Additive: locks in the UID so existing dashboards work after Grafana container recreate.
+
+### Result
+
+(Pending homeserver deploy at Gate 5.5)
+
+- 6 files changed: `docker-compose.yml`, `.env`, `CLAUDE.md`, `LAB_NOTEBOOK.md` (this entry), `config/grafana/provisioning/datasources/datasources.yaml` (new), `scripts/test-loki-routing.sh` (new)
+- Zero TypeScript files changed. Zero migrations. Zero test changes.
+- `docker compose config --quiet` validated clean on all compose YAML changes.
+
+---
+
 ### Entry 104 — P09c Gate 3: Sibling enum CHECKs on sessions (session_type + status) — 2026-04-19
 
 **Tags:** [database] [typescript] [decision]
