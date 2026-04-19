@@ -7337,11 +7337,13 @@ Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -
 
 ### Result
 
-(Pending homeserver deploy at Gate 5.5)
-
-- 6 files changed: `docker-compose.yml`, `.env`, `CLAUDE.md`, `LAB_NOTEBOOK.md` (this entry), `config/grafana/provisioning/datasources/datasources.yaml` (new), `scripts/test-loki-routing.sh` (new)
+**PR #143 merged** — SHA `d6a79df`, 2026-04-19. Opus APPROVE cycle 1.
+- Homeserver: Loki plugin installed, `LOKI_URL` set in `.env`, `docker compose up -d --force-recreate` executed, all 13 containers healthy.
+- All containers log to Loki under `{container_name="open-brain-<name>"}` labels within 30s of startup.
+- Grafana Loki + Prometheus datasources provisioned from code (`config/grafana/provisioning/datasources/datasources.yaml`). UID `DS_PROMETHEUS` locked in.
+- 6 files changed: `docker-compose.yml`, `.env`, `CLAUDE.md`, `LAB_NOTEBOOK.md`, `config/grafana/provisioning/datasources/datasources.yaml` (new), `scripts/test-loki-routing.sh` (new).
 - Zero TypeScript files changed. Zero migrations. Zero test changes.
-- `docker compose config --quiet` validated clean on all compose YAML changes.
+- Issue #113: P11a ✅. P11b + P12 remain.
 
 ---
 
@@ -7422,51 +7424,6 @@ Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -
 - **Issues closed:** #119 fully closed (all 3 sub-phases P09a + P09b + P09c complete). Cross-Phase Tracking row #119 marked fully complete.
 - **CLAUDE.md rules added:** 3 (sessions.session_type lockstep, sessions.status lockstep, Board.tsx UI-type isolation note).
 - **Resume point:** P10a — CI gating: integration tests (gate_4_review, still in flight).
-
----
-
-## Entry 106 — P11a: Loki log driver wiring for all compose services — 2026-04-19
-
-**Tags:** [docker] [config] [deploy] [decision]
-**Environment:** laptop (branch `feat/phase-P11a-observability-logging`)
-
-### Objective
-
-Route all 13 active compose services to the standalone Loki container on homeserver via the Docker `loki` log driver. Adds `logging:` stanzas to every service in `docker-compose.yml`, parameterized by `LOKI_URL` in `.env`. Also provisions the Grafana Loki datasource as code (currently manual-only in Grafana UI) and adds a validation script for post-deploy verification.
-
-No TypeScript changes. No migrations. Production infra file change requiring Gate 5 operator approval + `docker compose up -d --force-recreate` on homeserver.
-
-### Hypothesis
-
-After adding `logging: driver: loki` to all 13 services and recreating containers on homeserver:
-- Each container's logs appear in Loki under `{container_name="open-brain-<name>"}` within 30s of startup
-- Pino JSON services additionally expose `{level="..."}` and `{name="..."}` labels from the pipeline-stages config
-- Grafana Loki datasource provisioned from `config/grafana/provisioning/datasources/datasources.yaml` shows "connected" status
-- `scripts/test-loki-routing.sh` exits 0 (13/13 PASS)
-
-### Rollback plan
-
-Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -d --force-recreate`. Containers revert to default json-file driver. No data loss. No schema changes.
-
-### Decisions
-
-**D-P11a-1:** Docker `loki` log driver (not Promtail sidecar). Simpler: zero new containers, wired at compose level. Failure mode (Loki unreachable → driver drops logs) is acceptable for personal system.
-
-**D-P11a-2:** `loki-batch-size: "400"` — intentionally low. Pino single-line JSON logs are short; default 100K would batch too long before flushing.
-
-**D-P11a-3:** Pipeline stages extract `level` + `name` labels only. No capture IDs, no high-cardinality values. Loki label cardinality is safe.
-
-**D-P11a-4:** Prometheus datasource provisioned in same file with UID `DS_PROMETHEUS` — previously manual-only. Locks in UID so existing dashboards work after Grafana container recreate.
-
-### Result
-
-**PR #143 merged** — SHA `d6a79df`, 2026-04-19. Opus APPROVE cycle 1.
-- Homeserver: Loki plugin installed, `LOKI_URL` set in `.env`, `docker compose up -d --force-recreate` executed, all 13 containers healthy.
-- All containers log to Loki under `{container_name="open-brain-<name>"}` labels.
-- Grafana Loki + Prometheus datasources provisioned from code (`config/grafana/provisioning/datasources/datasources.yaml`). UID `DS_PROMETHEUS` locked in.
-- No TypeScript changes. No migrations. No test changes.
-- 6 files changed: `docker-compose.yml`, `.env`, `CLAUDE.md`, `LAB_NOTEBOOK.md`, `config/grafana/provisioning/datasources/datasources.yaml` (new), `scripts/test-loki-routing.sh` (new).
-- Issue #113: P11a ✅. P11b + P12 remain.
 
 ---
 
