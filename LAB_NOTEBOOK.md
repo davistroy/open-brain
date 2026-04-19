@@ -6511,5 +6511,153 @@ Success criteria:
 
 ---
 
+#### Gate 4 cycle 2 — APPROVE
+
+**Reviewer verdict:** APPROVE. All 9 CI checks green on `f5f78a8`. Security posture + architecture solid. Non-blocking concerns flagged for pre-merge treatment: NODE_ENV dev bypass foot-gun + missing-Redis step-2 audit-row gap.
+
+---
+
+#### Gate 5 pre-merge — NODE_ENV hardening + 2 recurring session pattern rules
+
+**Operator decision:** fix NODE_ENV inline + codify 2 recurring Sonnet blind spots in CLAUDE.md before merge.
+
+**Fix 1 — `checkOrigin()` fail-closed (`admin.ts`):**
+- Before: `if (NODE_ENV !== 'production') return true` (fail-open on unset NODE_ENV)
+- After: `if (env === 'development' || env === 'test') return true` (fail-closed — unset/unknown = production)
+- Closes the reviewer-flagged foot-gun where a prod deploy without NODE_ENV set would silently bypass origin check.
+
+**Fix 2 — 6 new CLAUDE.md operational rules** (recurring patterns from this session):
+- `vi.fn().mockResolvedValue()` over `vi.fn(async () => x)` for re-implementable mocks (P03 + P04a cycle 1 both hit the same type-narrowing issue; codified to prevent a third)
+- NODE_ENV fail-closed for security checks (codifies the `checkOrigin` fix rationale)
+- `/admin/reset-data` two-step behavior documentation
+- `admin_audit` TRUNCATE-exclusion invariant
+- `postgresql-client` ships in core-api image; `ADMIN_RESET_SKIP_PGDUMP` must NOT be set in production
+
+**Commit:** `ed543d6` — `fix(phase-P04a): NODE_ENV fail-closed + capture 2 recurring patterns in CLAUDE.md`
+
+**Verification:** `pnpm --filter @open-brain/core-api test -- admin-reset` — 10/10 green (vitest sets NODE_ENV='test' by default, exercising the bypass branch correctly).
+
+---
+
+#### Gate 5 + post-merge — MERGED 2026-04-19
+
+**Merge SHA:** `7a2f4fb` (squash). Remote branch deleted; local pruned.
+
+**Issue #104 closed** by bare `Closes #104` in PR body (sole PR, full closure — expected).
+
+**CI sequence:** First run on `ed543d6` had one transient `validate-init-schema` failure (race: `pg_isready` returned ready but `validate` database wasn't yet initialized). Triggered a `gh run rerun --failed` which completed green in 18s on the same commit. Second PR-triggered workflow run also passed natively. `mergeStateStatus: CLEAN` + `mergeable: MERGEABLE` before merge.
+
+**Gate 5.5 — DEFERRED (A70 batched deploy):**
+
+Operator elected to defer all pending homeserver deploys (P01, P02a, P02b, P02c, P03, **P04a**) into one batch. Commands stored below for the eventual deploy window:
+
+```bash
+# On homeserver
+ssh -i ~/.ssh/id_claude_code claude@homeserver.k4jda.net
+cd /mnt/user/appdata/open-brain
+
+# 1. Pre-flight audit (MANDATORY for migration 0023)
+docker exec open-brain-postgres psql -U openbrain -d openbrain \
+  -c "SELECT tablename FROM pg_tables WHERE tablename = 'admin_audit';"
+# Expect: 0 rows
+
+# 2. Pull the accumulated bootstrap + P04a changes
+git pull origin main
+
+# 3. Apply migration 0023 (admin_audit table)
+docker cp packages/shared/drizzle/0023_admin_audit.sql open-brain-postgres:/tmp/
+docker exec open-brain-postgres psql -U openbrain -d openbrain -f /tmp/0023_admin_audit.sql
+docker exec open-brain-postgres psql -U openbrain -d openbrain -c \
+  "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('0023_admin_audit', EXTRACT(EPOCH FROM NOW())::BIGINT * 1000);"
+
+# 4. Rebuild core-api (now includes postgresql-client for pg_dump) + web
+docker compose build core-api web
+
+# 5. Bring up with new mem_limits (P01), new admin_prewipe_backup volume (P04a), and all
+#    other accumulated changes (P02a ai-routing.yaml t1_jetson costs, P02b-c code-only,
+#    P03 Composio quota wiring)
+docker compose up -d
+
+# 6. Verify
+docker stats --no-stream                               # P01: mem limits applied
+docker exec open-brain-core-api pg_dump --version      # P04a: pg_dump available (expect 16.x)
+docker exec open-brain-core-api ls -la /backup/pre-wipe/  # P04a: volume mounted
+docker volume ls | grep admin_prewipe_backup           # P04a: volume exists
+
+# 7. Smoke tests
+curl -I https://brain.troy-davis.com/api/v1/captures?limit=1  # expect 200
+# Visit brain.troy-davis.com/search — verify source filter dropdown shows 9 options
+
+# Environment variables to VERIFY are set correctly in docker-compose or env file:
+# - NODE_ENV=production on core-api service (if unset, origin check now applies
+#   per P04a fail-closed hardening — but best to set it explicitly)
+# - ADMIN_RESET_SKIP_PGDUMP must NOT be set (only integration tests set it)
+# - OPENAI_API_KEY / LITELLM_API_KEY etc. as usual per bootstrap
+```
+
+**Duration (P04a lifecycle):** ~3 hours wall-clock (plan → merge). Two review cycles (TS inference fix + NODE_ENV hardening) added ~40 min.
+
+**What Worked:**
+- The reviewer's "non-blocking" flags became a pre-merge surgical fix when operator elected to address inline. Zero regression, hardened default, one extra commit.
+- CI rerun on transient failure was cleaner than merging with a red check — preserves PR history integrity.
+- Capturing the `vi.fn()` recurring pattern in CLAUDE.md was operator-initiated ("make sure capturing the 3 operational rules are somewhere in the plan so we don't miss them" earlier in session → extended to "capture patterns as we go"). This is the second time a nit-class pattern got codified inline rather than deferred.
+
+**Status:** P04a ✅ COMPLETE. Orchestrator advances to **P04b** — backup `.env.secrets` redaction (#107 subset). Bare `Closes #107` in PR body — but CLAUDE.md rule A72 warns: scrub any incidental `close`-keyword usage in prose to avoid auto-close on OTHER issue numbers. #107 is the only issue targeted by P04b.
+
+---
+
+### ═══ SESSION HANDOFF CHECKPOINT — 2026-04-19 (context clear imminent) ═══
+
+**Orchestrator state snapshot for clean resumption:**
+
+- **Bootstrap:** COMPLETE (flipped to `bootstrap_mode: false` after P03 merged)
+- **Phases merged this session (6):** P01 (#123 `3afc0a2`), P02a (#124 `e8f7c52`), P02b (#125 `fad793e`), P02c (#126 `7b8407a`), P03 (#127 `32b17f2`), P04a (#128 `7a2f4fb`)
+- **Current state:** `.orchestrator-state.json` will be updated to `current_phase: "P04b"`, `current_gate: "gate_1_plan"` after this commit lands
+- **Main HEAD at handoff:** pending — doc sweep commit about to be pushed
+- **Pending homeserver deploys:** all 6 phases above — operator batching under A70 (commands captured in Entry 097 Gate 5.5 section)
+
+**To resume:** user says `resume orchestrator`. Main agent reads `.orchestrator-state.json`, verifies git state on main, confirms `current_phase: P04b` + `current_gate: gate_1_plan`, and dispatches Gate 1 phase-planner for P04b.
+
+**P04b scope preview** (for planner when resumed — see `PHASED_PLAN.md` ~lines 271-287):
+- Remove or redact `.env.secrets` copy from `scripts/backup.sh`
+- Alternative: encrypt backup payload with Bitwarden-held key
+- Verify via grep that fresh backup has zero matches for `BWS_ACCESS_TOKEN`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.
+- Severity: High (security hygiene — existing backups leak secrets)
+- Effort: ~2 hours
+- Per ORCHESTRATOR.md matrix: P04b is LIKELY auto-merge eligible (touches backup script only — not critical, not homeserver in the migration sense, not CLAUDE.md/PRD/TDD). Gate 5 should transition to auto-merge on APPROVE + CI green. **Verify auto-merge eligibility at P04b Gate 5** per the matrix.
+
+**Action Items in flight (LAB_NOTEBOOK):**
+- A70 (HIGH): batch homeserver deploy — P01 + P02a + P02b + P02c + P03 + P04a queued
+- A71 (MEDIUM): rename `memory-consolidation` task key from `'search_synthesis'` to `'memory_consolidation'` (P02b-DRIFT3 follow-up)
+- A72 (LOW): PR body close-keyword scrub convention (strengthened twice — now covers entire body, not just top)
+
+**6 new CLAUDE.md operational rules captured this session:**
+1. Paid-provider tiers MUST declare cost fields (P02a)
+2. `ModelTierEntry.cost_per_1k_input` is `number | undefined` (P02a)
+3. Test fixtures with paid-provider `model_tiers` need cost fields (P02a)
+4. `callClaude` removed; all skills through LLMGatewayService; `litellmClient` is test-compat fallback (P02b)
+5. `estimateTierCostUsd()` reads from tier config; no provider allowlist (P03)
+6. Composio quota meter via injection + `ComposioQuotaExceededError` at 19K (P03)
+7. `vi.fn().mockResolvedValue()` over `vi.fn(async () => x)` (P04a — recurring pattern codified)
+8. NODE_ENV fail-closed for security checks (P04a)
+9. `/admin/reset-data` two-step flow (P04a)
+10. `admin_audit` TRUNCATE-exclusion invariant (P04a)
+11. `postgresql-client` in core-api image + `ADMIN_RESET_SKIP_PGDUMP` warning (P04a)
+
+(11 total — count was wrong in my earlier summary; P04a contributed 5 new rules, not 2.)
+
+**Tests at session end:**
+- core-api: 732/732 (+10 admin-reset this session)
+- shared: 286/286 (stayed stable since P03; -14 from call-claude.test.ts deletion, +9 from P02a estimator + P03 composio-quota)
+- workers: 960/960 (stable — net 0 after P02b refactor; tests replaced rather than added)
+- voice-capture: 82/82, slack-bot: 492/492, web: 97/97 (unchanged this session)
+- Total repo: 2,649 tests passing
+
+**Session duration:** ~12 hours wall-clock across 2 days (kickoff 2026-04-18 ~14:00 UTC → P04a doc sweep 2026-04-19 ~14:55 UTC).
+
+**What to resume with:** `resume orchestrator` at P04b Gate 1.
+
+---
+
 
 
