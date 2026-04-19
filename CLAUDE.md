@@ -104,6 +104,10 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - Email worker derives base API URL from `CAPTURES_URL` via regex `replace(/\/captures\/?$/, '')`, not string replace.
 - Rate-limiter `BYPASS_CALLERS` is a Set in `rate-limit.ts`. Add new bypass callers there (e.g., `email-worker`).
 
+**Backup / disaster recovery**
+- **`scripts/backup.sh` MUST NEVER copy `.env.secrets` (or any file with live credentials) into the backup payload.** Secrets live in Bitwarden — post-restore rebuild via `scripts/load-secrets.sh` (stub today; P08 completes) or manual `bws secret get` loop per `deploy/.env.secrets.template`. Regression guard: `scripts/test-backup-secrets-redaction.sh` (P04b) — greps ephemeral backup tree for known secret variable names, exits 1 on any match.
+- `scripts/backup.sh` honors `BACKUP_ROOT` and `APP_DIR` env overrides (P04b added, matches existing `WIKI_REPO_URL` precedent). Homeserver cron uses defaults; overrides are for test harnesses. When adding similarly test-gated shell scripts, use the `${VAR:-default}` pattern, not hard assignments.
+
 **Front-end / web**
 - **PWA service worker aggressively caches Vite-hashed bundles.** After every web deploy: hard-refresh (Ctrl+Shift+R) AND in DevTools console run `caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))`. SW unregister alone is insufficient. Recurring issue after every web rebuild.
 - Web package must be self-contained for Docker build. Vite `?raw` imports that escape `packages/web/` fail (`.dockerignore` excludes `docs/`). User-facing markdown must live in `packages/web/src/content/`.

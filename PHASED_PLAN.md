@@ -277,7 +277,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P04b — Backup .env.secrets redaction
+### P04b — Backup .env.secrets redaction  ✅ Completed 2026-04-19 (PR #129)
 **Scope:** #107 subset — stop leaking `.env.secrets` into backup payload
 **Severity:** High
 **Dependencies:** None
@@ -964,7 +964,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a ✅ | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
 | 106 | Theme 2 — Composio quota unmetered | P03 ✅ | 1 | High |
-| 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b, P16, P17 | 1, 3 | High |
+| 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b ✅ + P16 + P17 | 1, 3 | High |
 | 108 | Theme 6 — Autonomy false-uniform | P05 | 2 | High |
 | 109 | Theme 7 — Cognitive memory dormant | P06 | 2 | High |
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
@@ -1017,7 +1017,7 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 - **Track A (Pipeline safety):** P02a → P02b → P02c → P03 → P05 → P06 → P14a → P14b
 - **Track B (Infra/Ops):** P01 → P07 → P08 → P10a → P10b → P11a → P11b → P12 → P17
 - **Track C (Polish + search):** P13 → P15a → P15b → P18
-- **Track D (Disaster recovery):** P04a → P04b → P16
+- **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16
 - **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
 - **Track F (Voice, calendar):** P24 (operational, any time) → P25
 - **Track G (Typing staged):** P27 → P28 → P29 → P30 → P31 → P32 (interleave with other tracks as filler)
