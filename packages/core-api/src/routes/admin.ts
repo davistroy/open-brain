@@ -7,8 +7,12 @@ import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import { Redis } from 'ioredis'
 import { sql } from 'drizzle-orm'
+import type { Context } from 'hono'
+import { randomBytes } from 'node:crypto'
+import { spawn } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import type { ConfigService, Database } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, admin_audit } from '@open-brain/shared'
 import { adminAuth } from '../middleware/admin-auth.js'
 import { SlackChannelService } from '../services/slack-channel.js'
 
@@ -46,6 +50,79 @@ interface AdminBanner {
 const BANNER_REDIS_KEY = 'admin:banner'
 const BANNER_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
+// ── Origin allowlist for /admin/reset-data ────────────────────────────────
+// Only requests from brain.troy-davis.com are permitted.
+// Fail-closed: only explicit NODE_ENV='development' or 'test' bypasses.
+// Unset or unknown NODE_ENV (including the foot-gun case of a production
+// deploy without NODE_ENV set) is treated as production — origin check applies.
+const ALLOWED_ORIGINS = new Set(['https://brain.troy-davis.com'])
+
+function checkOrigin(c: Context): boolean {
+  const env = process.env.NODE_ENV
+  if (env === 'development' || env === 'test') return true
+  const origin = c.req.header('origin') ?? c.req.header('referer') ?? ''
+  if (!origin) return false
+  return [...ALLOWED_ORIGINS].some(a => origin === a || origin.startsWith(a + '/'))
+}
+
+function getActor(c: Context): string {
+  return c.req.header('cf-access-authenticated-user-email') ?? 'unknown@internal'
+}
+
+function getClientIp(c: Context): string {
+  return c.req.header('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown'
+}
+
+async function writeAuditRow(db: Database, params: {
+  event_type: 'reset_requested' | 'reset_executed' | 'reset_blocked'
+  actor: string
+  confirmation_phrase?: string
+  tables_affected?: string[]
+  outcome: 'success' | 'blocked' | 'error'
+  error_detail?: string
+  backup_path?: string
+  origin?: string
+  ip_address?: string
+}): Promise<string> {
+  const [row] = await db.insert(admin_audit).values(params).returning({ id: admin_audit.id })
+  return row.id
+}
+
+async function runPreWipeDump(backupDir: string): Promise<string> {
+  if (process.env.ADMIN_RESET_SKIP_PGDUMP === 'true') {
+    return `${backupDir}/SKIPPED-FOR-TESTS`
+  }
+  const pgUrl = process.env.POSTGRES_URL
+  if (!pgUrl) throw new Error('POSTGRES_URL not set')
+  const url = new URL(pgUrl)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const outPath = `${backupDir}/${timestamp}.sql`
+  mkdirSync(backupDir, { recursive: true })
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('pg_dump', [
+      '-h', url.hostname,
+      '-p', url.port || '5432',
+      '-U', url.username,
+      '-d', url.pathname.slice(1),
+      '--format=plain',
+      '--no-owner',
+      '--no-privileges',
+      '-f', outPath,
+    ], {
+      env: { ...process.env, PGPASSWORD: url.password },
+      timeout: 120_000,
+    })
+    const stderr: Buffer[] = []
+    proc.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
+    proc.on('close', (code) => {
+      if (code === 0) resolve(outPath)
+      else reject(new Error(`pg_dump exit ${code}: ${Buffer.concat(stderr).toString()}`))
+    })
+    proc.on('error', reject)
+  })
+}
+
 /**
  * Creates the admin router.
  *
@@ -61,6 +138,12 @@ const BANNER_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 export function createAdminRouter({ configService, redisConnection, db }: AdminRouterOptions): Hono {
   const router = new Hono()
 
+  // Redis client for reset token issuance + GETDEL (reuses same connection options as bannerRedis).
+  // null when redisConnection is not configured — step 1 returns 503 in that case.
+  const resetRedis = redisConnection
+    ? new Redis(redisConnection as unknown as import('ioredis').RedisOptions)
+    : null
+
   // POST /config/reload — hot-reload YAML config files (auth required)
   router.post('/config/reload', adminAuth(), async (c) => {
     logger.info('Config reload requested via admin API')
@@ -74,63 +157,195 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
     }, allSuccess ? 200 : 207)
   })
 
-  // POST /reset-data — truncate all user data tables, preserve schema + migration history
-  // Requires body: { confirm: "WIPE ALL DATA" }
-  // Preserves: triggers (user config), schema, __drizzle_migrations
-  // Auth required — destructive endpoint
+  // POST /reset-data — two-step destructive data wipe with audit trail
+  //
+  // Step 1 (body has { intent: "reset" } OR body lacks `confirm`):
+  //   - Validate Origin (prod only)
+  //   - Issue single-use 5-min Redis token
+  //   - Write audit row: event_type='reset_requested'
+  //   - Return: { token, expires_in: 300, message }
+  //
+  // Step 2 (body has { confirm: "WIPE ALL DATA", token: string }):
+  //   - Validate Origin
+  //   - Validate phrase
+  //   - GETDEL token (atomic single-use)
+  //   - Run pg_dump to /backup/pre-wipe/<timestamp>.sql
+  //   - TRUNCATE user data tables
+  //   - Write audit row: event_type='reset_executed'
+  //   - Return: { cleared, preserved, wiped_at, backup_path, audit_id }
+  //
   // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method,
-  // JSON body requirement, exact confirmation phrase, and admin rate limiter.
+  // Origin check, JSON body, exact confirmation phrase, Redis token, and admin rate limiter.
   router.post('/reset-data', async (c) => {
     if (!db) {
       return c.json({ error: 'Database not configured for reset endpoint' }, 503)
     }
 
-    let body: Record<string, unknown> | null = null
+    // Parse body — tolerate missing or malformed JSON
+    let body: { intent?: string; confirm?: string; token?: string } = {}
     try {
-      body = await c.req.json()
+      const raw = await c.req.json()
+      if (raw && typeof raw === 'object') body = raw as typeof body
     } catch {
-      return c.json({ error: 'Request body must be JSON with { "confirm": "WIPE ALL DATA" }' }, 400)
+      // No JSON body — treat as step 1 (token request)
     }
 
-    if (!body || body.confirm !== 'WIPE ALL DATA') {
-      return c.json(
-        { error: 'Confirmation required. Send { "confirm": "WIPE ALL DATA" } in the request body.' },
-        400,
-      )
+    const actor = getActor(c)
+    const ip_address = getClientIp(c)
+    const origin = c.req.header('origin') ?? c.req.header('referer') ?? undefined
+
+    // Origin check — applies to both steps
+    if (!checkOrigin(c)) {
+      if (db) {
+        await writeAuditRow(db, {
+          event_type: 'reset_blocked',
+          actor,
+          outcome: 'blocked',
+          error_detail: 'origin_check_failed',
+          origin,
+          ip_address,
+        })
+      }
+      return c.json({ error: 'Forbidden' }, 403)
     }
 
-    logger.warn('[admin] Data reset initiated — wiping all user data')
+    // ── Step 2: confirm + token present ─────────────────────────────────────
+    if (body.confirm !== undefined || body.token !== undefined) {
+      if (body.confirm !== 'WIPE ALL DATA') {
+        await writeAuditRow(db, {
+          event_type: 'reset_blocked',
+          actor,
+          outcome: 'blocked',
+          error_detail: 'wrong_confirmation_phrase',
+          origin,
+          ip_address,
+        })
+        return c.json({ error: 'Confirmation required. Send { "confirm": "WIPE ALL DATA", "token": "<token>" }' }, 400)
+      }
 
-    // Tables ordered to avoid FK constraint errors; CASCADE handles any remainder.
-    // Triggers are intentionally preserved (user configuration, not test data).
-    // __drizzle_migrations is a system table and is never touched.
-    await db.execute(sql`
-      TRUNCATE
-        skills_log,
-        ai_audit_log,
-        session_messages,
-        bets,
-        sessions,
-        entity_links,
-        entity_relationships,
-        entities,
-        pipeline_events,
-        captures
-      CASCADE
-    `)
+      if (!body.token || typeof body.token !== 'string') {
+        await writeAuditRow(db, {
+          event_type: 'reset_blocked',
+          actor,
+          outcome: 'blocked',
+          error_detail: 'token_missing',
+          origin,
+          ip_address,
+        })
+        return c.json({ error: 'Token required. Perform step 1 first to obtain a single-use token.' }, 400)
+      }
 
-    const clearedTables = [
-      'captures', 'pipeline_events', 'entities', 'entity_links',
-      'entity_relationships', 'sessions', 'session_messages',
-      'bets', 'skills_log', 'ai_audit_log',
-    ]
+      // GETDEL — atomic single-use; null if missing or expired
+      if (!resetRedis) {
+        return c.json({ error: 'Token validation requires Redis' }, 503)
+      }
+      const tokenData = await resetRedis.getdel(`admin:reset-token:${body.token}`)
+      if (!tokenData) {
+        await writeAuditRow(db, {
+          event_type: 'reset_blocked',
+          actor,
+          outcome: 'blocked',
+          error_detail: 'token_invalid_or_expired',
+          origin,
+          ip_address,
+        })
+        return c.json({ error: 'Invalid or expired token. Perform step 1 to obtain a new token.' }, 401)
+      }
 
-    logger.warn({ clearedTables }, '[admin] Data reset complete')
+      // Run pg_dump before TRUNCATE — abort wipe on failure
+      let backupPath: string
+      try {
+        backupPath = await runPreWipeDump('/backup/pre-wipe')
+      } catch (e) {
+        const msg = (e instanceof Error) ? e.message : String(e)
+        await writeAuditRow(db, {
+          event_type: 'reset_blocked',
+          actor,
+          outcome: 'error',
+          error_detail: `pgdump_failed: ${msg}`,
+          origin,
+          ip_address,
+        })
+        logger.error({ err: e }, '[admin] pg_dump failed — aborting reset')
+        return c.json({ error: 'pg_dump failed', detail: msg }, 500)
+      }
+
+      logger.warn({ actor, backupPath }, '[admin] Data reset initiated — wiping all user data')
+
+      // Tables ordered to avoid FK constraint errors; CASCADE handles any remainder.
+      // Triggers are intentionally preserved (user configuration, not test data).
+      // __drizzle_migrations is a system table and is never touched.
+      // admin_audit is intentionally EXCLUDED from this list — it is the audit trail
+      // for this operation and must survive the wipe.
+      await db.execute(sql`
+        TRUNCATE
+          skills_log,
+          ai_audit_log,
+          session_messages,
+          bets,
+          sessions,
+          entity_links,
+          entity_relationships,
+          entities,
+          pipeline_events,
+          captures
+        CASCADE
+      `)
+
+      const clearedTables = [
+        'captures', 'pipeline_events', 'entities', 'entity_links',
+        'entity_relationships', 'sessions', 'session_messages',
+        'bets', 'skills_log', 'ai_audit_log',
+      ]
+
+      const auditId = await writeAuditRow(db, {
+        event_type: 'reset_executed',
+        actor,
+        confirmation_phrase: 'WIPE ALL DATA',
+        tables_affected: clearedTables,
+        outcome: 'success',
+        backup_path: backupPath,
+        origin,
+        ip_address,
+      })
+
+      logger.warn({ actor, clearedTables, backupPath, auditId }, '[admin] Data reset complete')
+
+      return c.json({
+        cleared: clearedTables,
+        preserved: ['triggers', '__drizzle_migrations', 'schema', 'admin_audit'],
+        wiped_at: new Date().toISOString(),
+        backup_path: backupPath,
+        audit_id: auditId,
+      })
+    }
+
+    // ── Step 1: issue token ──────────────────────────────────────────────────
+    if (!resetRedis) {
+      return c.json({ error: 'Token issuance requires Redis' }, 503)
+    }
+    const token = randomBytes(32).toString('base64url')
+    await resetRedis.set(
+      `admin:reset-token:${token}`,
+      JSON.stringify({ actor, created_at: new Date().toISOString() }),
+      'EX',
+      300,
+    )
+
+    await writeAuditRow(db, {
+      event_type: 'reset_requested',
+      actor,
+      outcome: 'success',
+      origin,
+      ip_address,
+    })
+
+    logger.info({ actor }, '[admin] Reset token issued')
 
     return c.json({
-      cleared: clearedTables,
-      preserved: ['triggers', '__drizzle_migrations', 'schema'],
-      wiped_at: new Date().toISOString(),
+      token,
+      expires_in: 300,
+      message: 'POST again with this token + { "confirm": "WIPE ALL DATA", "token": "<this token>" } within 5 minutes.',
     })
   })
 
