@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { Database, LLMGatewayService } from '@open-brain/shared'
+import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts, BaseResult } from './types.js'
@@ -88,6 +88,8 @@ interface CaptureRow {
  * query data, call LLM, persist results, deliver notification, log to skills_log.
  */
 export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOptions, MemoryConsolidationResult> {
+  static minimum_autonomy: AutonomyLevel = 'assist'
+
   constructor(opts: LLMSkillOpts) {
     super('memory-consolidation', opts)
   }
