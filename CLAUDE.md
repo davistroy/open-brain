@@ -63,6 +63,8 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - `capture_associations` uses canonical pair ordering (`capture_id_a < capture_id_b`) — sort UUIDs before insert.
 - `spreading_activation` SQL function requires migrations 0011 + 0012 together.
 - **`captures.source` has 9 valid values:** `slack`, `voice`, `api`, `document`, `mcp`, `email`, `file`, `consolidation`, `system`. Canonical TS union: `CaptureSource` (`packages/shared/src/types/capture.ts`). Zod: `CAPTURE_SOURCES`. DB CHECK: migration 0022. Semantics: `file` = document-router file refs, `consolidation` = memory-consolidation dedup, `system` = internal events (e.g., bet resolution). **Adding a source → update all four surfaces in lockstep.**
+- **`captures.capture_type` has 8 valid values:** `decision`, `idea`, `observation`, `task`, `win`, `blocker`, `question`, `reflection`. Canonical TS union: `CaptureType` (`packages/shared/src/types/capture.ts`). Zod: `CAPTURE_TYPES`. DB CHECK: migration 0024. **Adding a type → update all four surfaces in lockstep.**
+- **`captures.pipeline_status` has 8 valid values:** `pending`, `processing`, `extracted`, `embedded`, `chunked`, `complete`, `failed`, `deleted`. Canonical TS union: `PipelineStatus` (`packages/shared/src/types/capture.ts`). Zod: `PIPELINE_STATUSES`. DB CHECK: migration 0024. **Adding a status → update all four surfaces in lockstep.**
 - `app_settings` is a generic key/value store (`key TEXT PRIMARY KEY, value JSONB`). Settings API keys whitelisted in `VALID_SETTINGS_KEYS` Set; add new keys there.
 - **Pre-flight DB audit (`SELECT DISTINCT <col>`) is MANDATORY before CHECK-constraint migrations** — grep misses cold paths (bet.ts surfaced a 9th `source` value). See LAB_NOTEBOOK Entry 089.
 

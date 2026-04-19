@@ -7112,4 +7112,22 @@ Multi-chunk documents WILL set `pipeline_status: 'chunked'`. The DB has 0 rows b
 
 **Duration:** ~50 minutes (Gate 3 only; Gate 1 + Gate 2 + operator pre-flight separate).
 
+### Final / Merged
+
+**PR:** [#138](https://github.com/davistroy/open-brain/pull/138) — squash-merged at `6195a6d` on `main`.
+
+**Review:** Opus APPROVE cycle 2. Cycle 1 blocker: TS2345 `it.each` callback arity mismatch in `web-type-drift.test.ts:338` (parametrized StatsCards test) + JSDoc "7-value" -> "8-value" comment in `capture.ts:14`. Both fixed in `7b0d473` (one-line arity fix + JSDoc correction). Cycle 2 APPROVE clean.
+
+**Homeserver:** Migration 0024 applied and verified live via SSH. All 3 CHECK constraints on `captures` table confirmed active: `captures_source_check` (migration 0022), `captures_capture_type_check` (migration 0024), `captures_pipeline_status_check` (migration 0024). Gate 5.5 DONE.
+
+**Notable:** `pipeline_status` expanded from the planner's proposed 6 canonical values to **8** actual canonical values. DB pre-flight surfaced `extracted` (11 rows in production). Production-code audit during Gate 3 surfaced `chunked` (producer in `document-pipeline.ts:330` ternary `chunks.length === 1 ? 'complete' : 'chunked'`). Both additions were mandatory -- without them the CHECK would have rejected valid data or broken a live code path.
+
+**gh auto-switch count:** 11 (gh silently switched to `davistroy-cfa` during merge attempt; corrected with `gh auth switch --user davistroy`).
+
+**Outstanding reviewer nits deferred (non-blocking):**
+- Dead `partial`/`received` read filters in `stale-captures.ts` and `daily-sweep.ts` -- harmless (CHECK constrains writes only) but could confuse future readers. Fold into P09b/P09c or a future cleanup.
+- `BrainStats.pipeline_health` type hardcodes 4 pipeline statuses -- should match canonical 8. Minor; no runtime impact since it reports observed counts.
+
+**CLAUDE.md rules added:** 2 (lockstep rules for `captures.capture_type` and `captures.pipeline_status`, mirroring existing `captures.source` pattern).
+
 
