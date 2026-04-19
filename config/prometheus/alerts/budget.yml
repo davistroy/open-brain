@@ -1,0 +1,42 @@
+# Prometheus alert rules — LLM budget thresholds
+# Metric source: openbrain_budget_spent_usd gauge at core-api:3000/metrics
+# Refreshed on every /metrics scrape (15s) via ai_audit_log SUM query.
+#
+# Notification path: application-level — budget-check skill (daily 07:00) sends
+# Pushover when spend crosses soft ($30) / hard ($50) limits. These Prometheus rules
+# provide Grafana annotation visibility and act as a safety net if the skill misses a run.
+#
+# Thresholds aligned with application code (budget-check.ts DEFAULT_SOFT_LIMIT/DEFAULT_HARD_LIMIT):
+# $24 = 80% of $30 soft limit (warning); $50 = hard cap (critical).
+# Related code: packages/core-api/src/routes/metrics.ts (budgetSpentUsd gauge)
+#               packages/workers/src/skills/budget-check.ts (application alerting)
+
+groups:
+  - name: open-brain-budget
+    interval: 5m
+    rules:
+      - alert: BudgetAt80Percent
+        expr: openbrain_budget_spent_usd >= 24
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "LLM budget at 80% — {{ $value | printf \"%.2f\" }} USD of $30 soft limit"
+          description: >
+            Monthly LLM spend has reached the 80% warning threshold.
+            Check ai_audit_log for high-cost models and verify ai-routing.yaml routes
+            routine tasks to t1_spark (free) or t1_jetson (free) rather than OpenAI.
+          runbook: "docs/runbooks/budget-alert.md"
+
+      - alert: BudgetHardCap
+        expr: openbrain_budget_spent_usd >= 50
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LLM budget at hard cap — {{ $value | printf \"%.2f\" }} USD"
+          description: >
+            Monthly spend has reached the $50 hard cap. The application-level budget
+            circuit breaker in budget-check skill may have already fired. All further
+            LLM calls that hit the hard-cap check will fail until next month reset.
+          runbook: "docs/runbooks/budget-alert.md"

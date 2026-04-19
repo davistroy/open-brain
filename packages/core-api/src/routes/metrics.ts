@@ -1,5 +1,13 @@
 import type { Hono, MiddlewareHandler } from 'hono'
-import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client'
+import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client'
+import { sql } from 'drizzle-orm'
+import type { Database } from '@open-brain/shared'
+
+// --- Minimal Redis subset for metrics refresh ---
+// Duck-typed — any ioredis client satisfies this interface.
+export interface MetricsRedisClient {
+  get: (key: string) => Promise<string | null>
+}
 
 // Dedicated registry — avoids conflicts with any global default registry
 export const metricsRegistry = new Registry()
@@ -40,6 +48,29 @@ export const llmCostTotal = new Counter({
   name: 'openbrain_llm_cost_usd_total',
   help: 'Cumulative LLM cost in USD',
   labelNames: ['model'] as const,
+  registers: [metricsRegistry],
+})
+
+/**
+ * Monthly LLM spend gauge (USD) — refreshed from ai_audit_log on each /metrics scrape.
+ * Used by the BudgetAt80Percent and BudgetHardCap Prometheus alert rules in
+ * config/prometheus/alerts/budget.yml. Value is current-month cumulative spend.
+ */
+export const budgetSpentUsd = new Gauge({
+  name: 'openbrain_budget_spent_usd',
+  help: 'Current month total LLM spend in USD (from ai_audit_log, refreshed per scrape)',
+  registers: [metricsRegistry],
+})
+
+/**
+ * Composio monthly usage gauge — refreshed from Redis on each /metrics scrape.
+ * Key: composio:monthly_usage:YYYY-MM (set by ComposioClient.execute()).
+ * Used by ComposioQuotaWarning and ComposioQuotaCritical Prometheus alert rules in
+ * config/prometheus/alerts/integration.yml.
+ */
+export const composioMonthlyUsage = new Gauge({
+  name: 'openbrain_composio_monthly_usage',
+  help: 'Composio API calls used this calendar month (from Redis composio:monthly_usage:YYYY-MM)',
   registers: [metricsRegistry],
 })
 
@@ -88,8 +119,48 @@ export function metricsMiddleware(): MiddlewareHandler {
 
 // --- Route registration ---
 
-export function registerMetricsRoute(app: Hono): void {
+/**
+ * Register the Prometheus /metrics endpoint.
+ *
+ * When db is provided, refreshes openbrain_budget_spent_usd from ai_audit_log on
+ * each scrape (one SUM query per 15s — indexed on created_at, negligible cost).
+ *
+ * When redis is provided, refreshes openbrain_composio_monthly_usage from the
+ * Redis key composio:monthly_usage:YYYY-MM on each scrape.
+ *
+ * Both refreshes are non-fatal — a stale value is served if the DB or Redis
+ * query fails (gauge defaults to 0 on first request).
+ */
+export function registerMetricsRoute(app: Hono, db?: Database, redis?: MetricsRedisClient): void {
   app.get('/metrics', async (c) => {
+    // Refresh budget gauge from DB on each scrape (P11b)
+    if (db) {
+      try {
+        const result = await db.execute<{ total: string }>(sql`
+          SELECT COALESCE(SUM(cost_usd), 0)::text AS total
+          FROM ai_audit_log
+          WHERE created_at >= date_trunc('month', now())
+        `)
+        const total = result.rows[0]?.total
+        budgetSpentUsd.set(total ? Number(total) : 0)
+      } catch {
+        // Non-fatal — stale value is fine (gauge stays at last known value)
+      }
+    }
+
+    // Refresh Composio monthly usage gauge from Redis on each scrape (P11b)
+    if (redis) {
+      try {
+        const now = new Date()
+        const month = String(now.getMonth() + 1).padStart(2, '0')
+        const key = `composio:monthly_usage:${now.getFullYear()}-${month}`
+        const raw = await redis.get(key)
+        composioMonthlyUsage.set(raw ? Number(raw) : 0)
+      } catch {
+        // Non-fatal
+      }
+    }
+
     const metrics = await metricsRegistry.metrics()
     return c.text(metrics, 200, {
       'Content-Type': metricsRegistry.contentType,

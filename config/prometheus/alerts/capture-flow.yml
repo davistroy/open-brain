@@ -1,0 +1,40 @@
+# Prometheus alert rules — capture flow staleness
+# Metric source: openbrain_captures_total counter at core-api:3000/metrics
+# This is a pull metric (not Pushgateway) — Prometheus scrapes core-api every 15s.
+#
+# Notification path: pipeline-health skill (every 6h) already implements the full
+# time-of-day gate (07:00-midnight) and 24h suppression via skills_log.
+# This Prometheus rule provides Grafana annotation visibility — the `increase()` over 6h
+# evaluates to 0 whenever no new captures arrive, regardless of time-of-day.
+# The application skill handles the business-hours gate; the Prometheus rule is additive.
+#
+# Related code: packages/workers/src/skills/pipeline-health.ts (capture flow check)
+#               packages/core-api/src/routes/metrics.ts (capturesTotal counter)
+
+groups:
+  - name: open-brain-capture-flow
+    interval: 5m
+    rules:
+      # Recording rule: captures in the past 6-hour sliding window.
+      # Used by both the alert below and Grafana panels for trend visualization.
+      - record: openbrain_captures_per_6h
+        expr: increase(openbrain_captures_total[6h])
+
+      - alert: CaptureFlowStale
+        # Fires when no captures have been ingested in the past 6 hours.
+        # Note: `increase()` on a counter returns 0 if counter has not changed.
+        # The application-level pipeline-health skill handles time-of-day gating
+        # and 24h suppression; this rule provides complementary Grafana annotation.
+        expr: increase(openbrain_captures_total[6h]) == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No captures ingested in the past 6 hours"
+          description: >
+            The capture pipeline has been silent for 6 hours. Possible causes:
+            Cloudflare tunnel down (brain.troy-davis.com unreachable), core-api unhealthy,
+            email Cloudflare Worker not routing, or no active user input.
+            Check: GET https://brain.troy-davis.com/api/v1/captures?limit=5
+            and core-api container logs via Grafana/Loki.
+          runbook: "docs/runbooks/capture-flow-alert.md"
