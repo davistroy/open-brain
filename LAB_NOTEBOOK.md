@@ -180,7 +180,8 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged (PR #123), P02a merged (PR #124); P02b + P02c + P03 remaining |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged (PR #123), P02a merged (PR #124); P02b in progress (Entry 094); P02c + P03 remaining |
+| A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -5827,6 +5828,52 @@ Two existing fixtures needed cost fields added to pass the newly-wired validator
 - `AIClientType` drift was pre-existing (merged before P02a) — reviewer correctly flagged it anyway. Good reminder that the pre-merge review isn't just for the PR's own deltas.
 
 **Status:** P02a ✅ COMPLETE. Orchestrator advances to P02b (callClaude removal + memory-consolidation/weekly-brief migration through LLM gateway).
+
+---
+
+### Entry 094 — P02b Gate 1+2: callClaude removal plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [callClaude] [gateway] [cost-tracking] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P02b-callclaude-removal` (created in this entry's commit). Main at `810c421` before branch.
+**Phase:** P02b of PHASED_PLAN.md (Wave 1, bootstrap phase 3 of 5)
+**PR:** TBD (after Gate 3)
+
+**Objective:** Remove the legacy `callClaude` fallback from all 6 call sites (5 skills + extract-entities job's primary + retry path) so every LLM call in workers runs through `LLMGatewayService.completeByTask()` — which writes `ai_audit_log` and participates in the budget-check machinery. Delete `packages/shared/src/services/call-claude.ts` (+ test file, ~14 tests). This is the half of #102 that makes the budget circuit breaker non-blind on paid skill calls. P03 (next phase) widens `estimateTierCostUsd` to consume the cost fields added by P02a — after P03 merges the end-to-end cost tracking is live.
+
+**Hypothesis:** Removing the `callClaude` / `anthropicClient` branch from each of the 6 consumers (all of which already have gateway-first code in place) and retaining only the `litellmClient` fallback (for test-compat) will produce: (a) zero behavioral regression for workloads where `llmGateway` is injected (which is the prod config); (b) net-equivalent test coverage (948/948 workers unchanged; shared drops from 291 to ~277 after deleting `call-claude.test.ts`); (c) every subsequent skill call writes `ai_audit_log` with `tier_key` populated. Expect ~6 small commits (one per consumer) + a new `memory-consolidation.test.ts` file + an extension of `weekly-brief.test.ts` for gateway-mock coverage + file deletions at the end.
+
+Success criteria:
+- `grep -r "callClaude" packages/workers/src packages/shared/src`: 0 matches (production + test)
+- `pnpm --filter @open-brain/workers test`: 948/948 + new tests
+- `pnpm --filter @open-brain/shared test`: ~277/277 (was 291; delta = deleted `call-claude.test.ts`)
+- `pnpm --filter @open-brain/workers build` + `pnpm --filter @open-brain/shared build`: clean
+- PR body uses `Closes #102 (partial — full closure after P03)` — NOT bare `Closes #102` (which auto-closes; we want #102 to remain open until P03 also lands)
+- No homeserver deploy required (batched with A70)
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` on main — all skill changes revert + `call-claude.ts` restored + test file restored + barrel export restored.
+2. Workers/shared test baselines return to 948/291.
+3. No DB migrations or compose changes — pure code.
+4. Homeserver revert: `git pull && docker compose up -d workers`.
+5. Create git tag `pre-p02b-callclaude-removal` at branch HEAD before merging — provides a quick checkpoint reference for 1 week.
+
+**Gate 1 scope drifts (5 found, all documented in plan; PROCEEDED with expanded scope):**
+
+1. **6 callClaude call sites across 5 files, not 2.** Scope expands from memory-consolidation + weekly-brief to include daily-connections, daily-sweep-skill, drift-monitor, and extract-entities (which has 2 callClaude sites — primary + retry). All 6 already have gateway-first paths; `callClaude` is dead-code fallback.
+2. **`call-claude.ts` is in `packages/shared`, not `packages/workers/src/lib/`.** Sibling test file in shared (~14 tests) must also be deleted, dropping shared test baseline to ~277.
+3. **memory-consolidation uses task key `'search_synthesis'`, not `'memory_consolidation'`** — the name mismatch means audit log will record `task_type: 'search_synthesis'` for consolidation runs. Cleanup deferred to A71; P02b does not add new task_routing entries.
+4. **memory-consolidation has NO existing unit test.** Must write new.
+5. **weekly-brief tests mock `litellmClient`, not `callClaude` directly.** Existing tests continue to work through litellm fallback; new gateway-mock test must be added.
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P02b.md` — 13-work-item plan covering all 6 consumers + 3 test files + `call-claude.ts` deletion + grep verification.
+- Added LAB_NOTEBOOK Entry 094 (this entry).
+- Added Action Item A71 for memory_consolidation task-key rename (deferred out of P02b scope).
+- Updated Action Item A69 to reflect P02b in progress.
+
+**Next (Gate 3):** dispatch `implement-executor` subagent (Sonnet 4.6) to execute all 13 work items. Per-work-item sub-sections will be appended to this entry.
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02b-callclaude-removal`.
 
 ---
 
