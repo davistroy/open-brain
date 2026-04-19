@@ -20,6 +20,9 @@ function mkTier(overrides: Partial<ModelTierEntry> & { model: string; provider: 
     max_completion_tokens: overrides.max_completion_tokens ?? 4096,
     timeout_ms: overrides.timeout_ms ?? 60_000,
     fallback: overrides.fallback ?? null,
+    // Cost fields: undefined by default (ollama/local path); callers may set explicit values.
+    cost_per_1k_input: overrides.cost_per_1k_input,
+    cost_per_1k_output: overrides.cost_per_1k_output,
   }
 }
 
@@ -224,5 +227,108 @@ describe('LLMGatewayService.recordAgentCompletion', () => {
     expect(inserts).toHaveLength(1)
     const row = inserts[0] as Record<string, unknown>
     expect(row.model).toBe('unknown')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// estimateTierCostUsd() — tested indirectly via recordAgentCompletion audit row
+// ---------------------------------------------------------------------------
+
+describe('estimateTierCostUsd (via recordAgentCompletion)', () => {
+  it('A: paid-provider tier with non-zero costs produces correct cost_usd', async () => {
+    // anthropic tier: $0.003/1k input, $0.015/1k output
+    // input=1000 tokens → $0.003; output=500 tokens → $0.0075; total = $0.0105
+    const tiers = {
+      t2_quality: mkTier({
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        cost_per_1k_input: 0.003,
+        cost_per_1k_output: 0.015,
+      }),
+    }
+    const configService = makeConfigService(tiers, { email_compose: 't2_quality' })
+    const { db, inserts } = makeDb()
+    const gateway = new LLMGatewayService(
+      configService,
+      db,
+      makeTemplateCache(),
+      makeAnthropicClient(),
+      null,
+      null,
+    )
+
+    await gateway.recordAgentCompletion('email_compose', 't2_quality', {
+      iterations: 1,
+      tokenUsage: { input: 1000, output: 500 },
+      latencyMs: 1000,
+    })
+
+    expect(inserts).toHaveLength(1)
+    const row = inserts[0] as Record<string, unknown>
+    expect(Number(row.cost_usd)).toBeCloseTo(0.0105, 6)
+  })
+
+  it('B: openai_compat tier with explicit 0/0 costs produces cost_usd === 0', async () => {
+    // Jetson/Spark — free endpoint, explicitly configured as 0
+    const tiers = {
+      t1_jetson: mkTier({
+        model: 'qwen-4b',
+        provider: 'openai_compat',
+        base_url: 'http://jetson:8080',
+        cost_per_1k_input: 0,
+        cost_per_1k_output: 0,
+      }),
+    }
+    const configService = makeConfigService(tiers, { intent: 't1_jetson' })
+    const { db, inserts } = makeDb()
+    const gateway = new LLMGatewayService(
+      configService,
+      db,
+      makeTemplateCache(),
+      null,
+      null,
+      null,
+    )
+
+    await gateway.recordAgentCompletion('intent', 't1_jetson', {
+      iterations: 1,
+      tokenUsage: { input: 500, output: 100 },
+      latencyMs: 500,
+    })
+
+    expect(inserts).toHaveLength(1)
+    const row = inserts[0] as Record<string, unknown>
+    expect(Number(row.cost_usd)).toBe(0)
+  })
+
+  it('C: ollama tier with undefined cost fields produces cost_usd === 0', async () => {
+    // ollama: no cost fields in config (local free inference)
+    const tiers = {
+      t0_local: mkTier({
+        model: 'gemma3-4b',
+        provider: 'ollama',
+        // cost_per_1k_input and cost_per_1k_output intentionally omitted (undefined)
+      }),
+    }
+    const configService = makeConfigService(tiers, { quick: 't0_local' })
+    const { db, inserts } = makeDb()
+    const gateway = new LLMGatewayService(
+      configService,
+      db,
+      makeTemplateCache(),
+      null,
+      null,
+      null,
+    )
+
+    await gateway.recordAgentCompletion('quick', 't0_local', {
+      iterations: 1,
+      tokenUsage: { input: 200, output: 50 },
+      latencyMs: 200,
+    })
+
+    expect(inserts).toHaveLength(1)
+    const row = inserts[0] as Record<string, unknown>
+    expect(Number(row.cost_usd)).toBe(0)
   })
 })
