@@ -6440,6 +6440,10 @@ Success criteria:
 
 **Result (3.4–3.8):** admin.ts refactored — added imports (`randomBytes`, `spawn`, `mkdirSync`, `Context`, `admin_audit`), module-level helpers (`checkOrigin`, `getActor`, `getClientIp`, `writeAuditRow`, `runPreWipeDump`), `resetRedis` instance at router creation, and full two-step `POST /reset-data` handler. TRUNCATE block has explicit code comment excluding `admin_audit`. `pnpm --filter @open-brain/core-api build` — SUCCESS (303.13 KB ESM, 0 errors).
 
+**Work items 3.7b, 3.9 in progress** — Hypothesis: nginx CF header proxy_set_header + compose admin_prewipe_backup volume + Dockerfile postgresql-client are all 1-3 line changes that apply cleanly.
+
+**Result (3.7b, 3.9):** nginx.conf: added `proxy_set_header CF-Access-Authenticated-User-Email` to `/api/` block. docker-compose.yml: added `admin_prewipe_backup:` to top-level volumes + `admin_prewipe_backup:/backup/pre-wipe` mount on core-api service. Dockerfile: `bash git` → `bash git postgresql-client` on prod-base RUN line. All 3 changes are surgical, no build step needed for infra files.
+
 ---
 
 

@@ -43,7 +43,7 @@ RUN test -f packages/core-api/dist/index.js \
 FROM node:22-alpine AS prod-base
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
-RUN apk add --no-cache bash git
+RUN apk add --no-cache bash git postgresql-client
 
 # ============================================================
 # core-api target

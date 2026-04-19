@@ -8,6 +8,7 @@ volumes:
   whisper_model_cache:
   financial_ingest_data:
   utility_ingest_data:
+  admin_prewipe_backup:
 
 services:
   postgres:
@@ -80,6 +81,7 @@ services:
       - "3002:3000"
     volumes:
       - ./config:/app/config:ro
+      - admin_prewipe_backup:/backup/pre-wipe
     depends_on:
       postgres:
         condition: service_healthy
