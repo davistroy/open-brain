@@ -6135,3 +6135,60 @@ Extended `run-agent.test.ts` with 3 assertions: (5a) fallback swap test — `exp
 
 ---
 
+### Entry 096 — P03 Gate 1+2: cost estimator widening + Composio quota meter plan authored — 2026-04-19
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [cost-tracking] [composio] [budget] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P03-estimator-composio-quota` (created in this entry's commit). Main at `65d9701` before branch.
+**Phase:** P03 of PHASED_PLAN.md (Wave 1, **FINAL bootstrap phase** — 5 of 5)
+**Issues:** Refs #102 (final subset; #102 manually closed after merge), Closes #106 (sole PR)
+
+**Objective:** Two deliverables bundled into one PR:
+1. Widen `estimateTierCostUsd()` (currently a stub returning 0) to read `tier.cost_per_1k_input` / `tier.cost_per_1k_output` from the parsed `ModelTierEntry` and multiply by input/output tokens. Populates `ai_audit_log.cost_usd` with real dollar values for Anthropic tiers (t1_fast, t2_quality) while keeping 0 for ollama (undefined costs) and explicit-free tiers (t1_jetson, t1_spark).
+2. Composio quota meter in `ComposioClient.execute()`: Redis counter keyed `composio:monthly_usage:YYYY-MM` (35-day TTL), Pushover warn at 15K, hard-stop (`ComposioQuotaExceededError`) at 19K. Protects Composio's 20K/month free tier.
+
+After this phase merges, the bootstrap is complete — budget circuit breaker is finally non-blind end-to-end (P02a validated costs are present; P02b routed all skill calls through the gateway; P02c records final tier; P03 actually computes cost).
+
+**Hypothesis:** The estimator widening is a 3-file surgical change (llm-gateway.ts + llm-gateway.test.ts + CLAUDE.md). The Composio meter is a larger addition — new method on `ComposioClient`, new `ComposioQuotaExceededError` class, new Redis wiring in `main.ts`, extension of `MorningBriefSkillOpts`, new `fetchCalendarEvents()` signature, new test file. Expect shared tests 277 → 286 (+3 estimator + 6 composio-quota). Workers tests should remain 960 (no morning-brief test changes beyond option-type updates). PR body uses `Refs #102` per A72 to avoid auto-close/reopen cycle.
+
+Success criteria:
+- `pnpm --filter @open-brain/shared test`: 286/286 (was 277 + 9 new)
+- `pnpm --filter @open-brain/workers test`: 960/960 (unchanged)
+- `ai_audit_log.cost_usd` non-zero for post-deploy Anthropic completions (verifiable post-merge via SQL)
+- Composio quota Redis key increments on morning-brief run
+- `ComposioClient` backward compat: `new ComposioClient(apiKey)` string form still works; no Redis injected → no quota enforcement
+- CLAUDE.md gets 2 new operational rules (inline capture, like P02a — rules active at merge time)
+- `bootstrap_mode` flips to false after merge; orchestrator transitions to normal approval matrix
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` — single atomic commit; purely additive + logic rewrite.
+2. `estimateTierCostUsd` reverts to stub returning 0. All post-P03 `ai_audit_log` rows with `cost_usd > 0` remain (historical data; not corrupted).
+3. Composio meter reverts: options-form constructor can stay (harmless); `checkAndIncrementQuota()` method can stay (inert without Redis injection); `main.ts` Redis wiring is the active removal point. `ComposioQuotaExceededError` class can stay (unused but harmless).
+4. No DB migration, no compose changes, no env changes.
+5. Redis keys `composio:monthly_usage:*` become inert until TTL expires (~35 days).
+
+**Gate 1 scope drifts (5 found, all cleared; PROCEEDED):**
+
+1. Plan card uses stale field names (`cost_per_1k_in`/`_out`) — actual is `_input`/`_output` (P02a canonical).
+2. **Config-contract test was planned but is fully redundant** — P02a's `validateAiRoutingConfig()` + the production drift-guard test (`loader.test.ts:690`) already provide complete coverage. Adding a separate file creates noise without coverage value. Omitted from P03 scope. Saves implementer time.
+3. "Middleware" is a misnomer — the Composio guard is a method on `ComposioClient.execute()`, the single choke point. No HTTP middleware needed. Single production caller (morning-brief's `fetchCalendarEvents`) confirmed.
+4. `@open-brain/shared` doesn't depend on `ioredis` — inject Redis via constructor (duck-typed `{incr, expire}` subset) rather than adding a runtime dependency.
+5. `estimateTierCostUsd` current signature already accepts token params as `_` dummies — widening is purely logic, not signature (other than swapping `clientUsed: AIClientType` → `tier: ModelTierEntry | undefined`).
+
+**Key design decisions captured:**
+- Redis injection via options-form constructor, keeping string-form backward compat (legacy callers unaffected).
+- INCR before the Composio API call, not after — prevents quota escape under concurrent calls.
+- Pushover failure swallowed — never block the actual call on notification failure.
+- CLAUDE.md rule capture is inline (not deferred) — rules become active the moment P03 merges; deferring creates an undocumented-rules window.
+- Manual #102 close after merge (A72 convention) — avoids the third auto-close/reopen cycle.
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P03.md` — 8-work-item plan covering 2 distinct deliverables.
+- Added LAB_NOTEBOOK Entry 096 (this entry).
+- Action Item A69 will reflect P03 in progress after Gate 2 commit.
+
+**Next (Gate 3):** dispatch `implement-executor` (Sonnet 4.6). Medium-size change across ~8 files (llm-gateway.ts, llm-gateway.test.ts, composio-client.ts, new composio-quota.test.ts, workers main.ts, morning-brief.ts, skill-execution.ts, CLAUDE.md). Single atomic commit covering all work items + docs commit for LAB_NOTEBOOK finalization.
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P03-estimator-composio-quota`.
+
+---
+
