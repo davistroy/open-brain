@@ -6659,5 +6659,40 @@ curl -I https://brain.troy-davis.com/api/v1/captures?limit=1  # expect 200
 
 ---
 
+## Entry 098 — P04b: backup .env.secrets redaction
+
+**Date:** 2026-04-19
+**Phase:** P04b (ORCHESTRATOR.md gate 3)
+**Tags:** [deploy] [config] [decision]
+**Environment:** laptop (Windows / bash); target = homeserver backup.sh at /mnt/user/appdata/open-brain
+**Duration:** ~25 minutes (Step 0 through final commit)
+
+### Objective
+Stop `scripts/backup.sh` from copying `.env.secrets` into the backup payload. Implement a regression test that fails against the pre-patch file and passes after the patch.
+
+### Hypothesis
+Removing the line 80 `cp "${APP_DIR}/.env.secrets" ...` copy leaves restore unaffected because `scripts/load-secrets.sh` (stub today, full P08 later) rebuilds `.env.secrets` from Bitwarden, never from a backup artifact. Homeserver behaviour unchanged; existing retained backups still contain `dot-env-secrets` (pre-P04b) — P16 restore rehearsal will decide whether to scrub retained backups.
+
+### Success criteria
+- Patched `backup.sh` passes `scripts/test-backup-secrets-redaction.sh` locally (exit 0).
+- If applied to pre-patch `backup.sh`, the test exits 1 (assertion is real, not vacuous).
+- No behaviour change to homeserver cron `0 3 * * *` — default paths unchanged.
+
+### Rollback plan
+`git revert <P04b merge sha>` on main. On homeserver: `bash scripts/load-secrets.sh` (or manual `bws secret get` per `deploy/.env.secrets.template`) then `docker compose up -d` if services restarted meanwhile.
+
+### Result
+Both work items completed and committed. Files modified: `scripts/backup.sh` (5 insertions, 4 deletions — Change A: `:-` env-override on lines 13–14; Change B: removed `.env.secrets` cp, rewrote comment block). Created: `scripts/test-backup-secrets-redaction.sh` (139 lines).
+
+Two minor deviations from plan (both within "adjust only for minor bugs surfaced at test time" scope):
+1. `CONFIG_DIR` must be exported in the test script for the `sed | bash` subprocess to reference it — without export, subprocess got empty string, no files were copied, and the test was vacuous (passing for the wrong reason).
+2. Fake `.env.example` content changed from `OPENAI_API_KEY=get-from-bitwarden` to non-secret placeholder text — the grep pattern matches variable *names*, so `OPENAI_API_KEY` appearing in `.env.example` caused a false-positive match even in the patched backup.
+
+Sanity check confirmed test is not vacuous: ran config-copy block from unpatched backup.sh (with `.env.secrets` cp re-inserted) against the same fake environment; grep correctly found `dot-env-secrets` containing `ANTHROPIC_API_KEY|OPENAI_API_KEY|POSTGRES_PASSWORD`. Test exits 1 on unpatched, exits 0 on patched. Real assertion.
+
+Commits: `b0c7cd7` (1.1 backup.sh patch), `eb5da9d` (1.2 test script).
+
+---
+
 
 
