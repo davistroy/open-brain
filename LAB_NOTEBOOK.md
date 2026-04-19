@@ -7399,4 +7399,33 @@ All changes confined to CI config + docs. `git revert` removes the two new CI jo
 
 ### Implementation
 
+**WI 1 — `packages/voice-pipecat/tests/requirements.txt` (new file)**
+- Created with 9 deps: `anthropic>=0.49.0`, `httpx>=0.27.0`, `fastapi>=0.115.0`, `pydantic>=2.0`, `pydantic-settings>=2.0`, `redis>=5.0.0`, `pyyaml>=6.0`, `pytest>=8.0,<9.0`, `pytest-asyncio>=0.24.0`
+- No `pipecat-ai` — confirmed `pipeline.py` is the only pipecat-importing file, not covered by tests
+- Commit: `5e4e731` — `feat(phase-P10b)/1.1: voice-pipecat test requirements.txt (no pipecat-ai)`
+
+**WI 2+3 — Both new CI jobs added to `.github/workflows/ci.yml`**
+- Inserted `voice-pipecat-test` and `file-ingestion-test` jobs after `sidecar-test`, before `validate-schema`
+- Both jobs: `timeout-minutes: 10`, no `continue-on-error`, `python-version: '3.12'`
+- `voice-pipecat-test`: `cache-dependency-path: packages/voice-pipecat/tests/requirements.txt`, `working-directory: packages/voice-pipecat` on pytest step, installs from new `tests/requirements.txt`
+- `file-ingestion-test`: `cache-dependency-path: packages/file-ingestion/requirements.txt`, `working-directory: packages/file-ingestion` on both install and pytest steps
+- YAML validation: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → **exit 0** (YAML valid)
+- Commit: `a292853` — `feat(phase-P10b)/1.2: voice-pipecat-test + file-ingestion-test CI jobs`
+
+**WI 4+5 — Doc updates**
+- `README.md` line 53: `(95 tests)` → `(91 tests)` in regression-test.mjs descriptor
+- `README.md`: no other test-count string changed (confirmed via grep — no 1,569/1569 in README body)
+- `arch-review/intake.md` line 15: `1,569 unit + 95 regression` → `2,689 unit + 91 regression`
+- `arch-review/intake.md` line 66: CI job list extended with `voice-pipecat-test (pytest)` and `file-ingestion-test (pytest)` alongside existing `sidecar-test`
+- Commit: `e547d8c` — `docs(phase-P10b)/1.3: update test counts (2,689 unit + 91 regression)`
+
+### Results
+
+- All 5 deliverables complete (D1 + D2 + D3 + D4 + D5)
+- 3 commits: `5e4e731`, `a292853`, `e547d8c`
+- YAML valid (exit 0 confirmed)
+- Zero application code touched; zero TS packages modified; `pnpm -r test` not required
+- Python CI post-merge: `sidecar-test` (13), `voice-pipecat-test` (54), `file-ingestion-test` (26) = 93 Python tests total in CI
+
+**Duration:** ~15 minutes
 
