@@ -5,6 +5,7 @@ import type { WeeklyBriefOutput } from '../skills/weekly-brief.js'
 import { PushoverService, HimalayaService } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
+import { _resetBaseSkillAutonomyCacheForTest } from '../skills/base-skill.js'
 
 // Prompt templates live at <repo-root>/config/prompts/ — go up two levels from packages/workers
 const REPO_PROMPTS_DIR = join(import.meta.dirname, '..', '..', '..', '..', 'config', 'prompts')
@@ -147,11 +148,22 @@ function makeSkillWithGateway(opts: {
   const himalaya = makeHimalayaService(false)
 
   const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'saved-cap-id' } }
-  const mockFetch = vi.fn().mockResolvedValue({
-    ok: fetchResponse.ok,
-    status: fetchResponse.ok ? 200 : 500,
-    json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
-    text: vi.fn().mockResolvedValue(''),
+  // URL-aware fetch mock: autonomy settings returns observe (always passes for weekly-brief); other calls use coreApiResponse
+  const mockFetch = vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/api/v1/settings/autonomy_level')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ value: 'observe' }),
+        text: vi.fn().mockResolvedValue(''),
+      })
+    }
+    return Promise.resolve({
+      ok: fetchResponse.ok,
+      status: fetchResponse.ok ? 200 : 500,
+      json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
+      text: vi.fn().mockResolvedValue(''),
+    })
   })
   vi.stubGlobal('fetch', mockFetch)
 
@@ -186,13 +198,23 @@ function makeSkill(opts: {
   const email = makeEmailService(opts.emailConfigured ?? true)
   const himalaya = makeHimalayaService(opts.himalayaConfigured ?? false)
 
-  // Mock fetch for save-brief-capture
+  // Mock fetch — URL-aware: autonomy settings returns observe (always passes for weekly-brief); other calls use coreApiResponse
   const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'saved-cap-id' } }
-  const mockFetch = vi.fn().mockResolvedValue({
-    ok: fetchResponse.ok,
-    status: fetchResponse.status ?? (fetchResponse.ok ? 200 : 500),
-    json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
-    text: vi.fn().mockResolvedValue(''),
+  const mockFetch = vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/api/v1/settings/autonomy_level')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ value: 'observe' }),
+        text: vi.fn().mockResolvedValue(''),
+      })
+    }
+    return Promise.resolve({
+      ok: fetchResponse.ok,
+      status: fetchResponse.status ?? (fetchResponse.ok ? 200 : 500),
+      json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
+      text: vi.fn().mockResolvedValue(''),
+    })
   })
 
   const skill = new WeeklyBriefSkill({
@@ -220,6 +242,7 @@ function makeSkill(opts: {
 
 describe('WeeklyBriefSkill', () => {
   beforeEach(() => {
+    _resetBaseSkillAutonomyCacheForTest()
     vi.restoreAllMocks()
   })
 
@@ -660,6 +683,77 @@ describe('WeeklyBriefSkill', () => {
       expect(result).toHaveProperty('captureCount')
       expect(result).toHaveProperty('durationMs')
       expect(result).toHaveProperty('savedCaptureId')
+    })
+  })
+
+  // ----------------------------------------------------------
+  // Autonomy gate (P05)
+  // ----------------------------------------------------------
+
+  describe('autonomy gate', () => {
+    beforeEach(() => {
+      _resetBaseSkillAutonomyCacheForTest()
+      vi.restoreAllMocks()
+    })
+
+    it('runs at observe level (minimum_autonomy = observe, always-safe)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (url.includes('/api/v1/settings/autonomy_level')) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ value: 'observe' }),
+          } as unknown as Response)
+        }
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ id: 'cap-id' }),
+        } as unknown as Response)
+      })
+      const skill = new WeeklyBriefSkill({
+        db: makeMockDb() as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+        himalaya: makeHimalayaService(false),
+        email: makeEmailService(false),
+      })
+      const mockLitellm = makeMockOpenAI()
+      // @ts-ignore
+      skill.litellmClient = mockLitellm
+
+      const result = await skill.execute({ emailTo: 'test@example.com' })
+
+      expect(result.status).toBeUndefined()
+    })
+
+    it('runs at partner level (exceeds minimum_autonomy = observe)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        if (url.includes('/api/v1/settings/autonomy_level')) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ value: 'partner' }),
+          } as unknown as Response)
+        }
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ id: 'cap-id' }),
+        } as unknown as Response)
+      })
+      const skill = new WeeklyBriefSkill({
+        db: makeMockDb() as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+        himalaya: makeHimalayaService(false),
+        email: makeEmailService(false),
+      })
+      const mockLitellm = makeMockOpenAI()
+      // @ts-ignore
+      skill.litellmClient = mockLitellm
+
+      const result = await skill.execute({ emailTo: 'test@example.com' })
+
+      expect(result.status).toBeUndefined()
     })
   })
 })

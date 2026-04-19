@@ -290,7 +290,7 @@ export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, 
     this.maxIterations = opts.maxIterations ?? 10
   }
 
-  async execute(options: MonthlyReflectionOptions = {}): Promise<MonthlyReflectionResult> {
+  protected async run(options: MonthlyReflectionOptions = {}): Promise<MonthlyReflectionResult> {
     const startMs = Date.now()
     const now = new Date()
     const windowStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)

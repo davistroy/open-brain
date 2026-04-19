@@ -56,7 +56,7 @@ export class CostAnalysisSkill extends BaseSkill<CostAnalysisOptions, CostAnalys
     this.litellmApiKey = opts.litellmApiKey ?? process.env.LLM_SPEND_API_KEY ?? ''
   }
 
-  async execute(options: CostAnalysisOptions = {}): Promise<CostAnalysisResult> {
+  protected async run(options: CostAnalysisOptions = {}): Promise<CostAnalysisResult> {
     const startMs = Date.now()
     const now = options.now ?? new Date()
     const dailyAlertThreshold = options.dailyAlertThreshold ?? DEFAULT_DAILY_ALERT_THRESHOLD

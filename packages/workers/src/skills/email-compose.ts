@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, AutonomyLevel } from '@open-brain/shared'
 import { logger, runAgent, resolveTaskModel, ModelResolverError } from '@open-brain/shared'
 import type { AgentTool, AgentResult, AgentClientResolution } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
@@ -261,6 +261,8 @@ Always create the draft via the draft_email tool — do not just describe what y
  * `ConfigService`.
  */
 export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailComposeResult> {
+  static minimum_autonomy: AutonomyLevel = 'advise'
+
   /** Resolved concrete model string (e.g. `claude-sonnet-4-6`). */
   private readonly resolvedModel: string | null
   /** Tier key the task resolved to (e.g. `t2_quality`). Logged for observability. */
@@ -286,7 +288,7 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
     }
   }
 
-  async execute(options: EmailComposeOptions): Promise<EmailComposeResult> {
+  protected async run(options: EmailComposeOptions): Promise<EmailComposeResult> {
     const startMs = Date.now()
     const instruction = options.instruction
     const coreApiUrl = options.coreApiUrl ?? this.coreApiUrl

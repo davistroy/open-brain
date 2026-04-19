@@ -1,6 +1,36 @@
-import { skills_log, logger, PushoverService } from '@open-brain/shared'
-import type { Database } from '@open-brain/shared'
+import { skills_log, logger, PushoverService, meetsAutonomyLevel } from '@open-brain/shared'
+import type { Database, AutonomyLevel } from '@open-brain/shared'
 import type { BaseResult, BaseSkillOpts } from './types.js'
+
+// Module-level autonomy cache (5-minute TTL, matches slack-bot pattern)
+let _autonomyCache: { level: AutonomyLevel; fetchedAt: number } | null = null
+const AUTONOMY_CACHE_TTL = 5 * 60 * 1000
+
+async function fetchAutonomyLevel(coreApiUrl: string): Promise<AutonomyLevel> {
+  const now = Date.now()
+  if (_autonomyCache && now - _autonomyCache.fetchedAt < AUTONOMY_CACHE_TTL) {
+    return _autonomyCache.level
+  }
+  try {
+    const response = await fetch(`${coreApiUrl}/api/v1/settings/autonomy_level`)
+    if (response.ok) {
+      const data = (await response.json()) as { value: string }
+      const level = (['observe', 'assist', 'advise', 'partner'].includes(data.value)
+        ? data.value
+        : 'observe') as AutonomyLevel
+      _autonomyCache = { level, fetchedAt: now }
+      return level
+    }
+  } catch {
+    // Settings unavailable — default to observe (most restrictive)
+  }
+  _autonomyCache = { level: 'observe', fetchedAt: now }
+  return 'observe'
+}
+
+export function _resetBaseSkillAutonomyCacheForTest(): void {
+  _autonomyCache = null
+}
 
 /**
  * BaseSkill — abstract base class for all Open Brain skills.
@@ -11,13 +41,21 @@ import type { BaseResult, BaseSkillOpts } from './types.js'
  * - `sendNotification()` — Pushover with error handling (20/27 skills)
  * - `formatDuration()` / `truncate()` — common formatting utilities
  *
- * Subclasses implement `execute(input)` with their domain logic.
+ * Subclasses implement `run(input)` with their domain logic.
+ * The `execute()` method is a concrete template-method wrapper that checks
+ * `static minimum_autonomy` before delegating to `run()`.
+ * Never override `execute()` in subclasses — implement `run()`.
+ *
  * The return type must extend `BaseResult` (at minimum includes `durationMs`).
  */
 export abstract class BaseSkill<TInput, TResult extends BaseResult> {
   protected db: Database
   protected pushover: PushoverService
   protected skillName: string
+
+  // Declare a minimum autonomy level for proactive skills.
+  // Absence = ungated (reactive pipeline skills are safe).
+  static minimum_autonomy?: AutonomyLevel
 
   constructor(skillName: string, opts: BaseSkillOpts) {
     this.skillName = skillName
@@ -26,9 +64,44 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
   }
 
   /**
-   * Execute the skill's core logic. Subclasses must implement this.
+   * Template-method wrapper. Checks `static minimum_autonomy` before delegating
+   * to `run()`. Do NOT override this in subclasses — implement `run()` instead.
+   *
+   * `input` is optional at the base layer to preserve backwards compatibility
+   * with subclasses whose `run()` declares a default value (e.g.,
+   * `run(opts: T = {})`). The optionality is normalized here and `run()` still
+   * receives whatever default the subclass defined.
    */
-  abstract execute(input: TInput): Promise<TResult>
+  async execute(input?: TInput): Promise<TResult> {
+    const ctor = this.constructor as typeof BaseSkill
+    const minimumAutonomy = ctor.minimum_autonomy
+
+    if (minimumAutonomy !== undefined) {
+      const coreApiUrl = process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+      const currentLevel = await fetchAutonomyLevel(coreApiUrl)
+
+      if (!meetsAutonomyLevel(currentLevel, minimumAutonomy)) {
+        logger.info(
+          { skillName: this.skillName, currentLevel, minimumAutonomy },
+          `[base-skill] gated — autonomy ${currentLevel} < required ${minimumAutonomy}`,
+        )
+        return {
+          status: 'gated',
+          durationMs: 0,
+          currentAutonomyLevel: currentLevel,
+          requiredAutonomyLevel: minimumAutonomy,
+        } as unknown as TResult
+      }
+    }
+
+    return this.run(input as TInput)
+  }
+
+  /**
+   * Execute the skill's core logic. Subclasses must implement this.
+   * This is called by `execute()` after passing the autonomy gate.
+   */
+  protected abstract run(input: TInput): Promise<TResult>
 
   // ──────────────────────────────────────────────────────────────
   // Shared: skills_log

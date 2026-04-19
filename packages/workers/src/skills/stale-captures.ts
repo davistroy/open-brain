@@ -83,7 +83,7 @@ export class StaleCapturesSkill extends BaseSkill<StaleCapturesOptions, StaleCap
    * Non-fatal errors (individual re-queue failures, Pushover, skills_log) are
    * caught and logged — the skill does not throw on partial failure.
    */
-  async execute(options: StaleCapturesOptions = {}): Promise<StaleCapturesResult> {
+  protected async run(options: StaleCapturesOptions = {}): Promise<StaleCapturesResult> {
     const { thresholdMinutes = 60 } = options
     const startMs = Date.now()
 

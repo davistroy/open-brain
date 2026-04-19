@@ -1,4 +1,4 @@
-import type { Database, LLMGatewayService } from '@open-brain/shared'
+import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
 import { logger, HimalayaService } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { LLMSkill } from './llm-skill.js'
@@ -29,6 +29,8 @@ export interface WeeklyBriefSkillOpts extends LLMSkillOpts {
  * Email delivery chain: Himalaya (primary) -> nodemailer (fallback) -> Pushover (last resort).
  */
 export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefResult> {
+  static minimum_autonomy: AutonomyLevel = 'observe'
+
   private himalaya: HimalayaService
   private email: EmailService
 
@@ -38,7 +40,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
     this.email = opts.email ?? new EmailService()
   }
 
-  async execute(options: WeeklyBriefOptions = {}): Promise<WeeklyBriefResult> {
+  protected async run(options: WeeklyBriefOptions = {}): Promise<WeeklyBriefResult> {
     const { windowDays = DEFAULT_WINDOW_DAYS, tokenBudget = DEFAULT_TOKEN_BUDGET, emailTo = process.env.WEEKLY_BRIEF_EMAIL } = options
     const startMs = Date.now()
     const now = new Date()

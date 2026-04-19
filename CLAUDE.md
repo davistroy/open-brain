@@ -90,7 +90,17 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - `daily-sweep-skill` (8pm, LLM evening summary) is distinct from `daily-sweep` (3am stale-capture re-queuer). Different BullMQ queues/jobs.
 - Pipeline-health runs every 6h (`cron: 0 */6 * * *`). Capture-flow check alerts if no captures in 6h during active hours (7am–midnight), suppressed 24h if already sent (queries `skills_log`). Parses `REDIS_URL` (not `REDIS_HOST`, which isn't set in Docker) for internal Queue instances.
 - Auto-response handler is async fire-and-forget (`.then()/.catch()`) — never blocks capture/query/command. Autonomy level cached 5 min.
-- Autonomy levels (`app_settings.autonomy_level`): `observe` (default, notifications only) / `assist` (draft + notify) / `advise` (act + report) / `partner` (autonomous). Check via `meetsAutonomyLevel()` from shared.
+- Autonomy levels (`app_settings.autonomy_level`): `observe` (default, notifications only) / `assist` (draft + notify) / `advise` (act + report) / `partner` (autonomous). Check via `meetsAutonomyLevel(current, required)` from shared — pure sync ordinal comparison. Level fetched from `GET /api/v1/settings/autonomy_level` with a 5-min in-process module-level cache per package (slack-bot: `server.ts`, workers: `base-skill.ts`). Default on error: `observe`.
+- **BaseSkill autonomy gate (P05):** `BaseSkill.execute()` checks `static minimum_autonomy` before delegating to `protected abstract run()`. Current level below declared minimum → `execute()` returns `{ status: 'gated', durationMs: 0 }` and logs at INFO. Skills without `static minimum_autonomy` run ungated — reactive pipeline skills (wiki-ingest, extract-entities, stale-captures, etc.) must never declare it. **Never override `execute()` in subclasses — implement `run()`.**
+- **Proactive skills autonomy table (P05):**
+
+| Skill | minimum_autonomy | Rationale |
+|-------|-----------------|-----------|
+| `email-compose` | `advise` | Auto-send email — highest-impact action |
+| `memory-consolidation` | `assist` | Merges + soft-deletes captures destructively |
+| `daily-sweep-skill` | `assist` | Proactive LLM summary + Pushover delivery |
+| `weekly-brief` | `observe` | Informational report — safe at all levels |
+| slack-bot `auto-response` | (inline check, not BaseSkill) | Event handler, not a queued skill |
 - Hebbian co-access tracking is fire-and-forget (try/catch in `update-access-stats`). Association failures never block primary access updates.
 - Memory-consolidation skill is hyphenated `memory-consolidation` (cron `0 4 * * 0`). Merged captures use `source: 'consolidation'`; originals soft-deleted with `deleted_at`.
 - Search `include_related` defaults: **false (API, back-compat) / true (MCP, agents benefit from context).**

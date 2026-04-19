@@ -1,4 +1,4 @@
-import type { Database, LLMGatewayService } from '@open-brain/shared'
+import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -44,11 +44,13 @@ export {
  * save as capture, log to skills_log.
  */
 export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResult> {
+  static minimum_autonomy: AutonomyLevel = 'assist'
+
   constructor(opts: LLMSkillOpts) {
     super('daily-sweep-skill', opts)
   }
 
-  async execute(options: DailySweepOptions = {}): Promise<DailySweepResult> {
+  protected async run(options: DailySweepOptions = {}): Promise<DailySweepResult> {
     const {
       tokenBudget: rawBudget = DEFAULT_TOKEN_BUDGET,
       storeCapture = false,

@@ -82,7 +82,7 @@ export class WikiLintSkill extends BaseSkill<void, WikiLintResult> {
     )
   }
 
-  async execute(_input?: void): Promise<WikiLintResult> {
+  protected async run(_input?: void): Promise<WikiLintResult> {
     const startMs = Date.now()
     const dateStr = new Date().toISOString().slice(0, 10)
 

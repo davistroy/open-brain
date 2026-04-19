@@ -4,6 +4,7 @@ import { MemoryConsolidationSkill } from '../skills/memory-consolidation.js'
 import type { MemoryConsolidationOptions, ConsolidationLLMOutput } from '../skills/memory-consolidation.js'
 import { PushoverService } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
+import { _resetBaseSkillAutonomyCacheForTest } from '../skills/base-skill.js'
 
 // Prompt templates live at <repo-root>/config/prompts/
 const REPO_PROMPTS_DIR = join(import.meta.dirname, '..', '..', '..', '..', 'config', 'prompts')
@@ -134,11 +135,22 @@ function makeSkillWithGateway(opts: {
   const pushover = makeMockPushover(false)
 
   const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'new-consolidated-cap-id' } }
-  const mockFetch = vi.fn().mockResolvedValue({
-    ok: fetchResponse.ok,
-    status: fetchResponse.ok ? 200 : 500,
-    json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
-    text: vi.fn().mockResolvedValue(''),
+  // URL-aware fetch mock: autonomy settings call returns partner level; all other calls use coreApiResponse
+  const mockFetch = vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/api/v1/settings/autonomy_level')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ value: 'partner' }),
+        text: vi.fn().mockResolvedValue(''),
+      })
+    }
+    return Promise.resolve({
+      ok: fetchResponse.ok,
+      status: fetchResponse.ok ? 200 : 500,
+      json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
+      text: vi.fn().mockResolvedValue(''),
+    })
   })
   vi.stubGlobal('fetch', mockFetch)
 
@@ -164,11 +176,22 @@ function makeSkillWithLitellm(opts: {
   const mockLitellm = makeMockOpenAI(opts.llmResponse ?? SAMPLE_LLM_OUTPUT)
   const pushover = makeMockPushover(false)
 
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: vi.fn().mockResolvedValue({ id: 'new-litellm-cap-id' }),
-    text: vi.fn().mockResolvedValue(''),
+  // URL-aware fetch mock: autonomy settings call returns partner level; all other calls return litellm cap id
+  vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/api/v1/settings/autonomy_level')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ value: 'partner' }),
+        text: vi.fn().mockResolvedValue(''),
+      })
+    }
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ id: 'new-litellm-cap-id' }),
+      text: vi.fn().mockResolvedValue(''),
+    })
   }))
 
   const skill = new MemoryConsolidationSkill({
@@ -190,6 +213,7 @@ function makeSkillWithLitellm(opts: {
 
 describe('MemoryConsolidationSkill', () => {
   beforeEach(() => {
+    _resetBaseSkillAutonomyCacheForTest()
     vi.restoreAllMocks()
     vi.mocked(findConsolidationCandidates).mockResolvedValue({
       clusters: [SAMPLE_CLUSTER],
@@ -310,6 +334,67 @@ describe('MemoryConsolidationSkill', () => {
       await skill.execute()
 
       expect(db.insert).toHaveBeenCalled()
+    })
+  })
+
+  // ----------------------------------------------------------
+  // Autonomy gate (P05)
+  // ----------------------------------------------------------
+
+  describe('autonomy gate', () => {
+    beforeEach(() => {
+      _resetBaseSkillAutonomyCacheForTest()
+      vi.restoreAllMocks()
+      vi.mocked(findConsolidationCandidates).mockResolvedValue(EMPTY_QUERY_RESULT)
+    })
+
+    it('gates at observe level (minimum_autonomy = assist)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ value: 'observe' }),
+      } as unknown as Response)
+      const skill = new MemoryConsolidationSkill({
+        db: makeMockDb([]) as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+      })
+
+      const result = await skill.execute()
+
+      expect(result.status).toBe('gated')
+      expect(result.durationMs).toBe(0)
+    })
+
+    it('runs at assist level (meets minimum_autonomy = assist)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ value: 'assist' }),
+      } as unknown as Response)
+      const skill = new MemoryConsolidationSkill({
+        db: makeMockDb([]) as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+      })
+
+      const result = await skill.execute()
+
+      expect(result.status).toBeUndefined()
+    })
+
+    it('runs at partner level (exceeds minimum_autonomy = assist)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ value: 'partner' }),
+      } as unknown as Response)
+      const skill = new MemoryConsolidationSkill({
+        db: makeMockDb([]) as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+      })
+
+      const result = await skill.execute()
+
+      expect(result.status).toBeUndefined()
     })
   })
 })
