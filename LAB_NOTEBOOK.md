@@ -6696,3 +6696,31 @@ Commits: `b0c7cd7` (1.1 backup.sh patch), `eb5da9d` (1.2 test script).
 
 
 
+
+## Entry 099 — P05: autonomy uniform through BaseSkill
+
+**Date:** 2026-04-19
+**Phase:** P05 (ORCHESTRATOR.md gate 3)
+**Tags:** [workers] [autonomy] [architecture] [skills]
+**Environment:** laptop (Windows / bash); target = homeserver workers container
+**Duration:** (fill on completion)
+
+### Objective
+Template-method refactor of BaseSkill to add an opt-in autonomy gate. BaseSkill.execute() becomes concrete gate wrapper; subclasses implement protected abstract run(). 4 proactive skills declare static minimum_autonomy (email-compose: advise, memory-consolidation: assist, daily-sweep-skill: assist, weekly-brief: observe). 16 reactive/ops skills remain ungated (no static declaration).
+
+### Hypothesis
+After P05, setting app_settings.autonomy_level='observe' (default) causes email-compose, memory-consolidation, and daily-sweep-skill to return {status: 'gated', durationMs: 0} without executing. weekly-brief continues to run (minimum='observe'). Reactive pipeline skills (wiki-ingest, extract-entities, stale-captures, etc.) unaffected. 8 new BaseSkill gate tests + 12 per-skill gate tests pass. CLAUDE.md table reflects the 4 proactive-skill minimums + the opt-in-gate rule.
+
+### Rollback plan
+`git revert <P05 merge sha>` on main. No data / schema consequence — gates are in-memory checks only. app_settings.autonomy_level remains readable. Skills fall back to previous unguarded behavior. Safe without maintenance window.
+
+### Result
+All tests pass. Final test count: 980 (baseline 960, +20 new tests).
+
+Files touched (26 total): base-skill.ts (rewrite), types.ts, 20 skill files (execute-to-run rename), 4 proactive skills (minimum_autonomy), base-skill.test.ts, NEW base-skill-autonomy.test.ts, memory-consolidation.test.ts (+3), daily-sweep-skill.test.ts (+3, 2 assertions updated), weekly-brief.test.ts (+2), email-compose.test.ts (+4), email-compose-fault-injection.test.ts, CLAUDE.md.
+
+Deviations from plan: (1) Existing test fetch mocks needed URL-awareness - makeSkill helpers stub a single fetch that the autonomy gate now hits first. Fixed by routing settings URL to autonomy response. (2) Two daily-sweep assertions updated to filter by captures URL since autonomy gate adds an extra fetch call. (3) email-compose-fault-injection.test.ts needed fetch mock (not in plan).
+
+Duration: ~2 hours
+
+---
