@@ -7425,11 +7425,56 @@ Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -
 
 ---
 
-## Entry 106 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update
+## Entry 106 — P11a: Loki log driver wiring for all compose services — 2026-04-19
+
+**Tags:** [docker] [config] [deploy] [decision]
+**Environment:** laptop (branch `feat/phase-P11a-observability-logging`)
+
+### Objective
+
+Route all 13 active compose services to the standalone Loki container on homeserver via the Docker `loki` log driver. Adds `logging:` stanzas to every service in `docker-compose.yml`, parameterized by `LOKI_URL` in `.env`. Also provisions the Grafana Loki datasource as code (currently manual-only in Grafana UI) and adds a validation script for post-deploy verification.
+
+No TypeScript changes. No migrations. Production infra file change requiring Gate 5 operator approval + `docker compose up -d --force-recreate` on homeserver.
+
+### Hypothesis
+
+After adding `logging: driver: loki` to all 13 services and recreating containers on homeserver:
+- Each container's logs appear in Loki under `{container_name="open-brain-<name>"}` within 30s of startup
+- Pino JSON services additionally expose `{level="..."}` and `{name="..."}` labels from the pipeline-stages config
+- Grafana Loki datasource provisioned from `config/grafana/provisioning/datasources/datasources.yaml` shows "connected" status
+- `scripts/test-loki-routing.sh` exits 0 (13/13 PASS)
+
+### Rollback plan
+
+Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -d --force-recreate`. Containers revert to default json-file driver. No data loss. No schema changes.
+
+### Decisions
+
+**D-P11a-1:** Docker `loki` log driver (not Promtail sidecar). Simpler: zero new containers, wired at compose level. Failure mode (Loki unreachable → driver drops logs) is acceptable for personal system.
+
+**D-P11a-2:** `loki-batch-size: "400"` — intentionally low. Pino single-line JSON logs are short; default 100K would batch too long before flushing.
+
+**D-P11a-3:** Pipeline stages extract `level` + `name` labels only. No capture IDs, no high-cardinality values. Loki label cardinality is safe.
+
+**D-P11a-4:** Prometheus datasource provisioned in same file with UID `DS_PROMETHEUS` — previously manual-only. Locks in UID so existing dashboards work after Grafana container recreate.
+
+### Result
+
+**PR #143 merged** — SHA `d6a79df`, 2026-04-19. Opus APPROVE cycle 1.
+- Homeserver: Loki plugin installed, `LOKI_URL` set in `.env`, `docker compose up -d --force-recreate` executed, all 13 containers healthy.
+- All containers log to Loki under `{container_name="open-brain-<name>"}` labels.
+- Grafana Loki + Prometheus datasources provisioned from code (`config/grafana/provisioning/datasources/datasources.yaml`). UID `DS_PROMETHEUS` locked in.
+- No TypeScript changes. No migrations. No test changes.
+- 6 files changed: `docker-compose.yml`, `.env`, `CLAUDE.md`, `LAB_NOTEBOOK.md`, `config/grafana/provisioning/datasources/datasources.yaml` (new), `scripts/test-loki-routing.sh` (new).
+- Issue #113: P11a ✅. P11b + P12 remain.
+
+---
+
+## Entry 107 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update — 2026-04-19
 
 **Tags:** [ci] [config] [docs]
 **Environment:** laptop (worktree agent-af283840), branch `feat/phase-P10b-ci-pytest-jobs`
-**Date:** 2026-04-19
+**Note:** Implementer used Entry 106 (collision with P11a). Renumbered to Entry 107 in doc-sweep.
 
 ### Objective
 
@@ -7478,13 +7523,13 @@ All changes confined to CI config + docs. `git revert` removes the two new CI jo
 - `arch-review/intake.md` line 66: CI job list extended with `voice-pipecat-test (pytest)` and `file-ingestion-test (pytest)` alongside existing `sidecar-test`
 - Commit: `e547d8c` — `docs(phase-P10b)/1.3: update test counts (2,689 unit + 91 regression)`
 
-### Results
+### Result
 
-- All 5 deliverables complete (D1 + D2 + D3 + D4 + D5)
-- 3 commits: `5e4e731`, `a292853`, `e547d8c`
-- YAML valid (exit 0 confirmed)
-- Zero application code touched; zero TS packages modified; `pnpm -r test` not required
-- Python CI post-merge: `sidecar-test` (13), `voice-pipecat-test` (54), `file-ingestion-test` (26) = 93 Python tests total in CI
-
-**Duration:** ~15 minutes
+**PR #142 merged** — SHA `ab7917f`, 2026-04-19. Opus APPROVE cycle 2.
+- Cycle 1 catch: voice-pipecat pytest path doubled due to `working-directory` + explicit `packages/voice-pipecat/` prefix in pytest args. Fixed before cycle 2 APPROVE.
+- CI: `build-and-test` green, `voice-pipecat-test` pass (54 tests), `file-ingestion-test` pass (26 tests), `integration-test` 1 flaky failure (pre-existing, `continue-on-error`).
+- 3 commits: `5e4e731`, `a292853`, `e547d8c`. YAML valid (exit 0 confirmed).
+- No homeserver deploy. No migration. Closes #115.
+- Python CI now covers: `sidecar-test` (13) + `voice-pipecat-test` (54) + `file-ingestion-test` (26) = 93 Python tests total in CI.
+- Issue #115: fully closed (P10a + P10b complete).
 
