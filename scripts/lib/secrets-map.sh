@@ -49,7 +49,7 @@ declare -A REQUIRED_SECRETS=(
 )
 
 # -----------------------------------------------------------------------------
-# OPTIONAL secrets (5) — written if present in BWS, silently skipped if not.
+# OPTIONAL secrets (7) — written if present in BWS, silently skipped if not.
 # SMTP_HOST/USER/PASS/FROM are interlocked: any one present causes
 # load-secrets.sh to also emit SMTP_PORT=$SMTP_PORT_DEFAULT (a non-secret).
 # -----------------------------------------------------------------------------
@@ -60,6 +60,7 @@ declare -A OPTIONAL_SECRETS=(
   ["open-brain-smtp-user"]="SMTP_USER"
   ["open-brain-smtp-pass"]="SMTP_PASS"
   ["open-brain-smtp-from"]="SMTP_FROM"
+  ["open-brain-grafana-admin-password"]="GRAFANA_ADMIN_PASSWORD"
 )
 
 # Non-secret SMTP port default emitted alongside any SMTP_* present.

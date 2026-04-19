@@ -7839,3 +7839,56 @@ PHASED_PLAN card said `0 5 * * 0`. That slot is taken by wiki-lint (`0 5 * * 0`)
 - No application code changes; no migrations; no pnpm changes
 
 ---
+
+## Entry 111 — P12: Observability IaC consolidation
+
+**Tags:** [deploy] [docker] [config] [observability] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P12-observability-iac`
+**Environment:** Laptop (worktree agent-aef02e3c)
+
+### Objective
+
+Bring Prometheus, Grafana, Loki, and Pushgateway into `docker-compose.yml` under an `observability` profile. Delete `scripts/deploy-loki.sh` (folded into compose). Update 13 `loki-url` defaults from external homeserver IP to `http://loki:3100/...`. Write `docs/runbooks/observability.md`. Update `deploy/.env.secrets.template` with `GRAFANA_ADMIN_PASSWORD` placeholder.
+
+### Hypothesis
+
+- `docker compose --profile observability up -d` starts 4 new containers (`open-brain-loki`, `open-brain-prometheus`, `open-brain-grafana`, `open-brain-pushgateway`), all pass healthcheck within 60 seconds.
+- Existing 13 app services continue to log correctly after `loki-url` default change (internal container name replaces homeserver IP).
+- CI passes (no TS changes, no test regressions).
+- `scripts/deploy-loki.sh` deleted via `git rm`.
+- `docs/runbooks/observability.md` covers bring-up, cutover, data migration, rollback.
+
+### Rollback plan
+
+`git revert` the PR. Standalone containers on homeserver continue running from original `docker run` commands (preserved in git history of `deploy-loki.sh`). No schema change. No BullMQ change. Re-running `docker compose up` without the `--profile observability` flag leaves the four new services inactive.
+
+### Decision: Option A — expand prometheus.yml to full working config
+
+Homeserver prometheus.yml content was provided as a pre-flight data block in the executor prompt. Captures all real scrape_configs (vllm-llm, vllm-embed, spark-node, spark-gpu, pushgateway, open-brain-core-api). `config/prometheus/prometheus.yml` is now the single source of truth — "REFERENCE ONLY" header removed. Prometheus compose service mounts this file directly.
+
+### Decision: loki_data volume as plain named volume (not host bind-mount)
+
+`loki_data` is declared as a standard named Docker volume, not a host bind-mount to `/mnt/user/appdata/loki/`. Rationale: bind-mount to host path couples the compose file to homeserver filesystem layout; the runbook documents the migration path (copy data from host path into the new named volume before first compose-up if log history is desired). Operator can override with a compose override file if needed.
+
+### Work items
+
+| WI | File | Action |
+|----|------|--------|
+| 1.1 | `config/prometheus/prometheus.yml` | Expand to full homeserver config; remove REFERENCE ONLY header |
+| 1.2 | `docker-compose.yml` | Add 4 observability services + 3 named volumes + update 13 loki-url defaults |
+| 1.3 | (same as 1.1) | Prometheus config expansion — inlined from 1.1 |
+| 1.4 | `scripts/deploy-loki.sh` | DELETE via git rm |
+| 1.5 | `scripts/post-compose-up.sh` | Add comment clarifying Loki now in observability compose profile |
+| 1.6 | `docs/runbooks/observability.md` | CREATE |
+| 1.7 | `config/grafana/provisioning/dashboards.yaml` | Confirm paths align (no change needed) |
+| 1.8 | `deploy/.env.secrets.template` | Add GRAFANA_ADMIN_PASSWORD placeholder |
+| 1.9 | `scripts/validate-alert-rules.sh` | Confirm no change needed (local path, no mount dependency) |
+
+### Verification
+
+- YAML validation: `python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"` — clean
+- `python3 -c "import yaml; yaml.safe_load(open('config/prometheus/prometheus.yml'))"` — clean
+- No TS files changed — existing test suite not exercised, CI should pass.
+
+---
