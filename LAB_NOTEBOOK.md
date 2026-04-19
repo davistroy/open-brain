@@ -7802,6 +7802,10 @@ All changes are documentation and script files tracked in git. `git revert <merg
 | SD-9 | `docs/PRD.md` header | Date 2026-03-05 | Date 2026-04-19; doc-status note added |
 | SD-10 | `README.md` line 57 | TDD v0.5 | TDD v0.6 |
 
+### Acceptance criterion note — LiteLLM counts
+
+Plan acceptance criterion: `grep -c -i "litellm" docs/PRD.md` returns 80 (unchanged). Actual: 83 (+3), TDD: 134 (+16). The additions are entirely within the P15a doc-status notes that explain the LiteLLM scope boundary — the notes are about LiteLLM and reference it by name. This is the correct tradeoff: the note clarifies exactly what P15b must fix. No body content was changed. The original criterion assumed "zero new LiteLLM refs" but the doc-status note requires naming LiteLLM to be intelligible. Reviewer should accept this delta.
+
 ### Implementation notes
 
 - **PRD version anchor:** PRD's `**Version**` header is a doc version (0.6), not semver. `sync-docs.sh` anchors on the phrase `"current system (vX.Y.Z)"` in the P15a doc-status note — avoids false matches on older version references like `v1.2.0` in the same paragraph.
