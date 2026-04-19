@@ -7607,7 +7607,6 @@ All changes confined to CI config + docs. `git revert` removes the two new CI jo
 
 ### Objective
 
-<<<<<<< HEAD
 Create packages/shared/src/lib/prompt-builder.ts -- SafePromptBuilder class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create docs/SECURITY.md as the system-wide threat model for prompt injection.
 
 This is P14a -- foundational module only. No call-site migration (that is P14b).
@@ -7617,7 +7616,9 @@ This is P14a -- foundational module only. No call-site migration (that is P14b).
 - Unit tests confirm all 8+ injection patterns stripped, delimiters are session-unique, clean content passes through without false positives.
 - pnpm --filter @open-brain/shared exec tsc --noEmit -- zero TS errors.
 - pnpm --filter @open-brain/workers exec tsc --noEmit -- zero TS errors.
-=======
+
+---
+
 Create `packages/shared/src/lib/prompt-builder.ts` — `SafePromptBuilder` class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create `docs/SECURITY.md` as the system-wide threat model for prompt injection.
 
 This is P14a — foundational module only. No call-site migration (that is P14b).
@@ -7627,13 +7628,11 @@ This is P14a — foundational module only. No call-site migration (that is P14b)
 - Unit tests confirm all 8+ injection patterns stripped, delimiters are session-unique, and clean content passes through without false positives.
 - `pnpm --filter @open-brain/shared exec tsc --noEmit` — zero TS errors.
 - `pnpm --filter @open-brain/workers exec tsc --noEmit` — zero TS errors (import chain validation even though workers do not use SafePromptBuilder yet).
->>>>>>> origin/main
 - All existing shared tests continue to pass.
 - No production call sites modified.
 
 ### Rollback plan
 
-<<<<<<< HEAD
 SafePromptBuilder is not used by any call site -- deletion is the full rollback. git revert the 2-3 commits; remove docs/SECURITY.md. No schema change, no config change, no homeserver deploy required.
 
 ### Architecture decision: lib/ placement (minor drift from card)
@@ -7668,7 +7667,9 @@ SafePromptBuilder is stateless (pure methods + configured delimiterPrefix). Plac
 - No existing tests broken.
 
 **Duration:** ~60 minutes.
-=======
+
+---
+
 `SafePromptBuilder` is not used by any call site — deletion is the full rollback. `git revert` the 2-3 commits; remove `docs/SECURITY.md`. No schema change, no config change, no homeserver deploy required.
 
 ### Architecture decision: lib/ placement (minor drift from card)
@@ -7701,4 +7702,3 @@ Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
 - `pnpm --filter @open-brain/shared exec tsc --noEmit`: clean
 - `pnpm --filter @open-brain/workers exec tsc --noEmit`: clean
 - No existing tests broken.
->>>>>>> origin/main
