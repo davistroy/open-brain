@@ -9,6 +9,9 @@ volumes:
   financial_ingest_data:
   utility_ingest_data:
   admin_prewipe_backup:
+  prometheus_data:
+  grafana_data:
+  loki_data:
 
 services:
   postgres:
@@ -36,7 +39,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -71,7 +74,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -134,7 +137,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -201,7 +204,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -244,7 +247,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -292,7 +295,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -354,7 +357,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -395,7 +398,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -447,7 +450,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -488,7 +491,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -525,7 +528,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -583,7 +586,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
@@ -601,6 +604,112 @@ services:
   # Utility batch-ingest sidecar — same image as financial-ingest, different
   # config + inbox. Handles utility-pipeline.py (gas, power, water summaries).
   # Build block is duplicated so either service can rebuild the shared image.
+  # ── Observability stack ──────────────────────────────────────────────────────
+  # Start with: docker compose --profile observability up -d
+  # Prerequisite: Loki Docker log driver plugin installed once on the Docker host:
+  #   docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
+  # See docs/runbooks/observability.md for bring-up, cutover, and data migration steps.
+
+  loki:
+    image: grafana/loki:latest
+    container_name: open-brain-loki
+    volumes:
+      - loki_data:/loki/data
+      - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    mem_limit: 512m
+    networks:
+      - open-brain
+    restart: unless-stopped
+    profiles:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    # NOTE: No logging driver on loki itself — prevents chicken-and-egg startup failure.
+
+  pushgateway:
+    image: prom/pushgateway:latest
+    container_name: open-brain-pushgateway
+    ports:
+      - "9091:9091"
+    mem_limit: 128m
+    networks:
+      - open-brain
+    restart: unless-stopped
+    profiles:
+      - observability
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9091/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: open-brain-prometheus
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus/alerts:/etc/prometheus/alerts:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    mem_limit: 1g
+    networks:
+      - open-brain
+    restart: unless-stopped
+    profiles:
+      - observability
+    depends_on:
+      pushgateway:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: open-brain-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_HTTP_PORT: "3050"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards/open-brain:ro
+    ports:
+      - "3050:3050"
+    mem_limit: 512m
+    networks:
+      - open-brain
+    restart: unless-stopped
+    profiles:
+      - observability
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3050/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
   utility-ingest:
     build:
       context: .
@@ -632,7 +741,7 @@ services:
     logging:
       driver: loki
       options:
-        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
         loki-batch-size: "400"
         loki-retries: "3"
         loki-max-backoff: "800ms"
