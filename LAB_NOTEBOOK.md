@@ -7451,3 +7451,38 @@ Run with real query vector for meaningful recall numbers. Expect: p95 < 50ms at 
 
 Branch-switching incident during implementation: initial work was done on `docs/orch-p10b-p11a-doc-sweep` instead of `feat/phase-P13-search-perf` due to the worktree state. The untracked files (migration SQL, benchmark script) survived the branch switch; all tracked file edits (search.ts, config.yaml, config.ts, index.ts, test file) were re-applied from scratch on the correct branch. All 7 work items complete.
 
+---
+
+## Entry 109 — P11b: Prometheus alert rules + Grafana dashboard panels — 2026-04-19
+
+**Tags:** [config] [observability] [api] [benchmark] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P11b-observability-alerts`
+**Environment:** Laptop (p11b-work worktree)
+**Duration:** In progress
+
+### Objective
+
+Add 5 Prometheus alert rule YAML files in `config/prometheus/alerts/` covering: budget spend, pipeline queue depth, capture flow staleness, container health, and Composio quota. Add two new Prometheus gauges to core-api `/metrics` (`openbrain_budget_spent_usd` from `ai_audit_log`, `openbrain_composio_monthly_usage` from Redis). Add runbook stubs for each alert family. Add threshold panels/annotations to Grafana dashboard JSON files. Add `scripts/validate-alert-rules.sh` for local promtool validation.
+
+### Hypothesis
+
+- 5 alert rule YAML files validate cleanly (`python3 -c "import yaml; yaml.safe_load(open(f))"` exits 0 for each)
+- `openbrain_budget_spent_usd` and `openbrain_composio_monthly_usage` gauges appear in `GET /metrics` response
+- `pnpm --filter @open-brain/core-api run test` passes (≥ 735 tests)
+- `pnpm --filter @open-brain/workers run test` passes (no regression)
+- 5 runbook stubs exist in `docs/runbooks/`
+- Grafana dashboards updated with threshold indicators and alert list panel
+
+### Rollback Plan
+
+All changes are additive config/doc:
+- Remove `config/prometheus/alerts/` directory — rules go silent on next Prometheus reload
+- Revert `packages/core-api/src/routes/metrics.ts` — removes new gauges from `/metrics`
+- Revert `packages/core-api/src/app.ts` — removes db/redis injection to `registerMetricsRoute`
+- Revert dashboard JSON files — Grafana auto-reloads within 30s per provisioning config
+- `docs/runbooks/` is docs-only — no rollback needed
+- No DB migration. No BullMQ schema. No scheduler changes.
+
+### Implementation
+

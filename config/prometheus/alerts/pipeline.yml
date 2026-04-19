@@ -1,0 +1,46 @@
+# Prometheus alert rules — BullMQ pipeline health
+# Metric source: Pushgateway (job=open-brain, instance=workers)
+# Metrics pushed by pipeline-health skill (every 6h): openbrain_queue_waiting,
+# openbrain_queue_failed, openbrain_queue_active, openbrain_queue_delayed.
+#
+# Notification path: pipeline-health skill sends Pushover when waitingThreshold > 100
+# and on stalled jobs. These Prometheus rules add the "sustained for >5 minutes" gate
+# (Prometheus `for:` clause) and Grafana annotation visibility.
+#
+# Related code: packages/workers/src/skills/pipeline-health.ts
+#               packages/workers/src/lib/push-metrics.ts (push path)
+
+groups:
+  - name: open-brain-pipeline
+    interval: 1m
+    rules:
+      - alert: QueueDepthHigh
+        # Fires when any BullMQ queue has >100 waiting jobs for >5 consecutive minutes.
+        # The `for: 5m` clause implements the card requirement "queue depth > 100 for >5min".
+        expr: openbrain_queue_waiting{job="open-brain"} > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue {{ $labels.queue }} depth {{ $value }} waiting jobs (>100 for 5+ min)"
+          description: >
+            BullMQ queue {{ $labels.queue }} has sustained >100 waiting jobs for over
+            5 minutes. Workers may be stuck, under-resourced, or facing a thunderstorm.
+            Check workers container logs and Redis queue state.
+          runbook: "docs/runbooks/pipeline-alert.md"
+
+      - alert: QueueFailedJobsHigh
+        # Fires when accumulated failed jobs in a queue exceeds 5.
+        # Failed jobs remain in the queue until manually resolved (BullMQ behavior).
+        expr: openbrain_queue_failed{job="open-brain"} > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue {{ $labels.queue }} has {{ $value }} failed jobs"
+          description: >
+            Accumulated failed jobs in {{ $labels.queue }} exceeds threshold.
+            Jobs will be retried by the daily-sweep stale-capture re-queuer (03:00)
+            but high failure counts indicate a systematic issue.
+            Check workers logs via Grafana/Loki: {container_name="open-brain-workers-1"}.
+          runbook: "docs/runbooks/pipeline-alert.md"
