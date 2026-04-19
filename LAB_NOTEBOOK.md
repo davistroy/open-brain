@@ -180,8 +180,9 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged (PR #123), P02a merged (PR #124); P02b in progress (Entry 094); P02c + P03 remaining |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 + P02a + P02b merged (PRs #123, #124, #125); P02c + P03 remaining |
 | A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
+| A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N (partial)`; manually close after final PR merges | 2026-04-18 | Entry 094 | LOW — process improvement. #102 auto-closed twice (P02a + P02b) despite "(partial)" wording. GitHub's parser ignores the qualifier. Apply to P03 PR body. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -5983,6 +5984,33 @@ The OpenAI path (`this.client.chat.completions.create(...)`) was always the only
 **Verification:** `grep -rn "modelAlias" packages/workers/src packages/shared/src` — zero matches on option types and execute destructures; only private `callLLM` method bodies retain the param (intentional). `grep -rn "_anthropicClient" packages/workers/src` — zero matches. `grep -rn "callClaude\|call-claude" packages/` — zero matches. Workers: 960/960 tests pass (3 fewer than pre-cleanup — the 3 removed `modelAlias` override tests). Shared: 277/277 unchanged. All builds clean.
 
 **Status:** Ready for final merge.
+
+---
+
+#### Gate 5 + post-merge — MERGED 2026-04-18
+
+**Merge SHA:** `fad793e` (squash). Remote branch deleted; local pruned.
+
+**Final test state:** workers 960/960 (was 948, +12 net: +15 new gateway-mock, -3 obsolete `modelAlias` override), shared 277/277 (was 291, -14 from deleted `call-claude.test.ts`), voice-capture 82/82 unchanged.
+
+**CI on merge HEAD `1f8c8c0`:** 9/9 green.
+
+**Issue #102:** auto-closed by `Closes #102` despite "(partial)" qualifier. GitHub's parser ignores parenthetical disclaimers. **REOPENED** with comment. Added Action Item A72 — future partial closures use `Refs #N` not `Closes #N (partial)`.
+
+**Gate 5.5:** NOT triggered — pure TS refactor.
+
+**Duration:** ~3 hours wall-clock (one more hour than typical for bootstrap phase due to cycle 2 re-review + I1/I2 cleanup).
+
+**What Worked:**
+- Opus reviewer caught the voice-capture callClaude site that Sonnet's scoped grep missed. Review-cycle safety net earned its cost here.
+- `main.ts` `_anthropicClient` pass-through severed cleanly without touching wiki-lint/monthly-reflection/email-compose (still legitimately use anthropicClient).
+- TS2554 arity check caught internal call-site mismatch during I2 cleanup before it reached git.
+
+**Surprises (operational learnings — CLAUDE.md candidates for P03 sweep):**
+1. Verification greps must be unconstrained across all `packages/` — not scoped to suspected consumer dirs. First Gate 3 missed voice-capture by scoping to workers+shared only.
+2. `Closes #N (partial)` triggers auto-close. Use `Refs #N` for partial-PR scenarios. Add manual close comment after final PR lands.
+
+**Status:** P02b ✅ COMPLETE. Orchestrator advances to P02c (recordAgentCompletion final-tier plumb-through — #122).
 
 ---
 

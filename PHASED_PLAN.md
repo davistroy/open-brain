@@ -181,11 +181,13 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P02b — Migrate memory-consolidation + weekly-brief through gateway; remove callClaude
+### P02b — Migrate memory-consolidation + weekly-brief through gateway; remove callClaude  ✅ Completed 2026-04-18 (PR #125)
 **Scope:** #102 subset — remove callClaude fallback; both skills go through `completeByTask()`
 **Severity:** Critical
 **Dependencies:** P02a (Zod validation catches any mis-mapped tier before migrations land)
-**Effort:** ~1-1.5 days
+**Effort:** ~1-1.5 days (actual ~2 hours; scope expanded during Gate 1 — 7 call sites across 5 packages vs. planned 2)
+
+**Result:** Merged as squash `fad793e`. Gate 1 surfaced 5 drifts (largest: 6 callClaude sites, not 2; then Gate 4 found a 7th in voice-capture that was outside the scoped grep). 7 call sites eliminated (6 workers + 1 voice-capture). Cycle 1 REQUEST_CHANGES → Cycle 2 APPROVE after fix. Tests: workers 948→960 (+12 net; +15 new tests, -3 obsolete), shared 291→277 (-14 exact from deleted `call-claude.test.ts`), voice-capture 82 unchanged. Total repo 2,633 passing. CLAUDE.md rule added. 2 pre-merge cleanup commits addressed reviewer nits I1 (orphan `modelAlias` plumbing) + I2 (`_anthropicClient` extract-entities signature). Issue #102 remains open (P03 to close). See LAB_NOTEBOOK Entry 094.
 
 **Deliverables:**
 - `packages/workers/src/skills/memory-consolidation.ts`: calls `llmGateway.completeByTask('memory_consolidation', ...)` — single-completion shape (not agent-loop like email-compose)
@@ -949,7 +951,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 | GH # | Title | Phase(s) | Wave | Severity |
 |-----:|-------|----------|-----:|----------|
-| 102 | Theme 1 — Cost-tracking paper tiger | P02a ✅ + P02b + P03 | 1 | Critical |
+| 102 | Theme 1 — Cost-tracking paper tiger | P02a ✅ + P02b ✅ + P03 | 1 | Critical |
 | 103 | Theme 3 — mem_limits | P01 ✅ | 1 | Critical |
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
