@@ -6851,3 +6851,42 @@ After P07: (1) internal callers never 429 each other — 100 parallel integratio
 - Both deviations were expected consequences of the changes, not surprises.
 
 **Duration:** ~45 minutes
+
+### Entry 098 — P08 Gate 3: Secret delivery hygiene (load-secrets.sh + verify + roundtrip test) — 2026-04-19
+
+**Tags:** [orchestrator] [phased-plan] [secrets] [bws] [ops] [shell] [decision]
+**Environment:** Laptop (Windows, msys bash 5.2). Branch `feat/phase-P08-secret-delivery-hygiene`. HEAD before Gate 3 = `fe7e1ac` (plan-only commit from Gate 2).
+**Phase:** P08 of PHASED_PLAN.md (Wave 1 follow-on; closes the round-trip P04b opened)
+**Issue:** #118
+
+**Objective:** Replace the 33-line `scripts/load-secrets.sh` stub with full BWS reconciliation, add `scripts/verify-secrets.sh` read-only audit, sha256 drift detection with Pushover alert, mapping table at `scripts/lib/secrets-map.sh`, and `scripts/test-secrets-roundtrip.sh` (5 cases, mock BWS + mock Pushover). Zero application code touched.
+
+**Hypothesis:** All 7 work items land in 4–6 commits. The mapping table approach (single `declare -A` shared across both consumer scripts) prevents drift between `load-secrets.sh` and `verify-secrets.sh`. Mock-bws + mock-Pushover via `BWS_BIN` env override and `PUSHOVER_API_URL` env override allow the test fixture to run with no network and no real BWS access — must work in CI without `BWS_ACCESS_TOKEN`. Pure curl for Pushover keeps it Node-free for disaster-recovery scenarios.
+
+Success criteria (per IMPLEMENT_PHASE-P08.md acceptance):
+- `bash scripts/load-secrets.sh --dry-run` lists all 13 required + N optional present in BWS without writing
+- Full run writes `.env.secrets` mode 0600 + `.env.secrets.sha256`; refuses clobber without `--force`
+- `--verify-hash` exits 4 on drift, 0 on match
+- `verify-secrets.sh` produces 3-column drift table; exit 1 if required missing
+- `test-secrets-roundtrip.sh` exits 0 — all 5 cases pass
+- CLAUDE.md updated with round-trip invariant + 3-step lockstep rule
+- All scripts use LF line endings (Linux/Unraid target)
+- Test fixture leaks zero fake-secret values to stdout (mirror P04b discipline)
+
+**Rollback Plan:**
+1. `git revert` the P08 PR — `scripts/load-secrets.sh` returns to 33-line stub; new files (`scripts/lib/secrets-map.sh`, `scripts/lib/pushover-notify.sh`, `scripts/verify-secrets.sh`, `scripts/test-secrets-roundtrip.sh`) disappear; CLAUDE.md round-trip rule removed.
+2. **Homeserver impact: zero** unless operator already wrote `.env.secrets` via the new script. The written file is plain `KEY=value` and remains valid; only the auto-reconciliation tooling is gone. The `.env.secrets.sha256` file becomes orphaned — harmless, deletable.
+3. Operator fallback = manual Bitwarden Web UI copy-paste against `deploy/.env.secrets.template` (current workflow).
+4. No DB, no Docker rebuild, no container restart required either way.
+
+**Per work item plan:**
+- 1: `scripts/lib/secrets-map.sh` — declare REQUIRED_SECRETS (13) + OPTIONAL_SECRETS (5) + SMTP_PORT_DEFAULT
+- 2: `scripts/load-secrets.sh` rewrite — flags `--force`, `--dry-run`, `--rehash-only`, `--verify-hash`, `--target-dir`; atomic tmp+mv; chmod 0600; sha256 sidecar; fail-fast on missing required
+- 3: `--verify-hash` mode (folded into item 2)
+- 4: `scripts/lib/pushover-notify.sh` — pure curl wrapper with `PUSHOVER_API_URL` override
+- 5: `scripts/verify-secrets.sh` — 3-column markdown table; exit 0/1/2
+- 6: `scripts/test-secrets-roundtrip.sh` — mock-bws shim on PATH + nc-based Pushover sink; 5 cases
+- 7: CLAUDE.md "Backup / disaster recovery" subsection update
+
+**Status:** Gate 3 starting. Per-item results appended below.
+
