@@ -77,9 +77,14 @@ SHA_FILE="${ENV_SECRETS_FILE}.sha256"
 # -----------------------------------------------------------------------------
 # Preconditions
 # -----------------------------------------------------------------------------
-need_jq() {
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "ERROR: jq is required (not found in PATH)" >&2
+need_json_parser() {
+  # Prefer jq (canonical); fall back to python3 (also universal on Unraid/Ubuntu/Alpine).
+  if command -v jq >/dev/null 2>&1; then
+    JSON_PARSER="jq"
+  elif command -v python3 >/dev/null 2>&1; then
+    JSON_PARSER="python3"
+  else
+    echo "ERROR: neither jq nor python3 found in PATH" >&2
     echo "  Unraid: install via nerdpack or 'apt install jq'" >&2
     exit 1
   fi
@@ -157,7 +162,7 @@ fi
 # -----------------------------------------------------------------------------
 # Modes: reconcile + dry-run (both need BWS)
 # -----------------------------------------------------------------------------
-need_jq
+need_json_parser
 resolve_bws_bin
 require_bws_token
 
@@ -195,7 +200,21 @@ trap 'rm -f "${LOOKUP_FILE}" "${TMP_ENV_SECRETS:-}"' EXIT
 # Emit "key\tvalue" TSV lines (tab-separated; values may contain '=' but not tab).
 # jq -r with @tsv handles escaping; if any secret legitimately contains a tab
 # we'd need a different separator, but no Open Brain secret should.
-echo "${BWS_JSON}" | jq -r '.[] | [.key, .value] | @tsv' > "${LOOKUP_FILE}"
+if [[ "${JSON_PARSER}" == "jq" ]]; then
+  echo "${BWS_JSON}" | jq -r '.[] | [.key, .value] | @tsv' > "${LOOKUP_FILE}"
+else
+  # python3 fallback. Read JSON from stdin, emit TAB-separated key\tvalue lines.
+  echo "${BWS_JSON}" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for entry in data:
+    k = entry.get("key", "")
+    v = entry.get("value", "")
+    # Strip newlines/tabs from values to keep one-line-per-key invariant.
+    v = v.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+    print(f"{k}\t{v}")
+' > "${LOOKUP_FILE}"
+fi
 
 # Helper: look up a BWS-name in the JSON, echo the value (or empty string).
 # Uses awk to extract the second column on tab-delimited input.

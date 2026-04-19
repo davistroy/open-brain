@@ -59,8 +59,12 @@ fi
 # -----------------------------------------------------------------------------
 # Pull BWS catalog (just keys; values not needed for audit).
 # -----------------------------------------------------------------------------
-if ! command -v jq >/dev/null 2>&1; then
-  echo "ERROR: jq not found in PATH" >&2
+if command -v jq >/dev/null 2>&1; then
+  JSON_PARSER="jq"
+elif command -v python3 >/dev/null 2>&1; then
+  JSON_PARSER="python3"
+else
+  echo "ERROR: neither jq nor python3 found in PATH" >&2
   exit 2
 fi
 
@@ -87,7 +91,15 @@ fi
 
 BWS_KEYS_FILE="$(mktemp)"
 trap 'rm -f "${BWS_KEYS_FILE}"' EXIT
-echo "${BWS_JSON}" | jq -r '.[] | .key' > "${BWS_KEYS_FILE}"
+if [[ "${JSON_PARSER}" == "jq" ]]; then
+  echo "${BWS_JSON}" | jq -r '.[] | .key' > "${BWS_KEYS_FILE}"
+else
+  echo "${BWS_JSON}" | python3 -c '
+import json, sys
+for entry in json.load(sys.stdin):
+    print(entry.get("key", ""))
+' > "${BWS_KEYS_FILE}"
+fi
 
 bws_has() {
   grep -Fxq "$1" "${BWS_KEYS_FILE}"
