@@ -180,7 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 + P02a + P02b merged (PRs #123, #124, #125); P02c in progress (Entry 095); P03 remaining |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 + P02a + P02b + P02c merged (PRs #123, #124, #125, #126); P03 (final bootstrap) in progress |
 | A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
 | A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N (partial)`; manually close after final PR merges | 2026-04-18 | Entry 094 | LOW — process improvement. #102 auto-closed twice (P02a + P02b) despite "(partial)" wording. GitHub's parser ignores the qualifier. Apply to P03 PR body. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
@@ -6091,6 +6091,47 @@ Extended `run-agent.test.ts` with 3 assertions: (5a) fallback swap test — `exp
 **What changed (semantic):** `ai_audit_log.model` and `client_used` now record the tier that *actually served* the agent call, not the initially-routed tier. This is a semantic refinement — not a schema change. P02c merge date (2026-04-19) is the cutover marker for historical cost analysis.
 
 **Status:** ALL_COMPLETE. Ready for Gate 4 (code-reviewer).
+
+---
+
+#### Gate 4 — Opus code review — APPROVE (cycle 1)
+
+**Reviewer verdict:** APPROVE first cycle, no changes requested. Posted to PR #126 as COMMENTED review (author = reviewer = davistroy). CI all 9 checks green on HEAD `3a33ada`.
+
+**Deliverables verified:** All 5 structural items correct:
+1. `AgentResult.finalTierKey?: string` — optional, JSDoc present, not breaking
+2. `currentTierKey` loop-scoped correctly (declared outside while loop; updated only in swap branch)
+3. Gateway 4th param additive (not reordered); `effectiveTierKey = finalTierKey ?? tierKey` semantics clean
+4. email-compose call site passes `agentResult.finalTierKey` (no guard needed)
+5. Test assertions present for all 3 paths (swap/no-swap/legacy)
+
+**Backward compat:** 4 legacy `runAgent` callers (email-compose-assist, wiki-lint, wiki-ingest, monthly-reflection) unaffected — optional field doesn't break destructuring. `recordAgentCompletion` test sites using 3-arg form still compile.
+
+**Risks:** None blocking. Semantic cutover note well-captured in both PR body and Entry 095.
+
+**Rule 11:** LAB_NOTEBOOK Entry 095 at commit `231becd` preceded implementation commit `4959a6a` by 28 minutes. Compliant.
+
+---
+
+#### Gate 5 + post-merge — MERGED 2026-04-19
+
+**Merge SHA:** `7b8407a` (squash). Branch deleted on remote; local pruned.
+
+**Issue #122:** cleanly CLOSED by `Closes #122` (sole PR, full closure — no reopening needed; A72 convention applies only to partial closures).
+
+**CI on merge HEAD `3a33ada`:** 9/9 green.
+
+**Gate 5.5:** NOT triggered — pure TypeScript, no compose/migration change.
+
+**Duration (P02c lifecycle):** ~1 hour wall-clock — smallest bootstrap phase. Low severity + 5 well-scoped work items + single production caller = fast path.
+
+**What Worked:**
+- Gate 1 drift analysis precisely scoped the work (5 checks cleared, zero blockers).
+- Single atomic commit strategy for co-dependent signature changes (gateway param must exist before email-compose compiles). No need to split commits.
+- Extending existing test cases with new assertions (rather than adding new cases) kept the test count flat but coverage tight — 4 assertions added across 2 test files.
+- First cycle APPROVE — the Opus reviewer found no issues. Plan quality shows: surgical scope, explicit design decisions (Option A vs B), and concrete line-level guidance pays off.
+
+**Status:** P02c ✅ COMPLETE. Orchestrator advances to **P03 — the final bootstrap phase** (cost estimator widening + config-contract test + Composio quota meter). After P03 merges, `bootstrap_mode` flips to false and normal ORCHESTRATOR approval matrix applies.
 
 ---
 
