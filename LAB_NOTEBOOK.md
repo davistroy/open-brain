@@ -7512,6 +7512,13 @@ Run with real query vector for meaningful recall numbers. Expect: p95 < 50ms at 
 
 Branch-switching incident during implementation: initial work was done on `docs/orch-p10b-p11a-doc-sweep` instead of `feat/phase-P13-search-perf` due to the worktree state. The untracked files (migration SQL, benchmark script) survived the branch switch; all tracked file edits (search.ts, config.yaml, config.ts, index.ts, test file) were re-applied from scratch on the correct branch. All 7 work items complete.
 
+### Closure (doc sweep 2026-04-19)
+
+- **PR #144** merged, SHA `d7e8c92`. Reviewer: Opus APPROVE cycle 2.
+- **Cycle 1 catch:** `SET LOCAL` parameterized value syntax error — `SET LOCAL hnsw.ef_search = $1` is not valid Postgres parameterized syntax outside a function body. Drizzle auto-commit mode also means SET LOCAL is a no-op (no open transaction). Fix: replaced with `sql.raw(\`SET hnsw.ef_search = ${this.hnswEfSearch}\`)` — session-scoped SET, no SQL injection risk (value is a config integer).
+- **Migration 0027** (`0027_search_hnsw_ef_search.sql`) applied on homeserver 2026-04-19. Workers restart NOT needed — `CREATE OR REPLACE FUNCTION` is immediate in Postgres.
+- **Issue #112** closed.
+
 ---
 
 ## Entry 107 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update — 2026-04-19
