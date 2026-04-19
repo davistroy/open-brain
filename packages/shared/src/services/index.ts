@@ -1,3 +1,4 @@
+export { validateAiRoutingConfig, PAID_PROVIDERS } from './ai-config-schema.js'
 export * from './anthropic-client.js'
 export * from './call-claude.js'
 export * from './composio-client.js'

@@ -223,7 +223,8 @@ export class LLMGatewayService {
       return 'litellm'
     }
     if (provider === 'openai_compat') return 'openai_compat'
-    // litellm, openai, deepseek — all use the OpenAI SDK client
+    if (provider === 'openai') return 'openai'
+    if (provider === 'deepseek') return 'deepseek'
     return 'litellm'
   }
 

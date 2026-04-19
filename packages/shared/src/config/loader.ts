@@ -15,6 +15,7 @@ import {
   type ModelTierEntry,
   type TaskRoutingConfig,
 } from '../types/config.js'
+import { validateAiRoutingConfig } from '../services/ai-config-schema.js'
 
 const logger = createLogger('config-service')
 
@@ -78,7 +79,7 @@ export class ConfigService {
       brainViews: loadOne(join(this.configDir, 'brain-views.yaml'), BrainViewsConfigSchema),
       notifications: loadOne(join(this.configDir, 'notifications.yaml'), NotificationConfigSchema),
     }
-    this.validateTaskRouting(this.configs.ai)
+    validateAiRoutingConfig(this.configs.ai)
   }
 
   /**

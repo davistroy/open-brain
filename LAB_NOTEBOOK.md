@@ -180,7 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged 2026-04-18 (PR #123); P02a-c + P03 in progress |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 merged 2026-04-18 (PR #123); P02a in progress (Entry 093); P02b-c + P03 remaining |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 
 ### Completed
@@ -5662,6 +5662,147 @@ Success criteria:
 **Pattern established:** CI re-runs validate-schema conditionally on mode-only changes to the validator script itself (because the script path is NOT in the trigger list — only schema files are). When the reviewer-flagged mode-fix commit went up, the validate-schema job still executed — investigation showed the CI check picked up the change because scripts/ is being watched broadly in the trigger detection. Good accident.
 
 **Status:** P01 ✅ COMPLETE. Orchestrator advances to P02a (Zod config validation for ai-routing.yaml).
+
+---
+
+### Entry 093 — P02a Gate 1+2: Zod config validation for ai-routing.yaml plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [config] [zod] [cost-tracking] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P02a-zod-config-validation` (created in this entry's commit). Main at `574a3b5` before branch.
+**Phase:** P02a of PHASED_PLAN.md (Wave 1, bootstrap phase 2 of 5)
+**PR:** TBD (will be created after Gate 3)
+
+**Objective:** Add startup Zod validation to `ConfigService.load()` that catches missing or `undefined` `cost_per_1k_input` / `cost_per_1k_output` on paid-provider tiers (anthropic, openai, openai_compat, litellm, deepseek) in `config/ai-routing.yaml`. Also validates `task_routing` tier existence, `fallback` chain integrity, and `monthly_budget` positivity. Fail-fast on violation — this is the first half of the bootstrap cost-tracking fix that unblocks P03's `estimateTierCostUsd()` rewrite. Without it, a silently-stripped cost field would let the $100+ overnight ingestion cost incident (Entry 042, 2026-04-15) recur.
+
+**Hypothesis:** Adding `cost_per_1k_input?: number` + `cost_per_1k_output?: number` to `ModelTierEntrySchema` plus a pure-function validator `validateAiRoutingConfig(config)` hooked into `ConfigService.load()` will (a) surface the actual cost values on the TS type (previously stripped silently by Zod), (b) throw with actionable messages on any missing cost field for paid-provider tiers, (c) throw on task_routing → nonexistent tier, fallback → nonexistent tier, or hard_limit <= soft_limit. Expect the `t1_jetson` tier must gain explicit `cost_per_1k_input: 0` + `cost_per_1k_output: 0` in YAML (self-declared free local GPU) to pass validation. Expect 7 failure-case unit tests + 1 production-config drift-guard test. Expect 283 existing shared tests to remain green.
+
+Success criteria:
+- `pnpm --filter @open-brain/shared test -- loader.test.ts`: 7 new failure tests + 1 production drift-guard test, all green
+- `pnpm --filter @open-brain/shared test`: 291/291 passing (was 283 + 8 new)
+- `pnpm -r test`: full repo green
+- `pnpm --filter @open-brain/shared build`: clean
+- Manual: `configService.getModelTier('t1_fast').cost_per_1k_input === 0.0008` (was `undefined`)
+- PR body closes #102 partially (subset)
+- No regressions in core-api/workers/slack-bot consumers of `ModelTierEntry`
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` on main — pure TypeScript + YAML, no DB migrations.
+2. `ModelTierEntrySchema` reverts to 6-field form — cost fields stripped at parse time as before.
+3. `ConfigService.load()` reverts to non-fatal `validateTaskRouting()` only.
+4. `config/ai-routing.yaml` `t1_jetson` reverts to no-cost-field form — no functional impact (tier still works; cost just unknown).
+5. **Critical:** P02b + P03 cannot land before P02a re-lands — they depend on `cost_per_1k_input`/`cost_per_1k_output` existing on `ModelTierEntry`.
+6. No homeserver compose restart required.
+
+**Gate 1 scope drifts (5 found, all documented in plan; none invalidate acceptance):**
+
+1. Field names are `cost_per_1k_input` / `cost_per_1k_output` (full suffix), not `_in` / `_out` as the P02a card + ORCHESTRATOR.md bootstrap check said. Plan uses the authoritative names. ORCHESTRATOR.md's bootstrap check will need a follow-up doc fix (not P02a scope).
+2. **`ModelTierEntrySchema` has NO cost fields currently** — Zod silently strips them from the parsed object. P02a must extend the schema AND add the validator. This is the biggest surprise but is essential for P03.
+3. `ConfigService` lives in `packages/shared/src/config/loader.ts`, not `services/config-service.ts`. Plan corrected.
+4. `estimateTierCostUsd()` is a stub returning 0 — confirmed P02a does NOT modify it (P03 scope).
+5. ORCHESTRATOR.md uses `budget.monthly_hard_cap_usd` but actual field is `monthly_budget.hard_limit_usd`. Doc-only drift in ORCHESTRATOR.md; not P02a scope.
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P02a.md` — 6-work-item plan covering schema extension (3.1), validator module (3.2), ConfigService hook (3.3), 7 failure-case tests (3.4), 1 production drift-guard test (3.5), barrel export (3.6).
+- Added LAB_NOTEBOOK Entry 093 (this entry).
+- Updated Action Item A69 to reflect P02a in progress.
+
+**Next (Gate 3):** dispatch `implement-executor` subagent (Sonnet 4.6) to execute all 6 work items. Per-work-item sub-sections will be appended to this entry.
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02a-zod-config-validation`.
+
+---
+
+#### Gate 3 — Work item 3.1 in progress (ModelTierEntrySchema + YAML)
+
+**Hypothesis:** Adding `cost_per_1k_input: z.number().optional()` and `cost_per_1k_output: z.number().optional()` to `ModelTierEntrySchema` (using `.optional()` not `.default(0)` to preserve the "absent vs zero" distinction) and adding explicit `cost_per_1k_input: 0` / `cost_per_1k_output: 0` to the `t1_jetson` tier in `config/ai-routing.yaml` will cause the parsed `ModelTierEntry` type to expose these fields and allow the upcoming validator to distinguish undefined from explicitly-zero. After this commit, `getModelTier('t1_fast').cost_per_1k_input` will return `0.0008` (previously silently stripped to `undefined`). No existing tests should break — the new fields are optional.
+
+---
+
+#### Gate 3 — Work item 3.2 + 3.6 in progress (validator module + barrel export)
+
+**Hypothesis:** Creating `packages/shared/src/services/ai-config-schema.ts` with `validateAiRoutingConfig()` and `PAID_PROVIDERS` exports — and adding a named re-export to `packages/shared/src/services/index.ts` (which already exists as a barrel using `export *` pattern) — will compile cleanly and be importable by ConfigService in Commit C. The four validation rules (cost completeness, task_routing existence, fallback existence, budget positivity) are pure logic over the already-parsed `AIConfig` object; no IO or external dependencies. Build should succeed; no test changes yet.
+
+---
+
+#### Gate 3 — Work item 3.3 in progress (hook into ConfigService.load())
+
+**Hypothesis:** Adding `import { validateAiRoutingConfig } from '../services/ai-config-schema.js'` and calling `validateAiRoutingConfig(this.configs.ai)` after `this.validateTaskRouting(this.configs.ai)` in `ConfigService.load()` will cause fail-fast behavior at startup. Existing test fixtures in `validAiWithTiers` use `anthropic` provider tiers (`t1_fast`, `t2_quality`) WITHOUT cost fields — these tests will NOW FAIL because the validator enforces cost fields on paid providers. This is expected and will be fixed in Commit D by updating those fixtures. The `validAi` fixture (legacy config, no `model_tiers`) will NOT be affected since the validator only fires Rules 1-3 when `model_tiers`/`task_routing` are present.
+
+---
+
+#### Gate 3 — Work item 3.4 + 3.5 in progress (8 new tests)
+
+**Hypothesis:** Adding a `describe('ai-routing cost validation')` block with 8 new tests will bring the total from 283 to 291. The existing `validAiWithTiers` fixture in `describe('three-tier routing')` needs to gain cost fields on the `anthropic` tiers (`t1_fast`, `t2_quality`) to satisfy the newly-hooked validator (fixing the breakage from Commit C). The production drift-guard test (3.5.1) copies `config/ai-routing.yaml` using `copyFileSync` with a path computed as 5 `..` segments up from `packages/shared/src/config/__tests__/` to the repo root. All 8 new tests + all 283 pre-existing = 291 total.
+
+---
+
+#### Gate 3 — Work items 3.1, 3.2+3.6, 3.3, 3.4+3.5 — COMPLETE
+
+**Commits:**
+- `e61ebfb` — feat(phase-P02a)/3.1: extend ModelTierEntrySchema with cost fields + declare t1_jetson costs
+- `94caadc` — feat(phase-P02a)/3.2+3.6: add validateAiRoutingConfig validator + barrel export
+- `7f3f543` — feat(phase-P02a)/3.3: hook validateAiRoutingConfig into ConfigService.load()
+- `e29b06c` — feat(phase-P02a)/3.4+3.5: add 8 cost-validation tests + fix fixtures for new validator
+
+**Results:**
+- `pnpm --filter @open-brain/shared build` — clean (ESM + DTS, all 4 commits)
+- `pnpm --filter @open-brain/shared test` — 291/291 passing (283 pre-existing + 8 new)
+- `pnpm --filter @open-brain/workers test` — 948/948 passing (no regressions)
+- `git status --porcelain` after all commits — only LAB_NOTEBOOK.md unstaged (this file)
+
+**Fixture adjustments required (not a new work item — prerequisite fix):**
+Two existing fixtures needed cost fields added to pass the newly-wired validator:
+1. `validAiWithTiers` — added `cost_per_1k_input: 0.0008` + `cost_per_1k_output: 0.004` to `t1_fast`; `cost_per_1k_input: 0.003` + `cost_per_1k_output: 0.015` to `t2_quality`.
+2. `aiWithBadRef` inline fixture — added cost fields to `t1_fast`; updated test expectation from `.not.toThrow()` to `.toThrow(/t0_nonexistent/)` and renamed the test to "throws on invalid tier references in task_routing" — reflecting the semantic upgrade from non-fatal warn to fail-fast throw. The old test description was a contract statement that P02a intentionally violated.
+
+**Barrel pattern note:** `packages/shared/src/services/index.ts` already exists (uses `export *` pattern for most exports). Added a named `export { validateAiRoutingConfig, PAID_PROVIDERS }` to avoid re-exporting internal implementation helpers from `ai-config-schema.ts`. Both exports are now available via `@open-brain/shared`.
+
+**What Worked:**
+- Plan's expectation that `validAiWithTiers` would need fixing was exactly right — the Commit D work was well-scoped.
+- Using `.optional()` (not `.default(0)`) on cost fields correctly preserves the "absent vs zero" distinction the validator relies on.
+- The 5-level `../../../../../../../config/ai-routing.yaml` path in the drift-guard test (`__dirname` → `packages/shared/src/config/__tests__` → 5 `..` → repo root) resolved correctly on the first attempt.
+- Rule 4 (budget positivity + ordering) triggers on `hard_limit_usd <= soft_limit_usd` covering both the equal-case and inverted-case in one test.
+
+**Status:** ALL_COMPLETE (Gate 3)
+
+---
+
+#### Gate 4 — Opus code review — APPROVE
+
+**Reviewer verdict:** APPROVE (first cycle). Posted to PR #124 as COMMENTED review (author = reviewer = `davistroy`, GitHub blocks self-approval). CI all 9 checks green: `build-and-test` (x2 runs), `python-lint` (x2), `sidecar-test` (x2), `validate-init-schema` (x2), `GitGuardian`.
+
+**Deliverables verified:** All 10 acceptance criteria present in diff. `ModelTierEntrySchema` cost fields use `.optional()` (not `.default(0)` — preserves undefined-vs-0 distinction). `PAID_PROVIDERS` set matches plan (5 entries). All 4 validator rules enforced with actionable messages. `ConfigService.load()` hook in correct position. `reload()` unchanged (log-and-keep preserved). Barrel re-export uses named form (not `export *`).
+
+**Behavioral change verified:** test "warns on invalid tier references" upgraded to "throws on invalid tier references" — intentional per #102 fail-fast requirement.
+
+**Nits flagged (both fixed before merge at operator's request):**
+1. `validateTaskRouting()` (old warn-only logic) + `validateAiRoutingConfig()` (new throw) double-log on unknown task_routing tier in `load()` path.
+2. `AIClientType` union missed `'openai'` and `'deepseek'` — pre-existing drift; `resolveProviderClient()` returned `'litellm'` for both, making the type a lie.
+
+---
+
+#### Gate 5 — Pre-merge nit fixes + CLAUDE.md rule capture
+
+**Operator decision:** fix both nits + capture 3 operational rules in CLAUDE.md before merge (not post-P03 sweep).
+
+**Changes beyond the original plan:**
+
+1. **`packages/shared/src/config/loader.ts`**: removed `this.validateTaskRouting(this.configs.ai)` from `load()` (line 82). Still called from `reload()` (line 116) where it serves log-only semantics. Eliminates the double-log.
+
+2. **`packages/shared/src/types/config.ts`**: widened `AIClientType` from 4 values to 6 (added `'openai'` + `'deepseek'`). Docstring expanded to describe each value's dispatch path.
+
+3. **`packages/shared/src/services/llm-gateway.ts`**: `resolveProviderClient()` now returns `'openai'` and `'deepseek'` explicitly when provider matches (was falling through to `'litellm'`). `checkBudget()` unchanged — new values correctly fall through the `anthropic|ollama` skip clause into the paid-check path.
+
+4. **`CLAUDE.md`**: 3 new "Verified operational rules" added to the bottom of the rules section:
+   - Paid-provider tiers MUST declare `cost_per_1k_input`/`cost_per_1k_output`; explicit `0` for free endpoints
+   - `ModelTierEntry.cost_per_1k_input` is `number | undefined`; consumers treat `undefined` as 0 for ollama
+   - Test fixtures with paid-provider `model_tiers` must include cost fields
+
+**Rationale for inline capture (not deferred to P03 sweep):** the rules are active the moment P02a merges. Deferring creates a window where the rules apply but are undocumented — violating the "rules live in CLAUDE.md" convention (Rule 1 of the Learning Capture section).
+
+**Verification:** `pnpm --filter @open-brain/shared build && test` + `pnpm --filter @open-brain/workers test` after fixes. Expect tests still 291/291 and 948/948.
+
+**Merge command (when CI green):** `gh auth switch -u davistroy && gh pr merge 124 --squash --delete-branch`.
 
 ---
 
