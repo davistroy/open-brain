@@ -1094,3 +1094,19 @@ Every one of the 33 open issues maps to at least one phase below. No issue is or
 **33 issues + 45 phases + 1 close (#77) = complete coverage.**
 
 Phases P01–P34 cover all 33 issues. Phases with letter suffixes (a/b/c) are splits of a single issue across multiple PRs. The issue is not closed until all its sub-phase PRs have merged.
+
+---
+
+## Orchestrator-Discovered Action Items (live tracker)
+
+Items surfaced **during** the orchestrator pipeline that don't warrant their own phase but must not be lost. Each has a GitHub issue; status mirrored from there.
+
+| ID | GH | Title | Surfaced during | Status | Notes |
+|----|---:|-------|-----------------|--------|-------|
+| A70 | [#136](https://github.com/davistroy/open-brain/issues/136) | Batch homeserver deploy for 7 queued phases (P01, P02a-c, P03, P04a, P07) | P01 onwards | open — operator | P04b/P05/P06/P08 added zero deploy work |
+| A71 | [#137](https://github.com/davistroy/open-brain/issues/137) | `memory-consolidation` task-key rename in `ai-routing.yaml` | P02b | open — ~1h work | Suitable as filler between waves |
+| A72 | — | PR body `Refs` vs `Closes` keyword discipline | P02b → strengthened P03 | resolved (rule baked into ORCHESTRATOR.md commit-message contract) | #102 was auto-closed by accidental "closes" in section header prose |
+| A73 | [#131](https://github.com/davistroy/open-brain/issues/131) | P05.1 — 6 deferred proactive skills for autonomy gate | P05 | open — sub-phase candidate | May fold into P14b or get its own P05.1 sub-phase |
+| A74 | [#135](https://github.com/davistroy/open-brain/issues/135) | Tighten `.gitignore` for `.env.secrets*` glob | P08 (Opus review nit) | open — 1-line change | Defense-in-depth; no runtime impact |
+
+**Convention:** when adding a new orchestrator-discovered item, file the GH issue first, then append a row here. Include the phase that surfaced it. Strikethrough + "✅ closed by #N" when resolved (don't delete rows — preserves history).
