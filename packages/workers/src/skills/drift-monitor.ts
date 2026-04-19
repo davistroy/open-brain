@@ -49,7 +49,7 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
     this.wikiService = opts.wikiService ?? null
   }
 
-  async execute(options: DriftMonitorOptions = {}): Promise<DriftMonitorResult> {
+  protected async run(options: DriftMonitorOptions = {}): Promise<DriftMonitorResult> {
     const {
       betActivityDays: rawBetDays = DEFAULT_BET_ACTIVITY_DAYS,
       commitmentDays: rawCommitDays = DEFAULT_COMMITMENT_DAYS,

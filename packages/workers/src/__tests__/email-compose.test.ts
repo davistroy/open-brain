@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Database, ConfigService } from '@open-brain/shared'
+import { _resetBaseSkillAutonomyCacheForTest } from '../skills/base-skill.js'
 
 // ---------------------------------------------------------------------------
 // Mock DB
@@ -235,6 +236,11 @@ describe('EmailComposeSkill model resolution', () => {
   beforeEach(async () => {
     vi.resetModules()
     runAgentMock.mockReset()
+    // Stub fetch so autonomy gate (minimum_autonomy='advise') passes for all model-resolution tests
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ value: 'partner' }),
+    } as unknown as Response)
     const skillMod = await import('../skills/email-compose.js')
     EmailComposeSkill = skillMod.EmailComposeSkill
     const sharedMod = await import('@open-brain/shared')
@@ -342,3 +348,102 @@ describe('EmailComposeSkill model resolution', () => {
     expect(runAgentOpts.model).toBe('claude-override-xyz')
   })
 })
+
+// ---------------------------------------------------------------------------
+// EmailComposeSkill autonomy gate (P05)
+// Uses vi.resetModules() like the model-resolution tests to get a fresh module
+// instance. Fetch is set up per-test to control the autonomy level.
+// ---------------------------------------------------------------------------
+
+describe('EmailComposeSkill autonomy gate', () => {
+  let EmailComposeSkill: typeof import('../skills/email-compose.js').EmailComposeSkill
+  let resetAutonomyCache: () => void
+
+  beforeEach(async () => {
+    vi.resetModules()
+    runAgentMock.mockReset()
+    const skillMod = await import('../skills/email-compose.js')
+    EmailComposeSkill = skillMod.EmailComposeSkill
+    const baseSkillMod = await import('../skills/base-skill.js')
+    resetAutonomyCache = baseSkillMod._resetBaseSkillAutonomyCacheForTest
+    resetAutonomyCache()
+    vi.restoreAllMocks()
+  })
+
+  function makeEmailSkill() {
+    return new EmailComposeSkill({
+      db: makeDb(),
+      configService: makeConfigService('claude-sonnet-4-6'),
+      anthropicClient: {} as never,
+    })
+  }
+
+  it('gates at observe level (minimum_autonomy = advise)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ value: 'observe' }),
+    } as unknown as Response)
+    const skill = makeEmailSkill()
+
+    const result = await skill.execute({ instruction: 'send email' })
+
+    expect(result.status).toBe('gated')
+    expect(result.durationMs).toBe(0)
+    expect(runAgentMock).not.toHaveBeenCalled()
+  })
+
+  it('gates at assist level (minimum_autonomy = advise, assist < advise)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ value: 'assist' }),
+    } as unknown as Response)
+    const skill = makeEmailSkill()
+
+    const result = await skill.execute({ instruction: 'send email' })
+
+    expect(result.status).toBe('gated')
+    expect(result.durationMs).toBe(0)
+    expect(runAgentMock).not.toHaveBeenCalled()
+  })
+
+  it('runs at advise level (meets minimum_autonomy = advise)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ value: 'advise' }),
+    } as unknown as Response)
+    runAgentMock.mockResolvedValue({
+      iterations: 1,
+      toolCalls: [],
+      finalMessage: { role: 'assistant', content: [] },
+      stopReason: 'end_turn',
+      totalTokens: { input: 10, output: 10 },
+    })
+    const skill = makeEmailSkill()
+
+    const result = await skill.execute({ instruction: 'send email' })
+
+    expect(result.status).toBeUndefined()
+    expect(runAgentMock).toHaveBeenCalledOnce()
+  })
+
+  it('runs at partner level (exceeds minimum_autonomy = advise)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ value: 'partner' }),
+    } as unknown as Response)
+    runAgentMock.mockResolvedValue({
+      iterations: 1,
+      toolCalls: [],
+      finalMessage: { role: 'assistant', content: [] },
+      stopReason: 'end_turn',
+      totalTokens: { input: 10, output: 10 },
+    })
+    const skill = makeEmailSkill()
+
+    const result = await skill.execute({ instruction: 'send email' })
+
+    expect(result.status).toBeUndefined()
+    expect(runAgentMock).toHaveBeenCalledOnce()
+  })
+})
+

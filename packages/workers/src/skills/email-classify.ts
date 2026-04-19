@@ -110,7 +110,7 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
   }
 
-  async execute(input: EmailClassifyOptions = {}): Promise<EmailClassifyResult> {
+  protected async run(input: EmailClassifyOptions = {}): Promise<EmailClassifyResult> {
     const startMs = Date.now()
     const providers = input.providers ?? ['hotmail', 'gmail']
     const sinceHours = input.sinceHours ?? 24

@@ -89,7 +89,7 @@ export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, 
     super('capture-dedup-sweep', opts)
   }
 
-  async execute(options: CaptureDedupSweepOptions = {}): Promise<CaptureDedupSweepResult> {
+  protected async run(options: CaptureDedupSweepOptions = {}): Promise<CaptureDedupSweepResult> {
     const {
       similarityThreshold = DEFAULT_SIMILARITY_THRESHOLD,
       maxPairs = DEFAULT_MAX_PAIRS,

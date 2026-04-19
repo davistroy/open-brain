@@ -114,6 +114,11 @@ describe('email-compose fault injection — gateway fallback', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.restoreAllMocks()
+    // Stub fetch so autonomy gate (minimum_autonomy='advise') passes
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ value: 'partner' }),
+    } as unknown as Response)
   })
 
   it('swaps to the fallback tier on 429 and records completion with the succeeding tier', async () => {

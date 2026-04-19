@@ -192,7 +192,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    *
    * Never throws — returns a degraded result on error.
    */
-  async execute(options: PipelineHealthOptions = {}): Promise<PipelineHealthResult> {
+  protected async run(options: PipelineHealthOptions = {}): Promise<PipelineHealthResult> {
     const {
       failureLookbackMinutes = DEFAULT_FAILURE_LOOKBACK_MINUTES,
       failedThreshold = DEFAULT_FAILED_THRESHOLD,

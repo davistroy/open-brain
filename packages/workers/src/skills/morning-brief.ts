@@ -415,7 +415,7 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
     this.composioPushover = opts.composioPushover
   }
 
-  async execute(options: MorningBriefOptions = {}): Promise<MorningBriefResult> {
+  protected async run(options: MorningBriefOptions = {}): Promise<MorningBriefResult> {
     const startMs = Date.now()
     const now = options.now ?? new Date()
 

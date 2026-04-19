@@ -247,7 +247,7 @@ export class WikiIngestSkill extends BaseSkill<string, WikiIngestResult> {
     )
   }
 
-  async execute(captureId: string): Promise<WikiIngestResult> {
+  protected async run(captureId: string): Promise<WikiIngestResult> {
     const startMs = Date.now()
 
     logger.info({ captureId }, '[wiki-ingest] starting execution')

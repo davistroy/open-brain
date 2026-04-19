@@ -121,7 +121,7 @@ export class ContainerHealthSkill extends BaseSkill<ContainerHealthOptions, Cont
     this.endpoints = opts.endpoints ?? DEFAULT_ENDPOINTS
   }
 
-  async execute(options: ContainerHealthOptions = {}): Promise<ContainerHealthResult> {
+  protected async run(options: ContainerHealthOptions = {}): Promise<ContainerHealthResult> {
     const startMs = Date.now()
     const endpoints = options.endpoints ?? this.endpoints
     const consecutiveThreshold = options.consecutiveFailureThreshold ?? DEFAULT_CONSECUTIVE_FAILURE_THRESHOLD

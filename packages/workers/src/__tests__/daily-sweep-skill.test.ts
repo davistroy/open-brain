@@ -13,6 +13,7 @@ import {
 } from '../skills/daily-sweep-skill.js'
 import type { DailySweepOutput, VoiceStats } from '../skills/daily-sweep-skill.js'
 import { PushoverService } from '../services/pushover.js'
+import { _resetBaseSkillAutonomyCacheForTest } from '../skills/base-skill.js'
 
 // Prompt templates live at <repo-root>/config/prompts/
 const REPO_PROMPTS_DIR = join(import.meta.dirname, '..', '..', '..', '..', 'config', 'prompts')
@@ -152,11 +153,22 @@ function makeSkill(opts: {
   const pushover = makePushoverService(opts.pushoverConfigured ?? true)
 
   const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'saved-cap-id' } }
-  const mockFetch = vi.fn().mockResolvedValue({
-    ok: fetchResponse.ok,
-    status: fetchResponse.status ?? (fetchResponse.ok ? 200 : 500),
-    json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
-    text: vi.fn().mockResolvedValue(''),
+  // URL-aware fetch mock: autonomy settings call returns partner level; all other calls use coreApiResponse
+  const mockFetch = vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/api/v1/settings/autonomy_level')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ value: 'partner' }),
+        text: vi.fn().mockResolvedValue(''),
+      })
+    }
+    return Promise.resolve({
+      ok: fetchResponse.ok,
+      status: fetchResponse.status ?? (fetchResponse.ok ? 200 : 500),
+      json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
+      text: vi.fn().mockResolvedValue(''),
+    })
   })
 
   const skill = new DailySweepSkill({
@@ -445,6 +457,7 @@ describe('queryNewEntities', () => {
 
 describe('DailySweepSkill', () => {
   beforeEach(() => {
+    _resetBaseSkillAutonomyCacheForTest()
     vi.restoreAllMocks()
   })
 
@@ -463,7 +476,11 @@ describe('DailySweepSkill', () => {
       const { skill, mockFetch } = makeSkill()
       const result = await skill.execute()
       expect(result.savedCaptureId).toBeNull()
-      expect(mockFetch).not.toHaveBeenCalled()
+      // Autonomy gate calls fetch for settings check; captures POST should not be called
+      const capturePostCalls = mockFetch.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('/api/v1/captures'),
+      )
+      expect(capturePostCalls).toHaveLength(0)
     })
 
     it('returns savedCaptureId when storeCapture is true', async () => {
@@ -511,7 +528,11 @@ describe('DailySweepSkill', () => {
         expect.objectContaining({ method: 'POST' }),
       )
 
-      const fetchBody = JSON.parse(mockFetch.mock.calls[0][1].body)
+      // Find the captures POST call (autonomy gate may also call fetch first)
+      const capturePostCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('/api/v1/captures'),
+      )
+      const fetchBody = JSON.parse(capturePostCall[1].body)
       expect(fetchBody.capture_type).toBe('reflection')
       expect(fetchBody.brain_view).toBe('personal')
       expect(fetchBody.tags).toEqual(['daily-sweep', 'skill-output'])
@@ -665,6 +686,74 @@ describe('DailySweepSkill', () => {
       ;(mockLitellm.chat.completions.create as MockInstance).mockRejectedValue(new Error('Request timed out'))
 
       await expect(skill.execute()).rejects.toThrow('Request timed out')
+    })
+  })
+
+  // ----------------------------------------------------------
+  // Autonomy gate (P05)
+  // ----------------------------------------------------------
+
+  describe('autonomy gate', () => {
+    beforeEach(() => {
+      _resetBaseSkillAutonomyCacheForTest()
+      vi.restoreAllMocks()
+    })
+
+    it('gates at observe level (minimum_autonomy = assist)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ value: 'observe' }),
+      } as unknown as Response)
+      const skill = new DailySweepSkill({
+        db: makeMockDb() as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+      })
+
+      const result = await skill.execute()
+
+      expect(result.status).toBe('gated')
+      expect(result.durationMs).toBe(0)
+    })
+
+    it('runs at assist level (meets minimum_autonomy = assist)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ value: 'assist' }),
+      } as unknown as Response)
+      const skill = new DailySweepSkill({
+        db: makeMockDb() as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+      })
+      // inject litellm for test
+      ;(skill as unknown as { litellmClient: unknown }).litellmClient = {
+        chat: { completions: { create: vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify(SAMPLE_OUTPUT) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }) } },
+      }
+
+      const result = await skill.execute()
+
+      expect(result.status).toBeUndefined()
+    })
+
+    it('runs at partner level (exceeds minimum_autonomy = assist)', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ value: 'partner' }),
+      } as unknown as Response)
+      const skill = new DailySweepSkill({
+        db: makeMockDb() as unknown as import('@open-brain/shared').Database,
+        promptsDir: REPO_PROMPTS_DIR,
+        coreApiUrl: 'http://localhost:3000',
+      })
+      // inject litellm for test
+      ;(skill as unknown as { litellmClient: unknown }).litellmClient = {
+        chat: { completions: { create: vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify(SAMPLE_OUTPUT) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }) } },
+      }
+
+      const result = await skill.execute()
+
+      expect(result.status).toBeUndefined()
     })
   })
 })

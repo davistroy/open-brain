@@ -128,7 +128,7 @@ export class StorageAuditSkill extends BaseSkill<StorageAuditOptions, StorageAud
     this.execFn = opts.execFn ?? execFileAsync
   }
 
-  async execute(options: StorageAuditOptions = {}): Promise<StorageAuditResult> {
+  protected async run(options: StorageAuditOptions = {}): Promise<StorageAuditResult> {
     const startMs = Date.now()
     const now = options.now ?? new Date()
     const postgresContainer = options.postgresContainer ?? DEFAULT_POSTGRES_CONTAINER

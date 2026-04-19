@@ -94,7 +94,7 @@ export class WikiSynthesisSkill extends BaseSkill<WikiSynthesisOptions, WikiSynt
     super('wiki-synthesis', opts)
   }
 
-  async execute(options: WikiSynthesisOptions = {}): Promise<WikiSynthesisResult> {
+  protected async run(options: WikiSynthesisOptions = {}): Promise<WikiSynthesisResult> {
     const startMs = Date.now()
     const lookbackHours = options.lookbackHours ?? 24
 
