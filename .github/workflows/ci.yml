@@ -216,3 +216,25 @@ jobs:
       - name: Tear down test services
         if: always()
         run: docker compose -f docker-compose.test.yml down -v
+
+  doc-sync:
+    name: Doc version sync check
+    runs-on: ubuntu-latest
+    # OBSERVE MODE — promotion checklist (same pattern as integration-test):
+    # 1. Verify 2 consecutive PRs show this job green in GitHub Actions
+    # 2. Remove the `continue-on-error: true` line below
+    # 3. Add "Doc version sync check" to branch protection required status checks
+    # 4. Update this comment to: "REQUIRED: promoted YYYY-MM-DD PR #NNN"
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Check version strings agree
+        run: bash scripts/sync-docs.sh
