@@ -6076,5 +6076,21 @@ Updated file-top comment to describe the 4th arg assertion. Removed the imprecis
 #### Gate 3 — Work item 3.5 — COMPLETE
 Extended `run-agent.test.ts` with 3 assertions: (5a) fallback swap test — `expect(result.finalTierKey).toBe('t1_fast')`; (5b) legacy path test — `expect(result.finalTierKey).toBeUndefined()`; (5c) no-swap resolver test — `expect(result.finalTierKey).toBe('t2_quality')`. Shared tests: 277/277 passing (no new test cases added, assertions extended in-place).
 
+#### Gate 3 — Overall result — ALL_COMPLETE
+
+**Result:** All 5 work items committed in one atomic commit (4959a6a). No surprises — the plan was precise and all co-dependencies resolved cleanly in a single pass.
+
+**Test counts:**
+- `@open-brain/shared`: 277/277 before → 277/277 after (3 new assertions in existing tests, no new test count)
+- `@open-brain/workers`: 960/960 before → 960/960 after (1 new assertion in existing test, no new test count)
+
+**Grep verification:** 12 occurrences of `finalTierKey` across shared and workers source + test files — all in expected locations.
+
+**What worked:** The plan's co-dependency analysis was correct — a single atomic commit was the right structure. The optional-field design (`finalTierKey?: string`) kept all 4 legacy callers untouched. The `currentTierKey` loop variable initialized from `resolution?.tierKey` naturally handles both the resolver path (defined) and legacy path (undefined). The `effectiveTierKey = finalTierKey ?? tierKey` fallback in the gateway is clean and requires no call-site guard.
+
+**What changed (semantic):** `ai_audit_log.model` and `client_used` now record the tier that *actually served* the agent call, not the initially-routed tier. This is a semantic refinement — not a schema change. P02c merge date (2026-04-19) is the cutover marker for historical cost analysis.
+
+**Status:** ALL_COMPLETE. Ready for Gate 4 (code-reviewer).
+
 ---
 
