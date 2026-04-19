@@ -11,7 +11,7 @@ export type CaptureType =
 export type CaptureSource = 'slack' | 'voice' | 'api' | 'document' | 'mcp' | 'email' | 'file' | 'consolidation' | 'system'
 
 /**
- * Pipeline lifecycle status for a capture row. Canonical 7-value set
+ * Pipeline lifecycle status for a capture row. Canonical 8-value set
  * (P09a / migration 0024 / issue #119). Lockstep across 4 surfaces:
  *
  *   - This TS union (canonical source of truth)

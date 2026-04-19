@@ -335,7 +335,7 @@ describe('CaptureType drift guard (phase-P09a / #119)', () => {
   it.each([
     ['TYPE_LABELS', STATS_CARDS_REL],
     ['TYPE_COLORS', STATS_CARDS_REL],
-  ] as const)('StatsCards %s Record covers all canonical CaptureType keys', (constName) => {
+  ] as const)('StatsCards %s Record covers all canonical CaptureType keys', (constName, _path) => {
     const keys = extractObjectKeys(statsCardsSource, constName)
     const keysSorted = sorted(keys)
     const canonicalSorted = sorted(CANONICAL_CAPTURE_TYPES)
