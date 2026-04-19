@@ -5767,3 +5767,42 @@ Two existing fixtures needed cost fields added to pass the newly-wired validator
 
 ---
 
+#### Gate 4 — Opus code review — APPROVE
+
+**Reviewer verdict:** APPROVE (first cycle). Posted to PR #124 as COMMENTED review (author = reviewer = `davistroy`, GitHub blocks self-approval). CI all 9 checks green: `build-and-test` (x2 runs), `python-lint` (x2), `sidecar-test` (x2), `validate-init-schema` (x2), `GitGuardian`.
+
+**Deliverables verified:** All 10 acceptance criteria present in diff. `ModelTierEntrySchema` cost fields use `.optional()` (not `.default(0)` — preserves undefined-vs-0 distinction). `PAID_PROVIDERS` set matches plan (5 entries). All 4 validator rules enforced with actionable messages. `ConfigService.load()` hook in correct position. `reload()` unchanged (log-and-keep preserved). Barrel re-export uses named form (not `export *`).
+
+**Behavioral change verified:** test "warns on invalid tier references" upgraded to "throws on invalid tier references" — intentional per #102 fail-fast requirement.
+
+**Nits flagged (both fixed before merge at operator's request):**
+1. `validateTaskRouting()` (old warn-only logic) + `validateAiRoutingConfig()` (new throw) double-log on unknown task_routing tier in `load()` path.
+2. `AIClientType` union missed `'openai'` and `'deepseek'` — pre-existing drift; `resolveProviderClient()` returned `'litellm'` for both, making the type a lie.
+
+---
+
+#### Gate 5 — Pre-merge nit fixes + CLAUDE.md rule capture
+
+**Operator decision:** fix both nits + capture 3 operational rules in CLAUDE.md before merge (not post-P03 sweep).
+
+**Changes beyond the original plan:**
+
+1. **`packages/shared/src/config/loader.ts`**: removed `this.validateTaskRouting(this.configs.ai)` from `load()` (line 82). Still called from `reload()` (line 116) where it serves log-only semantics. Eliminates the double-log.
+
+2. **`packages/shared/src/types/config.ts`**: widened `AIClientType` from 4 values to 6 (added `'openai'` + `'deepseek'`). Docstring expanded to describe each value's dispatch path.
+
+3. **`packages/shared/src/services/llm-gateway.ts`**: `resolveProviderClient()` now returns `'openai'` and `'deepseek'` explicitly when provider matches (was falling through to `'litellm'`). `checkBudget()` unchanged — new values correctly fall through the `anthropic|ollama` skip clause into the paid-check path.
+
+4. **`CLAUDE.md`**: 3 new "Verified operational rules" added to the bottom of the rules section:
+   - Paid-provider tiers MUST declare `cost_per_1k_input`/`cost_per_1k_output`; explicit `0` for free endpoints
+   - `ModelTierEntry.cost_per_1k_input` is `number | undefined`; consumers treat `undefined` as 0 for ollama
+   - Test fixtures with paid-provider `model_tiers` must include cost fields
+
+**Rationale for inline capture (not deferred to P03 sweep):** the rules are active the moment P02a merges. Deferring creates a window where the rules apply but are undocumented — violating the "rules live in CLAUDE.md" convention (Rule 1 of the Learning Capture section).
+
+**Verification:** `pnpm --filter @open-brain/shared build && test` + `pnpm --filter @open-brain/workers test` after fixes. Expect tests still 291/291 and 948/948.
+
+**Merge command (when CI green):** `gh auth switch -u davistroy && gh pr merge 124 --squash --delete-branch`.
+
+---
+
