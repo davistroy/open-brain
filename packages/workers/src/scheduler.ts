@@ -308,9 +308,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: monthlyReflectionCron }, '[scheduler] monthly-reflection repeatable job registered')
 
   // --------------------------------------------------------
-  // Cost analysis (7:10 AM daily)
+  // Cost analysis (6:20 AM daily — P07 spread)
   // --------------------------------------------------------
-  const costAnalysisCron = '10 7 * * *'
+  const costAnalysisCron = '20 6 * * *'
 
   await skillExecutionQueue.add(
     'cost-analysis',
