@@ -347,6 +347,72 @@ describe('processExtractEntitiesJob', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Tests: processExtractEntitiesJob — gateway-first dispatch (P02b Work Item 10)
+// ---------------------------------------------------------------------------
+describe('processExtractEntitiesJob — gateway path', () => {
+  const promptsDir = '/fake/prompts'
+  const synthesisModel = 'synthesis'
+  const jobData: ExtractEntitiesJobData = { captureId: 'cap-1' }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('uses llmGateway.completeByTask and skips litellmClient when gateway is injected', async () => {
+    const llmResponse = JSON.stringify({
+      people: ['Alice'],
+      organizations: [],
+      concepts: [],
+      decisions: [],
+      projects: [],
+    })
+
+    const db = makeMockDb({ entityCandidates: [] }) as any
+    const litellmClient = makeMockLitellmClient('{}')
+    const gateway = {
+      completeByTask: vi.fn().mockResolvedValue(llmResponse),
+    } as any
+
+    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir, gateway)
+
+    expect(gateway.completeByTask).toHaveBeenCalledOnce()
+    expect(gateway.completeByTask.mock.calls[0][1]).toBe('entity_extraction')
+    expect(litellmClient.chat.completions.create).not.toHaveBeenCalled()
+  })
+
+  it('passes jsonMode: true in gateway completeByTask options', async () => {
+    const db = makeMockDb({ entityCandidates: [] }) as any
+    const litellmClient = makeMockLitellmClient('{}')
+    const gateway = {
+      completeByTask: vi.fn().mockResolvedValue('{"people":[],"organizations":[],"concepts":[],"decisions":[],"projects":[]}'),
+    } as any
+
+    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir, gateway)
+
+    const opts = gateway.completeByTask.mock.calls[0][2]
+    expect(opts.jsonMode).toBe(true)
+  })
+
+  it('falls back to litellmClient when no gateway injected', async () => {
+    const llmResponse = JSON.stringify({
+      people: [],
+      organizations: ['TestOrg'],
+      concepts: [],
+      decisions: [],
+      projects: [],
+    })
+
+    const db = makeMockDb({ entityCandidates: [] }) as any
+    const litellmClient = makeMockLitellmClient(llmResponse)
+
+    // No gateway — should use litellmClient
+    await processExtractEntitiesJob(jobData, db, litellmClient, synthesisModel, promptsDir)
+
+    expect(litellmClient.chat.completions.create).toHaveBeenCalledOnce()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Tests: queue configuration
 // ---------------------------------------------------------------------------
 describe('ExtractEntitiesQueue configuration', () => {

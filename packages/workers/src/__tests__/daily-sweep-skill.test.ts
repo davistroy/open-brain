@@ -552,15 +552,6 @@ describe('DailySweepSkill', () => {
       expect(prompt).toContain('NovaBurger')
     })
 
-    it('uses the provided modelAlias in LLM call', async () => {
-      const { skill, mockLitellm } = makeSkill()
-      await skill.execute({ modelAlias: 'gpt-5.4' })
-
-      const createSpy = mockLitellm.chat.completions.create as MockInstance
-      const callArgs = createSpy.mock.calls[0][0]
-      expect(callArgs.model).toBe('gpt-5.4')
-    })
-
     it('uses max_completion_tokens not max_tokens', async () => {
       const { skill, mockLitellm } = makeSkill()
       await skill.execute()

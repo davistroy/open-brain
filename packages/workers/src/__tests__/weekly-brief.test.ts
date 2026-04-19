@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { WeeklyBriefSkill } from '../skills/weekly-brief.js'
 import type { WeeklyBriefOutput } from '../skills/weekly-brief.js'
 import { PushoverService, HimalayaService } from '@open-brain/shared'
+import type { LLMGatewayService } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 
 // Prompt templates live at <repo-root>/config/prompts/ — go up two levels from packages/workers
@@ -123,6 +124,48 @@ function makeHimalayaService(configured = true) {
   }
   vi.spyOn(svc, 'send').mockResolvedValue({ success: true, output: 'msg-id-123' })
   return svc
+}
+
+function makeMockGateway(briefOutput: WeeklyBriefOutput = SAMPLE_BRIEF_JSON): LLMGatewayService {
+  return {
+    completeByTask: vi.fn().mockResolvedValue(JSON.stringify(briefOutput)),
+  } as unknown as LLMGatewayService
+}
+
+/**
+ * Builds a WeeklyBriefSkill with an LLM gateway injected (gateway-first path).
+ */
+function makeSkillWithGateway(opts: {
+  captures?: typeof SAMPLE_CAPTURES
+  briefOutput?: WeeklyBriefOutput
+  coreApiResponse?: { ok: boolean; json?: object }
+} = {}) {
+  const db = makeMockDb(opts.captures ?? SAMPLE_CAPTURES)
+  const gateway = makeMockGateway(opts.briefOutput ?? SAMPLE_BRIEF_JSON)
+  const pushover = makePushoverService(false)
+  const email = makeEmailService(false)
+  const himalaya = makeHimalayaService(false)
+
+  const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'saved-cap-id' } }
+  const mockFetch = vi.fn().mockResolvedValue({
+    ok: fetchResponse.ok,
+    status: fetchResponse.ok ? 200 : 500,
+    json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
+    text: vi.fn().mockResolvedValue(''),
+  })
+  vi.stubGlobal('fetch', mockFetch)
+
+  const skill = new WeeklyBriefSkill({
+    db: db as unknown as import('@open-brain/shared').Database,
+    promptsDir: REPO_PROMPTS_DIR,
+    coreApiUrl: 'http://localhost:3000',
+    pushover,
+    himalaya,
+    email,
+    llmGateway: gateway,
+  })
+
+  return { skill, db, gateway, pushover, email, himalaya, mockFetch }
 }
 
 /**
@@ -541,6 +584,43 @@ describe('WeeklyBriefSkill', () => {
       const valuesSpy = insertSpy.mock.results[0].value.values as MockInstance
       const logEntry = valuesSpy.mock.calls[0][0]
       expect(logEntry.output_summary).toContain('delivery:himalaya')
+    })
+  })
+
+  // ----------------------------------------------------------
+  // Gateway-mock path (P02b Work Item 9)
+  // ----------------------------------------------------------
+
+  describe('execute — via LLMGateway', () => {
+    it('calls completeByTask with weekly_brief task key when gateway injected', async () => {
+      const { skill, gateway } = makeSkillWithGateway()
+      await skill.execute({ emailTo: 'troy@example.com' })
+
+      const spy = vi.mocked(gateway.completeByTask)
+      expect(spy).toHaveBeenCalledOnce()
+      expect(spy.mock.calls[0][1]).toBe('weekly_brief')
+    })
+
+    it('returns correct WeeklyBriefResult shape when gateway is used', async () => {
+      const { skill } = makeSkillWithGateway()
+      const result = await skill.execute({ emailTo: 'troy@example.com' })
+
+      expect(result.captureCount).toBe(SAMPLE_CAPTURES.length)
+      expect(result.brief.headline).toBe(SAMPLE_BRIEF_JSON.headline)
+      expect(result.brief.wins).toEqual(SAMPLE_BRIEF_JSON.wins)
+      expect(result.durationMs).toBeGreaterThanOrEqual(0)
+    })
+
+    it('does NOT call litellmClient.create when gateway is injected', async () => {
+      const { skill, gateway } = makeSkillWithGateway()
+      const mockLitellm = makeMockOpenAI()
+      // @ts-ignore — inject litellm to confirm it is NOT called
+      skill.litellmClient = mockLitellm
+
+      await skill.execute({ emailTo: 'troy@example.com' })
+
+      expect(mockLitellm.chat.completions.create).not.toHaveBeenCalled()
+      expect(vi.mocked(gateway.completeByTask)).toHaveBeenCalledOnce()
     })
   })
 

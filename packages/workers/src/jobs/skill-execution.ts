@@ -80,12 +80,12 @@ export function createSkillExecutionWorker(
     llmGateway?: LLMGatewayService
   },
 ): Worker {
-  // Resolve legacy model aliases (best-effort fallback for skills that still
-  // accept a `modelAlias` param). After Phase D, scalar aliases are optional
-  // in ai-routing.yaml; skills are expected to route via LLMGateway.completeByTask.
   const aiConfig = opts.configService.get('ai')
-  const synthesisModel: string = aiConfig.models['synthesis']?.model ?? 'gpt-5.4'
   const wikiAgentModel: string = aiConfig.models.wiki_agent?.model ?? 'claude-haiku-4-5-20251001'
+
+  if (!opts.llmGateway) {
+    logger.error('[skill-execution] LLMGatewayService not configured — LLM skills will fail at runtime')
+  }
 
   const worker = new Worker<SkillExecutionJobData>(
     'skill-execution',
@@ -100,11 +100,10 @@ export function createSkillExecutionWorker(
         case 'weekly-brief': {
           const result = await runSkill(
             WeeklyBriefSkill,
-            { db, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            { db, llmGateway: opts.llmGateway },
             {
               windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
               tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-              modelAlias: synthesisModel,
               emailTo: typeof input?.emailTo === 'string' ? input.emailTo : undefined,
             },
           )
@@ -118,11 +117,10 @@ export function createSkillExecutionWorker(
         case 'daily-connections': {
           const result = await runSkill(
             DailyConnectionsSkill,
-            { db, wikiService: opts.wikiService, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            { db, wikiService: opts.wikiService, llmGateway: opts.llmGateway },
             {
               windowDays: typeof input?.windowDays === 'number' ? input.windowDays : undefined,
               tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-              modelAlias: synthesisModel,
             },
           )
           logger.info(
@@ -135,12 +133,11 @@ export function createSkillExecutionWorker(
         case 'drift-monitor': {
           const result = await runSkill(
             DriftMonitorSkill,
-            { db, wikiService: opts.wikiService, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            { db, wikiService: opts.wikiService, llmGateway: opts.llmGateway },
             {
               betActivityDays: typeof input?.betActivityDays === 'number' ? input.betActivityDays : undefined,
               commitmentDays: typeof input?.commitmentDays === 'number' ? input.commitmentDays : undefined,
               entityWindowDays: typeof input?.entityWindowDays === 'number' ? input.entityWindowDays : undefined,
-              modelAlias: synthesisModel,
             },
           )
           logger.info(
@@ -153,10 +150,9 @@ export function createSkillExecutionWorker(
         case 'daily-sweep-skill': {
           const result = await runSkill(
             DailySweepSkill,
-            { db, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            { db, llmGateway: opts.llmGateway },
             {
               tokenBudget: typeof input?.tokenBudget === 'number' ? input.tokenBudget : undefined,
-              modelAlias: synthesisModel,
               storeCapture: typeof input?.storeCapture === 'boolean' ? input.storeCapture : false,
             },
           )
@@ -170,9 +166,8 @@ export function createSkillExecutionWorker(
         case 'memory-consolidation': {
           const result = await runSkill(
             MemoryConsolidationSkill,
-            { db, anthropicClient: opts.anthropicClient, llmGateway: opts.llmGateway },
+            { db, llmGateway: opts.llmGateway },
             {
-              modelAlias: synthesisModel,
               similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
               minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
               maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,

@@ -25,8 +25,6 @@ export interface DailySweepResult extends BaseResult {
 export interface DailySweepOptions {
   /** Max chars of context to include. Default: 30000 */
   tokenBudget?: number
-  /** Actual model name (not alias). Required. */
-  modelAlias?: string
   /** Whether to save the sweep output as a capture. Default: false */
   storeCapture?: boolean
 }

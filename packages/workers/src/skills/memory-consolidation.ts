@@ -1,7 +1,6 @@
 import { sql } from 'drizzle-orm'
-import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { logger, callClaude } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts, BaseResult } from './types.js'
 import {
@@ -53,8 +52,6 @@ export interface MemoryConsolidationResult extends BaseResult {
 }
 
 export interface MemoryConsolidationOptions {
-  /** Actual model name (not alias). Default: 'synthesis'. */
-  modelAlias?: string
   /** Cosine similarity threshold for clustering. Default: 0.92. */
   similarityThreshold?: number
   /** Minimum captures in a cluster. Default: 3. */
@@ -97,13 +94,12 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
 
   async execute(options: MemoryConsolidationOptions = {}): Promise<MemoryConsolidationResult> {
     const {
-      modelAlias = 'synthesis',
       similarityThreshold,
       minClusterSize,
       maxClusters,
     } = options
     const startMs = Date.now()
-    logger.info({ modelAlias, similarityThreshold, minClusterSize, maxClusters }, '[memory-consolidation] starting execution')
+    logger.info({ similarityThreshold, minClusterSize, maxClusters }, '[memory-consolidation] starting execution')
 
     // Step 1: Find candidate clusters
     const queryResult = await findConsolidationCandidates(this.db, {
@@ -141,7 +137,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
     const clusterResults: ClusterResult[] = []
     for (let i = 0; i < queryResult.clusters.length; i++) {
       const cluster = queryResult.clusters[i]
-      const result = await this.processCluster(cluster, i, modelAlias)
+      const result = await this.processCluster(cluster, i)
       clusterResults.push(result)
     }
 
@@ -185,7 +181,6 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
   private async processCluster(
     cluster: ConsolidationCluster,
     index: number,
-    modelAlias: string,
   ): Promise<ClusterResult> {
     const base: ClusterResult = {
       clusterIndex: index,
@@ -213,7 +208,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
       const brainView = this.mostCommonBrainView(captureRows)
 
       // Step 2c: Call LLM
-      const llmOutput = await this.callLLM(capturesText, captureRows.length, brainView, modelAlias)
+      const llmOutput = await this.callLLM(capturesText, captureRows.length, brainView)
 
       // Step 2d: Parse response -- check should_merge safety valve
       base.shouldMerge = llmOutput.should_merge
@@ -335,7 +330,6 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
     capturesText: string,
     captureCount: number,
     brainView: string,
-    modelAlias: string,
   ): Promise<ConsolidationLLMOutput> {
     const prompt = this.templates.render('memory_consolidation_v1.txt', {
       capture_count: String(captureCount),
@@ -343,10 +337,11 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
       captures: capturesText,
     })
 
-    logger.debug({ modelAlias, promptLength: prompt.length }, '[memory-consolidation] calling LLM')
+    logger.debug({ promptLength: prompt.length }, '[memory-consolidation] calling LLM')
 
     // Prefer LLMGatewayService (task-based tier routing with audit log)
     if (this.llmGateway) {
+      // TODO A71: rename task key to 'memory_consolidation' once ai-routing.yaml entry is added
       const raw = await this.llmGateway.completeByTask(prompt, 'search_synthesis', {
         temperature: 0.2,
         maxTokens: 2048,
@@ -355,26 +350,14 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
       return this.parseLLMOutput(raw)
     }
 
-    // Legacy fallback: Anthropic client → OpenAI/LiteLLM
-    if (this.anthropicClient) {
-      const result = await callClaude(this.anthropicClient, prompt, {
-        model: modelAlias,
-        maxTokens: 2048,
-        temperature: 0.2,
-      })
-      logger.info(
-        { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
-        '[memory-consolidation] LLM call complete (Claude)',
-      )
-      return this.parseLLMOutput(result.text)
-    }
-
+    // Test-compat fallback: OpenAI/LiteLLM client (injected in unit tests)
     if (!this.litellmClient) {
-      throw new Error('[memory-consolidation] No LLM client configured -- set ANTHROPIC_API_KEY or OPENAI_API_KEY')
+      throw new Error('[memory-consolidation] No LLM client configured — set OPENAI_API_KEY or inject llmGateway')
     }
 
+    const synthesisModel = 'synthesis'
     const response = await this.litellmClient.chat.completions.create({
-      model: modelAlias,
+      model: synthesisModel,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.2,
       max_completion_tokens: 2048,
@@ -675,8 +658,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
 export async function executeMemoryConsolidation(
   db: Database,
   options: MemoryConsolidationOptions = {},
-  anthropicClient?: Anthropic,
   llmGateway?: LLMGatewayService,
 ): Promise<MemoryConsolidationResult> {
-  return new MemoryConsolidationSkill({ db, anthropicClient, llmGateway }).execute(options)
+  return new MemoryConsolidationSkill({ db, llmGateway }).execute(options)
 }

@@ -597,14 +597,6 @@ describe('DailyConnectionsSkill', () => {
       expect(db.execute).toHaveBeenCalled()
     })
 
-    it('uses the provided modelAlias in LLM call', async () => {
-      const { skill, mockLitellm } = makeSkill()
-      await skill.execute({ modelAlias: 'custom-model' })
-
-      const createSpy = mockLitellm.chat.completions.create as MockInstance
-      const callArgs = createSpy.mock.calls[0][0]
-      expect(callArgs.model).toBe('custom-model')
-    })
   })
 
   // ----------------------------------------------------------

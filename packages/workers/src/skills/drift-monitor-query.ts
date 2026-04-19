@@ -40,8 +40,6 @@ export interface DriftMonitorOptions {
   commitmentDays?: number
   /** Rolling window for entity frequency comparison (in days). Default: 7. */
   entityWindowDays?: number
-  /** Override the AI model alias. Default: 'synthesis'. */
-  modelAlias?: string
 }
 
 // ============================================================
