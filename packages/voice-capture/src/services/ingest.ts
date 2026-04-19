@@ -56,7 +56,10 @@ export class IngestService {
       try {
         const res = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Open-Brain-Caller': 'voice-capture',
+          },
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         })

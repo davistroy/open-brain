@@ -19,12 +19,13 @@ export interface ScheduledQueues {
  *
  * Jobs registered:
  * - daily-sweep: 3:00 AM daily (cron: 0 3 * * *) — re-queues stuck pipeline captures
- * - budget-check: 8:00 AM daily (cron: 0 8 * * *) — checks monthly AI spend vs thresholds
- * - daily-connections: 7:00 AM daily (cron: 0 7 * * *) — cross-domain connections + wiki synthesis (anchor)
- * - capture-reminder-morning: 7:05 AM weekdays (cron: 5 7 * * 1-5) — morning Pushover nudge
- * - cost-analysis: 7:10 AM daily (cron: 10 7 * * *) — LLM cost tracking, weekly/monthly reports
- * - morning-brief: 7:15 AM weekdays (cron: 15 7 * * 1-5) — structured morning briefing (no LLM)
- * - drift-monitor: 8:15 AM daily (cron: 15 8 * * *) — detects brain-view classification drift
+ * - wiki-synthesis:           6:00 AM daily    (cron: 0 6 * * *)    — anchor (unchanged)
+ * - daily-connections:        6:10 AM daily    (cron: 10 6 * * *)   — cross-domain connections (P07: spread from 7:00)
+ * - cost-analysis:            6:20 AM daily    (cron: 20 6 * * *)   — LLM cost tracking (P07: spread from 7:10)
+ * - morning-brief:            6:30 AM weekdays (cron: 30 6 * * 1-5) — structured morning briefing (P07: spread from 7:15)
+ * - capture-reminder-morning: 6:45 AM weekdays (cron: 45 6 * * 1-5) — morning Pushover nudge (P07: spread from 7:05)
+ * - budget-check:             7:00 AM daily    (cron: 0 7 * * *)    — monthly AI spend vs thresholds (P07: spread from 8:00)
+ * - drift-monitor:            7:15 AM daily    (cron: 15 7 * * *)   — brain-view classification drift (P07: spread from 8:15)
  * - pipeline-health: every 6 hours (cron: 0 0,6,12,18 * * *) — checks pipeline + capture flow health
  * - daily-sweep-skill: 8:00 PM daily (cron: 0 20 * * *) — LLM-powered evening summary
  * - capture-reminder-evening: 9:00 PM daily (cron: 0 21 * * *) — evening Pushover nudge with capture count
@@ -80,7 +81,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Budget check (8:00 AM)
   // --------------------------------------------------------
-  const budgetCron = budgetCronOverride ?? '0 8 * * *'
+  const budgetCron = budgetCronOverride ?? '0 7 * * *' // P07: spread from 8:00 AM
 
   const budgetCheckQueue = createBudgetCheckQueue(connection)
 
@@ -98,7 +99,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Daily connections skill (7:00 AM daily)
   // --------------------------------------------------------
-  const connectionsCron = '0 7 * * *'
+  const connectionsCron = '10 6 * * *' // P07: spread from 7:00 AM
 
   const skillExecutionQueue = createSkillExecutionQueue(connection)
 
@@ -119,7 +120,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Drift monitor skill (8:15 AM)
   // --------------------------------------------------------
-  const driftCron = '15 8 * * *'
+  const driftCron = '15 7 * * *' // P07: spread from 8:15 AM
 
   await skillExecutionQueue.add(
     'drift-monitor',
@@ -195,7 +196,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Capture reminder — morning (7:05 AM weekdays)
   // --------------------------------------------------------
-  const captureReminderMorningCron = '5 7 * * 1-5'
+  const captureReminderMorningCron = '45 6 * * 1-5' // P07: spread from 7:05 AM weekdays
 
   await skillExecutionQueue.add(
     'capture-reminder-morning',
@@ -214,7 +215,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Morning brief (7:15 AM weekdays)
   // --------------------------------------------------------
-  const morningBriefCron = '15 7 * * 1-5'
+  const morningBriefCron = '30 6 * * 1-5' // P07: spread from 7:15 AM weekdays
 
   await skillExecutionQueue.add(
     'morning-brief',
@@ -307,9 +308,9 @@ export async function registerScheduledJobs(
   logger.info({ cron: monthlyReflectionCron }, '[scheduler] monthly-reflection repeatable job registered')
 
   // --------------------------------------------------------
-  // Cost analysis (7:10 AM daily)
+  // Cost analysis (6:20 AM daily — P07 spread)
   // --------------------------------------------------------
-  const costAnalysisCron = '10 7 * * *'
+  const costAnalysisCron = '20 6 * * *'
 
   await skillExecutionQueue.add(
     'cost-analysis',

@@ -155,7 +155,7 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
   private async saveBriefCapture(brief: WeeklyBriefOutput, weekStart: string, weekEnd: string): Promise<string | null> {
     try {
       const res = await fetch(`${this.coreApiUrl}/api/v1/captures`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Open-Brain-Caller': 'workers' },
         body: JSON.stringify({ content: buildBriefText(brief, weekStart, weekEnd), capture_type: 'reflection', brain_view: 'personal', source: 'api', metadata: { source_metadata: { generator: 'weekly-brief-skill', week_start: weekStart, week_end: weekEnd } } }),
         signal: AbortSignal.timeout(15_000),
       })

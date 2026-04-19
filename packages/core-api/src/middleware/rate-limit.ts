@@ -164,6 +164,18 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
       'internal:utility-pipeline',
       // CS3 — batch ingest sidecar + ingest-process worker callbacks
       'internal:ingest',
+      // P07 — new internal service callers
+      'internal:slack-bot',
+      'internal:voice-capture',
+      'internal:memory-consolidation',
+      'internal:workers',
+      // P07 — callers that already set the header but were missing from bypass
+      'internal:email-classify',
+      'internal:email-compose-skill',
+      'internal:batch-wiki-ingest',
+      'internal:email-pipeline',
+      'internal:ingest-onedrive',
+      'internal:ingest-repair',
     ])
     if (BYPASS_CALLERS.has(key)) {
       await next()

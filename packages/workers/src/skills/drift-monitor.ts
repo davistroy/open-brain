@@ -268,7 +268,10 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
       const content = buildDriftText(output, analysisDate)
       const res = await fetch(`${this.coreApiUrl}/api/v1/captures`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Open-Brain-Caller': 'workers',
+        },
         body: JSON.stringify({
           content,
           capture_type: 'reflection',
