@@ -40,10 +40,14 @@ const __dirname = dirname(__filename)
 const WEB_API_PATH = resolve(__dirname, '../../../web/src/lib/api.ts')
 const WEB_TYPES_PATH = resolve(__dirname, '../../../web/src/lib/types.ts')
 const SEARCH_FILTERS_PATH = resolve(__dirname, '../../../web/src/components/SearchFilters.tsx')
+const TIMELINE_PATH = resolve(__dirname, '../../../web/src/pages/Timeline.tsx')
+const STATS_CARDS_PATH = resolve(__dirname, '../../../web/src/components/StatsCards.tsx')
 const SHARED_SCHEMA_PATH = 'packages/shared/src/schema/ingest.ts'
 const WEB_API_REL = 'packages/web/src/lib/api.ts'
 const WEB_TYPES_REL = 'packages/web/src/lib/types.ts'
 const SEARCH_FILTERS_REL = 'packages/web/src/components/SearchFilters.tsx'
+const TIMELINE_REL = 'packages/web/src/pages/Timeline.tsx'
+const STATS_CARDS_REL = 'packages/web/src/components/StatsCards.tsx'
 
 /**
  * Extract the string-literal members of a `export type Name = 'a' | 'b' | ...`
@@ -126,9 +130,64 @@ function extractArrayLiterals(source: string, constName: string): string[] {
   return literals
 }
 
+/**
+ * Extract the keys of an object literal assigned to `const NAME: Record<...> = { ... }`
+ * (or any `const NAME = { ... } as const` / `const NAME: T = { ... }`). Used to
+ * inspect `Record<CaptureType, ...>` look-up maps in StatsCards.tsx and verify
+ * they cover every canonical CaptureType.
+ *
+ * Returns the keys in source order. Throws with an actionable message if the
+ * declaration is missing or no keys are extracted. Tolerates trailing commas,
+ * single/double-quoted keys, and quoted multi-word keys (e.g. `'work-internal'`).
+ */
+function extractObjectKeys(source: string, constName: string): string[] {
+  const normalized = source.replace(/\r\n/g, '\n')
+  const re = new RegExp(
+    `const\\s+${constName}\\s*(?::[^=]+)?=\\s*\\{([\\s\\S]*?)\\}`,
+  )
+  const match = normalized.match(re)
+  if (!match) {
+    throw new Error(
+      `Drift-guard could not locate \`const ${constName} = { ... }\` in source. ` +
+        `Update extractObjectKeys() in packages/shared/src/__tests__/web-type-drift.test.ts.`,
+    )
+  }
+  const body = match[1] ?? ''
+  // Match either: 'quoted-key': ... | "quoted-key": ... | bareIdent: ...
+  // Restrict to top-level keys (lines whose first non-whitespace is the key).
+  const keys: string[] = []
+  for (const line of body.split('\n')) {
+    const m = line.match(/^\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_-]*))\s*:/)
+    if (m) keys.push(m[1] ?? m[2] ?? m[3] ?? '')
+  }
+  if (keys.length === 0) {
+    throw new Error(
+      `Drift-guard matched \`${constName}\` object but extracted zero keys. ` +
+        `Body was:\n${body}\n\nUpdate extractObjectKeys() regex.`,
+    )
+  }
+  return keys
+}
+
 // Canonical 9-value CaptureSource set (source of truth: packages/shared/src/types/capture.ts)
 const CANONICAL_CAPTURE_SOURCES = [
   'api', 'consolidation', 'document', 'email', 'file', 'mcp', 'slack', 'system', 'voice',
+] as const
+
+// Canonical 8-value CaptureType set (source of truth: packages/shared/src/types/capture.ts)
+// Ordering: alphabetical, for stable assertion output.
+const CANONICAL_CAPTURE_TYPES = [
+  'blocker', 'decision', 'idea', 'observation', 'question', 'reflection', 'task', 'win',
+] as const
+
+// Canonical 8-value PipelineStatus set (P09a / migration 0024 / issue #119).
+// Source of truth: packages/shared/src/types/capture.ts.
+//   - `extracted` — DB has 11 legacy rows; no current producer.
+//   - `chunked`   — produced by document-pipeline.ts ternary on multi-chunk docs;
+//                   missed by planner's keyed-property grep, caught by Gate 3 audit.
+// See LAB_NOTEBOOK Entry 102 for the full reconciliation.
+const CANONICAL_PIPELINE_STATUSES = [
+  'chunked', 'complete', 'deleted', 'embedded', 'extracted', 'failed', 'pending', 'processing',
 ] as const
 
 describe('web <-> shared contract drift guard (CS-α / F2)', () => {
@@ -211,5 +270,107 @@ describe('CaptureSource drift guard (phase-P01 / #110)', () => {
         `CAPTURE_SOURCES must list every value in the CaptureSource union. ` +
         `Update the \`const CAPTURE_SOURCES\` array in ${SEARCH_FILTERS_REL}.`,
     ).toEqual(unionSorted)
+  })
+})
+
+describe('CaptureType drift guard (phase-P09a / #119)', () => {
+  const webTypesSource = readFileSync(WEB_TYPES_PATH, 'utf8')
+  const searchFiltersSource = readFileSync(SEARCH_FILTERS_PATH, 'utf8')
+  const timelineSource = readFileSync(TIMELINE_PATH, 'utf8')
+  const statsCardsSource = readFileSync(STATS_CARDS_PATH, 'utf8')
+
+  it('CaptureType web literal set (types.ts) matches canonical 8-value list', () => {
+    const webLiterals = extractUnionLiterals(webTypesSource, 'CaptureType')
+    const webSorted = sorted(webLiterals)
+    const canonicalSorted = sorted(CANONICAL_CAPTURE_TYPES)
+
+    expect(
+      webSorted,
+      `Drift detected in CaptureType:\n` +
+        `  web    (${WEB_TYPES_REL}): ${JSON.stringify(webSorted)}\n` +
+        `  canonical (packages/shared/src/types/capture.ts): ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type CaptureType = ...\` union in ${WEB_TYPES_REL} ` +
+        `to match the canonical TS union in packages/shared/src/types/capture.ts. ` +
+        `Also update CANONICAL_CAPTURE_TYPES in this test file and the Zod enum ` +
+        `in packages/core-api/src/schemas/capture.ts.`,
+    ).toEqual(canonicalSorted)
+  })
+
+  it('SearchFilters CAPTURE_TYPES array matches web CaptureType type', () => {
+    const arrayLiterals = extractArrayLiterals(searchFiltersSource, 'CAPTURE_TYPES')
+    const webUnionLiterals = extractUnionLiterals(webTypesSource, 'CaptureType')
+
+    const arraySorted = sorted(arrayLiterals)
+    const unionSorted = sorted(webUnionLiterals)
+
+    expect(
+      arraySorted,
+      `Drift detected in SearchFilters.CAPTURE_TYPES:\n` +
+        `  array  (${SEARCH_FILTERS_REL}): ${JSON.stringify(arraySorted)}\n` +
+        `  union  (${WEB_TYPES_REL}):      ${JSON.stringify(unionSorted)}\n` +
+        `\n` +
+        `CAPTURE_TYPES must list every value in the CaptureType union. ` +
+        `Update the \`const CAPTURE_TYPES\` array in ${SEARCH_FILTERS_REL}.`,
+    ).toEqual(unionSorted)
+  })
+
+  it('Timeline CAPTURE_TYPES array matches web CaptureType type', () => {
+    const arrayLiterals = extractArrayLiterals(timelineSource, 'CAPTURE_TYPES')
+    const webUnionLiterals = extractUnionLiterals(webTypesSource, 'CaptureType')
+
+    const arraySorted = sorted(arrayLiterals)
+    const unionSorted = sorted(webUnionLiterals)
+
+    expect(
+      arraySorted,
+      `Drift detected in Timeline.CAPTURE_TYPES:\n` +
+        `  array  (${TIMELINE_REL}): ${JSON.stringify(arraySorted)}\n` +
+        `  union  (${WEB_TYPES_REL}): ${JSON.stringify(unionSorted)}\n` +
+        `\n` +
+        `Timeline.tsx CAPTURE_TYPES must list every value in the CaptureType union.`,
+    ).toEqual(unionSorted)
+  })
+
+  it.each([
+    ['TYPE_LABELS', STATS_CARDS_REL],
+    ['TYPE_COLORS', STATS_CARDS_REL],
+  ] as const)('StatsCards %s Record covers all canonical CaptureType keys', (constName, _path) => {
+    const keys = extractObjectKeys(statsCardsSource, constName)
+    const keysSorted = sorted(keys)
+    const canonicalSorted = sorted(CANONICAL_CAPTURE_TYPES)
+
+    expect(
+      keysSorted,
+      `Drift detected in StatsCards.${constName}:\n` +
+        `  keys      (${STATS_CARDS_REL}): ${JSON.stringify(keysSorted)}\n` +
+        `  canonical (packages/shared/src/types/capture.ts): ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Record<CaptureType, ...> map must include every CaptureType key. ` +
+        `Add missing keys to ${constName} in ${STATS_CARDS_REL}.`,
+    ).toEqual(canonicalSorted)
+  })
+})
+
+describe('PipelineStatus drift guard (phase-P09a / #119)', () => {
+  const webTypesSource = readFileSync(WEB_TYPES_PATH, 'utf8')
+
+  it('PipelineStatus web literal set (types.ts) matches canonical 8-value list', () => {
+    const webLiterals = extractUnionLiterals(webTypesSource, 'PipelineStatus')
+    const webSorted = sorted(webLiterals)
+    const canonicalSorted = sorted(CANONICAL_PIPELINE_STATUSES)
+
+    expect(
+      webSorted,
+      `Drift detected in PipelineStatus:\n` +
+        `  web    (${WEB_TYPES_REL}): ${JSON.stringify(webSorted)}\n` +
+        `  canonical (packages/shared/src/types/capture.ts): ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type PipelineStatus = ...\` union in ${WEB_TYPES_REL} ` +
+        `to match the canonical TS union in packages/shared/src/types/capture.ts. ` +
+        `Also update CANONICAL_PIPELINE_STATUSES in this test file, the Zod enum ` +
+        `PIPELINE_STATUSES in packages/core-api/src/schemas/capture.ts, and the ` +
+        `DB CHECK constraint in packages/shared/drizzle/0024_captures_enum_checks.sql.`,
+    ).toEqual(canonicalSorted)
   })
 })

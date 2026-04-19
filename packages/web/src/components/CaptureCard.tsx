@@ -32,12 +32,18 @@ interface LocationData {
   accuracy_meters?: number;
 }
 
+// Color map covers the canonical 8 PipelineStatus values (P09a / migration 0024).
+// Fallback `'bg-gray-100 text-gray-700'` is applied at use-site (line 54) for
+// safety against future drift, but every canonical key MUST have an entry here.
 const PIPELINE_STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-gray-100 text-gray-700',
+  processing: 'bg-yellow-100 text-yellow-700',
+  extracted: 'bg-amber-100 text-amber-700',
+  embedded: 'bg-sky-100 text-sky-700',
+  chunked: 'bg-cyan-100 text-cyan-700',
   complete: 'bg-green-100 text-green-700',
   failed: 'bg-red-100 text-red-700',
-  processing: 'bg-yellow-100 text-yellow-700',
-  pending: 'bg-gray-100 text-gray-700',
-  partial: 'bg-orange-100 text-orange-700',
+  deleted: 'bg-zinc-200 text-zinc-600',
 };
 
 interface CaptureCardProps {
