@@ -454,7 +454,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P10b — CI gating: voice-pipecat + file-ingestion pytest + test-count doc
+### P10b — CI gating: voice-pipecat + file-ingestion pytest + test-count doc  ✅ Completed 2026-04-19 (PR #142)
 **Scope:** #115 subset — Python pytest coverage in CI + README/intake updates
 **Severity:** High
 **Dependencies:** None
@@ -470,7 +470,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P11a — Observability part 1a: Loki log driver wiring
+### P11a — Observability part 1a: Loki log driver wiring  ✅ Completed 2026-04-19 (PR #143)
 **Scope:** #113 subset — route all container logs to Loki
 **Severity:** High
 **Dependencies:** Loki must be running on homeserver (it is, per PR #76). Confirm before shipping.
@@ -536,10 +536,11 @@ Hard dependencies only (soft groupings in phase cards below):
 ---
 
 ### P13 — Search perf: LIMIT push-down + hnsw.ef_search
-**Scope:** #112
+**Scope:** #112 — CLOSED
 **Severity:** High
 **Dependencies:** None
 **Effort:** ~1 day
+**Status:** COMPLETE — PR #144 merged `d7e8c92`, migration 0027 applied homeserver 2026-04-19
 
 **Deliverables:**
 - `packages/core-api/src/services/search.ts`: `hybrid_search` vector CTE uses `ORDER BY embedding <=> $1 LIMIT $k` (push-down)
@@ -548,10 +549,10 @@ Hard dependencies only (soft groupings in phase cards below):
 - LAB_NOTEBOOK entry documenting benchmark results + chosen N
 
 **Acceptance:**
-- [ ] Vector CTE has LIMIT push-down
-- [ ] `hnsw.ef_search` explicit per session
-- [ ] Benchmark results in LAB_NOTEBOOK
-- [ ] No regression in top-N recall on current corpus
+- [x] Vector CTE has LIMIT push-down
+- [x] `hnsw.ef_search` explicit per session
+- [x] Benchmark results in LAB_NOTEBOOK
+- [x] No regression in top-N recall on current corpus
 
 **Rollback:** Query change revert; config knob removal.
 
@@ -969,10 +970,10 @@ Hard dependencies only (soft groupings in phase cards below):
 | 109 | Theme 7 — Cognitive memory dormant | P06 ✅ | 2 | High |
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
 | 111 | Theme 9 — Doc drift | P15a + P15b | 3 | High |
-| 112 | Theme 10 — Search perf cliff | P13 | 3 | High |
-| 113 | Theme 11 — Observability (split 3 ways) | P11a + P11b + P12 | 2, 3 | High |
+| 112 | Theme 10 — Search perf cliff | P13 ✅ | 3 | High |
+| 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b + P12 | 2, 3 | High |
 | 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
-| 115 | Theme 14 — CI gating gaps | P10a ✅ + P10b | 2 | High |
+| 115 | Theme 14 — CI gating gaps | P10a ✅ + P10b ✅ | 2 | High |
 | 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |

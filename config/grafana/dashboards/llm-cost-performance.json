@@ -422,13 +422,16 @@
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "fillOpacity": 20,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
+              "drawStyle": "line",
+              "lineInterpolation": "smooth",
+              "fillOpacity": 20,
+              "pointSize": 5,
+              "showPoints": "auto",
+              "spanNulls": false,
+              "thresholdsStyle": {
+                            "mode": "dashed+area"
+              }
+},
           "unit": "short",
           "color": { "mode": "palette-classic" },
           "thresholds": {
@@ -438,9 +441,6 @@
               { "value": 15000, "color": "yellow" },
               { "value": 19000, "color": "red" }
             ]
-          },
-          "custom": {
-            "thresholdsStyle": { "mode": "dashed+area" }
           }
         },
         "overrides": []

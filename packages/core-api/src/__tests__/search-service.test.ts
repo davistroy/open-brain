@@ -49,7 +49,7 @@ function makeMockEmbeddingService(vector = makeUnitVector()) {
 
 /**
  * Build a mock db for hybrid search mode (default) where:
- *  - Call 1: SET LOCAL hnsw.ef_search = N  (P13 — before hybrid_search)
+ *  - Call 1: SET hnsw.ef_search = N  (P13 — before hybrid_search)
  *  - Call 2: hybrid_search result
  *  - Call 3: SELECT * FROM captures
  *
@@ -62,7 +62,7 @@ function makeMockDb(
 ) {
   const execute = vi.fn()
 
-  // Call 1: SET LOCAL hnsw.ef_search = N (P13 -- before hybrid_search)
+  // Call 1: SET hnsw.ef_search = N (P13 -- before hybrid_search)
   execute.mockResolvedValueOnce({ rows: [] })
 
   // Call 2: hybrid_search
@@ -224,7 +224,7 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -252,7 +252,7 @@ describe('SearchService', () => {
       }))
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -280,7 +280,7 @@ describe('SearchService', () => {
 
       await service.search('n+1 check')
 
-      // Exactly 3: SET LOCAL hnsw.ef_search + hybrid_search + SELECT captures (no per-row round-trips)
+      // Exactly 3: SET hnsw.ef_search + hybrid_search + SELECT captures (no per-row round-trips)
       expect(db.execute).toHaveBeenCalledTimes(3)
     })
   })
@@ -299,7 +299,7 @@ describe('SearchService', () => {
       const results = await service.search('cold start query') // no temporalWeight = default 0.0
 
       expect(results[0].score).toBe(0.8)
-      // 3 DB calls: SET LOCAL hnsw.ef_search + hybrid_search + SELECT captures
+      // 3 DB calls: SET hnsw.ef_search + hybrid_search + SELECT captures
       expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
@@ -346,11 +346,11 @@ describe('SearchService', () => {
       expect(svc3).toBeInstanceOf(SearchService)
     })
 
-    it('issues SET LOCAL hnsw.ef_search before hybrid_search in hybrid mode', async () => {
+    it('issues SET hnsw.ef_search before hybrid_search in hybrid mode', async () => {
       const capture = makeCaptureRecord({ id: 'cap-1' })
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search
+      // Call 1: SET hnsw.ef_search
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -371,7 +371,7 @@ describe('SearchService', () => {
       expect(firstArgStr).toMatch(/hnsw/)
     })
 
-    it('does NOT issue SET LOCAL hnsw.ef_search when searchMode is fts', async () => {
+    it('does NOT issue SET hnsw.ef_search when searchMode is fts', async () => {
       const capture = makeCaptureRecord({ id: 'cap-1' })
       const ftsRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.0 }]
       const db = makeMockDbFts(ftsRows, [capture])
@@ -473,7 +473,7 @@ describe('SearchService', () => {
       }))
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -562,7 +562,7 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -591,7 +591,7 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -618,7 +618,7 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -649,7 +649,7 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -676,7 +676,7 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -878,7 +878,7 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search (primary search)
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -910,7 +910,7 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -947,7 +947,7 @@ describe('SearchService', () => {
       }))
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -972,7 +972,7 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
 
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
@@ -1011,7 +1011,7 @@ describe('SearchService', () => {
       // Run with includeRelated
       embeddingService = makeMockEmbeddingService()
       const execute = vi.fn()
-      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      // Call 1: SET hnsw.ef_search (P13)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })

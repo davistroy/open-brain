@@ -33,6 +33,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   redis:
     image: redis:7-alpine
@@ -51,6 +68,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   core-api:
     build:
@@ -97,6 +131,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   workers:
     build:
@@ -147,6 +198,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   slack-bot:
     build:
@@ -173,6 +241,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   voice-pipecat:
     build:
@@ -204,6 +289,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   # Ollama runs as standalone container — connected via scripts/post-compose-up.sh
   # ollama:
@@ -249,6 +351,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   # --- Legacy voice services (kept for fallback until voice-pipecat is validated) ---
 
@@ -273,6 +392,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   voice-capture:
     build:
@@ -308,6 +444,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   web:
     build:
@@ -332,6 +485,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -352,6 +522,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   # Python batch-ingest sidecar — hosts financial-pipeline.py + utility-pipeline.py.
   # Long-lived container; host cron shells in with `docker exec` to run tasks.
@@ -393,6 +580,23 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
 
   # Utility batch-ingest sidecar — same image as financial-ingest, different
   # config + inbox. Handles utility-pipeline.py (gas, power, water summaries).
@@ -425,3 +629,20 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://homeserver.k4jda.net:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
