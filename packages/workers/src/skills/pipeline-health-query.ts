@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { Database } from '@open-brain/shared'
+import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import type { RecentFailure } from './pipeline-health.js'
 
@@ -22,7 +22,7 @@ export async function queryRecentFailures(
   try {
     const rows = await db.execute<{
       capture_id: string
-      stage: string
+      stage: PipelineEventStage
       error: string | null
       created_at: string
     }>(sql`
