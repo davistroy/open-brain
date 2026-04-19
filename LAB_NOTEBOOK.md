@@ -7202,3 +7202,11 @@ Multi-chunk documents WILL set `pipeline_status: 'chunked'`. The DB has 0 rows b
 
 **Duration:** ~25 minutes (Gate 3 implementation only).
 
+**Final / Merged:**
+- **PR #139** squash-merged at `bb18d46` on `main` (2026-04-19).
+- **Reviewer verdict:** Opus APPROVE, cycle 1. CI all green. No deviations from plan.
+- **Homeserver:** Migration 0025 applied and verified. Both CHECK constraints live (`pipeline_events_stage_check`, `pipeline_events_status_check`).
+- **A70 closed:** Batch homeserver deploy completed 2026-04-19 (comment on #136).
+- **A74 closed:** `.gitignore` `.env.secrets*` glob bundled with this PR (#139).
+- **Resume point:** P09c — Sibling enum CHECKs on sessions table (session_type + status).
+

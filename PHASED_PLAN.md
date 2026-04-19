@@ -413,7 +413,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P09b — Sibling enum CHECKs: pipeline_events table (stage + status)
+### P09b — Sibling enum CHECKs: pipeline_events table (stage + status) ✅ Completed 2026-04-19 (PR #139)
 **Scope:** #119 subset — 2 columns on pipeline_events table
 **Severity:** Medium
 **Dependencies:** P01
@@ -976,7 +976,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
-| 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b + P09c | 2 | Medium |
+| 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c | 2 | Medium |
 | 120 | scripts/ pyright coverage (staged) | P28 → P32 (5 PRs) | 8 | Low |
 | 121 | voice-pipecat pyright re-enable | P27 | 8 | Medium |
 | 122 | recordAgentCompletion final-tier | P02c ✅ | 1 | Low |
@@ -1103,10 +1103,10 @@ Items surfaced **during** the orchestrator pipeline that don't warrant their own
 
 | ID | GH | Title | Surfaced during | Status | Notes |
 |----|---:|-------|-----------------|--------|-------|
-| A70 | [#136](https://github.com/davistroy/open-brain/issues/136) | Batch homeserver deploy for 7 queued phases (P01, P02a-c, P03, P04a, P07) | P01 onwards | open — operator | P04b/P05/P06/P08 added zero deploy work |
+| A70 | [#136](https://github.com/davistroy/open-brain/issues/136) | Batch homeserver deploy for 7 queued phases (P01, P02a-c, P03, P04a, P07) | P01 onwards | ✅ closed by #136 comment — batch deploy 2026-04-19 | P04b/P05/P06/P08 added zero deploy work |
 | A71 | [#137](https://github.com/davistroy/open-brain/issues/137) | `memory-consolidation` task-key rename in `ai-routing.yaml` | P02b | open — ~1h work | Suitable as filler between waves |
 | A72 | — | PR body `Refs` vs `Closes` keyword discipline | P02b → strengthened P03 | resolved (rule baked into ORCHESTRATOR.md commit-message contract) | #102 was auto-closed by accidental "closes" in section header prose |
 | A73 | [#131](https://github.com/davistroy/open-brain/issues/131) | P05.1 — 6 deferred proactive skills for autonomy gate | P05 | open — sub-phase candidate | May fold into P14b or get its own P05.1 sub-phase |
-| A74 | [#135](https://github.com/davistroy/open-brain/issues/135) | Tighten `.gitignore` for `.env.secrets*` glob | P08 (Opus review nit) | open — 1-line change | Defense-in-depth; no runtime impact |
+| A74 | [#135](https://github.com/davistroy/open-brain/issues/135) | Tighten `.gitignore` for `.env.secrets*` glob | P08 (Opus review nit) | ✅ closed — bundled with P09b PR #139 | Defense-in-depth; no runtime impact |
 
 **Convention:** when adding a new orchestrator-discovered item, file the GH issue first, then append a row here. Include the phase that surfaced it. Strikethrough + "✅ closed by #N" when resolved (don't delete rows — preserves history).
