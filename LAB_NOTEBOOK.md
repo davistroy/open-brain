@@ -5906,8 +5906,42 @@ Success criteria:
 - weekly-brief.test.ts: add gateway-mock describe block (3 new tests)
 - extract-entities.test.ts: remove callClaude / anthropicClient mock, add gateway-path coverage
 
-**Work Item 11 in progress — delete source files**
-- Order: call-claude.ts, call-claude.test.ts, remove barrel export line.
+**Work Item 11 complete — delete source files**
+- Deleted `packages/shared/src/services/call-claude.ts` (callClaude function + types)
+- Deleted `packages/shared/src/services/__tests__/call-claude.test.ts` (14 tests)
+- Removed `export * from './call-claude.js'` from `packages/shared/src/services/index.ts`
+- Shared build: clean. Shared tests: 291 → 277 (delta = 14 deleted, matches plan).
+
+**Work Item 12 complete — grep verification**
+- `grep -r "callClaude" packages/workers/src packages/shared/src` → CLEAN
+- `grep -r "call-claude" packages/workers/src packages/shared/src` → CLEAN
+
+**Work Item 13 complete — CLAUDE.md update**
+- Added callClaude removal rule, memory-consolidation task key note (A71 pending).
+
+#### Gate 3 — Results
+
+| Metric | Before P02b | After P02b | Delta |
+|--------|-------------|------------|-------|
+| Workers tests | 948 | 963 | +15 (9 mem-consol + 3 wb-gateway + 3 ee-gateway) |
+| Shared tests | 291 | 277 | -14 (call-claude.test.ts deleted) |
+| callClaude references | 6 (workers) | 0 | -6 |
+| call-claude.ts | exists | deleted | — |
+
+**anthropicClient parameter disposition:** Kept in `processExtractEntitiesJob` and `createExtractEntitiesWorker` signatures with `_` prefix convention and TODO comment — `main.ts` still passes `anthropicClient` to `createExtractEntitiesWorker`. Fully unused at runtime. Also removed from all 5 standalone `execute*()` function signatures (no prod callers).
+
+**Commits (4 total):**
+1. `fd2a462` — feat(phase-P02b)/1-7: remove callClaude from all 6 consumers + harden skill-execution
+2. `9e6978e` — feat(phase-P02b)/8-10: new memory-consolidation tests + gateway-mock tests
+3. `c5ba6cd` — feat(phase-P02b)/11: delete call-claude.ts + test + barrel export
+4. (pending) — docs(phase-P02b)/13: CLAUDE.md + LAB_NOTEBOOK Gate 3 overall
+
+**What Worked:**
+- Build-first approach caught the `executeWeeklyBrief` / `Anthropic` type residual early (after first failed build, fixed immediately).
+- Mocking `findConsolidationCandidates` via `vi.mock()` at the module level worked cleanly for memory-consolidation tests.
+- Keeping `litellmClient` fallback in skills enabled all existing tests to pass unchanged.
+
+**Status: ALL_COMPLETE**
 
 ---
 
