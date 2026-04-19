@@ -51,12 +51,15 @@ const BANNER_REDIS_KEY = 'admin:banner'
 const BANNER_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 days
 
 // ── Origin allowlist for /admin/reset-data ────────────────────────────────
-// Only requests from brain.troy-davis.com are permitted in production.
-// Dev/test bypass: NODE_ENV !== 'production'.
+// Only requests from brain.troy-davis.com are permitted.
+// Fail-closed: only explicit NODE_ENV='development' or 'test' bypasses.
+// Unset or unknown NODE_ENV (including the foot-gun case of a production
+// deploy without NODE_ENV set) is treated as production — origin check applies.
 const ALLOWED_ORIGINS = new Set(['https://brain.troy-davis.com'])
 
 function checkOrigin(c: Context): boolean {
-  if (process.env.NODE_ENV !== 'production') return true
+  const env = process.env.NODE_ENV
+  if (env === 'development' || env === 'test') return true
   const origin = c.req.header('origin') ?? c.req.header('referer') ?? ''
   if (!origin) return false
   return [...ALLOWED_ORIGINS].some(a => origin === a || origin.startsWith(a + '/'))
