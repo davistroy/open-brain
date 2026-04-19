@@ -156,6 +156,18 @@ async function main() {
   const ingestDedup = new IngestDedup(dedupRedis)
   logger.info('IngestDedup initialized (5-min TTL content hash dedup)')
 
+  // Dedicated Redis connection for Composio monthly quota metering.
+  // Tracks `composio:monthly_usage:YYYY-MM` counter; hard-stop at 19K/month.
+  const composioMeterRedis = new Redis({
+    host: connection.host as string,
+    port: connection.port as number,
+    ...(connection.password ? { password: connection.password as string } : {}),
+    maxRetriesPerRequest: 3,
+    lazyConnect: true,
+  })
+  await composioMeterRedis.connect()
+  logger.info('Composio quota meter Redis initialized')
+
   // FlowProducer — DAG-based pipeline orchestration (always enabled)
   const flowProducer = new FlowProducer({ connection })
   logger.info('FlowProducer initialized — pipeline uses DAG-based orchestration')
@@ -198,6 +210,8 @@ async function main() {
     ollamaClient: ollamaClient ?? undefined,
     wikiService,
     llmGateway,
+    composioMeterRedis,
+    pushover,
   }))
 
   // Ingest-process worker (CS3.5) — consumes `ingest-process` queue, dispatches
@@ -234,7 +248,8 @@ async function main() {
     await Promise.allSettled(Object.values(queues).map(q => q.close()))
     if (flowProducer) await flowProducer.close().catch(() => {})
     await dedupRedis.quit().catch(() => {})
-    logger.info('All workers, queues, flow producer, and dedup Redis closed')
+    await composioMeterRedis.quit().catch(() => {})
+    logger.info('All workers, queues, flow producer, dedup Redis, and composio meter Redis closed')
     await pool.end()
     logger.info('Postgres pool closed')
     process.exit(0)
