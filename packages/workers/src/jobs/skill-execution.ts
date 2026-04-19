@@ -1,7 +1,8 @@
 import { Worker, UnrecoverableError } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type OpenAI from 'openai'
-import type { Database, ConfigService, LLMGatewayService } from '@open-brain/shared'
+import type { Redis } from 'ioredis'
+import type { Database, ConfigService, LLMGatewayService, PushoverService } from '@open-brain/shared'
 import { logger, activity_feed } from '@open-brain/shared'
 import type { SkillExecutionJobData } from '../queues/skill-execution.js'
 import type Anthropic from '@anthropic-ai/sdk'
@@ -78,6 +79,10 @@ export function createSkillExecutionWorker(
     ollamaClient?: OpenAI
     wikiService?: WikiGitService
     llmGateway?: LLMGatewayService
+    /** Optional Redis client for Composio monthly quota metering (morning-brief). */
+    composioMeterRedis?: Redis
+    /** Optional Pushover service for Composio quota alerts (morning-brief). */
+    pushover?: PushoverService
   },
 ): Worker {
   const aiConfig = opts.configService.get('ai')
@@ -251,6 +256,8 @@ export function createSkillExecutionWorker(
           const result = await runSkill(MorningBriefSkill, {
             db,
             slackChannelId: process.env.MORNING_BRIEF_SLACK_CHANNEL ?? 'D0AR39RNG4E',
+            composioRedis: opts.composioMeterRedis,
+            composioPushover: opts.pushover,
           }, {})
           logger.info(
             { skillName, thread: result.yesterdayThread.length, loops: result.openLoops.length, people: result.people.length, notificationSent: result.notificationSent, slackSent: result.slackSent, durationMs: result.durationMs },

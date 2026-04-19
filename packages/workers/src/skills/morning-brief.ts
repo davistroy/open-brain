@@ -1,6 +1,7 @@
-import type { Database } from '@open-brain/shared'
+import type { Database, PushoverService } from '@open-brain/shared'
 import { logger, ComposioClient, SlackMessenger } from '@open-brain/shared'
 import type { SlackBlock } from '@open-brain/shared'
+import type { Redis } from 'ioredis'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 
@@ -189,16 +190,26 @@ const REFERENCE_CALENDARS = new Set([
  * Returns primary events (Troy's calendars) and reference events
  * (Ashley's Calendar, SCARS) as separate arrays.
  * Returns empty arrays on any failure (calendar is optional enhancement).
+ *
+ * @param composioKey Composio API key
+ * @param now Current date (overrideable for testing)
+ * @param options Optional Redis + Pushover for quota metering. When provided,
+ *   ComposioClient.execute() will track monthly usage and alert at thresholds.
  */
 export async function fetchCalendarEvents(
   composioKey: string,
   now: Date,
+  options?: { redis?: Redis; pushover?: PushoverService },
 ): Promise<{ primary: CalendarEvent[]; reference: CalendarEvent[] }> {
   const empty = { primary: [] as CalendarEvent[], reference: [] as CalendarEvent[] }
   if (!composioKey) return empty
 
   try {
-    const client = new ComposioClient(composioKey)
+    const client = new ComposioClient({
+      apiKey: composioKey,
+      redis: options?.redis,
+      pushover: options?.pushover,
+    })
     const todayStr = now.toISOString().slice(0, 10)
     const tomorrow = new Date(now)
     tomorrow.setDate(tomorrow.getDate() + 1)
@@ -382,18 +393,26 @@ export interface MorningBriefSkillOpts extends BaseSkillOpts {
   composioApiKey?: string
   slackChannelId?: string
   slackBotToken?: string
+  /** Optional Redis client for Composio monthly quota metering. */
+  composioRedis?: Redis
+  /** Optional Pushover service for Composio quota warning notifications. */
+  composioPushover?: PushoverService
 }
 
 export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBriefResult> {
   private composioKey: string
   private slackChannelId: string
   private slack: SlackMessenger
+  private composioRedis?: Redis
+  private composioPushover?: PushoverService
 
   constructor(opts: MorningBriefSkillOpts) {
     super('morning-brief', opts)
     this.composioKey = opts.composioApiKey ?? process.env.COMPOSIO_API_KEY ?? ''
     this.slackChannelId = opts.slackChannelId ?? process.env.MORNING_BRIEF_SLACK_CHANNEL ?? ''
     this.slack = new SlackMessenger(opts.slackBotToken)
+    this.composioRedis = opts.composioRedis
+    this.composioPushover = opts.composioPushover
   }
 
   async execute(options: MorningBriefOptions = {}): Promise<MorningBriefResult> {
@@ -404,7 +423,9 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
 
     // Section 0: Today's Schedule + Reference Calendars (Composio — non-blocking)
     const { primary: schedule, reference: referenceCalendar } = await fetchCalendarEvents(
-      options.composioApiKey ?? this.composioKey, now,
+      options.composioApiKey ?? this.composioKey,
+      now,
+      { redis: this.composioRedis, pushover: this.composioPushover },
     )
 
     // Section 0.5: Overnight Email (since yesterday 5 AM — when email-classify runs)
