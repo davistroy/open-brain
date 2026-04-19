@@ -425,7 +425,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P09c — Sibling enum CHECKs: sessions table (session_type + status)
+### P09c — Sibling enum CHECKs: sessions table (session_type + status) ✅ Completed 2026-04-19 (PR #140)
 **Scope:** #119 subset — 2 columns on sessions table
 **Severity:** Medium
 **Dependencies:** P01
@@ -976,7 +976,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
-| 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c | 2 | Medium |
+| 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c ✅ | 2 | Medium |
 | 120 | scripts/ pyright coverage (staged) | P28 → P32 (5 PRs) | 8 | Low |
 | 121 | voice-pipecat pyright re-enable | P27 | 8 | Medium |
 | 122 | recordAgentCompletion final-tier | P02c ✅ | 1 | Low |

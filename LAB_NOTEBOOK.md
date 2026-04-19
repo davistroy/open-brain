@@ -7279,3 +7279,14 @@ Multi-chunk documents WILL set `pipeline_status: 'chunked'`. The DB has 0 rows b
 
 **Duration:** ~20 minutes (Gate 3 implementation only).
 
+#### Final / Merged — 2026-04-19
+
+- **PR:** https://github.com/davistroy/open-brain/pull/140
+- **Merge SHA:** `0d4fad3` (squash-merge to `main`, 2026-04-19)
+- **Reviewer verdict:** Opus APPROVE — cycle 1 (no REQUEST_CHANGES)
+- **CI:** Green. All tests passing.
+- **Homeserver:** Migration 0026 applied and verified. Both CHECK constraints live (`sessions_session_type_check`, `sessions_status_check`).
+- **Issues closed:** #119 fully closed (all 3 sub-phases P09a + P09b + P09c complete). Cross-Phase Tracking row #119 marked fully complete.
+- **CLAUDE.md rules added:** 3 (sessions.session_type lockstep, sessions.status lockstep, Board.tsx UI-type isolation note).
+- **Resume point:** P10a — CI gating: integration tests (gate_4_review, still in flight).
+
