@@ -765,6 +765,7 @@ describe('runAgent', () => {
       const [params] = createSpy.mock.calls[0]
       expect(params.model).toBe('claude-sonnet-resolved')
       expect(result.text).toBe('Done')
+      expect(result.finalTierKey).toBe('t2_quality')
     })
 
     it('invokes clientResolver exactly once at loop start', async () => {
@@ -811,6 +812,7 @@ describe('runAgent', () => {
       expect(fallbackParams.model).toBe('claude-haiku-fallback')
       expect(result.text).toBe('Recovered')
       expect(result.iterations).toBe(1)
+      expect(result.finalTierKey).toBe('t1_fast')
     })
 
     it('propagates the error when fallback chain is exhausted', async () => {
@@ -867,6 +869,7 @@ describe('runAgent', () => {
       const [params] = createSpy.mock.calls[0]
       expect(params.model).toBe('claude-legacy-model')
       expect(result.text).toBe('Legacy works')
+      expect(result.finalTierKey).toBeUndefined()
     })
   })
 })

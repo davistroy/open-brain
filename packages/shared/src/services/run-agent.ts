@@ -88,6 +88,12 @@ export interface AgentResult {
   iterations: number
   /** The stop reason from the final API response. */
   stopReason: string
+  /**
+   * Tier key of the tier that ultimately served the final iteration.
+   * Matches the initial resolved tier when no fallback swap occurred.
+   * Undefined when runAgent is called without a clientResolver (legacy path).
+   */
+  finalTierKey?: string
 }
 
 /** Options for runAgent(). */
@@ -259,6 +265,7 @@ export async function runAgent(
   let iteration = 0
   let lastStopReason = 'end_turn'
   let finalText = ''
+  let currentTierKey: string | undefined = resolution?.tierKey
 
   while (iteration < maxIterations) {
     iteration++
@@ -323,6 +330,7 @@ export async function runAgent(
       resolution = nextResolution
       client = nextResolution.client as Anthropic
       model = nextResolution.model
+      currentTierKey = nextResolution.tierKey
 
       // Retry once. If this also throws, the error propagates — no infinite loop.
       response = await client.messages.create(buildParams(), { signal: options?.abortSignal })
@@ -444,5 +452,6 @@ export async function runAgent(
     duration,
     iterations: iteration,
     stopReason: lastStopReason,
+    finalTierKey: currentTierKey,
   }
 }
