@@ -6932,3 +6932,18 @@ Success criteria (per IMPLEMENT_PHASE-P08.md acceptance):
 
 **Status:** ALL_COMPLETE.
 
+#### Final / Merged — 2026-04-19
+
+- **PR:** https://github.com/davistroy/open-brain/pull/134
+- **Merge SHA:** `efbc787` (squash-merge to `main`, 2026-04-19T19:52:37Z)
+- **Reviewer verdict:** Opus APPROVE — 1 cycle (no REQUEST_CHANGES)
+- **Duration (wall-clock, Gate 1 → Gate 5):** ~50 min (Gate 2 plan commit `fe7e1ac` → merge `efbc787`); Gate 3 implementation ≈ 30 min across 3 commits, PR open → merged ≈ 5 min.
+- **Issues closed:** #118 (Theme 17 — load-secrets.sh stub) — closed by this PR.
+- **Surprises / plan deviations validated by review:**
+  1. `PUSHOVER_TOKEN` / `PUSHOVER_USER` promoted from OPTIONAL → REQUIRED in `scripts/lib/secrets-map.sh`. Spec narrative said "13 required + 5 optional" but the table partitioned 11+8; promotion based on `docker-compose.yml` env injection + voice-capture grep evidence (production uses these). Final tally: 13 REQUIRED + 6 OPTIONAL + SMTP_PORT_DEFAULT.
+  2. `python3` added as JSON-parser fallback alongside `jq` in `load-secrets.sh` and `verify-secrets.sh`. Plan said "jq required, document if missing on Unraid"; msys on the dev laptop ships neither, so a universal fallback keeps the round-trip test runnable locally and in CI without prior install. Documented in CLAUDE.md "Backup / disaster recovery" subsection.
+  - Both deviations explicitly validated by Opus review and called out as "good calls."
+- **Outstanding nit (non-blocking, captured as A74):** Opus flagged that `.gitignore` only matches the exact `.env.secrets` path; should be `.env.secrets*` glob to also catch the new `.env.secrets.sha256` sidecar and any leftover `.env.secrets.tmp.*` from interrupted atomic writes. Defense-in-depth — not a leak risk today (sidecar holds a hex digest, not a secret), but tightens the seal. Filed as Action Item A74 + GitHub issue.
+- **Homeserver impact:** ZERO migrations / ZERO scheduler / ZERO docker compose / ZERO observability. Operator runbook lives in CLAUDE.md "Backup / disaster recovery" → operator runbook bullet. New scripts are dormant until invoked.
+- **CLAUDE.md rules added:** 3 new bullets in "Backup / disaster recovery" subsection (round-trip invariant, 3-step lockstep, operator runbook) + 1 stub-removal edit on the P04b bullet ("(stub today; P08 completes)" qualifier dropped).
+

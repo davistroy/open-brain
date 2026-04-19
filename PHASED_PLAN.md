@@ -373,7 +373,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P08 — Secret delivery hygiene
+### P08 — Secret delivery hygiene ✅ Completed 2026-04-19 (PR #134)
 **Scope:** #118 implement load-secrets.sh with BWS reconciliation
 **Severity:** High
 **Dependencies:** None
@@ -975,7 +975,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 115 | Theme 14 — CI gating gaps | P10a + P10b | 2 | High |
 | 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
-| 118 | Theme 17 — load-secrets.sh stub | P08 | 2 | High |
+| 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
 | 119 | Sibling enum CHECKs (split by table) | P09a + P09b + P09c | 2 | Medium |
 | 120 | scripts/ pyright coverage (staged) | P28 → P32 (5 PRs) | 8 | Low |
 | 121 | voice-pipecat pyright re-enable | P27 | 8 | Medium |
