@@ -10,8 +10,8 @@
 set -euo pipefail
 
 # --- Configuration ---
-BACKUP_ROOT="/mnt/user/backup/openbrain"
-APP_DIR="/mnt/user/appdata/open-brain"
+BACKUP_ROOT="${BACKUP_ROOT:-/mnt/user/backup/openbrain}"
+APP_DIR="${APP_DIR:-/mnt/user/appdata/open-brain}"
 DB_CONTAINER="open-brain-postgres"
 REDIS_CONTAINER="open-brain-redis"
 DB_USER="openbrain"
@@ -75,9 +75,10 @@ mkdir -p "$CONFIG_DIR"
 cp -a "${APP_DIR}/config/"*.yaml "$CONFIG_DIR/" 2>/dev/null || true
 cp -a "${APP_DIR}/config/"*.yml "$CONFIG_DIR/" 2>/dev/null || true
 
-# Environment files (includes secrets — backup is local, same trust boundary)
+# Environment files — non-sensitive only. .env.secrets is EXCLUDED.
+# Post-restore: run scripts/load-secrets.sh (or bws secret get per
+# deploy/.env.secrets.template) to rebuild .env.secrets from Bitwarden.
 cp "${APP_DIR}/.env" "$CONFIG_DIR/dot-env" 2>/dev/null || true
-cp "${APP_DIR}/.env.secrets" "$CONFIG_DIR/dot-env-secrets" 2>/dev/null || true
 cp "${APP_DIR}/.env.example" "$CONFIG_DIR/dot-env-example" 2>/dev/null || true
 
 # Docker compose
