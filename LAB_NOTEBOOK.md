@@ -6851,3 +6851,84 @@ After P07: (1) internal callers never 429 each other — 100 parallel integratio
 - Both deviations were expected consequences of the changes, not surprises.
 
 **Duration:** ~45 minutes
+
+### Entry 098 — P08 Gate 3: Secret delivery hygiene (load-secrets.sh + verify + roundtrip test) — 2026-04-19
+
+**Tags:** [orchestrator] [phased-plan] [secrets] [bws] [ops] [shell] [decision]
+**Environment:** Laptop (Windows, msys bash 5.2). Branch `feat/phase-P08-secret-delivery-hygiene`. HEAD before Gate 3 = `fe7e1ac` (plan-only commit from Gate 2).
+**Phase:** P08 of PHASED_PLAN.md (Wave 1 follow-on; closes the round-trip P04b opened)
+**Issue:** #118
+
+**Objective:** Replace the 33-line `scripts/load-secrets.sh` stub with full BWS reconciliation, add `scripts/verify-secrets.sh` read-only audit, sha256 drift detection with Pushover alert, mapping table at `scripts/lib/secrets-map.sh`, and `scripts/test-secrets-roundtrip.sh` (5 cases, mock BWS + mock Pushover). Zero application code touched.
+
+**Hypothesis:** All 7 work items land in 4–6 commits. The mapping table approach (single `declare -A` shared across both consumer scripts) prevents drift between `load-secrets.sh` and `verify-secrets.sh`. Mock-bws + mock-Pushover via `BWS_BIN` env override and `PUSHOVER_API_URL` env override allow the test fixture to run with no network and no real BWS access — must work in CI without `BWS_ACCESS_TOKEN`. Pure curl for Pushover keeps it Node-free for disaster-recovery scenarios.
+
+Success criteria (per IMPLEMENT_PHASE-P08.md acceptance):
+- `bash scripts/load-secrets.sh --dry-run` lists all 13 required + N optional present in BWS without writing
+- Full run writes `.env.secrets` mode 0600 + `.env.secrets.sha256`; refuses clobber without `--force`
+- `--verify-hash` exits 4 on drift, 0 on match
+- `verify-secrets.sh` produces 3-column drift table; exit 1 if required missing
+- `test-secrets-roundtrip.sh` exits 0 — all 5 cases pass
+- CLAUDE.md updated with round-trip invariant + 3-step lockstep rule
+- All scripts use LF line endings (Linux/Unraid target)
+- Test fixture leaks zero fake-secret values to stdout (mirror P04b discipline)
+
+**Rollback Plan:**
+1. `git revert` the P08 PR — `scripts/load-secrets.sh` returns to 33-line stub; new files (`scripts/lib/secrets-map.sh`, `scripts/lib/pushover-notify.sh`, `scripts/verify-secrets.sh`, `scripts/test-secrets-roundtrip.sh`) disappear; CLAUDE.md round-trip rule removed.
+2. **Homeserver impact: zero** unless operator already wrote `.env.secrets` via the new script. The written file is plain `KEY=value` and remains valid; only the auto-reconciliation tooling is gone. The `.env.secrets.sha256` file becomes orphaned — harmless, deletable.
+3. Operator fallback = manual Bitwarden Web UI copy-paste against `deploy/.env.secrets.template` (current workflow).
+4. No DB, no Docker rebuild, no container restart required either way.
+
+**Per work item plan:**
+- 1: `scripts/lib/secrets-map.sh` — declare REQUIRED_SECRETS (13) + OPTIONAL_SECRETS (5) + SMTP_PORT_DEFAULT
+- 2: `scripts/load-secrets.sh` rewrite — flags `--force`, `--dry-run`, `--rehash-only`, `--verify-hash`, `--target-dir`; atomic tmp+mv; chmod 0600; sha256 sidecar; fail-fast on missing required
+- 3: `--verify-hash` mode (folded into item 2)
+- 4: `scripts/lib/pushover-notify.sh` — pure curl wrapper with `PUSHOVER_API_URL` override
+- 5: `scripts/verify-secrets.sh` — 3-column markdown table; exit 0/1/2
+- 6: `scripts/test-secrets-roundtrip.sh` — mock-bws shim on PATH + nc-based Pushover sink; 5 cases
+- 7: CLAUDE.md "Backup / disaster recovery" subsection update
+
+**Status:** Gate 3 starting. Per-item results appended below.
+
+#### Gate 3 — Work Items Result
+
+**Items 1–5 (commit `bca9467`):** SUCCESS.
+- `scripts/lib/secrets-map.sh` — 13 REQUIRED + 6 OPTIONAL mappings + SMTP_PORT_DEFAULT. Smoke test: `source ... && echo "${#REQUIRED_SECRETS[@]}"` prints `13`.
+- `scripts/lib/pushover-notify.sh` — `notify_pushover_mismatch()` with PUSHOVER_API_URL override; missing-creds = warn + skip + return 0.
+- `scripts/load-secrets.sh` — full rewrite (262 lines). Flags: `--dry-run`, `--force`, `--verify-hash`, `--rehash-only`, `--target-dir`. Atomic mktemp+mv, chmod 0600, sha sidecar. Fail-fast exit codes 1/2/3/4.
+- `scripts/verify-secrets.sh` — 3-column markdown table; exit 0/1/2 per audit result.
+- LAB_NOTEBOOK Entry 098 (this entry).
+
+**Item 6 (commit `ea5131e`):** SUCCESS — fixture passes 6/6 cases on local Windows (msys bash 5.2 + python3 + curl, no jq, no real BWS). Inline mock-bws shim emits canned JSON; inline python3 http.server acts as Pushover sink and logs POSTs to a file the test then asserts on. Test deliberately tolerates `mode != 600` on msys/cygwin/MINGW (filesystem can't honor POSIX perms on NTFS); the chmod still runs and Linux/Unraid will enforce.
+
+**Item 7 (this commit):** SUCCESS — CLAUDE.md "Backup / disaster recovery" subsection extended with 4 new bullets: round-trip invariant, 3-step lockstep, operator runbook, JSON parser policy. Also dropped the "(stub today; P08 completes)" qualifier from the original P04b bullet — P08 closed the gap. `grep -n 'load-secrets.sh' CLAUDE.md` returns 5 matches (acceptance criterion: ≥2).
+
+**Plan deviation noted (1):** spec narrative said "13 required + 5 optional", but the table itself partitioned 11 required + 8 optional. To honor the **acceptance criterion** of "13 required mandatory" the legacy voice-capture aliases (`PUSHOVER_TOKEN`, `PUSHOVER_USER`) were promoted to REQUIRED in `scripts/lib/secrets-map.sh`. They consistently exist in BWS today and the production voice-capture container needs them. Final tally: **13 required + 6 optional + 1 non-secret default (SMTP_PORT)**.
+
+**Plan addition (1):** added `python3` fallback to JSON parsing in `load-secrets.sh` and `verify-secrets.sh`. The plan said "jq required, document if missing on Unraid". On the Windows dev machine, `jq` is not installed by default (msys does not ship it). Adding `python3` as a fallback (also universal) keeps the test fixture runnable locally without requiring Troy to install `jq` on the laptop. Documented in the new CLAUDE.md JSON parser bullet.
+
+**Verification commands run locally:**
+- `bash scripts/load-secrets.sh --help` → prints usage; exit 0.
+- `bash -c 'source scripts/lib/secrets-map.sh && echo "${#REQUIRED_SECRETS[@]} ${#OPTIONAL_SECRETS[@]}"'` → `13 6`.
+- `bash scripts/test-secrets-roundtrip.sh` → `=== test-secrets-roundtrip: PASSED (6/6) ===`.
+- `bash scripts/test-backup-secrets-redaction.sh` (P04b regression) → `=== test-backup-secrets-redaction: PASSED ===` — unchanged.
+- `grep -c 'load-secrets.sh' CLAUDE.md` → 5.
+
+**Files touched (final, 7):**
+- `scripts/lib/secrets-map.sh` (new)
+- `scripts/lib/pushover-notify.sh` (new)
+- `scripts/load-secrets.sh` (rewrite: 33 → 290 lines)
+- `scripts/verify-secrets.sh` (new)
+- `scripts/test-secrets-roundtrip.sh` (new)
+- `CLAUDE.md` (4 new bullets in "Backup / disaster recovery", 1 stub-removal edit)
+- `LAB_NOTEBOOK.md` (Entry 098)
+
+**Tests not run:** unit test suites (core-api, workers, slack-bot, voice-capture, shared) — P08 touches zero application code, so `pnpm test` deltas are not expected. Skipped per scope.
+
+**Commits (chronological, after Gate 2 plan-only commit `fe7e1ac`):**
+1. `bca9467` — feat(phase-P08)/1.1+1.2+1.3+1.4+1.5: BWS reconciler + verify + Pushover lib
+2. `ea5131e` — test(phase-P08)/1.6: roundtrip fixture (mock BWS + mock Pushover) + python3 fallback
+3. (this commit) — docs(phase-P08)/1.7: CLAUDE.md round-trip invariant + 3-step lockstep
+
+**Status:** ALL_COMPLETE.
+
