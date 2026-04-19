@@ -33,6 +33,17 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - `CREATE TRIGGER` is not idempotent — always `DROP TRIGGER IF EXISTS <name> ON <table>` before `CREATE TRIGGER`. Affects `scripts/init-schema.sql`.
 - core-api Docker image ships `postgresql-client` (for P04a pg_dump). Tests can set `ADMIN_RESET_SKIP_PGDUMP=true`; never in production compose.
 
+**Internal HTTP callers (rate-limit) — P07**
+- **Every internal service calling core-api MUST set `X-Open-Brain-Caller: <name>` AND have `internal:<name>` in `BYPASS_CALLERS`** (`packages/core-api/src/middleware/rate-limit.ts`). Missing either side = silent 429s under burst load. Current 16 bypass entries: `integration-test`, `web-ui`, `email-worker`, `financial-pipeline`, `utility-pipeline`, `ingest`, `slack-bot`, `voice-capture`, `memory-consolidation`, `workers`, `email-classify`, `email-compose-skill`, `batch-wiki-ingest`, `email-pipeline`, `ingest-onedrive`, `ingest-repair`.
+- **slack-bot `CoreApiClient.request()`** is the single choke point for all slack-bot → core-api calls — set `X-Open-Brain-Caller` once there, spread `...options.headers` AFTER the default so test helpers can still override (e.g., to `integration-test`).
+- **Worker skills use `'workers'` as the shared caller value** (same container, simpler bypass entry) except `memory-consolidation` which keeps its own name (named in the arch review — finer observability for the destructive skill).
+- **nginx proxy_set_header audit rule:** every new `location` block in `packages/web/nginx.conf` that proxies to core-api MUST explicitly set OR clear `X-Open-Brain-Caller`. `proxy_set_header X-Open-Brain-Caller "web-ui"` overwrites (nginx behavior); `proxy_set_header X-Open-Brain-Caller ""` strips (required for `/mcp` where client-supplied value would bypass limits). No silent inheritance.
+
+**BullMQ scheduler + concurrency — P06 + P07**
+- **Scheduler slot registry — ALL windows.** Before adding a new cron to `packages/workers/src/scheduler.ts`, grep for the exact cron string. Current slots: Sunday `0 3` storage-audit / `30 3` prune-associations / `0 4` memory-consolidation / `0 5` wiki-lint. Weekday morning cluster (06:00–07:15): `0 6` wiki-synthesis, `10 6` daily-connections, `20 6` cost-analysis, `30 6` morning-brief (weekdays), `45 6` capture-reminder-morning (weekdays), `0 7` budget-check, `15 7` drift-monitor. **No two repeatable jobs on same minute.**
+- **BullMQ concurrency default = 2 per worker.** Override to 1 only for documented singletons with inline reason: `budget-check`, `daily-sweep`, `skill-execution` (LLM-heavy), `prune-associations`, `wiki-ingest` (git serialization). Never exceed 2 without benchmark justification.
+- **When changing cron schedules, grep the OLD cron string across the entire file before committing** — JSDoc block at top of `registerScheduledJobs` and the actual `const xxxCron = ...` declaration can drift. P07 cycle-1 reviewer caught `costAnalysisCron = '10 7 * * *'` left behind while JSDoc already said `20 6 * * *`. Pattern: `grep -n '10 7 \* \* \*' scheduler.ts` → zero hits expected after rename.
+
 **API / endpoints**
 - `/health` is Docker-internal only. Use `/api/v1/captures?limit=1` for external health + tunnel checks.
 - `POST /api/v1/captures` returns `{id, pipeline_status, created_at}` only. Use `GET /api/v1/captures/:id` for full record.
