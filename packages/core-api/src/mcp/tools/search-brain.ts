@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { Queue } from 'bullmq'
 import type { SearchService } from '../../services/search.js'
 import type { SearchResult } from '../../services/search.js'
 
@@ -36,7 +37,11 @@ function formatResult(index: number, { capture, score }: SearchResult): string[]
   return lines
 }
 
-export async function searchBrainTool(input: SearchBrainInput, searchService: SearchService): Promise<string> {
+export async function searchBrainTool(
+  input: SearchBrainInput,
+  searchService: SearchService,
+  accessStatsQueue?: Queue<{ captureIds: string[]; accessedAt: string }>,
+): Promise<string> {
   const dateFrom = input.days
     ? new Date(Date.now() - input.days * 24 * 60 * 60 * 1000)
     : undefined
@@ -47,6 +52,14 @@ export async function searchBrainTool(input: SearchBrainInput, searchService: Se
     dateFrom,
     includeRelated: input.include_related,
   })
+
+  if (accessStatsQueue && response.results.length > 0) {
+    const captureIds = response.results.slice(0, 10).map(r => r.capture.id!)
+    accessStatsQueue.add('access-stats', {
+      captureIds,
+      accessedAt: new Date().toISOString(),
+    }).catch(() => { /* fire-and-forget */ })
+  }
 
   const results = response.results
 

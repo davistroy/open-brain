@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import type { Hono } from 'hono'
+import type { Queue } from 'bullmq'
 import type { CaptureService } from '../services/capture.js'
 import type { SearchService } from '../services/search.js'
 import type { EntityService } from '../services/entity.js'
@@ -24,6 +25,8 @@ interface McpServerDeps {
   wikiService?: WikiService
   activityFeedService?: ActivityFeedService
   emailDraftService?: EmailDraftService
+  /** Access-stats BullMQ queue — fire-and-forget after search_brain tool completion (P06) */
+  accessStatsQueue?: Queue<{ captureIds: string[]; accessedAt: string }>
 }
 
 /**
@@ -36,7 +39,7 @@ interface McpServerDeps {
  * This is the correct approach for Hono/edge environments and avoids shared state.
  */
 export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
-  const { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService } = deps
+  const { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService, accessStatsQueue } = deps
 
   // Create the activity logger (shared across requests — it's stateless, just holds db ref)
   const activityLogger = new McpActivityLogger(db, activityFeedService)
@@ -60,7 +63,7 @@ export function mountMcpServer(app: Hono, deps: McpServerDeps): void {
       version: '0.1.0',
     })
 
-    registerMcpTools({ server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId })
+    registerMcpTools({ server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId, accessStatsQueue })
 
     // Register MCP resources
     server.registerResource(

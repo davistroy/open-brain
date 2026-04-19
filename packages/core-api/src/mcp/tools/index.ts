@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Queue } from 'bullmq'
 import type { CaptureService } from '../../services/capture.js'
 import type { SearchService } from '../../services/search.js'
 import type { EntityService } from '../../services/entity.js'
@@ -39,6 +40,8 @@ interface RegisterToolsDeps {
   emailDraftService?: EmailDraftService
   activityLogger?: McpActivityLogger
   clientId?: string
+  /** Access-stats BullMQ queue — fire-and-forget after search_brain tool completion (P06) */
+  accessStatsQueue?: Queue<{ captureIds: string[]; accessedAt: string }>
 }
 
 /**
@@ -56,7 +59,7 @@ function withLogging(
 }
 
 export function registerMcpTools(deps: RegisterToolsDeps): void {
-  const { server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId } = deps
+  const { server, captureService, searchService, configService, db, entityService, wikiService, emailDraftService, activityLogger, clientId, accessStatsQueue } = deps
 
   // Tool 1: search_brain — semantic + FTS hybrid search
   server.tool(
@@ -64,7 +67,7 @@ export function registerMcpTools(deps: RegisterToolsDeps): void {
     'Search your captured knowledge using semantic and full-text search. Returns ranked results with match percentages.',
     searchBrainSchema.shape,
     withLogging('search_brain', async (input) => {
-      const result = await searchBrainTool(input as SearchBrainInput, searchService)
+      const result = await searchBrainTool(input as SearchBrainInput, searchService, accessStatsQueue)
       return { content: [{ type: 'text', text: result }] }
     }, activityLogger, clientId),
   )
