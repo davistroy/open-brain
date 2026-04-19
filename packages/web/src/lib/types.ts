@@ -7,7 +7,10 @@ export type AutonomyLevel = 'observe' | 'assist' | 'advise' | 'partner'
 export type CaptureType = 'decision' | 'idea' | 'observation' | 'task' | 'win' | 'blocker' | 'question' | 'reflection'
 export type BrainView = 'career' | 'personal' | 'technical' | 'work-internal' | 'client'
 export type CaptureSource = 'api' | 'slack' | 'voice' | 'document' | 'mcp' | 'email' | 'file' | 'consolidation' | 'system'
-export type PipelineStatus = 'pending' | 'processing' | 'complete' | 'partial' | 'failed'
+// Canonical 8-value PipelineStatus set (P09a / migration 0024 / issue #119).
+// Source of truth: packages/shared/src/types/capture.ts.
+// Drift-guarded by packages/shared/src/__tests__/web-type-drift.test.ts.
+export type PipelineStatus = 'pending' | 'processing' | 'extracted' | 'embedded' | 'chunked' | 'complete' | 'failed' | 'deleted'
 
 export interface PreExtracted {
   entities?: Array<{ name: string; type: string; id?: string }>

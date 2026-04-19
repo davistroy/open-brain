@@ -165,7 +165,9 @@ describe('handleCapture()', () => {
 
     it('polls captures_get for pipeline completion', async () => {
       ;(client.captures_get as ReturnType<typeof vi.fn>)
-        .mockResolvedValueOnce(makeCaptureResult({ pipeline_status: 'received' }))
+        // 'processing' = canonical PipelineStatus value for "in-flight, not yet complete"
+        // (was 'received' before P09a / migration 0024 — non-canonical legacy value).
+        .mockResolvedValueOnce(makeCaptureResult({ pipeline_status: 'processing' }))
         .mockResolvedValueOnce(makeCaptureResult({ pipeline_status: 'complete' }))
 
       // Resolve all timers so poll intervals don't hang
