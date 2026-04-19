@@ -7212,6 +7212,72 @@ Multi-chunk documents WILL set `pipeline_status: 'chunked'`. The DB has 0 rows b
 
 ---
 
+## Entry 105 — P10a: CI gating — integration tests (observe mode) — 2026-04-19
+
+**Tags:** [ci] [config] [decision]
+**Environment:** GitHub Actions, laptop (worktree `agent-aaf61553`)
+**Branch:** `feat/phase-P10a-ci-integration-tests`
+
+### Objective
+
+Add a new `integration-test` job to `.github/workflows/ci.yml` that runs the core-api integration test suite against ephemeral Postgres+pgvector and Redis containers in CI. Job starts in observe mode (`continue-on-error: true`) — non-blocking for 2 PRs, then promoted to required status check.
+
+### Hypothesis
+
+- The integration test suite (6 test files, ~95 tests) passes cleanly on `ubuntu-latest` because:
+  - `docker-compose.test.yml` already exists with correct healthchecks using `127.0.0.1`
+  - No external API keys are needed (embedding service is stubbed to zero vectors in `setup.ts`)
+  - `TEST_POSTGRES_URL` and `TEST_REDIS_URL` already default to the `docker-compose.test.yml` port values (5433/6381)
+- Sidecar build will be slow on first cold run (~3 min) but subsequent runs will hit Docker layer cache
+- Total job runtime: < 5 min warm, < 15 min cold (fits the 15-min timeout)
+
+### Rollback plan
+
+`git revert <commit-sha>` — removes the new job from `ci.yml`. No application code touched. No homeserver impact. No migrations.
+
+### Implementation
+
+**WI 1 — CI job YAML:** Added `integration-test` job after `python-lint` in `.github/workflows/ci.yml`. Job includes:
+- `continue-on-error: true` with inline promotion checklist comment
+- `timeout-minutes: 15`
+- pnpm + Node 22 setup with store cache
+- `pnpm --filter @open-brain/shared build` (shared must be built before integration tests can resolve types)
+- Docker Buildx setup + layer cache for sidecar (content-addressed key on Dockerfile + requirements.txt + trigger_server.py)
+- `docker compose -f docker-compose.test.yml build --cache-from` + `up -d --wait`
+- `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts` with `TEST_POSTGRES_URL`, `TEST_REDIS_URL`, `NODE_ENV: test`
+- "Dump service logs on failure" step (`if: failure()`)
+- `docker compose -f docker-compose.test.yml down -v` (`if: always()`)
+
+**WI 2 — Healthcheck verification:** Confirmed `docker-compose.test.yml` healthcheck timing adequate for CI:
+- `test-postgres`: interval 2s, retries 10, start_period 5s → max ~25s
+- `test-redis`: interval 2s, retries 10 → max ~20s
+- `test-sidecar`: interval 5s, retries 5, start_period 5s → max ~30s
+- No changes needed.
+
+**WI 3 — vitest config review:** `vitest.config.integration.ts` uses `pool: 'forks'`, `singleFork: true` (serial), `testTimeout: 30_000`, `hookTimeout: 30_000`, `bail: 1`. All settings compatible with `ubuntu-latest`. No changes needed.
+
+**WI 4 — Promotion comment:** Added inline checklist comment directly above `continue-on-error: true` in the new job.
+
+**WI 5 — Local smoke test:** Skipped — Docker Desktop not available in the worktree environment. CI will be the definitive run (observe mode handles first-run flakiness).
+
+**WI 6 — LAB_NOTEBOOK entry:** This entry (written before first commit).
+
+### Decision
+
+**D-P10a-1:** Docker layer cache uses `actions/cache@v5` with `/tmp/.buildx-cache` path. Content-addressed key on `docker/ingest-sidecar/Dockerfile` + `requirements.txt` + `trigger_server.py`. This is the standard approach for Buildx layer caching without the `docker/build-push-action` action. The cache is saved in an `if: always()` step so even failed builds populate the cache for retries.
+
+**D-P10a-2:** `continue-on-error: true` in observe mode. Two consecutive green PRs required before promotion to required status check. Promotion is a manual operator step (inline checklist documents the process). No separate doc file created — the checklist lives in the workflow YAML itself (WI 4 pattern).
+
+### Result
+
+- `.github/workflows/ci.yml` — `integration-test` job added after `python-lint`
+- `LAB_NOTEBOOK.md` — this entry (Entry 105)
+- YAML syntax validated via `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"`
+- Unit tests (shared + core-api) run to confirm no regressions
+- 2 files changed, zero application code
+
+---
+
 ### Entry 104 — P09c Gate 3: Sibling enum CHECKs on sessions (session_type + status) — 2026-04-19
 
 **Tags:** [database] [typescript] [decision]

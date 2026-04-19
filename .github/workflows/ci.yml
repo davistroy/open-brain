@@ -108,3 +108,63 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pyright
+
+  integration-test:
+    name: Integration tests (core-api + real DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # OBSERVE MODE — promotion checklist:
+    # 1. Verify 2 consecutive PRs show this job green in GitHub Actions
+    # 2. Remove the `continue-on-error: true` line below
+    # 3. Add "Integration tests (core-api + real DB)" to branch protection
+    #    required status checks: Settings > Branches > main > Edit >
+    #    "Require status checks to pass" > search for job name
+    # 4. Update this comment to: "REQUIRED: promoted YYYY-MM-DD PR #NNN"
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Restore pnpm store cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @open-brain/shared build
+
+      - name: Start test services
+        run: docker compose -f docker-compose.test.yml up -d --wait --build
+
+      - name: Run integration tests
+        run: pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts
+        env:
+          TEST_POSTGRES_URL: postgresql://openbrain_test:test_password@localhost:5433/openbrain_test
+          TEST_REDIS_URL: redis://localhost:6381
+          NODE_ENV: test
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.test.yml logs --no-color
+
+      - name: Tear down test services
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
