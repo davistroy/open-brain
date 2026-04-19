@@ -28,6 +28,7 @@ import { registerConfigRoutes } from './routes/config.js'
 import { registerEmailRoutes } from './routes/email.js'
 import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
+import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
@@ -84,11 +85,17 @@ interface AppDependencies {
   ingestProcessQueue?: Queue<IngestProcessJobData>
   /** Access-stats BullMQ queue — fire-and-forget after search completion (P06 Hebbian co-access) */
   accessStatsQueue?: Queue<{ captureIds: string[]; accessedAt: string }>
+  /**
+   * Redis client for /metrics gauge refresh (P11b).
+   * Reads composio:monthly_usage:YYYY-MM on each Prometheus scrape.
+   * Optional — gauges default to 0 when absent.
+   */
+  metricsRedis?: MetricsRedisClient
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue, metricsRedis } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -117,7 +124,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Routes (health, events, metrics are outside /api/v1, intentionally not rate-limited)
   registerHealthRoutes(app)
   registerEventsRoutes(app)
-  registerMetricsRoute(app)
+  registerMetricsRoute(app, db, metricsRedis)
 
   if (configService) {
     const adminRouter = createAdminRouter({ configService, redisConnection, db })
