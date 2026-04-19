@@ -5875,5 +5875,39 @@ Success criteria:
 
 **Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02b-callclaude-removal`.
 
+#### Gate 3 — implement-executor execution (2026-04-19)
+
+**Baseline confirmed:** Workers 948/948, Shared 291/291. `call-claude.test.ts` has 14 tests.
+
+**Work Item 1 in progress — remove callClaude from memory-consolidation.ts**
+- Hypothesis: Remove `callClaude` from import and delete the `if (this.anthropicClient)` branch (L358-370). Retain litellmClient fallback. Add DRIFT-3 TODO comment. Remove `modelAlias` from `MemoryConsolidationOptions`.
+- Rollback: `git revert` the commit.
+
+**Work Item 2 in progress — remove callClaude from weekly-brief.ts**
+- Hypothesis: Remove `callClaude` from import (L3). Delete `if (this.anthropicClient)` branch (L98-104). Retain litellmClient fallback. Remove `modelAlias` from execute destructure (keep in WeeklyBriefOptions for now — skill-execution still passes it).
+
+**Work Item 3 in progress — remove callClaude from daily-connections.ts**
+- Hypothesis: Remove `callClaude` import. Delete anthropicClient branch (L151-162). Retain litellmClient fallback.
+
+**Work Item 4 in progress — remove callClaude from daily-sweep-skill.ts**
+- Hypothesis: Remove `callClaude` import. Delete anthropicClient branch (L165-176). Retain litellmClient fallback.
+
+**Work Item 5 in progress — remove callClaude from drift-monitor.ts**
+- Hypothesis: Remove `callClaude` import. Delete anthropicClient branch (L173-184). Retain litellmClient fallback.
+
+**Work Item 6 in progress — remove callClaude from extract-entities.ts (primary + retry)**
+- Hypothesis: Remove `callClaude` from import. Delete anthropicClient branches at both primary (L137-144) and retry (L180-185) sites. Check external callers in main.ts before dropping `anthropicClient` parameter.
+
+**Work Item 7 in progress — harden skill-execution.ts**
+- Hypothesis: Remove `anthropicClient: opts.anthropicClient` and `modelAlias: synthesisModel` from all 5 LLM skill cases. Add soft warning when llmGateway not configured.
+
+**Work Items 8-10 in progress — new/updated tests**
+- memory-consolidation.test.ts: new file, 5 test cases for gateway path
+- weekly-brief.test.ts: add gateway-mock describe block (3 new tests)
+- extract-entities.test.ts: remove callClaude / anthropicClient mock, add gateway-path coverage
+
+**Work Item 11 in progress — delete source files**
+- Order: call-claude.ts, call-claude.test.ts, remove barrel export line.
+
 ---
 

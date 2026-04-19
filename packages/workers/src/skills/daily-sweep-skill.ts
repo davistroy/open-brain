@@ -1,6 +1,5 @@
-import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { logger, callClaude } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
 import {
@@ -161,21 +160,8 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
       return raw
     }
 
-    // Legacy fallback: Anthropic client → OpenAI/LiteLLM
-    if (this.anthropicClient) {
-      const result = await callClaude(this.anthropicClient, prompt, {
-        model: modelAlias,
-        maxTokens: 2048,
-        temperature: 0.3,
-      })
-      logger.info(
-        { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
-        '[daily-sweep-skill] LLM call complete (Claude)',
-      )
-      return result.text
-    }
-
-    if (!this.litellmClient) throw new Error('[daily-sweep-skill] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
+    // Test-compat fallback: OpenAI/LiteLLM client (injected in unit tests)
+    if (!this.litellmClient) throw new Error('[daily-sweep-skill] No LLM client configured — set OPENAI_API_KEY or inject llmGateway')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,
@@ -277,10 +263,9 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
 export async function executeDailySweep(
   db: Database,
   options: DailySweepOptions = {},
-  anthropicClient?: Anthropic,
   llmGateway?: LLMGatewayService,
 ): Promise<DailySweepResult> {
-  return new DailySweepSkill({ db, anthropicClient, llmGateway }).execute(options)
+  return new DailySweepSkill({ db, llmGateway }).execute(options)
 }
 
 // ============================================================

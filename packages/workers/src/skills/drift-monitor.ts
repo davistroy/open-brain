@@ -1,6 +1,5 @@
-import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, LLMGatewayService } from '@open-brain/shared'
-import { logger, callClaude } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -169,21 +168,8 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
       return raw
     }
 
-    // Legacy fallback: Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
-    if (this.anthropicClient) {
-      const result = await callClaude(this.anthropicClient, prompt, {
-        model: modelAlias,
-        maxTokens: 2048,
-        temperature: 0.3,
-      })
-      logger.info(
-        { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
-        '[drift-monitor] LLM call complete (Claude)',
-      )
-      return result.text
-    }
-
-    if (!this.litellmClient) throw new Error('[drift-monitor] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
+    // Test-compat fallback: OpenAI/LiteLLM client (injected in unit tests)
+    if (!this.litellmClient) throw new Error('[drift-monitor] No LLM client configured — set OPENAI_API_KEY or inject llmGateway')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,
@@ -319,10 +305,9 @@ export async function executeDriftMonitor(
   db: Database,
   options: DriftMonitorOptions = {},
   wikiService?: WikiGitService,
-  anthropicClient?: Anthropic,
   llmGateway?: LLMGatewayService,
 ): Promise<DriftMonitorResult> {
-  return new DriftMonitorSkill({ db, wikiService, anthropicClient, llmGateway } as DriftMonitorSkillOpts).execute(options)
+  return new DriftMonitorSkill({ db, wikiService, llmGateway } as DriftMonitorSkillOpts).execute(options)
 }
 
 // ============================================================

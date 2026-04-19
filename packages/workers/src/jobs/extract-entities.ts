@@ -4,7 +4,7 @@ import type OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { captures, pipeline_events, logger, createOpenAIClient, TemplateCache, callClaude } from '@open-brain/shared'
+import { captures, pipeline_events, logger, createOpenAIClient, TemplateCache } from '@open-brain/shared'
 import type { ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { EXTRACT_ENTITIES_BACKOFF_DELAYS_MS } from '../queues/extract-entities.js'
 import type { ExtractEntitiesJobData } from '../queues/extract-entities.js'
@@ -81,7 +81,7 @@ export async function processExtractEntitiesJob(
   litellmClient: OpenAI,
   synthesisModel: string,
   templatesOrDir: TemplateCache | string,
-  anthropicClient?: Anthropic | null,
+  _anthropicClient?: Anthropic | null, // TODO(P02b): drop param in follow-up once main.ts no longer passes anthropicClient
   llmGateway?: LLMGatewayService,
 ): Promise<void> {
   const templates = typeof templatesOrDir === 'string'
@@ -134,18 +134,8 @@ export async function processExtractEntitiesJob(
         jsonMode: true,
       })
       log.debug('[extract-entities] gateway response received via completeByTask')
-    } else if (anthropicClient) {
-      const claudeResult = await callClaude(anthropicClient, prompt, {
-        model: synthesisModel,
-        maxTokens: 1024,
-        temperature: 0.1,
-      })
-      rawText = claudeResult.text
-      log.debug(
-        { inputTokens: claudeResult.inputTokens, outputTokens: claudeResult.outputTokens },
-        '[extract-entities] Claude response received (legacy)',
-      )
     } else {
+      // Test-compat fallback: OpenAI/LiteLLM client
       const response = await litellmClient.chat.completions.create({
         model: synthesisModel,
         messages: [{ role: 'user', content: prompt }],
@@ -153,7 +143,7 @@ export async function processExtractEntitiesJob(
         max_completion_tokens: 1024,
       })
       rawText = response.choices[0]?.message?.content ?? ''
-      log.debug({ rawText }, '[extract-entities] OpenAI fallback response received (legacy)')
+      log.debug({ rawText }, '[extract-entities] OpenAI fallback response received')
     }
 
     // ── Parse extracted entities ─────────────────────────────────────────────
@@ -177,14 +167,8 @@ export async function processExtractEntitiesJob(
           captureId,
           jsonMode: true,
         })
-      } else if (anthropicClient) {
-        const claudeRetry = await callClaude(anthropicClient, prompt, {
-          model: synthesisModel,
-          maxTokens: 1024,
-          temperature: 0.1,
-        })
-        retryText = claudeRetry.text
       } else {
+        // Test-compat fallback: OpenAI/LiteLLM client
         const retryResponse = await litellmClient.chat.completions.create({
           model: synthesisModel,
           messages: [{ role: 'user', content: prompt }],
@@ -287,7 +271,7 @@ export function createExtractEntitiesWorker(
   litellmBaseUrl: string,
   litellmApiKey: string,
   templates: TemplateCache,
-  anthropicClient?: Anthropic | null,
+  _anthropicClient?: Anthropic | null, // TODO(P02b): drop param in follow-up once main.ts no longer passes anthropicClient
   llmGateway?: LLMGatewayService,
 ): Worker<ExtractEntitiesJobData> {
   const aiConfig = configService.get('ai')
@@ -302,23 +286,21 @@ export function createExtractEntitiesWorker(
 
   if (llmGateway) {
     logger.info('[extract-entities] Using LLMGatewayService for entity extraction (task-based routing)')
-  } else if (!openaiClient && !anthropicClient) {
+  } else if (!openaiClient) {
     logger.warn('[extract-entities] No LLM client available — entity extraction will fail')
-  } else if (anthropicClient) {
-    logger.info('[extract-entities] Using Anthropic Claude for entity extraction (legacy)')
   }
 
   const worker = new Worker<ExtractEntitiesJobData>(
     'extract-entities',
     async (job) => {
-      if (!llmGateway && !openaiClient && !anthropicClient) throw new Error('[extract-entities] No LLM client configured — both ANTHROPIC_API_KEY and OPENAI_API_KEY missing')
+      if (!llmGateway && !openaiClient) throw new Error('[extract-entities] No LLM client configured — OPENAI_API_KEY missing')
       await processExtractEntitiesJob(
         job.data,
         db,
         openaiClient!,
         synthesisModel,
         templates,
-        anthropicClient,
+        undefined,
         llmGateway,
       )
     },

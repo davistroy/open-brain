@@ -1,6 +1,5 @@
-import type Anthropic from '@anthropic-ai/sdk'
 import type { Database } from '@open-brain/shared'
-import { logger, callClaude } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter, LLMGatewayService } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -147,21 +146,8 @@ export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, Dai
       return text
     }
 
-    // Legacy fallback: Prefer Anthropic (Claude) client; fall back to OpenAI/LiteLLM
-    if (this.anthropicClient) {
-      const result = await callClaude(this.anthropicClient, prompt, {
-        model: modelAlias,
-        maxTokens: 2048,
-        temperature: 0.4,
-      })
-      logger.info(
-        { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
-        '[daily-connections] LLM call complete (Claude)',
-      )
-      return result.text
-    }
-
-    if (!this.litellmClient) throw new Error('[daily-connections] No LLM client configured — set ANTHROPIC_API_KEY or OPENAI_API_KEY')
+    // Test-compat fallback: OpenAI/LiteLLM client (injected in unit tests)
+    if (!this.litellmClient) throw new Error('[daily-connections] No LLM client configured — set OPENAI_API_KEY or inject llmGateway')
 
     const response = await this.litellmClient.chat.completions.create({
       model: modelAlias,
@@ -295,10 +281,9 @@ export async function executeDailyConnections(
   db: Database,
   options: DailyConnectionsOptions = {},
   wikiService?: WikiGitService,
-  anthropicClient?: Anthropic,
   llmGateway?: LLMGatewayService,
 ): Promise<DailyConnectionsResult> {
-  return new DailyConnectionsSkill({ db, wikiService, anthropicClient, llmGateway }).execute(options)
+  return new DailyConnectionsSkill({ db, wikiService, llmGateway }).execute(options)
 }
 
 // ============================================================
