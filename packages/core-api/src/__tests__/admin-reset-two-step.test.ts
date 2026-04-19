@@ -16,7 +16,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Hono } from 'hono'
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -27,7 +27,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const redisStore: Map<string, string | null> = new Map()
 
 const mockGet = vi.fn(async (key: string) => redisStore.get(key) ?? null)
-const mockSet = vi.fn(async () => 'OK')
+const mockSet = vi.fn().mockResolvedValue('OK')
 const mockGetdel = vi.fn(async (key: string) => {
   const val = redisStore.get(key) ?? null
   redisStore.delete(key)

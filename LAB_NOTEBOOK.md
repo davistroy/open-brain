@@ -6493,6 +6493,22 @@ Success criteria:
 - `admin_prewipe_backup` volume created by docker compose on next up
 - Dockerfile adds `postgresql-client` — requires image rebuild
 
+#### Gate 4 cycle 1 — REQUEST_CHANGES · vi.fn() type inference (TS2345)
+
+**Reviewer verdict:** REQUEST_CHANGES. CI `build-and-test` fails `tsc --noEmit` on Linux with 4 errors in `packages/core-api/src/__tests__/admin-reset-two-step.test.ts` at lines 128, 203, 269, 325. Reviewer also flagged unused `join` import at L19. Head at `2cf15b8`.
+
+#### Gate 4 cycle 1 → Gate 3 re-entry: vi.fn() type inference fix
+
+**Root cause:** `vi.fn(async () => 'OK')` on L30 infers a zero-arg signature `Mock<[], Promise<string>>`. Subsequent `.mockImplementation` calls in `beforeEach` (L128) and three test bodies (L203, L269, L325) pass 2-4 args matching the ioredis SET signature — TypeScript rejects those as incompatible with the narrowed zero-arg type. The error manifests on Linux tsc (strict mode) but not Windows `tsup` build (tsup doesn't run type-checking, only transpiles).
+
+**Fix (Option B):** Changed L30 from `vi.fn(async () => 'OK')` to `vi.fn().mockResolvedValue('OK')`. `vi.fn()` without an initial body infers `Mock<any[], unknown>` — the widest possible signature — so all subsequent `.mockImplementation` calls with any arity are type-compatible. `.mockResolvedValue('OK')` preserves the default `'OK'` return for tests that don't override. Dropped unused `join` import at L19.
+
+**Pattern note:** Same class of issue as P03 cycle 1 (`composio-quota.test.ts`). Second occurrence this session. Both cases: `vi.fn(async () => <literal>)` narrows the mock type to zero args. Candidate for CLAUDE.md rule: "Prefer `vi.fn().mockResolvedValue(x)` over `vi.fn(async () => x)` for mocks that receive `.mockImplementation` overrides; the former stays at `Mock<any[], unknown>` while the latter narrows to zero-arg."
+
+**Verification:** `tsc --noEmit` — 0 errors. `pnpm --filter @open-brain/core-api test -- admin-reset` — 10/10 green. Build: 303.13 KB ESM clean.
+
+**Status:** Ready for Gate 4 cycle 2.
+
 ---
 
 
