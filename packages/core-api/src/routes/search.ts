@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import type { Queue } from 'bullmq'
+import { logger } from '@open-brain/shared'
 import type { SearchService, SearchResponse } from '../services/search.js'
 import { searchSchema } from '../schemas/search.js'
 
@@ -61,7 +62,7 @@ export function registerSearchRoutes(
         accessStatsQueue.add('access-stats', {
           captureIds,
           accessedAt: new Date().toISOString(),
-        }).catch(() => { /* fire-and-forget — search response never blocks on Redis */ })
+        }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
       }
       return c.json({
         query: query.q,
@@ -77,7 +78,7 @@ export function registerSearchRoutes(
       accessStatsQueue.add('access-stats', {
         captureIds,
         accessedAt: new Date().toISOString(),
-      }).catch(() => { /* fire-and-forget — search response never blocks on Redis */ })
+      }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
     }
     return c.json({
       query: query.q,
@@ -111,7 +112,7 @@ export function registerSearchRoutes(
         accessStatsQueue.add('access-stats', {
           captureIds,
           accessedAt: new Date().toISOString(),
-        }).catch(() => { /* fire-and-forget — search response never blocks on Redis */ })
+        }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
       }
       return c.json({
         query: body.query,
@@ -131,7 +132,7 @@ export function registerSearchRoutes(
       accessStatsQueue.add('access-stats', {
         captureIds,
         accessedAt: new Date().toISOString(),
-      }).catch(() => { /* fire-and-forget — search response never blocks on Redis */ })
+      }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
     }
     return c.json({
       query: body.query,

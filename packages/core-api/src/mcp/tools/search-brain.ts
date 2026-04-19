@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Queue } from 'bullmq'
+import { logger } from '@open-brain/shared'
 import type { SearchService } from '../../services/search.js'
 import type { SearchResult } from '../../services/search.js'
 
@@ -58,7 +59,7 @@ export async function searchBrainTool(
     accessStatsQueue.add('access-stats', {
       captureIds,
       accessedAt: new Date().toISOString(),
-    }).catch(() => { /* fire-and-forget */ })
+    }).catch(err => logger.debug({ err }, '[search-brain] access-stats enqueue failed (fire-and-forget)'))
   }
 
   const results = response.results
