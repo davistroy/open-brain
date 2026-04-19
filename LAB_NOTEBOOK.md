@@ -6428,7 +6428,13 @@ Success criteria:
 
 **Next (Gate 3):** dispatch `implement-executor` (Sonnet 4.6) for the substantive work. Expected multi-commit structure given the spread across files (admin.ts + schema + migration + nginx + compose + Dockerfile + tests).
 
-**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P04a-admin-reset`.
+**Status:** Gate 2 complete. Gate 3 in progress — implement-executor running.
+
+#### Gate 3 — Work Items Progress
+
+**Work items 3.1, 3.2, 3.3 in progress** — Hypothesis: schema addition + migration file + init-schema append will build cleanly and export `admin_audit` from shared barrel.
+
+**Result (3.1–3.3):** `admin_audit` table added to `packages/shared/src/schema/supporting.ts` after `backup_log`. Migration `0023_admin_audit.sql` created. `scripts/init-schema.sql` appended with idempotent DDL. `pnpm --filter @open-brain/shared build` — SUCCESS (145.90 KB ESM, 257.63 KB DTS, 0 errors).
 
 ---
 
