@@ -7,7 +7,8 @@
  *   3. runAgent calls resolution.fallback(), swaps to the fallback tier's
  *      Anthropic client, retries the same iteration, succeeds.
  *   4. After the loop, gateway.recordAgentCompletion is invoked with the
- *      final tier key (the one that succeeded).
+ *      initial tier key as 2nd arg and the final (succeeding) tier key as
+ *      the optional 4th arg (agentResult.finalTierKey = 't1_fast').
  *
  * This complements `run-agent.test.ts` (which tests the resolver path in
  * isolation) by exercising the full skill → gateway → runAgent wiring.
@@ -167,24 +168,22 @@ describe('email-compose fault injection — gateway fallback', () => {
     const fallbackCall = fallbackCreate.mock.calls[0] as unknown as [{ model: string }]
     expect(fallbackCall[0].model).toBe('claude-haiku-fallback')
 
-    // Assertion 4: recordAgentCompletion called with the final (succeeding) tier
-    // NOTE: The current implementation records with the *initial* resolved tier
-    // rather than the one that succeeded. We assert on what's actually recorded
-    // and flag it in the test as the observed behavior.
+    // Assertion 4: recordAgentCompletion called with initial tier as 2nd arg and
+    // final (succeeding) tier as optional 4th arg.
     expect(recordSpy).toHaveBeenCalledTimes(1)
     const recordCall = recordSpy.mock.calls[0] as unknown as [
       string,
       string,
       { iterations: number; tokenUsage: { input: number; output: number }; latencyMs: number },
+      string | undefined,
     ]
     expect(recordCall[0]).toBe('email_compose')
-    // Tier key recorded is the one the skill knows about at init time
-    // (t2_quality). This is acceptable: the gateway can cross-reference via
-    // ai_audit_log.model for the actual serving tier if needed.
     expect(recordCall[1]).toBe('t2_quality')
     expect(recordCall[2].iterations).toBe(1)
     expect(recordCall[2].tokenUsage).toEqual({ input: 100, output: 50 })
     expect(recordCall[2].latencyMs).toBeGreaterThanOrEqual(0)
+    const finalTierKeyArg = recordCall[3] as string | undefined
+    expect(finalTierKeyArg).toBe('t1_fast')
 
     // Assertion 5: skill completed without error
     expect(result.agentIterations).toBe(1)

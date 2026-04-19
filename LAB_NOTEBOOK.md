@@ -180,7 +180,7 @@
 | A66 | Drizzle pgEnum tightening for `source_type` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
 | A67 | LLMGatewayService integration for email-compose (requires agent-loop rework) | 2026-04-17 | Entry 084 | MEDIUM — carried forward from tech-debt cleanup |
 | A68 | Python lint/typecheck CI for `scripts/` + `docker/ingest-sidecar/` | 2026-04-17 | Entry 084 | LOW — carried forward from tech-debt cleanup |
-| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 + P02a + P02b merged (PRs #123, #124, #125); P02c + P03 remaining |
+| A69 | Execute PHASED_PLAN.md bootstrap (P01, P02a-c, P03) via ORCHESTRATOR.md 5-gate pipeline | 2026-04-18 | Entry 092 | CRITICAL — P01 + P02a + P02b merged (PRs #123, #124, #125); P02c in progress (Entry 095); P03 remaining |
 | A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
 | A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N (partial)`; manually close after final PR merges | 2026-04-18 | Entry 094 | LOW — process improvement. #102 auto-closed twice (P02a + P02b) despite "(partial)" wording. GitHub's parser ignores the qualifier. Apply to P03 PR body. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
@@ -6011,6 +6011,86 @@ The OpenAI path (`this.client.chat.completions.create(...)`) was always the only
 2. `Closes #N (partial)` triggers auto-close. Use `Refs #N` for partial-PR scenarios. Add manual close comment after final PR lands.
 
 **Status:** P02b ✅ COMPLETE. Orchestrator advances to P02c (recordAgentCompletion final-tier plumb-through — #122).
+
+---
+
+### Entry 095 — P02c Gate 1+2: AgentResult.finalTierKey plan authored — 2026-04-18
+
+**Tags:** [orchestrator] [phased-plan] [bootstrap] [llm-gateway] [agent-loop] [audit-log] [decision]
+**Environment:** Laptop (Windows, bash). Branch `feat/phase-P02c-final-tier-key` (created in this entry's commit). Main at `6e4be28` before branch.
+**Phase:** P02c of PHASED_PLAN.md (Wave 1, bootstrap phase 4 of 5 — LAST small phase before P03)
+**Issue:** #122
+**PR:** TBD (after Gate 3)
+
+**Objective:** Thread `finalTierKey` from `runAgent()` loop state through `AgentResult` → `email-compose.ts` → `recordAgentCompletion()` so the audit log records the tier that ACTUALLY served the call (not the initially-resolved tier). Closes #122. This is the follow-up that was deferred in PR #88 (Entry 088) when the swap-and-retry logic was added but the final-tier signal wasn't propagated back.
+
+**Hypothesis:** Adding `finalTierKey?: string` to `AgentResult` (initialized to the initial resolution's `tierKey`, overwritten at each fallback swap to `nextResolution.tierKey`) + adding an optional 4th parameter to `recordAgentCompletion()` + updating the single email-compose caller + extending 1 fault-injection test + 3 assertions in run-agent.test.ts = complete closure of #122. Expect `ai_audit_log` rows to reflect the fallback tier after a 429 retry succeeds on a lower-tier endpoint. No schema migration required (`ai_audit_log` has no `tier_key` column — only `model` + `client_used`, both derived from the effective tier lookup).
+
+Success criteria:
+- `pnpm --filter @open-brain/shared test`: 277/277 passing + 3 new `finalTierKey` assertions
+- `pnpm --filter @open-brain/workers test`: 960/960 passing + 1 new fault-injection assertion
+- Fault-injection test confirms `recordAgentCompletion` receives `'t1_fast'` as 4th arg when `t2_quality` → `t1_fast` swap occurs
+- Backward compat: 4 non-gateway `runAgent` callers (`email-compose-assist`, `wiki-lint`, `wiki-ingest`, `monthly-reflection`) continue to compile without modification
+- PR body: `Closes #122` (sole PR; issue closes fully — safe to use bare `Closes` per A72 convention)
+- No homeserver deploy gate 5.5 required
+
+**Rollback Plan:**
+1. `git revert <squash-sha>` — single atomic commit; pure TypeScript.
+2. `AgentResult.finalTierKey` disappears; 4 legacy callers unaffected (optional field).
+3. `recordAgentCompletion` 4th param disappears; call sites passing it get TS2554 at next build.
+4. `email-compose.ts` reverts to 3-arg call.
+5. Test assertions revert.
+6. Zero schema/compose change → zero-downtime revert.
+
+**Gate 1 scope drifts (5 cleared; PROCEEDED):**
+
+1. `AgentResult` has 6 fields currently, no `finalTierKey` anywhere — the field genuinely doesn't exist. P02c is not a no-op.
+2. `runAgent`'s `resolution` variable (L218) is reassigned on swap (L323: `resolution = nextResolution`). That's the capture point — update a loop-scoped `currentTierKey` at the same line.
+3. `recordAgentCompletion` has 3-param signature; P02c uses Option A (append optional 4th param) over Option B (replace with full AgentResult) because P02c is Low severity and additive signature changes keep blast radius minimal.
+4. Single production caller (`email-compose.ts:368`). Test fixtures + docs add 2 more refs. Scope is surgical.
+5. 4 non-gateway `runAgent` callers exist but use legacy `client+model` path — they don't call `recordAgentCompletion`. Optional-field design preserves their compile-time + runtime behavior.
+
+**Key design decision captured:** `ai_audit_log.model` semantics change meaning at P02c merge date — before, it recorded the *initial* routed tier's model; after, it records the tier that *ultimately served* the call. This is a semantic refinement, not a breaking schema change. Operators building historical cost dashboards across the P02c cutover should treat the merge date as a cutover marker.
+
+**What changed so far (Gate 1 + Gate 2):**
+- Created `IMPLEMENT_PHASE-P02c.md` — 5-work-item plan (AgentResult extension, gateway signature, email-compose call site, fault-injection assertion, run-agent test extensions).
+- Added LAB_NOTEBOOK Entry 095 (this entry).
+- Updated Action Item A69 (will reflect P02c in progress after commit).
+
+**Next (Gate 3):** dispatch `implement-executor` (Sonnet 4.6). Expected very small diff (~40 LoC net change across 5 files + test files). Single atomic commit recommended given co-dependencies.
+
+**Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02c-final-tier-key`.
+
+#### Gate 3 — Work item 3.1 — COMPLETE
+Added `finalTierKey?: string` field to `AgentResult` interface in `run-agent.ts` with JSDoc. Added `let currentTierKey: string | undefined = resolution?.tierKey` before the while loop. Added `currentTierKey = nextResolution.tierKey` after the swap assignment. Updated return to include `finalTierKey: currentTierKey`. Shared build: clean. Shared tests: 277/277 passing.
+
+#### Gate 3 — Work item 3.2 — COMPLETE
+Added optional 4th parameter `finalTierKey?: string` to `recordAgentCompletion()` in `llm-gateway.ts`. First line of body: `const effectiveTierKey = finalTierKey ?? tierKey`. Changed tier lookup to use `effectiveTierKey`. Extended `logger.info` context to include `finalTierKey: effectiveTierKey`. Workers build: clean.
+
+#### Gate 3 — Work item 3.3 — COMPLETE
+Updated `recordAgentCompletion` call in `email-compose.ts` to multiline form, passing `agentResult.finalTierKey` as 4th arg. No guard needed — gateway's `finalTierKey ?? tierKey` handles undefined. Workers build: clean.
+
+#### Gate 3 — Work item 3.4 — COMPLETE
+Updated file-top comment to describe the 4th arg assertion. Removed the imprecision-comment block from Assertion 4 in the first test. Added `const finalTierKeyArg = recordCall[3]` and `expect(finalTierKeyArg).toBe('t1_fast')`. Updated type annotation on `recordCall` to include 4th element. Workers tests: 960/960 passing.
+
+#### Gate 3 — Work item 3.5 — COMPLETE
+Extended `run-agent.test.ts` with 3 assertions: (5a) fallback swap test — `expect(result.finalTierKey).toBe('t1_fast')`; (5b) legacy path test — `expect(result.finalTierKey).toBeUndefined()`; (5c) no-swap resolver test — `expect(result.finalTierKey).toBe('t2_quality')`. Shared tests: 277/277 passing (no new test cases added, assertions extended in-place).
+
+#### Gate 3 — Overall result — ALL_COMPLETE
+
+**Result:** All 5 work items committed in one atomic commit (4959a6a). No surprises — the plan was precise and all co-dependencies resolved cleanly in a single pass.
+
+**Test counts:**
+- `@open-brain/shared`: 277/277 before → 277/277 after (3 new assertions in existing tests, no new test count)
+- `@open-brain/workers`: 960/960 before → 960/960 after (1 new assertion in existing test, no new test count)
+
+**Grep verification:** 12 occurrences of `finalTierKey` across shared and workers source + test files — all in expected locations.
+
+**What worked:** The plan's co-dependency analysis was correct — a single atomic commit was the right structure. The optional-field design (`finalTierKey?: string`) kept all 4 legacy callers untouched. The `currentTierKey` loop variable initialized from `resolution?.tierKey` naturally handles both the resolver path (defined) and legacy path (undefined). The `effectiveTierKey = finalTierKey ?? tierKey` fallback in the gateway is clean and requires no call-site guard.
+
+**What changed (semantic):** `ai_audit_log.model` and `client_used` now record the tier that *actually served* the agent call, not the initially-routed tier. This is a semantic refinement — not a schema change. P02c merge date (2026-04-19) is the cutover marker for historical cost analysis.
+
+**Status:** ALL_COMPLETE. Ready for Gate 4 (code-reviewer).
 
 ---
 

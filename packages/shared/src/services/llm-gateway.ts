@@ -812,8 +812,10 @@ export class LLMGatewayService {
       tokenUsage: { input: number; output: number }
       latencyMs: number
     },
+    finalTierKey?: string,
   ): Promise<void> {
-    const tier = this.configService.getModelTier(tierKey)
+    const effectiveTierKey = finalTierKey ?? tierKey
+    const tier = this.configService.getModelTier(effectiveTierKey)
     const model = tier?.model ?? 'unknown'
     const clientUsed: AIClientType = tier ? this.resolveProviderClient(tier.provider) : 'litellm'
     const costUsd = estimateTierCostUsd(clientUsed, result.tokenUsage.input, result.tokenUsage.output)
@@ -833,6 +835,7 @@ export class LLMGatewayService {
       {
         task: taskName,
         tierKey,
+        finalTierKey: effectiveTierKey,
         model,
         iterations: result.iterations,
         inputTokens: result.tokenUsage.input,
