@@ -17,7 +17,7 @@
   },
   "refresh": "1m",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "panels": [
     {
       "type": "row",
@@ -48,7 +48,7 @@
             "mode": "absolute",
             "steps": [
               { "value": null, "color": "green" },
-              { "value": 20, "color": "yellow" },
+              { "value": 28, "color": "yellow" },
               { "value": 35, "color": "red" }
             ]
           }
@@ -141,7 +141,8 @@
     },
     {
       "type": "gauge",
-      "title": "Monthly Budget — Soft Limit $20",
+      "title": "Monthly Budget — Alert at $28 (80%) / Hard Cap $35",
+      "description": "Uses openbrain_budget_spent_usd gauge (P11b) — refreshed from ai_audit_log on each Prometheus scrape. Alert rule: BudgetAt80Percent (≥$28 warn), BudgetHardCap (≥$35 critical).",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 5 },
       "fieldConfig": {
@@ -153,7 +154,7 @@
             "mode": "absolute",
             "steps": [
               { "value": null, "color": "green" },
-              { "value": 20, "color": "yellow" },
+              { "value": 28, "color": "yellow" },
               { "value": 35, "color": "red" }
             ]
           },
@@ -168,7 +169,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(openbrain_llm_cost_usd_total[30d]))",
+          "expr": "openbrain_budget_spent_usd",
           "legendFormat": "Monthly Spend",
           "refId": "A"
         }
@@ -372,15 +373,101 @@
     },
     {
       "type": "row",
-      "title": "GPU Health (DGX Spark)",
+      "title": "Integration Quotas",
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "collapsed": false
+    },
+    {
+      "type": "gauge",
+      "title": "Composio Monthly Usage",
+      "description": "Composio API calls this month. Alert: ComposioQuotaWarning (≥15K warn), ComposioQuotaCritical (≥19K critical). Hard stop at 19K (95% of 20K free tier). Runbook: docs/runbooks/integration-alert.md",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 35 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 20000,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 15000, "color": "yellow" },
+              { "value": 19000, "color": "red" }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "openbrain_composio_monthly_usage",
+          "legendFormat": "Composio Calls",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Composio Usage Trend (Monthly)",
+      "description": "Composio monthly API call accumulation. Alert thresholds: 15K warning, 19K critical.",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 5, "w": 18, "x": 6, "y": 35 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "fillOpacity": 20,
+            "pointSize": 5,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "color": { "mode": "palette-classic" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 15000, "color": "yellow" },
+              { "value": 19000, "color": "red" }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": { "mode": "dashed+area" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "openbrain_composio_monthly_usage",
+          "legendFormat": "Composio Calls This Month",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "GPU Health (DGX Spark)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 41 },
       "collapsed": false
     },
     {
       "type": "gauge",
       "title": "GPU Utilization",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 35 },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 42 },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
@@ -415,7 +502,7 @@
       "type": "gauge",
       "title": "GPU Temperature",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 35 },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 42 },
       "fieldConfig": {
         "defaults": {
           "unit": "celsius",
@@ -450,7 +537,7 @@
       "type": "timeseries",
       "title": "GPU Utilization & Temperature Over Time",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 35 },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 42 },
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -501,7 +588,7 @@
       "type": "timeseries",
       "title": "GPU Memory Usage",
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 41 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
       "fieldConfig": {
         "defaults": {
           "custom": {
