@@ -254,11 +254,13 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P04a — /admin/reset-data two-step + audit
+### P04a — /admin/reset-data two-step + audit  ✅ Completed 2026-04-19 (PR #128)
 **Scope:** #104 — two-step confirmation + admin_audit table + pg_dump snapshot
 **Severity:** High
 **Dependencies:** None
-**Effort:** ~1-1.5 days
+**Effort:** ~1-1.5 days (actual ~3 hours including 2 review cycles + NODE_ENV hardening)
+
+**Result:** Merged as squash `7a2f4fb`. Gate 1 cleared 7 scope drifts (biggest: origin is `brain.troy-davis.com` not `web.troy-davis.com` per tunnel.yaml; CF header needs nginx forwarding; postgresql-client needed in core-api image). Gate 4 cycle 1 REQUEST_CHANGES on `vi.fn(async () => 'OK')` type inference (4 TS errors); cycle 2 APPROVE after fix. Pre-merge: NODE_ENV hardened to fail-closed (`development`/`test` explicit bypass; unset = production). 6 new CLAUDE.md operational rules captured. Tests: core-api 722→732 (+10 admin-reset). Closes #104. Gate 5.5 homeserver deploy deferred (A70 — batched). See LAB_NOTEBOOK Entry 097.
 
 **Deliverables:**
 - `packages/core-api/src/routes/admin.ts`: reset endpoint two-step (POST returns single-use token + 5-min TTL; second POST with token + same phrase performs wipe); `Origin`/`Referer` check matches `web.troy-davis.com`
@@ -959,7 +961,7 @@ Hard dependencies only (soft groupings in phase cards below):
 |-----:|-------|----------|-----:|----------|
 | 102 | Theme 1 — Cost-tracking paper tiger | P02a ✅ + P02b ✅ + P03 ✅ | 1 | Critical |
 | 103 | Theme 3 — mem_limits | P01 ✅ | 1 | Critical |
-| 104 | Theme 4 — /admin/reset-data blast radius | P04a | 1 | High |
+| 104 | Theme 4 — /admin/reset-data blast radius | P04a ✅ | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
 | 106 | Theme 2 — Composio quota unmetered | P03 ✅ | 1 | High |
 | 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b, P16, P17 | 1, 3 | High |
