@@ -7512,6 +7512,67 @@ Run with real query vector for meaningful recall numbers. Expect: p95 < 50ms at 
 
 Branch-switching incident during implementation: initial work was done on `docs/orch-p10b-p11a-doc-sweep` instead of `feat/phase-P13-search-perf` due to the worktree state. The untracked files (migration SQL, benchmark script) survived the branch switch; all tracked file edits (search.ts, config.yaml, config.ts, index.ts, test file) were re-applied from scratch on the correct branch. All 7 work items complete.
 
+---
+
+## Entry 109 — P11b: Prometheus alert rules + Grafana dashboard panels — 2026-04-19
+
+**Tags:** [config] [observability] [api] [benchmark] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P11b-observability-alerts`
+**Environment:** Laptop (p11b-work worktree)
+**Duration:** In progress
+
+### Objective
+
+Add 5 Prometheus alert rule YAML files in `config/prometheus/alerts/` covering: budget spend, pipeline queue depth, capture flow staleness, container health, and Composio quota. Add two new Prometheus gauges to core-api `/metrics` (`openbrain_budget_spent_usd` from `ai_audit_log`, `openbrain_composio_monthly_usage` from Redis). Add runbook stubs for each alert family. Add threshold panels/annotations to Grafana dashboard JSON files. Add `scripts/validate-alert-rules.sh` for local promtool validation.
+
+### Hypothesis
+
+- 5 alert rule YAML files validate cleanly (`python3 -c "import yaml; yaml.safe_load(open(f))"` exits 0 for each)
+- `openbrain_budget_spent_usd` and `openbrain_composio_monthly_usage` gauges appear in `GET /metrics` response
+- `pnpm --filter @open-brain/core-api run test` passes (≥ 735 tests)
+- `pnpm --filter @open-brain/workers run test` passes (no regression)
+- 5 runbook stubs exist in `docs/runbooks/`
+- Grafana dashboards updated with threshold indicators and alert list panel
+
+### Rollback Plan
+
+All changes are additive config/doc:
+- Remove `config/prometheus/alerts/` directory — rules go silent on next Prometheus reload
+- Revert `packages/core-api/src/routes/metrics.ts` — removes new gauges from `/metrics`
+- Revert `packages/core-api/src/app.ts` — removes db/redis injection to `registerMetricsRoute`
+- Revert dashboard JSON files — Grafana auto-reloads within 30s per provisioning config
+- `docs/runbooks/` is docs-only — no rollback needed
+- No DB migration. No BullMQ schema. No scheduler changes.
+
+### Implementation
+
+All 10 work items completed. Key findings:
+
+1. **Alert rules (W01–W05):** 5 YAML files created in `config/prometheus/alerts/` covering budget (2 rules), pipeline (2 rules), capture-flow (1 recording + 1 alert), container-health (2 rules), integration/Composio (2 rules). All validated via `scripts/validate-alert-rules.sh` (python3 yaml.safe_load fallback since promtool not on PATH).
+
+2. **New gauges (W06):** `openbrain_budget_spent_usd` and `openbrain_composio_monthly_usage` added to `packages/core-api/src/routes/metrics.ts`. Duck-typed `MetricsRedisClient` interface avoids compile-time ioredis dependency. Refresh logic on each scrape with non-fatal try/catch (stale value served on error). `metricsRedis` Redis client added in `index.ts` with `lazyConnect: true` + `enableOfflineQueue: false`.
+
+3. **prom-client default labels (W07 — test fix):** `metricsRegistry.setDefaultLabels({ app: 'open-brain-core-api' })` emits gauge lines as `openbrain_budget_spent_usd{app="open-brain-core-api"} 27.5` rather than without labels. Initial test regex `\s+` failed because `{...}` labels appear between metric name and value. Fixed to `(\{[^}]*\})?\s+`. Pattern for future prom-client gauge tests in this repo.
+
+4. **Grafana dashboards (W08):** `llm-cost-performance.json` budget gauge switched from `sum(increase(...[30d]))` to `openbrain_budget_spent_usd`. Warning threshold 20→28. Integration Quotas row added. `pipeline-health.json` Queue Waiting panel got threshold line at 100. `system-overview.json` got Active Alerts alertlist panel.
+
+5. **Runbooks (W09):** 5 operator runbooks in `docs/runbooks/` with metric names, alert conditions, Redis/DB diagnosis commands, mitigation steps.
+
+### Results
+
+- **Tests:** 743/743 passing (736 pre-existing + 7 new P11b tests)
+- **Lint:** `tsc --noEmit` clean
+- **Commits:** 4 commits (`edd8fe8`, `63a68bf`, `5c90969`, `0314392`)
+- **Alert rules:** 10 total across 5 files
+- **New metrics:** 2 gauges
+- **Runbooks:** 5 files
+
+**Duration:** ~3 hours (across 2 sessions)
+
+
+---
+
 
 ---
 

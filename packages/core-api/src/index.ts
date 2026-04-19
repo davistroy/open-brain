@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { join } from 'node:path'
 import { Queue } from 'bullmq'
+import { Redis } from 'ioredis'
 import { ConfigService, createDb, createOpenAIClient, createAnthropicClient, createOllamaClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
 import { CaptureService } from './services/capture.js'
@@ -48,6 +49,20 @@ const redisConnection = {
   port: Number(redisUrlObj.port) || 6379,
   ...(redisUrlObj.password ? { password: redisUrlObj.password } : {}),
 }
+
+// Dedicated Redis client for /metrics gauge refresh (P11b).
+// Reads composio:monthly_usage:YYYY-MM for Prometheus openbrain_composio_monthly_usage gauge.
+// lazyConnect=true — no connection attempt until first get() call (avoids startup delay if Redis unreachable).
+const metricsRedis = new Redis({
+  host: redisUrlObj.hostname,
+  port: Number(redisUrlObj.port) || 6379,
+  ...(redisUrlObj.password ? { password: redisUrlObj.password } : {}),
+  lazyConnect: true,
+  enableOfflineQueue: false,
+})
+metricsRedis.on('error', (err: Error) => {
+  logger.debug({ err }, '[metrics-redis] connection error (non-fatal — gauge will return 0)')
+})
 
 // LLM Gateway + Governance Engine
 // OPENAI_BASE_URL / OPENAI_API_KEY come from environment (set via bws secrets at startup).
@@ -187,6 +202,7 @@ const app = createApp({
   emailDraftService,
   emailComposeAssistService,
   voiceSessionService,
+  metricsRedis, // P11b — Composio quota gauge refresh
 })
 const port = Number(process.env.PORT ?? 3000)
 
@@ -222,7 +238,10 @@ const shutdown = async () => {
   // 2. Stop Postgres LISTEN/NOTIFY
   await pgNotify.stop()
 
-  // 3. Close Postgres connection pool
+  // 3. Close metrics Redis client (P11b)
+  await metricsRedis.quit().catch(() => metricsRedis.disconnect())
+
+  // 4. Close Postgres connection pool
   await pool.end()
   logger.info('Postgres pool closed')
 
