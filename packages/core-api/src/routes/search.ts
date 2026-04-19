@@ -1,6 +1,8 @@
 import type { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
+import type { Queue } from 'bullmq'
+import { logger } from '@open-brain/shared'
 import type { SearchService, SearchResponse } from '../services/search.js'
 import { searchSchema } from '../schemas/search.js'
 
@@ -31,7 +33,11 @@ const searchQuerySchema = z.object({
   capture_types: data.capture_types ?? data.capture_type,
 }))
 
-export function registerSearchRoutes(app: Hono, searchService: SearchService): void {
+export function registerSearchRoutes(
+  app: Hono,
+  searchService: SearchService,
+  accessStatsQueue?: Queue<{ captureIds: string[]; accessedAt: string }>,
+): void {
   // GET /api/v1/search?q=... — hybrid semantic + FTS search over captures
   app.get('/api/v1/search', zValidator('query', searchQuerySchema), async (c) => {
     const query = c.req.valid('query')
@@ -51,6 +57,13 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
 
     if (query.include_related) {
       const response: SearchResponse = await searchService.searchWithRelated(query.q, searchOptions)
+      if (accessStatsQueue && response.results.length > 0) {
+        const captureIds = response.results.slice(0, 10).map(r => r.capture.id!)
+        accessStatsQueue.add('access-stats', {
+          captureIds,
+          accessedAt: new Date().toISOString(),
+        }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
+      }
       return c.json({
         query: query.q,
         total: response.results.length,
@@ -60,6 +73,13 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
     }
 
     const results = await searchService.search(query.q, searchOptions)
+    if (accessStatsQueue && results.length > 0) {
+      const captureIds = results.slice(0, 10).map(r => r.capture.id!)
+      accessStatsQueue.add('access-stats', {
+        captureIds,
+        accessedAt: new Date().toISOString(),
+      }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
+    }
     return c.json({
       query: query.q,
       total: results.length,
@@ -87,6 +107,13 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
     if (body.include_related) {
       const response: SearchResponse = await searchService.searchWithRelated(body.query, searchOptions)
       const paginated = response.results.slice(body.offset, body.offset + body.limit)
+      if (accessStatsQueue && response.results.length > 0) {
+        const captureIds = response.results.slice(0, 10).map(r => r.capture.id!)
+        accessStatsQueue.add('access-stats', {
+          captureIds,
+          accessedAt: new Date().toISOString(),
+        }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
+      }
       return c.json({
         query: body.query,
         total: response.results.length,
@@ -100,6 +127,13 @@ export function registerSearchRoutes(app: Hono, searchService: SearchService): v
     // Apply client-side offset for pagination (hybrid_search returns ordered results)
     const paginated = results.slice(body.offset, body.offset + body.limit)
 
+    if (accessStatsQueue && results.length > 0) {
+      const captureIds = results.slice(0, 10).map(r => r.capture.id!)
+      accessStatsQueue.add('access-stats', {
+        captureIds,
+        accessedAt: new Date().toISOString(),
+      }).catch(err => logger.debug({ err }, '[search] access-stats enqueue failed (fire-and-forget)'))
+    }
     return c.json({
       query: body.query,
       total: results.length,

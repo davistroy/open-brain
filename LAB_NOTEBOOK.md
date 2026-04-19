@@ -6724,3 +6724,56 @@ Deviations from plan: (1) Existing test fetch mocks needed URL-awareness - makeS
 Duration: ~2 hours
 
 ---
+
+## Entry 100 — P06: Cognitive memory producer + schedule
+
+**Date:** 2026-04-19
+**Phase:** P06 (ORCHESTRATOR.md gate 3)
+**Tags:** [workers] [core-api] [cognitive-memory] [bullmq] [scheduler]
+**Environment:** laptop (Windows / bash); target = homeserver core-api + workers containers
+**Duration:** (fill on completion)
+
+### Objective
+Wire Hebbian co-access producer into both search paths (HTTP route + MCP tool), convert 45 serial pair INSERTs to single batch UPSERT, and schedule weekly pruneStaleAssociations at 03:30 Sundays (slotted between storage-audit at 03:00 and memory-consolidation at 04:00). Activates the idle capture_associations table from migrations 0011/0012 (dormant since 2026-04-09).
+
+### Hypothesis
+After P06, every search returning ≥1 result fires an access-stats job. After the job processes: captures.access_count is incremented, capture_associations rows are created/updated for all top-10 result pairs (canonical a < b ordering enforced by generateCanonicalPairs), and the Hebbian association boost in SearchService begins providing signal. The batch UPSERT (1 db.execute per job) is measurably faster than 45 serial statements at scale. P24 (spreading activation quality tuning) becomes unblockable after 4 weeks of accumulated data.
+
+### Rollback plan
+`git revert <P06 merge sha>` — no schema change (tables pre-exist from 0011/0012). Producer removal stops new jobs from being enqueued; existing association data is preserved but becomes stale. Prune schedule removal is one block delete in scheduler.ts. Search response behavior reverts to no side-effects. Safe without maintenance window.
+
+### Result
+All work items implemented and committed to feat/phase-P06-cognitive-memory-producer branch.
+
+**Commits landed (5):**
+1. `226bfeb` — feat(phase-P06)/1.1+1.4: batch UPSERT in update-access-stats + prune worker factory
+2. `02820b9` — feat(phase-P06)/1.2+1.3: access-stats producer on HTTP + MCP search paths
+3. `4571b61` — feat(phase-P06)/1.5: weekly prune-associations scheduler (30 3 * * 0)
+4. `4991da6` — test(phase-P06)/1.6: integration test for access-stats batch UPSERT + canonical ordering
+5. (this commit) — docs(lab-notebook): entry 100 — P06 cognitive memory producer
+
+**Tests:** baseline 980 (workers), 732 (core-api). After P06: workers 980 (unchanged — test updates are in-place replacements), core-api 732 (unchanged — no new tests added, no regressions).
+
+**tsc --noEmit:** clean for both packages (workers + core-api).
+
+**Integration test:** TypeScript-clean; skipped locally (docker-compose.test.yml Postgres at :5433 not running). Will exercise in CI. Test verifies: access_count increment, canonical a<b pair ordering, co_access_count accumulation on second call.
+
+**Deviations from plan:**
+- Cron slot collision resolved cleanly: `30 3 * * 0` as planned.
+- `accessStatsQueue` threaded cleanly through all 7 touch points (index.ts, app.ts, search.ts×4, mcp/server.ts, mcp/tools/index.ts, search-brain.ts).
+- All 4 `search.ts` sub-paths use `r.capture.id!` — `search()` returns `SearchResult[]` (not plain captures), so the accessor is consistent across all 4 sub-paths.
+- `main.ts` shutdown now captures `scheduledQueues` return value and closes all scheduler-created queues including `pruneAssociations`.
+- No unexpected surprises in MCP tool wiring — `registerMcpTools` accepts a flat deps object, straightforward to extend.
+
+**Acceptance criteria verified:**
+- [x] 4 HTTP search sub-paths enqueue access-stats when results.length >= 1
+- [x] MCP search_brain enqueues access-stats when results.length >= 1
+- [x] Batch UPSERT: exactly 1 db.execute() call in upsertCoAccessAssociations
+- [x] prune-associations cron = 30 3 * * 0 (no collision with storage-audit at 0 3 * * 0)
+- [x] All 5 enqueue sites fire-and-forget (.catch(() => {}))
+- [x] Unit tests updated: db.execute once (not db.insert N times)
+- [x] Integration test written (TS-clean, CI-only)
+
+**Duration:** ~45 minutes
+
+---

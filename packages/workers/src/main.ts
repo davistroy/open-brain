@@ -15,7 +15,7 @@ import { createDocumentPipelineWorker } from './jobs/document-pipeline.js'
 import { createDailySweepWorker } from './jobs/daily-sweep.js'
 import { createPushoverWorker } from './jobs/pushover.js'
 import { createEmailWorker } from './jobs/email.js'
-import { createAccessStatsWorker } from './jobs/update-access-stats.js'
+import { createAccessStatsWorker, createPruneAssociationsWorker } from './jobs/update-access-stats.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
 import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { createIngestRootWorker } from './jobs/ingest-root.js'
@@ -190,6 +190,7 @@ async function main() {
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))
   workers.push(createEmailWorker(connection))
   workers.push(createAccessStatsWorker(connection, db))
+  workers.push(createPruneAssociationsWorker(connection, db))
   // Budget-check uses LLM_SPEND_URL — distinct from the inference
   // OPENAI_BASE_URL since spend tracking may point at a different proxy.
   // Uses LLM_SPEND_API_KEY for auth, falling back to OPENAI_API_KEY.
@@ -235,7 +236,7 @@ async function main() {
   logger.info({ count: workers.length }, 'All workers registered')
 
   // Scheduled jobs
-  await registerScheduledJobs(connection)
+  const scheduledQueues = await registerScheduledJobs(connection)
   logger.info('Scheduled jobs registered')
 
   // Graceful shutdown
@@ -245,7 +246,10 @@ async function main() {
     shuttingDown = true
     logger.info({ signal }, 'Shutting down workers...')
     await Promise.allSettled(workers.map(w => w.close()))
-    await Promise.allSettled(Object.values(queues).map(q => q.close()))
+    await Promise.allSettled([
+      ...Object.values(queues).map(q => q.close()),
+      ...Object.values(scheduledQueues).map(q => q.close()),
+    ])
     if (flowProducer) await flowProducer.close().catch(() => {})
     await dedupRedis.quit().catch(() => {})
     await composioMeterRedis.quit().catch(() => {})
