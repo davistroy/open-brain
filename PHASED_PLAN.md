@@ -454,7 +454,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P10b — CI gating: voice-pipecat + file-ingestion pytest + test-count doc
+### P10b — CI gating: voice-pipecat + file-ingestion pytest + test-count doc  ✅ Completed 2026-04-19 (PR #142)
 **Scope:** #115 subset — Python pytest coverage in CI + README/intake updates
 **Severity:** High
 **Dependencies:** None
@@ -470,7 +470,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P11a — Observability part 1a: Loki log driver wiring
+### P11a — Observability part 1a: Loki log driver wiring  ✅ Completed 2026-04-19 (PR #143)
 **Scope:** #113 subset — route all container logs to Loki
 **Severity:** High
 **Dependencies:** Loki must be running on homeserver (it is, per PR #76). Confirm before shipping.
