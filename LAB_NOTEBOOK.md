@@ -6448,6 +6448,51 @@ Success criteria:
 
 **Result (3.10):** `pnpm --filter @open-brain/core-api test -- admin-reset` → 10/10 PASS. Full suite: 732 tests (722 before + 10 new). Shared: 286/286 unchanged. Workers: 960/960 unchanged.
 
+#### Gate 3 Overall Result
+
+**Status: ALL_COMPLETE**
+**Duration:** 2026-04-19T13:52:15Z → 2026-04-19T13:59:37Z (7m 22s)
+**Commit count:** 4 implementation commits (+ 1 plan commit from Gate 2)
+**Final HEAD:** c5a5425
+
+**Test counts:**
+- core-api: 732 (was 722, +10 new admin-reset tests)
+- shared: 286/286 (unchanged)
+- workers: 960/960 (unchanged)
+
+**Commits:**
+- c4e7c65 — schema + migration (admin_audit table, 0023_admin_audit.sql, init-schema.sql)
+- 9b7e16a — route + helpers (two-step flow, Origin check, pg_dump, writeAuditRow, resetRedis)
+- b328135 — infra (nginx CF header, compose volume, Dockerfile postgresql-client)
+- c5a5425 — tests (10 unit tests, all pass)
+
+**What Worked:**
+- Reusing the existing `bannerRedis` creation pattern for `resetRedis` — near-zero ceremony
+- `vi.resetModules()` in `buildApp()` + `vi.mock('ioredis')` at file level: allows per-test app rebuild with different options while keeping the ioredis mock stable
+- `ADMIN_RESET_SKIP_PGDUMP=true` flag eliminates the pg_dump subprocess from tests cleanly
+- Test 10 (source-code TRUNCATE assertion) is a strong invariant that will catch any future accidental inclusion of `admin_audit` in the wipe list
+
+**Acceptance Criteria Verified:**
+- [x] Step 1 issues single-use token from allowed origin
+- [x] Step 2 with valid token + correct phrase executes wipe
+- [x] Step 2 from disallowed origin → 403 (prod mode)
+- [x] Token cannot be used twice (GETDEL atomicity, test 4)
+- [x] Token expires after 5 min (mocked as null, test 5)
+- [x] pg_dump runs before TRUNCATE (skip via env flag in tests, test 7)
+- [x] admin_audit row on every attempt (tests 8, 9)
+- [x] admin_audit NOT in TRUNCATE list — row survives wipe (test 10)
+- [x] nginx forwards CF Access email header
+- [x] Actor = CF Access email or `unknown@internal` (header check in getActor)
+- [x] All 10 unit tests pass
+- [x] 0023_admin_audit.sql applies cleanly (idempotent IF NOT EXISTS)
+- [x] scripts/init-schema.sql updated with migration 0023 DDL
+- [x] LAB_NOTEBOOK Entry 097 Gate 3 complete
+
+**Gate 5.5 triggers (operator required before homeserver deploy):**
+- migration 0023 must be applied manually to production DB
+- `admin_prewipe_backup` volume created by docker compose on next up
+- Dockerfile adds `postgresql-client` — requires image rebuild
+
 ---
 
 
