@@ -7364,3 +7364,39 @@ Add a new `integration-test` job to `.github/workflows/ci.yml` that runs the cor
 - **CLAUDE.md rules added:** 3 (sessions.session_type lockstep, sessions.status lockstep, Board.tsx UI-type isolation note).
 - **Resume point:** P10a — CI gating: integration tests (gate_4_review, still in flight).
 
+---
+
+## Entry 106 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update
+
+**Tags:** [ci] [config] [docs]
+**Environment:** laptop (worktree agent-af283840), branch `feat/phase-P10b-ci-pytest-jobs`
+**Date:** 2026-04-19
+
+### Objective
+
+Add two new Python pytest CI jobs (`voice-pipecat-test`, `file-ingestion-test`) to `.github/workflows/ci.yml` — gating the 54 voice-pipecat and 26 file-ingestion tests that currently run only locally. Also create `packages/voice-pipecat/tests/requirements.txt` (lightweight, no pipecat-ai/PyTorch) and update test-count claims in `README.md` and `arch-review/intake.md` to reflect accurate current counts (2,689 unit + 91 regression).
+
+### Hypothesis
+
+- `packages/voice-pipecat/tests/requirements.txt` created with 9 lightweight deps (no pipecat-ai) → installs in <60s on ubuntu-latest
+- `voice-pipecat-test` job with `working-directory: packages/voice-pipecat` and `cache-dependency-path: packages/voice-pipecat/tests/requirements.txt` runs 54 tests green
+- `file-ingestion-test` job with `working-directory: packages/file-ingestion` runs 26 tests green (uses existing `requirements.txt`)
+- Both jobs have no `continue-on-error` (pure unit tests, no external deps)
+- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` exits 0 after edits
+- README "95 tests" → "91 tests" in regression-test.mjs descriptor
+- `arch-review/intake.md` line 15: "1,569 unit + 95 regression" → "2,689 unit + 91 regression"
+
+### Rollback Plan
+
+All changes confined to CI config + docs. `git revert` removes the two new CI jobs and doc string changes. No application code, no schema, no Docker changes. No homeserver deploy required.
+
+### Pre-flight Checks
+
+- voice-pipecat pyproject.toml confirmed: `[tool.pytest.ini_options] testpaths = ["tests"]`, `asyncio_mode = "auto"` — no CLI flags needed
+- file-ingestion `requirements.txt` already contains `pytest==8.3.5`, `pytest-asyncio==0.26.0`, `httpx==0.28.1` — no separate test requirements file needed
+- Sidecar-test job (lines 51-71) confirmed as reference pattern
+- Integration-test job added by P10a at lines 112-170 confirmed present
+
+### Implementation
+
+
