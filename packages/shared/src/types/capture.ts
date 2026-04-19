@@ -10,6 +10,43 @@ export type CaptureType =
 
 export type CaptureSource = 'slack' | 'voice' | 'api' | 'document' | 'mcp' | 'email' | 'file' | 'consolidation' | 'system'
 
+/**
+ * Pipeline lifecycle status for a capture row. Canonical 7-value set
+ * (P09a / migration 0024 / issue #119). Lockstep across 4 surfaces:
+ *
+ *   - This TS union (canonical source of truth)
+ *   - Zod enum: PIPELINE_STATUSES in packages/core-api/src/schemas/capture.ts
+ *   - DB CHECK: captures_pipeline_status_check (migration 0024)
+ *   - Drift guard: packages/shared/src/__tests__/web-type-drift.test.ts
+ *   - Web redeclaration: PipelineStatus in packages/web/src/lib/types.ts
+ *
+ * Semantics:
+ *   - `pending`     — newly written; awaits ingestion
+ *   - `processing`  — ingestion-worker / document-pipeline picked it up
+ *   - `extracted`   — entities extracted, awaiting embed (transient; cold-path
+ *                     in current code, but historical rows persist)
+ *   - `embedded`    — vector written, awaiting completion
+ *   - `chunked`     — multi-chunk document parent; chunks are separate captures
+ *                     (set by document-pipeline.ts when chunks.length > 1)
+ *   - `complete`    — terminal success
+ *   - `failed`      — terminal failure
+ *   - `deleted`     — soft-deleted tombstone (deleted_at IS NOT NULL)
+ *
+ * Adding a value → update all four surfaces in lockstep AND run a pre-flight
+ * `SELECT DISTINCT pipeline_status` audit on production before tightening.
+ * ALSO grep production code for `? '<value>' :` ternary expressions — the
+ * planner's keyed-property grep misses ternaries (caught `chunked` in P09a).
+ */
+export type PipelineStatus =
+  | 'pending'
+  | 'processing'
+  | 'extracted'
+  | 'embedded'
+  | 'chunked'
+  | 'complete'
+  | 'failed'
+  | 'deleted'
+
 // BrainView is a string — validated against config at runtime, not a hardcoded enum
 export type BrainView = string
 
@@ -51,7 +88,7 @@ export interface CaptureFilter {
   tags?: string[]
   date_from?: Date
   date_to?: Date
-  pipeline_status?: string
+  pipeline_status?: PipelineStatus
 }
 
 export interface CaptureRecord {
@@ -64,7 +101,7 @@ export interface CaptureRecord {
   source_metadata?: SourceMetadata
   tags: string[]
   embedding?: number[]
-  pipeline_status: string
+  pipeline_status: PipelineStatus
   pipeline_attempts: number
   pipeline_error?: string
   pipeline_completed_at?: Date

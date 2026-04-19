@@ -11,13 +11,13 @@ export const captures = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     content: text('content').notNull(),
     content_hash: text('content_hash').notNull(),
-    capture_type: text('capture_type').notNull(), // decision | idea | observation | task | win | blocker | question | reflection
+    capture_type: text('capture_type').notNull(), // 8 values; CHECK constraint in migration 0024; canonical TS union: CaptureType in packages/shared/src/types/capture.ts
     brain_view: text('brain_view').notNull(),      // career | personal | technical | work-internal | client
-    source: text('source').notNull(),              // slack | voice | api | document | mcp | email | file | consolidation — DB-level CHECK constraint in migration 0022; canonical TS union: CaptureSource in packages/shared/src/types/capture.ts
+    source: text('source').notNull(),              // 9 values; CHECK constraint in migration 0022; canonical TS union: CaptureSource in packages/shared/src/types/capture.ts
     source_metadata: jsonb('source_metadata'),
     tags: text('tags').array().notNull().default(sql`'{}'::text[]`),
     embedding: vector('embedding'),
-    pipeline_status: text('pipeline_status').notNull().default('pending'), // pending | processing | extracted | embedded | chunked | complete | failed
+    pipeline_status: text('pipeline_status').notNull().default('pending'), // 8 values; CHECK constraint in migration 0024; canonical TS union: PipelineStatus in packages/shared/src/types/capture.ts
     pipeline_attempts: integer('pipeline_attempts').notNull().default(0),
     pipeline_error: text('pipeline_error'),
     pipeline_completed_at: timestamp('pipeline_completed_at', { withTimezone: true }),

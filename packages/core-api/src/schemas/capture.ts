@@ -2,6 +2,12 @@ import { z } from 'zod'
 
 const CAPTURE_TYPES = ['decision', 'idea', 'observation', 'task', 'win', 'blocker', 'question', 'reflection'] as const
 const CAPTURE_SOURCES = ['slack', 'voice', 'api', 'document', 'mcp', 'email', 'file', 'consolidation', 'system'] as const
+// PIPELINE_STATUSES — 8 values, P09a / migration 0024 / issue #119.
+// Lockstep with TS union `PipelineStatus` in packages/shared/src/types/capture.ts,
+// DB CHECK `captures_pipeline_status_check`, drift-guard, and web redeclaration.
+//   - `extracted` — DB has 11 legacy rows; no current producer.
+//   - `chunked`   — produced by document-pipeline.ts ternary on multi-chunk docs.
+const PIPELINE_STATUSES = ['pending', 'processing', 'extracted', 'embedded', 'chunked', 'complete', 'failed', 'deleted'] as const
 
 export const createCaptureSchema = z.object({
   content: z.string().min(1).max(50000),
@@ -35,7 +41,7 @@ export const listCapturesSchema = z.object({
   tags: z.string().transform((v: string) => v.split(',')).optional(), // comma-separated query param
   date_from: z.string().datetime().optional(),
   date_to: z.string().datetime().optional(),
-  pipeline_status: z.string().optional(),
+  pipeline_status: z.enum(PIPELINE_STATUSES).optional(),
   source_provider: z.string().min(1).max(50).optional(),
 })
 
