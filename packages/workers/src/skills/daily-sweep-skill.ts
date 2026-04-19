@@ -230,7 +230,10 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
       const content = buildSweepText(output, date)
       const res = await fetch(`${this.coreApiUrl}/api/v1/captures`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Open-Brain-Caller': 'workers',
+        },
         body: JSON.stringify({
           content,
           capture_type: 'reflection',

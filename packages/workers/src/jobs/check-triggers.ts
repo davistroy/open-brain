@@ -286,7 +286,7 @@ export function createCheckTriggersWorker(
     },
     {
       connection,
-      concurrency: 5, // multiple captures can be checked simultaneously
+      concurrency: 2, // P07: reduced from 5
     },
   )
 

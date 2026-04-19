@@ -93,7 +93,7 @@ export function createIngestRootWorker(
     },
     {
       connection,
-      concurrency: 3,
+      concurrency: 2, // P07: reduced from 3
     },
   )
 

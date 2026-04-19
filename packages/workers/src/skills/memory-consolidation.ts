@@ -421,7 +421,10 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
     try {
       const res = await fetch(`${this.coreApiUrl}/api/v1/captures`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Open-Brain-Caller': 'memory-consolidation',
+        },
         body: JSON.stringify({
           content,
           capture_type: 'reflection',

@@ -211,7 +211,7 @@ describe('rateLimit middleware', () => {
     app.get('/api/test', (c) => c.json({ ok: true }))
 
     try {
-      // slack-bot gets its own bucket
+      // P07: slack-bot and workers are now bypassed — always succeed regardless of limit
       const res1 = await app.request(
         new Request('http://localhost/api/test', {
           headers: { 'X-Open-Brain-Caller': 'slack-bot' },
@@ -219,23 +219,31 @@ describe('rateLimit middleware', () => {
       )
       expect(res1.status).toBe(200)
 
-      // slack-bot over limit
+      // slack-bot bypassed — second call also succeeds (no 429)
       const res2 = await app.request(
         new Request('http://localhost/api/test', {
           headers: { 'X-Open-Brain-Caller': 'slack-bot' },
         }),
       )
-      expect(res2.status).toBe(429)
+      expect(res2.status).toBe(200)
 
-      // workers gets its own bucket — still allowed
-      const res3 = await app.request(
+      // Use a non-bypassed caller to verify bucketing: 'custom-service' has its own bucket
+      const res3a = await app.request(
         new Request('http://localhost/api/test', {
-          headers: { 'X-Open-Brain-Caller': 'workers' },
+          headers: { 'X-Open-Brain-Caller': 'custom-service' },
         }),
       )
-      expect(res3.status).toBe(200)
+      expect(res3a.status).toBe(200)
 
-      // default-client (no headers) also has its own bucket
+      // custom-service over limit
+      const res3b = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: { 'X-Open-Brain-Caller': 'custom-service' },
+        }),
+      )
+      expect(res3b.status).toBe(429)
+
+      // default-client (no headers) also has its own bucket — still allowed since different bucket
       const res4 = await app.request(new Request('http://localhost/api/test'))
       expect(res4.status).toBe(200)
     } finally {
@@ -250,23 +258,23 @@ describe('rateLimit middleware', () => {
     app.get('/api/test', (c) => c.json({ ok: true }))
 
     try {
-      // Both headers present — caller header wins
+      // Use a non-bypassed caller to verify caller header takes priority over X-Forwarded-For
       const res1 = await app.request(
         new Request('http://localhost/api/test', {
           headers: {
-            'X-Open-Brain-Caller': 'slack-bot',
-            'X-Forwarded-For': '10.0.0.1',
+            'X-Open-Brain-Caller': 'custom-service',
+            'X-Forwarded-For': '10.0.0.2',
           },
         }),
       )
       expect(res1.status).toBe(200)
 
-      // Same caller over limit, but forwarded-for IP is separate bucket
+      // Same caller over limit (separate bucket from IP)
       const res2 = await app.request(
         new Request('http://localhost/api/test', {
           headers: {
-            'X-Open-Brain-Caller': 'slack-bot',
-            'X-Forwarded-For': '10.0.0.1',
+            'X-Open-Brain-Caller': 'custom-service',
+            'X-Forwarded-For': '10.0.0.2',
           },
         }),
       )
@@ -275,10 +283,21 @@ describe('rateLimit middleware', () => {
       // Same forwarded-for IP without caller header — different bucket, allowed
       const res3 = await app.request(
         new Request('http://localhost/api/test', {
-          headers: { 'X-Forwarded-For': '10.0.0.1' },
+          headers: { 'X-Forwarded-For': '10.0.0.2' },
         }),
       )
       expect(res3.status).toBe(200)
+
+      // P07: slack-bot is bypassed — always succeeds even when caller-bucket is exhausted
+      const res4 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'slack-bot',
+            'X-Forwarded-For': '10.0.0.2',
+          },
+        }),
+      )
+      expect(res4.status).toBe(200)
     } finally {
       limiter.dispose()
     }
