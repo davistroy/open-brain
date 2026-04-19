@@ -7276,3 +7276,83 @@ Add a new `integration-test` job to `.github/workflows/ci.yml` that runs the cor
 - Unit tests (shared + core-api) run to confirm no regressions
 - 2 files changed, zero application code
 
+---
+
+### Entry 104 — P09c Gate 3: Sibling enum CHECKs on sessions (session_type + status) — 2026-04-19
+
+**Tags:** [database] [typescript] [decision]
+**Environment:** Local dev (Windows bash), branch `feat/phase-P09c-sessions-enum-checks`
+
+**Objective:** Add CHECK constraints on `sessions.session_type` (3 values) and `sessions.status` (4 values), with JSDoc lockstep comments on existing TS types and drift-guard tests. Mirrors P09a/P09b pattern.
+
+**Hypothesis:** The homeserver DB contains only the expected values — `governance`, `review`, `planning` for session_type and `active`, `paused`, `complete`, `abandoned` for status. Adding CHECK constraints will not reject existing data. TS types already exist in `packages/shared/src/types/session.ts`; only JSDoc comments need adding. Web drift-guard is out of scope (Board.tsx uses intentionally different UI types).
+
+**Rollback plan:** Git-tracked changes only. DB constraints are additive. Revert via `git revert`. If homeserver migration fails at Gate 5.5: `ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_session_type_check; ALTER TABLE sessions DROP CONSTRAINT IF EXISTS sessions_status_check;`
+
+**Pre-flight DB audit (homeserver, 2026-04-19):**
+
+```
+ session_type | count
+--------------+-------
+ governance   |     3
+ planning     |     1
+ review       |     1
+(3 rows)
+
+  status  | count
+----------+-------
+ complete |     3
+ active   |     2
+(2 rows)
+```
+
+**Reconciliation:**
+- **session_type:** DB has 3 values (`governance`, `planning`, `review`). Exactly matches the proposed 3-value canonical set. No unexpected values. **No migration/cleanup needed.**
+- **status:** DB has 2 values (`complete`, `active`). Both are in the 4-value canonical set. Missing `paused` and `abandoned` are valid — no sessions currently in those states. **No cleanup needed.**
+
+**Code audit (grep results):**
+- `session_type` write sites: `session.ts:130` (`session_type: input.type` from `SessionType` union), `governance-engine.ts:215` + `session.ts:414` (read-through copies, not direct writes). `slack-bot/board.ts` writes `'governance'` and `'review'` via core-api client. All within the 3-value set.
+- `status` write sites in `session.ts`: `'active'` (lines 131, 338), `'paused'` (280), `'abandoned'` (317, 454), `'complete'` (391). All 4 values produced. All within canonical set.
+- No ternary-style assignments for `session_type`.
+
+**Canonical sets confirmed:**
+- `SessionType` (3): `governance`, `planning`, `review`
+- `SessionStatus` (4): `abandoned`, `active`, `complete`, `paused`
+
+**Scope diff confirmed (per IMPLEMENT_PHASE-P09c.md):**
+- TS types already exist in `packages/shared/src/types/session.ts` — no new type files needed.
+- No Zod enum required (route uses inline `VALID_TYPES`/`VALID_STATUSES` arrays, adequate).
+- Web drift-guard out of scope: `Board.tsx` uses `SessionType = 'quick_check' | 'quarterly'` and `SessionStatus` (subset 3 of 4) — intentional UI-layer types, Board maps `quick_check` → `governance` before API call.
+
+**Work items completed:**
+1. (Read-only) Producer map — captured above. No commit.
+2. (Read-only) DB pre-flight — captured above. No commit.
+3. Edit `packages/shared/src/types/session.ts` — added JSDoc lockstep comments to `SessionStatus` and `SessionType`.
+4. Edit `packages/shared/src/schema/supporting.ts` — updated schema comments lines 91-92 to reference migration 0026 and canonical TS unions.
+5. Create `packages/shared/drizzle/0026_sessions_enum_checks.sql` — migration with 2 idempotent CHECK constraints. Pre-flight results embedded in header.
+6. Edit `packages/shared/src/__tests__/web-type-drift.test.ts` — added `SESSION_TYPES_PATH` constant, `CANONICAL_SESSION_TYPES` (3-value) and `CANONICAL_SESSION_STATUSES` (4-value) const arrays, and `'Session type drift guard (phase-P09c / #119)'` describe block with 2 assertions.
+7. Edit `CLAUDE.md` — added 3 new Database/schema rules for `sessions.session_type`, `sessions.status`, and Board.tsx UI-type isolation.
+
+**Verification results:**
+- `pnpm --filter @open-brain/shared exec tsc --noEmit`: clean (0 errors)
+- `pnpm --filter @open-brain/workers exec tsc --noEmit`: clean (0 errors)
+- `pnpm --filter @open-brain/core-api exec tsc --noEmit`: clean (0 errors)
+- `pnpm --filter @open-brain/shared test`: **296/296 passed** (17 files) — 2 new drift-guard assertions included
+
+**Commit:** `16ca867` — `feat(phase-P09c)/1.1: sessions enum CHECKs — migration, TS JSDoc, drift-guard, CLAUDE.md`
+
+**Deviations from plan:** None. All 7 work items completed exactly as specified. Canonical sets required no revision.
+
+**Duration:** ~20 minutes (Gate 3 implementation only).
+
+#### Final / Merged — 2026-04-19
+
+- **PR:** https://github.com/davistroy/open-brain/pull/140
+- **Merge SHA:** `0d4fad3` (squash-merge to `main`, 2026-04-19)
+- **Reviewer verdict:** Opus APPROVE — cycle 1 (no REQUEST_CHANGES)
+- **CI:** Green. All tests passing.
+- **Homeserver:** Migration 0026 applied and verified. Both CHECK constraints live (`sessions_session_type_check`, `sessions_status_check`).
+- **Issues closed:** #119 fully closed (all 3 sub-phases P09a + P09b + P09c complete). Cross-Phase Tracking row #119 marked fully complete.
+- **CLAUDE.md rules added:** 3 (sessions.session_type lockstep, sessions.status lockstep, Board.tsx UI-type isolation note).
+- **Resume point:** P10a — CI gating: integration tests (gate_4_review, still in flight).
+
