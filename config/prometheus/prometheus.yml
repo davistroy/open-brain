@@ -1,55 +1,44 @@
-# Reference prometheus.yml for Open Brain — P11b alert rules
-#
-# IMPORTANT: This file is a REFERENCE ONLY. Do NOT replace the homeserver's
-# prometheus.yml with this file — the homeserver config includes additional
-# scrape_configs (node-exporter, cadvisor, etc.) that are not tracked in git.
-#
-# Homeserver deploy steps for P11b alert rules:
-#
-#   1. Copy alert rule files to prometheus config dir:
-#      cp config/prometheus/alerts/*.yml /mnt/user/appdata/prometheus/alerts/
-#      (Create the alerts/ subdirectory if it doesn't exist)
-#
-#   2. Add rule_files stanza to the homeserver prometheus.yml:
-#      rule_files:
-#        - "alerts/*.yml"
-#
-#   3. Reload Prometheus to pick up new rules:
-#      curl -X POST http://localhost:9090/-/reload
-#
-#   4. Verify rules loaded:
-#      curl -s http://localhost:9090/api/v1/rules | python3 -m json.tool | head -60
-#
-#   5. Verify new metrics are visible:
-#      curl -s "http://localhost:9090/api/v1/query?query=openbrain_budget_spent_usd"
-#      curl -s "http://localhost:9090/api/v1/query?query=openbrain_composio_monthly_usage"
-#
-# See docs/runbooks/ for per-alert remediation steps.
-# See IMPLEMENT_PHASE-P11b.md for full deployment checklist.
-
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-# Alert rule files — copy alerts/ directory alongside this file on homeserver.
+# Alert rule files — alert YAML files live alongside this config in alerts/
 rule_files:
   - "alerts/*.yml"
 
-# Scrape configs — see open-brain-scrape.yaml for the Open Brain core-api job.
-# The homeserver prometheus.yml includes this via scrape_config_files or inline.
 scrape_configs:
-  # See config/prometheus/open-brain-scrape.yaml — the open-brain-core-api job.
-  # On homeserver, this is included via:
-  #   scrape_configs:
-  #     - job_name: 'open-brain-core-api'
-  #       static_configs:
-  #         - targets: ['core-api:3000']
-  #       metrics_path: '/metrics'
-  #       scrape_interval: 15s
-  #       scrape_timeout: 10s
-  #
-  # Pushgateway job — workers push queue + container health metrics here:
-  #   - job_name: 'pushgateway'
-  #     honor_labels: true
-  #     static_configs:
-  #       - targets: ['pushgateway:9091']
+  - job_name: "vllm-llm"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["spark.k4jda.net:8000"]
+        labels:
+          model: "qwen3.5-35b"
+          service: "llm"
+
+  - job_name: "vllm-embed"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["spark.k4jda.net:8001"]
+        labels:
+          model: "qwen3-embedding-4b"
+          service: "embedding"
+
+  - job_name: "spark-node"
+    static_configs:
+      - targets: ["spark.k4jda.net:9100"]
+
+  - job_name: "spark-gpu"
+    static_configs:
+      - targets: ["spark.k4jda.net:9400"]
+
+  - job_name: "pushgateway"
+    honor_labels: true
+    static_configs:
+      - targets: ["pushgateway:9091"]
+
+  - job_name: 'open-brain-core-api'
+    static_configs:
+      - targets: ['core-api:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s

@@ -49,3 +49,34 @@ notify_pushover_mismatch() {
   fi
   return 0
 }
+
+# notify_pushover_rehearsal <status> <summary_message>
+#   status: "pass" (priority 0/normal) or "fail" (priority 1/high)
+#   summary_message: human-readable one-liner (e.g., "5/5 tables within tolerance")
+#   Sends a Pushover notification for restore rehearsal results.
+#   Returns 0 always — NEVER fails the caller.
+notify_pushover_rehearsal() {
+  local status="$1"
+  local message="${2:-Open Brain: restore rehearsal ${status}}"
+  local title="Open Brain: DR rehearsal ${status}"
+  local priority=0
+  [[ "$status" == "fail" ]] && priority=1
+  local url="${PUSHOVER_API_URL:-https://api.pushover.net/1/messages.json}"
+
+  local token="${PUSHOVER_APP_TOKEN:-${PUSHOVER_TOKEN:-}}"
+  local user="${PUSHOVER_USER_KEY:-${PUSHOVER_USER:-}}"
+
+  if [[ -z "$token" || -z "$user" ]]; then
+    echo "WARN: Pushover credentials missing — rehearsal alert skipped" >&2
+    return 0
+  fi
+
+  curl -sf --max-time 10 -X POST "$url" \
+    -d "token=${token}" \
+    -d "user=${user}" \
+    -d "title=${title}" \
+    -d "message=${message}" \
+    -d "priority=${priority}" >/dev/null 2>&1 || \
+    echo "WARN: Pushover POST failed (curl exit $?)" >&2
+  return 0
+}
