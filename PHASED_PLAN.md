@@ -228,11 +228,15 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P03 — Cost estimator widening + config contract + Composio quota
+### P03 — Cost estimator widening + config contract + Composio quota  ✅ Completed 2026-04-19 (PR #127) — **BOOTSTRAP COMPLETE**
 **Scope:** #102 subset (widen `estimateTierCostUsd` + config-contract test) + #106 Composio meter
 **Severity:** 1 Critical + 1 High
 **Dependencies:** P02a (Zod schema)
-**Effort:** ~1 day
+**Effort:** ~1 day (actual ~2 hours — including 1 cycle of TS lint fix)
+
+**Result:** Merged as squash `32b17f2`. Gate 1 cleared 5 drifts (biggest: config-contract test was redundant with P02a validator; omitted — saved implementer time). Gate 4 cycle 1 REQUEST_CHANGES on 4 TS2322 annotation errors; cycle 2 APPROVE after `5337ff4` fix. Closes #102 (fully; #106 auto-closed). `estimateTierCostUsd()` now computes real cost from tier config — `ai_audit_log.cost_usd` non-zero for Anthropic completions. `ComposioClient.execute()` guards with Redis-backed monthly counter (Pushover warn at 15K, hard-stop `ComposioQuotaExceededError` at >19K). Tests: shared 277→286 (+9 new: 3 estimator + 6 composio-quota), workers 960/960, core-api 722/722. 2 new operational rules in CLAUDE.md. See LAB_NOTEBOOK Entry 096.
+
+**Bootstrap complete post-merge.** `bootstrap_mode` flipped to false. Normal ORCHESTRATOR.md operator-approval matrix applies from P04a onward.
 
 **Deliverables:**
 - `packages/shared/src/services/llm-gateway.ts`: `estimateTierCostUsd()` rewritten to use `config.cost_per_1k_in` / `config.cost_per_1k_out` for ALL providers (anthropic, openai, openai_compat, litellm, ollama [zero], deepseek); drop the provider-allowlist path
@@ -953,11 +957,11 @@ Hard dependencies only (soft groupings in phase cards below):
 
 | GH # | Title | Phase(s) | Wave | Severity |
 |-----:|-------|----------|-----:|----------|
-| 102 | Theme 1 — Cost-tracking paper tiger | P02a ✅ + P02b ✅ + P03 | 1 | Critical |
+| 102 | Theme 1 — Cost-tracking paper tiger | P02a ✅ + P02b ✅ + P03 ✅ | 1 | Critical |
 | 103 | Theme 3 — mem_limits | P01 ✅ | 1 | Critical |
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
-| 106 | Theme 2 — Composio quota unmetered | P03 | 1 | High |
+| 106 | Theme 2 — Composio quota unmetered | P03 ✅ | 1 | High |
 | 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b, P16, P17 | 1, 3 | High |
 | 108 | Theme 6 — Autonomy false-uniform | P05 | 2 | High |
 | 109 | Theme 7 — Cognitive memory dormant | P06 | 2 | High |
