@@ -12,7 +12,7 @@
 
 The system implements **cost-tiered processing** (T0 Python → T1 local LLM → T2 Claude Code CLI → T3 paid API) with budget caps, a **cognitive memory model** (Hebbian learning, spreading activation, memory consolidation), **proactive intelligence** (autonomy levels: observe/assist/advise/partner, auto-response, daily sweeps, weekly briefs), and **batch source pipelines** (email classification, financial account monitoring, utility-bill ingestion).
 
-**Production status:** All 25 core phases + cognitive memory + email pipeline + web synthesis + proactive intelligence + cost-tiering refactor shipped. 13 containers live on Unraid homeserver, reachable via Cloudflare Tunnel. 1,569 unit + 95 regression tests passing. Active daily use by a single operator.
+**Production status:** All 25 core phases + cognitive memory + email pipeline + web synthesis + proactive intelligence + cost-tiering refactor shipped. 13 containers live on Unraid homeserver, reachable via Cloudflare Tunnel. 2,689 unit + 91 regression tests passing. Active daily use by a single operator.
 
 **Version:** 1.2.0 (per `package.json`)
 
@@ -63,7 +63,7 @@ The system implements **cost-tiered processing** (T0 Python → T1 local LLM →
 - Bitwarden Secrets Manager (`bws` CLI v2.0.0) for all secrets — never in `.env` files
 
 **CI/CD:**
-- GitHub Actions (`.github/workflows/ci.yml`): build-and-test (TS), sidecar-test (pytest), python-lint (ruff + pyright, added PR #101)
+- GitHub Actions (`.github/workflows/ci.yml`): build-and-test (TS), sidecar-test (pytest), voice-pipecat-test (pytest), file-ingestion-test (pytest), python-lint (ruff + pyright, added PR #101)
 - Monthly audit workflow
 - GitGuardian secret scanning
 - Deployment: manual `git pull + docker compose build + docker compose up -d` on homeserver

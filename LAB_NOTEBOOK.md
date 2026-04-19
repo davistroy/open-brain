@@ -7286,6 +7286,67 @@ Add a new `integration-test` job to `.github/workflows/ci.yml` that runs the cor
 
 ---
 
+## Entry 106 — P11a: Loki log driver wiring for all compose services — 2026-04-19
+
+**Tags:** [docker] [config] [deploy] [decision]
+**Environment:** laptop (branch `feat/phase-P11a-observability-logging`)
+
+### Objective
+
+Route all 13 active compose services to the standalone Loki container on homeserver via the Docker `loki` log driver. Adds `logging:` stanzas to every service in `docker-compose.yml`, parameterized by `LOKI_URL` in `.env`. Also provisions the Grafana Loki datasource as code (currently manual-only in Grafana UI) and adds a validation script for post-deploy verification.
+
+No TypeScript changes. No migrations. Production infra file change requiring Gate 5 operator approval + `docker compose up -d --force-recreate` on homeserver.
+
+### Hypothesis
+
+After adding `logging: driver: loki` to all 13 services and recreating containers on homeserver:
+- Each container's logs appear in Loki under `{container_name="open-brain-<name>"}` within 30s of startup
+- Pino JSON services additionally expose `{level="..."}` and `{name="..."}` labels from the pipeline-stages config
+- Grafana Loki datasource provisioned from `config/grafana/provisioning/datasources/datasources.yaml` shows "connected" status
+- `scripts/test-loki-routing.sh` exits 0 (13/13 PASS)
+
+### Rollback plan
+
+Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -d --force-recreate`. Containers revert to default json-file driver. Logs already shipped to Loki remain (30-day retention per loki-config.yaml). No data loss. No schema changes. Plugin can remain installed on host — no effect on containers using default driver.
+
+### Implementation
+
+**WI 1.1 — LAB_NOTEBOOK pre-action entry:** This entry.
+
+**WI 1.2 — `.env` LOKI_URL:** Appended `LOKI_URL` to `.env` after `LOG_LEVEL=info`.
+
+**WI 1.3 — `docker-compose.yml` logging stanzas:** Added `logging:` block to all 13 services (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web, cloudflared, financial-ingest, utility-ingest). Driver: loki. loki-pipeline-stages extracts `level` + `name` labels from pino JSON. Non-pino services (postgres, redis, faster-whisper, cloudflared, web/nginx) accept the driver without issue — pipeline stages produce empty labels (raw text still routed to Loki under container_name label).
+
+**WI 1.4 — Grafana datasource provisioning:** Created `config/grafana/provisioning/datasources/datasources.yaml` with Prometheus (uid: DS_PROMETHEUS, isDefault: true) + Loki (uid: DS_LOKI). Prometheus UID matches template variable used in existing dashboards. Loki URL: `http://loki:3100` (operator must verify Grafana and Loki share a Docker network; fallback to homeserver IP if not).
+
+**WI 1.5 — Grafana dashboards.yaml:** No change needed — datasources are discovered automatically from the provisioning directory.
+
+**WI 1.6 — CLAUDE.md rule:** Added to Docker/infra section: loki driver behavior, LOKI_URL parameterization, drop-on-disconnect failure mode, plugin install command.
+
+**WI 1.7 — Validation script:** Created `scripts/test-loki-routing.sh` — queries Loki API for each of 13 container names over last 5 minutes, reports PASS/FAIL per service, exits 0 iff all pass.
+
+### Decisions
+
+**D-P11a-1:** Docker `loki` log driver (not Promtail sidecar). Simpler: zero new containers, wired at compose level. Failure mode (Loki unreachable → driver drops logs) is acceptable for personal system.
+
+**D-P11a-2:** `loki-batch-size: "400"` — intentionally low. Pino single-line JSON logs are short; default 100K would batch too long before flushing. 400 bytes flushes quickly for near-real-time log visibility.
+
+**D-P11a-3:** Pipeline stages extract `level` + `name` labels only. No capture IDs, no user input, no high-cardinality values. Loki label cardinality is safe.
+
+**D-P11a-4:** Prometheus datasource provisioned in same file with UID `DS_PROMETHEUS` — this was previously manual-only in Grafana UI. Additive: locks in the UID so existing dashboards work after Grafana container recreate.
+
+### Result
+
+**PR #143 merged** — SHA `d6a79df`, 2026-04-19. Opus APPROVE cycle 1.
+- Homeserver: Loki plugin installed, `LOKI_URL` set in `.env`, `docker compose up -d --force-recreate` executed, all 13 containers healthy.
+- All containers log to Loki under `{container_name="open-brain-<name>"}` labels within 30s of startup.
+- Grafana Loki + Prometheus datasources provisioned from code (`config/grafana/provisioning/datasources/datasources.yaml`). UID `DS_PROMETHEUS` locked in.
+- 6 files changed: `docker-compose.yml`, `.env`, `CLAUDE.md`, `LAB_NOTEBOOK.md`, `config/grafana/provisioning/datasources/datasources.yaml` (new), `scripts/test-loki-routing.sh` (new).
+- Zero TypeScript files changed. Zero migrations. Zero test changes.
+- Issue #113: P11a ✅. P11b + P12 remain.
+
+---
+
 ### Entry 104 — P09c Gate 3: Sibling enum CHECKs on sessions (session_type + status) — 2026-04-19
 
 **Tags:** [database] [typescript] [decision]
@@ -7459,10 +7520,94 @@ Branch-switching incident during implementation: initial work was done on `docs/
 **Tags:** [security] [pipeline] [decision]
 **Date:** 2026-04-19
 **Branch:** feat/phase-P14a-prompt-injection-builder
+
+---
+
+### Closure (doc sweep 2026-04-19)
+
+- **PR #144** merged, SHA `d7e8c92`. Reviewer: Opus APPROVE cycle 2.
+- **Cycle 1 catch:** `SET LOCAL` parameterized value syntax error — `SET LOCAL hnsw.ef_search = $1` is not valid Postgres parameterized syntax outside a function body. Drizzle auto-commit mode also means SET LOCAL is a no-op (no open transaction). Fix: replaced with `sql.raw(\`SET hnsw.ef_search = ${this.hnswEfSearch}\`)` — session-scoped SET, no SQL injection risk (value is a config integer).
+- **Migration 0027** (`0027_search_hnsw_ef_search.sql`) applied on homeserver 2026-04-19. Workers restart NOT needed — `CREATE OR REPLACE FUNCTION` is immediate in Postgres.
+- **Issue #112** closed.
+
+---
+
+## Entry 107 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update — 2026-04-19
+
+**Tags:** [ci] [config] [docs]
+**Environment:** laptop (worktree agent-af283840), branch `feat/phase-P10b-ci-pytest-jobs`
+**Note:** Implementer used Entry 106 (collision with P11a). Renumbered to Entry 107 in doc-sweep.
+
+### Objective
+
+Add two new Python pytest CI jobs (`voice-pipecat-test`, `file-ingestion-test`) to `.github/workflows/ci.yml` — gating the 54 voice-pipecat and 26 file-ingestion tests that currently run only locally. Also create `packages/voice-pipecat/tests/requirements.txt` (lightweight, no pipecat-ai/PyTorch) and update test-count claims in `README.md` and `arch-review/intake.md` to reflect accurate current counts (2,689 unit + 91 regression).
+
+### Hypothesis
+
+- `packages/voice-pipecat/tests/requirements.txt` created with 9 lightweight deps (no pipecat-ai) → installs in <60s on ubuntu-latest
+- `voice-pipecat-test` job with `working-directory: packages/voice-pipecat` and `cache-dependency-path: packages/voice-pipecat/tests/requirements.txt` runs 54 tests green
+- `file-ingestion-test` job with `working-directory: packages/file-ingestion` runs 26 tests green (uses existing `requirements.txt`)
+- Both jobs have no `continue-on-error` (pure unit tests, no external deps)
+- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` exits 0 after edits
+- README "95 tests" → "91 tests" in regression-test.mjs descriptor
+- `arch-review/intake.md` line 15: "1,569 unit + 95 regression" → "2,689 unit + 91 regression"
+
+### Rollback Plan
+
+All changes confined to CI config + docs. `git revert` removes the two new CI jobs and doc string changes. No application code, no schema, no Docker changes. No homeserver deploy required.
+
+### Pre-flight Checks
+
+- voice-pipecat pyproject.toml confirmed: `[tool.pytest.ini_options] testpaths = ["tests"]`, `asyncio_mode = "auto"` — no CLI flags needed
+- file-ingestion `requirements.txt` already contains `pytest==8.3.5`, `pytest-asyncio==0.26.0`, `httpx==0.28.1` — no separate test requirements file needed
+- Sidecar-test job (lines 51-71) confirmed as reference pattern
+- Integration-test job added by P10a at lines 112-170 confirmed present
+
+### Implementation
+
+**WI 1 — `packages/voice-pipecat/tests/requirements.txt` (new file)**
+- Created with 9 deps: `anthropic>=0.49.0`, `httpx>=0.27.0`, `fastapi>=0.115.0`, `pydantic>=2.0`, `pydantic-settings>=2.0`, `redis>=5.0.0`, `pyyaml>=6.0`, `pytest>=8.0,<9.0`, `pytest-asyncio>=0.24.0`
+- No `pipecat-ai` — confirmed `pipeline.py` is the only pipecat-importing file, not covered by tests
+- Commit: `5e4e731` — `feat(phase-P10b)/1.1: voice-pipecat test requirements.txt (no pipecat-ai)`
+
+**WI 2+3 — Both new CI jobs added to `.github/workflows/ci.yml`**
+- Inserted `voice-pipecat-test` and `file-ingestion-test` jobs after `sidecar-test`, before `validate-schema`
+- Both jobs: `timeout-minutes: 10`, no `continue-on-error`, `python-version: '3.12'`
+- `voice-pipecat-test`: `cache-dependency-path: packages/voice-pipecat/tests/requirements.txt`, `working-directory: packages/voice-pipecat` on pytest step, installs from new `tests/requirements.txt`
+- `file-ingestion-test`: `cache-dependency-path: packages/file-ingestion/requirements.txt`, `working-directory: packages/file-ingestion` on both install and pytest steps
+- YAML validation: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → **exit 0** (YAML valid)
+- Commit: `a292853` — `feat(phase-P10b)/1.2: voice-pipecat-test + file-ingestion-test CI jobs`
+
+**WI 4+5 — Doc updates**
+- `README.md` line 53: `(95 tests)` → `(91 tests)` in regression-test.mjs descriptor
+- `README.md`: no other test-count string changed (confirmed via grep — no 1,569/1569 in README body)
+- `arch-review/intake.md` line 15: `1,569 unit + 95 regression` → `2,689 unit + 91 regression`
+- `arch-review/intake.md` line 66: CI job list extended with `voice-pipecat-test (pytest)` and `file-ingestion-test (pytest)` alongside existing `sidecar-test`
+- Commit: `e547d8c` — `docs(phase-P10b)/1.3: update test counts (2,689 unit + 91 regression)`
+
+### Result
+
+**PR #142 merged** — SHA `ab7917f`, 2026-04-19. Opus APPROVE cycle 2.
+- Cycle 1 catch: voice-pipecat pytest path doubled due to `working-directory` + explicit `packages/voice-pipecat/` prefix in pytest args. Fixed before cycle 2 APPROVE.
+- CI: `build-and-test` green, `voice-pipecat-test` pass (54 tests), `file-ingestion-test` pass (26 tests), `integration-test` 1 flaky failure (pre-existing, `continue-on-error`).
+- 3 commits: `5e4e731`, `a292853`, `e547d8c`. YAML valid (exit 0 confirmed).
+- No homeserver deploy. No migration. Closes #115.
+- Python CI now covers: `sidecar-test` (13) + `voice-pipecat-test` (54) + `file-ingestion-test` (26) = 93 Python tests total in CI.
+- Issue #115: fully closed (P10a + P10b complete).
+
+
+---
+
+## Entry 110 — P14a: SafePromptBuilder module + prompt injection threat model
+
+**Tags:** [security] [pipeline] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P14a-prompt-injection-builder`
 **Environment:** Laptop (worktree agent-a5fe5df5)
 
 ### Objective
 
+<<<<<<< HEAD
 Create packages/shared/src/lib/prompt-builder.ts -- SafePromptBuilder class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create docs/SECURITY.md as the system-wide threat model for prompt injection.
 
 This is P14a -- foundational module only. No call-site migration (that is P14b).
@@ -7472,11 +7617,23 @@ This is P14a -- foundational module only. No call-site migration (that is P14b).
 - Unit tests confirm all 8+ injection patterns stripped, delimiters are session-unique, clean content passes through without false positives.
 - pnpm --filter @open-brain/shared exec tsc --noEmit -- zero TS errors.
 - pnpm --filter @open-brain/workers exec tsc --noEmit -- zero TS errors.
+=======
+Create `packages/shared/src/lib/prompt-builder.ts` — `SafePromptBuilder` class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create `docs/SECURITY.md` as the system-wide threat model for prompt injection.
+
+This is P14a — foundational module only. No call-site migration (that is P14b).
+
+### Hypothesis
+
+- Unit tests confirm all 8+ injection patterns stripped, delimiters are session-unique, and clean content passes through without false positives.
+- `pnpm --filter @open-brain/shared exec tsc --noEmit` — zero TS errors.
+- `pnpm --filter @open-brain/workers exec tsc --noEmit` — zero TS errors (import chain validation even though workers do not use SafePromptBuilder yet).
+>>>>>>> origin/main
 - All existing shared tests continue to pass.
 - No production call sites modified.
 
 ### Rollback plan
 
+<<<<<<< HEAD
 SafePromptBuilder is not used by any call site -- deletion is the full rollback. git revert the 2-3 commits; remove docs/SECURITY.md. No schema change, no config change, no homeserver deploy required.
 
 ### Architecture decision: lib/ placement (minor drift from card)
@@ -7511,3 +7668,37 @@ SafePromptBuilder is stateless (pure methods + configured delimiterPrefix). Plac
 - No existing tests broken.
 
 **Duration:** ~60 minutes.
+=======
+`SafePromptBuilder` is not used by any call site — deletion is the full rollback. `git revert` the 2-3 commits; remove `docs/SECURITY.md`. No schema change, no config change, no homeserver deploy required.
+
+### Architecture decision: lib/ placement (minor drift from card)
+
+Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
+- `lib/` = stateless utilities (prompt-template.ts, logger.ts, autonomy.ts)
+- `services/` = injectable stateful services (llm-gateway.ts, embedding.ts)
+
+`SafePromptBuilder` is stateless (pure methods + configured `delimiterPrefix`). **Placing in `lib/`** per existing convention.
+
+### Work items completed
+
+1. `packages/shared/src/lib/prompt-builder.ts` — SafePromptBuilder class, 14 injection patterns, `wrapContent`, `wrapCaptures`, `sanitizeInline`, `_strip` with debug logging.
+2. `packages/shared/src/lib/__tests__/prompt-builder.test.ts` — 28 tests across 4 groups (A: injection stripping 14 cases, B: delimiter uniqueness 5, C: wrapCaptures 4, D: edge cases 5).
+3. `packages/shared/src/lib/index.ts` — `export * from './prompt-builder.js'` added.
+4. `docs/SECURITY.md` — threat model (pending in this session).
+
+### Injection surfaces confirmed (6 total)
+
+1. `packages/core-api/src/routes/synthesize.ts` lines 53-68 — raw capture `.content` + user query
+2. `packages/workers/src/jobs/extract-entities.ts` line 120 — `{{content}}` slot
+3. `packages/workers/src/skills/daily-sweep-skill.ts` lines 145-148 — `{{captures}}` slot
+4. `packages/workers/src/skills/weekly-brief.ts` lines 84-85 — `{{captures}}` slot
+5. `packages/workers/src/skills/memory-consolidation.ts` lines 336-339 — `{{captures}}` slot
+6. `packages/workers/src/skills/daily-connections.ts` lines 130-133 — `{{captures}}` slot
+
+### Verification results
+
+- `pnpm --filter @open-brain/shared test`: **324/324 passed** (includes 28 new prompt-builder tests)
+- `pnpm --filter @open-brain/shared exec tsc --noEmit`: clean
+- `pnpm --filter @open-brain/workers exec tsc --noEmit`: clean
+- No existing tests broken.
+>>>>>>> origin/main
