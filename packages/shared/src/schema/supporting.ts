@@ -88,8 +88,8 @@ export const sessions = pgTable(
   'sessions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    session_type: text('session_type').notNull(), // governance | review | planning
-    status: text('status').notNull().default('active'), // active | paused | complete | abandoned
+    session_type: text('session_type').notNull(), // 3 values; CHECK constraint in migration 0026; canonical TS union: SessionType in packages/shared/src/types/session.ts
+    status: text('status').notNull().default('active'), // 4 values; CHECK constraint in migration 0026; canonical TS union: SessionStatus in packages/shared/src/types/session.ts
     config: jsonb('config'),
     context_capture_ids: text('context_capture_ids').array().notNull().default(sql`'{}'::text[]`),
     summary: text('summary'),
