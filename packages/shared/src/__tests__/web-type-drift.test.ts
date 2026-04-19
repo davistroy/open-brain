@@ -43,6 +43,7 @@ const SEARCH_FILTERS_PATH = resolve(__dirname, '../../../web/src/components/Sear
 const TIMELINE_PATH = resolve(__dirname, '../../../web/src/pages/Timeline.tsx')
 const STATS_CARDS_PATH = resolve(__dirname, '../../../web/src/components/StatsCards.tsx')
 const PIPELINE_EVENT_TYPES_PATH = resolve(__dirname, '../../src/types/pipeline-event.ts')
+const SESSION_TYPES_PATH = resolve(__dirname, '../types/session.ts')
 const SHARED_SCHEMA_PATH = 'packages/shared/src/schema/ingest.ts'
 const WEB_API_REL = 'packages/web/src/lib/api.ts'
 const WEB_TYPES_REL = 'packages/web/src/lib/types.ts'
@@ -203,6 +204,18 @@ const CANONICAL_PIPELINE_EVENT_STAGES = [
 // Source of truth: packages/shared/src/types/pipeline-event.ts.
 const CANONICAL_PIPELINE_EVENT_STATUSES = [
   'failed', 'started', 'success',
+] as const
+
+// Canonical 3-value SessionType set (P09c / migration 0026 / issue #119).
+// Source of truth: packages/shared/src/types/session.ts.
+const CANONICAL_SESSION_TYPES = [
+  'governance', 'planning', 'review',
+] as const
+
+// Canonical 4-value SessionStatus set (P09c / migration 0026 / issue #119).
+// Source of truth: packages/shared/src/types/session.ts.
+const CANONICAL_SESSION_STATUSES = [
+  'abandoned', 'active', 'complete', 'paused',
 ] as const
 
 describe('web <-> shared contract drift guard (CS-α / F2)', () => {
@@ -426,6 +439,46 @@ describe('PipelineEvent type drift guard (phase-P09b / #119)', () => {
         `packages/shared/src/types/pipeline-event.ts to match CANONICAL_PIPELINE_EVENT_STATUSES ` +
         `in this test file, AND update the DB CHECK constraint in ` +
         `packages/shared/drizzle/0025_pipeline_events_enum_checks.sql.`,
+    ).toEqual(canonicalSorted)
+  })
+})
+
+describe('Session type drift guard (phase-P09c / #119)', () => {
+  const sessionTypesSource = readFileSync(SESSION_TYPES_PATH, 'utf8')
+
+  it('SessionType TS union matches canonical 3-value list', () => {
+    const unionLiterals = extractUnionLiterals(sessionTypesSource, 'SessionType')
+    const unionSorted = sorted(unionLiterals)
+    const canonicalSorted = sorted(CANONICAL_SESSION_TYPES)
+
+    expect(
+      unionSorted,
+      `Drift detected in SessionType:\n` +
+        `  union     (packages/shared/src/types/session.ts): ${JSON.stringify(unionSorted)}\n` +
+        `  canonical (this test):                            ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type SessionType = ...\` union in ` +
+        `packages/shared/src/types/session.ts to match CANONICAL_SESSION_TYPES ` +
+        `in this test file, AND update the DB CHECK constraint in ` +
+        `packages/shared/drizzle/0026_sessions_enum_checks.sql.`,
+    ).toEqual(canonicalSorted)
+  })
+
+  it('SessionStatus TS union matches canonical 4-value list', () => {
+    const unionLiterals = extractUnionLiterals(sessionTypesSource, 'SessionStatus')
+    const unionSorted = sorted(unionLiterals)
+    const canonicalSorted = sorted(CANONICAL_SESSION_STATUSES)
+
+    expect(
+      unionSorted,
+      `Drift detected in SessionStatus:\n` +
+        `  union     (packages/shared/src/types/session.ts): ${JSON.stringify(unionSorted)}\n` +
+        `  canonical (this test):                            ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type SessionStatus = ...\` union in ` +
+        `packages/shared/src/types/session.ts to match CANONICAL_SESSION_STATUSES ` +
+        `in this test file, AND update the DB CHECK constraint in ` +
+        `packages/shared/drizzle/0026_sessions_enum_checks.sql.`,
     ).toEqual(canonicalSorted)
   })
 })
