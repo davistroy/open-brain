@@ -24,8 +24,15 @@ export type PipelineConfig = z.infer<typeof PipelineConfigSchema>
 // AI routing config schema
 // ============================================================
 
-/** Client preference for a model alias (openai_compat = direct OpenAI SDK to custom base_url) */
-export type AIClientType = 'anthropic' | 'litellm' | 'ollama' | 'openai_compat'
+/**
+ * Client preference for a model alias. Values correspond to tier provider strings
+ * that round-trip through `resolveProviderClient()` in the LLM gateway.
+ * - `openai_compat` = direct OpenAI SDK to custom base_url (Spark vLLM, Jetson llama.cpp)
+ * - `openai` / `deepseek` = direct OpenAI SDK to their cloud APIs (budget-checked)
+ * - `litellm` = legacy/LiteLLM proxy dispatch (budget-checked)
+ * - `anthropic` / `ollama` = dedicated SDK clients (subscription/local, budget-skipped)
+ */
+export type AIClientType = 'anthropic' | 'deepseek' | 'litellm' | 'ollama' | 'openai' | 'openai_compat'
 
 /** Detailed model entry with client routing and cost tracking */
 export const AIModelEntrySchema = z.object({
@@ -82,6 +89,8 @@ export const ModelTierEntrySchema = z.object({
   max_completion_tokens: z.number(),
   timeout_ms: z.number(),
   fallback: z.string().nullable().default(null),
+  cost_per_1k_input: z.number().optional(),
+  cost_per_1k_output: z.number().optional(),
 })
 
 export type ModelTierEntry = z.infer<typeof ModelTierEntrySchema>

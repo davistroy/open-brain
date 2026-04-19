@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, writeFileSync, rmSync, existsSync, copyFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ConfigService } from '../loader.js'
+
+// Path to the real production ai-routing.yaml (5 levels up from __tests__)
+const PROD_AI_ROUTING = resolve(__dirname, '../../../../../config/ai-routing.yaml')
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `open-brain-test-${Date.now()}`)
@@ -213,12 +216,16 @@ model_tiers:
     model: "claude-haiku-4-5-20251001"
     max_completion_tokens: 4096
     timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
     fallback: t2_quality
   t2_quality:
     provider: anthropic
     model: "claude-sonnet-4-6"
     max_completion_tokens: 8192
     timeout_ms: 30000
+    cost_per_1k_input: 0.003
+    cost_per_1k_output: 0.015
     fallback: null
 task_routing:
   intent_classification: t0_local
@@ -385,7 +392,7 @@ monthly_budget:
       expect(budget.hard_limit_usd).toBe(50)
     })
 
-    it('warns on invalid tier references in task_routing without crashing', () => {
+    it('throws on invalid tier references in task_routing (upgraded from warn to throw)', () => {
       const aiWithBadRef = `
 litellm_url: "https://api.openai.com/v1"
 models:
@@ -410,6 +417,8 @@ model_tiers:
     model: "claude-haiku-4-5-20251001"
     max_completion_tokens: 4096
     timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
     fallback: null
 task_routing:
   intent_classification: t0_nonexistent
@@ -424,14 +433,265 @@ monthly_budget:
       writeFileSync(join(tmpDir, 'notifications.yaml'), validNotifications)
 
       const service = new ConfigService(tmpDir)
-      // Should not throw -- just warn
+      // validateAiRoutingConfig now throws hard on unknown task_routing tier references
+      // (upgraded from non-fatal warn to fail-fast throw in P02a)
+      expect(() => service.load()).toThrow(/t0_nonexistent/)
+    })
+  })
+
+  // ================================================================
+  // validateAiRoutingConfig — cost field validation tests (P02a)
+  // ================================================================
+
+  describe('ai-routing cost validation', () => {
+    // Helpers to build minimal valid configs for other 3 files
+    function writeAuxConfigs(dir: string): void {
+      writeFileSync(join(dir, 'brain-views.yaml'), validBrainViews)
+      writeFileSync(join(dir, 'pipeline.yaml'), validPipeline)
+      writeFileSync(join(dir, 'notifications.yaml'), validNotifications)
+    }
+
+    // Minimal valid ai-routing.yaml with paid-provider tiers that have cost fields
+    const validTieredAi = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
+    fallback: null
+task_routing:
+  entity_extraction: t1_fast
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+
+    // 3.4.1: paid-provider tier missing cost_per_1k_input → throw
+    it('throws when paid-provider tier is missing cost_per_1k_input', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    cost_per_1k_output: 0.004
+    fallback: null
+task_routing:
+  entity_extraction: t1_fast
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).toThrow(/cost_per_1k_input/)
+      expect(() => service.load()).toThrow(/t1_fast/)
+    })
+
+    // 3.4.2: paid-provider tier has cost_per_1k_input but not cost_per_1k_output → throw
+    it('throws when paid-provider tier is missing cost_per_1k_output', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    fallback: null
+task_routing:
+  entity_extraction: t1_fast
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).toThrow(/cost_per_1k_output/)
+      expect(() => service.load()).toThrow(/t1_fast/)
+    })
+
+    // 3.4.3: paid-provider tier with explicit 0 cost → does NOT throw (self-declared free)
+    it('does not throw when paid-provider tier declares explicit zero costs', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_spark:
+    provider: openai_compat
+    model: "qwen3.5-35b"
+    base_url: "http://spark.k4jda.net:8000/v1"
+    max_completion_tokens: 4096
+    timeout_ms: 120000
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+    fallback: null
+task_routing:
+  entity_extraction: t1_spark
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
       expect(() => service.load()).not.toThrow()
-      // The valid reference still resolves correctly
-      const tier = service.getTaskTier('entity_extraction')
-      expect(tier).toBeDefined()
-      expect(tier!.provider).toBe('anthropic')
-      // The invalid reference returns undefined gracefully
-      expect(service.getTaskTier('intent_classification')).toBeUndefined()
+    })
+
+    // 3.4.4: ollama provider tier with no cost fields → does NOT throw (exempt)
+    it('does not throw when ollama provider tier has no cost fields', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t0_local:
+    provider: ollama
+    model: "gemma4:12b-q4_K_M"
+    base_url: "http://ollama:11434/v1"
+    max_completion_tokens: 256
+    timeout_ms: 10000
+    fallback: null
+task_routing:
+  intent_classification: t0_local
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).not.toThrow()
+    })
+
+    // 3.4.5: task_routing references non-existent tier → throw containing tier name
+    it('throws when task_routing references a non-existent tier', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
+    fallback: null
+task_routing:
+  entity_extraction: t99_nonexistent
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).toThrow(/t99_nonexistent/)
+    })
+
+    // 3.4.6: tier's fallback references non-existent tier → throw containing fallback name
+    it('throws when a tier fallback references a non-existent tier', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
+    fallback: t0_missing_tier
+task_routing:
+  entity_extraction: t1_fast
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).toThrow(/t0_missing_tier/)
+    })
+
+    // 3.4.7: hard_limit_usd <= soft_limit_usd → throw containing both values
+    it('throws when hard_limit_usd is not greater than soft_limit_usd', () => {
+      const ai = `
+models:
+  embedding:
+    model: text-embedding-3-large
+    client: litellm
+    cost_per_1k_input: 0.00013
+    cost_per_1k_output: 0
+model_tiers:
+  t1_fast:
+    provider: anthropic
+    model: "claude-haiku-4-5-20251001"
+    max_completion_tokens: 4096
+    timeout_ms: 20000
+    cost_per_1k_input: 0.0008
+    cost_per_1k_output: 0.004
+    fallback: null
+task_routing:
+  entity_extraction: t1_fast
+monthly_budget:
+  soft_limit_usd: 30
+  hard_limit_usd: 20
+`
+      writeAuxConfigs(tmpDir)
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), ai)
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).toThrow(/20/)
+      expect(() => service.load()).toThrow(/30/)
+    })
+
+    // 3.5.1: production drift guard — real config/ai-routing.yaml must pass validation
+    it('production ai-routing.yaml passes all validation rules (drift guard)', () => {
+      writeAuxConfigs(tmpDir)
+      copyFileSync(PROD_AI_ROUTING, join(tmpDir, 'ai-routing.yaml'))
+      const service = new ConfigService(tmpDir)
+      expect(() => service.load()).not.toThrow()
     })
   })
 })
