@@ -66,8 +66,13 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
   /**
    * Template-method wrapper. Checks `static minimum_autonomy` before delegating
    * to `run()`. Do NOT override this in subclasses — implement `run()` instead.
+   *
+   * `input` is optional at the base layer to preserve backwards compatibility
+   * with subclasses whose `run()` declares a default value (e.g.,
+   * `run(opts: T = {})`). The optionality is normalized here and `run()` still
+   * receives whatever default the subclass defined.
    */
-  async execute(input: TInput): Promise<TResult> {
+  async execute(input?: TInput): Promise<TResult> {
     const ctor = this.constructor as typeof BaseSkill
     const minimumAutonomy = ctor.minimum_autonomy
 
@@ -89,7 +94,7 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
       }
     }
 
-    return this.run(input)
+    return this.run(input as TInput)
   }
 
   /**

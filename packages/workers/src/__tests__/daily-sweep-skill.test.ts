@@ -726,8 +726,8 @@ describe('DailySweepSkill', () => {
         promptsDir: REPO_PROMPTS_DIR,
         coreApiUrl: 'http://localhost:3000',
       })
-      // @ts-ignore — inject litellm for test
-      skill.litellmClient = {
+      // inject litellm for test
+      ;(skill as unknown as { litellmClient: unknown }).litellmClient = {
         chat: { completions: { create: vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify(SAMPLE_OUTPUT) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }) } },
       }
 
@@ -746,8 +746,8 @@ describe('DailySweepSkill', () => {
         promptsDir: REPO_PROMPTS_DIR,
         coreApiUrl: 'http://localhost:3000',
       })
-      // @ts-ignore — inject litellm for test
-      skill.litellmClient = {
+      // inject litellm for test
+      ;(skill as unknown as { litellmClient: unknown }).litellmClient = {
         chat: { completions: { create: vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify(SAMPLE_OUTPUT) } }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } }) } },
       }
 

@@ -697,7 +697,8 @@ describe('WeeklyBriefSkill', () => {
     })
 
     it('runs at observe level (minimum_autonomy = observe, always-safe)', async () => {
-      vi.spyOn(globalThis, 'fetch').mockImplementation((url: string) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
         if (url.includes('/api/v1/settings/autonomy_level')) {
           return Promise.resolve({
             ok: true,
@@ -726,7 +727,8 @@ describe('WeeklyBriefSkill', () => {
     })
 
     it('runs at partner level (exceeds minimum_autonomy = observe)', async () => {
-      vi.spyOn(globalThis, 'fetch').mockImplementation((url: string) => {
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
         if (url.includes('/api/v1/settings/autonomy_level')) {
           return Promise.resolve({
             ok: true,
