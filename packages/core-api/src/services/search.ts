@@ -218,12 +218,11 @@ export class SearchService {
       const queryVector = await this.embeddingService.embed(query)
       const vectorLiteral = `[${queryVector.join(',')}]`
 
-      // Step 2: set HNSW ef_search for this query.
-      // SET LOCAL scopes to the current transaction; in Drizzle's auto-commit
-      // mode this is equivalent to SET for the duration of the execute() call.
-      // Ensures consistent HNSW recall tuning regardless of session defaults.
-      // Value comes from config/pipeline.yaml search.hnsw_ef_search (default 60).
-      await this.db.execute(sql`SET LOCAL hnsw.ef_search = ${this.hnswEfSearch}`)
+      // Step 2: set HNSW ef_search — session-scoped SET (not SET LOCAL, which
+      // is a no-op outside an explicit transaction in Drizzle auto-commit).
+      // sql.raw() required: SET does not accept parameterized $1 values.
+      // Safe for single-user system — all searches use the same config value.
+      await this.db.execute(sql`SET hnsw.ef_search = ${sql.raw(String(this.hnswEfSearch))}`)
 
       // Step 3: call hybrid_search with filters — Postgres applies WHERE clauses
       hybridRows = await this.db.execute<HybridSearchRow>(sql`
