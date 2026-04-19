@@ -5,6 +5,7 @@ import { ServiceUnavailableError } from '../utils/errors.js'
 import { ai_audit_log } from '../schema/index.js'
 import { logger } from '../lib/logger.js'
 import { ModelResolverError } from './model-resolver.js'
+import { PAID_PROVIDERS } from './ai-config-schema.js'
 import type { ConfigService } from '../config/loader.js'
 import type { Database } from '../db/index.js'
 import type { TemplateCache } from '../lib/prompt-template.js'
@@ -31,13 +32,37 @@ export class LLMGatewayError extends ServiceUnavailableError {
 }
 
 /**
- * Estimate cost for tier-based calls. Ollama and Anthropic are $0.
- * LiteLLM/OpenAI tiers default to $0 until per-tier cost config is added.
- * The ai_audit_log records all calls, enabling retroactive cost analysis.
+ * Estimate cost for a tier-based call using per-tier cost config.
+ *
+ * Reads `cost_per_1k_input` and `cost_per_1k_output` from the resolved
+ * `ModelTierEntry`. Both fields are required for paid-provider tiers (enforced
+ * by P02a's `validateAiRoutingConfig()` at startup). Undefined means ollama /
+ * local-free tier — returns 0. Explicit 0 means a free endpoint like Jetson
+ * or Spark — also returns 0. Non-zero produces a real cost value that will be
+ * written to `ai_audit_log.cost_usd`.
+ *
+ * Do not add provider-allowlist logic here — tier config is the single source of truth.
  */
-function estimateTierCostUsd(clientUsed: AIClientType, _promptTokens: number, _completionTokens: number): number {
-  if (clientUsed === 'ollama' || clientUsed === 'anthropic') return 0
-  return 0
+function estimateTierCostUsd(
+  tier: ModelTierEntry | undefined,
+  promptTokens: number,
+  completionTokens: number,
+): number {
+  if (!tier) return 0
+  const inputCost = tier.cost_per_1k_input ?? 0
+  const outputCost = tier.cost_per_1k_output ?? 0
+  if (inputCost === 0 && outputCost === 0) {
+    // Belt-and-suspenders: warn if a paid-provider tier somehow has undefined costs
+    // (P02a validator should catch this at startup, but log here just in case).
+    if (tier.cost_per_1k_input === undefined && PAID_PROVIDERS.has(tier.provider)) {
+      logger.warn(
+        { tier: tier.model, provider: tier.provider },
+        '[llm-gateway] paid-provider tier has undefined cost — audit will be 0; check P02a validator',
+      )
+    }
+    return 0
+  }
+  return (promptTokens / 1000) * inputCost + (completionTokens / 1000) * outputCost
 }
 
 /** Maximum number of tier fallback hops (T0 -> T1 -> T2) */
@@ -348,7 +373,7 @@ export class LLMGatewayService {
         }
 
         const durationMs = Date.now() - startMs
-        const costUsd = estimateTierCostUsd(client, promptTokens, completionTokens)
+        const costUsd = estimateTierCostUsd(tier, promptTokens, completionTokens)
 
         await this.logAudit({
           taskType: taskName,
@@ -818,7 +843,7 @@ export class LLMGatewayService {
     const tier = this.configService.getModelTier(effectiveTierKey)
     const model = tier?.model ?? 'unknown'
     const clientUsed: AIClientType = tier ? this.resolveProviderClient(tier.provider) : 'litellm'
-    const costUsd = estimateTierCostUsd(clientUsed, result.tokenUsage.input, result.tokenUsage.output)
+    const costUsd = estimateTierCostUsd(tier, result.tokenUsage.input, result.tokenUsage.output)
 
     await this.logAudit({
       taskType: taskName,
