@@ -206,11 +206,13 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P02c — recordAgentCompletion final-tier plumb-through
+### P02c — recordAgentCompletion final-tier plumb-through  ✅ Completed 2026-04-19 (PR #126)
 **Scope:** #122 thread `finalTierKey` from runAgent result through to recordAgentCompletion
 **Severity:** Low
 **Dependencies:** None (additive on #101 gateway work)
-**Effort:** ~4 hours
+**Effort:** ~4 hours (actual ~1 hour — smallest bootstrap phase)
+
+**Result:** Merged as squash `7b8407a`. #122 cleanly closed (sole PR, full closure). ~50 net LoC across 5 files. Gate 1 PROCEEDED (5 drift checks cleared, no schema migration required). Gate 4 APPROVE first cycle (Opus clean). Tests unchanged counts: shared 277/277, workers 960/960 — 4 assertions extended existing tests rather than adding new cases. Semantic refinement: `ai_audit_log.model` for agent-loop rows now reflects the tier that actually served (not initial). 4 legacy `runAgent` callers unaffected via optional `finalTierKey?` field. See LAB_NOTEBOOK Entry 095.
 
 **Deliverables:**
 - `packages/shared/src/services/run-agent.ts`: `AgentResult` gains `finalTierKey: string` field; loop tracks which tier served the last iteration
@@ -971,7 +973,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 119 | Sibling enum CHECKs (split by table) | P09a + P09b + P09c | 2 | Medium |
 | 120 | scripts/ pyright coverage (staged) | P28 → P32 (5 PRs) | 8 | Low |
 | 121 | voice-pipecat pyright re-enable | P27 | 8 | Medium |
-| 122 | recordAgentCompletion final-tier | P02c | 1 | Low |
+| 122 | recordAgentCompletion final-tier | P02c ✅ | 1 | Low |
 | 54 | Pipecat voice soak test | P24 | 6 | Feature |
 | 57 | Voice architecture decision | P25 | 6 | Feature |
 | 60 | Wiki construction | P26 | 7 | Feature |
