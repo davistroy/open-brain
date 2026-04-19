@@ -58,7 +58,7 @@ Arch-review hardening (P01–P07): rate limiting, admin reset two-step, backup s
 - **Admin reset two-step** (P04a): `POST /admin/reset-data` two-step (token + confirmation phrase). Pre-wipe `pg_dump`. `admin_audit` table excluded from TRUNCATE. Cloudflare Access email attribution. Origin allowlist fail-closed.
 - **Backup secrets redaction** (P04b): `scripts/backup.sh` strips `.env.secrets`. Regression guard `scripts/test-backup-secrets-redaction.sh`. `BACKUP_ROOT`/`APP_DIR` env overrides.
 - **Autonomy gate via BaseSkill** (P05): `BaseSkill.execute()` checks `static minimum_autonomy` before delegating to `run()`. 4 proactive skills gated (email-compose → advise; memory-consolidation + daily-sweep-skill → assist; weekly-brief → observe).
-- **Hebbian co-access tracking** (P06): `update-access-stats` BullMQ job. Batch-UPSERT invariant. Spreading activation `include_related` (API default false / MCP default true). Migration 0023.
+- **Hebbian co-access tracking** (P06): `update-access-stats` BullMQ job. Batch-UPSERT invariant. Spreading activation `include_related` (API default false / MCP default true). Building on migrations 0011-0012.
 - **Internal traffic hygiene** (P07): 16-entry `BYPASS_CALLERS` Set in rate-limit middleware. `X-Open-Brain-Caller` header on all internal callers. nginx `proxy_set_header` explicit per location. Scheduler cron slot registry (no two jobs on same minute).
 - **CaptureSource drift-guard test** (P01): Shared package test asserts `CaptureSource` union matches Zod `CAPTURE_SOURCES` array — no silent enum drift.
 - **Zod config validation** (P02c): `ConfigService.load()` validates `ai-routing.yaml` at startup; fails fast on missing cost fields for paid providers.
