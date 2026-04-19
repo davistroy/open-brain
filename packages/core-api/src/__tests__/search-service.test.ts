@@ -48,11 +48,13 @@ function makeMockEmbeddingService(vector = makeUnitVector()) {
 }
 
 /**
- * Build a mock db where:
- *  - First execute() call returns hybridRows (hybrid_search result)
- *  - Second execute() call returns captureRows (SELECT * FROM captures)
+ * Build a mock db for hybrid search mode (default) where:
+ *  - Call 1: SET LOCAL hnsw.ef_search = N  (P13 — before hybrid_search)
+ *  - Call 2: hybrid_search result
+ *  - Call 3: SELECT * FROM captures
  *
- * No further execute() calls — temporal decay is now computed in-memory.
+ * For FTS mode use makeMockDbFts() -- no SET LOCAL call in that path.
+ * Temporal decay is computed in-memory; no further execute() calls.
  */
 function makeMockDb(
   hybridRows: Array<{ capture_id: string; rrf_score: number; fts_score: number; vector_score: number }>,
@@ -60,8 +62,31 @@ function makeMockDb(
 ) {
   const execute = vi.fn()
 
-  // Call 1: hybrid_search
+  // Call 1: SET LOCAL hnsw.ef_search = N (P13 -- before hybrid_search)
+  execute.mockResolvedValueOnce({ rows: [] })
+
+  // Call 2: hybrid_search
   execute.mockResolvedValueOnce({ rows: hybridRows })
+
+  // Call 3: SELECT * FROM captures
+  execute.mockResolvedValueOnce({ rows: captureRows })
+
+  return { execute }
+}
+
+/**
+ * Build a mock db for FTS-only search mode where:
+ *  - Call 1: fts_only_search result  (no SET LOCAL -- HNSW not used in FTS path)
+ *  - Call 2: SELECT * FROM captures
+ */
+function makeMockDbFts(
+  ftsRows: Array<{ capture_id: string; rrf_score: number; fts_score: number; vector_score: number }>,
+  captureRows: CaptureRecord[],
+) {
+  const execute = vi.fn()
+
+  // Call 1: fts_only_search (no SET LOCAL before this)
+  execute.mockResolvedValueOnce({ rows: ftsRows })
 
   // Call 2: SELECT * FROM captures
   execute.mockResolvedValueOnce({ rows: captureRows })
@@ -199,7 +224,11 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -223,7 +252,11 @@ describe('SearchService', () => {
       }))
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: captures })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -233,7 +266,7 @@ describe('SearchService', () => {
       expect(results).toHaveLength(3)
     })
 
-    it('issues exactly 2 db.execute() calls per search (no per-row round-trips)', async () => {
+    it('issues exactly 3 db.execute() calls per hybrid search (SET LOCAL + hybrid_search + SELECT captures)', async () => {
       const captures = [makeCaptureRecord({ id: 'cap-1' }), makeCaptureRecord({ id: 'cap-2' })]
       const hybridRows = captures.map((c, i) => ({
         capture_id: c.id!,
@@ -247,8 +280,8 @@ describe('SearchService', () => {
 
       await service.search('n+1 check')
 
-      // Exactly 2: hybrid_search + SELECT captures — no per-row actr calls
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // Exactly 3: SET LOCAL hnsw.ef_search + hybrid_search + SELECT captures (no per-row round-trips)
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
   })
 
@@ -266,8 +299,8 @@ describe('SearchService', () => {
       const results = await service.search('cold start query') // no temporalWeight = default 0.0
 
       expect(results[0].score).toBe(0.8)
-      // Only 2 DB calls — no extra round-trips
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // 3 DB calls: SET LOCAL hnsw.ef_search + hybrid_search + SELECT captures
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
     it('applies decay and returns a lower score for an old capture when temporalWeight > 0', async () => {
@@ -285,7 +318,7 @@ describe('SearchService', () => {
       expect(results[0].score).toBeLessThan(0.8)
     })
 
-    it('still issues exactly 2 db.execute() calls when temporalWeight > 0', async () => {
+    it('still issues exactly 3 db.execute() calls when temporalWeight > 0', async () => {
       const capture = makeCaptureRecord({ created_at: new Date(Date.now() - 100 * 3_600_000) })
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
       const db = makeMockDb(hybridRows, [capture])
@@ -293,6 +326,60 @@ describe('SearchService', () => {
 
       await service.search('no extra db calls', { temporalWeight: 0.5 })
 
+      // SET LOCAL + hybrid_search + SELECT captures -- temporal decay is in-memory
+      expect(db.execute).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // hnsw.ef_search per-query SET LOCAL (P13 WI-6)
+  // -------------------------------------------------------------------------
+
+  describe('hnswEfSearch constructor param (P13)', () => {
+    it('accepts hnswEfSearch as third constructor param with default 60', () => {
+      // Constructor should accept 2-arg and 3-arg forms without throwing
+      const db = { execute: vi.fn() }
+      const svc2 = new SearchService(db as any, embeddingService as any)
+      expect(svc2).toBeInstanceOf(SearchService)
+
+      const svc3 = new SearchService(db as any, embeddingService as any, 80)
+      expect(svc3).toBeInstanceOf(SearchService)
+    })
+
+    it('issues SET LOCAL hnsw.ef_search before hybrid_search in hybrid mode', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+      const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT captures
+      execute.mockResolvedValueOnce({ rows: [capture] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any, 80)
+      await service.search('ef_search check')
+
+      // Must be 3 calls total (SET LOCAL + hybrid_search + captures)
+      expect(execute).toHaveBeenCalledTimes(3)
+      // First call should be the SET LOCAL — Drizzle sql`` objects carry their
+      // query chunks in .queryChunks or serialize to a SQL-like string via .sql
+      const firstArg = execute.mock.calls[0][0]
+      // Drizzle SQL objects have a `queryChunks` array or a `.sql` property
+      // depending on version. We stringify the whole structure to find the token.
+      const firstArgStr = JSON.stringify(firstArg)
+      expect(firstArgStr).toMatch(/hnsw/)
+    })
+
+    it('does NOT issue SET LOCAL hnsw.ef_search when searchMode is fts', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const ftsRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.0 }]
+      const db = makeMockDbFts(ftsRows, [capture])
+
+      const service = new SearchService(db as any, embeddingService as any, 80)
+      await service.search('fts no ef_search', { searchMode: 'fts' })
+
+      // Only 2 calls: fts_only_search + SELECT captures (no SET LOCAL)
       expect(db.execute).toHaveBeenCalledTimes(2)
     })
   })
@@ -312,8 +399,8 @@ describe('SearchService', () => {
 
       expect(results).toHaveLength(1)
       expect(results[0].capture.brain_view).toBe('technical')
-      // Verify exactly 2 DB calls (no in-memory filtering round-trips)
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // Verify exactly 3 DB calls: SET LOCAL + hybrid_search + SELECT captures (no in-memory filtering)
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
     it('passes captureTypes as Postgres text[] to hybrid_search', async () => {
@@ -353,14 +440,14 @@ describe('SearchService', () => {
 
       expect(results).toHaveLength(1)
       expect(results[0].score).toBe(0.8)
-      // Still exactly 2 DB calls
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // 3 DB calls: SET LOCAL + hybrid_search + SELECT captures
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
     it('passes filter params to fts_only_search in FTS mode', async () => {
       const capture = makeCaptureRecord({ id: 'cap-1', brain_view: 'career' })
-      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.0 }]
-      const db = makeMockDb(hybridRows, [capture])
+      const ftsRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.0 }]
+      const db = makeMockDbFts(ftsRows, [capture])
       const service = new SearchService(db as any, embeddingService as any)
 
       const results = await service.search('fts filter test', {
@@ -386,7 +473,11 @@ describe('SearchService', () => {
       }))
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: captures })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -395,8 +486,8 @@ describe('SearchService', () => {
 
       // At most limit results returned
       expect(results).toHaveLength(3)
-      // Only 2 execute calls — no overfetch round-trips
-      expect(execute).toHaveBeenCalledTimes(2)
+      // 3 execute calls: SET LOCAL + hybrid_search + SELECT captures
+      expect(execute).toHaveBeenCalledTimes(3)
     })
 
     it('handles combined filters (brainViews + dateFrom)', async () => {
@@ -445,8 +536,8 @@ describe('SearchService', () => {
       const results = await service.search('test', { recentCaptureIds: [] })
 
       expect(results[0].score).toBe(0.8)
-      // Still exactly 2 DB calls — no association lookup
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // 3 DB calls: SET LOCAL + hybrid_search + SELECT captures (no association lookup)
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
     it('does not change scores when recentCaptureIds is undefined (default)', async () => {
@@ -458,7 +549,8 @@ describe('SearchService', () => {
       const results = await service.search('test')
 
       expect(results[0].score).toBe(0.8)
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // 3 DB calls: SET LOCAL + hybrid_search + SELECT captures
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
     it('applies a boost when associations exist with recent captures', async () => {
@@ -470,11 +562,13 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
-      // Call 1: hybrid_search
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
-      // Call 2: SELECT * FROM captures
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
-      // Call 3: association lookup — cap-1 has an association with a recent capture
+      // Call 4: association lookup — cap-1 has an association with a recent capture
       execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 5.0 }] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -488,8 +582,8 @@ describe('SearchService', () => {
       // cap-2 has no association, stays at 0.7
       expect(results[1].capture.id).toBe('cap-2')
       expect(results[1].score).toBe(0.7)
-      // 3 DB calls: hybrid_search + captures + association lookup
-      expect(execute).toHaveBeenCalledTimes(3)
+      // 4 DB calls: SET LOCAL + hybrid_search + captures + association lookup
+      expect(execute).toHaveBeenCalledTimes(4)
     })
 
     it('caps the boost at 10% even with very high association weights', async () => {
@@ -497,9 +591,13 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture] })
-      // Association with very high weight — normalized to 1.0
+      // Call 4: Association with very high weight — normalized to 1.0
       execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 999.0 }] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -520,10 +618,15 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
       // cap-1 has weight 10.0, cap-2 has weight 5.0
       // After normalization: cap-1 = 1.0, cap-2 = 0.5
+      // Call 4: association lookup
       execute.mockResolvedValueOnce({ rows: [
         { capture_id: 'cap-1', max_weight: 10.0 },
         { capture_id: 'cap-2', max_weight: 5.0 },
@@ -546,9 +649,13 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.6, vector_score: 0.9 }]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture] })
-      // No associations found
+      // Call 4: No associations found
       execute.mockResolvedValueOnce({ rows: [] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -569,9 +676,13 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
-      // Only cap-1 has an association with a recent capture
+      // Call 4: Only cap-1 has an association with a recent capture
       execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 3.0 }] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -757,8 +868,8 @@ describe('SearchService', () => {
 
       expect(response.results).toHaveLength(1)
       expect(response.relatedResults).toBeUndefined()
-      // No extra DB calls for spreading activation
-      expect(db.execute).toHaveBeenCalledTimes(2)
+      // 3 calls: SET LOCAL + hybrid_search + SELECT captures (no spreading activation)
+      expect(db.execute).toHaveBeenCalledTimes(3)
     })
 
     it('includes related captures when includeRelated is true', async () => {
@@ -767,15 +878,17 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
 
       const execute = vi.fn()
-      // Call 1: hybrid_search (primary search)
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search (primary search)
       execute.mockResolvedValueOnce({ rows: hybridRows })
-      // Call 2: SELECT captures (primary)
+      // Call 3: SELECT captures (primary)
       execute.mockResolvedValueOnce({ rows: [primaryCapture] })
-      // Call 3: spreading_activation
+      // Call 4: spreading_activation
       execute.mockResolvedValueOnce({ rows: [
         { capture_id: 'related-1', activation_score: 0.6, hop_count: 1 },
       ] })
-      // Call 4: SELECT captures (related)
+      // Call 5: SELECT captures (related)
       execute.mockResolvedValueOnce({ rows: [relatedCapture] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -797,14 +910,20 @@ describe('SearchService', () => {
       ]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT captures (primary)
       execute.mockResolvedValueOnce({ rows: [cap1, cap2] })
       // spreading_activation returns cap-2 (already in primary) and related-1 (new)
       const relatedCapture = makeCaptureRecord({ id: 'related-1' })
+      // Call 4: spreading_activation
       execute.mockResolvedValueOnce({ rows: [
         { capture_id: 'cap-2', activation_score: 0.9, hop_count: 1 },
         { capture_id: 'related-1', activation_score: 0.5, hop_count: 2 },
       ] })
+      // Call 5: SELECT captures (related)
       execute.mockResolvedValueOnce({ rows: [cap2, relatedCapture] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -828,17 +947,22 @@ describe('SearchService', () => {
       }))
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: captures })
       // Spreading activation returns nothing — we just want to verify it was called
+      // Call 4: spreading_activation
       execute.mockResolvedValueOnce({ rows: [] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
 
       await service.searchWithRelated('test', { includeRelated: true })
 
-      // Verify spreading_activation was called (3rd execute call)
-      expect(execute).toHaveBeenCalledTimes(3)
+      // Verify spreading_activation was called (4th execute call: SET LOCAL + hybrid_search + captures + spreading_activation)
+      expect(execute).toHaveBeenCalledTimes(4)
       // The SQL call should contain the seed IDs — we verify by checking
       // that it was called at all (the function uses top 5)
     })
@@ -848,9 +972,13 @@ describe('SearchService', () => {
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
 
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture] })
-      // Spreading activation returns nothing
+      // Call 4: Spreading activation returns nothing
       execute.mockResolvedValueOnce({ rows: [] })
 
       const service = new SearchService({ execute } as any, embeddingService as any)
@@ -883,11 +1011,17 @@ describe('SearchService', () => {
       // Run with includeRelated
       embeddingService = makeMockEmbeddingService()
       const execute = vi.fn()
+      // Call 1: SET LOCAL hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT * FROM captures (primary)
       execute.mockResolvedValueOnce({ rows: [capture] })
+      // Call 4: spreading_activation
       execute.mockResolvedValueOnce({ rows: [
         { capture_id: 'related-1', activation_score: 0.6, hop_count: 1 },
       ] })
+      // Call 5: SELECT * FROM captures (related)
       execute.mockResolvedValueOnce({ rows: [makeCaptureRecord({ id: 'related-1' })] })
       const service2 = new SearchService({ execute } as any, embeddingService as any)
       const response = await service2.searchWithRelated('test', { includeRelated: true })

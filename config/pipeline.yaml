@@ -21,3 +21,5 @@ retry:
   max_attempts: 5
   backoff_ms: [30000, 120000, 600000, 1800000, 7200000]
 daily_sweep_cron: "0 3 * * *"
+search:
+  hnsw_ef_search: 60

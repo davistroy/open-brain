@@ -110,6 +110,10 @@ export class SearchService {
   constructor(
     private db: Database,
     private embeddingService: EmbeddingService,
+    /** HNSW ef_search value -- set per-query via SET LOCAL before hybrid_search().
+     * Default 60 matches config/pipeline.yaml search.hnsw_ef_search default.
+     * Read from pipeline config at injection time in index.ts (route factory). */
+    private hnswEfSearch: number = 60,
   ) {}
 
   /**
@@ -214,7 +218,14 @@ export class SearchService {
       const queryVector = await this.embeddingService.embed(query)
       const vectorLiteral = `[${queryVector.join(',')}]`
 
-      // Step 2: call hybrid_search with filters — Postgres applies WHERE clauses
+      // Step 2: set HNSW ef_search for this query.
+      // SET LOCAL scopes to the current transaction; in Drizzle's auto-commit
+      // mode this is equivalent to SET for the duration of the execute() call.
+      // Ensures consistent HNSW recall tuning regardless of session defaults.
+      // Value comes from config/pipeline.yaml search.hnsw_ef_search (default 60).
+      await this.db.execute(sql`SET LOCAL hnsw.ef_search = ${this.hnswEfSearch}`)
+
+      // Step 3: call hybrid_search with filters — Postgres applies WHERE clauses
       hybridRows = await this.db.execute<HybridSearchRow>(sql`
         SELECT capture_id::text, rrf_score, fts_score, vector_score
         FROM hybrid_search(
