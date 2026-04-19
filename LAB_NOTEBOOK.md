@@ -7423,3 +7423,68 @@ Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -
 - **CLAUDE.md rules added:** 3 (sessions.session_type lockstep, sessions.status lockstep, Board.tsx UI-type isolation note).
 - **Resume point:** P10a — CI gating: integration tests (gate_4_review, still in flight).
 
+---
+
+## Entry 106 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update
+
+**Tags:** [ci] [config] [docs]
+**Environment:** laptop (worktree agent-af283840), branch `feat/phase-P10b-ci-pytest-jobs`
+**Date:** 2026-04-19
+
+### Objective
+
+Add two new Python pytest CI jobs (`voice-pipecat-test`, `file-ingestion-test`) to `.github/workflows/ci.yml` — gating the 54 voice-pipecat and 26 file-ingestion tests that currently run only locally. Also create `packages/voice-pipecat/tests/requirements.txt` (lightweight, no pipecat-ai/PyTorch) and update test-count claims in `README.md` and `arch-review/intake.md` to reflect accurate current counts (2,689 unit + 91 regression).
+
+### Hypothesis
+
+- `packages/voice-pipecat/tests/requirements.txt` created with 9 lightweight deps (no pipecat-ai) → installs in <60s on ubuntu-latest
+- `voice-pipecat-test` job with `working-directory: packages/voice-pipecat` and `cache-dependency-path: packages/voice-pipecat/tests/requirements.txt` runs 54 tests green
+- `file-ingestion-test` job with `working-directory: packages/file-ingestion` runs 26 tests green (uses existing `requirements.txt`)
+- Both jobs have no `continue-on-error` (pure unit tests, no external deps)
+- `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` exits 0 after edits
+- README "95 tests" → "91 tests" in regression-test.mjs descriptor
+- `arch-review/intake.md` line 15: "1,569 unit + 95 regression" → "2,689 unit + 91 regression"
+
+### Rollback Plan
+
+All changes confined to CI config + docs. `git revert` removes the two new CI jobs and doc string changes. No application code, no schema, no Docker changes. No homeserver deploy required.
+
+### Pre-flight Checks
+
+- voice-pipecat pyproject.toml confirmed: `[tool.pytest.ini_options] testpaths = ["tests"]`, `asyncio_mode = "auto"` — no CLI flags needed
+- file-ingestion `requirements.txt` already contains `pytest==8.3.5`, `pytest-asyncio==0.26.0`, `httpx==0.28.1` — no separate test requirements file needed
+- Sidecar-test job (lines 51-71) confirmed as reference pattern
+- Integration-test job added by P10a at lines 112-170 confirmed present
+
+### Implementation
+
+**WI 1 — `packages/voice-pipecat/tests/requirements.txt` (new file)**
+- Created with 9 deps: `anthropic>=0.49.0`, `httpx>=0.27.0`, `fastapi>=0.115.0`, `pydantic>=2.0`, `pydantic-settings>=2.0`, `redis>=5.0.0`, `pyyaml>=6.0`, `pytest>=8.0,<9.0`, `pytest-asyncio>=0.24.0`
+- No `pipecat-ai` — confirmed `pipeline.py` is the only pipecat-importing file, not covered by tests
+- Commit: `5e4e731` — `feat(phase-P10b)/1.1: voice-pipecat test requirements.txt (no pipecat-ai)`
+
+**WI 2+3 — Both new CI jobs added to `.github/workflows/ci.yml`**
+- Inserted `voice-pipecat-test` and `file-ingestion-test` jobs after `sidecar-test`, before `validate-schema`
+- Both jobs: `timeout-minutes: 10`, no `continue-on-error`, `python-version: '3.12'`
+- `voice-pipecat-test`: `cache-dependency-path: packages/voice-pipecat/tests/requirements.txt`, `working-directory: packages/voice-pipecat` on pytest step, installs from new `tests/requirements.txt`
+- `file-ingestion-test`: `cache-dependency-path: packages/file-ingestion/requirements.txt`, `working-directory: packages/file-ingestion` on both install and pytest steps
+- YAML validation: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` → **exit 0** (YAML valid)
+- Commit: `a292853` — `feat(phase-P10b)/1.2: voice-pipecat-test + file-ingestion-test CI jobs`
+
+**WI 4+5 — Doc updates**
+- `README.md` line 53: `(95 tests)` → `(91 tests)` in regression-test.mjs descriptor
+- `README.md`: no other test-count string changed (confirmed via grep — no 1,569/1569 in README body)
+- `arch-review/intake.md` line 15: `1,569 unit + 95 regression` → `2,689 unit + 91 regression`
+- `arch-review/intake.md` line 66: CI job list extended with `voice-pipecat-test (pytest)` and `file-ingestion-test (pytest)` alongside existing `sidecar-test`
+- Commit: `e547d8c` — `docs(phase-P10b)/1.3: update test counts (2,689 unit + 91 regression)`
+
+### Results
+
+- All 5 deliverables complete (D1 + D2 + D3 + D4 + D5)
+- 3 commits: `5e4e731`, `a292853`, `e547d8c`
+- YAML valid (exit 0 confirmed)
+- Zero application code touched; zero TS packages modified; `pnpm -r test` not required
+- Python CI post-merge: `sidecar-test` (13), `voice-pipecat-test` (54), `file-ingestion-test` (26) = 93 Python tests total in CI
+
+**Duration:** ~15 minutes
+
