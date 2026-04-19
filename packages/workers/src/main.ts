@@ -236,7 +236,7 @@ async function main() {
   logger.info({ count: workers.length }, 'All workers registered')
 
   // Scheduled jobs
-  await registerScheduledJobs(connection)
+  const scheduledQueues = await registerScheduledJobs(connection)
   logger.info('Scheduled jobs registered')
 
   // Graceful shutdown
@@ -246,7 +246,10 @@ async function main() {
     shuttingDown = true
     logger.info({ signal }, 'Shutting down workers...')
     await Promise.allSettled(workers.map(w => w.close()))
-    await Promise.allSettled(Object.values(queues).map(q => q.close()))
+    await Promise.allSettled([
+      ...Object.values(queues).map(q => q.close()),
+      ...Object.values(scheduledQueues).map(q => q.close()),
+    ])
     if (flowProducer) await flowProducer.close().catch(() => {})
     await dedupRedis.quit().catch(() => {})
     await composioMeterRedis.quit().catch(() => {})

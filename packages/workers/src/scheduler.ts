@@ -11,6 +11,7 @@ export interface ScheduledQueues {
   dailySweep: Queue<DailySweepJobData>
   budgetCheck: Queue<BudgetCheckJobData>
   skillExecution: Queue<SkillExecutionJobData>
+  pruneAssociations: Queue<{ triggeredAt: string }>
 }
 
 /**
@@ -33,6 +34,7 @@ export interface ScheduledQueues {
  * - wiki-synthesis: 6:00 AM daily (cron: 0 6 * * *) — queues unintegrated captures for wiki-ingest
  * - container-health: every 15 min (cron: 0,15,30,45 * * * *) — /health checks on all containers
  * - storage-audit: 3:00 AM Sundays (cron: 0 3 * * 0) — Postgres, Redis, backup, wiki sizes
+ * - prune-associations: 3:30 AM Sundays (cron: 30 3 * * 0) — prunes stale low-weight Hebbian capture_associations (P06)
  * - secret-rotation: 10:00 AM 1st of month (cron: 0 10 1 * *) — checks API key ages via bws CLI, alerts if > 90 days
  * - capture-dedup-sweep: 4:00 AM Saturdays (cron: 0 4 * * 6) — flags near-duplicate captures (cosine > 0.95) for review
  *
@@ -418,5 +420,35 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: emailClassifyCron }, '[scheduler] email-classify repeatable job registered')
 
-  return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue }
+  // --------------------------------------------------------
+  // Prune associations (3:30 AM Sundays)
+  // Staggered 30 min after storage-audit (0 3 * * 0) and 30 min before
+  // memory-consolidation (0 4 * * 0) — safe slot, no Sunday cron collision.
+  // --------------------------------------------------------
+  const pruneAssociationsCron = '30 3 * * 0'
+
+  const pruneAssociationsQueue = new Queue<{ triggeredAt: string }>(
+    'prune-associations',
+    {
+      connection,
+      defaultJobOptions: {
+        attempts: 1,
+        removeOnComplete: { count: 10 },
+        removeOnFail: { count: 10 },
+      },
+    },
+  )
+
+  await pruneAssociationsQueue.add(
+    'prune-associations',
+    { triggeredAt: new Date().toISOString() },
+    {
+      repeat: { pattern: pruneAssociationsCron },
+      jobId: 'prune-associations-recurring',
+    },
+  )
+
+  logger.info({ cron: pruneAssociationsCron }, '[scheduler] prune-associations repeatable job registered')
+
+  return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue, pruneAssociations: pruneAssociationsQueue }
 }
