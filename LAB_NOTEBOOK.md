@@ -6436,6 +6436,10 @@ Success criteria:
 
 **Result (3.1–3.3):** `admin_audit` table added to `packages/shared/src/schema/supporting.ts` after `backup_log`. Migration `0023_admin_audit.sql` created. `scripts/init-schema.sql` appended with idempotent DDL. `pnpm --filter @open-brain/shared build` — SUCCESS (145.90 KB ESM, 257.63 KB DTS, 0 errors).
 
+**Work items 3.4, 3.5, 3.6, 3.7, 3.8 in progress** — Hypothesis: two-step route rewrite in admin.ts with Origin check helper, pg_dump subprocess, writeAuditRow helper, and resetRedis Redis client will build cleanly with no TypeScript errors.
+
+**Result (3.4–3.8):** admin.ts refactored — added imports (`randomBytes`, `spawn`, `mkdirSync`, `Context`, `admin_audit`), module-level helpers (`checkOrigin`, `getActor`, `getClientIp`, `writeAuditRow`, `runPreWipeDump`), `resetRedis` instance at router creation, and full two-step `POST /reset-data` handler. TRUNCATE block has explicit code comment excluding `admin_audit`. `pnpm --filter @open-brain/core-api build` — SUCCESS (303.13 KB ESM, 0 errors).
+
 ---
 
 
