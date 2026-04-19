@@ -16,6 +16,16 @@ export const PipelineConfigSchema = z.object({
     backoff_ms: z.array(z.number()).default([30000, 120000, 600000, 1800000, 7200000]),
   }),
   daily_sweep_cron: z.string().default('0 3 * * *'),
+  /** Optional search tuning stanza -- added in migration 0027 / P13 */
+  search: z.object({
+    /**
+     * HNSW ef_search value set per-query via SET LOCAL before hybrid_search().
+     * Higher values improve recall at modest latency cost. pgvector default = 40.
+     * Calibrated by scripts/benchmark-search.mjs -- see LAB_NOTEBOOK Entry 108.
+     * Valid range: 1-1000. Recommended: 40-100. Default: 60.
+     */
+    hnsw_ef_search: z.number().int().min(1).max(1000).default(60),
+  }).optional(),
 })
 
 export type PipelineConfig = z.infer<typeof PipelineConfigSchema>

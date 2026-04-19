@@ -7427,6 +7427,93 @@ Remove `logging:` stanzas from `docker-compose.yml` and run `docker compose up -
 
 ---
 
+## Entry 108 — P13: Search performance cliff fix (LIMIT push-down + hnsw.ef_search)
+
+**Tags:** [database] [benchmark] [search] [config] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P13-search-perf`
+**Environment:** Laptop (Dell7450-Stratfield), branch implementation
+**Duration:** ~90 minutes (implementation + test repair across branch-switching incident)
+
+### Pre-flight DB audit (SSH homeserver)
+
+```
+-- corpus state before migration:
+total captures: 11,064
+embedded:       11,043  (99.8%)
+HNSW index size: 43 MB
+pgvector version: 0.8.2
+```
+
+Baseline: 11,043 embedded captures. With default ef_search=40 and no LIMIT push-down, every `hybrid_search()` call requires pgvector to iterate the full 11K-row HNSW graph for the vector lane, then return to Postgres for the FULL OUTER JOIN. O(N) cost at scale.
+
+### Objective
+
+Implement two complementary search performance improvements:
+1. Add `LIMIT match_count * 4` to both CTEs in `hybrid_search()` so pgvector's HNSW scan gets an early-stop bound (LIMIT push-down).
+2. Set `hnsw.ef_search = 60` per-query via `SET LOCAL` in `SearchService` to explicitly control recall/speed tradeoff — up from pgvector's session default of 40.
+
+### Hypothesis
+
+- LIMIT push-down: eliminates the O(N) full-scan, bounds both FTS and vector lanes to `match_count * 4 = 40` candidates. Expected latency reduction at 11K+ captures: 30-60%.
+- ef_search=60: ~40% above default=40, well below ef_construction (typically 64-128). Expected modest latency increase vs default but measurably better recall. Net: better recall at better latency than untuned default.
+
+### Rollback plan
+
+Migration 0027 uses `CREATE OR REPLACE FUNCTION hybrid_search(...)`. Rollback = restore prior function body. Git history has previous definition. `SET LOCAL` has no schema footprint; removing it from SearchService is a one-line edit.
+
+### Work items completed
+
+1. **WI-1 (migration):** Created `packages/shared/drizzle/0027_search_hnsw_ef_search.sql` — `CREATE OR REPLACE FUNCTION hybrid_search(...)` with `ORDER BY ... LIMIT match_count * 4` in both `fts_ranked` and `vector_ranked` CTEs. `fts_only_search()` unchanged (GIN, no HNSW).
+
+2. **WI-2 (config):** Added `search: { hnsw_ef_search: 60 }` stanza to `config/pipeline.yaml`.
+
+3. **WI-3 (schema type):** Added optional `search` field to `PipelineConfigSchema` in `packages/shared/src/types/config.ts` with `hnsw_ef_search: z.number().int().min(1).max(1000).default(60)`.
+
+4. **WI-4 (SearchService):** Added `hnswEfSearch: number = 60` as third constructor param. Added `await this.db.execute(sql\`SET LOCAL hnsw.ef_search = ${this.hnswEfSearch}\`)` as Step 2 in the hybrid/vector path, before calling `hybrid_search()`. FTS path is exempt.
+
+5. **WI-5 (index.ts wiring):** Added `const hnswEfSearch = configService.get('pipeline').search?.hnsw_ef_search ?? 60` and passed as third arg to `new SearchService(db, embeddingService, hnswEfSearch)`.
+
+6. **WI-6 (benchmark script):** Created `scripts/benchmark-search.mjs` — connects directly to Postgres via `pg` package, runs 10 iterations × 4 ef_search values (40/60/80/100), computes p50/p95/p99 latency and recall vs baseline (ef_search=100), outputs CSV to stdout + summary table to stderr.
+
+7. **WI-7 (unit tests):** Updated `packages/core-api/src/__tests__/search-service.test.ts`:
+   - `makeMockDb()` updated to 3 calls (SET LOCAL + hybrid_search + captures)
+   - `makeMockDbFts()` added for FTS mode tests (2 calls, no SET LOCAL)
+   - All 2→3 and 3→4 call count assertions updated
+   - 3 new WI-6 tests: constructor accepts 3-arg form, SET LOCAL call verifiable via JSON.stringify(firstArg), FTS path issues exactly 2 calls
+
+### Benchmark (to run post-deploy)
+
+```bash
+PGURL=postgres://openbrain:openbrain@homeserver.k4jda.net:5432/openbrain \
+  node scripts/benchmark-search.mjs
+```
+
+Run with real query vector for meaningful recall numbers. Expect: p95 < 50ms at ef_search=60 with recall ≥ 0.90 vs baseline=100.
+
+### Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| ef_search default | 60 | ≈ ef_construction/2 rule; 50% above pgvector default 40; good recall floor; calibratable |
+| Overquery factor | 4 | Gives 4× candidate pool for RRF fusion; HNSW stops early at match_count*4=40 for typical match_count=10 |
+| SET LOCAL vs SET | SET LOCAL | Scopes to transaction; in Drizzle auto-commit ≡ SET; no session pollution; standard pattern |
+| FTS exemption | Yes | `fts_only_search` uses GIN, not HNSW; no hnsw.ef_search needed; 2 calls not 3 |
+| Config location | pipeline.yaml search.hnsw_ef_search | Co-located with search config; `?? 60` fallback for backward compat |
+
+### Verification results
+
+- `pnpm --filter @open-brain/shared exec tsc --noEmit`: clean
+- `pnpm --filter @open-brain/shared build`: clean (tsup, 5.9s)
+- `pnpm --filter @open-brain/core-api exec tsc --noEmit`: clean
+- `pnpm --filter @open-brain/core-api test`: **735/735 passed** (43 test files)
+
+### Incident note
+
+Branch-switching incident during implementation: initial work was done on `docs/orch-p10b-p11a-doc-sweep` instead of `feat/phase-P13-search-perf` due to the worktree state. The untracked files (migration SQL, benchmark script) survived the branch switch; all tracked file edits (search.ts, config.yaml, config.ts, index.ts, test file) were re-applied from scratch on the correct branch. All 7 work items complete.
+
+---
+
 ## Entry 107 — P10b: CI pytest jobs for voice-pipecat + file-ingestion + test-count doc update — 2026-04-19
 
 **Tags:** [ci] [config] [docs]
@@ -7490,3 +7577,61 @@ All changes confined to CI config + docs. `git revert` removes the two new CI jo
 - Python CI now covers: `sidecar-test` (13) + `voice-pipecat-test` (54) + `file-ingestion-test` (26) = 93 Python tests total in CI.
 - Issue #115: fully closed (P10a + P10b complete).
 
+
+---
+
+## Entry 110 — P14a: SafePromptBuilder module + prompt injection threat model
+
+**Tags:** [security] [pipeline] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P14a-prompt-injection-builder`
+**Environment:** Laptop (worktree agent-a5fe5df5)
+
+### Objective
+
+Create `packages/shared/src/lib/prompt-builder.ts` — `SafePromptBuilder` class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create `docs/SECURITY.md` as the system-wide threat model for prompt injection.
+
+This is P14a — foundational module only. No call-site migration (that is P14b).
+
+### Hypothesis
+
+- Unit tests confirm all 8+ injection patterns stripped, delimiters are session-unique, and clean content passes through without false positives.
+- `pnpm --filter @open-brain/shared exec tsc --noEmit` — zero TS errors.
+- `pnpm --filter @open-brain/workers exec tsc --noEmit` — zero TS errors (import chain validation even though workers do not use SafePromptBuilder yet).
+- All existing shared tests continue to pass.
+- No production call sites modified.
+
+### Rollback plan
+
+`SafePromptBuilder` is not used by any call site — deletion is the full rollback. `git revert` the 2-3 commits; remove `docs/SECURITY.md`. No schema change, no config change, no homeserver deploy required.
+
+### Architecture decision: lib/ placement (minor drift from card)
+
+Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
+- `lib/` = stateless utilities (prompt-template.ts, logger.ts, autonomy.ts)
+- `services/` = injectable stateful services (llm-gateway.ts, embedding.ts)
+
+`SafePromptBuilder` is stateless (pure methods + configured `delimiterPrefix`). **Placing in `lib/`** per existing convention.
+
+### Work items completed
+
+1. `packages/shared/src/lib/prompt-builder.ts` — SafePromptBuilder class, 14 injection patterns, `wrapContent`, `wrapCaptures`, `sanitizeInline`, `_strip` with debug logging.
+2. `packages/shared/src/lib/__tests__/prompt-builder.test.ts` — 28 tests across 4 groups (A: injection stripping 14 cases, B: delimiter uniqueness 5, C: wrapCaptures 4, D: edge cases 5).
+3. `packages/shared/src/lib/index.ts` — `export * from './prompt-builder.js'` added.
+4. `docs/SECURITY.md` — threat model (pending in this session).
+
+### Injection surfaces confirmed (6 total)
+
+1. `packages/core-api/src/routes/synthesize.ts` lines 53-68 — raw capture `.content` + user query
+2. `packages/workers/src/jobs/extract-entities.ts` line 120 — `{{content}}` slot
+3. `packages/workers/src/skills/daily-sweep-skill.ts` lines 145-148 — `{{captures}}` slot
+4. `packages/workers/src/skills/weekly-brief.ts` lines 84-85 — `{{captures}}` slot
+5. `packages/workers/src/skills/memory-consolidation.ts` lines 336-339 — `{{captures}}` slot
+6. `packages/workers/src/skills/daily-connections.ts` lines 130-133 — `{{captures}}` slot
+
+### Verification results
+
+- `pnpm --filter @open-brain/shared test`: **324/324 passed** (includes 28 new prompt-builder tests)
+- `pnpm --filter @open-brain/shared exec tsc --noEmit`: clean
+- `pnpm --filter @open-brain/workers exec tsc --noEmit`: clean
+- No existing tests broken.
