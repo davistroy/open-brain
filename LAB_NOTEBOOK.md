@@ -6192,3 +6192,79 @@ Success criteria:
 
 ---
 
+#### Gate 3 Implementation — 2026-04-19
+
+**Implementer:** implement-executor (Sonnet 4.6)
+**Started:** 2026-04-19T12:48:17Z
+**Completed:** 2026-04-19T13:10:00Z (approx)
+
+**Work Items Completed (all 8 of 8):**
+
+**Work item 3.1 — COMPLETE**: `estimateTierCostUsd()` widened in `llm-gateway.ts`.
+- Signature: `(tier: ModelTierEntry | undefined, promptTokens, completionTokens) => number`
+- Reads `cost_per_1k_input` / `cost_per_1k_output` from tier config. Undefined → 0 (ollama/local). Explicit 0 → 0 (Jetson/Spark free). Non-zero → real cost.
+- Added `PAID_PROVIDERS` import from `ai-config-schema.js` for belt-and-suspenders warn log.
+- Both call sites updated (completeWithTierFallback, recordAgentCompletion).
+
+**Work item 3.2 — COMPLETE**: 3 new estimator tests in `llm-gateway.test.ts`.
+- Extended `mkTier` factory to forward `cost_per_1k_input` / `cost_per_1k_output` (undefined by default — backward compat; existing tests still pass).
+- Tests A (anthropic paid: $0.003/$0.015 → $0.0105 for 1K/500 tokens), B (openai_compat explicit-0 → $0), C (ollama undefined → $0).
+- Tests pass. shared: 277 → 280.
+
+**Work item 3.3 — COMPLETE**: `ComposioQuotaExceededError` class exported from `composio-client.ts`.
+- Message: `"Composio monthly quota hard stop: ${count} calls used (limit: 19000). No further Composio calls this month."`
+
+**Work item 3.4 — COMPLETE**: `ComposioClientOptions` interface + overloaded constructor.
+- Duck-typed `ComposioRedisClient` interface (`{ incr, expire }`) avoids ioredis dep in `@open-brain/shared`.
+- String-form constructor unchanged (backward compat). Options-form: `{ apiKey?, redis?, pushover? }`.
+
+**Work item 3.5 — COMPLETE**: `checkAndIncrementQuota()` method wired as first line of `execute()`.
+- INCR before API call (atomic — prevents quota escape). TTL set to 35 days on count=1. Warn at 15K. Hard-stop (throws) at count > 19K.
+- Pushover failures swallowed via `.catch(() => {})` — never block the actual Composio call.
+
+**Work item 3.6 — COMPLETE**: `composioMeterRedis` wired through workers.
+- `main.ts`: dedicated ioredis instance; connect at startup; pass to `createSkillExecutionWorker`; quit gracefully on shutdown.
+- `skill-execution.ts`: opts extended with `composioMeterRedis?` + `pushover?`; passed to `MorningBriefSkill` in `case 'morning-brief'`.
+- `morning-brief.ts`: `MorningBriefSkillOpts` extended with `composioRedis?` + `composioPushover?`; stored on class; passed to `fetchCalendarEvents` via new optional third param; `fetchCalendarEvents` builds `ComposioClient` via options form.
+
+**Work item 3.7 — COMPLETE**: 6 new composio-quota tests (`composio-quota.test.ts`).
+- Tests A (counter+TTL on first call), B (no TTL on count>1), C (Pushover warn at 15K), D (ComposioQuotaExceededError at 19001), E (backward compat — no Redis), F (Pushover failure swallowed).
+- Implementation note: `mockImplementation` required (not `mockResolvedValue`) so each fetch() call gets a fresh Response body — bodies are single-use objects.
+- shared: 280 → 286.
+
+**Work item 3.8 — COMPLETE**: 2 CLAUDE.md operational rules added (estimateTierCostUsd semantics + Composio quota meter behavior).
+
+**Surprises during implementation:**
+1. `makeRedis(startCount)` factory uses a closure counter — this made test D (start at 19000 → INCR=19001) clean and isolated.
+2. Pushover message template uses raw numbers (`15000`, `19000`), not locale-formatted (`15,000`) — test assertions adjusted to match.
+3. `mockResolvedValue(new Response(...))` fails when multiple `execute()` calls are made in the same test because `Response.body` can only be consumed once. Fixed with `mockImplementation(() => new Response(...))`.
+
+**Commit structure (3 + 1 docs):**
+- Commit A `9cf3faa`: feat(phase-P03)/1 — estimator widening + tests + CLAUDE.md rules
+- Commit B `b76c1ca`: feat(phase-P03)/2 — Composio quota meter + tests
+- Commit C `9a8fbe7`: feat(phase-P03)/3 — wire Redis + Pushover into morning-brief
+- Commit D (this): docs — LAB_NOTEBOOK Gate 3 finalization
+
+**Final test counts:**
+- shared: 277 → 286 (9 new: 3 estimator + 6 composio-quota). 17 test files, all passing.
+- workers: 960 → 960 (unchanged). 48 test files, all passing.
+- core-api: 722 → 722 (unchanged). 42 test files, all passing.
+
+**Acceptance criteria status:**
+- [x] `estimateTierCostUsd()` reads costs from `ModelTierEntry`; non-zero for paid; 0 for ollama/free
+- [x] 3 new estimator tests + `mkTier` factory extended
+- [x] `ComposioQuotaExceededError` class exported
+- [x] `execute()` increments Redis atomically; hard-stop at 19K; Pushover warn at 15K
+- [x] Backward compat: string-form constructor still works; no Redis → no quota
+- [x] 6 new composio-quota tests (A-F)
+- [x] `morning-brief` path wires meter Redis + Pushover from `main.ts`
+- [x] Graceful shutdown quits `composioMeterRedis`
+- [x] `pnpm --filter @open-brain/shared test`: 286/286
+- [x] `pnpm --filter @open-brain/workers test`: 960/960
+- [x] CLAUDE.md updated with 2 new rules
+- [ ] `ai_audit_log.cost_usd > 0` for Anthropic completions (post-deploy SQL verification — not unit-testable)
+
+**Status:** Gate 3 COMPLETE. Advance to Gate 4 (code-reviewer Opus).
+
+---
+
