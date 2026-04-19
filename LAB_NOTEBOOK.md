@@ -7486,3 +7486,26 @@ All changes are additive config/doc:
 
 ### Implementation
 
+All 10 work items completed. Key findings:
+
+1. **Alert rules (W01–W05):** 5 YAML files created in `config/prometheus/alerts/` covering budget (2 rules), pipeline (2 rules), capture-flow (1 recording + 1 alert), container-health (2 rules), integration/Composio (2 rules). All validated via `scripts/validate-alert-rules.sh` (python3 yaml.safe_load fallback since promtool not on PATH).
+
+2. **New gauges (W06):** `openbrain_budget_spent_usd` and `openbrain_composio_monthly_usage` added to `packages/core-api/src/routes/metrics.ts`. Duck-typed `MetricsRedisClient` interface avoids compile-time ioredis dependency. Refresh logic on each scrape with non-fatal try/catch (stale value served on error). `metricsRedis` Redis client added in `index.ts` with `lazyConnect: true` + `enableOfflineQueue: false`.
+
+3. **prom-client default labels (W07 — test fix):** `metricsRegistry.setDefaultLabels({ app: 'open-brain-core-api' })` emits gauge lines as `openbrain_budget_spent_usd{app="open-brain-core-api"} 27.5` rather than without labels. Initial test regex `\s+` failed because `{...}` labels appear between metric name and value. Fixed to `(\{[^}]*\})?\s+`. Pattern for future prom-client gauge tests in this repo.
+
+4. **Grafana dashboards (W08):** `llm-cost-performance.json` budget gauge switched from `sum(increase(...[30d]))` to `openbrain_budget_spent_usd`. Warning threshold 20→28. Integration Quotas row added. `pipeline-health.json` Queue Waiting panel got threshold line at 100. `system-overview.json` got Active Alerts alertlist panel.
+
+5. **Runbooks (W09):** 5 operator runbooks in `docs/runbooks/` with metric names, alert conditions, Redis/DB diagnosis commands, mitigation steps.
+
+### Results
+
+- **Tests:** 743/743 passing (736 pre-existing + 7 new P11b tests)
+- **Lint:** `tsc --noEmit` clean
+- **Commits:** 4 commits (`edd8fe8`, `63a68bf`, `5c90969`, `0314392`)
+- **Alert rules:** 10 total across 5 files
+- **New metrics:** 2 gauges
+- **Runbooks:** 5 files
+
+**Duration:** ~3 hours (across 2 sessions)
+
