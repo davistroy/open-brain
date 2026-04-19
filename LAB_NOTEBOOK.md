@@ -7130,4 +7130,75 @@ Multi-chunk documents WILL set `pipeline_status: 'chunked'`. The DB has 0 rows b
 
 **CLAUDE.md rules added:** 2 (lockstep rules for `captures.capture_type` and `captures.pipeline_status`, mirroring existing `captures.source` pattern).
 
+---
+
+### Entry 103 — P09b Gate 3: Sibling enum CHECKs on pipeline_events (stage + status) — 2026-04-19
+
+**Tags:** [database] [typescript] [pipeline] [decision]
+**Environment:** Local dev (Windows bash), branch `feat/phase-P09b-pipeline-events-enum-checks`
+
+**Objective:** Add CHECK constraints on `pipeline_events.stage` (11 values) and `pipeline_events.status` (3 values), with canonical TS unions and drift-guard tests. Mirrors P09a pattern for captures table.
+
+**Hypothesis:** The homeserver DB contains only values that are a subset of the proposed 11-value stage set and 3-value status set. Adding CHECK constraints will not reject any existing data. The TS unions will prevent future typos at compile time; the DB CHECKs catch runtime inserts from code paths that bypass TypeScript (direct SQL, future services).
+
+**Rollback plan:** Git-tracked changes only. DB constraints are additive (no data migration). Revert via `git revert`. If homeserver migration fails at Gate 5.5: `ALTER TABLE pipeline_events DROP CONSTRAINT IF EXISTS pipeline_events_stage_check; ALTER TABLE pipeline_events DROP CONSTRAINT IF EXISTS pipeline_events_status_check;`
+
+**Pre-flight DB audit (homeserver, 2026-04-19):**
+
+```
+      stage       | count
+------------------+-------
+ embed            | 50562
+ extract_entities | 27489
+ extract          | 22108
+ received         | 11054
+ link_entities    |   790
+(5 rows)
+
+ status  | count
+---------+-------
+ started | 61538
+ success | 32984
+ failed  | 17481
+(3 rows)
+```
+
+**Reconciliation:**
+- **stage:** DB has 5 values (`embed`, `extract_entities`, `extract`, `received`, `link_entities`). All are in the proposed 11-value canonical set. The 6 additional values are: `classify`, `check_triggers`, `notify` (from `config/pipeline.yaml`, zero producers, zero DB rows — included for forward compatibility), `document-parse`, `document-chunk`, `document-embed` (from `document-pipeline.ts` code producers, zero DB rows — document pipeline hasn't run on homeserver yet). No unexpected values. **No migration/cleanup needed.**
+- **status:** DB has exactly `started`, `success`, `failed` — matches the proposed 3-value set perfectly. **No cleanup needed.**
+
+**Canonical sets confirmed:**
+- `PipelineEventStage` (11): `classify`, `check_triggers`, `document-chunk`, `document-embed`, `document-parse`, `embed`, `extract`, `extract_entities`, `link_entities`, `notify`, `received`
+- `PipelineEventStatus` (3): `failed`, `started`, `success`
+
+**Work items completed:**
+
+1. **Producer audit (WI 1-2):** Grep confirmed 5 stage values from code producers (`received`, `extract`, `embed`, `extract_entities`, `link_entities` from ingestion-worker + embed-capture + extract-entities + link-entities), 3 from document-pipeline (`document-parse`, `document-chunk`, `document-embed`), 3 from pipeline.yaml config only (`classify`, `check_triggers`, `notify`). Status: exactly `started`/`success`/`failed` everywhere. No ternary-style assignments for stage. DB pre-flight reconciled -- all 5 DB values are a subset of the 11-value canonical set.
+
+2. **TS types (WI 3):** Created `packages/shared/src/types/pipeline-event.ts` with `PipelineEventStage` (11-value union) and `PipelineEventStatus` (3-value union). Re-exported from `packages/shared/src/types/index.ts`.
+
+3. **recordStageEvent tightening (WI 4):** Changed `stage: string` to `stage: PipelineEventStage` and `status: 'started' | 'success' | 'failed'` to `status: PipelineEventStatus` in `packages/workers/src/jobs/ingestion-worker.ts`.
+
+4. **Drizzle schema comments (WI 5):** Updated `packages/shared/src/schema/core.ts` lines 54-55 to reference migration 0025 and the TS union types.
+
+5. **Migration (WI 6):** Created `packages/shared/drizzle/0025_pipeline_events_enum_checks.sql` with idempotent DROP IF EXISTS + ADD for both CHECK constraints. Pre-flight audit results embedded in migration header comments.
+
+6. **Drift-guard tests (WI 7):** Added 2 canonical const arrays (`CANONICAL_PIPELINE_EVENT_STAGES`, `CANONICAL_PIPELINE_EVENT_STATUSES`) and 1 new `describe` block with 2 test assertions to `packages/shared/src/__tests__/web-type-drift.test.ts`.
+
+7. **Pipeline-health tightening (WI 8):** Changed `RecentFailure.stage` from `string` to `PipelineEventStage` in `pipeline-health.ts` and the SQL result type in `pipeline-health-query.ts`.
+
+8. **Test fixture audit (WI 9):** `pipeline-health.test.ts:94` uses `stage: 'classify'` -- valid canonical value (from pipeline.yaml). No changes needed.
+
+9. **CLAUDE.md rules (WI extra):** Added 2 new operational rules for `pipeline_events.stage` and `pipeline_events.status` lockstep requirements.
+
+**Verification results:**
+- `tsc --noEmit`: shared, workers, core-api -- all clean (0 errors)
+- shared tests: 294/294 passed (17 files) -- includes 2 new drift-guard assertions
+- workers tests: 980/980 passed (49 files)
+- core-api tests: 732/732 passed (43 files)
+- Total: 2,006 tests passing
+
+**Deviations from plan:** None. All 10 work items completed as specified. No unexpected DB values required canonical set revision.
+
+**Duration:** ~25 minutes (Gate 3 implementation only).
 

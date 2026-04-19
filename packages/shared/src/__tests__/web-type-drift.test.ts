@@ -42,6 +42,7 @@ const WEB_TYPES_PATH = resolve(__dirname, '../../../web/src/lib/types.ts')
 const SEARCH_FILTERS_PATH = resolve(__dirname, '../../../web/src/components/SearchFilters.tsx')
 const TIMELINE_PATH = resolve(__dirname, '../../../web/src/pages/Timeline.tsx')
 const STATS_CARDS_PATH = resolve(__dirname, '../../../web/src/components/StatsCards.tsx')
+const PIPELINE_EVENT_TYPES_PATH = resolve(__dirname, '../../src/types/pipeline-event.ts')
 const SHARED_SCHEMA_PATH = 'packages/shared/src/schema/ingest.ts'
 const WEB_API_REL = 'packages/web/src/lib/api.ts'
 const WEB_TYPES_REL = 'packages/web/src/lib/types.ts'
@@ -188,6 +189,20 @@ const CANONICAL_CAPTURE_TYPES = [
 // See LAB_NOTEBOOK Entry 102 for the full reconciliation.
 const CANONICAL_PIPELINE_STATUSES = [
   'chunked', 'complete', 'deleted', 'embedded', 'extracted', 'failed', 'pending', 'processing',
+] as const
+
+// Canonical 11-value PipelineEventStage set (P09b / migration 0025 / issue #119).
+// Source of truth: packages/shared/src/types/pipeline-event.ts.
+const CANONICAL_PIPELINE_EVENT_STAGES = [
+  'check_triggers', 'classify', 'document-chunk', 'document-embed',
+  'document-parse', 'embed', 'extract', 'extract_entities',
+  'link_entities', 'notify', 'received',
+] as const
+
+// Canonical 3-value PipelineEventStatus set (P09b / migration 0025 / issue #119).
+// Source of truth: packages/shared/src/types/pipeline-event.ts.
+const CANONICAL_PIPELINE_EVENT_STATUSES = [
+  'failed', 'started', 'success',
 ] as const
 
 describe('web <-> shared contract drift guard (CS-α / F2)', () => {
@@ -371,6 +386,46 @@ describe('PipelineStatus drift guard (phase-P09a / #119)', () => {
         `Also update CANONICAL_PIPELINE_STATUSES in this test file, the Zod enum ` +
         `PIPELINE_STATUSES in packages/core-api/src/schemas/capture.ts, and the ` +
         `DB CHECK constraint in packages/shared/drizzle/0024_captures_enum_checks.sql.`,
+    ).toEqual(canonicalSorted)
+  })
+})
+
+describe('PipelineEvent type drift guard (phase-P09b / #119)', () => {
+  const pipelineEventSource = readFileSync(PIPELINE_EVENT_TYPES_PATH, 'utf8')
+
+  it('PipelineEventStage TS union matches canonical 11-value list', () => {
+    const unionLiterals = extractUnionLiterals(pipelineEventSource, 'PipelineEventStage')
+    const unionSorted = sorted(unionLiterals)
+    const canonicalSorted = sorted(CANONICAL_PIPELINE_EVENT_STAGES)
+
+    expect(
+      unionSorted,
+      `Drift detected in PipelineEventStage:\n` +
+        `  union     (packages/shared/src/types/pipeline-event.ts): ${JSON.stringify(unionSorted)}\n` +
+        `  canonical (this test):                                   ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type PipelineEventStage = ...\` union in ` +
+        `packages/shared/src/types/pipeline-event.ts to match CANONICAL_PIPELINE_EVENT_STAGES ` +
+        `in this test file, AND update the DB CHECK constraint in ` +
+        `packages/shared/drizzle/0025_pipeline_events_enum_checks.sql.`,
+    ).toEqual(canonicalSorted)
+  })
+
+  it('PipelineEventStatus TS union matches canonical 3-value list', () => {
+    const unionLiterals = extractUnionLiterals(pipelineEventSource, 'PipelineEventStatus')
+    const unionSorted = sorted(unionLiterals)
+    const canonicalSorted = sorted(CANONICAL_PIPELINE_EVENT_STATUSES)
+
+    expect(
+      unionSorted,
+      `Drift detected in PipelineEventStatus:\n` +
+        `  union     (packages/shared/src/types/pipeline-event.ts): ${JSON.stringify(unionSorted)}\n` +
+        `  canonical (this test):                                   ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `Update the \`export type PipelineEventStatus = ...\` union in ` +
+        `packages/shared/src/types/pipeline-event.ts to match CANONICAL_PIPELINE_EVENT_STATUSES ` +
+        `in this test file, AND update the DB CHECK constraint in ` +
+        `packages/shared/drizzle/0025_pipeline_events_enum_checks.sql.`,
     ).toEqual(canonicalSorted)
   })
 })

@@ -2,7 +2,7 @@ import { Worker, UnrecoverableError } from 'bullmq'
 import type { FlowProducer } from 'bullmq'
 import { eq } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
-import type { Database } from '@open-brain/shared'
+import type { Database, PipelineEventStage, PipelineEventStatus } from '@open-brain/shared'
 import { captures, pipeline_events } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
@@ -24,8 +24,8 @@ import type { IngestDedup } from '../lib/ingest-dedup.js'
 async function recordStageEvent(
   db: Database,
   captureId: string,
-  stage: string,
-  status: 'started' | 'success' | 'failed',
+  stage: PipelineEventStage,
+  status: PipelineEventStatus,
   durationMs?: number,
   error?: string,
   newPipelineStatus?: string,

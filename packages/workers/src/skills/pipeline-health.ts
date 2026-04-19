@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import type { Database } from '@open-brain/shared'
+import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
@@ -27,7 +27,7 @@ export interface QueueStats {
 
 export interface RecentFailure {
   capture_id: string
-  stage: string
+  stage: PipelineEventStage
   error: string | null
   created_at: Date | string
 }
