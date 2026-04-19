@@ -127,7 +127,7 @@ export function createAccessStatsWorker(
     },
     {
       connection,
-      concurrency: 5,
+      concurrency: 2, // P07: reduced from 5
     },
   )
 
