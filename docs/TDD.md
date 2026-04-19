@@ -16,6 +16,7 @@
 | 0.4 | 2026-03-05 | Troy Davis / Claude | Architectural review: 10 sub-phases with test gates, fix Zod brain_views, Authorization header for MCP, check_triggers as separate job, standardized temporal scoring, UNIQUE constraints, cold start plan, operational runbook |
 | 0.5 | 2026-03-05 | Troy Davis / Claude | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added entity resolution confidence threshold (0.8), added MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability note, MCP in-progress capture visibility note. |
 | 0.6 | 2026-03-10 | Troy Davis / Claude | Hardening 7.2: Replaced speculative SQL functions (match_captures, match_captures_hybrid) with actual as-built functions (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search) matching init-schema.sql. Updated synthesize endpoint contract to match implementation ({query, limit} request, {response, capture_count} response). Updated all cross-references to old function names. |
+| P15a | 2026-04-19 | Troy Davis / Claude | P15a alignment pass: source enum corrected to 9 canonical values (was 6 or 4 in various locations), doc-status note added, LiteLLM scrub deferred to P15b (v0.7). |
 
 ## Related Documents
 | Document | Link | Relevance |
@@ -25,6 +26,13 @@
 | PRD Questions | [reference/questions-PRD-20260304-120000.json](reference/questions-PRD-20260304-120000.json) | PRD questions extracted |
 | TDD Answers | [reference/answers-TDD-20260304-214500.json](reference/answers-TDD-20260304-214500.json) | TDD decision rationale (32 questions) |
 | TDD Questions | [reference/questions-TDD-20260304-202900.json](reference/questions-TDD-20260304-202900.json) | TDD questions extracted |
+
+> **Doc status note (2026-04-19):** TDD v0.6 reflects the LiteLLM proxy architecture. The
+> system has since migrated to direct OpenAI API calls (`gpt-5.4` + `text-embedding-3-large`).
+> TDD v0.7 (P15b) will replace all LiteLLM references. See `README.md` and `config/ai-routing.yaml`
+> for current architecture. The `source` enum has been corrected in this pass to reflect all
+> 9 canonical values (`slack`, `voice`, `api`, `document`, `mcp`, `email`, `file`,
+> `consolidation`, `system`); all other body content is unchanged from v0.6.
 
 ---
 
@@ -216,7 +224,7 @@ Versioning: URL path prefix /api/v1
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | content | string | Yes | — | Processed text content |
-| source | string | Yes | — | One of: `slack`, `voice`, `web`, `api`, `email`, `document` |
+| source | string | Yes | — | One of: `slack`, `voice`, `api`, `document`, `mcp`, `email`, `file`, `consolidation`, `system`. See `CaptureSource` in `packages/shared/src/types/capture.ts`. |
 | source_metadata | object | No | `{}` | Source-specific metadata (slack_ts, device, filename, etc.) |
 | pre_extracted | object | No | `{}` | Classification from input adapter |
 | tags | string[] | No | `[]` | User or auto-assigned tags |
@@ -1270,7 +1278,7 @@ export const captures = pgTable('captures', {
   content_hash: text('content_hash').notNull(),         // text NOT NULL (not char(64) — simpler, same purpose)
   capture_type: text('capture_type').notNull(),          // decision | idea | observation | task | win | blocker | question | reflection
   brain_view: text('brain_view').notNull(),              // Single text, NOT array — intentional simplification (one view per capture)
-  source: text('source').notNull(),                      // slack | voice | api | document
+  source: text('source').notNull(),                      // slack | voice | api | document | mcp | email | file | consolidation | system
   source_metadata: jsonb('source_metadata'),
   tags: text('tags').array().notNull().default("'{}'::text[]"),
   embedding: vector('embedding'),                        // vector(768) — custom type, Matryoshka-truncated from 2560d Qwen3-Embedding
@@ -1307,7 +1315,7 @@ export const captures = pgTable('captures', {
 - `content_raw` column was not implemented.
 - `pipeline_status` values: `pending | processing | extracted | embedded | chunked | complete | failed` (not `received | processing | complete | failed | partial`).
 - `pipeline_attempts`, `pipeline_error`, `pipeline_completed_at` added for retry tracking.
-- `source` values: `slack | voice | api | document` (not `web | email`).
+- `source` values: `slack | voice | api | document | mcp | email | file | consolidation | system` (9 canonical values; see `CaptureSource` union and `CAPTURE_SOURCES` Zod enum in `packages/shared/src/types/capture.ts`, and DB CHECK in migration 0022).
 
 ```typescript
 // packages/shared/src/schema/core.ts — pipeline_events
@@ -2145,7 +2153,7 @@ import { z } from 'zod';
 
 export const createCaptureSchema = z.object({
   content: z.string().min(1).max(50000),
-  source: z.enum(['slack', 'voice', 'web', 'api', 'email', 'document']),
+  source: z.enum(['slack', 'voice', 'api', 'document', 'mcp', 'email', 'file', 'consolidation', 'system']),
   source_metadata: z.record(z.unknown()).optional().default({}),
   pre_extracted: z.record(z.unknown()).optional().default({}),
   tags: z.array(z.string().max(100)).optional().default([]),
@@ -2161,7 +2169,7 @@ export const searchSchema = z.object({
   search_mode: z.enum(['hybrid', 'vector', 'fts']).optional().default('hybrid'),
   temporal_weight: z.number().min(0).max(1).optional().default(0.0), // Cold start: 0.0. Ramp up per cold start schedule (PRD Section 9.1).
   filters: z.object({
-    source: z.enum(['slack', 'voice', 'web', 'api', 'email', 'document']).optional(),
+    source: z.enum(['slack', 'voice', 'api', 'document', 'mcp', 'email', 'file', 'consolidation', 'system']).optional(),
     tags: z.array(z.string()).optional(),
     brain_views: z.array(z.string()).optional(),
     after: z.string().datetime().optional(),

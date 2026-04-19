@@ -7762,6 +7762,64 @@ Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
 
 ---
 
+## Entry 113 — P15a: Version sync script + initial doc alignment  [doc] [config]
+
+**Tags:** [doc] [config] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P15a-doc-drift-sync`
+**Environment:** Laptop (worktree agent-ad94fafd)
+
+### Objective
+
+Establish a machine-checkable version-sync invariant between `package.json`, `README`, `PRD`, and `CHANGELOG`. Close the version gap (`1.2.0` → `1.5.0`). Fix `source` enum drift in PRD + TDD (docs say 6 values, code has 9). Add doc-status notes to PRD/TDD marking the LiteLLM body-rewrite scope boundary for P15b. Add `scripts/sync-docs.sh` and a `doc-sync` CI job.
+
+### Hypothesis
+
+- `bash scripts/sync-docs.sh` exits 0 after `package.json` is bumped to `1.5.0` and CHANGELOG entries 1.3.0/1.4.0/1.5.0 are added.
+- PRD/TDD `source` enum corrections: 9 canonical values visible in all doc locations that previously listed 6 (or 4).
+- CI `doc-sync` job appears green (continue-on-error initially per the same promotion pattern as `integration-test`).
+- `grep -c -i "litellm" docs/PRD.md` returns same count as before — no LiteLLM scrub in P15a (P15b scope).
+
+### Rollback plan
+
+All changes are documentation and script files tracked in git. `git revert <merge-sha>` restores prior state. No migrations, no runtime changes, no homeserver deploy needed. The `doc-sync` CI job is `continue-on-error: true` initially — non-blocking.
+
+### Drift items being fixed in P15a
+
+| Item | Location | Before | After |
+|------|----------|--------|-------|
+| SD-1 | `package.json` line 3 | `1.2.0` | `1.5.0` |
+| SD-4 | `docs/PRD.md` line 261 | 6 source values | 9 source values |
+| SD-4 | `docs/PRD.md` line 333 | 6 source values (comment) | 9 source values |
+| SD-4 | `docs/TDD.md` line 219 | 6 source values | 9 source values |
+| SD-4 | `docs/TDD.md` line 1273 | 4 source values (comment) | 9 source values |
+| SD-4 | `docs/TDD.md` line 1310 | incorrect 4-value note | corrected 9-value list |
+| SD-4 | `docs/TDD.md` lines 2148/2164 | 6-value Zod enums | 9-value Zod enums |
+| SD-6 | `CHANGELOG.md` | Gap 1.2.0→Unreleased | 1.3.0 / 1.4.0 / 1.5.0 backfilled |
+| SD-7 | `scripts/sync-docs.sh` | Does not exist | Created |
+| SD-7 | `.github/workflows/ci.yml` | No doc-sync job | doc-sync job added |
+| SD-8 | `docs/TDD.md` doc-history | No P15a row | P15a alignment row added |
+| SD-9 | `docs/PRD.md` header | Date 2026-03-05 | Date 2026-04-19; doc-status note added |
+| SD-10 | `README.md` line 57 | TDD v0.5 | TDD v0.6 |
+
+### Acceptance criterion note — LiteLLM counts
+
+Plan acceptance criterion: `grep -c -i "litellm" docs/PRD.md` returns 80 (unchanged). Actual: 83 (+3), TDD: 134 (+16). The additions are entirely within the P15a doc-status notes that explain the LiteLLM scope boundary — the notes are about LiteLLM and reference it by name. This is the correct tradeoff: the note clarifies exactly what P15b must fix. No body content was changed. The original criterion assumed "zero new LiteLLM refs" but the doc-status note requires naming LiteLLM to be intelligible. Reviewer should accept this delta.
+
+### Implementation notes
+
+- **PRD version anchor:** PRD's `**Version**` header is a doc version (0.6), not semver. `sync-docs.sh` anchors on the phrase `"current system (vX.Y.Z)"` in the P15a doc-status note — avoids false matches on older version references like `v1.2.0` in the same paragraph.
+- **README version anchor:** README Status paragraph was missing an explicit semver. Added `**v1.5.0**` bold prefix; script extracts `\*\*v[N.N.N]\*\*` pattern.
+- **path-with-spaces fix:** Script uses `node -e "process.stdout.write(require('./package.json').version)"` instead of `require('${PATH}/package.json')` — avoids module-not-found on Windows dev paths with spaces. In CI (ubuntu-latest) no spaces issue, but rule applies to both.
+
+### Drift items deliberately NOT fixed (P15b scope)
+
+- SD-2: ~80 LiteLLM refs in PRD body
+- SD-3: ~118 LiteLLM refs in TDD body
+- SD-5: Budget numbers ($30/$50) vs current split architecture
+
+---
+
 ## Entry 112 — P14b: Prompt injection call-site migration to SafePromptBuilder — 2026-04-19
 
 **Tags:** [security] [prompt-injection] [workers] [api] [mcp]
