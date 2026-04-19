@@ -6444,6 +6444,10 @@ Success criteria:
 
 **Result (3.7b, 3.9):** nginx.conf: added `proxy_set_header CF-Access-Authenticated-User-Email` to `/api/` block. docker-compose.yml: added `admin_prewipe_backup:` to top-level volumes + `admin_prewipe_backup:/backup/pre-wipe` mount on core-api service. Dockerfile: `bash git` → `bash git postgresql-client` on prod-base RUN line. All 3 changes are surgical, no build step needed for infra files.
 
+**Work item 3.10 in progress** — Hypothesis: 10 unit tests in `admin-reset-two-step.test.ts` cover all acceptance criteria including origin check, single-use token, expired token, wrong phrase, full flow, audit rows, and TRUNCATE source-code assertion. All pass.
+
+**Result (3.10):** `pnpm --filter @open-brain/core-api test -- admin-reset` → 10/10 PASS. Full suite: 732 tests (722 before + 10 new). Shared: 286/286 unchanged. Workers: 960/960 unchanged.
+
 ---
 
 
