@@ -6188,6 +6188,20 @@ Success criteria:
 
 **Next (Gate 3):** dispatch `implement-executor` (Sonnet 4.6). Medium-size change across ~8 files (llm-gateway.ts, llm-gateway.test.ts, composio-client.ts, new composio-quota.test.ts, workers main.ts, morning-brief.ts, skill-execution.ts, CLAUDE.md). Single atomic commit covering all work items + docs commit for LAB_NOTEBOOK finalization.
 
+#### Gate 4 cycle 1 → Gate 3 re-entry: TS2322 type annotation fix
+
+**Root cause:** Helper factory return types in composio-quota.test.ts were annotated as `ReturnType<typeof vi.fn>` / `ReturnType<typeof vi.spyOn>`, which resolve to `Mock<any[], unknown>` / `MockInstance<unknown[], unknown>`. These don't unify with the stricter types TS infers from the typed arrow bodies (e.g., `Mock<[_key: string], Promise<number>>`). The TS2322 errors were masked from earlier development because `tsup --dts` uses `tsconfig.build.json` which excludes `__tests__/` — only the CI lint step (`tsc --noEmit`) covers test files. Fixing the original 4 TS2322 errors also surfaced 2 TS2352/TS2493 errors on `send.mock.calls[0][0]` — the `send` mock declared with no parameters produced an empty tuple type for `calls`, so `[0][0]` was `undefined`.
+
+**Fix:** Dropped all return-type annotations on the three factory functions (`makeRedis`, `makePushover`, `stubFetchSuccess`) so TS infers the richer types from the arrow bodies. Also imported `PushoverSendOptions` and added `_opts: PushoverSendOptions` parameter to the `send` mock so `mock.calls[0][0]` resolves as the correct payload type.
+
+**Files changed:** `packages/shared/src/services/__tests__/composio-quota.test.ts` — 5 insertions, 5 deletions (net 0 LoC, pure annotation changes).
+
+**Verification:** `tsc --noEmit` clean (0 errors); `pnpm --filter @open-brain/shared test` 286/286 passing.
+
+**Commit:** `d2a52ec` — pushed to `feat/phase-P03-estimator-composio-quota`.
+
+**Status:** Ready for Gate 4 cycle 2.
+
 **Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P03-estimator-composio-quota`.
 
 ---
