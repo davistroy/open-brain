@@ -365,14 +365,19 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
     // break the caller's success path.
     if (this.llmGateway && resolvedTierKey) {
       try {
-        await this.llmGateway.recordAgentCompletion(EMAIL_COMPOSE_TASK, resolvedTierKey, {
-          iterations: agentResult.iterations,
-          tokenUsage: {
-            input: agentResult.tokenUsage.inputTokens,
-            output: agentResult.tokenUsage.outputTokens,
+        await this.llmGateway.recordAgentCompletion(
+          EMAIL_COMPOSE_TASK,
+          resolvedTierKey,
+          {
+            iterations: agentResult.iterations,
+            tokenUsage: {
+              input: agentResult.tokenUsage.inputTokens,
+              output: agentResult.tokenUsage.outputTokens,
+            },
+            latencyMs: Date.now() - startMs,
           },
-          latencyMs: Date.now() - startMs,
-        })
+          agentResult.finalTierKey,
+        )
       } catch (err) {
         logger.warn(
           { err: err instanceof Error ? err.message : String(err) },

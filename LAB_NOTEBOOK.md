@@ -6061,5 +6061,20 @@ Success criteria:
 
 **Status:** Gate 2 in progress — committing plan + LAB_NOTEBOOK to `feat/phase-P02c-final-tier-key`.
 
+#### Gate 3 — Work item 3.1 — COMPLETE
+Added `finalTierKey?: string` field to `AgentResult` interface in `run-agent.ts` with JSDoc. Added `let currentTierKey: string | undefined = resolution?.tierKey` before the while loop. Added `currentTierKey = nextResolution.tierKey` after the swap assignment. Updated return to include `finalTierKey: currentTierKey`. Shared build: clean. Shared tests: 277/277 passing.
+
+#### Gate 3 — Work item 3.2 — COMPLETE
+Added optional 4th parameter `finalTierKey?: string` to `recordAgentCompletion()` in `llm-gateway.ts`. First line of body: `const effectiveTierKey = finalTierKey ?? tierKey`. Changed tier lookup to use `effectiveTierKey`. Extended `logger.info` context to include `finalTierKey: effectiveTierKey`. Workers build: clean.
+
+#### Gate 3 — Work item 3.3 — COMPLETE
+Updated `recordAgentCompletion` call in `email-compose.ts` to multiline form, passing `agentResult.finalTierKey` as 4th arg. No guard needed — gateway's `finalTierKey ?? tierKey` handles undefined. Workers build: clean.
+
+#### Gate 3 — Work item 3.4 — COMPLETE
+Updated file-top comment to describe the 4th arg assertion. Removed the imprecision-comment block from Assertion 4 in the first test. Added `const finalTierKeyArg = recordCall[3]` and `expect(finalTierKeyArg).toBe('t1_fast')`. Updated type annotation on `recordCall` to include 4th element. Workers tests: 960/960 passing.
+
+#### Gate 3 — Work item 3.5 — COMPLETE
+Extended `run-agent.test.ts` with 3 assertions: (5a) fallback swap test — `expect(result.finalTierKey).toBe('t1_fast')`; (5b) legacy path test — `expect(result.finalTierKey).toBeUndefined()`; (5c) no-swap resolver test — `expect(result.finalTierKey).toBe('t2_quality')`. Shared tests: 277/277 passing (no new test cases added, assertions extended in-place).
+
 ---
 
