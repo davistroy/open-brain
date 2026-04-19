@@ -50,7 +50,7 @@ scripts/
   migrate.sh              # Drizzle migration runner
   e2e-phase1.sh           # End-to-end smoke test
   e2e-full.sh             # Full end-to-end test suite
-  regression-test.mjs     # Comprehensive regression suite (95 tests)
+  regression-test.mjs     # Comprehensive regression suite (91 tests)
   monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
 docs/
   PRD.md           # Product requirements (v0.6)
