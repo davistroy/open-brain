@@ -7573,6 +7573,17 @@ All 10 work items completed. Key findings:
 
 ---
 
+
+---
+
+## Entry 110 -- P14a: SafePromptBuilder module + prompt injection threat model
+
+**Tags:** [security] [pipeline] [decision]
+**Date:** 2026-04-19
+**Branch:** feat/phase-P14a-prompt-injection-builder
+
+---
+
 ### Closure (doc sweep 2026-04-19)
 
 - **PR #144** merged, SHA `d7e8c92`. Reviewer: Opus APPROVE cycle 2.
@@ -7657,6 +7668,18 @@ All changes confined to CI config + docs. `git revert` removes the two new CI jo
 
 ### Objective
 
+Create packages/shared/src/lib/prompt-builder.ts -- SafePromptBuilder class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create docs/SECURITY.md as the system-wide threat model for prompt injection.
+
+This is P14a -- foundational module only. No call-site migration (that is P14b).
+
+### Hypothesis
+
+- Unit tests confirm all 8+ injection patterns stripped, delimiters are session-unique, clean content passes through without false positives.
+- pnpm --filter @open-brain/shared exec tsc --noEmit -- zero TS errors.
+- pnpm --filter @open-brain/workers exec tsc --noEmit -- zero TS errors.
+
+---
+
 Create `packages/shared/src/lib/prompt-builder.ts` — `SafePromptBuilder` class that wraps user-controlled content in session-random XML-style fenced delimiters and strips known prompt-injection patterns before any content reaches an LLM call site. Also create `docs/SECURITY.md` as the system-wide threat model for prompt injection.
 
 This is P14a — foundational module only. No call-site migration (that is P14b).
@@ -7670,6 +7693,43 @@ This is P14a — foundational module only. No call-site migration (that is P14b)
 - No production call sites modified.
 
 ### Rollback plan
+
+SafePromptBuilder is not used by any call site -- deletion is the full rollback. git revert the 2-3 commits; remove docs/SECURITY.md. No schema change, no config change, no homeserver deploy required.
+
+### Architecture decision: lib/ placement (minor drift from card)
+
+Card said packages/shared/src/services/prompt-builder.ts. Actual pattern:
+- lib/ = stateless utilities (prompt-template.ts, logger.ts, autonomy.ts)
+- services/ = injectable stateful services (llm-gateway.ts, embedding.ts)
+
+SafePromptBuilder is stateless (pure methods + configured delimiterPrefix). Placing in lib/ per existing convention.
+
+### Work items completed
+
+- WI 1: packages/shared/src/lib/prompt-builder.ts -- SafePromptBuilder class, 14 injection patterns, wrapContent, wrapCaptures, sanitizeInline, _strip with debug logging.
+- WI 2: packages/shared/src/lib/__tests__/prompt-builder.test.ts -- 28 tests across 4 groups (Group A: injection stripping 14 cases; Group B: delimiter uniqueness 5; Group C: wrapCaptures 4; Group D: edge cases 5).
+- WI 3: packages/shared/src/lib/index.ts -- export added.
+- WI 4: docs/SECURITY.md -- full threat model with 6 injection surfaces, 3 attack scenarios, mitigations, residual risks, detection, incident response process, and future work.
+
+### Injection surfaces confirmed (6 total)
+
+1. packages/core-api/src/routes/synthesize.ts lines 53-68
+2. packages/workers/src/jobs/extract-entities.ts line 120
+3. packages/workers/src/skills/daily-sweep-skill.ts lines 145-148
+4. packages/workers/src/skills/weekly-brief.ts lines 84-85
+5. packages/workers/src/skills/memory-consolidation.ts lines 336-339
+6. packages/workers/src/skills/daily-connections.ts lines 130-133
+
+### Verification results
+
+- pnpm --filter @open-brain/shared test: 324/324 passed (includes 28 new prompt-builder tests)
+- pnpm --filter @open-brain/shared exec tsc --noEmit: clean
+- pnpm --filter @open-brain/workers exec tsc --noEmit: clean
+- No existing tests broken.
+
+**Duration:** ~60 minutes.
+
+---
 
 `SafePromptBuilder` is not used by any call site — deletion is the full rollback. `git revert` the 2-3 commits; remove `docs/SECURITY.md`. No schema change, no config change, no homeserver deploy required.
 
