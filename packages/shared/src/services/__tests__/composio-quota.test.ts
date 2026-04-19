@@ -8,13 +8,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ComposioClient, ComposioQuotaExceededError } from '../composio-client.js'
 import type { ComposioRedisClient } from '../composio-client.js'
-import type { PushoverService } from '../pushover.js'
+import type { PushoverService, PushoverSendOptions } from '../pushover.js'
 
 // ---------------------------------------------------------------------------
 // Mock factory helpers
 // ---------------------------------------------------------------------------
 
-function makeRedis(startCount = 0): { redis: ComposioRedisClient; incr: ReturnType<typeof vi.fn>; expire: ReturnType<typeof vi.fn> } {
+function makeRedis(startCount = 0) {
   let counter = startCount
   const incr = vi.fn(async (_key: string) => {
     counter++
@@ -24,8 +24,8 @@ function makeRedis(startCount = 0): { redis: ComposioRedisClient; incr: ReturnTy
   return { redis: { incr, expire }, incr, expire }
 }
 
-function makePushover(): { pushover: PushoverService; send: ReturnType<typeof vi.fn> } {
-  const send = vi.fn(async () => {})
+function makePushover() {
+  const send = vi.fn(async (_opts: PushoverSendOptions) => {})
   return { pushover: { send, isConfigured: true } as unknown as PushoverService, send }
 }
 
@@ -42,7 +42,7 @@ const SSE_SUCCESS_BODY =
  * Uses mockImplementation (not mockResolvedValue) so each call gets a
  * fresh Response object — Response bodies can only be consumed once.
  */
-function stubFetchSuccess(): ReturnType<typeof vi.spyOn> {
+function stubFetchSuccess() {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
     new Response(SSE_SUCCESS_BODY, {
       status: 200,
