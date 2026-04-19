@@ -7570,26 +7570,13 @@ All 10 work items completed. Key findings:
 
 **Duration:** ~3 hours (across 2 sessions)
 
-
----
-
-
----
-
-## Entry 110 -- P14a: SafePromptBuilder module + prompt injection threat model
-
-**Tags:** [security] [pipeline] [decision]
-**Date:** 2026-04-19
-**Branch:** feat/phase-P14a-prompt-injection-builder
-
----
-
 ### Closure (doc sweep 2026-04-19)
 
-- **PR #144** merged, SHA `d7e8c92`. Reviewer: Opus APPROVE cycle 2.
-- **Cycle 1 catch:** `SET LOCAL` parameterized value syntax error — `SET LOCAL hnsw.ef_search = $1` is not valid Postgres parameterized syntax outside a function body. Drizzle auto-commit mode also means SET LOCAL is a no-op (no open transaction). Fix: replaced with `sql.raw(\`SET hnsw.ef_search = ${this.hnswEfSearch}\`)` — session-scoped SET, no SQL injection risk (value is a config integer).
-- **Migration 0027** (`0027_search_hnsw_ef_search.sql`) applied on homeserver 2026-04-19. Workers restart NOT needed — `CREATE OR REPLACE FUNCTION` is immediate in Postgres.
-- **Issue #112** closed.
+- **PR #146** merged, SHA `3e0a941`. Reviewer: Opus APPROVE cycle 2.
+- **Cycle 1 blockers fixed:** budget thresholds corrected ($28/$35 → $24/$50 to match actual circuit breaker values); duplicate JSON key in Grafana dashboard removed; P13 branch bug (SET LOCAL) resolved by merging main before cycle 2.
+- **Homeserver:** core-api + workers restarted. New gauges (`openbrain_budget_spent_usd`, `openbrain_composio_monthly_usage`) active on next Prometheus scrape.
+- **10 alert rules live:** budget (2), pipeline (2), capture-flow (1 recording rule + 1 alert), container-health (2), integration/Composio (2).
+- **#113 partial** — P12 (IaC consolidation) remains open.
 
 ---
 
@@ -7763,3 +7750,14 @@ Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
 - `pnpm --filter @open-brain/shared exec tsc --noEmit`: clean
 - `pnpm --filter @open-brain/workers exec tsc --noEmit`: clean
 - No existing tests broken.
+
+### Closure (doc sweep 2026-04-19)
+
+- **PR #145** merged, SHA `fe0b332`. Reviewer: Opus APPROVE cycle 2.
+- **Cycle 1 blocker:** P13 branch bug (SET LOCAL syntax) resolved by merging main before cycle 2. P14a code itself was clean.
+- **No homeserver deploy required** — additive shared lib only. No migration, no scheduler, no Docker changes.
+- **Architecture drift from card:** `lib/` placement confirmed correct (stateless utility, not injectable service). Documented in entry.
+- **6 injection surfaces** catalogued in `docs/SECURITY.md` for P14b call-site migration.
+- **#116 partial** — P14b (call-site migration) remains open.
+
+---
