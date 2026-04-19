@@ -7761,3 +7761,81 @@ Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
 - **#116 partial** — P14b (call-site migration) remains open.
 
 ---
+
+## Entry 112 — P14b: Prompt injection call-site migration to SafePromptBuilder — 2026-04-19
+
+**Tags:** [security] [prompt-injection] [workers] [api] [mcp]
+**Environment:** Laptop (development), branch `feat/phase-P14b-prompt-injection-migration`
+**Status:** IN PROGRESS
+
+### Objective
+
+Migrate all 6 confirmed prompt-injection call sites (synthesize.ts, daily-sweep-skill.ts, weekly-brief.ts, memory-consolidation.ts, daily-connections.ts, email-compose.ts) and 3 MCP tool return sites (search-brain.ts, get-capture.ts, list-captures.ts) to use `SafePromptBuilder` from P14a. Add adversarial integration test for synthesize. Update SECURITY.md residual risks. Also fold A73/#131: 6 deferred proactive skills needing `static minimum_autonomy` gates.
+
+### Hypothesis
+
+- All 9 production files pass user-controlled content through SafePromptBuilder before reaching LLM or MCP client.
+- Adversarial integration test: injection payload in a capture does NOT appear unsanitized in the prompt sent to LLMGatewayService.completeByTask.
+- `tsc --noEmit` clean on core-api and workers.
+- Existing test suites pass.
+
+### Rollback plan
+
+Git-tracked changes only. `git revert` the call-site commits. SafePromptBuilder (P14a) retained. No schema change, no config, no homeserver deploy.
+
+### email-compose design note
+
+`email-compose.ts` uses `runAgent()` with Anthropic tool-call loop, not a template-based LLM call. The injection surface is inside the `search_brain` tool's `execute()` function where DB rows are formatted as a return string. Applying `sanitizeInline` to each `r.content` before the 300-char slice inside the tool executor is the correct intervention point.
+
+---
+
+## Entry 114 — P16: DR restore rehearsal
+
+**Tags:** [deploy] [docker] [database] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P16-dr-restore-rehearsal`
+**Environment:** Laptop (worktree agent-a4e35656)
+
+### Objective
+
+Implement the weekly DR restore rehearsal automation: a bash script that locates the most recent backup, spins up an ephemeral `pgvector/pgvector:pg16` container, runs `pg_restore`, validates row counts against `manifest.json`, tears down, and sends Pushover notification. Also create a regression test, cron file, and runbook.
+
+### Hypothesis
+
+- `scripts/restore-rehearsal.sh` exits 0 against a real backup with all row counts within ±10% tolerance.
+- `scripts/test-restore-rehearsal.sh` exits 0 in dry-run mode on the laptop without a real backup or Docker.
+- Cron slot `30 5 * * 0` is unoccupied (P07 audit confirmed `0 5 * * 0` = wiki-lint; `30 5 * * 0` is clear).
+- No two cron jobs share the same Sunday minute (AC-7).
+- `scripts/lib/pushover-notify.sh` extended with `notify_pushover_rehearsal` function; existing `notify_pushover_mismatch` call sites are unaffected.
+
+### Rollback plan
+
+Script-only change. Remove the cron entry from homeserver (`sed -i '/restore-rehearsal/d'` + `update_cron`). The `--rm` flag on the Docker run means no container state persists. `git revert` removes the files. No schema change, no migration, no homeserver service restart required.
+
+### Cron slot decision
+
+PHASED_PLAN card said `0 5 * * 0`. That slot is taken by wiki-lint (`0 5 * * 0`). Per P07 rule: no two jobs on same minute. Shifted to `30 5 * * 0` — 30 minutes after wiki-lint completes, before the production week starts. Confirmed clear in the P07 slot registry.
+
+### Architecture decisions
+
+1. `docker cp` + `docker exec pg_restore` (not volume mount): avoids Unraid bind-mount permission issues and keeps the restore path clean for non-Unraid environments too.
+2. `pgvector/pgvector:pg16` mandatory: plain `postgres:16` lacks the `vector` extension; pg_restore would fail on vector columns.
+3. `--exit-on-error` on pg_restore: surfaces silent schema errors that would otherwise produce exit 0 with missing objects.
+4. ±10% row count tolerance: backup taken at 03:00 Sunday; rehearsal runs at 05:30; new captures can arrive via voice/Slack in that window.
+5. `REHEARSAL_DRY_RUN=true` env var short-circuits all Docker calls for CI-safe regression testing.
+
+### Work items
+
+- WI-1: `scripts/restore-rehearsal.sh` — main rehearsal script
+- WI-2: `scripts/lib/pushover-notify.sh` — add `notify_pushover_rehearsal` function
+- WI-3: `deploy/cron/unraid-restore-rehearsal.cron` — Sunday 05:30 cron entry
+- WI-4: `docs/runbooks/restore-rehearsal.md` — failure runbook
+- WI-5: `scripts/test-restore-rehearsal.sh` — regression test (no real Docker)
+
+### Verification
+
+- `bash scripts/test-restore-rehearsal.sh` — all 5 test cases pass (missing backup exit 2, missing manifest exit 2, pass path exit 0, fail path exit 1, tolerance boundary)
+- Manual homeserver validation (AC-1 through AC-4) deferred to operator post-deploy
+- No application code changes; no migrations; no pnpm changes
+
+---
