@@ -437,7 +437,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P10a — CI gating: integration tests
+### P10a — CI gating: integration tests  ✅ Completed 2026-04-19 (PR #141)
 **Scope:** #115 subset — integration-test job in CI
 **Severity:** High
 **Dependencies:** None
@@ -972,7 +972,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 112 | Theme 10 — Search perf cliff | P13 | 3 | High |
 | 113 | Theme 11 — Observability (split 3 ways) | P11a + P11b + P12 | 2, 3 | High |
 | 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
-| 115 | Theme 14 — CI gating gaps | P10a + P10b | 2 | High |
+| 115 | Theme 14 — CI gating gaps | P10a ✅ + P10b | 2 | High |
 | 116 | Theme 15 — Prompt injection | P14a + P14b | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
