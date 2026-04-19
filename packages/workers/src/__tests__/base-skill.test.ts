@@ -21,7 +21,7 @@ class ConcreteSkill extends BaseSkill<TestInput, TestResult> {
     super('test-skill', opts)
   }
 
-  async execute(input: TestInput): Promise<TestResult> {
+  protected async run(input: TestInput): Promise<TestResult> {
     const startMs = Date.now()
     const output = `processed: ${input.value}`
     const durationMs = Date.now() - startMs
@@ -67,7 +67,7 @@ class ConcreteLLMSkill extends LLMSkill<TestInput, TestResult> {
     super('test-llm-skill', opts)
   }
 
-  async execute(input: TestInput): Promise<TestResult> {
+  protected async run(input: TestInput): Promise<TestResult> {
     const startMs = Date.now()
     const template = this.renderTemplate('test.txt', { value: input.value })
     const durationMs = Date.now() - startMs

@@ -44,7 +44,7 @@ export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, Dai
     this.wikiService = opts.wikiService ?? null
   }
 
-  async execute(options: DailyConnectionsOptions = {}): Promise<DailyConnectionsResult> {
+  protected async run(options: DailyConnectionsOptions = {}): Promise<DailyConnectionsResult> {
     const {
       windowDays: rawWindowDays = DEFAULT_WINDOW_DAYS,
       tokenBudget: rawTokenBudget = DEFAULT_TOKEN_BUDGET,

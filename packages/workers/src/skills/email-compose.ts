@@ -286,7 +286,7 @@ export class EmailComposeSkill extends LLMSkill<EmailComposeOptions, EmailCompos
     }
   }
 
-  async execute(options: EmailComposeOptions): Promise<EmailComposeResult> {
+  protected async run(options: EmailComposeOptions): Promise<EmailComposeResult> {
     const startMs = Date.now()
     const instruction = options.instruction
     const coreApiUrl = options.coreApiUrl ?? this.coreApiUrl

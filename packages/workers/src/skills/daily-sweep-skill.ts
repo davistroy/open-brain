@@ -48,7 +48,7 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
     super('daily-sweep-skill', opts)
   }
 
-  async execute(options: DailySweepOptions = {}): Promise<DailySweepResult> {
+  protected async run(options: DailySweepOptions = {}): Promise<DailySweepResult> {
     const {
       tokenBudget: rawBudget = DEFAULT_TOKEN_BUDGET,
       storeCapture = false,

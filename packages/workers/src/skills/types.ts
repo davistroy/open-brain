@@ -9,6 +9,7 @@ import type { Database, PushoverService, LLMGatewayService, TemplateCache, Confi
 export interface BaseResult {
   durationMs: number
   notificationSent?: boolean
+  status?: 'gated'  // set by BaseSkill.execute() when autonomy gate blocks execution
 }
 
 // ============================================================

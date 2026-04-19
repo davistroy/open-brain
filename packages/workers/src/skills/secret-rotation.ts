@@ -109,7 +109,7 @@ export class SecretRotationSkill extends BaseSkill<SecretRotationOptions, Secret
    *
    * Never throws — returns a degraded result on error.
    */
-  async execute(options: SecretRotationOptions = {}): Promise<SecretRotationResult> {
+  protected async run(options: SecretRotationOptions = {}): Promise<SecretRotationResult> {
     const {
       maxAgeDays = DEFAULT_MAX_AGE_DAYS,
       bwsBinary = process.env.BWS_PATH ?? DEFAULT_BWS_BINARY,

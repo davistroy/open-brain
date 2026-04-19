@@ -40,7 +40,7 @@ export class CaptureReminderSkill extends BaseSkill<CaptureReminderOptions, Capt
     super('capture-reminder', opts)
   }
 
-  async execute(options: CaptureReminderOptions): Promise<CaptureReminderResult> {
+  protected async run(options: CaptureReminderOptions): Promise<CaptureReminderResult> {
     const startMs = Date.now()
     const { mode } = options
 

@@ -92,7 +92,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
     super('memory-consolidation', opts)
   }
 
-  async execute(options: MemoryConsolidationOptions = {}): Promise<MemoryConsolidationResult> {
+  protected async run(options: MemoryConsolidationOptions = {}): Promise<MemoryConsolidationResult> {
     const {
       similarityThreshold,
       minClusterSize,
