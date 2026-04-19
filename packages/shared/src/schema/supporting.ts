@@ -456,3 +456,36 @@ export const file_uploads = pgTable(
 
 export type FileUpload = typeof file_uploads.$inferSelect
 export type NewFileUpload = typeof file_uploads.$inferInsert
+
+// ============================================================
+// admin_audit table — audit trail for /admin/reset-data attempts
+//
+// Records every attempt to call /admin/reset-data: token issuance
+// (reset_requested), wipe execution (reset_executed), and blocked
+// attempts (reset_blocked — bad origin, wrong phrase, invalid token).
+//
+// CRITICAL: This table is intentionally EXCLUDED from the reset-data
+// TRUNCATE list. It is the audit trail for that operation and must
+// survive the wipe.
+// ============================================================
+export const admin_audit = pgTable(
+  'admin_audit',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    event_type: varchar('event_type', { length: 32 }).notNull(),
+    actor: text('actor').notNull(),
+    confirmation_phrase: text('confirmation_phrase'),
+    tables_affected: text('tables_affected').array(),
+    outcome: varchar('outcome', { length: 16 }).notNull(),
+    error_detail: text('error_detail'),
+    backup_path: text('backup_path'),
+    origin: text('origin'),
+    ip_address: text('ip_address'),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    event_type_idx: index('admin_audit_event_type_idx').on(table.event_type),
+    actor_idx: index('admin_audit_actor_idx').on(table.actor),
+    created_at_idx: index('admin_audit_created_at_idx').on(table.created_at),
+  }),
+)
