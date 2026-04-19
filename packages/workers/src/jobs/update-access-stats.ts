@@ -26,10 +26,14 @@ export function generateCanonicalPairs(ids: string[]): Array<[string, string]> {
 }
 
 /**
- * Upserts co-access associations for all pairs of capture IDs.
+ * Upserts co-access associations for all pairs of capture IDs using a single
+ * batch INSERT ... VALUES ... ON CONFLICT DO UPDATE statement.
+ *
  * On conflict (pair already exists): increments co_access_count, updates
  * last_co_access, and recalculates weight using Hebbian decay formula:
  *   weight = co_access_count * exp(-0.005 * hours_since_last_co_access)
+ *
+ * 45 serial INSERTs (C(10,2)) replaced with 1 batch statement.
  */
 export async function upsertCoAccessAssociations(
   pairs: Array<[string, string]>,
@@ -38,28 +42,27 @@ export async function upsertCoAccessAssociations(
 ): Promise<number> {
   if (pairs.length === 0) return 0
 
-  let upserted = 0
-  for (const [idA, idB] of pairs) {
-    await db
-      .insert(captureAssociations)
-      .values({
-        capture_id_a: idA,
-        capture_id_b: idB,
-        co_access_count: 1,
-        weight: 1.0,
-        last_co_access: new Date(accessedAt),
-      })
-      .onConflictDoUpdate({
-        target: [captureAssociations.capture_id_a, captureAssociations.capture_id_b],
-        set: {
-          co_access_count: sql`${captureAssociations.co_access_count} + 1`,
-          last_co_access: new Date(accessedAt),
-          weight: sql`(${captureAssociations.co_access_count} + 1) * exp(-0.005 * EXTRACT(EPOCH FROM (${new Date(accessedAt).toISOString()}::timestamptz - ${captureAssociations.last_co_access})) / 3600.0)`,
-        },
-      })
-    upserted++
-  }
-  return upserted
+  const accessedAtDate = new Date(accessedAt)
+  const valueFragments = pairs.map(([idA, idB]) =>
+    sql`(${idA}::uuid, ${idB}::uuid, 1, 1.0, ${accessedAtDate})`
+  )
+  const valuesClause = sql.join(valueFragments, sql`, `)
+
+  await db.execute(sql`
+    INSERT INTO capture_associations
+      (capture_id_a, capture_id_b, co_access_count, weight, last_co_access)
+    VALUES ${valuesClause}
+    ON CONFLICT (capture_id_a, capture_id_b) DO UPDATE SET
+      co_access_count = capture_associations.co_access_count + 1,
+      last_co_access  = EXCLUDED.last_co_access,
+      weight          = (capture_associations.co_access_count + 1)
+                        * exp(-0.005
+                          * EXTRACT(EPOCH FROM (
+                              EXCLUDED.last_co_access - capture_associations.last_co_access
+                            )) / 3600.0)
+  `)
+
+  return pairs.length
 }
 
 /**
@@ -209,4 +212,28 @@ export async function pruneStaleAssociations(
   }
 
   return { pruned, durationMs }
+}
+
+/**
+ * Creates and returns a BullMQ Worker for the 'prune-associations' queue.
+ * Runs pruneStaleAssociations() on each job trigger (typically weekly cron).
+ * The caller is responsible for calling worker.close() on process shutdown.
+ */
+export function createPruneAssociationsWorker(
+  connection: ConnectionOptions,
+  db: Database,
+): Worker<{ triggeredAt: string }> {
+  const worker = new Worker<{ triggeredAt: string }>(
+    'prune-associations',
+    async (_job) => {
+      await pruneStaleAssociations(db)
+    },
+    { connection, concurrency: 1 },
+  )
+
+  worker.on('failed', (job, err) => {
+    logger.warn({ jobId: job?.id, err: err.message }, 'prune-associations job failed')
+  })
+
+  return worker
 }

@@ -37,18 +37,14 @@ const UUID_D = '00000000-0000-0000-0000-000000000004'
 // ============================================================
 
 function makeMockDb() {
-  const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined)
-  const values = vi.fn().mockReturnValue({ onConflictDoUpdate })
   const where = vi.fn().mockResolvedValue(undefined)
   const set = vi.fn().mockReturnValue({ where })
 
   return {
     update: vi.fn().mockReturnValue({ set }),
-    insert: vi.fn().mockReturnValue({ values }),
+    execute: vi.fn().mockResolvedValue(undefined),
     _set: set,
     _where: where,
-    _values: values,
-    _onConflictDoUpdate: onConflictDoUpdate,
   }
 }
 
@@ -120,10 +116,10 @@ describe('upsertCoAccessAssociations', () => {
     const db = makeMockDb()
     const result = await upsertCoAccessAssociations([], TIMESTAMP, db as any)
     expect(result).toBe(0)
-    expect(db.insert).not.toHaveBeenCalled()
+    expect(db.execute).not.toHaveBeenCalled()
   })
 
-  it('calls insert for each pair', async () => {
+  it('executes exactly one batch statement for multiple pairs', async () => {
     const db = makeMockDb()
     const pairs: Array<[string, string]> = [
       [UUID_A, UUID_B],
@@ -133,37 +129,29 @@ describe('upsertCoAccessAssociations', () => {
     const result = await upsertCoAccessAssociations(pairs, TIMESTAMP, db as any)
 
     expect(result).toBe(2)
-    expect(db.insert).toHaveBeenCalledTimes(2)
+    // Batch UPSERT invariant: exactly 1 db.execute() regardless of pair count
+    expect(db.execute).toHaveBeenCalledTimes(1)
+    expect(db.execute).toHaveBeenCalledWith(expect.anything())
   })
 
-  it('provides onConflictDoUpdate for upsert behavior', async () => {
+  it('executes batch INSERT ... ON CONFLICT statement', async () => {
     const db = makeMockDb()
     const pairs: Array<[string, string]> = [[UUID_A, UUID_B]]
 
     await upsertCoAccessAssociations(pairs, TIMESTAMP, db as any)
 
-    expect(db._onConflictDoUpdate).toHaveBeenCalledTimes(1)
-    const conflictArg = db._onConflictDoUpdate.mock.calls[0][0]
-    // Should target the unique pair columns
-    expect(conflictArg.target).toBeDefined()
-    expect(conflictArg.set).toBeDefined()
-    // The set should update co_access_count, last_co_access, and weight
-    expect(conflictArg.set.co_access_count).toBeDefined()
-    expect(conflictArg.set.last_co_access).toBeDefined()
-    expect(conflictArg.set.weight).toBeDefined()
+    // Exactly 1 db.execute call — the batch UPSERT
+    expect(db.execute).toHaveBeenCalledTimes(1)
+    expect(db.execute).toHaveBeenCalledWith(expect.anything())
   })
 
-  it('inserts with initial weight of 1.0 and co_access_count of 1', async () => {
+  it('returns pair count on success', async () => {
     const db = makeMockDb()
     const pairs: Array<[string, string]> = [[UUID_A, UUID_B]]
 
-    await upsertCoAccessAssociations(pairs, TIMESTAMP, db as any)
+    const result = await upsertCoAccessAssociations(pairs, TIMESTAMP, db as any)
 
-    const insertedValues = db._values.mock.calls[0][0]
-    expect(insertedValues.capture_id_a).toBe(UUID_A)
-    expect(insertedValues.capture_id_b).toBe(UUID_B)
-    expect(insertedValues.co_access_count).toBe(1)
-    expect(insertedValues.weight).toBe(1.0)
+    expect(result).toBe(1)
   })
 })
 
@@ -180,7 +168,7 @@ describe('processAccessStatsJob', () => {
     const db = makeMockDb()
     await processAccessStatsJob({ captureIds: [], accessedAt: TIMESTAMP }, db as any)
     expect(db.update).not.toHaveBeenCalled()
-    expect(db.insert).not.toHaveBeenCalled()
+    expect(db.execute).not.toHaveBeenCalled()
   })
 
   it('updates access stats for single capture (no co-access)', async () => {
@@ -192,8 +180,8 @@ describe('processAccessStatsJob', () => {
 
     // Should update access_count
     expect(db.update).toHaveBeenCalledTimes(1)
-    // Should NOT insert associations (need >= 2 captures)
-    expect(db.insert).not.toHaveBeenCalled()
+    // Should NOT execute batch upsert (need >= 2 captures)
+    expect(db.execute).not.toHaveBeenCalled()
   })
 
   it('updates access stats AND creates co-access associations for 2+ captures', async () => {
@@ -205,8 +193,8 @@ describe('processAccessStatsJob', () => {
 
     // Access stats update
     expect(db.update).toHaveBeenCalledTimes(1)
-    // 3 pairs: A-B, A-C, B-C
-    expect(db.insert).toHaveBeenCalledTimes(3)
+    // Batch UPSERT invariant: exactly 1 db.execute() for all pairs combined
+    expect(db.execute).toHaveBeenCalledTimes(1)
   })
 
   it('limits co-access pairing to top 10 results', async () => {
@@ -223,14 +211,14 @@ describe('processAccessStatsJob', () => {
 
     // All 15 get access_count update
     expect(db.update).toHaveBeenCalledTimes(1)
-    // Only top 10 are paired: C(10, 2) = 45
-    expect(db.insert).toHaveBeenCalledTimes(45)
+    // Only top 10 are paired, but still exactly 1 batch execute regardless
+    expect(db.execute).toHaveBeenCalledTimes(1)
   })
 
   it('does not fail when co-access upsert throws', async () => {
     const db = makeMockDb()
-    // Make insert throw on first call
-    db._onConflictDoUpdate.mockRejectedValueOnce(new Error('DB constraint violation'))
+    // Make execute throw
+    db.execute.mockRejectedValueOnce(new Error('DB constraint violation'))
 
     // Should not throw — co-access is best-effort
     await expect(

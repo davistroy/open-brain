@@ -82,11 +82,13 @@ interface AppDependencies {
   voiceSessionService?: VoiceSessionService
   /** Ingest-process BullMQ queue — required for POST /api/v1/ingest/upload pipeline dispatch (CS3.4/CS3.5) */
   ingestProcessQueue?: Queue<IngestProcessJobData>
+  /** Access-stats BullMQ queue — fire-and-forget after search completion (P06 Hebbian co-access) */
+  accessStatsQueue?: Queue<{ captureIds: string[]; accessedAt: string }>
 }
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -129,7 +131,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   }
 
   if (searchService) {
-    registerSearchRoutes(app, searchService)
+    registerSearchRoutes(app, searchService, accessStatsQueue)
   }
 
   // Synthesize API
@@ -212,7 +214,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
 
   // MCP endpoint — requires all services to be available
   if (captureService && searchService && configService && db) {
-    mountMcpServer(app, { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService })
+    mountMcpServer(app, { captureService, searchService, configService, db, entityService, wikiService, activityFeedService, emailDraftService, accessStatsQueue })
   }
 
   return app
