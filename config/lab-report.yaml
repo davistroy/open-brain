@@ -1,5 +1,5 @@
-# Lab report extraction configuration (P20a)
-# Used by scripts/lab-report-extract.py
+# Lab report configuration — P20a (extraction) + P20b (synthesis)
+# Used by scripts/lab-report-extract.py and scripts/lab-report-synthesis.py
 
 # Hospital institution name patterns for layout detection.
 # Case-insensitive partial match against first 200 chars of page 1.
@@ -28,3 +28,27 @@ date_formats:
   - "%B %d, %Y"
   - "%b %d, %Y"
   - "%d-%b-%Y"
+
+# ── Synthesis config (P20b) ──────────────────────────────────────────────────
+synthesis:
+  # How many of the most-recent reports to include in trend comparison.
+  # Default: 5. Increase for longer-range trends, decrease for speed.
+  default_report_window: 5
+
+  # Maximum characters passed to claude --print. Prompt is hard-truncated at
+  # this limit with a trailing note so the LLM knows data was cut.
+  max_prompt_chars: 4000
+
+  # core-api capture endpoint. Overridden at runtime by CAPTURE_API_URL env var.
+  # Leave empty to use the lib/capture_api.py default (brain.troy-davis.com).
+  captures_url: ""
+
+# Alert thresholds (P20b custom bounds).
+# Keys must match test_name exactly as stored in lab_results (case-insensitive
+# lookup applied at runtime). Supported fields: high, low.
+# Example:
+#   HbA1c:
+#     high: 5.7
+#   LDL Cholesterol:
+#     high: 100
+alert_thresholds: {}
