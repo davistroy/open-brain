@@ -120,6 +120,19 @@ export default function SearchFiltersPanel({ filters, onChange, onClear }: Searc
           Hybrid search (FTS + vector)
         </label>
       </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="include-related-toggle"
+          type="checkbox"
+          checked={filters.include_related ?? false}
+          onChange={(e) => update({ include_related: e.target.checked })}
+          className="rounded border-input"
+        />
+        <label htmlFor="include-related-toggle" className="text-sm text-muted-foreground cursor-pointer">
+          Include related captures (spreading activation)
+        </label>
+      </div>
     </div>
   );
 }

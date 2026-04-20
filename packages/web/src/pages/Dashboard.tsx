@@ -15,10 +15,11 @@ import { Badge } from '@/components/ui/badge';
 import StatsCards from '@/components/StatsCards';
 import ActivityFeedItemComponent from '@/components/ActivityFeedItem';
 import { FinancialPulseCard } from '@/components/FinancialPulseCard';
-import { statsApi, pipelineApi, adminApi, intelligenceApi, activityApi } from '@/lib/api';
+import { statsApi, pipelineApi, adminApi, intelligenceApi, activityApi, skillsApi, settingsApi } from '@/lib/api';
 import { sseClient } from '@/lib/sse';
 import type { AdminBanner } from '@/lib/api';
-import type { BrainStats, ActivityFeedItem } from '@/lib/types';
+import type { BrainStats, ActivityFeedItem, AutonomyLevel } from '@/lib/types';
+import SystemStatusStrip from '@/components/SystemStatusStrip';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -107,6 +108,10 @@ export default function Dashboard() {
   const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
   const [adminBanner, setAdminBanner] = useState<AdminBanner | null>(null);
   const [unresolvedQuestions, setUnresolvedQuestions] = useState<Array<{ id: string; content: string; brain_view: string; created_at: string }>>([]);
+
+  // --- System status (autonomy level + last consolidation) ---
+  const [autonomyLevel, setAutonomyLevel] = useState<AutonomyLevel | null>(null);
+  const [lastConsolidationAt, setLastConsolidationAt] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -148,17 +153,30 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const [statsData, healthData, bannerData, questionsData] = await Promise.allSettled([
+      const [statsData, healthData, bannerData, questionsData, skillsData, autonomyData] = await Promise.allSettled([
         statsApi.get(),
         pipelineApi.health(),
         adminApi.getBanner(),
         intelligenceApi.unresolvedQuestions(5),
+        skillsApi.list(),
+        settingsApi.get<AutonomyLevel>('autonomy_level'),
       ]);
 
       if (statsData.status === 'fulfilled') setStats(statsData.value);
       if (healthData.status === 'fulfilled') setPipelineHealth(healthData.value);
       if (bannerData.status === 'fulfilled') setAdminBanner(bannerData.value.banner);
       if (questionsData.status === 'fulfilled') setUnresolvedQuestions(questionsData.value.questions);
+
+      // System status strip — non-fatal
+      if (skillsData.status === 'fulfilled') {
+        const consolidation = skillsData.value.data.find((s) => s.name === 'memory-consolidation');
+        setLastConsolidationAt(consolidation?.last_run_at ?? null);
+      } else {
+        setLastConsolidationAt(null);
+      }
+      if (autonomyData.status === 'fulfilled') {
+        setAutonomyLevel(autonomyData.value.value);
+      }
 
       if (
         statsData.status === 'rejected' &&
@@ -444,6 +462,14 @@ export default function Dashboard() {
 
       {/* Stats cards */}
       {stats && <StatsCards stats={stats} />}
+
+      {/* System status strip — autonomy level + last memory consolidation */}
+      {lastConsolidationAt !== undefined && (
+        <SystemStatusStrip
+          autonomyLevel={autonomyLevel}
+          lastConsolidationAt={lastConsolidationAt}
+        />
+      )}
 
       {/* Open Questions widget */}
       {unresolvedQuestions.length > 0 && (
