@@ -4257,6 +4257,87 @@ Single-user system — security is network-level, not application-level.
 
 ---
 
+## 20. Cognitive Memory (P06)
+
+Hebbian co-access tracking strengthens associations between captures accessed together during search. The `capture_associations` table stores weighted edges between capture pairs (canonical ordering: `capture_id_a < capture_id_b`).
+
+### 20.1 Co-Access Tracking
+- **Producer:** `update-access-stats` BullMQ job, enqueued by search routes (HTTP + MCP) on every search with ≥1 result, sliced to top-10.
+- **Weight formula:** `(co_access_count + 1) * exp(-0.005 * hours_since_last_co_access)` — batch-UPSERT via single `INSERT ... ON CONFLICT DO UPDATE`.
+- **Pruning:** `prune-associations` scheduled job (Sunday 03:30) removes edges with weight < 0.1 AND 90+ days stale.
+
+### 20.2 Spreading Activation
+- SQL function `spreading_activation(seed_ids, max_hops=2, fan_out=10)` traverses the entity-link graph from seed captures.
+- Activated when `include_related=true` (default: false for API, true for MCP).
+- Results returned as `relatedResults[]` alongside primary `results[]`.
+
+### 20.3 Memory Consolidation
+- `memory-consolidation` skill (Sunday 04:00, `minimum_autonomy: assist`).
+- Clusters captures with cosine similarity > 0.92, minimum cluster size 3, top 5 clusters per run.
+- Creates a merged capture with `source: 'consolidation'`; originals soft-deleted with `deleted_at`.
+
+---
+
+## 21. Autonomy Levels (P05)
+
+Four-level system controlling proactive behavior: `observe` (default) → `assist` → `advise` → `partner`.
+
+### 21.1 Gate Mechanism
+`BaseSkill.execute()` checks `static minimum_autonomy` before delegating to `protected abstract run()`. Skills below the current level return `{ status: 'gated', durationMs: 0 }`.
+
+### 21.2 Skill Gates
+| Skill | minimum_autonomy | Rationale |
+|-------|-----------------|-----------|
+| email-compose | advise | Auto-send email |
+| memory-consolidation | assist | Destructive merge + soft-delete |
+| daily-sweep-skill | assist | Proactive LLM summary |
+| weekly-brief | observe | Informational report |
+| daily-connections | observe | Read-only analysis |
+| drift-monitor | observe | Read-only analysis |
+| cost-analysis | observe | Read-only analysis |
+| morning-brief | observe | Informational summary |
+| monthly-reflection | assist | LLM-generated reflection |
+| capture-dedup-sweep | observe | Read-only detection |
+
+### 21.3 Configuration
+Stored in `app_settings.autonomy_level` (JSONB). Managed via dashboard Settings page. 5-minute in-process cache per package (slack-bot, workers). Default on error: `observe`.
+
+---
+
+## 22. Cost-Tier Processing
+
+Every feature follows a 4-tier cost hierarchy (CLAUDE.md § Cost-Tiered Processing):
+
+| Tier | Used for | Cost |
+|------|----------|------|
+| T0: Python/code | Parsing, regex, rule-based | Free |
+| T1: Small local LLM | Classification, short summaries | Free (Qwen on Spark/Jetson) |
+| T2: Claude Code CLI | Complex analysis, synthesis | Free (subscription) |
+| T3: API (Anthropic/OpenAI) | Real-time, streaming, embeddings | $/token |
+
+### 22.1 Routing
+`config/ai-routing.yaml` defines `task_routing` entries mapping task keys to tier preferences with fallback chains. `LLMGatewayService.completeByTask(taskKey)` resolves the chain at runtime.
+
+### 22.2 Budget Controls
+- `ai_audit_log` records every LLM call with `cost_usd` (from tier config `cost_per_1k_input/output`).
+- `budget-check` skill (daily 07:00): soft alert at $30, hard circuit breaker at $50.
+- Prometheus gauge `openbrain_budget_spent_usd` refreshed per scrape from `ai_audit_log` SUM.
+
+---
+
+## 23. Email Pipeline (P34/Cloudflare)
+
+### 23.1 Ingest Path
+Cloudflare Email Worker at `brain@troy-davis.com` → `POST /api/v1/captures` with `source: 'email'`. Sender allowlist in `app_settings` (JSONB), managed via dashboard Settings page.
+
+### 23.2 Email Compose (Outbound)
+`email-compose` skill (`minimum_autonomy: advise`) drafts and sends email via SMTP. Search results provide context; `SafePromptBuilder.sanitizeInline()` strips injection payloads from search content before prompt assembly.
+
+### 23.3 File Ingestion
+`packages/file-ingestion/` Python service processes PDF/DOCX via `document-pipeline` BullMQ worker. Chunk-based processing creates per-chunk capture records with `source: 'file'`. Multi-chunk documents set `pipeline_status: 'chunked'`.
+
+---
+
 ## Appendices
 
 ### A. Glossary
@@ -4335,6 +4416,7 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 | 2026-03-05 | v0.5: Architectural review v2. Fixed composite score formula (multiplicative boost in PRD), extracted pipeline_log→pipeline_events table, session transcript→session_messages table, removed linked_entities denorm from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), BrainView→config-driven string, ai_usage→ai_audit_log (dropped cost_estimate), entity resolution confidence threshold (0.8), MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability, MCP in-progress capture visibility note. | Troy Davis / Claude |
 | 2026-03-10 | v0.6: Hardening 7.2 — Replaced speculative SQL functions with as-built implementations (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search). Updated synthesize endpoint to match simplified implementation. Updated all cross-references. | Troy Davis / Claude |
 | 2026-03-11 | v0.7: Phase 5 — Added technical design for F21 (daily connections skill), F22 (drift monitor skill), F24 (URL/bookmark capture). New TDD sections: 12.2c (daily connections), 12.2d (drift monitor), 12.2e (URL extraction service). Updated scope, phased implementation, job definitions, scheduled jobs. F27 (image capture) documented in PRD but deferred from TDD. | Troy Davis / Claude |
+| 2026-04-19 | v0.7.1 (P15b): LiteLLM scrub — replaced 134 LiteLLM references with current architecture (OpenAI embeddings, Anthropic/Qwen inference via LLMGatewayService, cost-tiered ai-routing.yaml). Added cognitive memory, autonomy levels, cost-tier routing, and email pipeline sections. | Troy Davis / Claude |
 
 ### E. Operational Runbook
 

@@ -799,7 +799,7 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 models:
   embedding:
     model: "text-embedding-3-large"
-    client: openai
+    client: litellm
     cost_per_1k_input: 0.00013
 
 model_tiers:
