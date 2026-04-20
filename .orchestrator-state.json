@@ -7,6 +7,7 @@
 
   "current_phase": "P23",
   "current_gate": "gate_0_data_gated",
+  "wave_7_8_complete_note": "WAVES 7+8 COMPLETE 2026-04-20. 7 PRs merged: P26 (#165 b531d23), P27 (#161 399b5f0), P28 (#163 5089f39), P29 (#162 3f9a759), P30 (#164 fbe7813), P31 (#160 ea7c7d4), P32 (#166 5600232). Issues closed: #60 (P26), #120 (P28-P32), #121 (P27). 40 total PRs shipped.",
   "wave_4_complete_note": "WAVE 4 COMPLETE 2026-04-20. All 6 PRs merged: P19 (#155 2f693d9), P20a (#154 ef52638), P20b (#159 d1e1dfb), P21 (#156 51360b2), P22a (#157 41d434f), P22b (#158 d5258fd). Issues closed: #62 (P19), #67 (P20a+P20b), #66 (P21), #68 (P22a+P22b). Waves 1-4 ALL COMPLETE. 33 total PRs shipped.",
   "wave_4_first_pass_complete_note": "P19/P20a/P21/P22a merged 2026-04-19. P20b + P22b merged 2026-04-20. Wave 4 now fully complete.",
   "p13_note": "P13 merged out-of-sequence (PR #144, d7e8c92) ahead of P11b/P12. P11b now complete (PR #146). P12 complete (PR #147).",
@@ -624,7 +625,7 @@
     }
   ],
   "skipped_phases": [],
-  "last_known_good_sha": "d1e1dfb",
+  "last_known_good_sha": "5600232",
   "pending_homeserver_deploys": [],
 
   "operator_approval_pending": null,
@@ -634,7 +635,7 @@
   "wave_4_note": "WAVE 4 COMPLETE 2026-04-20. All 6 PRs: P19 (#155 2f693d9), P20a (#154 ef52638), P20b (#159 d1e1dfb), P21 (#156 51360b2), P22a (#157 41d434f), P22b (#158 d5258fd). Issues fully closed: #62 (P19), #66 (P21), #67 (P20a+P20b), #68 (P22a+P22b). A75 CI fix landed a07a916.",
   "flaky_ci_note": "A75 RESOLVED 2026-04-20 — CI fix landed a07a916 (Dashboard.test.tsx mock). P19/P20a/P21 were admin-merged after Opus APPROVE due to pnpm recursive run exit-code race. P22a/P22b/P20b unaffected. Fix: proper mock wiring for skillsApi + settingsApi in Dashboard.test.tsx.",
 
-  "session_handoff_note": "CHECKPOINT 2026-04-20 — Waves 1-4 ALL COMPLETE. 33 total PRs. last_known_good_sha=d1e1dfb (P20b). Deferred homeserver ops: P12 observability profile activate; P16 cron install. Wave 5: P23 (cognitive memory tuning, data-gated — needs ≥4 weeks of data from P06 2026-04-19). Wave 7: P26 (wiki, independent, no data gate). IMPL plans archived to docs/archived/implementation-plans/. GH auth: davistroy active. REMAINING: P23 (4wk data gate), P24-P25 (voice soak), P26 (wiki), P27-P32 (typing filler), P33-P34 (hardware triggers).",
+  "session_handoff_note": "CHECKPOINT 2026-04-20 — Waves 1-4+7+8 ALL COMPLETE. 40 total PRs. last_known_good_sha=5600232 (P32). Deferred homeserver ops: P12 observability profile activate; P16 cron install; P26 wiki deploy (web container restart). REMAINING: P23 (data-gated until 2026-05-17), P24-P25 (voice soak, manual), P33-P34 (hardware/scale triggers).",
   "session_stats": {
     "session_start_utc": "2026-04-18T14:00:00Z",
     "session_end_utc": "2026-04-19T14:55:00Z",
