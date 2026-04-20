@@ -225,6 +225,52 @@
 
 ---
 
+### Entry 099 — P21: Financial Advisor Newsletter Assessment Pipeline
+
+**Tags:** [pipeline] [decision] [config]
+**Environment:** laptop (worktree agent-aaa983a8), open-brain-vm (cron target)
+**Branch:** `feat/phase-P21-newsletter-pipeline`
+**Date:** 2026-04-19
+
+#### Objective
+
+Implement the P21 financial advisor newsletter pipeline per IMPLEMENT_PHASE-P21.md: 9 work items covering config, SQLite tracking DB, full-body email fetch (reusing HotmailBackend via importlib), T0 section parsing + diff, T2 Claude CLI synthesis, capture POST, rate-limit bypass registration, CLI + cron wiring, and 7+ pytest cases.
+
+#### Hypothesis
+
+All 9 WIs are self-contained in `scripts/` + one 1-line TS edit (rate-limit.ts BYPASS_CALLERS). Zero schema migration. Zero new pip dependencies. T2 (`claude --print`) handles synthesis — zero LLM API cost. Expected outcome: pytest passes 7+ cases; `--status` exits 0; `--fetch-only` prints advisor matches; `--run` posts captures and deduplicates on repeat run.
+
+#### Rollback plan
+
+- Script is additive (`scripts/` only). Remove or comment out cron entry on open-brain-vm to disable.
+- rate-limit.ts change is a trivially reverted 1-line addition to the Set — does not affect any existing bypass entry.
+- SQLite in `~/.newsletter-pipeline/` on VM. Delete that directory to wipe pipeline state. No Postgres impact.
+- `git revert` the PR.
+
+#### Design decisions
+
+| # | Decision | Alternatives |
+|---|----------|-------------|
+| D-P21-1 | `importlib.util.spec_from_file_location` for `email-pipeline.py` HotmailBackend reuse (hyphenated filename) | Fallback: extract HotmailBackend to `scripts/lib/hotmail_backend.py` if importlib proves brittle |
+| D-P21-2 | Tests go in `scripts/tests/` (new dir, mirroring `docker/ingest-sidecar/tests/`) | `docker/ingest-sidecar/tests/` — wrong conceptual home for a standalone VM script |
+| D-P21-3 | Config in `config/financial/newsletter-advisors.yaml` — ship with placeholder; operator populates real senders | Hardcode in script (not editable without deploy) |
+| D-P21-4 | `X-Open-Brain-Caller: newsletter-pipeline` + BYPASS_CALLERS entry (lockstep rule per CLAUDE.md) | No header (429s under burst); shared `email-pipeline` value (bad observability) |
+
+#### Implementation notes
+
+- HotmailBackend `_get()` in email-pipeline.py uses positional `params=None` arg that is never actually passed to the requests call — body fetch calls `GET /me/messages/{id}?$select=body,subject,...` as a literal URL string, which is the correct approach.
+- Gmail body fetch: `messages.get(format='full')` → `payload.parts` walk for `text/plain` or `text/html`.
+- Dedup sentinel `"DUPLICATE"` used as constant; `compute_diff()` returns it on hash match so callers can skip synthesis + post.
+- Synthesis prompt capped to 6,000 chars (truncates body section before building).
+- `--reprocess N` re-synthesizes last N rows by setting `synthesis_posted=0` and re-running.
+- Cron slot `0 8 * * *` — after the weekday morning cluster (06:00–07:15). Safe, no collision.
+
+#### Result
+
+All 9 WIs implemented. See commits under `feat/phase-P21-newsletter-pipeline`.
+
+---
+
 ## Prior Work Summary
 
 ### Project Arc

@@ -176,6 +176,8 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
       'internal:email-pipeline',
       'internal:ingest-onedrive',
       'internal:ingest-repair',
+      // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
+      'internal:newsletter-pipeline',
     ])
     if (BYPASS_CALLERS.has(key)) {
       await next()
