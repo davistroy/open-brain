@@ -8,6 +8,8 @@ Actions:
 3. Empty Deleted Items folder
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -17,13 +19,14 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
-import msal
+import msal  # type: ignore[import-untyped]
 import requests
 
 # Force unbuffered output
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
 # --- Auth config (matches email-corpus-analyzer) ---
 CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
@@ -33,7 +36,7 @@ TOKEN_CACHE_FILE = Path.home() / ".email-analyzer" / "ms_token_cache.json"
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 # --- Cleanup config ---
-PROTECTED_SENDERS = {"ash.davis@hotmail.com"}
+PROTECTED_SENDERS: set[str] = {"ash.davis@hotmail.com"}
 BATCH_SIZE = 20  # Graph API $batch limit
 MAX_CONCURRENT = 4  # parallel queries
 PAGE_SIZE = 999  # Graph API max per page
@@ -43,7 +46,7 @@ session = requests.Session()
 session.headers["Content-Type"] = "application/json"
 
 
-def authenticate():
+def authenticate() -> str:
     """MSAL device code auth with token caching."""
     print(f"  Token cache: {TOKEN_CACHE_FILE}", flush=True)
     cache = msal.SerializableTokenCache()
@@ -61,7 +64,7 @@ def authenticate():
 
     accounts = app.get_accounts()
     if accounts:
-        result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)")
             save_cache(cache)
@@ -70,7 +73,7 @@ def authenticate():
     print("\n" + "=" * 60)
     print("MICROSOFT AUTHENTICATION REQUIRED")
     print("=" * 60)
-    flow = app.initiate_device_flow(scopes=SCOPES)
+    flow: dict[str, Any] = app.initiate_device_flow(scopes=SCOPES)
     if "user_code" not in flow:
         raise RuntimeError(f"Failed to create device flow: {flow.get('error_description')}")
     print(flow["message"])
@@ -83,13 +86,13 @@ def authenticate():
     raise RuntimeError(f"Auth failed: {result.get('error_description')}")
 
 
-def save_cache(cache):
+def save_cache(cache: msal.SerializableTokenCache) -> None:
     if cache.has_state_changed:
         TOKEN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         TOKEN_CACHE_FILE.write_text(cache.serialize())
 
 
-def api_get(url, params=None, retries=3):
+def api_get(url: str, params: dict[str, Any] | None = None, retries: int = 3) -> dict[str, Any]:
     """GET with retry on 429."""
     for _attempt in range(retries):
         resp = session.get(url, params=params, timeout=30)
@@ -107,7 +110,11 @@ def api_get(url, params=None, retries=3):
     raise RuntimeError(f"Failed after {retries} retries: {url}")
 
 
-def api_post(url, json_data, retries=3):
+def api_post(
+    url: str,
+    json_data: dict[str, Any],
+    retries: int = 3,
+) -> dict[str, Any]:
     """POST with retry on 429."""
     for _attempt in range(retries):
         resp = session.post(url, json=json_data, timeout=60)
@@ -125,22 +132,30 @@ def api_post(url, json_data, retries=3):
     raise RuntimeError(f"Failed after {retries} retries: {url}")
 
 
-def collect_message_ids(folder, odata_filter=None, label=""):
+def collect_message_ids(
+    folder: str,
+    odata_filter: str | None = None,
+    label: str = "",
+) -> list[str]:
     """Collect all message IDs from a folder, optionally filtered."""
-    url = f"{GRAPH_BASE}/me/mailFolders/{folder}/messages"
-    params = {"$top": PAGE_SIZE, "$select": "id", "$orderby": "receivedDateTime asc"}
+    url: str | None = f"{GRAPH_BASE}/me/mailFolders/{folder}/messages"
+    params: dict[str, Any] = {
+        "$top": PAGE_SIZE,
+        "$select": "id",
+        "$orderby": "receivedDateTime asc",
+    }
     if odata_filter:
         params["$filter"] = odata_filter
         # OData filter + orderby can conflict; remove orderby
         del params["$orderby"]
 
-    ids = []
+    ids: list[str] = []
     page = 0
     while url:
         data = api_get(url, params if page == 0 else None)
         batch = [m["id"] for m in data.get("value", [])]
         ids.extend(batch)
-        next_link = data.get("@odata.nextLink")
+        next_link: str | None = data.get("@odata.nextLink")
         if next_link:
             url = next_link
             page += 1
@@ -149,7 +164,11 @@ def collect_message_ids(folder, odata_filter=None, label=""):
     return ids
 
 
-def batch_delete(message_ids, label="", dry_run=False):
+def batch_delete(
+    message_ids: list[str],
+    label: str = "",
+    dry_run: bool = False,
+) -> int:
     """Delete messages in batches of 20 using Graph $batch API."""
     if not message_ids:
         return 0
@@ -164,7 +183,7 @@ def batch_delete(message_ids, label="", dry_run=False):
             deleted += len(chunk)
             continue
 
-        requests_payload = []
+        requests_payload: list[dict[str, Any]] = []
         for j, mid in enumerate(chunk):
             requests_payload.append(
                 {
@@ -195,7 +214,11 @@ def batch_delete(message_ids, label="", dry_run=False):
     return deleted
 
 
-def collect_ids_for_sender(sender, cutoff_iso, folder="inbox"):
+def collect_ids_for_sender(
+    sender: str,
+    cutoff_iso: str,
+    folder: str = "inbox",
+) -> list[str]:
     """Query inbox for a sender's emails before cutoff date."""
     odata_filter = (
         f"from/emailAddress/address eq '{sender}' " f"and receivedDateTime lt {cutoff_iso}"
@@ -207,7 +230,7 @@ def collect_ids_for_sender(sender, cutoff_iso, folder="inbox"):
         return []
 
 
-def load_marketing_senders():
+def load_marketing_senders() -> list[tuple[str, int, str]]:
     """Load senders from classification data."""
     corpus_path = os.path.expanduser("~/data/outputs/email_corpus.json")
     clf_path = os.path.expanduser("~/data/outputs/classify_report_batch.json")
@@ -217,21 +240,23 @@ def load_marketing_senders():
         sys.exit(1)
 
     with open(corpus_path, encoding="utf-8") as f:
-        corpus = json.load(f)
+        corpus: dict[str, Any] = json.load(f)
     with open(clf_path, encoding="utf-8") as f:
-        clf_data = json.load(f)
+        clf_data: dict[str, Any] = json.load(f)
 
-    email_info = {}
+    email_info: dict[str, str] = {}
     for email in corpus["emails"]:
         email_info[email["id"]] = email["sender_email"]
 
-    sender_cats = defaultdict(lambda: defaultdict(int))
+    sender_cats: defaultdict[str, defaultdict[str, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
     for email_id, info in clf_data["categorized_emails"].items():
-        sender = email_info.get(email_id, "")
+        sender: str = email_info.get(email_id, "")
         if sender:
             sender_cats[sender][info["category"]] += 1
 
-    spam_categories = {
+    spam_categories: set[str] = {
         "Spam & Junk",
         "Newsletters & Marketing",
         "Shopping & E-commerce",
@@ -257,20 +282,20 @@ def load_marketing_senders():
         "sendgrid",
     ]
 
-    senders = []
-    for sender, cats in sender_cats.items():
+    senders: list[tuple[str, int, str]] = []
+    for sndr, cats in sender_cats.items():
         primary_cat = max(cats, key=cats.get)
         is_marketing = primary_cat in spam_categories or any(
-            sig in sender.lower() for sig in marketing_signals
+            sig in sndr.lower() for sig in marketing_signals
         )
-        if is_marketing and sender.lower() not in PROTECTED_SENDERS:
-            senders.append((sender, sum(cats.values()), primary_cat))
+        if is_marketing and sndr.lower() not in PROTECTED_SENDERS:
+            senders.append((sndr, sum(cats.values()), primary_cat))
 
     senders.sort(key=lambda x: x[1], reverse=True)
     return senders
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Email cleanup via Graph API")
     parser.add_argument("--dry-run", action="store_true", help="Count without deleting")
     parser.add_argument("--skip-junk", action="store_true", help="Skip emptying Junk folder")
@@ -326,7 +351,7 @@ def main():
         print(f"  Found {len(senders)} marketing senders (excluding {PROTECTED_SENDERS})")
         print(f"  Querying inbox for emails older than {args.days} days...")
 
-        all_ids = []
+        all_ids: list[str] = []
         completed = 0
 
         with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:
