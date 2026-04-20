@@ -32,6 +32,12 @@ vi.mock('../../lib/api', () => ({
     list: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 30, offset: 0 }),
     countSince: vi.fn().mockResolvedValue(0),
   },
+  skillsApi: {
+    list: vi.fn().mockResolvedValue({ data: [] }),
+  },
+  settingsApi: {
+    get: vi.fn().mockResolvedValue({ key: 'autonomy_level', value: 'observe', updated_at: new Date().toISOString() }),
+  },
 }))
 
 // Mock the SSE module
