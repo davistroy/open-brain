@@ -90,7 +90,7 @@ class SessionManager:
         }
         key = f"{SESSION_KEY_PREFIX}{session_id}"
         await r.set(key, json.dumps(session_data), ex=settings.session_ttl_seconds)
-        await r.sadd(ACTIVE_SESSIONS_KEY, session_id)
+        await r.sadd(ACTIVE_SESSIONS_KEY, session_id)  # type: ignore[misc]  # redis.asyncio stubs mis-type sadd as int (not Awaitable)
         logger.info(f"Session started: {session_id}")
         return session_data
 
@@ -115,7 +115,7 @@ class SessionManager:
         session_data["ended_at"] = datetime.now(UTC).isoformat()
         # Keep the session data around for a while after ending (for review)
         await r.set(key, json.dumps(session_data), ex=settings.session_ttl_seconds)
-        await r.srem(ACTIVE_SESSIONS_KEY, session_id)
+        await r.srem(ACTIVE_SESSIONS_KEY, session_id)  # type: ignore[misc]  # redis.asyncio stubs mis-type srem as int (not Awaitable)
         logger.info(f"Session ended: {session_id} " f"(turns: {session_data.get('turn_count', 0)})")
 
         # Fire session-end callbacks (capture extraction, etc.)
@@ -204,12 +204,12 @@ class SessionManager:
     async def get_active_session_count(self) -> int:
         """Get the number of currently active sessions."""
         r = await self._get_redis()
-        return await r.scard(ACTIVE_SESSIONS_KEY)
+        return await r.scard(ACTIVE_SESSIONS_KEY)  # type: ignore[misc]  # redis.asyncio stubs mis-type scard as int (not Awaitable)
 
     async def get_active_session_ids(self) -> list[str]:
         """Get IDs of all active sessions."""
         r = await self._get_redis()
-        members = await r.smembers(ACTIVE_SESSIONS_KEY)
+        members = await r.smembers(ACTIVE_SESSIONS_KEY)  # type: ignore[misc]  # redis.asyncio stubs mis-type smembers as Set (not Awaitable)
         return list(members)
 
     async def close(self) -> None:
