@@ -71,7 +71,7 @@ def authenticate() -> str:
 
     accounts = app.get_accounts()
     if accounts:
-        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])  # type: ignore[assignment]
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)", flush=True)
             if cache.has_state_changed:
@@ -242,7 +242,7 @@ def load_sender_sets() -> tuple[set[str], set[str], defaultdict[str, int], defau
     delete_category_counts: defaultdict[str, int] = defaultdict(int)
 
     for sender, cats in sender_cats.items():
-        primary = max(cats, key=cats.get)
+        primary = max(cats, key=cats.get)  # type: ignore[arg-type]
         total = sum(cats.values())
 
         if sender.lower() in PROTECTED_SENDERS:
