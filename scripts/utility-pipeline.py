@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# pyright: reportMissingImports=false
+from __future__ import annotations
+
 """
 Utility Pipeline for Open Brain.
 
@@ -31,6 +34,7 @@ import tempfile
 import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import requests
 import yaml
@@ -49,8 +53,12 @@ _JSON_ERRORS: list[str] = []
 
 
 def _post_capture_raw(
-    cfg, content, source_metadata, capture_type="observation", brain_view="personal"
-):
+    cfg: dict[str, Any],
+    content: str,
+    source_metadata: dict[str, Any],
+    capture_type: str = "observation",
+    brain_view: str = "personal",
+) -> bool:
     ok = _post_capture_unwrapped(
         cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
     )
@@ -89,19 +97,19 @@ CONFIG_PATH = CONFIG_BASE / "utility-config.yaml"
 # ── Config ───────────────────────────────────────────────────────────────────
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Load utility-config.yaml."""
     if not CONFIG_PATH.exists():
         sys.exit(f"Config not found: {CONFIG_PATH}")
-    return yaml.safe_load(CONFIG_PATH.read_text())
+    return yaml.safe_load(CONFIG_PATH.read_text())  # type: ignore[no-any-return]
 
 
 # ── Secrets ──────────────────────────────────────────────────────────────────
 
-_bws_secrets_cache: list | None = None
+_bws_secrets_cache: list[dict[str, Any]] | None = None
 
 
-def _load_bws_secrets() -> list:
+def _load_bws_secrets() -> list[dict[str, Any]]:
     """Load all secrets from Bitwarden Secrets Manager (cached)."""
     global _bws_secrets_cache
     if _bws_secrets_cache is not None:
@@ -180,7 +188,7 @@ def init_db() -> sqlite3.Connection:
 # ── Water (Cobb County) ─────────────────────────────────────────────────────
 
 
-def cmd_water(cfg: dict, conn: sqlite3.Connection):
+def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     """--water: Fetch water meter readings from Cobb County Water REST API.
 
     API requires no authentication (confirmed via HAR analysis).
@@ -307,7 +315,7 @@ def cmd_water(cfg: dict, conn: sqlite3.Connection):
 # ── Gas South ────────────────────────────────────────────────────────────────
 
 
-def _gas_south_login(cfg: dict) -> str | None:
+def _gas_south_login(cfg: dict[str, Any]) -> str | None:
     """Login to Gas South portal and return authtoken UUID.
 
     Tries the known authentication endpoint. Returns None on failure.
@@ -392,7 +400,7 @@ def _gas_south_login(cfg: dict) -> str | None:
     return None
 
 
-def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
+def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
     """Extract CCFs, therm factor, and therms from a Gas South bill PDF.
 
     Returns dict with keys: ccfs, therm_factor, therms, rate_per_therm.
@@ -466,7 +474,7 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict:
     return result
 
 
-def cmd_gas(cfg: dict, conn: sqlite3.Connection):
+def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     """--gas: Fetch Gas South billing history and parse bill PDFs for therms.
 
     Login to portal, fetch billing activity, download bill PDFs to extract
@@ -612,7 +620,7 @@ def cmd_gas(cfg: dict, conn: sqlite3.Connection):
 # ── Power (Cobb EMC — stub) ─────────────────────────────────────────────────
 
 
-def cmd_power_summary(cfg: dict, conn: sqlite3.Connection):
+def cmd_power_summary(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     """--power-summary: Aggregate power data from electric-usage-downloader output.
 
     Reads CSV data from the Go tool's output directory. Aggregates daily/monthly
@@ -645,7 +653,7 @@ def cmd_power_summary(cfg: dict, conn: sqlite3.Connection):
 # ── Monthly Comparison ───────────────────────────────────────────────────────
 
 
-def cmd_monthly_comparison(cfg: dict, conn: sqlite3.Connection):
+def cmd_monthly_comparison(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     """--monthly-comparison: Unified utility comparison with T2 synthesis.
 
     Aggregates latest month data from water, gas, and power. Compares MoM.
@@ -938,7 +946,7 @@ def show_status(conn: sqlite3.Connection):
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="Utility Pipeline for Open Brain")
     ap.add_argument("--water", action="store_true", help="Fetch water meter readings (Cobb County)")
     ap.add_argument("--gas", action="store_true", help="Fetch gas billing + parse PDFs (Gas South)")

@@ -30,7 +30,8 @@ include = [
   "docker/ingest-sidecar",
   "packages/voice-pipecat/src",
   "packages/file-ingestion/src",
-  # P31: ingestion + misc scripts — fully type-annotated
+  "scripts/financial-pipeline.py",
+  "scripts/utility-pipeline.py",
   "scripts/ingest-onedrive.py",
   "scripts/ingest-repair.py",
   "scripts/batch-wiki-ingest.py",
