@@ -37,6 +37,12 @@ include = [
   "scripts/batch-wiki-ingest.py",
   "scripts/plaid-link-server.py",
   "scripts/deepgram-spike.py",
+  "scripts/email-pipeline.py",
+  "scripts/email-cleanup.py",
+  "scripts/email-cleanup-pass2.py",
+  "scripts/email-cleanup-pass4.py",
+  "scripts/email-cleanup-pass6.py",
+  "scripts/email-archive-by-year.py",
 ]
 exclude = ["scripts", "**/tests", "**/__pycache__"]
 pythonVersion = "3.12"
