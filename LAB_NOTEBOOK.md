@@ -8250,3 +8250,32 @@ Revert the PR. The `--account-monitoring` flag disappears. Existing `--balances`
 - **W5** — `deploy/cron/unraid-ingest.cron`: two new entries at 07:00 (balances) and 07:05 (monitoring)
 - **W6** — `scripts/tests/`: `__init__.py`, `requirements.txt`, `test_financial_monitoring.py` (5 tests)
 
+### Results — COMPLETE
+
+**4 commits on `feat/phase-P19-financial-monitoring`:**
+- `a094bbe` feat(phase-P19)/1.0: LAB_NOTEBOOK entry 118
+- `5be9507` feat(phase-P19)/1.1: W1–W4 YAML + Python implementation
+- `464ff39` feat(phase-P19)/1.2: W5 cron entries
+- `b62f600` feat(phase-P19)/1.3: W6 tests (7/7 passing)
+
+**Verification:**
+- `ruff check scripts/financial-pipeline.py` → All checks passed
+- `pytest scripts/tests/test_financial_monitoring.py -v` → 7/7 passed (0.21s)
+- YAML loads clean (`yaml.safe_load` verified by test bootstrap)
+- Cold DB path: `cmd_account_monitoring` returns gracefully with no data
+
+**Files touched:**
+- `config/financial/plaid-config.yaml` — +22 lines monitoring: block
+- `scripts/financial-pipeline.py` — +396 lines (3 helpers + 1 command + argparse wiring)
+- `deploy/cron/unraid-ingest.cron` — +8 lines (2 cron entries at 07:00 + 07:05)
+- `scripts/tests/__init__.py`, `requirements.txt`, `test_financial_monitoring.py` — new
+
+**Design notes:**
+- `send_pushover_alert()` uses stdlib `urllib` only — no new dependencies. Graceful failure on missing BWS secrets or network error.
+- `detect_balance_anomalies()` skips when `std == 0` (all-identical history) — prevents false positives from zero-variance accounts.
+- Test fixture uses `history_values = [980, 990, 1000, 1010, 1020, ...]` (non-zero std) to confirm sigma detection works. Zero-std case tested separately by `test_within_threshold_returns_empty_list`.
+- `cmd_account_monitoring()` depends on `--balances` having run first (reads `daily_balances` for today). Cron sequencing (07:00 balances, 07:05 monitoring) enforces this.
+
+**Duration:** ~1 session.
+
+
