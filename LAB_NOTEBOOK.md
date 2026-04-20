@@ -8228,6 +8228,9 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 
 ---
 
+
+---
+
 ## Entry 118 — P19: Financial account monitoring  [pipeline] [config]
 
 **Tags:** [pipeline] [config] [decision]
@@ -8242,6 +8245,9 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 **Date:** 2026-04-19
 
 ### Objective
+
+
+---
 
 Add daily financial account health monitoring to `financial-pipeline.py` — balance diffs (day-over-day), 30-day anomaly detection, Pushover alerts on threshold breaches, and a daily summary capture. Implements GH issue #62. No LLM calls, no schema migration, no Docker changes.
 
@@ -8314,17 +8320,57 @@ Implement P20a: T0-only structured extraction of lab PDF reports into a new `lab
 
 ### Hypothesis
 
+All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10+ cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
+
+---
+
 All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10 cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
 
 ### Pre-implementation verifications
 
 1. **Migration slot 0028** — CONFIRMED FREE: last migration is `0027_search_hnsw_ef_search.sql`.
 2. **`scripts/lib/` exists** — CONFIRMED: `capture_api.py`, `ingest_router.py`, `__init__.py` present.
+3. **`scripts/tests/` did NOT exist** — created directory + `__init__.py`.
+4. **No `psycopg2` or `pdfplumber` in any existing requirements** — added to new `requirements-lab.txt`.
+
+---
+
 3. **`scripts/tests/` does NOT exist** — will create directory + `__init__.py`.
 4. **No `psycopg2` or `pdfplumber` in any existing requirements** — must add to new `requirements-lab.txt`.
 5. **Cost tier: T0 throughout** — no LLM calls. P20b does synthesis.
 
 ### Decisions
+
+- **D-P20a-1:** `scripts/lib/db.py` reads `DATABASE_URL` env var (direct Postgres), falls back to `config/pipeline.yaml` `db.url` field. Uses `psycopg2` + `execute_batch` — batched upsert, 500 rows/batch, never holds full result set in memory.
+- **D-P20a-2:** Layout detection order: Quest → LabCorp → hospital (YAML list) → generic. Scans first 200 chars of page 1 text.
+- **D-P20a-3:** Reference range normalises to `{low, high, comparator, text}`. Handles `1.00-2.50`, `<10.0`, `>3.5`, `Negative`.
+- **D-P20a-4:** `report_id` is SHA-256[:32] of `{filename}|{collection_date}|{accession}` — deterministic, stable across re-extractions.
+- **D-P20a-5:** Tests use `importlib.util.spec_from_file_location()` to load the hyphenated `lab-report-extract.py` module by path (normal `import` fails with hyphens). `pdfplumber.open()` is mocked — no real PDF bytes required in CI.
+
+### Result — COMPLETE
+
+**18/18 tests passing.** All 6 work items delivered:
+
+| Item | File | Status |
+|------|------|--------|
+| 1.1 | `scripts/lib/db.py` | Created — psycopg2 connection helper, batched upsert |
+| 1.2 | `packages/shared/drizzle/0028_lab_results.sql` | Created — migration with 3 indexes + UNIQUE constraint |
+| 1.3 | `scripts/requirements-lab.txt` | Created — pdfplumber, psycopg2-binary, pyyaml |
+| 1.4 | `config/lab-report.yaml` | Created — hospital names, custom thresholds, date formats |
+| 1.5 | `scripts/lab-report-extract.py` | Created — full CLI extractor, layout detection, ref range parsing, derived flags |
+| 1.6 | `scripts/tests/test_lab_report_extract.py` | Created — 18 test cases, all passing |
+
+AC verification:
+- **AC-1:** `--dry-run` emits valid JSON with result rows (`test_dry_run_no_db` PASSED)
+- **AC-2:** ON CONFLICT DO NOTHING in SQL + `test_upsert_idempotent` PASSED
+- **AC-3:** derived_flag matches lab_flag for H/L cases (`test_parse_result_row_high` PASSED)
+- **AC-4:** `pytest scripts/tests/test_lab_report_extract.py` — 18 passed
+- **AC-5:** Migration 0028 SQL syntactically valid; homeserver apply pending operator approval (Gate 5)
+- **AC-6:** pdfplumber pages streamed one at a time in `extract_pdf()` — no full-page-list materialisation
+
+**Duration:** ~1 session.
+
+---
 
 - **D-P20a-1:** `scripts/lib/db.py` reads `DATABASE_URL` env var (direct Postgres), falls back to `config/pipeline.yaml` `db.url` field. Uses `psycopg2` connection pooling — never holds more than a batch of rows in memory.
 - **D-P20a-2:** Layout detection order: Quest → LabCorp → hospital (YAML list) → generic. First 200 chars of page 1 for keyword scan.
