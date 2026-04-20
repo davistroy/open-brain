@@ -8228,6 +8228,13 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 
 ---
 
+## Entry 118 — P19: Financial account monitoring  [pipeline] [config]
+
+**Tags:** [pipeline] [config] [decision]
+**Environment:** Laptop / worktree `agent-afa3c08a` on branch `feat/phase-P19-financial-monitoring`
+
+---
+
 ## Entry 118 — P20a: Doctor lab reports structured data extraction  [pipeline] [database] [decision]
 
 **Tags:** [pipeline] [database] [decision]
@@ -8235,6 +8242,73 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 **Date:** 2026-04-19
 
 ### Objective
+
+Add daily financial account health monitoring to `financial-pipeline.py` — balance diffs (day-over-day), 30-day anomaly detection, Pushover alerts on threshold breaches, and a daily summary capture. Implements GH issue #62. No LLM calls, no schema migration, no Docker changes.
+
+### Hypothesis
+
+All logic is T0 Python arithmetic over SQLite data already populated by `--balances`. Pushover is a single HTTP POST via `urllib`. Extending `financial-pipeline.py` with a new `--account-monitoring` flag leaves all existing commands (`--balances`, `--investments`, etc.) untouched. Low risk.
+
+Success criteria:
+- `--account-monitoring` runs cleanly on a cold DB (no prior data)
+- Balance drop > threshold triggers alert string (verifiable with synthetic data)
+- Anomaly > 2.5σ triggers alert string
+- Within-threshold run produces informational capture only, no Pushover
+- `pytest scripts/tests/test_financial_monitoring.py` — all 5 tests pass
+
+### Pre-implementation verifications performed
+
+1. **`daily_balances` schema** — confirmed: `id, date, account_id, current_balance, available_balance, credit_limit, created_at`. One row per sub-account per day.
+2. **`holdings` schema** — confirmed: `date, security_id, name, ticker, quantity, close_price, value, type, account_id`. Primary key `(date, security_id)`.
+3. **Pushover secret names** — env template shows `PUSHOVER_APP_TOKEN` / `PUSHOVER_USER_KEY`. Plan specifies BWS keys `pushover-user-key` / `pushover-api-token`. Using `pushover-user-key` and `pushover-api-token` per plan (consistent with `deploy/.env.secrets.template` comments: `open-brain-pushover-app-token`, `open-brain-pushover-user-key`). `get_bws_secret()` already exists in pipeline.
+4. **Credit account type** — `CREDIT_ACCOUNT_TYPES = {"credit", "loan"}` (line 612). Utilization formula: `(current_balance / credit_limit) * 100` where `credit_limit > 0`.
+5. **Cron slot check** — `unraid-ingest.cron` has `0 6` (process-inbox) and `30 6` (utility). No `0 7` or `5 7` entries — both slots are available for balance + monitoring.
+6. **`scripts/tests/` directory** — does not exist; must be created.
+
+### Rollback plan
+
+Revert the PR. The `--account-monitoring` flag disappears. Existing `--balances`, `--investments`, etc. are unaffected. Remove two cron lines from `unraid-ingest.cron` on homeserver (`sed` or manual edit). No migration required, no Docker changes, no homeserver deploy required beyond updating cron file.
+
+### Work items
+
+- **W1** — `config/financial/plaid-config.yaml`: append `monitoring:` block
+- **W2** — `scripts/financial-pipeline.py`: `load_monitoring_config()` + `detect_balance_anomalies()`
+- **W3** — `scripts/financial-pipeline.py`: `send_pushover_alert()` helper
+- **W4** — `scripts/financial-pipeline.py`: `cmd_account_monitoring()` + argparse flag + `main()` wiring
+- **W5** — `deploy/cron/unraid-ingest.cron`: two new entries at 07:00 (balances) and 07:05 (monitoring)
+- **W6** — `scripts/tests/`: `__init__.py`, `requirements.txt`, `test_financial_monitoring.py` (5 tests)
+
+### Results — COMPLETE
+
+**4 commits on `feat/phase-P19-financial-monitoring`:**
+- `a094bbe` feat(phase-P19)/1.0: LAB_NOTEBOOK entry 118
+- `5be9507` feat(phase-P19)/1.1: W1–W4 YAML + Python implementation
+- `464ff39` feat(phase-P19)/1.2: W5 cron entries
+- `b62f600` feat(phase-P19)/1.3: W6 tests (7/7 passing)
+
+**Verification:**
+- `ruff check scripts/financial-pipeline.py` → All checks passed
+- `pytest scripts/tests/test_financial_monitoring.py -v` → 7/7 passed (0.21s)
+- YAML loads clean (`yaml.safe_load` verified by test bootstrap)
+- Cold DB path: `cmd_account_monitoring` returns gracefully with no data
+
+**Files touched:**
+- `config/financial/plaid-config.yaml` — +22 lines monitoring: block
+- `scripts/financial-pipeline.py` — +396 lines (3 helpers + 1 command + argparse wiring)
+- `deploy/cron/unraid-ingest.cron` — +8 lines (2 cron entries at 07:00 + 07:05)
+- `scripts/tests/__init__.py`, `requirements.txt`, `test_financial_monitoring.py` — new
+
+**Design notes:**
+- `send_pushover_alert()` uses stdlib `urllib` only — no new dependencies. Graceful failure on missing BWS secrets or network error.
+- `detect_balance_anomalies()` skips when `std == 0` (all-identical history) — prevents false positives from zero-variance accounts.
+- Test fixture uses `history_values = [980, 990, 1000, 1010, 1020, ...]` (non-zero std) to confirm sigma detection works. Zero-std case tested separately by `test_within_threshold_returns_empty_list`.
+- `cmd_account_monitoring()` depends on `--balances` having run first (reads `daily_balances` for today). Cron sequencing (07:00 balances, 07:05 monitoring) enforces this.
+
+**Duration:** ~1 session.
+
+
+
+---
 
 Implement P20a: T0-only structured extraction of lab PDF reports into a new `lab_results` Postgres table. 6 work items: `scripts/lib/db.py`, migration 0028, `scripts/requirements-lab.txt`, `config/lab-report.yaml`, `scripts/lab-report-extract.py`, and `scripts/tests/test_lab_report_extract.py`.
 

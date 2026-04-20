@@ -45,3 +45,11 @@
 # prior month's water/gas/power data and posts a single synthesized capture.
 # (Water is a no-op today — Cobb Water B2C OIDC is a separate backlog.)
 0 2 2 * * /usr/bin/docker exec open-brain-utility-ingest python /app/utility-pipeline.py --monthly-comparison >> /var/log/utility-monthly.log 2>&1
+
+# Financial daily balance snapshot + account monitoring — 7:00 AM and 7:05 AM daily.
+# Run in sequence: --balances first (writes daily_balances rows), then --account-monitoring
+# (reads those rows). Separate cron entries ensure correct ordering via the 5-minute gap.
+# These are host-level cron jobs — no collision with BullMQ scheduler slots (0 7 budget-check
+# runs inside the workers container; these exec into open-brain-financial-ingest).
+0 7 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --balances >> /var/log/financial-balances.log 2>&1
+5 7 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --account-monitoring >> /var/log/financial-monitoring.log 2>&1
