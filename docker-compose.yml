@@ -90,9 +90,12 @@ services:
               name:
 
   core-api:
+    image: ghcr.io/davistroy/open-brain/core-api:latest
     build:
       context: .
       target: core-api
+      profiles:
+        - local-build
     container_name: open-brain-core-api
     env_file:
       - .env.secrets
@@ -153,9 +156,12 @@ services:
               name:
 
   workers:
+    image: ghcr.io/davistroy/open-brain/workers:latest
     build:
       context: .
       target: workers
+      profiles:
+        - local-build
     container_name: open-brain-workers
     env_file:
       - .env.secrets
@@ -220,9 +226,12 @@ services:
               name:
 
   slack-bot:
+    image: ghcr.io/davistroy/open-brain/slack-bot:latest
     build:
       context: .
       target: slack-bot
+      profiles:
+        - local-build
     container_name: open-brain-slack-bot
     env_file:
       - .env.secrets
@@ -263,9 +272,12 @@ services:
               name:
 
   voice-pipecat:
+    image: ghcr.io/davistroy/open-brain/voice-pipecat:latest
     build:
       context: packages/voice-pipecat
       dockerfile: Dockerfile
+      profiles:
+        - local-build
     container_name: open-brain-voice-pipecat
     env_file:
       - .env.secrets
@@ -330,9 +342,12 @@ services:
   #   restart: unless-stopped
 
   file-ingestion:
+    image: ghcr.io/davistroy/open-brain/file-ingestion:latest
     build:
       context: packages/file-ingestion
       dockerfile: Dockerfile
+      profiles:
+        - local-build
     container_name: open-brain-file-ingestion
     environment:
       PORT: "8080"
@@ -414,9 +429,12 @@ services:
               name:
 
   voice-capture:
+    image: ghcr.io/davistroy/open-brain/voice-capture:latest
     build:
       context: .
       target: voice-capture
+      profiles:
+        - local-build
     container_name: open-brain-voice-capture
     env_file:
       - .env.secrets
@@ -466,9 +484,12 @@ services:
               name:
 
   web:
+    image: ghcr.io/davistroy/open-brain/web:latest
     build:
       context: .
       dockerfile: packages/web/Dockerfile
+      profiles:
+        - local-build
     container_name: open-brain-web
     environment:
       # No secrets needed — nginx serves static files and proxies /api to core-api
@@ -548,10 +569,12 @@ services:
   # Replaces the per-script deployment on open-brain-vm (G-C.0 decision: Python
   # sidecar on homeserver, not TS rewrite).
   financial-ingest:
+    image: ghcr.io/davistroy/open-brain/ingest-sidecar:latest
     build:
       context: .
       dockerfile: docker/ingest-sidecar/Dockerfile
-    image: open-brain-ingest-sidecar:latest
+      profiles:
+        - local-build
     container_name: open-brain-financial-ingest
     env_file:
       - .env.secrets
@@ -711,10 +734,12 @@ services:
       start_period: 20s
 
   utility-ingest:
+    image: ghcr.io/davistroy/open-brain/ingest-sidecar:latest
     build:
       context: .
       dockerfile: docker/ingest-sidecar/Dockerfile
-    image: open-brain-ingest-sidecar:latest
+      profiles:
+        - local-build
     container_name: open-brain-utility-ingest
     env_file:
       - .env.secrets
