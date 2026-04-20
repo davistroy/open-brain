@@ -586,11 +586,12 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P14b — Route all capture→LLM call sites through prompt-builder
+### P14b — Route all capture→LLM call sites through prompt-builder  ✅ Completed 2026-04-19 (PR #150)
 **Scope:** #116 subset — migrate all user-content concatenation sites
 **Severity:** High
 **Dependencies:** P14a (module must exist)
 **Effort:** ~1-1.5 days
+**Status:** COMPLETE — PR #150 merged `a117d73`, LAB_NOTEBOOK Entry 112. Opus cycle 1. Homeserver: workers + core-api restarted (SafePromptBuilder + autonomy gates active). #116 CLOSED (P14a + P14b complete). A73 CLOSED (#131 folded in — 6 deferred proactive skills got `minimum_autonomy` gates).
 
 **Deliverables:**
 - `packages/core-api/src/services/synthesize.ts`: uses prompt-builder
@@ -598,8 +599,13 @@ Hard dependencies only (soft groupings in phase cards below):
 - `packages/workers/src/skills/daily-sweep-skill.ts`, `weekly-brief.ts`, `memory-consolidation.ts`: all wrap user-content
 - MCP tool handlers (search_brain, get_capture, list_captures): sanitize before returning to client (defense in depth)
 - Integration tests: known injection string does NOT influence LLM output (verify with a synthesized adversarial capture)
+- A73 folded in: `daily-connections.ts`, `drift-monitor.ts`, `cost-analysis.ts`, `capture-dedup-sweep.ts`, `morning-brief.ts` → `observe`; `monthly-reflection.ts` → `assist`
 
 **Acceptance:** No production call site concatenates raw capture content into a prompt; adversarial-capture fixture doesn't pivot LLM output.
+- [x] 9 surfaces migrated (6 LLM prompt sites + 3 MCP return sites)
+- [x] Adversarial integration test passes
+- [x] 6 proactive skills gated (A73 complete)
+- [x] tsc clean + all tests passing
 
 **Rollback:** Revert call site migrations; SECURITY.md retains the threat model for future work.
 
@@ -991,7 +997,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b ✅ + P12 ✅ | 2, 3 | High |
 | 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
 | 115 | Theme 14 — CI gating gaps | P10a ✅ + P10b ✅ | 2 | High |
-| 116 | Theme 15 — Prompt injection | P14a ✅ + P14b | 3 | High |
+| 116 | Theme 15 — Prompt injection | P14a ✅ + P14b ✅ | 3 | High |
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
 | 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c ✅ | 2 | Medium |
@@ -1032,7 +1038,7 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 ```
 
 **Parallelization opportunities (after P01 lands):**
-- **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a ✅ → P14b
+- **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a ✅ → P14b ✅
 - **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 ✅ → P17
 - **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b → P18
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16 ✅
@@ -1124,7 +1130,7 @@ Items surfaced **during** the orchestrator pipeline that don't warrant their own
 | A70 | [#136](https://github.com/davistroy/open-brain/issues/136) | Batch homeserver deploy for 7 queued phases (P01, P02a-c, P03, P04a, P07) | P01 onwards | ✅ closed by #136 comment — batch deploy 2026-04-19 | P04b/P05/P06/P08 added zero deploy work |
 | A71 | [#137](https://github.com/davistroy/open-brain/issues/137) | `memory-consolidation` task-key rename in `ai-routing.yaml` | P02b | open — ~1h work | Suitable as filler between waves |
 | A72 | — | PR body `Refs` vs `Closes` keyword discipline | P02b → strengthened P03 | resolved (rule baked into ORCHESTRATOR.md commit-message contract) | #102 was auto-closed by accidental "closes" in section header prose |
-| A73 | [#131](https://github.com/davistroy/open-brain/issues/131) | P05.1 — 6 deferred proactive skills for autonomy gate | P05 | open — sub-phase candidate | May fold into P14b or get its own P05.1 sub-phase |
+| A73 | [#131](https://github.com/davistroy/open-brain/issues/131) | P05.1 — 6 deferred proactive skills for autonomy gate | P05 | ✅ closed — folded into P14b (PR #150, a117d73) | 6 skills gated: daily-connections/drift-monitor/cost-analysis/capture-dedup-sweep/morning-brief → observe; monthly-reflection → assist |
 | A74 | [#135](https://github.com/davistroy/open-brain/issues/135) | Tighten `.gitignore` for `.env.secrets*` glob | P08 (Opus review nit) | ✅ closed — bundled with P09b PR #139 | Defense-in-depth; no runtime impact |
 
 **Convention:** when adding a new orchestrator-discovered item, file the GH issue first, then append a row here. Include the phase that surfaced it. Strikethrough + "✅ closed by #N" when resolved (don't delete rows — preserves history).
