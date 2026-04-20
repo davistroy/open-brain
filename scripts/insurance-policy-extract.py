@@ -134,7 +134,7 @@ _DATE_RE = re.compile(
     r"(?:"
     r"(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})"  # MM/DD/YYYY or M-D-YY
     r"|"
-    r"(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})"   # YYYY-MM-DD
+    r"(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})"  # YYYY-MM-DD
     r")"
 )
 
@@ -277,6 +277,7 @@ def _extract_percent_near(lines: list[str], keywords: list[str], window: int = 3
 # Policy-specific extraction
 # -----------------------------------------------------------------------
 
+
 def _extract_health_coverage(lines: list[str]) -> dict:
     """Extract health insurance coverage elements."""
     coverage: dict = {
@@ -314,21 +315,34 @@ def _extract_health_coverage(lines: list[str]) -> dict:
 
     # Out-of-pocket max (individual and family)
     indiv_oop = _extract_first_dollar_near(
-        lines, ["individual out-of-pocket", "individual out of pocket",
-                "individual out-of-pocket maximum", "individual out of pocket maximum"], window=2
+        lines,
+        [
+            "individual out-of-pocket",
+            "individual out of pocket",
+            "individual out-of-pocket maximum",
+            "individual out of pocket maximum",
+        ],
+        window=2,
     )
     if not indiv_oop:
         # Broader fallback: first OOP maximum mention (usually individual)
         indiv_oop = _extract_first_dollar_near(
-            lines, ["out-of-pocket maximum", "out of pocket maximum",
-                    "oop max", "out-of-pocket max"], window=2
+            lines,
+            ["out-of-pocket maximum", "out of pocket maximum", "oop max", "out-of-pocket max"],
+            window=2,
         )
     if indiv_oop:
         coverage["out_of_pocket_max"].append({"category": "individual", "amount_usd": indiv_oop})
 
     family_oop = _extract_first_dollar_near(
-        lines, ["family out-of-pocket", "family out of pocket",
-                "family out-of-pocket maximum", "family out of pocket maximum"], window=2
+        lines,
+        [
+            "family out-of-pocket",
+            "family out of pocket",
+            "family out-of-pocket maximum",
+            "family out of pocket maximum",
+        ],
+        window=2,
     )
     if family_oop:
         coverage["out_of_pocket_max"].append({"category": "family", "amount_usd": family_oop})
@@ -352,8 +366,11 @@ def _extract_health_coverage(lines: list[str]) -> dict:
                 co_ins_pct = max(a, b)
                 break
             # Fallback: find the highest percentage >= 50% (plan pays more than patient)
-            all_pcts = [int(m.group(1)) for m in _PERCENT_RE.finditer(nearby)
-                        if 50 <= int(m.group(1)) <= 100]
+            all_pcts = [
+                int(m.group(1))
+                for m in _PERCENT_RE.finditer(nearby)
+                if 50 <= int(m.group(1)) <= 100
+            ]
             if all_pcts:
                 co_ins_pct = max(all_pcts)
                 break
@@ -416,7 +433,9 @@ def _extract_health_coverage(lines: list[str]) -> dict:
     in_exclusions = False
     for line in lines:
         ll = line.lower()
-        if any(kw in ll for kw in ["exclusion", "not covered", "what is not covered", "does not cover"]):
+        if any(
+            kw in ll for kw in ["exclusion", "not covered", "what is not covered", "does not cover"]
+        ):
             in_exclusions = True
         if in_exclusions:
             stripped = line.strip().lstrip("•-* ")
@@ -440,16 +459,12 @@ def _extract_auto_coverage(lines: list[str]) -> dict:
     }
 
     # Collision deductible
-    col_ded = _extract_first_dollar_near(
-        lines, ["collision deductible"], window=2
-    )
+    col_ded = _extract_first_dollar_near(lines, ["collision deductible"], window=2)
     if col_ded:
         coverage["deductibles"].append({"category": "collision", "amount_usd": col_ded})
 
     # Comprehensive deductible
-    comp_ded = _extract_first_dollar_near(
-        lines, ["comprehensive deductible"], window=2
-    )
+    comp_ded = _extract_first_dollar_near(lines, ["comprehensive deductible"], window=2)
     if comp_ded:
         coverage["deductibles"].append({"category": "comprehensive", "amount_usd": comp_ded})
 
@@ -551,9 +566,7 @@ def _extract_home_coverage(lines: list[str]) -> dict:
         lines, ["coverage a - dwelling", "dwelling limit", "coverage a:"], window=2
     )
     if not dwelling:
-        dwelling = _extract_first_dollar_near(
-            lines, ["dwelling", "coverage a"], window=2
-        )
+        dwelling = _extract_first_dollar_near(lines, ["dwelling", "coverage a"], window=2)
     if dwelling:
         coverage["limits"].append(
             {"category": "dwelling", "amount_usd": dwelling, "per": "occurrence"}
@@ -587,7 +600,9 @@ def _extract_home_coverage(lines: list[str]) -> dict:
 
     # Loss of use / additional living expenses (Coverage D)
     loss_use = _extract_first_dollar_near(
-        lines, ["loss of use limit", "coverage d - loss", "additional living expenses limit"], window=2
+        lines,
+        ["loss of use limit", "coverage d - loss", "additional living expenses limit"],
+        window=2,
     )
     if not loss_use:
         loss_use = _extract_first_dollar_near(
@@ -660,8 +675,14 @@ def _extract_umbrella_coverage(lines: list[str]) -> dict:
     # Primary limit
     primary = _extract_first_dollar_near(
         lines,
-        ["per occurrence", "per claim", "umbrella limit", "coverage limit",
-         "liability limit", "aggregate limit"],
+        [
+            "per occurrence",
+            "per claim",
+            "umbrella limit",
+            "coverage limit",
+            "liability limit",
+            "aggregate limit",
+        ],
         window=2,
     )
     if primary:
@@ -692,6 +713,7 @@ def _extract_umbrella_coverage(lines: list[str]) -> dict:
 # PDF text extraction
 # -----------------------------------------------------------------------
 
+
 def extract_text_from_pdf(pdf_path: Path) -> str:
     """Extract full text from PDF using pdfplumber (streams pages, bounded memory)."""
     try:
@@ -721,6 +743,7 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
 # Header extraction (provider name, policy number, insured name)
 # -----------------------------------------------------------------------
 
+
 def extract_header_fields(lines: list[str]) -> dict:
     """Extract provider, policy number, and insured name from document header."""
     result: dict = {"provider": None, "policy_number": None, "insured_name": None}
@@ -740,9 +763,22 @@ def extract_header_fields(lines: list[str]) -> dict:
     # Policy number: regex near "policy number", "policy #", "certificate"
     for i, line in enumerate(lines):
         ll = line.lower()
-        if any(kw in ll for kw in ["policy number", "policy no", "policy #", "certificate number", "certificate no"]):
-            nearby = " ".join(lines[max(0, i):min(len(lines), i + 3)])
-            m = re.search(r"(?:policy\s*(?:number|no|#)|certificate\s*(?:number|no))[:\s]+([A-Z0-9\-]+)", nearby, re.IGNORECASE)
+        if any(
+            kw in ll
+            for kw in [
+                "policy number",
+                "policy no",
+                "policy #",
+                "certificate number",
+                "certificate no",
+            ]
+        ):
+            nearby = " ".join(lines[max(0, i) : min(len(lines), i + 3)])
+            m = re.search(
+                r"(?:policy\s*(?:number|no|#)|certificate\s*(?:number|no))[:\s]+([A-Z0-9\-]+)",
+                nearby,
+                re.IGNORECASE,
+            )
             if m:
                 result["policy_number"] = m.group(1).strip()
                 break
@@ -751,10 +787,11 @@ def extract_header_fields(lines: list[str]) -> dict:
     for i, line in enumerate(lines):
         ll = line.lower()
         if any(kw in ll for kw in ["named insured", "insured:", "policyholder:", "policy holder:"]):
-            nearby = " ".join(lines[max(0, i):min(len(lines), i + 2)])
+            nearby = " ".join(lines[max(0, i) : min(len(lines), i + 2)])
             m = re.search(
                 r"(?:named insured|insured|policyholder|policy holder)[:\s]+([A-Za-z ,\.'-]{3,60})",
-                nearby, re.IGNORECASE,
+                nearby,
+                re.IGNORECASE,
             )
             if m:
                 name = m.group(1).strip().rstrip(",")
@@ -768,6 +805,7 @@ def extract_header_fields(lines: list[str]) -> dict:
 # -----------------------------------------------------------------------
 # Main extraction entry point
 # -----------------------------------------------------------------------
+
 
 def extract_policy(
     text: str,
@@ -799,7 +837,9 @@ def extract_policy(
         lines, ["effective date:", "effective date", "coverage begins", "policy begins"], window=1
     )
     expiration_date = _extract_date_near(
-        lines, ["expiration date:", "expiration date", "expiration:", "coverage ends", "policy expires"], window=1
+        lines,
+        ["expiration date:", "expiration date", "expiration:", "coverage ends", "policy expires"],
+        window=1,
     )
 
     # Extract coverage by type
@@ -828,6 +868,7 @@ def extract_policy(
 # -----------------------------------------------------------------------
 # Database operations
 # -----------------------------------------------------------------------
+
 
 def get_db_url() -> str:
     """Resolve Postgres connection URL from environment."""
@@ -971,6 +1012,7 @@ def list_policies() -> None:
 # Process files
 # -----------------------------------------------------------------------
 
+
 def process_file(
     path: Path,
     dry_run: bool = False,
@@ -1049,9 +1091,12 @@ def process_dir(
     if not dry_run:
         try:
             import psycopg2  # type: ignore[import]
+
             conn = psycopg2.connect(get_db_url())
             with conn, conn.cursor() as cur:
-                cur.execute("SELECT source_file FROM insurance_policies WHERE source_file IS NOT NULL")
+                cur.execute(
+                    "SELECT source_file FROM insurance_policies WHERE source_file IS NOT NULL"
+                )
                 for row in cur.fetchall():
                     ingested.add(row[0])
             conn.close()
@@ -1077,6 +1122,7 @@ def process_dir(
 # CLI
 # -----------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Insurance policy PDF extraction for Open Brain (T0 Python/pdfplumber).",
@@ -1084,12 +1130,16 @@ def main() -> None:
         epilog=__doc__,
     )
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--file", metavar="PDF", help="Process a single policy PDF (or .txt fixture).")
+    mode.add_argument(
+        "--file", metavar="PDF", help="Process a single policy PDF (or .txt fixture)."
+    )
     mode.add_argument("--dir", metavar="DIR", help="Process all PDFs in a directory.")
     mode.add_argument("--status", action="store_true", help="Show policy counts by type.")
     mode.add_argument("--list", action="store_true", help="List all stored policies.")
 
-    parser.add_argument("--dry-run", action="store_true", help="Print extracted JSON; do not write to DB.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print extracted JSON; do not write to DB."
+    )
     parser.add_argument(
         "--policy-type",
         choices=["health", "auto", "home", "umbrella"],

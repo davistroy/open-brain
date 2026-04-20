@@ -114,9 +114,12 @@ def init_db() -> sqlite3.Connection:
 
 
 def is_processed(conn: sqlite3.Connection, message_id: str) -> bool:
-    return conn.execute(
-        "SELECT 1 FROM processed_newsletters WHERE message_id=?", (message_id,)
-    ).fetchone() is not None
+    return (
+        conn.execute(
+            "SELECT 1 FROM processed_newsletters WHERE message_id=?", (message_id,)
+        ).fetchone()
+        is not None
+    )
 
 
 def record_newsletter(
@@ -249,9 +252,7 @@ def fetch_newsletters_hotmail(
         if not data:
             break
         for m in data.get("value", []):
-            sender = (
-                m.get("from", {}).get("emailAddress", {}).get("address", "").lower().strip()
-            )
+            sender = m.get("from", {}).get("emailAddress", {}).get("address", "").lower().strip()
             advisor = _match_sender(sender, advisor_index)
             if advisor is None:
                 continue
@@ -261,8 +262,7 @@ def fetch_newsletters_hotmail(
                 continue
             # Fetch full body
             body_data = backend._get(
-                f"{GRAPH}/me/messages/{mid}"
-                f"?$select=body,subject,from,receivedDateTime"
+                f"{GRAPH}/me/messages/{mid}" f"?$select=body,subject,from,receivedDateTime"
             )
             if not body_data:
                 log.warning(f"  Failed to fetch body for {mid}")
@@ -294,11 +294,13 @@ def _gmail_walk_parts(payload: dict) -> str:
     mime = payload.get("mimeType", "")
     if mime == "text/plain":
         import base64
+
         data = payload.get("body", {}).get("data", "")
         if data:
             return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
     if mime == "text/html":
         import base64
+
         data = payload.get("body", {}).get("data", "")
         if data:
             raw = base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
@@ -383,8 +385,12 @@ def fetch_newsletters_gmail(
             msg = (
                 svc.users()
                 .messages()
-                .get(userId="me", id=mid, format="metadata",
-                     metadataHeaders=["From", "Subject", "Date"])
+                .get(
+                    userId="me",
+                    id=mid,
+                    format="metadata",
+                    metadataHeaders=["From", "Subject", "Date"],
+                )
                 .execute()
             )
             time.sleep(API_DELAY)
@@ -571,7 +577,9 @@ def synthesize_newsletter(
 ) -> str | None:
     """T2: call claude --print for synthesis. Returns text or None on failure."""
     timeout = cfg["pipeline"].get("synthesis_timeout_sec", 180)
-    prompt = _build_synthesis_prompt(advisor_name, subject, received_at, body_text, parsed, diff_note)
+    prompt = _build_synthesis_prompt(
+        advisor_name, subject, received_at, body_text, parsed, diff_note
+    )
     try:
         result = subprocess.run(
             ["claude", "--print", "-p", prompt],
@@ -647,6 +655,7 @@ def post_newsletter_capture(
 
     cap_cfg = cfg["pipeline"].get("capture_api", {})
     import os
+
     url = os.environ.get("CAPTURE_API_URL") or cap_cfg.get(
         "url", "https://brain.troy-davis.com/api/v1/captures"
     )
@@ -803,7 +812,9 @@ def run_pipeline(
 
     # Hotmail
     try:
-        hm = fetch_newsletters_hotmail(conn, cfg, advisor_index, interactive=interactive, dry_run=dry_run)
+        hm = fetch_newsletters_hotmail(
+            conn, cfg, advisor_index, interactive=interactive, dry_run=dry_run
+        )
         all_newsletters.extend(hm)
         log.info(f"Hotmail: {len(hm)} matched newsletters")
     except Exception as e:
@@ -811,7 +822,9 @@ def run_pipeline(
 
     # Gmail (optional — skips gracefully if no token)
     try:
-        gm = fetch_newsletters_gmail(conn, cfg, advisor_index, interactive=interactive, dry_run=dry_run)
+        gm = fetch_newsletters_gmail(
+            conn, cfg, advisor_index, interactive=interactive, dry_run=dry_run
+        )
         all_newsletters.extend(gm)
         log.info(f"Gmail: {len(gm)} matched newsletters")
     except Exception as e:
@@ -867,22 +880,29 @@ def cmd_reprocess(conn: sqlite3.Connection, cfg: dict, n: int) -> None:
         log.info("No newsletters to reprocess")
         return
     log.info(f"Reprocessing {len(rows)} newsletter(s)...")
-    for (mid, aname, prov, subj, recv, bhash, bprev) in rows:
+    for mid, aname, prov, subj, recv, bhash, bprev in rows:
         conn.execute(
             "UPDATE processed_newsletters SET synthesis_posted=0 WHERE message_id=?", (mid,)
         )
     conn.commit()
     # Re-fetch body text would require API calls; instead rebuild from preview + stored data
     # For reprocess we use a simplified note
-    for (mid, aname, prov, subj, recv, bhash, bprev) in rows:
+    for mid, aname, prov, subj, recv, bhash, bprev in rows:
         adv_cfg = next(
             (a for a in cfg.get("advisors", []) if a["name"] == aname),
-            {"name": aname, "brain_view": "personal", "capture_type": "observation",
-             "action_item_keywords": [], "section_headers": []},
+            {
+                "name": aname,
+                "brain_view": "personal",
+                "capture_type": "observation",
+                "action_item_keywords": [],
+                "section_headers": [],
+            },
         )
         parsed = parse_newsletter(bprev or "", adv_cfg)
         diff_note = f"[Reprocessed] {recv[:10] if recv else 'unknown'}"
-        synthesis = synthesize_newsletter(aname, subj, recv or "", bprev or "", parsed, diff_note, cfg)
+        synthesis = synthesize_newsletter(
+            aname, subj, recv or "", bprev or "", parsed, diff_note, cfg
+        )
         newsletter = {
             "message_id": mid,
             "advisor": adv_cfg,
@@ -908,7 +928,9 @@ def main() -> None:
     group.add_argument("--setup", action="store_true", help="Interactive auth setup")
     group.add_argument("--fetch-only", action="store_true", help="Dry-run: print matches, no post")
     group.add_argument("--status", action="store_true", help="Show DB stats")
-    group.add_argument("--reprocess", type=int, metavar="N", help="Re-synthesize last N newsletters")
+    group.add_argument(
+        "--reprocess", type=int, metavar="N", help="Re-synthesize last N newsletters"
+    )
     args = ap.parse_args()
 
     # Default to --run if no mode specified

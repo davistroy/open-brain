@@ -235,7 +235,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: ''
+          package-manager-cache: false
 
       - name: Check version strings agree
         run: bash scripts/sync-docs.sh

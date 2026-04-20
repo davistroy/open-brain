@@ -60,6 +60,7 @@ from lab_report_synthesis import (  # noqa: E402, I001
 # Helper — build a minimal result row dict
 # ---------------------------------------------------------------------------
 
+
 def _row(
     test_name: str,
     raw_value: str,
@@ -93,6 +94,7 @@ def _row(
 # Test 1: IMPROVING — values moving toward reference range
 # ---------------------------------------------------------------------------
 
+
 class TestTrendDirectionImproving(unittest.TestCase):
     def test_trend_direction_improving(self):
         """LDL was 145 (above 99), now 120 — closer to range → IMPROVING."""
@@ -108,6 +110,7 @@ class TestTrendDirectionImproving(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Test 2: WORSENING — values moving away from reference range
 # ---------------------------------------------------------------------------
+
 
 class TestTrendDirectionWorsening(unittest.TestCase):
     def test_trend_direction_worsening(self):
@@ -125,6 +128,7 @@ class TestTrendDirectionWorsening(unittest.TestCase):
 # Test 3: STABLE — same value repeated
 # ---------------------------------------------------------------------------
 
+
 class TestTrendDirectionStable(unittest.TestCase):
     def test_trend_direction_stable(self):
         """Glucose 95 → 95 → 95 — no change → STABLE."""
@@ -140,6 +144,7 @@ class TestTrendDirectionStable(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Test 4: VARIABLE — alternating HIGH/NORMAL
 # ---------------------------------------------------------------------------
+
 
 class TestTrendDirectionVariable(unittest.TestCase):
     def test_trend_direction_variable(self):
@@ -172,6 +177,7 @@ class TestTrendDirectionVariable(unittest.TestCase):
 # Test 5: Single report — no trend (direction=None)
 # ---------------------------------------------------------------------------
 
+
 class TestSingleReportNoTrend(unittest.TestCase):
     def test_single_report_no_trend(self):
         """Only one data point — compute_trend_direction returns None."""
@@ -201,6 +207,7 @@ class TestSingleReportNoTrend(unittest.TestCase):
 # Test 6: lab_flag='A' with no numeric bounds → appears in flagged section
 # ---------------------------------------------------------------------------
 
+
 class TestFlagOverrideAbnormal(unittest.TestCase):
     def test_flag_override_abnormal(self):
         """Non-numeric test with derived_flag='ABNORMAL' appears in flagged_tests."""
@@ -217,6 +224,7 @@ class TestFlagOverrideAbnormal(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Test 7: Prompt truncation — large dataset truncates at max_prompt_chars
 # ---------------------------------------------------------------------------
+
 
 class TestPromptTruncation(unittest.TestCase):
     def test_prompt_truncation(self):
@@ -253,6 +261,7 @@ class TestPromptTruncation(unittest.TestCase):
 # Test 8: Custom threshold alert appears in flagged_tests
 # ---------------------------------------------------------------------------
 
+
 class TestCustomThresholdAlert(unittest.TestCase):
     def test_custom_threshold_alert(self):
         """HbA1c at 5.9 exceeds custom threshold high=5.7 → appears in flagged_tests."""
@@ -279,6 +288,7 @@ class TestCustomThresholdAlert(unittest.TestCase):
 # Test 9: --dry-run flag produces JSON output, no HTTP calls made
 # ---------------------------------------------------------------------------
 
+
 class TestDryRunNoPost(unittest.TestCase):
     def test_dry_run_no_post(self):
         """run() with dry_run=True returns a result dict and makes zero HTTP calls."""
@@ -287,18 +297,55 @@ class TestDryRunNoPost(unittest.TestCase):
         mock_conn.cursor.return_value.__enter__ = lambda s: s
         mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
         mock_conn.cursor.return_value.description = [
-            ("report_id",), ("collection_date",), ("test_name",),
-            ("raw_value",), ("numeric_value",), ("units",),
-            ("ref_range_text",), ("ref_low",), ("ref_high",),
-            ("lab_flag",), ("derived_flag",), ("ordering_provider",), ("source_file",),
+            ("report_id",),
+            ("collection_date",),
+            ("test_name",),
+            ("raw_value",),
+            ("numeric_value",),
+            ("units",),
+            ("ref_range_text",),
+            ("ref_low",),
+            ("ref_high",),
+            ("lab_flag",),
+            ("derived_flag",),
+            ("ordering_provider",),
+            ("source_file",),
         ]
 
         # fetchall() for report IDs
         report_ids_rows = [("report-001",), ("report-002",)]
         # fetchall() for result rows
         result_rows = [
-            ("report-001", "2025-01-01", "Glucose", "95", 95.0, "mg/dL", "70-99", 70.0, 99.0, None, "NORMAL", None, "fixture.pdf"),
-            ("report-002", "2025-06-01", "Glucose", "102", 102.0, "mg/dL", "70-99", 70.0, 99.0, "H", "HIGH", None, "fixture2.pdf"),
+            (
+                "report-001",
+                "2025-01-01",
+                "Glucose",
+                "95",
+                95.0,
+                "mg/dL",
+                "70-99",
+                70.0,
+                99.0,
+                None,
+                "NORMAL",
+                None,
+                "fixture.pdf",
+            ),
+            (
+                "report-002",
+                "2025-06-01",
+                "Glucose",
+                "102",
+                102.0,
+                "mg/dL",
+                "70-99",
+                70.0,
+                99.0,
+                "H",
+                "HIGH",
+                None,
+                "fixture2.pdf",
+            ),
         ]
         mock_conn.cursor.return_value.fetchall.side_effect = [
             report_ids_rows,
@@ -307,8 +354,12 @@ class TestDryRunNoPost(unittest.TestCase):
 
         cfg = {"synthesis": {"default_report_window": 5, "max_prompt_chars": 4000}}
 
-        with patch("lab_report_synthesis.run_synthesis", return_value="Synthesis text") as mock_synth, \
-             patch("lab_report_synthesis.post_capture") as mock_post:
+        with (
+            patch(
+                "lab_report_synthesis.run_synthesis", return_value="Synthesis text"
+            ) as mock_synth,
+            patch("lab_report_synthesis.post_capture") as mock_post,
+        ):
             result = run(
                 conn=mock_conn,
                 cfg=cfg,
@@ -341,6 +392,7 @@ class TestDryRunNoPost(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Bonus — AC-5 compliance check: no anthropic import
 # ---------------------------------------------------------------------------
+
 
 class TestNoAnthropicImport(unittest.TestCase):
     def test_no_anthropic_import(self):

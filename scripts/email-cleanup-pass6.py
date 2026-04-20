@@ -130,9 +130,7 @@ AUTO_DOMAIN_PATTERNS: list[str] = [
     r"^campaign\.",
     r"^bulk\.",
 ]
-AUTO_DOMAIN_RE: list[re.Pattern[str]] = [
-    re.compile(p, re.IGNORECASE) for p in AUTO_DOMAIN_PATTERNS
-]
+AUTO_DOMAIN_RE: list[re.Pattern[str]] = [re.compile(p, re.IGNORECASE) for p in AUTO_DOMAIN_PATTERNS]
 
 # Known bulk/newsletter platform domains
 PLATFORM_DOMAINS: set[str] = {

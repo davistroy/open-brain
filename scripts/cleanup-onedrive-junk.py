@@ -54,9 +54,7 @@ print("\n=== Deleting Music directory (iTunes cache) ===", flush=True)
 if os.path.isdir(music_dir):
     count = sum(1 for _, _, files in os.walk(music_dir) for f in files)
     sz: int = sum(
-        os.path.getsize(os.path.join(r, f))
-        for r, _, fs in os.walk(music_dir)
-        for f in fs
+        os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(music_dir) for f in fs
     )
     shutil.rmtree(music_dir)
     deleted_files += count
@@ -86,9 +84,7 @@ for root, dirs, files in os.walk(base):
             try:
                 count = sum(1 for _, _, fs in os.walk(path) for f in fs)
                 sz = sum(
-                    os.path.getsize(os.path.join(r, f))
-                    for r, _, fs in os.walk(path)
-                    for f in fs
+                    os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(path) for f in fs
                 )
                 shutil.rmtree(path)
                 deleted_files += count

@@ -34,6 +34,7 @@ _spec.loader.exec_module(lre)  # type: ignore[union-attr]
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _fake_page(text: str):
     """Return a mock pdfplumber page with extract_text() returning text."""
     page = MagicMock()
@@ -54,6 +55,7 @@ def _fake_pdf(pages: list[str]):
 # 1. test_detect_layout_quest
 # ---------------------------------------------------------------------------
 
+
 def test_detect_layout_quest():
     text = "Quest Diagnostics Patient Report\nSome content follows"
     result = lre.detect_layout(text, [])
@@ -69,6 +71,7 @@ def test_detect_layout_quest_uppercase():
 # ---------------------------------------------------------------------------
 # 2. test_detect_layout_labcorp
 # ---------------------------------------------------------------------------
+
 
 def test_detect_layout_labcorp():
     text = "Laboratory Corporation of America  Patient Report"
@@ -86,6 +89,7 @@ def test_detect_layout_labcorp_short():
 # 3. test_detect_layout_generic_fallback
 # ---------------------------------------------------------------------------
 
+
 def test_detect_layout_generic_fallback():
     text = "Some random lab header\nPatient: John Doe"
     result = lre.detect_layout(text, [])
@@ -101,6 +105,7 @@ def test_detect_layout_hospital_match():
 # ---------------------------------------------------------------------------
 # 4. test_parse_result_row_normal
 # ---------------------------------------------------------------------------
+
 
 def test_parse_result_row_normal():
     line = "Glucose  95  mg/dL  70-99"
@@ -124,6 +129,7 @@ def test_parse_result_row_normal():
 # 5. test_parse_result_row_high
 # ---------------------------------------------------------------------------
 
+
 def test_parse_result_row_high():
     line = "LDL Cholesterol  145  mg/dL  0-99  H"
     row = lre.parse_result_line(line)
@@ -141,6 +147,7 @@ def test_parse_result_row_high():
 # ---------------------------------------------------------------------------
 # 6. test_parse_result_row_range_lt
 # ---------------------------------------------------------------------------
+
 
 def test_parse_result_row_range_lt():
     line = "TSH  0.8  mIU/L  <4.50"
@@ -163,6 +170,7 @@ def test_parse_result_row_range_lt():
 # 7. test_parse_result_row_non_numeric
 # ---------------------------------------------------------------------------
 
+
 def test_parse_result_row_non_numeric():
     # "ABO Type  A Positive" — value is non-numeric
     line = "ABO Type  A Positive"
@@ -176,6 +184,7 @@ def test_parse_result_row_non_numeric():
 # ---------------------------------------------------------------------------
 # 8. test_report_id_stable
 # ---------------------------------------------------------------------------
+
 
 def test_report_id_stable():
     """Same source_file + collection_date → same report_id every time."""
@@ -194,6 +203,7 @@ def test_report_id_stable():
 # ---------------------------------------------------------------------------
 # 9. test_dry_run_no_db
 # ---------------------------------------------------------------------------
+
 
 def test_dry_run_no_db(tmp_path, capsys):
     """--dry-run must emit JSON stdout and make zero DB writes."""
@@ -235,6 +245,7 @@ def test_dry_run_no_db(tmp_path, capsys):
 # 10. test_upsert_idempotent
 # ---------------------------------------------------------------------------
 
+
 def test_upsert_idempotent():
     """Upserting same report twice must not increase row count.
 
@@ -255,6 +266,7 @@ def test_upsert_idempotent():
 # ---------------------------------------------------------------------------
 # Bonus: parse_ref_range edge cases
 # ---------------------------------------------------------------------------
+
 
 def test_parse_ref_range_standard():
     r = lre.parse_ref_range("1.00-2.50")

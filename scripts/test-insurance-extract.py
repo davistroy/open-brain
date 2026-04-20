@@ -71,6 +71,7 @@ def assert_true(label: str, condition: bool, detail: str = "") -> None:
 # Helper: find coverage entry by category
 # -----------------------------------------------------------------------
 
+
 def find_by_category(items: list[dict], category: str) -> dict | None:
     return next((x for x in items if x.get("category") == category), None)
 
@@ -82,6 +83,7 @@ def find_copay_by_service(copays: list[dict], service: str) -> dict | None:
 # -----------------------------------------------------------------------
 # Test: health policy fixture
 # -----------------------------------------------------------------------
+
 
 def test_health_policy() -> None:
     print("\n=== Health Policy Fixture ===")
@@ -139,6 +141,7 @@ def test_health_policy() -> None:
 # Test: auto policy fixture
 # -----------------------------------------------------------------------
 
+
 def test_auto_policy() -> None:
     print("\n=== Auto Policy Fixture ===")
     fixture = _FIXTURE_DIR / "auto-policy-fixture.txt"
@@ -173,6 +176,7 @@ def test_auto_policy() -> None:
 # -----------------------------------------------------------------------
 # Test: home policy fixture
 # -----------------------------------------------------------------------
+
 
 def test_home_policy() -> None:
     print("\n=== Home Policy Fixture ===")
@@ -213,6 +217,7 @@ def test_home_policy() -> None:
 # Test: dry-run JSON validity
 # -----------------------------------------------------------------------
 
+
 def test_dry_run_json_validity() -> None:
     print("\n=== Dry-Run JSON Validity ===")
     fixture = _FIXTURE_DIR / "health-policy-fixture.txt"
@@ -234,25 +239,23 @@ def test_dry_run_json_validity() -> None:
 # Test: policy type override
 # -----------------------------------------------------------------------
 
+
 def test_policy_type_override() -> None:
     print("\n=== Policy Type Override ===")
     fixture = _FIXTURE_DIR / "health-policy-fixture.txt"
     text = fixture.read_text(encoding="utf-8")
 
-    policy = extract_policy(
-        text, source_file=str(fixture), policy_type_override="home"
-    )
+    policy = extract_policy(text, source_file=str(fixture), policy_type_override="home")
     assert_eq("policy_type_override", policy["policy_type"], "home")
 
-    policy2 = extract_policy(
-        text, source_file=str(fixture), provider_override="Acme Insurance Co"
-    )
+    policy2 = extract_policy(text, source_file=str(fixture), provider_override="Acme Insurance Co")
     assert_eq("provider_override", policy2["provider"], "Acme Insurance Co")
 
 
 # -----------------------------------------------------------------------
 # Main runner
 # -----------------------------------------------------------------------
+
 
 def main() -> None:
     print("Running insurance extraction validation tests...")

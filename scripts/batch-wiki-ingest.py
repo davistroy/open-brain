@@ -770,7 +770,9 @@ Examples:
             available = get_domains(conn)
             if available:
                 args.domain = available[0][0]
-                logger.info("Pilot: auto-selected domain '%s' (%d files)", args.domain, available[0][1])
+                logger.info(
+                    "Pilot: auto-selected domain '%s' (%d files)", args.domain, available[0][1]
+                )
             else:
                 logger.info("No unprocessed domains found — nothing to pilot")
                 generate_report(conn)

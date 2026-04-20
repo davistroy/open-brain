@@ -228,9 +228,7 @@ def load_sender_sets() -> tuple[set[str], set[str], defaultdict[str, int], defau
     for email in corpus["emails"]:
         email_info[email["id"]] = email["sender_email"]
 
-    sender_cats: defaultdict[str, defaultdict[str, int]] = defaultdict(
-        lambda: defaultdict(int)
-    )
+    sender_cats: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
     for email_id, info in clf_data["categorized_emails"].items():
         sender: str = email_info.get(email_id, "")
         if sender:

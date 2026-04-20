@@ -24,9 +24,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 _MODULE_PATH = _SCRIPTS_DIR / "insurance-gap-analysis.py"
 
 _spec = importlib.util.spec_from_file_location("insurance_gap_analysis", _MODULE_PATH)
-assert _spec is not None and _spec.loader is not None, (
-    f"Cannot load module at {_MODULE_PATH}"
-)
+assert _spec is not None and _spec.loader is not None, f"Cannot load module at {_MODULE_PATH}"
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
@@ -169,6 +167,7 @@ _DEFAULT_CFG = {
 # Test 1 — missing_type detected when home is absent
 # ---------------------------------------------------------------------------
 
+
 def test_missing_policy_type_detected():
     """No home policy → missing_types includes 'home'."""
     policies = [_health_policy(), _auto_policy(), _umbrella_policy()]
@@ -183,6 +182,7 @@ def test_missing_policy_type_detected():
 # Test 2 — no missing types when all 4 types present
 # ---------------------------------------------------------------------------
 
+
 def test_no_missing_types():
     """All 4 policy types present → no missing_type findings."""
     policies = [_health_policy(), _auto_policy(), _home_policy(), _umbrella_policy()]
@@ -194,6 +194,7 @@ def test_no_missing_types():
 # ---------------------------------------------------------------------------
 # Test 3 — health high deductible triggers under_coverage
 # ---------------------------------------------------------------------------
+
 
 def test_health_high_deductible_flag():
     """Health deductible $7,500 > threshold $5,000 → under_coverage finding."""
@@ -209,6 +210,7 @@ def test_health_high_deductible_flag():
 # ---------------------------------------------------------------------------
 # Test 4 — health normal deductible does NOT trigger under_coverage
 # ---------------------------------------------------------------------------
+
 
 def test_health_normal_deductible_no_flag():
     """Health deductible $2,000 < threshold $5,000 → no under_coverage finding."""
@@ -226,6 +228,7 @@ def test_health_normal_deductible_no_flag():
 # Test 5 — two active health plans → redundancy finding
 # ---------------------------------------------------------------------------
 
+
 def test_redundancy_two_active_health_plans():
     """Two active health policies with overlapping dates → redundancy finding."""
     p1 = _health_policy(provider="Blue Cross")
@@ -241,6 +244,7 @@ def test_redundancy_two_active_health_plans():
 # Test 6 — policy expiring in 30 days → in expiring_soon list
 # ---------------------------------------------------------------------------
 
+
 def test_expiring_soon():
     """Policy expiring in 30 days → appears in expiring_soon list."""
     policy = _health_policy(expiration=EXPIRING_SOON)
@@ -254,6 +258,7 @@ def test_expiring_soon():
 # Test 7 — policy expiring in 180 days → NOT in expiring_soon
 # ---------------------------------------------------------------------------
 
+
 def test_not_expiring():
     """Policy expiring in 180 days → not in expiring_soon (window=60)."""
     policy = _health_policy(expiration=NOT_EXPIRING)
@@ -266,6 +271,7 @@ def test_not_expiring():
 # Test 8 — large policy fixture truncates prompt at max_prompt_chars
 # ---------------------------------------------------------------------------
 
+
 def test_prompt_truncation():
     """Prompt truncation: content beyond max_prompt_chars is cut and noted."""
     # Generate many policies to inflate the prompt past 200 chars
@@ -276,7 +282,10 @@ def test_prompt_truncation():
     gaps = run_gap_heuristics(normalized, _DEFAULT_CFG)
 
     # Set a very small limit to force truncation
-    small_cfg = {**_DEFAULT_CFG, "synthesis": {**_DEFAULT_CFG["synthesis"], "max_prompt_chars": 200}}
+    small_cfg = {
+        **_DEFAULT_CFG,
+        "synthesis": {**_DEFAULT_CFG["synthesis"], "max_prompt_chars": 200},
+    }
     prompt = build_synthesis_prompt(normalized, gaps, small_cfg)
 
     assert len(prompt) <= 200 + 10  # allow small buffer from truncation suffix
@@ -286,6 +295,7 @@ def test_prompt_truncation():
 # ---------------------------------------------------------------------------
 # Test 9 — dry_run=True makes no HTTP POST
 # ---------------------------------------------------------------------------
+
 
 def test_dry_run_no_post(capsys):
     """dry_run=True → no HTTP call to captures endpoint."""
@@ -299,6 +309,7 @@ def test_dry_run_no_post(capsys):
 # ---------------------------------------------------------------------------
 # Test 10 — home dwelling limit < threshold triggers under_coverage
 # ---------------------------------------------------------------------------
+
 
 def test_home_under_coverage():
     """Home dwelling limit $150,000 < $200,000 threshold → under_coverage finding."""
