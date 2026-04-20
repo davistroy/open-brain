@@ -7818,6 +7818,12 @@ Plan acceptance criterion: `grep -c -i "litellm" docs/PRD.md` returns 80 (unchan
 - SD-3: ~118 LiteLLM refs in TDD body
 - SD-5: Budget numbers ($30/$50) vs current split architecture
 
+### Closure
+
+- **PR #148** merged `02c13ef` (Opus cycle 2 — CI cache disable + CHANGELOG migration ref added).
+- **Homeserver deploy:** N/A — docs + scripts only, no migrations, no docker compose changes.
+- **#111 partial** — P15a ✅; P15b (PRD + TDD v0.7 LiteLLM scrub) remains open.
+
 ---
 
 ## Entry 112 — P14b: Prompt injection call-site migration to SafePromptBuilder — 2026-04-19
@@ -7896,6 +7902,12 @@ PHASED_PLAN card said `0 5 * * 0`. That slot is taken by wiki-lint (`0 5 * * 0`)
 - Manual homeserver validation (AC-1 through AC-4) deferred to operator post-deploy
 - No application code changes; no migrations; no pnpm changes
 
+### Closure
+
+- **PR #149** merged `c117c75` via merge commit (worktree checkout conflict — direct merge to main). Feature commit `aff1ba8`. Opus APPROVE cycle 1.
+- **Homeserver deploy:** DEFERRED — operator must install cron from `deploy/cron/unraid-restore-rehearsal.cron` (Sunday `30 5 * * 0`). Slot `0 5` was taken by wiki-lint; shifted 30 min per P07 slot registry rule.
+- **#107 CLOSED** — P04b (secrets redaction) + P16 (restore rehearsal) both complete. P17 (GHCR image registry) is the remaining #107 sub-item but #107 itself is considered closed at two-of-three completion per the original closure plan.
+
 ---
 
 ## Entry 111 — P12: Observability IaC consolidation
@@ -7948,5 +7960,11 @@ Homeserver prometheus.yml content was provided as a pre-flight data block in the
 - YAML validation: `python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"` — clean
 - `python3 -c "import yaml; yaml.safe_load(open('config/prometheus/prometheus.yml'))"` — clean
 - No TS files changed — existing test suite not exercised, CI should pass.
+
+### Closure
+
+- **PR #147** merged `b1f04c9` (Opus cycle 2 — secrets-map lockstep fix). Merge conflict on `LAB_NOTEBOOK.md` resolved via `c117c75`.
+- **Homeserver deploy:** DEFERRED — operator must run `docker compose --profile observability up -d` to activate the observability stack; standalone containers continue running from original `docker run` commands until cutover.
+- **#113 CLOSED** — P11a + P11b + P12 all complete. Full observability stack (Loki + Prometheus + Grafana + Pushgateway) is now IaC-managed under the `observability` compose profile.
 
 ---

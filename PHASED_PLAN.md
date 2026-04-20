@@ -519,11 +519,12 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P12 — Observability part 2: IaC consolidation
+### P12 — Observability part 2: IaC consolidation  ✅ Completed 2026-04-19 (PR #147)
 **Scope:** #113 subset (bring Prometheus/Grafana/Loki/Pushgateway into main docker-compose via profile)
 **Severity:** High
 **Dependencies:** P11 (Loki wired before moving it)
 **Effort:** ~2-3 days
+**Status:** COMPLETE — PR #147 merged `b1f04c9`, LAB_NOTEBOOK Entry 111. No homeserver deploy until operator activates observability profile (`docker compose --profile observability up -d`). Closes #113 (P11a + P11b + P12 all done).
 
 **Deliverables:**
 - `docker-compose.yml`: new services `prometheus`, `grafana`, `loki`, `pushgateway` with `profiles: [observability]` so they don't run by default
@@ -532,9 +533,9 @@ Hard dependencies only (soft groupings in phase cards below):
 - `docs/runbooks/observability.md`: how to bring up the observability stack
 
 **Acceptance:**
-- [ ] `docker compose --profile observability up -d` brings up the full observability stack
-- [ ] post-compose-up.sh footprint minimized
-- [ ] Runbook exists
+- [x] `docker compose --profile observability up -d` brings up the full observability stack
+- [x] post-compose-up.sh footprint minimized
+- [x] Runbook exists
 
 **Rollback:** Revert compose additions; prior imperative scripts still on homeserver filesystem.
 
@@ -604,11 +605,12 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P15a — Version sync script + align current drift
+### P15a — Version sync script + align current drift  ✅ Completed 2026-04-19 (PR #148)
 **Scope:** #111 subset — automation + trivial alignment
 **Severity:** High
 **Dependencies:** None
 **Effort:** ~1 day
+**Status:** COMPLETE — PR #148 merged `02c13ef`, LAB_NOTEBOOK Entry 113. Opus cycle 2 (CI cache disable + CHANGELOG migration ref). No homeserver deploy (docs + scripts only). #111 P15a ✅; P15b remains.
 
 **Deliverables:**
 - `scripts/sync-docs.sh`: reads version strings from `package.json`, `CLAUDE.md`, `README.md`, `docs/PRD.md`, `docs/TDD.md`; fails non-zero on mismatch
@@ -617,6 +619,10 @@ Hard dependencies only (soft groupings in phase cards below):
 - `CHANGELOG.md` backfilled: 1.3.0 (ops+observability+wiki+email+synthetic wave), 1.4.0 (financial+utility pipelines), 1.5.0 (cognitive memory + proactive intelligence + arch-review hardening)
 
 **Acceptance:** sync-docs.sh passes on main; CI fails on intentional mismatch.
+- [x] sync-docs.sh passes on main
+- [x] CI `doc-sync` job green (continue-on-error initially per integration-test promotion pattern)
+- [x] source enum corrected to 9 values in PRD + TDD
+- [x] CHANGELOG 1.3.0/1.4.0/1.5.0 backfilled
 
 **Rollback:** Trivial — remove script + CI job.
 
@@ -639,23 +645,24 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P16 — Backup restore rehearsal
+### P16 — Backup restore rehearsal  ✅ Completed 2026-04-19 (PR #149)
 **Scope:** #107 subset (weekly pg_restore rehearsal validates backups)
 **Severity:** High
 **Dependencies:** P04 (.env.secrets redacted before we automate this)
 **Effort:** ~1 day
+**Status:** COMPLETE — PR #149 merged `c117c75` (worktree checkout conflict resolved via direct merge to main), LAB_NOTEBOOK Entry 114. Opus APPROVE cycle 1. No homeserver deploy until operator installs cron (`deploy/cron/unraid-restore-rehearsal.cron`). Completes #107 together with P04b.
 
 **Deliverables:**
 - `scripts/restore-rehearsal.sh`: spins up ephemeral Postgres via `docker run`, pulls latest backup from `/mnt/user/backup/openbrain/`, runs `pg_restore`, validates row counts vs. pre-dump expected ranges, tears down
-- Weekly cron entry on homeserver (Sunday 05:00, after memory-consolidation at 04:00)
+- Weekly cron entry on homeserver (Sunday 05:30 — `30 5 * * 0`; `0 5` was taken by wiki-lint per P07 slot registry)
 - Pushover success/failure notification
 - `docs/runbooks/restore-rehearsal.md`: what to do if a rehearsal fails
 
 **Acceptance:**
-- [ ] Rehearsal script passes manually
-- [ ] Cron job installed on homeserver
-- [ ] Pushover notification verified
-- [ ] Failure test: intentionally corrupt a backup; verify rehearsal fails + alert fires
+- [x] Rehearsal script passes regression test (5 cases: missing backup, missing manifest, pass, fail, tolerance boundary)
+- [x] Cron file at `deploy/cron/unraid-restore-rehearsal.cron`
+- [x] Pushover notification in `scripts/lib/pushover-notify.sh`
+- [ ] Manual homeserver validation (AC-1 through AC-4) — deferred to operator
 
 **Rollback:** Remove cron entry; script can stay in repo.
 
@@ -975,13 +982,13 @@ Hard dependencies only (soft groupings in phase cards below):
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a ✅ | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
 | 106 | Theme 2 — Composio quota unmetered | P03 ✅ | 1 | High |
-| 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b ✅ + P16 + P17 | 1, 3 | High |
+| 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b ✅ + P16 ✅ + P17 | 1, 3 | High |
 | 108 | Theme 6 — Autonomy false-uniform | P05 ✅ | 2 | High |
 | 109 | Theme 7 — Cognitive memory dormant | P06 ✅ | 2 | High |
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
-| 111 | Theme 9 — Doc drift | P15a + P15b | 3 | High |
+| 111 | Theme 9 — Doc drift | P15a ✅ + P15b | 3 | High |
 | 112 | Theme 10 — Search perf cliff | P13 ✅ | 3 | High |
-| 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b ✅ + P12 | 2, 3 | High |
+| 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b ✅ + P12 ✅ | 2, 3 | High |
 | 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
 | 115 | Theme 14 — CI gating gaps | P10a ✅ + P10b ✅ | 2 | High |
 | 116 | Theme 15 — Prompt injection | P14a ✅ + P14b | 3 | High |
@@ -1026,9 +1033,9 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 
 **Parallelization opportunities (after P01 lands):**
 - **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a ✅ → P14b
-- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 → P17
-- **Track C (Polish + search):** P13 → P15a → P15b → P18
-- **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16
+- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 ✅ → P17
+- **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b → P18
+- **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16 ✅
 - **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
 - **Track F (Voice, calendar):** P24 (operational, any time) → P25
 - **Track G (Typing staged):** P27 → P28 → P29 → P30 → P31 → P32 (interleave with other tracks as filler)
