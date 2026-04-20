@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, AutonomyLevel } from '@open-brain/shared'
 import {
   logger,
   TemplateCache,
@@ -269,6 +269,8 @@ export interface MonthlyReflectionSkillOpts extends BaseSkillOpts {
 }
 
 export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, MonthlyReflectionResult> {
+  static minimum_autonomy: AutonomyLevel = 'assist'
+
   private email: EmailService
   private templates: TemplateCache
   private coreApiUrl: string
