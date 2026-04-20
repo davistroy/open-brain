@@ -634,18 +634,22 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P15b — PRD + TDD v0.7: LiteLLM scrub + architectural refresh
+### P15b — PRD + TDD v0.7: LiteLLM scrub + architectural refresh  ✅ Completed 2026-04-19 (PR #153) — **WAVE 3 COMPLETE**
 **Scope:** #111 subset — substantive doc rewrite
 **Severity:** High
 **Dependencies:** P15a (version sync in place so the new v0.7 doesn't immediately drift)
 **Effort:** ~2 days
+**Status:** COMPLETE — PR #153 merged `a864dcf`, LAB_NOTEBOOK Entry 115. Opus cycle 2 (config client name correction, TDD version collision, 4 missing sections added). No homeserver deploy (docs only). #111 fully CLOSED (P15a + P15b complete).
 
 **Deliverables:**
-- `docs/PRD.md` v0.7: all 198 LiteLLM references replaced with current OpenAI API + LLMGatewayService architecture; new "Architecture Evolution" section summarizing CS-α through CS-ι + Arc 6 hardening
+- `docs/PRD.md` v0.7: all LiteLLM references replaced with current OpenAI API + LLMGatewayService architecture; Architecture Evolution section §15 added summarizing CS-α through CS-ι + Arc 6 hardening
 - `docs/TDD.md` v0.7: LiteLLM references removed; new sections on cognitive memory (Hebbian/spreading activation/consolidation), autonomy levels, cost-tier routing, email pipeline, file ingestion
-- Either/or: open an ADR index under `docs/adr/` pointing back at LAB_NOTEBOOK Decision Log D1-D93+
+- PRD LiteLLM refs: 83 → 0; TDD LiteLLM refs: 134 → 0; `bash scripts/sync-docs.sh` exits 0
 
-**Acceptance:** `grep -c -i "litellm" docs/PRD.md docs/TDD.md` returns 0; operator reviews and approves.
+**Acceptance:**
+- [x] `grep -c -i "litellm" docs/PRD.md docs/TDD.md` returns 0,0
+- [x] `bash scripts/sync-docs.sh` exits 0
+- [x] CI `doc-sync` job passes
 
 **Rollback:** Revert; docs return to v0.6 + drift.
 
@@ -996,7 +1000,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 108 | Theme 6 — Autonomy false-uniform | P05 ✅ | 2 | High |
 | 109 | Theme 7 — Cognitive memory dormant | P06 ✅ | 2 | High |
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
-| 111 | Theme 9 — Doc drift | P15a ✅ + P15b | 3 | High |
+| 111 | Theme 9 — Doc drift | P15a ✅ + P15b ✅ | 3 | High |
 | 112 | Theme 10 — Search perf cliff | P13 ✅ | 3 | High |
 | 113 | Theme 11 — Observability (split 3 ways) | P11a ✅ + P11b ✅ + P12 ✅ | 2, 3 | High |
 | 114 | Theme 13 — Rate-limit self-contention | P07 ✅ | 2 | High |
@@ -1044,7 +1048,7 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 **Parallelization opportunities (after P01 lands):**
 - **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a ✅ → P14b ✅
 - **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 ✅ → P17 ✅
-- **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b → P18 ✅
+- **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b ✅ → P18 ✅
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16 ✅
 - **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
 - **Track F (Voice, calendar):** P24 (operational, any time) → P25
@@ -1098,7 +1102,7 @@ With selective parallelization (disjoint tracks): ~11-13 weeks.
 - **Update this document** as phases land: mark each phase `✅ COMPLETE <date>` with PR link
 - **Update LAB_NOTEBOOK** per CLAUDE.md Rule 1 (Hypothesis + Rollback before action) + Rule 2 (log results)
 - **Close GitHub issues** as phases ship (phase ↔ issue mapping in Cross-Phase Tracking table above)
-- **Re-review quarterly**: after Wave 3 completes (~week 8), run a lighter `/review-arch` to check if new debt has accrued
+- **Re-review quarterly**: Wave 3 COMPLETE (2026-04-19, PR #153 / P15b). Run `/review-arch` now to check if new debt has accrued before Wave 4.
 - **Monthly 30-min retro**: which phase estimates were wrong? Adjust remaining phases accordingly.
 
 ---

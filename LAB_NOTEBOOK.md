@@ -8018,6 +8018,27 @@ Key changes:
 - Docker Compose env vars: LITELLM_URL/LITELLM_API_KEY → OPENAI_API_KEY/ANTHROPIC_API_KEY
 - Test pseudocode: `mockLitellm` → `mockOpenAIClient`, `AIRouterService` → `LLMGatewayService`
 
+### Closure — PR #153 merged `a864dcf` — WAVE 3 COMPLETE
+
+**Date:** 2026-04-19
+**PR:** #153 | **Merge SHA:** `a864dcf` | **Reviewer:** Opus cycle 2
+**Cycle 2 fixes:**
+- Config client name correction (minor naming inconsistency in TDD)
+- TDD version collision resolved
+- 4 missing sections added (identified by reviewer in cycle 1)
+
+**Issues closed:** #111 fully closed (P15a + P15b = complete).
+**Homeserver deploy:** N/A — docs only, no migrations, no containers, no scheduler.
+**Duration:** ~2 days wall clock.
+
+**Wave 3 status at closure:** ALL tracks complete.
+- Track A (Pipeline safety): P14b last ✅
+- Track B (Infra/Ops): P17 last ✅
+- Track C (Polish + search): P15b last ✅ — **final item**
+- Track D (Disaster recovery): P16 last ✅
+
+**Wave 4 next:** P19 (Financial account monitoring, #62) — first feature-track PR.
+
 ---
 
 ## Entry 111 — P12: Observability IaC consolidation
@@ -8204,5 +8225,45 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 - **#70 CLOSED** (auto-closed by PR #152 or manually confirmed closed 2026-04-20T00:51:40Z).
 
 **Duration:** ~1.5 days wall clock.
+
+---
+
+## Entry 118 — P20a: Doctor lab reports structured data extraction  [pipeline] [database] [decision]
+
+**Tags:** [pipeline] [database] [decision]
+**Environment:** Laptop / worktree `agent-adb185f0` on branch `feat/phase-P20a-lab-reports`
+**Date:** 2026-04-19
+
+### Objective
+
+Implement P20a: T0-only structured extraction of lab PDF reports into a new `lab_results` Postgres table. 6 work items: `scripts/lib/db.py`, migration 0028, `scripts/requirements-lab.txt`, `config/lab-report.yaml`, `scripts/lab-report-extract.py`, and `scripts/tests/test_lab_report_extract.py`.
+
+### Hypothesis
+
+All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10 cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
+
+### Pre-implementation verifications
+
+1. **Migration slot 0028** — CONFIRMED FREE: last migration is `0027_search_hnsw_ef_search.sql`.
+2. **`scripts/lib/` exists** — CONFIRMED: `capture_api.py`, `ingest_router.py`, `__init__.py` present.
+3. **`scripts/tests/` does NOT exist** — will create directory + `__init__.py`.
+4. **No `psycopg2` or `pdfplumber` in any existing requirements** — must add to new `requirements-lab.txt`.
+5. **Cost tier: T0 throughout** — no LLM calls. P20b does synthesis.
+
+### Decisions
+
+- **D-P20a-1:** `scripts/lib/db.py` reads `DATABASE_URL` env var (direct Postgres), falls back to `config/pipeline.yaml` `db.url` field. Uses `psycopg2` connection pooling — never holds more than a batch of rows in memory.
+- **D-P20a-2:** Layout detection order: Quest → LabCorp → hospital (YAML list) → generic. First 200 chars of page 1 for keyword scan.
+- **D-P20a-3:** Reference range normalizes to `{low, high, comparator, text}`. Handles `1.00-2.50`, `<10.0`, `>3.5`, `Negative`.
+- **D-P20a-4:** `report_id` is SHA-256 of (source_file basename + collection_date string) — deterministic, stable across re-extractions.
+- **D-P20a-5:** Tests mock `pdfplumber.open()` to avoid real PDF dependency in CI. `reportlab` not required.
+
+### Rollback plan
+
+Drop table: `DROP TABLE IF EXISTS lab_results;`. Delete 5 new files. No impact on running containers. No application code touched.
+
+### Result
+
+*In progress — entry will be updated post-completion.*
 
 ---
