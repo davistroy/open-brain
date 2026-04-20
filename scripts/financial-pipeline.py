@@ -581,9 +581,9 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
     for account_id, acct in sorted(by_account.items()):
         lines.append(f"{acct['name']}: {acct['count']} transactions, ${abs(acct['total']):,.2f}")  # type: ignore[arg-type]
         for cat, cat_data in sorted(
-            acct["categories"].items(),
-            key=lambda x: abs(x[1]["total"]),
-            reverse=True,  # type: ignore[arg-type,index]
+            acct["categories"].items(),  # type: ignore[union-attr]
+            key=lambda x: abs(x[1]["total"]),  # type: ignore[index]
+            reverse=True,
         ):
             lines.append(f"  {cat}: ${abs(cat_data['total']):,.2f} ({cat_data['count']} txns)")  # type: ignore[arg-type]
         lines.append("")

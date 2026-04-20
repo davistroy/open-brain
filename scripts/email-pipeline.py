@@ -221,9 +221,9 @@ class HotmailBackend:
             authority="https://login.microsoftonline.com/common",
             token_cache=self._cache,
         )
-        accounts = self._app.get_accounts()
+        accounts = self._app.get_accounts()  # type: ignore[union-attr]
         if accounts:
-            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])  # type: ignore[assignment]
+            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])  # type: ignore[assignment,union-attr]
             if r and "access_token" in r:
                 self.session.headers["Authorization"] = f"Bearer {r['access_token']}"
                 self._save_cache()
@@ -232,12 +232,12 @@ class HotmailBackend:
         if not interactive:
             log.error("Hotmail: no cached token. Run --setup --provider hotmail")
             return False
-        flow: dict[str, Any] = self._app.initiate_device_flow(scopes=MS_SCOPES)
+        flow: dict[str, Any] = self._app.initiate_device_flow(scopes=MS_SCOPES)  # type: ignore[union-attr]
         if "user_code" not in flow:
             log.error(f"Device flow failed: {flow.get('error_description')}")
             return False
         print(f"\n{'='*60}\nMICROSOFT AUTHENTICATION\n{'='*60}\n{flow['message']}\n{'='*60}\n")
-        r = self._app.acquire_token_by_device_flow(flow)
+        r = self._app.acquire_token_by_device_flow(flow)  # type: ignore[union-attr]
         if "access_token" in r:
             self.session.headers["Authorization"] = f"Bearer {r['access_token']}"
             self._save_cache()
