@@ -43,8 +43,15 @@ include = [
   "scripts/email-cleanup-pass4.py",
   "scripts/email-cleanup-pass6.py",
   "scripts/email-archive-by-year.py",
+  "scripts/file-categorize.py",
+  "scripts/file-dedup.py",
+  "scripts/file-inventory.py",
+  "scripts/reorganize-onedrive.py",
+  "scripts/dedup-and-archive.py",
+  "scripts/cleanup-onedrive-junk.py",
+  "scripts/create_reorg_sheet.py",
 ]
-exclude = ["scripts", "**/tests", "**/__pycache__"]
+exclude = ["**/tests", "**/__pycache__"]
 pythonVersion = "3.12"
 # Production targets are Linux containers; setting platform explicitly ensures
 # Unix-only modules (fcntl, etc.) resolve correctly even when pyright is run

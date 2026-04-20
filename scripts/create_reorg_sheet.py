@@ -1,8 +1,20 @@
-import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from __future__ import annotations
+
+import os
+from typing import cast
+
+import openpyxl  # type: ignore[import-untyped]
+from openpyxl.styles import (  # type: ignore[import-untyped]
+    Alignment,
+    Border,
+    Font,
+    PatternFill,
+    Side,
+)
+from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
 wb = openpyxl.Workbook()
-ws = wb.active
+ws: Worksheet = cast(Worksheet, wb.active)
 ws.title = "Reorganization Plan"
 
 header_font = Font(name="Arial", bold=True, size=11, color="FFFFFF")
@@ -22,7 +34,7 @@ ws.column_dimensions["E"].width = 12
 ws.column_dimensions["F"].width = 50
 ws.column_dimensions["G"].width = 50
 
-headers = [
+headers: list[str] = [
     "Depth",
     "Proposed Path",
     "Source (current location)",
@@ -40,10 +52,10 @@ ws.row_dimensions[1].height = 25
 ws.freeze_panes = "A2"
 ws.auto_filter.ref = "A1:G1"
 
-row = 2
+row: int = 2
 
 
-def add_section(title, source="", files="", size="", notes=""):
+def add_section(title: str, source: str = "", files: int | str = "", size: float | str = "", notes: str = "") -> None:
     global row
     for col in range(1, 8):
         ws.cell(row=row, column=col).fill = section_fill
@@ -53,13 +65,13 @@ def add_section(title, source="", files="", size="", notes=""):
     if files:
         ws.cell(row=row, column=4, value=files).font = normal_font
     if size:
-        ws.cell(row=row, column=5, value=round(size, 2)).font = normal_font
+        ws.cell(row=row, column=5, value=round(size, 2) if isinstance(size, float) else size).font = normal_font
     ws.cell(row=row, column=6, value=notes).font = normal_font
     ws.row_dimensions[row].height = 22
     row += 1
 
 
-def add_sub(depth, path, source="", files="", size="", notes=""):
+def add_sub(depth: int, path: str, source: str = "", files: int | str = "", size: float | str = "", notes: str = "") -> None:
     global row
     indent = "    " * (depth - 1)
     ws.cell(row=row, column=1, value=depth).font = normal_font
@@ -68,14 +80,14 @@ def add_sub(depth, path, source="", files="", size="", notes=""):
     if files:
         ws.cell(row=row, column=4, value=files).font = normal_font
     if size:
-        ws.cell(row=row, column=5, value=round(size, 2)).font = normal_font
+        ws.cell(row=row, column=5, value=round(size, 2) if isinstance(size, float) else size).font = normal_font
     ws.cell(row=row, column=6, value=notes).font = italic_font
     for col in range(1, 8):
         ws.cell(row=row, column=col).border = thin_border
     row += 1
 
 
-def add_question(text):
+def add_question(text: str) -> None:
     global row
     ws.cell(row=row, column=2, value=text).font = Font(
         name="Arial", size=10, italic=True, color="996600"
@@ -85,7 +97,7 @@ def add_question(text):
     row += 1
 
 
-def add_blank():
+def add_blank() -> None:
     global row
     row += 1
 
@@ -481,7 +493,7 @@ for col, h in enumerate(["Top-Level Directory", "Est. Files", "Est. Size (GB)", 
     c.alignment = Alignment(horizontal="center")
 ws2.freeze_panes = "A2"
 
-data = [
+data: list[tuple[str, int, float, str]] = [
     ("Work/", 13000, 15.3, "Coca-Cola, Stratfield, Consulting, Sellr, Ginkgo, GV"),
     ("Amateur Radio/", 7330, 11.0, "Keep as-is + N3FJP from Documents"),
     ("Sailing/", 1170, 1.5, "Regattas, boat manuals, charts"),
@@ -506,9 +518,7 @@ ws2.cell(row=r, column=1, value="TOTAL").font = Font(name="Arial", bold=True, si
 ws2.cell(row=r, column=2, value=f"=SUM(B2:B{r-1})").number_format = "#,##0"
 ws2.cell(row=r, column=3, value=f"=SUM(C2:C{r-1})").number_format = "0.0"
 
-import os
-
-out = os.path.join(
+out: str = os.path.join(
     os.environ.get("USERPROFILE", ""), "OneDrive", "Desktop", "OneDrive Reorganization Plan.xlsx"
 )
 wb.save(out)
