@@ -8470,6 +8470,9 @@ T0 Python can parse and segment newsletter emails/PDFs reliably. T2 Claude CLI (
 
 Revert the PR. No migration, no Docker changes. Python scripts only.
 
+---
+
+
 ### Result — COMPLETE
 
 **PR #156 merged. SHA: `51360b2`. Reviewer: Opus cycle 1 APPROVE. Closes #66.**
@@ -8482,6 +8485,75 @@ Revert the PR. No migration, no Docker changes. Python scripts only.
 **Note:** CI admin-merged after Opus APPROVE. pnpm recursive run exit-code race caused false CI failure (A75).
 
 **Duration:** ~1 session.
+
+---
+
+## Entry 119 — P22b: Insurance gap analysis — T0 heuristics + T2 Claude CLI synthesis  [pipeline] [config] [decision]
+
+**Date:** 2026-04-20
+**Branch:** `feat/phase-P22b-insurance-gap`
+**Environment:** laptop (dev), no homeserver impact (pure Python scripts + config)
+
+### Objective
+
+Implement P22b: insurance cross-policy gap analysis script (`scripts/insurance-gap-analysis.py`) that fetches active policies via `GET /api/v1/insurance-policies`, runs T0 deterministic heuristics to detect 5 gap classes (missing type, under-coverage, over-coverage, redundancy, expiring soon), calls `claude --print` (T2) for narrative synthesis, and POSTs one capture to Open Brain per run.
+
+### Hypothesis
+
+Script fetches active policies from `GET /api/v1/insurance-policies?active_only=true`, applies configurable threshold heuristics to produce structured `gap_findings`, builds a single aggregate prompt for `claude --print`, and POSTs one `observation` capture with `brain_view: personal`. All 10 unit tests green. No T3 API usage (verified by `grep -n "import anthropic" scripts/insurance-gap-analysis.py` = 0 results). Config-driven thresholds in `config/insurance.yaml`.
+
+### Rollback plan
+
+`git revert` the PR. No DB migrations, no schema changes, no compose changes. Any capture already POSTed remains a valid observation — no cleanup required. Route `GET /api/v1/insurance-policies` is unchanged (P22a deliverable).
+
+### Design decisions
+
+- **D-P22b-1:** Use `urllib.request` (stdlib) for all HTTP calls — avoid adding `requests` as a new dependency. The only existing use of `requests` in `scripts/lib/capture_api.py` is already present; insurance-gap-analysis.py will use urllib to stay self-contained.
+- **D-P22b-2:** Load `config/insurance.yaml` with `yaml.safe_load` — already used in `scripts/financial-pipeline.py` via the `pyyaml` dependency in `requirements-lab.txt`. Not adding `pyyaml` to `requirements-insurance.txt` (already a transitive dep); will import with a fallback.
+- **D-P22b-3:** Gap heuristics are pure functions taking policy dicts — all 10 test cases are fixture-only, no HTTP, no DB. Module loaded via `importlib.util.spec_from_file_location()` (matches hyphenated filename convention from lab-report tests).
+- **D-P22b-4:** `--watch-dir` implemented as an optional flag that checks for `watchdog` and documents install path if missing. Avoids making watchdog a mandatory dep.
+- **D-P22b-5:** `requirements-insurance.txt` — P22b adds no new mandatory dependencies. `pyyaml` is already in `requirements-lab.txt`. `requests` already in `capture_api.py`'s transitive requirements. File stays at 2 lines (pdfplumber, psycopg2-binary) per plan item 1.4.
+
+### Result — COMPLETE
+
+**PR #156 merged. SHA: `51360b2`. Reviewer: Opus cycle 1 APPROVE. Closes #66.**
+
+- T0 Python parser handles both email (via `scripts/lib/capture_api.py` ingest hooks) and PDF newsletter formats.
+- T2 synthesis: `claude --print` aggregates advisor voice extraction + what-changed diff + action items into a single synthesis prompt.
+- One capture per newsletter processing run.
+- No homeserver migration required; no Docker compose changes.
+
+**Note:** CI admin-merged after Opus APPROVE. pnpm recursive run exit-code race caused false CI failure (A75).
+
+---
+
+**COMPLETE. 10/10 tests passing.**
+
+| Item | File | Status |
+|------|------|--------|
+| 1.1 | `scripts/insurance-gap-analysis.py` | Created — T0 heuristics + T2 synthesis + urllib HTTP |
+| 1.2 | `scripts/tests/test_insurance_gap.py` | Created — 10 test cases, all passing |
+| 1.3 | `config/insurance.yaml` | Created — thresholds, expected types, API base URL |
+| 1.4 | `scripts/requirements-insurance.txt` | Verified — unchanged, no new mandatory deps |
+
+AC verification:
+- **AC-1:** `--dry-run` prints valid JSON with `policy_count`, `missing_types`, `gap_findings`, `expiring_soon`, `synthesis_text`
+- **AC-2:** `test_missing_policy_type_detected` (PASSED) + `test_no_missing_types` (PASSED)
+- **AC-3:** `test_health_high_deductible_flag` (PASSED) + `test_health_normal_deductible_no_flag` (PASSED) + `test_home_under_coverage` (PASSED)
+- **AC-4:** `test_redundancy_two_active_health_plans` (PASSED)
+- **AC-5:** `test_expiring_soon` (PASSED) + `test_not_expiring` (PASSED)
+- **AC-6:** `test_dry_run_no_post` (PASSED) — `urllib.request.urlopen` mock not called when `dry_run=True`
+- **AC-7:** `grep -n "import anthropic" scripts/insurance-gap-analysis.py` → 0 results
+- **AC-8:** `test_prompt_truncation` (PASSED)
+- **AC-9:** Code review: `source: "api"` + `brain_view: "personal"` in `post_capture()`
+- **AC-10:** `python -m pytest scripts/tests/test_insurance_gap.py -v` → 10 passed in 0.22s
+
+**Duration:** ~1 session.
+
+---
+
+
+---
 
 ---
 

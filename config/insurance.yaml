@@ -1,0 +1,46 @@
+# Insurance gap analysis configuration — P22b
+#
+# Operator: adjust thresholds to match your actual coverage preferences
+# and risk tolerance.  api.base_url falls back to OPEN_BRAIN_API_URL env var
+# or http://localhost:3002 if neither is set.
+
+api:
+  # Base URL for the Open Brain API.  Leave blank to use env var
+  # OPEN_BRAIN_API_URL or http://localhost:3002 (homeserver: set to internal
+  # container address, e.g. http://core-api:3002).
+  base_url: ""
+
+synthesis:
+  # Maximum characters to include in the claude --print prompt before
+  # truncation.  Keeps token usage bounded across large policy sets.
+  max_prompt_chars: 5000
+
+  # Policies expiring within this many days are flagged as "expiring soon".
+  expiry_warning_days: 60
+
+  # URL for POST /api/v1/captures.  Falls back to api.base_url + /api/v1/captures.
+  captures_url: ""
+
+thresholds:
+  health:
+    # Individual deductible above this amount is flagged as under-coverage.
+    high_deductible_usd: 5000
+    # Out-of-pocket maximum above this amount is flagged as under-coverage.
+    high_oop_max_usd: 10000
+
+  home:
+    # Dwelling limit below this amount is flagged as under-coverage.
+    min_dwelling_usd: 200000
+
+  auto:
+    # Bodily injury liability limit per-person below this amount is flagged
+    # as under-coverage.
+    min_bodily_injury_usd: 100000
+
+# Policy types that should all be represented in the active portfolio.
+# Any type absent from the active policy list is flagged as "missing category".
+expected_policy_types:
+  - health
+  - auto
+  - home
+  - umbrella
