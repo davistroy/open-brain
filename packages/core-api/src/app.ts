@@ -30,6 +30,7 @@ import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
 import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
+import { registerInsurancePoliciesRoutes } from './routes/insurance-policies.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -217,6 +218,13 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // queue enables the ingest-process pipeline.
   if (db) {
     registerIngestRoutes(app, db, ingestProcessQueue)
+  }
+
+  // Insurance policies API — read-only structured coverage data (P22a).
+  // Writes performed by scripts/insurance-policy-extract.py (T0 Python).
+  // P22b gap analysis depends on this endpoint.
+  if (db) {
+    registerInsurancePoliciesRoutes(app, db)
   }
 
   // MCP endpoint — requires all services to be available

@@ -1,0 +1,58 @@
+State Farm Insurance Companies
+Auto Insurance Policy Declarations Page
+
+Policy Number: POL-AUTO-789456
+Named Insured: Troy Davis
+Policy Period: 03/15/2025 to 03/15/2026
+Effective Date: 03/15/2025
+
+AUTOMOBILE INSURANCE POLICY
+PERSONAL AUTO COVERAGE
+
+COVERED VEHICLES
+2022 Ford F-150 SuperCrew
+VIN: 1FTFW1ET0NFA12345
+
+COVERAGE SUMMARY
+
+LIABILITY COVERAGE
+Bodily Injury Liability Limit: $100,000 per person / $300,000 per accident
+Property Damage Liability Limit: $100,000 per occurrence
+
+UNINSURED MOTORIST COVERAGE
+UM/UIM Bodily Injury Limit: $100,000 per person / $300,000 per accident
+
+MEDICAL PAYMENTS COVERAGE
+Medical Payments: $5,000 per person
+
+COLLISION COVERAGE
+Collision Deductible: $500
+
+COMPREHENSIVE COVERAGE
+Comprehensive Deductible: $250
+
+RENTAL REIMBURSEMENT
+Rental Reimbursement Limit: $30 per day maximum 30 days
+
+ROADSIDE ASSISTANCE: Included
+
+ADDITIONAL COVERAGES
+- Liability: included
+- Collision: included
+- Comprehensive: included
+- Uninsured Motorist: included
+- Medical Payments: included
+- Rental Reimbursement: included
+- Roadside Assistance: included
+
+EXCLUSIONS
+This auto policy does not cover:
+- Intentional damage or loss
+- Racing or track use
+- Commercial use or livery
+- Mechanical breakdown
+- Wear and tear
+- Flood damage (see comprehensive exclusion limits)
+
+Annual Premium: $1,847.00
+Customer Service: 1-800-STATE-FARM
