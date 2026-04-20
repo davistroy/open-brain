@@ -673,4 +673,43 @@ CREATE INDEX IF NOT EXISTS admin_audit_event_type_idx ON admin_audit(event_type)
 CREATE INDEX IF NOT EXISTS admin_audit_actor_idx ON admin_audit(actor);
 CREATE INDEX IF NOT EXISTS admin_audit_created_at_idx ON admin_audit(created_at);
 
+-- ============================================================
+-- Migration 0029: insurance_policies table
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS insurance_policies (
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  policy_number   TEXT,
+  provider        TEXT        NOT NULL,
+  policy_type     TEXT        NOT NULL,
+  effective_date  DATE,
+  expiration_date DATE,
+  insured_name    TEXT,
+  coverage        JSONB       NOT NULL,
+  raw_text        TEXT,
+  source_file     TEXT,
+  extracted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE insurance_policies
+  DROP CONSTRAINT IF EXISTS insurance_policies_policy_type_check;
+
+ALTER TABLE insurance_policies
+  ADD CONSTRAINT insurance_policies_policy_type_check
+  CHECK (policy_type IN ('health', 'auto', 'home', 'umbrella'));
+
+CREATE INDEX IF NOT EXISTS insurance_policies_policy_type_idx
+  ON insurance_policies (policy_type);
+
+CREATE INDEX IF NOT EXISTS insurance_policies_provider_idx
+  ON insurance_policies (provider);
+
+CREATE INDEX IF NOT EXISTS insurance_policies_effective_date_idx
+  ON insurance_policies (effective_date);
+
+CREATE UNIQUE INDEX IF NOT EXISTS insurance_policies_source_file_idx
+  ON insurance_policies (source_file)
+  WHERE source_file IS NOT NULL;
+
 SELECT 'Schema initialization complete' AS result;
