@@ -33,8 +33,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
-from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents, PrerecordedOptions
+import numpy as np  # type: ignore[import-untyped]
+from deepgram import (  # type: ignore[import-untyped]
+    DeepgramClient,
+    LiveOptions,
+    LiveTranscriptionEvents,
+    PrerecordedOptions,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
