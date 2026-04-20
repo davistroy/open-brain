@@ -8206,3 +8206,44 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 **Duration:** ~1.5 days wall clock.
 
 ---
+
+## Entry 118 — P22a: Insurance policy PDF extraction + coverage matrix  [pipeline] [database] [api]
+
+**Tags:** [pipeline] [database] [api]
+**Environment:** Laptop / feat/phase-P22a-insurance-extract branch
+**Date:** 2026-04-19
+
+### Objective
+
+Implement insurance policy PDF extraction pipeline (P22a):
+- W1: Drizzle migration 0029 — `insurance_policies` table (JSONB coverage blob)
+- W2: `scripts/insurance-policy-extract.py` — T0 Python pdfplumber+regex extraction engine with direct psycopg2 writes
+- W3: Fixture-based validation tests (`scripts/test-insurance-extract.py` + 3 fixture files)
+- W4: `GET /api/v1/insurance-policies` endpoint (read-only, for P22b gap analysis)
+
+### Hypothesis
+
+pdfplumber + regex patterns are sufficient for structured extraction from standard insurance policy PDFs (deductibles, OOP max, limits, co-pays, co-insurance, dates). No LLM needed (pure T0). Text fixtures validate extraction logic without generating real PDFs. Extraction test exits 0 against all 3 fixture types.
+
+### Pre-implementation verifications
+
+1. **Next migration number:** Latest is `0027_search_hnsw_ef_search.sql`. P20a is pre-assigned 0028. This phase uses **0029**.
+2. **`supporting.ts` pattern:** Drizzle table with `pgTable()`, UUID PK via `.defaultRandom()`, JSONB via `jsonb()`, timestamp with timezone via `timestamp(..., { withTimezone: true })`.
+3. **Route registration pattern:** `createApp()` in `app.ts` uses `if (db) { registerXxxRoutes(app, db) }` guard — insurance-policies route needs only `db`.
+4. **DB connection in Python scripts:** The extraction script uses `OPEN_BRAIN_DATABASE_URL` env var via `psycopg2.connect()` — direct Postgres write (not captures API).
+
+### Rollback plan
+
+- **Code:** `git revert` PR.
+- **Schema:** Migration 0029 adds a standalone `insurance_policies` table with no FK dependencies. Rollback = `DROP TABLE insurance_policies;`. No captures or other data affected.
+- **Homeserver deploy:** Migration 0029 applied manually post-merge: `psql < packages/shared/drizzle/0029_insurance_policies.sql`.
+
+### Results
+
+- W1: Migration 0029 created; Drizzle `insurancePolicies` table added to `supporting.ts`; exported from `schema/index.ts` (via `export * from './supporting.js'`); `init-schema.sql` appended.
+- W2: `scripts/insurance-policy-extract.py` — full CLI (--file, --dir, --dry-run, --policy-type, --provider, --status, --list); T0 regex extraction for all 4 policy types; psycopg2 direct Postgres write; UPSERT on `source_file`. Key fix: extraction uses line-first search strategy to prevent window bleed between adjacent coverage rows.
+- W3: 3 fixture files + `scripts/test-insurance-extract.py` — exits 0, 41 assertions across 5 test functions.
+- W4: `packages/core-api/src/routes/insurance-policies.ts` — GET with `policy_type` + `active_only` query params; registered in `app.ts`.
+- Zero LLM calls. Pure T0 Python extraction.
+
+**Duration:** ~half day.
