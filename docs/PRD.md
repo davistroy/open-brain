@@ -1,18 +1,10 @@
 # Product Requirements Document (PRD)
 # Open Brain — Personal AI Knowledge Infrastructure
 
-**Version**: 0.6 (P15a alignment pass — full v0.7 rewrite in P15b)
+**Version**: 0.7
 **Author**: Troy Davis / Claude
 **Date**: 2026-04-19
-**Status**: Draft — Architectural Review v2 Applied; P15a alignment in progress
-
-> **Doc status note (2026-04-19):** This document is PRD v0.6 with a P15a partial alignment
-> pass. The LiteLLM proxy architecture documented throughout this file reflects the original
-> design (through v1.2.0). The current system (v1.5.0) uses the OpenAI API directly
-> (`gpt-5.4` + `text-embedding-3-large`) with no LiteLLM proxy. The full replacement of
-> LiteLLM references with the current architecture is planned for PRD v0.7 (P15b). See
-> `docs/TDD.md` and `README.md` for current architecture. The `source` enum has been corrected
-> in this pass to reflect all 9 canonical values; all other body content is unchanged from v0.6.
+**Status**: Current — Architectural Review v2 Applied; P15b AI gateway scrub complete
 
 ---
 
@@ -20,7 +12,7 @@
 
 Open Brain is a self-hosted, Docker-based personal knowledge infrastructure system that ingests information from multiple sources (voice memos, Slack messages, documents, bookmarks, calendar events), processes and embeds them for semantic search, and provides rich output through AI-powered skills — including weekly briefs, career governance sessions, pattern detection, and ad-hoc synthesis.
 
-The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and routes all AI requests through a self-hosted LiteLLM proxy for unified model management. It is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a web dashboard, email reports, and push notifications.
+The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and routes all AI requests through a cost-tiered LLM gateway (`LLMGatewayService` + `config/ai-routing.yaml`) — free local GPU tiers first, paid Anthropic API only for quality-critical tasks. It is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a web dashboard, email reports, and push notifications.
 
 Open Brain replaces and consolidates two existing projects:
 - **board-journal** — a Flutter mobile app for voice-first career governance with AI-powered board sessions, weekly briefs, and bet tracking
@@ -49,12 +41,12 @@ Build a self-hosted, extensible knowledge infrastructure with universal ingestio
 - **Replaces board-journal**: The career governance functionality (weekly briefs, board sessions, bet tracking) becomes output skills rather than a standalone mobile app. A conceptual reference document captures board-journal's principles (governance philosophy, anti-vagueness criteria, board role perspectives, bet tracking model) for clean-room reimplementation — no code ported.
 - **Replaces voice-capture's Notion backend**: Voice memos flow into Postgres via the Core API instead of Notion, captured directly from iPhone/Apple Watch via iOS Shortcut → Core API
 - **Implements the Open Brain architecture** from the companion document: Postgres + pgvector + MCP, fully self-hosted
-- **Future-proofs AI integration**: LiteLLM proxy normalizes all LLM providers behind a single OpenAI-compatible API — no lock-in to any single model or service
+- **Future-proofs AI integration**: `LLMGatewayService` + `config/ai-routing.yaml` normalizes all LLM providers behind a single interface — free local GPU tiers (Jetson 4B, Spark 35B) for routine tasks, paid Anthropic API only for quality-critical output. No lock-in to any single model or service.
 
 ### Product Principles
 1. **Capture must be frictionless** — zero-thought input from the tools you already have open (Slack, Apple Watch)
 2. **Infrastructure you own** — all data on your hardware, no SaaS dependencies for core functionality
-3. **AI-agnostic** — LiteLLM proxy normalizes all providers (local Ollama, Claude, GPT, OpenRouter) behind a single API; swap models without code changes
+3. **AI-agnostic** — `LLMGatewayService` routes tasks across free local GPU tiers (Ollama, Jetson, Spark) and paid cloud providers (Anthropic) via `config/ai-routing.yaml`; swap models or tiers without code changes
 4. **Pipeline-first** — every operation (ingest, process, output) flows through configurable, async pipelines
 5. **Extensible by design** — new input sources, processing stages, and output skills without touching existing code
 6. **The brain compounds** — every capture makes future queries smarter; the system's own outputs feed back in
@@ -66,7 +58,7 @@ The document describes a lightweight Slack → cloud Postgres → MCP setup. Thi
 - Async processing pipeline with configurable stages (not synchronous Edge Functions)
 - Rich output skills (weekly briefs, governance sessions, pattern detection) inherited from board-journal
 - Bidirectional Slack interface (capture + query + commands + interactive sessions)
-- Local AI (LiteLLM for embeddings, faster-whisper for transcription)
+- Local AI (Jetson + Spark GPU for LLM classification/synthesis, faster-whisper for transcription; OpenAI API for embeddings)
 - Entity graph (people, projects, decisions) on top of vector search
 - Web dashboard for browsing, searching, and viewing skill outputs
 
@@ -200,9 +192,9 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F04 | Slack bot — capture (text) | Must Have | Phase 1D | Implemented |
 | F05 | Slack bot — query (semantic search) | Must Have | Phase 1D | Implemented |
 | F06 | MCP endpoint (embedded in Core API, Streamable HTTP) | Must Have | Phase 1E | Implemented |
-| F07 | EmbeddingService via LiteLLM (spark-qwen3-embedding-4b alias) | Must Have | Phase 1B | Implemented |
-| F07a | LiteLLM proxy (unified LLM gateway) | Must Have | Phase 1C | Implemented |
-| F08 | AI router service (LiteLLM-based provider routing) | Must Have | Phase 1C | Implemented |
+| F07 | EmbeddingService (OpenAI `text-embedding-3-large`, `dimensions: 768`) | Must Have | Phase 1B | Implemented |
+| F07a | LLMGatewayService (cost-tiered multi-provider routing via `ai-routing.yaml`) | Must Have | Phase 1C | Implemented |
+| F08 | AI router service (task → tier mapping, audit logging) | Must Have | Phase 1C | Implemented |
 | F09 | Voice-capture integration (adapter to ingest API) | Must Have | Phase 2A | Implemented |
 | F10 | faster-whisper container (local STT) | Must Have | Phase 2A | Implemented |
 | F11 | Slack bot — commands (/ob stats, /ob brief) | Should Have | Phase 2B | Implemented |
@@ -309,7 +301,7 @@ The `pre_extracted` field allows input adapters (like voice-capture) to pass the
 - Ingest endpoint accepts captures and returns capture ID + status within 500ms (queues async processing)
 - Search endpoint returns results within 5 seconds
 - API is unauthenticated (single user, network-level security via Tailscale/LAN)
-- Health endpoint returns status of all dependent services (DB, Redis, LiteLLM)
+- Health endpoint returns status of all dependent services (DB, Redis, LLM gateway)
 
 ---
 
@@ -469,7 +461,7 @@ create table skills_log (
   result jsonb,                                   -- output produced
   captures_queried int,                           -- how many captures were included
   ai_model_used text,
-  token_usage jsonb,                              -- {input_tokens, output_tokens} (cost from LiteLLM /spend/logs)
+  token_usage jsonb,                              -- {input_tokens, output_tokens} (estimated cost via tier config)
   created_at timestamptz default now(),
   completed_at timestamptz,
   error text
@@ -566,11 +558,11 @@ The primary search function combines pgvector cosine similarity with Postgres fu
 | Stage | Purpose | Default AI | Skips When |
 |-------|---------|-----------|------------|
 | `transcribe` | Audio → text via faster-whisper | Local faster-whisper | Input is already text |
-| `embed` | Generate vector embedding | LiteLLM spark-qwen3-embedding-4b alias (see F07) | — |
+| `embed` | Generate vector embedding | OpenAI `text-embedding-3-large` with `dimensions: 768` (see F07) | — |
 | `check_triggers` | Match against active semantic triggers (separate BullMQ job, not inline) | Cosine similarity (in-memory) | No active triggers (Phase 2) |
-| `extract_metadata` | Extract people, topics, type, action_items, dates, brain_views | Configurable (default: local via LiteLLM) | — |
-| `classify` | Domain classification (career signals, etc.) | Configurable via LiteLLM | No matching brain_view pipeline |
-| `link_entities` | Match and link to known entities | LiteLLM or rule-based | Phase 3 |
+| `extract_metadata` | Extract people, topics, type, action_items, dates, brain_views | `entity_extraction` task → `t1_spark` (Qwen 35B, free) | — |
+| `classify` | Domain classification (career signals, etc.) | `search_synthesis` task → `t1_spark` (free) | No matching brain_view pipeline |
+| `link_entities` | Match and link to known entities | `entity_linking` task → `t1_spark` (free), or rule-based | Phase 3 |
 | `evaluate_triggers` | Check trigger rules (drift, bet expiration, etc.) | Rule-based + AI | Phase 3 |
 | `notify` | Send confirmation to source (Slack reply, Pushover) | — | — |
 
@@ -580,15 +572,14 @@ pipelines:
   default:
     stages:
       - name: embed
-        provider: litellm          # Embeddings route through LiteLLM (spark-qwen3-embedding-4b alias)
-        model: ${EMBEDDING_MODEL}  # Configured in ai-routing.yaml (spark-qwen3-embedding-4b)
+        provider: openai           # Embeddings via OpenAI API (text-embedding-3-large, dimensions: 768)
+        model: ${EMBEDDING_MODEL}  # Configured in ai-routing.yaml
 
       # check_triggers runs as a separate BullMQ job after embed completes (not an inline stage)
       # Enqueued automatically by the embed stage handler — see TDD §12.2a
 
       - name: extract_metadata
-        provider: litellm          # Routes through LiteLLM proxy
-        model: fast                # LiteLLM model alias → resolves to configured model
+        task: entity_extraction    # Routes via LLMGatewayService → t1_spark (Qwen 35B, free)
         prompt_template: extract_metadata_v1
 
       - name: notify
@@ -599,14 +590,13 @@ pipelines:
     # so this pipeline only adds embedding and entity linking
     stages:
       - name: embed
-        provider: ollama
+        provider: openai
         model: ${EMBEDDING_MODEL}
 
       # check_triggers: separate BullMQ job after embed (see TDD §12.2a)
 
       - name: extract_metadata
-        provider: litellm
-        model: fast
+        task: entity_extraction    # Routes via LLMGatewayService → t1_spark (free)
         prompt_template: extract_metadata_v1
         merge_with_pre_extracted: true
 
@@ -617,8 +607,7 @@ pipelines:
     extends: default
     additional_stages:
       - name: extract_career_signals
-        provider: litellm
-        model: synthesis           # LiteLLM alias → Claude Sonnet
+        task: search_synthesis     # Routes via LLMGatewayService → t1_spark (free)
         prompt_template: career_signals_v1
         after: extract_metadata
 ```
@@ -751,101 +740,122 @@ When the user asks for a summary or synthesis (not just a search), the bot:
 
 ---
 
-#### F07: Embedding Service (via LiteLLM)
+#### F07: Embedding Service (OpenAI API)
 
-**Description**: Vector embedding generation for all captures, triggers, and search queries. Routes through external LiteLLM at `https://llm.k4jda.net` via the `spark-qwen3-embedding-4b` alias. LLM inference also routes through the same external LiteLLM — see F07a and F08.
+**Description**: Vector embedding generation for all captures, triggers, and search queries. Calls the OpenAI embeddings API directly (`text-embedding-3-large` with `dimensions: 768`). LLM inference uses a separate multi-tier gateway — see F07a and F08.
 
-**Embedding Model**: Qwen3-Embedding-4B (selected, configured on external LiteLLM)
+**Embedding Model**: `text-embedding-3-large` with `dimensions: 768` API parameter (trained Matryoshka representation learning — not naive truncation). Schema: `vector(768)` throughout.
 
-The schema uses `vector(768)` throughout. Qwen3-Embedding-4B returns 2560d Matryoshka vectors, truncated to 768d in the embedding service.
+**Embedding advantages**: Trained MRL with `dimensions` parameter produces high-quality 768d vectors at a fraction of the full 3072d cost. Supports HNSW indexing for fast approximate nearest-neighbor search. Consistent quality across all capture types.
 
-**Qwen3-Embedding advantages**: Matryoshka dimensions (truncate to any power-of-2 with minimal quality loss), 32K context (significant for document ingestion in Phase 4), instruction-following support (`Instruct: ...` prefixes for asymmetric query/document embedding), and MTEB top performance at release.
+**Adaptive truncation**: `EmbeddingService` applies adaptive input truncation — starts at 16K chars, halves down to 2K minimum on OpenAI 400 "context length" errors. Never estimates tokens from character count.
 
-**No embedding fallback** — if LiteLLM is unreachable, captures queue in BullMQ and retry when service recovers. This prevents mixing embedding models which would degrade search quality.
+**No embedding fallback** — if the OpenAI API is unreachable, captures queue in BullMQ and retry when service recovers. This prevents mixing embedding models which would degrade search quality.
 
-**API**: OpenAI embeddings API (`POST /v1/embeddings`) via LiteLLM — same client as LLM inference, using `spark-qwen3-embedding-4b` model alias.
+**API**: OpenAI embeddings endpoint (`POST /v1/embeddings`) with `OPENAI_API_KEY` + `OPENAI_BASE_URL`.
 
 **Acceptance Criteria**:
-- `spark-qwen3-embedding-4b` alias on external LiteLLM returns 768d vectors
-- Embedding generation <2 seconds per capture (network + LiteLLM inference)
+- `text-embedding-3-large` with `dimensions: 768` returns 768d vectors
+- Embedding generation <2 seconds per capture (network round-trip)
 - EmbeddingUnavailableError thrown on failure → BullMQ retry
-- Embeddings queue gracefully when LiteLLM unreachable
+- Embeddings queue gracefully when OpenAI API unreachable
 
 ---
 
-#### F07a: LiteLLM Proxy
+#### F07a: LLMGatewayService (Cost-Tiered Multi-Provider Routing)
 
-**Description**: External shared LLM gateway at `https://llm.k4jda.net` that provides a unified OpenAI-compatible API for all AI requests — both embeddings (spark-qwen3-embedding-4b alias → Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d)) and all LLM inference. Managed independently of Open Brain's Docker stack. Model aliases, provider routing, fallbacks, and budget limits are configured on the external server.
+**Description**: Application-internal LLM routing service that dispatches tasks across a cost-ordered tier chain. Configuration lives entirely in `config/ai-routing.yaml` — no external proxy dependency. Managed as part of Open Brain's monorepo.
 
 **Key Capabilities**:
-- **Unified API**: Single `https://llm.k4jda.net` endpoint for all AI calls (embeddings + LLM)
-- **Model aliasing**: Logical names (`spark-qwen3-embedding-4b`, `fast`, `synthesis`, `governance`, `intent`) configured on external server
-- **Automatic fallback**: Primary → fallback routing per model alias
-- **Budget tracking**: Built-in monthly spend tracking with soft/hard limits ($30 soft alert, $50 hard limit)
-- **Request logging**: All AI calls logged with tokens, latency, cost
+- **Cost-tiered dispatch**: Exhaust free local GPU tiers before paid cloud API. `t1_jetson → t1_spark → t1_fast → t2_quality` fallback chain.
+- **Task routing**: Each task type (intent classification, entity extraction, synthesis, etc.) maps to a specific tier in `task_routing`.
+- **Budget tracking**: Application-level `ai_audit_log` table tracks cost per call. `estimateTierCostUsd()` reads `cost_per_1k_input/output` from tier config. Circuit breaker at $35/month (soft $20 alert).
+- **Request logging**: Every LLM call logged to `ai_audit_log` with tokens, cost, tier, duration.
 
-**Required model aliases** (configured on external LiteLLM server — not managed by this project):
+**Tier definitions** (from `config/ai-routing.yaml`):
 
-| Alias | Purpose | Fallback |
-|-------|---------|---------|
-| `spark-qwen3-embedding-4b` | Qwen3-Embedding-4B (Matryoshka 2560d → 768d) | None — queue and retry |
-| `fast` | Local LLM inference (TBD) | — |
-| `intent` | Intent classification (TBD) | — |
-| `synthesis` | Anthropic Claude Sonnet | openai/gpt-4o |
-| `governance` | Anthropic Claude Opus | claude-sonnet |
+| Tier | Provider | Model | Cost | Default use |
+|------|----------|-------|------|-------------|
+| `t0_local` | ollama | `qwen3.5:2b` | free | local batch only |
+| `t1_jetson` | openai_compat | `qwen3.5-4b` | free (local GPU) | all 7 classification tasks |
+| `t1_spark` | openai_compat | `qwen3.5-35b` | free (DGX GPU) | entity extraction, synthesis, wiki, connections |
+| `t1_fast` | anthropic | `claude-haiku-4-5-20251001` | paid ($0.0008/1K) | fallback |
+| `t2_quality` | anthropic | `claude-sonnet-4-6` | paid ($0.003/1K) | weekly brief, governance, email compose |
 
 **Acceptance Criteria**:
-- External LiteLLM reachable at `https://llm.k4jda.net/health`
-- Model aliases resolve correctly (spark-qwen3-embedding-4b → 768d vectors, synthesis → Claude Sonnet)
-- Fallback triggers automatically on provider failure
-- Monthly spend tracked and hard limit enforced at $50 (configured on external server)
+- Classification tasks route to `t1_jetson` (free, <1 second)
+- Complex routine tasks route to `t1_spark` (free, 4096 token output)
+- `ai_audit_log.cost_usd` non-zero for paid-tier calls
+- Monthly budget circuit breaker fires Pushover at $20 soft limit, halts at $35 hard limit
 
 ---
 
 #### F08: AI Router Service
 
-**Description**: A thin application-layer service that maps task types to LiteLLM model aliases. LiteLLM handles all AI requests — both embeddings (spark-qwen3-embedding-4b alias) and LLM inference. The AI Router in application code is responsible for: (1) mapping task types to LiteLLM model aliases, (2) routing embedding requests to the `spark-qwen3-embedding-4b` alias through the same LiteLLM client, and (3) logging usage to the `ai_audit_log` table from LiteLLM response metadata.
+**Description**: A thin application-layer service that maps task types to tier entries and dispatches via `LLMGatewayService.completeByTask()`. No external proxy — the gateway creates per-tier OpenAI SDK clients from `config/ai-routing.yaml` tier definitions. Embeddings use a separate `EmbeddingService` (OpenAI API direct, not the tier chain).
 
-**Configuration** (`config/ai-routing.yaml`):
+**Configuration** (`config/ai-routing.yaml` — abbreviated):
 ```yaml
-ai_routing:
-  # Embedding config — routes through LiteLLM (spark-qwen3-embedding-4b alias)
+models:
   embedding:
-    provider: litellm
-    model: spark-qwen3-embedding-4b    # Alias on external LiteLLM → Qwen3-Embedding-4B (Matryoshka-truncated to 768d)
-    dimensions: 768             # Schema dimension — model produces 768d vectors
-    # NO fallback. Queue and retry if LiteLLM is unreachable.
+    model: "text-embedding-3-large"
+    client: litellm
+    cost_per_1k_input: 0.00013
 
-  # LLM task → LiteLLM model alias mapping
-  # LiteLLM handles provider routing and fallback internally
-  task_models:
-    metadata_extraction: fast        # → TBD local LLM (via LiteLLM)
-    intent_classification: intent    # → TBD local LLM (via LiteLLM); degrades to prefix-only if LiteLLM down
-    synthesis: synthesis             # → anthropic/claude-sonnet (via LiteLLM, fallback: openai/gpt-4o)
-    governance: governance           # → anthropic/claude-opus (via LiteLLM, fallback: claude-sonnet)
-    career_signals: synthesis        # → same as synthesis
-    weekly_brief: synthesis          # → same as synthesis
-    drift_detection: fast            # → TBD local model
+model_tiers:
+  t1_jetson:
+    provider: openai_compat
+    model: "qwen3.5-4b"
+    base_url: "http://192.168.10.58:8080/v1"
+    max_completion_tokens: 256
+    cost_per_1k_input: 0    # free local GPU
+    cost_per_1k_output: 0
+    fallback: t1_spark
 
-  litellm:
-    base_url: https://llm.k4jda.net
-    # API key stored in Bitwarden as open-brain-litellm-api-key (ai-work project)
+  t1_spark:
+    provider: openai_compat
+    model: "qwen3.5-35b"
+    base_url: "http://spark.k4jda.net:8000/v1"
+    max_completion_tokens: 4096
+    cost_per_1k_input: 0
+    cost_per_1k_output: 0
+    fallback: t1_fast
+
+  t2_quality:
+    provider: anthropic
+    model: "claude-sonnet-4-6"
+    max_completion_tokens: 8192
+    cost_per_1k_input: 0.003
+    cost_per_1k_output: 0.015
+
+task_routing:
+  intent_classification: t1_jetson
+  capture_classification: t1_jetson
+  entity_extraction:   t1_spark
+  search_synthesis:    t1_spark
+  weekly_brief:        t2_quality
+  governance:          t2_quality
+  email_compose:       t2_quality
+
+monthly_budget:
+  soft_limit_usd: 20
+  hard_limit_usd: 35
 ```
 
 **Behavior**:
-- All AI calls (embeddings + LLM inference) route through external LiteLLM at llm.k4jda.net
-- Task type → model alias mapping is config-driven (change aliases without touching code)
-- LiteLLM handles fallback, budget tracking, and request logging natively
-- Application logs usage to `ai_audit_log` table for operational audit
-- **Monthly budget caps** (enforced by LiteLLM): Soft limit at $30/month triggers Pushover alert. Hard limit at $50/month triggers circuit breaker. Expected normal usage: ~$15-30/month.
-- Intent classification degrades gracefully: if LiteLLM unavailable, fall back to prefix-only detection (`?` = query, `!` = command, default = capture)
+- Task type → tier lookup is config-driven; change routing without touching code
+- `LLMGatewayService` creates per-tier OpenAI SDK clients from `base_url`
+- Application logs every call to `ai_audit_log` with cost estimated from tier config
+- Intent classification degrades gracefully to prefix-only detection if all tiers unavailable (`?` = query, `!` = command, default = capture)
+- **Monthly budget caps** (application-enforced): Soft limit $20/month → Pushover alert. Hard limit $35/month → circuit breaker.
 
 **Acceptance Criteria**:
-- All AI calls (embeddings + LLM) route through external LiteLLM at llm.k4jda.net
-- Task-to-model mapping configurable via YAML
-- Fallback triggers automatically via LiteLLM (within 5 seconds)
-- Usage logging captures all calls with token counts
-- Budget enforcement works (soft alert + hard circuit breaker)
+- Classification tasks resolve to `t1_jetson` (free, <1s)
+- Complex tasks resolve to `t1_spark` (free, 35B model)
+- Quality-critical tasks (weekly brief, governance) resolve to `t2_quality` (Anthropic, paid)
+- Task-to-tier mapping configurable via YAML; code unchanged when routing changes
+- Budget circuit breaker fires Pushover at $20; halts at $35
+- Usage logged to `ai_audit_log` with estimated cost
 
 ---
 
@@ -978,7 +988,7 @@ ai_routing:
 | Drift alert | Normal (0) | When drift monitor detects gaps |
 | Bet expiring | High (1) | When a bet is within 7 days of due date |
 | Pipeline failure | High (1) | When a capture fails processing after all retries |
-| System health issue | Emergency (2) | When a critical service (DB, LiteLLM) is unreachable |
+| System health issue | Emergency (2) | When a critical service (DB, LLM gateway) is unreachable |
 
 **Tech**: Reuse Pushover integration pattern from voice-capture project
 
@@ -1112,10 +1122,10 @@ Phase 1A:
 F02 (Postgres) ──► F01 (Core API — CRUD, stats, health)
 
 Phase 1B:
-F07 (EmbeddingService/LiteLLM) ──► Search endpoints + match_captures functions
+F07 (EmbeddingService/OpenAI) ──► Search endpoints + hybrid_search function
 
 Phase 1C:
-F07a (LiteLLM) ──► F08 (AI Router) ──► F03 (Pipeline)
+F07a (LLMGatewayService) ──► F08 (AI Router) ──► F03 (Pipeline)
 
 Phase 1D:
 F04 (Slack Capture) ──► F05 (Slack Query)
@@ -1271,14 +1281,14 @@ F13 (Pushover), F14 (Email)
 
 #### F27: Screenshot/Image Capture (Vision Model)
 
-> **Status: DEFERRED** — Documented for future implementation. Requires vision model configuration on LiteLLM proxy and new pipeline pre-processing stage.
+> **Status: DEFERRED** — Documented for future implementation. Requires a vision model tier in `config/ai-routing.yaml` and a new pipeline pre-processing stage.
 
 **Description**: Capture images (screenshots, whiteboard photos, diagrams) by extracting text and context via a vision-capable LLM. The extracted description becomes the capture content, processed through the standard pipeline. Entry points: Slack image attachment, web UI upload, API multipart endpoint.
 
-**Tech**: Vision model via LiteLLM (e.g., `qwen-vl` or `gpt-4o`). New `vision` model alias in `ai-routing.yaml`. Image stored in filesystem or object storage; extracted text stored in `content` field.
+**Tech**: Vision model via `LLMGatewayService` (e.g., a new `vision` task key in `task_routing` pointing to a vision-capable tier). Image stored in filesystem or object storage; extracted text stored in `content` field.
 
 **Deferred Design Decisions**:
-- Vision model selection (depends on LiteLLM provider availability and cost)
+- Vision model selection (depends on provider support and cost — add as new tier in `ai-routing.yaml`)
 - Image storage strategy (filesystem vs. base64 in `source_metadata` vs. dedicated `media` table)
 - Maximum image size and supported formats
 - Whether to embed extracted text or the image embedding (or both)
@@ -1347,7 +1357,7 @@ F13 (Pushover), F14 (Email)
 
 #### F33: Settings Page Reorganization
 
-**Description**: Split the current monolithic System Health section into three distinct sections: (1) Version & Uptime, (2) Service Health (Postgres, Redis, LiteLLM), (3) Queue Status. Improves readability and makes each concern independently scannable.
+**Description**: Split the current monolithic System Health section into three distinct sections: (1) Version & Uptime, (2) Service Health (Postgres, Redis, LLM gateway), (3) Queue Status. Improves readability and makes each concern independently scannable.
 
 **Acceptance Criteria**:
 - Three separate card sections with their own headings
@@ -1403,17 +1413,21 @@ F13 (Pushover), F14 (Email)
 │  └────┬─────┘  └────┬─────┘  └────┬─────┘                  │
 │       └──────────────┼─────────────┘                        │
 │                      │                                       │
-│              ┌───────▼────────┐  ┌───────────┐              │
-│              │     Redis      │  │  LiteLLM  │              │
-│              │   (BullMQ)     │  │  (LLM     │              │
-│              └───────┬────────┘  │  gateway)  │              │
-│                      │           └─────┬─────┘              │
-│              ┌───────▼────────┐        │                     │
-│              │   Postgres     │        ├──► Anthropic API    │
-│              │  (pgvector/    │        ├──► OpenAI API       │
-│              │   pgvector:    │        ├──► OpenRouter       │
-│              │   pg16)        │        └──► spark-qwen3-embedding-4b│
-│              └────────────────┘                              │
+│              ┌───────▼────────┐                              │
+│              │     Redis      │  ┌────────────────────────┐  │
+│              │   (BullMQ)     │  │  LLMGatewayService     │  │
+│              └───────┬────────┘  │  (ai-routing.yaml)     │  │
+│                      │           │  t1_jetson → 4B GPU    │  │
+│              ┌───────▼────────┐  │  t1_spark  → 35B GPU   ├──► Jetson (192.168.10.58) │
+│              │   Postgres     │  │  t1_fast   → Haiku     ├──► Spark (spark.k4jda.net) │
+│              │  (pgvector/    │  │  t2_quality→ Sonnet    ├──► Anthropic API           │
+│              │   pgvector:    │  └────────────────────────┘  │
+│              │   pg16)        │                              │
+│              └────────────────┘  ┌────────────────────────┐  │
+│                                  │  EmbeddingService      ├──► OpenAI API (embeddings) │
+│                                  │  text-embedding-3-large│  │
+│                                  │  dimensions: 768       │  │
+│                                  └────────────────────────┘  │
 │                                                              │
 │              ┌───────────┐                                   │
 │              │  faster-  │                                   │
@@ -1436,7 +1450,7 @@ F13 (Pushover), F14 (Email)
 ### Docker Network Topology
 
 Single Docker network:
-- **`open-brain`** — All containers (Core API, Slack bot, Workers, Postgres, faster-whisper, Redis, voice-capture, Web UI). Simple DNS resolution between containers (`http://redis:6379`, `http://postgres:5432`). LiteLLM is external at `https://llm.k4jda.net` — not in this network.
+- **`open-brain`** — All containers (Core API, Slack bot, Workers, Postgres, faster-whisper, Redis, voice-capture, Web UI). Simple DNS resolution between containers (`http://redis:6379`, `http://postgres:5432`). External AI services (Anthropic API, OpenAI embeddings API, Jetson at `192.168.10.58`, Spark at `spark.k4jda.net`) are reached over LAN/internet — not in this Docker network.
 - **Host port exposure**: Core API (port 3000, also serves MCP at `/mcp` via Cloudflare Tunnel), Slack bot (Socket Mode — no inbound port needed), and Web UI (Phase 4).
 
 ### Configuration File Structure
@@ -1448,7 +1462,7 @@ open-brain/
 ├── config/
 │   ├── pipelines.yaml              # Processing pipeline definitions
 │   ├── skills.yaml                 # Output skill definitions + schedules
-│   ├── ai-routing.yaml             # Embedding config + task-to-LiteLLM-alias mapping
+│   ├── ai-routing.yaml             # Embedding config + task-to-tier routing (LLMGatewayService)
 │   ├── notifications.yaml          # Notification preferences + targets
 │   ├── brain-views.yaml            # Brain view definitions + pipeline routing rules (5 views: career, personal, technical, work-internal, client)
 │   └── prompts/                    # AI prompt templates
@@ -1563,7 +1577,7 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 
 | Feature | Description |
 |---------|-------------|
-| F07 | EmbeddingService via LiteLLM (spark-qwen3-embedding-4b alias → Qwen3-Embedding-4B (via LiteLLM, Matryoshka-truncated to 768d)) |
+| F07 | EmbeddingService via OpenAI API (`text-embedding-3-large`, `dimensions: 768`) |
 | F01 (partial) | Search endpoint: POST /api/v1/search (all three modes: hybrid, vector, fts) |
 | — | match_captures + match_captures_hybrid SQL functions deployed |
 | — | FTS GIN index on captures.content |
@@ -1571,7 +1585,7 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 
 **Test Gate**:
 - Insert 20-30 test captures with known content via Phase 1A API
-- Generate embeddings via EmbeddingService (calls LiteLLM spark-qwen3-embedding-4b alias)
+- Generate embeddings via EmbeddingService (calls OpenAI `text-embedding-3-large` with `dimensions: 768`)
 - Vector search returns relevant results (similarity > 0.7 for known matches)
 - Hybrid search improves recall on paraphrased queries vs. vector-only
 - FTS catches exact keyword matches that vector misses
@@ -1581,21 +1595,21 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 **Key Decision Point**: Embedding model selection happens here, before pipeline automation. Benchmark with real captures, not synthetic data.
 
 ### Phase 1C: Pipeline + LLM Gateway
-**Goal**: Captures auto-process. LiteLLM routes LLM calls correctly.
+**Goal**: Captures auto-process. `LLMGatewayService` routes LLM calls to the correct tier.
 
 | Feature | Description |
 |---------|-------------|
 | F03 | Pipeline — BullMQ + Redis, stage executor, retry logic |
-| F07a | LiteLLM proxy with model aliases and budget tracking |
-| F08 | AI Router (thin LiteLLM wrapper — embeddings + LLM all through external LiteLLM) |
+| F07a | `LLMGatewayService` with cost-tiered routing and application budget tracking |
+| F08 | AI Router (task → tier mapping via `ai-routing.yaml`; dispatches via `LLMGatewayService.completeByTask()`) |
 | — | Pipeline stages: embed → extract_metadata → notify (stub) |
 | — | Bull Board at /admin/queues |
 
 **Test Gate**:
 - Insert capture via API → automatically embedded, metadata extracted, pipeline_status = 'complete'
 - pipeline_events shows all stages with timing
-- Simulate LiteLLM unavailability → capture queues, retries on recovery
-- LiteLLM routes "fast" alias to local LLM (TBD), "synthesis" to Claude
+- Simulate LLM tier unavailability → capture queues, retries on recovery (via BullMQ)
+- `LLMGatewayService` routes `entity_extraction` → `t1_spark`, `weekly_brief` → `t2_quality`
 - Bull Board shows job history and queue health
 - Budget tracking shows cost for LLM calls
 
@@ -1761,7 +1775,7 @@ via `source_metadata.parent_document_id`).
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| F27 | Screenshot/image capture (vision model) | **DEFERRED** — requires vision model on LiteLLM |
+| F27 | Screenshot/image capture (vision model) | **DEFERRED** — requires vision tier in `ai-routing.yaml` |
 
 ### 9.1 Cold Start Plan
 
@@ -1795,8 +1809,8 @@ The system has features that require accumulated data before they become useful.
 | Unraid server with Docker | Everything | Low — already operational |
 | Tailscale | Remote access to all services | Low — already in use |
 | Slack free workspace (K4JDA) | Capture + query interface | Low — already created |
-| External LiteLLM (llm.k4jda.net) | Embeddings (spark-qwen3-embedding-4b) + all LLM inference | Low — already running, shared service |
-| LiteLLM Docker image | Unified LLM proxy for all providers | Low — actively maintained, wide adoption |
+| Jetson (192.168.10.58) | `t1_jetson` — classification tasks (qwen3.5-4b, free) | Low — static IP, already running llama.cpp |
+| DGX Spark (spark.k4jda.net) | `t1_spark` — entity extraction + synthesis (qwen3.5-35b, free) | Low — running vLLM |
 | faster-whisper Docker image | Local transcription | Low — multiple maintained images |
 | Postgres 16 + pgvector Docker image | Database + vector search | Low — standard Docker image (pgvector/pgvector:pg16) |
 | Redis | Job queues | Low — standard Docker image |
@@ -1807,15 +1821,15 @@ The system has features that require accumulated data before they become useful.
 | Apple Watch + Just Press Record | Voice capture origin | Low — existing workflow |
 
 ### Assumptions
-- Unraid server: Intel Core i7-9700 (8C/8T, 3.0GHz/4.7GHz turbo), 128GB DDR4 RAM, no dedicated GPU, 32TB array (~26TB free). Memory limits on heavy containers: faster-whisper 8GB, Postgres 8GB. Lightweight containers unconstrained. Total estimated footprint ~10-12GB (no Ollama — embeddings and LLM via external LiteLLM).
+- Unraid server: Intel Core i7-9700 (8C/8T, 3.0GHz/4.7GHz turbo), 128GB DDR4 RAM, no dedicated GPU, 32TB array (~26TB free). Memory limits on heavy containers: faster-whisper 8GB, Postgres 8GB. Lightweight containers unconstrained. Total estimated footprint ~10-12GB. LLM inference runs on external hardware (Jetson GPU, DGX Spark GPU) — not on homeserver CPU.
 - Tailscale is configured and the server is accessible remotely
 - Bitwarden Secrets Manager is accessible for API key retrieval
-- The user's daily capture volume will be <50 captures/day (affects pipeline queue sizing and LiteLLM embedding load)
+- The user's daily capture volume will be <50 captures/day (affects pipeline queue sizing and OpenAI embedding API load)
 
 ### Constraints
 - Slack free plan: 90-day message history (not a problem — data lives in Postgres)
 - Slack free plan: 10 app integrations (only need 1)
-- LiteLLM embedding throughput for burst ingestion is handled gracefully by the BullMQ queue
+- OpenAI embedding API throughput for burst ingestion is handled gracefully by the BullMQ queue
 - No multi-user support — single user by design, simplifies everything
 
 ---
@@ -1826,7 +1840,7 @@ The system has features that require accumulated data before they become useful.
 |------|-----------|--------|------------|
 | Postgres + pgvector setup | Low | Medium | Standard Docker image (pgvector/pgvector:pg16), Drizzle Studio for dev browsing, well-documented |
 | Embedding model selection suboptimal | Low | Medium | Schema uses vector(768) compatible with multiple models (nomic-embed-text native, Qwen3-Embedding Matryoshka-truncated). Re-embedding script available. Benchmark with real captures before committing. |
-| LiteLLM proxy as single point for LLM routing | Low | Medium | Simple container, auto-restart. Can bypass and call providers directly if needed. |
+| Jetson/Spark GPU availability for routine LLM tasks | Low | Low | t1_fast (Haiku) is the fallback for both — still free-tier economics at low volume |
 | Unraid resource constraints (many containers) | Medium | Medium | Monitor with Unraid dashboard; phase rollout to spread load |
 | Slack free plan limitations change | Low | Medium | Core system doesn't depend on Slack — just one input adapter |
 | Pipeline stage failure cascades | Low | Medium | Circuit breakers, independent stages, retry logic |
@@ -1865,15 +1879,15 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Schema migrations | Drizzle ORM + drizzle-kit. TypeScript-native, schema-as-code. |
 | AI cost management | Monthly budget: soft $30 (Pushover alert), hard $50 (circuit breaker → local only). |
 | Synthesis endpoint | Top-20 captures, 50K token budget. Skills handle own context assembly. |
-| Container resources | Memory limits on faster-whisper (8GB), Postgres (8GB) only. No Ollama container — embeddings via external LiteLLM. |
+| Container resources | Memory limits on faster-whisper (8GB), Postgres (8GB) only. No local LLM container on homeserver — inference via external Jetson/Spark GPU, embeddings via OpenAI API. |
 | Capture types | 8 types: decision, idea, observation, task, win, blocker, question, reflection. Extensible via prompt. |
 | Config reloading | ConfigService: in-memory cache, explicit reload via `/api/v1/admin/config/reload`, workers re-read per job. |
 | Thread context | Redis with 1-hour TTL, keyed by thread_ts. |
 | Session persistence | Postgres + transcript replay on resume. 30-day max pause. |
 | Deduplication | Source-level only: slack_ts, filename, content hash + 60s window. No cross-source. |
 | Docker networking | Single `open-brain` network. All containers including Postgres. |
-| Embedding consistency | No fallback. Queue and retry if LiteLLM unreachable. Model: Qwen3-Embedding-4B (Matryoshka-truncated to 768d) via spark-qwen3-embedding-4b alias. |
-| LLM routing | LiteLLM proxy. Budget via LiteLLM. App logs task-level audit (not cost) to ai_audit_log table. |
+| Embedding consistency | No fallback. Queue and retry if OpenAI API unreachable. Model: `text-embedding-3-large` with `dimensions: 768` (trained MRL via API parameter). |
+| LLM routing | `LLMGatewayService` + `config/ai-routing.yaml`. Free local GPU tiers first (t1_jetson 4B, t1_spark 35B), paid Anthropic only for quality-critical tasks. App logs cost estimates to `ai_audit_log`. |
 | Search strategy | Hybrid retrieval (FTS + vector with RRF) + ACT-R temporal decay. Default temporal_weight: 0.0 at launch (cold start), ramp up as search history builds. |
 | Semantic triggers | Persistent semantic patterns. Separate BullMQ job (not inline pipeline stage). Max 20 triggers, in-memory comparison. Phase 2C. |
 | MCP architecture | Embedded in Core API at `/mcp` route. Streamable HTTP transport. No separate container. |
@@ -1913,8 +1927,8 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | **Output Skill** | A scheduled or triggered process that queries the brain, performs AI synthesis, and delivers results (weekly brief, board session, drift alert) |
 | **Entity** | A known person, project, decision, bet, or concept that appears across multiple captures |
 | **Intent Router** | The component in the Slack bot that determines whether an incoming message is a capture, query, command, or conversation |
-| **AI Router** | Thin application-layer service that maps task types to LiteLLM model aliases — all AI (embeddings + LLM) routes through external LiteLLM |
-| **LiteLLM** | External shared proxy at llm.k4jda.net providing unified OpenAI-compatible API for all AI requests — embeddings (spark-qwen3-embedding-4b) and LLM inference |
+| **AI Router** | Thin application-layer service (`LLMGatewayService`) that maps task types to model tiers via `config/ai-routing.yaml`; dispatches to the cheapest available tier (free local GPU → paid cloud) |
+| **LLMGatewayService** | Internal multi-tier LLM routing service. Dispatches `completeByTask()` calls across t0_local → t1_jetson → t1_spark → t1_fast → t2_quality tiers. No external proxy dependency. |
 | **Semantic Trigger** | A persistent semantic pattern that fires a notification when a new capture's embedding matches it above a threshold |
 | **Hybrid Search** | Search strategy combining full-text search (Postgres tsvector) and vector similarity (pgvector) via Reciprocal Rank Fusion (RRF) |
 | **Temporal Decay (ACT-R)** | Cognitive model that boosts search ranking for captures that are accessed recently and frequently |
@@ -1928,14 +1942,49 @@ All open questions from the initial draft have been resolved. Decisions are capt
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-04-19 | 0.7 | P15b AI gateway scrub + architectural refresh. Replaced all stale gateway references with current architecture: `LLMGatewayService` multi-tier routing (`t1_jetson` 4B → `t1_spark` 35B → `t1_fast` Haiku → `t2_quality` Sonnet), OpenAI `text-embedding-3-large` with `dimensions: 768` for embeddings. Updated F07/F07a/F08, pipeline config YAML, architecture diagram, Docker topology, config reference, glossary. Added Architecture Evolution section. Removed P15a doc-status notes. |
+| 2026-04-19 | 0.6 (P15a) | P15a alignment pass: source enum corrected to 9 canonical values (`slack`, `voice`, `api`, `document`, `mcp`, `email`, `file`, `consolidation`, `system`). Doc-status notes added; full rewrite deferred to P15b. |
 | 2026-03-04 | 0.1 | Initial draft based on conceptual discussion |
 | 2026-03-04 | 0.2 | All 30 open questions resolved via interactive Q&A session. Key decisions: nomic-embed-text (768d) embeddings, Cloudflare Tunnel for brain.k4jda.net, Vite + React for web UI, Drizzle ORM for migrations, 5 brain views, Slack-native governance redesign, no embedding fallback, patient retry strategy with daily auto-sweep. |
 | 2026-03-04 | 0.3 | Aligned with TDD v0.2 decisions: Removed Supabase (plain Postgres+pgvector), embedded MCP in Core API (Streamable HTTP), direct voice capture via iOS Shortcut (no Google Drive/rclone for voice), pnpm monorepo, @slack/bolt, LLM-driven governance (not FSM), single Docker network, ConfigService, content_hash dedup, SSE for real-time, bws secret loading. |
-| 2026-03-05 | 0.4 | Added LiteLLM as unified LLM gateway (replaces custom AI router logic). Made embedding model configurable (evaluating Qwen3-Embedding alongside nomic-embed-text). Added cognitive retrieval: ACT-R temporal decay scoring, hybrid search with Reciprocal Rank Fusion (FTS + vector), semantic push triggers (F28). Based on analysis of MuninnDB cognitive retrieval architecture. |
+| 2026-03-05 | 0.4 | Added external proxy as unified LLM gateway (replaces custom AI router logic — superseded in v1.3.0 by internal `LLMGatewayService`). Made embedding model configurable. Added cognitive retrieval: ACT-R temporal decay scoring, hybrid search with Reciprocal Rank Fusion (FTS + vector), semantic push triggers (F28). Based on analysis of MuninnDB cognitive retrieval architecture. |
 | 2026-03-05 | 0.5 | Architectural review applied. Restructured into 10 sub-phases (1A-1E, 2A-2C, 3, 4) with explicit test gates. Added cold start plan and temporal weight ramp-up schedule. Added PATCH /api/v1/captures/:id for capture updates. Fixed check_triggers as separate BullMQ job (not inline pipeline stage). Moved MCP API key from URL to Authorization header. Clarified voice-capture migration scope. Default temporal_weight to 0.0 at launch. Added search pagination. |
 | 2026-03-11 | 0.7 | Added Phase 5: F21 (daily connections), F22 (drift monitor), F24 (URL/bookmark capture) with full specs. F27 (image capture) documented but deferred. Updated feature overview table, release planning, dependency graph, cold start plan. |
 | 2026-03-11 | 0.8 | Phase 6 features: F29 (queue management UI), F30 (trigger delete fix), F31 (skill schedule editing), F32 (dark mode), F33 (settings reorganization), F34 (help page), F35 (Slack cleanup). Updated F21/F22 status to Implemented. |
 | 2026-03-05 | 0.6 | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added document chunking deferred decision, added entity resolution confidence threshold (0.8), added MCP key rotation runbook, added config validation (Zod), added scheduled skill retry policy, specified thread expiration UX, added migration-at-startup entrypoint, documented Ollama CPU benchmark requirement. |
+
+---
+
+## 15. Architecture Evolution
+
+The current system (v1.5.0) diverges significantly from the original v0.4 external-proxy design documented in earlier PRD versions. This section summarizes the key migrations.
+
+### CS-α through CS-ε: OpenAI API Migration (2026-03-30)
+
+The original design used an external shared gateway at `https://llm.k4jda.net` as a single routing layer for all AI — both embeddings (Qwen3-Embedding-4B via model alias) and LLM inference. This was replaced with:
+
+- **Embeddings**: OpenAI API directly (`text-embedding-3-large`, `dimensions: 768`). The trained MRL `dimensions` parameter produces high-quality 768d vectors — no Matryoshka truncation in application code required.
+- **LLM inference**: `LLMGatewayService` in `@open-brain/workers` and `@open-brain/core-api`, routing via `config/ai-routing.yaml`.
+- **Env vars**: `OPENAI_API_KEY` + `OPENAI_BASE_URL` (legacy proxy env vars retired in CS5).
+
+### P01–P07: Orchestrator Hardening (2026-04-18–19)
+
+The 45-phase orchestrator cycle added several architectural refinements:
+
+- **Cost-tiered routing**: `ai-routing.yaml` v3 added `t1_jetson` (Qwen 4B, Jetson GPU, free) and `t1_spark` (Qwen 35B, DGX Spark, free) tiers. All routine tasks (entity extraction, wiki, synthesis) route to free tiers. Only `weekly_brief`, `governance`, and `email_compose` use paid Anthropic tiers.
+- **Budget enforcement**: `cost_per_1k_input/output` fields in tier config feed `estimateTierCostUsd()` → `ai_audit_log.cost_usd`. Application-level circuit breaker: $20 soft (Pushover), $35 hard.
+- **Cognitive memory**: Hebbian co-access associations, spreading activation, memory consolidation skill (cosine > 0.92 clusters, weekly Sunday 4 AM).
+- **Autonomy levels**: `observe` / `assist` / `advise` / `partner` gate all proactive skills via `BaseSkill.minimum_autonomy`.
+- **Rate limiting**: `LLMGatewayService`-class rate limit with `X-Open-Brain-Caller` bypass header for all internal services.
+
+### Current AI Routing Summary
+
+| Task class | Tier | Model | Cost |
+|-----------|------|-------|------|
+| 7 classification tasks | `t1_jetson` | `qwen3.5-4b` | free |
+| Entity extraction, synthesis, wiki, connections, drift | `t1_spark` | `qwen3.5-35b` | free |
+| Weekly brief, governance, email compose | `t2_quality` | `claude-sonnet-4-6` | paid |
+| Embeddings (all captures + search) | OpenAI API | `text-embedding-3-large` | paid ($0.00013/1K) |
 
 ---
 
