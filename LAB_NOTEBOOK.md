@@ -7952,6 +7952,74 @@ PHASED_PLAN card said `0 5 * * 0`. That slot is taken by wiki-lint (`0 5 * * 0`)
 
 ---
 
+## Entry 115 — P15b: PRD + TDD v0.7 LiteLLM scrub + architectural refresh  [doc] [decision]
+
+**Tags:** [doc] [decision] [config]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P15b-doc-rewrite`
+**Environment:** Laptop (worktree agent-a18edcd6)
+
+### Objective
+
+Replace all LiteLLM references in `docs/PRD.md` and `docs/TDD.md` with the current architecture: `LLMGatewayService` (multi-tier routing via `config/ai-routing.yaml`), direct Anthropic API for paid inference (`claude-haiku-4-5-20251001`, `claude-sonnet-4-6`), OpenAI API for embeddings (`text-embedding-3-large`, `dimensions: 768`), and free local tiers (Jetson 4B, Spark 35B, Ollama 2B). Add an "Architecture Evolution" section summarizing the CS-α through CS-ι migration. Remove the P15a doc-status notes (they flagged what P15b is now fixing). Bump both docs to v0.7.
+
+### Hypothesis
+
+- `grep -c -i "litellm" docs/PRD.md` returns 0 (was 83 before P15a).
+- `grep -c -i "litellm" docs/TDD.md` returns 0 (was 134 before P15a).
+- `bash scripts/sync-docs.sh` still exits 0 after edits (PRD version field is a doc version, not semver — sync script anchors on the "current system (v1.5.0)" text in the P15a doc-status note, which we're replacing with the v0.7 header).
+- CI `doc-sync` job passes.
+
+**Important sync-docs.sh anchor:** The sync script reads `grep -o 'current system (v[0-9]...)` from `docs/PRD.md`. The P15a doc-status note contained this text. After removing the note and upgrading to v0.7, the PRD must retain or replace this anchor — either keep the phrase in the version history table or add a note in the architecture evolution section that says "current system (v1.5.0)".
+
+### Rollback plan
+
+Doc-only changes. `git revert` restores prior state. No migrations, no runtime changes, no homeserver deploy.
+
+### Ground truth: current architecture (from `config/ai-routing.yaml`)
+
+| Tier | Provider | Model | Cost | Use |
+|------|----------|-------|------|-----|
+| t0_local | ollama | qwen3.5:2b | free | local batch |
+| t1_jetson | openai_compat | qwen3.5-4b | free (local GPU) | all classification tasks |
+| t1_spark | openai_compat | qwen3.5-35b | free (DGX GPU) | entity extraction, synthesis, wiki |
+| t1_fast | anthropic | claude-haiku-4-5-20251001 | paid | fallback |
+| t2_quality | anthropic | claude-sonnet-4-6 | paid | weekly brief, governance |
+| embeddings | openai | text-embedding-3-large | paid | `dimensions: 768` |
+
+### Work items
+
+| # | File | Action |
+|---|------|--------|
+| WI-1 | `docs/PRD.md` | Full LiteLLM scrub — rewrite executive summary, feature table, F07/F07a/F08, architecture diagram, config reference, glossary, changelog. Bump to v0.7. Remove P15a doc-status note. Add Architecture Evolution section. |
+| WI-2 | `docs/TDD.md` | Full LiteLLM scrub — rewrite §1.1 overview, §1.3 tech table, §2.1/2.2 dependencies, §6.3 sequence diagrams, §8.2/8.3/8.7 integration sections, EmbeddingService/AIRouterService TypeScript pseudocode, operational runbook, glossary, appendix. Bump to v0.7. Remove P15a doc-status note. |
+| WI-3 | Verify | `grep -c -i litellm docs/PRD.md docs/TDD.md` → 0,0. `bash scripts/sync-docs.sh` → exit 0. |
+
+### Decision: how to handle the sync-docs.sh anchor
+
+The sync script anchors on `'current system (v[0-9]...)'` in PRD.md. After removing the P15a doc-status note, add the phrase to the v0.7 header or the Architecture Evolution section's intro sentence: "Open Brain v1.5.0 (the current system)..." — this keeps the sync script working without code changes.
+
+**Correction (during implementation):** Initial wording was "v1.5.0 (the current system)" — but the grep pattern is `current system (v...)`, not `v... (the current system)`. Fixed to "The current system (v1.5.0)" which matches the pattern exactly.
+
+### Result
+
+- **PRD LiteLLM refs before → after:** 83 → 0
+- **TDD LiteLLM refs before → after:** 134 → 0
+- **sync-docs.sh:** PASS — all 4 surfaces agree on 1.5.0
+- **Commit:** `fbc181b` on branch `feat/phase-P15b-doc-rewrite`
+- **Status:** COMPLETE ✓
+
+Key changes:
+- PRD/TDD versions bumped to v0.7, dates updated to 2026-04-19
+- P15a doc-status notes removed from both docs
+- Architecture Evolution §15 added to PRD covering CS-α through P07 hardening history
+- F07/F07a/F08 rewrites: OpenAI embedding API + LLMGatewayService multi-tier routing
+- Operational runbook replaced proxy health checks with OpenAI API + free-tier endpoint checks
+- Docker Compose env vars: LITELLM_URL/LITELLM_API_KEY → OPENAI_API_KEY/ANTHROPIC_API_KEY
+- Test pseudocode: `mockLitellm` → `mockOpenAIClient`, `AIRouterService` → `LLMGatewayService`
+
+---
+
 ## Entry 111 — P12: Observability IaC consolidation
 
 **Tags:** [deploy] [docker] [config] [observability] [decision]
