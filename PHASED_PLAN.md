@@ -873,19 +873,19 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ## WAVE 7 — Wiki Completion
 
-### P26 — Wiki construction (Karpathy pattern)
+### P26 — Wiki construction (Karpathy pattern) ✅ Completed 2026-04-20 (PR #165)
 **Scope:** #60 — build out the wiki infrastructure per the planned pattern
 **Severity:** Arc 2 feature
 **Dependencies:** None
 **Effort:** ~1 week
 
-**Deliverables:** (Depends on plan reference in #60 body; sizing uncertain.)
+**Deliverables:** Wiki stats API endpoint, Stats tab in Wiki UI, API shape flattening, structured lint reports, batch-wiki-ingest --pilot mode.
 
 ---
 
 ## WAVE 8 — Opportunistic Typing Coverage (6 PRs, staged)
 
-### P27 — voice-pipecat pyright re-enable
+### P27 — voice-pipecat pyright re-enable ✅ Completed 2026-04-20 (PR #161)
 **Scope:** #121 fix 9 pyright errors; un-scope voice-pipecat
 **Severity:** Medium
 **Dependencies:** None
@@ -895,7 +895,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P28 — scripts/ pyright part 1: financial + utility pipelines
+### P28 — scripts/ pyright part 1: financial + utility pipelines ✅ Completed 2026-04-20 (PR #163)
 **Scope:** #120 subset — most-active ops scripts
 **Severity:** Low
 **Dependencies:** None
@@ -912,7 +912,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P29 — scripts/ pyright part 2: email scripts cluster
+### P29 — scripts/ pyright part 2: email scripts cluster ✅ Completed 2026-04-20 (PR #162)
 **Scope:** #120 subset — all email-* scripts
 **Severity:** Low
 **Dependencies:** None
@@ -927,7 +927,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P30 — scripts/ pyright part 3: file-* scripts cluster
+### P30 — scripts/ pyright part 3: file-* scripts cluster ✅ Completed 2026-04-20 (PR #164)
 **Scope:** #120 subset — file categorize/dedup/inventory/reorganize
 **Severity:** Low
 **Dependencies:** None
@@ -939,7 +939,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P31 — scripts/ pyright part 4: ingestion + Plaid + Deepgram
+### P31 — scripts/ pyright part 4: ingestion + Plaid + Deepgram ✅ Completed 2026-04-20 (PR #160)
 **Scope:** #120 subset — ingest/financial-data/voice
 **Severity:** Low
 **Dependencies:** None
@@ -1021,14 +1021,14 @@ Hard dependencies only (soft groupings in phase cards below):
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
 | 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c ✅ | 2 | Medium |
-| 120 | scripts/ pyright coverage (staged) | P28 → P32 (5 PRs) | 8 | Low |
-| 121 | voice-pipecat pyright re-enable | P27 | 8 | Medium |
+| 120 | scripts/ pyright coverage (staged) | P28 ✅ + P29 ✅ + P30 ✅ + P31 ✅ + P32 (pending) | 8 | Low |
+| 121 | voice-pipecat pyright re-enable | P27 ✅ | 8 | Medium |
 | 122 | recordAgentCompletion final-tier | P02c ✅ | 1 | Low |
 | 54 | Pipecat voice soak test | P24 | 6 | Feature |
 | 57 | Voice architecture decision | P25 | 6 | Feature |
-| 60 | Wiki construction | P26 | 7 | Feature |
-| 62 | Financial account monitoring | P19 | 4 | Feature |
-| 66 | Financial advisor newsletter | P21 | 4 | Feature |
+| 60 | Wiki construction | P26 ✅ | 7 | Feature |
+| 62 | Financial account monitoring | P19 ✅ | 4 | Feature |
+| 66 | Financial advisor newsletter | P21 ✅ | 4 | Feature |
 | 67 | Doctor lab reports (split 2 ways) | P20a ✅ + P20b ✅ | 4 | Feature |
 | 68 | Insurance policy analysis (split 2 ways) | P22a ✅ + P22b ✅ | 4 | Feature |
 | 70 | Dashboard & settings polish | P18 ✅ | 3 | Feature |
