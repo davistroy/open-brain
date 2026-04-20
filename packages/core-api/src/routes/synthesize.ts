@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import type { SearchService } from '../services/search.js'
 import type { LLMGatewayService } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, SafePromptBuilder } from '@open-brain/shared'
 
 const synthesizeBodySchema = z.object({
   query: z.string().min(1, 'Query is required').max(2000),
@@ -49,19 +49,22 @@ export function registerSynthesizeRoutes(
       })
     }
 
-    // Step 2: build context block from captures
-    const contextLines = results.map((r, i) => {
+    // Step 2: build context block from captures — sanitize via SafePromptBuilder (WI-1)
+    const builder = new SafePromptBuilder()
+    const safeQuery = builder.sanitizeInline(query, 'query')
+    const contextBlocks = results.map((r, i) => {
       const date = new Date(r.capture.created_at).toLocaleDateString('en-US', {
         month: 'short', day: 'numeric', year: 'numeric',
       })
-      return `[${i + 1}] (${r.capture.capture_type}, ${r.capture.brain_view}, ${date})\n${r.capture.content}`
+      const label = `[${i + 1}] (${r.capture.capture_type}, ${r.capture.brain_view}, ${date})`
+      return `${label}\n${builder.wrapContent(r.capture.content, r.capture.id!)}`
     })
-    const context = contextLines.join('\n\n')
+    const context = contextBlocks.join('\n\n')
 
     // Step 3: synthesize with LLM
     const prompt = `You are a personal AI assistant with access to the user's knowledge base. Answer the user's question based ONLY on the captures below. Be concise and specific. If the captures do not contain enough information to answer confidently, say so.
 
-User question: ${query}
+User question: ${safeQuery}
 
 Relevant captures from knowledge base:
 ${context}
