@@ -67,6 +67,7 @@ def load_config(config_path: Path | None = None) -> dict:
 # Layout detection
 # ---------------------------------------------------------------------------
 
+
 def detect_layout(first_page_text: str, hospital_names: list[str]) -> str:
     """Classify PDF layout from the first 200 characters of page 1.
 
@@ -147,6 +148,7 @@ def extract_metadata(full_text: str, date_formats: list[str]) -> dict:
 # Reference range parsing
 # ---------------------------------------------------------------------------
 
+
 def parse_ref_range(raw: str) -> dict:
     """Normalise a reference range string.
 
@@ -199,6 +201,7 @@ def parse_ref_range(raw: str) -> dict:
 # ---------------------------------------------------------------------------
 # Derived flag computation
 # ---------------------------------------------------------------------------
+
 
 def compute_derived_flag(
     numeric_value: float | None,
@@ -270,11 +273,11 @@ def compute_derived_flag(
 # Handles both "Glucose  95  mg/dL  70-99  " and "Glucose  95 mg/dL  70-99 H"
 _RESULT_ROW = re.compile(
     r"^(?P<name>[A-Za-z][A-Za-z0-9 ,\(\)\-/\.%]+?)"  # test name
-    r"\s{2,}"                                           # 2+ spaces as column separator
+    r"\s{2,}"  # 2+ spaces as column separator
     r"(?P<value>[<>]?[\d\.]+|[A-Za-z][A-Za-z0-9 \+\-]*)"  # value
     r"(?:\s+(?P<units>[a-zA-Z/%µ][a-zA-Z0-9/%µ\.\-\*^²³]*))?"  # optional units
-    r"(?:\s+(?P<ref>[0-9<>\-\.\s]+|[A-Za-z][A-Za-z ]+))?"      # optional ref range
-    r"(?:\s+(?P<flag>[HLAC]))?$",                               # optional flag
+    r"(?:\s+(?P<ref>[0-9<>\-\.\s]+|[A-Za-z][A-Za-z ]+))?"  # optional ref range
+    r"(?:\s+(?P<flag>[HLAC]))?$",  # optional flag
     re.IGNORECASE,
 )
 
@@ -344,6 +347,7 @@ def parse_result_line(line: str) -> dict | None:
 # PDF extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_pdf(pdf_path: Path, cfg: dict) -> dict:
     """Extract all lab result rows from a PDF file.
 
@@ -364,8 +368,7 @@ def extract_pdf(pdf_path: Path, cfg: dict) -> dict:
         import pdfplumber
     except ImportError:
         raise RuntimeError(
-            "pdfplumber is not installed. "
-            "Run: pip install -r scripts/requirements-lab.txt"
+            "pdfplumber is not installed. " "Run: pip install -r scripts/requirements-lab.txt"
         ) from None
 
     hospital_names = cfg.get("hospital_names", [])
@@ -463,24 +466,26 @@ def upsert_results(extracted: dict) -> int:
     """
     rows = []
     for r in extracted["results"]:
-        rows.append((
-            extracted["report_id"],
-            extracted["source_file"],
-            extracted["layout"],
-            extracted["collection_date"],
-            extracted["ordering_provider"],
-            r["test_name"],
-            r.get("test_code"),
-            r["raw_value"],
-            r.get("numeric_value"),
-            r.get("units"),
-            r.get("ref_range_text"),
-            r.get("ref_low"),
-            r.get("ref_high"),
-            r.get("ref_comparator"),
-            r.get("lab_flag"),
-            r.get("derived_flag"),
-        ))
+        rows.append(
+            (
+                extracted["report_id"],
+                extracted["source_file"],
+                extracted["layout"],
+                extracted["collection_date"],
+                extracted["ordering_provider"],
+                r["test_name"],
+                r.get("test_code"),
+                r["raw_value"],
+                r.get("numeric_value"),
+                r.get("units"),
+                r.get("ref_range_text"),
+                r.get("ref_low"),
+                r.get("ref_high"),
+                r.get("ref_comparator"),
+                r.get("lab_flag"),
+                r.get("derived_flag"),
+            )
+        )
 
     if not rows:
         log.warning("No result rows extracted — nothing to upsert")
@@ -498,6 +503,7 @@ def upsert_results(extracted: dict) -> int:
 # ---------------------------------------------------------------------------
 # --list / --status commands
 # ---------------------------------------------------------------------------
+
 
 def cmd_list() -> None:
     """Print all distinct reports stored in lab_results."""
@@ -553,6 +559,7 @@ def cmd_status() -> None:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(

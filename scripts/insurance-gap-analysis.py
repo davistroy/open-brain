@@ -94,6 +94,7 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
     cfg = _DEFAULT_CONFIG
     try:
         import yaml  # type: ignore[import]
+
         with open(config_path) as fh:
             file_cfg = yaml.safe_load(fh) or {}
         cfg = _deep_merge(_DEFAULT_CONFIG, file_cfg)
@@ -111,6 +112,7 @@ def load_config(config_path: str | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # API helpers (T0 Python — urllib.request only, no requests library)
 # ---------------------------------------------------------------------------
+
 
 def _resolve_base_url(cfg: dict) -> str:
     base = (
@@ -157,13 +159,15 @@ def post_capture(cfg: dict, content: str, source_metadata: dict, dry_run: bool =
     )
     caller = os.environ.get("CAPTURE_API_CALLER") or "insurance-pipeline"
 
-    payload = json.dumps({
-        "content": content,
-        "source": "api",
-        "capture_type": "observation",
-        "brain_view": "personal",
-        "metadata": {"source_metadata": source_metadata},
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "content": content,
+            "source": "api",
+            "capture_type": "observation",
+            "brain_view": "personal",
+            "metadata": {"source_metadata": source_metadata},
+        }
+    ).encode("utf-8")
 
     req = urllib.request.Request(
         captures_url,
@@ -193,6 +197,7 @@ def post_capture(cfg: dict, content: str, source_metadata: dict, dry_run: bool =
 # ---------------------------------------------------------------------------
 # T0 Normalization helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_amount(val: Any) -> float | None:
     """Parse a coverage amount — handles int, float, str like '$100,000'."""
@@ -285,20 +290,21 @@ def normalize_policy(policy: dict) -> dict:
 # T0 Gap heuristics — 5 gap classes
 # ---------------------------------------------------------------------------
 
-def detect_missing_types(
-    normalized: list[dict], expected_types: list[str]
-) -> list[dict]:
+
+def detect_missing_types(normalized: list[dict], expected_types: list[str]) -> list[dict]:
     """Gap class: missing_type — expected policy type absent from active portfolio."""
     present_types = {p["policy_type"] for p in normalized}
     findings = []
     for ptype in expected_types:
         if ptype not in present_types:
-            findings.append({
-                "class": "missing_type",
-                "policy_type": ptype,
-                "description": f"No active {ptype} policy found in portfolio.",
-                "severity": "high",
-            })
+            findings.append(
+                {
+                    "class": "missing_type",
+                    "policy_type": ptype,
+                    "description": f"No active {ptype} policy found in portfolio.",
+                    "severity": "high",
+                }
+            )
     return findings
 
 
@@ -317,30 +323,34 @@ def detect_under_coverage(normalized: list[dict], thresholds: dict) -> list[dict
             high_ded = h_thresh.get("high_deductible_usd", 5000)
             for cat, amt in p["deductibles"].items():
                 if amt > high_ded:
-                    findings.append({
-                        "class": "under_coverage",
-                        "policy_type": ptype,
-                        "provider": p["provider"],
-                        "description": (
-                            f"Health deductible '{cat}' is ${amt:,.0f}, "
-                            f"exceeding high-deductible threshold of ${high_ded:,.0f}."
-                        ),
-                        "severity": "medium",
-                    })
+                    findings.append(
+                        {
+                            "class": "under_coverage",
+                            "policy_type": ptype,
+                            "provider": p["provider"],
+                            "description": (
+                                f"Health deductible '{cat}' is ${amt:,.0f}, "
+                                f"exceeding high-deductible threshold of ${high_ded:,.0f}."
+                            ),
+                            "severity": "medium",
+                        }
+                    )
             # High OOP max check
             if p["oop_max"] is not None:
                 high_oop = h_thresh.get("high_oop_max_usd", 10000)
                 if p["oop_max"] > high_oop:
-                    findings.append({
-                        "class": "under_coverage",
-                        "policy_type": ptype,
-                        "provider": p["provider"],
-                        "description": (
-                            f"Health out-of-pocket maximum is ${p['oop_max']:,.0f}, "
-                            f"exceeding threshold of ${high_oop:,.0f}."
-                        ),
-                        "severity": "medium",
-                    })
+                    findings.append(
+                        {
+                            "class": "under_coverage",
+                            "policy_type": ptype,
+                            "provider": p["provider"],
+                            "description": (
+                                f"Health out-of-pocket maximum is ${p['oop_max']:,.0f}, "
+                                f"exceeding threshold of ${high_oop:,.0f}."
+                            ),
+                            "severity": "medium",
+                        }
+                    )
 
         elif ptype == "home":
             min_dwelling = home_thresh.get("min_dwelling_usd", 200000)
@@ -348,32 +358,36 @@ def detect_under_coverage(normalized: list[dict], thresholds: dict) -> list[dict
             for cat, amt in p["limits"].items():
                 if "dwelling" in cat.lower():
                     if amt < min_dwelling:
-                        findings.append({
-                            "class": "under_coverage",
-                            "policy_type": ptype,
-                            "provider": p["provider"],
-                            "description": (
-                                f"Home dwelling limit '{cat}' is ${amt:,.0f}, "
-                                f"below minimum threshold of ${min_dwelling:,.0f}."
-                            ),
-                            "severity": "high",
-                        })
+                        findings.append(
+                            {
+                                "class": "under_coverage",
+                                "policy_type": ptype,
+                                "provider": p["provider"],
+                                "description": (
+                                    f"Home dwelling limit '{cat}' is ${amt:,.0f}, "
+                                    f"below minimum threshold of ${min_dwelling:,.0f}."
+                                ),
+                                "severity": "high",
+                            }
+                        )
 
         elif ptype == "auto":
             min_bi = auto_thresh.get("min_bodily_injury_usd", 100000)
             for cat, amt in p["limits"].items():
                 if "bodily_injury" in cat.lower() or "bodily injury" in cat.lower():
                     if amt < min_bi:
-                        findings.append({
-                            "class": "under_coverage",
-                            "policy_type": ptype,
-                            "provider": p["provider"],
-                            "description": (
-                                f"Auto bodily injury limit '{cat}' is ${amt:,.0f}, "
-                                f"below minimum threshold of ${min_bi:,.0f}."
-                            ),
-                            "severity": "high",
-                        })
+                        findings.append(
+                            {
+                                "class": "under_coverage",
+                                "policy_type": ptype,
+                                "provider": p["provider"],
+                                "description": (
+                                    f"Auto bodily injury limit '{cat}' is ${amt:,.0f}, "
+                                    f"below minimum threshold of ${min_bi:,.0f}."
+                                ),
+                                "severity": "high",
+                            }
+                        )
 
     return findings
 
@@ -387,27 +401,24 @@ def detect_over_coverage(normalized: list[dict]) -> list[dict]:
     if has_umbrella:
         for p in auto_policies:
             # Check if auto policy has rental reimbursement in coverage_types
-            has_rental = any(
-                "rental" in ct.lower()
-                for ct in p.get("coverage_types", [])
-            )
+            has_rental = any("rental" in ct.lower() for ct in p.get("coverage_types", []))
             # Also check limit keys
             if not has_rental:
-                has_rental = any(
-                    "rental" in k.lower() for k in p["limits"]
-                )
+                has_rental = any("rental" in k.lower() for k in p["limits"])
             if has_rental:
-                findings.append({
-                    "class": "over_coverage",
-                    "policy_type": "auto",
-                    "provider": p["provider"],
-                    "description": (
-                        "Auto policy includes rental reimbursement while an umbrella "
-                        "policy is also active — umbrella may already provide redundant "
-                        "auto liability coverage; evaluate whether rental rider is needed."
-                    ),
-                    "severity": "low",
-                })
+                findings.append(
+                    {
+                        "class": "over_coverage",
+                        "policy_type": "auto",
+                        "provider": p["provider"],
+                        "description": (
+                            "Auto policy includes rental reimbursement while an umbrella "
+                            "policy is also active — umbrella may already provide redundant "
+                            "auto liability coverage; evaluate whether rental rider is needed."
+                        ),
+                        "severity": "low",
+                    }
+                )
 
     return findings
 
@@ -433,17 +444,19 @@ def detect_redundancy(normalized: list[dict]) -> list[dict]:
 
             overlaps = a_eff <= b_exp and b_eff <= a_exp
             if overlaps:
-                findings.append({
-                    "class": "redundancy",
-                    "policy_type": "health",
-                    "providers": [pa["provider"], pb["provider"]],
-                    "description": (
-                        f"Two active health policies detected with overlapping effective "
-                        f"dates: {pa['provider']} and {pb['provider']}. "
-                        "Verify that dual coverage is intentional (e.g., spouse plan)."
-                    ),
-                    "severity": "medium",
-                })
+                findings.append(
+                    {
+                        "class": "redundancy",
+                        "policy_type": "health",
+                        "providers": [pa["provider"], pb["provider"]],
+                        "description": (
+                            f"Two active health policies detected with overlapping effective "
+                            f"dates: {pa['provider']} and {pb['provider']}. "
+                            "Verify that dual coverage is intentional (e.g., spouse plan)."
+                        ),
+                        "severity": "medium",
+                    }
+                )
 
     return findings
 
@@ -458,12 +471,14 @@ def detect_expiring_soon(normalized: list[dict], warning_days: int) -> list[dict
             continue
         delta = (exp - today).days
         if 0 <= delta <= warning_days:
-            expiring.append({
-                "policy_type": p["policy_type"],
-                "provider": p["provider"],
-                "expiration_date": exp.isoformat(),
-                "days_remaining": delta,
-            })
+            expiring.append(
+                {
+                    "policy_type": p["policy_type"],
+                    "provider": p["provider"],
+                    "expiration_date": exp.isoformat(),
+                    "days_remaining": delta,
+                }
+            )
     return expiring
 
 
@@ -491,6 +506,7 @@ def run_gap_heuristics(normalized: list[dict], cfg: dict) -> dict:
 # T2 Synthesis — claude --print
 # ---------------------------------------------------------------------------
 
+
 def build_synthesis_prompt(normalized: list[dict], gaps: dict, cfg: dict) -> str:
     """Build the aggregate prompt for claude --print."""
     lines: list[str] = []
@@ -510,9 +526,7 @@ def build_synthesis_prompt(normalized: list[dict], gaps: dict, cfg: dict) -> str
     lines.append("| Provider | Type | Effective | Expiration | Key Limits |")
     lines.append("|----------|------|-----------|------------|------------|")
     for p in normalized:
-        key_limits = "; ".join(
-            f"{k}: ${v:,.0f}" for k, v in list(p["limits"].items())[:3]
-        )
+        key_limits = "; ".join(f"{k}: ${v:,.0f}" for k, v in list(p["limits"].items())[:3])
         eff = p["effective_date"].isoformat() if p["effective_date"] else "—"
         exp = p["expiration_date"].isoformat() if p["expiration_date"] else "—"
         lines.append(
@@ -549,7 +563,10 @@ def build_synthesis_prompt(normalized: list[dict], gaps: dict, cfg: dict) -> str
 
     max_chars = cfg.get("synthesis", {}).get("max_prompt_chars", 5000)
     if len(prompt) > max_chars:
-        prompt = prompt[:max_chars - 60] + "\n\n[Data truncated for length. Analyze what is shown above.]"
+        prompt = (
+            prompt[: max_chars - 60]
+            + "\n\n[Data truncated for length. Analyze what is shown above.]"
+        )
 
     return prompt
 
@@ -587,6 +604,7 @@ def call_claude_cli(prompt: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Capture content builder
 # ---------------------------------------------------------------------------
+
 
 def build_capture_content(
     normalized: list[dict],
@@ -631,6 +649,7 @@ def build_capture_content(
 # Watch-dir (optional — requires watchdog)
 # ---------------------------------------------------------------------------
 
+
 def _run_watch_dir(watch_dir: str, cfg: dict, args: argparse.Namespace) -> None:
     """Watch a directory for new PDFs and re-run gap analysis on each arrival."""
     try:
@@ -670,6 +689,7 @@ def _run_watch_dir(watch_dir: str, cfg: dict, args: argparse.Namespace) -> None:
     log.info(f"Watching {watch_dir} for new PDFs (Ctrl+C to stop)")
     try:
         import time
+
         while True:
             time.sleep(5)
     except KeyboardInterrupt:
@@ -680,6 +700,7 @@ def _run_watch_dir(watch_dir: str, cfg: dict, args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
+
 
 def run_gap_analysis(cfg: dict, args: argparse.Namespace) -> dict:
     """Execute the full gap analysis pipeline.  Returns result dict."""
@@ -752,6 +773,7 @@ def run_gap_analysis(cfg: dict, args: argparse.Namespace) -> dict:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(

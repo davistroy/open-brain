@@ -28,6 +28,7 @@ log = logging.getLogger("db")
 try:
     import psycopg2
     import psycopg2.extras
+
     _PSYCOPG2_AVAILABLE = True
 except ImportError:
     _PSYCOPG2_AVAILABLE = False
@@ -61,6 +62,7 @@ def _resolve_database_url(cfg: dict | None = None) -> str:
     if config_path.exists():
         try:
             import yaml  # type: ignore[import]
+
             with config_path.open() as f:
                 pipeline_cfg = yaml.safe_load(f) or {}
             url = pipeline_cfg.get("db", {}).get("url")
@@ -94,8 +96,7 @@ def get_connection(cfg: dict | None = None):
     """
     if not _PSYCOPG2_AVAILABLE:
         raise RuntimeError(
-            "psycopg2-binary is not installed. "
-            "Run: pip install -r scripts/requirements-lab.txt"
+            "psycopg2-binary is not installed. " "Run: pip install -r scripts/requirements-lab.txt"
         )
 
     url = _resolve_database_url(cfg)

@@ -55,7 +55,9 @@ ws.auto_filter.ref = "A1:G1"
 row: int = 2
 
 
-def add_section(title: str, source: str = "", files: int | str = "", size: float | str = "", notes: str = "") -> None:
+def add_section(
+    title: str, source: str = "", files: int | str = "", size: float | str = "", notes: str = ""
+) -> None:
     global row
     for col in range(1, 8):
         ws.cell(row=row, column=col).fill = section_fill
@@ -65,13 +67,22 @@ def add_section(title: str, source: str = "", files: int | str = "", size: float
     if files:
         ws.cell(row=row, column=4, value=files).font = normal_font
     if size:
-        ws.cell(row=row, column=5, value=round(size, 2) if isinstance(size, float) else size).font = normal_font
+        ws.cell(
+            row=row, column=5, value=round(size, 2) if isinstance(size, float) else size
+        ).font = normal_font
     ws.cell(row=row, column=6, value=notes).font = normal_font
     ws.row_dimensions[row].height = 22
     row += 1
 
 
-def add_sub(depth: int, path: str, source: str = "", files: int | str = "", size: float | str = "", notes: str = "") -> None:
+def add_sub(
+    depth: int,
+    path: str,
+    source: str = "",
+    files: int | str = "",
+    size: float | str = "",
+    notes: str = "",
+) -> None:
     global row
     indent = "    " * (depth - 1)
     ws.cell(row=row, column=1, value=depth).font = normal_font
@@ -80,7 +91,9 @@ def add_sub(depth: int, path: str, source: str = "", files: int | str = "", size
     if files:
         ws.cell(row=row, column=4, value=files).font = normal_font
     if size:
-        ws.cell(row=row, column=5, value=round(size, 2) if isinstance(size, float) else size).font = normal_font
+        ws.cell(
+            row=row, column=5, value=round(size, 2) if isinstance(size, float) else size
+        ).font = normal_font
     ws.cell(row=row, column=6, value=notes).font = italic_font
     for col in range(1, 8):
         ws.cell(row=row, column=col).border = thin_border

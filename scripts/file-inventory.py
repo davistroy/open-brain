@@ -137,7 +137,12 @@ def get_file_times(filepath: str) -> tuple[str | None, str | None]:
         return None, None
 
 
-def scan_directory(root_path: str, conn: sqlite3.Connection, skip_hash: bool = False, max_hash_size: int = 500 * 1024 * 1024) -> tuple[int, int, int]:
+def scan_directory(
+    root_path: str,
+    conn: sqlite3.Connection,
+    skip_hash: bool = False,
+    max_hash_size: int = 500 * 1024 * 1024,
+) -> tuple[int, int, int]:
     root = Path(root_path).resolve()
     scan_start = datetime.now(UTC).isoformat()
 

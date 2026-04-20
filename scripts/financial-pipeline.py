@@ -581,7 +581,9 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
     for account_id, acct in sorted(by_account.items()):
         lines.append(f"{acct['name']}: {acct['count']} transactions, ${abs(acct['total']):,.2f}")  # type: ignore[arg-type]
         for cat, cat_data in sorted(
-            acct["categories"].items(), key=lambda x: abs(x[1]["total"]), reverse=True  # type: ignore[arg-type,index]
+            acct["categories"].items(),
+            key=lambda x: abs(x[1]["total"]),
+            reverse=True,  # type: ignore[arg-type,index]
         ):
             lines.append(f"  {cat}: ${abs(cat_data['total']):,.2f} ({cat_data['count']} txns)")  # type: ignore[arg-type]
         lines.append("")
@@ -907,9 +909,9 @@ def cmd_account_monitoring(cfg: dict, conn: sqlite3.Connection) -> None:
         return nw
 
     today_nw = _compute_net_worth(today_rows)
-    yesterday_nw_rows = [
-        (aid, bal, 0.0, 0.0) for aid, bal in yesterday_map.items()
-    ] if yesterday_map else []
+    yesterday_nw_rows = (
+        [(aid, bal, 0.0, 0.0) for aid, bal in yesterday_map.items()] if yesterday_map else []
+    )
     yesterday_nw = _compute_net_worth(yesterday_nw_rows) if yesterday_nw_rows else None
 
     nw_line = f"Net Worth: ${today_nw:,.2f}"

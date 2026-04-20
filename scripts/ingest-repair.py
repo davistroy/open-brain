@@ -278,9 +278,7 @@ def check_file_magic(filepath: str) -> str:
         return "unreadable"
 
 
-def extract_with_strategy(
-    strategy: str, filepath: str, ext: str
-) -> tuple[str | None, str | None]:
+def extract_with_strategy(strategy: str, filepath: str, ext: str) -> tuple[str | None, str | None]:
     """Run the appropriate extraction strategy."""
     if strategy == "doc_convert":
         return extract_doc_via_libreoffice(filepath)
@@ -537,12 +535,10 @@ def show_status() -> None:
         print(f"  {s}: {c}")
 
     conn = init_repair_db()
-    repaired: int = conn.execute(
-        "SELECT COUNT(*) FROM repair_log WHERE status='ok'"
-    ).fetchone()[0]
-    failed: int = conn.execute(
-        "SELECT COUNT(*) FROM repair_log WHERE status='failed'"
-    ).fetchone()[0]
+    repaired: int = conn.execute("SELECT COUNT(*) FROM repair_log WHERE status='ok'").fetchone()[0]
+    failed: int = conn.execute("SELECT COUNT(*) FROM repair_log WHERE status='failed'").fetchone()[
+        0
+    ]
     submit_failed: int = conn.execute(
         "SELECT COUNT(*) FROM repair_log WHERE status='submit_failed'"
     ).fetchone()[0]

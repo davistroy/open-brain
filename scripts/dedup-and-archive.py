@@ -161,7 +161,7 @@ def main() -> None:
 
     # Check DB has hashes
     hashed: int = conn.execute(
-        "SELECT COUNT(*) FROM files WHERE sha256 IS NOT NULL AND sha256 != \'\'"
+        "SELECT COUNT(*) FROM files WHERE sha256 IS NOT NULL AND sha256 != ''"
     ).fetchone()[0]
     total: int = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
     print(f"Inventory: {total:,} files, {hashed:,} hashed ({hashed*100//total}%)\n", flush=True)

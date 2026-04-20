@@ -25,6 +25,7 @@ from unittest.mock import MagicMock, patch
 # are not installed in the test environment.  We stub them out before import.
 # ---------------------------------------------------------------------------
 
+
 def _make_stub(name: str) -> types.ModuleType:
     """Create a minimal stub module (and any parent packages) in sys.modules."""
     parts = name.split(".")
@@ -88,6 +89,7 @@ _MONITORING_DEFAULTS = _fp_module._MONITORING_DEFAULTS
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_db() -> sqlite3.Connection:
     """Return a fresh in-memory SQLite connection with the financial schema."""
@@ -159,6 +161,7 @@ def _insert_balance(conn, account_id: str, balance: float, days_ago: int = 0) ->
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestLoadMonitoringConfig:
     """Tests for load_monitoring_config()."""
 
@@ -167,9 +170,9 @@ class TestLoadMonitoringConfig:
         result = load_monitoring_config({})
         for key, default_val in _MONITORING_DEFAULTS.items():
             assert key in result, f"Missing key: {key}"
-            assert result[key] == default_val, (
-                f"Key {key!r}: expected {default_val!r}, got {result[key]!r}"
-            )
+            assert (
+                result[key] == default_val
+            ), f"Key {key!r}: expected {default_val!r}, got {result[key]!r}"
 
     def test_partial_override_preserves_other_defaults(self):
         """One overridden key must not affect unrelated keys."""
@@ -183,9 +186,9 @@ class TestLoadMonitoringConfig:
         for key, default_val in _MONITORING_DEFAULTS.items():
             if key == "balance_drop_pct":
                 continue
-            assert result[key] == default_val, (
-                f"Key {key!r} should be default {default_val!r}, got {result[key]!r}"
-            )
+            assert (
+                result[key] == default_val
+            ), f"Key {key!r} should be default {default_val!r}, got {result[key]!r}"
 
 
 class TestDetectBalanceAnomalies:
@@ -207,8 +210,18 @@ class TestDetectBalanceAnomalies:
 
         # Insert 10 rows of history — small variation so std is non-zero but small
         # Values: 980, 990, 1000, 1010, 1020, 980, 1000, 1000, 1010, 990
-        history_values = [980.0, 990.0, 1000.0, 1010.0, 1020.0,
-                          980.0, 1000.0, 1000.0, 1010.0, 990.0]
+        history_values = [
+            980.0,
+            990.0,
+            1000.0,
+            1010.0,
+            1020.0,
+            980.0,
+            1000.0,
+            1000.0,
+            1010.0,
+            990.0,
+        ]
         for i, val in enumerate(history_values, start=1):
             _insert_balance(conn, account_id, val, days_ago=i)
 

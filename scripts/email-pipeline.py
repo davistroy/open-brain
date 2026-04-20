@@ -490,8 +490,7 @@ class GmailBackend:
                 )
                 time.sleep(API_DELAY)
                 hdrs: dict[str, str] = {
-                    h["name"]: h["value"]
-                    for h in m.get("payload", {}).get("headers", [])
+                    h["name"]: h["value"] for h in m.get("payload", {}).get("headers", [])
                 }
                 raw_from = hdrs.get("From", "")
                 match = re.search(r"<([^>]+)>", raw_from)
@@ -845,9 +844,7 @@ def show_status(conn: sqlite3.Connection) -> None:
             print(f"  {old} -> {new}: {n}x")
 
     for p in ("hotmail", "gmail"):
-        n = conn.execute(
-            "SELECT COUNT(*) FROM folder_map WHERE provider=?", (p,)
-        ).fetchone()[0]
+        n = conn.execute("SELECT COUNT(*) FROM folder_map WHERE provider=?", (p,)).fetchone()[0]
         print(f"\n{p} folders mapped: {n}")
 
     r = conn.execute(

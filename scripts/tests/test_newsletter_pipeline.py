@@ -213,9 +213,7 @@ def test_synthesis_fallback_on_cli_not_found(sample_advisor_cfg, sample_pipeline
 # ── Test WI-6: post_capture called on new newsletter ─────────────────────────
 
 
-def test_post_capture_called_on_new_newsletter(
-    mem_db, sample_advisor_cfg, sample_pipeline_cfg
-):
+def test_post_capture_called_on_new_newsletter(mem_db, sample_advisor_cfg, sample_pipeline_cfg):
     """process_newsletters() calls post_newsletter_capture for a new (non-dedup) newsletter."""
     newsletter = {
         "message_id": "new-msg-001",
@@ -233,8 +231,10 @@ def test_post_capture_called_on_new_newsletter(
         posted_calls.append(n["message_id"])
         return "capture-uuid-001"
 
-    with patch.object(_mod, "synthesize_newsletter", return_value="## Synthesis"), \
-         patch.object(_mod, "post_newsletter_capture", side_effect=fake_post):
+    with (
+        patch.object(_mod, "synthesize_newsletter", return_value="## Synthesis"),
+        patch.object(_mod, "post_newsletter_capture", side_effect=fake_post),
+    ):
         _mod.process_newsletters([newsletter], mem_db, sample_pipeline_cfg, dry_run=False)
 
     assert len(posted_calls) == 1
@@ -244,9 +244,7 @@ def test_post_capture_called_on_new_newsletter(
 # ── Test WI-6: post_capture skipped on dedup ─────────────────────────────────
 
 
-def test_post_capture_skipped_on_dedup(
-    mem_db, sample_advisor_cfg, sample_pipeline_cfg
-):
+def test_post_capture_skipped_on_dedup(mem_db, sample_advisor_cfg, sample_pipeline_cfg):
     """process_newsletters() skips POST when body hash matches a prior posted row."""
     body = "Same newsletter content that was already processed."
     h = _body_hash(body)
@@ -276,9 +274,7 @@ def test_post_capture_skipped_on_dedup(
         return "some-capture-id"
 
     with patch.object(_mod, "post_newsletter_capture", side_effect=fake_post):
-        stats = _mod.process_newsletters(
-            [newsletter], mem_db, sample_pipeline_cfg, dry_run=False
-        )
+        stats = _mod.process_newsletters([newsletter], mem_db, sample_pipeline_cfg, dry_run=False)
 
     assert len(post_calls) == 0
     assert stats["skipped_dup"] == 1

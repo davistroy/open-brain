@@ -240,9 +240,7 @@ def load_senders_by_category() -> dict[str, set[str]]:
     for email in corpus["emails"]:
         email_info[email["id"]] = email["sender_email"]
 
-    sender_cats: defaultdict[str, defaultdict[str, int]] = defaultdict(
-        lambda: defaultdict(int)
-    )
+    sender_cats: defaultdict[str, defaultdict[str, int]] = defaultdict(lambda: defaultdict(int))
     for email_id, info in clf_data["categorized_emails"].items():
         sender: str = email_info.get(email_id, "")
         if sender:
@@ -271,9 +269,7 @@ def query_senders_parallel(
     total = len(senders)
 
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:
-        futures = {
-            pool.submit(collect_ids_for_sender, s, "inbox", date_filter): s for s in senders
-        }
+        futures = {pool.submit(collect_ids_for_sender, s, "inbox", date_filter): s for s in senders}
         for future in as_completed(futures):
             try:
                 ids = future.result()

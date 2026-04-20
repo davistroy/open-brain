@@ -182,6 +182,7 @@ def _flag_trend(flags: list[str | None]) -> str:
 # Database queries (T0)
 # ---------------------------------------------------------------------------
 
+
 def fetch_recent_report_ids(conn, limit: int) -> list[str]:
     """Return the N most-recent distinct report_ids ordered by collection_date DESC.
 
@@ -242,6 +243,7 @@ def fetch_results_for_reports(conn, report_ids: list[str]) -> list[dict]:
 # Trend table construction (T0)
 # ---------------------------------------------------------------------------
 
+
 def build_trend_table(
     results: list[dict],
     custom_thresholds: dict,
@@ -297,7 +299,10 @@ def build_trend_table(
                 "is_abnormal": is_abnormal,
                 "is_worsening": is_worsening,
                 "dates": dates,
-                "values": [str(v) if v is not None else raw for v, raw in zip(values, raw_values, strict=False)],
+                "values": [
+                    str(v) if v is not None else raw
+                    for v, raw in zip(values, raw_values, strict=False)
+                ],
                 "report_count": len(rows),
             }
         )
@@ -305,10 +310,13 @@ def build_trend_table(
     # Sort: abnormal+worsening first, then worsening, then abnormal, then rest
     def sort_key(e: dict) -> tuple:
         return (
-            0 if (e["is_abnormal"] and e["is_worsening"]) else
-            1 if e["is_worsening"] else
-            2 if e["is_abnormal"] else
-            3,
+            0
+            if (e["is_abnormal"] and e["is_worsening"])
+            else 1
+            if e["is_worsening"]
+            else 2
+            if e["is_abnormal"]
+            else 3,
             e["test_name"],
         )
 
@@ -346,6 +354,7 @@ def collect_flagged_tests(
 # ---------------------------------------------------------------------------
 # Prompt construction (T0)
 # ---------------------------------------------------------------------------
+
 
 def build_prompt(
     trend_table: list[dict],
@@ -410,6 +419,7 @@ def build_prompt(
 # T2 synthesis via claude --print
 # ---------------------------------------------------------------------------
 
+
 def run_synthesis(prompt: str, timeout: int = 120) -> str | None:
     """Call claude --print and return the synthesis text, or None on failure."""
     log.info("Calling claude --print (%d chars in prompt)", len(prompt))
@@ -441,6 +451,7 @@ def run_synthesis(prompt: str, timeout: int = 120) -> str | None:
 # ---------------------------------------------------------------------------
 # Output construction + capture POST
 # ---------------------------------------------------------------------------
+
 
 def build_capture_content(
     synthesis: str | None,
@@ -476,6 +487,7 @@ def build_capture_content(
 # ---------------------------------------------------------------------------
 # Main orchestration
 # ---------------------------------------------------------------------------
+
 
 def run(
     conn,
@@ -575,6 +587,7 @@ def run(
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
