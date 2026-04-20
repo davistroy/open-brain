@@ -1,0 +1,137 @@
+name: Build and Push Images
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-push:
+    name: Build and push Docker images to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract short SHA
+        id: meta
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # ── core-api ────────────────────────────────────────────────────────────
+      - name: Build and push core-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: core-api
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/core-api:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/core-api:latest
+          cache-from: type=gha,scope=core-api
+          cache-to: type=gha,mode=max,scope=core-api
+
+      # ── workers ─────────────────────────────────────────────────────────────
+      - name: Build and push workers
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: workers
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/workers:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/workers:latest
+          cache-from: type=gha,scope=workers
+          cache-to: type=gha,mode=max,scope=workers
+
+      # ── slack-bot ────────────────────────────────────────────────────────────
+      - name: Build and push slack-bot
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: slack-bot
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/slack-bot:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/slack-bot:latest
+          cache-from: type=gha,scope=slack-bot
+          cache-to: type=gha,mode=max,scope=slack-bot
+
+      # ── voice-capture ────────────────────────────────────────────────────────
+      - name: Build and push voice-capture
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: voice-capture
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/voice-capture:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/voice-capture:latest
+          cache-from: type=gha,scope=voice-capture
+          cache-to: type=gha,mode=max,scope=voice-capture
+
+      # ── web ──────────────────────────────────────────────────────────────────
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/web/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/web:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/web:latest
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      # ── voice-pipecat ────────────────────────────────────────────────────────
+      - name: Build and push voice-pipecat
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/voice-pipecat
+          file: packages/voice-pipecat/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/voice-pipecat:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/voice-pipecat:latest
+          cache-from: type=gha,scope=voice-pipecat
+          cache-to: type=gha,mode=max,scope=voice-pipecat
+
+      # ── file-ingestion ───────────────────────────────────────────────────────
+      - name: Build and push file-ingestion
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/file-ingestion
+          file: packages/file-ingestion/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/file-ingestion:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/file-ingestion:latest
+          cache-from: type=gha,scope=file-ingestion
+          cache-to: type=gha,mode=max,scope=file-ingestion
+
+      # ── ingest-sidecar ───────────────────────────────────────────────────────
+      # Build context is repo root — Dockerfile COPYs from scripts/ and config/
+      # which are relative to the repo root, not to docker/ingest-sidecar/.
+      - name: Build and push ingest-sidecar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/ingest-sidecar/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/ingest-sidecar:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/ingest-sidecar:latest
+          cache-from: type=gha,scope=ingest-sidecar
+          cache-to: type=gha,mode=max,scope=ingest-sidecar

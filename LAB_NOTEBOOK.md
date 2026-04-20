@@ -8011,6 +8011,59 @@ Homeserver prometheus.yml content was provided as a pre-flight data block in the
 
 ---
 
+## Entry 116 — P17: Docker image registry (GHCR)
+
+**Tags:** [deploy] [docker] [config] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P17-ghcr-images`
+**Environment:** Laptop (worktree agent-ac22566e)
+
+### Objective
+
+Publish all 8 custom-built Open Brain Docker images to GitHub Container Registry (GHCR) on every merge to `main`. Update `docker-compose.yml` so homeserver deploy is `docker compose pull && docker compose up -d` (no local build required). Create `docs/runbooks/deploy.md` covering one-time auth, normal deploy, rollback, emergency local build, and migration checklist.
+
+### Hypothesis
+
+- `.github/workflows/build-images.yml` triggers on `push: branches: [main]`, builds and pushes 8 images with two tags each (`sha-<7-char-SHA>` and `latest`) to `ghcr.io/davistroy/open-brain/*`.
+- `docker-compose.yml` references `image: ghcr.io/davistroy/open-brain/<name>:latest` for all 8 custom services; `build:` blocks remain under `profiles: [local-build]` for dev fallback.
+- `docker compose config` (no profile) shows only `image:` references; `--profile local-build` activates `build:` blocks.
+- CI workflow completes in under 20 minutes on ubuntu-latest.
+- No application code, tests, or migrations changed.
+
+### Rollback plan
+
+`git revert` the merge commit. Homeserver reverts to `docker compose up -d --build` pattern — identical to pre-P17 behavior. No schema changes, no data changes, no migrations. A `git pull` + `docker compose up -d --build` on homeserver fully restores prior state.
+
+### Architecture decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Tagging strategy | `sha-<SHORT_SHA>` + `latest` per image | SHA is immutable for exact rollback; `latest` enables simple `docker compose pull` |
+| Profile strategy | `local-build` profile restores `build:` directives | Compose v2 mechanism — no profile = pull from GHCR, profile = build locally |
+| Build caching | `type=gha` cache via `docker/build-push-action@v6` | Node 22 alpine base + pnpm install layer changes rarely; significant speedup after cold |
+| GHCR auth (CI) | Built-in `GITHUB_TOKEN` with `packages: write` | No additional secrets; packages created private by default for private repos |
+| Homeserver auth | Fine-grained PAT (`read:packages`) stored in Bitwarden | One-time setup; documented in runbook and deploy template |
+| Trigger scope | `push.branches: [main]` only | No PR builds — 8 images per PR would exhaust Actions minutes |
+| ingest-sidecar context | Repo root (`.`), not `docker/ingest-sidecar/` | Dockerfile COPYs from `scripts/`, `config/` which are repo-root-relative |
+| `continue-on-error` | NOT set — image push failure is blocking | Broken image = broken homeserver deploy; must be fixed immediately |
+
+### Work items
+
+| WI | File | Action |
+|----|------|--------|
+| 1.1 | `.github/workflows/build-images.yml` | CREATE — 8 images, 2 tags, GHA cache |
+| 1.2 | `docker-compose.yml` | UPDATE — add `image:` to 8 services; move `build:` under `profiles: [local-build]` |
+| 1.3 | `docs/runbooks/deploy.md` | CREATE — one-time auth, normal deploy, rollback, emergency build, migration checklist |
+
+### Verification
+
+- `.github/workflows/build-images.yml`: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/build-images.yml'))"` — clean
+- `docker-compose.yml`: `python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))"` — clean
+- No TS files changed — test suite unaffected.
+- Ingest-sidecar: build context is repo root (verified against `docker/ingest-sidecar/Dockerfile` COPY paths for `scripts/` and `config/`).
+
+---
+
 ## Entry 117 — P18: Dashboard & settings polish  [web] [decision]
 
 **Tags:** [web]
