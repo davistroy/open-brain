@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import CaptureCard from '@/components/CaptureCard';
 import { capturesApi } from '@/lib/api';
-import type { Capture, CaptureType, BrainView } from '@/lib/types';
+import type { Capture, CaptureType, BrainView, CaptureSource } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 // --- Brain view color mapping ---
@@ -28,6 +28,10 @@ const CAPTURE_TYPES: CaptureType[] = [
 ];
 
 const BRAIN_VIEWS: BrainView[] = ['career', 'personal', 'technical', 'work-internal', 'client'];
+
+const CAPTURE_SOURCES: CaptureSource[] = [
+  'slack', 'voice', 'api', 'document', 'mcp', 'email', 'file', 'consolidation', 'system',
+];
 
 const PAGE_SIZE = 25;
 
@@ -70,6 +74,7 @@ export default function Timeline() {
   // Filters
   const [captureType, setCaptureType] = useState<CaptureType | ''>('');
   const [brainView, setBrainView] = useState<BrainView | ''>('');
+  const [captureSource, setCaptureSource] = useState<CaptureSource | ''>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
@@ -88,6 +93,7 @@ export default function Timeline() {
         offset: currentOffset,
       };
       if (brainView) params.brain_view = brainView;
+      if (captureSource) params.source = captureSource;
 
       const res = await capturesApi.list(params);
 
@@ -106,7 +112,7 @@ export default function Timeline() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [brainView, captureType, startDate, endDate, offset, total]);
+  }, [brainView, captureType, captureSource, startDate, endDate, offset, total]);
 
   // Initial load and filter resets
   useEffect(() => {
@@ -114,7 +120,7 @@ export default function Timeline() {
     setCaptures([]);
     setTotal(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brainView, captureType, startDate, endDate]);
+  }, [brainView, captureType, captureSource, startDate, endDate]);
 
   useEffect(() => {
     if (offset === 0) {
@@ -186,6 +192,17 @@ export default function Timeline() {
           ))}
         </select>
 
+        <select
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={captureSource}
+          onChange={(e) => setCaptureSource(e.target.value as CaptureSource | '')}
+        >
+          <option value="">All sources</option>
+          {CAPTURE_SOURCES.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+
         <Input
           type="date"
           className="h-9 w-auto"
@@ -201,13 +218,14 @@ export default function Timeline() {
           placeholder="To"
         />
 
-        {(captureType || brainView || startDate || endDate) && (
+        {(captureType || brainView || captureSource || startDate || endDate) && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => {
               setCaptureType('');
               setBrainView('');
+              setCaptureSource('');
               setStartDate('');
               setEndDate('');
             }}

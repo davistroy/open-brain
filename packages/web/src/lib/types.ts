@@ -71,6 +71,7 @@ export interface SearchFilters {
   brain_view?: BrainView
   source?: CaptureSource
   hybrid?: boolean
+  include_related?: boolean
   threshold?: number
   limit?: number
   offset?: number

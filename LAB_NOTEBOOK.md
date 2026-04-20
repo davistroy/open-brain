@@ -8063,3 +8063,51 @@ Publish all 8 custom-built Open Brain Docker images to GitHub Container Registry
 - Ingest-sidecar: build context is repo root (verified against `docker/ingest-sidecar/Dockerfile` COPY paths for `scripts/` and `config/`).
 
 ---
+
+## Entry 117 — P18: Dashboard & settings polish  [web] [decision]
+
+**Tags:** [web]
+**Environment:** Laptop / worktree `agent-a107d3f4` on branch `feat/phase-P18-dashboard-polish`
+**Date:** 2026-04-19
+
+### Objective
+
+Implement 4 frontend-only polish items for P18:
+- W1: SystemStatusStrip on Dashboard (autonomy level badge + last consolidation)
+- W2: `include_related` toggle checkbox in SearchFiltersPanel
+- W3: Timeline source filter dropdown
+- W4: CaptureDetail related captures section (spreading activation)
+
+### Hypothesis
+
+All 4 items are fully independent. No schema migration, no backend changes. Pure frontend.
+Expected outcome: All 4 items rendered, Vite build passes clean, zero type errors.
+
+### Pre-implementation verifications
+
+1. **`GET /api/v1/captures` source param** — CONFIRMED: `listCapturesSchema` passes `source` through in `captures.ts:50`. `capturesApi.list()` already accepts `source` as a param. W3 can use server-side filtering.
+
+2. **`GET /api/v1/captures/:id` include_related** — NOT PRESENT: `captures.ts:69` handler only calls `captureService.getById(id)` with no params. Fallback approach required for W4: use `POST /api/v1/search` with `include_related: true` and the capture's content as the query.
+
+3. **`relativeTime` helper** — ALREADY in `packages/web/src/lib/utils.ts` (line 48). No extraction needed. Also exported as `formatRelativeTime`.
+
+4. **`searchApi.search()`** — POSTs the entire `SearchFilters` object as body. Adding `include_related` to the `SearchFilters` interface automatically includes it in the body. No extra API client code needed for W2.
+
+5. **`skillsApi.list()`** already exists in `api.ts:157-198`. Returns `{ data: Skill[] }` with `last_run_at` per skill.
+
+6. **`settingsApi.get()`** already exists in `api.ts:335-337`. Used to fetch `autonomy_level`.
+
+7. **`capturesApi.list()`** accepts `source` param in its type signature (`api.ts:42`). W3 can pass source directly as server-side filter (not client-side).
+
+### Design decisions
+
+- **W1**: `SystemStatusStrip` is a new component. Both fetches (`skillsApi.list()`, `settingsApi.get()`) added to Dashboard's `loadStats()` `Promise.allSettled` block. Component only renders when data is available — graceful failure (hides silently).
+- **W2**: Add `include_related?: boolean` to `SearchFilters` interface. Add checkbox below the existing `hybrid` checkbox in `SearchFiltersPanel`. No DEFAULT_FILTERS change needed (absence = false on backend).
+- **W3**: Add `source` state variable to Timeline. The API filter is server-side (passes `source` to `capturesApi.list()`), unlike the client-side `captureType` filter. Reset offset on filter change matches existing pattern.
+- **W4**: Use `POST /api/v1/search` fallback with `include_related: true` and the capture's content (first 200 chars). Deduplicate the current capture from results. Cap at 5 items. Fire-and-forget on mount; section hidden when no results or error.
+
+### Rollback plan
+
+Pure frontend changes. `git revert` the PR. No data consequences, no Docker changes, no migrations.
+
+---

@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Clock, Globe, MapPin, Smartphone, Watch, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { searchApi } from '@/lib/api';
+import CaptureCard from '@/components/CaptureCard';
 import type { Capture } from '@/lib/types';
 
 interface CaptureDetailProps {
@@ -160,6 +163,23 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
   const pipelineEvents = capture.pipeline_events ?? [];
   const sourceMetadata = capture.source_metadata ?? {};
 
+  // --- Related captures (spreading activation via search fallback) ---
+  const [related, setRelated] = useState<Capture[]>([]);
+
+  useEffect(() => {
+    const query = capture.content.slice(0, 200);
+    searchApi
+      .search({ query, include_related: true, limit: 6 })
+      .then((res) => {
+        // Exclude the current capture from results; cap at 5
+        const filtered = res.captures.filter((c) => c.id !== capture.id).slice(0, 5);
+        setRelated(filtered);
+      })
+      .catch(() => {
+        // Non-fatal — section stays hidden
+      });
+  }, [capture.id, capture.content]);
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
@@ -289,6 +309,21 @@ export default function CaptureDetail({ capture, similarity, onClose }: CaptureD
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2">Source Metadata</p>
               <SourceMetadataDisplay metadata={sourceMetadata} />
+            </div>
+          </>
+        )}
+
+        {/* Related captures (spreading activation) */}
+        {related.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Related via memory associations</p>
+              <div className="space-y-2">
+                {related.map((rel) => (
+                  <CaptureCard key={rel.id} capture={rel} />
+                ))}
+              </div>
             </div>
           </>
         )}
