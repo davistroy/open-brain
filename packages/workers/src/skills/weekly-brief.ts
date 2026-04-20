@@ -1,5 +1,5 @@
 import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
-import { logger, HimalayaService } from '@open-brain/shared'
+import { logger, HimalayaService, SafePromptBuilder } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -62,7 +62,10 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
     const weekStart = fmtDate(windowStart)
     const weekEnd = fmtDate(now)
 
-    const rawOutput = await this.callLLM(contextText, dateRange, captureCount, 'synthesis')
+    // Sanitize user-controlled content via SafePromptBuilder (WI-3)
+    const safeContextText = new SafePromptBuilder().wrapContent(contextText, 'captures-block')
+
+    const rawOutput = await this.callLLM(safeContextText, dateRange, captureCount, 'synthesis')
     const brief = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 
