@@ -20,6 +20,8 @@ Cron (daily 6:30 AM):
     30 6 * * * cd ~/open-brain && venv/bin/python scripts/financial-pipeline.py --sync --daily-summary >> ~/logs/financial-pipeline.log 2>&1
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import io
@@ -34,6 +36,7 @@ import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -51,7 +54,13 @@ _JSON_CAPTURES_POSTED: list[str] = []
 _JSON_ERRORS: list[str] = []
 
 
-def _post_capture(cfg, content, source_metadata, capture_type="observation", brain_view="personal"):
+def _post_capture(
+    cfg: dict[str, Any],
+    content: str,
+    source_metadata: dict[str, Any],
+    capture_type: str = "observation",
+    brain_view: str = "personal",
+) -> bool:
     ok = _post_capture_raw(
         cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
     )
@@ -93,11 +102,11 @@ MERCHANTS_PATH = CONFIG_BASE / "merchants.yaml"
 # ── Config ───────────────────────────────────────────────────────────────────
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Load plaid-config.yaml."""
     if not CONFIG_PATH.exists():
         sys.exit(f"Config not found: {CONFIG_PATH}")
-    return yaml.safe_load(CONFIG_PATH.read_text())
+    return yaml.safe_load(CONFIG_PATH.read_text())  # type: ignore[no-any-return]
 
 
 def load_merchants() -> dict | None:

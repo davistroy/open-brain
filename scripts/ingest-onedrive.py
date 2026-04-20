@@ -15,6 +15,8 @@ Usage:
     python ingest-onedrive.py --batch-size 25             # smaller batches
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -24,10 +26,11 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import requests
 
-sys.stdout.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -58,7 +61,7 @@ EXTRACTABLE_EXTS = {
 }
 
 # Map top-level dirs to brain_views
-DOMAIN_TO_VIEW = {
+DOMAIN_TO_VIEW: dict[str, str] = {
     "Work": "work-internal",
     "Amateur Radio": "technical",
     "Making": "technical",
@@ -92,12 +95,14 @@ def init_progress_db() -> sqlite3.Connection:
     return conn
 
 
-def is_ingested(pconn, path):
+def is_ingested(pconn: sqlite3.Connection, path: str) -> bool:
     r = pconn.execute("SELECT status FROM ingested WHERE path=?", (path,)).fetchone()
     return r is not None  # skip ok, error, empty — all already processed
 
 
-def get_cached_extraction(pconn, path):
+def get_cached_extraction(
+    pconn: sqlite3.Connection, path: str
+) -> tuple[str | None, dict[str, Any] | None]:
     r = pconn.execute(
         "SELECT text_content, metadata_json FROM extraction_cache WHERE path=?", (path,)
     ).fetchone()
@@ -106,7 +111,9 @@ def get_cached_extraction(pconn, path):
     return None, None
 
 
-def cache_extraction(pconn, path, text, metadata):
+def cache_extraction(
+    pconn: sqlite3.Connection, path: str, text: str, metadata: dict[str, Any]
+) -> None:
     pconn.execute(
         "INSERT OR REPLACE INTO extraction_cache(path, text_content, metadata_json) VALUES(?,?,?)",
         (path, text[:500000], json.dumps(metadata)),
@@ -114,7 +121,13 @@ def cache_extraction(pconn, path, text, metadata):
     pconn.commit()
 
 
-def record_ingestion(pconn, path, capture_id, status, error=None):
+def record_ingestion(
+    pconn: sqlite3.Connection,
+    path: str,
+    capture_id: str,
+    status: str,
+    error: str | None = None,
+) -> None:
     pconn.execute(
         "INSERT OR REPLACE INTO ingested(path, capture_id, status, error) VALUES(?,?,?,?)",
         (path, capture_id, status, error),
@@ -125,7 +138,9 @@ def record_ingestion(pconn, path, capture_id, status, error=None):
 MAX_FILE_SIZE_MB = 50  # Skip files larger than this to avoid choking the extractor
 
 
-def extract_text(path, session, size_bytes=0):
+def extract_text(
+    path: str, session: requests.Session, size_bytes: int = 0
+) -> tuple[str | None, dict[str, Any] | None, str | None]:
     """Call file-ingestion /extract to get text from a file. Skip oversized files."""
     if size_bytes and size_bytes > MAX_FILE_SIZE_MB * 1024 * 1024:
         return (
@@ -140,9 +155,9 @@ def extract_text(path, session, size_bytes=0):
         )
         if resp.status_code != 200:
             return None, None, f"extract {resp.status_code}: {resp.text[:200]}"
-        data = resp.json()
-        text = data.get("text", "")
-        metadata = {k: v for k, v in data.items() if k != "text" and v}
+        data: dict[str, Any] = resp.json()
+        text: str = data.get("text", "")
+        metadata: dict[str, Any] = {k: v for k, v in data.items() if k != "text" and v}
         return text, metadata, None
     except requests.exceptions.Timeout:
         return None, None, "skipped: extraction timeout (>60s)"
@@ -150,11 +165,13 @@ def extract_text(path, session, size_bytes=0):
         return None, None, str(e)
 
 
-def submit_batch(batch, session):
+def submit_batch(
+    batch: list[dict[str, Any]], session: requests.Session
+) -> tuple[dict[str, Any] | None, str | None]:
     """Submit a batch of files to /api/v1/documents/batch."""
-    files_payload = []
+    files_payload: list[dict[str, Any]] = []
     for item in batch:
-        entry = {
+        entry: dict[str, Any] = {
             "title": item["filename"],
             "original_path": item["path"],
             "mime_type": item.get("mime_type", "application/octet-stream"),
@@ -182,7 +199,9 @@ def submit_batch(batch, session):
         return None, str(e)
 
 
-def get_extractable_files(inv_conn, domain=None):
+def get_extractable_files(
+    inv_conn: sqlite3.Connection, domain: str | None = None
+) -> list[tuple[str, str, str, int, str, str, str]]:
     """Get extractable files from inventory, optionally filtered by domain."""
     ext_list = ",".join(f"'{e}'" for e in EXTRACTABLE_EXTS)
     query = f"""
@@ -194,10 +213,10 @@ def get_extractable_files(inv_conn, domain=None):
     if domain:
         query += f" AND path LIKE '{domain}/%'"
     query += " ORDER BY path"
-    return inv_conn.execute(query).fetchall()
+    return inv_conn.execute(query).fetchall()  # type: ignore[return-value]
 
 
-def run_ingestion(args):
+def run_ingestion(args: argparse.Namespace) -> None:
     inv_conn = sqlite3.connect(INVENTORY_DB)
     pconn = init_progress_db()
     session = requests.Session()
@@ -212,7 +231,7 @@ def run_ingestion(args):
     )
 
     if args.dry_run:
-        domains = Counter()
+        domains: Counter[str] = Counter()
         for f in remaining:
             top = f[0].split("/")[0] if "/" in f[0] else "(root)"
             domains[top] += 1
@@ -226,7 +245,7 @@ def run_ingestion(args):
     extracted = 0
     submitted = 0
     errors = 0
-    batch = []
+    batch: list[dict[str, Any]] = []
     batch_start = time.monotonic()
 
     for i, (path, filename, ext, size, modified, mime, sha256) in enumerate(remaining):
@@ -253,7 +272,7 @@ def run_ingestion(args):
 
         # Build tags from path
         parts = path.split("/")
-        tags = [parts[0]] if parts else []
+        tags: list[str] = [parts[0]] if parts else []
         if len(parts) > 1:
             tags.append(parts[1])
 
@@ -281,11 +300,11 @@ def run_ingestion(args):
                     record_ingestion(pconn, item["path"], "", "submit_error", err)
                 errors += len(batch)
             else:
-                queued = result.get("queued", 0)
+                queued: int = result.get("queued", 0) if result else 0
                 submitted += queued
                 for j, item in enumerate(batch):
-                    results = result.get("results", [])
-                    cid = results[j].get("capture_id", "") if j < len(results) else ""
+                    results: list[dict[str, Any]] = result.get("results", []) if result else []
+                    cid: str = results[j].get("capture_id", "") if j < len(results) else ""
                     record_ingestion(pconn, item["path"], cid, "ok")
 
             elapsed = time.monotonic() - batch_start
@@ -306,10 +325,10 @@ def run_ingestion(args):
                 record_ingestion(pconn, item["path"], "", "submit_error", err)
             errors += len(batch)
         else:
-            queued = result.get("queued", 0)
+            queued = result.get("queued", 0) if result else 0
             submitted += queued
             for j, item in enumerate(batch):
-                results = result.get("results", [])
+                results = result.get("results", []) if result else []
                 cid = results[j].get("capture_id", "") if j < len(results) else ""
                 record_ingestion(pconn, item["path"], cid, "ok")
 
@@ -325,13 +344,15 @@ def run_ingestion(args):
     pconn.close()
 
 
-def show_status():
+def show_status() -> None:
     pconn = init_progress_db()
-    total = pconn.execute("SELECT COUNT(*) FROM ingested").fetchone()[0]
-    ok = pconn.execute("SELECT COUNT(*) FROM ingested WHERE status='ok'").fetchone()[0]
-    errs = pconn.execute("SELECT COUNT(*) FROM ingested WHERE status LIKE '%error%'").fetchone()[0]
-    empty = pconn.execute("SELECT COUNT(*) FROM ingested WHERE status='empty'").fetchone()[0]
-    cached = pconn.execute("SELECT COUNT(*) FROM extraction_cache").fetchone()[0]
+    total: int = pconn.execute("SELECT COUNT(*) FROM ingested").fetchone()[0]
+    ok: int = pconn.execute("SELECT COUNT(*) FROM ingested WHERE status='ok'").fetchone()[0]
+    errs: int = pconn.execute(
+        "SELECT COUNT(*) FROM ingested WHERE status LIKE '%error%'"
+    ).fetchone()[0]
+    empty: int = pconn.execute("SELECT COUNT(*) FROM ingested WHERE status='empty'").fetchone()[0]
+    cached: int = pconn.execute("SELECT COUNT(*) FROM extraction_cache").fetchone()[0]
 
     print("\n=== File Ingestion Status ===")
     print(f"  Total processed: {total}")
@@ -350,7 +371,7 @@ def show_status():
     pconn.close()
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="Ingest OneDrive files into Open Brain")
     ap.add_argument("--dry-run", action="store_true", help="Preview without ingesting")
     ap.add_argument("--status", action="store_true", help="Show progress")

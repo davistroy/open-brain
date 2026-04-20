@@ -66,6 +66,7 @@ def mock_anthropic_client():
 
     # Build a proper response structure
     text_block = MagicMock()
+    text_block.type = "text"  # discriminated-union narrowing in capture_extractor.py
     text_block.text = json.dumps([
         {
             "content": "Decided to switch deployment from Kubernetes to Docker Compose for the single-server setup.",
@@ -90,6 +91,7 @@ def mock_anthropic_empty():
     """Mock Anthropic client returning empty extraction."""
     client = AsyncMock()
     text_block = MagicMock()
+    text_block.type = "text"  # discriminated-union narrowing in capture_extractor.py
     text_block.text = "[]"
     response = MagicMock()
     response.content = [text_block]
@@ -102,6 +104,7 @@ def mock_anthropic_bad_json():
     """Mock Anthropic client returning invalid JSON."""
     client = AsyncMock()
     text_block = MagicMock()
+    text_block.type = "text"  # discriminated-union narrowing in capture_extractor.py
     text_block.text = "This is not JSON at all"
     response = MagicMock()
     response.content = [text_block]
@@ -185,6 +188,7 @@ async def test_extract_captures_invalid_type_fallback(sample_transcript):
     """Invalid capture_type should fall back to 'observation'."""
     client = AsyncMock()
     text_block = MagicMock()
+    text_block.type = "text"  # discriminated-union narrowing in capture_extractor.py
     text_block.text = json.dumps([
         {
             "content": "Some content here.",
@@ -206,6 +210,7 @@ async def test_extract_captures_invalid_view_fallback(sample_transcript):
     """Invalid brain_view should fall back to 'personal'."""
     client = AsyncMock()
     text_block = MagicMock()
+    text_block.type = "text"  # discriminated-union narrowing in capture_extractor.py
     text_block.text = json.dumps([
         {
             "content": "Some content here.",
@@ -227,6 +232,7 @@ async def test_extract_captures_skips_empty_content(sample_transcript):
     """Captures with empty content should be filtered out."""
     client = AsyncMock()
     text_block = MagicMock()
+    text_block.type = "text"  # discriminated-union narrowing in capture_extractor.py
     text_block.text = json.dumps([
         {"content": "", "capture_type": "idea", "brain_view": "technical"},
         {"content": "Real content.", "capture_type": "idea", "brain_view": "technical"},
