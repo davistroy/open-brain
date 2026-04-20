@@ -141,10 +141,11 @@ async def extract_captures(
             messages=[{"role": "user", "content": prompt}],
         )
 
-        # Extract text from response
+        # Extract text from response — use the `type` discriminator field so
+        # pyright can narrow the ContentBlock union and confirm .text exists.
         result_text = ""
         for block in response.content:
-            if hasattr(block, "text"):
+            if block.type == "text":
                 result_text += block.text
 
         # Parse JSON response

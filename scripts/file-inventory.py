@@ -1,5 +1,5 @@
 """
-File Inventory Scanner — Phase A of OneDrive corpus analysis.
+File Inventory Scanner â€” Phase A of OneDrive corpus analysis.
 
 Walks the entire file tree, collects metadata + SHA-256 hashes,
 stores in SQLite, and generates a summary report.
@@ -9,6 +9,8 @@ Non-destructive: reads only, never modifies files.
 Usage:
     python file-inventory.py /path/to/files [--db inventory.db] [--skip-hash] [--resume]
 """
+
+from __future__ import annotations
 
 import argparse
 import hashlib
@@ -21,8 +23,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 
 # Files/dirs to skip entirely
 SKIP_NAMES = {
@@ -90,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_files_junk ON files(is_junk);
 """
 
 
-def init_db(db_path):
+def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -99,12 +101,12 @@ def init_db(db_path):
     return conn
 
 
-def file_is_scanned(conn, path):
+def file_is_scanned(conn: sqlite3.Connection, path: str) -> bool:
     row = conn.execute("SELECT 1 FROM files WHERE path = ?", (path,)).fetchone()
     return row is not None
 
 
-def hash_file(filepath, chunk_size=65536):
+def hash_file(filepath: str, chunk_size: int = 65536) -> str | None:
     h = hashlib.sha256()
     try:
         with open(filepath, "rb") as f:
@@ -118,14 +120,14 @@ def hash_file(filepath, chunk_size=65536):
         return None
 
 
-def classify_filename(filename):
+def classify_filename(filename: str) -> tuple[bool, bool, bool]:
     is_junk = any(p.search(filename) for p in JUNK_RE)
     is_conflict = bool(CONFLICT_RE.search(filename))
     is_version = bool(VERSION_RE.search(filename))
     return is_junk, is_conflict, is_version
 
 
-def get_file_times(filepath):
+def get_file_times(filepath: str) -> tuple[str | None, str | None]:
     try:
         stat = os.stat(filepath)
         created = datetime.fromtimestamp(stat.st_ctime, tz=UTC).isoformat()
@@ -135,7 +137,7 @@ def get_file_times(filepath):
         return None, None
 
 
-def scan_directory(root_path, conn, skip_hash=False, max_hash_size=500 * 1024 * 1024):
+def scan_directory(root_path: str, conn: sqlite3.Connection, skip_hash: bool = False, max_hash_size: int = 500 * 1024 * 1024) -> tuple[int, int, int]:
     root = Path(root_path).resolve()
     scan_start = datetime.now(UTC).isoformat()
 
@@ -442,7 +444,7 @@ def generate_report(conn):
     print(f"{'='*60}\n", flush=True)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="File inventory scanner")
     parser.add_argument("path", help="Root directory to scan")
     parser.add_argument(
@@ -482,7 +484,7 @@ def main():
             conn.commit()
 
         scan_directory(
-            root, conn, skip_hash=args.skip_hash, max_hash_size=args.max_hash_mb * 1024 * 1024
+            str(root), conn, skip_hash=args.skip_hash, max_hash_size=args.max_hash_mb * 1024 * 1024
         )
         generate_report(conn)
 

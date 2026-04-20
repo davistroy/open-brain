@@ -20,6 +20,8 @@ Secrets:
     via bws CLI at startup. BWS_ACCESS_TOKEN must be set.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -27,19 +29,26 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-import plaid
-import yaml
-from flask import Flask, jsonify, request
-from plaid.api import plaid_api
-from plaid.model.country_code import CountryCode
-from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
-from plaid.model.link_token_create_request import LinkTokenCreateRequest
-from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
-from plaid.model.products import Products
+import plaid  # type: ignore[import-untyped]
+import yaml  # type: ignore[import-untyped]
+from flask import Flask, Response, jsonify, request  # type: ignore[import-untyped]
+from plaid.api import plaid_api  # type: ignore[import-untyped]
+from plaid.model.country_code import CountryCode  # type: ignore[import-untyped]
+from plaid.model.item_public_token_exchange_request import (  # type: ignore[import-untyped]
+    ItemPublicTokenExchangeRequest,
+)
+from plaid.model.link_token_create_request import (
+    LinkTokenCreateRequest,  # type: ignore[import-untyped]
+)
+from plaid.model.link_token_create_request_user import (  # type: ignore[import-untyped]
+    LinkTokenCreateRequestUser,
+)
+from plaid.model.products import Products  # type: ignore[import-untyped]
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -50,7 +59,7 @@ log = logging.getLogger("plaid-link-server")
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "financial" / "plaid-config.yaml"
 
 # Track linked accounts during this session
-linked_accounts: list[dict] = []
+linked_accounts: list[dict[str, Any]] = []
 
 
 # ── Secrets ─────────────────────────────────────────────────────────────────
@@ -68,10 +77,10 @@ def get_bws_secret(secret_name: str) -> str:
         if result.returncode != 0:
             log.error(f"bws failed: {result.stderr.strip()}")
             sys.exit(1)
-        secrets = json.loads(result.stdout)
+        secrets: list[dict[str, Any]] = json.loads(result.stdout)
         for s in secrets:
             if s.get("key") == secret_name:
-                return s["value"]
+                return str(s["value"])
         log.error(f"Secret '{secret_name}' not found in Bitwarden Secrets Manager")
         sys.exit(1)
     except FileNotFoundError:
@@ -85,21 +94,22 @@ def get_bws_secret(secret_name: str) -> str:
 # ── Config & Plaid Client ──────────────────────────────────────────────────
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Load plaid-config.yaml."""
     if not CONFIG_PATH.exists():
         sys.exit(f"Config not found: {CONFIG_PATH}")
-    return yaml.safe_load(CONFIG_PATH.read_text())
+    result: dict[str, Any] = yaml.safe_load(CONFIG_PATH.read_text())
+    return result
 
 
-def create_plaid_client(cfg: dict, client_id: str, secret: str) -> plaid_api.PlaidApi:
+def create_plaid_client(cfg: dict[str, Any], client_id: str, secret: str) -> plaid_api.PlaidApi:
     """Create Plaid API client for the configured environment."""
-    env_map = {
+    env_map: dict[str, Any] = {
         "sandbox": plaid.Environment.Sandbox,
         "development": plaid.Environment.Development,
         "production": plaid.Environment.Production,
     }
-    env = cfg.get("environment", "development")
+    env: str = cfg.get("environment", "development")
     if env not in env_map:
         sys.exit(f"Invalid Plaid environment: {env}")
 
@@ -280,31 +290,35 @@ LINK_HTML = """<!DOCTYPE html>
 # ── Flask App ───────────────────────────────────────────────────────────────
 
 
-def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
+def create_app(cfg: dict[str, Any], client: plaid_api.PlaidApi) -> Flask:
     """Create and configure the Flask app."""
     app = Flask(__name__)
 
-    product_map = {
+    product_map: dict[str, Any] = {
         "transactions": Products("transactions"),
         "balance": Products("balance"),
         "investments": Products("investments"),
     }
-    products = [product_map[p] for p in cfg.get("products", ["transactions"]) if p in product_map]
+    products: list[Any] = [
+        product_map[p] for p in cfg.get("products", ["transactions"]) if p in product_map
+    ]
 
-    country_map = {"US": CountryCode("US")}
-    country_codes = [country_map[c] for c in cfg.get("country_codes", ["US"]) if c in country_map]
+    country_map: dict[str, Any] = {"US": CountryCode("US")}
+    country_codes: list[Any] = [
+        country_map[c] for c in cfg.get("country_codes", ["US"]) if c in country_map
+    ]
 
     @app.route("/")
-    def index():
+    def index() -> str:
         accounts_json = json.dumps(cfg.get("accounts", {}))
         html = LINK_HTML.replace("__ACCOUNTS_JSON__", accounts_json)
         return html
 
     @app.route("/api/create_link_token", methods=["POST"])
-    def create_link_token():
+    def create_link_token() -> tuple[Response, int] | Response:
         try:
-            body = request.get_json(silent=True) or {}
-            account_key = body.get("account_key", "unknown")
+            body: dict[str, Any] = request.get_json(silent=True) or {}
+            account_key: str = body.get("account_key", "unknown")
 
             req = LinkTokenCreateRequest(
                 user=LinkTokenCreateRequestUser(client_user_id=f"open-brain-{account_key}"),
@@ -317,7 +331,7 @@ def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
             log.info(f"Link token created for account: {account_key}")
             return jsonify({"link_token": resp.link_token})
         except plaid.ApiException as e:
-            err = json.loads(e.body)
+            err: dict[str, Any] = json.loads(e.body)
             log.error(f"Plaid error creating link token: {err}")
             return jsonify({"error": err.get("error_message", str(e))}), 400
         except Exception as e:
@@ -325,20 +339,20 @@ def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
             return jsonify({"error": str(e)}), 500
 
     @app.route("/api/exchange_public_token", methods=["POST"])
-    def exchange_public_token():
+    def exchange_public_token() -> tuple[Response, int] | Response:
         try:
             body = request.get_json(silent=True) or {}
-            public_token = body.get("public_token")
-            account_key = body.get("account_key", "unknown")
-            institution = body.get("institution", "unknown")
+            public_token: str | None = body.get("public_token")
+            account_key: str = body.get("account_key", "unknown")
+            institution: str = body.get("institution", "unknown")
 
             if not public_token:
                 return jsonify({"error": "public_token required"}), 400
 
             req = ItemPublicTokenExchangeRequest(public_token=public_token)
             resp = client.item_public_token_exchange(req)
-            access_token = resp.access_token
-            item_id = resp.item_id
+            access_token: str = resp.access_token
+            item_id: str = resp.item_id
 
             # Store in session list
             linked_accounts.append(
@@ -389,7 +403,7 @@ def create_app(cfg: dict, client: plaid_api.PlaidApi) -> Flask:
 # ── Main ────────────────────────────────────────────────────────────────────
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="Plaid Link Server — one-time bank account linking")
     ap.add_argument("--port", type=int, default=8484, help="Port to serve on (default: 8484)")
     args = ap.parse_args()
@@ -398,7 +412,7 @@ def main():
     cfg = load_config()
 
     log.info("Retrieving Plaid credentials from Bitwarden...")
-    bw_keys = cfg.get("bitwarden_keys", {})
+    bw_keys: dict[str, Any] = cfg.get("bitwarden_keys", {})
     client_id = get_bws_secret(bw_keys.get("client_id_key", "plaid-client-id"))
     secret = get_bws_secret(bw_keys.get("secret_key", "plaid-secret"))
     log.info(f"Plaid credentials loaded (environment: {cfg.get('environment', 'development')})")
@@ -408,7 +422,7 @@ def main():
 
     app = create_app(cfg, client)
 
-    accounts = cfg.get("accounts", {})
+    accounts: dict[str, Any] = cfg.get("accounts", {})
     print("\n" + "=" * 70)
     print("  PLAID LINK SERVER")
     print(f"  Environment: {cfg.get('environment', 'development')}")

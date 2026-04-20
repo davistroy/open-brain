@@ -1,10 +1,21 @@
+"""
+cleanup-onedrive-junk.py -- Remove known junk files from the OneDrive corpus.
+
+Deletes .v1_indexcache files, KiCad community library dirs, iTunes Music cache,
+and Python venv/build cache directories under /data.
+
+Non-recoverable: run only after confirming the target path is correct.
+"""
+
+from __future__ import annotations
+
 import os
 import shutil
 
-base = "/data"
-deleted_files = 0
-deleted_dirs = 0
-freed_bytes = 0
+base: str = "/data"
+deleted_files: int = 0
+deleted_dirs: int = 0
+freed_bytes: int = 0
 
 # 1. Delete all .v1_indexcache files
 print("=== Deleting .v1_indexcache files ===", flush=True)
@@ -21,7 +32,7 @@ for root, dirs, files in os.walk(base):
 print(f"  Deleted {deleted_files} .v1_indexcache files", flush=True)
 
 # 2. Delete KiCad community libraries
-kicad_dirs = [
+kicad_dirs: list[str] = [
     "/data/Projects/PCB/kicad_libraries/digikey-partner-kicad-library",
     "/data/Projects/PCB/kicad_libraries/digikey-kicad-library",
     "/data/Projects/Electronics/Adafruit/Adafruit-SMT-Breakout-PCBs",
@@ -38,11 +49,15 @@ for d in kicad_dirs:
         print(f"  Not found: {d.split('/data/')[-1]}", flush=True)
 
 # 3. Delete Music directory (iTunes cache only, audio already moved)
-music_dir = "/data/Music"
+music_dir: str = "/data/Music"
 print("\n=== Deleting Music directory (iTunes cache) ===", flush=True)
 if os.path.isdir(music_dir):
     count = sum(1 for _, _, files in os.walk(music_dir) for f in files)
-    sz = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(music_dir) for f in fs)
+    sz: int = sum(
+        os.path.getsize(os.path.join(r, f))
+        for r, _, fs in os.walk(music_dir)
+        for f in fs
+    )
     shutil.rmtree(music_dir)
     deleted_files += count
     freed_bytes += sz
@@ -50,7 +65,7 @@ if os.path.isdir(music_dir):
 
 # 4. Delete Python venvs and build caches in Projects
 print("\n=== Deleting Python venvs and build caches ===", flush=True)
-junk_dirs = {
+junk_dirs: set[str] = {
     ".venv",
     "venv",
     "env",
@@ -71,7 +86,9 @@ for root, dirs, files in os.walk(base):
             try:
                 count = sum(1 for _, _, fs in os.walk(path) for f in fs)
                 sz = sum(
-                    os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(path) for f in fs
+                    os.path.getsize(os.path.join(r, f))
+                    for r, _, fs in os.walk(path)
+                    for f in fs
                 )
                 shutil.rmtree(path)
                 deleted_files += count
@@ -83,9 +100,9 @@ for root, dirs, files in os.walk(base):
             except Exception as e:
                 print(f"  Error: {path}: {e}", flush=True)
 
-print(f"\n{'='*60}", flush=True)
+print(f"\n{chr(61)*60}", flush=True)
 print("  CLEANUP COMPLETE", flush=True)
 print(f"  Files deleted: {deleted_files:,}", flush=True)
 print(f"  Directories removed: {deleted_dirs:,}", flush=True)
 print(f"  Space freed: {freed_bytes/1024/1024/1024:.2f} GB", flush=True)
-print(f"{'='*60}", flush=True)
+print(f"{chr(61)*60}", flush=True)

@@ -10,6 +10,8 @@ Usage:
     python reorganize-onedrive.py --db /path/to/db --root /path/to/onedrive
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import os
@@ -18,7 +20,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-sys.stdout.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
 
 
 # ============================================================
@@ -28,7 +30,7 @@ sys.stdout.reconfigure(line_buffering=True)
 # Rules are evaluated in order — first match wins.
 # More specific prefixes must come before general ones.
 
-MOVE_RULES = [
+MOVE_RULES: list[tuple[str, str | None, str]] = [
     # ---------------------------------------------------------
     # WORK / COCA-COLA
     # ---------------------------------------------------------
@@ -302,7 +304,7 @@ MOVE_RULES = [
 ]
 
 # Root files with known destinations (high confidence classification)
-ROOT_FILE_RULES = {
+ROOT_FILE_RULES: dict[str, str | None] = {
     "candidatenote.xlsx": "Work/Stratfield/ATS-CRM/",
     "candidatenote_load.csv": "Work/Stratfield/ATS-CRM/",
     "candidate.xlsx": "Work/Stratfield/ATS-CRM/",
@@ -336,7 +338,7 @@ ROOT_FILE_RULES = {
 }
 
 
-def find_dest(path, filename):
+def find_dest(path: str, filename: str) -> tuple[str | None, str]:
     """Find destination for a file based on mapping rules."""
     # Root-level files (no directory)
     if "/" not in path:
@@ -362,7 +364,7 @@ def find_dest(path, filename):
     return "_Archive/Unmatched/" + path, "no-rule-matched"
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Reorganize OneDrive files")
     parser.add_argument("--db", required=True, help="Path to file inventory SQLite DB")
     parser.add_argument("--root", required=True, help="Root directory of the file corpus")
