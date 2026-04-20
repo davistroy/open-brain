@@ -12,6 +12,7 @@ Usage:
     python scripts/batch-wiki-ingest.py --db /mnt/user/openbrain/inventory.db
     python scripts/batch-wiki-ingest.py --db ./inventory.db --domain technical --batch-size 25
     python scripts/batch-wiki-ingest.py --db ./inventory.db --dry-run
+    python scripts/batch-wiki-ingest.py --db ./inventory.db --pilot
     python scripts/batch-wiki-ingest.py --db ./inventory.db --report-only
 
 Requires: requests (pip install requests)
@@ -49,6 +50,10 @@ DEFAULT_BATCH_SIZE = 25
 MAX_API_BATCH_SIZE = 100  # core-api limit per request
 INTER_BATCH_DELAY_SECS = 5  # pause between API batch submissions
 CALLER_HEADER = "batch-wiki-ingest"
+
+# Pilot mode: process at most this many files per domain, one domain only
+PILOT_MAX_FILES = 5
+PILOT_BATCH_SIZE = 5
 
 # Map inventory categories to brain_views
 CATEGORY_TO_BRAIN_VIEW = {
@@ -669,6 +674,9 @@ Examples:
   # Dry run (no API calls, marks files as skipped in tracking)
   python scripts/batch-wiki-ingest.py --db ./inventory.db --dry-run
 
+  # Pilot mode: 5 files from largest domain — validate pipeline before full run
+  python scripts/batch-wiki-ingest.py --db ./inventory.db --pilot
+
   # Resume after interruption (automatically skips already-submitted files)
   python scripts/batch-wiki-ingest.py --db ./inventory.db --domain business
 
@@ -721,6 +729,15 @@ Examples:
         action="store_true",
         help="Show batch status report without processing",
     )
+    parser.add_argument(
+        "--pilot",
+        action="store_true",
+        help=(
+            f"Pilot mode: process only {PILOT_MAX_FILES} files from the largest domain "
+            f"(batch-size={PILOT_BATCH_SIZE}). Use to validate end-to-end pipeline before "
+            f"committing to a full run. Implies --skip-lint."
+        ),
+    )
     args = parser.parse_args()
 
     db_path = args.db
@@ -736,6 +753,27 @@ Examples:
         generate_report(conn)
         conn.close()
         return
+
+    # Pilot mode: override settings for a minimal smoke-test run
+    if args.pilot:
+        logger.info(
+            "PILOT MODE — processing %d files from the largest domain only (skip-lint=True)",
+            PILOT_MAX_FILES,
+        )
+        args.max_files = PILOT_MAX_FILES
+        args.batch_size = PILOT_BATCH_SIZE
+        args.skip_lint = True
+        # Force single domain: pick the largest by unprocessed file count
+        if not args.domain:
+            available = get_domains(conn)
+            if available:
+                args.domain = available[0][0]
+                logger.info("Pilot: auto-selected domain '%s' (%d files)", args.domain, available[0][1])
+            else:
+                logger.info("No unprocessed domains found — nothing to pilot")
+                generate_report(conn)
+                conn.close()
+                return
 
     # Determine domains to process
     if args.domain:

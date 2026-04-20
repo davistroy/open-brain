@@ -215,11 +215,35 @@ describe('WikiService', () => {
       await service.init()
     })
 
-    it('returns lint report content', async () => {
-      mockReadPage.mockResolvedValue(lintPage)
+    it('returns structured lint report parsed from markdown fallback', async () => {
+      // JSON sidecar doesn't exist; fall back to markdown lint-report.md
+      mockReadPage.mockImplementation((path: string) => {
+        if (path === 'maintenance/lint-report.json') return Promise.resolve(null)
+        if (path === 'maintenance/lint-report.md') return Promise.resolve(lintPage)
+        return Promise.resolve(null)
+      })
       const report = await service.getLintReport()
-      expect(report).toContain('Lint Results')
-      expect(report).toContain('3 orphan pages')
+      expect(report).not.toBeNull()
+      expect(typeof report!.total_pages).toBe('number')
+      expect(Array.isArray(report!.issues)).toBe(true)
+    })
+
+    it('returns structured lint report from JSON sidecar when available', async () => {
+      const jsonContent = JSON.stringify({
+        total_pages: 42,
+        issues: [{ page: 'entities/test.md', severity: 'warning', message: 'orphan page', rule: 'orphan' }],
+        last_run: '2026-04-20',
+      })
+      const jsonPage = makePage({ path: 'maintenance/lint-report.json', content: jsonContent })
+      mockReadPage.mockImplementation((path: string) => {
+        if (path === 'maintenance/lint-report.json') return Promise.resolve(jsonPage)
+        return Promise.resolve(null)
+      })
+      const report = await service.getLintReport()
+      expect(report).not.toBeNull()
+      expect(report!.total_pages).toBe(42)
+      expect(report!.issues).toHaveLength(1)
+      expect(report!.last_run).toBe('2026-04-20')
     })
 
     it('returns null when no lint report exists', async () => {
