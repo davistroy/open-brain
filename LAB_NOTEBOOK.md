@@ -8062,6 +8062,19 @@ Publish all 8 custom-built Open Brain Docker images to GitHub Container Registry
 - No TS files changed — test suite unaffected.
 - Ingest-sidecar: build context is repo root (verified against `docker/ingest-sidecar/Dockerfile` COPY paths for `scripts/` and `config/`).
 
+### Result — COMPLETE
+
+**PR #151 merged. SHA: `64bcf0d`. Reviewer: Opus cycle 2 (profiles nesting fix required before approval).**
+
+- `.github/workflows/build-images.yml` live — GHCR publish runs on every push to main going forward.
+- `docker-compose.yml` updated — 8 services pull from `ghcr.io/davistroy/open-brain/*:latest`; `build:` blocks under `profiles: [local-build]`.
+- `docs/runbooks/deploy.md` created — one-time auth, normal deploy, rollback procedure, emergency local build, migration checklist.
+- Homeserver: code pulled, containers restarted. GHCR workflow will activate on next push to main.
+- **Closes #107 final sub-item** (P04b + P16 + P17 = all three #107 sub-items done).
+- No migrations, no application code, no schema changes.
+
+**Duration:** ~2 days wall clock.
+
 ---
 
 ## Entry 117 — P18: Dashboard & settings polish  [web] [decision]
@@ -8109,5 +8122,19 @@ Expected outcome: All 4 items rendered, Vite build passes clean, zero type error
 ### Rollback plan
 
 Pure frontend changes. `git revert` the PR. No data consequences, no Docker changes, no migrations.
+
+### Result — COMPLETE
+
+**PR #152 merged. SHA: `8de67cc`. Reviewer: Opus cycle 1 APPROVE. Closes #70.**
+
+- **W1 `SystemStatusStrip`:** Rendered on Dashboard. Fetches autonomy level (`settingsApi.get()`) + last consolidation timestamp (`skillsApi.list()`). Hides gracefully on error.
+- **W2 `include_related` toggle:** Added to `SearchFiltersPanel` below the `hybrid` checkbox. `include_related?: boolean` added to `SearchFilters` interface — passes automatically in search body.
+- **W3 Timeline source filter:** Dropdown added to Timeline. Server-side filter (`capturesApi.list({ source })`). Offset reset on change matches existing pattern.
+- **W4 Related captures:** `CaptureDetail` section uses `POST /api/v1/search` with `include_related: true` and first 200 chars of capture content. Deduplicates current capture. Cap 5. Fire-and-forget on mount.
+- Vite build clean, zero type errors. Pure frontend — no migrations, no backend changes.
+- Homeserver: web container restarted with new UI components.
+- **#70 CLOSED** (auto-closed by PR #152 or manually confirmed closed 2026-04-20T00:51:40Z).
+
+**Duration:** ~1.5 days wall clock.
 
 ---
