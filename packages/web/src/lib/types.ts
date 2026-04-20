@@ -214,7 +214,15 @@ export interface WikiLintIssue {
 export interface WikiLintReport {
   total_pages: number
   issues: WikiLintIssue[]
-  last_run?: string
+  last_run?: string | null
+}
+
+export interface WikiStats {
+  page_count: number
+  orphan_count: number
+  domain_distribution: Record<string, number>
+  last_updated: string | null
+  last_lint_run: string | null
 }
 
 // ─── Activity feed ──────────────────────────────────────────────────────────

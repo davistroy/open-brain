@@ -2,7 +2,7 @@
  * API client for Open Brain Core API
  */
 
-import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession, InfrastructureData, PipelineFlowEntry } from './types'
+import type { Capture, BrainStats, SearchFilters, SearchResult, SynthesisResult, Entity, Skill, SkillLog, Trigger, Bet, PipelineHealth, SystemHealthData, SystemHealthSnapshot, WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, WikiStats, ActivityFeedItem, McpActivityEntry, AIRoutingResponse, IntegrationStatus, EmailDraft, VoiceSession, InfrastructureData, PipelineFlowEntry } from './types'
 import { sseClient } from './sse'
 
 const API_BASE = '/api/v1'
@@ -497,9 +497,9 @@ export const betsApi = {
 // Wiki API
 
 export const wikiApi = {
-  /** List all wiki pages (metadata only, no content) */
-  pages: (directory?: string) => {
-    const qs = buildQueryString({ directory: directory ?? '' })
+  /** List all wiki pages (metadata only, no content) with optional type/tag filter */
+  pages: (type?: string, tag?: string) => {
+    const qs = buildQueryString({ type: type ?? '', tag: tag ?? '' })
     return request<{ pages: WikiPageMeta[] }>(`/wiki/pages${qs}`)
       .then((r) => r.pages)
   },
@@ -516,36 +516,41 @@ export const wikiApi = {
       .then((r) => r.changes)
   },
 
-  /** Get the lint report */
+  /** Get the structured lint report */
   lintReport: () => {
     return request<WikiLintReport>('/wiki/lint-report')
   },
 
-  /** Search wiki pages */
+  /** Search wiki pages — returns WikiPageMeta[] with snippet field */
   search: (q: string) => {
     const qs = buildQueryString({ q })
     return request<{ pages: WikiPageMeta[] }>(`/wiki/search${qs}`)
       .then((r) => r.pages)
   },
 
+  /** Get aggregate wiki statistics */
+  stats: () => {
+    return request<WikiStats>('/wiki/stats')
+  },
+
   /** Trigger a wiki re-ingest for a specific capture */
   triggerIngest: (captureId: string) => {
-    return request<{ job_id: string }>('/wiki/ingest', {
+    return request<{ jobId: string }>('/wiki/ingest', {
       method: 'POST',
-      body: JSON.stringify({ capture_id: captureId }),
+      body: JSON.stringify({ captureId }),
     })
   },
 
   /** Trigger the wiki lint skill */
   triggerLint: () => {
-    return request<{ job_id: string }>('/wiki/lint', {
+    return request<{ jobId: string }>('/wiki/lint', {
       method: 'POST',
     })
   },
 
   /** Trigger re-synthesis for a specific wiki page */
   triggerResynthesize: (pagePath: string) => {
-    return request<{ job_id: string }>('/wiki/resynthesize', {
+    return request<{ jobId: string }>('/wiki/resynthesize', {
       method: 'POST',
       body: JSON.stringify({ page_path: pagePath }),
     })

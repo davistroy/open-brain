@@ -22,9 +22,11 @@ const mockListPages = vi.fn()
 const mockGetPage = vi.fn()
 const mockGetRecentChanges = vi.fn()
 const mockGetLintReport = vi.fn()
+const mockGetStats = vi.fn()
 const mockSearch = vi.fn()
 const mockTriggerIngest = vi.fn()
 const mockTriggerLint = vi.fn()
+const mockTriggerResynthesize = vi.fn()
 
 function createMockWikiService(): WikiService {
   return {
@@ -32,9 +34,11 @@ function createMockWikiService(): WikiService {
     getPage: mockGetPage,
     getRecentChanges: mockGetRecentChanges,
     getLintReport: mockGetLintReport,
+    getStats: mockGetStats,
     search: mockSearch,
     triggerIngest: mockTriggerIngest,
     triggerLint: mockTriggerLint,
+    triggerResynthesize: mockTriggerResynthesize,
     init: vi.fn(),
     isReady: vi.fn().mockReturnValue(true),
     writePage: vi.fn(),
@@ -55,7 +59,7 @@ describe('Wiki routes', () => {
   })
 
   describe('GET /api/v1/wiki/pages', () => {
-    it('returns all pages with no filter', async () => {
+    it('returns all pages with no filter — flat shape', async () => {
       const pages = [
         { path: 'entities/k8s.md', frontmatter: makeFrontmatter({ title: 'Kubernetes' }) },
         { path: 'concepts/rag.md', frontmatter: makeFrontmatter({ title: 'RAG', type: 'concept' }) },
@@ -67,6 +71,10 @@ describe('Wiki routes', () => {
       const body = await res.json()
       expect(body.pages).toHaveLength(2)
       expect(body.total).toBe(2)
+      // Verify flat shape: title at top level, not nested under frontmatter
+      expect(body.pages[0].title).toBe('Kubernetes')
+      expect(body.pages[0].type).toBe('entity')
+      expect(body.pages[0]).not.toHaveProperty('frontmatter')
     })
 
     it('passes type filter to service', async () => {
@@ -83,7 +91,7 @@ describe('Wiki routes', () => {
   })
 
   describe('GET /api/v1/wiki/pages/:path', () => {
-    it('returns page content', async () => {
+    it('returns page content with flat shape', async () => {
       mockGetPage.mockResolvedValue({
         path: 'entities/k8s.md',
         frontmatter: makeFrontmatter({ title: 'Kubernetes' }),
@@ -93,8 +101,11 @@ describe('Wiki routes', () => {
       const res = await app.request('/api/v1/wiki/pages/entities/k8s.md')
       expect(res.status).toBe(200)
       const body = await res.json()
-      expect(body.frontmatter.title).toBe('Kubernetes')
+      // Flat shape: title at top level
+      expect(body.title).toBe('Kubernetes')
+      expect(body.type).toBe('entity')
       expect(body.content).toContain('orchestration')
+      expect(body).not.toHaveProperty('frontmatter')
     })
 
     it('returns 404 for non-existent page', async () => {
@@ -117,7 +128,7 @@ describe('Wiki routes', () => {
   })
 
   describe('GET /api/v1/wiki/search', () => {
-    it('returns search results', async () => {
+    it('returns search results with flat page shape and pages alias', async () => {
       mockSearch.mockResolvedValue([
         {
           path: 'entities/k8s.md',
@@ -131,7 +142,12 @@ describe('Wiki routes', () => {
       const body = await res.json()
       expect(body.query).toBe('kubernetes')
       expect(body.results).toHaveLength(1)
+      expect(body.pages).toHaveLength(1)  // alias for web-client compat
       expect(body.total).toBe(1)
+      // Flat shape
+      expect(body.results[0].title).toBe('Kubernetes')
+      expect(body.results[0].snippet).toBe('...container orchestration...')
+      expect(body.results[0]).not.toHaveProperty('frontmatter')
     })
 
     it('requires q parameter', async () => {
@@ -161,23 +177,49 @@ describe('Wiki routes', () => {
   })
 
   describe('GET /api/v1/wiki/lint-report', () => {
-    it('returns lint report content', async () => {
-      mockGetLintReport.mockResolvedValue('## Lint Report\n- 3 orphans')
+    it('returns structured lint report directly', async () => {
+      mockGetLintReport.mockResolvedValue({
+        total_pages: 42,
+        issues: [{ page: 'entities/k8s.md', severity: 'warning', message: 'Stale claim', rule: 'lint-warning' }],
+        last_run: '2026-04-20T05:00:00Z',
+      })
 
       const res = await app.request('/api/v1/wiki/lint-report')
       expect(res.status).toBe(200)
       const body = await res.json()
-      expect(body.report).toContain('Lint Report')
+      expect(body.total_pages).toBe(42)
+      expect(body.issues).toHaveLength(1)
+      expect(body.last_run).toBe('2026-04-20T05:00:00Z')
     })
 
-    it('returns null message when no report', async () => {
+    it('returns empty report when no report exists', async () => {
       mockGetLintReport.mockResolvedValue(null)
 
       const res = await app.request('/api/v1/wiki/lint-report')
       expect(res.status).toBe(200)
       const body = await res.json()
-      expect(body.report).toBeNull()
-      expect(body.message).toBe('No lint report found')
+      expect(body.total_pages).toBe(0)
+      expect(body.issues).toEqual([])
+      expect(body.last_run).toBeNull()
+    })
+  })
+
+  describe('GET /api/v1/wiki/stats', () => {
+    it('returns aggregate wiki statistics', async () => {
+      mockGetStats.mockResolvedValue({
+        page_count: 15,
+        orphan_count: 3,
+        domain_distribution: { entities: 8, concepts: 7 },
+        last_updated: '2026-04-20',
+        last_lint_run: '2026-04-20T05:00:00Z',
+      })
+
+      const res = await app.request('/api/v1/wiki/stats')
+      expect(res.status).toBe(200)
+      const body = await res.json()
+      expect(body.page_count).toBe(15)
+      expect(body.orphan_count).toBe(3)
+      expect(body.domain_distribution).toEqual({ entities: 8, concepts: 7 })
     })
   })
 
