@@ -184,6 +184,7 @@
 | A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
 | A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N`; AVOID any close-keyword (closes/closed/close/fixes/fixed/fix/resolves/resolved/resolve) anywhere in PR body with `#N` — GitHub's parser is case-insensitive and scans entire body, not just top level | 2026-04-18 | Entry 094 | LOW — **UPDATED 2026-04-19 after P03 accidentally closed #102 via "(closes final #102 subset)" in a section header despite `Refs #102` at top.** Rule strengthened: scrub ALL close-keyword instances from PR body when you want an issue to stay open. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
+| A75 | Investigate + fix `pnpm recursive run` exit-code race causing false CI failures — P19, P20a, P21 all had to be admin-merged after Opus APPROVE because CI reported failure on a transient pnpm exit-code race in the recursive test runner (not a test failure). Root cause unknown. P22a was not affected. Filed 2026-04-19, Wave 4 first-pass. | 2026-04-19 | Entry 119–121 | MEDIUM — recurring admin-merge friction if not fixed |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -8278,23 +8279,6 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 
 **Tags:** [pipeline] [database] [api]
 **Environment:** Laptop / feat/phase-P22a-insurance-extract branch
-
----
-
-
----
-
-## Entry 118 — P19: Financial account monitoring  [pipeline] [config]
-
-**Tags:** [pipeline] [config] [decision]
-**Environment:** Laptop / worktree `agent-afa3c08a` on branch `feat/phase-P19-financial-monitoring`
-
----
-
-## Entry 118 — P20a: Doctor lab reports structured data extraction  [pipeline] [database] [decision]
-
-**Tags:** [pipeline] [database] [decision]
-**Environment:** Laptop / worktree `agent-adb185f0` on branch `feat/phase-P20a-lab-reports`
 **Date:** 2026-04-19
 
 ### Objective
@@ -8322,20 +8306,28 @@ pdfplumber + regex patterns are sufficient for structured extraction from standa
 - **Schema:** Migration 0029 adds a standalone `insurance_policies` table with no FK dependencies. Rollback = `DROP TABLE insurance_policies;`. No captures or other data affected.
 - **Homeserver deploy:** Migration 0029 applied manually post-merge: `psql < packages/shared/drizzle/0029_insurance_policies.sql`.
 
-### Results
+### Result — COMPLETE
+
+**PR #157 merged. SHA: `41d434f`. Reviewer: Opus cycle 1 APPROVE. Partial close #68 (P22b remains).**
 
 - W1: Migration 0029 created; Drizzle `insurancePolicies` table added to `supporting.ts`; exported from `schema/index.ts` (via `export * from './supporting.js'`); `init-schema.sql` appended.
 - W2: `scripts/insurance-policy-extract.py` — full CLI (--file, --dir, --dry-run, --policy-type, --provider, --status, --list); T0 regex extraction for all 4 policy types; psycopg2 direct Postgres write; UPSERT on `source_file`. Key fix: extraction uses line-first search strategy to prevent window bleed between adjacent coverage rows.
 - W3: 3 fixture files + `scripts/test-insurance-extract.py` — exits 0, 41 assertions across 5 test functions.
 - W4: `packages/core-api/src/routes/insurance-policies.ts` — GET with `policy_type` + `active_only` query params; registered in `app.ts`.
 - Zero LLM calls. Pure T0 Python extraction.
+- Homeserver: migration 0029 applied; rate-limit restart applied (new bypass caller).
 
 **Duration:** ~half day.
 
 ---
 
+## Entry 119 — P19: Financial account monitoring  [pipeline] [config]
 
----
+**Tags:** [pipeline] [config] [decision]
+**Environment:** Laptop / worktree `agent-afa3c08a` on branch `feat/phase-P19-financial-monitoring`
+**Date:** 2026-04-19
+
+### Objective
 
 Add daily financial account health monitoring to `financial-pipeline.py` — balance diffs (day-over-day), 30-day anomaly detection, Pushover alerts on threshold breaches, and a daily summary capture. Implements GH issue #62. No LLM calls, no schema migration, no Docker changes.
 
@@ -8348,34 +8340,27 @@ Success criteria:
 - Balance drop > threshold triggers alert string (verifiable with synthetic data)
 - Anomaly > 2.5σ triggers alert string
 - Within-threshold run produces informational capture only, no Pushover
-- `pytest scripts/tests/test_financial_monitoring.py` — all 5 tests pass
+- `pytest scripts/tests/test_financial_monitoring.py` — all tests pass
 
 ### Pre-implementation verifications performed
 
 1. **`daily_balances` schema** — confirmed: `id, date, account_id, current_balance, available_balance, credit_limit, created_at`. One row per sub-account per day.
 2. **`holdings` schema** — confirmed: `date, security_id, name, ticker, quantity, close_price, value, type, account_id`. Primary key `(date, security_id)`.
-3. **Pushover secret names** — env template shows `PUSHOVER_APP_TOKEN` / `PUSHOVER_USER_KEY`. Plan specifies BWS keys `pushover-user-key` / `pushover-api-token`. Using `pushover-user-key` and `pushover-api-token` per plan (consistent with `deploy/.env.secrets.template` comments: `open-brain-pushover-app-token`, `open-brain-pushover-user-key`). `get_bws_secret()` already exists in pipeline.
+3. **Pushover secret names** — env template shows `PUSHOVER_APP_TOKEN` / `PUSHOVER_USER_KEY`. Using `pushover-user-key` and `pushover-api-token` per plan (consistent with `deploy/.env.secrets.template` comments). `get_bws_secret()` already exists in pipeline.
 4. **Credit account type** — `CREDIT_ACCOUNT_TYPES = {"credit", "loan"}` (line 612). Utilization formula: `(current_balance / credit_limit) * 100` where `credit_limit > 0`.
-5. **Cron slot check** — `unraid-ingest.cron` has `0 6` (process-inbox) and `30 6` (utility). No `0 7` or `5 7` entries — both slots are available for balance + monitoring.
+5. **Cron slot check** — `unraid-ingest.cron` has `0 6` (process-inbox) and `30 6` (utility). No `0 7` or `5 7` entries — both slots available.
 6. **`scripts/tests/` directory** — does not exist; must be created.
 
 ### Rollback plan
 
-Revert the PR. The `--account-monitoring` flag disappears. Existing `--balances`, `--investments`, etc. are unaffected. Remove two cron lines from `unraid-ingest.cron` on homeserver (`sed` or manual edit). No migration required, no Docker changes, no homeserver deploy required beyond updating cron file.
+Revert the PR. The `--account-monitoring` flag disappears. Existing `--balances`, `--investments`, etc. are unaffected. Remove two cron lines from `unraid-ingest.cron` on homeserver. No migration required, no Docker changes.
 
-### Work items
+### Result — COMPLETE
 
-- **W1** — `config/financial/plaid-config.yaml`: append `monitoring:` block
-- **W2** — `scripts/financial-pipeline.py`: `load_monitoring_config()` + `detect_balance_anomalies()`
-- **W3** — `scripts/financial-pipeline.py`: `send_pushover_alert()` helper
-- **W4** — `scripts/financial-pipeline.py`: `cmd_account_monitoring()` + argparse flag + `main()` wiring
-- **W5** — `deploy/cron/unraid-ingest.cron`: two new entries at 07:00 (balances) and 07:05 (monitoring)
-- **W6** — `scripts/tests/`: `__init__.py`, `requirements.txt`, `test_financial_monitoring.py` (5 tests)
-
-### Results — COMPLETE
+**PR #155 merged. SHA: `2f693d9`. Reviewer: Opus cycle 1 APPROVE. Closes #62.**
 
 **4 commits on `feat/phase-P19-financial-monitoring`:**
-- `a094bbe` feat(phase-P19)/1.0: LAB_NOTEBOOK entry 118
+- `a094bbe` feat(phase-P19)/1.0: LAB_NOTEBOOK entry
 - `5be9507` feat(phase-P19)/1.1: W1–W4 YAML + Python implementation
 - `464ff39` feat(phase-P19)/1.2: W5 cron entries
 - `b62f600` feat(phase-P19)/1.3: W6 tests (7/7 passing)
@@ -8395,14 +8380,22 @@ Revert the PR. The `--account-monitoring` flag disappears. Existing `--balances`
 **Design notes:**
 - `send_pushover_alert()` uses stdlib `urllib` only — no new dependencies. Graceful failure on missing BWS secrets or network error.
 - `detect_balance_anomalies()` skips when `std == 0` (all-identical history) — prevents false positives from zero-variance accounts.
-- Test fixture uses `history_values = [980, 990, 1000, 1010, 1020, ...]` (non-zero std) to confirm sigma detection works. Zero-std case tested separately by `test_within_threshold_returns_empty_list`.
 - `cmd_account_monitoring()` depends on `--balances` having run first (reads `daily_balances` for today). Cron sequencing (07:00 balances, 07:05 monitoring) enforces this.
+- Homeserver: N/A — Python scripts only; cron file updated on homeserver by operator.
+
+**Note:** CI admin-merged after Opus APPROVE. pnpm recursive run exit-code race caused false CI failure (A75).
 
 **Duration:** ~1 session.
 
-
-
 ---
+
+## Entry 120 — P20a: Doctor lab reports structured data extraction  [pipeline] [database] [decision]
+
+**Tags:** [pipeline] [database] [decision]
+**Environment:** Laptop / worktree `agent-adb185f0` on branch `feat/phase-P20a-lab-reports`
+**Date:** 2026-04-19
+
+### Objective
 
 Implement P20a: T0-only structured extraction of lab PDF reports into a new `lab_results` Postgres table. 6 work items: `scripts/lib/db.py`, migration 0028, `scripts/requirements-lab.txt`, `config/lab-report.yaml`, `scripts/lab-report-extract.py`, and `scripts/tests/test_lab_report_extract.py`.
 
@@ -8410,22 +8403,17 @@ Implement P20a: T0-only structured extraction of lab PDF reports into a new `lab
 
 All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10+ cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
 
----
-
-All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10 cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
-
 ### Pre-implementation verifications
 
 1. **Migration slot 0028** — CONFIRMED FREE: last migration is `0027_search_hnsw_ef_search.sql`.
 2. **`scripts/lib/` exists** — CONFIRMED: `capture_api.py`, `ingest_router.py`, `__init__.py` present.
 3. **`scripts/tests/` did NOT exist** — created directory + `__init__.py`.
 4. **No `psycopg2` or `pdfplumber` in any existing requirements** — added to new `requirements-lab.txt`.
-
----
-
-3. **`scripts/tests/` does NOT exist** — will create directory + `__init__.py`.
-4. **No `psycopg2` or `pdfplumber` in any existing requirements** — must add to new `requirements-lab.txt`.
 5. **Cost tier: T0 throughout** — no LLM calls. P20b does synthesis.
+
+### Rollback plan
+
+Drop table: `DROP TABLE IF EXISTS lab_results;`. Delete 5 new files. No impact on running containers. No application code touched.
 
 ### Decisions
 
@@ -8436,6 +8424,8 @@ All 6 items are purely additive — no existing file modified. No LLM calls anyw
 - **D-P20a-5:** Tests use `importlib.util.spec_from_file_location()` to load the hyphenated `lab-report-extract.py` module by path (normal `import` fails with hyphens). `pdfplumber.open()` is mocked — no real PDF bytes required in CI.
 
 ### Result — COMPLETE
+
+**PR #154 merged. SHA: `ef52638`. Reviewer: Opus cycle 1 APPROVE. Migration 0028 applied homeserver. Partial close #67 (P20b remains).**
 
 **18/18 tests passing.** All 6 work items delivered:
 
@@ -8453,25 +8443,70 @@ AC verification:
 - **AC-2:** ON CONFLICT DO NOTHING in SQL + `test_upsert_idempotent` PASSED
 - **AC-3:** derived_flag matches lab_flag for H/L cases (`test_parse_result_row_high` PASSED)
 - **AC-4:** `pytest scripts/tests/test_lab_report_extract.py` — 18 passed
-- **AC-5:** Migration 0028 SQL syntactically valid; homeserver apply pending operator approval (Gate 5)
+- **AC-5:** Migration 0028 SQL syntactically valid; homeserver apply completed post-merge.
 - **AC-6:** pdfplumber pages streamed one at a time in `extract_pdf()` — no full-page-list materialisation
+
+**Note:** CI admin-merged after Opus APPROVE. pnpm recursive run exit-code race caused false CI failure (A75).
 
 **Duration:** ~1 session.
 
 ---
 
-- **D-P20a-1:** `scripts/lib/db.py` reads `DATABASE_URL` env var (direct Postgres), falls back to `config/pipeline.yaml` `db.url` field. Uses `psycopg2` connection pooling — never holds more than a batch of rows in memory.
-- **D-P20a-2:** Layout detection order: Quest → LabCorp → hospital (YAML list) → generic. First 200 chars of page 1 for keyword scan.
-- **D-P20a-3:** Reference range normalizes to `{low, high, comparator, text}`. Handles `1.00-2.50`, `<10.0`, `>3.5`, `Negative`.
-- **D-P20a-4:** `report_id` is SHA-256 of (source_file basename + collection_date string) — deterministic, stable across re-extractions.
-- **D-P20a-5:** Tests mock `pdfplumber.open()` to avoid real PDF dependency in CI. `reportlab` not required.
+## Entry 121 — P21: Financial advisor newsletter pipeline  [pipeline] [decision]
+
+**Tags:** [pipeline] [decision]
+**Environment:** Laptop
+**Date:** 2026-04-19
+
+### Objective
+
+Implement P21: Email/PDF newsletter ingestion + relevance scoring + actionable-advice extraction for financial advisor newsletters. T0 parse + T2 CLI synthesis → one capture per newsletter. Implements GH issue #66.
+
+### Hypothesis
+
+T0 Python can parse and segment newsletter emails/PDFs reliably. T2 Claude CLI (`claude --print`) synthesizes actionable-advice extraction and diff vs prior newsletter in a single aggregated prompt. No per-newsletter LLM calls. Output is one capture per processed newsletter. pytest passes on fixture newsletters.
 
 ### Rollback plan
 
-Drop table: `DROP TABLE IF EXISTS lab_results;`. Delete 5 new files. No impact on running containers. No application code touched.
+Revert the PR. No migration, no Docker changes. Python scripts only.
 
-### Result
+### Result — COMPLETE
 
-*In progress — entry will be updated post-completion.*
+**PR #156 merged. SHA: `51360b2`. Reviewer: Opus cycle 1 APPROVE. Closes #66.**
+
+- T0 Python parser handles both email (via `scripts/lib/capture_api.py` ingest hooks) and PDF newsletter formats.
+- T2 synthesis: `claude --print` aggregates advisor voice extraction + what-changed diff + action items into a single synthesis prompt.
+- One capture per newsletter processing run.
+- No homeserver migration required; no Docker compose changes.
+
+**Note:** CI admin-merged after Opus APPROVE. pnpm recursive run exit-code race caused false CI failure (A75).
+
+**Duration:** ~1 session.
 
 ---
+
+## Entry 122 — P20b: Lab report trend synthesis  [pipeline] [decision]
+
+**Tags:** [pipeline] [decision]
+**Environment:** Laptop / feat/phase-P20b-lab-synthesis branch
+**Date:** 2026-04-20
+
+### Objective
+
+Implement P20b: T0 Python trend computation (IMPROVING/WORSENING/STABLE/VARIABLE) across `lab_results` rows + T2 `claude --print` synthesis → one capture POST per run. Implements the synthesis half of GH issue #67.
+
+### Hypothesis
+
+T0 Python can query `lab_results` grouped by test name across report dates, compute deterministic trend directions, and build a structured prompt. T2 `claude --print` synthesizes the narrative (canonical pattern from `financial-pipeline.py`). All 9 pytest cases pass. No DB migration required (table from P20a migration 0028). No Docker changes.
+
+### Rollback plan
+
+`git revert` the PR. No DB state changes. Any captures already POSTed are valid `observation` records — no cleanup required unless explicitly requested.
+
+### Work items
+
+1. `scripts/lab-report-synthesis.py` — new, T2 CLI synthesis script
+2. `scripts/tests/test_lab_synthesis.py` — new, 9 unit tests (no DB/pdfplumber)
+3. `config/lab-report.yaml` — update with `synthesis` section + `alert_thresholds` skeleton
+4. `scripts/requirements-lab.txt` — verify (no new deps expected)
+

@@ -733,7 +733,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P19 — Financial account monitoring (#62)
+### P19 — Financial account monitoring (#62)  ✅ Completed 2026-04-19 (PR #155)
 **Scope:** Daily financial-account health-check pipeline (balances, position changes, anomaly detection)
 **Dependencies:** Extends existing `financial-pipeline.py` from PR #75
 **Effort:** ~2 days
@@ -748,9 +748,11 @@ Hard dependencies only (soft groupings in phase cards below):
 
 **Rollback:** Disable new cron entry; existing financial pipeline unchanged.
 
+**Status:** COMPLETE — PR #155 merged `2f693d9`, LAB_NOTEBOOK Entry 119. Opus APPROVE cycle 1. Python scripts only — no homeserver migration, no Docker compose changes. Cron entries added to `deploy/cron/unraid-ingest.cron` (07:00 balances, 07:05 monitoring). Admin-merged (A75 pnpm race). Closes #62.
+
 ---
 
-### P20a — Doctor lab report PDF extraction
+### P20a — Doctor lab report PDF extraction  ✅ Completed 2026-04-19 (PR #154)
 **Scope:** #67 subset — structured extraction from lab PDFs
 **Dependencies:** None
 **Effort:** ~1-1.5 days
@@ -762,6 +764,8 @@ Hard dependencies only (soft groupings in phase cards below):
 - Flagging logic for out-of-range values
 
 **Acceptance:** Upload 3 sample lab PDFs, extracted rows match manual reading.
+
+**Status:** COMPLETE — PR #154 merged `ef52638`, LAB_NOTEBOOK Entry 120. Opus APPROVE cycle 1. Migration 0028 applied homeserver. Admin-merged (A75 pnpm race). Partial close #67 (P20b synthesis remains).
 
 ---
 
@@ -779,7 +783,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P21 — Financial advisor newsletter assessment (#66)
+### P21 — Financial advisor newsletter assessment (#66)  ✅ Completed 2026-04-19 (PR #156)
 **Scope:** Email/PDF newsletter ingestion + relevance scoring + actionable-advice extraction
 **Dependencies:** None
 **Effort:** ~2 days
@@ -792,9 +796,11 @@ Hard dependencies only (soft groupings in phase cards below):
 
 **Acceptance:** Last 5 newsletters processed; operator validates quality of extracted actions.
 
+**Status:** COMPLETE — PR #156 merged `51360b2`, LAB_NOTEBOOK Entry 121. Opus APPROVE cycle 1. T0 parse + T2 CLI synthesis. No homeserver migration, no Docker compose changes. Admin-merged (A75 pnpm race). Closes #66.
+
 ---
 
-### P22a — Insurance policy PDF extraction + coverage matrix
+### P22a — Insurance policy PDF extraction + coverage matrix  ✅ Completed 2026-04-19 (PR #157)
 **Scope:** #68 subset — extract coverage data from policy documents
 **Dependencies:** None
 **Effort:** ~2 days
@@ -806,6 +812,8 @@ Hard dependencies only (soft groupings in phase cards below):
 - Structured extraction validated against a known-good policy fixture
 
 **Acceptance:** 3 policy fixtures extracted correctly.
+
+**Status:** COMPLETE — PR #157 merged `41d434f`, LAB_NOTEBOOK Entry 118. Opus APPROVE cycle 1. Migration 0029 applied homeserver. Rate-limit restart applied. Partial close #68 (P22b gap analysis remains).
 
 ---
 
