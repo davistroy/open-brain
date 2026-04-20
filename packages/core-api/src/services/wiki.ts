@@ -39,6 +39,29 @@ export interface WikiSearchResult {
   snippet: string
 }
 
+export interface WikiLintIssue {
+  page: string
+  severity: 'error' | 'warning' | 'info'
+  message: string
+  rule: string
+}
+
+/** Structured lint report — stored in maintenance/lint-report.json by the lint skill. */
+export interface WikiLintReport {
+  total_pages: number
+  issues: WikiLintIssue[]
+  last_run?: string
+}
+
+/** Aggregate wiki statistics. */
+export interface WikiStats {
+  page_count: number
+  orphan_count: number
+  domain_distribution: Record<string, number>
+  last_updated: string | null
+  last_lint_run: string | null
+}
+
 // ---------------------------------------------------------------------------
 // WikiService
 // ---------------------------------------------------------------------------
@@ -131,14 +154,83 @@ export class WikiService {
   }
 
   /**
-   * Read the lint report from wiki/maintenance/lint-report.md.
-   * Returns the raw markdown content, or null if no report exists.
+   * Read the structured lint report.
+   *
+   * Prefers a JSON sidecar (`maintenance/lint-report.json`) written by the
+   * wiki-lint skill after each run. Falls back to parsing the markdown file
+   * heuristically when only the legacy `.md` report exists.
+   *
+   * Returns null if no report exists yet.
    */
-  async getLintReport(): Promise<string | null> {
+  async getLintReport(): Promise<WikiLintReport | null> {
     this.ensureReady()
-    const page = await this.git.readPage('maintenance/lint-report.md')
-    if (!page) return null
-    return page.content
+
+    // Prefer structured JSON sidecar
+    const jsonPage = await this.git.readPage('maintenance/lint-report.json')
+    if (jsonPage) {
+      try {
+        const parsed = JSON.parse(jsonPage.content) as WikiLintReport
+        if (typeof parsed.total_pages === 'number' && Array.isArray(parsed.issues)) {
+          return parsed
+        }
+      } catch {
+        logger.warn('Failed to parse maintenance/lint-report.json — falling back to markdown parse')
+      }
+    }
+
+    // Fall back to parsing the markdown report
+    const mdPage = await this.git.readPage('maintenance/lint-report.md')
+    if (!mdPage) return null
+
+    return parseLintReportMarkdown(mdPage.content, mdPage.frontmatter.updated ?? '')
+  }
+
+  /**
+   * Return aggregate wiki statistics.
+   * Computes from the page list — O(n) but acceptable for <500 pages.
+   */
+  async getStats(): Promise<WikiStats> {
+    this.ensureReady()
+
+    const pages = await this.git.listPages()
+
+    // Domain distribution (first path segment: "entities", "concepts", etc.)
+    const domains: Record<string, number> = {}
+    let lastUpdated: string | null = null
+
+    for (const p of pages) {
+      const seg = p.path.split('/')[0] ?? 'root'
+      domains[seg] = (domains[seg] ?? 0) + 1
+
+      if (p.frontmatter.updated) {
+        if (!lastUpdated || p.frontmatter.updated > lastUpdated) {
+          lastUpdated = p.frontmatter.updated
+        }
+      }
+    }
+
+    // Orphan heuristic: pages with no tags and no aliases
+    const orphanCount = pages.filter(
+      (p) =>
+        (!p.frontmatter.tags || p.frontmatter.tags.length === 0) &&
+        (!p.frontmatter.aliases || p.frontmatter.aliases.length === 0),
+    ).length
+
+    let lastLintRun: string | null = null
+    try {
+      const report = await this.getLintReport()
+      lastLintRun = report?.last_run ?? null
+    } catch {
+      // Non-fatal
+    }
+
+    return {
+      page_count: pages.length,
+      orphan_count: orphanCount,
+      domain_distribution: domains,
+      last_updated: lastUpdated,
+      last_lint_run: lastLintRun,
+    }
   }
 
   /**
@@ -316,3 +408,73 @@ export class WikiService {
     return snippet
   }
 }
+
+// ---------------------------------------------------------------------------
+// Module-level helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a lint report from legacy markdown format.
+ * Heuristic: looks for bullet-point issue lines grouped under severity headers.
+ *
+ * Expected format written by the LLM wiki-lint agent:
+ *   ## Errors
+ *   - [page: entities/foo.md] Missing cross-reference to bar
+ *   ## Warnings
+ *   - [page: concepts/baz.md] Stale claim from 2024
+ */
+function parseLintReportMarkdown(content: string, lastRun: string): WikiLintReport {
+  const issues: WikiLintIssue[] = []
+  const lines = content.split('\n')
+
+  let totalPages = 0
+  let currentSeverity: 'error' | 'warning' | 'info' = 'info'
+
+  const PAGE_RE = /\[page:\s*([^\]]+)\]/i
+  const TOTAL_RE = /scanned\s+(\d+)\s+page/i
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Look for total pages scanned mention
+    const totalMatch = trimmed.match(TOTAL_RE)
+    if (totalMatch) {
+      totalPages = parseInt(totalMatch[1], 10)
+      continue
+    }
+
+    // Detect severity sections
+    if (/^#+\s*(error|critical)/i.test(trimmed)) { currentSeverity = 'error'; continue }
+    if (/^#+\s*(warning|warn)/i.test(trimmed)) { currentSeverity = 'warning'; continue }
+    if (/^#+\s*(info|note|summary|overview)/i.test(trimmed)) { currentSeverity = 'info'; continue }
+
+    // Parse bullet-point issue lines
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      const text = trimmed.slice(2).trim()
+      if (!text || /none\s+found|no\s+issue/i.test(text)) continue
+
+      const pageMatch = text.match(PAGE_RE)
+      const page = pageMatch ? pageMatch[1].trim() : 'unknown'
+      const message = text.replace(PAGE_RE, '').trim().replace(/^\[?\s*\]?\s*/, '')
+
+      issues.push({
+        page,
+        severity: currentSeverity,
+        message: message || text,
+        rule:
+          currentSeverity === 'error'
+            ? 'lint-error'
+            : currentSeverity === 'warning'
+              ? 'lint-warning'
+              : 'lint-info',
+      })
+    }
+  }
+
+  return {
+    total_pages: totalPages,
+    issues,
+    last_run: lastRun || undefined,
+  }
+}
+

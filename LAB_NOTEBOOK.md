@@ -8606,3 +8606,66 @@ T0 Python can query `lab_results` grouped by test name across report dates, comp
 **Duration:** ~1 session.
 
 ---
+
+## Entry 123 — P26: Wiki construction — browser UI + pipeline hardening  [web] [api] [pipeline]
+
+**Tags:** [web] [api] [pipeline] [decision]
+**Environment:** Laptop / feat/phase-P26-wiki-construction branch
+**Date:** 2026-04-20
+
+### Objective
+
+Implement P26: close GH issue #60 by hardening the wiki construction pipeline and building out the Stats tab in the wiki browser UI. The wiki infrastructure (git service, BullMQ job, lint/synthesis skills, batch-ingest script, API routes) already existed. This phase adds the missing `GET /api/v1/wiki/stats` endpoint, fixes API→web type mismatches, adds the Stats tab to the Wiki page, and adds `--pilot` mode to `batch-wiki-ingest.py`.
+
+### Hypothesis
+
+The API shape mismatches (nested `frontmatter` vs flat fields expected by web types) and the missing `/stats` endpoint are the two blockers preventing the wiki browser from showing real data. Fixing at the route layer (flattening helpers) without changing the shared `WikiGitService` is the cleanest approach. Stats can be computed O(n) over the page list — acceptable for <500 pages.
+
+### Rollback plan
+
+`git revert` the PR. No DB migrations. No new environment variables. No homeserver changes required.
+
+### Work items
+
+1. `packages/core-api/src/routes/wiki.ts` — add `GET /wiki/stats`, add flattening helpers for page list/detail/search, fix lint-report route to return structured shape
+2. `packages/core-api/src/services/wiki.ts` — add `WikiLintReport`, `WikiLintIssue`, `WikiStats` types; change `getLintReport()` to return structured object (JSON sidecar preferred, markdown fallback); add `getStats()`
+3. `packages/core-api/src/__tests__/wiki-routes.test.ts` — complete rewrite to match new response shapes + new `/stats` route
+4. `packages/core-api/src/__tests__/wiki-service.test.ts` — update `getLintReport` tests to expect structured object
+5. `packages/web/src/lib/types.ts` — add `WikiStats` interface, update `WikiLintReport.last_run` to `string | null`
+6. `packages/web/src/lib/api.ts` — add `WikiStats` import, add `stats()` method, fix `pages()` signature, fix trigger response shapes
+7. `packages/web/src/pages/Wiki.tsx` — add Stats tab with KPI cards + domain distribution bar chart
+8. `packages/web/src/pages/Settings.tsx` — simplify `loadWikiStats()` to use single `wikiApi.stats()` call
+9. `scripts/batch-wiki-ingest.py` — add `--pilot` mode (5-file safe dry-run)
+
+### Result — COMPLETE
+
+All verification gates passed:
+
+- `pnpm --filter @open-brain/core-api run lint` — PASS (TypeScript clean)
+- `pnpm --filter @open-brain/web run lint` — PASS (TypeScript clean)
+- `pnpm --filter @open-brain/core-api test` — PASS (750 tests, 45 test files)
+- `pnpm --filter @open-brain/web build` — PASS (7.63s clean Vite build)
+
+#### Key design decisions
+
+- **Flatten at route layer, not service layer.** `WikiGitService.listPages()` returns `{ path, frontmatter }` (nested). Rather than changing the shared service contract, added `flattenPageMeta()` helper in `wiki.ts` route — maps to the flat shape the web types expect. Avoids a shared package rebuild.
+- **JSON sidecar for lint reports.** `getLintReport()` now prefers `maintenance/lint-report.json` (structured data the lint skill can write in a future iteration) and falls back to heuristic markdown parsing of `maintenance/lint-report.md`. Backward-compatible.
+- **Orphan detection heuristic.** Pages with no tags AND no aliases are flagged as orphans in `getStats()`. Not true link-graph analysis, but deterministic and fast without full content reads.
+- **`--pilot` flag safety-first.** Limits to 5 files, forces `batch_size=5`, disables lint, auto-selects largest domain. Safe to run against production wiki at any time without risk.
+- **Settings page simplification.** Prior `loadWikiStats()` made 3 parallel API calls; replaced with single `wikiApi.stats()` call to the new endpoint. Removes the parallel-call complexity and eliminates `WikiLintReport` import from Settings.
+
+| Item | File | Status |
+|------|------|--------|
+| 1 | `packages/core-api/src/routes/wiki.ts` | Rewritten — `/stats` endpoint + flattening |
+| 2 | `packages/core-api/src/services/wiki.ts` | Updated — new types + getLintReport + getStats |
+| 3 | `packages/core-api/src/__tests__/wiki-routes.test.ts` | Rewritten — new shapes + stats test |
+| 4 | `packages/core-api/src/__tests__/wiki-service.test.ts` | Updated — getLintReport structured tests |
+| 5 | `packages/web/src/lib/types.ts` | Updated — WikiStats added |
+| 6 | `packages/web/src/lib/api.ts` | Updated — stats() + fixed pages()/triggers |
+| 7 | `packages/web/src/pages/Wiki.tsx` | Updated — Stats tab with KPI + bar chart |
+| 8 | `packages/web/src/pages/Settings.tsx` | Updated — single wikiApi.stats() call |
+| 9 | `scripts/batch-wiki-ingest.py` | Updated — --pilot mode |
+
+**Duration:** ~1 session (continued across context boundary).
+
+---

@@ -11,6 +11,7 @@ import {
   GitCommitHorizontal,
   ShieldAlert,
   Tag,
+  BarChart3,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -26,11 +27,11 @@ import WikiNavTree from '@/components/WikiNavTree';
 import { wikiApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { formatDate, relativeTime } from '@/lib/utils';
-import type { WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, WikiLintIssue } from '@/lib/types';
+import type { WikiPageMeta, WikiPageFull, WikiRecentChange, WikiLintReport, WikiLintIssue, WikiStats } from '@/lib/types';
 
 // ─── Tab types ───────────────────────────────────────────────────────────────
 
-type TabId = 'content' | 'changes' | 'health';
+type TabId = 'content' | 'changes' | 'health' | 'stats';
 
 // ─── Page type badge colors ──────────────────────────────────────────────────
 
@@ -417,6 +418,93 @@ function LintIssueRow({ issue }: { issue: WikiLintIssue }) {
   );
 }
 
+// ─── Stats tab ──────────────────────────────────────────────────────────────
+
+function StatsTab({
+  stats,
+  loading,
+}: {
+  stats: WikiStats | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <p className="text-sm text-muted-foreground py-8 text-center">
+        Stats unavailable.
+      </p>
+    );
+  }
+
+  const domains = Object.entries(stats.domain_distribution).sort((a, b) => b[1] - a[1]);
+  const maxDomainCount = domains.length > 0 ? Math.max(...domains.map(([, v]) => v)) : 1;
+
+  return (
+    <div className="space-y-6">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Total Pages</p>
+            <p className="text-2xl font-bold">{stats.page_count.toLocaleString()}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Orphan Pages</p>
+            <p className="text-2xl font-bold">{stats.orphan_count.toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground mt-1">no tags or aliases</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Last Updated</p>
+            <p className="text-sm font-medium">
+              {stats.last_updated ? relativeTime(stats.last_updated) : '—'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground mb-1">Last Lint</p>
+            <p className="text-sm font-medium">
+              {stats.last_lint_run ? relativeTime(stats.last_lint_run) : '—'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Domain distribution */}
+      {domains.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-3">Domain Distribution</h3>
+          <div className="space-y-2">
+            {domains.map(([domain, count]) => (
+              <div key={domain} className="flex items-center gap-3">
+                <span className="text-sm text-muted-foreground w-28 truncate capitalize">{domain}</span>
+                <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all"
+                    style={{ width: `${(count / maxDomainCount) * 100}%` }}
+                  />
+                </div>
+                <span className="text-sm font-mono text-muted-foreground w-10 text-right">{count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
 function EmptyState() {
@@ -467,6 +555,7 @@ export default function Wiki() {
   const [selectedPage, setSelectedPage] = useState<WikiPageFull | null>(null);
   const [recentChanges, setRecentChanges] = useState<WikiRecentChange[]>([]);
   const [lintReport, setLintReport] = useState<WikiLintReport | null>(null);
+  const [wikiStats, setWikiStats] = useState<WikiStats | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<WikiPageMeta[] | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('content');
@@ -477,6 +566,7 @@ export default function Wiki() {
   const [loadingPage, setLoadingPage] = useState(false);
   const [loadingChanges, setLoadingChanges] = useState(false);
   const [loadingLint, setLoadingLint] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(false);
   const [lintRunning, setLintRunning] = useState(false);
   const [resynthesizing, setResynthesizing] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -582,6 +672,26 @@ export default function Wiki() {
     return () => { cancelled = true; };
   }, [activeTab]);
 
+  // ─── Load wiki stats when stats tab activates ─────────────────────────────
+
+  useEffect(() => {
+    if (activeTab !== 'stats') return;
+    let cancelled = false;
+    setLoadingStats(true);
+    wikiApi
+      .stats()
+      .then((data) => {
+        if (!cancelled) setWikiStats(data);
+      })
+      .catch(() => {
+        if (!cancelled) setWikiStats(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingStats(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
   // ─── Handlers ────────────────────────────────────────────────────────────
 
   const handleSelectPage = useCallback(
@@ -646,10 +756,11 @@ export default function Wiki() {
 
   // ─── Tab buttons ─────────────────────────────────────────────────────────
 
-  const tabs: { id: TabId; label: string }[] = [
+  const tabs: { id: TabId; label: string; icon?: React.ReactNode }[] = [
     { id: 'content', label: 'Content' },
     { id: 'changes', label: 'Recent Changes' },
     { id: 'health', label: 'Health' },
+    { id: 'stats', label: 'Stats', icon: <BarChart3 className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -691,14 +802,16 @@ export default function Wiki() {
           </form>
 
           {/* Tab buttons */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {tabs.map((tab) => (
               <Button
                 key={tab.id}
                 variant={activeTab === tab.id ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => setActiveTab(tab.id)}
+                className={tab.icon ? 'gap-1.5' : undefined}
               >
+                {tab.icon}
                 {tab.label}
               </Button>
             ))}
@@ -812,6 +925,11 @@ export default function Wiki() {
               onRunLint={handleRunLint}
               lintRunning={lintRunning}
             />
+          )}
+
+          {/* Stats tab */}
+          {activeTab === 'stats' && (
+            <StatsTab stats={wikiStats} loading={loadingStats} />
           )}
         </>
       )}

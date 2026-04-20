@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/accordion';
 import { AutonomyCard } from '@/components/settings/AutonomyCard';
 import { skillsApi, triggersApi, settingsApi, configApi, voiceSessionApi, wikiApi } from '@/lib/api';
-import type { Skill, Trigger, AIRoutingResponse, IntegrationStatus, WikiLintReport } from '@/lib/types';
+import type { Skill, Trigger, AIRoutingResponse, IntegrationStatus } from '@/lib/types';
 import {
   VersionUptimeSection,
   ServiceHealthSection,
@@ -179,17 +179,11 @@ export default function Settings() {
 
   const loadWikiStats = useCallback(async () => {
     try {
-      const [pagesRes, lintRes, changesRes] = await Promise.allSettled([
-        wikiApi.pages(),
-        wikiApi.lintReport(),
-        wikiApi.recentChanges(1),
-      ]);
+      const stats = await wikiApi.stats();
       setWikiStats({
-        pageCount: pagesRes.status === 'fulfilled' ? pagesRes.value.length : 0,
-        lastLintRun: lintRes.status === 'fulfilled' ? (lintRes.value as WikiLintReport).last_run ?? null : null,
-        lastSync: changesRes.status === 'fulfilled' && changesRes.value.length > 0
-          ? changesRes.value[0].date
-          : null,
+        pageCount: stats.page_count,
+        lastLintRun: stats.last_lint_run,
+        lastSync: stats.last_updated,
       });
     } catch {
       setWikiStats({ pageCount: 0, lastLintRun: null, lastSync: null });

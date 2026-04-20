@@ -2,19 +2,26 @@
  * Wiki API routes.
  *
  * GET  /api/v1/wiki/pages             — list pages with optional type/tag filter
- * GET  /api/v1/wiki/pages/*path       — get specific page content
+ * GET  /api/v1/wiki/pages/*path       — get specific page content (flat WikiPageFull shape)
  * GET  /api/v1/wiki/recent-changes    — git log
- * GET  /api/v1/wiki/lint-report       — latest lint results
- * GET  /api/v1/wiki/search?q=query    — search across wiki pages
+ * GET  /api/v1/wiki/lint-report       — latest lint results (structured WikiLintReport)
+ * GET  /api/v1/wiki/search?q=query    — search across wiki pages (flat shape + pages alias)
+ * GET  /api/v1/wiki/stats             — aggregate stats (page count, orphans, domains)
  * POST /api/v1/wiki/ingest            — trigger manual ingest {captureId}
  * POST /api/v1/wiki/lint              — trigger manual lint
  * POST /api/v1/wiki/resynthesize      — trigger re-synthesis for a wiki page {page_path}
+ *
+ * Response shape conventions:
+ *   All page endpoints flatten WikiFrontmatter into the response object.
+ *   WikiPageMeta: { path, title, type, created, updated, source_count?, tags?, aliases? }
+ *   WikiPageFull: WikiPageMeta + { content }
  */
 
 import type { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import type { WikiService } from '../services/wiki.js'
+import type { WikiService, WikiPageSummary, WikiSearchResult } from '../services/wiki.js'
+import type { WikiFrontmatter } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -38,6 +45,35 @@ const ingestBodySchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Response shaping helpers
+// ---------------------------------------------------------------------------
+
+/** Flatten WikiFrontmatter + path into the flat WikiPageMeta shape the web client expects. */
+function flattenPageMeta(path: string, fm: WikiFrontmatter) {
+  return {
+    path,
+    title: fm.title,
+    type: fm.type,
+    created: fm.created,
+    updated: fm.updated,
+    source_count: fm.source_count,
+    tags: fm.tags,
+    aliases: fm.aliases,
+  }
+}
+
+function flattenSummary(s: WikiPageSummary) {
+  return flattenPageMeta(s.path, s.frontmatter)
+}
+
+function flattenSearchResult(r: WikiSearchResult) {
+  return {
+    ...flattenPageMeta(r.path, r.frontmatter),
+    snippet: r.snippet,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route registration
 // ---------------------------------------------------------------------------
 
@@ -46,14 +82,17 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
   app.get('/api/v1/wiki/pages', zValidator('query', listPagesQuerySchema), async (c) => {
     const { type, tag } = c.req.valid('query')
     const pages = await wikiService.listPages(type, tag)
-    return c.json({ pages, total: pages.length })
+    const flat = pages.map(flattenSummary)
+    return c.json({ pages: flat, total: flat.length })
   })
 
   // GET /api/v1/wiki/search?q=query — search across wiki page content
+  // Returns { query, results, pages, total } — "pages" alias for web-client compat
   app.get('/api/v1/wiki/search', zValidator('query', searchQuerySchema), async (c) => {
     const { q } = c.req.valid('query')
     const results = await wikiService.search(q)
-    return c.json({ query: q, results, total: results.length })
+    const flat = results.map(flattenSearchResult)
+    return c.json({ query: q, results: flat, pages: flat, total: flat.length })
   })
 
   // GET /api/v1/wiki/recent-changes — git log
@@ -63,13 +102,20 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
     return c.json({ changes, total: changes.length })
   })
 
-  // GET /api/v1/wiki/lint-report — latest lint results
+  // GET /api/v1/wiki/lint-report — structured lint results (or empty report)
+  // Returns WikiLintReport directly (not wrapped in { report }) for web-client compat
   app.get('/api/v1/wiki/lint-report', async (c) => {
     const report = await wikiService.getLintReport()
     if (report === null) {
-      return c.json({ report: null, message: 'No lint report found' })
+      return c.json({ total_pages: 0, issues: [], last_run: null })
     }
-    return c.json({ report })
+    return c.json(report)
+  })
+
+  // GET /api/v1/wiki/stats — aggregate wiki statistics
+  app.get('/api/v1/wiki/stats', async (c) => {
+    const stats = await wikiService.getStats()
+    return c.json(stats)
   })
 
   // POST /api/v1/wiki/ingest — trigger manual ingest
@@ -94,8 +140,6 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
   // POST /api/v1/wiki/resynthesize — trigger re-synthesis for a specific wiki page
   app.post('/api/v1/wiki/resynthesize', zValidator('json', z.object({ page_path: z.string() })), async (c) => {
     const { page_path } = c.req.valid('json')
-    // Re-synthesis works by triggering a wiki-ingest job for the page
-    // The wiki-ingest worker handles both initial creation and updates
     const jobId = await wikiService.triggerResynthesize(page_path)
     if (jobId === null) {
       return c.json({ error: 'Wiki resynthesize queue not configured' }, 503)
@@ -110,6 +154,10 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
     if (!page) {
       return c.json({ error: `Wiki page not found: ${pagePath}` }, 404)
     }
-    return c.json(page)
+    // Flatten frontmatter into response to match WikiPageFull client type
+    return c.json({
+      ...flattenPageMeta(page.path, page.frontmatter),
+      content: page.content,
+    })
   })
 }
