@@ -28,9 +28,7 @@ ignore = ["E501"]
 [tool.pyright]
 include = [
   "docker/ingest-sidecar",
-  # "packages/voice-pipecat/src",  # TODO(A68): scoped out pending follow-up —
-  #   redis.asyncio stub gaps (session.py) + Anthropic SDK content-block union
-  #   narrowing (capture_extractor.py) + optional pipecat imports. Separate PR.
+  "packages/voice-pipecat/src",
   "packages/file-ingestion/src",
 ]
 exclude = ["scripts", "**/tests", "**/__pycache__"]
