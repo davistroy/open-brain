@@ -94,8 +94,6 @@ services:
     build:
       context: .
       target: core-api
-      profiles:
-        - local-build
     container_name: open-brain-core-api
     env_file:
       - .env.secrets
@@ -160,8 +158,6 @@ services:
     build:
       context: .
       target: workers
-      profiles:
-        - local-build
     container_name: open-brain-workers
     env_file:
       - .env.secrets
@@ -230,8 +226,6 @@ services:
     build:
       context: .
       target: slack-bot
-      profiles:
-        - local-build
     container_name: open-brain-slack-bot
     env_file:
       - .env.secrets
@@ -276,8 +270,6 @@ services:
     build:
       context: packages/voice-pipecat
       dockerfile: Dockerfile
-      profiles:
-        - local-build
     container_name: open-brain-voice-pipecat
     env_file:
       - .env.secrets
@@ -346,8 +338,6 @@ services:
     build:
       context: packages/file-ingestion
       dockerfile: Dockerfile
-      profiles:
-        - local-build
     container_name: open-brain-file-ingestion
     environment:
       PORT: "8080"
@@ -433,8 +423,6 @@ services:
     build:
       context: .
       target: voice-capture
-      profiles:
-        - local-build
     container_name: open-brain-voice-capture
     env_file:
       - .env.secrets
@@ -488,8 +476,6 @@ services:
     build:
       context: .
       dockerfile: packages/web/Dockerfile
-      profiles:
-        - local-build
     container_name: open-brain-web
     environment:
       # No secrets needed — nginx serves static files and proxies /api to core-api
@@ -573,8 +559,6 @@ services:
     build:
       context: .
       dockerfile: docker/ingest-sidecar/Dockerfile
-      profiles:
-        - local-build
     container_name: open-brain-financial-ingest
     env_file:
       - .env.secrets
@@ -738,8 +722,6 @@ services:
     build:
       context: .
       dockerfile: docker/ingest-sidecar/Dockerfile
-      profiles:
-        - local-build
     container_name: open-brain-utility-ingest
     env_file:
       - .env.secrets
