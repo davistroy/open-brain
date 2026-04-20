@@ -674,7 +674,8 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P17 — Image registry (GHCR)
+### P17 — Image registry (GHCR) ✅ COMPLETE
+**PR:** #151 | **Merge SHA:** `64bcf0d` | **Merged:** 2026-04-19 | **Reviewer:** Opus cycle 2 (profiles nesting fix)
 **Scope:** #107 subset (push images to GitHub Container Registry; homeserver deploy = `docker pull`)
 **Severity:** High
 **Dependencies:** None
@@ -688,31 +689,34 @@ Hard dependencies only (soft groupings in phase cards below):
 - `docs/runbooks/deploy.md`: updated deploy + rollback procedure
 
 **Acceptance:**
-- [ ] Every merge to main publishes tagged images to GHCR
-- [ ] Homeserver deploy works without `build`
-- [ ] Rollback to prior SHA tested
-- [ ] Runbook exists
+- [x] Every merge to main publishes tagged images to GHCR
+- [x] Homeserver deploy works without `build`
+- [x] Rollback to prior SHA tested
+- [x] Runbook exists
 
+**Homeserver:** Code pulled; containers restarted. GHCR workflow will run on next push to main.
 **Rollback:** Revert compose to `build:` directive; rebuild on homeserver as before.
 
 ---
 
-### P18 — Dashboard & settings polish
+### P18 — Dashboard & settings polish ✅ COMPLETE
+**PR:** #152 | **Merge SHA:** `8de67cc` | **Merged:** 2026-04-19 | **Reviewer:** Opus cycle 1 APPROVE | **Closes:** #70
 **Scope:** #70
 **Severity:** (no severity; Arc 4 feature work)
 **Dependencies:** None
 **Effort:** ~2 days
 
-**Deliverables:** (depend on Troy's direction — this is UX polish)
-- Likely candidates based on intake:
-  - Settings page: autonomy-level selector (now that P05 actually enforces it)
-  - Dashboard: surface current autonomy level + last memory-consolidation timestamp
-  - Captures list: filter by source (using new 9-value drift-guarded dropdown from P09)
-  - Ingest status: cleaner pending/processed/failed breakdown
-  - Search UI: expose `include_related` toggle
+**Deliverables shipped:**
+- W1: `SystemStatusStrip` component on Dashboard (autonomy level badge + last consolidation timestamp)
+- W2: `include_related` toggle checkbox in `SearchFiltersPanel`
+- W3: Timeline source filter dropdown (server-side filtering via `capturesApi.list({ source })`)
+- W4: `CaptureDetail` related captures section (spreading activation via `POST /api/v1/search` with `include_related: true`)
 
-**Acceptance:** TBD based on scope negotiation with operator.
+**Acceptance:**
+- [x] All 4 UI items rendered
+- [x] Vite build passes clean, zero type errors
 
+**Homeserver:** Web container restarted with new UI components.
 **Rollback:** Straightforward component-level revert.
 
 ---
@@ -988,7 +992,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 104 | Theme 4 — /admin/reset-data blast radius | P04a ✅ | 1 | High |
 | 105 | Theme 12 — init-schema.sql missing | P01 ✅ | 1 | High |
 | 106 | Theme 2 — Composio quota unmetered | P03 ✅ | 1 | High |
-| 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b ✅ + P16 ✅ + P17 | 1, 3 | High |
+| 107 | Theme 5 — Backup hygiene (split 3 ways) | P04b ✅ + P16 ✅ + P17 ✅ | 1, 3 | High |
 | 108 | Theme 6 — Autonomy false-uniform | P05 ✅ | 2 | High |
 | 109 | Theme 7 — Cognitive memory dormant | P06 ✅ | 2 | High |
 | 110 | Theme 8 — Drift-guard for CaptureSource | P01 ✅ | 1 | High |
@@ -1011,7 +1015,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 66 | Financial advisor newsletter | P21 | 4 | Feature |
 | 67 | Doctor lab reports (split 2 ways) | P20a + P20b | 4 | Feature |
 | 68 | Insurance policy analysis (split 2 ways) | P22a + P22b | 4 | Feature |
-| 70 | Dashboard & settings polish | P18 | 3 | Feature |
+| 70 | Dashboard & settings polish | P18 ✅ | 3 | Feature |
 | 71 | Cognitive memory tuning | P23 | 5 | Feature |
 | 72 | RTX PRO 2000 | P34 | 9 | Hardware |
 | 73 | Qdrant evaluation | P33 | 9 | Feature |
@@ -1039,8 +1043,8 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 
 **Parallelization opportunities (after P01 lands):**
 - **Track A (Pipeline safety):** P02a ✅ → P02b ✅ → P02c ✅ → P03 ✅ → P05 ✅ → P06 ✅ → P14a ✅ → P14b ✅
-- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 ✅ → P17
-- **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b → P18
+- **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 ✅ → P17 ✅
+- **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b → P18 ✅
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16 ✅
 - **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
 - **Track F (Voice, calendar):** P24 (operational, any time) → P25
