@@ -7999,6 +7999,25 @@ Doc-only changes. `git revert` restores prior state. No migrations, no runtime c
 
 The sync script anchors on `'current system (v[0-9]...)'` in PRD.md. After removing the P15a doc-status note, add the phrase to the v0.7 header or the Architecture Evolution section's intro sentence: "Open Brain v1.5.0 (the current system)..." — this keeps the sync script working without code changes.
 
+**Correction (during implementation):** Initial wording was "v1.5.0 (the current system)" — but the grep pattern is `current system (v...)`, not `v... (the current system)`. Fixed to "The current system (v1.5.0)" which matches the pattern exactly.
+
+### Result
+
+- **PRD LiteLLM refs before → after:** 83 → 0
+- **TDD LiteLLM refs before → after:** 134 → 0
+- **sync-docs.sh:** PASS — all 4 surfaces agree on 1.5.0
+- **Commit:** `fbc181b` on branch `feat/phase-P15b-doc-rewrite`
+- **Status:** COMPLETE ✓
+
+Key changes:
+- PRD/TDD versions bumped to v0.7, dates updated to 2026-04-19
+- P15a doc-status notes removed from both docs
+- Architecture Evolution §15 added to PRD covering CS-α through P07 hardening history
+- F07/F07a/F08 rewrites: OpenAI embedding API + LLMGatewayService multi-tier routing
+- Operational runbook replaced proxy health checks with OpenAI API + free-tier endpoint checks
+- Docker Compose env vars: LITELLM_URL/LITELLM_API_KEY → OPENAI_API_KEY/ANTHROPIC_API_KEY
+- Test pseudocode: `mockLitellm` → `mockOpenAIClient`, `AIRouterService` → `LLMGatewayService`
+
 ---
 
 ## Entry 111 — P12: Observability IaC consolidation
