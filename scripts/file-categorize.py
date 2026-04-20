@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Open Brain Batch LLM Categorization — Classify files using LLM.
+Open Brain Batch LLM Categorization â€” Classify files using LLM.
 
 Reads from the inventory SQLite database (created by file-inventory.py).
 Each file is classified with: category, subcategory, description, tags.
@@ -16,6 +16,8 @@ Usage:
 Requires: requests (pip install requests)
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -27,6 +29,7 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 try:
     import requests
@@ -98,7 +101,7 @@ Return ONLY the JSON object, no other text."""
 
 
 # ---------------------------------------------------------------------------
-# Backend: DGX Spark (SSH → vLLM)
+# Backend: DGX Spark (SSH â†’ vLLM)
 # ---------------------------------------------------------------------------
 
 
@@ -145,6 +148,7 @@ class SparkBackend:
                     model_ids = [m["id"] for m in models]
                     logger.info("Spark connected. Available models: %s", model_ids)
                     return True
+                return False
             except requests.exceptions.ConnectionError:
                 logger.error("SSH tunnel open but vLLM not responding on Spark")
                 return False
@@ -163,7 +167,7 @@ class SparkBackend:
             self.tunnel_proc.wait(timeout=5)
             logger.info("SSH tunnel closed")
 
-    def classify(self, prompt: str) -> dict | None:
+    def classify(self, prompt: str) -> dict[str, Any] | None:
         """Send classification request to vLLM on Spark."""
         try:
             resp = requests.post(
@@ -223,7 +227,7 @@ class OllamaBackend:
         """No cleanup needed for Ollama."""
         pass
 
-    def classify(self, prompt: str) -> dict | None:
+    def classify(self, prompt: str) -> dict[str, Any] | None:
         """Send classification request to Ollama."""
         try:
             resp = requests.post(
@@ -258,7 +262,7 @@ class OllamaBackend:
 # ---------------------------------------------------------------------------
 
 
-def _parse_json_response(text: str) -> dict | None:
+def _parse_json_response(text: str) -> dict[str, Any] | None:
     """Extract and parse JSON from LLM response, handling markdown fences and thinking blocks."""
     if not text:
         return None
@@ -298,7 +302,7 @@ def _parse_json_response(text: str) -> dict | None:
     return None
 
 
-def _validate_classification(result: dict) -> bool:
+def _validate_classification(result: dict[str, Any]) -> bool:
     """Check that a classification result has the required fields."""
     required = {"category", "subcategory", "description", "tags"}
     return required.issubset(result.keys())
@@ -311,10 +315,10 @@ def _validate_classification(result: dict) -> bool:
 
 def categorize_files(
     conn: sqlite3.Connection,
-    backend,
+    backend: SparkBackend | OllamaBackend,
     batch_size: int,
     max_files: int | None,
-) -> dict:
+) -> dict[str, Any]:
     """Run batch LLM categorization on uncategorized files.
 
     Returns stats dict.
@@ -494,13 +498,13 @@ def analyze_taxonomy(conn: sqlite3.Connection) -> None:
     print("=" * 70)
 
     # Taxonomy A: Flat by category
-    print("\nTaxonomy A — Flat by Category:")
+    print("\nTaxonomy A â€” Flat by Category:")
     print("  Good for: small collections, simple organization")
     for cat, count, _ in categories:
         print(f"  /{cat}/  ({count:,} files)")
 
     # Taxonomy B: Two-level category/subcategory
-    print("\nTaxonomy B — Two-Level (Category/Subcategory):")
+    print("\nTaxonomy B â€” Two-Level (Category/Subcategory):")
     print("  Good for: medium collections, balanced depth")
     current_cat = None
     for cat, subcat, count in subcats:
@@ -511,7 +515,7 @@ def analyze_taxonomy(conn: sqlite3.Connection) -> None:
         print(f"    /{subcat}/  ({count:,})")
 
     # Taxonomy C: Three-level with year
-    print("\nTaxonomy C — Three-Level (Category/Year/Subcategory):")
+    print("\nTaxonomy C â€” Three-Level (Category/Year/Subcategory):")
     print("  Good for: large collections (10K+), temporal organization")
     cursor = conn.execute("""
         SELECT category, SUBSTR(modified_date, 1, 4) as year, COUNT(*) as cnt
