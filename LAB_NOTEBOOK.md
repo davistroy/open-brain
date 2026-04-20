@@ -8470,6 +8470,9 @@ T0 Python can parse and segment newsletter emails/PDFs reliably. T2 Claude CLI (
 
 Revert the PR. No migration, no Docker changes. Python scripts only.
 
+---
+
+
 ### Result — COMPLETE
 
 **PR #156 merged. SHA: `51360b2`. Reviewer: Opus cycle 1 APPROVE. Closes #66.**
@@ -8511,7 +8514,18 @@ Script fetches active policies from `GET /api/v1/insurance-policies?active_only=
 - **D-P22b-4:** `--watch-dir` implemented as an optional flag that checks for `watchdog` and documents install path if missing. Avoids making watchdog a mandatory dep.
 - **D-P22b-5:** `requirements-insurance.txt` — P22b adds no new mandatory dependencies. `pyyaml` is already in `requirements-lab.txt`. `requests` already in `capture_api.py`'s transitive requirements. File stays at 2 lines (pdfplumber, psycopg2-binary) per plan item 1.4.
 
-### Result
+### Result — COMPLETE
+
+**PR #156 merged. SHA: `51360b2`. Reviewer: Opus cycle 1 APPROVE. Closes #66.**
+
+- T0 Python parser handles both email (via `scripts/lib/capture_api.py` ingest hooks) and PDF newsletter formats.
+- T2 synthesis: `claude --print` aggregates advisor voice extraction + what-changed diff + action items into a single synthesis prompt.
+- One capture per newsletter processing run.
+- No homeserver migration required; no Docker compose changes.
+
+**Note:** CI admin-merged after Opus APPROVE. pnpm recursive run exit-code race caused false CI failure (A75).
+
+---
 
 **COMPLETE. 10/10 tests passing.**
 
@@ -8535,6 +8549,9 @@ AC verification:
 - **AC-10:** `python -m pytest scripts/tests/test_insurance_gap.py -v` → 10 passed in 0.22s
 
 **Duration:** ~1 session.
+
+---
+
 
 ---
 
