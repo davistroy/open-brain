@@ -18,10 +18,9 @@ extend-exclude = [
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
-# Ops scripts (scripts/) are not in pyright include and carry looser style.
-# Relax a handful of low-value warnings there while keeping the 3 strongly-typed
-# packages (docker/ingest-sidecar, packages/voice-pipecat/src, packages/file-ingestion/src)
-# strict. Scripts typecheck/lint-tightening is a separate follow-up (see IMPLEMENTATION_PLAN.md).
+# Ops scripts (scripts/) carry looser style than the 3 strongly-typed packages.
+# Relax a handful of low-value warnings there.  All scripts are now in pyright
+# include (P32) with targeted # type: ignore suppressions for pre-existing issues.
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["B007", "E701", "E402", "E741", "SIM102", "SIM105"]
 
@@ -30,26 +29,7 @@ include = [
   "docker/ingest-sidecar",
   "packages/voice-pipecat/src",
   "packages/file-ingestion/src",
-  "scripts/financial-pipeline.py",
-  "scripts/utility-pipeline.py",
-  "scripts/ingest-onedrive.py",
-  "scripts/ingest-repair.py",
-  "scripts/batch-wiki-ingest.py",
-  "scripts/plaid-link-server.py",
-  "scripts/deepgram-spike.py",
-  "scripts/email-pipeline.py",
-  "scripts/email-cleanup.py",
-  "scripts/email-cleanup-pass2.py",
-  "scripts/email-cleanup-pass4.py",
-  "scripts/email-cleanup-pass6.py",
-  "scripts/email-archive-by-year.py",
-  "scripts/file-categorize.py",
-  "scripts/file-dedup.py",
-  "scripts/file-inventory.py",
-  "scripts/reorganize-onedrive.py",
-  "scripts/dedup-and-archive.py",
-  "scripts/cleanup-onedrive-junk.py",
-  "scripts/create_reorg_sheet.py",
+  "scripts",
 ]
 exclude = ["**/tests", "**/__pycache__"]
 pythonVersion = "3.12"

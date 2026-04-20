@@ -43,7 +43,7 @@ _lrs = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
 _spec.loader.exec_module(_lrs)  # type: ignore[union-attr]
 sys.modules["lab_report_synthesis"] = _lrs
 
-from lab_report_synthesis import (  # noqa: E402
+from lab_report_synthesis import (  # noqa: E402, I001
     IMPROVING,
     STABLE,
     VARIABLE,
@@ -52,7 +52,6 @@ from lab_report_synthesis import (  # noqa: E402
     build_trend_table,
     collect_flagged_tests,
     compute_trend_direction,
-    get_synthesis_config,
     run,
 )
 

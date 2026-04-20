@@ -14,10 +14,12 @@ time. This module never materialises full result sets — it just manages
 connections and provides an executemany helper.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger("db")
 
@@ -31,7 +33,7 @@ except ImportError:
     _PSYCOPG2_AVAILABLE = False
 
 
-def _resolve_database_url(cfg: Optional[dict] = None) -> str:
+def _resolve_database_url(cfg: dict | None = None) -> str:
     """Resolve DATABASE_URL from env or config dict.
 
     Args:
@@ -73,7 +75,7 @@ def _resolve_database_url(cfg: Optional[dict] = None) -> str:
     )
 
 
-def get_connection(cfg: Optional[dict] = None):
+def get_connection(cfg: dict | None = None):
     """Open and return a psycopg2 connection.
 
     The caller is responsible for calling conn.close() (or using it as a
@@ -97,7 +99,7 @@ def get_connection(cfg: Optional[dict] = None):
         )
 
     url = _resolve_database_url(cfg)
-    conn = psycopg2.connect(url)
+    conn = psycopg2.connect(url)  # type: ignore[possibly-unbound]
     conn.autocommit = False
     log.debug("DB connection opened")
     return conn
@@ -126,7 +128,7 @@ def execute_upsert(conn, sql: str, rows: list[tuple[Any, ...]]) -> int:
     with conn.cursor() as cur:
         for i in range(0, len(rows), BATCH_SIZE):
             batch = rows[i : i + BATCH_SIZE]
-            psycopg2.extras.execute_batch(cur, sql, batch, page_size=BATCH_SIZE)
+            psycopg2.extras.execute_batch(cur, sql, batch, page_size=BATCH_SIZE)  # type: ignore[possibly-unbound]
             total += len(batch)
     conn.commit()
     log.debug("execute_upsert: committed %d rows", total)

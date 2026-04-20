@@ -78,7 +78,7 @@ def authenticate() -> str:
 
     accounts = app.get_accounts()
     if accounts:
-        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])  # type: ignore[assignment]
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)", flush=True)
             if cache.has_state_changed:
@@ -252,7 +252,7 @@ def load_senders_by_category() -> dict[str, set[str]]:
     for sender, cats in sender_cats.items():
         if sender.lower() in PROTECTED_SENDERS:
             continue
-        primary = max(cats, key=cats.get)
+        primary = max(cats, key=cats.get)  # type: ignore[arg-type]
         if primary in DELETE_ALL_CATEGORIES:
             result["delete_all"].add(sender)
         elif primary in SHOPPING_CATEGORIES:

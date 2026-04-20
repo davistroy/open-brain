@@ -154,7 +154,7 @@ def load_wav_file(path: Path) -> tuple[bytes, float]:
     else:
         raise ValueError(f"{path.name}: could not find data chunk")
 
-    duration = data_size / (fmt_rate * fmt_channels * fmt_width)
+    duration = data_size / (fmt_rate * fmt_channels * fmt_width)  # type: ignore[reportPossiblyUnbound]
     return data, duration
 
 
@@ -503,7 +503,7 @@ def format_report(results: list[TranscriptResult]) -> str:
         lines.append("  RECOMMENDATION:  NO-GO")
         lines.append("")
         lines.append(
-            f"  Average TTFW ({avg_ttfw * 1000:.0f}ms) exceeds target ({TARGET_TTFW * 1000:.0f}ms)."
+            f"  Average TTFW ({avg_ttfw * 1000:.0f}ms) exceeds target ({TARGET_TTFW * 1000:.0f}ms)."  # type: ignore[reportPossiblyUnbound]
         )
         lines.append("  Options: try nova-2-general, reduce chunk size, accept higher latency.")
 

@@ -126,7 +126,7 @@ def extract_pdf_pymupdf(filepath: str) -> tuple[str | None, str | None]:
 
         doc = fitz.open(filepath)
         pages: list[str] = []
-        for i, page in enumerate(doc):
+        for i, page in enumerate(doc):  # type: ignore[arg-type]
             if i >= 500:  # safety cap
                 break
             text: str = page.get_text()
@@ -196,7 +196,7 @@ def extract_xlsx_skip_charts(filepath: str) -> tuple[str | None, str | None]:
             if isinstance(ws, Chartsheet):
                 continue
             rows: list[str] = []
-            for row in ws.iter_rows(max_row=10000, values_only=True):
+            for row in ws.iter_rows(max_row=10000, values_only=True):  # type: ignore[union-attr]
                 vals = [str(c) for c in row if c is not None]
                 if vals:
                     rows.append("\t".join(vals))
@@ -249,7 +249,7 @@ def extract_large_pptx(filepath: str) -> tuple[str | None, str | None]:
             texts: list[str] = []
             for shape in slide.shapes:
                 if shape.has_text_frame:
-                    for para in shape.text_frame.paragraphs:
+                    for para in shape.text_frame.paragraphs:  # type: ignore[union-attr]
                         t = para.text.strip()
                         if t:
                             texts.append(t)

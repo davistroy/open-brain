@@ -223,7 +223,7 @@ class HotmailBackend:
         )
         accounts = self._app.get_accounts()
         if accounts:
-            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
+            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])  # type: ignore[assignment]
             if r and "access_token" in r:
                 self.session.headers["Authorization"] = f"Bearer {r['access_token']}"
                 self._save_cache()
@@ -255,7 +255,7 @@ class HotmailBackend:
             return False
         accounts = self._app.get_accounts()
         if accounts:
-            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
+            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])  # type: ignore[assignment]
             if r and "access_token" in r:
                 self.session.headers["Authorization"] = f"Bearer {r['access_token']}"
                 self._save_cache()

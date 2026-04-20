@@ -70,8 +70,8 @@ def _post_capture_raw(
     return ok
 
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -125,7 +125,7 @@ def _load_bws_secrets() -> list[dict[str, Any]]:
             log.error(f"bws failed: {result.stderr.strip()}")
             sys.exit(1)
         _bws_secrets_cache = json.loads(result.stdout)
-        return _bws_secrets_cache
+        return _bws_secrets_cache  # type: ignore[return-value]
     except FileNotFoundError:
         log.error("bws CLI not found. Install it or check PATH.")
         sys.exit(1)
@@ -425,20 +425,20 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
         doc = fitz.open(tmp_path)
         full_text = ""
         for page in doc:
-            full_text += page.get_text() + "\n"
+            full_text += page.get_text() + "\n"  # type: ignore[union-attr]
         doc.close()
         os.unlink(tmp_path)
     except Exception as e:
         log.warning(f"PDF parse error: {e}")
         if "tmp_path" in locals():
             with contextlib.suppress(OSError):
-                os.unlink(tmp_path)
+                os.unlink(tmp_path)  # type: ignore[possibly-unbound]
         return result
 
     # Extract CCFs: look for patterns like "66 CCFs" or "66 CCF"
     ccf_match = re.search(r"(\d+)\s*CCFs?\b", full_text, re.IGNORECASE)
     if ccf_match:
-        result["ccfs"] = float(ccf_match.group(1))
+        result["ccfs"] = float(ccf_match.group(1))  # type: ignore[typeddict-item]
 
     # Extract therm factor: "1.034" near "therm factor" or "conversion"
     factor_match = re.search(
@@ -447,12 +447,12 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if factor_match:
-        result["therm_factor"] = float(factor_match.group(1))
+        result["therm_factor"] = float(factor_match.group(1))  # type: ignore[typeddict-item]
 
     # Extract therms: "68.24 therms" or total therms line
     therms_match = re.search(r"(\d+\.?\d*)\s*therms?\b", full_text, re.IGNORECASE)
     if therms_match:
-        result["therms"] = float(therms_match.group(1))
+        result["therms"] = float(therms_match.group(1))  # type: ignore[typeddict-item]
 
     # Extract rate per therm: "$0.65/therm" or "0.65 per therm"
     rate_match = re.search(
@@ -461,11 +461,11 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
         re.IGNORECASE,
     )
     if rate_match:
-        result["rate_per_therm"] = float(rate_match.group(1))
+        result["rate_per_therm"] = float(rate_match.group(1))  # type: ignore[typeddict-item]
 
     # If we have CCFs and factor but no therms, calculate
     if result["ccfs"] and result["therm_factor"] and not result["therms"]:
-        result["therms"] = round(result["ccfs"] * result["therm_factor"], 2)
+        result["therms"] = round(result["ccfs"] * result["therm_factor"], 2)  # type: ignore[typeddict-item,arg-type,operator]
 
     log.info(
         f"  PDF parsed: CCFs={result['ccfs']}, factor={result['therm_factor']}, "

@@ -17,6 +17,8 @@ Usage:
     python scripts/lab-report-synthesis.py --config /path/to/lab-report.yaml
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -25,7 +27,7 @@ import subprocess
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -36,14 +38,14 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_SCRIPT_DIR))
 
-from lib.capture_api import get_capture_api_config, post_capture  # noqa: E402
+from lib.capture_api import post_capture  # noqa: E402
 from lib.db import get_connection  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -57,7 +59,7 @@ log = logging.getLogger("lab-report-synthesis")
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "config" / "lab-report.yaml"
 
 
-def load_config(config_path: Optional[Path] = None) -> dict:
+def load_config(config_path: Path | None = None) -> dict:
     path = config_path or _DEFAULT_CONFIG_PATH
     if path.exists():
         with path.open() as f:
@@ -87,11 +89,11 @@ VARIABLE = "VARIABLE"
 
 
 def compute_trend_direction(
-    values: list[Optional[float]],
-    flags: list[Optional[str]],
-    ref_low: Optional[float],
-    ref_high: Optional[float],
-) -> Optional[str]:
+    values: list[float | None],
+    flags: list[str | None],
+    ref_low: float | None,
+    ref_high: float | None,
+) -> str | None:
     """Compute trend direction from a chronological series of values + flags.
 
     Args:
@@ -119,7 +121,7 @@ def compute_trend_direction(
         return None
 
     # Strip None values from the end to get the two most-recent comparable points
-    numeric = [(v, f) for v, f in zip(values, flags) if v is not None]
+    numeric = [(v, f) for v, f in zip(values, flags, strict=False) if v is not None]
     if len(numeric) < 2:
         # Fall back to flag-based trend
         return _flag_trend(flags)
@@ -150,8 +152,8 @@ def compute_trend_direction(
 
 def _distance_to_normal(
     value: float,
-    ref_low: Optional[float],
-    ref_high: Optional[float],
+    ref_low: float | None,
+    ref_high: float | None,
 ) -> float:
     """Distance from value to the nearest edge of the normal range (0 = inside)."""
     if ref_low is not None and value < ref_low:
@@ -161,7 +163,7 @@ def _distance_to_normal(
     return 0.0
 
 
-def _flag_trend(flags: list[Optional[str]]) -> str:
+def _flag_trend(flags: list[str | None]) -> str:
     """Trend direction inferred from flag sequence alone."""
     non_none = [f for f in flags if f is not None]
     if not non_none:
@@ -228,7 +230,7 @@ def fetch_results_for_reports(conn, report_ids: list[str]) -> list[dict]:
 
     results = []
     for row in rows:
-        record = dict(zip(cols, row))
+        record = dict(zip(cols, row, strict=False))
         # Ensure collection_date is serializable
         if isinstance(record["collection_date"], date):
             record["collection_date"] = record["collection_date"].isoformat()
@@ -295,7 +297,7 @@ def build_trend_table(
                 "is_abnormal": is_abnormal,
                 "is_worsening": is_worsening,
                 "dates": dates,
-                "values": [str(v) if v is not None else raw for v, raw in zip(values, raw_values)],
+                "values": [str(v) if v is not None else raw for v, raw in zip(values, raw_values, strict=False)],
                 "report_count": len(rows),
             }
         )
@@ -408,7 +410,7 @@ def build_prompt(
 # T2 synthesis via claude --print
 # ---------------------------------------------------------------------------
 
-def run_synthesis(prompt: str, timeout: int = 120) -> Optional[str]:
+def run_synthesis(prompt: str, timeout: int = 120) -> str | None:
     """Call claude --print and return the synthesis text, or None on failure."""
     log.info("Calling claude --print (%d chars in prompt)", len(prompt))
     try:
@@ -441,7 +443,7 @@ def run_synthesis(prompt: str, timeout: int = 120) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def build_capture_content(
-    synthesis: Optional[str],
+    synthesis: str | None,
     trend_table: list[dict],
     report_ids: list[str],
     collection_dates: list[str],
@@ -481,7 +483,7 @@ def run(
     last_n: int,
     dry_run: bool,
     no_synthesis: bool,
-    report_id_filter: Optional[str],
+    report_id_filter: str | None,
 ) -> dict[str, Any]:
     """Core logic — returns result dict suitable for JSON output."""
     synth_cfg = get_synthesis_config(cfg)
@@ -491,10 +493,7 @@ def run(
     max_chars: int = synth_cfg.get("max_prompt_chars", 4000)
 
     # 1. Fetch report IDs
-    if report_id_filter:
-        report_ids = [report_id_filter]
-    else:
-        report_ids = fetch_recent_report_ids(conn, last_n)
+    report_ids = [report_id_filter] if report_id_filter else fetch_recent_report_ids(conn, last_n)
 
     if not report_ids:
         log.warning("No reports found in lab_results table")
@@ -520,7 +519,7 @@ def run(
     flagged_tests = collect_flagged_tests(trend_table, custom_thresholds)
 
     # 6. Build prompt + call claude --print (T2)
-    synthesis_text: Optional[str] = None
+    synthesis_text: str | None = None
     if not no_synthesis:
         prompt = build_prompt(trend_table, report_ids, all_dates, flagged_tests, max_chars)
         synthesis_text = run_synthesis(prompt)

@@ -20,8 +20,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # Bootstrapping: financial-pipeline.py imports plaid and lib.capture_api which
 # are not installed in the test environment.  We stub them out before import.

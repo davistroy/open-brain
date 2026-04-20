@@ -74,8 +74,8 @@ def _post_capture(
     return ok
 
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -143,7 +143,7 @@ def _load_bws_secrets() -> list:
             log.error(f"bws failed: {result.stderr.strip()}")
             sys.exit(1)
         _bws_secrets_cache = json.loads(result.stdout)
-        return _bws_secrets_cache
+        return _bws_secrets_cache  # type: ignore[return-value]
     except FileNotFoundError:
         log.error("bws CLI not found. Install it or check PATH.")
         sys.exit(1)
@@ -487,7 +487,7 @@ def sync_account(
         time.sleep(0.1)  # rate limit courtesy
 
     conn.commit()
-    save_sync_cursor(conn, account_key, cursor)
+    save_sync_cursor(conn, account_key, cursor)  # type: ignore[arg-type]
     return stats
 
 
@@ -567,10 +567,10 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
     for account_id, account_name, amount, _merchant, ob_category, _pending in rows:
         acct = by_account[account_id]
         acct["name"] = account_name or account_id
-        acct["total"] += amount
-        acct["count"] += 1
-        acct["categories"][ob_category]["total"] += amount
-        acct["categories"][ob_category]["count"] += 1
+        acct["total"] += amount  # type: ignore[operator]
+        acct["count"] += 1  # type: ignore[operator,index]
+        acct["categories"][ob_category]["total"] += amount  # type: ignore[index]
+        acct["categories"][ob_category]["count"] += 1  # type: ignore[index]
         grand_total += amount
 
     # Format readable text
@@ -579,11 +579,11 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
     lines.append("")
 
     for account_id, acct in sorted(by_account.items()):
-        lines.append(f"{acct['name']}: {acct['count']} transactions, ${abs(acct['total']):,.2f}")
+        lines.append(f"{acct['name']}: {acct['count']} transactions, ${abs(acct['total']):,.2f}")  # type: ignore[arg-type]
         for cat, cat_data in sorted(
-            acct["categories"].items(), key=lambda x: abs(x[1]["total"]), reverse=True
+            acct["categories"].items(), key=lambda x: abs(x[1]["total"]), reverse=True  # type: ignore[arg-type,index]
         ):
-            lines.append(f"  {cat}: ${abs(cat_data['total']):,.2f} ({cat_data['count']} txns)")
+            lines.append(f"  {cat}: ${abs(cat_data['total']):,.2f} ({cat_data['count']} txns)")  # type: ignore[arg-type]
         lines.append("")
 
     summary_text = "\n".join(lines)
@@ -594,7 +594,7 @@ def cmd_daily_summary(cfg: dict, conn: sqlite3.Connection):
     for account_id, acct in by_account.items():
         categories_summary[account_id] = {
             "name": acct["name"],
-            "total": round(acct["total"], 2),
+            "total": round(acct["total"], 2),  # type: ignore[arg-type]
             "count": acct["count"],
         }
 
@@ -1452,7 +1452,7 @@ def cmd_investments(cfg: dict, conn: sqlite3.Connection):
     }
     if weekly_delta is not None:
         source_meta["change_value"] = round(weekly_delta, 2)
-        source_meta["change_pct"] = round(weekly_pct, 2)
+        source_meta["change_pct"] = round(weekly_pct, 2)  # type: ignore[arg-type]
         source_meta["prior_snapshot_date"] = prior_date
 
     if _post_capture(
@@ -1532,8 +1532,8 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     account_stats = defaultdict(lambda: {"name": "", "count": 0, "total": 0.0})
     for account_id, account_name, amount, _, _, _ in rows:
         account_stats[account_id]["name"] = account_name or account_id
-        account_stats[account_id]["count"] += 1
-        account_stats[account_id]["total"] += amount
+        account_stats[account_id]["count"] += 1  # type: ignore[operator]
+        account_stats[account_id]["total"] += amount  # type: ignore[operator]
 
     # 2d. Average transaction size
     total_spend = sum(abs(r[2]) for r in rows)
@@ -1674,7 +1674,7 @@ def cmd_monthly_report(cfg: dict, conn: sqlite3.Connection):
     raw_lines.append("")
     raw_lines.append("BY ACCOUNT:")
     for _acct_id, data in sorted(account_stats.items()):
-        raw_lines.append(f"  {data['name']}: {data['count']} txns, ${abs(data['total']):,.2f}")
+        raw_lines.append(f"  {data['name']}: {data['count']} txns, ${abs(data['total']):,.2f}")  # type: ignore[arg-type]
 
     if large_txns:
         raw_lines.append("")
@@ -1876,7 +1876,7 @@ def _parse_401k_pdf(filepath: Path) -> dict | None:
 
     try:
         doc = fitz.open(str(filepath))
-        text = "\n".join(page.get_text() for page in doc)
+        text = "\n".join(page.get_text() for page in doc)  # type: ignore[union-attr]
         doc.close()
     except Exception as e:
         log.error(f"Failed to read PDF {filepath.name}: {e}")

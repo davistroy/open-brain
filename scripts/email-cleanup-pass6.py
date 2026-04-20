@@ -203,7 +203,7 @@ def authenticate() -> tuple[str, Any, msal.SerializableTokenCache]:
     )
     accounts = app.get_accounts()
     if accounts:
-        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])  # type: ignore[assignment]
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)", flush=True)
             if cache.has_state_changed:

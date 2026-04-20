@@ -12,16 +12,17 @@ Usage:
     python scripts/lab-report-extract.py --status                    # DB row counts + last run
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
 import logging
-import os
 import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import yaml
 
@@ -38,8 +39,8 @@ from lib.db import execute_upsert, get_connection  # noqa: E402
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -53,7 +54,7 @@ log = logging.getLogger("lab-report-extract")
 _DEFAULT_CONFIG_PATH = _REPO_ROOT / "config" / "lab-report.yaml"
 
 
-def load_config(config_path: Optional[Path] = None) -> dict:
+def load_config(config_path: Path | None = None) -> dict:
     path = config_path or _DEFAULT_CONFIG_PATH
     if path.exists():
         with path.open() as f:
@@ -107,7 +108,7 @@ _ACCESSION_LABELS = re.compile(
 )
 
 
-def parse_date(raw: str, date_formats: list[str]) -> Optional[date]:
+def parse_date(raw: str, date_formats: list[str]) -> date | None:
     """Try each format in order; return first parse that succeeds."""
     raw = raw.strip()
     for fmt in date_formats:
@@ -200,13 +201,13 @@ def parse_ref_range(raw: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def compute_derived_flag(
-    numeric_value: Optional[float],
-    lab_flag: Optional[str],
-    ref_low: Optional[float],
-    ref_high: Optional[float],
-    ref_comparator: Optional[str],
-    custom_threshold: Optional[dict] = None,
-) -> Optional[str]:
+    numeric_value: float | None,
+    lab_flag: str | None,
+    ref_low: float | None,
+    ref_high: float | None,
+    ref_comparator: str | None,
+    custom_threshold: dict | None = None,
+) -> str | None:
     """Compute derived_flag from numeric_value vs reference bounds.
 
     Returns 'HIGH' | 'LOW' | 'ABNORMAL' | 'NORMAL' | None.
@@ -281,7 +282,7 @@ _RESULT_ROW = re.compile(
 _CODE_PREFIX = re.compile(r"^(\d{4,6}-\d)\s+(.+)$")
 
 
-def _try_float(s: Optional[str]) -> Optional[float]:
+def _try_float(s: str | None) -> float | None:
     if s is None:
         return None
     s = s.strip()
@@ -291,7 +292,7 @@ def _try_float(s: Optional[str]) -> Optional[float]:
         return None
 
 
-def parse_result_line(line: str) -> Optional[dict]:
+def parse_result_line(line: str) -> dict | None:
     """Attempt to parse a single text line as a lab result row.
 
     Returns a dict with keys: test_name, test_code, raw_value, numeric_value,
@@ -365,7 +366,7 @@ def extract_pdf(pdf_path: Path, cfg: dict) -> dict:
         raise RuntimeError(
             "pdfplumber is not installed. "
             "Run: pip install -r scripts/requirements-lab.txt"
-        )
+        ) from None
 
     hospital_names = cfg.get("hospital_names", [])
     date_formats = cfg.get("date_formats", ["%m/%d/%Y", "%m/%d/%y", "%Y-%m-%d"])
@@ -373,7 +374,7 @@ def extract_pdf(pdf_path: Path, cfg: dict) -> dict:
 
     results: list[dict] = []
     full_text_pages: list[str] = []
-    layout: Optional[str] = None
+    layout: str | None = None
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_num, page in enumerate(pdf.pages):
@@ -533,17 +534,17 @@ def cmd_status() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM lab_results")
-            (total_rows,) = cur.fetchone()
+            (total_rows,) = cur.fetchone()  # type: ignore[misc]
 
             cur.execute("SELECT MAX(extracted_at) FROM lab_results")
-            (last_run,) = cur.fetchone()
+            (last_run,) = cur.fetchone()  # type: ignore[misc]
 
             cur.execute("SELECT COUNT(DISTINCT report_id) FROM lab_results")
-            (report_count,) = cur.fetchone()
+            (report_count,) = cur.fetchone()  # type: ignore[misc]
     finally:
         conn.close()
 
-    print(f"lab_results table:")
+    print("lab_results table:")
     print(f"  Reports:    {report_count}")
     print(f"  Total rows: {total_rows}")
     print(f"  Last run:   {last_run or 'never'}")

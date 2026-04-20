@@ -9,14 +9,11 @@ Run:
 """
 
 import hashlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-
-import importlib.util
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Ensure scripts/ is on sys.path so lib.db imports resolve correctly.
@@ -215,12 +212,14 @@ def test_dry_run_no_db(tmp_path, capsys):
 
     fake_pdf_cm = _fake_pdf([quest_page])
 
-    with patch("pdfplumber.open", return_value=fake_pdf_cm):
+    with (
+        patch("pdfplumber.open", return_value=fake_pdf_cm),
         # Patch get_connection to assert it is never called
-        with patch("lib.db.get_connection") as mock_conn:
-            # Run main with --dry-run
-            with patch("sys.argv", ["lab-report-extract.py", "--file", str(fake_pdf), "--dry-run"]):
-                rc = lre.main()
+        patch("lib.db.get_connection") as mock_conn,
+        # Run main with --dry-run
+        patch("sys.argv", ["lab-report-extract.py", "--file", str(fake_pdf), "--dry-run"]),
+    ):
+        rc = lre.main()
 
     assert rc == 0, "main() should return 0 on success"
     mock_conn.assert_not_called(), "DB connection must not be opened in --dry-run mode"

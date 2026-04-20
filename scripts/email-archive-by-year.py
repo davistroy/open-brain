@@ -38,7 +38,7 @@ session.headers.update({"Content-Type": "application/json"})
 
 
 def get_token() -> str:
-    result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=app.get_accounts()[0])
+    result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=app.get_accounts()[0])  # type: ignore[assignment]
     return result["access_token"]
 
 

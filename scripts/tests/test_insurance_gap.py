@@ -9,13 +9,10 @@ Run:
 """
 
 import importlib.util
-import json
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
 # Load insurance-gap-analysis.py by path (hyphen prevents normal import)
