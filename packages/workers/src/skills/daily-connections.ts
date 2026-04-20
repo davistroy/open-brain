@@ -1,5 +1,5 @@
-import type { Database } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import type { Database, AutonomyLevel } from '@open-brain/shared'
+import { logger, SafePromptBuilder } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter, LLMGatewayService } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -37,6 +37,8 @@ export interface DailyConnectionsSkillOpts extends LLMSkillOpts {
  * call LLM, parse output, deliver via Pushover, save as capture, log to skills_log.
  */
 export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, DailyConnectionsResult> {
+  static minimum_autonomy: AutonomyLevel = 'observe'
+
   private wikiService: WikiGitService | null
 
   constructor(opts: DailyConnectionsSkillOpts) {
@@ -88,8 +90,13 @@ export class DailyConnectionsSkill extends LLMSkill<DailyConnectionsOptions, Dai
     const coOccurrenceText = formatCoOccurrence(coOccurrence)
     const dateRange = `${fmtDate(windowStart)} to ${fmtDate(now)}`
 
+    // Step 3b: Sanitize user-controlled content via SafePromptBuilder (WI-5)
+    const builder = new SafePromptBuilder()
+    const safeContextText = builder.wrapContent(contextText, 'captures-block')
+    const safeCoOccurrenceText = builder.wrapContent(coOccurrenceText, 'cooccurrence-block')
+
     // Step 4: Call LLM
-    const rawOutput = await this.callLLM(contextText, coOccurrenceText, dateRange, captureCount, 'synthesis')
+    const rawOutput = await this.callLLM(safeContextText, safeCoOccurrenceText, dateRange, captureCount, 'synthesis')
     const output = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 
