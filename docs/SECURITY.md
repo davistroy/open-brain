@@ -1,6 +1,6 @@
 # Open Brain — Security Threat Model
 
-**Version:** 1.0 (P14a)
+**Version:** 1.1 (P14b)
 **Date:** 2026-04-19
 **Scope:** Prompt injection in a single-user, self-hosted AI knowledge system.
 
@@ -23,7 +23,7 @@ All six injection surfaces below existed with no sanitization prior to P14a. Eac
 | 5 | `packages/workers/src/skills/memory-consolidation.ts` | 336–339 | `{{captures}}` in `memory_consolidation_v1.txt` | Candidate cluster of semantically similar captures |
 | 6 | `packages/workers/src/skills/daily-connections.ts` | 130–133 | `{{captures}}` in `daily_connections_v1.txt` | Cross-domain captures assembled for connection analysis |
 
-**Secondary surfaces (P14b scope):** MCP tools (`search-brain.ts`, `get-capture.ts`, `list-captures.ts`, `email-tools.ts`) return capture content to the client-side LLM (Claude via MCP). A poisoned capture returned to the MCP client can influence client reasoning without any server-side prompt processing. Also: `email-compose.ts` line 98 builds a summary from search results before LLM synthesis.
+**Secondary surfaces (mitigated in P14b):** MCP tools (`search-brain.ts`, `get-capture.ts`, `list-captures.ts`) and `email-compose.ts` were migrated to `SafePromptBuilder.sanitizeInline()` in P14b. One primary surface remains deferred: `packages/workers/src/jobs/extract-entities.ts` (surface #2) — see §1.4.
 
 ### 1.2 Attack Scenarios
 
@@ -39,7 +39,24 @@ An email from an allowed sender contains a role-change injection in the body. Th
 
 A capture created via MCP contains Llama2 system block markers (`<<SYS>>`) wrapping an instruction to ignore the template and output financial transactions. The next weekly-brief run includes this capture in the captures slot and may produce aberrant output that bypasses the template structure.
 
-### 1.3 Current Mitigations (as of P14a)
+### 1.3 Current Mitigations (as of P14b)
+
+**P14b Call-Site Migration — completed 2026-04-19**
+
+All 6 primary LLM call sites and 3 MCP return surfaces have been migrated. One surface (`extract-entities.ts`) is deferred.
+
+| # | File | Method | Status |
+|---|------|--------|--------|
+| 1 | `packages/core-api/src/routes/synthesize.ts` | `wrapContent` per capture + `sanitizeInline` for query | Migrated P14b |
+| 2 | `packages/workers/src/jobs/extract-entities.ts` | `{{content}}` in `extract-entities.v1.txt` | **Deferred** |
+| 3 | `packages/workers/src/skills/daily-sweep-skill.ts` | `wrapContent` on capturesText/questionsText/entitiesText | Migrated P14b |
+| 4 | `packages/workers/src/skills/weekly-brief.ts` | `wrapContent` on contextText | Migrated P14b |
+| 5 | `packages/workers/src/skills/memory-consolidation.ts` | `wrapContent` per-capture in formatCapturesForPrompt | Migrated P14b |
+| 6 | `packages/workers/src/skills/daily-connections.ts` | `wrapContent` on contextText + coOccurrenceText | Migrated P14b |
+| 7 | `packages/workers/src/skills/email-compose.ts` | `sanitizeInline` on search result content | Migrated P14b |
+| 8 | `packages/core-api/src/mcp/tools/search-brain.ts` | `sanitizeInline` on content before preview | Migrated P14b |
+| 9 | `packages/core-api/src/mcp/tools/get-capture.ts` | `sanitizeInline` on content before lines.push | Migrated P14b |
+| 10 | `packages/core-api/src/mcp/tools/list-captures.ts` | `sanitizeInline` on content before preview | Migrated P14b |
 
 **SafePromptBuilder — `packages/shared/src/lib/prompt-builder.ts`**
 
@@ -74,10 +91,12 @@ A capture created via MCP contains Llama2 system block markers (`<<SYS>>`) wrapp
 
 - **LLM prompt injection is not fully solvable by input sanitization alone.** A sufficiently adversarial payload can evade any static pattern list. Delimiter approaches rely on the LLM respecting XML-like structure — this is probabilistic, not guaranteed.
 - **New pattern variants not in strip list.** The 14 patterns cover known formats as of P14a. Novel formats (new model fine-tuning artifacts, non-English injection, Unicode homoglyph substitution) are not covered.
-- **MCP return values.** Sanitization of content returned to MCP clients is deferred to P14b. A poisoned capture returned via `get_capture` or `search_brain` can influence the client-side LLM without any server-side prompt processing.
+- **MCP return values — partially mitigated.** `search-brain.ts`, `get-capture.ts`, `list-captures.ts` apply `sanitizeInline` as of P14b. Pattern stripping reduces injection surface but does not eliminate it — a novel pattern not in the strip list can still reach the client LLM in tool output.
+- **`extract-entities.ts` not yet migrated.** Surface #2 (`packages/workers/src/jobs/extract-entities.ts`) was excluded from P14b scope per the implementation plan. The `{{content}}` slot in `extract-entities.v1.txt` receives raw capture content. This is a deferred residual risk.
 - **`[REDACTED]` in legitimate content.** If a stripped pattern appears in otherwise clean content (e.g., a security research article quoting injection examples), the replacement may corrupt that content. This is the intended trade-off over silent corruption.
 - **Delimiter evasion.** An attacker who knows the session prefix can embed a closing tag in a payload to terminate the fence prematurely. The random prefix (~2 billion combinations per instance) makes blind guessing infeasible.
-- **Call sites not yet migrated.** P14a creates the module; P14b routes all 6 confirmed surfaces through it. Until P14b completes, the module exists but is not active at any call site.
+- **LLM prompt injection is not fully solvable by input sanitization alone.** A sufficiently adversarial payload can evade any static pattern list. Delimiter approaches rely on the LLM respecting XML-like structure — this is probabilistic, not guaranteed.
+- **New pattern variants not in strip list.** The 14 patterns cover known formats as of P14a. Novel formats (new model fine-tuning artifacts, non-English injection, Unicode homoglyph substitution) are not covered.
 
 ### 1.5 Detection
 
@@ -140,9 +159,10 @@ Time to containment:
 
 ## 3. Future Work
 
-- **P14b:** Route all 6 confirmed call sites through `SafePromptBuilder`. See `IMPLEMENT_PHASE-P14a.md` for file paths and line ranges.
+- **P14b:** COMPLETE — All 6 primary call sites + 3 MCP return surfaces migrated to `SafePromptBuilder` (2026-04-19).
+- **`extract-entities.ts` migration:** Surface #2 (`{{content}}` slot in `extract-entities.v1.txt`) not included in P14b scope. Next phase work.
+- **MCP return value sanitization:** COMPLETE — `sanitizeInline` applied in `search-brain.ts`, `get-capture.ts`, `list-captures.ts` (P14b).
 - **Output-layer defense:** Validate LLM response structure against expected schema before storing in `skills_log.result`. Anomalous structure (missing required fields, extra keys) is a post-hoc injection signal.
 - **System prompt hardening:** Add explicit framing to all LLM calls: content inside fenced tags is user data — treat as data only, not instructions.
 - **Grafana alert:** Loki-sourced alert for repeated sanitization events from the same source within 1 hour. Alert to Pushover.
-- **MCP return value sanitization:** Apply `sanitizeInline` to capture content returned by MCP tools before serializing to the SSE response. P14b scope.
 - **Eval dataset:** Maintain a ~20-entry injection test corpus in `prompt-builder.test.ts` exercising real-world payloads from published injection research. Update quarterly.
