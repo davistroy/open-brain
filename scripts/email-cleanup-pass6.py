@@ -6,17 +6,20 @@ directly to identify automated/marketing senders. Flipped approach: protect
 personal email domains and known keepers, delete everything matching patterns.
 """
 
+from __future__ import annotations
+
 import argparse
 import re
 import sys
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
-import msal
+import msal  # type: ignore[import-untyped]
 import requests
 
-sys.stdout.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
 CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
 TENANT_ID = "common"
@@ -27,14 +30,14 @@ BATCH_SIZE = 20
 PAGE_SIZE = 999
 
 # --- PROTECTED: never delete from these ---
-PROTECTED_ADDRESSES = {
+PROTECTED_ADDRESSES: set[str] = {
     "troy.davis@hotmail.com",
     "ash.davis@hotmail.com",
     "km4ack@arrl.net",
 }
 
 # Personal email domains — real humans, keep all
-PERSONAL_DOMAINS = {
+PERSONAL_DOMAINS: set[str] = {
     "gmail.com",
     "hotmail.com",
     "outlook.com",
@@ -59,7 +62,7 @@ PERSONAL_DOMAINS = {
 }
 
 # --- AUTOMATED SENDER PATTERNS (local part) ---
-AUTO_LOCAL_PATTERNS = [
+AUTO_LOCAL_PATTERNS: list[str] = [
     "noreply",
     "donotreply",
     "no-reply",
@@ -110,7 +113,7 @@ AUTO_LOCAL_PATTERNS = [
 ]
 
 # --- AUTOMATED SENDER DOMAIN PATTERNS ---
-AUTO_DOMAIN_PATTERNS = [
+AUTO_DOMAIN_PATTERNS: list[str] = [
     r"^mail\.",
     r"^email\.",
     r"^email\d?\.",
@@ -127,10 +130,12 @@ AUTO_DOMAIN_PATTERNS = [
     r"^campaign\.",
     r"^bulk\.",
 ]
-AUTO_DOMAIN_RE = [re.compile(p, re.IGNORECASE) for p in AUTO_DOMAIN_PATTERNS]
+AUTO_DOMAIN_RE: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE) for p in AUTO_DOMAIN_PATTERNS
+]
 
 # Known bulk/newsletter platform domains
-PLATFORM_DOMAINS = {
+PLATFORM_DOMAINS: set[str] = {
     "beehiiv.com",
     "substack.com",
     "groups.io",
@@ -154,7 +159,7 @@ PLATFORM_DOMAINS = {
 }
 
 
-def is_automated_sender(address):
+def is_automated_sender(address: str) -> bool:
     """Determine if a sender address is automated/marketing."""
     address = address.lower().strip()
     local, _, domain = address.partition("@")
@@ -187,7 +192,7 @@ def is_automated_sender(address):
     return False
 
 
-def authenticate():
+def authenticate() -> tuple[str, Any, msal.SerializableTokenCache]:
     cache = msal.SerializableTokenCache()
     if TOKEN_CACHE_FILE.exists():
         cache.deserialize(TOKEN_CACHE_FILE.read_text())
@@ -198,7 +203,7 @@ def authenticate():
     )
     accounts = app.get_accounts()
     if accounts:
-        result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)", flush=True)
             if cache.has_state_changed:
@@ -206,7 +211,7 @@ def authenticate():
             return result["access_token"], app, cache
 
     print("\nMICROSOFT AUTHENTICATION REQUIRED", flush=True)
-    flow = app.initiate_device_flow(scopes=SCOPES)
+    flow: dict[str, Any] = app.initiate_device_flow(scopes=SCOPES)
     print(flow["message"], flush=True)
     result = app.acquire_token_by_device_flow(flow)
     if "access_token" in result:
@@ -217,18 +222,18 @@ def authenticate():
 
 session = requests.Session()
 session.headers["Content-Type"] = "application/json"
-_app = None
-_cache = None
+_app: Any = None
+_cache: msal.SerializableTokenCache | None = None
 
 
-def refresh_token():
+def refresh_token() -> str:
     global _app, _cache
     accounts = _app.get_accounts()
-    result = _app.acquire_token_silent(SCOPES, account=accounts[0])
+    result: dict[str, Any] = _app.acquire_token_silent(SCOPES, account=accounts[0])
     return result["access_token"]
 
 
-def api_get(url, params=None):
+def api_get(url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     for attempt in range(5):
         try:
             resp = session.get(url, params=params, timeout=30)
@@ -248,7 +253,7 @@ def api_get(url, params=None):
     raise RuntimeError("Failed after 5 retries")
 
 
-def api_post(url, json_data):
+def api_post(url: str, json_data: dict[str, Any]) -> dict[str, Any]:
     for attempt in range(5):
         try:
             resp = session.post(url, json=json_data, timeout=60)
@@ -267,7 +272,7 @@ def api_post(url, json_data):
     raise RuntimeError("Failed after 5 retries")
 
 
-def main():
+def main() -> None:
     global _app, _cache
 
     parser = argparse.ArgumentParser(description="Pass 6: Pattern-based automated sender cleanup")
@@ -287,20 +292,22 @@ def main():
 
     # Phase 1: Scan entire inbox, classify each sender
     print("\n[2/3] Scanning inbox for automated senders...", flush=True)
-    url = f"{GRAPH_BASE}/me/mailFolders/inbox/messages"
-    params = {"$top": PAGE_SIZE, "$select": "id,from"}
+    url: str | None = f"{GRAPH_BASE}/me/mailFolders/inbox/messages"
+    params: dict[str, Any] = {"$top": PAGE_SIZE, "$select": "id,from"}
 
-    auto_ids = []
+    auto_ids: list[str] = []
     keep_count = 0
-    auto_senders = Counter()
-    keep_senders = Counter()
+    auto_senders: Counter[str] = Counter()
+    keep_senders: Counter[str] = Counter()
     total = 0
     page = 0
 
     while url:
         data = api_get(url, params if page == 0 else None)
         for msg in data.get("value", []):
-            addr = msg.get("from", {}).get("emailAddress", {}).get("address", "unknown").lower()
+            addr: str = (
+                msg.get("from", {}).get("emailAddress", {}).get("address", "unknown").lower()
+            )
             total += 1
             if is_automated_sender(addr):
                 auto_ids.append(msg["id"])
@@ -342,7 +349,7 @@ def main():
 
     for i in range(0, len(auto_ids), BATCH_SIZE):
         chunk = auto_ids[i : i + BATCH_SIZE]
-        reqs = [
+        reqs: list[dict[str, Any]] = [
             {"id": str(j), "method": "DELETE", "url": f"/me/messages/{mid}"}
             for j, mid in enumerate(chunk)
         ]
