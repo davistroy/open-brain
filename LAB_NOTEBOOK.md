@@ -7821,6 +7821,14 @@ Added `static minimum_autonomy` to 6 proactive skills from #131:
 
 All tests passing. tsc clean. Entry 112 pre-dates first P14b commit (BLOCKING requirement met).
 
+### Closure
+
+- **PR #150** merged `a117d73`. Opus APPROVE cycle 1 (1 minor SECURITY.md nit — duplicates not found, file was clean).
+- **Homeserver deploy:** workers + core-api restarted. `SafePromptBuilder` wrapping active on all 9 surfaces. 6 proactive skill autonomy gates live.
+- **#116 CLOSED** — P14a (SafePromptBuilder module) + P14b (call-site migration) both complete. Theme 15 (Prompt injection) fully resolved.
+- **#131 CLOSED** — A73 folded into P14b. All 6 deferred proactive skills now have `minimum_autonomy` gates (daily-connections, drift-monitor, cost-analysis, capture-dedup-sweep, morning-brief → `observe`; monthly-reflection → `assist`).
+- **Duration:** ~1.5 days.
+
 ---
 
 ## Entry 113 — P15a: Version sync script + initial doc alignment  [doc] [config]
