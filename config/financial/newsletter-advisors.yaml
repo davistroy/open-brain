@@ -1,0 +1,62 @@
+# Financial advisor newsletter pipeline config — P21
+# Each entry: sender domain or exact address -> advisor name + extraction hints
+#
+# Populate sender_match with the actual From address or domain of your advisors.
+# match_type: exact (full email address) | domain (any @that.domain)
+#
+# action_item_keywords: T0 word-boundary scan for lines that likely contain
+# a specific recommendation or task to act on.
+#
+# section_headers: regex-split points — newsletter body is chunked at these
+# case-insensitive patterns so only the relevant sections go into the T2 prompt.
+
+advisors:
+  # ── Placeholder — replace with your real advisor senders ──────────────────
+  - name: "Example Advisor Firm"
+    sender_match: "newsletter@example-advisory.com"
+    match_type: exact                           # exact | domain
+    brain_view: personal
+    capture_type: observation
+    action_item_keywords:
+      - "recommend"
+      - "action"
+      - "consider"
+      - "target"
+      - "should"
+      - "suggest"
+      - "opportunity"
+      - "deadline"
+      - "by end of"
+    section_headers:
+      - "Market Commentary"
+      - "Portfolio Recommendations"
+      - "Key Takeaways"
+      - "Action Items"
+      - "Investment Outlook"
+      - "Economic Update"
+      - "What We're Watching"
+
+  # ── Add your real advisors below ──────────────────────────────────────────
+  # - name: "Schwab Intelligent Portfolio"
+  #   sender_match: "schwab.com"
+  #   match_type: domain
+  #   brain_view: personal
+  #   capture_type: observation
+  #   action_item_keywords:
+  #     - "rebalance"
+  #     - "review"
+  #     - "consider"
+  #     - "recommend"
+  #   section_headers:
+  #     - "Market Update"
+  #     - "Portfolio Review"
+  #     - "Quarterly Outlook"
+
+# Pipeline behavior
+pipeline:
+  dedupe_window_days: 7           # skip newsletter if same sender seen < 7 days ago
+  max_body_chars: 20000           # truncate body before T2 prompt (keeps prompt under 6K)
+  synthesis_timeout_sec: 180      # claude --print timeout
+  capture_api:
+    url: "https://brain.troy-davis.com/api/v1/captures"
+    caller_header: "newsletter-pipeline"
