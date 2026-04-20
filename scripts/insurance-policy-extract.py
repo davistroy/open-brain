@@ -30,7 +30,7 @@ import logging
 import os
 import re
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 # -----------------------------------------------------------------------
@@ -888,11 +888,10 @@ def upsert_policy(policy_data: dict) -> str:
     conn = None
     try:
         conn = psycopg2.connect(db_url)
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, params)
-                row = cur.fetchone()
-                return str(row[0]) if row else "unknown"
+        with conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            return str(row[0]) if row else "unknown"
     finally:
         if conn:
             conn.close()
@@ -910,23 +909,22 @@ def get_policy_status() -> None:
     conn = None
     try:
         conn = psycopg2.connect(db_url)
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT policy_type, COUNT(*) FROM insurance_policies GROUP BY policy_type ORDER BY policy_type"
-                )
-                rows = cur.fetchall()
-                if not rows:
-                    print("No policies in database.")
-                    return
-                print(f"\n{'Policy Type':<15} {'Count':>6}")
-                print("-" * 22)
-                total = 0
-                for ptype, count in rows:
-                    print(f"{ptype:<15} {count:>6}")
-                    total += count
-                print("-" * 22)
-                print(f"{'Total':<15} {total:>6}")
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT policy_type, COUNT(*) FROM insurance_policies GROUP BY policy_type ORDER BY policy_type"
+            )
+            rows = cur.fetchall()
+            if not rows:
+                print("No policies in database.")
+                return
+            print(f"\n{'Policy Type':<15} {'Count':>6}")
+            print("-" * 22)
+            total = 0
+            for ptype, count in rows:
+                print(f"{ptype:<15} {count:>6}")
+                total += count
+            print("-" * 22)
+            print(f"{'Total':<15} {total:>6}")
     finally:
         if conn:
             conn.close()
@@ -944,27 +942,26 @@ def list_policies() -> None:
     conn = None
     try:
         conn = psycopg2.connect(db_url)
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT id, provider, policy_type, effective_date, expiration_date, source_file, extracted_at
-                       FROM insurance_policies
-                       ORDER BY created_at DESC"""
-                )
-                rows = cur.fetchall()
-                if not rows:
-                    print("No policies in database.")
-                    return
-                print(
-                    f"\n{'ID':36}  {'Provider':25}  {'Type':10}  {'Effective':12}  {'Expires':12}  {'File'}"
-                )
-                print("-" * 120)
-                for row in rows:
-                    pid, prov, ptype, eff, exp, src, extracted = row
-                    src_short = Path(src).name if src else "(none)"
-                    eff_s = str(eff) if eff else "        "
-                    exp_s = str(exp) if exp else "        "
-                    print(f"{pid}  {prov[:25]:<25}  {ptype:<10}  {eff_s:<12}  {exp_s:<12}  {src_short}")
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """SELECT id, provider, policy_type, effective_date, expiration_date, source_file, extracted_at
+                   FROM insurance_policies
+                   ORDER BY created_at DESC"""
+            )
+            rows = cur.fetchall()
+            if not rows:
+                print("No policies in database.")
+                return
+            print(
+                f"\n{'ID':36}  {'Provider':25}  {'Type':10}  {'Effective':12}  {'Expires':12}  {'File'}"
+            )
+            print("-" * 120)
+            for row in rows:
+                pid, prov, ptype, eff, exp, src, extracted = row
+                src_short = Path(src).name if src else "(none)"
+                eff_s = str(eff) if eff else "        "
+                exp_s = str(exp) if exp else "        "
+                print(f"{pid}  {prov[:25]:<25}  {ptype:<10}  {eff_s:<12}  {exp_s:<12}  {src_short}")
     finally:
         if conn:
             conn.close()
@@ -1053,11 +1050,10 @@ def process_dir(
         try:
             import psycopg2  # type: ignore[import]
             conn = psycopg2.connect(get_db_url())
-            with conn:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT source_file FROM insurance_policies WHERE source_file IS NOT NULL")
-                    for row in cur.fetchall():
-                        ingested.add(row[0])
+            with conn, conn.cursor() as cur:
+                cur.execute("SELECT source_file FROM insurance_policies WHERE source_file IS NOT NULL")
+                for row in cur.fetchall():
+                    ingested.add(row[0])
             conn.close()
         except Exception as e:
             log.warning(f"Could not load ingested file list: {e}")

@@ -64,7 +64,7 @@ def authenticate() -> str:
 
     accounts = app.get_accounts()
     if accounts:
-        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])  # type: ignore[assignment]
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)")
             save_cache(cache)
@@ -284,7 +284,7 @@ def load_marketing_senders() -> list[tuple[str, int, str]]:
 
     senders: list[tuple[str, int, str]] = []
     for sndr, cats in sender_cats.items():
-        primary_cat = max(cats, key=cats.get)
+        primary_cat = max(cats, key=cats.get)  # type: ignore[arg-type]
         is_marketing = primary_cat in spam_categories or any(
             sig in sndr.lower() for sig in marketing_signals
         )

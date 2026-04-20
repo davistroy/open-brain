@@ -22,10 +22,11 @@ Cron (open-brain-vm, daily 08:00):
     0 8 * * * cd ~/open-brain && venv/bin/python scripts/newsletter-pipeline.py --run >> ~/logs/newsletter-pipeline.log 2>&1
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import importlib.util
-import json
 import logging
 import re
 import sqlite3
@@ -38,8 +39,8 @@ from pathlib import Path
 import requests
 import yaml
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -444,7 +445,7 @@ def parse_newsletter(body_text: str, advisor_config: dict) -> dict:
         # parts alternates: [pre-text, header1, body1, header2, body2, ...]
         sections["(intro)"] = parts[0].strip()
         it = iter(parts[1:])
-        for hdr, body in zip(it, it):
+        for hdr, body in zip(it, it, strict=False):
             sections[hdr.strip()] = body.strip()
     else:
         sections["(full)"] = body_text.strip()
@@ -597,7 +598,7 @@ def _raw_extraction_text(parsed: dict, diff_note: str) -> str:
     else:
         lines.append("(none detected)")
     lines.append(f"\n## Change Note\n{diff_note}")
-    lines.append(f"\n## Sections\n" + ", ".join(parsed["sections"].keys()))
+    lines.append("\n## Sections\n" + ", ".join(parsed["sections"].keys()))
     return "\n".join(lines)
 
 
@@ -865,7 +866,6 @@ def cmd_reprocess(conn: sqlite3.Connection, cfg: dict, n: int) -> None:
     if not rows:
         log.info("No newsletters to reprocess")
         return
-    advisor_index = _advisor_index(cfg)
     log.info(f"Reprocessing {len(rows)} newsletter(s)...")
     for (mid, aname, prov, subj, recv, bhash, bprev) in rows:
         conn.execute(

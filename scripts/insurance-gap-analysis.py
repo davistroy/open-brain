@@ -198,7 +198,7 @@ def _parse_amount(val: Any) -> float | None:
     """Parse a coverage amount — handles int, float, str like '$100,000'."""
     if val is None:
         return None
-    if isinstance(val, (int, float)):
+    if isinstance(val, int | float):
         return float(val)
     if isinstance(val, str):
         cleaned = val.replace("$", "").replace(",", "").strip()
@@ -634,8 +634,8 @@ def build_capture_content(
 def _run_watch_dir(watch_dir: str, cfg: dict, args: argparse.Namespace) -> None:
     """Watch a directory for new PDFs and re-run gap analysis on each arrival."""
     try:
+        from watchdog.events import FileCreatedEvent, FileSystemEventHandler  # type: ignore[import]
         from watchdog.observers import Observer  # type: ignore[import]
-        from watchdog.events import FileSystemEventHandler, FileCreatedEvent  # type: ignore[import]
     except ImportError:
         log.error(
             "watchdog package not installed.  Install with: pip install watchdog\n"
@@ -650,7 +650,7 @@ def _run_watch_dir(watch_dir: str, cfg: dict, args: argparse.Namespace) -> None:
         def on_created(self, event: Any) -> None:
             if not isinstance(event, FileCreatedEvent):
                 return
-            path = Path(event.src_path)
+            path = Path(event.src_path)  # type: ignore[arg-type]
             if path.suffix.lower() != ".pdf":
                 return
             log.info(f"New PDF detected: {path}")
