@@ -1,8 +1,13 @@
 import { z } from 'zod'
 import type { Queue } from 'bullmq'
-import { logger } from '@open-brain/shared'
+import { logger, SafePromptBuilder } from '@open-brain/shared'
 import type { SearchService } from '../../services/search.js'
 import type { SearchResult } from '../../services/search.js'
+
+// Module-level sanitizer for MCP return values.
+// Using sanitizeInline (not wrapContent) — MCP responses are plain text read by the
+// client LLM; XML delimiters from wrapContent would appear as literals in tool output.
+const _sanitizer = new SafePromptBuilder()
 
 export const searchBrainSchema = z.object({
   query: z.string().min(1).describe('Search query string'),
@@ -25,9 +30,10 @@ function formatResult(index: number, { capture, score }: SearchResult): string[]
     day: 'numeric',
   })
   const matchPct = Math.round(score * 100)
-  const preview = capture.content.length > 500
-    ? capture.content.slice(0, 500).trimEnd() + '…'
-    : capture.content
+  const safeContent = _sanitizer.sanitizeInline(capture.content, capture.id ?? 'unknown')
+  const preview = safeContent.length > 500
+    ? safeContent.slice(0, 500).trimEnd() + '…'
+    : safeContent
 
   const lines: string[] = []
   lines.push(`${index}. [${matchPct}% match] ${capture.capture_type.toUpperCase()} — ${date} (${capture.source})`)

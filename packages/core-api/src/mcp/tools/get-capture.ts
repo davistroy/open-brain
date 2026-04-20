@@ -1,7 +1,12 @@
 import { z } from 'zod'
 import type { CaptureService } from '../../services/capture.js'
 import type { Database } from '@open-brain/shared'
+import { SafePromptBuilder } from '@open-brain/shared'
 import { sql } from 'drizzle-orm'
+
+// Module-level sanitizer for MCP return values.
+// Using sanitizeInline (not wrapContent) — plain text returned to client LLM.
+const _sanitizer = new SafePromptBuilder()
 
 export const getCaptureSchema = z.object({
   id: z.string().uuid().describe('Capture UUID'),
@@ -54,7 +59,8 @@ export async function getCaptureTool(input: GetCaptureInput, captureService: Cap
     }
   }
 
-  lines.push('', '--- Content ---', '', capture.content)
+  const safeContent = _sanitizer.sanitizeInline(capture.content, capture.id ?? 'unknown')
+  lines.push('', '--- Content ---', '', safeContent)
 
   // Fetch linked entities
   try {

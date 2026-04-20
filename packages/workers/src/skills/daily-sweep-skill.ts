@@ -1,5 +1,5 @@
 import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, SafePromptBuilder } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
 import {
@@ -100,8 +100,14 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
     const maxChars = tokenBudget * CHARS_PER_TOKEN
     const { capturesText, questionsText, entitiesText } = assembleContext(captures, questions, newEntities, maxChars)
 
+    // Step 3b: Sanitize user-controlled content via SafePromptBuilder (WI-2)
+    const builder = new SafePromptBuilder()
+    const safeCaptures = builder.wrapContent(capturesText, 'captures-block')
+    const safeQuestions = builder.wrapContent(questionsText, 'questions-block')
+    const safeEntities = builder.wrapContent(entitiesText, 'entities-block')
+
     // Step 4: Call LLM
-    const rawOutput = await this.callLLM(capturesText, questionsText, entitiesText, captureCount, fmtDate(today), 'synthesis')
+    const rawOutput = await this.callLLM(safeCaptures, safeQuestions, safeEntities, captureCount, fmtDate(today), 'synthesis')
     const output = parseOutput(rawOutput)
     const durationMs = Date.now() - startMs
 

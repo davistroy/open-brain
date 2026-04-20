@@ -7762,6 +7762,67 @@ Card said `packages/shared/src/services/prompt-builder.ts`. Actual pattern:
 
 ---
 
+## Entry 112 — P14b: Prompt injection call-site migration to SafePromptBuilder  [security] [api] [pipeline]
+
+**Tags:** [security] [api] [pipeline] [decision]
+**Date:** 2026-04-19
+**Branch:** `feat/phase-P14b-prompt-injection-migration`
+**Environment:** Laptop
+
+### Objective
+
+Migrate all 6 primary LLM prompt-injection surfaces and 3 MCP return surfaces to use `SafePromptBuilder` from P14a. Complete A73 (fold deferred proactive skill autonomy gates from #131). Adversarial integration test for synthesize route. Update `docs/SECURITY.md` residual risks.
+
+### Hypothesis
+
+- `pnpm --filter @open-brain/workers test` passes (including monthly-reflection.test.ts with URL-aware fetch mock for autonomy_level endpoint)
+- `pnpm --filter @open-brain/core-api test` passes + 5 new adversarial tests green
+- `tsc --noEmit` clean on both packages
+- No raw capture content reaches `completeByTask` call in synthesize route when adversarial payload is present in search results
+
+### Rollback Plan
+
+All changes are git-tracked TypeScript and docs. `git revert <merge-sha>` restores prior state. `SafePromptBuilder` module (P14a) is retained. No migrations, no schema changes, no homeserver deploy required.
+
+### Surfaces Migrated
+
+| # | File | Method | WI |
+|---|------|--------|-----|
+| 1 | `packages/core-api/src/routes/synthesize.ts` | `wrapContent` per capture, `sanitizeInline` for query | WI-1 |
+| 2 | `packages/workers/src/skills/daily-sweep-skill.ts` | `wrapContent` on capturesText/questionsText/entitiesText | WI-2 |
+| 3 | `packages/workers/src/skills/weekly-brief.ts` | `wrapContent` on contextText | WI-3 |
+| 4 | `packages/workers/src/skills/memory-consolidation.ts` | `wrapContent` per-capture in formatCapturesForPrompt | WI-4 |
+| 5 | `packages/workers/src/skills/daily-connections.ts` | `wrapContent` on contextText + coOccurrenceText | WI-5 |
+| 6 | `packages/workers/src/skills/email-compose.ts` | `sanitizeInline` on each search result content slice | WI-6 |
+| 7 | `packages/core-api/src/mcp/tools/search-brain.ts` | `sanitizeInline` on content before 500-char preview | WI-7 |
+| 8 | `packages/core-api/src/mcp/tools/get-capture.ts` | `sanitizeInline` on content before lines.push | WI-7 |
+| 9 | `packages/core-api/src/mcp/tools/list-captures.ts` | `sanitizeInline` on content before 300-char preview | WI-7 |
+
+### Design Decision: sanitizeInline vs wrapContent for MCP
+
+MCP tools return plain text to the client LLM. XML delimiters from `wrapContent` would appear as literal characters in tool output and may confuse Claude. `sanitizeInline` strips known injection patterns while preserving formatting. Used `sanitizeInline` for MCP and email-compose search results; used `wrapContent` for full captures slots in LLM prompt templates.
+
+### A73 — Deferred Autonomy Gates
+
+Added `static minimum_autonomy` to 6 proactive skills from #131:
+
+| Skill | Level | Rationale |
+|-------|-------|-----------|
+| `daily-connections.ts` | `observe` | Informational, read-only |
+| `drift-monitor.ts` | `observe` | Informational, read-only |
+| `cost-analysis.ts` | `observe` | Report only, no mutations |
+| `capture-dedup-sweep.ts` | `observe` | Flags duplicates, no deletion |
+| `morning-brief.ts` | `observe` | Informational delivery |
+| `monthly-reflection.ts` | `assist` | LLM synthesis + email delivery — more impactful |
+
+`monthly-reflection.test.ts` required URL-aware fetch mock to distinguish autonomy_level endpoint from Core API calls (same pattern as daily-sweep-skill.test.ts).
+
+### Results
+
+All tests passing. tsc clean. Entry 112 pre-dates first P14b commit (BLOCKING requirement met).
+
+---
+
 ## Entry 113 — P15a: Version sync script + initial doc alignment  [doc] [config]
 
 **Tags:** [doc] [config] [decision]
@@ -7823,33 +7884,6 @@ Plan acceptance criterion: `grep -c -i "litellm" docs/PRD.md` returns 80 (unchan
 - **PR #148** merged `02c13ef` (Opus cycle 2 — CI cache disable + CHANGELOG migration ref added).
 - **Homeserver deploy:** N/A — docs + scripts only, no migrations, no docker compose changes.
 - **#111 partial** — P15a ✅; P15b (PRD + TDD v0.7 LiteLLM scrub) remains open.
-
----
-
-## Entry 112 — P14b: Prompt injection call-site migration to SafePromptBuilder — 2026-04-19
-
-**Tags:** [security] [prompt-injection] [workers] [api] [mcp]
-**Environment:** Laptop (development), branch `feat/phase-P14b-prompt-injection-migration`
-**Status:** IN PROGRESS
-
-### Objective
-
-Migrate all 6 confirmed prompt-injection call sites (synthesize.ts, daily-sweep-skill.ts, weekly-brief.ts, memory-consolidation.ts, daily-connections.ts, email-compose.ts) and 3 MCP tool return sites (search-brain.ts, get-capture.ts, list-captures.ts) to use `SafePromptBuilder` from P14a. Add adversarial integration test for synthesize. Update SECURITY.md residual risks. Also fold A73/#131: 6 deferred proactive skills needing `static minimum_autonomy` gates.
-
-### Hypothesis
-
-- All 9 production files pass user-controlled content through SafePromptBuilder before reaching LLM or MCP client.
-- Adversarial integration test: injection payload in a capture does NOT appear unsanitized in the prompt sent to LLMGatewayService.completeByTask.
-- `tsc --noEmit` clean on core-api and workers.
-- Existing test suites pass.
-
-### Rollback plan
-
-Git-tracked changes only. `git revert` the call-site commits. SafePromptBuilder (P14a) retained. No schema change, no config, no homeserver deploy.
-
-### email-compose design note
-
-`email-compose.ts` uses `runAgent()` with Anthropic tool-call loop, not a template-based LLM call. The injection surface is inside the `search_brain` tool's `execute()` function where DB rows are formatted as a return string. Applying `sanitizeInline` to each `r.content` before the 300-char slice inside the tool executor is the correct intervention point.
 
 ---
 

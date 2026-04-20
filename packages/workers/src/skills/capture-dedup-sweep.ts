@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { Database } from '@open-brain/shared'
+import type { Database, AutonomyLevel } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
@@ -85,6 +85,8 @@ interface DedupPairRow {
  * Pattern: query DB, log results, send Pushover if duplicates found.
  */
 export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, CaptureDedupSweepResult> {
+  static minimum_autonomy: AutonomyLevel = 'observe'
+
   constructor(opts: BaseSkillOpts) {
     super('capture-dedup-sweep', opts)
   }

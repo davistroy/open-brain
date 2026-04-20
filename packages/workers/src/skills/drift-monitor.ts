@@ -1,4 +1,4 @@
-import type { Database, LLMGatewayService } from '@open-brain/shared'
+import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
@@ -42,6 +42,8 @@ export interface DriftMonitorSkillOpts extends LLMSkillOpts {
  * when drift items with severity >= medium exist.
  */
 export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonitorResult> {
+  static minimum_autonomy: AutonomyLevel = 'observe'
+
   private wikiService: WikiGitService | null
 
   constructor(opts: DriftMonitorSkillOpts) {

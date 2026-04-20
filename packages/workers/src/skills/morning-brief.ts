@@ -1,4 +1,4 @@
-import type { Database, PushoverService } from '@open-brain/shared'
+import type { Database, PushoverService, AutonomyLevel } from '@open-brain/shared'
 import { logger, ComposioClient, SlackMessenger } from '@open-brain/shared'
 import type { SlackBlock } from '@open-brain/shared'
 import type { Redis } from 'ioredis'
@@ -400,6 +400,8 @@ export interface MorningBriefSkillOpts extends BaseSkillOpts {
 }
 
 export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBriefResult> {
+  static minimum_autonomy: AutonomyLevel = 'observe'
+
   private composioKey: string
   private slackChannelId: string
   private slack: SlackMessenger

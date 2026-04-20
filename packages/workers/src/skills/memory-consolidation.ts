@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, SafePromptBuilder } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts, BaseResult } from './types.js'
 import {
@@ -297,11 +297,13 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
   // ----------------------------------------------------------
 
   private formatCapturesForPrompt(captureRows: CaptureRow[]): string {
+    const builder = new SafePromptBuilder()
     return captureRows.map((c, i) => {
       const date = typeof c.created_at === 'string' ? c.created_at.split('T')[0] : 'unknown'
       const tags = c.tags?.length ? ` | Tags: ${c.tags.join(', ')}` : ''
-      return `--- Capture ${i + 1} (${date}, ${c.capture_type}, ${c.source})${tags} ---\n${c.content}\n`
-    }).join('\n')
+      const label = `Capture ${i + 1} (${date}, ${c.capture_type}, ${c.source})${tags}`
+      return `${label}\n${builder.wrapContent(c.content, c.id)}`
+    }).join('\n\n')
   }
 
   // ----------------------------------------------------------
