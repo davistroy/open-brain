@@ -9,6 +9,8 @@ Uses an inverted approach: identify senders in KEEP categories, then delete
 all emails NOT from those senders (plus a date safety net for uncategorized).
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -17,12 +19,13 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
-import msal
+import msal  # type: ignore[import-untyped]
 import requests
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
 CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
 TENANT_ID = "common"
@@ -35,7 +38,7 @@ MAX_CONCURRENT = 4
 PAGE_SIZE = 999
 
 # Categories to KEEP — everything else gets deleted
-KEEP_CATEGORIES = {
+KEEP_CATEGORIES: set[str] = {
     "Personal & Reminders",
     "Jamie",
     "Ashley",
@@ -47,13 +50,13 @@ KEEP_CATEGORIES = {
 }
 
 # Extra protected senders (regardless of category)
-PROTECTED_SENDERS = {"ash.davis@hotmail.com"}
+PROTECTED_SENDERS: set[str] = {"ash.davis@hotmail.com"}
 
 session = requests.Session()
 session.headers["Content-Type"] = "application/json"
 
 
-def authenticate():
+def authenticate() -> str:
     print(f"  Token cache: {TOKEN_CACHE_FILE}", flush=True)
     cache = msal.SerializableTokenCache()
     if TOKEN_CACHE_FILE.exists():
@@ -68,7 +71,7 @@ def authenticate():
 
     accounts = app.get_accounts()
     if accounts:
-        result = app.acquire_token_silent(SCOPES, account=accounts[0])
+        result: dict[str, Any] = app.acquire_token_silent(SCOPES, account=accounts[0])
         if result and "access_token" in result:
             print(f"  Authenticated as {accounts[0]['username']} (cached)", flush=True)
             if cache.has_state_changed:
@@ -78,7 +81,7 @@ def authenticate():
     print("\n" + "=" * 60)
     print("MICROSOFT AUTHENTICATION REQUIRED")
     print("=" * 60)
-    flow = app.initiate_device_flow(scopes=SCOPES)
+    flow: dict[str, Any] = app.initiate_device_flow(scopes=SCOPES)
     if "user_code" not in flow:
         raise RuntimeError(f"Failed: {flow.get('error_description')}")
     print(flow["message"])
@@ -90,7 +93,11 @@ def authenticate():
     raise RuntimeError(f"Auth failed: {result.get('error_description')}")
 
 
-def api_get(url, params=None, retries=5):
+def api_get(
+    url: str,
+    params: dict[str, Any] | None = None,
+    retries: int = 5,
+) -> dict[str, Any]:
     for attempt in range(retries):
         try:
             resp = session.get(url, params=params, timeout=30)
@@ -113,7 +120,11 @@ def api_get(url, params=None, retries=5):
     raise RuntimeError(f"Failed after {retries} retries: {url}")
 
 
-def api_post(url, json_data, retries=5):
+def api_post(
+    url: str,
+    json_data: dict[str, Any],
+    retries: int = 5,
+) -> dict[str, Any]:
     for attempt in range(retries):
         try:
             resp = session.post(url, json=json_data, timeout=60)
@@ -136,13 +147,16 @@ def api_post(url, json_data, retries=5):
     raise RuntimeError(f"Failed after {retries} retries: {url}")
 
 
-def collect_message_ids(folder, odata_filter=None):
-    url = f"{GRAPH_BASE}/me/mailFolders/{folder}/messages"
-    params = {"$top": PAGE_SIZE, "$select": "id"}
+def collect_message_ids(
+    folder: str,
+    odata_filter: str | None = None,
+) -> list[str]:
+    url: str | None = f"{GRAPH_BASE}/me/mailFolders/{folder}/messages"
+    params: dict[str, Any] = {"$top": PAGE_SIZE, "$select": "id"}
     if odata_filter:
         params["$filter"] = odata_filter
 
-    ids = []
+    ids: list[str] = []
     page = 0
     while url:
         data = api_get(url, params if page == 0 else None)
@@ -152,7 +166,7 @@ def collect_message_ids(folder, odata_filter=None):
     return ids
 
 
-def collect_ids_for_sender(sender, folder="inbox"):
+def collect_ids_for_sender(sender: str, folder: str = "inbox") -> list[str]:
     odata_filter = f"from/emailAddress/address eq '{sender}'"
     try:
         return collect_message_ids(folder, odata_filter)
@@ -161,7 +175,11 @@ def collect_ids_for_sender(sender, folder="inbox"):
         return []
 
 
-def batch_delete(message_ids, label="", dry_run=False):
+def batch_delete(
+    message_ids: list[str],
+    label: str = "",
+    dry_run: bool = False,
+) -> int:
     if not message_ids:
         return 0
 
@@ -174,7 +192,7 @@ def batch_delete(message_ids, label="", dry_run=False):
         if dry_run:
             deleted += len(chunk)
         else:
-            requests_payload = [
+            requests_payload: list[dict[str, Any]] = [
                 {"id": str(j), "method": "DELETE", "url": f"/me/messages/{mid}"}
                 for j, mid in enumerate(chunk)
             ]
@@ -196,30 +214,32 @@ def batch_delete(message_ids, label="", dry_run=False):
     return deleted
 
 
-def load_sender_sets():
+def load_sender_sets() -> tuple[set[str], set[str], defaultdict[str, int], defaultdict[str, int]]:
     """Build KEEP and DELETE sender sets from classification data."""
     corpus_path = os.path.expanduser("~/data/outputs/email_corpus.json")
     clf_path = os.path.expanduser("~/data/outputs/classify_report_batch.json")
 
     with open(corpus_path, encoding="utf-8") as f:
-        corpus = json.load(f)
+        corpus: dict[str, Any] = json.load(f)
     with open(clf_path, encoding="utf-8") as f:
-        clf_data = json.load(f)
+        clf_data: dict[str, Any] = json.load(f)
 
-    email_info = {}
+    email_info: dict[str, str] = {}
     for email in corpus["emails"]:
         email_info[email["id"]] = email["sender_email"]
 
-    sender_cats = defaultdict(lambda: defaultdict(int))
+    sender_cats: defaultdict[str, defaultdict[str, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
     for email_id, info in clf_data["categorized_emails"].items():
-        sender = email_info.get(email_id, "")
+        sender: str = email_info.get(email_id, "")
         if sender:
             sender_cats[sender][info["category"]] += 1
 
-    keep_senders = set()
-    delete_senders = set()
-    keep_category_counts = defaultdict(int)
-    delete_category_counts = defaultdict(int)
+    keep_senders: set[str] = set()
+    delete_senders: set[str] = set()
+    keep_category_counts: defaultdict[str, int] = defaultdict(int)
+    delete_category_counts: defaultdict[str, int] = defaultdict(int)
 
     for sender, cats in sender_cats.items():
         primary = max(cats, key=cats.get)
@@ -240,7 +260,7 @@ def load_sender_sets():
     return keep_senders, delete_senders, keep_category_counts, delete_category_counts
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Email cleanup pass 4 — delete all except protected categories"
     )
@@ -275,7 +295,7 @@ def main():
 
     # Query delete senders
     print(f"\n[3/5] Querying {len(delete_senders)} senders to delete...", flush=True)
-    all_delete_ids = []
+    all_delete_ids: list[str] = []
     completed = 0
 
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as pool:

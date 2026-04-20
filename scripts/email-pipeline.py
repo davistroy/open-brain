@@ -14,6 +14,8 @@ Usage:
     python email-pipeline.py --status                      # pipeline stats
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
@@ -25,13 +27,14 @@ import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
-import msal
+import msal  # type: ignore[import-untyped]
 import requests
-import yaml
+import yaml  # type: ignore[import-untyped]
 
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -57,11 +60,11 @@ BATCH = 50
 # ── Config ───────────────────────────────────────────────────────────────────
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     """Load and normalize email-categories.yaml."""
     if not CONFIG_PATH.exists():
         sys.exit(f"Config not found: {CONFIG_PATH}")
-    cfg = yaml.safe_load(CONFIG_PATH.read_text())
+    cfg: dict[str, Any] = yaml.safe_load(CONFIG_PATH.read_text())
     cfg["_categories"] = {c for cats in cfg["groups"].values() for c in cats}
     cfg["sender_rules"] = {k.lower(): v for k, v in cfg["sender_rules"].items()}
     cfg["keyword_rules"] = {c: [w.lower() for w in ws] for c, ws in cfg["keyword_rules"].items()}
@@ -104,14 +107,25 @@ def init_db() -> sqlite3.Connection:
     return conn
 
 
-def is_processed(conn, mid: str) -> bool:
+def is_processed(conn: sqlite3.Connection, mid: str) -> bool:
     return (
         conn.execute("SELECT 1 FROM processed_emails WHERE message_id=?", (mid,)).fetchone()
         is not None
     )
 
 
-def record_email(conn, mid, provider, sender, subject, cat, conf, tier, fid, moved):
+def record_email(
+    conn: sqlite3.Connection,
+    mid: str,
+    provider: str,
+    sender: str,
+    subject: str,
+    cat: str,
+    conf: float,
+    tier: str,
+    fid: str,
+    moved: bool,
+) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO processed_emails "
         "(message_id,provider,sender,subject,category,confidence,tier,folder_id,moved) "
@@ -121,7 +135,13 @@ def record_email(conn, mid, provider, sender, subject, cat, conf, tier, fid, mov
     conn.commit()
 
 
-def record_correction(conn, mid, provider, old_cat, new_cat):
+def record_correction(
+    conn: sqlite3.Connection,
+    mid: str,
+    provider: str,
+    old_cat: str,
+    new_cat: str,
+) -> None:
     conn.execute(
         "INSERT INTO corrections(message_id,provider,old_category,new_category) VALUES(?,?,?,?)",
         (mid, provider, old_cat, new_cat),
@@ -129,14 +149,20 @@ def record_correction(conn, mid, provider, old_cat, new_cat):
     conn.commit()
 
 
-def get_folder_id(conn, provider, category) -> str | None:
+def get_folder_id(conn: sqlite3.Connection, provider: str, category: str) -> str | None:
     r = conn.execute(
         "SELECT folder_id FROM folder_map WHERE provider=? AND category=?", (provider, category)
     ).fetchone()
     return r[0] if r else None
 
 
-def save_folder_id(conn, provider, category, fid, fname):
+def save_folder_id(
+    conn: sqlite3.Connection,
+    provider: str,
+    category: str,
+    fid: str,
+    fname: str,
+) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO folder_map(provider,category,folder_id,folder_name) VALUES(?,?,?,?)",
         (provider, category, fid, fname),
@@ -147,7 +173,13 @@ def save_folder_id(conn, provider, category, fid, fname):
 # ── Graph API helpers ────────────────────────────────────────────────────────
 
 
-def _graph_request(session, method, url, json_data=None, refresh_fn=None):
+def _graph_request(
+    session: requests.Session,
+    method: str,
+    url: str,
+    json_data: dict[str, Any] | None = None,
+    refresh_fn: Any = None,
+) -> dict[str, Any] | None:
     """Generic Graph API call with retry, rate limit, and 401 refresh."""
     for attempt in range(5):
         try:
@@ -173,14 +205,15 @@ def _graph_request(session, method, url, json_data=None, refresh_fn=None):
 
 
 class HotmailBackend:
-    def __init__(self, conn, cfg):
-        self.conn, self.cfg = conn, cfg
+    def __init__(self, conn: sqlite3.Connection, cfg: dict[str, Any]) -> None:
+        self.conn = conn
+        self.cfg = cfg
         self.session = requests.Session()
         self.session.headers["Content-Type"] = "application/json"
-        self._cache = msal.SerializableTokenCache()
-        self._app = None
+        self._cache: msal.SerializableTokenCache = msal.SerializableTokenCache()
+        self._app: msal.PublicClientApplication | None = None
 
-    def authenticate(self, interactive=False) -> bool:
+    def authenticate(self, interactive: bool = False) -> bool:
         if MS_TOKEN_CACHE.exists():
             self._cache.deserialize(MS_TOKEN_CACHE.read_text())
         self._app = msal.PublicClientApplication(
@@ -190,7 +223,7 @@ class HotmailBackend:
         )
         accounts = self._app.get_accounts()
         if accounts:
-            r = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
+            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
             if r and "access_token" in r:
                 self.session.headers["Authorization"] = f"Bearer {r['access_token']}"
                 self._save_cache()
@@ -199,7 +232,7 @@ class HotmailBackend:
         if not interactive:
             log.error("Hotmail: no cached token. Run --setup --provider hotmail")
             return False
-        flow = self._app.initiate_device_flow(scopes=MS_SCOPES)
+        flow: dict[str, Any] = self._app.initiate_device_flow(scopes=MS_SCOPES)
         if "user_code" not in flow:
             log.error(f"Device flow failed: {flow.get('error_description')}")
             return False
@@ -213,30 +246,32 @@ class HotmailBackend:
         log.error(f"Auth failed: {r.get('error_description')}")
         return False
 
-    def _save_cache(self):
+    def _save_cache(self) -> None:
         PIPE_DIR.mkdir(parents=True, exist_ok=True)
         MS_TOKEN_CACHE.write_text(self._cache.serialize())
 
-    def _refresh(self):
+    def _refresh(self) -> bool:
+        if self._app is None:
+            return False
         accounts = self._app.get_accounts()
         if accounts:
-            r = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
+            r: dict[str, Any] = self._app.acquire_token_silent(MS_SCOPES, account=accounts[0])
             if r and "access_token" in r:
                 self.session.headers["Authorization"] = f"Bearer {r['access_token']}"
                 self._save_cache()
                 return True
         return False
 
-    def _get(self, url, params=None):
+    def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
         return _graph_request(
             self.session, "get", url if not params else url, refresh_fn=self._refresh
         )
 
-    def _post(self, url, data):
+    def _post(self, url: str, data: dict[str, Any]) -> dict[str, Any] | None:
         return _graph_request(self.session, "post", url, json_data=data, refresh_fn=self._refresh)
 
-    def list_folders(self) -> dict:
-        folders = {}
+    def list_folders(self) -> dict[str, str]:
+        folders: dict[str, str] = {}
         data = self._get(f"{GRAPH}/me/mailFolders?$top=100")
         if not data or "value" not in data:
             return folders
@@ -248,14 +283,14 @@ class HotmailBackend:
                     folders[c["displayName"]] = c["id"]
         return folders
 
-    def setup_folders(self):
+    def setup_folders(self) -> None:
         existing = self.list_folders()
         inbox_id = existing.get("Inbox")
         if not inbox_id:
             return log.error("Cannot find Inbox folder")
         for cat in sorted(list(self.cfg["_categories"]) + ["Needs Review"]):
             if cat in existing:
-                fid = existing[cat]
+                fid: str | None = existing[cat]
             else:
                 r = self._post(
                     f"{GRAPH}/me/mailFolders/{inbox_id}/childFolders", {"displayName": cat}
@@ -268,15 +303,13 @@ class HotmailBackend:
             save_folder_id(self.conn, "hotmail", cat, fid, cat)
         log.info("Hotmail: folders ready")
 
-    def fetch_inbox(self, since_hours=1) -> list:
+    def fetch_inbox(self, since_hours: int = 1) -> list[dict[str, Any]]:
         since = (datetime.now(UTC) - timedelta(hours=since_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        emails, url = (
-            [],
-            (
-                f"{GRAPH}/me/mailFolders/inbox/messages?$top={BATCH}"
-                f"&$select=id,subject,from,receivedDateTime,bodyPreview"
-                f"&$filter=receivedDateTime ge {since}&$orderby=receivedDateTime desc"
-            ),
+        emails: list[dict[str, Any]] = []
+        url = (
+            f"{GRAPH}/me/mailFolders/inbox/messages?$top={BATCH}"
+            f"&$select=id,subject,from,receivedDateTime,bodyPreview"
+            f"&$filter=receivedDateTime ge {since}&$orderby=receivedDateTime desc"
         )
         while url and len(emails) < 200:
             data = self._get(url)
@@ -299,10 +332,10 @@ class HotmailBackend:
             url = data.get("@odata.nextLink")
         return emails
 
-    def move_email(self, mid, fid) -> bool:
+    def move_email(self, mid: str, fid: str) -> bool:
         return self._post(f"{GRAPH}/me/messages/{mid}/move", {"destinationId": fid}) is not None
 
-    def cleanup_spam(self):
+    def cleanup_spam(self) -> None:
         cutoff = (
             datetime.now(UTC) - timedelta(days=self.cfg.get("spam_max_age_days", 30))
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -310,7 +343,10 @@ class HotmailBackend:
         junk_id, del_id = folders.get("Junk Email"), folders.get("Deleted Items")
         if not (junk_id and del_id):
             return
-        url = f"{GRAPH}/me/mailFolders/{junk_id}/messages?$top={BATCH}&$select=id&$filter=receivedDateTime lt {cutoff}"
+        url: str | None = (
+            f"{GRAPH}/me/mailFolders/{junk_id}/messages?$top={BATCH}"
+            f"&$select=id&$filter=receivedDateTime lt {cutoff}"
+        )
         moved = 0
         while url and moved < 200:
             data = self._get(url)
@@ -323,14 +359,14 @@ class HotmailBackend:
         if moved:
             log.info(f"Hotmail: trashed {moved} old spam")
 
-    def detect_corrections(self):
+    def detect_corrections(self) -> None:
         rows = self.conn.execute(
             "SELECT message_id,category,folder_id FROM processed_emails "
             "WHERE provider='hotmail' AND moved=1 AND processed_at>datetime('now','-7 days')"
         ).fetchall()
         if not rows:
             return
-        fid_to_cat = dict(
+        fid_to_cat: dict[str, str] = dict(
             self.conn.execute(
                 "SELECT folder_id,category FROM folder_map WHERE provider='hotmail'"
             ).fetchall()
@@ -354,21 +390,24 @@ class HotmailBackend:
 
 
 class GmailBackend:
-    def __init__(self, conn, cfg):
-        self.conn, self.cfg = conn, cfg
-        self.svc = None
+    def __init__(self, conn: sqlite3.Connection, cfg: dict[str, Any]) -> None:
+        self.conn = conn
+        self.cfg = cfg
+        self.svc: Any = None
 
-    def authenticate(self, interactive=False) -> bool:
+    def authenticate(self, interactive: bool = False) -> bool:
         try:
-            from google.auth.transport.requests import Request as GReq
-            from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import InstalledAppFlow
-            from googleapiclient.discovery import build
+            from google.auth.transport.requests import (
+                Request as GReq,  # type: ignore[import-untyped]
+            )
+            from google.oauth2.credentials import Credentials  # type: ignore[import-untyped]
+            from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore[import-untyped]
+            from googleapiclient.discovery import build  # type: ignore[import-untyped]
         except ImportError:
             log.error("pip install google-auth-oauthlib google-api-python-client")
             return False
         SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
-        creds = None
+        creds: Any = None
         if GMAIL_TOKEN.exists():
             creds = Credentials.from_authorized_user_file(str(GMAIL_TOKEN), SCOPES)
         if creds and creds.expired and creds.refresh_token:
@@ -392,18 +431,18 @@ class GmailBackend:
         log.info("Gmail: authenticated")
         return True
 
-    def list_labels(self) -> dict:
-        r = self.svc.users().labels().list(userId="me").execute()
+    def list_labels(self) -> dict[str, str]:
+        r: dict[str, Any] = self.svc.users().labels().list(userId="me").execute()
         return {lb["name"]: lb["id"] for lb in r.get("labels", [])}
 
-    def setup_labels(self):
+    def setup_labels(self) -> None:
         existing = self.list_labels()
         for cat in sorted(list(self.cfg["_categories"]) + ["Needs Review"]):
             if cat in existing:
-                lid = existing[cat]
+                lid: str = existing[cat]
             else:
                 try:
-                    r = (
+                    r: dict[str, Any] = (
                         self.svc.users()
                         .labels()
                         .create(
@@ -424,11 +463,12 @@ class GmailBackend:
             save_folder_id(self.conn, "gmail", cat, lid, cat)
         log.info("Gmail: labels ready")
 
-    def fetch_inbox(self, since_hours=1) -> list:
+    def fetch_inbox(self, since_hours: int = 1) -> list[dict[str, Any]]:
         since = (datetime.now(UTC) - timedelta(hours=since_hours)).strftime("%Y/%m/%d")
-        emails, page_token = [], None
+        emails: list[dict[str, Any]] = []
+        page_token: str | None = None
         while len(emails) < 200:
-            r = (
+            r: dict[str, Any] = (
                 self.svc.users()
                 .messages()
                 .list(
@@ -437,7 +477,7 @@ class GmailBackend:
                 .execute()
             )
             for stub in r.get("messages", []):
-                m = (
+                m: dict[str, Any] = (
                     self.svc.users()
                     .messages()
                     .get(
@@ -449,7 +489,10 @@ class GmailBackend:
                     .execute()
                 )
                 time.sleep(API_DELAY)
-                hdrs = {h["name"]: h["value"] for h in m.get("payload", {}).get("headers", [])}
+                hdrs: dict[str, str] = {
+                    h["name"]: h["value"]
+                    for h in m.get("payload", {}).get("headers", [])
+                }
                 raw_from = hdrs.get("From", "")
                 match = re.search(r"<([^>]+)>", raw_from)
                 emails.append(
@@ -467,7 +510,7 @@ class GmailBackend:
                 break
         return emails
 
-    def label_email(self, mid, lid) -> bool:
+    def label_email(self, mid: str, lid: str) -> bool:
         try:
             self.svc.users().messages().modify(
                 userId="me", id=mid, body={"addLabelIds": [lid], "removeLabelIds": ["INBOX"]}
@@ -478,16 +521,17 @@ class GmailBackend:
             log.error(f"Label failed {mid}: {e}")
             return False
 
-    def move_email(self, mid, lid) -> bool:
+    def move_email(self, mid: str, lid: str) -> bool:
         return self.label_email(mid, lid)
 
-    def cleanup_spam(self):
+    def cleanup_spam(self) -> None:
         cutoff = (
             datetime.now(UTC) - timedelta(days=self.cfg.get("spam_max_age_days", 30))
         ).strftime("%Y/%m/%d")
-        trashed, pt = 0, None
+        trashed = 0
+        pt: str | None = None
         while trashed < 200:
-            r = (
+            r: dict[str, Any] = (
                 self.svc.users()
                 .messages()
                 .list(userId="me", q=f"in:spam before:{cutoff}", maxResults=BATCH, pageToken=pt)
@@ -506,14 +550,14 @@ class GmailBackend:
         if trashed:
             log.info(f"Gmail: trashed {trashed} old spam")
 
-    def detect_corrections(self):
+    def detect_corrections(self) -> None:
         rows = self.conn.execute(
             "SELECT message_id,category,folder_id FROM processed_emails "
             "WHERE provider='gmail' AND moved=1 AND processed_at>datetime('now','-7 days')"
         ).fetchall()
         if not rows:
             return
-        lid_to_cat = dict(
+        lid_to_cat: dict[str, str] = dict(
             self.conn.execute(
                 "SELECT folder_id,category FROM folder_map WHERE provider='gmail'"
             ).fetchall()
@@ -521,11 +565,13 @@ class GmailBackend:
         found = 0
         for mid, old_cat, old_lid in rows:
             try:
-                m = self.svc.users().messages().get(userId="me", id=mid, format="minimal").execute()
+                m: dict[str, Any] = (
+                    self.svc.users().messages().get(userId="me", id=mid, format="minimal").execute()
+                )
                 time.sleep(API_DELAY)
             except Exception:
                 continue
-            cur_labels = set(m.get("labelIds", []))
+            cur_labels: set[str] = set(m.get("labelIds", []))
             if old_lid not in cur_labels:
                 new_cat = next((lid_to_cat[l] for l in cur_labels if l in lid_to_cat), "unknown")
                 record_correction(self.conn, mid, "gmail", old_cat, new_cat)
@@ -537,9 +583,12 @@ class GmailBackend:
 # ── Classifier ───────────────────────────────────────────────────────────────
 
 
-def classify_by_sender(email, sender_rules) -> tuple | None:
+def classify_by_sender(
+    email: dict[str, Any],
+    sender_rules: dict[str, str],
+) -> tuple[str, float, str] | None:
     """T0: exact email or domain suffix match. Returns (category, 1.0, 'sender')."""
-    sender = email["sender"]
+    sender: str = email["sender"]
     if sender in sender_rules:
         return (sender_rules[sender], 1.0, "sender")
     if "@" in sender:
@@ -550,10 +599,14 @@ def classify_by_sender(email, sender_rules) -> tuple | None:
     return None
 
 
-def classify_by_keyword(email, keyword_rules) -> tuple | None:
+def classify_by_keyword(
+    email: dict[str, Any],
+    keyword_rules: dict[str, list[str]],
+) -> tuple[str, float, str] | None:
     """T0: subject keyword match. Confidence 0.5-0.9 based on hit count."""
-    subj = email["subject"].lower()
-    best, best_n = None, 0
+    subj: str = email["subject"].lower()
+    best: str | None = None
+    best_n = 0
     for cat, kws in keyword_rules.items():
         n = sum(1 for kw in kws if kw in subj)
         if n > best_n:
@@ -563,9 +616,12 @@ def classify_by_keyword(email, keyword_rules) -> tuple | None:
     return None
 
 
-def classify_by_jetson(email, cfg) -> tuple | None:
+def classify_by_jetson(
+    email: dict[str, Any],
+    cfg: dict[str, Any],
+) -> tuple[str, float, str] | None:
     """T1: Jetson LLM classification. Returns (category, confidence, 'jetson')."""
-    jcfg = cfg.get("jetson", {})
+    jcfg: dict[str, Any] = cfg.get("jetson", {})
     cats = sorted(cfg["_categories"])
     prompt = (
         f"Classify this email into exactly one of these categories:\n{json.dumps(cats)}\n\n"
@@ -590,11 +646,11 @@ def classify_by_jetson(email, cfg) -> tuple | None:
         if resp.status_code != 200:
             log.warning(f"Jetson {resp.status_code}: {resp.text[:200]}")
             return None
-        content = resp.json()["choices"][0]["message"]["content"].strip()
+        content: str = resp.json()["choices"][0]["message"]["content"].strip()
         content = re.sub(r"^```(?:json)?\s*", "", content)
         content = re.sub(r"\s*```$", "", content)
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-        r = json.loads(content)
+        r: dict[str, Any] = json.loads(content)
         cat, conf = r.get("category", ""), float(r.get("confidence", 0))
         return (cat, conf, "jetson") if cat in cfg["_categories"] else None
     except Exception as e:
@@ -602,7 +658,10 @@ def classify_by_jetson(email, cfg) -> tuple | None:
         return None
 
 
-def classify_email(email, cfg) -> tuple:
+def classify_email(
+    email: dict[str, Any],
+    cfg: dict[str, Any],
+) -> tuple[str, float, str]:
     """Tiered classification: sender -> keyword -> Jetson -> Needs Review."""
     return (
         classify_by_sender(email, cfg["sender_rules"])
@@ -615,7 +674,13 @@ def classify_email(email, cfg) -> tuple:
 # ── Pipeline Orchestrator ────────────────────────────────────────────────────
 
 
-def run_pipeline(backend, conn, cfg, dry_run=False, since_hours=1):
+def run_pipeline(
+    backend: HotmailBackend | GmailBackend,
+    conn: sqlite3.Connection,
+    cfg: dict[str, Any],
+    dry_run: bool = False,
+    since_hours: int = 1,
+) -> None:
     """Fetch -> classify -> organize -> cleanup -> detect corrections."""
     provider = "hotmail" if isinstance(backend, HotmailBackend) else "gmail"
     log.info(f"--- {provider.upper()} pipeline start ---")
@@ -624,8 +689,8 @@ def run_pipeline(backend, conn, cfg, dry_run=False, since_hours=1):
     new = [e for e in emails if not is_processed(conn, e["id"])]
     log.info(f"Fetched {len(emails)}, new: {len(new)}")
 
-    threshold = cfg.get("auto_move_threshold", 0.85)
-    stats = Counter()
+    threshold: float = cfg.get("auto_move_threshold", 0.85)
+    stats: Counter[str] = Counter()
 
     for e in new:
         cat, conf, tier = classify_email(e, cfg)
@@ -660,7 +725,7 @@ def run_pipeline(backend, conn, cfg, dry_run=False, since_hours=1):
 # ── Daily Summary ────────────────────────────────────────────────────────────
 
 
-def generate_daily_summary(conn, cfg):
+def generate_daily_summary(conn: sqlite3.Connection, cfg: dict[str, Any]) -> None:
     """Aggregate today's emails, synthesize via claude --print, POST to brain."""
     today = datetime.now().strftime("%Y-%m-%d")
     existing = conn.execute(
@@ -677,8 +742,8 @@ def generate_daily_summary(conn, cfg):
     if not rows:
         return log.info(f"No emails on {today}, skipping summary")
 
-    cat_counts = Counter(r[3] for r in rows)
-    tier_counts = Counter(r[5] for r in rows)
+    cat_counts: Counter[str] = Counter(r[3] for r in rows)
+    tier_counts: Counter[str] = Counter(r[5] for r in rows)
     lines = [f"- [{r[0]}] {r[1]} | {r[2]} | {r[3]} ({r[5]}, {r[4]:.0%})" for r in rows[:100]]
 
     prompt = (
@@ -691,6 +756,7 @@ def generate_daily_summary(conn, cfg):
         "actionable items by category, notable senders, patterns worth noting."
     )
 
+    summary: str | None
     try:
         r = subprocess.run(
             ["claude", "--print", "-p", prompt], capture_output=True, text=True, timeout=120
@@ -710,7 +776,7 @@ def generate_daily_summary(conn, cfg):
     )
     conn.commit()
 
-    scfg = cfg.get("daily_summary", {})
+    scfg: dict[str, Any] = cfg.get("daily_summary", {})
     url = scfg.get("open_brain_url", "https://brain.troy-davis.com/api/v1/captures")
     try:
         resp = requests.post(
@@ -744,15 +810,15 @@ def generate_daily_summary(conn, cfg):
 # ── Status ───────────────────────────────────────────────────────────────────
 
 
-def show_status(conn):
+def show_status(conn: sqlite3.Connection) -> None:
     """Print pipeline statistics."""
     print("\n=== Email Pipeline Status ===\n")
-    total = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
+    total: int = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
     print(f"Total processed: {total}")
     for p in ("hotmail", "gmail"):
-        n = conn.execute("SELECT COUNT(*) FROM processed_emails WHERE provider=?", (p,)).fetchone()[
-            0
-        ]
+        n: int = conn.execute(
+            "SELECT COUNT(*) FROM processed_emails WHERE provider=?", (p,)
+        ).fetchone()[0]
         print(f"  {p}: {n}")
 
     print("\nTiers (7d):")
@@ -769,7 +835,7 @@ def show_status(conn):
     ).fetchall():
         print(f"  {cat}: {n}")
 
-    corr = conn.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
+    corr: int = conn.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
     print(f"\nCorrections: {corr}")
     if corr:
         for old, new, n in conn.execute(
@@ -779,7 +845,9 @@ def show_status(conn):
             print(f"  {old} -> {new}: {n}x")
 
     for p in ("hotmail", "gmail"):
-        n = conn.execute("SELECT COUNT(*) FROM folder_map WHERE provider=?", (p,)).fetchone()[0]
+        n = conn.execute(
+            "SELECT COUNT(*) FROM folder_map WHERE provider=?", (p,)
+        ).fetchone()[0]
         print(f"\n{p} folders mapped: {n}")
 
     r = conn.execute(
@@ -793,7 +861,7 @@ def show_status(conn):
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser(description="Email Classification Pipeline")
     ap.add_argument("--provider", choices=["hotmail", "gmail", "both"], default="both")
     ap.add_argument("--setup", action="store_true", help="Authenticate + create folders/labels")
@@ -812,12 +880,12 @@ def main():
         return conn.close()
 
     cfg = load_config()
-    providers = ["hotmail", "gmail"] if args.provider == "both" else [args.provider]
+    providers: list[str] = ["hotmail", "gmail"] if args.provider == "both" else [args.provider]
 
     for p in providers:
         try:
             if p == "hotmail":
-                be = HotmailBackend(conn, cfg)
+                be: HotmailBackend | GmailBackend = HotmailBackend(conn, cfg)
                 if not be.authenticate(interactive=args.setup):
                     continue
                 if args.setup:
