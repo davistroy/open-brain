@@ -1,0 +1,69 @@
+Allstate Insurance Company
+Homeowners Policy Declarations
+
+Policy Number: HOME-2024-456789
+Named Insured: Troy Davis
+Policy Period: Effective Date: 06/01/2025
+Expiration Date: 06/01/2026
+Policyholder: Troy Davis
+
+HOMEOWNERS POLICY - HO-3 Special Form
+
+PROPERTY LOCATION
+123 Farm Road
+Rural, SC 29456
+
+COVERAGE SUMMARY
+
+Coverage A - Dwelling
+Dwelling Limit: $400,000
+Replacement Cost Coverage: Yes
+
+Coverage B - Other Structures
+Other Structures Limit: $40,000
+
+Coverage C - Personal Property
+Personal Property Limit: $150,000
+Contents Coverage: Actual Cash Value
+
+Coverage D - Loss of Use
+Loss of Use Limit: $80,000
+Additional Living Expenses: included
+
+Coverage E - Personal Liability
+Liability Limit: $300,000 per occurrence
+
+Coverage F - Medical Payments to Others
+Medical Payments Limit: $5,000 per person
+
+DEDUCTIBLE
+All-Peril Deductible: $2,500
+
+ADDITIONAL COVERAGE
+- Guaranteed Replacement Cost on Dwelling
+- Identity Theft Protection: $25,000
+- Scheduled Personal Property: Optional rider available
+
+COVERED PERILS (HO-3 Special Form)
+Coverage A (Dwelling): Open perils (all risks except exclusions)
+Coverage C (Personal Property): Named perils including:
+- Fire and lightning
+- Windstorm and hail
+- Theft
+- Vandalism
+- Water damage from plumbing
+- Falling objects
+
+EXCLUSIONS
+The following are NOT covered:
+- Flood (requires separate flood insurance policy)
+- Earthquake (requires separate earthquake endorsement)
+- Nuclear hazard
+- Ordinance or law
+- Wear and tear and deterioration
+- Mold and fungus (limited coverage may apply)
+- Termite damage and pest infestation
+- Business pursuits
+
+Premium: $2,340.00/year
+Claims: 1-800-ALLSTATE

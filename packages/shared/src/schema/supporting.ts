@@ -1,4 +1,4 @@
-import { pgTable, pgEnum, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar, bigint } from 'drizzle-orm/pg-core'
+import { pgTable, pgEnum, text, timestamp, integer, real, boolean, jsonb, uuid, index, uniqueIndex, varchar, bigint, date } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 import { captures } from './core.js'
 import { vector } from './types.js'
@@ -489,3 +489,44 @@ export const admin_audit = pgTable(
     created_at_idx: index('admin_audit_created_at_idx').on(table.created_at),
   }),
 )
+
+// ============================================================
+// insurance_policies table — structured coverage data from policy PDFs
+//
+// Populated by scripts/insurance-policy-extract.py (T0 Python, pdfplumber+regex).
+// Handles health, auto, home, and umbrella policy types.
+// The `coverage` JSONB stores a flexible coverage tree:
+//   deductibles, out_of_pocket_max, limits, co_insurance, co_pays,
+//   exclusions, coverage_types, notes
+// P22b gap analysis queries this via GET /api/v1/insurance-policies.
+// policy_type CHECK constraint: health | auto | home | umbrella (migration 0029)
+// source_file unique partial index enforces one row per file (migration 0029).
+// ============================================================
+export const insurancePolicies = pgTable(
+  'insurance_policies',
+  {
+    id:              uuid('id').primaryKey().defaultRandom(),
+    policy_number:   text('policy_number'),
+    provider:        text('provider').notNull(),
+    policy_type:     text('policy_type').notNull(), // health | auto | home | umbrella — CHECK in migration 0029
+    effective_date:  date('effective_date'),
+    expiration_date: date('expiration_date'),
+    insured_name:    text('insured_name'),
+    coverage:        jsonb('coverage').notNull(),
+    raw_text:        text('raw_text'),
+    source_file:     text('source_file'),
+    extracted_at:    timestamp('extracted_at', { withTimezone: true }).notNull().defaultNow(),
+    created_at:      timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    policy_type_idx:    index('insurance_policies_policy_type_idx').on(table.policy_type),
+    provider_idx:       index('insurance_policies_provider_idx').on(table.provider),
+    effective_date_idx: index('insurance_policies_effective_date_idx').on(table.effective_date),
+    // Unique partial index on source_file (WHERE source_file IS NOT NULL) enforces
+    // one row per input file. Created via SQL migration 0029 — Drizzle cannot emit
+    // partial indexes, so this comment is documentation only.
+  }),
+)
+
+export type InsurancePolicy = typeof insurancePolicies.$inferSelect
+export type NewInsurancePolicy = typeof insurancePolicies.$inferInsert
