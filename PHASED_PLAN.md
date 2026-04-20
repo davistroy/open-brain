@@ -951,7 +951,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P32 — scripts/ pyright part 5: remaining scripts + final include
+### P32 — scripts/ pyright part 5: remaining scripts + final include ✅ Completed 2026-04-20 (PR #166)
 **Scope:** #120 final subset — mop up
 **Severity:** Low
 **Dependencies:** P28-P31 (lands on top of the accumulated include list)
@@ -1021,7 +1021,7 @@ Hard dependencies only (soft groupings in phase cards below):
 | 117 | Theme 16 — Job thunderstorm | P07 ✅ | 2 | Medium |
 | 118 | Theme 17 — load-secrets.sh stub | P08 ✅ | 2 | High |
 | 119 | Sibling enum CHECKs (split by table) | P09a ✅ + P09b ✅ + P09c ✅ | 2 | Medium |
-| 120 | scripts/ pyright coverage (staged) | P28 ✅ + P29 ✅ + P30 ✅ + P31 ✅ + P32 (pending) | 8 | Low |
+| 120 | scripts/ pyright coverage (staged) | P28 ✅ + P29 ✅ + P30 ✅ + P31 ✅ + P32 ✅ | 8 | Low |
 | 121 | voice-pipecat pyright re-enable | P27 ✅ | 8 | Medium |
 | 122 | recordAgentCompletion final-tier | P02c ✅ | 1 | Low |
 | 54 | Pipecat voice soak test | P24 | 6 | Feature |
