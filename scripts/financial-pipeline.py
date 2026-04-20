@@ -642,6 +642,394 @@ def store_balances(
     )
 
 
+# ── Account monitoring helpers ────────────────────────────────────────────────
+
+# Default monitoring thresholds — returned by load_monitoring_config() when
+# the YAML block is absent or partially populated.
+_MONITORING_DEFAULTS: dict = {
+    "balance_drop_pct": 20.0,
+    "balance_drop_abs": 500.0,
+    "credit_utilization_pct": 80.0,
+    "position_change_pct": 10.0,
+    "portfolio_drop_pct": 5.0,
+    "anomaly_sigma": 2.5,
+    "anomaly_min_history_days": 7,
+    "net_worth_drop_pct": 5.0,
+    "post_capture_on_alert": True,
+    "post_daily_capture": True,
+}
+
+
+def load_monitoring_config(cfg: dict) -> dict:
+    """Return the monitoring block from config with defaults for any missing key.
+
+    Callers use mcfg['balance_drop_pct'] etc. without guarding for KeyError.
+    Safe to call even when cfg has no 'monitoring' key.
+    """
+    raw = cfg.get("monitoring", {}) if cfg else {}
+    result = dict(_MONITORING_DEFAULTS)
+    for k, v in raw.items():
+        if k in result:
+            result[k] = v
+    return result
+
+
+def detect_balance_anomalies(
+    conn: sqlite3.Connection,
+    account_key: str,
+    today_balance: float,
+    mcfg: dict,
+) -> list[str]:
+    """Detect whether today's balance is an outlier vs. trailing 30-day history.
+
+    Returns a list of human-readable alert strings (empty list = no anomaly or
+    insufficient history).  Pure arithmetic over SQLite data — no LLM call.
+
+    Algorithm:
+    - Query up to 30 days of prior rows (excluding today) for this account.
+    - If fewer than anomaly_min_history_days rows exist → return [].
+    - Compute mean + population std of current_balance over those rows.
+    - If std == 0 (all values identical) → skip (no useful signal).
+    - If abs(today - mean) > anomaly_sigma * std → return an alert string.
+    """
+    sigma_threshold = float(mcfg.get("anomaly_sigma", _MONITORING_DEFAULTS["anomaly_sigma"]))
+    min_history = int(
+        mcfg.get("anomaly_min_history_days", _MONITORING_DEFAULTS["anomaly_min_history_days"])
+    )
+
+    thirty_days_ago = (date.today() - timedelta(days=30)).isoformat()
+    today_str = date.today().isoformat()
+
+    rows = conn.execute(
+        "SELECT current_balance FROM daily_balances "
+        "WHERE account_id = ? AND date >= ? AND date < ? "
+        "ORDER BY date DESC",
+        (account_key, thirty_days_ago, today_str),
+    ).fetchall()
+
+    if len(rows) < min_history:
+        return []
+
+    values = [r[0] for r in rows]
+    n = len(values)
+    mean = sum(values) / n
+    variance = sum((v - mean) ** 2 for v in values) / n
+    std = variance**0.5
+
+    if std == 0:
+        return []
+
+    deviation = abs(today_balance - mean)
+    sigmas = deviation / std
+    if sigmas > sigma_threshold:
+        direction = "above" if today_balance > mean else "below"
+        return [
+            f"{account_key}: balance ${today_balance:,.2f} is {sigmas:.1f}\u03c3 {direction} "
+            f"30-day mean (${mean:,.2f}, std ${std:,.2f})"
+        ]
+    return []
+
+
+def send_pushover_alert(cfg: dict, title: str, message: str, priority: int = 0) -> bool:  # noqa: ARG001
+    """Send a Pushover notification via urllib (stdlib — no new dependencies).
+
+    Retrieves pushover-user-key and pushover-api-token from Bitwarden Secrets
+    Manager using the same get_bws_secret() pattern as Plaid credentials.
+
+    Returns True on HTTP 200, False on any error (logs but never raises).
+    priority=1 for anomaly/large-drop alerts; priority=0 for informational.
+    """
+    import urllib.parse
+    import urllib.request
+
+    try:
+        user_key = get_bws_secret("pushover-user-key")
+        api_token = get_bws_secret("pushover-api-token")
+    except SystemExit:
+        log.warning("send_pushover_alert: Pushover secrets not found in Bitwarden — skipping")
+        return False
+
+    payload = urllib.parse.urlencode(
+        {
+            "token": api_token,
+            "user": user_key,
+            "title": title,
+            "message": message,
+            "priority": priority,
+        }
+    ).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(
+            "https://api.pushover.net/1/messages.json",
+            data=payload,
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            if resp.status == 200:
+                log.info(f"Pushover alert sent: {title!r}")
+                return True
+            log.warning(f"Pushover returned HTTP {resp.status}")
+            return False
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"send_pushover_alert: network error — {e}")
+        return False
+
+
+def cmd_account_monitoring(cfg: dict, conn: sqlite3.Connection) -> None:
+    """--account-monitoring: Daily account health check.
+
+    Must run AFTER --balances (reads daily_balances rows written by that pass).
+
+    Workflow:
+    1. Load monitoring thresholds from config.
+    2. Compare today vs. yesterday balances per account.
+    3. Check credit utilization for credit/loan accounts.
+    4. Detect 30-day anomalies via detect_balance_anomalies().
+    5. Compare total net worth today vs. yesterday.
+    6. Check investment holdings for large position moves.
+    7. Fire Pushover alert (priority=1) if any threshold breached.
+    8. Post a monitoring summary capture unconditionally
+       (or conditionally per post_daily_capture / post_capture_on_alert config).
+    """
+    log.info("=== Account Monitoring ===")
+
+    mcfg = load_monitoring_config(cfg)
+    today_str = date.today().isoformat()
+    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
+
+    # ── 1. Fetch today's and yesterday's balances ────────────────────────────
+    today_rows = conn.execute(
+        "SELECT account_id, current_balance, available_balance, credit_limit "
+        "FROM daily_balances WHERE date = ?",
+        (today_str,),
+    ).fetchall()
+
+    if not today_rows:
+        log.warning("No balance data for today — run --balances first. Skipping monitoring.")
+        return
+
+    yesterday_rows = conn.execute(
+        "SELECT account_id, current_balance FROM daily_balances WHERE date = ?",
+        (yesterday_str,),
+    ).fetchall()
+    yesterday_map: dict[str, float] = {r[0]: r[1] for r in yesterday_rows}
+
+    # ── 2. Per-account checks ────────────────────────────────────────────────
+    alerts: list[str] = []
+    anomaly_flags: list[str] = []
+    account_lines: list[str] = []
+
+    # Retrieve account type info from config for credit utilization check
+    accounts_cfg = cfg.get("accounts", {}) if cfg else {}
+
+    # Build a type map keyed by account_key (may be sub-keyed e.g. amex_abc12345)
+    account_type_map: dict[str, str] = {}
+    for key, acfg in accounts_cfg.items():
+        account_type_map[key] = acfg.get("type", "")
+
+    for account_id, current, available, credit_limit in today_rows:
+        # Determine account type — strip sub-key suffix (e.g. amex_abc12345 → amex)
+        base_key = account_id.split("_")[0] if "_" in account_id else account_id
+        acct_type = account_type_map.get(base_key, account_type_map.get(account_id, ""))
+
+        # Day-over-day delta
+        yesterday_balance = yesterday_map.get(account_id)
+        if yesterday_balance is not None:
+            delta_abs = current - yesterday_balance
+            delta_pct = (delta_abs / yesterday_balance * 100) if yesterday_balance != 0 else 0.0
+
+            change_str = f"{delta_abs:+,.2f} ({delta_pct:+.1f}%)"
+            line = f"  {account_id}: ${current:,.2f} ({change_str} vs yesterday)"
+
+            # Alert on significant drops (negative delta for non-credit, positive for credit)
+            if acct_type in CREDIT_ACCOUNT_TYPES:
+                # Credit: rising balance means more debt — use absolute/pct increase as drop
+                if delta_abs > mcfg["balance_drop_abs"] or delta_pct > mcfg["balance_drop_pct"]:
+                    alerts.append(
+                        f"{account_id}: credit balance rose ${delta_abs:,.2f} ({delta_pct:.1f}%) — "
+                        f"now ${current:,.2f}"
+                    )
+                    line += "  *** ALERT"
+            else:
+                # Depository/investment: falling balance is a drop
+                if abs(delta_abs) > mcfg["balance_drop_abs"] and delta_abs < 0:
+                    alerts.append(
+                        f"{account_id}: balance dropped ${abs(delta_abs):,.2f} "
+                        f"({abs(delta_pct):.1f}%) — now ${current:,.2f}"
+                    )
+                    line += "  *** ALERT"
+                elif delta_pct < -mcfg["balance_drop_pct"]:
+                    alerts.append(
+                        f"{account_id}: balance dropped {abs(delta_pct):.1f}% — now ${current:,.2f}"
+                    )
+                    line += "  *** ALERT"
+        else:
+            # First run — no prior data
+            line = f"  {account_id}: ${current:,.2f} (no prior data)"
+
+        account_lines.append(line)
+
+        # Credit utilization check
+        if acct_type in CREDIT_ACCOUNT_TYPES and credit_limit and credit_limit > 0:
+            utilization = (current / credit_limit) * 100
+            if utilization > mcfg["credit_utilization_pct"]:
+                alerts.append(
+                    f"{account_id}: credit utilization {utilization:.1f}% "
+                    f"(${current:,.2f} / ${credit_limit:,.2f} limit)"
+                )
+
+        # 30-day anomaly detection
+        anomaly_hits = detect_balance_anomalies(conn, account_id, current, mcfg)
+        anomaly_flags.extend(anomaly_hits)
+
+    # ── 3. Net worth delta ───────────────────────────────────────────────────
+    def _compute_net_worth(rows: list) -> float:
+        nw = 0.0
+        for r in rows:
+            acct_id = r[0]
+            bal = r[1]
+            base_key = acct_id.split("_")[0] if "_" in acct_id else acct_id
+            acct_type = account_type_map.get(base_key, account_type_map.get(acct_id, ""))
+            if acct_type in CREDIT_ACCOUNT_TYPES:
+                nw -= bal
+            else:
+                nw += bal
+        return nw
+
+    today_nw = _compute_net_worth(today_rows)
+    yesterday_nw_rows = [
+        (aid, bal, 0.0, 0.0) for aid, bal in yesterday_map.items()
+    ] if yesterday_map else []
+    yesterday_nw = _compute_net_worth(yesterday_nw_rows) if yesterday_nw_rows else None
+
+    nw_line = f"Net Worth: ${today_nw:,.2f}"
+    if yesterday_nw is not None:
+        nw_delta = today_nw - yesterday_nw
+        nw_delta_pct = (nw_delta / abs(yesterday_nw) * 100) if yesterday_nw != 0 else 0.0
+        nw_line += f" ({nw_delta:+,.2f}, {nw_delta_pct:+.1f}% vs yesterday)"
+        if yesterday_nw != 0 and abs(nw_delta_pct) > mcfg["net_worth_drop_pct"] and nw_delta < 0:
+            alerts.append(
+                f"Net worth dropped ${abs(nw_delta):,.2f} ({abs(nw_delta_pct):.1f}%) — "
+                f"now ${today_nw:,.2f}"
+            )
+
+    # ── 4. Investment holdings check ─────────────────────────────────────────
+    # Compare holdings for the two most recent distinct dates
+    holdings_dates = conn.execute(
+        "SELECT DISTINCT date FROM holdings ORDER BY date DESC LIMIT 2"
+    ).fetchall()
+
+    if len(holdings_dates) >= 2:
+        latest_date = holdings_dates[0][0]
+        prior_date = holdings_dates[1][0]
+
+        latest_holdings = {
+            r[0]: {"value": r[1], "name": r[2]}
+            for r in conn.execute(
+                "SELECT security_id, value, name FROM holdings WHERE date = ?",
+                (latest_date,),
+            ).fetchall()
+        }
+        prior_holdings = {
+            r[0]: r[1]
+            for r in conn.execute(
+                "SELECT security_id, value FROM holdings WHERE date = ?",
+                (prior_date,),
+            ).fetchall()
+        }
+
+        latest_total = sum(h["value"] or 0 for h in latest_holdings.values())
+        prior_total = sum(v or 0 for v in prior_holdings.values())
+
+        # Per-position check
+        for security_id, latest in latest_holdings.items():
+            prior_value = prior_holdings.get(security_id)
+            if prior_value and prior_value > 0:
+                change_pct = ((latest["value"] or 0) - prior_value) / prior_value * 100
+                if abs(change_pct) > mcfg["position_change_pct"]:
+                    name = latest.get("name") or security_id
+                    alerts.append(
+                        f"Holding {name}: {change_pct:+.1f}% "
+                        f"(${prior_value:,.2f} → ${latest['value']:,.2f})"
+                    )
+
+        # Portfolio total check
+        if prior_total > 0:
+            portfolio_change_pct = (latest_total - prior_total) / prior_total * 100
+            if portfolio_change_pct < -mcfg["portfolio_drop_pct"]:
+                alerts.append(
+                    f"Portfolio dropped {abs(portfolio_change_pct):.1f}% "
+                    f"(${prior_total:,.2f} → ${latest_total:,.2f})"
+                )
+
+    # ── 5. Build capture text ────────────────────────────────────────────────
+    status = "ALERTS FIRED" if alerts or anomaly_flags else "OK"
+    lines = [
+        f"Financial Account Monitor -- {today_str}",
+        "",
+        f"STATUS: {status}",
+        "",
+        "Account Balances (vs. yesterday):",
+    ]
+    lines.extend(account_lines)
+    lines.append("")
+    lines.append(nw_line)
+
+    if alerts:
+        lines.append("")
+        lines.append("Alerts:")
+        for a in alerts:
+            lines.append(f"  {a}")
+
+    if anomaly_flags:
+        lines.append("")
+        lines.append("Anomaly Flags:")
+        for a in anomaly_flags:
+            lines.append(f"  {a}")
+
+    capture_text = "\n".join(lines)
+
+    # ── 6. Pushover alert ────────────────────────────────────────────────────
+    if alerts or anomaly_flags:
+        alert_summary = "\n".join(alerts + anomaly_flags)
+        send_pushover_alert(
+            cfg,
+            title=f"Open Brain: Financial Alert — {today_str}",
+            message=alert_summary[:1000],  # Pushover message limit ~1024
+            priority=1,
+        )
+
+    # ── 7. Post capture ──────────────────────────────────────────────────────
+    should_post = mcfg["post_daily_capture"] or (
+        mcfg["post_capture_on_alert"] and (alerts or anomaly_flags)
+    )
+    if should_post:
+        _post_capture(
+            cfg,
+            capture_text,
+            {
+                "type": "financial_monitoring",
+                "date": today_str,
+                "status": status,
+                "alert_count": len(alerts),
+                "anomaly_count": len(anomaly_flags),
+                "net_worth": round(today_nw, 2),
+            },
+            capture_type="observation",
+            brain_view="personal",
+        )
+        log.info(
+            f"Account monitoring complete — status={status}, "
+            f"alerts={len(alerts)}, anomalies={len(anomaly_flags)}"
+        )
+    else:
+        log.info(
+            f"Account monitoring complete — status={status}, no capture posted "
+            f"(post_daily_capture=False, no alerts)"
+        )
+
+
 def cmd_balances(cfg: dict, conn: sqlite3.Connection):
     """--balances: Daily balance snapshot for all linked accounts.
 
@@ -2959,6 +3347,11 @@ def main():
     )
     ap.add_argument("--status", action="store_true", help="Show pipeline stats")
     ap.add_argument(
+        "--account-monitoring",
+        action="store_true",
+        help="Daily account health check: balance diffs, anomaly detection, Pushover alerts",
+    )
+    ap.add_argument(
         "--json-output",
         action="store_true",
         help="Emit a JSON summary as the final stdout line (for ingest sidecar)",
@@ -2975,6 +3368,7 @@ def main():
             args.monthly_report,
             args.process_inbox,
             args.status,
+            args.account_monitoring,
         ]
     ):
         ap.print_help()
@@ -3007,6 +3401,8 @@ def main():
             cmd_monthly_report(cfg, conn)
         if args.process_inbox:
             cmd_process_inbox(cfg, conn)
+        if args.account_monitoring:
+            cmd_account_monitoring(cfg, conn)
 
         conn.close()
     except SystemExit:

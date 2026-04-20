@@ -1,0 +1,30 @@
+# Lab report extraction configuration (P20a)
+# Used by scripts/lab-report-extract.py
+
+# Hospital institution name patterns for layout detection.
+# Case-insensitive partial match against first 200 chars of page 1.
+hospital_names:
+  - "Piedmont"
+  - "Emory"
+  - "Northside"
+  - "Atrium"
+  - "Greenville Health"
+  - "Prisma Health"
+
+# Per-test custom reference range overrides.
+# Use when Troy's physician has set targets that differ from the lab's printed range.
+# Key must match test_name exactly as it appears in the PDF (case-insensitive match applied).
+# Example:
+#   LDL Cholesterol:
+#     high: 100
+custom_thresholds: {}
+
+# Date formats tried in order when parsing collection_date from raw PDF text.
+# pdfplumber returns unstructured strings; we try each format until one parses.
+date_formats:
+  - "%m/%d/%Y"
+  - "%m/%d/%y"
+  - "%Y-%m-%d"
+  - "%B %d, %Y"
+  - "%b %d, %Y"
+  - "%d-%b-%Y"

@@ -58,3 +58,25 @@ bitwarden_keys:
 capture_api:
   url: "https://brain.troy-davis.com/api/v1/captures"
   caller_header: "financial-pipeline"
+
+# Account health monitoring — used by --account-monitoring flag
+monitoring:
+  # Balance change alerts
+  balance_drop_pct: 20.0        # alert if any account drops > N% day-over-day
+  balance_drop_abs: 500.0       # alert if any account drops > $N day-over-day (absolute)
+  credit_utilization_pct: 80.0  # alert if credit utilization exceeds N%
+
+  # Investment position alerts
+  position_change_pct: 10.0     # alert if any single holding moves > N% week-over-week
+  portfolio_drop_pct: 5.0       # alert if total portfolio value drops > N% week-over-week
+
+  # Anomaly detection — 30-day rolling window
+  anomaly_sigma: 2.5            # flag balance if current deviates > N standard deviations from 30d mean
+  anomaly_min_history_days: 7   # skip anomaly check if fewer than N days of history exist
+
+  # Net worth tracking
+  net_worth_drop_pct: 5.0       # alert if net worth drops > N% day-over-day
+
+  # Capture behavior
+  post_capture_on_alert: true   # always post a capture when alerts fire
+  post_daily_capture: true      # post a monitoring summary capture even when no alerts
