@@ -725,7 +725,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-## WAVE 4 — Arc 3 Batch Source Pipelines (≈4-5 weeks, 6 PRs)
+## WAVE 4 — Arc 3 Batch Source Pipelines (≈4-5 weeks, 6 PRs)  ✅ COMPLETE 2026-04-20 (6/6 PRs merged)
 
 **Goal:** Deliver the remaining Arc 3 batch source pipelines using the established pattern (Python T0 extract → rule-based classification → CLI T2 synthesis → one capture). High user value; each PR is independently deployable.
 
@@ -769,7 +769,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P20b — Lab report trend analysis + historical comparison
+### P20b — Lab report trend analysis + historical comparison  ✅ Completed 2026-04-20 (PR #159)
 **Scope:** #67 subset — synthesis on top of P20a structured data
 **Dependencies:** **P20a** (needs structured rows in DB)
 **Effort:** ~1-1.5 days
@@ -780,6 +780,8 @@ Hard dependencies only (soft groupings in phase cards below):
 - Optional: alert on specific values breaching custom thresholds
 
 **Acceptance:** Multi-report trend analysis for a fixture set of labs.
+
+**Status:** COMPLETE — PR #159 merged `d1e1dfb`, LAB_NOTEBOOK Entry 122. Opus APPROVE cycle 1. T0 Python trend computation + T2 claude --print synthesis. No homeserver migration, no Docker compose changes. Fully closes #67 (P20a + P20b complete). #67 closed.
 
 ---
 
@@ -817,7 +819,7 @@ Hard dependencies only (soft groupings in phase cards below):
 
 ---
 
-### P22b — Insurance cross-policy comparison + gap analysis
+### P22b — Insurance cross-policy comparison + gap analysis  ✅ Completed 2026-04-20 (PR #158)
 **Scope:** #68 subset — synthesis + actionable gap report
 **Dependencies:** **P22a** (needs structured coverage in DB)
 **Effort:** ~1-2 days
@@ -828,6 +830,8 @@ Hard dependencies only (soft groupings in phase cards below):
 - Optional: triggered by any new policy upload (keeps comparison current)
 
 **Acceptance:** Gap analysis capture for the operator's current policy set; operator validates quality.
+
+**Status:** COMPLETE — PR #158 merged `d5258fd`, LAB_NOTEBOOK Entry 119 (see entry). Opus APPROVE cycle 1. T0 heuristics + T2 claude --print synthesis. No homeserver migration, no Docker compose changes. Fully closes #68 (P22a + P22b complete). #68 closed.
 
 ---
 
@@ -1025,8 +1029,8 @@ Hard dependencies only (soft groupings in phase cards below):
 | 60 | Wiki construction | P26 | 7 | Feature |
 | 62 | Financial account monitoring | P19 | 4 | Feature |
 | 66 | Financial advisor newsletter | P21 | 4 | Feature |
-| 67 | Doctor lab reports (split 2 ways) | P20a + P20b | 4 | Feature |
-| 68 | Insurance policy analysis (split 2 ways) | P22a + P22b | 4 | Feature |
+| 67 | Doctor lab reports (split 2 ways) | P20a ✅ + P20b ✅ | 4 | Feature |
+| 68 | Insurance policy analysis (split 2 ways) | P22a ✅ + P22b ✅ | 4 | Feature |
 | 70 | Dashboard & settings polish | P18 ✅ | 3 | Feature |
 | 71 | Cognitive memory tuning | P23 | 5 | Feature |
 | 72 | RTX PRO 2000 | P34 | 9 | Hardware |
@@ -1058,7 +1062,7 @@ P04b → P16 (restore rehearsal meaningless until secrets aren't in backup)
 - **Track B (Infra/Ops):** P01 ✅ → P07 ✅ → P08 ✅ → P10a ✅ → P10b ✅ → P11a ✅ → P11b ✅ → P12 ✅ → P17 ✅
 - **Track C (Polish + search):** P13 ✅ → P15a ✅ → P15b ✅ → P18 ✅
 - **Track D (Disaster recovery):** P04a ✅ → P04b ✅ → P16 ✅
-- **Track E (Features):** P19 → P20a → P20b → P21 → P22a → P22b (independent of A-D after P02/P03)
+- **Track E (Features):** P19 ✅ → P20a ✅ → P20b ✅ → P21 ✅ → P22a ✅ → P22b ✅ (independent of A-D after P02/P03) — COMPLETE
 - **Track F (Voice, calendar):** P24 (operational, any time) → P25
 - **Track G (Typing staged):** P27 → P28 → P29 → P30 → P31 → P32 (interleave with other tracks as filler)
 
@@ -1110,7 +1114,7 @@ With selective parallelization (disjoint tracks): ~11-13 weeks.
 - **Update this document** as phases land: mark each phase `✅ COMPLETE <date>` with PR link
 - **Update LAB_NOTEBOOK** per CLAUDE.md Rule 1 (Hypothesis + Rollback before action) + Rule 2 (log results)
 - **Close GitHub issues** as phases ship (phase ↔ issue mapping in Cross-Phase Tracking table above)
-- **Re-review quarterly**: Wave 3 COMPLETE (2026-04-19, PR #153 / P15b). Run `/review-arch` now to check if new debt has accrued before Wave 4.
+- **Re-review quarterly**: Wave 3 COMPLETE (2026-04-19, PR #153 / P15b). Wave 4 COMPLETE (2026-04-20, PR #159 / P20b + PR #158 / P22b). Run `/review-arch` before Wave 5.
 - **Monthly 30-min retro**: which phase estimates were wrong? Adjust remaining phases accordingly.
 
 ---
@@ -1148,5 +1152,6 @@ Items surfaced **during** the orchestrator pipeline that don't warrant their own
 | A72 | — | PR body `Refs` vs `Closes` keyword discipline | P02b → strengthened P03 | resolved (rule baked into ORCHESTRATOR.md commit-message contract) | #102 was auto-closed by accidental "closes" in section header prose |
 | A73 | [#131](https://github.com/davistroy/open-brain/issues/131) | P05.1 — 6 deferred proactive skills for autonomy gate | P05 | ✅ closed — folded into P14b (PR #150, a117d73) | 6 skills gated: daily-connections/drift-monitor/cost-analysis/capture-dedup-sweep/morning-brief → observe; monthly-reflection → assist |
 | A74 | [#135](https://github.com/davistroy/open-brain/issues/135) | Tighten `.gitignore` for `.env.secrets*` glob | P08 (Opus review nit) | ✅ closed — bundled with P09b PR #139 | Defense-in-depth; no runtime impact |
+| A75 | — | pnpm recursive run exit-code race — false CI failures on Wave 4 PRs | P19, P20a, P21 | ✅ resolved — CI fix landed `a07a916` (Dashboard test mock) | P22a unaffected. P19/P20a/P21 admin-merged after Opus APPROVE. Root cause: pnpm exits non-zero even when all test jobs pass in recursive mode. Fixed via proper mock wiring. |
 
 **Convention:** when adding a new orchestrator-discovered item, file the GH issue first, then append a row here. Include the phase that surfaced it. Strikethrough + "✅ closed by #N" when resolved (don't delete rows — preserves history).

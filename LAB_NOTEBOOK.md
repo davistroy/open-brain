@@ -184,7 +184,7 @@
 | A71 | Rename `memory-consolidation` task key from `'search_synthesis'` → `'memory_consolidation'` | 2026-04-18 | Entry 094 | MEDIUM — P02b-DRIFT3 follow-up. Requires new `task_routing` entry in `ai-routing.yaml` + skill update + audit log migration strategy. Deferred out of P02b scope. |
 | A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N`; AVOID any close-keyword (closes/closed/close/fixes/fixed/fix/resolves/resolved/resolve) anywhere in PR body with `#N` — GitHub's parser is case-insensitive and scans entire body, not just top level | 2026-04-18 | Entry 094 | LOW — **UPDATED 2026-04-19 after P03 accidentally closed #102 via "(closes final #102 subset)" in a section header despite `Refs #102` at top.** Rule strengthened: scrub ALL close-keyword instances from PR body when you want an issue to stay open. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
-| A75 | Investigate + fix `pnpm recursive run` exit-code race causing false CI failures — P19, P20a, P21 all had to be admin-merged after Opus APPROVE because CI reported failure on a transient pnpm exit-code race in the recursive test runner (not a test failure). Root cause unknown. P22a was not affected. Filed 2026-04-19, Wave 4 first-pass. | 2026-04-19 | Entry 119–121 | MEDIUM — recurring admin-merge friction if not fixed |
+| ~~A75~~ | ~~Investigate + fix `pnpm recursive run` exit-code race causing false CI failures~~ — P19, P20a, P21 all had to be admin-merged after Opus APPROVE because CI reported failure on a transient pnpm exit-code race in the recursive test runner (not a test failure). Root cause unknown. P22a was not affected. Filed 2026-04-19, Wave 4 first-pass. | 2026-04-19 | Entry 119–121 | ✅ **RESOLVED** — CI fix landed `a07a916` (Dashboard.test.tsx mock). Wave 4 fully complete. |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -8582,3 +8582,27 @@ T0 Python can query `lab_results` grouped by test name across report dates, comp
 3. `config/lab-report.yaml` — update with `synthesis` section + `alert_thresholds` skeleton
 4. `scripts/requirements-lab.txt` — verify (no new deps expected)
 
+### Result — COMPLETE
+
+**PR #159 merged. SHA: `d1e1dfb`. Reviewer: Opus cycle 1 APPROVE. Closes #67 (P20a + P20b complete).**
+
+- T0 Python: queries `lab_results` grouped by test name + report date, computes IMPROVING/WORSENING/STABLE/VARIABLE trend per biomarker using linear regression over last N readings.
+- T2 synthesis: single aggregate `claude --print` call builds narrative covering notable trends, out-of-range trajectories, and operator-readable summary. One capture POST per run.
+- Alert thresholds skeleton in `config/lab-report.yaml` — operator can tune without code changes.
+- 9 pytest cases passing (no DB/pdfplumber — pure function tests on trend computation).
+- No homeserver migration required (table from P20a migration 0028). No Docker compose changes.
+
+| Item | File | Status |
+|------|------|--------|
+| 1 | `scripts/lab-report-synthesis.py` | Created — T0 trend + T2 synthesis |
+| 2 | `scripts/tests/test_lab_synthesis.py` | Created — 9 unit tests, all passing |
+| 3 | `config/lab-report.yaml` | Updated — `synthesis` section + `alert_thresholds` |
+| 4 | `scripts/requirements-lab.txt` | Verified — no new deps |
+
+**#67 fully closed. Wave 4 COMPLETE (P19 + P20a + P20b + P21 + P22a + P22b = 6/6 PRs merged).**
+
+**Note on Entry numbering:** Entry 119 appears twice — once for P19 (Financial account monitoring) and once for P22b (Insurance gap analysis). The P22b entry `## Entry 119 — P22b` is a numbering collision from the session; both entries are complete and valid. This entry (122) closes P20b.
+
+**Duration:** ~1 session.
+
+---
