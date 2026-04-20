@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Open Brain File Deduplication — Detect exact and near-duplicate files.
+Open Brain File Deduplication â€” Detect exact and near-duplicate files.
 
 Reads from the inventory SQLite database (created by file-inventory.py).
 Exact duplicates: GROUP BY (size, sha256_full), auto-resolve by keeping newest.
@@ -15,6 +15,8 @@ Usage:
 Requires: inventory SQLite database from file-inventory.py
 """
 
+from __future__ import annotations
+
 import argparse
 import difflib
 import html
@@ -23,6 +25,7 @@ import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -45,7 +48,7 @@ MAX_TEXT_COMPARE_CHARS = 50_000  # Limit text comparison to 50K chars for memory
 # ---------------------------------------------------------------------------
 
 
-def detect_exact_duplicates(conn: sqlite3.Connection, dry_run: bool) -> dict:
+def detect_exact_duplicates(conn: sqlite3.Connection, dry_run: bool) -> dict[str, Any]:
     """Detect exact duplicates via (size, sha256_full) grouping.
 
     Auto-resolves by keeping the newest file (by modified_date).
@@ -139,7 +142,7 @@ def detect_near_duplicates(
     conn: sqlite3.Connection,
     threshold: float,
     dry_run: bool,
-) -> dict:
+) -> dict[str, Any]:
     """Detect near-duplicates using text similarity.
 
     Compares extracted text of non-duplicate files with same extension.
@@ -257,8 +260,8 @@ def detect_near_duplicates(
 
 
 def generate_html_report(
-    exact_stats: dict,
-    near_stats: dict,
+    exact_stats: dict[str, Any],
+    near_stats: dict[str, Any],
     report_path: str,
     threshold: float,
 ) -> None:
@@ -381,7 +384,7 @@ def generate_html_report(
 # ---------------------------------------------------------------------------
 
 
-def print_summary(exact_stats: dict, near_stats: dict) -> None:
+def print_summary(exact_stats: dict[str, Any], near_stats: dict[str, Any]) -> None:
     """Print a console summary of dedup results."""
     print("\n" + "=" * 70)
     print("DEDUPLICATION RESULTS")
