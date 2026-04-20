@@ -8018,6 +8018,27 @@ Key changes:
 - Docker Compose env vars: LITELLM_URL/LITELLM_API_KEY → OPENAI_API_KEY/ANTHROPIC_API_KEY
 - Test pseudocode: `mockLitellm` → `mockOpenAIClient`, `AIRouterService` → `LLMGatewayService`
 
+### Closure — PR #153 merged `a864dcf` — WAVE 3 COMPLETE
+
+**Date:** 2026-04-19
+**PR:** #153 | **Merge SHA:** `a864dcf` | **Reviewer:** Opus cycle 2
+**Cycle 2 fixes:**
+- Config client name correction (minor naming inconsistency in TDD)
+- TDD version collision resolved
+- 4 missing sections added (identified by reviewer in cycle 1)
+
+**Issues closed:** #111 fully closed (P15a + P15b = complete).
+**Homeserver deploy:** N/A — docs only, no migrations, no containers, no scheduler.
+**Duration:** ~2 days wall clock.
+
+**Wave 3 status at closure:** ALL tracks complete.
+- Track A (Pipeline safety): P14b last ✅
+- Track B (Infra/Ops): P17 last ✅
+- Track C (Polish + search): P15b last ✅ — **final item**
+- Track D (Disaster recovery): P16 last ✅
+
+**Wave 4 next:** P19 (Financial account monitoring, #62) — first feature-track PR.
+
 ---
 
 ## Entry 111 — P12: Observability IaC consolidation
@@ -8207,6 +8228,16 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 
 ---
 
+
+---
+
+## Entry 118 — P19: Financial account monitoring  [pipeline] [config]
+
+**Tags:** [pipeline] [config] [decision]
+**Environment:** Laptop / worktree `agent-afa3c08a` on branch `feat/phase-P19-financial-monitoring`
+
+---
+
 ## Entry 118 — P20a: Doctor lab reports structured data extraction  [pipeline] [database] [decision]
 
 **Tags:** [pipeline] [database] [decision]
@@ -8215,11 +8246,85 @@ Pure frontend changes. `git revert` the PR. No data consequences, no Docker chan
 
 ### Objective
 
+
+---
+
+Add daily financial account health monitoring to `financial-pipeline.py` — balance diffs (day-over-day), 30-day anomaly detection, Pushover alerts on threshold breaches, and a daily summary capture. Implements GH issue #62. No LLM calls, no schema migration, no Docker changes.
+
+### Hypothesis
+
+All logic is T0 Python arithmetic over SQLite data already populated by `--balances`. Pushover is a single HTTP POST via `urllib`. Extending `financial-pipeline.py` with a new `--account-monitoring` flag leaves all existing commands (`--balances`, `--investments`, etc.) untouched. Low risk.
+
+Success criteria:
+- `--account-monitoring` runs cleanly on a cold DB (no prior data)
+- Balance drop > threshold triggers alert string (verifiable with synthetic data)
+- Anomaly > 2.5σ triggers alert string
+- Within-threshold run produces informational capture only, no Pushover
+- `pytest scripts/tests/test_financial_monitoring.py` — all 5 tests pass
+
+### Pre-implementation verifications performed
+
+1. **`daily_balances` schema** — confirmed: `id, date, account_id, current_balance, available_balance, credit_limit, created_at`. One row per sub-account per day.
+2. **`holdings` schema** — confirmed: `date, security_id, name, ticker, quantity, close_price, value, type, account_id`. Primary key `(date, security_id)`.
+3. **Pushover secret names** — env template shows `PUSHOVER_APP_TOKEN` / `PUSHOVER_USER_KEY`. Plan specifies BWS keys `pushover-user-key` / `pushover-api-token`. Using `pushover-user-key` and `pushover-api-token` per plan (consistent with `deploy/.env.secrets.template` comments: `open-brain-pushover-app-token`, `open-brain-pushover-user-key`). `get_bws_secret()` already exists in pipeline.
+4. **Credit account type** — `CREDIT_ACCOUNT_TYPES = {"credit", "loan"}` (line 612). Utilization formula: `(current_balance / credit_limit) * 100` where `credit_limit > 0`.
+5. **Cron slot check** — `unraid-ingest.cron` has `0 6` (process-inbox) and `30 6` (utility). No `0 7` or `5 7` entries — both slots are available for balance + monitoring.
+6. **`scripts/tests/` directory** — does not exist; must be created.
+
+### Rollback plan
+
+Revert the PR. The `--account-monitoring` flag disappears. Existing `--balances`, `--investments`, etc. are unaffected. Remove two cron lines from `unraid-ingest.cron` on homeserver (`sed` or manual edit). No migration required, no Docker changes, no homeserver deploy required beyond updating cron file.
+
+### Work items
+
+- **W1** — `config/financial/plaid-config.yaml`: append `monitoring:` block
+- **W2** — `scripts/financial-pipeline.py`: `load_monitoring_config()` + `detect_balance_anomalies()`
+- **W3** — `scripts/financial-pipeline.py`: `send_pushover_alert()` helper
+- **W4** — `scripts/financial-pipeline.py`: `cmd_account_monitoring()` + argparse flag + `main()` wiring
+- **W5** — `deploy/cron/unraid-ingest.cron`: two new entries at 07:00 (balances) and 07:05 (monitoring)
+- **W6** — `scripts/tests/`: `__init__.py`, `requirements.txt`, `test_financial_monitoring.py` (5 tests)
+
+### Results — COMPLETE
+
+**4 commits on `feat/phase-P19-financial-monitoring`:**
+- `a094bbe` feat(phase-P19)/1.0: LAB_NOTEBOOK entry 118
+- `5be9507` feat(phase-P19)/1.1: W1–W4 YAML + Python implementation
+- `464ff39` feat(phase-P19)/1.2: W5 cron entries
+- `b62f600` feat(phase-P19)/1.3: W6 tests (7/7 passing)
+
+**Verification:**
+- `ruff check scripts/financial-pipeline.py` → All checks passed
+- `pytest scripts/tests/test_financial_monitoring.py -v` → 7/7 passed (0.21s)
+- YAML loads clean (`yaml.safe_load` verified by test bootstrap)
+- Cold DB path: `cmd_account_monitoring` returns gracefully with no data
+
+**Files touched:**
+- `config/financial/plaid-config.yaml` — +22 lines monitoring: block
+- `scripts/financial-pipeline.py` — +396 lines (3 helpers + 1 command + argparse wiring)
+- `deploy/cron/unraid-ingest.cron` — +8 lines (2 cron entries at 07:00 + 07:05)
+- `scripts/tests/__init__.py`, `requirements.txt`, `test_financial_monitoring.py` — new
+
+**Design notes:**
+- `send_pushover_alert()` uses stdlib `urllib` only — no new dependencies. Graceful failure on missing BWS secrets or network error.
+- `detect_balance_anomalies()` skips when `std == 0` (all-identical history) — prevents false positives from zero-variance accounts.
+- Test fixture uses `history_values = [980, 990, 1000, 1010, 1020, ...]` (non-zero std) to confirm sigma detection works. Zero-std case tested separately by `test_within_threshold_returns_empty_list`.
+- `cmd_account_monitoring()` depends on `--balances` having run first (reads `daily_balances` for today). Cron sequencing (07:00 balances, 07:05 monitoring) enforces this.
+
+**Duration:** ~1 session.
+
+
+
+---
+
 Implement P20a: T0-only structured extraction of lab PDF reports into a new `lab_results` Postgres table. 6 work items: `scripts/lib/db.py`, migration 0028, `scripts/requirements-lab.txt`, `config/lab-report.yaml`, `scripts/lab-report-extract.py`, and `scripts/tests/test_lab_report_extract.py`.
 
 ### Hypothesis
 
 All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10+ cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
+
+---
+
+All 6 items are purely additive — no existing file modified. No LLM calls anywhere. `pdfplumber` handles layout detection + table extraction via regex/column-position heuristics. UNIQUE(report_id, test_name) makes re-extraction idempotent. Expected outcome: `pytest scripts/tests/test_lab_report_extract.py` passes 10 cases, `--dry-run` emits valid JSON, migration 0028 applies cleanly.
 
 ### Pre-implementation verifications
 
@@ -8227,6 +8332,11 @@ All 6 items are purely additive — no existing file modified. No LLM calls anyw
 2. **`scripts/lib/` exists** — CONFIRMED: `capture_api.py`, `ingest_router.py`, `__init__.py` present.
 3. **`scripts/tests/` did NOT exist** — created directory + `__init__.py`.
 4. **No `psycopg2` or `pdfplumber` in any existing requirements** — added to new `requirements-lab.txt`.
+
+---
+
+3. **`scripts/tests/` does NOT exist** — will create directory + `__init__.py`.
+4. **No `psycopg2` or `pdfplumber` in any existing requirements** — must add to new `requirements-lab.txt`.
 5. **Cost tier: T0 throughout** — no LLM calls. P20b does synthesis.
 
 ### Decisions
@@ -8259,5 +8369,21 @@ AC verification:
 - **AC-6:** pdfplumber pages streamed one at a time in `extract_pdf()` — no full-page-list materialisation
 
 **Duration:** ~1 session.
+
+---
+
+- **D-P20a-1:** `scripts/lib/db.py` reads `DATABASE_URL` env var (direct Postgres), falls back to `config/pipeline.yaml` `db.url` field. Uses `psycopg2` connection pooling — never holds more than a batch of rows in memory.
+- **D-P20a-2:** Layout detection order: Quest → LabCorp → hospital (YAML list) → generic. First 200 chars of page 1 for keyword scan.
+- **D-P20a-3:** Reference range normalizes to `{low, high, comparator, text}`. Handles `1.00-2.50`, `<10.0`, `>3.5`, `Negative`.
+- **D-P20a-4:** `report_id` is SHA-256 of (source_file basename + collection_date string) — deterministic, stable across re-extractions.
+- **D-P20a-5:** Tests mock `pdfplumber.open()` to avoid real PDF dependency in CI. `reportlab` not required.
+
+### Rollback plan
+
+Drop table: `DROP TABLE IF EXISTS lab_results;`. Delete 5 new files. No impact on running containers. No application code touched.
+
+### Result
+
+*In progress — entry will be updated post-completion.*
 
 ---
