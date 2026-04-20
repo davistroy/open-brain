@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
-import type { Database } from '@open-brain/shared'
+import type { Database, AutonomyLevel } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import type { WikiGitService } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
@@ -42,6 +42,8 @@ export interface CostAnalysisSkillOpts extends BaseSkillOpts {
  * - Writes reports to wiki/operations/cost-reports/
  */
 export class CostAnalysisSkill extends BaseSkill<CostAnalysisOptions, CostAnalysisResult> {
+  static minimum_autonomy: AutonomyLevel = 'observe'
+
   private wikiService?: WikiGitService
   private wikiDir: string
   private litellmSpendUrl: string

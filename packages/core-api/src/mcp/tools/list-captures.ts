@@ -1,6 +1,11 @@
 import { z } from 'zod'
 import type { CaptureService } from '../../services/capture.js'
 import type { CaptureType, CaptureSource } from '@open-brain/shared'
+import { SafePromptBuilder } from '@open-brain/shared'
+
+// Module-level sanitizer for MCP return values.
+// Using sanitizeInline (not wrapContent) — plain text returned to client LLM.
+const _sanitizer = new SafePromptBuilder()
 
 export const listCapturesSchema = z.object({
   limit: z.number().int().min(1).max(100).default(20).describe('Number of captures to return'),
@@ -41,9 +46,10 @@ export async function listCapturesTool(input: ListCapturesInput, captureService:
       month: 'short',
       day: 'numeric',
     })
-    const preview = capture.content.length > 300
-      ? capture.content.slice(0, 300).trimEnd() + '…'
-      : capture.content
+    const safeContent = _sanitizer.sanitizeInline(capture.content, capture.id ?? 'unknown')
+    const preview = safeContent.length > 300
+      ? safeContent.slice(0, 300).trimEnd() + '…'
+      : safeContent
 
     lines.push(`• [${capture.capture_type.toUpperCase()}] ${date} | ${capture.source} | status: ${capture.pipeline_status}`)
     lines.push(`  ID: ${capture.id}`)

@@ -170,11 +170,24 @@ function makeSkill(opts: {
   mockRunAgent.mockResolvedValue(agentResult)
 
   const fetchResponse = opts.coreApiResponse ?? { ok: true, json: { id: 'saved-cap-id' } }
-  const mockFetch = vi.fn().mockResolvedValue({
-    ok: fetchResponse.ok,
-    status: fetchResponse.status ?? (fetchResponse.ok ? 200 : 500),
-    json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
-    text: vi.fn().mockResolvedValue(''),
+  // URL-aware fetch mock: autonomy_level endpoint returns 'assist' so the skill
+  // passes the minimum_autonomy gate; all other requests use the coreApiResponse fixture.
+  const mockFetch = vi.fn().mockImplementation((input: string | URL | Request) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.includes('/api/v1/settings/autonomy_level')) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ value: 'assist' }),
+        text: vi.fn().mockResolvedValue(''),
+      })
+    }
+    return Promise.resolve({
+      ok: fetchResponse.ok,
+      status: fetchResponse.status ?? (fetchResponse.ok ? 200 : 500),
+      json: vi.fn().mockResolvedValue(fetchResponse.json ?? {}),
+      text: vi.fn().mockResolvedValue(''),
+    })
   })
   vi.stubGlobal('fetch', mockFetch)
 

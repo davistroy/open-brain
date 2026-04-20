@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
 import type { Database, AutonomyLevel } from '@open-brain/shared'
-import { logger, runAgent, resolveTaskModel, ModelResolverError } from '@open-brain/shared'
+import { logger, runAgent, resolveTaskModel, ModelResolverError, SafePromptBuilder } from '@open-brain/shared'
 import type { AgentTool, AgentResult, AgentClientResolution } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts, BaseResult } from './types.js'
@@ -93,10 +93,12 @@ export function buildEmailComposeTools(
           return 'No results found.'
         }
 
+        const inlineSanitizer = new SafePromptBuilder()
         return rows.rows
-          .map((r: Record<string, unknown>) =>
-            `[${r.capture_type}/${r.brain_view}] ${String(r.content).slice(0, 300)} (${r.created_at})`,
-          )
+          .map((r: Record<string, unknown>) => {
+            const safeContent = inlineSanitizer.sanitizeInline(String(r.content), 'email-compose-search')
+            return `[${r.capture_type}/${r.brain_view}] ${safeContent.slice(0, 300)} (${r.created_at})`
+          })
           .join('\n\n---\n\n')
       },
     },
