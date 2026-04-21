@@ -719,7 +719,7 @@ If the MEETING type styling needs a distinct color (vs EMAIL/VOICE/NOTE), add to
 ### Work Items
 
 #### 5.1 Unified-stack brief renderer + TOC + source mapping
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 investigation items 2.4 + 2.5 + 2.6
 **Files Affected:**
 - `packages/shared/src/lib/brief-renderer.ts` (create)
