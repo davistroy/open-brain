@@ -259,7 +259,7 @@ If the project migrates to a `@open-brain/shared/types` pure-types subpath expor
 ### Work Items
 
 #### 2.1 Create lib/api-client.ts with HttpError + namespaced helpers
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.4
 **Files Affected:**
 - `packages/web-next/lib/api-client.ts` (create)
