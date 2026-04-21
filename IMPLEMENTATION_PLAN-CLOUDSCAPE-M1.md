@@ -184,6 +184,8 @@ feat(web-next): scaffold Next.js package in monorepo
 
 ### 1.2 — Design tokens + globals.css
 
+**Status:** COMPLETE 2026-04-21
+
 **Files:**
 - Create/replace: `packages/web-next/app/globals.css`
 
@@ -252,6 +254,8 @@ feat(web-next): port design tokens with semantic status colors
 ---
 
 ### 1.3 — Tailwind config
+
+**Status:** COMPLETE 2026-04-21
 
 **Files:**
 - Modify: `packages/web-next/tailwind.config.ts`
@@ -400,6 +404,8 @@ feat(web-next): TopNav + SideNav + shell layout with catch-all stubs
 ---
 
 ### 1.7 — Types + mock data
+
+**Status:** COMPLETE 2026-04-21
 
 **Files:**
 - Create: `packages/web-next/lib/types.ts`
