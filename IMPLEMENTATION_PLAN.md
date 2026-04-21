@@ -1,418 +1,158 @@
-# Implementation Plan: Action Items A65–A68 (CS-ζ through CS-ι)
+# Implementation Plan: Consolidate LLM Model Assignments into ai-routing.yaml
 
-**Generated:** 2026-04-18
-**Based On:** Ultra Plan analysis of A65/A66/A67/A68 (Phase 1–4 investigation report, 2026-04-18)
-**Total Phases:** 4 (independent, any order; ordered here by ascending risk)
-**Estimated Total Effort:** ~6–14 hours across 4 PRs
-
----
-
-## Executive Summary
-
-Four independent action items from the post-tech-debt backlog:
-
-1. **A65 / CS-ζ** — Close the "F4 import type experiment" with rationale; codebase already follows `import type` discipline and PR #97's drift-guard covers the runtime failure mode. Optional lightweight eslint enforcement.
-2. **A66 / CS-η** — Tighten `captures.source` via a Postgres CHECK constraint (not `pgEnum`) and fix CLAUDE.md's 7-vs-8 source undercount (production uses `'file'`; CLAUDE.md omits it).
-3. **A68 / CS-θ** — Add Python lint (`ruff`) and typecheck (`pyright`) CI coverage for `docker/ingest-sidecar/`, `packages/voice-pipecat/`, and `packages/file-ingestion/`. Defer `scripts/` typecheck (sparse hints).
-4. **A67 / CS-ι** — Integrate `email-compose` with `LLMGatewayService` without rewriting the multi-turn agent loop. Add a `resolveAgentClient(taskName)` method on the gateway; extend `runAgent()` with an optional `clientResolver` factory; migrate `email-compose` to opt in. Preserves backward compatibility for every other `runAgent()` caller.
-
-No atomic coupling between phases — each ships as an independent PR. Ordered by ascending risk so the smallest/safest lands first and the sole medium-risk change (CS-ι) lands last when the rest are de-risked.
+**Date:** 2026-04-21
+**Scope:** Move all hardcoded LLM model references into `config/ai-routing.yaml`, add comprehensive documentation
+**Risk:** Low — plumbing changes only, no behavior change for existing features
+**Rollback:** `git revert` — no migrations, no schema changes
 
 ---
 
-## Plan Overview
+## Phase 1: Agent Skill Model Resolution (Set A — atomic, deploy together)
 
-| Phase | Code | Item | Key Deliverables | Est. Effort | Risk |
-|-------|------|------|------------------|-------------|------|
-| 1 | CS-ζ | A65 | Decision record; optional root `eslint.config.js` with `consistent-type-imports` | 15 min – 2 h | Nil |
-| 2 | CS-η | A66 | Migration `0022_captures_source_check.sql`; CLAUDE.md fix; pre-flight DB audit | 1–2 h | Low |
-| 3 | CS-θ | A68 | Root `pyproject.toml`; new `python-lint` CI job; auto-fix pass; pyright clean on 3 packages | 2–3 h | Low |
-| 4 | CS-ι | A67 | `LLMGatewayService.resolveAgentClient()`; `runAgent()` `clientResolver` option; email-compose migration; fault-injection test | 4–8 h | Medium |
+### 1.1 Add missing task_routing entries to ai-routing.yaml
 
-All four phases are independent — merge order can swap based on reviewer availability. Flagged follow-ups (sibling TEXT columns, `memory-consolidation`/`weekly-brief` gateway migration, `scripts/` typecheck) are **out of scope** for this plan.
+**File:** `config/ai-routing.yaml`
 
----
+**Changes:**
+- Add `wiki_lint: t1_fast` to task_routing section (currently missing)
+- Add `monthly_reflection: t2_quality` to task_routing section (currently missing)
+- Change `wiki_ingest: t1_spark` → `wiki_ingest: t1_fast` (skill requires Anthropic provider for runAgent(); t1_spark is openai_compat which won't work)
+- Add `models.intent: "gpt-5.4"` to models section (Slack intent router reads this)
 
-## Risk Mitigation
+**Acceptance:**
+- [ ] `wiki_lint`, `monthly_reflection` entries present in task_routing
+- [ ] `wiki_ingest` points to `t1_fast` (Anthropic tier)
+- [ ] `models.intent` entry present
+- [ ] ConfigService loads without error (run unit tests)
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| Legacy `source` value in prod violates new CHECK constraint | Low | High | Pre-flight `SELECT DISTINCT source FROM captures;` on homeserver before applying migration 0022 |
-| Eslint `--fix` for `consistent-type-imports` rewrites a runtime import as a type-only import | Low | Medium | If CS-ζ takes Path 1, review the diff file-by-file; skip if any import is used at runtime. Default to Path 2 (close) if diff is non-trivial. |
-| Pyright surfaces latent bugs in `voice-pipecat` or `file-ingestion` | Medium | Low | Run pyright locally, fix in same PR before pushing. Never land a broken CI. |
-| Fallback client swap in `runAgent` mid-loop creates provider mix-up (Anthropic→OpenAI with incompatible tool-use format) | Low | High | Constrain agent-loop fallback chain to same-provider tiers; add assertion in `resolveAgentClient()` that fallback tier shares provider with primary |
-| `runAgent()` signature change breaks other callers | Low | High | New `clientResolver` is optional; existing `client + model` fields remain supported; add unit test for legacy signature in same PR |
+### 1.2 Wire configService to wiki-ingest skill
 
----
+**File:** `packages/workers/src/skills/wiki-ingest.ts`
 
-<!-- BEGIN PHASES -->
+**Changes:**
+- Import `resolveTaskModel`, `ModelResolverError` from `@open-brain/shared`
+- Add `private readonly resolvedModel: string | null` and `resolvedTierKey: string | null` fields
+- In constructor: if `this.configService` exists, call `resolveTaskModel(this.configService.get('ai'), 'wiki_ingest')` to set `resolvedModel`/`resolvedTierKey`. Log at INFO level.
+- If no configService, set both to null.
+- In `run()`: use `this.resolvedModel` instead of `this.model`. Throw `ModelResolverError` if null.
+- Remove the `opts.model ?? 'claude-haiku-4-5-20251001'` hardcoded default.
+- Keep `opts.model` as a test-only escape hatch (same pattern as email-compose).
 
-## Phase 1: CS-ζ — A65 Import Type Experiment (Close or Lightweight Enforce) ✅ Completed 2026-04-18
+**Reference:** Follow `packages/workers/src/skills/email-compose.ts` lines 265-310 exactly.
 
-**Complexity:** Trivial
-**Dependencies:** None
-**Parallelizable:** Yes
-**Status:** COMPLETE 2026-04-18 — Path 2 (close with rationale). See LAB_NOTEBOOK Entry 085. Path 1.2 (eslint rule) not triggered — decision gate showed no defective imports, only legitimate inline-type-import style.
+**Acceptance:**
+- [ ] No hardcoded model string in wiki-ingest.ts
+- [ ] `resolveTaskModel()` called in constructor
+- [ ] ModelResolverError thrown if no configService and no opts.model
+- [ ] Existing wiki-ingest tests pass (may need mock configService updates)
 
-### Goals
+### 1.3 Wire configService to wiki-lint skill
 
-Resolve A65 without introducing churn. Investigation (Phase 1 of ultra-plan) showed every sampled type import across `core-api`, `workers`, `slack-bot`, `shared`, and `web` already uses `import type` correctly. PR #97's drift-guard covers the specific runtime failure F4 was concerned about (web↔shared Zod enum drift).
+**File:** `packages/workers/src/skills/wiki-lint.ts`
 
-### Decision Gate
+**Changes:**
+- Same pattern as 1.2. Replace `opts.model ?? 'claude-sonnet-4-5-20250929'` with `resolveTaskModel()`.
+- Import `resolveTaskModel`, `ModelResolverError` from `@open-brain/shared`.
+- Add `resolvedModel`/`resolvedTierKey` fields with constructor resolution.
+- Use `resolvedModel` in `run()`.
 
-Run this check first:
+**Acceptance:**
+- [ ] No hardcoded model string in wiki-lint.ts
+- [ ] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
+- [ ] Existing tests pass
 
-```bash
-# Count mixed-style imports (potential fix candidates)
-grep -rn "import {" --include="*.ts" packages/ | grep -v "node_modules" | grep ", type " | wc -l
-```
+### 1.4 Wire configService to monthly-reflection skill
 
-- **If count ≤ 5:** take **Path 2 (close)**.
-- **If count > 5:** take **Path 1 (eslint rule)**.
+**File:** `packages/workers/src/skills/monthly-reflection.ts`
 
-### Work Items
+**Changes:**
+- Same pattern as 1.2. Replace `opts.model ?? 'claude-sonnet-4-5-20250929'` with `resolveTaskModel()`.
+- The `options.model` override in `run()` at line 300 should remain as test escape hatch (same as email-compose).
+- Production path: `options.model ?? this.resolvedModel`.
 
-#### 1.1 Path 2 — Close with rationale (DEFAULT)
+**Acceptance:**
+- [ ] No hardcoded model string in monthly-reflection.ts
+- [ ] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
+- [ ] Existing tests pass
 
-- [ ] Add a note to `LAB_NOTEBOOK.md` (Entry ≥ 085) explaining the rationale: investigation showed no runtime drift, drift-guard covers the symptomatic case, de facto discipline is holding.
-- [ ] Remove A65 from the action-items backlog (wherever it lives).
-- [ ] Close any tracking issue with a link to the notebook entry.
+### 1.5 Pass configService to agent skills in skill-execution worker
 
-**Verification:** `pnpm test` still green (drift-guard still enforces web↔shared).
+**File:** `packages/workers/src/jobs/skill-execution.ts`
 
-#### 1.2 Path 1 — Root eslint rule (ONLY IF decision gate triggers)
+**Changes:**
+- Find the instantiation blocks for wiki-ingest, wiki-lint, and monthly-reflection.
+- Add `configService: opts.configService` to each skill's options (same as email-compose already receives).
+- The `opts.configService` is already available in the worker — it's just not being passed through.
 
-- [ ] Create `eslint.config.js` at repo root (flat-config format):
+**File:** `packages/workers/src/jobs/wiki-ingest-worker.ts`
 
-```js
-import tseslint from 'typescript-eslint'
-export default [
-  ...tseslint.configs.recommended,
-  {
-    rules: {
-      '@typescript-eslint/consistent-type-imports': [
-        'error',
-        { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
-      ],
-    },
-  },
-]
-```
+**Changes:**
+- Pass `configService` from worker opts to WikiIngestSkill constructor.
+- The worker opts already carry configService from main.ts — just thread it through.
 
-- [ ] Add `eslint` + `typescript-eslint` to root devDependencies (if not already present).
-- [ ] Add `lint:types` script to root `package.json`: `eslint 'packages/*/src/**/*.ts'`.
-- [ ] Run `pnpm lint:types --fix` and review the diff.
-- [ ] Wire `lint:types` into the CI `build-and-test` job.
+**Acceptance:**
+- [ ] All 4 agent skills (wiki-ingest, wiki-lint, monthly-reflection, email-compose) receive configService
+- [ ] Workers start cleanly with no ModelResolverError (YAML entries from 1.1 are present)
+- [ ] `pnpm --filter @open-brain/workers exec tsc --noEmit` passes
 
-**Verification:** CI green; `pnpm lint:types` passes; drift-guard test still green; spot-check 3 auto-fixed files for correctness.
+### 1.6 Update tests for new model resolution
 
-**Rollback:** Revert the eslint config + script + CI change. Zero runtime impact.
+**Files:** Test files for wiki-ingest, wiki-lint, monthly-reflection
 
----
+**Changes:**
+- Tests that construct these skills need a mock configService that returns ai-routing config with the appropriate task_routing entries.
+- Follow the mock pattern from email-compose tests.
+- Tests that pass `opts.model` directly should still work (escape hatch).
 
-## Phase 2: CS-η — A66 Captures.source CHECK Constraint + CLAUDE.md Fix
-
-**Complexity:** Small
-**Dependencies:** None
-**Parallelizable:** Yes
-**Status:** Local steps COMPLETE 2026-04-18 (2.1, 2.3, 2.4, 2.6). Homeserver steps (2.2 pre-flight audit + 2.5 apply migration) PENDING — require SSH; surfaced to user. See LAB_NOTEBOOK Entry 086.
-
-### Goals
-
-Add database-level rejection of invalid `captures.source` values without the inflexibility of `pgEnum`. Fix the 7-vs-8 undercount in CLAUDE.md (production uses `'file'` for captures derived from uploaded-document file-references; CLAUDE.md lists only 7 values).
-
-### Work Items
-
-#### 2.1 Fix CLAUDE.md source-value list
-
-- [ ] Update `CLAUDE.md` "Capture source types" reference to list all 8 values: `slack, voice, api, document, mcp, email, file, consolidation`.
-- [ ] Update `memory/MEMORY.md` if it also enumerates sources.
-
-#### 2.2 Pre-flight DB audit
-
-- [ ] SSH to homeserver: `ssh root@homeserver.k4jda.net`.
-- [ ] Run `docker exec open-brain-postgres psql -U openbrain -d openbrain -c "SELECT source, COUNT(*) FROM captures GROUP BY source ORDER BY source;"`.
-- [ ] Confirm every distinct value is in the 8-value allowlist. **If not, stop and investigate before applying migration.**
-
-#### 2.3 Write migration `0022_captures_source_check.sql`
-
-File: `packages/shared/drizzle/0022_captures_source_check.sql`
-
-```sql
-ALTER TABLE captures
-  DROP CONSTRAINT IF EXISTS captures_source_check;
-
-ALTER TABLE captures
-  ADD CONSTRAINT captures_source_check
-  CHECK (source IN ('slack','voice','api','document','mcp','email','file','consolidation'));
-```
-
-#### 2.4 Update Drizzle schema annotation (informational only)
-
-- [ ] Add a comment in `packages/shared/src/schema/core.ts` above the `source` column documenting the CHECK constraint and the canonical TS union location (`packages/shared/src/types/capture.ts:CaptureSource`).
-- [ ] No runtime schema change — column stays `text('source').notNull()`. The TS union remains the source of truth.
-
-#### 2.5 Apply to homeserver
-
-- [ ] Copy migration to homeserver: `scp packages/shared/drizzle/0022_captures_source_check.sql root@homeserver.k4jda.net:/tmp/`.
-- [ ] Apply: `docker exec -i open-brain-postgres psql -U openbrain -d openbrain < /tmp/0022_captures_source_check.sql`.
-- [ ] Verify: `docker exec open-brain-postgres psql -U openbrain -d openbrain -c "\d+ captures" | grep check`.
-- [ ] Test rejection: `INSERT INTO captures (id, content, source, ...) VALUES (gen_random_uuid(), 'test', 'bogus', ...);` — expect `23514 check_violation`.
-
-#### 2.6 Lab notebook entry
-
-- [ ] Log pre-flight audit results, migration command, verification output in `LAB_NOTEBOOK.md` (Rule 1: Hypothesis + Rollback before execution).
-
-**Verification:** Integration tests pass; manual `INSERT` with invalid source rejected at DB layer; existing captures untouched.
-
-**Rollback:** `ALTER TABLE captures DROP CONSTRAINT captures_source_check;` on the homeserver DB; `git revert` the migration + CLAUDE.md commit.
+**Acceptance:**
+- [ ] All worker tests pass: `pnpm --filter @open-brain/workers test`
+- [ ] All core-api tests pass: `pnpm --filter @open-brain/core-api test`
+- [ ] TypeScript clean: `pnpm --filter @open-brain/workers exec tsc --noEmit`
 
 ---
 
-## Phase 3: CS-θ — A68 Python Lint & Typecheck CI ✅ Completed 2026-04-18
+## Phase 2: YAML Documentation Rewrite (Set C — after Phase 1)
 
-**Complexity:** Small-Medium
-**Dependencies:** None
-**Parallelizable:** Yes
+### 2.1 Rewrite ai-routing.yaml with comprehensive documentation
 
-**Completion notes (see LAB_NOTEBOOK Entry 087):** All 4 work items complete. `pyproject.toml` created with `pythonPlatform = "Linux"` + `scripts/*` per-file-ignores for ops-script style. Ruff auto-fixed 244/279 findings. Pyright clean on `docker/ingest-sidecar` and `packages/file-ingestion/src`. `packages/voice-pipecat/src` scoped out with TODO — `redis.asyncio` stub gaps + Anthropic content-block union narrowing need a separate effort. CI job added to `.github/workflows/ci.yml`; not yet marked required (observe for 1–2 PRs per plan).
+**File:** `config/ai-routing.yaml`
 
-### Goals
+**Changes:**
+- Add file-level header comment: purpose, who reads it, what breaks on bad edits
+- Add `models:` section documentation (embedding config, intent model for Slack)
+- Add `model_tiers:` section documentation: each tier with provider type, cost class, fallback chain, and editing guidelines
+- Add `task_routing:` section documentation organized by constraint class:
+  - **ANTHROPIC ONLY (agent skills)** — wiki_ingest, wiki_lint, monthly_reflection, email_compose. These use `runAgent()` with Anthropic tool_use. MUST point to an Anthropic tier (t1_fast or t2_quality). Routing to t1_spark/t1_jetson/t0_local WILL CRASH at runtime.
+  - **JSON MODE REQUIRED** — entity_extraction. Uses `response_format: { type: "json_object" }`. MUST point to an OpenAI-compatible tier (t1_spark, t1_jetson, t0_local). Anthropic tiers do NOT support JSON mode.
+  - **CLASSIFICATION (fast, cheap)** — intent, capture, brain_view, voice, confidence, question, email. Small input, single-word output. Route to cheapest/fastest tier.
+  - **ROUTINE TASKS (free tier)** — entity_linking, search_synthesis, daily_sweep, daily_connections, drift_monitoring, email_daily_digest. Structured output, moderate complexity. Free tiers handle these well.
+  - **QUALITY-CRITICAL (paid)** — governance, weekly_brief. Human-facing synthesis that justifies paid model quality.
+- Add `monthly_budget:` section documentation explaining soft/hard limits and circuit breaker behavior
+- Per-entry inline comments for any non-obvious assignment
 
-Add `ruff` (lint+format) and `pyright` (typecheck) to CI. Cover the three strongly-typed Python surfaces (`docker/ingest-sidecar/`, `packages/voice-pipecat/src/`, `packages/file-ingestion/src/`). Defer `scripts/` typecheck — sparse hints make it a separate effort.
-
-### Work Items
-
-#### 3.1 Create root `pyproject.toml`
-
-File: `pyproject.toml` (repo root; tool config only, not a package definition)
-
-```toml
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-src = [
-  "scripts",
-  "docker/ingest-sidecar",
-  "packages/voice-pipecat/src",
-  "packages/file-ingestion/src",
-]
-extend-exclude = [
-  "packages/voice-pipecat/tests",  # pytest conventions differ
-  "**/node_modules",
-  ".venv",
-]
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
-ignore = ["E501"]  # formatter owns line length
-
-[tool.pyright]
-include = [
-  "docker/ingest-sidecar",
-  "packages/voice-pipecat/src",
-  "packages/file-ingestion/src",
-]
-exclude = ["scripts", "**/tests", "**/__pycache__"]
-pythonVersion = "3.12"
-typeCheckingMode = "standard"
-reportMissingImports = "warning"  # avoid noise from optional deps
-```
-
-#### 3.2 Auto-fix pass (lint + format)
-
-- [ ] Install tools locally: `pip install ruff==0.6.* pyright==1.1.*`.
-- [ ] Run `ruff check --fix .`; commit the fixes.
-- [ ] Run `ruff format .`; commit the formatting changes.
-- [ ] Review diffs in the PR for anything surprising.
-
-#### 3.3 Pyright baseline
-
-- [ ] Run `pyright` locally; fix any errors in the three included packages.
-- [ ] If errors are extensive in one package, scope that package out of `include` and file a follow-up (note in PR description).
-- [ ] Expected: sidecar clean (already well-typed with `from __future__ import annotations`); voice-pipecat/file-ingestion may surface a handful of issues.
-
-#### 3.4 New CI job
-
-File: `.github/workflows/ci.yml`
-
-```yaml
-python-lint:
-  name: Python lint & typecheck
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-        cache: pip
-    - run: pip install ruff==0.6.* pyright==1.1.*
-    - run: ruff check .
-    - run: ruff format --check .
-    - run: pyright
-```
-
-- [ ] Add to the workflow alongside existing `build-and-test` and `sidecar-test` jobs.
-- [ ] Do NOT make it a required check yet — observe for 1–2 PRs before promoting to required status.
-
-**Verification:** `python-lint` job passes on the PR branch; `pnpm test` + `sidecar-test` still green.
-
-**Rollback:** Revert the workflow job + `pyproject.toml`. Auto-fixed formatting/lint changes can stay (they're improvements regardless).
+**Acceptance:**
+- [ ] Every task_routing entry has a comment explaining its constraint class
+- [ ] Agent skills marked "ANTHROPIC ONLY" with explanation
+- [ ] JSON mode constraint documented on entity_extraction
+- [ ] Cost implications documented per tier
+- [ ] ConfigService still loads cleanly (YAML comments don't break parsing)
 
 ---
 
-## Phase 4: CS-ι — A67 LLMGatewayService Integration for email-compose ✅ Completed 2026-04-18
+## Verification Checklist (run after all phases)
 
-**Complexity:** Medium
-**Dependencies:** None (independent of Phases 1–3)
-**Parallelizable:** Yes
-**Status:** COMPLETE 2026-04-18 — Option C (factory injection). `LLMGatewayService.resolveAgentClient()` + `recordAgentCompletion()`, `runAgent({ clientResolver })` with one-shot same-iteration fallback on transient errors, email-compose migrated, fault-injection test landed. See LAB_NOTEBOOK Entry 088. 281 shared + 948 workers tests pass.
-
-### Goals
-
-Route `email-compose` through `LLMGatewayService` for tier fallback + audit logging, without breaking the multi-turn agent loop or the other skills that use `runAgent()`. Use **Option C** from the ultra-plan analysis: inject a client-resolver factory into `runAgent`, gateway pre-computes tier selection but does not own the loop.
-
-### Out of Scope (flagged for follow-up)
-
-- `memory-consolidation` and `weekly-brief` also bypass the gateway but are single-completion — migrate them to `completeByTask()` in a **separate PR** (simpler shape, different risk profile).
-- Multi-provider fallback chains in agent-loops (e.g., Anthropic→OpenAI). This phase constrains fallback to same-provider tiers only.
-
-### Work Items
-
-#### 4.1 Add `resolveAgentClient()` to LLMGatewayService
-
-File: `packages/shared/src/services/llm-gateway.ts`
-
-```typescript
-export interface AgentClientResolution {
-  client: Anthropic | OpenAI
-  model: string
-  tierKey: string
-  maxTokens: number
-  timeoutMs: number
-  fallback?: () => AgentClientResolution | null
-}
-
-resolveAgentClient(taskName: string): AgentClientResolution {
-  const primary = this.resolveByTask(taskName)
-  if (!primary) throw new ModelResolverError(`No tier for task ${taskName}`)
-
-  // Assert: fallback chain shares provider with primary (no cross-provider agent fallback)
-  const fallbackChain = this.computeFallbackChain(primary.tierKey)
-    .filter(t => t.provider === primary.tier.provider)
-
-  return {
-    client: primary.client,
-    model: primary.model,
-    tierKey: primary.tierKey,
-    maxTokens: primary.maxTokens,
-    timeoutMs: primary.timeoutMs,
-    fallback: () => this.nextInChain(fallbackChain),
-  }
-}
-```
-
-- [ ] Implement `resolveAgentClient()` and private helper `computeFallbackChain()`.
-- [ ] Unit test: resolves primary tier, excludes cross-provider tiers from fallback, throws on unmapped task.
-
-#### 4.2 Extend `runAgent()` with `clientResolver` option
-
-File: `packages/workers/src/lib/run-agent.ts`
-
-```typescript
-export interface RunAgentOptions {
-  // Existing fields stay — backward compatible:
-  client?: Anthropic
-  model?: string
-  maxIterations?: number
-  maxTokens?: number
-  temperature?: number
-
-  // NEW (optional):
-  clientResolver?: () => AgentClientResolution
-}
-```
-
-- [ ] If `clientResolver` is provided, call it once at start + once per retry; ignore `client`/`model` fields.
-- [ ] If `clientResolver` is NOT provided, preserve current behavior exactly.
-- [ ] On transient API error (429, 503, timeout) inside the loop: call `resolution.fallback()`; if non-null, swap client+model and retry the SAME iteration once. Cap at 1 fallback swap per iteration.
-- [ ] Unit tests:
-  - [ ] Legacy signature (client + model) still works — no regression.
-  - [ ] New signature (clientResolver) resolves once per iteration.
-  - [ ] Fallback swap on 429: retries iteration with fallback client.
-  - [ ] No fallback available: error propagates as before.
-
-#### 4.3 Add `recordAgentCompletion()` audit helper
-
-File: `packages/shared/src/services/llm-gateway.ts`
-
-```typescript
-async recordAgentCompletion(
-  taskName: string,
-  tierKey: string,
-  result: { iterations: number, tokenUsage: TokenUsage, latencyMs: number }
-): Promise<void> { /* writes to ai_audit_log */ }
-```
-
-- [ ] Insert row in `ai_audit_log` with task, tier, iterations, input/output tokens, latency. Reuses existing audit schema.
-- [ ] Unit test: writes correct row shape.
-
-#### 4.4 Migrate email-compose
-
-File: `packages/workers/src/skills/email-compose.ts`
-
-```typescript
-const agentResolution = this.llmGateway.resolveAgentClient(EMAIL_COMPOSE_TASK)
-const start = Date.now()
-const agentResult = await runAgent(EMAIL_COMPOSE_SYSTEM_PROMPT, tools, instruction, {
-  clientResolver: () => agentResolution,
-  maxIterations: 10,
-  maxTokens: agentResolution.maxTokens,
-  temperature: 0.3,
-})
-await this.llmGateway.recordAgentCompletion(EMAIL_COMPOSE_TASK, agentResolution.tierKey, {
-  iterations: agentResult.iterations,
-  tokenUsage: agentResult.tokenUsage,
-  latencyMs: Date.now() - start,
-})
-```
-
-- [ ] Remove the now-dead `resolveTaskModel(...)` call in email-compose constructor — `resolveAgentClient()` does this internally.
-- [ ] Ensure `llmGateway` is injected into the email-compose skill constructor (check workers `main.ts` — may already be wired; if not, add it).
-
-#### 4.5 Fault-injection test
-
-File: `packages/workers/src/skills/__tests__/email-compose.integration.test.ts`
-
-- [ ] Mock Anthropic SDK to return 429 on first call, 200 on second.
-- [ ] Verify `runAgent` uses fallback tier client for retry.
-- [ ] Verify audit log has two tier entries (primary failed, fallback succeeded).
-
-#### 4.6 Lab notebook entry
-
-- [ ] Entry with Hypothesis (cost tracking + tier fallback now visible for email-compose), Rollback Plan (revert the three commits in reverse order; email-compose falls back to direct `runAgent(client, model)`), and post-merge results.
-
-**Verification:**
-- Unit tests pass for gateway + runAgent + email-compose.
-- Integration test with fault injection passes.
-- Run a real `email-compose` job on homeserver; confirm audit log row appears; confirm token usage is captured.
-
-**Rollback:** Three atomic commits — revert the caller commit first (4.4), then runAgent changes (4.2), then gateway additions (4.1/4.3). Gateway methods are inert without a caller.
+- [ ] `pnpm --filter @open-brain/workers test` — all tests pass
+- [ ] `pnpm --filter @open-brain/core-api test` — all tests pass
+- [ ] `pnpm --filter @open-brain/workers exec tsc --noEmit` — TypeScript clean
+- [ ] `grep -rn 'claude-sonnet-4-5-20250929\|claude-haiku-4-5-20251001' packages/workers/src/skills/` returns zero hits (no hardcoded models remain)
+- [ ] `grep -n 'models.intent\|gpt-5.4' config/ai-routing.yaml` confirms intent model present
+- [ ] Local startup test: workers process connects and logs resolved models at INFO level
 
 ---
 
-<!-- END PHASES -->
+## Out of Scope
 
-## Verification & Close-out
-
-For each merged PR:
-- Lab notebook entry updated with results (Rule 2).
-- Action-items backlog entry removed (A65 / A66 / A67 / A68).
-- CLAUDE.md rule added if any non-trivial finding surfaced during execution (per CLAUDE.md Operational Rules § "Learning Capture").
-
-## Flagged Follow-ups (NOT in this plan)
-
-1. **Sibling TEXT columns with enum smell** (from A66 investigation): `capture_type`, `pipeline_status`, `pipeline_events.stage/status`, `sessions.session_type/status`. Apply the same CHECK-constraint pattern if CS-η proves out.
-2. **`memory-consolidation` + `weekly-brief` gateway migration** (from A67 investigation): both bypass the gateway but are single-completion; migrate via `completeByTask()` in a separate PR.
-3. **Scripts typecheck** (from A68 investigation): 20 ops scripts in `scripts/` have sparse type hints; adding `pyright` coverage requires adding hints to each. Separate effort.
-4. **Cross-provider agent fallback** (from A67 CS-ι scope): agent-loop skills currently cannot fall back Anthropic→OpenAI mid-loop due to tool-use format differences. If we ever need it, requires normalization layer in `runAgent` — separate design.
+- **A71 (memory-consolidation task-key rename):** Related but separate — `search_synthesis` key stays for now
+- **Slack-bot ConfigService refactor:** Slack-bot keeps lightweight js-yaml load per CLAUDE.md rule
+- **Runtime provider validation:** Could add a check that agent skill tasks point to Anthropic tiers, but comments are sufficient for a single-operator system
+- **Changing tier assignments:** This plan consolidates references, not changes routing decisions (except wiki_ingest t1_spark → t1_fast which is a bug fix)
