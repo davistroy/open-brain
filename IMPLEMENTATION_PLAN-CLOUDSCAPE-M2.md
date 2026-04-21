@@ -87,7 +87,7 @@ Bundle size impact: Query (~13KB gz), Radix Dialog (~6.5KB gz), sonner (~4KB gz)
 ---
 
 #### 1.2 Configure next.config.ts for M2
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 D115, sharp-edges: API rewrite + standalone + tracing root
 **Files Affected:**
 - `packages/web-next/next.config.ts` (modify)
