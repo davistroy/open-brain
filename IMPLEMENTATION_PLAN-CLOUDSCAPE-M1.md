@@ -547,6 +547,8 @@ feat(web-next/entity-detail): match screen 06 — header, summary, graph, commit
 
 ### 4.1 — Briefs list page
 
+**Status:** COMPLETE 2026-04-21
+
 **Files:**
 - Create: `components/briefs/brief-hero.tsx`
 - Create: `components/briefs/brief-card.tsx`
@@ -572,6 +574,8 @@ feat(web-next/briefs): match screen 07 — hero, library grid/list, filter tabs
 ---
 
 ### 4.2 — Brief reader page
+
+**Status:** COMPLETE 2026-04-21
 
 **Files:**
 - Create: `components/briefs/brief-reader.tsx`
