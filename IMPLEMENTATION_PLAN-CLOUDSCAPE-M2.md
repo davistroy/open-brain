@@ -467,7 +467,7 @@ Event payload shape must match what core-api emits. If pg-notify payload is id-o
 ---
 
 #### 3.3 Playwright smoke test: QuickCapture → dashboard refresh
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.8
 **Files Affected:**
 - `packages/web-next/tests/smoke/quick-capture.spec.ts` (create)
