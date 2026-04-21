@@ -278,6 +278,8 @@ feat(web-next): tailwind config with design token extensions
 
 ### 1.4 — Root layout + redirect
 
+**Status:** COMPLETE 2026-04-21
+
 **Files:**
 - Modify: `packages/web-next/app/layout.tsx`
 - Modify: `packages/web-next/app/page.tsx`
