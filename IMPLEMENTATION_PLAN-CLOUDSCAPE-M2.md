@@ -609,7 +609,7 @@ This is the single highest-risk change in M2 — it touches every brief-emitting
 ---
 
 #### 4.4 Audit + update skill subclasses
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** A78, CS2 D112 follow-up
 **Files Affected:**
 - Same ~25 files as 4.3 (this item focuses on verification, not re-editing)
