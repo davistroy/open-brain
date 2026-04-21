@@ -306,6 +306,8 @@ feat(web-next): root layout with parchment wash + dashboard redirect
 
 ### 1.5 — Design system primitives
 
+**Status:** COMPLETE 2026-04-21
+
 **Files:**
 - Create: all 11 files in `components/design-system/`
 
@@ -342,6 +344,8 @@ feat(web-next): design system primitives — Button, Card, Container, PageHeader
 ---
 
 ### 1.6 — Navigation (TopNav + SideNav + Shell layout)
+
+**Status:** COMPLETE 2026-04-21
 
 **Files:**
 - Create: `components/nav/top-nav.tsx`
