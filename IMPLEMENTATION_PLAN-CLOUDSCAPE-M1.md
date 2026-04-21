@@ -623,11 +623,13 @@ feat(web-next): search stub + passing build
 
 ---
 
-### 5.2 — Screenshot verification
+### 5.2 — Screenshot verification ✅ Completed 2026-04-21
 
-- [ ] **Step 1:** Start dev server (`pnpm dev` in `packages/web-next`)
+**Status:** COMPLETE 2026-04-21
 
-- [ ] **Step 2:** Screenshot all 6 routes via Chrome browser automation:
+- [x] **Step 1:** Start dev server (`pnpm dev` in `packages/web-next`)
+
+- [x] **Step 2:** Screenshot all 6 routes via Chrome browser automation:
 1. `/dashboard` — compare against `_check-dashboard.jpg`
 2. `/entities` — verify type tabs, table, distribution sidebar
 3. `/entities/sarah-chen` — compare against `_check-entity.jpg`
@@ -635,11 +637,11 @@ feat(web-next): search stub + passing build
 5. `/briefs/tuesday` — verify 3-col reader layout
 6. `/search` — verify empty state stub
 
-- [ ] **Step 3:** Fix visual discrepancies found in screenshots
+- [x] **Step 3:** Fix visual discrepancies found in screenshots
 
-- [ ] **Step 4:** Present all 6 screenshots to user for sign-off
+- [x] **Step 4:** Present all 6 screenshots to user for sign-off
 
-- [ ] **Step 5:** Final commit
+- [x] **Step 5:** Final commit
 
 ```
 fix(web-next): visual parity adjustments from screenshot review
