@@ -113,6 +113,11 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
    * Writes a row to the `skills_log` table. Catches and logs errors
    * so that logging failure never crashes the skill.
    *
+   * Returns the inserted `skills_log.id` (UUID string) so brief-producing
+   * skills can link their `briefs` row back to the log entry. Returns an
+   * empty string on insert failure (error is still logged; callers that
+   * discard the return value are unaffected).
+   *
    * @param result   The skill result (stored as JSONB in `result` column)
    * @param inputSummary  Short description of the input (e.g., "mode:evening")
    * @param outputSummary Short description of the output (e.g., "sent:true | captures:3")
@@ -123,18 +128,20 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
     inputSummary: string,
     outputSummary?: string,
     captureId?: string,
-  ): Promise<void> {
+  ): Promise<string> {
     try {
-      await this.db.insert(skills_log).values({
+      const rows = await this.db.insert(skills_log).values({
         skill_name: this.skillName,
         capture_id: captureId ?? null,
         input_summary: inputSummary,
         output_summary: outputSummary ?? null,
         result: result as unknown as Record<string, unknown>,
         duration_ms: result.durationMs,
-      })
+      }).returning({ id: skills_log.id })
+      return rows[0]?.id ?? ''
     } catch (err) {
       logger.warn({ err, skillName: this.skillName }, 'Failed to write skills_log entry')
+      return ''
     }
   }
 

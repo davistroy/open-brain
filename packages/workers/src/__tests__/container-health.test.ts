@@ -50,7 +50,7 @@ function makeMockDb(consecutiveUnhealthyRows: { healthy: boolean }[] = []) {
   return {
     execute: executeMock,
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }

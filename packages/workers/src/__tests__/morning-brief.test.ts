@@ -109,7 +109,7 @@ function makeMockDb(opts: {
   return {
     execute: executeMock,
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -376,7 +376,7 @@ describe('MorningBriefSkill', () => {
     const db = {
       execute: vi.fn().mockRejectedValue(new Error('Connection refused')),
       insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
       }),
     }
     const pushover = makePushoverService()

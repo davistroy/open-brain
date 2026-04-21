@@ -582,7 +582,7 @@ MEETING variant is the one BriefSource type that web-next's M1 types.ts doesn't 
 ---
 
 #### 4.3 BaseSkill.logResult() signature change
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 D112, investigation item 2.3
 **Files Affected:**
 - `packages/workers/src/skills/base-skill.ts` (modify)

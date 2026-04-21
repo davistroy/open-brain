@@ -72,7 +72,7 @@ class ObserveGatedSkill extends BaseSkill<GateInput, GateResult> {
 function makeDb() {
   return {
     execute: vi.fn().mockResolvedValue({ rows: [] }),
-    insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+    insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }) }),
   }
 }
 

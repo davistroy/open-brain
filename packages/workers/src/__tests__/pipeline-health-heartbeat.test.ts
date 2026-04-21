@@ -31,7 +31,7 @@ function makeMockDb(captureCount: string = '5', recentAlertCount: string = '0') 
 
   return {
     execute: executeMock,
-    insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+    insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }) }),
   }
 }
 
@@ -191,7 +191,7 @@ describe('PipelineHealthSkill — heartbeat (capture flow)', () => {
 
     const mockDb = {
       execute: executeMock,
-      insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+      insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }) }),
     }
 
     const skill = new PipelineHealthSkill({

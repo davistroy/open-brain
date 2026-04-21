@@ -124,7 +124,7 @@ function makeMockDb() {
   return {
     execute: vi.fn().mockResolvedValue({ rows: [] }),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -646,7 +646,7 @@ describe('MonthlyReflectionSkill', () => {
     it('continues if skills_log insert fails', async () => {
       const { skill, db } = makeSkill()
       ;(db.insert as MockInstance).mockReturnValue({
-        values: vi.fn().mockRejectedValue(new Error('DB write failed')),
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockRejectedValue(new Error('DB write failed')) }),
       })
 
       const result = await skill.execute()
