@@ -41,9 +41,9 @@
 **Reference:** Follow `packages/workers/src/skills/email-compose.ts` lines 265-310 exactly.
 
 **Acceptance:**
-- [ ] No hardcoded model string in wiki-ingest.ts
-- [ ] `resolveTaskModel()` called in constructor
-- [ ] ModelResolverError thrown if no configService and no opts.model
+- [x] No hardcoded model string in wiki-ingest.ts
+- [x] `resolveTaskModel()` called in constructor
+- [x] ModelResolverError thrown if no configService and no opts.model
 - [ ] Existing wiki-ingest tests pass (may need mock configService updates)
 
 ### 1.3 Wire configService to wiki-lint skill
@@ -57,8 +57,8 @@
 - Use `resolvedModel` in `run()`.
 
 **Acceptance:**
-- [ ] No hardcoded model string in wiki-lint.ts
-- [ ] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
+- [x] No hardcoded model string in wiki-lint.ts
+- [x] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
 - [ ] Existing tests pass
 
 ### 1.4 Wire configService to monthly-reflection skill
@@ -71,8 +71,8 @@
 - Production path: `options.model ?? this.resolvedModel`.
 
 **Acceptance:**
-- [ ] No hardcoded model string in monthly-reflection.ts
-- [ ] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
+- [x] No hardcoded model string in monthly-reflection.ts
+- [x] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
 - [ ] Existing tests pass
 
 ### 1.5 Pass configService to agent skills in skill-execution worker
