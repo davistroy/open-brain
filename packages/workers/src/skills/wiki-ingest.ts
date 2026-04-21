@@ -39,6 +39,8 @@ export interface WikiIngestResult extends BaseResult {
 export interface WikiIngestOptions {
   /** Anthropic client instance (required for runAgent). */
   anthropicClient?: Anthropic
+  /** Loaded ConfigService instance for task-indexed model resolution. When absent, model must be supplied. */
+  configService?: ConfigService
   /** Model to use for the agent. Default: 'claude-haiku-4-5-20251001'. */
   model?: string
   /** Max agent iterations. Default: 15. */
@@ -528,6 +530,7 @@ export async function executeWikiIngest(
     db,
     wikiService,
     anthropicClient: options.anthropicClient,
+    configService: options.configService,
     model: options.model,
     maxIterations: options.maxIterations,
     promptsDir: options.promptsDir,

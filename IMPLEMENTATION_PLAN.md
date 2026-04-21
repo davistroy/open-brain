@@ -91,9 +91,9 @@
 - The worker opts already carry configService from main.ts — just thread it through.
 
 **Acceptance:**
-- [ ] All 4 agent skills (wiki-ingest, wiki-lint, monthly-reflection, email-compose) receive configService
-- [ ] Workers start cleanly with no ModelResolverError (YAML entries from 1.1 are present)
-- [ ] `pnpm --filter @open-brain/workers exec tsc --noEmit` passes
+- [x] All 4 agent skills (wiki-ingest, wiki-lint, monthly-reflection, email-compose) receive configService
+- [x] Workers start cleanly with no ModelResolverError (YAML entries from 1.1 are present)
+- [x] `pnpm --filter @open-brain/workers exec tsc --noEmit` passes
 
 ### 1.6 Update tests for new model resolution
 
