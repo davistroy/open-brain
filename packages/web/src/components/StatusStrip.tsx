@@ -140,18 +140,37 @@ export default function StatusStrip() {
       const es = new EventSource('/api/v1/system/health/stream')
       sseRef.current = es
 
+      // SSE returns SystemHealthSnapshot shape; map to SystemHealthData for the strip
+      const mapSSE = (raw: Record<string, unknown>): SystemHealthData => {
+        const spend = raw.monthly_spend as { total_usd?: number } | undefined
+        const queues = Array.isArray(raw.queues) ? raw.queues as { waiting: number; active: number; failed: number; name: string }[] : []
+        const byQueue: Record<string, { waiting: number; active: number; failed: number }> = {}
+        let tw = 0, ta = 0, tf = 0
+        for (const q of queues) { tw += q.waiting; ta += q.active; tf += q.failed; byQueue[q.name] = { waiting: q.waiting, active: q.active, failed: q.failed } }
+        const skills = Array.isArray(raw.skill_last_runs) ? raw.skill_last_runs as { skill_name: string; last_run_at: string; duration_ms: number }[] : []
+        const lastSkill = skills.length > 0 ? skills.reduce((a, b) => a.last_run_at > b.last_run_at ? a : b) : null
+        return {
+          status: (raw.status as SystemHealthData['status']) ?? 'unhealthy',
+          timestamp: (raw.timestamp as string) ?? new Date().toISOString(),
+          queues: { total_waiting: tw, total_active: ta, total_failed: tf, by_queue: byQueue },
+          last_skill_run: lastSkill ? { name: lastSkill.skill_name, status: 'success', completed_at: lastSkill.last_run_at } : null,
+          llm_spend: { month_total_usd: spend?.total_usd ?? 0, budget_usd: 35 },
+          services: (raw.services as SystemHealthData['services']) ?? { postgres: { status: 'unknown' }, redis: { status: 'unknown' }, llm: { status: 'unknown' } },
+        }
+      }
+
       es.addEventListener('health', (evt: MessageEvent) => {
         try {
-          const parsed = JSON.parse(evt.data) as SystemHealthData
-          setData(parsed)
+          const raw = JSON.parse(evt.data)
+          setData(raw.llm_spend ? raw as SystemHealthData : mapSSE(raw))
         } catch { /* ignore parse errors */ }
       })
 
-      // Also handle generic message events
+      // Also handle generic message events (SSE event type = "system_health")
       es.onmessage = (evt) => {
         try {
-          const parsed = JSON.parse(evt.data) as SystemHealthData
-          setData(parsed)
+          const raw = JSON.parse(evt.data)
+          setData(raw.llm_spend ? raw as SystemHealthData : mapSSE(raw))
         } catch { /* ignore */ }
       }
 
