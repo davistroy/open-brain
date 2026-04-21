@@ -105,9 +105,9 @@
 - Tests that pass `opts.model` directly should still work (escape hatch).
 
 **Acceptance:**
-- [ ] All worker tests pass: `pnpm --filter @open-brain/workers test`
+- [x] All worker tests pass: `pnpm --filter @open-brain/workers test`
 - [ ] All core-api tests pass: `pnpm --filter @open-brain/core-api test`
-- [ ] TypeScript clean: `pnpm --filter @open-brain/workers exec tsc --noEmit`
+- [x] TypeScript clean: `pnpm --filter @open-brain/workers exec tsc --noEmit`
 
 ---
 

@@ -268,6 +268,8 @@ export function buildReflectionTools(db: Database, windowStart: Date, windowEnd:
 export interface MonthlyReflectionSkillOpts extends BaseSkillOpts {
   anthropicClient?: Anthropic
   configService?: ConfigService
+  /** Model override for tests only. Production uses resolveTaskModel() via configService. */
+  model?: string
   wikiService?: WikiGitService
   email?: EmailService
   promptsDir?: string
@@ -311,7 +313,8 @@ export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, 
         '[monthly-reflection] resolved task model at init',
       )
     } else {
-      this.resolvedModel = null
+      // No configService: accept opts.model as an explicit override (test injection path).
+      this.resolvedModel = opts.model ?? null
       this.resolvedTierKey = null
     }
   }
