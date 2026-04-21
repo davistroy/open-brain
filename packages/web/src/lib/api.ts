@@ -1059,7 +1059,7 @@ export interface SchwabPositionsRecord {
  * to cover several months of snapshots across all three accounts without
  * paginating; older history can be added later with `since`.
  */
-async function fetchSchwabCaptures(limit = 200): Promise<Capture[]> {
+async function fetchSchwabCaptures(limit = 100): Promise<Capture[]> {
   const res = await capturesApi.list({ source_provider: 'schwab', limit })
   return res.data ?? []
 }

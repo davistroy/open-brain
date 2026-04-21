@@ -21,7 +21,7 @@ describe('FinancialPulseCard', () => {
     (capturesApi.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: [],
       total: 0,
-      limit: 400,
+      limit: 100,
       offset: 0,
     });
 
@@ -42,7 +42,7 @@ describe('FinancialPulseCard', () => {
     expect(capturesApi.list).toHaveBeenCalledWith({
       brain_view: 'personal',
       capture_type: 'observation',
-      limit: 400,
+      limit: 100,
     });
   });
 });
