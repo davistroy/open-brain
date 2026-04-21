@@ -554,7 +554,7 @@ Per CLAUDE.md, no auto-migration. After merging, operator manually applies on ho
 ---
 
 #### 4.2 Drizzle schema + TS types + Zod + constants
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 D107, investigation items 2.3 + 2.6
 **Files Affected:**
 - `packages/shared/src/schema/briefs.ts` (create)
