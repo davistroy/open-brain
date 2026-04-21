@@ -37,7 +37,7 @@ const KIND_DOT: Record<BriefKind, string> = {
   DAILY:    'var(--color-book-cloth)',
   WEEKLY:   'var(--color-slate-medium)',
   DOSSIER:  'var(--color-book-cloth-dark)',
-  DECISION: '#5E8F4A',
+  DECISION: 'var(--color-success)',
   PROJECT:  'var(--color-cloud-dark)',
 };
 

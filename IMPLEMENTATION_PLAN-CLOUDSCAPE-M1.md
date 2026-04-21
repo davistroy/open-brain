@@ -603,6 +603,8 @@ feat(web-next/brief-reader): match screen 08 — 3-col reader with TOC and sourc
 
 ### 5.1 — Build + search stub
 
+**Status:** COMPLETE 2026-04-21
+
 - [ ] **Step 1:** Create `app/(shell)/search/page.tsx` — PageHeader breadcrumb `["Open Brain", "Search"]` + EmptyState: icon="search", title="Search", description="Full-text and semantic search. Coming in Milestone 4."
 
 - [ ] **Step 2:** Run build:
