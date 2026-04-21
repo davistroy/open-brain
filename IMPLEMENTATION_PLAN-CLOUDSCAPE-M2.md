@@ -749,7 +749,7 @@ Deps live in `packages/workers` because that's where skills run. `packages/share
 ---
 
 #### 5.2 BriefsService + briefs route handlers
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 investigation items 2.3 + 2.6
 **Files Affected:**
 - `packages/core-api/src/services/briefs.ts` (create)

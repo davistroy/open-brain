@@ -31,6 +31,7 @@ import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
 import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
 import { registerInsurancePoliciesRoutes } from './routes/insurance-policies.js'
+import { registerBriefRoutes } from './routes/briefs.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -46,6 +47,7 @@ import type { ActivityFeedService } from './services/activity-feed.js'
 import type { EmailDraftService } from './services/email-draft.js'
 import type { EmailComposeAssistService } from './services/email-compose-assist.js'
 import type { VoiceSessionService } from './services/voice-session.js'
+import type { BriefsService } from './services/briefs.js'
 
 interface AppDependencies {
   configService?: ConfigService
@@ -82,6 +84,8 @@ interface AppDependencies {
   emailComposeAssistService?: EmailComposeAssistService
   /** Voice session service — required for voice conversation session endpoints */
   voiceSessionService?: VoiceSessionService
+  /** Briefs service — required for GET/POST/PATCH /api/v1/briefs endpoints (CS2 M2) */
+  briefsService?: BriefsService
   /** Ingest-process BullMQ queue — required for POST /api/v1/ingest/upload pipeline dispatch (CS3.4/CS3.5) */
   ingestProcessQueue?: Queue<IngestProcessJobData>
   /** Access-stats BullMQ queue — fire-and-forget after search completion (P06 Hebbian co-access) */
@@ -96,7 +100,7 @@ interface AppDependencies {
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue, metricsRedis } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue, metricsRedis, briefsService } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -115,6 +119,9 @@ export function createApp(deps: AppDependencies = {}): Hono {
   app.use('/api/v1/captures/*', rateLimit(strictLimiter))
   app.use('/api/v1/search', rateLimit(strictLimiter))
   app.use('/api/v1/synthesize', rateLimit(strictLimiter))
+  // Briefs refine triggers an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
+  // (Hono first-match wins; must precede the default-tier wildcard below)
+  app.use('/api/v1/briefs/*/refine', rateLimit(strictLimiter))
 
   // Admin tier: destructive/config endpoints
   app.use('/api/v1/admin/*', rateLimit(adminLimiter))
@@ -225,6 +232,13 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // P22b gap analysis depends on this endpoint.
   if (db) {
     registerInsurancePoliciesRoutes(app, db)
+  }
+
+  // Briefs API — list, detail, refine (async), dismiss, read toggle (CS2 M2).
+  // skillQueue is optional: refine() will throw at runtime if queue absent,
+  // but list/get/dismiss/patchRead work without it.
+  if (briefsService) {
+    registerBriefRoutes(app, briefsService)
   }
 
   // MCP endpoint — requires all services to be available
