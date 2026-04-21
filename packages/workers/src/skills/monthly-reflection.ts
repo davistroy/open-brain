@@ -1,17 +1,25 @@
 import { join } from 'node:path'
 import { sql } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database, AutonomyLevel } from '@open-brain/shared'
+import type { Database, AutonomyLevel, ConfigService } from '@open-brain/shared'
 import {
   logger,
   TemplateCache,
   runAgent,
+  resolveTaskModel,
+  ModelResolverError,
 } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
+
+/**
+ * Task alias resolved at skill init via `resolveTaskModel()`.
+ * Routes through `task_routing.monthly_reflection` in `config/ai-routing.yaml`.
+ */
+const MONTHLY_REFLECTION_TASK = 'monthly_reflection'
 
 // ============================================================
 // Types
@@ -59,7 +67,7 @@ export interface MonthlyReflectionResult extends BaseResult {
 export interface MonthlyReflectionOptions {
   /** Anthropic client instance (required for runAgent). */
   anthropicClient?: Anthropic
-  /** Model to use for the agent. Default: 'claude-sonnet-4-5-20250929'. */
+  /** Per-call model override (test escape hatch — production uses resolvedModel from configService). */
   model?: string
   /** Max agent iterations. Default: 10. */
   maxIterations?: number
@@ -259,12 +267,14 @@ export function buildReflectionTools(db: Database, windowStart: Date, windowEnd:
 /** Constructor options for MonthlyReflectionSkill. */
 export interface MonthlyReflectionSkillOpts extends BaseSkillOpts {
   anthropicClient?: Anthropic
+  configService?: ConfigService
+  /** Model override for tests only. Production uses resolveTaskModel() via configService. */
+  model?: string
   wikiService?: WikiGitService
   email?: EmailService
   promptsDir?: string
   coreApiUrl?: string
   templates?: TemplateCache
-  model?: string
   maxIterations?: number
 }
 
@@ -276,7 +286,10 @@ export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, 
   private coreApiUrl: string
   private anthropicClient?: Anthropic
   private wikiService?: WikiGitService
-  private model: string
+  /** Resolved concrete model string (e.g. `claude-sonnet-4-6`). */
+  private readonly resolvedModel: string | null
+  /** Tier key the task resolved to (e.g. `t2_quality`). Logged for observability. */
+  private readonly resolvedTierKey: string | null
   private maxIterations: number
 
   constructor(opts: MonthlyReflectionSkillOpts) {
@@ -288,8 +301,22 @@ export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, 
       opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'),
     )
     this.coreApiUrl = opts.coreApiUrl ?? process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
-    this.model = opts.model ?? 'claude-sonnet-4-5-20250929'
     this.maxIterations = opts.maxIterations ?? 10
+
+    const configService = opts.configService ?? null
+    if (configService) {
+      const resolved = resolveTaskModel(configService.get('ai'), MONTHLY_REFLECTION_TASK)
+      this.resolvedModel = resolved.model
+      this.resolvedTierKey = resolved.tierKey
+      logger.info(
+        { task: MONTHLY_REFLECTION_TASK, model: resolved.model, tierKey: resolved.tierKey },
+        '[monthly-reflection] resolved task model at init',
+      )
+    } else {
+      // No configService: accept opts.model as an explicit override (test injection path).
+      this.resolvedModel = opts.model ?? null
+      this.resolvedTierKey = null
+    }
   }
 
   protected async run(options: MonthlyReflectionOptions = {}): Promise<MonthlyReflectionResult> {
@@ -297,7 +324,16 @@ export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, 
     const now = new Date()
     const windowStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     const emailTo = options.emailTo ?? process.env.WEEKLY_BRIEF_EMAIL
-    const model = options.model ?? this.model
+    // Prefer the init-time resolved model. `options.model` is a per-call
+    // override (discouraged in production; useful only for tool-level tests).
+    const model = options.model ?? this.resolvedModel
+    if (!model) {
+      throw new ModelResolverError(
+        `MonthlyReflectionSkill cannot determine model: no configService was passed at construction and no options.model override was supplied at execute() time. ` +
+          `Wire ConfigService in main.ts (see workers/src/main.ts skill-execution registration).`,
+        MONTHLY_REFLECTION_TASK,
+      )
+    }
 
     const monthLabel = formatMonthLabel(now)
     logger.info({ monthLabel, windowStart: windowStart.toISOString() }, '[monthly-reflection] starting execution')

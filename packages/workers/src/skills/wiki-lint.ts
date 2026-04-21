@@ -6,8 +6,10 @@ import {
   PushoverService,
   TemplateCache,
   runAgent,
+  resolveTaskModel,
+  ModelResolverError,
 } from '@open-brain/shared'
-import type { AgentResult, WikiGitService } from '@open-brain/shared'
+import type { AgentResult, WikiGitService, ConfigService } from '@open-brain/shared'
 import { buildWikiTools } from './wiki-ingest.js'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
@@ -29,7 +31,7 @@ export interface WikiLintResult extends BaseResult {
 export interface WikiLintOptions {
   /** Anthropic client instance (required for runAgent). */
   anthropicClient?: Anthropic
-  /** Model to use for the agent. Default: 'claude-sonnet-4-5-20250929'. */
+  /** Model override for tests. Production uses resolveTaskModel() via configService. */
   model?: string
   /** Max agent iterations. Default: 25 (wiki-lint reads many pages). */
   maxIterations?: number
@@ -40,6 +42,9 @@ export interface WikiLintOptions {
   /** Pushover service instance. */
   pushover?: PushoverService
 }
+
+// Task key used for ai-routing.yaml resolution.
+const WIKI_LINT_TASK = 'wiki_lint'
 
 // ============================================================
 // WikiLintSkill class
@@ -53,11 +58,18 @@ export interface WikiLintOptions {
  * wiki/maintenance/lint-report.md and sends a Pushover summary.
  *
  * Scheduled weekly (Sundays 5 AM) via BullMQ.
+ *
+ * Model resolved at init via `resolveTaskModel(configService.get('ai'), 'wiki_lint')`.
+ * The resolved model is used for `runAgent()` unless `options.model` overrides it
+ * at execute() time. Constructor throws `ModelResolverError` (fail loud) if the
+ * task key is missing from ai-routing.yaml — misconfiguration must surface at init,
+ * not silently mid-run.
  */
 /** Constructor options for WikiLintSkill. */
 export interface WikiLintSkillOpts extends BaseSkillOpts {
   wikiService: WikiGitService
   anthropicClient?: Anthropic
+  configService?: ConfigService
   model?: string
   maxIterations?: number
   promptsDir?: string
@@ -68,18 +80,36 @@ export class WikiLintSkill extends BaseSkill<void, WikiLintResult> {
   private wikiService: WikiGitService
   private templates: TemplateCache
   private anthropicClient?: Anthropic
-  private model: string
   private maxIterations: number
+
+  /** Resolved concrete model string (e.g. `claude-sonnet-4-6`). */
+  private readonly resolvedModel: string | null
+  /** Tier key the task resolved to (e.g. `t2_quality`). Logged for observability. */
+  private readonly resolvedTierKey: string | null
 
   constructor(opts: WikiLintSkillOpts) {
     super('wiki-lint', opts)
     this.wikiService = opts.wikiService
     this.anthropicClient = opts.anthropicClient
-    this.model = opts.model ?? 'claude-sonnet-4-5-20250929'
     this.maxIterations = opts.maxIterations ?? 25
     this.templates = opts.templates ?? new TemplateCache(
       opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'),
     )
+
+    const configService = opts.configService ?? null
+    if (configService) {
+      const resolved = resolveTaskModel(configService.get('ai'), WIKI_LINT_TASK)
+      this.resolvedModel = resolved.model
+      this.resolvedTierKey = resolved.tierKey
+      logger.info(
+        { task: WIKI_LINT_TASK, model: resolved.model, tierKey: resolved.tierKey },
+        '[wiki-lint] resolved task model at init',
+      )
+    } else {
+      // No configService: accept opts.model as an explicit override (test injection path).
+      this.resolvedModel = opts.model ?? null
+      this.resolvedTierKey = null
+    }
   }
 
   protected async run(_input?: void): Promise<WikiLintResult> {
@@ -97,6 +127,18 @@ export class WikiLintSkill extends BaseSkill<void, WikiLintResult> {
     const tools = buildWikiTools(this.wikiService)
 
     // ── Step 3: Run the agent loop ──────────────────────────────────
+    // Use the init-time resolved model. When configService is wired (production),
+    // this comes from ai-routing.yaml task 'wiki_lint'. When configService is absent
+    // (tests), opts.model is the explicit override stored in resolvedModel.
+    const model = this.resolvedModel
+    if (!model) {
+      throw new ModelResolverError(
+        `WikiLintSkill cannot determine model: no configService was passed at construction and no options.model override was supplied at execute() time. ` +
+          `Wire ConfigService in main.ts (see workers/src/main.ts skill-execution registration).`,
+        WIKI_LINT_TASK,
+      )
+    }
+
     let agentResult: AgentResult
 
     try {
@@ -106,7 +148,7 @@ export class WikiLintSkill extends BaseSkill<void, WikiLintResult> {
         'Please scan all wiki pages for quality issues and produce a lint report. Write the report to wiki/maintenance/lint-report.md.',
         {
           client: this.anthropicClient,
-          model: this.model,
+          model,
           maxIterations: this.maxIterations,
           maxTokens: 8192,
           temperature: 0.2,

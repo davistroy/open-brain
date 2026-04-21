@@ -20,9 +20,9 @@
 - Add `models.intent: "gpt-5.4"` to models section (Slack intent router reads this)
 
 **Acceptance:**
-- [ ] `wiki_lint`, `monthly_reflection` entries present in task_routing
-- [ ] `wiki_ingest` points to `t1_fast` (Anthropic tier)
-- [ ] `models.intent` entry present
+- [x] `wiki_lint`, `monthly_reflection` entries present in task_routing
+- [x] `wiki_ingest` points to `t1_fast` (Anthropic tier)
+- [x] `models.intent` entry present
 - [ ] ConfigService loads without error (run unit tests)
 
 ### 1.2 Wire configService to wiki-ingest skill
@@ -41,9 +41,9 @@
 **Reference:** Follow `packages/workers/src/skills/email-compose.ts` lines 265-310 exactly.
 
 **Acceptance:**
-- [ ] No hardcoded model string in wiki-ingest.ts
-- [ ] `resolveTaskModel()` called in constructor
-- [ ] ModelResolverError thrown if no configService and no opts.model
+- [x] No hardcoded model string in wiki-ingest.ts
+- [x] `resolveTaskModel()` called in constructor
+- [x] ModelResolverError thrown if no configService and no opts.model
 - [ ] Existing wiki-ingest tests pass (may need mock configService updates)
 
 ### 1.3 Wire configService to wiki-lint skill
@@ -57,8 +57,8 @@
 - Use `resolvedModel` in `run()`.
 
 **Acceptance:**
-- [ ] No hardcoded model string in wiki-lint.ts
-- [ ] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
+- [x] No hardcoded model string in wiki-lint.ts
+- [x] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
 - [ ] Existing tests pass
 
 ### 1.4 Wire configService to monthly-reflection skill
@@ -71,8 +71,8 @@
 - Production path: `options.model ?? this.resolvedModel`.
 
 **Acceptance:**
-- [ ] No hardcoded model string in monthly-reflection.ts
-- [ ] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
+- [x] No hardcoded model string in monthly-reflection.ts
+- [x] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
 - [ ] Existing tests pass
 
 ### 1.5 Pass configService to agent skills in skill-execution worker
@@ -91,9 +91,9 @@
 - The worker opts already carry configService from main.ts — just thread it through.
 
 **Acceptance:**
-- [ ] All 4 agent skills (wiki-ingest, wiki-lint, monthly-reflection, email-compose) receive configService
-- [ ] Workers start cleanly with no ModelResolverError (YAML entries from 1.1 are present)
-- [ ] `pnpm --filter @open-brain/workers exec tsc --noEmit` passes
+- [x] All 4 agent skills (wiki-ingest, wiki-lint, monthly-reflection, email-compose) receive configService
+- [x] Workers start cleanly with no ModelResolverError (YAML entries from 1.1 are present)
+- [x] `pnpm --filter @open-brain/workers exec tsc --noEmit` passes
 
 ### 1.6 Update tests for new model resolution
 
@@ -105,9 +105,9 @@
 - Tests that pass `opts.model` directly should still work (escape hatch).
 
 **Acceptance:**
-- [ ] All worker tests pass: `pnpm --filter @open-brain/workers test`
+- [x] All worker tests pass: `pnpm --filter @open-brain/workers test`
 - [ ] All core-api tests pass: `pnpm --filter @open-brain/core-api test`
-- [ ] TypeScript clean: `pnpm --filter @open-brain/workers exec tsc --noEmit`
+- [x] TypeScript clean: `pnpm --filter @open-brain/workers exec tsc --noEmit`
 
 ---
 
@@ -131,11 +131,11 @@
 - Per-entry inline comments for any non-obvious assignment
 
 **Acceptance:**
-- [ ] Every task_routing entry has a comment explaining its constraint class
-- [ ] Agent skills marked "ANTHROPIC ONLY" with explanation
-- [ ] JSON mode constraint documented on entity_extraction
-- [ ] Cost implications documented per tier
-- [ ] ConfigService still loads cleanly (YAML comments don't break parsing)
+- [x] Every task_routing entry has a comment explaining its constraint class
+- [x] Agent skills marked "ANTHROPIC ONLY" with explanation
+- [x] JSON mode constraint documented on entity_extraction
+- [x] Cost implications documented per tier
+- [x] ConfigService still loads cleanly (YAML comments don't break parsing)
 
 ---
 

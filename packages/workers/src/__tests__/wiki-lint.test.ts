@@ -274,6 +274,7 @@ describe('WikiLintSkill', () => {
       wikiService,
       templates,
       pushover,
+      model: 'test-model',
     })
 
     const result = await skill.execute()

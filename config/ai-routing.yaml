@@ -1,49 +1,129 @@
-# ============================================================
-# Model config
-# Pipeline routing uses task_routing below. The `embedding` entry is
-# structured and kept here because it has a distinct purpose (dimension,
-# cost, client preference); OPENAI_BASE_URL env var controls the endpoint.
-# ============================================================
+# #======================================================================#
+# #          ai-routing.yaml -- LLM Model Assignment Source of Truth       #
+# #======================================================================#
+# #  What this file is:                                                   #
+# #    Single source of truth for ALL LLM model assignments in Open Brain. #
+# #    Every skill, pipeline stage, and routing decision traces back here. #
+# #                                                                        #
+# #  Who reads it:                                                         #
+# #    * ConfigService (workers + core-api) -- full parse with zod schema   #
+# #    * slack-bot -- lightweight js-yaml load (NOT ConfigService)          #
+# #    * LLMGatewayService -- resolves tier -> provider -> client at runtime  #
+# #                                                                        #
+# #  What breaks on bad edits:                                             #
+# #    * Misspelled tier key -> workers crash at startup (ModelResolverError)#
+# #    * Missing cost field on paid tier -> ConfigService throws fail-fast  #
+# #    * Agent skill routed to wrong provider -> silent runtime crash       #
+# #      (runAgent() requires Anthropic; openai_compat doesn't support it) #
+# #                                                                        #
+# #  How to test changes:                                                  #
+# #    Restart workers container; check INFO logs for:                     #
+# #      "resolved task model" lines confirming each task assignment.      #
+# #    Unit test: pnpm --filter @open-brain/workers exec tsc --noEmit      #
+# #======================================================================#
+
+# =======================================================================
+# MODELS -- Special-purpose model assignments (not tier-routed)
+# =======================================================================
+#
+# These entries are NOT task_routing lookups. They are referenced directly
+# by specific service components that need fine-grained control over model
+# parameters (e.g., embedding dimensions, client type).
+#
 models:
   embedding:
+    # text-embedding-3-large with Matryoshka Representation Learning:
+    # The API-level `dimensions: 768` parameter uses trained MRL truncation,
+    # not naive vector slicing. Schema is vector(768) in Postgres.
+    # Used by: EmbeddingService (packages/core-api/src/services/embedding.ts)
+    # Client: litellm proxy -- OPENAI_BASE_URL env var controls the endpoint.
+    # Cost: $0.00013 per 1K input tokens. No output cost for embeddings.
+    # WARNING: Do NOT change model or dimensions without a full re-embed.
     model: "text-embedding-3-large"
     client: litellm
     cost_per_1k_input: 0.00013
     cost_per_1k_output: 0
 
-# ============================================================
-# Four-tier model definitions (v3)
+  # intent: Model used by the Slack bot intent router.
+  # IMPORTANT: slack-bot reads this via lightweight js-yaml, NOT ConfigService.
+  # It does NOT get the full tier resolution chain -- just a direct model string.
+  # Fallback if missing: gpt-5.4 (hardcoded in slack-bot/src/server.ts).
+  intent: "gpt-5.4"
+
+# =======================================================================
+# MODEL TIERS -- Provider definitions and cost hierarchy
+# =======================================================================
 #
-# COST PRINCIPLE: Exhaust free tiers before paid API.
-#   t1_jetson (4B GPU, free) -> t1_spark (35B GPU, free) -> t1_fast (Haiku, PAID) -> t2_quality (Sonnet, PAID)
-# ============================================================
+# The tier system enforces the cost-tiered processing principle:
+#   EXHAUST FREE TIERS BEFORE PAID API -- always.
+#
+# Tier hierarchy (cheapest -> most capable):
+#
+#   t0_local    Ollama (free, local container, ~2B model)
+#       ?         Best for: trivial single-word classification, no GPU
+#   t1_jetson   Jetson Orin NX (free, edge GPU, 4B model)
+#       ?         Best for: fast classification, short summaries
+#   t1_spark    DGX Spark (free, GB10 GPU, 35B model)
+#       ?         Best for: complex reasoning, JSON extraction, synthesis
+#   t1_fast     Claude Haiku (PAID ~$0.001/1K in, $0.004/1K out)
+#       ?         Best for: agent skills (runAgent + tool_use), Anthropic-only
+#   t2_quality  Claude Sonnet (PAID ~$0.003/1K in, $0.015/1K out)
+#               Best for: governance, weekly brief, human-facing synthesis
+#
+# Fallback chain: each tier declares `fallback:` -- if a tier is unreachable,
+# LLMGatewayService retries the next tier in the chain automatically.
+#
+# Cost fields on paid tiers are MANDATORY (ConfigService throws fail-fast
+# if missing). Free tiers use explicit `0` -- not omitted -- so the budget
+# circuit breaker is never cost-blind on a free endpoint.
+#
 model_tiers:
   t0_local:
+    # Ollama container -- local CPU/GPU, zero cost, zero latency variance.
+    # Use only for trivial tasks where a 2B model is sufficient (single-word
+    # output, yes/no, simple routing decisions). Not suitable for reasoning.
     provider: ollama
     model: "qwen3.5:2b"
     base_url: "http://ollama:11434/v1"
     max_completion_tokens: 256
     timeout_ms: 15000
     fallback: t1_jetson
+
   t1_jetson:
+    # Jetson Orin NX -- edge GPU at 192.168.10.58 (STATIC IP, do not change).
+    # 4B Qwen model via vLLM. Free, ~5s timeout for short completions.
+    # OpenAI-compatible endpoint -- does NOT support Anthropic tool_use.
+    # Best for: classification tasks with small input and single-word output.
     provider: openai_compat
     model: "qwen3.5-4b"
     base_url: "http://192.168.10.58:8080/v1"
     max_completion_tokens: 256
     timeout_ms: 5000
-    cost_per_1k_input: 0    # Jetson is free local GPU
+    cost_per_1k_input: 0    # Free local GPU -- explicit 0 keeps budget accounting non-blind
     cost_per_1k_output: 0
     fallback: t1_spark
+
   t1_spark:
+    # DGX Spark -- GB10 GPU at spark.k4jda.net. 35B Qwen model via vLLM.
+    # Free, higher quality than Jetson, handles complex structured output.
+    # OpenAI-compatible endpoint -- does NOT support Anthropic tool_use.
+    # Best for: entity extraction (JSON mode), synthesis, wiki tasks, daily ops.
+    # WARNING: 120s timeout -- some heavy completions take 30-60s on 35B model.
     provider: openai_compat
     model: "qwen3.5-35b"
     base_url: "http://spark.k4jda.net:8000/v1"
     max_completion_tokens: 4096
     timeout_ms: 120000
-    cost_per_1k_input: 0
+    cost_per_1k_input: 0    # Free DGX GPU -- explicit 0 keeps budget accounting non-blind
     cost_per_1k_output: 0
     fallback: t1_fast
+
   t1_fast:
+    # Claude Haiku -- Anthropic API, PAID. Use for agent skills ONLY.
+    # This is the ONLY free-adjacent paid tier for Anthropic tool_use protocol.
+    # Skills using runAgent() loop (wiki-ingest, wiki-lint, email-compose,
+    # monthly-reflection) MUST route here or to t2_quality -- nowhere else.
+    # Cost: ~$0.0008/1K input, $0.004/1K output.
     provider: anthropic
     model: "claude-haiku-4-5-20251001"
     max_completion_tokens: 4096
@@ -51,7 +131,13 @@ model_tiers:
     cost_per_1k_input: 0.0008
     cost_per_1k_output: 0.004
     fallback: t2_quality
+
   t2_quality:
+    # Claude Sonnet -- Anthropic API, PAID. Reserve for quality-critical tasks.
+    # Human-facing synthesis (governance sessions, weekly briefs) where quality
+    # justifies the cost premium over Haiku. Highest capability in the chain.
+    # Cost: ~$0.003/1K input, $0.015/1K output.
+    # No fallback -- if Sonnet is unavailable, the task should fail loudly.
     provider: anthropic
     model: "claude-sonnet-4-6"
     max_completion_tokens: 8192
@@ -60,42 +146,130 @@ model_tiers:
     cost_per_1k_output: 0.015
     fallback: null
 
-# ============================================================
-# Task-to-tier routing
+# =======================================================================
+# TASK ROUTING -- Map each pipeline task to a tier
+# =======================================================================
 #
-# ALL routine tasks -> t1_spark (free, 35B GPU on DGX Spark)
-# Classification only -> t1_jetson (free, 4B GPU, fastest)
-# Only governance/weekly brief -> t2_quality (Anthropic, PAID, last resort)
-# ============================================================
+# Tasks are grouped by constraint class. Read the class header before
+# changing any assignment within that class -- wrong-class routing causes
+# runtime crashes or silent behavioral failures.
+#
 task_routing:
-  # Classification (simple, fast) -> Jetson 4B
-  intent_classification: t1_jetson
-  capture_classification: t1_jetson
-  brain_view_classification: t1_jetson
-  voice_classification: t1_jetson
-  confidence_gating: t1_jetson
-  question_detection: t1_jetson
-  email_classification: t1_jetson
 
-  # Complex but routine -> Spark 35B (FREE)
-  entity_extraction: t1_spark
-  entity_linking: t1_spark
-  capture_enrichment: t1_spark
-  search_synthesis: t1_spark
-  daily_sweep: t1_spark
-  mcp_context: t1_spark
-  auto_response_draft: t1_spark
-  wiki_ingest: t1_spark
-  wiki_synthesis: t1_spark
-  daily_connections: t1_spark
-  drift_monitoring: t1_spark
-  email_daily_digest: t1_spark   # NEW canonical name — replaces email-classify's stray 'synthesis' call
+  # ===================================================================
+  # CONSTRAINT CLASS: ANTHROPIC ONLY (agent skills using runAgent + tool_use)
+  # ===================================================================
+  # These skills use the Anthropic SDK's runAgent() agentic loop with
+  # tool_use blocks. They MUST point to an Anthropic-provider tier:
+  # t1_fast or t2_quality.
+  #
+  # Routing to t1_spark, t1_jetson, or t0_local WILL CRASH at runtime
+  # because those tiers use OpenAI-compatible endpoints that do NOT
+  # support Anthropic's tool_use protocol. The failure is silent until
+  # the skill actually executes -- it won't be caught at startup.
+  #
+  # Skills in this class: wiki-ingest, wiki-lint, monthly-reflection,
+  # email-compose (all use Anthropic SDK runAgent loop)
+  # ===================================================================
 
-  # Only human-facing quality-critical -> Anthropic API (PAID)
-  weekly_brief: t2_quality
-  governance: t2_quality
-  email_compose: t2_quality   # Outbound email drafting — synthesis-class reasoning for tone + structure
+  wiki_ingest: t1_fast          # Agent skill: runAgent() + tool_use. MUST be Anthropic tier.
+  wiki_lint: t1_fast            # Agent skill: runAgent() + tool_use. MUST be Anthropic tier.
+  email_compose: t2_quality     # Agent skill: outbound email drafting -- synthesis-class reasoning
+                                # for tone and structure; quality justifies Sonnet cost.
+  monthly_reflection: t2_quality # Agent skill: monthly synthesis -- complex multi-doc reasoning
+                                  # that benefits from Sonnet's longer context window.
 
+  # ===================================================================
+  # CONSTRAINT CLASS: JSON MODE REQUIRED (OpenAI-compatible tiers only)
+  # ===================================================================
+  # entity_extraction uses response_format: { type: "json_object" } to
+  # guarantee structured output. This is an OpenAI-protocol feature.
+  # Anthropic tiers (t1_fast, t2_quality) do NOT support JSON mode --
+  # routing there will produce unparseable output and a pipeline failure.
+  #
+  # MUST stay on: t0_local, t1_jetson, or t1_spark (all openai_compat).
+  # t1_spark is the right choice: 35B model handles complex NER reliably.
+  # ===================================================================
+
+  entity_extraction: t1_spark   # JSON mode required (openai_compat only). 35B handles NER reliably.
+
+  # ===================================================================
+  # CONSTRAINT CLASS: CLASSIFICATION (fast, cheap -- Jetson 4B)
+  # ===================================================================
+  # These tasks are single-label classifiers: small input, single-word
+  # or short output, no reasoning required. The 4B Jetson model handles
+  # all of them correctly. Routing higher wastes money and adds latency.
+  #
+  # If Jetson is down, fallback chain: t1_jetson -> t1_spark -> t1_fast.
+  # ===================================================================
+
+  intent_classification: t1_jetson     # Slack bot intent routing -- "capture" vs "query" vs "command"
+  capture_classification: t1_jetson    # Assigns capture_type: decision/idea/observation/task/etc.
+  brain_view_classification: t1_jetson # Routes capture to career/personal/technical/work-internal/client view
+  voice_classification: t1_jetson      # Voice memo intent classification (pre-transcript routing)
+  confidence_gating: t1_jetson         # Binary: should auto-response proceed? yes/no with score
+  question_detection: t1_jetson        # Detects if a Slack message is a question (triggers search synthesis)
+  email_classification: t1_jetson      # Email category assignment (26 categories, single-label)
+
+  # ===================================================================
+  # CONSTRAINT CLASS: ROUTINE TASKS (free tier -- Spark 35B)
+  # ===================================================================
+  # These tasks require structured output or moderate reasoning, but are
+  # not time-critical and don't need Anthropic's premium quality tier.
+  # The 35B Spark model handles them well at zero API cost.
+  #
+  # Note on entity_linking: OpenAI-compatible only needed if using
+  # response_format JSON, but entity_linking uses free-form output,
+  # so t1_spark is fine and falls back gracefully.
+  # ===================================================================
+
+  entity_linking: t1_spark        # Graph-style entity relationship extraction from enriched captures
+  capture_enrichment: t1_spark    # Adds tags, summary, key phrases to captures post-classification
+  search_synthesis: t1_spark      # Synthesizes search results into a narrative answer card (web UI)
+  daily_sweep: t1_spark           # 3 AM stale-capture re-queuer -- checks pipeline status, resubmits
+  mcp_context: t1_spark           # Populates open_brain://context MCP resource for agent sessions
+  auto_response_draft: t1_spark   # Drafts Slack auto-response when autonomy >= assist (never auto-sends)
+  wiki_synthesis: t1_spark        # Synthesizes capture clusters into wiki page content
+  daily_connections: t1_spark     # Morning brief: surfaces unexpected connections between recent captures
+  drift_monitoring: t1_spark      # Detects semantic drift in wiki pages vs recent captures
+  email_daily_digest: t1_spark    # Canonical name for email-classify synthesis (replaces stray 'synthesis' key)
+
+  # ===================================================================
+  # CONSTRAINT CLASS: QUALITY-CRITICAL (paid -- Anthropic Sonnet)
+  # ===================================================================
+  # Human-facing synthesis where quality directly determines the value
+  # delivered to the user. These run infrequently (weekly, on-demand)
+  # and the token cost is justified by the outcome quality.
+  #
+  # weekly_brief: Sunday generation, primary user-facing output.
+  # governance: Real-time interactive session with tool orchestration.
+  # Both require Sonnet's reasoning depth -- Haiku produces noticeably
+  # worse synthesis on multi-document inputs.
+  # ===================================================================
+
+  weekly_brief: t2_quality  # Weekly synthesis report -- primary human-facing output, quality matters
+  governance: t2_quality    # Live governance sessions -- LLM-driven with guardrails, user is watching
+
+# =======================================================================
+# MONTHLY BUDGET -- Cost circuit breaker configuration
+# =======================================================================
+#
+# These limits apply to PAID API costs only (Anthropic + OpenAI).
+# Free tiers (t0_local, t1_jetson, t1_spark) contribute $0 to budget.
+#
+# soft_limit_usd: Budget alert threshold. When cumulative monthly spend
+#   from ai_audit_log reaches this amount, the budget-check job fires a
+#   Pushover notification to warn of unexpected paid API usage.
+#
+# hard_limit_usd: Circuit breaker. When cumulative monthly spend reaches
+#   this amount, LLMGatewayService blocks ALL paid-tier requests for the
+#   remainder of the month. Free tiers continue to function normally.
+#   This prevents runaway costs from misconfigured batch jobs.
+#
+# To raise limits temporarily: edit here + restart workers.
+# Monthly target (from CLAUDE.md): Anthropic API < $10, OpenAI < $10.
+# These limits are intentionally conservative -- the real ceiling is $35.
+#
 monthly_budget:
-  soft_limit_usd: 20
-  hard_limit_usd: 35
+  soft_limit_usd: 20   # Pushover alert when paid spend crosses $20/month
+  hard_limit_usd: 35   # Hard stop: all paid-tier requests blocked above $35/month

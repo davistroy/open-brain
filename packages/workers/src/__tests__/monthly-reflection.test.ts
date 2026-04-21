@@ -197,6 +197,7 @@ function makeSkill(opts: {
     wikiService,
     templates,
     coreApiUrl: 'http://localhost:3000',
+    model: 'test-model',
   })
 
   return { skill, db, pushover, wikiService, templates, mockFetch }

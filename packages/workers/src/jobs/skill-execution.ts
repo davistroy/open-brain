@@ -364,6 +364,7 @@ export function createSkillExecutionWorker(
               wikiService: opts.wikiService,
               anthropicClient: opts.anthropicClient,
               promptsDir: opts.promptsDir,
+              configService: opts.configService,
             },
             undefined as void,
           )
@@ -406,6 +407,7 @@ export function createSkillExecutionWorker(
               anthropicClient: opts.anthropicClient,
               wikiService: opts.wikiService,
               promptsDir: opts.promptsDir,
+              configService: opts.configService,
             },
             {},
           )
@@ -441,6 +443,7 @@ export function createSkillExecutionWorker(
               anthropicClient: opts.anthropicClient,
               model: wikiAgentModel,
               promptsDir: opts.promptsDir,
+              configService: opts.configService,
             },
             captureId,
           )
