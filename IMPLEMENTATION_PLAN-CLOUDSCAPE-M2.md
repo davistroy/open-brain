@@ -61,7 +61,7 @@ The 8 phases are ordered to surface infrastructure before consumers: CS1 (fronte
 ### Work Items
 
 #### 1.1 Add web-next dependencies
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 decisions D108/D109/D113/D115
 **Files Affected:**
 - `packages/web-next/package.json` (modify)
