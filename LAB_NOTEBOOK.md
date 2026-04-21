@@ -112,6 +112,9 @@
 | D100 | Parallel worktree agents for independent phases (6 simultaneous) | 2026-04-20 | ACTIVE | Entry 124 | ~30 min wall-clock vs ~3h sequential; 4 pyproject.toml conflict resolutions |
 | D101 | Subagent CI checklist must include `ruff format --check` | 2026-04-20 | ACTIVE | Entry 124 | Agents ran `ruff check` but missed format; 24 files needed reformatting post-merge |
 | D102 | Wiki stats O(n) page scan, orphan = no tags + no aliases | 2026-04-20 | ACTIVE | Entry 124 | Acceptable for <500 pages; revisit if wiki grows past 1K |
+| D103 | Agent skills MUST route to Anthropic tiers (runAgent + tool_use) | 2026-04-21 | ACTIVE | Entry 126 | wiki-ingest, wiki-lint, monthly-reflection, email-compose → t1_fast or t2_quality only |
+| D104 | entity_extraction MUST route to OpenAI-compatible tiers (jsonMode) | 2026-04-21 | ACTIVE | Entry 126 | response_format: { type: "json_object" } not supported by Anthropic |
+| D105 | Slack intent model in models.intent YAML section (not task_routing) | 2026-04-21 | ACTIVE | Entry 126 | slack-bot uses lightweight js-yaml, not ConfigService |
 
 ## Action Items
 
@@ -8748,4 +8751,51 @@ Each PR is independent and squash-merged. `git revert <sha>` on any individual m
 
 ---
 
+## Entry 125 — Hotfixes: blank screen, CI, API limits, stale queues  [web] [ci] [api] [deploy]
+
+**Tags:** [web] [ci] [api] [deploy] [debug]
+**Environment:** Homeserver + laptop
+**Date:** 2026-04-21
+
+### Issues Found & Fixed
+
+| Fix | Commit | Root Cause |
+|-----|--------|-----------|
+| StatusStrip SSE blank screen | `c43802a` + `96a7a88` | SSE event type is `system_health` not `health`; `data.llm_spend` undefined without optional chaining; browser cached old bundle |
+| ruff format CI failure | `ef20546` | P28-P32 subagents ran `ruff check` but not `ruff format --check` — 24 files needed formatting |
+| Doc version sync CI failure | `ef20546` | `actions/setup-node` with `cache: ''` tried to detect pnpm; fixed with `package-manager-cache: false` |
+| 6 pyright CI errors | `2bf98ba` | CI pyright caught MSAL `union-attr` + dict `union-attr` that local pyright missed |
+| API 400 on limit > 100 | `2b2897e` | FinancialPulseCard `limit: 400`, Entities `limit: 200`, fetchSchwabCaptures `limit: 200` — all exceeded API's `z.max(100)` |
+| nginx cache-busting | `2b2897e` | Added `Pragma: no-cache` + `expires 0` to SPA catch-all |
+| 16 stale failed queue jobs | Redis cleanup | 12 = deleted skills (db-backup/wiki-backup/redis-snapshot) still in BullMQ repeatable set; 3 = Spark LLM timeouts; 1 = malformed manual job |
+
+**Duration:** ~1 hour across debugging + fixes + deploys.
+
 ---
+
+## Entry 126 — Consolidate LLM model assignments into ai-routing.yaml  [config] [api] [decision]
+
+**Tags:** [config] [api] [decision]
+**Environment:** Laptop + homeserver deploy
+**Date:** 2026-04-21
+
+### Objective
+
+Move all hardcoded LLM model references into `config/ai-routing.yaml` — single source of truth for every model assignment.
+
+### Result — COMPLETE (PR #167)
+
+**Phase 1 (6 items):** Wired `resolveTaskModel()` to wiki-ingest, wiki-lint, monthly-reflection (same pattern as email-compose). Added `wiki_lint: t1_fast`, `monthly_reflection: t2_quality` to task_routing. Fixed `wiki_ingest` from `t1_spark` (would crash — openai_compat) to `t1_fast` (Anthropic). Added `models.intent: gpt-5.4` for Slack bot. Threaded configService through skill-execution and wiki-ingest workers. Updated tests.
+
+**Phase 2 (1 item):** Comprehensive YAML documentation rewrite — 5 constraint classes (ANTHROPIC ONLY, JSON MODE REQUIRED, CLASSIFICATION, ROUTINE, QUALITY-CRITICAL), per-tier cost/provider docs, editing guidelines.
+
+### Key Decisions
+
+- **D103:** All agent skills (wiki-ingest, wiki-lint, monthly-reflection, email-compose) MUST route to Anthropic tiers (t1_fast or t2_quality) — `runAgent()` requires Anthropic SDK tool_use.
+- **D104:** `entity_extraction` MUST route to OpenAI-compatible tiers — uses `jsonMode: true` (`response_format`), not supported by Anthropic.
+- **D105:** Slack intent model stays in `models.intent` YAML section (not `task_routing`) because slack-bot uses lightweight js-yaml, not ConfigService.
+
+**Duration:** ~1.5 hours.
+
+---
+
