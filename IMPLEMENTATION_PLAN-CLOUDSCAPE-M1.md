@@ -441,6 +441,8 @@ feat(web-next): typed mock data fixtures for all M1 screens
 
 ### 2.1 — Dashboard components + page
 
+**Status:** COMPLETE 2026-04-21
+
 **Files:**
 - Create: `components/dashboard/stat-strip.tsx`
 - Create: `components/dashboard/quick-capture.tsx`
