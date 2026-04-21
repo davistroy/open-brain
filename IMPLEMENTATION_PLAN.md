@@ -131,11 +131,11 @@
 - Per-entry inline comments for any non-obvious assignment
 
 **Acceptance:**
-- [ ] Every task_routing entry has a comment explaining its constraint class
-- [ ] Agent skills marked "ANTHROPIC ONLY" with explanation
-- [ ] JSON mode constraint documented on entity_extraction
-- [ ] Cost implications documented per tier
-- [ ] ConfigService still loads cleanly (YAML comments don't break parsing)
+- [x] Every task_routing entry has a comment explaining its constraint class
+- [x] Agent skills marked "ANTHROPIC ONLY" with explanation
+- [x] JSON mode constraint documented on entity_extraction
+- [x] Cost implications documented per tier
+- [x] ConfigService still loads cleanly (YAML comments don't break parsing)
 
 ---
 
