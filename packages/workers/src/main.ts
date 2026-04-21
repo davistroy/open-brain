@@ -228,6 +228,7 @@ async function main() {
     workers.push(createWikiIngestWorker(connection, db, {
       wikiService,
       anthropicClient: anthropicClient ?? undefined,
+      configService,
       promptsDir,
       templates,
     }))

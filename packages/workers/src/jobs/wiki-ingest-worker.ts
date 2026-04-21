@@ -1,7 +1,7 @@
 import { Worker } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, ConfigService } from '@open-brain/shared'
 import { logger, TemplateCache } from '@open-brain/shared'
 import type { WikiGitService } from '@open-brain/shared'
 import type { WikiIngestJobData } from '../queues/wiki-ingest.js'
@@ -22,6 +22,7 @@ export function createWikiIngestWorker(
   opts: {
     wikiService: WikiGitService
     anthropicClient?: Anthropic
+    configService?: ConfigService
     promptsDir?: string
     templates?: TemplateCache
   },
@@ -35,6 +36,7 @@ export function createWikiIngestWorker(
 
       const result = await executeWikiIngest(db, captureId, opts.wikiService, {
         anthropicClient: opts.anthropicClient,
+        configService: opts.configService,
         promptsDir: opts.promptsDir,
         templates: opts.templates,
       })

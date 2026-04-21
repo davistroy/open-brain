@@ -1,17 +1,25 @@
 import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import type Anthropic from '@anthropic-ai/sdk'
-import type { Database } from '@open-brain/shared'
+import type { Database, ConfigService } from '@open-brain/shared'
 import {
   captures,
   logger,
   TemplateCache,
   runAgent,
+  resolveTaskModel,
+  ModelResolverError,
 } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
+
+/**
+ * Task alias resolved at skill init via `resolveTaskModel()`.
+ * Routes through `task_routing.wiki_ingest` in `config/ai-routing.yaml`.
+ */
+const WIKI_INGEST_TASK = 'wiki_ingest'
 
 // ============================================================
 // Types
@@ -31,6 +39,8 @@ export interface WikiIngestResult extends BaseResult {
 export interface WikiIngestOptions {
   /** Anthropic client instance (required for runAgent). */
   anthropicClient?: Anthropic
+  /** Loaded ConfigService instance for task-indexed model resolution. When absent, model must be supplied. */
+  configService?: ConfigService
   /** Model to use for the agent. Default: 'claude-haiku-4-5-20251001'. */
   model?: string
   /** Max agent iterations. Default: 15. */
@@ -211,6 +221,12 @@ export function buildWikiTools(wikiService: WikiGitService): AgentTool[] {
 export interface WikiIngestSkillOpts extends BaseSkillOpts {
   wikiService: WikiGitService
   anthropicClient?: Anthropic
+  /**
+   * Loaded ConfigService instance. Required for task-indexed model resolution via
+   * `resolveTaskModel()` at init time. When absent, `opts.model` must be supplied.
+   */
+  configService?: ConfigService
+  /** Model override for tests only. In production, model is resolved via configService. */
   model?: string
   maxIterations?: number
   promptsDir?: string
@@ -233,18 +249,41 @@ export class WikiIngestSkill extends BaseSkill<string, WikiIngestResult> {
   private wikiService: WikiGitService
   private templates: TemplateCache
   private anthropicClient?: Anthropic
-  private model: string
   private maxIterations: number
+  /** Per-call model override for tests only (set via `opts.model`). */
+  private readonly modelOverride: string | undefined
+
+  /** Resolved concrete model string (e.g. `claude-haiku-4-5-20251001`). */
+  private readonly resolvedModel: string | null
+  /** Tier key the task resolved to (e.g. `t1_fast`). Logged for observability. */
+  private readonly resolvedTierKey: string | null
 
   constructor(opts: WikiIngestSkillOpts) {
     super('wiki-ingest', opts)
     this.wikiService = opts.wikiService
     this.anthropicClient = opts.anthropicClient
-    this.model = opts.model ?? 'claude-haiku-4-5-20251001'
     this.maxIterations = opts.maxIterations ?? 15
+    this.modelOverride = opts.model
     this.templates = opts.templates ?? new TemplateCache(
       opts.promptsDir ?? join(process.cwd(), 'config', 'prompts'),
     )
+
+    const configService = opts.configService ?? null
+    if (configService) {
+      // Fail loud on misconfiguration: callers wire ConfigService so resolution
+      // MUST succeed at init — silent fallback to a hardcoded model would mask
+      // ai-routing.yaml drift for weeks.
+      const resolved = resolveTaskModel(configService.get('ai'), WIKI_INGEST_TASK)
+      this.resolvedModel = resolved.model
+      this.resolvedTierKey = resolved.tierKey
+      logger.info(
+        { task: WIKI_INGEST_TASK, model: resolved.model, tierKey: resolved.tierKey },
+        '[wiki-ingest] resolved task model at init',
+      )
+    } else {
+      this.resolvedModel = null
+      this.resolvedTierKey = null
+    }
   }
 
   protected async run(captureId: string): Promise<WikiIngestResult> {
@@ -296,6 +335,17 @@ export class WikiIngestSkill extends BaseSkill<string, WikiIngestResult> {
     const tools = buildWikiTools(this.wikiService)
 
     // ── Step 4: Run the agent loop ──────────────────────────────────
+    // Prefer the init-time resolved model. `this.modelOverride` is a construction-time
+    // override (discouraged in production; useful only for tool-level tests).
+    const model = this.modelOverride ?? this.resolvedModel
+    if (!model) {
+      throw new ModelResolverError(
+        `WikiIngestSkill cannot determine model: no configService was passed at construction and no opts.model override was supplied. ` +
+          `Wire ConfigService in main.ts (see workers/src/main.ts skill-execution registration).`,
+        WIKI_INGEST_TASK,
+      )
+    }
+
     let agentResult: AgentResult
 
     try {
@@ -305,7 +355,7 @@ export class WikiIngestSkill extends BaseSkill<string, WikiIngestResult> {
         'Please process this capture and integrate its knowledge into the wiki. Use the tools to read existing pages, create or update pages as needed, and update the index.',
         {
           client: this.anthropicClient,
-          model: this.model,
+          model,
           maxIterations: this.maxIterations,
           maxTokens: 4096,
           temperature: 0.3,
@@ -480,6 +530,7 @@ export async function executeWikiIngest(
     db,
     wikiService,
     anthropicClient: options.anthropicClient,
+    configService: options.configService,
     model: options.model,
     maxIterations: options.maxIterations,
     promptsDir: options.promptsDir,
