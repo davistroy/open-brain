@@ -24,6 +24,7 @@ const FILTER_TABS: { id: string; label: string }[] = [
   { id: 'all',      label: 'All' },
   { id: 'DAILY',    label: 'Daily' },
   { id: 'WEEKLY',   label: 'Weekly' },
+  { id: 'MONTHLY',  label: 'Monthly' },
   { id: 'DOSSIER',  label: 'Dossiers' },
   { id: 'DECISION', label: 'Decisions' },
   { id: 'PROJECT',  label: 'Projects' },
@@ -36,6 +37,7 @@ const FILTER_TABS: { id: string; label: string }[] = [
 const KIND_DOT: Record<BriefKind, string> = {
   DAILY:    'var(--color-book-cloth)',
   WEEKLY:   'var(--color-slate-medium)',
+  MONTHLY:  'var(--color-slate-medium)',
   DOSSIER:  'var(--color-book-cloth-dark)',
   DECISION: 'var(--color-success)',
   PROJECT:  'var(--color-cloud-dark)',
@@ -47,6 +49,7 @@ function ListKindIcon({ kind }: { kind: BriefKind }) {
   switch (kind) {
     case 'DAILY':    return <Sunrise {...props} />;
     case 'WEEKLY':   return <Calendar {...props} />;
+    case 'MONTHLY':  return <Calendar {...props} />;
     case 'DOSSIER':  return <UserRound {...props} />;
     case 'DECISION': return <Scale {...props} />;
     case 'PROJECT':  return <FolderKanban {...props} />;

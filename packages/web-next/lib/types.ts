@@ -58,11 +58,14 @@ export type BrainView =
 /** Entity type values used by the UI */
 export type EntityType = 'person' | 'project' | 'topic' | 'org' | 'decision';
 
-/** Brief kind values from skills_log */
-export type BriefKind = 'DAILY' | 'WEEKLY' | 'DOSSIER' | 'DECISION' | 'PROJECT';
+/** Brief kind values from skills_log — mirrors BriefKind in @open-brain/shared */
+export type BriefKind = 'DAILY' | 'WEEKLY' | 'DOSSIER' | 'DECISION' | 'PROJECT' | 'MONTHLY';
 
-/** Cover theme for brief cards */
-export type BriefCover = 'morning' | 'week' | 'person' | 'decision' | 'project';
+/** Cover theme for brief cards — mirrors BriefCover in @open-brain/shared */
+export type BriefCover = 'parchment' | 'evening' | 'sunrise' | 'gold' | 'canvas' | 'slate';
+
+/** Source type for brief source entries — mirrors BriefSourceType in @open-brain/shared */
+export type BriefSourceType = 'EMAIL' | 'VOICE' | 'MEETING' | 'NOTE';
 
 // ---------------------------------------------------------------------------
 // Core capture type — mirrors GET /api/v1/captures item shape
@@ -193,7 +196,7 @@ export interface TocItem {
 
 /** Source capture entry in the right sidebar */
 export interface BriefSource {
-  type: string;    // display label e.g. "EMAIL", "VOICE"
+  type: BriefSourceType;    // display label e.g. "EMAIL", "VOICE", "MEETING", "NOTE"
   title: string;
   date: string;    // display string e.g. "Apr 21"
 }

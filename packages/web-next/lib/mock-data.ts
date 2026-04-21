@@ -477,7 +477,7 @@ export const mockBriefs: Brief[] = [
   {
     id: 'tuesday',
     kind: 'DAILY',
-    cover: 'morning',
+    cover: 'parchment',
     title: 'Tuesday morning',
     subtitle: '6 items · 3 decisions pending',
     generated: '07:00',
@@ -486,7 +486,7 @@ export const mockBriefs: Brief[] = [
   {
     id: 'week-apr-14',
     kind: 'WEEKLY',
-    cover: 'week',
+    cover: 'evening',
     title: 'Week of Apr 14',
     subtitle: '34 captures · 8 commitments',
     generated: 'Sun 18:00',
@@ -495,7 +495,7 @@ export const mockBriefs: Brief[] = [
   {
     id: 'sarah-pre-1on1',
     kind: 'DOSSIER',
-    cover: 'person',
+    cover: 'canvas',
     title: 'Sarah Chen — pre-1:1',
     subtitle: 'Before Thu 14:00',
     generated: '2h ago',
@@ -504,7 +504,7 @@ export const mockBriefs: Brief[] = [
   {
     id: 'espresso-decision',
     kind: 'DECISION',
-    cover: 'decision',
+    cover: 'gold',
     title: 'Espresso machine',
     subtitle: 'Pros, cons, 4 candidates',
     generated: 'Yesterday',
@@ -513,7 +513,7 @@ export const mockBriefs: Brief[] = [
   {
     id: 'q4-state-of',
     kind: 'PROJECT',
-    cover: 'project',
+    cover: 'slate',
     title: 'Q4 planning — state-of',
     subtitle: '22 captures · 11 entities',
     generated: '3d ago',
@@ -522,7 +522,7 @@ export const mockBriefs: Brief[] = [
   {
     id: 'monday',
     kind: 'DAILY',
-    cover: 'morning',
+    cover: 'parchment',
     title: 'Monday morning',
     subtitle: '4 items · 1 decision pending',
     generated: 'Mon 07:00',
@@ -537,7 +537,7 @@ export const mockBriefs: Brief[] = [
 export const mockTuesdayBrief: BriefDetail = {
   id: 'tuesday',
   kind: 'DAILY',
-  cover: 'morning',
+  cover: 'parchment',
   title: 'Tuesday morning',
   subtitle: '6 items · 3 decisions pending',
   generated: '07:00',

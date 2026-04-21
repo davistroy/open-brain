@@ -635,7 +635,7 @@ The inventory document is also useful for Phase 6 (extending 4 brief-producing s
 ---
 
 #### 4.5 Extend drift-guard test for brief types
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 D109 follow-up, CS2 type alignment
 **Files Affected:**
 - `packages/shared/src/__tests__/web-type-drift.test.ts` (modify)
@@ -658,7 +658,7 @@ Four canonical enum sources of truth now: migration 0030 CHECK, Drizzle schema, 
 ---
 
 #### 4.6 Add MEETING to web-next BriefSource types
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 D-MEETING, investigation item 2.6
 **Files Affected:**
 - `packages/web-next/lib/types.ts` (modify)

@@ -585,3 +585,83 @@ describe('web-next <-> shared type drift guard (Cloudscape M2 item 1.5 / D109)',
     )
   })
 })
+
+// Canonical brief type sets — source of truth: packages/shared/src/types/brief.ts
+// Locked against DB CHECK constraints in migration 0030 (briefs_kind_check,
+// briefs_cover_check). When adding a value, update all four surfaces in lockstep:
+//   1. packages/shared/src/types/brief.ts (TS union + Zod schema + BRIEF_* const)
+//   2. packages/shared/drizzle/0030_briefs.sql (DB CHECK constraint)
+//   3. packages/web-next/lib/types.ts (local redeclaration per D109)
+//   4. CANONICAL_BRIEF_* constant in this test file
+//
+// See also: Cloudscape M2 items 4.2 (schema), 4.5 (this guard), 4.6 (web-next side).
+
+/** 6-value BriefKind set (migration 0030 briefs_kind_check). */
+const CANONICAL_BRIEF_KINDS = [
+  'DAILY', 'DECISION', 'DOSSIER', 'MONTHLY', 'PROJECT', 'WEEKLY',
+] as const
+
+/** 6-value BriefCover set (migration 0030 briefs_cover_check). */
+const CANONICAL_BRIEF_COVERS = [
+  'canvas', 'evening', 'gold', 'parchment', 'slate', 'sunrise',
+] as const
+
+/** 4-value BriefSourceType set (packages/shared/src/types/brief.ts). */
+const CANONICAL_BRIEF_SOURCE_TYPES = [
+  'EMAIL', 'MEETING', 'NOTE', 'VOICE',
+] as const
+
+describe('brief type drift guard — web-next only (Cloudscape M2 item 4.5 / D109)', () => {
+  /**
+   * BriefKind, BriefCover, and BriefSourceType are new canonical types added in
+   * Phase 4 (CS2 schema, migration 0030). They are brief-domain types that live
+   * only in packages/shared/src/types/brief.ts and must be redeclared locally in
+   * packages/web-next/lib/types.ts per decision D109 (no @open-brain/shared runtime
+   * import in the Next.js bundle).
+   *
+   * These types are NOT declared in packages/web/src/lib/types.ts because the
+   * existing `web` package has no briefs UI surface — only web-next does.
+   *
+   * IMPORTANT: This suite is written as part of item 4.5 and intentionally asserts
+   * the final state that item 4.6 must produce. Until item 4.6 updates
+   * packages/web-next/lib/types.ts to have the correct values, these tests will fail.
+   * That is the expected behaviour: 4.5 (this guard) catches drift; 4.6 fixes web-next.
+   *
+   * If this test fails:
+   *   1. Fix the `export type X = ...` union in packages/web-next/lib/types.ts.
+   *   2. Canonical source of truth is packages/shared/src/types/brief.ts + migration 0030.
+   *   3. Do NOT change the shared brief types to match a stale web-next declaration.
+   */
+
+  // Brief types live in web-next only (not in the legacy `web` package).
+  const WEB_NEXT_ONLY_TARGET = [
+    { path: WEB_NEXT_TYPES_PATH, label: WEB_NEXT_TYPES_REL },
+  ]
+
+  it('BriefKind matches canonical 6-value list in web-next', () => {
+    assertUnionMatchesCanonical(
+      WEB_NEXT_ONLY_TARGET,
+      'BriefKind',
+      CANONICAL_BRIEF_KINDS,
+      'packages/shared/src/types/brief.ts',
+    )
+  })
+
+  it('BriefCover matches canonical 6-value list in web-next', () => {
+    assertUnionMatchesCanonical(
+      WEB_NEXT_ONLY_TARGET,
+      'BriefCover',
+      CANONICAL_BRIEF_COVERS,
+      'packages/shared/src/types/brief.ts',
+    )
+  })
+
+  it('BriefSourceType matches canonical 4-value list in web-next', () => {
+    assertUnionMatchesCanonical(
+      WEB_NEXT_ONLY_TARGET,
+      'BriefSourceType',
+      CANONICAL_BRIEF_SOURCE_TYPES,
+      'packages/shared/src/types/brief.ts',
+    )
+  })
+})
