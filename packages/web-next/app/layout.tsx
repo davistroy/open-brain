@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'Open Brain',
@@ -19,7 +20,7 @@ export default function RootLayout({
   return (
     <html lang="en" data-wash="parchment">
       <body className="font-body text-[14px] leading-[22px] antialiased bg-parchment">
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -288,7 +288,7 @@ Do NOT implement retry in this layer — TanStack Query v5 handles retry via its
 ---
 
 #### 2.2 TanStack Query provider with singleton pattern
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 D108, investigation item 1.2
 **Files Affected:**
 - `packages/web-next/app/providers.tsx` (create)

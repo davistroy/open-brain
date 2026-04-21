@@ -85,9 +85,9 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
  * Build a `?key=value` query string. Skips `undefined` values. Arrays are
  * serialized by repeating the key: `tags=a&tags=b`.
  */
-export function buildQueryString(params: Record<string, unknown>): string {
+export function buildQueryString(params: object): string {
   const qs = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
+  for (const [key, value] of Object.entries(params as Record<string, unknown>)) {
     if (value === undefined || value === null) continue
     if (Array.isArray(value)) {
       for (const item of value) {
