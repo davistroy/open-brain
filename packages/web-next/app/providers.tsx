@@ -20,6 +20,7 @@
 
 import { QueryClientProvider } from '@tanstack/react-query'
 import { getQueryClient } from '../lib/query-client'
+import { SseProvider } from '../components/providers/sse-provider'
 
 interface ProvidersProps {
   children: React.ReactNode
@@ -32,7 +33,10 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      {/* SseProvider must be inside QueryClientProvider — it calls useQueryClient(). */}
+      <SseProvider>
+        {children}
+      </SseProvider>
     </QueryClientProvider>
   )
 }

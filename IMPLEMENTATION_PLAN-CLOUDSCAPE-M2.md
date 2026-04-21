@@ -433,7 +433,7 @@ EventSource doesn't carry Authorization headers — acceptable since Open Brain 
 ---
 
 #### 3.2 SSE provider + central invalidation map
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation items 1.3 + 4.7
 **Files Affected:**
 - `packages/web-next/components/providers/sse-provider.tsx` (create)
