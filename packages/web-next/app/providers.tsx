@@ -19,10 +19,6 @@
  */
 
 import { QueryClientProvider } from '@tanstack/react-query'
-// HttpError import is required so this module participates in the same
-// bundle chunk as lib/query-client.ts (the throwOnError predicate uses it).
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { HttpError } from '../lib/api-client'
 import { getQueryClient } from '../lib/query-client'
 
 interface ProvidersProps {

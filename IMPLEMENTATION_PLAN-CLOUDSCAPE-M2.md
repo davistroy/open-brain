@@ -316,7 +316,7 @@ RSC pages that want SSR-prefetch data will use `const qc = new QueryClient(); aw
 ---
 
 #### 2.3 error.tsx at global + shell + per-segment levels
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.6, sharp-edge: `unstable_retry` rename
 **Files Affected:**
 - `packages/web-next/app/error.tsx` (create)
@@ -345,7 +345,7 @@ Client-side TanStack Query errors (`useQuery` error state) do NOT trip `error.ts
 ---
 
 #### 2.4 loading.tsx per route with Cloudscape skeletons
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.6
 **Files Affected:**
 - `packages/web-next/app/(shell)/loading.tsx` (create)
