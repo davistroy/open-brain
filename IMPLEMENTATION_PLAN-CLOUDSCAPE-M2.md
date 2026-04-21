@@ -526,7 +526,7 @@ Tests are intentionally separated into `tests/` (not `src/`) so `tsc` doesn't tr
 ### Work Items
 
 #### 4.1 Migration 0030 — briefs table
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 D107, investigation item 2.3
 **Files Affected:**
 - `packages/shared/drizzle/0030_briefs.sql` (create)
