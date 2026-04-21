@@ -14,6 +14,29 @@
 
 ---
 
+## Implementation Summary
+
+**Status:** ✅ COMPLETE — 2026-04-21
+**Branch:** feat/cloudscape-m1
+**Final SHA:** 974d4a5
+
+### What was built
+- `packages/web-next/` — Next.js 16 App Router package alongside existing Vite web UI
+- **5 screens implemented:** Dashboard, Entities list, Entity detail, Briefs library, Brief reader
+- **Design system:** 11 primitives (Button, Card, Container, PageHeader, Pill, Eyebrow, MetaLine, Rule, StatusDot, EmptyState, Input)
+- **Navigation:** TopNav + SideNav (15 items, 6 sections) + shell route group
+- **Foundation:** Full Cloudscape token palette, 13 woff2 fonts, Tailwind v3 config with 100+ CSS-var color classes
+- **Mock data:** Typed fixtures mirroring real API shapes (M2 is a straight import swap)
+- **All routes SSG-prerendered:** /dashboard, /entities, /entities/sarah-chen, /briefs, /briefs/tuesday-brief
+
+### M2 wiring checklist
+- Replace `mockStats/mockCaptures/mockEntities/mockBriefs` imports with `useQuery` or RSC fetches
+- Wire QuickCapture `console.log` → `POST /api/v1/captures`
+- Enable TypeFilterTabs server-side filtering via URL search params
+- Add real `generateStaticParams` entity/brief IDs from API
+
+---
+
 ## Reference Files (read-only)
 
 All under `reference/handoff/open-brain-cloudscape-design-system/project/`:
