@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 20px; background: var(--color-bg-container); }
+  .scale { display: flex; align-items: flex-end; gap: 10px; }
+  .step { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .bar { background: var(--color-blue-600); border-radius: 4px; width: 28px; }
+  .lbl { font-family: var(--font-family-monospace); font-size: 10px; color: var(--color-text-small); text-align: center; line-height: 1.2; }
+  .name { font-size: 11px; font-weight: 700; color: var(--color-text-heading); }
+</style></head>
+<body>
+  <div class="scale" id="s"></div>
+<script>
+const steps = [['xxxs',2],['xxs',4],['xs',8],['s',12],['m',16],['l',20],['xl',24],['xxl',32],['xxxl',40]];
+document.getElementById('s').innerHTML = steps.map(([n,v]) => `
+  <div class="step">
+    <div class="bar" style="height:${v*2.2}px"></div>
+    <div class="lbl"><span class="name">${n}</span><br>${v}px</div>
+  </div>`).join('');
+</script>
+</body></html>

@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 20px; background: var(--color-bg-layout-main); display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card { background: var(--color-bg-container); padding: 20px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .lbl { font-family: var(--font-family-monospace); font-size: 10px; color: var(--color-text-small); }
+  .name { font-size: 11px; font-weight: 700; color: var(--color-text-heading); }
+  .none     { border-radius: 0; }
+  .badge    { border-radius: 4px; }
+  .input    { border-radius: 8px; }
+  .flashbar { border-radius: 12px; }
+  .container{ border-radius: 16px; }
+  .button   { border-radius: 20px; }
+</style></head>
+<body>
+  <div class="card badge"><span class="name">badge</span><span class="lbl">4px</span></div>
+  <div class="card input"><span class="name">input / item / tiles</span><span class="lbl">8px</span></div>
+  <div class="card flashbar"><span class="name">flashbar / dropzone</span><span class="lbl">12px</span></div>
+  <div class="card container"><span class="name">container / card</span><span class="lbl">16px</span></div>
+</body></html>

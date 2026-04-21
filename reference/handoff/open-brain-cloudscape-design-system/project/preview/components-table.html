@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 20px; background: var(--color-bg-container); font-size: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  thead th { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--color-grey-650); padding: 8px 12px; border-bottom: 1px solid var(--color-border-divider); }
+  tbody td { padding: 10px 12px; border-bottom: 1px solid var(--color-border-divider-secondary); color: var(--color-text-body); }
+  tbody tr:hover { background: var(--color-grey-150); cursor: pointer; }
+  .mono { font-family: var(--font-family-monospace); font-size: 12px; color: var(--color-grey-650); }
+  .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 4px; border: 1px solid; }
+  .ok { background: var(--color-green-50); color: var(--color-green-600); border-color: #aeffa8; }
+  .proc { background: var(--color-blue-50); color: var(--color-blue-600); border-color: var(--color-blue-200); }
+</style></head>
+<body>
+  <table>
+    <thead><tr><th>ID</th><th>Type</th><th>Brain view</th><th>Status</th><th>Captured</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">cap_01J9X…K2</td><td>decision</td><td>work-internal</td><td><span class="pill ok">embedded</span></td><td>2m ago</td></tr>
+      <tr><td class="mono">cap_01J9X…J7</td><td>idea</td><td>technical</td><td><span class="pill proc">processing</span></td><td>8m ago</td></tr>
+      <tr><td class="mono">cap_01J9X…H3</td><td>observation</td><td>personal</td><td><span class="pill ok">embedded</span></td><td>22m ago</td></tr>
+    </tbody>
+  </table>
+</body></html>

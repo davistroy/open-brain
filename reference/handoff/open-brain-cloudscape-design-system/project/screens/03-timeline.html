@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Timeline</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+const TYPE_ICONS = { voice: 'mic', email: 'mail', upload: 'file-up', meeting: 'calendar', note: 'edit-3', link: 'link' };
+const TYPE_LABELS = { voice: 'VOICE', email: 'EMAIL', upload: 'UPLOAD', meeting: 'MEETING', note: 'NOTE', link: 'LINK' };
+
+const DAYS = [
+  { label: 'Today · Tuesday, Apr 21', count: 8, items: [
+    { time: '16:48', type: 'email', title: 'Re: board agenda', snippet: 'Updated the order for Thursday — moved finance before product.', entities: ['Board', 'Finance'] },
+    { time: '14:22', type: 'meeting', title: 'Standup — Platform team', snippet: 'Discussed SLA dashboard rollout, Maya will own the alerting config.', entities: ['Platform', 'Maya Rodriguez'] },
+    { time: '11:05', type: 'note', title: 'Thought on pricing model', snippet: 'Tiered usage > seats for PLG motion. Revisit with Ravi.', entities: ['Pricing', 'Ravi Shah'] },
+    { time: '09:40', type: 'voice', title: 'Dictation — investor update draft', snippet: 'Key wins, one risk, a specific ask. Keep under 300 words.', entities: ['Investors', 'Fundraising'] },
+    { time: '07:12', type: 'voice', title: 'Morning walk — Q4 planning', snippet: 'Circle back with Sarah on headcount for the new team…', entities: ['Sarah Chen', 'Q4 Planning'] },
+  ]},
+  { label: 'Yesterday · Monday, Apr 20', count: 11, items: [
+    { time: '22:14', type: 'link', title: 'stratechery.com — aggregation theory revisit', snippet: 'Bookmarked — quote about distribution being the new moat.', entities: ['Strategy', 'Reading'] },
+    { time: '16:30', type: 'upload', title: 'espresso-machine-research.pdf', snippet: '12-page comparison. Lelit, ECM, Profitec in the $2.5–4k band.', entities: ['Home Office', 'Purchase Decision'] },
+    { time: '13:10', type: 'meeting', title: 'Weekly 1:1 with Maya', snippet: 'Career pivot to ML eng; Stanford cert; customer exposure ask.', entities: ['Maya Rodriguez', '1:1'] },
+  ]},
+  { label: 'Sunday, Apr 19', count: 4, items: [
+    { time: '19:02', type: 'note', title: 'Book idea — "operating system for a life"', snippet: 'PKM borrowing from ops playbooks — SLAs on commitments.', entities: ['Book Ideas', 'Writing'] },
+  ]},
+];
+
+const App = () => (
+  <Shell
+    active="timeline"
+    breadcrumb={['Open Brain', 'Timeline']}
+    title="Timeline"
+    subtitle="842 captures · chronological feed across every source"
+    actions={<>
+      <SBtn variant="normal" icon={<i data-lucide="filter" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Filter</SBtn>
+      <SBtn variant="normal" icon={<i data-lucide="calendar" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Jump to date</SBtn>
+      <SBtn variant="primary" icon={<i data-lucide="plus" style={{ width: 12, height: 12, strokeWidth: 2 }}></i>}>Quick capture</SBtn>
+    </>}
+  >
+    {/* Top toolbar — source chips */}
+    <div style={{ display: 'flex', gap: 8, marginBottom: 22, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.04em', marginRight: 4 }}>SOURCES</span>
+      {['All', 'Voice', 'Email', 'Meeting', 'Upload', 'Note', 'Link'].map((s, i) => (
+        <button key={s} style={{
+          padding: '4px 10px', fontSize: 12, fontWeight: i === 0 ? 400 : 300,
+          fontFamily: 'var(--font-family-base)', letterSpacing: '0.005em',
+          background: i === 0 ? 'var(--color-slate-medium)' : 'transparent',
+          color: i === 0 ? 'var(--color-ivory-light)' : 'var(--color-text-body)',
+          border: '1px solid ' + (i === 0 ? 'var(--color-slate-medium)' : 'var(--color-cloud-medium)'),
+          borderRadius: 0, cursor: 'pointer',
+        }}>{s}</button>
+      ))}
+      <div style={{ flex: 1 }}></div>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>DENSITY</span>
+      <div style={{ display: 'flex', border: '1px solid var(--color-cloud-medium)' }}>
+        {['Compact', 'Comfortable', 'Spacious'].map((d, i) => (
+          <button key={d} style={{
+            padding: '4px 10px', fontSize: 12, fontFamily: 'var(--font-family-base)',
+            background: i === 1 ? 'var(--color-ivory-dark)' : 'transparent',
+            color: 'var(--color-text-body)', border: 'none',
+            borderRight: i !== 2 ? '1px solid var(--color-cloud-medium)' : 'none',
+            fontWeight: i === 1 ? 400 : 300, cursor: 'pointer',
+          }}>{d}</button>
+        ))}
+      </div>
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 24 }}>
+      {/* Timeline */}
+      <div>
+        {DAYS.map(day => (
+          <div key={day.label} style={{ marginBottom: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--color-cloud-medium)' }}>
+              <div style={{ fontFamily: 'var(--font-family-display)', fontSize: 15, fontWeight: 400, color: 'var(--color-text-heading)', letterSpacing: '-0.005em' }}>{day.label}</div>
+              <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.04em' }}>{day.count} CAPTURES</div>
+            </div>
+            <div style={{ position: 'relative' }}>
+              {day.items.map((it, i) => (
+                <div key={i} style={{
+                  display: 'grid', gridTemplateColumns: '70px 24px 1fr', gap: 14, alignItems: 'start',
+                  padding: '10px 0', position: 'relative',
+                }}>
+                  <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em', paddingTop: 2, textAlign: 'right' }}>{it.time}</div>
+                  <div style={{ position: 'relative', height: '100%' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: -20, left: 11, width: 1, background: 'var(--color-cloud-light)' }}></div>
+                    <div style={{ position: 'relative', zIndex: 1, width: 22, height: 22, border: '1px solid var(--color-cloud-medium)', background: 'var(--color-bg-container)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 2 }}>
+                      <i data-lucide={TYPE_ICONS[it.type]} style={{ width: 11, height: 11, strokeWidth: 1.5, color: 'var(--color-text-body)' }}></i>
+                    </div>
+                  </div>
+                  <div style={{ padding: '2px 0 6px', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 2 }}>
+                      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{TYPE_LABELS[it.type]}</span>
+                      <span style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)' }}>{it.title}</span>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--color-text-body)', fontWeight: 300, lineHeight: 1.5, maxWidth: 620 }}>{it.snippet}</div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      {it.entities.map(e => <Pill key={e} tone="neutral" size="xs">{e}</Pill>)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Right: capture heatmap + jump */}
+      <aside>
+        <SCard header="Capture heatmap" description="Last 12 weeks" padded={true}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 3 }}>
+            {Array.from({length: 84}).map((_, i) => {
+              const v = [0, 1, 2, 3, 4][Math.floor(Math.random() * 5)];
+              const shades = ['#F0EEE6', '#E5DED0', '#D3B8A4', '#C08870', '#8B4F35'];
+              return <div key={i} style={{ aspectRatio: '1', background: shades[v] }}></div>;
+            })}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>
+            <span>JAN</span><span>FEB</span><span>MAR</span><span>APR</span>
+          </div>
+        </SCard>
+
+        <div style={{ height: 16 }}></div>
+
+        <SCard header="Jump to" padded={false}>
+          {['Today', 'This week', 'Last week', 'April', 'March', 'February'].map((l, i) => (
+            <button key={l} style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '8px 16px', background: 'transparent', border: 'none',
+              borderBottom: i === 5 ? 'none' : '1px solid var(--color-cloud-light)',
+              fontFamily: 'var(--font-family-base)', fontSize: 13, fontWeight: 300,
+              color: 'var(--color-text-body)', cursor: 'pointer',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              {l}
+            </button>
+          ))}
+        </SCard>
+      </aside>
+    </div>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 20px; background: var(--color-bg-layout-main); display: flex; flex-direction: column; gap: 8px; font-family: var(--font-family-base); }
+  .flash {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 14px;
+    border-radius: 0;
+    border: 1px solid;
+    border-left-width: 3px;
+    font-size: 13.5px;
+    line-height: 1.45;
+    background: #fff;
+  }
+  .flash .icon {
+    width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .flash svg { display: block; }
+  .flash strong { font-weight: 600; margin-right: 4px; color: var(--color-text-heading); }
+  .flash .body { color: var(--color-text-body); }
+  .flash .close { margin-left: auto; background: transparent; border: 0; cursor: pointer; color: var(--color-cloud-dark); padding: 2px; }
+
+  .success { border-color: #CFE0C8; border-left-color: #5E8F4A; }
+  .success .icon { color: #5E8F4A; }
+
+  .info    { border-color: #D8D3C2; border-left-color: var(--color-slate-medium); }
+  .info    .icon { color: var(--color-slate-medium); }
+
+  .warning { border-color: #EFD9B8; border-left-color: var(--color-kraft); background: #FBF6EC; }
+  .warning .icon { color: #8B6A3A; }
+
+  .error   { border-color: #EBCAC3; border-left-color: var(--color-faded-red); background: #FBF0ED; }
+  .error   .icon { color: var(--color-faded-red); }
+</style></head>
+<body>
+  <div class="flash success">
+    <span class="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+    <span class="body"><strong>Captured successfully.</strong>Pipeline will classify and embed shortly.</span>
+  </div>
+  <div class="flash info">
+    <span class="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
+    <span class="body"><strong>Queue healthy.</strong>3 active, 12 queued.</span>
+  </div>
+  <div class="flash warning">
+    <span class="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+    <span class="body"><strong>Pipeline degraded.</strong>2 jobs failed, 24 waiting.</span>
+  </div>
+  <div class="flash error">
+    <span class="icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></span>
+    <span class="body"><strong>Failed to load dashboard data.</strong>Is the Core API running?</span>
+  </div>
+</body></html>

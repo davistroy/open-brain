@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Ingest</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+const SOURCES = [
+  { id: 'voice',   name: 'Voice memos',        icon: 'mic',       status: 'healthy', queued: 0,  processed24: 8,  last: '2m ago',  throughput: '8/day' },
+  { id: 'email',   name: 'Email bridge',       icon: 'mail',      status: 'healthy', queued: 12, processed24: 41, last: '14s ago', throughput: '52/day' },
+  { id: 'gcal',    name: 'Google Calendar',    icon: 'calendar',  status: 'healthy', queued: 0,  processed24: 6,  last: '1h ago',  throughput: '6/day' },
+  { id: 'drive',   name: 'Google Drive',       icon: 'folder',    status: 'degraded',queued: 3,  processed24: 2,  last: '22m ago', throughput: '4/day' },
+  { id: 'slack',   name: 'Slack (DMs + stars)',icon: 'hash',      status: 'healthy', queued: 1,  processed24: 19, last: '5m ago',  throughput: '24/day' },
+  { id: 'upload',  name: 'Manual upload',      icon: 'file-up',   status: 'healthy', queued: 0,  processed24: 2,  last: 'Yesterday',throughput: 'ad hoc' },
+  { id: 'rss',     name: 'RSS + bookmarks',    icon: 'rss',       status: 'error',   queued: 0,  processed24: 0,  last: '3d ago',  throughput: '—' },
+];
+
+const FAILED = [
+  { id: 'f1', source: 'rss',   title: 'stratechery.com/2024/aggregation-revisited', error: 'Fetch timeout (30s)',      attempts: 3, age: '3d ago' },
+  { id: 'f2', source: 'drive', title: 'Q3-offsite-transcription.m4a (220 MB)',      error: 'File exceeds size limit (200 MB)', attempts: 1, age: '22m ago' },
+  { id: 'f3', source: 'drive', title: 'Sketch_file_v2.sketch',                      error: 'Unsupported format',       attempts: 1, age: '1h ago' },
+  { id: 'f4', source: 'email', title: 'Newsletter — The Generalist',                error: 'Filtered by noise heuristic', attempts: 0, age: '2h ago' },
+];
+
+const STATUS_MAP = {
+  healthy:  { label: 'Healthy',  color: '#5E8F4A' },
+  degraded: { label: 'Degraded', color: 'var(--color-book-cloth)' },
+  error:    { label: 'Error',    color: 'var(--color-faded-red)' },
+  paused:   { label: 'Paused',   color: 'var(--color-cloud-dark)' },
+};
+
+const QueueBar = ({ label, value, total, tone }) => (
+  <div style={{ flex: 1 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em', marginBottom: 4 }}>
+      <span>{label.toUpperCase()}</span>
+      <span>{value}</span>
+    </div>
+    <div style={{ height: 4, background: 'var(--color-cloud-light)', position: 'relative' }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(value / total) * 100}%`, background: tone }}></div>
+    </div>
+  </div>
+);
+
+const SourceRow = ({ s }) => {
+  const st = STATUS_MAP[s.status];
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: '20px 180px 110px 100px 100px 120px 1fr 80px',
+      alignItems: 'center', gap: 16,
+      padding: '14px 18px',
+      borderBottom: '1px solid var(--color-cloud-light)',
+    }}>
+      <i data-lucide={s.icon} style={{ width: 15, height: 15, strokeWidth: 1.4, color: 'var(--color-text-body)' }}></i>
+      <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)' }}>{s.name}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 6, height: 6, background: st.color, display: 'inline-block', animation: s.status === 'degraded' ? 'pulse 1.4s ease-in-out infinite' : 'none' }}></span>
+        <span style={{ fontSize: 12, color: 'var(--color-text-body-secondary)' }}>{st.label}</span>
+      </div>
+      <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 12, color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums' }}>{s.queued}</div>
+      <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 12, color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums' }}>{s.processed24}</div>
+      <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{s.last.toUpperCase()}</div>
+      <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)' }}>{s.throughput}</div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <button style={{ background: 'transparent', border: '1px solid var(--color-cloud-medium)', padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', color: 'var(--color-text-body)', cursor: 'pointer' }}>Retry</button>
+        <button style={{ background: 'transparent', border: '1px solid var(--color-cloud-medium)', padding: '3px 6px', cursor: 'pointer' }}>
+          <i data-lucide="more-horizontal" style={{ width: 12, height: 12, strokeWidth: 1.5, color: 'var(--color-text-body-secondary)' }}></i>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const App = () => (
+  <Shell
+    active="ingest"
+    breadcrumb={['Open Brain', 'Ingest']}
+    title="Ingest pipeline"
+    subtitle="7 sources · 16 items queued · 78 processed in the last 24 hours"
+    actions={<>
+      <SBtn variant="normal" icon={<i data-lucide="refresh-cw" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Refresh</SBtn>
+      <SBtn variant="normal" icon={<i data-lucide="pause" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Pause all</SBtn>
+      <SBtn variant="primary" icon={<i data-lucide="plus" style={{ width: 12, height: 12, strokeWidth: 2 }}></i>}>Add source</SBtn>
+    </>}
+  >
+    {/* Top metrics row */}
+    <div style={{ display: 'flex', gap: 16, marginBottom: 20 }}>
+      <SCard padded={true} style={{ flex: 1 }}>
+        <Eyebrow>Queue depth</Eyebrow>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ fontFamily: 'var(--font-family-display)', fontSize: 32, fontWeight: 300, letterSpacing: '-0.03em', color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums' }}>16</div>
+          <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)' }}>items</span>
+        </div>
+        <div style={{ display: 'flex', gap: 16, marginTop: 14 }}>
+          <QueueBar label="Pending" value={12} total={20} tone="var(--color-cloud-dark)" />
+          <QueueBar label="Active" value={3} total={5} tone="var(--color-book-cloth)" />
+          <QueueBar label="Failed" value={1} total={5} tone="var(--color-faded-red)" />
+        </div>
+      </SCard>
+      <SCard padded={true} style={{ flex: 1 }}>
+        <Eyebrow>Throughput (24h)</Eyebrow>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ fontFamily: 'var(--font-family-display)', fontSize: 32, fontWeight: 300, letterSpacing: '-0.03em', color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums' }}>78</div>
+          <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: '#5E8F4A' }}>▲ 14% vs prior</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 36, marginTop: 14 }}>
+          {[3,5,2,4,6,5,7,4,6,8,9,6,5,7,4,6,8,10,7,5,6,8,9,7].map((v, i) => (
+            <div key={i} style={{ flex: 1, height: `${v * 4}px`, background: i > 19 ? 'var(--color-book-cloth)' : 'var(--color-cloud-dark)' }}></div>
+          ))}
+        </div>
+      </SCard>
+      <SCard padded={true} style={{ flex: 1 }}>
+        <Eyebrow>Avg latency</Eyebrow>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <div style={{ fontFamily: 'var(--font-family-display)', fontSize: 32, fontWeight: 300, letterSpacing: '-0.03em', color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums' }}>2.4<span style={{ fontSize: 18, color: 'var(--color-text-body-secondary)' }}>s</span></div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', marginTop: 8, fontWeight: 300 }}>Ingest → entities extracted → indexed</div>
+        <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em', marginTop: 14 }}>P50 · 2.4S &nbsp; P95 · 8.1S &nbsp; P99 · 18.2S</div>
+      </SCard>
+    </div>
+
+    {/* Sources */}
+    <SCard header="Connected sources" description="Pull order matters — re-arrange to control duplicate-suppression priority." actions={<SBtn variant="ghost" size="small" icon={<i data-lucide="grip-vertical" style={{width:11,height:11,strokeWidth:1.5}}></i>}>Reorder</SBtn>} padded={false}>
+      <div style={{ display: 'grid', gridTemplateColumns: '20px 180px 110px 100px 100px 120px 1fr 80px', padding: '10px 18px', fontFamily: 'var(--font-family-monospace)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--color-text-body-secondary)', borderBottom: '1px solid var(--color-cloud-medium)', gap: 16 }}>
+        <span></span><span>SOURCE</span><span>STATUS</span><span>QUEUED</span><span>24H</span><span>LAST SEEN</span><span>AVG THROUGHPUT</span><span></span>
+      </div>
+      {SOURCES.map(s => <SourceRow key={s.id} s={s} />)}
+    </SCard>
+
+    <div style={{ height: 20 }}></div>
+
+    {/* Failed items */}
+    <SCard header={<>Failed items <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-faded-red)', marginLeft: 6 }}>{FAILED.length}</span></>} description="Retry, fix config, or dismiss." actions={<SBtn variant="normal" size="small">Retry all</SBtn>} padded={false}>
+      {FAILED.map((f, i) => {
+        const src = SOURCES.find(s => s.id === f.source);
+        return (
+          <div key={f.id} style={{
+            display: 'grid', gridTemplateColumns: '18px 1fr 220px 110px 80px 100px',
+            alignItems: 'center', gap: 16,
+            padding: '12px 18px',
+            borderBottom: i === FAILED.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+          }}>
+            <i data-lucide={src?.icon || 'circle'} style={{ width: 14, height: 14, strokeWidth: 1.4, color: 'var(--color-cloud-dark)' }}></i>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 400, color: 'var(--color-text-heading)' }}>{f.title}</div>
+              <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em', marginTop: 2 }}>{src?.name.toUpperCase()}</div>
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--color-faded-red)', fontWeight: 300 }}>{f.error}</div>
+            <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>ATTEMPTS · {f.attempts}</div>
+            <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{f.age.toUpperCase()}</div>
+            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+              <button style={{ background: 'transparent', border: '1px solid var(--color-cloud-medium)', padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', color: 'var(--color-text-body)', cursor: 'pointer' }}>Retry</button>
+              <button style={{ background: 'transparent', border: '1px solid var(--color-cloud-medium)', padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', color: 'var(--color-text-body-secondary)', cursor: 'pointer' }}>×</button>
+            </div>
+          </div>
+        );
+      })}
+    </SCard>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

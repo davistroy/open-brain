@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Board</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+<script type="text/babel">
+const COLS = [
+  { id: 'pending', title: 'Pending', count: 6, tone: '#C08870' },
+  { id: 'owed',    title: 'You owe',  count: 4, tone: 'var(--color-faded-red)' },
+  { id: 'waiting', title: 'Waiting on', count: 7, tone: 'var(--color-cloud-dark)' },
+  { id: 'done',    title: 'Resolved',  count: 12, tone: '#5E8F4A' },
+];
+const CARDS = {
+  pending: [
+    { title: 'Espresso machine', tag: 'PERSONAL', date: 'Apr 30', priority: 'med', note: '4 candidates. Lelit, ECM, Profitec, Rancilio.' },
+    { title: 'Board agenda order for Thursday', tag: 'Q4 PLANNING', date: 'Apr 24', priority: 'high', note: 'Sarah moved finance up.' },
+    { title: 'London office approval', tag: 'OPS', date: 'Apr 22', priority: 'high', note: 'Pending your sign-off on budget v3.' },
+    { title: 'Maya — customer exposure ask', tag: 'MAYA RODRIGUEZ', date: 'This week', priority: 'med', note: 'Say yes or no, don\'t let it drift.' },
+  ],
+  owed: [
+    { title: 'Reply to Avi on fundraise timing', tag: 'INVESTORS', date: 'Overdue 1d', priority: 'high', note: 'He needs it before his LP sync.', overdue: true },
+    { title: 'H. Rahimi offer letter', tag: 'HIRING', date: 'Overdue 2d', priority: 'high', note: 'Legal is blocked on your terms.', overdue: true },
+    { title: 'Investor update — Q1', tag: 'FUNDRAISING', date: 'Apr 28', priority: 'med', note: 'Draft exists; 300 words.' },
+  ],
+  waiting: [
+    { title: 'Sarah — revised hiring plan', tag: 'SARAH CHEN', date: 'By Thu', priority: 'med', note: 'Pushed back twice.' },
+    { title: 'Legal redline — London lease', tag: 'LEGAL', date: 'This week', priority: 'med', note: '' },
+    { title: 'Ravi — pricing model memo', tag: 'RAVI SHAH', date: 'Apr 25', priority: 'low', note: 'Tiered usage.' },
+    { title: 'Espresso shop demo slots', tag: 'PERSONAL', date: 'Apr 26', priority: 'low', note: '' },
+  ],
+  done: [
+    { title: 'Sign Stripe amendment', tag: 'FINANCE', date: 'Apr 19', priority: 'done' },
+    { title: 'Maya 1:1 prep', tag: 'MAYA RODRIGUEZ', date: 'Apr 20', priority: 'done' },
+    { title: 'Ventures.co advisory agreement', tag: 'AVI SHARMA', date: 'Apr 17', priority: 'done' },
+  ],
+};
+const PRIORITY = { high: 'var(--color-faded-red)', med: 'var(--color-book-cloth)', low: 'var(--color-cloud-dark)', done: 'var(--color-cloud-medium)' };
+
+const Card = ({ c }) => (
+  <div style={{
+    background: 'var(--color-bg-container)',
+    border: '1px solid var(--color-cloud-light)',
+    padding: '12px 14px', marginBottom: 8, cursor: 'grab',
+    position: 'relative',
+  }}>
+    <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 2, background: PRIORITY[c.priority] }}></div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 9.5, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{c.tag}</span>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: c.overdue ? 'var(--color-faded-red)' : 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{c.date.toUpperCase()}</span>
+    </div>
+    <div style={{ fontSize: 13, fontWeight: 400, color: c.priority === 'done' ? 'var(--color-text-body-secondary)' : 'var(--color-text-heading)', textDecoration: c.priority === 'done' ? 'line-through' : 'none', lineHeight: 1.35 }}>{c.title}</div>
+    {c.note && <div style={{ fontSize: 11.5, color: 'var(--color-text-body-secondary)', fontWeight: 300, marginTop: 4, lineHeight: 1.45 }}>{c.note}</div>}
+  </div>
+);
+
+const App = () => (
+  <Shell
+    active="board"
+    breadcrumb={['Open Brain', 'Board']}
+    title="Governance board"
+    subtitle="29 open items across decisions, commitments, and ongoing threads — extracted from captures"
+    actions={<>
+      <SBtn variant="normal" icon={<i data-lucide="filter" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Filter</SBtn>
+      <SBtn variant="normal" icon={<i data-lucide="layout-list" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>List view</SBtn>
+      <SBtn variant="primary" icon={<i data-lucide="plus" style={{ width: 12, height: 12, strokeWidth: 2 }}></i>}>New item</SBtn>
+    </>}
+  >
+    {/* Group-by bar */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+      <Eyebrow>GROUP BY</Eyebrow>
+      <div style={{ display: 'flex', border: '1px solid var(--color-cloud-medium)' }}>
+        {['Status', 'Project', 'Person', 'Due date'].map((t, i) => (
+          <button key={t} style={{
+            padding: '4px 12px', fontSize: 12,
+            background: i === 0 ? 'var(--color-ivory-dark)' : 'transparent',
+            color: 'var(--color-text-body)', border: 'none',
+            borderRight: i !== 3 ? '1px solid var(--color-cloud-medium)' : 'none',
+            fontWeight: i === 0 ? 400 : 300, cursor: 'pointer', fontFamily: 'inherit',
+          }}>{t}</button>
+        ))}
+      </div>
+      <div style={{ flex: 1 }}></div>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>29 OPEN · 12 RESOLVED THIS WEEK</span>
+    </div>
+
+    {/* Board */}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+      {COLS.map(col => (
+        <div key={col.id}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 10px',
+            borderBottom: `2px solid ${col.tone}`, marginBottom: 10,
+          }}>
+            <span style={{ fontFamily: 'var(--font-family-display)', fontSize: 14, fontWeight: 400, color: 'var(--color-text-heading)' }}>{col.title}</span>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)' }}>{col.count}</span>
+            <div style={{ flex: 1 }}></div>
+            <i data-lucide="plus" style={{ width: 12, height: 12, strokeWidth: 1.5, color: 'var(--color-cloud-dark)', cursor: 'pointer' }}></i>
+          </div>
+          {(CARDS[col.id] || []).map((c, i) => <Card key={i} c={c} />)}
+          {col.id === 'pending' && (
+            <div style={{ padding: 12, border: '1px dashed var(--color-cloud-medium)', fontSize: 12, color: 'var(--color-text-body-secondary)', fontWeight: 300, textAlign: 'center' }}>
+              2 more — show all →
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
