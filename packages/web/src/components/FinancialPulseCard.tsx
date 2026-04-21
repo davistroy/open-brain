@@ -167,7 +167,7 @@ export function FinancialPulseCard(): JSX.Element {
       .list({
         brain_view: 'personal',
         capture_type: 'observation',
-        limit: 400,
+        limit: 100,
       })
       .then((res) => {
         if (cancelled) return;
