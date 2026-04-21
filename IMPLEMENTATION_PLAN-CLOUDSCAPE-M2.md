@@ -405,7 +405,7 @@ Skeletons use `animate-pulse` from Tailwind — defined in design-system. No shi
 ### Work Items
 
 #### 3.1 Port SSE client with exponential backoff reconnect
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.3, sharp-edge: existing /web sse.ts has no reconnect
 **Files Affected:**
 - `packages/web-next/lib/sse-client.ts` (create)
