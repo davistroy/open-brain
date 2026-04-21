@@ -480,6 +480,8 @@ feat(web-next/dashboard): match screen 01 — stats, captures, questions, briefs
 
 ### 3.1 — Entities list page
 
+**Status:** COMPLETE 2026-04-21
+
 **Files:**
 - Create: `components/entities/type-filter-tabs.tsx`
 - Create: `components/entities/entity-table.tsx`
@@ -506,6 +508,8 @@ feat(web-next/entities): match screen 05 — type tabs, table, distribution
 ---
 
 ### 3.2 — Entity detail page
+
+**Status:** COMPLETE 2026-04-21
 
 **Files:**
 - Create: all 8 files in `components/entity/`
