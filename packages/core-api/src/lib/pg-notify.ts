@@ -30,6 +30,9 @@ class PgNotify {
     // and core-api routes/ingest.ts. events.ts re-emits as SSE event
     // name `upload:status` per the plan contract.
     'upload_status',
+    // CS M2-5.3 — emitted by BriefsService.create() after successful INSERT.
+    // Passes through events.ts verbatim as SSE event name `brief_created`.
+    'brief_created',
   ])
   private postgresUrl: string | null = null
   private reconnecting = false

@@ -5,6 +5,7 @@ import type { Database } from '@open-brain/shared'
 import type { BriefRow, NewBriefRow } from '@open-brain/shared'
 import type { Queue } from 'bullmq'
 import { logger } from '@open-brain/shared'
+import { pgNotify } from '../lib/pg-notify.js'
 
 /** Paginated list result for briefs */
 export interface BriefListResult {
@@ -236,6 +237,16 @@ export class BriefsService {
     }
 
     logger.info({ briefId: inserted[0].id, kind: inserted[0].kind }, '[briefs-service] brief created')
+
+    // Publish SSE event — fire-and-forget; never block the create() return
+    pgNotify.notify('brief_created', {
+      id: inserted[0].id,
+      kind: inserted[0].kind,
+      title: inserted[0].title,
+      generated_at: inserted[0].generated_at.toISOString(),
+    }).catch((err) => {
+      logger.warn({ err, briefId: inserted[0]!.id }, '[briefs-service] brief_created pg-notify failed')
+    })
 
     return this.toDetailItem(inserted[0] as BriefRow)
   }

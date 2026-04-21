@@ -779,7 +779,7 @@ Do NOT add a DELETE endpoint for briefs in M2 (soft-dismiss only, per D7). Hard 
 ---
 
 #### 5.3 brief_created SSE event
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 investigation item 2.7
 **Files Affected:**
 - `packages/core-api/src/lib/pg-notify.ts` (modify — add channel)
