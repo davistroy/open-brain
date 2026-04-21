@@ -20,9 +20,9 @@
 - Add `models.intent: "gpt-5.4"` to models section (Slack intent router reads this)
 
 **Acceptance:**
-- [ ] `wiki_lint`, `monthly_reflection` entries present in task_routing
-- [ ] `wiki_ingest` points to `t1_fast` (Anthropic tier)
-- [ ] `models.intent` entry present
+- [x] `wiki_lint`, `monthly_reflection` entries present in task_routing
+- [x] `wiki_ingest` points to `t1_fast` (Anthropic tier)
+- [x] `models.intent` entry present
 - [ ] ConfigService loads without error (run unit tests)
 
 ### 1.2 Wire configService to wiki-ingest skill

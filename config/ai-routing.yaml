@@ -10,6 +10,7 @@ models:
     client: litellm
     cost_per_1k_input: 0.00013
     cost_per_1k_output: 0
+  intent: "gpt-5.4"
 
 # ============================================================
 # Four-tier model definitions (v3)
@@ -85,7 +86,8 @@ task_routing:
   daily_sweep: t1_spark
   mcp_context: t1_spark
   auto_response_draft: t1_spark
-  wiki_ingest: t1_spark
+  wiki_ingest: t1_fast
+  wiki_lint: t1_fast
   wiki_synthesis: t1_spark
   daily_connections: t1_spark
   drift_monitoring: t1_spark
@@ -95,6 +97,7 @@ task_routing:
   weekly_brief: t2_quality
   governance: t2_quality
   email_compose: t2_quality   # Outbound email drafting — synthesis-class reasoning for tone + structure
+  monthly_reflection: t2_quality
 
 monthly_budget:
   soft_limit_usd: 20
