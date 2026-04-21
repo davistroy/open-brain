@@ -49,7 +49,7 @@ function overallLevel(data: SystemHealthData | null): StatusLevel {
   // Check component-level thresholds
   const qTotal = data.queues.total_waiting + data.queues.total_active
   const qLvl = queueLevel(qTotal)
-  const sLvl = spendLevel(data.llm_spend.month_total_usd, data.llm_spend.budget_usd)
+  const sLvl = spendLevel(data.llm_spend?.month_total_usd ?? 0, data.llm_spend?.budget_usd ?? 35)
 
   if (qLvl === 'red' || sLvl === 'red') return 'red'
   if (qLvl === 'yellow' || sLvl === 'yellow') return 'yellow'
@@ -159,7 +159,7 @@ export default function StatusStrip() {
         }
       }
 
-      es.addEventListener('health', (evt: MessageEvent) => {
+      es.addEventListener('system_health', (evt: MessageEvent) => {
         try {
           const raw = JSON.parse(evt.data)
           setData(raw.llm_spend ? raw as SystemHealthData : mapSSE(raw))
@@ -262,8 +262,8 @@ export default function StatusStrip() {
     ? `${lastSkill.name} ${relativeTime(lastSkill.completed_at)}`
     : 'none'
 
-  const spentUsd = data?.llm_spend.month_total_usd ?? 0
-  const budgetUsd = data?.llm_spend.budget_usd ?? 10
+  const spentUsd = data?.llm_spend?.month_total_usd ?? 0
+  const budgetUsd = data?.llm_spend?.budget_usd ?? 35
   const sLevel = data ? spendLevel(spentUsd, budgetUsd) : 'gray'
 
   const queueTooltip = data
