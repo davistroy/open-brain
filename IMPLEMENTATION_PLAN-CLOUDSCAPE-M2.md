@@ -115,7 +115,7 @@ Do NOT add `transpilePackages: ['@open-brain/shared']` — we are NOT importing 
 ---
 
 #### 1.3 Create lib/format.ts with pure formatters
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.7
 **Files Affected:**
 - `packages/web-next/lib/format.ts` (create)
@@ -144,7 +144,7 @@ Design glyphs (▲ U+25B2 / ▼ U+25BC / ◆ U+25C6) come directly from the M1 m
 ---
 
 #### 1.4 Vitest + MSW + Playwright scaffolding
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 investigation item 1.8
 **Files Affected:**
 - `packages/web-next/vitest.config.ts` (create)
