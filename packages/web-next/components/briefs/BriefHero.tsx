@@ -43,8 +43,8 @@ export function BriefHero({ brief }: BriefHeroProps) {
         </h2>
         <p className="text-[14.5px] font-light leading-[1.6] text-text-body max-w-[620px] m-0">
           The London office budget memo needs a response (2 days overdue). Sarah has pushed
-          back on the Q4 eng hiring timeline twice — worth a 15-minute call before Thursday's
-          board. Maya asked about customer exposure last Friday; you haven't replied.
+          back on the Q4 eng hiring timeline twice — worth a 15-minute call before Thursday&apos;s
+          board. Maya asked about customer exposure last Friday; you haven&apos;t replied.
         </p>
         <div className="flex items-center gap-[8px] mt-[18px]">
           <Link href={`/briefs/${brief.id}`}>

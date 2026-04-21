@@ -33,6 +33,14 @@ import {
  *   - packages/web/src/lib/types.ts (redeclared union, must stay in sync)
  *   - packages/web/src/components/SearchFilters.tsx (CAPTURE_SOURCES array,
  *     must list all values from the web type union)
+ *
+ * M2 extension (Cloudscape M2 item 1.5): also guards CaptureSource,
+ * CaptureType, and PipelineStatus parity for the web-next package:
+ *   - packages/web-next/lib/types.ts redeclares these locally per D109
+ *     (no runtime @open-brain/shared import in the Next.js bundle).
+ *   - D109 is the canonical decision; this test is the enforcement mechanism.
+ *   - When drift is detected, fix the web-next declaration to match shared,
+ *     never the other way around. SHARED is the source of truth.
  */
 
 const __filename = fileURLToPath(import.meta.url)
@@ -44,20 +52,28 @@ const TIMELINE_PATH = resolve(__dirname, '../../../web/src/pages/Timeline.tsx')
 const STATS_CARDS_PATH = resolve(__dirname, '../../../web/src/components/StatsCards.tsx')
 const PIPELINE_EVENT_TYPES_PATH = resolve(__dirname, '../../src/types/pipeline-event.ts')
 const SESSION_TYPES_PATH = resolve(__dirname, '../types/session.ts')
+// M2 item 1.5: web-next declares types locally per D109 (no @open-brain/shared runtime import)
+const WEB_NEXT_TYPES_PATH = resolve(__dirname, '../../../web-next/lib/types.ts')
 const SHARED_SCHEMA_PATH = 'packages/shared/src/schema/ingest.ts'
 const WEB_API_REL = 'packages/web/src/lib/api.ts'
 const WEB_TYPES_REL = 'packages/web/src/lib/types.ts'
 const SEARCH_FILTERS_REL = 'packages/web/src/components/SearchFilters.tsx'
 const TIMELINE_REL = 'packages/web/src/pages/Timeline.tsx'
 const STATS_CARDS_REL = 'packages/web/src/components/StatsCards.tsx'
+const WEB_NEXT_TYPES_REL = 'packages/web-next/lib/types.ts'
 
 /**
  * Extract the string-literal members of a `export type Name = 'a' | 'b' | ...`
  * declaration from a source file. Tolerates line breaks, trailing `|`, and
  * arbitrary whitespace between members. Returns the literals in source order.
  * Throws with an actionable message if the declaration is missing or malformed.
+ *
+ * @param source    Full file contents (text)
+ * @param typeName  The exported type name to search for
+ * @param fileLabel Relative file path used in error messages (defaults to WEB_API_REL
+ *                  for backward compat with callers that don't pass it)
  */
-function extractUnionLiterals(source: string, typeName: string): string[] {
+function extractUnionLiterals(source: string, typeName: string, fileLabel: string = WEB_API_REL): string[] {
   // Normalize Windows CRLF to LF so the blank-line boundary is reliable
   // regardless of platform-specific git checkout config.
   const normalized = source.replace(/\r\n/g, '\n')
@@ -73,7 +89,7 @@ function extractUnionLiterals(source: string, typeName: string): string[] {
   const match = normalized.match(re)
   if (!match) {
     throw new Error(
-      `Drift-guard could not locate \`export type ${typeName} = ...\` in ${WEB_API_REL}. ` +
+      `Drift-guard could not locate \`export type ${typeName} = ...\` in ${fileLabel}. ` +
         `The declaration may have been renamed or re-exported. Update this test's ` +
         `regex (packages/shared/src/__tests__/web-type-drift.test.ts) if the canonical ` +
         `web literal source has moved.`,
@@ -84,12 +100,45 @@ function extractUnionLiterals(source: string, typeName: string): string[] {
   const literals = Array.from(body.matchAll(/'([^']+)'/g)).map((m) => m[1])
   if (literals.length === 0) {
     throw new Error(
-      `Drift-guard matched \`${typeName}\` in ${WEB_API_REL} but extracted zero ` +
+      `Drift-guard matched \`${typeName}\` in ${fileLabel} but extracted zero ` +
         `literal members. Regex body was:\n${body}\n\n` +
         `Update the extractUnionLiterals() regex in this test.`,
     )
   }
   return literals
+}
+
+/**
+ * Run a union-literal drift assertion for a given type across multiple source files.
+ *
+ * @param targets       Array of `{ path: absolute path, label: relative path for messages }`
+ * @param typeName      The exported type name to extract and assert
+ * @param canonical     The sorted canonical value set (source of truth: packages/shared)
+ * @param sharedSource  Human-readable description of canonical source (for error messages)
+ */
+function assertUnionMatchesCanonical(
+  targets: { path: string; label: string }[],
+  typeName: string,
+  canonical: readonly string[],
+  sharedSource: string,
+): void {
+  const canonicalSorted = sorted(canonical)
+  for (const { path, label } of targets) {
+    const source = readFileSync(path, 'utf8')
+    const literals = extractUnionLiterals(source, typeName, label)
+    const literalsSorted = sorted(literals)
+    expect(
+      literalsSorted,
+      `Drift detected in ${typeName} in ${label}:\n` +
+        `  declared  (${label}): ${JSON.stringify(literalsSorted)}\n` +
+        `  canonical (${sharedSource}): ${JSON.stringify(canonicalSorted)}\n` +
+        `\n` +
+        `SHARED is the source of truth (decision D109). Fix the \`export type ${typeName} = ...\` ` +
+        `union in ${label} to match the canonical TS union in ${sharedSource}. ` +
+        `Do NOT modify the canonical shared types to match a UI package. ` +
+        `See Cloudscape M2 item 1.5 for context.`,
+    ).toEqual(canonicalSorted)
+  }
 }
 
 function sorted<T extends string>(xs: readonly T[]): T[] {
@@ -447,7 +496,7 @@ describe('Session type drift guard (phase-P09c / #119)', () => {
   const sessionTypesSource = readFileSync(SESSION_TYPES_PATH, 'utf8')
 
   it('SessionType TS union matches canonical 3-value list', () => {
-    const unionLiterals = extractUnionLiterals(sessionTypesSource, 'SessionType')
+    const unionLiterals = extractUnionLiterals(sessionTypesSource, 'SessionType', 'packages/shared/src/types/session.ts')
     const unionSorted = sorted(unionLiterals)
     const canonicalSorted = sorted(CANONICAL_SESSION_TYPES)
 
@@ -465,7 +514,7 @@ describe('Session type drift guard (phase-P09c / #119)', () => {
   })
 
   it('SessionStatus TS union matches canonical 4-value list', () => {
-    const unionLiterals = extractUnionLiterals(sessionTypesSource, 'SessionStatus')
+    const unionLiterals = extractUnionLiterals(sessionTypesSource, 'SessionStatus', 'packages/shared/src/types/session.ts')
     const unionSorted = sorted(unionLiterals)
     const canonicalSorted = sorted(CANONICAL_SESSION_STATUSES)
 
@@ -480,5 +529,59 @@ describe('Session type drift guard (phase-P09c / #119)', () => {
         `in this test file, AND update the DB CHECK constraint in ` +
         `packages/shared/drizzle/0026_sessions_enum_checks.sql.`,
     ).toEqual(canonicalSorted)
+  })
+})
+
+describe('web-next <-> shared type drift guard (Cloudscape M2 item 1.5 / D109)', () => {
+  /**
+   * web-next (`packages/web-next/`) is a Next.js 16 app that intentionally does NOT
+   * import from `@open-brain/shared` at runtime (decision D109 — avoids pulling
+   * pg/openai/drizzle-orm into the Next.js server bundle). It redeclares canonical
+   * union types locally in `lib/types.ts`. This suite asserts those local redeclarations
+   * stay in sync with the shared canonical types.
+   *
+   * The three types guarded here (CaptureSource, CaptureType, PipelineStatus) are the
+   * ones web-next declares as of M1. When a new type is added to lib/types.ts that also
+   * has a canonical shared counterpart, extend this test (and update item 1.5 in
+   * IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md to reference the new type).
+   *
+   * D109 is the source of truth for the no-shared-import rule. This test is the
+   * automated enforcement mechanism. If this test fails:
+   *   1. Fix the `export type X = ...` union in packages/web-next/lib/types.ts.
+   *   2. Do NOT change the canonical shared types to match.
+   *   3. Do NOT add @open-brain/shared as a dependency of web-next.
+   */
+
+  // Both web and web-next must declare these types identically.
+  const TYPES_TARGETS = [
+    { path: WEB_TYPES_PATH, label: WEB_TYPES_REL },
+    { path: WEB_NEXT_TYPES_PATH, label: WEB_NEXT_TYPES_REL },
+  ]
+
+  it('CaptureSource matches canonical 9-value list in both web and web-next', () => {
+    assertUnionMatchesCanonical(
+      TYPES_TARGETS,
+      'CaptureSource',
+      CANONICAL_CAPTURE_SOURCES,
+      'packages/shared/src/types/capture.ts',
+    )
+  })
+
+  it('CaptureType matches canonical 8-value list in both web and web-next', () => {
+    assertUnionMatchesCanonical(
+      TYPES_TARGETS,
+      'CaptureType',
+      CANONICAL_CAPTURE_TYPES,
+      'packages/shared/src/types/capture.ts',
+    )
+  })
+
+  it('PipelineStatus matches canonical 8-value list in both web and web-next', () => {
+    assertUnionMatchesCanonical(
+      TYPES_TARGETS,
+      'PipelineStatus',
+      CANONICAL_PIPELINE_STATUSES,
+      'packages/shared/src/types/capture.ts',
+    )
   })
 })

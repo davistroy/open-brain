@@ -6,7 +6,7 @@
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
-    "lint": "next lint",
+    "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "test": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test"
@@ -36,6 +36,8 @@
     "@testing-library/jest-dom": "^6",
     "@testing-library/user-event": "^14",
     "msw": "^2",
-    "@playwright/test": "^1.45"
+    "@playwright/test": "^1.45",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^15.0.0"
   }
 }

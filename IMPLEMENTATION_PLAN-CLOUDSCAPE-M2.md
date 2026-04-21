@@ -176,7 +176,7 @@ MSW `onUnhandledRequest: 'error'` is intentional — catches accidentally-unmock
 ---
 
 #### 1.5 Extend web-type-drift test to cover web-next
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS1 D109, investigation item 1.8
 **Files Affected:**
 - `packages/shared/src/__tests__/web-type-drift.test.ts` (modify)
@@ -201,7 +201,7 @@ When web-next adds a NEW type (e.g., `BriefKind`, `BriefCover` in Phase 4) that 
 ---
 
 #### 1.6 ESLint rule blocking @open-brain/shared in web-next
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** A79, D109 defense-in-depth
 **Files Affected:**
 - `packages/web-next/.eslintrc.cjs` or `eslint.config.mjs` (create or modify)
