@@ -155,16 +155,41 @@ export interface Entity {
   related?: string[];
 }
 
-/** Entity detail — full record for entity detail page */
+/** Entity detail — full record from GET /api/v1/entities/:id */
 export interface EntityDetail extends Entity {
-  first_seen: string;
-  co_mentioned_count: number;
-  sentiment: string;
-  summary: string;
-  summary_updated_at: string;
-  captures: CaptureItem[];
-  commitments: Commitment[];
-  related_entities: RelatedEntity[];
+  /** ISO 8601 — when this entity was first extracted from a capture */
+  first_seen_at: string;
+  /** ISO 8601 — when this entity was most recently seen (from entities table) */
+  last_seen_at: string | null;
+  canonical_name: string;
+  aliases: string[];
+  metadata: unknown;
+  created_at: string;
+  updated_at: string;
+  /** Linked captures as returned by entity detail endpoint */
+  linked_captures: LinkedCapture[];
+
+  // Optional fields that may be added in future API versions or populated
+  // from metadata — components must guard against undefined.
+  summary?: string;
+  /** Human-relative or ISO string for when the AI summary was last generated */
+  summary_updated_at?: string;
+  co_mentioned_count?: number;
+  sentiment?: string;
+  captures?: CaptureItem[];
+  commitments?: Commitment[];
+  related_entities?: RelatedEntity[];
+}
+
+/** Linked capture as returned in EntityDetail.linked_captures */
+export interface LinkedCapture {
+  id: string;
+  content: string;
+  capture_type: string;
+  brain_view: string;
+  relationship: string | null;
+  confidence: number | null;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------

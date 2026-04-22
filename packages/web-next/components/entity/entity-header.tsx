@@ -55,7 +55,7 @@ export function EntityHeader({ entity, onAskAI, onMerge, onGenerateBrief, isBrie
       {/* Name + stats */}
       <div>
         <Eyebrow noMargin className="mb-[6px]">
-          {entity.entity_type.toUpperCase()} · ADDED {entity.first_seen.toUpperCase()}
+          {entity.entity_type.toUpperCase()} · ADDED {formatDate(entity.first_seen_at).toUpperCase()}
         </Eyebrow>
         <h1
           className="text-text-heading"
@@ -70,20 +70,26 @@ export function EntityHeader({ entity, onAskAI, onMerge, onGenerateBrief, isBrie
         >
           {entity.name}
         </h1>
-        <p
-          className="text-text-body font-light"
-          style={{ fontSize: 15, maxWidth: 620, lineHeight: 1.55, margin: 0 }}
-        >
-          {entity.summary.split('.').slice(0, 2).join('.') + '.'}
-        </p>
+        {entity.summary && (
+          <p
+            className="text-text-body font-light"
+            style={{ fontSize: 15, maxWidth: 620, lineHeight: 1.55, margin: 0 }}
+          >
+            {entity.summary.split('.').slice(0, 2).join('.') + '.'}
+          </p>
+        )}
 
         {/* Stats row */}
         <div className="flex gap-6 mt-4">
           <StatBlock label="MENTIONS" value={String(entity.mention_count)} />
-          <StatBlock label="FIRST SEEN" value={entity.first_seen} />
-          <StatBlock label="LAST SEEN" value={entity.last_seen ?? '—'} />
-          <StatBlock label="CO-MENTIONED" value={`${entity.co_mentioned_count} entities`} />
-          <StatBlock label="SENTIMENT" value={entity.sentiment} />
+          <StatBlock label="FIRST SEEN" value={formatDate(entity.first_seen_at)} />
+          <StatBlock label="LAST SEEN" value={entity.last_seen_at ? formatDate(entity.last_seen_at) : '—'} />
+          {entity.co_mentioned_count !== undefined && (
+            <StatBlock label="CO-MENTIONED" value={`${entity.co_mentioned_count} entities`} />
+          )}
+          {entity.sentiment && (
+            <StatBlock label="SENTIMENT" value={entity.sentiment} />
+          )}
         </div>
       </div>
 
@@ -124,6 +130,15 @@ export function EntityHeader({ entity, onAskAI, onMerge, onGenerateBrief, isBrie
       </div>
     </div>
   );
+}
+
+/** Format an ISO 8601 date string for display (e.g. "Apr 21, 2026"). Falls back to raw string. */
+function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return iso;
+  }
 }
 
 function StatBlock({ label, value }: { label: string; value: string }) {
