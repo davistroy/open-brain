@@ -207,7 +207,10 @@ export interface EntitiesListParams {
 export const entitiesApi = {
   /** GET /api/v1/entities — paginated list */
   list: (params: EntitiesListParams = {}): Promise<ListEnvelope<Entity>> => {
-    const qs = buildQueryString(params)
+    // Remap entity_type → type_filter to match the core-api query param name.
+    const { entity_type, ...rest } = params
+    const apiParams = { ...rest, ...(entity_type !== undefined ? { type_filter: entity_type } : {}) }
+    const qs = buildQueryString(apiParams)
     return request<ListEnvelope<Entity>>(`/entities${qs}`)
   },
 
@@ -771,11 +774,11 @@ export interface WikiLintReport {
 
 /** Aggregate wiki statistics returned by GET /api/v1/wiki/stats. */
 export interface WikiStats {
-  total_pages: number
-  by_type: Record<string, number>
-  orphaned_pages: number
-  domains: string[]
-  last_synthesized?: string | null
+  page_count: number
+  orphan_count: number
+  domain_distribution: Record<string, number>
+  last_updated: string | null
+  last_lint_run: string | null
 }
 
 export const wikiApi = {

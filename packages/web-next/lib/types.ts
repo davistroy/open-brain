@@ -56,7 +56,7 @@ export type BrainView =
   | 'client';
 
 /** Entity type values used by the UI */
-export type EntityType = 'person' | 'project' | 'topic' | 'org' | 'decision';
+export type EntityType = 'person' | 'project' | 'topic' | 'org' | 'decision' | 'concept' | 'place' | 'tool';
 
 /** Brief kind values from skills_log — mirrors BriefKind in @open-brain/shared */
 export type BriefKind = 'DAILY' | 'WEEKLY' | 'DOSSIER' | 'DECISION' | 'PROJECT' | 'MONTHLY';

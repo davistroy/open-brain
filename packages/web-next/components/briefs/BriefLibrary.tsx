@@ -132,7 +132,7 @@ export function BriefLibrary({ briefs }: BriefLibraryProps) {
                 key={tab.id}
                 href={buildTabHref(tab.param)}
                 className={[
-                  'px-[12px] py-[4px] text-[12px] text-text-body no-underline',
+                  'px-[12px] py-[4px] text-[12px] text-text-heading no-underline',
                   'font-body border-none',
                   i !== FILTER_TABS.length - 1 ? 'border-r border-cloud-medium' : '',
                   isActive

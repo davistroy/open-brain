@@ -66,7 +66,7 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
       : await db.select({ id: commitments.id }).from(commitments)
 
     return c.json({
-      commitments: rows,
+      items: rows,
       total: allRows.length,
       limit,
       offset,
@@ -112,7 +112,7 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
       .where(and(...conditions))
 
     return c.json({
-      commitments: rows,
+      items: rows,
       total: countRows.length,
       limit,
       offset,

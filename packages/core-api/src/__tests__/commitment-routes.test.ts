@@ -129,8 +129,8 @@ describe('GET /api/v1/commitments', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.commitments).toBeDefined()
-    expect(Array.isArray(body.commitments)).toBe(true)
+    expect(body.items).toBeDefined()
+    expect(Array.isArray(body.items)).toBe(true)
     expect(body.limit).toBe(50)
     expect(body.offset).toBe(0)
   })
@@ -194,7 +194,7 @@ describe('GET /api/v1/entities/:id/commitments', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.commitments).toBeDefined()
+    expect(body.items).toBeDefined()
     expect(body.limit).toBe(50)
     expect(body.offset).toBe(0)
   })
@@ -210,7 +210,7 @@ describe('GET /api/v1/entities/:id/commitments', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.commitments).toBeDefined()
+    expect(body.items).toBeDefined()
   })
 
   it('respects limit and offset params', async () => {

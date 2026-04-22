@@ -281,13 +281,13 @@ function StatsPanel({
       {/* Aggregate numbers */}
       <div className="grid grid-cols-2 gap-[12px] mb-[20px] sm:grid-cols-4">
         {[
-          { label: 'Total pages', value: stats.total_pages },
-          { label: 'Orphaned', value: stats.orphaned_pages },
-          { label: 'Domains', value: stats.domains?.length ?? 0 },
+          { label: 'Total pages', value: stats.page_count },
+          { label: 'Orphaned', value: stats.orphan_count },
+          { label: 'Domains', value: Object.keys(stats.domain_distribution ?? {}).length },
           {
             label: 'Last synthesized',
-            value: stats.last_synthesized
-              ? new Date(stats.last_synthesized).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            value: stats.last_updated
+              ? new Date(stats.last_updated).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
               : '—',
           },
         ].map((item) => (
@@ -305,34 +305,22 @@ function StatsPanel({
         ))}
       </div>
 
-      {/* By type breakdown */}
-      {Object.keys(stats.by_type ?? {}).length > 0 && (
+      {/* Domain distribution breakdown */}
+      {Object.keys(stats.domain_distribution ?? {}).length > 0 && (
         <div className="mb-[20px]">
           <div className="text-[11px] text-text-body-secondary font-mono uppercase tracking-[0.04em] mb-[8px]">
-            By type
+            By domain
           </div>
           <div className="flex flex-wrap gap-[6px]">
-            {Object.entries(stats.by_type).map(([type, count]) => (
+            {Object.entries(stats.domain_distribution).map(([domain, count]) => (
               <span
-                key={type}
+                key={domain}
                 className="inline-flex items-center gap-[5px] px-[8px] py-[3px] rounded-full bg-cloud-light text-[11.5px] text-text-body-secondary"
               >
-                <span className="capitalize">{type}</span>
+                <span className="capitalize">{domain}</span>
                 <span className="font-mono text-[10px]">{count}</span>
               </span>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* Domains list */}
-      {stats.domains && stats.domains.length > 0 && (
-        <div className="mb-[20px]">
-          <div className="text-[11px] text-text-body-secondary font-mono uppercase tracking-[0.04em] mb-[6px]">
-            Domains
-          </div>
-          <div className="text-[13px] text-text-body-secondary font-light">
-            {stats.domains.join(', ')}
           </div>
         </div>
       )}

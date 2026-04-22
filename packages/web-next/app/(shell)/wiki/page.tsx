@@ -19,7 +19,7 @@ import { wikiApi } from '@/lib/api-client';
 import type { WikiPageMeta, WikiChange, WikiLintReport, WikiStats } from '@/lib/api-client';
 
 const EMPTY_LINT: WikiLintReport = { total_pages: 0, issues: [], last_run: null };
-const EMPTY_STATS: WikiStats = { total_pages: 0, by_type: {}, orphaned_pages: 0, domains: [] };
+const EMPTY_STATS: WikiStats = { page_count: 0, orphan_count: 0, domain_distribution: {}, last_updated: null, last_lint_run: null };
 
 export default async function WikiPage() {
   const [pagesResult, changesResult, lintResult, statsResult] = await Promise.allSettled([
@@ -46,7 +46,7 @@ export default async function WikiPage() {
       <PageHeader
         breadcrumb={['Open Brain', 'Wiki']}
         title="Wiki"
-        subtitle={`${stats.total_pages} pages across ${stats.domains?.length ?? 0} domain${stats.domains?.length !== 1 ? 's' : ''}`}
+        subtitle={(() => { const domainCount = Object.keys(stats.domain_distribution ?? {}).length; return `${stats.page_count ?? 0} pages across ${domainCount} domain${domainCount !== 1 ? 's' : ''}`; })()}
         actions={
           <Button
             variant="secondary"
