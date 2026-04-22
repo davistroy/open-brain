@@ -135,7 +135,7 @@ Audio URL may come from `source_metadata.audio_url` or may need to be fetched fr
 
 #### 1.3 Search Grouped View + CaptureCard Linking
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF.md §2 Screen 02b, HANDOFF.md §6 M4 "Search refinement (both variants)"
 **Files Affected:**
 - `packages/web-next/components/search/SearchResults.tsx` (modify)

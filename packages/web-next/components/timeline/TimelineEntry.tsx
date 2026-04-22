@@ -15,6 +15,7 @@
  * (Date.now()) for relative formatting — rendered in the timeline feed.
  */
 
+import Link from 'next/link';
 import { SOURCE_ICON_MAP, SOURCE_LABEL_MAP } from '@/lib/source-icons';
 import type { Capture } from '@/lib/types';
 
@@ -101,11 +102,13 @@ export function TimelineEntry({ capture }: TimelineEntryProps) {
   const timestamp = formatTimestamp(created_at);
 
   return (
-    <div
+    <Link
+      href={`/captures/${capture.id}`}
       className={[
         'flex items-start gap-3 px-4 py-[10px]',
         'border-b border-cloud-light last:border-b-0',
         'hover:bg-ivory-dark transition-colors duration-fast',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-book-cloth focus-visible:ring-inset',
         'group',
       ].join(' ')}
       title={new Date(created_at).toLocaleString()}
@@ -171,6 +174,6 @@ export function TimelineEntry({ capture }: TimelineEntryProps) {
       <div className="flex-shrink-0 text-[11px] font-mono text-text-body-secondary mt-[3px] whitespace-nowrap">
         {timestamp}
       </div>
-    </div>
+    </Link>
   );
 }
