@@ -202,7 +202,7 @@ The "New brief" button on the briefs list page currently has no handler. Add a m
 ### Work Items
 
 #### 2.1 Migration 0031 + Drizzle schema
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §1 "Backend: Database", D111 (deferred to M3)
 **Files Affected:**
 - `packages/shared/drizzle/0031_commitments.sql` (create)
