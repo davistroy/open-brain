@@ -15,8 +15,8 @@ export default function BriefsError({ error, unstable_retry }: BriefsErrorProps)
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load briefs"
-      description="Unable to load the briefs library. Please try again."
+      title="We lost the thread."
+      description="The briefs library couldn't load. Your briefs are intact — try again."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

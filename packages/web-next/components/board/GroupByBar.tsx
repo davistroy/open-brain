@@ -12,6 +12,7 @@
  */
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 export type GroupBy = 'status' | 'project' | 'person' | 'due_date';
 
@@ -32,6 +33,10 @@ export function GroupByBar({ value: controlledValue, onChange }: GroupByBarProps
   const active = controlledValue ?? internalValue;
 
   function handleSelect(g: GroupBy) {
+    if (g !== 'status') {
+      toast.info('Group-by filtering coming soon');
+      return;
+    }
     if (!controlledValue) setInternalValue(g);
     onChange?.(g);
   }

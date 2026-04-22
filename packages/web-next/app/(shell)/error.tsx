@@ -16,8 +16,8 @@ export default function ShellError({ error, unstable_retry }: ShellErrorProps) {
     <div className="flex flex-1 items-center justify-center">
       <EmptyState
         icon={TriangleAlert}
-        title="Something went wrong"
-        description="An unexpected error occurred. Please try again."
+        title="We lost the thread."
+        description="Something went wrong loading this page. Try again — it usually sorts itself out."
         action={
           <Button variant="primary" onClick={unstable_retry}>
             Try again

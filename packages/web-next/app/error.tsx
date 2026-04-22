@@ -18,8 +18,8 @@ export default function GlobalError({ error, unstable_retry }: GlobalErrorProps)
         <div className="flex min-h-screen items-center justify-center">
           <EmptyState
             icon={TriangleAlert}
-            title="Something went wrong"
-            description="An unexpected error occurred. Please try again."
+            title="We lost the thread."
+            description="Something went wrong. Try again — it usually sorts itself out."
             action={
               <Button variant="primary" onClick={unstable_retry}>
                 Try again

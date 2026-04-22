@@ -25,14 +25,15 @@ export default function RootLayout({
     <html lang="en" data-wash="parchment">
       <head>
         {/*
-          Anti-flash theme script — executes synchronously before body renders.
-          Reads localStorage and applies/removes the `dark` class on <html>
-          before first paint, preventing a visible flash of the wrong theme.
+          Anti-flash theme + wash script — executes synchronously before body renders.
+          1. Reads localStorage('theme') and applies/removes the `dark` class.
+          2. Reads localStorage('wash') and sets data-wash attribute.
+          Both run before first paint to prevent visible flashes of the wrong theme/wash.
           Wrapped in try/catch so private-browsing localStorage errors are silent.
         */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme');var d=document.documentElement;if(t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches)){d.classList.add('dark');}else{d.classList.remove('dark');}}catch(e){}})();`,
+            __html: `(function(){try{var d=document.documentElement;var t=localStorage.getItem('theme');if(t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches)){d.classList.add('dark');}else{d.classList.remove('dark');}var w=localStorage.getItem('wash');var validWash=['parchment','kraft','moss','peach'];if(w&&validWash.indexOf(w)!==-1){d.dataset.wash=w;}else{d.dataset.wash='parchment';}}catch(e){}})();`,
           }}
         />
       </head>

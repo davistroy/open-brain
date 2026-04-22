@@ -15,8 +15,8 @@ export default function BoardError({ error, unstable_retry }: BoardErrorProps) {
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load board"
-      description="Unable to load your commitments board. Please try again."
+      title="We lost the thread."
+      description="The board couldn't load. Your commitments are still there — try again."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

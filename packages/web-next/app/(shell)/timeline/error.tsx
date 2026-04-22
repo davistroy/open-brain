@@ -15,8 +15,8 @@ export default function TimelineError({ error, unstable_retry }: TimelineErrorPr
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load timeline"
-      description="Unable to load your captures timeline. Please try again."
+      title="We lost the thread."
+      description="Couldn't load the timeline. Try again — captures are still safely stored."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

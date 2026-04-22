@@ -1,18 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { Play, Download, MessageSquarePlus } from 'lucide-react';
+import { Play, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Eyebrow, Button } from '@/components/design-system';
 import { briefsApi } from '@/lib/api-client';
 import { useAudioPlayer } from '@/components/audio/AudioPlayer';
+import { BriefFollowUp } from '@/components/briefs/BriefFollowUp';
+import { BriefExportMenu } from '@/components/briefs/BriefExportMenu';
 import type { TocItem } from '@/lib/types';
 
 interface BriefTocProps {
   items: TocItem[];
   /** Brief ID — needed to fetch audio for the Listen button. */
   briefId: string;
-  /** Brief title — shown in the floating player. */
+  /** Brief title — shown in the floating player and used for export filename. */
   briefTitle: string;
   /**
    * Estimated read duration in seconds.
@@ -21,6 +23,12 @@ interface BriefTocProps {
    * Defaults to 0 (unknown).
    */
   estimatedDurationSecs?: number;
+  /**
+   * Pre-rendered HTML body of the brief.
+   * Passed to BriefExportMenu for Markdown download and print.
+   * Optional — export menu handles empty body gracefully.
+   */
+  bodyHtml?: string;
 }
 
 /**
@@ -30,8 +38,8 @@ interface BriefTocProps {
  * Active item highlighted with 2px terracotta left border.
  *
  * Listen: fetches TTS audio blob, passes to AudioPlayerProvider, auto-plays.
- * Export is UI-only (no backend in M2/M3).
- * Ask follow-up: stub sonner toast (backlog).
+ * Export: opens BriefExportMenu dropdown (Markdown download + Print to PDF).
+ * Ask follow-up: inline question input via BriefFollowUp.
  *
  * 'use client' — audio fetch + useAudioPlayer require client context.
  */
@@ -40,6 +48,7 @@ export function BriefToc({
   briefId,
   briefTitle,
   estimatedDurationSecs = 0,
+  bodyHtml = '',
 }: BriefTocProps) {
   const audioPlayer = useAudioPlayer();
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -103,22 +112,21 @@ export function BriefToc({
                 ? `Listen · ${durationLabel}`
                 : 'Listen'}
           </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Download size={11} strokeWidth={1.5} />}
-          >
-            Export
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<MessageSquarePlus size={11} strokeWidth={1.5} />}
-            onClick={() => toast('Follow-up questions coming in M3')}
-          >
-            Ask follow-up
-          </Button>
+          <BriefExportMenu title={briefTitle} bodyHtml={bodyHtml}>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Download size={11} strokeWidth={1.5} />}
+            >
+              Export
+            </Button>
+          </BriefExportMenu>
         </div>
+      </div>
+
+      {/* Follow-up questions — inline expansion below action group */}
+      <div className="mt-[4px] pt-[10px] border-t border-cloud-light">
+        <BriefFollowUp briefTitle={briefTitle} />
       </div>
     </aside>
   );

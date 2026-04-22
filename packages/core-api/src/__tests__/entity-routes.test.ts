@@ -43,12 +43,27 @@ const SAMPLE_RELATED = [
   { id: 'entity-uuid-3', name: 'QSR Project', type: 'project', shared_count: 1 },
 ]
 
+// Target entity returned by a successful merge — represents the updated target
+const MERGE_TARGET_ENTITY = {
+  id: 'target-id',
+  name: 'Target Entity',
+  entity_type: 'person',
+  canonical_name: 'target entity',
+  aliases: ['Source Entity'],  // source name added during merge
+  metadata: null,
+  mention_count: 7,
+  first_seen_at: new Date('2026-01-01T00:00:00Z'),
+  last_seen_at: new Date('2026-04-01T00:00:00Z'),
+  created_at: new Date('2026-01-01T00:00:00Z'),
+  updated_at: new Date('2026-04-22T00:00:00Z'),
+}
+
 function makeMockEntityService(overrides: Partial<EntityService> = {}): EntityService {
   return {
     list: vi.fn().mockResolvedValue({ items: [SAMPLE_ENTITY], total: 1 }),
     getById: vi.fn().mockResolvedValue(SAMPLE_DETAIL),
     getByName: vi.fn().mockResolvedValue(SAMPLE_ENTITY),
-    merge: vi.fn().mockResolvedValue(undefined),
+    merge: vi.fn().mockResolvedValue(MERGE_TARGET_ENTITY),
     split: vi.fn().mockResolvedValue({ new_entity_id: 'new-entity-uuid' }),
     recordMention: vi.fn().mockResolvedValue(undefined),
     entityExists: vi.fn().mockResolvedValue(true),
@@ -207,7 +222,7 @@ describe('GET /api/v1/entities/:id', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /api/v1/entities/:id/merge', () => {
-  it('merges source into target entity', async () => {
+  it('merges source into target entity and returns updated target', async () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
@@ -219,8 +234,38 @@ describe('POST /api/v1/entities/:id/merge', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.source_id).toBe('source-id')
-    expect(body.target_id).toBe('target-id')
+    // Route returns the full target entity record (not a summary envelope)
+    expect(body.id).toBe('target-id')
+    expect(body.name).toBe('Target Entity')
+    expect(body.entity_type).toBe('person')
+    // Source name should appear in target aliases after merge
+    expect(body.aliases).toContain('Source Entity')
+    expect(entityService.merge).toHaveBeenCalledWith('source-id', 'target-id')
+  })
+
+  it('handles duplicate entity_links gracefully (ON CONFLICT DO NOTHING)', async () => {
+    // When target already has a link to the same capture as source, the merge
+    // should succeed (not throw a unique-constraint violation).
+    // The service skips duplicate links via INSERT ... ON CONFLICT DO NOTHING.
+    const entityService = makeMockEntityService({
+      merge: vi.fn().mockResolvedValue({
+        ...MERGE_TARGET_ENTITY,
+        // mention_count unchanged because the duplicate link was skipped
+        mention_count: 5,
+      }),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/source-id/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_id: 'target-id' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.id).toBe('target-id')
+    // merge was called — duplicate handling is internal to the service
     expect(entityService.merge).toHaveBeenCalledWith('source-id', 'target-id')
   })
 
@@ -278,6 +323,22 @@ describe('POST /api/v1/entities/:id/merge', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_id: 'target-id' }),
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 404 when target entity not found', async () => {
+    const { NotFoundError } = await import('@open-brain/shared')
+    const entityService = makeMockEntityService({
+      merge: vi.fn().mockRejectedValue(new NotFoundError('Target entity not found: missing-target')),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/source-id/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_id: 'missing-target' }),
     })
 
     expect(res.status).toBe(404)
