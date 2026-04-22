@@ -8813,6 +8813,63 @@ Move all hardcoded LLM model references into `config/ai-routing.yaml` — single
 
 ---
 
+## Entry 128 — M2 Cloudscape Implementation: Phases 1–6 (26/35 items)  [web] [api] [database] [workers] [pipeline]
+
+**Tags:** [web] [api] [database] [workers] [pipeline]
+**Environment:** Laptop — feat/cloudscape-m2 branch, 20 commits
+**Date:** 2026-04-21
+
+### Objective
+
+Execute IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md Phases 1–6 (26 of 35 work items). Wire the 5 Cloudscape-designed Next.js 16 screens in `packages/web-next/` to real backend endpoints. Orchestrated via Opus with Sonnet sub-agents for all implementation and testing.
+
+### Results — Phases 1–6 complete
+
+| Phase | Items | Focus | Key Deliverables |
+|-------|-------|-------|-----------------|
+| 1 (CS1 Infra) | 1.1–1.6 | Frontend infrastructure | Runtime deps, standalone config, formatters (52 tests), Vitest/MSW/Playwright scaffolding, drift-guard (20 tests), ESLint @open-brain/shared import guard |
+| 2 (CS1 Data) | 2.1–2.4 | Data fetching layer | Typed API client (26 tests), TanStack Query v5 provider, error.tsx boundaries (unstable_retry), loading.tsx skeletons |
+| 3 (CS1 SSE) | 3.1–3.3 | Real-time updates | SSE client with exponential backoff (22 tests), SseProvider + invalidation map, Playwright smoke test |
+| 4 (CS2 Schema) | 4.1–4.6 | Briefs domain model | Migration 0030 (briefs table, 5 indexes), Drizzle schema, canonical types/Zod, BaseSkill.logResult() → Promise<string> (28 files), skill inventory, brief drift-guard |
+| 5 (CS2 Routes) | 5.1–5.3 | Briefs API | unified-stack brief renderer (26 tests), BriefsService (5 endpoints), pg-notify brief_created SSE |
+| 6 (CS2 Skills) | 6.1–6.4 | Brief-producing skills | 4 skills write structured briefs (weekly/daily/morning/monthly), refine-brief skill (LLM transform via t1_spark), backfill script |
+
+### Test counts
+
+- web-next: 102 tests (formatters, api-client, SSE, drift-guard)
+- workers: 980 tests (all passing, including BaseSkill mock chain updates)
+- core-api: ~750 tests (pre-Phase 7)
+- shared: 20 drift-guard + 26 renderer tests
+
+### Sharp edges encountered
+
+| Issue | Root Cause | Fix |
+|-------|-----------|-----|
+| Unicode truncation in `truncate()` | `str.slice()` splits emoji surrogate pairs | `Array.from(str)` for code-point-safe slicing |
+| Next.js 16 `next lint` missing | CLI removed in v16 | Explicit ESLint 8 + eslint-config-next as devDeps |
+| Vitest collecting Playwright specs | `test.describe()` triggers Vitest's test collector | `exclude: ['tests/smoke/**', '.next/**']` in vitest.config |
+| `BriefRow` vs `Brief` symbol collision | Drizzle inferred type collides with semantic API interface | Named export `BriefRow` / `NewBriefRow` (not `Brief`) |
+| BaseSkill mock chain update | `logResult()` now chains `.returning()` after `.values()` | All 26 test files updated: `.values().mockReturnValue({ returning: ... })` |
+| `API_URL` undefined at build time | `next.config.ts` rewrites rejects undefined destination | `?? 'http://localhost:3002'` fallback |
+| xss package CJS typings | `filterXSS` requires named import, not default | `import { filterXSS } from 'xss'` |
+
+### Architecture patterns established
+
+1. **Brief-write pattern:** All 4 skills follow identical structure — `logResult()` → build markdown → `renderBriefHtml()` → map sources → `db.insert(briefs)` → non-fatal try/catch. Brief failure never breaks the skill's primary function.
+2. **Source type mapping:** `mapCaptureSourceToBriefType()` in shared maps capture sources to brief source types. Morning-brief adds MEETING sources from calendar events.
+3. **Refine-brief:** Generic LLM HTML transform — fetches source brief, validates option against `REFINE_OPTIONS`, calls `llmGateway.completeByTask('brief_refinement', ...)` routed to t1_spark (free), strips markdown fences, re-renders for TOC, inserts with `refined_from_id`.
+
+### Remaining work (Phases 7–8, 9 items)
+
+- Phase 7: 3 entity endpoints (related, mentions-timeline, ask) + wire Dashboard + Entities list screens
+- Phase 8: Wire Entity detail + Briefs library + Brief reader + M3 backlog capture
+
+### Duration
+
+~5 hours wall-clock (parallelized sub-agent execution). Phases 7–8 in progress.
+
+---
+
 ## Entry 127 — M2 Cloudscape Planning: scope, architecture, 11 design decisions  [web] [api] [database] [decision]
 
 **Tags:** [web] [api] [database] [decision] [benchmark]

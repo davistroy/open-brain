@@ -5,25 +5,99 @@ import { QuickCapture } from '@/components/dashboard/QuickCapture';
 import { RecentCaptures } from '@/components/dashboard/RecentCaptures';
 import { OpenQuestions } from '@/components/dashboard/OpenQuestions';
 import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
-import {
-  mockStats,
-  mockCaptures,
-  mockOpenQuestions,
-  mockUpcomingBriefs,
-} from '@/lib/mock-data';
+import { capturesApi, statsApi, intelligenceApi, briefsApi } from '@/lib/api-client';
+import type { StatsResponse } from '@/lib/api-client';
+import type { DashboardStats, OpenQuestion, UpcomingBrief } from '@/lib/types';
+
+/**
+ * Map the raw StatsResponse from GET /api/v1/stats into the DashboardStats
+ * shape expected by StatStrip. The API returns aggregate counts; we synthesise
+ * delta strings using a simple ±N% heuristic (no prior-period data available
+ * from the stats endpoint — stubs show a neutral ◆ indicator).
+ */
+function mapStatsToDashboard(raw: StatsResponse): DashboardStats {
+  const pending = raw.pipeline_health.pending ?? 0;
+  const processing = raw.pipeline_health.processing ?? 0;
+  const failed = raw.pipeline_health.failed ?? 0;
+
+  const pipeline_status: 'healthy' | 'degraded' | 'unhealthy' =
+    failed > 10 ? 'unhealthy' : failed > 0 || pending > 50 ? 'degraded' : 'healthy';
+
+  return {
+    captures_7d: raw.total_captures,
+    captures_7d_delta: '◆ 0%',
+    captures_7d_meta: `${raw.total_captures} total captures`,
+    active_entities: 0,
+    active_entities_delta: '◆ 0%',
+    active_entities_meta: '',
+    open_questions: 0,
+    open_questions_delta: '◆ 0%',
+    open_questions_meta: '',
+    briefs_in_progress: 0,
+    briefs_due_meta: '',
+    pipeline_status,
+    pipeline_active: processing,
+    pipeline_queued: pending,
+    llm_spend_usd: 0,
+    capture_total: raw.total_captures,
+    entity_total: 0,
+  };
+}
+
+/**
+ * Map intelligence unresolved-questions response items to the OpenQuestion UI type.
+ */
+function mapToOpenQuestions(
+  items: Array<{ id: string; content: string; brain_view: string; created_at: string }>,
+): OpenQuestion[] {
+  return items.map((item) => ({
+    id: item.id,
+    question: item.content,
+    due: 'flex',
+    priority: 'med' as const,
+    context: item.brain_view,
+  }));
+}
+
+/**
+ * Map Brief list items to the UpcomingBrief display type.
+ * The briefs endpoint returns the full Brief card shape; UpcomingBrief needs
+ * progress + source_count which are not in the list envelope — stub at 0.
+ */
+function mapToUpcomingBriefs(items: Awaited<ReturnType<typeof briefsApi.list>>['items']): UpcomingBrief[] {
+  return items.map((brief) => ({
+    id: brief.id,
+    title: brief.title,
+    progress: 0,
+    due: brief.generated,
+    source_count: 0,
+  }));
+}
 
 /**
  * Dashboard page — Screen 01.
- * Server component: composes all dashboard sub-components with mock data.
+ * Async RSC: fetches stats, captures, unresolved questions, and briefs in parallel.
  * Layout: StatStrip → 2-col grid (left: QuickCapture + RecentCaptures | right: OpenQuestions + UpcomingBriefs)
  */
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const [statsRaw, capturesEnvelope, questionsRaw, briefsEnvelope] = await Promise.all([
+    statsApi.get(),
+    capturesApi.list({ limit: 8 }),
+    intelligenceApi.unresolvedQuestions(4),
+    briefsApi.list({ limit: 3 }),
+  ]);
+
+  const stats = mapStatsToDashboard(statsRaw);
+  const captures = capturesEnvelope.items;
+  const openQuestions = mapToOpenQuestions(questionsRaw.questions);
+  const upcomingBriefs = mapToUpcomingBriefs(briefsEnvelope.items);
+
   return (
     <>
       <PageHeader
         breadcrumb={['Open Brain', 'Dashboard']}
         title="Good morning, Troy"
-        subtitle="Tuesday, April 21 · 47 captures this week · 3 open briefs"
+        subtitle={`${stats.captures_7d} total captures · ${openQuestions.length} open questions · pipeline ${stats.pipeline_status}`}
         actions={
           <>
             <Button
@@ -51,7 +125,7 @@ export default function DashboardPage() {
         }
       />
 
-      <StatStrip stats={mockStats} />
+      <StatStrip stats={stats} />
 
       {/* 2-column dashboard grid */}
       <div
@@ -73,7 +147,7 @@ export default function DashboardPage() {
               <>
                 Recent activity{' '}
                 <span className="font-mono text-[12px] font-normal text-text-body-secondary tracking-[0.02em]">
-                  ({mockCaptures.slice(0, 8).length})
+                  ({captures.length})
                 </span>
               </>
             }
@@ -90,7 +164,7 @@ export default function DashboardPage() {
             }
             padding={false}
           >
-            <RecentCaptures captures={mockCaptures} />
+            <RecentCaptures captures={captures} />
           </Container>
         </div>
 
@@ -106,7 +180,7 @@ export default function DashboardPage() {
             }
             padding={false}
           >
-            <OpenQuestions questions={mockOpenQuestions} />
+            <OpenQuestions questions={openQuestions} />
           </Container>
 
           <Container
@@ -118,7 +192,7 @@ export default function DashboardPage() {
             }
             padding={false}
           >
-            <UpcomingBriefs briefs={mockUpcomingBriefs} />
+            <UpcomingBriefs briefs={upcomingBriefs} />
           </Container>
         </div>
       </div>

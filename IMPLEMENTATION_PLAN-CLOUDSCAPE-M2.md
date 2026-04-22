@@ -1059,7 +1059,7 @@ Fallback if intersection < 3: widen to top-50 entity captures sorted by FTS rank
 ---
 
 #### 7.4 Wire Dashboard screen
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS4 investigation item 4.1
 **Files Affected:**
 - `packages/web-next/app/(shell)/dashboard/page.tsx` (modify — convert to async RSC)
@@ -1089,7 +1089,7 @@ If `briefsApi.list` returns zero briefs pre-backfill, dashboard's "Upcoming brie
 ---
 
 #### 7.5 Wire Entities list screen
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS4 investigation item 4.2
 **Files Affected:**
 - `packages/web-next/app/(shell)/entities/page.tsx` (modify — convert to async RSC)
@@ -1101,17 +1101,17 @@ If `briefsApi.list` returns zero briefs pre-backfill, dashboard's "Upcoming brie
 Convert page from `'use client'` back to async RSC. TypeFilterTabs becomes client component using `useSearchParams` + `<Link href={?type=...}>`. EntityTable text search stays client-side. DistributionCard derives counts from entity response. NeedsAttention stubbed until M3.
 
 **Tasks:**
-1. [ ] `entities/page.tsx` async RSC: reads `searchParams.type`, calls `entitiesApi.list({type_filter: searchParams.type})`
-2. [ ] TypeFilterTabs: `'use client'`, reads useSearchParams, tabs render as `<Link href={?type=person}>` preserving other search params
-3. [ ] DistributionCard: accepts entities array, computes type counts in render
-4. [ ] NeedsAttention: return empty state with "Coming in M3" label
-5. [ ] Remove mock-data imports
+1. [x] `entities/page.tsx` async RSC: reads `searchParams.type`, calls `entitiesApi.list({entity_type: searchParams.type})`
+2. [x] TypeFilterTabs: `'use client'`, reads useSearchParams, tabs render as `<Link href={?type=person}>` preserving other search params
+3. [x] DistributionCard: accepts entities array, computes type counts in render
+4. [x] NeedsAttention: return empty state with "Coming in M3" label
+5. [x] Remove mock-data imports
 
 **Acceptance Criteria:**
-- [ ] URL /entities?type=person correctly filters
-- [ ] Browser back/forward preserves filter state
-- [ ] Distribution counts match filtered response
-- [ ] NeedsAttention shows M3 placeholder
+- [x] URL /entities?type=person correctly filters
+- [x] Browser back/forward preserves filter state (Link-based navigation, URL-driven)
+- [x] Distribution counts match filtered response
+- [x] NeedsAttention shows M3 placeholder
 
 **Notes:**
 EntityTable text search is client-side only (filters already-loaded results). For datasets >100 entities this may want server-side search in a future phase — flag in M3 backlog.

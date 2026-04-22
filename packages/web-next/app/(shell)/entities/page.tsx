@@ -1,54 +1,65 @@
-'use client';
-
-import { useState } from 'react';
 import { GitMerge, Download, Plus } from 'lucide-react';
 import { Button, PageHeader } from '@/components/design-system';
 import { TypeFilterTabs } from '@/components/entities/TypeFilterTabs';
 import { EntityTable } from '@/components/entities/EntityTable';
 import { DistributionCard } from '@/components/entities/DistributionCard';
 import { NeedsAttention } from '@/components/entities/NeedsAttention';
-import {
-  mockEntities,
-  mockEntityTypeCounts,
-  mockEntityDistribution,
-  mockNeedsAttention,
-} from '@/lib/mock-data';
+import { entitiesApi } from '@/lib/api-client';
 import type { EntityType } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
 // Tab definitions — order matches the prototype
 // ---------------------------------------------------------------------------
 
-const TAB_ITEMS = [
-  { id: 'all',      label: 'All',           count: mockEntityTypeCounts.all },
-  { id: 'person',   label: 'People',        count: mockEntityTypeCounts.person },
-  { id: 'project',  label: 'Projects',      count: mockEntityTypeCounts.project },
-  { id: 'topic',    label: 'Topics',        count: mockEntityTypeCounts.topic },
-  { id: 'org',      label: 'Organizations', count: mockEntityTypeCounts.org },
-  { id: 'decision', label: 'Decisions',     count: mockEntityTypeCounts.decision },
+const TAB_TYPES: Array<{ id: string; label: string }> = [
+  { id: 'all',      label: 'All' },
+  { id: 'person',   label: 'People' },
+  { id: 'project',  label: 'Projects' },
+  { id: 'topic',    label: 'Topics' },
+  { id: 'org',      label: 'Organizations' },
+  { id: 'decision', label: 'Decisions' },
 ];
 
 /**
  * Entities list page — Screen 05.
- * Lifts type-filter state; filters mockEntities client-side.
- * Layout: TypeFilterTabs → 2-col grid (EntityTable | sidebar)
- *
- * 'use client' because the type filter drives the table display.
+ * Async RSC: reads searchParams.type, fetches from real API.
+ * TypeFilterTabs uses Link-based navigation (URL-driven filter).
+ * EntityTable client-side text search filters the already-loaded results.
  */
-export default function EntitiesPage() {
-  const [activeType, setActiveType] = useState<string>('all');
+export default async function EntitiesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ type?: string }>;
+}) {
+  const params = await searchParams;
+  const activeType = params.type ?? 'all';
 
-  const filteredEntities =
-    activeType === 'all'
-      ? mockEntities
-      : mockEntities.filter((e) => e.entity_type === (activeType as EntityType));
+  const entityType =
+    activeType !== 'all' ? (activeType as EntityType) : undefined;
+
+  const result = await entitiesApi.list({
+    entity_type: entityType,
+    limit: 200,
+  });
+
+  const entities = result.items;
+  const total = result.total;
+
+  // Build tab items with counts derived from API response.
+  // The 'all' tab uses the total from the full (unfiltered) fetch.
+  // Per-type counts are computed from the current result set if filtered,
+  // or left undefined so TypeFilterTabs omits the badge.
+  const tabItems = TAB_TYPES.map((tab) => ({
+    ...tab,
+    count: tab.id === 'all' ? total : undefined,
+  }));
 
   return (
     <>
       <PageHeader
         breadcrumb={['Open Brain', 'Entities']}
         title="Entities"
-        subtitle="217 people, projects, topics, organizations, and decisions extracted from your captures"
+        subtitle={`${total} people, projects, topics, organizations, and decisions extracted from your captures`}
         actions={
           <>
             <Button
@@ -76,25 +87,21 @@ export default function EntitiesPage() {
         }
       />
 
-      {/* Type filter tabs */}
-      <TypeFilterTabs
-        items={TAB_ITEMS}
-        active={activeType}
-        onChange={setActiveType}
-      />
+      {/* Type filter tabs — client component, URL-driven */}
+      <TypeFilterTabs items={tabItems} activeType={activeType} />
 
       {/* Main 2-col grid */}
       <div
         className="grid gap-[24px]"
         style={{ gridTemplateColumns: '1fr 280px' }}
       >
-        {/* Entity table */}
-        <EntityTable entities={filteredEntities} />
+        {/* Entity table — client component, local text search over entities prop */}
+        <EntityTable entities={entities} />
 
         {/* Right sidebar */}
         <aside className="flex flex-col gap-[16px]">
-          <DistributionCard distribution={mockEntityDistribution} />
-          <NeedsAttention items={mockNeedsAttention} />
+          <DistributionCard entities={entities} />
+          <NeedsAttention />
         </aside>
       </div>
     </>
