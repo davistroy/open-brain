@@ -5,6 +5,7 @@ import { createCheckTriggersQueue } from './check-triggers.js'
 import { createDocumentPipelineQueue } from './document-pipeline.js'
 import { createEmbedCaptureQueue } from './embed-capture.js'
 import { createExtractEntitiesQueue } from './extract-entities.js'
+import { createExtractCommitmentsQueue } from './extract-commitments.js'
 import { createNotificationQueue } from './notification.js'
 import { createSkillExecutionQueue } from './skill-execution.js'
 import { createWikiIngestQueue } from './wiki-ingest.js'
@@ -15,6 +16,7 @@ export interface AllQueues {
   embedCapture: ReturnType<typeof createEmbedCaptureQueue>
   checkTriggers: ReturnType<typeof createCheckTriggersQueue>
   extractEntities: ReturnType<typeof createExtractEntitiesQueue>
+  extractCommitments: ReturnType<typeof createExtractCommitmentsQueue>
   skillExecution: ReturnType<typeof createSkillExecutionQueue>
   notification: ReturnType<typeof createNotificationQueue>
   accessStats: ReturnType<typeof createAccessStatsQueue>
@@ -32,6 +34,7 @@ export function createAllQueues(connection: ConnectionOptions): AllQueues {
     embedCapture: createEmbedCaptureQueue(connection),
     checkTriggers: createCheckTriggersQueue(connection),
     extractEntities: createExtractEntitiesQueue(connection),
+    extractCommitments: createExtractCommitmentsQueue(connection),
     skillExecution: createSkillExecutionQueue(connection),
     notification: createNotificationQueue(connection),
     accessStats: createAccessStatsQueue(connection),
@@ -45,6 +48,7 @@ export * from './check-triggers.js'
 export * from './document-pipeline.js'
 export * from './embed-capture.js'
 export * from './extract-entities.js'
+export * from './extract-commitments.js'
 export * from './notification.js'
 export * from './skill-execution.js'
 export * from './wiki-ingest.js'

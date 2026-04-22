@@ -4,6 +4,7 @@ import { Queue } from 'bullmq'
 import { Redis } from 'ioredis'
 import { ConfigService, createDb, createOpenAIClient, createAnthropicClient, createOllamaClient, TemplateCache } from '@open-brain/shared'
 import { createApp } from './app.js'
+import type { TtsDeps } from './routes/briefs.js'
 import { CaptureService } from './services/capture.js'
 import { EmbeddingService } from '@open-brain/shared'
 import { SearchService } from './services/search.js'
@@ -180,6 +181,27 @@ if (wikiRepoUrl && wikiLocalPath) {
 // System health service — includes wiki status when configured
 const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl, wikiService)
 
+// TTS Redis client — used for brief audio cache (key: tts:{brief_id}:{voice}, TTL 24h).
+// Separate client from metricsRedis: needs getBuffer/setex for binary audio blobs.
+// lazyConnect=true — avoids startup delay if Redis unreachable; cache will miss gracefully.
+const ttsRedis = new Redis({
+  host: redisUrlObj.hostname,
+  port: Number(redisUrlObj.port) || 6379,
+  ...(redisUrlObj.password ? { password: redisUrlObj.password } : {}),
+  lazyConnect: true,
+  enableOfflineQueue: false,
+})
+ttsRedis.on('error', (err: Error) => {
+  logger.debug({ err }, '[tts-redis] connection error (non-fatal — TTS cache will miss)')
+})
+
+const ttsDeps: TtsDeps = {
+  db,
+  redis: ttsRedis,
+  openaiBaseUrl,
+  openaiApiKey,
+}
+
 const app = createApp({
   configService,
   captureService,
@@ -203,6 +225,7 @@ const app = createApp({
   emailComposeAssistService,
   voiceSessionService,
   metricsRedis, // P11b — Composio quota gauge refresh
+  ttsDeps,      // CS5 M3 item 4.1 — brief TTS audio cache
 })
 const port = Number(process.env.PORT ?? 3000)
 
@@ -238,8 +261,9 @@ const shutdown = async () => {
   // 2. Stop Postgres LISTEN/NOTIFY
   await pgNotify.stop()
 
-  // 3. Close metrics Redis client (P11b)
-  await metricsRedis.quit().catch(() => metricsRedis.disconnect())
+  // 3. Close Redis clients
+  await metricsRedis.quit().catch(() => metricsRedis.disconnect()) // P11b metrics gauge
+  await ttsRedis.quit().catch(() => ttsRedis.disconnect())          // CS5 M3 TTS audio cache
 
   // 4. Close Postgres connection pool
   await pool.end()

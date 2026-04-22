@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { ArrowRight, Play } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/design-system';
 import { briefsApi } from '@/lib/api-client';
+import { useAudioPlayer } from '@/components/audio/AudioPlayer';
 import type { Brief } from '@/lib/types';
 
 interface BriefHeroProps {
@@ -31,6 +33,8 @@ const HERO_ITEMS = [
 export function BriefHero({ brief }: BriefHeroProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const audioPlayer = useAudioPlayer();
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
 
   const dismissMutation = useMutation({
     mutationFn: () => briefsApi.dismiss(brief.id),
@@ -45,8 +49,18 @@ export function BriefHero({ brief }: BriefHeroProps) {
     },
   });
 
-  function handleListen() {
-    toast('Text-to-speech coming in M3');
+  async function handleListen() {
+    if (isLoadingAudio) return;
+    setIsLoadingAudio(true);
+    try {
+      const blob = await briefsApi.audio(brief.id);
+      // Duration unknown at list level — audio metadata will populate it once loaded.
+      audioPlayer.play(blob, brief.title);
+    } catch {
+      toast.error('Could not load audio — please try again.');
+    } finally {
+      setIsLoadingAudio(false);
+    }
   }
 
   return (
@@ -86,8 +100,9 @@ export function BriefHero({ brief }: BriefHeroProps) {
             size="sm"
             icon={<Play size={12} strokeWidth={1.5} />}
             onClick={handleListen}
+            disabled={isLoadingAudio}
           >
-            Listen
+            {isLoadingAudio ? 'Loading…' : 'Listen'}
           </Button>
           <Button
             variant="ghost"

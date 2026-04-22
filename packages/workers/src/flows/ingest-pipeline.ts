@@ -12,6 +12,7 @@ import type { FlowJob } from 'bullmq'
  *   ingest-root (parent -- runs LAST after children)
  *   +-- embed-capture (child -- critical, failParentOnFailure: true)
  *   +-- extract-entities (child -- non-critical, removeDependencyOnFailure: true)
+ *   +-- extract-commitments (child -- non-critical, removeDependencyOnFailure: true)
  *   +-- wiki-ingest (child -- non-critical, removeDependencyOnFailure: true, optional)
  *
  * When all children complete, ingest-root runs. Its handler:
@@ -23,6 +24,8 @@ import type { FlowJob } from 'bullmq'
  *     (daily sweep re-enqueues stuck captures, preserving existing retry semantics)
  *   - extract-entities failure -> removeDependencyOnFailure -> ingest-root still runs
  *     (entity extraction is enrichment, not a pipeline gate)
+ *   - extract-commitments failure -> removeDependencyOnFailure -> ingest-root still runs
+ *     (commitment extraction is enrichment, not a pipeline gate)
  *   - wiki-ingest failure -> removeDependencyOnFailure -> ingest-root still runs
  *     (wiki integration is non-critical enrichment)
  *
@@ -30,6 +33,7 @@ import type { FlowJob } from 'bullmq'
  *   - ingestion-worker: pending -> processing -> extracted
  *   - embed-capture: extracted -> embedded -> complete (hard gate)
  *   - extract-entities + link-entities: enrichment only, no status change
+ *   - extract-commitments: enrichment only, no status change
  *   - wiki-ingest: enrichment only, no status change
  *
  * @param captureId - UUID of the capture to process
@@ -57,6 +61,17 @@ export function buildIngestFlow(captureId: string, opts?: { includeWikiIngest?: 
       data: { captureId, traceId: opts?.traceId },
       opts: {
         jobId: `extract-entities_${captureId}`,
+        removeDependencyOnFailure: true,
+        attempts: 5,
+        backoff: { type: 'custom' },
+      },
+    },
+    {
+      name: 'extract-commitments',
+      queueName: 'extract-commitments',
+      data: { captureId, traceId: opts?.traceId },
+      opts: {
+        jobId: `extract-commitments_${captureId}`,
         removeDependencyOnFailure: true,
         attempts: 5,
         backoff: { type: 'custom' },

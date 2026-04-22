@@ -9,3 +9,4 @@ export { Rule } from './Rule';
 export { StatusDot } from './StatusDot';
 export { EmptyState } from './EmptyState';
 export { Input } from './Input';
+export { ThemeToggle } from './ThemeToggle';

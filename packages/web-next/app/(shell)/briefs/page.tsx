@@ -1,9 +1,10 @@
 export const dynamic = 'force-dynamic';
 
-import { Clock, Plus } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { Button, PageHeader } from '@/components/design-system';
 import { BriefHero } from '@/components/briefs/BriefHero';
 import { BriefLibrary } from '@/components/briefs/BriefLibrary';
+import { BriefsPageActions } from '@/components/briefs/BriefsPageActions';
 import { briefsApi } from '@/lib/api-client';
 import type { Brief } from '@/lib/types';
 
@@ -12,6 +13,9 @@ import type { Brief } from '@/lib/types';
  * Async RSC: fetches briefs from core-api, computes hero brief,
  * passes data to client components.
  * Layout: PageHeader → BriefHero (latest unread daily) → BriefLibrary (filter + grid/list)
+ *
+ * "New brief" button is handled by BriefsPageActions (client component) which
+ * owns the NewBriefModal state — same pattern as entity-detail-client.tsx.
  */
 export default async function BriefsPage() {
   let briefs: Brief[] = [];
@@ -42,13 +46,8 @@ export default async function BriefsPage() {
             >
               Schedule
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              icon={<Plus size={12} strokeWidth={2} />}
-            >
-              New brief
-            </Button>
+            {/* Client component owns the "New brief" button + modal state */}
+            <BriefsPageActions />
           </>
         }
       />

@@ -1,12 +1,26 @@
 'use client';
 
+import { useState } from 'react';
 import { Play, Download, MessageSquarePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Eyebrow, Button } from '@/components/design-system';
+import { briefsApi } from '@/lib/api-client';
+import { useAudioPlayer } from '@/components/audio/AudioPlayer';
 import type { TocItem } from '@/lib/types';
 
 interface BriefTocProps {
   items: TocItem[];
+  /** Brief ID — needed to fetch audio for the Listen button. */
+  briefId: string;
+  /** Brief title — shown in the floating player. */
+  briefTitle: string;
+  /**
+   * Estimated read duration in seconds.
+   * Derived by caller from `meta` text ("X min read"). Shown in button label
+   * and passed to the audio player as an optimistic duration until metadata loads.
+   * Defaults to 0 (unknown).
+   */
+  estimatedDurationSecs?: number;
 }
 
 /**
@@ -15,12 +29,40 @@ interface BriefTocProps {
  * then an ACTIONS group with three utility buttons.
  * Active item highlighted with 2px terracotta left border.
  *
- * Listen and Ask follow-up are stubbed with sonner toasts (M3 backlog).
- * Export is UI-only (no backend in M2).
+ * Listen: fetches TTS audio blob, passes to AudioPlayerProvider, auto-plays.
+ * Export is UI-only (no backend in M2/M3).
+ * Ask follow-up: stub sonner toast (backlog).
  *
- * 'use client' — toast() requires client context.
+ * 'use client' — audio fetch + useAudioPlayer require client context.
  */
-export function BriefToc({ items }: BriefTocProps) {
+export function BriefToc({
+  items,
+  briefId,
+  briefTitle,
+  estimatedDurationSecs = 0,
+}: BriefTocProps) {
+  const audioPlayer = useAudioPlayer();
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  async function handleListen() {
+    if (isLoadingAudio) return;
+    setIsLoadingAudio(true);
+    try {
+      const blob = await briefsApi.audio(briefId);
+      audioPlayer.play(blob, briefTitle, estimatedDurationSecs || undefined);
+    } catch {
+      toast.error('Could not load audio — please try again.');
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  }
+
+  // Format estimated read time label (e.g. "4 min") for the Listen button.
+  const durationLabel =
+    estimatedDurationSecs > 0
+      ? `${Math.round(estimatedDurationSecs / 60)} min`
+      : '';
+
   return (
     <aside className="sticky top-[22px]">
       <Eyebrow>ON THIS PAGE</Eyebrow>
@@ -52,9 +94,14 @@ export function BriefToc({ items }: BriefTocProps) {
             variant="secondary"
             size="sm"
             icon={<Play size={11} strokeWidth={1.5} />}
-            onClick={() => toast('Text-to-speech coming in M3')}
+            onClick={handleListen}
+            disabled={isLoadingAudio}
           >
-            Listen · 4 min
+            {isLoadingAudio
+              ? 'Loading…'
+              : durationLabel
+                ? `Listen · ${durationLabel}`
+                : 'Listen'}
           </Button>
           <Button
             variant="secondary"

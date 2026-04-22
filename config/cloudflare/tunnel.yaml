@@ -1,21 +1,36 @@
 # Cloudflare Tunnel Configuration — Open Brain
 #
-# Public domain: brain.troy-davis.com
+# Public domains:
+#   brain.troy-davis.com      — primary (currently /web Vite+React; swap to web-next after M3 validation)
+#   brain-next.troy-davis.com — parallel Next.js 16 app for side-by-side validation (web-next:3001)
+#
 # HTTPS terminates at Cloudflare; tunnel carries plain HTTP internally.
 # Tunnel identity comes from CLOUDFLARE_TUNNEL_TOKEN env var (from Bitwarden).
 # This file controls ingress routing only — no credentials stored here.
 #
 # Routing:
-#   /*    → web:80       (nginx proxies /api/* and /mcp to core-api internally)
+#   brain.troy-davis.com/*      → web:80       (nginx proxies /api/* and /mcp to core-api internally)
+#   brain-next.troy-davis.com/* → web-next:3001 (Next.js standalone server; /api/* proxied internally)
 #
 # MCP access: Claude Desktop connects to https://llm.troy-davis.com/mcp
 # (LiteLLM MCP gateway — proxies to this stack's core-api:3000/mcp)
 # No need for a separate /mcp tunnel route.
+#
+# TUNNEL SWAP (when ready — see scripts/apply-tunnel-swap.md):
+#   Change brain.troy-davis.com service to http://web-next:3001
+#   Remove brain-next.troy-davis.com rule once rollback window closes
 
 ingress:
-  # All traffic — Web UI (nginx proxies /api/* and /mcp to core-api internally)
+  # PRIMARY — Vite/React web UI (nginx proxies /api/* and /mcp to core-api internally)
+  # After M3 tunnel swap: change to http://web-next:3001
   - hostname: brain.troy-davis.com
     service: http://web:80
+
+  # PARALLEL — Next.js 16 Cloudscape UI for side-by-side validation
+  # Requires DNS CNAME: brain-next.troy-davis.com → <tunnel-id>.cfargotunnel.com
+  # Keep alive as rollback URL after primary swap (2-week window)
+  - hostname: brain-next.troy-davis.com
+    service: http://web-next:3001
 
   # Catch-all required by cloudflared — returns 404 for unmatched hostnames
   - service: http_status:404

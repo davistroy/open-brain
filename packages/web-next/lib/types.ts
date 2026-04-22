@@ -310,3 +310,57 @@ export interface AskEntityResponse {
   answer: string;
   sources: Array<{ id: string; score: number }>;
 }
+
+// ---------------------------------------------------------------------------
+// Settings types — Settings page (M3, screen 11)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single app_settings entry returned by GET /api/v1/settings/:key.
+ * `value` is JSONB and can be any JSON-serializable shape.
+ */
+export interface SettingEntry {
+  key: string;
+  value: unknown;
+  updated_at: string | null;
+}
+
+/**
+ * Health status of a connected integration.
+ * Mirrors the values returned by GET /api/v1/config/integrations.
+ */
+export type IntegrationStatus = 'healthy' | 'degraded' | 'error' | 'unknown';
+
+/** A connected integration as shown in the Settings → Sources section. */
+export interface Integration {
+  id: string;
+  name: string;
+  description: string;
+  status: IntegrationStatus;
+  /** ISO 8601 timestamp of last successful data ingest — may be null */
+  last_seen: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Commitment types — Board Kanban (M3, screen 09)
+// ---------------------------------------------------------------------------
+
+/**
+ * `commitments.status` — 4 values matching the Board's 4 columns.
+ * Canonical enum from migration 0031.
+ */
+export type CommitmentStatus = 'pending' | 'owed_by_user' | 'waiting_on' | 'resolved';
+
+/** Commitment as returned by GET /api/v1/commitments list endpoint. */
+export interface BoardCommitment {
+  id: string;
+  capture_id: string;
+  entity_id: string | null;
+  /** Entity name resolved from entity_id — may be null if no entity linked */
+  entity_name: string | null;
+  text: string;
+  due_date: string | null;     // ISO date e.g. "2026-04-30", or null
+  status: CommitmentStatus;
+  resolved_at: string | null;  // ISO 8601 or null
+  created_at: string;
+}

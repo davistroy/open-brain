@@ -39,6 +39,11 @@ export default async function BriefPage({ params }: BriefPageProps) {
   // Format breadcrumb date from brief title or fall back to generated timestamp
   const breadcrumbDate = brief.title ?? `Brief ${id}`;
 
+  // Parse estimated TTS duration from meta text ("... · X min read · ...").
+  // Used by BriefToc to label the Listen button and seed the player duration.
+  const minReadMatch = brief.meta?.match(/(\d+)\s*min\s*read/i);
+  const estimatedDurationSecs = minReadMatch ? parseInt(minReadMatch[1]!, 10) * 60 : 0;
+
   return (
     <>
       <PageHeader
@@ -49,7 +54,12 @@ export default async function BriefPage({ params }: BriefPageProps) {
         className="grid gap-[32px] items-start"
         style={{ gridTemplateColumns: '220px minmax(0, 720px) 280px' }}
       >
-        <BriefToc items={brief.toc} />
+        <BriefToc
+          items={brief.toc}
+          briefId={id}
+          briefTitle={brief.title}
+          estimatedDurationSecs={estimatedDurationSecs}
+        />
         <BriefReaderWrapper brief={brief} />
         <BriefSources
           briefId={id}

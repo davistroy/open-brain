@@ -10,7 +10,7 @@ import type { WikiGitService } from '@open-brain/shared'
 import type { BaseResult } from '../skills/types.js'
 import type { BaseSkill } from '../skills/base-skill.js'
 
-// Skill class imports — all 23 dispatchable skills
+// Skill class imports — all 24 dispatchable skills
 import { CaptureReminderSkill } from '../skills/capture-reminder.js'
 import { DailyConnectionsSkill } from '../skills/daily-connections.js'
 import { WikiIngestSkill } from '../skills/wiki-ingest.js'
@@ -31,6 +31,7 @@ import { StorageAuditSkill } from '../skills/storage-audit.js'
 import { CaptureDedupSweepSkill } from '../skills/capture-dedup-sweep.js'
 import { EmailClassifySkill } from '../skills/email-classify.js'
 import { RefineBriefSkill } from '../skills/refine-brief.js'
+import { EntityBriefSkill } from '../skills/entity-brief.js'
 import { HotmailClient, GmailClient, EmailClassifier, loadEmailRules } from '@open-brain/shared'
 import path from 'node:path'
 
@@ -64,8 +65,9 @@ async function runSkill<TOpts, TInput, TResult extends BaseResult>(
  *
  * Adding a new skill:
  *  1. Implement the skill in src/skills/<skill-name>.ts
- *  2. Add a case here in the switch statement
- *  3. Register the skill name in core-api/src/routes/skills.ts KNOWN_SKILLS
+ *  2. Import the skill class at the top of this file
+ *  3. Add a case here in the switch statement
+ *  4. Register the skill name in core-api/src/routes/skills.ts KNOWN_SKILLS
  */
 export function createSkillExecutionWorker(
   connection: ConnectionOptions,
@@ -458,6 +460,37 @@ export function createSkillExecutionWorker(
               durationMs: result.durationMs,
             },
             '[skill-execution] wiki-ingest complete',
+          )
+          break
+        }
+
+        // ── Brief Generation Skills ─────────────────────────────
+
+        case 'entity-brief': {
+          const entityId = typeof input?.entityId === 'string' ? input.entityId : ''
+          if (!entityId) {
+            throw new UnrecoverableError('[skill-execution] entity-brief requires input.entityId')
+          }
+          const result = await runSkill(
+            EntityBriefSkill,
+            { db, llmGateway: opts.llmGateway },
+            {
+              entityId,
+              entityName: typeof input?.entityName === 'string' ? input.entityName : undefined,
+              entityType: typeof input?.entityType === 'string' ? input.entityType : undefined,
+            },
+          )
+          logger.info(
+            {
+              skillName,
+              entityId: result.entityId,
+              entityName: result.entityName,
+              captureCount: result.captureCount,
+              briefId: result.briefId,
+              generated: result.generated,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] entity-brief complete',
           )
           break
         }

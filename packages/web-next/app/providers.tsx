@@ -21,6 +21,7 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { getQueryClient } from '../lib/query-client'
 import { SseProvider } from '../components/providers/sse-provider'
+import { AudioPlayerProvider } from '../components/audio/AudioPlayer'
 
 interface ProvidersProps {
   children: React.ReactNode
@@ -35,7 +36,10 @@ export function Providers({ children }: ProvidersProps) {
     <QueryClientProvider client={queryClient}>
       {/* SseProvider must be inside QueryClientProvider — it calls useQueryClient(). */}
       <SseProvider>
-        {children}
+        {/* AudioPlayerProvider owns the single HTMLAudioElement; survives navigation. */}
+        <AudioPlayerProvider>
+          {children}
+        </AudioPlayerProvider>
       </SseProvider>
     </QueryClientProvider>
   )

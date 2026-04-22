@@ -4,7 +4,30 @@ import type { Database } from '@open-brain/shared'
 import { logger, app_settings, AUTONOMY_LEVELS } from '@open-brain/shared'
 
 /** Valid settings keys — prevents unbounded key creation */
-const VALID_SETTINGS_KEYS = new Set(['email_allowlist', 'autonomy_level', 'auto_response_threshold', 'auto_response_staleness_days', 'monitored_channels', 'email_classification', 'ms_token_cache_node', 'gmail_token_cache', 'gmail_credentials'])
+const VALID_SETTINGS_KEYS = new Set([
+  'email_allowlist',
+  'autonomy_level',
+  'auto_response_threshold',
+  'auto_response_staleness_days',
+  'monitored_channels',
+  'email_classification',
+  'ms_token_cache_node',
+  'gmail_token_cache',
+  'gmail_credentials',
+  // M3 onboarding + settings page (3.4 / 3.5)
+  'user_profile',
+  'capture_habit',
+  'onboarding_completed',
+  // M3 ingest filters (3.2)
+  'ingest_skip_automated_emails',
+  'ingest_skip_low_signal_slack',
+  'ingest_capture_bare_calendar',
+  'ingest_voice_min_duration',
+  // M3 entity extraction (3.2)
+  'entity_extract_locations',
+  'entity_extract_monetary',
+  'entity_confidence_threshold',
+])
 
 /** Type-specific value validators for settings that need them */
 const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
