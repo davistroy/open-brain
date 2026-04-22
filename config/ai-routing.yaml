@@ -191,7 +191,8 @@ task_routing:
   # t1_spark is the right choice: 35B model handles complex NER reliably.
   # ===================================================================
 
-  entity_extraction: t1_spark   # JSON mode required (openai_compat only). 35B handles NER reliably.
+  entity_extraction: t1_spark      # JSON mode required (openai_compat only). 35B handles NER reliably.
+  commitment_extraction: t1_spark  # JSON mode required (openai_compat only). Extracts forward-looking obligations from captures.
 
   # ===================================================================
   # CONSTRAINT CLASS: CLASSIFICATION (fast, cheap -- Jetson 4B)
@@ -271,6 +272,24 @@ task_routing:
 # Monthly target (from CLAUDE.md): Anthropic API < $10, OpenAI < $10.
 # These limits are intentionally conservative -- the real ceiling is $35.
 #
+# =======================================================================
+# TTS -- Text-to-Speech configuration
+# =======================================================================
+#
+# Used by: POST /api/v1/briefs/:id/audio (core-api briefs route)
+# Provider: OpenAI TTS API (same key as embeddings/inference)
+# Model: tts-1 (standard quality, lowest cost -- $0.015/1K chars)
+# Voice: alloy (neutral, clear -- best for brief narration)
+# Cache: Redis key tts:{brief_id}:{voice}, TTL 86400 (24h)
+#
+# Cost estimate: ~$2/month at 20 briefs/month averaging 1K chars each.
+# Risk: D120 -- mitigation via Redis cache (no re-generation on repeat requests).
+#
+tts:
+  provider: openai
+  model: tts-1
+  voice: alloy
+
 monthly_budget:
   soft_limit_usd: 20   # Pushover alert when paid spend crosses $20/month
   hard_limit_usd: 35   # Hard stop: all paid-tier requests blocked above $35/month

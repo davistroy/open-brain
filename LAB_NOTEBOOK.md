@@ -125,6 +125,10 @@
 | D113 | `@radix-ui/react-dialog` (6.5KB) + `sonner` (4KB) for modals + toasts in web-next | 2026-04-21 | ACTIVE | Entry 127 | Hand-built dialogs leak a11y + keyboard handling; minimal focused deps preferred over bespoke for M2 |
 | D114 | Entity `/ask` uses TS-side intersection (path a), NOT `hybrid_search` SQL modification | 2026-04-21 | ACTIVE | Entry 127 | SQL-level filter requires migration + tested SQL function change; TS intersection is zero-schema and reversible |
 | D115 | Next.js 16 + pnpm monorepo needs `outputFileTracingRoot: path.join(__dirname, '../../')` alongside `output: 'standalone'` | 2026-04-21 | ACTIVE | Entry 127 | Standalone build silently misses workspace deps otherwise; set NOW even though Docker packaging is M3+ |
+| D116 | Investments page uses client-side shaping from Schwab captures — no dedicated backend endpoints | 2026-04-22 | ACTIVE | Entry 128 | Dedicated endpoints: unnecessary migration + schema for read-only aggregation over existing captures |
+| D117 | web-next Docker host port 3003 (not 3001) to avoid voice-capture port conflict | 2026-04-22 | ACTIVE | Entry 128 | 3001 was voice-capture; 3003 is free and adjacent to existing port cluster |
+| D118 | Manual service worker for PWA (not next-pwa dependency) — avoids build-time fragility | 2026-04-22 | ACTIVE | Entry 128 | next-pwa: additional webpack plugin, version-lock risk, config complexity with Turbopack |
+| D119 | Dark mode via CSS custom properties + `.dark` class — anti-flash inline script in root layout | 2026-04-22 | ACTIVE | Entry 128 | Tailwind dark mode class strategy; inline script prevents FOUC on cold load without SSR compromise |
 
 ## Action Items
 
@@ -8921,6 +8925,69 @@ Commitments domain (D111), entity-brief skill for "Generate brief" button, TTS f
 ### Duration
 
 ~2 hours of investigation + architectural decision-making. Zero code changes. Next step: user says `implement` → formal plan generated.
+
+---
+
+--- New session: 2026-04-22 — Cloudscape M3 implementation (orchestrated subagent execution) ---
+
+## Entry 128 — Cloudscape M3 Implementation Kickoff [web] [config] [pipeline] [database]
+
+**Date:** 2026-04-22
+**Environment:** Laptop (development), branch `feat/cloudscape-m3`
+**Tags:** [web] [config] [pipeline] [database]
+
+### Objective
+
+Execute the 8-phase, 41-work-item Cloudscape M3 implementation plan via orchestrated Sonnet subagents. Covers: brief generation, commitments+board, settings, onboarding, TTS, search, timeline, 12 screen ports, production cut-over, and polish.
+
+### Hypothesis
+
+Parallel subagent execution within phases (max 3 concurrent) will complete the full M3 plan in a single session. Expected: ~8,500 LOC across ~120 files. Success criteria: all 41 work items complete, tests passing, PR created.
+
+### Rollback plan
+
+Each phase commits separately. `git revert` any phase. State file (`.implement-plan-state.json`) enables session resume if interrupted.
+
+### Execution strategy
+
+- Phases processed sequentially (1→8), max parallelism within each phase
+- Phase 1: [1.1, 1.2] parallel → [1.3, 1.4] sequential
+- Phase 2: 2.1 → [2.2, 2.3] parallel → 2.4 → 2.5
+- Phases 5-6: up to 3 subagents from the parallel pool at a time
+- All subagents use Sonnet model; orchestrator (Opus) monitors only
+
+### Progress
+
+*(updated as phases complete)*
+
+### Duration
+
+~4 hours (automated orchestration)
+
+### Results
+
+**All 41 work items across 8 phases COMPLETE.** 17 commits on `feat/cloudscape-m3`.
+
+| Phase | Items | Commit(s) | Summary |
+|-------|-------|-----------|---------|
+| Phase 1: Brief Generation | 1.1-1.4 | 5723217, ce4d56b | Entity brief skill, POST endpoint, frontend wiring, NewBriefModal |
+| Phase 2: Commitments + Board | 2.1-2.5 | b4a1de0, 022d376, fc85573 | Migration 0031, extract-commitments pipeline, API routes, Kanban board |
+| Phase 3: Settings + Onboarding | 3.1-3.5 | 6d532e9, 141d3cc | 8-section settings page, 4-step onboarding wizard, first-run redirect |
+| Phase 4: TTS + Search + Timeline | 4.1-4.5 | 120d605, 875882c | Brief TTS endpoint, search with synthesis, timeline with infinite scroll, AudioPlayer |
+| Phase 5: Screen Ports Simple | 5.1-5.5 | 6cad21d, 5416818 | Financial, Intelligence, VoiceUpload, Help, Investments, VoiceConversations |
+| Phase 6: Screen Ports Complex | 6.1-6.6 | 4532926, f35430c | Wiki, Ingest, Email, System (5-tab), SlackCleanup, AdminReset |
+| Phase 7: Production Cut-Over | 7.1-7.4 | fa18d73, ac86b94 | Dockerfile, docker-compose, parallel tunnel, swap runbook |
+| Phase 8: Polish | 8.1-8.3 | cf84a99 | PWA service worker, dark mode, keyboard shortcuts |
+
+**Stats:** 151 files changed, ~24,000 LOC added, 1,274 tests passing (109 web-next, 809 core-api, 356 shared). Zero test failures throughout entire execution.
+
+**Execution pattern:** Orchestrator (Opus) coordinated Sonnet subagents — max 3 concurrent per batch. Each batch: implement in parallel → test → commit → next batch. Total: ~20 subagent invocations for implementation + ~8 for testing.
+
+**Key decisions:**
+- Investments page (5.4): no dedicated backend endpoints — client-side shaping from raw Schwab captures
+- Docker port mapping (7.2): web-next on host port 3003 (not 3001) to avoid voice-capture conflict
+- PWA (8.1): manual service worker instead of next-pwa dependency — avoids build-time fragility
+- Dark mode (8.2): CSS custom properties with `.dark` class — anti-flash inline script in root layout
 
 ---
 

@@ -230,67 +230,104 @@
 }
 
 /* =============================================================================
-   Dark mode — .dark class or data-theme="dark" attribute
+   Dark mode — .dark class on <html> (class-based, set by ThemeToggle)
+   The TopNav background (bg-home-header) is already dark slate in light mode,
+   so it maps to a slightly lighter dark-surface in dark mode to preserve contrast.
    ============================================================================= */
 :root[data-theme="dark"],
 .dark {
-  --color-bg-layout-main:         var(--color-slate-dark);
-  --color-bg-container:           var(--color-slate-medium);
-  --color-bg-dropdown:            var(--color-slate-medium);
-  --color-bg-input:               var(--color-slate-dark);
+  /* ---- Dark surface ramp: deep charcoal/slate hierarchy ------------------- */
+  --color-bg-layout-main:         #16161A;    /* page canvas — deepest */
+  --color-bg-container:           #1E1E24;    /* cards, panels */
+  --color-bg-dropdown:            #252530;    /* dropdowns above panels */
+  --color-bg-input:               #111115;    /* input fields — recessed */
+  --color-bg-home-header:         #111115;    /* TopNav — darker than canvas */
   --color-bg-item-selected:       rgba(204, 120, 92, 0.18);
-  --color-bg-status-info:         rgba(122, 132, 113, 0.2);
-  --color-bg-status-success:      rgba(95, 91, 59, 0.25);
-  --color-bg-status-warning:      rgba(212, 162, 127, 0.18);
-  --color-bg-status-error:        rgba(191, 73, 57, 0.22);
+  --color-bg-status-info:         rgba(122, 132, 113, 0.20);
+  --color-bg-status-success:      rgba(95, 143, 74, 0.18);
+  --color-bg-status-warning:      rgba(212, 162, 127, 0.16);
+  --color-bg-status-error:        rgba(191, 73, 57, 0.20);
   --color-bg-cell-shaded:         rgba(255, 255, 255, 0.03);
 
-  --color-text-body:              var(--color-ivory-medium);
-  --color-text-body-secondary:    var(--color-cloud-medium);
-  --color-text-heading:           var(--color-ivory-light);
-  --color-text-heading-secondary: var(--color-cloud-medium);
-  --color-text-small:             var(--color-cloud-medium);
-  --color-text-form-secondary:    var(--color-cloud-medium);
-  --color-text-disabled:          var(--color-cloud-dark);
-  --color-text-interactive:       var(--color-ivory-dark);
-  --color-text-interactive-hover: var(--color-ivory-light);
-  --color-text-link:              var(--color-kraft);
-  --color-text-link-hover:        var(--color-manilla);
-  --color-text-accent:            var(--color-kraft);
-  --color-text-label-genai:       var(--color-kraft);
+  /* ---- Text: ivory for body, progressively dimmer for secondary ----------- */
+  --color-text-body:              #E8E6DB;    /* --color-ivory-dark */
+  --color-text-body-secondary:    #C2C0B6;    /* --color-cloud-medium */
+  --color-text-heading:           #FAFAF7;    /* --color-ivory-light */
+  --color-text-heading-secondary: #C2C0B6;    /* --color-cloud-medium */
+  --color-text-small:             #8F8E85;    /* --color-cloud-dark */
+  --color-text-form-secondary:    #8F8E85;    /* --color-cloud-dark */
+  --color-text-disabled:          #40403E;    /* --color-slate-light */
+  --color-text-interactive:       #E8E6DB;    /* ivory-dark — visible on dark */
+  --color-text-interactive-hover: #FAFAF7;    /* ivory-light on hover */
+  --color-text-link:              #D4A27F;    /* kraft — warmer than book-cloth */
+  --color-text-link-hover:        #EBDBBC;    /* manilla — lightest warm */
+  --color-text-accent:            #D4A27F;    /* kraft */
+  --color-text-status-success:    #8FBD7A;    /* bright on dark */
+  --color-text-status-warning:    #D4A27F;    /* kraft — warm amber */
+  --color-text-status-error:      #D66B5C;    /* lightened faded-red */
+  --color-text-status-info:       #A3B09A;    /* lightened moss */
+  --color-text-counter:           #8F8E85;    /* cloud-dark */
+  --color-text-label-genai:       #D4A27F;    /* kraft */
 
+  /* ---- Borders: low-opacity white for dark surfaces ---------------------- */
   --color-border-divider:           rgba(255, 255, 255, 0.08);
   --color-border-divider-secondary: rgba(255, 255, 255, 0.05);
-  --color-border-input:             rgba(255, 255, 255, 0.15);
-  --color-border-input-focused:     var(--color-kraft);
-  --color-border-item-selected:     var(--color-kraft);
+  --color-border-input:             rgba(255, 255, 255, 0.14);
+  --color-border-input-focused:     #D4A27F;   /* kraft */
+  --color-border-control:           rgba(255, 255, 255, 0.14);
+  --color-border-item-selected:     #D4A27F;   /* kraft */
+  --color-border-status-info:       rgba(122, 132, 113, 0.40);
+  --color-border-status-success:    rgba(94, 143, 74, 0.35);
+  --color-border-status-warning:    rgba(212, 162, 127, 0.35);
+  --color-border-status-error:      rgba(191, 73, 57, 0.35);
 
-  --color-button-primary-bg:       var(--color-book-cloth);
-  --color-button-primary-bg-hover: var(--color-kraft);
+  /* ---- Buttons: primary stays book-cloth; normal gets dark surface ------- */
+  --color-button-primary-bg:       #CC785C;    /* book-cloth — unchanged */
+  --color-button-primary-bg-hover: #D4A27F;    /* kraft on hover */
   --color-button-primary-text:     #FFFFFF;
-  --color-button-normal-bg:        var(--color-slate-medium);
-  --color-button-normal-border:    var(--color-cloud-medium);
-  --color-button-normal-text:      var(--color-ivory-medium);
-  --color-button-normal-bg-hover:  rgba(255, 255, 255, 0.05);
+  --color-button-normal-bg:        #1E1E24;    /* matches container */
+  --color-button-normal-border:    rgba(255, 255, 255, 0.18);
+  --color-button-normal-text:      #E8E6DB;    /* ivory-dark */
+  --color-button-normal-bg-hover:  rgba(255, 255, 255, 0.06);
 
-  --shadow-container: 0 0 0 1px rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.5);
-  --shadow-dropdown:  0 4px 20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
-  --shadow-panel:     0 0 0 1px rgba(255,255,255,0.08);
+  /* ---- Shadows: stronger on dark — compensate for low ambient contrast --- */
+  --shadow-card:              none;
+  --shadow-container:         0 0 0 1px rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.60);
+  --shadow-container-active:  0 0 0 1px rgba(255,255,255,0.10), 0 4px 16px rgba(0,0,0,0.70);
+  --shadow-dropdown:          0 4px 20px rgba(0,0,0,0.70), 0 0 0 1px rgba(255,255,255,0.08);
+  --shadow-modal:             0 8px 40px rgba(0,0,0,0.80), 0 0 0 1px rgba(255,255,255,0.08);
+  --shadow-popover:           0 4px 20px rgba(0,0,0,0.70), 0 0 0 1px rgba(255,255,255,0.08);
+  --shadow-panel:             0 0 0 1px rgba(255,255,255,0.08);
+  --shadow-sticky:            0 4px 8px rgba(0,0,0,0.50);
 
-  /* Semantic status tokens adjust for dark backgrounds */
+  /* ---- Semantic status pill/badge tokens — muted tints on dark ----------- */
   --color-status-success-bg:     rgba(94, 143, 74, 0.15);
   --color-status-success-fg:     #8FBD7A;
-  --color-status-success-border: rgba(94, 143, 74, 0.3);
+  --color-status-success-border: rgba(94, 143, 74, 0.30);
 
   --color-status-warning-bg:     rgba(212, 162, 127, 0.15);
   --color-status-warning-fg:     #D4A27F;
-  --color-status-warning-border: rgba(212, 162, 127, 0.3);
+  --color-status-warning-border: rgba(212, 162, 127, 0.30);
 
   --color-status-error-bg:       rgba(191, 73, 57, 0.15);
   --color-status-error-fg:       #D66B5C;
-  --color-status-error-border:   rgba(191, 73, 57, 0.3);
+  --color-status-error-border:   rgba(191, 73, 57, 0.30);
 
   --color-status-accent-border:  rgba(204, 120, 92, 0.35);
+
+  /* ---- Success standalone ------------------------------------------------ */
+  --color-success: #8FBD7A;    /* lightened for dark backgrounds */
+
+  /* ---- Chart palette — slightly lightened for dark surface readability --- */
+  --color-chart-1: #CC785C;    /* book-cloth — unchanged */
+  --color-chart-2: #D4A27F;    /* kraft — slightly lighter */
+  --color-chart-3: #8FB085;    /* lightened moss */
+  --color-chart-4: #8B6A5E;    /* lightened clay */
+  --color-chart-5: #EBDBBC;    /* manilla */
+  --color-chart-6: #B87060;    /* lightened sienna */
+
+  /* ---- Focus ring: adjust to be visible on dark backgrounds -------------- */
+  /* (overrides *:focus-visible below — cascade order ensures .dark wins)     */
 }
 
 /* =============================================================================

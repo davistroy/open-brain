@@ -11,6 +11,7 @@ import { createIngestionWorker } from './jobs/ingestion-worker.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
 import { createCheckTriggersWorker } from './jobs/check-triggers.js'
 import { createExtractEntitiesWorker } from './jobs/extract-entities.js'
+import { createExtractCommitmentsWorker } from './jobs/extract-commitments.js'
 import { createDocumentPipelineWorker } from './jobs/document-pipeline.js'
 import { createDailySweepWorker } from './jobs/daily-sweep.js'
 import { createPushoverWorker } from './jobs/pushover.js'
@@ -185,6 +186,7 @@ async function main() {
 
   workers.push(createCheckTriggersWorker(connection, db, pushoverAppToken, pushoverUserKey))
   workers.push(createExtractEntitiesWorker(connection, db, configService, openaiBaseUrl, openaiApiKey, templates, llmGateway))
+  workers.push(createExtractCommitmentsWorker(connection, db, templates, llmGateway))
   workers.push(createDocumentPipelineWorker(connection, db, configService, openaiBaseUrl, openaiApiKey, queues.embedCapture))
   workers.push(createDailySweepWorker(connection, db, queues.capturePipeline))
   workers.push(createPushoverWorker(connection, pushoverAppToken, pushoverUserKey))

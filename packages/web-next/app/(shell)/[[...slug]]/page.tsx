@@ -8,7 +8,6 @@ const MILESTONE_MAP: Record<string, string> = {
   timeline:     'Milestone 2',
   ingest:       'Milestone 2',
   voice:        'Milestone 2',
-  email:        'Milestone 2',
   wiki:         'Milestone 3',
   intelligence: 'Milestone 3',
   board:        'Milestone 3',

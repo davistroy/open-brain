@@ -32,6 +32,8 @@ import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
 import { registerInsurancePoliciesRoutes } from './routes/insurance-policies.js'
 import { registerBriefRoutes } from './routes/briefs.js'
+import type { TtsDeps } from './routes/briefs.js'
+import { registerCommitmentRoutes } from './routes/commitments.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -86,6 +88,8 @@ interface AppDependencies {
   voiceSessionService?: VoiceSessionService
   /** Briefs service — required for GET/POST/PATCH /api/v1/briefs endpoints (CS2 M2) */
   briefsService?: BriefsService
+  /** TTS dependencies — required for POST /api/v1/briefs/:id/audio (CS5 M3 item 4.1) */
+  ttsDeps?: TtsDeps
   /** Ingest-process BullMQ queue — required for POST /api/v1/ingest/upload pipeline dispatch (CS3.4/CS3.5) */
   ingestProcessQueue?: Queue<IngestProcessJobData>
   /** Access-stats BullMQ queue — fire-and-forget after search completion (P06 Hebbian co-access) */
@@ -100,7 +104,7 @@ interface AppDependencies {
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue, metricsRedis, briefsService } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue, metricsRedis, briefsService, ttsDeps } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -122,9 +126,13 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Briefs refine triggers an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
   app.use('/api/v1/briefs/*/refine', rateLimit(strictLimiter))
+  // Briefs audio calls OpenAI TTS API — strict rate-limit BEFORE default /api/v1/* mount
+  app.use('/api/v1/briefs/*/audio', rateLimit(strictLimiter))
   // Entity ask triggers LLM synthesis — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
   app.use('/api/v1/entities/*/ask', rateLimit(strictLimiter))
+  // Entity brief enqueues an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
+  app.use('/api/v1/entities/*/brief', rateLimit(strictLimiter))
 
   // Admin tier: destructive/config endpoints
   app.use('/api/v1/admin/*', rateLimit(adminLimiter))
@@ -171,7 +179,8 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Entities API
   if (entityService) {
     // searchService + llmGateway are optional — /ask returns 503 when absent
-    registerEntityRoutes(app, entityService, searchService, llmGateway)
+    // skillQueue is optional — /brief returns 503 when absent
+    registerEntityRoutes(app, entityService, searchService, llmGateway, skillQueue)
   }
 
   // Bets API
@@ -239,10 +248,18 @@ export function createApp(deps: AppDependencies = {}): Hono {
   }
 
   // Briefs API — list, detail, refine (async), dismiss, read toggle (CS2 M2).
+  // Audio TTS endpoint (CS5 M3 item 4.1) requires ttsDeps; returns 503 when absent.
   // skillQueue is optional: refine() will throw at runtime if queue absent,
   // but list/get/dismiss/patchRead work without it.
   if (briefsService) {
-    registerBriefRoutes(app, briefsService)
+    registerBriefRoutes(app, briefsService, ttsDeps)
+  }
+
+  // Commitments API — list, entity-scoped list, toggle resolved, manual create (CS2 M3).
+  // GET /api/v1/commitments, GET /api/v1/entities/:id/commitments,
+  // PATCH /api/v1/commitments/:id, POST /api/v1/commitments
+  if (db) {
+    registerCommitmentRoutes(app, db)
   }
 
   // MCP endpoint — requires all services to be available

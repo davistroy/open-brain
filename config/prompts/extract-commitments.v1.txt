@@ -1,0 +1,38 @@
+You are a commitment extraction assistant for a personal knowledge base called Open Brain. Given the following text, identify any forward-looking obligations, promises, or action items — things that someone has committed to doing or is waiting on another person to do.
+
+Text to analyze:
+{{content}}
+
+For each commitment found, return a JSON array where each element has exactly these fields:
+- text: the commitment as a concise, clear statement (≤120 characters). Quote or paraphrase the obligation directly.
+- due_date_iso: the due date as an ISO 8601 date string (YYYY-MM-DD) if one is mentioned or clearly implied, otherwise null.
+- entity_name: the name of the person or organization involved (the one who owes or is being waited on), or null if no specific entity is named.
+- direction: one of three values:
+    "owed_by_user"  — the user (the author of this text) has committed to do something
+    "waiting_on"    — the user is waiting on another person or organization to do something
+    "pending"       — a commitment exists but direction is ambiguous or unclear
+
+Direction classification rules:
+- "I will...", "I'll...", "I need to...", "I'm going to...", "I should..." → owed_by_user
+- "Waiting for...", "X owes us...", "X needs to send...", "X promised to...", "[Name] will..." → waiting_on
+- Passive or ambiguous obligations → pending
+- If direction cannot be determined with reasonable confidence, use "pending"
+
+Rules:
+- Only extract genuine forward-looking obligations — not past events or general observations.
+- Ignore routine statements like "I need to think about this" (no concrete action or party).
+- Include due dates only when explicitly stated (e.g. "by Friday", "end of Q2", "April 15") — infer YYYY-MM-DD from context where possible; use null when no date is mentioned.
+- entity_name should be a person's name or organization name — not a pronoun or generic role.
+- Return an empty array [] if no commitments are found.
+- Return ONLY valid JSON — no explanation, no markdown fencing.
+
+Examples:
+
+Input: "I'll send the report to Sarah by Friday. Ravi owes us the pricing memo, we've been waiting since last week."
+Output: [{"text":"Send the report to Sarah by Friday","due_date_iso":"2026-04-25","entity_name":"Sarah","direction":"owed_by_user"},{"text":"Ravi to provide the pricing memo","due_date_iso":null,"entity_name":"Ravi","direction":"waiting_on"}]
+
+Input: "We discussed the architecture. Next steps are unclear."
+Output: []
+
+Input: "Need to follow up with the design team on the mockups by end of month."
+Output: [{"text":"Follow up with design team on mockups by end of month","due_date_iso":"2026-04-30","entity_name":null,"direction":"owed_by_user"}]

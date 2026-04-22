@@ -1,4 +1,5 @@
-import { Sparkles, Bell, Moon, CircleHelp, ChevronDown, Search } from 'lucide-react';
+import { Sparkles, Bell, CircleHelp, ChevronDown, Search } from 'lucide-react';
+import { ThemeToggle } from '@/components/design-system/ThemeToggle';
 
 // UtilItem — icon button in top-right utility cluster
 function UtilItem({
@@ -124,7 +125,7 @@ export function TopNav({ user = 'troy@openbrain.io' }: { user?: string }) {
       <div className="flex items-center gap-[2px] text-[13px] text-cloud-light">
         <UtilItem icon={Sparkles} label="Ask AI" accent />
         <UtilItem icon={Bell} badge={3} />
-        <UtilItem icon={Moon} />
+        <ThemeToggle />
         <UtilItem icon={CircleHelp} />
 
         {/* Divider */}
