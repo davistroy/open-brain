@@ -582,6 +582,130 @@ export const settingsApi = {
 }
 
 // ---------------------------------------------------------------------------
+// investmentsApi — Schwab balance + positions data (M3, screen 5.4)
+//
+// There are no dedicated /investments API endpoints. Investment data lives
+// as financial pipeline captures with source_provider='schwab'. This namespace
+// fetches schwab captures and shapes them into normalized records for the
+// HoldingsTable and AllocationChart client components.
+//
+// All heavy transformation (latestBalances, latestPositions, balanceHistory)
+// is client-side (same as /web InvestmentsApi). The server RSC page fetches
+// the raw captures via capturesApi.list; client components receive the raw
+// capture list and do the shaping themselves so the RSC stays simple.
+// ---------------------------------------------------------------------------
+
+/** One balance snapshot, normalized from schwab_balance_snapshot metadata. */
+export interface SchwabSnapshotRecord {
+  capture_id: string
+  created_at: string
+  account_name: string
+  account_mask: string
+  as_of: string
+  account_value: number
+  cash_value: number
+  market_value: number
+  day_change: number
+  day_change_pct: string
+}
+
+/** One holding row extracted from schwab_position_snapshot metadata. */
+export interface SchwabHolding {
+  symbol: string
+  description: string
+  qty: number
+  price: number
+  market_value: number
+  cost_basis: number
+  gain_dollar: number
+  gain_pct: string
+  asset_type: string
+}
+
+/** Positions snapshot normalized per account, with flattened holdings. */
+export interface SchwabPositionsRecord {
+  capture_id: string
+  created_at: string
+  account_name: string
+  account_mask: string
+  as_of: string
+  total_value: number
+  cost_basis: number
+  gain_dollar: number
+  gain_pct: string
+  holdings: SchwabHolding[]
+}
+
+/**
+ * Fetch the raw Schwab captures that the RSC page passes to client components.
+ * This is the only actual API call — all shaping is done client-side.
+ */
+export const investmentsApi = {
+  /** GET /api/v1/captures?source_provider=schwab&limit=200 */
+  rawCaptures: (limit = 200): Promise<ListEnvelope<Capture>> =>
+    request<ListEnvelope<Capture>>(
+      `/captures${buildQueryString({ source_provider: 'schwab', limit })}`,
+    ),
+}
+
+// ---------------------------------------------------------------------------
+// voiceSessionApi — GET /api/v1/voice/sessions
+// ---------------------------------------------------------------------------
+
+/** Transcript turn as returned by the voice session API */
+export interface TranscriptTurn {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp?: string
+}
+
+/** Voice session record as returned by GET /api/v1/voice/sessions */
+export interface VoiceSession {
+  id: string
+  session_key: string
+  started_at: string         // ISO 8601
+  ended_at: string | null    // null if session is still active
+  duration_seconds: number | null
+  turn_count: number | null
+  transcript: TranscriptTurn[]
+  summary: string | null
+  captures_created: string[] // array of capture IDs linked to this session
+  metadata: Record<string, unknown> | null
+  created_at: string         // ISO 8601
+}
+
+export interface VoiceSessionsListParams {
+  limit?: number
+  offset?: number
+}
+
+export const voiceSessionApi = {
+  /**
+   * GET /api/v1/voice/sessions — paginated list of voice sessions,
+   * ordered by started_at DESC.
+   */
+  list: (params: VoiceSessionsListParams = {}): Promise<ListEnvelope<VoiceSession>> => {
+    const qs = buildQueryString(params)
+    return request<ListEnvelope<VoiceSession>>(`/voice/sessions${qs}`)
+  },
+
+  /**
+   * GET /api/v1/voice/sessions/active — sessions with no ended_at.
+   * Returns { items: VoiceSession[] } (not a paginated envelope).
+   */
+  active: (): Promise<{ items: VoiceSession[] }> => {
+    return request<{ items: VoiceSession[] }>('/voice/sessions/active')
+  },
+
+  /**
+   * GET /api/v1/voice/sessions/:id — single session with full transcript.
+   */
+  get: (id: string): Promise<VoiceSession> => {
+    return request<VoiceSession>(`/voice/sessions/${encodeURIComponent(id)}`)
+  },
+}
+
+// ---------------------------------------------------------------------------
 // configApi — read integration health via GET /api/v1/config/integrations
 // ---------------------------------------------------------------------------
 

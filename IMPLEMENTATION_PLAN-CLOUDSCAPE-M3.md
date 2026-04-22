@@ -811,54 +811,57 @@ Two read-only cards (ConnectionsCard, DriftCard) with "Run now" trigger buttons.
 ---
 
 #### 5.4 Investments page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.7
 **Files Affected:**
 - `packages/web-next/app/(shell)/investments/page.tsx` (create)
+- `packages/web-next/app/(shell)/investments/loading.tsx` (create)
+- `packages/web-next/app/(shell)/investments/error.tsx` (create)
 - `packages/web-next/components/investments/HoldingsTable.tsx` (create)
 - `packages/web-next/components/investments/AllocationChart.tsx` (create)
 - `packages/web-next/lib/api-client.ts` (modify — add investmentsApi)
 
 **Description:**
-Investments page with holdings table (sortable), allocation donut chart, net worth chart, account filtering via URL params. Fetches from `investmentsApi.latestBalances()`, `latestPositions()`, `balanceHistory()`. Top-10 holdings highlighting. Gainers/losers computation client-side.
+Investments page with holdings table (sortable), allocation donut chart, net worth chart, account filtering via URL params. RSC page fetches raw Schwab captures (source_provider='schwab', limit=200); all data shaping is client-side matching /web Investments.tsx patterns. No dedicated backend endpoints — composes over capturesApi.list. Top-10 holdings highlighted. Gainers/losers strip. SVG donut + sparkline (no external charting library).
 
 **Tasks:**
-1. [ ] Create page.tsx with parallel data fetches
-2. [ ] Create HoldingsTable with sortable columns
-3. [ ] Create AllocationChart (donut) + NetWorthChart
-4. [ ] Add investmentsApi namespace to api-client
-5. [ ] Account filter via URL params
+1. [x] Create page.tsx with RSC capture fetch + loading/error boundaries
+2. [x] Create HoldingsTable with sortable columns + account filter
+3. [x] Create AllocationChart (donut, net worth, history sparkline)
+4. [x] Add investmentsApi namespace to api-client
+5. [x] Account filter via URL params (useSearchParams + router.replace)
 
 **Acceptance Criteria:**
-- [ ] `/investments` renders holdings table + charts
-- [ ] Table sorts by column click
-- [ ] Account filter narrows displayed data
+- [x] `/investments` renders holdings table + charts
+- [x] Table sorts by column click
+- [x] Account filter narrows displayed data
 
 ---
 
 #### 5.5 VoiceConversations page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.3
 **Files Affected:**
 - `packages/web-next/app/(shell)/voice/page.tsx` (create)
 - `packages/web-next/components/voice/SessionList.tsx` (create)
 - `packages/web-next/components/voice/SessionDetail.tsx` (create)
+- `packages/web-next/components/voice/VoiceConversationsClient.tsx` (create)
 - `packages/web-next/lib/api-client.ts` (modify — add voiceSessionApi)
 
 **Description:**
-Two-pane layout: left session list + right session detail. Active session banner with ping animation. 10s polling interval for active session detection. Batch fetch of linked captures per session. Add `voiceSessionApi`: `list({limit})`, `active()`.
+Two-pane layout: left session list + right session detail. Active session banner with ping animation. 10s polling interval for active session detection. Batch fetch of linked captures per session. Add `voiceSessionApi`: `list({limit})`, `active()`, `get(id)`.
 
 **Tasks:**
-1. [ ] Create page.tsx with two-pane layout
-2. [ ] Create SessionList with session rows + active banner
-3. [ ] Create SessionDetail with transcript + linked captures
-4. [ ] Add voiceSessionApi namespace to api-client
-5. [ ] Implement 10s polling for active sessions
+1. [x] Create page.tsx with two-pane layout
+2. [x] Create SessionList with session rows + active banner
+3. [x] Create SessionDetail with transcript + linked captures
+4. [x] Add voiceSessionApi namespace to api-client
+5. [x] Implement 10s polling for active sessions
 
 **Acceptance Criteria:**
-- [ ] `/voice` shows voice session list
-- [ ] Selecting a session shows detail pane
-- [ ] Active sessions poll and update UI
+- [x] `/voice` shows voice session list
+- [x] Selecting a session shows detail pane
+- [x] Active sessions poll and update UI
 
 ---
 
