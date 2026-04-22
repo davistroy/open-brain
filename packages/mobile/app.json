@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Open Brain",
+    "slug": "open-brain-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "openbrain",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.openbrain.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Open Brain uses the microphone to record voice captures."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#F0EEE6"
+      },
+      "package": "com.openbrain.mobile",
+      "permissions": ["RECORD_AUDIO"]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Open Brain needs microphone access to record voice captures."
+        }
+      ]
+    ]
+  }
+}

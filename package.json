@@ -16,6 +16,17 @@
     "node": ">=22"
   },
   "packageManager": "pnpm@9.15.0",
+  "pnpm": {
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "react": "18 - 19",
+        "react-dom": "18 - 19"
+      },
+      "ignoreMissing": [
+        "expo-constants"
+      ]
+    }
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0"
   },
