@@ -409,7 +409,7 @@ Add `configApi`: `integrations(): Promise<{integrations: Integration[]}>`.
 ---
 
 #### 3.2 Sources + Ingest filters sections
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §6, Cloudscape screen 11 "Connected" + "Ingest filters"
 **Files Affected:**
 - `packages/web-next/components/settings/SourcesSection.tsx` (create)
@@ -441,7 +441,7 @@ Add 7 new keys to `VALID_SETTINGS_KEYS` in core-api settings route.
 ---
 
 #### 3.3 Empty state sections + Danger zone
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §6 "Future Consideration", Cloudscape screen 12 (empty states)
 **Files Affected:**
 - `packages/web-next/components/settings/DangerZoneSection.tsx` (create)
@@ -499,7 +499,7 @@ Full-bleed layout outside shell (no SideNav/TopNav). Two-panel: left editorial p
 ---
 
 #### 3.5 Onboarding steps 3-4 + first-run redirect
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF M3 "Onboarding flow", Cloudscape screen 13
 **Files Affected:**
 - `packages/web-next/components/onboarding/CaptureHabitStep.tsx` (create)

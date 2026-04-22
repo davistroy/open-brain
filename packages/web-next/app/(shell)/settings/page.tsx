@@ -91,11 +91,16 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 }
 
 // ---------------------------------------------------------------------------
-// Section content router — inline for M3 skeleton (live sections added in 3.2/3.3)
+// Section content router — 3.2 live sections + 3.3 EmptySettingsSection + DangerZoneSection
 // ---------------------------------------------------------------------------
 
 import { Construction } from 'lucide-react';
 import { EmptyState } from '@/components/design-system/EmptyState';
+import { SourcesSection } from '@/components/settings/SourcesSection';
+import { IngestFiltersSection } from '@/components/settings/IngestFiltersSection';
+import { EntityExtractionSection } from '@/components/settings/EntityExtractionSection';
+import { EmptySettingsSection } from '@/components/settings/EmptySettingsSection';
+import { DangerZoneSection } from '@/components/settings/DangerZoneSection';
 
 /** Copy map for empty-state sections — Cloudscape editorial voice */
 const EMPTY_SECTION_COPY: Record<string, { title: string; description: string }> = {
@@ -131,52 +136,44 @@ const EMPTY_SECTION_COPY: Record<string, { title: string; description: string }>
   },
 };
 
-function EmptySettingsSection({ section }: { section: string }) {
-  const copy = EMPTY_SECTION_COPY[section] ?? {
-    title: 'Coming soon',
-    description: 'This section is under construction — check back soon.',
-  };
-
-  return (
-    <div className="bg-bg-container border border-cloud-light px-8 py-10">
-      <EmptyState
-        icon={Construction}
-        title={copy.title}
-        description={copy.description}
-      />
-    </div>
-  );
-}
-
 function SettingsSectionContent({ section }: { section: SettingsSection }) {
-  // Live sections (3.2 Sources, 3.3 Danger zone) will replace these stubs.
-  // For now all sections render either a placeholder or a future component.
   switch (section) {
     case 'sources':
-      // Sources section placeholder — will be replaced by SourcesSection in 3.2
+      // Live section (3.2): connected integrations + ingest filters + entity extraction
       return (
-        <div className="bg-bg-container border border-cloud-light px-8 py-10">
-          <EmptyState
-            icon={Construction}
-            title="Sources"
-            description="Configure your connected data sources — Slack, voice, email, and file ingestion. This section is under construction — check back soon."
-          />
+        <div className="space-y-4">
+          <SourcesSection />
+          <IngestFiltersSection />
+          <EntityExtractionSection />
         </div>
       );
 
     case 'danger':
-      // Danger zone placeholder — will be replaced by DangerZoneSection in 3.3
+      // Live section (3.3): two-step data reset flow
+      return <DangerZoneSection />;
+
+    case 'profile':
+    case 'brief-preferences':
+    case 'privacy':
+    case 'workspaces':
+    case 'billing':
+    case 'api-export': {
+      const copy = EMPTY_SECTION_COPY[section] ?? {
+        title: 'Coming soon',
+        description: 'This section is under construction — check back soon.',
+      };
+      return <EmptySettingsSection title={copy.title} description={copy.description} />;
+    }
+
+    default:
       return (
         <div className="bg-bg-container border border-cloud-light px-8 py-10">
           <EmptyState
             icon={Construction}
-            title="Danger zone"
-            description="Permanently reset all data and start fresh. Two-step confirmation required. This section is under construction — check back soon."
+            title="Coming soon"
+            description="This section is under construction — check back soon."
           />
         </div>
       );
-
-    default:
-      return <EmptySettingsSection section={section} />;
   }
 }

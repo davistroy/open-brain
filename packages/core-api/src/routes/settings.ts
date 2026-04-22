@@ -18,6 +18,15 @@ const VALID_SETTINGS_KEYS = new Set([
   'user_profile',
   'capture_habit',
   'onboarding_completed',
+  // M3 ingest filters (3.2)
+  'ingest_skip_automated_emails',
+  'ingest_skip_low_signal_slack',
+  'ingest_capture_bare_calendar',
+  'ingest_voice_min_duration',
+  // M3 entity extraction (3.2)
+  'entity_extract_locations',
+  'entity_extract_monetary',
+  'entity_confidence_threshold',
 ])
 
 /** Type-specific value validators for settings that need them */

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { StepIndicator, type StepId } from './StepIndicator';
 import { SourceGrid } from './SourceGrid';
+import { CaptureHabitStep } from './CaptureHabitStep';
+import { FirstBriefStep } from './FirstBriefStep';
 import { settingsApi } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -20,11 +22,13 @@ interface OnboardingState {
   role: string;
   /** Step 2 selected source IDs */
   selectedSources: string[];
+  /** Step 3 capture habit selection */
+  captureHabit: string;
 }
 
 function loadState(): OnboardingState {
   if (typeof window === 'undefined') {
-    return { currentStep: 1, completedSteps: [], name: '', role: '', selectedSources: [] };
+    return { currentStep: 1, completedSteps: [], name: '', role: '', selectedSources: [], captureHabit: '' };
   }
   try {
     const raw = window.localStorage.getItem(LS_KEY);
@@ -32,7 +36,7 @@ function loadState(): OnboardingState {
   } catch {
     // corrupt storage — start fresh
   }
-  return { currentStep: 1, completedSteps: [], name: '', role: '', selectedSources: [] };
+  return { currentStep: 1, completedSteps: [], name: '', role: '', selectedSources: [], captureHabit: '' };
 }
 
 function saveState(state: OnboardingState): void {
@@ -413,102 +417,6 @@ function Step2({ selectedSources, onToggle, onNext, onBack }: Step2Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder steps 3 & 4 (implemented in 3.5)
-// ---------------------------------------------------------------------------
-
-interface StubStepProps {
-  title: string;
-  description: string;
-  onNext: () => void;
-  onBack: () => void;
-  nextLabel?: string;
-  isLast?: boolean;
-}
-
-function StubStep({ title, description, onNext, onBack, nextLabel = 'Continue', isLast }: StubStepProps) {
-  return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h2
-          className="mb-1"
-          style={{
-            fontFamily: 'var(--font-family-display)',
-            fontSize: 'var(--font-size-heading-l)',
-            fontWeight: 700,
-            letterSpacing: 'var(--letter-spacing-heading-l)',
-            color: 'var(--color-text-heading)',
-          }}
-        >
-          {title}
-        </h2>
-        <p style={{ color: 'var(--color-text-body-secondary)', margin: 0, fontSize: '14px' }}>
-          {description}
-        </p>
-      </div>
-
-      {/* Placeholder card */}
-      <div
-        className="p-8 text-center rounded-sm"
-        style={{
-          border: '2px dashed var(--color-border-divider)',
-          color: 'var(--color-text-small)',
-        }}
-      >
-        <p className="text-[13px]">This step is coming in the next release.</p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold transition-colors duration-150"
-          style={{
-            background: 'transparent',
-            border: '1px solid var(--color-cloud-medium)',
-            color: 'var(--color-text-body)',
-            borderRadius: 'var(--border-radius-button)',
-            cursor: 'pointer',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-ivory-medium)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z" />
-          </svg>
-          Back
-        </button>
-
-        <button
-          type="button"
-          onClick={onNext}
-          className="flex items-center gap-2 px-6 py-2.5 text-[14px] font-semibold transition-colors duration-150"
-          style={{
-            backgroundColor: isLast ? 'var(--color-success)' : 'var(--color-button-primary-bg)',
-            color: 'white',
-            borderRadius: 'var(--border-radius-button)',
-            border: 'none',
-            cursor: 'pointer',
-          }}
-          onMouseEnter={(e) => {
-            if (!isLast) e.currentTarget.style.backgroundColor = 'var(--color-button-primary-bg-hover)';
-          }}
-          onMouseLeave={(e) => {
-            if (!isLast) e.currentTarget.style.backgroundColor = 'var(--color-button-primary-bg)';
-          }}
-        >
-          {nextLabel}
-          {!isLast && (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="white" aria-hidden="true">
-              <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
-            </svg>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // OnboardingWizard — root client component
 // ---------------------------------------------------------------------------
 
@@ -531,6 +439,7 @@ export function OnboardingWizard() {
     name: '',
     role: '',
     selectedSources: [],
+    captureHabit: '',
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -595,7 +504,12 @@ export function OnboardingWizard() {
   }, [markComplete, goToStep]);
 
   // --- Step 3 handlers ---
-  const handleStep3Next = useCallback(() => {
+  // NOTE: settingsApi.put('capture_habit') is called inside CaptureHabitStep
+  // before it invokes onNext, so all we do here is advance the wizard state.
+  const handleStep3Next = useCallback((habit?: string) => {
+    if (habit) {
+      setState((prev) => ({ ...prev, captureHabit: habit }));
+    }
     markComplete(3);
     goToStep(4);
   }, [markComplete, goToStep]);
@@ -689,22 +603,18 @@ export function OnboardingWizard() {
             )}
 
             {state.currentStep === 3 && (
-              <StubStep
-                title="Choose a capture habit"
-                description="Select the cadence that fits how you think — we'll remind you at the right moments."
-                onNext={handleStep3Next}
+              <CaptureHabitStep
+                initialSelection={state.captureHabit}
+                onNext={() => handleStep3Next()}
                 onBack={() => goToStep(2)}
               />
             )}
 
             {state.currentStep === 4 && (
-              <StubStep
-                title="Shape your first brief"
-                description="We'll generate your first brief once you've captured a few thoughts."
-                onNext={handleFinish}
+              <FirstBriefStep
+                onFinish={handleFinish}
                 onBack={() => goToStep(3)}
-                nextLabel={isSaving ? 'Finishing…' : 'Finish setup'}
-                isLast
+                isSaving={isSaving}
               />
             )}
           </div>
