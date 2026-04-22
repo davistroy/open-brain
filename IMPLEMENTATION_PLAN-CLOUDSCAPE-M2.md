@@ -837,7 +837,7 @@ Since Phase 4 set up Drift-guard for types, and Phase 3 set up the web-next SSE 
 ### Work Items
 
 #### 6.1 Extend weekly-brief + daily-sweep-skill
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 investigation items 2.1 + 2.4
 **Files Affected:**
 - `packages/workers/src/skills/weekly-brief.ts` (modify)
@@ -864,7 +864,7 @@ Preserve existing email-send behavior of weekly-brief (Himalaya cascade). The ne
 ---
 
 #### 6.2 Extend morning-brief + monthly-reflection
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 investigation items 2.1 + 2.4
 **Files Affected:**
 - `packages/workers/src/skills/morning-brief.ts` (modify)
@@ -918,7 +918,7 @@ This runs ONCE on homeserver post-deploy. Document in LAB_NOTEBOOK + CLAUDE.md a
 ---
 
 #### 6.4 Refine-brief skill (Option 2: generic LLM HTML transform)
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 D110, investigation item 2.9
 **Files Affected:**
 - `packages/workers/src/skills/refine-brief.ts` (create)

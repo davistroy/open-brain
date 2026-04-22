@@ -233,6 +233,7 @@ task_routing:
   daily_connections: t1_spark     # Morning brief: surfaces unexpected connections between recent captures
   drift_monitoring: t1_spark      # Detects semantic drift in wiki pages vs recent captures
   email_daily_digest: t1_spark    # Canonical name for email-classify synthesis (replaces stray 'synthesis' key)
+  brief_refinement: t1_spark      # HTML transform for brief refinement — moderate reasoning, free tier sufficient
 
   # ===================================================================
   # CONSTRAINT CLASS: QUALITY-CRITICAL (paid -- Anthropic Sonnet)

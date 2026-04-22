@@ -30,6 +30,7 @@ import { SecretRotationSkill } from '../skills/secret-rotation.js'
 import { StorageAuditSkill } from '../skills/storage-audit.js'
 import { CaptureDedupSweepSkill } from '../skills/capture-dedup-sweep.js'
 import { EmailClassifySkill } from '../skills/email-classify.js'
+import { RefineBriefSkill } from '../skills/refine-brief.js'
 import { HotmailClient, GmailClient, EmailClassifier, loadEmailRules } from '@open-brain/shared'
 import path from 'node:path'
 
@@ -457,6 +458,34 @@ export function createSkillExecutionWorker(
               durationMs: result.durationMs,
             },
             '[skill-execution] wiki-ingest complete',
+          )
+          break
+        }
+
+        // ── Brief Refinement Skills ─────────────────────────────
+
+        case 'refine-brief': {
+          const source_brief_id = typeof input?.source_brief_id === 'string' ? input.source_brief_id : ''
+          const option = typeof input?.option === 'string' ? input.option : ''
+          if (!source_brief_id || !option) {
+            throw new UnrecoverableError('[skill-execution] refine-brief requires input.source_brief_id and input.option')
+          }
+          const result = await runSkill(
+            RefineBriefSkill,
+            { db, llmGateway: opts.llmGateway },
+            { source_brief_id, option },
+          )
+          logger.info(
+            {
+              skillName,
+              sourceBriefId: result.sourceBriefId,
+              newBriefId: result.newBriefId,
+              option: result.option,
+              refined: result.refined,
+              outputLength: result.outputLength,
+              durationMs: result.durationMs,
+            },
+            '[skill-execution] refine-brief complete',
           )
           break
         }
