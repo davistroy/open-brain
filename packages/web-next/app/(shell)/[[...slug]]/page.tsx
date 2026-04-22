@@ -3,6 +3,12 @@ import { Construction } from 'lucide-react';
 import { PageHeader } from '@/components/design-system/PageHeader';
 import { EmptyState } from '@/components/design-system/EmptyState';
 
+// Force dynamic rendering — shell layout calls isOnboardingComplete() with
+// cache: 'no-store', making it dynamic at runtime. Without this directive,
+// Next.js tries to pre-render "/" as static and then sees "Page changed from
+// static to dynamic at runtime", resulting in a 500.
+export const dynamic = 'force-dynamic';
+
 /**
  * Map of top-level route slug → owning milestone label.
  * All routes that now have dedicated pages have been removed — this catch-all
@@ -48,8 +54,4 @@ export default async function CatchAllPage({ params }: Props) {
       />
     </>
   );
-}
-
-export function generateStaticParams() {
-  return Object.keys(MILESTONE_MAP).map((slug) => ({ slug: [slug] }));
 }
