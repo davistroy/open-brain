@@ -513,6 +513,57 @@ services:
               level:
               name:
 
+  web-next:
+    image: ghcr.io/davistroy/open-brain/web-next:latest
+    build:
+      context: .
+      dockerfile: packages/web-next/Dockerfile
+    container_name: open-brain-web-next
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      HOSTNAME: "0.0.0.0"
+      # API_URL: used by next.config.ts rewrites (server-side, not browser-exposed)
+      API_URL: http://core-api:3000
+      # NEXT_PUBLIC_API_URL: browser-visible URL — intentionally empty in Docker;
+      # all /api calls are proxied server-side via next.config.ts rewrites
+      NEXT_PUBLIC_API_URL: http://core-api:3000
+    ports:
+      - "3003:3001"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/dashboard || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - open-brain
+    restart: unless-stopped
+    logging:
+      driver: loki
+      options:
+        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
+        loki-batch-size: "400"
+        loki-retries: "3"
+        loki-max-backoff: "800ms"
+        loki-timeout: "2s"
+        loki-pipeline-stages: |
+          - json:
+              expressions:
+                level: level
+                name: name
+                msg: msg
+          - labels:
+              level:
+              name:
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: open-brain-cloudflared

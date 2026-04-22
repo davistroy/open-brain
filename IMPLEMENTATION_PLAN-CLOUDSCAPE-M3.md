@@ -1094,7 +1094,7 @@ AdminResetSection adds a 5-minute CountdownTimer component (M:SS format, turns r
 ### Work Items
 
 #### 7.1 web-next Dockerfile
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §8.1
 **Files Affected:**
 - `packages/web-next/Dockerfile` (create)
@@ -1104,8 +1104,8 @@ AdminResetSection adds a 5-minute CountdownTimer component (M:SS format, turns r
 Multi-stage Dockerfile. Builder: `node:22-alpine`, install pnpm, copy workspace files, `pnpm --filter @open-brain/web-next build` with `NODE_OPTIONS="--max-old-space-size=4096"`. Runtime: `node:22-alpine`, copy `.next/standalone/`, `.next/static/`, `public/`. `outputFileTracingRoot` (set in M2) ensures workspace deps are traced. Port 3001. Healthcheck: `wget -qO- http://127.0.0.1:3001/dashboard` (use `127.0.0.1` not `localhost` per CLAUDE.md Alpine IPv6 rule).
 
 **Tasks:**
-1. [ ] Create multi-stage Dockerfile (builder + runtime)
-2. [ ] Create .dockerignore (node_modules, .next, .git)
+1. [x] Create multi-stage Dockerfile (builder + runtime)
+2. [x] Create .dockerignore (node_modules, .next, .git)
 3. [ ] Test local build: `docker build -f packages/web-next/Dockerfile .`
 4. [ ] Verify standalone output serves all routes
 
@@ -1117,7 +1117,7 @@ Multi-stage Dockerfile. Builder: `node:22-alpine`, install pnpm, copy workspace 
 ---
 
 #### 7.2 docker-compose service + Loki
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §8.1, CLAUDE.md P11a (all services log to Loki)
 **Files Affected:**
 - `docker-compose.yml` (modify — add web-next service)
@@ -1126,9 +1126,9 @@ Multi-stage Dockerfile. Builder: `node:22-alpine`, install pnpm, copy workspace 
 Add `web-next` service to docker-compose.yml. Port 3001:3001. `depends_on: core-api` (healthy). Environment: `NEXT_PUBLIC_API_URL` pointing to core-api internal URL. Loki log driver with `LOKI_URL` parameterization. Memory limit 512m. Healthcheck matching Dockerfile.
 
 **Tasks:**
-1. [ ] Add web-next service definition
-2. [ ] Configure Loki logging driver
-3. [ ] Set depends_on and healthcheck
+1. [x] Add web-next service definition
+2. [x] Configure Loki logging driver
+3. [x] Set depends_on and healthcheck
 4. [ ] Test: `docker compose up web-next`
 
 **Acceptance Criteria:**
