@@ -1,9 +1,5 @@
-/**
- * Offline fallback page — served by the service worker when the network is
- * unavailable and no cached version of the requested page exists.
- *
- * Must not make any API calls — it must render purely from static content.
- */
+'use client';
+
 export default function OfflinePage() {
   return (
     <div className="min-h-screen bg-[#faf7f2] flex items-center justify-center px-6">
