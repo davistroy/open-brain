@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Sarah Chen</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+const SECTIONS = [
+  { id: 'summary',    label: 'Summary' },
+  { id: 'timeline',   label: 'Timeline' },
+  { id: 'captures',   label: 'Captures', count: 14 },
+  { id: 'relations',  label: 'Relationships', count: 11 },
+  { id: 'commitments',label: 'Commitments', count: 3 },
+];
+
+// Tiny radial graph of related entities
+const Relationship = ({ entities }) => {
+  const cx = 160, cy = 110, r = 78;
+  return (
+    <svg viewBox="0 0 320 220" style={{ width: '100%', height: 220, background: 'var(--color-bg-container)' }}>
+      {/* concentric rings */}
+      {[30, 55, 80].map(rr => (
+        <circle key={rr} cx={cx} cy={cy} r={rr} fill="none" stroke="var(--color-cloud-light)" strokeDasharray="1 3" />
+      ))}
+      {/* connections */}
+      {entities.map((e, i) => {
+        const angle = (i / entities.length) * Math.PI * 2 - Math.PI / 2;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        return <line key={'l'+i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--color-cloud-medium)" strokeWidth="1" />;
+      })}
+      {/* node nodes */}
+      {entities.map((e, i) => {
+        const angle = (i / entities.length) * Math.PI * 2 - Math.PI / 2;
+        const x = cx + Math.cos(angle) * r;
+        const y = cy + Math.sin(angle) * r;
+        const lx = cx + Math.cos(angle) * (r + 22);
+        const ly = cy + Math.sin(angle) * (r + 22);
+        const anchor = Math.cos(angle) > 0.3 ? 'start' : Math.cos(angle) < -0.3 ? 'end' : 'middle';
+        return (
+          <g key={'n'+i}>
+            <circle cx={x} cy={y} r={4} fill="var(--color-slate-medium)" />
+            <text x={lx} y={ly} textAnchor={anchor} dominantBaseline="middle" style={{ fontFamily: 'var(--font-family-base)', fontSize: 10.5, fill: 'var(--color-text-body)' }}>{e}</text>
+          </g>
+        );
+      })}
+      {/* center */}
+      <circle cx={cx} cy={cy} r={14} fill="var(--color-book-cloth)" />
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, fontWeight: 700, fill: 'var(--color-ivory-light)' }}>SC</text>
+    </svg>
+  );
+};
+
+const CaptureItem = ({ time, source, title, snippet }) => (
+  <div style={{ padding: '12px 0', borderBottom: '1px solid var(--color-cloud-light)', cursor: 'pointer' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 2 }}>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{source}</span>
+      <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{time}</span>
+    </div>
+    <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)', marginBottom: 2 }}>{title}</div>
+    <div style={{ fontSize: 12.5, color: 'var(--color-text-body)', fontWeight: 300, lineHeight: 1.55 }}>{snippet}</div>
+  </div>
+);
+
+const App = () => (
+  <Shell
+    active="entities"
+    breadcrumb={['Open Brain', 'Entities', 'Sarah Chen']}
+    title={null}
+    subtitle={null}
+    actions={null}
+  >
+    {/* Entity header card */}
+    <div style={{
+      background: 'var(--color-bg-container)',
+      border: '1px solid var(--color-cloud-medium)',
+      padding: 28, marginBottom: 20,
+      display: 'grid', gridTemplateColumns: '88px 1fr auto', gap: 24, alignItems: 'start',
+    }}>
+      {/* Initials monogram */}
+      <div style={{
+        width: 88, height: 88, background: 'var(--color-book-cloth)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-family-display)', fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em',
+        color: 'var(--color-ivory-light)',
+      }}>SC</div>
+      <div>
+        <Eyebrow>PERSON · ADDED AUG 12, 2023</Eyebrow>
+        <h1 style={{ fontFamily: 'var(--font-family-display)', fontSize: 38, fontWeight: 300, letterSpacing: '-0.025em', lineHeight: 1.05, color: 'var(--color-text-heading)', margin: '4px 0 8px' }}>Sarah Chen</h1>
+        <div style={{ fontSize: 15, color: 'var(--color-text-body)', fontWeight: 300, maxWidth: 620, lineHeight: 1.55 }}>
+          VP of Operations. Joined the company Jan 2022. Owns ops, finance, and hiring. Direct: 7. Primary collaborator on Q4 planning and the new London office.
+        </div>
+        <div style={{ display: 'flex', gap: 24, marginTop: 16 }}>
+          <div><div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em' }}>MENTIONS</div><div style={{ fontFamily: 'var(--font-family-display)', fontSize: 18, color: 'var(--color-text-heading)', fontWeight: 400 }}>148</div></div>
+          <div><div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em' }}>FIRST SEEN</div><div style={{ fontFamily: 'var(--font-family-display)', fontSize: 18, color: 'var(--color-text-heading)', fontWeight: 400 }}>Aug 2023</div></div>
+          <div><div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em' }}>LAST SEEN</div><div style={{ fontFamily: 'var(--font-family-display)', fontSize: 18, color: 'var(--color-text-heading)', fontWeight: 400 }}>Apr 18</div></div>
+          <div><div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em' }}>CO-MENTIONED</div><div style={{ fontFamily: 'var(--font-family-display)', fontSize: 18, color: 'var(--color-text-heading)', fontWeight: 400 }}>31 entities</div></div>
+          <div><div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em' }}>SENTIMENT</div><div style={{ fontFamily: 'var(--font-family-display)', fontSize: 18, color: 'var(--color-text-heading)', fontWeight: 400 }}>Trusted +</div></div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <SBtn variant="primary" size="small" icon={<i data-lucide="sparkles" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Ask AI about Sarah</SBtn>
+        <SBtn variant="normal" size="small" icon={<i data-lucide="file-text" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Generate brief</SBtn>
+        <SBtn variant="normal" size="small" icon={<i data-lucide="git-merge" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Merge…</SBtn>
+        <SBtn variant="ghost" size="small" icon={<i data-lucide="more-horizontal" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>More</SBtn>
+      </div>
+    </div>
+
+    {/* Section tabs */}
+    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-cloud-medium)', marginBottom: 20 }}>
+      {SECTIONS.map((s, i) => {
+        const on = i === 0;
+        return (
+          <button key={s.id} style={{
+            padding: '10px 18px', background: 'transparent', border: 'none',
+            borderBottom: on ? '2px solid var(--color-book-cloth)' : '2px solid transparent',
+            color: on ? 'var(--color-text-heading)' : 'var(--color-text-body-secondary)',
+            fontFamily: 'var(--font-family-base)', fontSize: 13, fontWeight: on ? 400 : 300,
+            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: -1,
+          }}>
+            {s.label}
+            {s.count && <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)' }}>{s.count}</span>}
+          </button>
+        );
+      })}
+    </div>
+
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 24 }}>
+      <div>
+        {/* AI summary */}
+        <div style={{
+          background: 'var(--color-book-cloth-50)',
+          borderLeft: '3px solid var(--color-book-cloth)',
+          padding: '18px 22px', marginBottom: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <i data-lucide="sparkles" style={{ width: 12, height: 12, strokeWidth: 1.5, color: 'var(--color-book-cloth-dark)' }}></i>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>AI SUMMARY · UPDATED 14M AGO</span>
+          </div>
+          <p style={{ fontFamily: 'var(--font-family-display)', fontSize: 19, fontWeight: 300, lineHeight: 1.5, color: 'var(--color-text-heading)', margin: 0, letterSpacing: '-0.005em' }}>
+            Sarah is driving the Q4 planning process. In the last two weeks she's pushed back on your proposed hiring timeline (twice), surfaced concerns about the London office budget, and flagged a risk around Maya's scope. She's also the one who moved finance before product on the board agenda — worth acknowledging.
+          </p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            <SBtn variant="normal" size="small">Why this summary?</SBtn>
+            <SBtn variant="ghost" size="small">Refine</SBtn>
+          </div>
+        </div>
+
+        {/* Commitments */}
+        <SCard header="Active commitments" description="Extracted from captures — waiting, owing, or asked" padded={false}>
+          {[
+            { who: 'Sarah owes you', what: 'Updated hiring timeline for engineering', due: 'By Thu', state: 'pending' },
+            { who: 'You owe Sarah', what: 'Response on London office budget memo', due: 'Overdue · 2d', state: 'overdue' },
+            { who: 'Mutually blocked', what: 'Decision on offer letter for H. Rahimi', due: 'This week', state: 'pending' },
+          ].map((c, i, a) => (
+            <div key={i} style={{ padding: '12px 18px', display: 'grid', gridTemplateColumns: '150px 1fr 120px 24px', gap: 16, alignItems: 'center', borderBottom: i === a.length - 1 ? 'none' : '1px solid var(--color-cloud-light)' }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.04em' }}>{c.who.toUpperCase()}</span>
+              <span style={{ fontSize: 13, color: 'var(--color-text-heading)' }}>{c.what}</span>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: c.state === 'overdue' ? 'var(--color-faded-red)' : 'var(--color-text-body)', letterSpacing: '0.02em' }}>{c.due.toUpperCase()}</span>
+              <button style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                <i data-lucide="arrow-up-right" style={{ width: 13, height: 13, strokeWidth: 1.5, color: 'var(--color-cloud-dark)' }}></i>
+              </button>
+            </div>
+          ))}
+        </SCard>
+
+        <div style={{ height: 20 }}></div>
+
+        {/* Recent captures */}
+        <SCard header="Recent captures mentioning Sarah" actions={<SBtn variant="ghost" size="small">View all 148 →</SBtn>} padded={true}>
+          <CaptureItem time="APR 21 · 16:48" source="EMAIL" title="Re: board agenda" snippet="Sarah suggested moving finance before product on Thursday — updated." />
+          <CaptureItem time="APR 21 · 09:40" source="VOICE" title="Dictation — investor update draft" snippet="…Sarah flagged one risk I should include: the London office timeline." />
+          <CaptureItem time="APR 20 · 13:10" source="MEETING" title="Q4 planning sync" snippet="Sarah walked through the proposed headcount. Pushed back on eng ramp in December." />
+          <CaptureItem time="APR 18 · 10:05" source="EMAIL" title="London office — budget memo v3" snippet="She attached the revised budget with a 12% cut vs the March draft." />
+        </SCard>
+      </div>
+
+      {/* Right column */}
+      <aside>
+        <SCard header="Relationship graph" description="Top co-mentioned entities" padded={false}>
+          <Relationship entities={['Q4 Planning', 'Maya R.', 'London Office', 'Hiring', 'Board', 'H. Rahimi', 'Budget', 'Ravi']} />
+        </SCard>
+
+        <div style={{ height: 16 }}></div>
+
+        <SCard header="Mentions over time" padded={true}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 56 }}>
+            {[2,3,4,3,5,6,4,7,8,6,9,8,10,7,9,11,8,10,9,7,8,9,6,8,10,9,11,8,10,12,14,11,9,10,12,14].map((v, i) => (
+              <div key={i} style={{ flex: 1, height: `${v * 3.5}px`, background: i > 30 ? 'var(--color-book-cloth)' : 'var(--color-cloud-dark)' }}></div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em', marginTop: 8 }}>
+            <span>AUG '23</span><span>APR '26</span>
+          </div>
+        </SCard>
+
+        <div style={{ height: 16 }}></div>
+
+        <SCard header="Also related" padded={false}>
+          {[
+            { t: 'PROJECT', n: 'Q4 Planning', k: '44 shared' },
+            { t: 'PERSON', n: 'Maya Rodriguez', k: '12 shared' },
+            { t: 'TOPIC', n: 'Hiring', k: '18 shared' },
+            { t: 'PROJECT', n: 'London Office', k: '9 shared' },
+            { t: 'PERSON', n: 'H. Rahimi', k: '5 shared' },
+          ].map((r, i, a) => (
+            <div key={i} style={{ padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: i === a.length - 1 ? 'none' : '1px solid var(--color-cloud-light)', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 9.5, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{r.t}</div>
+                <div style={{ fontSize: 13, fontWeight: 400, color: 'var(--color-text-heading)' }}>{r.n}</div>
+              </div>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)' }}>{r.k.toUpperCase()}</span>
+            </div>
+          ))}
+        </SCard>
+      </aside>
+    </div>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

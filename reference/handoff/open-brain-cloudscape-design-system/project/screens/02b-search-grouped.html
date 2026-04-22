@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Search (grouped)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+  mark { background: var(--color-book-cloth-50); color: var(--color-book-cloth-dark); padding: 0 2px; border-radius: 0; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+const GROUPS = [
+  { kind: 'Entities', count: 3, items: [
+    { title: 'Sarah Chen', meta: 'Person · VP Operations', snippet: '14 captures · mentioned in 3 open threads · last captured Apr 18', },
+    { title: 'Hiring', meta: 'Topic · 18 captures', snippet: '18 captures over 6 weeks · 2 open briefs · trending ▲' },
+    { title: 'Platform Team', meta: 'Project · 6 captures', snippet: 'Cross-functional squad — 4 members named in captures' },
+  ]},
+  { kind: 'Captures', count: 92, items: [
+    { title: 'Morning walk — Q4 planning thoughts', meta: 'Voice · Apr 21', snippet: 'Need to circle back with Sarah on <mark>headcount</mark> for the new team. Budget from ops looks tight…' },
+    { title: 'Re: Q3 → Q4 staffing proposal', meta: 'Email · Apr 18', snippet: '"Updated proposal attached. <mark>Headcount</mark> request for the platform team lands at 4 FTE…"' },
+    { title: 'Quarterly business review — prep notes', meta: 'Meeting · Apr 15', snippet: 'Talking points for the QBR. Emphasize the <mark>hiring</mark> plan and the ops budget trade-off…' },
+    { title: 'Decision log — hiring plan', meta: 'Note · Apr 12', snippet: 'Draft decision framework for the Q4 <mark>hiring</mark> plan. Three options, each with ramp scenarios…' },
+  ]},
+  { kind: 'Briefs', count: 2, items: [
+    { title: 'Q4 Planning — decision memo', meta: 'Updated 2h ago · 72% synthesized', snippet: 'Key tension: front-loaded October <mark>hiring</mark> vs. rolling through the quarter…' },
+    { title: 'Ops budget FY24', meta: 'Updated 1d ago · 40% synthesized', snippet: 'Allocations including <mark>hiring</mark> requests for Platform and Infra teams…' },
+  ]},
+];
+
+const GroupCard = ({ g }) => (
+  <div style={{ marginBottom: 20 }}>
+    <div style={{
+      display: 'flex', alignItems: 'baseline', gap: 10,
+      padding: '8px 0 10px',
+      borderBottom: '1px solid var(--color-cloud-medium)',
+      marginBottom: 0,
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-family-display)', fontSize: 18, fontWeight: 400,
+        letterSpacing: '-0.01em', color: 'var(--color-text-heading)',
+      }}>{g.kind}</div>
+      <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.04em' }}>
+        {g.count} MATCHES
+      </div>
+      <div style={{ flex: 1 }}></div>
+      <a style={{ fontSize: 12, color: 'var(--color-book-cloth-dark)', cursor: 'pointer' }}>View all →</a>
+    </div>
+    <div style={{ background: 'var(--color-bg-container)', border: '1px solid var(--color-cloud-light)', borderTop: 'none' }}>
+      {g.items.map((it, i) => (
+        <div key={i} style={{
+          padding: '14px 18px',
+          borderBottom: i === g.items.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginBottom: 4 }}>
+            <div style={{ fontSize: 14, fontWeight: 400, color: 'var(--color-text-heading)' }}>{it.title}</div>
+            <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em', whiteSpace: 'nowrap' }}>{it.meta.toUpperCase()}</div>
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--color-text-body)', fontWeight: 300, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: it.snippet }}></div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const App = () => (
+  <Shell
+    active="search"
+    breadcrumb={['Open Brain', 'Search']}
+    title="Results for “hiring”"
+    subtitle="148 matches, grouped by content type"
+    actions={<>
+      <SBtn variant="normal" icon={<i data-lucide="list" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Flat view</SBtn>
+      <SBtn variant="normal" icon={<i data-lucide="bookmark" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Save search</SBtn>
+    </>}
+  >
+    <div style={{ marginBottom: 22, display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <i data-lucide="search" style={{ width: 14, height: 14, position: 'absolute', left: 14, color: 'var(--color-text-body-secondary)' }}></i>
+        <input defaultValue="hiring" style={{
+          width: '100%', height: 42, padding: '0 16px 0 38px',
+          background: 'var(--color-bg-container)', border: '1px solid var(--color-cloud-medium)', borderRadius: 0,
+          fontFamily: 'var(--font-family-base)', fontSize: 15, fontWeight: 300, color: 'var(--color-text-heading)', outline: 'none',
+        }} />
+      </div>
+      <SBtn variant="dark">Search</SBtn>
+    </div>
+
+    {GROUPS.map((g, i) => <GroupCard key={i} g={g} />)}
+  </Shell>
+);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

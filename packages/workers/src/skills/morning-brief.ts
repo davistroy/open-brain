@@ -1,6 +1,6 @@
 import type { Database, PushoverService, AutonomyLevel } from '@open-brain/shared'
-import { logger, ComposioClient, SlackMessenger } from '@open-brain/shared'
-import type { SlackBlock } from '@open-brain/shared'
+import { logger, ComposioClient, SlackMessenger, briefs, renderBriefHtml, REFINE_OPTIONS } from '@open-brain/shared'
+import type { SlackBlock, BriefSource } from '@open-brain/shared'
 import type { Redis } from 'ioredis'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
@@ -525,7 +525,7 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
       durationMs,
     }
 
-    await this.logResult(
+    const skillLogId = await this.logResult(
       result,
       `date:${now.toISOString().slice(0, 10)}`,
       [
@@ -540,6 +540,44 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
         `slack:${slackSent}`,
       ].join(' | '),
     )
+
+    // Write brief row — brief failure is non-fatal (same try/catch pattern as 6.1)
+    try {
+      const markdown = this.buildBriefMarkdown(title, now, schedule, referenceCalendar, emailTriage, yesterdayThread, openLoops, people, todayItems)
+      const { html, toc } = renderBriefHtml(markdown)
+      const sources: BriefSource[] = [
+        ...schedule.map(ev => ({
+          type: 'MEETING' as const,
+          title: ev.title,
+          excerpt: `${ev.time} — ${ev.calendar}`,
+        })),
+        ...emailTriage.map(em => ({
+          type: 'EMAIL' as const,
+          title: `${em.category} (${em.count})`,
+          excerpt: em.topSubjects.slice(0, 2).join(', ') || undefined,
+        })),
+        ...yesterdayThread.map(t => ({
+          type: 'NOTE' as const,
+          title: t.snippet,
+          capture_id: t.id,
+        })),
+      ].slice(0, 20)
+      await this.db.insert(briefs).values({
+        kind: 'DAILY',
+        cover: 'sunrise',
+        title,
+        subtitle: now.toISOString().slice(0, 10),
+        body_html: html,
+        toc,
+        sources,
+        refine_options: [...REFINE_OPTIONS],
+        source_skill_log_id: skillLogId || null,
+        generated_at: now,
+      })
+      logger.info('[morning-brief] brief row written')
+    } catch (err) {
+      logger.warn({ err }, '[morning-brief] brief write failed — skill result unaffected')
+    }
 
     logger.info(
       { schedule: schedule.length, refCal: referenceCalendar.length, email: totalEmails, thread: yesterdayThread.length, loops: openLoops.length, people: people.length, today: todayItems.length, notificationSent, slackSent, durationMs },
@@ -713,6 +751,111 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
     }
 
     return blocks
+  }
+
+  // ----------------------------------------------------------
+  // Private: markdown for brief-renderer
+  // ----------------------------------------------------------
+
+  /**
+   * Build a structured markdown string from morning brief data.
+   * Headings become TOC entries; sections map to BriefSource types.
+   * Calendar events → MEETING; emails → EMAIL; captures → NOTE.
+   */
+  private buildBriefMarkdown(
+    title: string,
+    now: Date,
+    schedule: CalendarEvent[],
+    referenceCalendar: CalendarEvent[],
+    emailTriage: EmailTriageItem[],
+    thread: ThreadItem[],
+    loops: string[],
+    people: PersonItem[],
+    todayItems: string[],
+  ): string {
+    const lines: string[] = []
+    const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+
+    lines.push(`# ${title}`)
+    lines.push('')
+    lines.push(`_${dateStr}_`)
+    lines.push('')
+
+    if (schedule.length > 0) {
+      lines.push('## Today\'s Schedule')
+      lines.push('')
+      for (const ev of schedule) {
+        lines.push(`- **${ev.time}** ${ev.title} _(${ev.calendar})_`)
+      }
+      lines.push('')
+    }
+
+    lines.push('## Reference Calendars')
+    lines.push('')
+    if (referenceCalendar.length === 0) {
+      lines.push('No events today on reference calendars.')
+    } else {
+      for (const ev of referenceCalendar) {
+        lines.push(`- **${ev.time}** ${ev.title} _(${ev.calendar})_`)
+      }
+    }
+    lines.push('')
+
+    if (emailTriage.length > 0) {
+      lines.push('## Overnight Email')
+      lines.push('')
+      let otherCount = 0
+      for (const item of emailTriage) {
+        if (item.isPriority) {
+          const subjects = item.topSubjects.length > 0 ? item.topSubjects.join(', ') : '(no subjects)'
+          lines.push(`- **${item.category}** (${item.count}): ${subjects}`)
+        } else {
+          otherCount += item.count
+        }
+      }
+      if (otherCount > 0) {
+        lines.push(`- ${otherCount} other email${otherCount === 1 ? '' : 's'} auto-filed`)
+      }
+      lines.push('')
+    }
+
+    if (thread.length > 0) {
+      lines.push('## Yesterday\'s Thread')
+      lines.push('')
+      for (const t of thread) {
+        lines.push(`- ${t.snippet}`)
+      }
+      lines.push('')
+    }
+
+    if (loops.length > 0) {
+      lines.push('## Open Loops')
+      lines.push('')
+      for (const l of loops) {
+        lines.push(`- ${l}`)
+      }
+      lines.push('')
+    }
+
+    if (people.length > 0) {
+      lines.push('## People')
+      lines.push('')
+      for (const p of people) {
+        lines.push(`- **${p.name}** — ${truncateToSnippet(p.snippet, 60)}`)
+      }
+      lines.push('')
+    }
+
+    if (todayItems.length > 0) {
+      lines.push('## Today')
+      lines.push('')
+      for (const t of todayItems) {
+        lines.push(`- ${t}`)
+      }
+      lines.push('')
+    }
+
+    return lines.join('\n').trim()
   }
 }
 

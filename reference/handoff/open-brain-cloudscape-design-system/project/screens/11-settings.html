@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+<script type="text/babel">
+const Toggle = ({ on }) => (
+  <div style={{
+    width: 32, height: 18, background: on ? 'var(--color-book-cloth)' : 'var(--color-cloud-medium)',
+    position: 'relative', cursor: 'pointer', flexShrink: 0,
+  }}>
+    <div style={{
+      position: 'absolute', top: 2, bottom: 2, width: 14, left: on ? 16 : 2, background: 'var(--color-ivory-light)',
+      transition: 'left 120ms',
+    }}></div>
+  </div>
+);
+
+const Row = ({ title, description, control, borderBottom = true }) => (
+  <div style={{
+    display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 24,
+    padding: '16px 20px',
+    borderBottom: borderBottom ? '1px solid var(--color-cloud-light)' : 'none',
+  }}>
+    <div>
+      <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)' }}>{title}</div>
+      {description && <div style={{ fontSize: 12.5, color: 'var(--color-text-body-secondary)', marginTop: 3, fontWeight: 300, maxWidth: 520, lineHeight: 1.5 }}>{description}</div>}
+    </div>
+    <div>{control}</div>
+  </div>
+);
+
+const SECTIONS = [
+  { id: 'profile', label: 'Profile', icon: 'user' },
+  { id: 'sources', label: 'Sources', icon: 'plug', active: true },
+  { id: 'briefs', label: 'Brief preferences', icon: 'file-text' },
+  { id: 'privacy', label: 'Privacy & data', icon: 'shield' },
+  { id: 'workspaces', label: 'Workspaces', icon: 'layers' },
+  { id: 'billing', label: 'Billing', icon: 'credit-card' },
+  { id: 'api', label: 'API & export', icon: 'code' },
+  { id: 'danger', label: 'Danger zone', icon: 'alert-triangle' },
+];
+
+const CONNECTED = [
+  { icon: 'mic', name: 'iOS Voice app', desc: 'Personal iPhone · last sync 2m ago', status: 'healthy' },
+  { icon: 'mail', name: 'Gmail (troy@)', desc: 'Filter: primary inbox + starred + sent', status: 'healthy' },
+  { icon: 'calendar', name: 'Google Calendar', desc: 'Meetings with notes or decisions only', status: 'healthy' },
+  { icon: 'hash', name: 'Slack — Acme workspace', desc: 'DMs, threads you\u2019re tagged in, stars', status: 'healthy' },
+  { icon: 'folder', name: 'Google Drive', desc: 'Folder: /Writing, /Research — max 200 MB per file', status: 'degraded' },
+  { icon: 'rss', name: 'Feedly bookmarks', desc: '12 feeds', status: 'error' },
+];
+
+const App = () => (
+  <Shell
+    active="settings"
+    breadcrumb={['Open Brain', 'Settings']}
+    title="Settings"
+    subtitle="Control what Open Brain ingests, how it summarizes, and who can see what."
+  >
+    <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 1fr)', gap: 32, alignItems: 'start' }}>
+      {/* Sidebar nav */}
+      <aside>
+        {SECTIONS.map(s => (
+          <div key={s.id} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 12px', marginLeft: -12,
+            borderLeft: s.active ? '2px solid var(--color-book-cloth)' : '2px solid transparent',
+            background: s.active ? 'var(--color-book-cloth-50)' : 'transparent',
+            color: s.active ? 'var(--color-text-heading)' : 'var(--color-text-body)',
+            fontSize: 13, fontWeight: s.active ? 400 : 300,
+            cursor: 'pointer',
+          }}>
+            <i data-lucide={s.icon} style={{ width: 13, height: 13, strokeWidth: 1.4, color: s.active ? 'var(--color-book-cloth-dark)' : 'var(--color-cloud-dark)' }}></i>
+            {s.label}
+          </div>
+        ))}
+      </aside>
+
+      {/* Main */}
+      <div>
+        {/* Section: Sources */}
+        <div style={{ marginBottom: 8 }}>
+          <h2 style={{ fontFamily: 'var(--font-family-display)', fontSize: 22, fontWeight: 400, letterSpacing: '-0.015em', color: 'var(--color-text-heading)', margin: 0 }}>Sources</h2>
+          <p style={{ fontSize: 13.5, color: 'var(--color-text-body-secondary)', fontWeight: 300, margin: '4px 0 0', maxWidth: 580 }}>
+            Connect the tools you already use. Open Brain reads, filters, and indexes — never writes back.
+          </p>
+        </div>
+
+        {/* Connected */}
+        <SCard header="Connected" description={`${CONNECTED.length} active`} actions={<SBtn variant="primary" size="small" icon={<i data-lucide="plus" style={{width:11,height:11,strokeWidth:2}}></i>}>Add source</SBtn>} padded={false} style={{ marginTop: 18 }}>
+          {CONNECTED.map((c, i) => (
+            <div key={c.name} style={{
+              display: 'grid', gridTemplateColumns: '28px 1fr 100px 80px',
+              padding: '14px 20px', alignItems: 'center', gap: 16,
+              borderBottom: i === CONNECTED.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+            }}>
+              <i data-lucide={c.icon} style={{ width: 15, height: 15, strokeWidth: 1.4, color: 'var(--color-text-body)' }}></i>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)' }}>{c.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', fontWeight: 300, marginTop: 2 }}>{c.desc}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 6, height: 6, background: c.status === 'healthy' ? '#5E8F4A' : c.status === 'degraded' ? 'var(--color-book-cloth)' : 'var(--color-faded-red)' }}></span>
+                <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{c.status.toUpperCase()}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                <button style={{ background: 'transparent', border: '1px solid var(--color-cloud-medium)', padding: '3px 8px', fontSize: 11, fontFamily: 'inherit', cursor: 'pointer' }}>Configure</button>
+              </div>
+            </div>
+          ))}
+        </SCard>
+
+        <div style={{ height: 20 }}></div>
+
+        {/* Ingest filters */}
+        <SCard header="Ingest filters" description="Signal over noise — what gets captured vs skipped." padded={false}>
+          <Row title="Skip automated emails" description="Newsletters, receipts, calendar invites without notes" control={<Toggle on={true} />} />
+          <Row title="Skip low-signal Slack" description="Channel chatter; keep DMs + stars + mentions" control={<Toggle on={true} />} />
+          <Row title="Capture calendar events without notes" description="Meetings with only a title and attendees" control={<Toggle on={false} />} />
+          <Row title="Transcribe voice captures over" control={
+            <select style={{ padding: '4px 8px', fontSize: 13, fontFamily: 'inherit', background: 'var(--color-bg-container)', border: '1px solid var(--color-cloud-medium)', borderRadius: 0 }}>
+              <option>30 seconds</option><option>1 minute</option><option>3 minutes</option>
+            </select>
+          } borderBottom={false} />
+        </SCard>
+
+        <div style={{ height: 20 }}></div>
+
+        {/* Entity extraction */}
+        <SCard header="Entity extraction" description="Tune what the pipeline treats as an entity." padded={false}>
+          <Row title="Extract people, projects, topics, orgs, decisions" description="Core extractor — recommended" control={<Toggle on={true} />} />
+          <Row title="Extract locations" description="Cities, offices, venues" control={<Toggle on={true} />} />
+          <Row title="Extract monetary amounts" description="Use for financial dossiers" control={<Toggle on={false} />} />
+          <Row title="Confidence threshold" description="Lower = more entities, more noise" control={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input type="range" min="0" max="100" defaultValue="62" style={{ width: 140, accentColor: 'var(--color-book-cloth)' }} />
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 12, color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums', minWidth: 28 }}>0.62</span>
+            </div>
+          } borderBottom={false} />
+        </SCard>
+
+        <div style={{ height: 20 }}></div>
+
+        {/* Data retention */}
+        <div style={{ background: 'var(--color-ivory-dark)', border: '1px solid var(--color-cloud-light)', padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <i data-lucide="shield" style={{ width: 13, height: 13, strokeWidth: 1.4, color: 'var(--color-text-body-secondary)' }}></i>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.08em' }}>DATA CONTROL</span>
+          </div>
+          <div style={{ fontSize: 13.5, color: 'var(--color-text-body)', fontWeight: 300, maxWidth: 540, lineHeight: 1.6 }}>
+            Captures are encrypted with a key only you hold. Raw audio is deleted 30 days after transcription (configurable). Models don't train on your data. <a href="#" style={{ color: 'var(--color-book-cloth-dark)' }}>Read the data policy →</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Brief</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+  .reader p { font-size: 15px; line-height: 1.7; font-weight: 300; color: var(--color-text-body); margin: 0 0 18px; }
+  .reader h3 { font-family: var(--font-family-display); font-size: 20px; font-weight: 400; letter-spacing: -0.01em; color: var(--color-text-heading); margin: 28px 0 10px; }
+  .reader blockquote { margin: 0 0 18px; padding: 10px 16px; border-left: 2px solid var(--color-book-cloth); background: var(--color-ivory-dark); font-size: 14px; color: var(--color-text-heading); }
+  .reader .callout { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; background: var(--color-book-cloth-50); color: var(--color-book-cloth-dark); font-family: var(--font-family-monospace); font-size: 10.5px; letter-spacing: 0.06em; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+<script type="text/babel">
+const TOC = [
+  { id: 's1', label: 'Three decisions waiting', active: true },
+  { id: 's2', label: 'Sarah Chen pushed back — twice' },
+  { id: 's3', label: 'London office — 2 days overdue' },
+  { id: 's4', label: 'Maya on customer exposure' },
+  { id: 's5', label: 'Low-signal skipped (7)' },
+  { id: 's6', label: 'Sources' },
+];
+const App = () => (
+  <Shell
+    active="briefs"
+    breadcrumb={['Open Brain', 'Briefs', 'Tue, Apr 21']}
+    title={null}
+    actions={null}
+  >
+    <div style={{ display: 'grid', gridTemplateColumns: '220px minmax(0, 720px) 280px', gap: 32, alignItems: 'start' }}>
+      {/* TOC */}
+      <aside style={{ position: 'sticky', top: 22 }}>
+        <Eyebrow>ON THIS PAGE</Eyebrow>
+        {TOC.map(t => (
+          <div key={t.id} style={{
+            fontSize: 12.5, padding: '6px 10px', marginLeft: -10,
+            borderLeft: t.active ? '2px solid var(--color-book-cloth)' : '2px solid transparent',
+            color: t.active ? 'var(--color-text-heading)' : 'var(--color-text-body-secondary)',
+            fontWeight: t.active ? 400 : 300, cursor: 'pointer', lineHeight: 1.4,
+          }}>{t.label}</div>
+        ))}
+        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--color-cloud-light)' }}>
+          <Eyebrow>ACTIONS</Eyebrow>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <SBtn variant="normal" size="small" icon={<i data-lucide="play" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Listen · 4 min</SBtn>
+            <SBtn variant="normal" size="small" icon={<i data-lucide="download" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Export</SBtn>
+            <SBtn variant="normal" size="small" icon={<i data-lucide="message-square-plus" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Ask follow-up</SBtn>
+          </div>
+        </div>
+      </aside>
+
+      {/* Reader */}
+      <article className="reader">
+        <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.1em', marginBottom: 10 }}>DAILY BRIEF · TUESDAY, APRIL 21 · 07:00</div>
+        <h1 style={{ fontFamily: 'var(--font-family-display)', fontSize: 42, fontWeight: 300, letterSpacing: '-0.025em', lineHeight: 1.1, color: 'var(--color-text-heading)', margin: '0 0 8px' }}>
+          Three decisions are waiting on you today
+        </h1>
+        <div style={{ fontSize: 14, color: 'var(--color-text-body-secondary)', fontWeight: 300, marginBottom: 28, paddingBottom: 20, borderBottom: '1px solid var(--color-cloud-medium)', display: 'flex', gap: 16, alignItems: 'center' }}>
+          <span>Drafted from 18 captures over the last 36 hours</span>
+          <span style={{ color: 'var(--color-cloud-medium)' }}>·</span>
+          <span>4 min read</span>
+          <span style={{ color: 'var(--color-cloud-medium)' }}>·</span>
+          <span>Generated by Open Brain · Apr 21, 06:58</span>
+        </div>
+
+        <p><span className="callout">TL;DR</span> &nbsp; The London office memo is two days overdue. Sarah has pushed back on Q4 eng hiring twice and would appreciate a 15-minute call before Thursday's board. Maya Rodriguez asked — three weeks ago — about customer exposure for her ML transition and is still waiting for a reply.</p>
+
+        <h3 id="s2">Sarah Chen pushed back — twice</h3>
+        <p>In your Monday 1:1 and again in an email Sunday evening, Sarah raised concerns about the December ramp in engineering headcount. She thinks the roles are "scoped too broadly" and that you're under-indexing on finance partners to support the London move.</p>
+        <blockquote>"I don't want to re-litigate this on Thursday — can we align before the board?" <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)' }}>— Email, Apr 20 22:14</span></blockquote>
+        <p>Given she moved finance before product on the agenda this morning, a short call today would land better than a written reply.</p>
+
+        <h3 id="s3">London office — 2 days overdue</h3>
+        <p>The budget memo v3 went out Friday. Sarah trimmed the March draft by 12% and needs your sign-off to pass to legal. You haven't replied. The entire Thursday board deck hinges on this number.</p>
+
+        <h3 id="s4">Maya on customer exposure</h3>
+        <p>In your last 1:1 on Apr 7, Maya asked if she could sit in on customer calls as she transitions to ML. You said "I'll think about it." Three weeks and three 1:1s later, she hasn't brought it up again — but it's in her Stanford cert notes as a blocker. Worth surfacing proactively.</p>
+
+        <h3 id="s5">Low-signal items skipped (7)</h3>
+        <p>Today's brief filtered out 7 items: 3 newsletter auto-summaries, 2 calendar reminders, a bookmark on espresso machines, and an already-resolved Slack thread. <a href="#" style={{ color: 'var(--color-book-cloth-dark)', textDecoration: 'underline', textDecorationThickness: 1 }}>Show skipped →</a></p>
+      </article>
+
+      {/* Right — source captures */}
+      <aside style={{ position: 'sticky', top: 22 }}>
+        <SCard header="Grounded in" description="18 captures drive this brief" padded={false}>
+          {[
+            { t: 'EMAIL', title: 'Re: board agenda', date: 'Apr 21' },
+            { t: 'EMAIL', title: 'London office — budget v3', date: 'Apr 18' },
+            { t: 'MEETING', title: '1:1 with Sarah', date: 'Apr 20' },
+            { t: 'MEETING', title: '1:1 with Maya', date: 'Apr 7' },
+            { t: 'VOICE', title: 'Morning walk — Q4', date: 'Apr 21' },
+            { t: 'NOTE', title: 'Agenda scratchpad', date: 'Apr 20' },
+          ].map((s, i, a) => (
+            <div key={i} style={{ padding: '10px 14px', borderBottom: i === a.length - 1 ? 'none' : '1px solid var(--color-cloud-light)', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{s.t}</span>
+                <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-text-body-secondary)' }}>{s.date.toUpperCase()}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--color-text-heading)', marginTop: 3, fontWeight: 400 }}>{s.title}</div>
+            </div>
+          ))}
+          <div style={{ padding: '8px 14px', textAlign: 'center', borderTop: '1px solid var(--color-cloud-medium)' }}>
+            <SBtn variant="link" size="small">Show all 18 →</SBtn>
+          </div>
+        </SCard>
+
+        <div style={{ height: 16 }}></div>
+
+        <div style={{ background: 'var(--color-ivory-dark)', border: '1px solid var(--color-cloud-light)', padding: '14px 16px' }}>
+          <Eyebrow>REFINE THIS BRIEF</Eyebrow>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+            <button style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '4px 0', color: 'var(--color-text-body)', fontSize: 12.5, fontWeight: 300, cursor: 'pointer' }}>→ Shorter — just the decisions</button>
+            <button style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '4px 0', color: 'var(--color-text-body)', fontSize: 12.5, fontWeight: 300, cursor: 'pointer' }}>→ Longer — include skipped items</button>
+            <button style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '4px 0', color: 'var(--color-text-body)', fontSize: 12.5, fontWeight: 300, cursor: 'pointer' }}>→ By project instead of priority</button>
+            <button style={{ textAlign: 'left', background: 'transparent', border: 'none', padding: '4px 0', color: 'var(--color-text-body)', fontSize: 12.5, fontWeight: 300, cursor: 'pointer' }}>→ More direct tone</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -41,7 +41,7 @@ class ConcreteSkill extends BaseSkill<TestInput, TestResult> {
     inputSummary: string,
     outputSummary?: string,
     captureId?: string,
-  ): Promise<void> {
+  ): Promise<string> {
     return this.logResult(result, inputSummary, outputSummary, captureId)
   }
 
@@ -87,9 +87,11 @@ class ConcreteLLMSkill extends LLMSkill<TestInput, TestResult> {
 // ============================================================
 
 function makeMockDb(opts: { insertError?: boolean } = {}) {
-  const valuesMock = opts.insertError
+  const returningMock = opts.insertError
     ? vi.fn().mockRejectedValue(new Error('Insert failed'))
-    : vi.fn().mockResolvedValue(undefined)
+    : vi.fn().mockResolvedValue([{ id: 'mock-skills-log-id' }])
+
+  const valuesMock = vi.fn().mockReturnValue({ returning: returningMock })
 
   return {
     execute: vi.fn().mockResolvedValue({ rows: [] }),
@@ -149,12 +151,13 @@ describe('BaseSkill', () => {
   // ----------------------------------------------------------
 
   describe('logResult()', () => {
-    it('writes to skills_log with correct fields', async () => {
+    it('writes to skills_log with correct fields and returns inserted id', async () => {
       const { skill, db } = makeSkill()
       const result: TestResult = { output: 'test', durationMs: 42 }
 
-      await skill.testLogResult(result, 'input:test', 'output:test', 'capture-123')
+      const id = await skill.testLogResult(result, 'input:test', 'output:test', 'capture-123')
 
+      expect(id).toBe('mock-skills-log-id')
       expect(db.insert).toHaveBeenCalledOnce()
       const insertChain = db.insert.mock.results[0].value
       expect(insertChain.values).toHaveBeenCalledOnce()
@@ -180,14 +183,14 @@ describe('BaseSkill', () => {
       expect(logEntry.output_summary).toBeNull()
     })
 
-    it('does not throw when insert fails', async () => {
+    it('does not throw when insert fails and returns empty string', async () => {
       const { skill } = makeSkill({ insertError: true })
       const result: TestResult = { output: 'test', durationMs: 10 }
 
-      // Should not throw
+      // Should not throw; returns '' on failure
       await expect(
         skill.testLogResult(result, 'input:test', 'output:test'),
-      ).resolves.toBeUndefined()
+      ).resolves.toBe('')
     })
   })
 

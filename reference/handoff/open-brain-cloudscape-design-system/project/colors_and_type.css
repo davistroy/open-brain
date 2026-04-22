@@ -1,0 +1,403 @@
+/* =============================================================================
+   Open Brain × Anthropic Design System — Design Tokens
+   Palette derived from Anthropic's brand system:
+     • Core neutrals: Ivory Medium (#F0EEE6) canvas, Book Cloth (#CC785C) accent,
+       Kraft (#D4A27F), Slate Medium (#191919) ink, Manilla (#EBDBBC) highlight
+     • Structure inherited from Cloudscape's visual-refresh token system so existing
+       preview cards and the dashboard UI kit keep working.
+   ============================================================================= */
+
+/* Brand direction: thin + technical. Display is set in Space Grotesk (geometric
+   grotesque with narrow aperture and slightly condensed proportions — reads
+   engineered, not editorial). Body is Inter. Code is JetBrains Mono. All three
+   are free (OFL) on Google Fonts and ship locally from /fonts — no runtime CDN
+   dependency. */
+
+/* ---- Inter (body) ---- */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 200; font-display: swap; src: url('fonts/inter-200.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 300; font-display: swap; src: url('fonts/inter-300.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/inter-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/inter-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/inter-700.woff2') format('woff2'); }
+
+/* ---- Space Grotesk (display) ---- */
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 300; font-display: swap; src: url('fonts/space-grotesk-300.woff2') format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/space-grotesk-400.woff2') format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/space-grotesk-500.woff2') format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/space-grotesk-600.woff2') format('woff2'); }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/space-grotesk-700.woff2') format('woff2'); }
+
+/* ---- JetBrains Mono (code / metadata) ---- */
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/jetbrains-mono-400.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/jetbrains-mono-500.woff2') format('woff2'); }
+
+:root {
+  /* ---- Anthropic core palette ------------------------------------------- */
+  /* Neutrals — warm ivory/cream → slate ink */
+  --color-ivory-light:  #FAFAF7;  /* page highlight */
+  --color-ivory-medium: #F0EEE6;  /* primary canvas */
+  --color-ivory-dark:   #E8E6DB;  /* subtle fills */
+  --color-manilla:      #EBDBBC;  /* warm highlight */
+  --color-cloud-light:  #E4E2DC;  /* divider rail */
+  --color-cloud-medium: #C2C0B6;  /* muted borders */
+  --color-cloud-dark:   #8F8E85;  /* secondary text */
+  --color-slate-light:  #40403E;  /* body */
+  --color-slate-medium: #262624;  /* ink */
+  --color-slate-dark:   #141413;  /* strongest ink / dark canvas */
+
+  /* Accents */
+  --color-book-cloth:   #CC785C;  /* primary action — clay/terracotta */
+  --color-book-cloth-dark: #B25A3D;
+  --color-book-cloth-darker: #8C3F28;
+  --color-book-cloth-50:  #FBEFE9;
+  --color-book-cloth-100: #F2D5C6;
+}
+
+html {
+  --color-kraft:        #D4A27F;  /* secondary accent — warmer tan */
+  --color-kraft-50:     #FAF1E9;
+  --color-faded-red:    #BF4939;  /* destructive / urgent */
+  --color-faded-red-50: #F8E5E1;
+  --color-clay:         #6B4A3A;  /* deep earth */
+  --color-moss:         #7A8471;  /* advisory / info tone, muted */
+  --color-moss-50:      #EEF1EC;
+  --color-sienna:       #A8563A;
+  --color-olive:        #5F5B3B;  /* success in context of earth palette */
+  --color-olive-50:     #EEEBDD;
+
+  /* ---- Legacy aliases (keep so preview cards keep rendering) ------------ */
+  /* Map old grey scale → ivory/slate scale */
+  --color-grey-50:   var(--color-ivory-light);
+  --color-grey-100:  var(--color-ivory-light);
+  --color-grey-150:  var(--color-ivory-medium);
+  --color-grey-200:  var(--color-ivory-dark);
+  --color-grey-250:  var(--color-cloud-light);
+  --color-grey-300:  var(--color-cloud-light);
+  --color-grey-350:  var(--color-cloud-medium);
+  --color-grey-400:  var(--color-cloud-medium);
+  --color-grey-450:  var(--color-cloud-dark);
+  --color-grey-500:  var(--color-cloud-dark);
+  --color-grey-550:  var(--color-cloud-dark);
+  --color-grey-600:  var(--color-slate-light);
+  --color-grey-650:  var(--color-slate-light);
+  --color-grey-700:  var(--color-slate-medium);
+  --color-grey-750:  var(--color-slate-medium);
+  --color-grey-800:  var(--color-slate-medium);
+  --color-grey-850:  var(--color-slate-dark);
+  --color-grey-900:  var(--color-slate-dark);
+  --color-grey-950:  var(--color-slate-dark);
+  --color-grey-1000: #000000;
+
+  /* Old blue → Book Cloth */
+  --color-blue-50:   var(--color-book-cloth-50);
+  --color-blue-100:  var(--color-book-cloth-100);
+  --color-blue-200:  var(--color-book-cloth-100);
+  --color-blue-300:  #E29B7C;
+  --color-blue-400:  #D88967;
+  --color-blue-500:  var(--color-book-cloth);
+  --color-blue-600:  var(--color-book-cloth);
+  --color-blue-700:  var(--color-book-cloth-dark);
+  --color-blue-800:  var(--color-book-cloth-darker);
+  --color-blue-900:  var(--color-book-cloth-darker);
+  --color-blue-1000: #4A1F12;
+
+  /* Green / Red / Yellow mapped to earth semantics */
+  --color-green-50:   var(--color-olive-50);
+  --color-green-500:  #8B9B6D;
+  --color-green-600:  var(--color-olive);
+  --color-green-900:  #3A3721;
+  --color-green-1000: #1C1A0E;
+
+  --color-red-50:   var(--color-faded-red-50);
+  --color-red-400:  #D66B5C;
+  --color-red-600:  var(--color-faded-red);
+  --color-red-900:  #6E2418;
+  --color-red-1000: #2E0E09;
+
+  --color-yellow-50:  var(--color-kraft-50);
+  --color-yellow-400: var(--color-manilla);
+  --color-yellow-500: var(--color-kraft);
+  --color-yellow-900: #6B4A2C;
+  --color-yellow-1000: #2A1E11;
+
+  --color-purple-400: #B39A8A;
+  --color-purple-700: var(--color-clay);
+
+  --color-aws-squid-ink: var(--color-slate-dark);
+
+  /* ---- Semantic: surfaces & text (light) -------------------------------- */
+  --color-bg-layout-main:       var(--color-ivory-medium);
+  --color-bg-container:         #FFFFFF;
+  --color-bg-dropdown:          #FFFFFF;
+  --color-bg-input:             #FFFFFF;
+  --color-bg-item-selected:     var(--color-book-cloth-50);
+  --color-bg-home-header:       var(--color-slate-dark);
+  --color-bg-status-info:       var(--color-moss-50);
+  --color-bg-status-success:    var(--color-olive-50);
+  --color-bg-status-warning:    var(--color-kraft-50);
+  --color-bg-status-error:      var(--color-faded-red-50);
+  --color-bg-cell-shaded:       var(--color-ivory-medium);
+
+  --color-text-body:            var(--color-slate-medium);
+  --color-text-body-secondary:  var(--color-slate-light);
+  --color-text-heading:         var(--color-slate-dark);
+  --color-text-heading-secondary: var(--color-slate-light);
+  --color-text-small:           var(--color-cloud-dark);
+  --color-text-form-secondary:  var(--color-cloud-dark);
+  --color-text-disabled:        var(--color-cloud-medium);
+  --color-text-interactive:     var(--color-slate-light);
+  --color-text-interactive-hover: var(--color-slate-dark);
+  --color-text-link:            var(--color-book-cloth-dark);
+  --color-text-link-hover:      var(--color-book-cloth-darker);
+  --color-text-accent:          var(--color-book-cloth-dark);
+  --color-text-status-success:  var(--color-olive);
+  --color-text-status-warning:  #8A5A2E;
+  --color-text-status-error:    var(--color-faded-red);
+  --color-text-status-info:     var(--color-moss);
+  --color-text-counter:         var(--color-cloud-dark);
+  --color-text-label-genai:     var(--color-clay);
+
+  --color-border-divider:       var(--color-cloud-light);
+  --color-border-divider-secondary: var(--color-ivory-dark);
+  --color-border-input:         var(--color-cloud-medium);
+  --color-border-input-focused: var(--color-book-cloth);
+  --color-border-control:       var(--color-cloud-medium);
+  --color-border-item-selected: var(--color-book-cloth);
+  --color-border-status-info:   var(--color-moss);
+  --color-border-status-success:var(--color-olive);
+  --color-border-status-warning:#8A5A2E;
+  --color-border-status-error:  var(--color-faded-red);
+
+  /* Button */
+  --color-button-primary-bg:       var(--color-book-cloth);
+  --color-button-primary-bg-hover: var(--color-book-cloth-dark);
+  --color-button-primary-text:     #FFFFFF;
+  --color-button-normal-bg:        #FFFFFF;
+  --color-button-normal-border:    var(--color-slate-medium);
+  --color-button-normal-text:      var(--color-slate-medium);
+  --color-button-normal-bg-hover:  var(--color-ivory-medium);
+
+  /* ---- Typography -------------------------------------------------------- */
+  /* Google-Fonts-only stack. See the import note at the top of this file for
+     why these substitute for Anthropic's Styrene A / Tiempos Text. */
+  --font-family-base:     'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-display:  'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-serif:    'Source Serif 4', 'Source Serif Pro', Georgia, 'Times New Roman', serif; /* retained for the occasional editorial moment */
+  --font-family-monospace:'JetBrains Mono', Menlo, Monaco, 'Courier New', monospace;
+
+  /* Sizes — unchanged */
+  --font-size-body-s:      12px;
+  --font-size-body-m:      14px;
+  --font-size-heading-xs:  14px;
+  --font-size-heading-s:   16px;
+  --font-size-heading-m:   18px;
+  --font-size-heading-l:   22px;
+  --font-size-heading-xl:  28px;
+  --font-size-display-l:   48px;
+
+  --line-height-body-s:    16px;
+  --line-height-body-m:    22px;
+  --line-height-heading-xs:18px;
+  --line-height-heading-s: 22px;
+  --line-height-heading-m: 26px;
+  --line-height-heading-l: 28px;
+  --line-height-heading-xl:34px;
+  --line-height-display-l: 54px;
+
+  /* Anthropic leans on tighter tracking for display; body is neutral */
+  --letter-spacing-body-s:     0.005em;
+  --letter-spacing-heading-xs: 0;
+  --letter-spacing-heading-s:  -0.005em;
+  --letter-spacing-heading-m:  -0.010em;
+  --letter-spacing-heading-l:  -0.015em;
+  --letter-spacing-heading-xl: -0.02em;
+  --letter-spacing-display-l:  -0.025em;
+  --letter-spacing-button:     0;
+
+  --font-weight-regular: 400;
+  --font-weight-medium:  500;
+  --font-weight-bold:    600; /* Anthropic headings are semibold, not black-bold */
+
+  /* ---- Spacing ---------------------------------------------------------- */
+  --space-none: 0;
+  --space-xxxs: 2px;
+  --space-xxs:  4px;
+  --space-xs:   8px;
+  --space-s:    12px;
+  --space-m:    16px;
+  --space-l:    20px;
+  --space-xl:   24px;
+  --space-xxl:  32px;
+  --space-xxxl: 40px;
+
+  /* ---- Border radii ----------------------------------------------------- */
+  /* Hard-edged, technical treatment — buttons and inputs are true rectangles;
+     containers keep a hair of radius so cards read as surfaces. */
+  --border-radius-button:    0px;
+  --border-radius-container: 2px;
+  --border-radius-input:     0px;
+  --border-radius-item:      8px;
+  --border-radius-badge:     4px;
+  --border-radius-dropzone:  12px;
+  --border-radius-flashbar:  10px;
+  --border-radius-chat-bubble: 12px;
+
+  /* ---- Border widths ---------------------------------------------------- */
+  --border-width-field:    1px;
+  --border-width-button:   1px; /* thinner, ink-line feel */
+  --border-width-popover:  1px;
+  --border-width-item-selected: 2px;
+  --border-width-active:   3px;
+
+  /* ---- Shadows (warm-tinted) ------------------------------------------- */
+  --shadow-card: none;
+  --shadow-container:       0 0 0 1px rgba(38,38,36,0.06), 0 1px 3px rgba(38,38,36,0.04);
+  --shadow-container-active:0 0 0 1px rgba(38,38,36,0.08), 0 4px 12px rgba(38,38,36,0.08);
+  --shadow-dropdown:        0 4px 20px rgba(38,38,36,0.08), 0 0 0 1px rgba(38,38,36,0.06);
+  --shadow-modal:           var(--shadow-dropdown);
+  --shadow-popover:         var(--shadow-dropdown);
+  --shadow-panel:           0 0 0 1px var(--color-cloud-light);
+  --shadow-sticky:          0 4px 8px rgba(38,38,36,0.06);
+
+  /* ---- Motion ----------------------------------------------------------- */
+  --motion-duration-fast:       90ms;
+  --motion-duration-moderate:   135ms;
+  --motion-duration-slow:       220ms;
+  --motion-duration-refresh-fast:  115ms;
+  --motion-duration-refresh-medium:165ms;
+  --motion-duration-refresh-slow:  260ms;
+  --motion-easing-responsive:  cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-sticky:      cubic-bezier(1, 0, 0.83, 1);
+  --motion-easing-expressive:  cubic-bezier(0.84, 0, 0.16, 1);
+  --motion-easing-ease-out-quart: cubic-bezier(0.165, 0.84, 0.44, 1);
+
+  /* ---- Chart palette (Anthropic earth tones) --------------------------- */
+  --color-chart-1: var(--color-book-cloth);
+  --color-chart-2: var(--color-kraft);
+  --color-chart-3: var(--color-moss);
+  --color-chart-4: var(--color-clay);
+  --color-chart-5: var(--color-manilla);
+  --color-chart-6: var(--color-sienna);
+  /* Legacy aliases */
+  --color-chart-blue-1: var(--color-book-cloth);
+  --color-chart-teal:   var(--color-moss);
+  --color-chart-purple: var(--color-clay);
+  --color-chart-pink:   var(--color-sienna);
+  --color-chart-green:  var(--color-olive);
+  --color-chart-orange: var(--color-kraft);
+}
+
+/* ---- Dark mode --------------------------------------------------------- */
+:root[data-theme="dark"],
+.dark {
+  --color-bg-layout-main:       var(--color-slate-dark);
+  --color-bg-container:         var(--color-slate-medium);
+  --color-bg-dropdown:          var(--color-slate-medium);
+  --color-bg-input:             var(--color-slate-dark);
+  --color-bg-item-selected:     rgba(204, 120, 92, 0.18);
+  --color-bg-status-info:       rgba(122, 132, 113, 0.2);
+  --color-bg-status-success:    rgba(95, 91, 59, 0.25);
+  --color-bg-status-warning:    rgba(212, 162, 127, 0.18);
+  --color-bg-status-error:      rgba(191, 73, 57, 0.22);
+  --color-bg-cell-shaded:       rgba(255, 255, 255, 0.03);
+
+  --color-text-body:            var(--color-ivory-medium);
+  --color-text-body-secondary:  var(--color-cloud-medium);
+  --color-text-heading:         var(--color-ivory-light);
+  --color-text-heading-secondary: var(--color-cloud-medium);
+  --color-text-small:           var(--color-cloud-medium);
+  --color-text-form-secondary:  var(--color-cloud-medium);
+  --color-text-disabled:        var(--color-cloud-dark);
+  --color-text-interactive:     var(--color-ivory-dark);
+  --color-text-interactive-hover: var(--color-ivory-light);
+  --color-text-link:            var(--color-kraft);
+  --color-text-link-hover:      var(--color-manilla);
+  --color-text-accent:          var(--color-kraft);
+  --color-text-label-genai:     var(--color-kraft);
+
+  --color-border-divider:       rgba(255, 255, 255, 0.08);
+  --color-border-divider-secondary: rgba(255, 255, 255, 0.05);
+  --color-border-input:         rgba(255, 255, 255, 0.15);
+  --color-border-input-focused: var(--color-kraft);
+  --color-border-item-selected: var(--color-kraft);
+
+  --color-button-primary-bg:       var(--color-book-cloth);
+  --color-button-primary-bg-hover: var(--color-kraft);
+  --color-button-primary-text:     #FFFFFF;
+  --color-button-normal-bg:        var(--color-slate-medium);
+  --color-button-normal-border:    var(--color-cloud-medium);
+  --color-button-normal-text:      var(--color-ivory-medium);
+  --color-button-normal-bg-hover:  rgba(255, 255, 255, 0.05);
+
+  --shadow-container: 0 0 0 1px rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.5);
+  --shadow-dropdown:  0 4px 20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+  --shadow-panel:     0 0 0 1px rgba(255,255,255,0.08);
+}
+
+/* ---- Base elements ----------------------------------------------------- */
+html, body {
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-body-m);
+  line-height: var(--line-height-body-m);
+  color: var(--color-text-body);
+  background: var(--color-bg-layout-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+}
+
+/* Anthropic headlines are set in the serif display face */
+h1, h2, h3 {
+  font-family: var(--font-family-display);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-heading);
+  margin: 0 0 var(--space-m);
+  letter-spacing: -0.015em;
+}
+h1 { font-size: var(--font-size-heading-xl); line-height: var(--line-height-heading-xl); letter-spacing: var(--letter-spacing-heading-xl); }
+h2 { font-size: var(--font-size-heading-l);  line-height: var(--line-height-heading-l);  letter-spacing: var(--letter-spacing-heading-l); }
+h3 { font-size: var(--font-size-heading-m);  line-height: var(--line-height-heading-m);  letter-spacing: var(--letter-spacing-heading-m); }
+h4, h5 {
+  font-family: var(--font-family-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-heading);
+  margin: 0 0 var(--space-xs);
+}
+h4 { font-size: var(--font-size-heading-s);  line-height: var(--line-height-heading-s);  letter-spacing: var(--letter-spacing-heading-s); }
+h5 { font-size: var(--font-size-heading-xs); line-height: var(--line-height-heading-xs); letter-spacing: var(--letter-spacing-heading-xs); }
+p  { margin: 0 0 var(--space-s); }
+small, .text-small {
+  font-size: var(--font-size-body-s);
+  line-height: var(--line-height-body-s);
+  color: var(--color-text-small);
+}
+code, pre, .mono { font-family: var(--font-family-monospace); }
+a {
+  color: var(--color-text-link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 135ms;
+}
+a:hover { color: var(--color-text-link-hover); border-bottom-color: currentColor; }
+
+/* -----------------------------------------------------------------------------
+   Palette washes — swap the peach tint globally without touching the accent.
+   Declared at end-of-file so they win the cascade against earlier :root and
+   theme blocks. Default (no [data-wash] attribute) stays peach.
+   ----------------------------------------------------------------------------- */
+html[data-wash="kraft"]:root,
+html[data-wash="kraft"] {
+  --color-book-cloth-50:  #FAF1E9;  /* warm manila */
+  --color-book-cloth-100: #EBD8C0;
+}
+html[data-wash="parchment"]:root,
+html[data-wash="parchment"] {
+  --color-book-cloth-50:  #EFE6D8;  /* cool parchment — nearly neutral */
+  --color-book-cloth-100: #DACDB6;
+}
+html[data-wash="moss"]:root,
+html[data-wash="moss"] {
+  --color-book-cloth-50:  #EEF1EC;  /* sage */
+  --color-book-cloth-100: #D4DDCF;
+}

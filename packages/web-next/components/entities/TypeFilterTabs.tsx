@@ -1,5 +1,8 @@
 'use client';
 
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+
 interface TabItem {
   id: string;
   label: string;
@@ -8,8 +11,8 @@ interface TabItem {
 
 interface TypeFilterTabsProps {
   items: TabItem[];
-  active: string;
-  onChange: (id: string) => void;
+  /** The currently active type from searchParams (passed from RSC parent) */
+  activeType: string;
 }
 
 /**
@@ -18,27 +21,41 @@ interface TypeFilterTabsProps {
  * Inactive tab: body-secondary color, light weight.
  * Count badge per tab in mono 10.5px.
  *
- * 'use client' — interactive tab selection.
+ * 'use client' — reads useSearchParams to preserve non-type search params
+ * in the generated Link hrefs; navigates via <Link> (no JS state).
  */
-export function TypeFilterTabs({ items, active, onChange }: TypeFilterTabsProps) {
+export function TypeFilterTabs({ items, activeType }: TypeFilterTabsProps) {
+  const searchParams = useSearchParams();
+
+  function buildHref(typeId: string): string {
+    const params = new URLSearchParams(searchParams.toString());
+    if (typeId === 'all') {
+      params.delete('type');
+    } else {
+      params.set('type', typeId);
+    }
+    const qs = params.toString();
+    return qs ? `?${qs}` : '?';
+  }
+
   return (
     <div
       className="flex border-b border-cloud-light mb-[18px]"
       role="tablist"
     >
       {items.map((item) => {
-        const isActive = item.id === active;
+        const isActive = item.id === activeType;
         return (
-          <button
+          <Link
             key={item.id}
+            href={buildHref(item.id)}
             role="tab"
             aria-selected={isActive}
-            onClick={() => onChange(item.id)}
             className={[
               'inline-flex items-center gap-[8px]',
               'px-[18px] py-[10px]',
-              'font-body text-[13px] tracking-[0.005em] cursor-pointer',
-              'border-none bg-transparent',
+              'font-body text-[13px] tracking-[0.005em]',
+              'border-none bg-transparent no-underline',
               'border-b-2 -mb-px',
               'transition-colors duration-[120ms]',
               isActive
@@ -54,7 +71,7 @@ export function TypeFilterTabs({ items, active, onChange }: TypeFilterTabsProps)
                 {item.count}
               </span>
             )}
-          </button>
+          </Link>
         );
       })}
     </div>

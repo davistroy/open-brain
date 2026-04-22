@@ -28,14 +28,14 @@ function makeMockDb(opts: {
         rows: [{ count: String(count), last_at: lastAt }],
       })
 
-  const valuesMock = opts.insertError
+  const returningMock = opts.insertError
     ? vi.fn().mockRejectedValue(new Error('Insert failed'))
-    : vi.fn().mockResolvedValue(undefined)
+    : vi.fn().mockResolvedValue([{ id: 'mock-log-id' }])
 
   return {
     execute: executeMock,
     insert: vi.fn().mockReturnValue({
-      values: valuesMock,
+      values: vi.fn().mockReturnValue({ returning: returningMock }),
     }),
   }
 }

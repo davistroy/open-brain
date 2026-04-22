@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — First run</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body {
+    background: var(--color-bg-layout-main);
+    min-height: 100vh;
+    display: flex; align-items: stretch; justify-content: center;
+  }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root" style="width:100%;"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// First-run: full-bleed, no chrome. Editorial welcome spread on the left
+// (book-cloth field with a literary pull-quote-style brand statement), a
+// 4-step setup on the right. Steps aren't a form wizard with a progress
+// bar — they're stations on a road.
+
+const STEPS = [
+  { num: '01', label: 'Introduce yourself',      status: 'done' },
+  { num: '02', label: 'Connect your first source', status: 'active' },
+  { num: '03', label: 'Choose a capture habit',     status: 'pending' },
+  { num: '04', label: 'Shape your first brief',     status: 'pending' },
+];
+
+const SOURCES = [
+  { id: 'gmail',    icon: 'mail',     name: 'Gmail',          desc: 'Primary inbox + sent + starred', time: '~2 min', recommended: true },
+  { id: 'cal',      icon: 'calendar', name: 'Google Calendar', desc: 'Events with notes or agendas',    time: '~1 min' },
+  { id: 'voice',    icon: 'mic',      name: 'iOS voice notes', desc: 'Airdrop, Shortcuts, Apple Watch', time: '~3 min' },
+  { id: 'slack',    icon: 'hash',     name: 'Slack',           desc: 'DMs, threads you\u2019re tagged in', time: '~2 min' },
+  { id: 'drive',    icon: 'folder',   name: 'Google Drive',    desc: 'Scoped to folders you choose',     time: '~4 min' },
+  { id: 'email',    icon: 'at-sign',  name: 'Email forwarding', desc: 'Forward to ingest@troy.openbrain.io', time: 'instant' },
+];
+
+const App = () => {
+  const [selected, setSelected] = useState(new Set(['gmail', 'voice']));
+
+  useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
+
+  const toggle = (id) => {
+    const s = new Set(selected);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelected(s);
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '520px 1fr', minHeight: '100vh', width: '100%' }}>
+
+      {/* LEFT — editorial panel */}
+      <div style={{
+        background: 'var(--color-book-cloth)', color: 'var(--color-ivory-light)',
+        padding: '44px 48px',
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        position: 'relative', overflow: 'hidden',
+      }}>
+        {/* Decorative rule strips — book cloth weave */}
+        <div aria-hidden style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          backgroundImage: 'repeating-linear-gradient(90deg, transparent 0 3px, rgba(0,0,0,0.03) 3px 4px)',
+          opacity: 0.6,
+        }}></div>
+
+        {/* Logo */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 22, height: 22, background: 'var(--color-ivory-light)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 10, height: 10, background: 'var(--color-book-cloth)', borderRadius: '50%' }}></div>
+          </div>
+          <div style={{ fontFamily: 'var(--font-family-display)', fontSize: 18, letterSpacing: '-0.005em', fontWeight: 400 }}>Open Brain</div>
+        </div>
+
+        {/* Hero */}
+        <div style={{ position: 'relative' }}>
+          <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, letterSpacing: '0.1em', opacity: 0.7, marginBottom: 22 }}>
+            VOLUME I · EDITION ONE
+          </div>
+          <div style={{
+            fontFamily: 'var(--font-family-display)',
+            fontSize: 54, lineHeight: 1.02, letterSpacing: '-0.022em', fontWeight: 400,
+            marginBottom: 20,
+          }}>
+            A second brain<br />
+            that <em style={{ fontWeight: 300 }}>reads you</em><br />
+            back.
+          </div>
+          <div style={{ fontSize: 15, lineHeight: 1.6, fontWeight: 300, opacity: 0.85, maxWidth: 380 }}>
+            Open Brain indexes what you already say, write, and save — then drafts the brief, the dossier, the decision memo before you ask for it.
+          </div>
+
+          <div style={{ marginTop: 36, paddingTop: 22, borderTop: '1px solid rgba(241,234,224,0.25)', fontSize: 13, fontWeight: 300, fontStyle: 'italic', opacity: 0.82, maxWidth: 380, lineHeight: 1.55 }}>
+            "It noticed I'd mentioned the same customer three times in two weeks and drafted a note before I had to ask."
+            <div style={{ fontStyle: 'normal', fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, letterSpacing: '0.08em', marginTop: 10, opacity: 0.75 }}>
+              — EARLY READER, FIELD BETA
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 14, fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, letterSpacing: '0.08em', opacity: 0.7 }}>
+          <span>ENCRYPTED END-TO-END</span>
+          <span style={{ opacity: 0.5 }}>·</span>
+          <span>YOUR KEY, YOUR DATA</span>
+          <span style={{ opacity: 0.5 }}>·</span>
+          <span>NO MODEL TRAINING</span>
+        </div>
+      </div>
+
+      {/* RIGHT — setup */}
+      <div style={{ padding: '44px 56px', display: 'flex', flexDirection: 'column', maxWidth: 760, width: '100%' }}>
+
+        {/* Stepper — horizontal, stations */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, marginBottom: 44 }}>
+          {STEPS.map((s, i) => (
+            <React.Fragment key={s.num}>
+              <div style={{ flex: '0 0 auto', textAlign: 'left', maxWidth: 140 }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+                }}>
+                  <div style={{
+                    width: 22, height: 22,
+                    background: s.status === 'active' ? 'var(--color-book-cloth)'
+                              : s.status === 'done'   ? 'var(--color-slate-dark)'
+                              : 'transparent',
+                    border: s.status === 'pending' ? '1px solid var(--color-cloud-medium)' : 'none',
+                    color: s.status === 'pending' ? 'var(--color-cloud-dark)' : 'var(--color-ivory-light)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: 'var(--font-family-monospace)', fontSize: 10, letterSpacing: '0.04em',
+                  }}>
+                    {s.status === 'done'
+                      ? <i data-lucide="check" style={{ width: 11, height: 11, strokeWidth: 2 }}></i>
+                      : s.num}
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: 12, fontWeight: s.status === 'active' ? 400 : 300,
+                  color: s.status === 'active' ? 'var(--color-text-heading)'
+                       : s.status === 'done' ? 'var(--color-text-body)'
+                       : 'var(--color-text-body-secondary)',
+                }}>{s.label}</div>
+              </div>
+              {i < STEPS.length - 1 && (
+                <div style={{
+                  flex: 1, height: 1,
+                  background: s.status === 'done' ? 'var(--color-slate-dark)' : 'var(--color-cloud-light)',
+                  margin: '11px 12px 0',
+                }}></div>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* Step header */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, letterSpacing: '0.1em', color: 'var(--color-book-cloth-dark)', marginBottom: 10 }}>
+            STEP 02 · CONNECT YOUR FIRST SOURCE
+          </div>
+          <h1 style={{
+            fontFamily: 'var(--font-family-display)', fontWeight: 400,
+            fontSize: 34, lineHeight: 1.1, letterSpacing: '-0.02em',
+            color: 'var(--color-text-heading)', margin: '0 0 10px',
+          }}>
+            Where does your thinking already live?
+          </h1>
+          <p style={{ fontSize: 14.5, color: 'var(--color-text-body-secondary)', fontWeight: 300, lineHeight: 1.55, maxWidth: 560, margin: 0 }}>
+            Pick as many as you like — most readers start with two or three. You can add, scope, or disconnect any source later.
+          </p>
+        </div>
+
+        {/* Source grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 32 }}>
+          {SOURCES.map(src => {
+            const isSel = selected.has(src.id);
+            return (
+              <div key={src.id}
+                onClick={() => toggle(src.id)}
+                style={{
+                  background: isSel ? 'var(--color-book-cloth-50)' : 'var(--color-bg-container)',
+                  border: isSel ? '1px solid var(--color-book-cloth)' : '1px solid var(--color-cloud-light)',
+                  padding: '14px 16px',
+                  cursor: 'pointer', position: 'relative',
+                  display: 'grid', gridTemplateColumns: '28px 1fr auto', gap: 12, alignItems: 'center',
+                }}>
+                {src.recommended && !isSel && (
+                  <div style={{
+                    position: 'absolute', top: 10, right: 10,
+                    fontFamily: 'var(--font-family-monospace)', fontSize: 9.5, letterSpacing: '0.08em',
+                    color: 'var(--color-book-cloth-dark)',
+                  }}>RECOMMENDED</div>
+                )}
+                <i data-lucide={src.icon} style={{ width: 16, height: 16, strokeWidth: 1.4, color: 'var(--color-text-body)' }}></i>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)', marginBottom: 2 }}>{src.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', fontWeight: 300 }}>{src.desc}</div>
+                </div>
+                <div style={{
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: isSel ? 'var(--color-book-cloth)' : 'transparent',
+                  border: isSel ? 'none' : '1px solid var(--color-cloud-medium)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {isSel && <i data-lucide="check" style={{ width: 10, height: 10, strokeWidth: 2.5, color: 'var(--color-ivory-light)' }}></i>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footnote */}
+        <div style={{ marginBottom: 28, padding: '12px 16px', background: 'var(--color-ivory-dark)', borderLeft: '2px solid var(--color-cloud-medium)', fontSize: 12.5, color: 'var(--color-text-body-secondary)', fontWeight: 300, lineHeight: 1.55 }}>
+          <span style={{ fontWeight: 400, color: 'var(--color-text-heading)' }}>Nothing ships without your say-so. </span>
+          We'll show you the first 20 items from each source before indexing. Anything you veto stays private forever.
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 'auto' }}>
+          <button style={{
+            background: 'var(--color-book-cloth)', color: 'var(--color-ivory-light)',
+            border: 'none', padding: '11px 22px', fontSize: 13.5, fontFamily: 'inherit', fontWeight: 500,
+            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8,
+          }}>
+            Connect {selected.size} source{selected.size === 1 ? '' : 's'}
+            <i data-lucide="arrow-right" style={{ width: 13, height: 13, strokeWidth: 1.8 }}></i>
+          </button>
+          <button style={{
+            background: 'transparent', color: 'var(--color-text-body)',
+            border: 'none', padding: '11px 12px', fontSize: 13, fontFamily: 'inherit', fontWeight: 300,
+            cursor: 'pointer',
+          }}>Skip — I'll capture manually</button>
+          <div style={{ marginLeft: 'auto', fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-cloud-dark)', letterSpacing: '0.06em' }}>
+            STEP 2 OF 4
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

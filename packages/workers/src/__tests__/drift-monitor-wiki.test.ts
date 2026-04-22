@@ -62,7 +62,7 @@ function makeMockDb() {
       return Promise.resolve({ rows: [{ entity_id: 'e1', entity_name: 'SD-WAN', entity_type: 'technology', current_count: '1', previous_count: '5' }] })
     }),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -225,7 +225,7 @@ describe('DriftMonitorSkill — wiki integration', () => {
         .mockResolvedValueOnce({ rows: [] })  // no commitments
         .mockResolvedValueOnce({ rows: [] }), // no entity frequency
       insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
       }),
     }
 

@@ -115,6 +115,16 @@
 | D103 | Agent skills MUST route to Anthropic tiers (runAgent + tool_use) | 2026-04-21 | ACTIVE | Entry 126 | wiki-ingest, wiki-lint, monthly-reflection, email-compose → t1_fast or t2_quality only |
 | D104 | entity_extraction MUST route to OpenAI-compatible tiers (jsonMode) | 2026-04-21 | ACTIVE | Entry 126 | response_format: { type: "json_object" } not supported by Anthropic |
 | D105 | Slack intent model in models.intent YAML section (not task_routing) | 2026-04-21 | ACTIVE | Entry 126 | slack-bot uses lightweight js-yaml, not ConfigService |
+| D106 | M2 scope = Option B: 5-screen API wiring + backend gap-filling (NOT full /web cut-over) | 2026-04-21 | ACTIVE | Entry 127 | Option A (mocks kept) defeats the rebuild; Option C (cut-over) bundles ops work with feature work |
+| D107 | First-class `briefs` table + migration 0030, not a view over `skills_log` | 2026-04-21 | ACTIVE | Entry 127 | skills_log wrap: every new feature (read/dismiss/refine/pin) becomes a transform hack; clean table is cheap now |
+| D108 | TanStack Query v5 + native Next.js fetch (RSC), NOT manual fetch + useState | 2026-04-21 | ACTIVE | Entry 127 | `/web` manual pattern re-implements dedupe/cache/retry/SWR poorly; Query is ~13KB, standard, RSC-integrated |
+| D109 | web-next redeclares types locally (Option A) + drift-guard test, NOT `@open-brain/shared` direct import | 2026-04-21 | ACTIVE | Entry 127 | shared barrel pulls `pg`/`openai`/`drizzle-orm` — server runtime leak into Next.js bundle; drift-guard protects parity |
+| D110 | Brief refine = Option 2 (generic LLM HTML transform, ~3s), NOT Option 1 (full skill re-run, 30–90s) | 2026-04-21 | ACTIVE | Entry 127 | UX-critical: user waiting; single LLM call rewrites body_html with option modifier; reserve Option 1 for kind-specific M3 work |
+| D111 | Commitments domain model deferred to M3; M2 hides CommitmentsCard with "Coming in M3" placeholder | 2026-04-21 | ACTIVE | Entry 127 | Needs new table + extraction skill + state machine — scope too large for M2, would delay core wiring |
+| D112 | `BaseSkill.logResult()` signature: `void → Promise<string>` (returns skills_log.id) | 2026-04-21 | ACTIVE | Entry 127 | Brief-writer needs `source_skill_log_id` for provenance; cascades to ~25 subclasses in single PR |
+| D113 | `@radix-ui/react-dialog` (6.5KB) + `sonner` (4KB) for modals + toasts in web-next | 2026-04-21 | ACTIVE | Entry 127 | Hand-built dialogs leak a11y + keyboard handling; minimal focused deps preferred over bespoke for M2 |
+| D114 | Entity `/ask` uses TS-side intersection (path a), NOT `hybrid_search` SQL modification | 2026-04-21 | ACTIVE | Entry 127 | SQL-level filter requires migration + tested SQL function change; TS intersection is zero-schema and reversible |
+| D115 | Next.js 16 + pnpm monorepo needs `outputFileTracingRoot: path.join(__dirname, '../../')` alongside `output: 'standalone'` | 2026-04-21 | ACTIVE | Entry 127 | Standalone build silently misses workspace deps otherwise; set NOW even though Docker packaging is M3+ |
 
 ## Action Items
 
@@ -191,6 +201,10 @@
 | A72 | Partial-closure PR body convention — use `Refs #N` not `Closes #N`; AVOID any close-keyword (closes/closed/close/fixes/fixed/fix/resolves/resolved/resolve) anywhere in PR body with `#N` — GitHub's parser is case-insensitive and scans entire body, not just top level | 2026-04-18 | Entry 094 | LOW — **UPDATED 2026-04-19 after P03 accidentally closed #102 via "(closes final #102 subset)" in a section header despite `Refs #102` at top.** Rule strengthened: scrub ALL close-keyword instances from PR body when you want an issue to stay open. |
 | A70 | Homeserver deploy batch — P01 + subsequent bootstrap phases (deferred for batching) | 2026-04-18 | Entry 092 | HIGH — deploy before running any real workload against new bootstrap changes |
 | ~~A75~~ | ~~Investigate + fix `pnpm recursive run` exit-code race causing false CI failures~~ — P19, P20a, P21 all had to be admin-merged after Opus APPROVE because CI reported failure on a transient pnpm exit-code race in the recursive test runner (not a test failure). Root cause unknown. P22a was not affected. Filed 2026-04-19, Wave 4 first-pass. | 2026-04-19 | Entry 119–121 | ✅ **RESOLVED** — CI fix landed `a07a916` (Dashboard.test.tsx mock). Wave 4 fully complete. |
+| A76 | Execute M2 per IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md — 5 change sets, ~15 PRs, ~4-5 weeks calendar | 2026-04-21 | Entry 127 | HIGH — pending formal plan generation via `/create-plan` |
+| A77 | Write `M3_BACKLOG.md` (M2 deliverable CS5) — fold in `/web` 20-route inventory, commitments domain, TTS, /search/timeline/settings ports, Docker cut-over plan | 2026-04-21 | Entry 127 | MEDIUM — part of M2 final PR |
+| A78 | `BaseSkill.logResult()` signature change — audit + update all ~25 subclasses in single PR | 2026-04-21 | Entry 127 | HIGH — blocks CS2 skill extensions; test the full workers suite post-change |
+| A79 | Add ESLint rule blocking `from '@open-brain/shared'` imports in `packages/web-next/` — belt-and-braces alongside drift-guard | 2026-04-21 | Entry 127 | LOW — defensive; drift-guard catches type drift, ESLint rule catches the root cause |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -8796,6 +8810,117 @@ Move all hardcoded LLM model references into `config/ai-routing.yaml` — single
 - **D105:** Slack intent model stays in `models.intent` YAML section (not `task_routing`) because slack-bot uses lightweight js-yaml, not ConfigService.
 
 **Duration:** ~1.5 hours.
+
+---
+
+## Entry 128 — M2 Cloudscape Implementation: Phases 1–6 (26/35 items)  [web] [api] [database] [workers] [pipeline]
+
+**Tags:** [web] [api] [database] [workers] [pipeline]
+**Environment:** Laptop — feat/cloudscape-m2 branch, 20 commits
+**Date:** 2026-04-21
+
+### Objective
+
+Execute IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md Phases 1–6 (26 of 35 work items). Wire the 5 Cloudscape-designed Next.js 16 screens in `packages/web-next/` to real backend endpoints. Orchestrated via Opus with Sonnet sub-agents for all implementation and testing.
+
+### Results — Phases 1–6 complete
+
+| Phase | Items | Focus | Key Deliverables |
+|-------|-------|-------|-----------------|
+| 1 (CS1 Infra) | 1.1–1.6 | Frontend infrastructure | Runtime deps, standalone config, formatters (52 tests), Vitest/MSW/Playwright scaffolding, drift-guard (20 tests), ESLint @open-brain/shared import guard |
+| 2 (CS1 Data) | 2.1–2.4 | Data fetching layer | Typed API client (26 tests), TanStack Query v5 provider, error.tsx boundaries (unstable_retry), loading.tsx skeletons |
+| 3 (CS1 SSE) | 3.1–3.3 | Real-time updates | SSE client with exponential backoff (22 tests), SseProvider + invalidation map, Playwright smoke test |
+| 4 (CS2 Schema) | 4.1–4.6 | Briefs domain model | Migration 0030 (briefs table, 5 indexes), Drizzle schema, canonical types/Zod, BaseSkill.logResult() → Promise<string> (28 files), skill inventory, brief drift-guard |
+| 5 (CS2 Routes) | 5.1–5.3 | Briefs API | unified-stack brief renderer (26 tests), BriefsService (5 endpoints), pg-notify brief_created SSE |
+| 6 (CS2 Skills) | 6.1–6.4 | Brief-producing skills | 4 skills write structured briefs (weekly/daily/morning/monthly), refine-brief skill (LLM transform via t1_spark), backfill script |
+
+### Test counts
+
+- web-next: 102 tests (formatters, api-client, SSE, drift-guard)
+- workers: 980 tests (all passing, including BaseSkill mock chain updates)
+- core-api: ~750 tests (pre-Phase 7)
+- shared: 20 drift-guard + 26 renderer tests
+
+### Sharp edges encountered
+
+| Issue | Root Cause | Fix |
+|-------|-----------|-----|
+| Unicode truncation in `truncate()` | `str.slice()` splits emoji surrogate pairs | `Array.from(str)` for code-point-safe slicing |
+| Next.js 16 `next lint` missing | CLI removed in v16 | Explicit ESLint 8 + eslint-config-next as devDeps |
+| Vitest collecting Playwright specs | `test.describe()` triggers Vitest's test collector | `exclude: ['tests/smoke/**', '.next/**']` in vitest.config |
+| `BriefRow` vs `Brief` symbol collision | Drizzle inferred type collides with semantic API interface | Named export `BriefRow` / `NewBriefRow` (not `Brief`) |
+| BaseSkill mock chain update | `logResult()` now chains `.returning()` after `.values()` | All 26 test files updated: `.values().mockReturnValue({ returning: ... })` |
+| `API_URL` undefined at build time | `next.config.ts` rewrites rejects undefined destination | `?? 'http://localhost:3002'` fallback |
+| xss package CJS typings | `filterXSS` requires named import, not default | `import { filterXSS } from 'xss'` |
+
+### Architecture patterns established
+
+1. **Brief-write pattern:** All 4 skills follow identical structure — `logResult()` → build markdown → `renderBriefHtml()` → map sources → `db.insert(briefs)` → non-fatal try/catch. Brief failure never breaks the skill's primary function.
+2. **Source type mapping:** `mapCaptureSourceToBriefType()` in shared maps capture sources to brief source types. Morning-brief adds MEETING sources from calendar events.
+3. **Refine-brief:** Generic LLM HTML transform — fetches source brief, validates option against `REFINE_OPTIONS`, calls `llmGateway.completeByTask('brief_refinement', ...)` routed to t1_spark (free), strips markdown fences, re-renders for TOC, inserts with `refined_from_id`.
+
+### Remaining work (Phases 7–8, 9 items)
+
+- Phase 7: 3 entity endpoints (related, mentions-timeline, ask) + wire Dashboard + Entities list screens
+- Phase 8: Wire Entity detail + Briefs library + Brief reader + M3 backlog capture
+
+### Duration
+
+~5 hours wall-clock (parallelized sub-agent execution). Phases 7–8 in progress.
+
+---
+
+## Entry 127 — M2 Cloudscape Planning: scope, architecture, 11 design decisions  [web] [api] [database] [decision]
+
+**Tags:** [web] [api] [database] [decision] [benchmark]
+**Environment:** Laptop — planning only, no code changes yet
+**Date:** 2026-04-21
+
+### Objective
+
+Produce an architecturally-sound M2 plan for wiring `packages/web-next/` (shipped in M1) to the real `packages/core-api/`. Resolve scope, data-fetching architecture, briefs domain design, entity endpoints, and screen-wiring patterns BEFORE writing any code. Per the user's filter: "long-term robust, minimum technical debt, simplest when equal."
+
+### Scope resolution (D106)
+
+Three scope options considered: (A) mock-swap only — accepts visual degradation; (B) data parity + backend gap-filling; (C) full production cut-over from `/web`. **Chose B.** Reasoning: A undermines the rebuild (removes signature interactions like the relationship graph); C bundles operational cut-over with feature work — those concerns deserve separate milestones with their own testing + observability.
+
+User clarified: `/web` can stay running in parallel, must NOT constrain architectural decisions for web-next. Cut-over deferred cleanly to a later milestone when web-next organically reaches parity for surfaces the user actually touches.
+
+### Phase 1 investigation (4 parallel subagents, ~15 min wall-clock)
+
+- **CS1 (frontend infra):** Next.js 16 rewrites, TanStack Query v5 + RSC integration, SSE provider with cache invalidation, typed API client, `@open-brain/shared` import strategy, error/loading conventions, test scaffolding (Vitest + MSW + Playwright), drift-guard extension.
+- **CS2 (briefs backend):** First-class `briefs` table migration 0030, extend 4 brief-producing skills (weekly-brief, daily-sweep-skill, morning-brief, monthly-reflection), markdown→HTML via `unified` stack, TOC extraction, source mapping (new `MEETING` type), SSE `brief_created` event, async refine via generic LLM HTML transform.
+- **CS3 (entity endpoints):** `/entities/:id/related` (co-occurrence from `entity_links` — existing indexes sufficient), `/mentions-timeline` (bucketed `date_trunc`), `/ask` (TS-side intersection with synthesize, SafePromptBuilder, strict rate-limit tier).
+- **CS4 (wire 5 screens):** Per-screen analysis — Dashboard, Entities list, Entity detail, Briefs library, Brief reader. URL-driven filters via `searchParams`, modal UX (Radix Dialog), toast feedback (sonner), CommitmentsCard placeholder.
+
+### Key architectural calls (alternatives considered)
+
+- **D107 — briefs as first-class table:** skills_log wrap initially tempting (cheapest week 1), but every new domain feature (read tracking, dismissal, refinement, pinning) compounds transform hacks. One-table migration pays for itself by month 3.
+- **D108 — TanStack Query, not manual fetch:** `/web` pattern manually re-implements cache/dedupe/retry/SWR. Query is 13KB, battle-tested, RSC-integrated via `HydrationBoundary`. Since `/web` is being superseded, no consistency cost.
+- **D109 — local redeclaration + drift-guard, not direct `@open-brain/shared` import:** shared barrel transitively pulls `pg`, `openai`, `@anthropic-ai/sdk`, `drizzle-orm` (server runtime). Importing bloats the Next.js bundle + risks native-binding hangs. Matches existing `/web` precedent (explicit comment in web/api.ts flags this escape hatch).
+- **D110 — Option 2 refine:** full-skill re-run takes 30–90s (poor UX for a user-triggered action); generic LLM HTML transform is ~3s, single API call, async via SSE arrival. Reserve Option 1 for kind-specific M3 work.
+- **D112 — `BaseSkill.logResult()` signature change:** brief-writer needs `source_skill_log_id` for provenance + refinement chain. Cascades to ~25 subclasses (A78). Done in single PR to avoid partial-state.
+- **D114 — `/ask` TS-side intersection:** alternative would push entity filter into `hybrid_search()` SQL function (migration 0030+ collision with briefs), change signature on `SearchService.SearchOptions`. TS intersection is zero-schema, reversible, adequate at current scale.
+- **D115 — `outputFileTracingRoot` for standalone:** pnpm monorepo gotcha — `output: 'standalone'` silently misses workspace deps without it. Set NOW even though Docker packaging is M3+ to avoid future trap.
+
+### Sharp edges flagged
+
+- Next.js 16 renamed `error.tsx` prop `reset → unstable_retry` — copy-paste from Next 14/15 tutorials breaks TS.
+- `/web/src/lib/sse.ts` has NO reconnect logic — must add exponential backoff during port to web-next (CLAUDE.md pattern).
+- `X-Open-Brain-Caller: web-ui` header MUST be set by api-client wrapper, not in Next.js rewrites (rewrites are URL-only) — silent 429 failure mode per CLAUDE.md.
+- `@open-brain/shared` accidental import is the single biggest tech-debt trap for web-next — mitigated by drift-guard test + ESLint rule (A79).
+
+### Deliverable
+
+15-PR implementation sequence across 5 change sets + M3 handoff. Estimated ~4-5 weeks calendar. Formal plan to be generated via `/create-plan` into `IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md`, structured for `/implement-plan` execution.
+
+### What's NOT in M2
+
+Commitments domain (D111), entity-brief skill for "Generate brief" button, TTS for "Listen" buttons, `/search`/`/timeline`/`/settings` screens (remain on `/web`), admin UIs, Docker packaging + Cloudflare cut-over, PWA service worker, dark mode, keyboard shortcuts. All captured in M3 backlog (A77).
+
+### Duration
+
+~2 hours of investigation + architectural decision-making. Zero code changes. Next step: user says `implement` → formal plan generated.
 
 ---
 

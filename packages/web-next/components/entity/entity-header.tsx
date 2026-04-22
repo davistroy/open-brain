@@ -1,19 +1,24 @@
+'use client';
+
 import { Sparkles, FileText, GitMerge, MoreHorizontal } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/design-system';
 import { Eyebrow } from '@/components/design-system';
 import type { EntityDetail } from '@/lib/types';
 
 interface EntityHeaderProps {
   entity: EntityDetail;
+  onAskAI: () => void;
+  onMerge: () => void;
 }
 
 /**
  * Hero card for the entity detail page.
  * 3-col grid: 88px monogram | content + stats | stacked actions
  * Matches 06-entity-detail.html:92-126.
- * Server component.
+ * Client component (wires modal open callbacks + sonner toasts).
  */
-export function EntityHeader({ entity }: EntityHeaderProps) {
+export function EntityHeader({ entity, onAskAI, onMerge }: EntityHeaderProps) {
   const initials = entity.name
     .split(' ')
     .map((w) => w[0])
@@ -83,13 +88,28 @@ export function EntityHeader({ entity }: EntityHeaderProps) {
 
       {/* Actions column */}
       <div className="flex flex-col gap-[6px]">
-        <Button variant="primary" size="sm" icon={<Sparkles size={11} strokeWidth={1.5} />}>
+        <Button
+          variant="primary"
+          size="sm"
+          icon={<Sparkles size={11} strokeWidth={1.5} />}
+          onClick={onAskAI}
+        >
           Ask AI about {entity.name.split(' ')[0]}
         </Button>
-        <Button variant="secondary" size="sm" icon={<FileText size={11} strokeWidth={1.5} />}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<FileText size={11} strokeWidth={1.5} />}
+          onClick={() => toast.info('Entity brief generation coming in M3')}
+        >
           Generate brief
         </Button>
-        <Button variant="secondary" size="sm" icon={<GitMerge size={11} strokeWidth={1.5} />}>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<GitMerge size={11} strokeWidth={1.5} />}
+          onClick={onMerge}
+        >
           Merge…
         </Button>
         <Button variant="ghost" size="sm" icon={<MoreHorizontal size={11} strokeWidth={1.5} />}>

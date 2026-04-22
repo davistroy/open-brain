@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 20px; background: var(--color-bg-container); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 4px; border: 1px solid; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .info { background: var(--color-bg-status-info); color: var(--color-text-status-info); border-color: var(--color-blue-200); }
+  .success { background: var(--color-bg-status-success); color: var(--color-text-status-success); border-color: #aeffa8; }
+  .warning { background: var(--color-bg-status-warning); color: var(--color-text-status-warning); border-color: #ffed4d; }
+  .error { background: var(--color-bg-status-error); color: var(--color-text-status-error); border-color: #ffc2c2; }
+  .pending { background: var(--color-grey-200); color: var(--color-grey-700); border-color: var(--color-grey-300); }
+</style></head>
+<body>
+  <span class="badge success"><span class="dot" style="background:currentColor"></span>embedded</span>
+  <span class="badge info"><span class="dot" style="background:currentColor"></span>processing</span>
+  <span class="badge warning"><span class="dot" style="background:currentColor"></span>pending</span>
+  <span class="badge error"><span class="dot" style="background:currentColor"></span>failed</span>
+  <span class="badge pending">extracted</span>
+  <span class="badge info">decision</span>
+  <span class="badge" style="background:#fff5ff;color:#7300e5;border-color:#e8d1ff">idea</span>
+  <span class="badge" style="background:#effff1;color:#00802f;border-color:#aeffa8">win</span>
+  <span class="badge error">blocker</span>
+  <span class="badge warning">task</span>
+</body></html>

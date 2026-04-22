@@ -2,16 +2,17 @@ import Link from 'next/link';
 import { Sunrise, Calendar, UserRound, Scale, FolderKanban, ArrowRight } from 'lucide-react';
 import type { Brief, BriefCover, BriefKind } from '@/lib/types';
 
-/** Visual scheme for the 64px color rail */
+/** Visual scheme for the 64px color rail — keyed on canonical BriefCover values */
 const COVER_SCHEME: Record<
   BriefCover,
   { bg: string; fg: string; mark: string }
 > = {
-  morning:  { bg: 'var(--color-book-cloth-50)',  fg: 'var(--color-book-cloth-dark)', mark: '◐' },
-  week:     { bg: 'var(--color-slate-medium)',    fg: 'var(--color-ivory-light)',     mark: '▤' },
-  person:   { bg: 'var(--color-clay)',            fg: 'var(--color-ivory-light)',     mark: '◉' },
-  decision: { bg: 'var(--color-book-cloth)',      fg: 'var(--color-ivory-light)',     mark: '?' },
-  project:  { bg: 'var(--color-moss)',            fg: 'var(--color-ivory-light)',     mark: '▦' },
+  parchment: { bg: 'var(--color-book-cloth-50)',  fg: 'var(--color-book-cloth-dark)', mark: '◐' },
+  evening:   { bg: 'var(--color-slate-medium)',    fg: 'var(--color-ivory-light)',     mark: '▤' },
+  canvas:    { bg: 'var(--color-clay)',            fg: 'var(--color-ivory-light)',     mark: '◉' },
+  gold:      { bg: 'var(--color-book-cloth)',      fg: 'var(--color-ivory-light)',     mark: '?' },
+  slate:     { bg: 'var(--color-moss)',            fg: 'var(--color-ivory-light)',     mark: '▦' },
+  sunrise:   { bg: 'var(--color-cloud-medium)',    fg: 'var(--color-text-heading)',    mark: '◑' },
 };
 
 /** Icon component per kind */
@@ -20,6 +21,7 @@ function KindIcon({ kind, fg }: { kind: BriefKind; fg: string }) {
   switch (kind) {
     case 'DAILY':    return <Sunrise {...props} />;
     case 'WEEKLY':   return <Calendar {...props} />;
+    case 'MONTHLY':  return <Calendar {...props} />;
     case 'DOSSIER':  return <UserRound {...props} />;
     case 'DECISION': return <Scale {...props} />;
     case 'PROJECT':  return <FolderKanban {...props} />;

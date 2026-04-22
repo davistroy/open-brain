@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../colors_and_type.css?v=a4" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  @keyframes obspin { to { transform: rotate(360deg); } }
+  @keyframes obpulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .6; transform: scale(0.8); } }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="./Button.jsx"></script>
+<script type="text/babel" src="./Badge.jsx"></script>
+<script type="text/babel" src="./Container.jsx"></script>
+<script type="text/babel" src="./TopNav.jsx"></script>
+<script type="text/babel" src="./SideNav.jsx"></script>
+<script type="text/babel" src="./Flashbar.jsx"></script>
+<script type="text/babel" src="./StatsCards.jsx"></script>
+<script type="text/babel" src="./ActivityTable.jsx"></script>
+<script type="text/babel" src="./QuickCapture.jsx"></script>
+<script type="text/babel" src="./OpenQuestions.jsx"></script>
+<script type="text/babel" src="./SplitPanel.jsx"></script>
+
+<script type="text/babel">
+
+const INITIAL_ROWS = [
+  { id: 'c1', type: 'voice', title: 'Morning walk — Q4 planning thoughts',
+    preview: 'Need to circle back with Sarah on headcount for the new team…',
+    fullPreview: "I was thinking about Q4 planning this morning — we really need to circle back with Sarah on headcount for the new team. The budget from ops looks tight but not impossible. Also, I want to think about whether we should front-load the hiring in October or spread it through the quarter.",
+    entities: ['Sarah Chen', 'Q4 Planning', 'Hiring', 'Budget'],
+    status: 'success', statusLabel: 'Processed', captured: '07:12 AM',
+    suggestions: ['Draft follow-up to Sarah Chen', 'Add to Q4 Planning brief', 'Create decision: Oct vs rolling hiring'] },
+  { id: 'c2', type: 'email', title: 'Re: Advisory board deck v3',
+    preview: "From: avi@ventures.co — 'Comments on slides 12-18 inline. Can we discuss…'",
+    fullPreview: 'Hey — I took another pass through the deck. My comments on slides 12-18 are inline. The market-size story still feels fuzzy to me. Can we discuss on Wed morning? Also attaching the benchmark data Rahul sent over.',
+    entities: ['Avi Sharma', 'Ventures.co', 'Advisory Board', 'Rahul Patel'],
+    status: 'warning', statusLabel: 'Needs review', captured: '07:04 AM',
+    suggestions: ['Schedule meeting with Avi on Wednesday', 'Pull benchmark data from attachment', 'Revise slides 12-18 before next review'] },
+  { id: 'c3', type: 'upload', title: 'espresso-machine-research.pdf',
+    preview: '12-page comparison of Lelit vs ECM vs Profitec in the $2.5-4k range',
+    fullPreview: '12-page research dump on prosumer espresso machines. Lelit Bianca V3 scores highest on lever control; ECM Synchronika is the reliability pick; Profitec Pro 700 is the value option. I want to decide by end of April so I can use the tax refund.',
+    entities: ['Home Office', 'Purchase Decision', 'Lelit', 'ECM', 'Profitec'],
+    status: 'success', statusLabel: 'Processed', captured: 'Yesterday',
+    suggestions: ['Create decision brief: espresso machine', 'Add reminder for tax refund deposit', 'Link to Home Office wiki page'] },
+  { id: 'c4', type: 'meeting', title: 'Weekly 1:1 with Maya — notes',
+    preview: 'Career goals, mentorship ask, ML certification discussion',
+    fullPreview: 'Maya brought up wanting to pivot into ML engineering. She is considering the Stanford online cert. She also wants more exposure to customer-facing work. I committed to introducing her to Priya and finding a cross-functional project for Q4.',
+    entities: ['Maya Rodriguez', '1:1', 'Career Development', 'Priya Nair'],
+    status: 'success', statusLabel: 'Processed', captured: 'Yesterday',
+    suggestions: ['Intro email to Priya Nair', 'Research Q4 cross-functional projects', 'Add to Maya\u2019s development plan'] },
+  { id: 'c5', type: 'note', title: 'Book idea — "operating system for a life"',
+    preview: 'What if personal knowledge management borrowed from ops playbooks?',
+    fullPreview: 'Half-formed book idea: what if personal knowledge management borrowed more from ops playbooks? SLAs on your own commitments. Post-mortems on your failures. An oncall rotation for your household responsibilities. Probably too niche to sell, but the framework is fun.',
+    entities: ['Book Ideas', 'Writing'],
+    status: 'pending', statusLabel: 'Unlinked', captured: '2d ago',
+    suggestions: ['Expand into outline', 'Check for overlap with existing books', 'Add to "Writing" project'] },
+  { id: 'c6', type: 'link', title: 'simonwillison.net — Datasette for personal data',
+    preview: 'Bookmarked — might be useful for Open Brain data export design',
+    fullPreview: 'Useful blog post about using Datasette as a personal data lens. Might be useful when I design Open Brain\u2019s data-export feature. Follow the thread on SQLite as a personal datastore.',
+    entities: ['Open Brain', 'Research', 'Datasette', 'SQLite'],
+    status: 'success', statusLabel: 'Processed', captured: '2d ago',
+    suggestions: ['Add to Open Brain product research', 'Create decision: SQLite for export?'] },
+  { id: 'c7', type: 'voice', title: 'Running thoughts — gym routine',
+    preview: 'Switching to Tuesday/Thursday strength schedule worked last week',
+    fullPreview: 'Switching to a Tuesday/Thursday strength schedule worked well last week. Cardio on the other days. Might try a deload week in 3 weeks.',
+    entities: ['Fitness', 'Personal'],
+    status: 'success', statusLabel: 'Processed', captured: '3d ago',
+    suggestions: ['Log to fitness tracker', 'Set reminder for deload week'] },
+];
+
+const App = () => {
+  const [theme, setTheme] = React.useState('light');
+  const [selectedId, setSelectedId] = React.useState('c1');
+  const [rows, setRows] = React.useState(INITIAL_ROWS);
+  const [flashes, setFlashes] = React.useState([
+    { id: 'f1', type: 'info', header: 'New intelligence ready',
+      content: 'Open Brain noticed 3 recurring threads this week around "Q4 Planning". Review the synthesis?',
+      actions: [{ label: 'Open synthesis' }, { label: 'Dismiss' }] },
+  ]);
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  React.useEffect(() => {
+    // Re-run lucide icon rendering after every React update
+    if (window.lucide) window.lucide.createIcons();
+  });
+
+  const handleCapture = ({ type, text }) => {
+    const id = 'c' + Math.random().toString(36).slice(2, 7);
+    const newRow = {
+      id, type: type === 'note' ? 'note' : type,
+      title: text.split('\n')[0].slice(0, 60) || 'Untitled capture',
+      preview: text.slice(0, 80),
+      fullPreview: text,
+      entities: ['Inbox'],
+      status: 'loading', statusLabel: 'Processing…',
+      captured: 'just now',
+      suggestions: ['Auto-tagging in progress…'],
+    };
+    setRows([newRow, ...rows]);
+    setFlashes([{ id: 'f-capture-' + id, type: 'success',
+      header: 'Capture received',
+      content: 'Processing in the background — entities will appear shortly.' }, ...flashes]);
+    // Simulate processing
+    setTimeout(() => {
+      setRows(r => r.map(x => x.id === id ? { ...x, status: 'success', statusLabel: 'Processed', entities: ['Inbox', 'Auto-tag'] } : x));
+    }, 2500);
+  };
+
+  const selected = rows.find(r => r.id === selectedId);
+
+  return (
+    <div>
+      <TopNav theme={theme} onToggleTheme={() => setTheme(t => t === 'light' ? 'dark' : 'light')} />
+
+      <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+        <SideNav active="dashboard" />
+
+        <main style={{
+          flex: 1, minWidth: 0,
+          padding: '24px 32px',
+          paddingBottom: selected ? 360 : 32,
+        }}>
+          {/* Breadcrumb + title */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <a style={{ color: 'var(--color-text-link)' }}>Open Brain</a>
+              <i data-lucide="chevron-right" style={{ width: 12, height: 12 }}></i>
+              <span>Dashboard</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 24 }}>
+              <div>
+                <h1 style={{ margin: 0 }}>Good morning, Troy</h1>
+                <div style={{ fontSize: 14, color: 'var(--color-text-body-secondary)', marginTop: 4 }}>
+                  Tuesday, April 21 · 47 captures this week · 3 open briefs
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button variant="normal" icon={<i data-lucide="refresh-cw" style={{ width: 14, height: 14 }}></i>}>Refresh</Button>
+                <Button variant="normal" icon={<i data-lucide="download" style={{ width: 14, height: 14 }}></i>}>Export</Button>
+                <Button variant="primary" icon={<i data-lucide="plus" style={{ width: 14, height: 14 }}></i>}>New brief</Button>
+              </div>
+            </div>
+          </div>
+
+          <Flashbar items={flashes} onDismiss={(id) => setFlashes(f => f.filter(x => x.id !== id))} />
+
+          <div style={{ marginBottom: 20 }}>
+            <StatsCards />
+          </div>
+
+          {/* Main two-column grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)', gap: 20 }}>
+            {/* Left column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <Container
+                header="Quick capture"
+                description="Drop a thought and Open Brain handles the rest — transcription, entity extraction, linking."
+              >
+                <QuickCapture onCapture={handleCapture} />
+              </Container>
+
+              <Container
+                header={<span>Recent activity <span style={{ fontWeight: 400, color: 'var(--color-text-counter)', fontSize: 14 }}>({rows.length})</span></span>}
+                description="Everything Open Brain has ingested, oldest first hidden by default."
+                actions={<>
+                  <Button variant="normal" size="small" icon={<i data-lucide="filter" style={{ width: 12, height: 12 }}></i>}>Filter</Button>
+                  <Button variant="normal" size="small" icon={<i data-lucide="settings-2" style={{ width: 12, height: 12 }}></i>}>Preferences</Button>
+                </>}
+                padding={false}
+              >
+                <ActivityTable rows={rows} selectedId={selectedId} onSelect={setSelectedId} />
+              </Container>
+            </div>
+
+            {/* Right column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <Container
+                header="Open questions"
+                description="Unresolved threads Open Brain surfaced from your captures."
+              >
+                <OpenQuestions />
+              </Container>
+              <Container
+                header="Upcoming briefs"
+                actions={<Button variant="link" size="small">See all</Button>}
+              >
+                <UpcomingBriefs />
+              </Container>
+              <Container
+                header="Pipeline health"
+                description="Last 24 hours · all systems nominal"
+              >
+                <PipelineHealth />
+              </Container>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <SplitPanel
+        item={selected}
+        onClose={() => setSelectedId(null)}
+        onExpand={() => alert('Would open full capture view for "' + selected.title + '"')}
+      />
+    </div>
+  );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>

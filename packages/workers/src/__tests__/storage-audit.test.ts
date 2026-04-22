@@ -16,7 +16,7 @@ function makeMockDb() {
   return {
     execute: executeMock,
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -25,7 +25,7 @@ function makeFailingDb() {
   return {
     execute: vi.fn().mockRejectedValue(new Error('DB connection failed')),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
