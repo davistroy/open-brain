@@ -31,7 +31,11 @@ export class HttpError extends Error {
 // Core request wrapper
 // ---------------------------------------------------------------------------
 
-const API_BASE = '/api/v1'
+function getApiBase(): string {
+  if (typeof window !== 'undefined') return '/api/v1'
+  const host = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002'
+  return `${host.replace(/\/$/, '')}/api/v1`
+}
 
 /**
  * Low-level fetch wrapper. Prefixes `/api/v1`, injects `X-Open-Brain-Caller: web-ui`,
@@ -39,7 +43,7 @@ const API_BASE = '/api/v1'
  * `HttpError` on non-2xx responses.
  */
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE}${path}`
+  const url = `${getApiBase()}${path}`
 
   const headers: Record<string, string> = {
     'X-Open-Brain-Caller': 'web-ui',
