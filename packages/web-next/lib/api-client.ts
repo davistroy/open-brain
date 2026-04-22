@@ -1068,6 +1068,342 @@ export const ingestApi = {
 }
 
 // ---------------------------------------------------------------------------
+// systemHealthApi — /api/v1/system/* operational metrics
+// ---------------------------------------------------------------------------
+
+/** Per-queue BullMQ stats as returned by GET /api/v1/system/health */
+export interface QueueStats {
+  name: string
+  waiting: number
+  active: number
+  failed: number
+  delayed: number
+  status: 'healthy' | 'degraded' | 'unhealthy'
+}
+
+/** Redis memory summary */
+export interface RedisMemory {
+  used_bytes: number
+  max_bytes: number
+  used_pct: number
+  status: 'healthy' | 'degraded' | 'unhealthy'
+}
+
+/** Monthly LLM spend summary */
+export interface MonthlySpend {
+  month: string
+  total_usd: number
+  non_claude_usd: number
+  status: 'healthy' | 'degraded' | 'unhealthy'
+}
+
+/** Last run record for a single skill */
+export interface SkillLastRun {
+  skill_name: string
+  last_run_at: string
+  duration_ms: number | null
+  output_summary: string | null
+}
+
+/** Wiki health status from system health snapshot */
+export interface WikiHealthStatus {
+  configured: boolean
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  repo_url: string | null
+  page_count: number
+  last_commit_date: string | null
+  last_commit_message: string | null
+  error: string | null
+}
+
+/** Full system health snapshot from GET /api/v1/system/health */
+export interface SystemHealthSnapshot {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  timestamp: string
+  uptime_s: number
+  queues: QueueStats[]
+  redis_memory: RedisMemory
+  monthly_spend: MonthlySpend
+  skill_last_runs: SkillLastRun[]
+  wiki: WikiHealthStatus
+}
+
+/** One pipeline flow entry from GET /api/v1/system/flows */
+export interface PipelineFlowEntry {
+  capture_id: string
+  trace_id: string | null
+  pipeline_status: string
+  created_at: string
+  stages: Array<{
+    stage: string
+    status: string
+    duration_ms: number | null
+    error: string | null
+    started_at: string | null
+  }>
+}
+
+/** Container health entry from GET /api/v1/system/infrastructure */
+export interface ContainerHealthEntry {
+  id: string
+  timestamp: string
+  container_name: string
+  healthy: boolean
+  response_ms: number | null
+  error: string | null
+}
+
+/** Backup log entry from GET /api/v1/system/infrastructure */
+export interface BackupLogEntry {
+  id: string
+  timestamp: string
+  backup_type: string
+  file_path: string | null
+  size_bytes: number | null
+  duration_seconds: number | null
+  status: string
+  error: string | null
+  pruned_count: number
+}
+
+/** Cost summary from GET /api/v1/system/infrastructure */
+export interface CostSummary {
+  month: string
+  total_usd: number
+  by_model: Array<{ model: string; cost_usd: number; call_count: number }>
+}
+
+/** Infrastructure data envelope */
+export interface InfrastructureData {
+  container_health: ContainerHealthEntry[]
+  backups: BackupLogEntry[]
+  cost: CostSummary
+}
+
+export const systemHealthApi = {
+  /** GET /api/v1/system/health — full operational health snapshot */
+  snapshot: (): Promise<SystemHealthSnapshot> => {
+    return request<SystemHealthSnapshot>('/system/health')
+  },
+
+  /** GET /api/v1/system/flows?limit=N — recent pipeline flow entries */
+  flows: (limit = 20): Promise<{ flows: PipelineFlowEntry[] }> => {
+    const qs = buildQueryString({ limit })
+    return request<{ flows: PipelineFlowEntry[] }>(`/system/flows${qs}`)
+  },
+
+  /** GET /api/v1/system/infrastructure — container health, backups, cost */
+  infrastructure: (): Promise<InfrastructureData> => {
+    return request<InfrastructureData>('/system/infrastructure')
+  },
+}
+
+// ---------------------------------------------------------------------------
+// adminQueuesApi — queue clear via POST /api/v1/admin/queues/:name/clear
+// ---------------------------------------------------------------------------
+
+export type ClearableState = 'failed' | 'completed' | 'delayed'
+
+export interface QueueClearResult {
+  queue: string
+  state: ClearableState
+  cleared_count: number
+  cleared_at: string
+}
+
+export const adminQueuesApi = {
+  /**
+   * POST /api/v1/admin/queues/:name/clear — clears jobs in a given state.
+   * Default state: 'failed'. No adminAuth — protected by queue name whitelist.
+   */
+  clear: (
+    name: string,
+    state: ClearableState = 'failed',
+  ): Promise<QueueClearResult> => {
+    return request<QueueClearResult>(
+      `/admin/queues/${encodeURIComponent(name)}/clear`,
+      { method: 'POST', body: JSON.stringify({ state }) },
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// skillsListApi — list skills via GET /api/v1/skills (read side only)
+// The write side (trigger) already exists in skillsApi above.
+// ---------------------------------------------------------------------------
+
+/** One skill record as returned by GET /api/v1/skills */
+export interface SkillRecord {
+  name: string
+  schedule: string | null
+  description: string | null
+  last_run_at: string | null
+  last_duration_ms: number | null
+  last_output_summary: string | null
+  last_input_summary: string | null
+}
+
+export const skillsListApi = {
+  /** GET /api/v1/skills — full list of configured skills + last-run metadata */
+  list: (): Promise<{ skills: SkillRecord[] }> => {
+    return request<{ skills: SkillRecord[] }>('/skills')
+  },
+
+  /**
+   * PATCH /api/v1/skills/:name — update a skill's cron schedule.
+   * Body: { schedule: string }. Returns { name, schedule, updated_at }.
+   */
+  updateSchedule: (
+    name: string,
+    schedule: string,
+  ): Promise<{ name: string; schedule: string; updated_at: string }> => {
+    return request<{ name: string; schedule: string; updated_at: string }>(
+      `/skills/${encodeURIComponent(name)}`,
+      { method: 'PATCH', body: JSON.stringify({ schedule }) },
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// mcpActivityApi — paginated MCP tool invocation log
+// ---------------------------------------------------------------------------
+
+/** One MCP activity record */
+export interface McpActivityEntry {
+  id: string
+  timestamp: string
+  tool_name: string
+  client_id: string | null
+  duration_ms: number | null
+  success: boolean
+  input_summary: string | null
+  output_summary: string | null
+}
+
+export interface McpActivityListParams {
+  limit?: number
+  offset?: number
+  tool_name?: string
+  client_id?: string
+  since?: string
+}
+
+export const mcpActivityApi = {
+  /**
+   * GET /api/v1/mcp/activity — paginated MCP activity log.
+   * Supports filtering by tool_name, client_id, since (ISO 8601).
+   */
+  list: (params: McpActivityListParams = {}): Promise<ListEnvelope<McpActivityEntry>> => {
+    const qs = buildQueryString(params)
+    return request<ListEnvelope<McpActivityEntry>>(`/mcp/activity${qs}`)
+  },
+}
+
+// ---------------------------------------------------------------------------
+// adminApi — Slack channel management via /api/v1/admin/slack/* endpoints
+//
+// Endpoint map (see packages/core-api/src/routes/admin.ts):
+//   GET  /api/v1/admin/slack/channels              → { channels: SlackChannelInfo[] }
+//   POST /api/v1/admin/slack/channels/:id/archive  → ArchiveResult
+//
+// NOTE: These endpoints require SLACK_BOT_TOKEN or SLACK_USER_TOKEN to be set
+// on core-api. If neither is set, the API returns 503.
+// ---------------------------------------------------------------------------
+
+/** Slack channel info as returned by GET /api/v1/admin/slack/channels */
+export interface SlackChannel {
+  id: string
+  name: string
+  member_count: number
+  last_activity: string | null
+  days_inactive: number
+  topic?: string
+  purpose?: string
+  is_archived: boolean
+}
+
+/** Result of POST /api/v1/admin/slack/channels/:id/archive */
+export interface SlackArchiveResult {
+  ok: boolean
+  channel_id: string
+  archived_at: string
+}
+
+/** Step-1 response from POST /admin/reset-data (no confirm field) */
+export interface AdminResetTokenResponse {
+  token: string
+  expires_in: number    // seconds (typically 300 = 5 minutes)
+  message: string
+}
+
+/** Step-2 response from POST /admin/reset-data (with confirm + token) */
+export interface AdminResetConfirmResponse {
+  cleared: string[]
+  preserved: string[]
+  wiped_at: string
+  backup_path: string
+  audit_id: string
+}
+
+export const adminApi = {
+  /**
+   * GET /api/v1/admin/slack/channels — list all public Slack channels with
+   * activity metadata (member count, last_activity, days_inactive).
+   * Returns 503 if no Slack token is configured.
+   */
+  getSlackChannels: (): Promise<{ channels: SlackChannel[] }> => {
+    return request<{ channels: SlackChannel[] }>('/admin/slack/channels')
+  },
+
+  /**
+   * POST /api/v1/admin/slack/channels/:id/archive — archive a Slack channel by ID.
+   * Requires channels:write scope on the configured Slack token.
+   */
+  archiveSlackChannel: (id: string): Promise<SlackArchiveResult> => {
+    return request<SlackArchiveResult>(
+      `/admin/slack/channels/${encodeURIComponent(id)}/archive`,
+      { method: 'POST' },
+    )
+  },
+
+  /**
+   * POST /api/v1/admin/reset-data (Step 1) — request a single-use reset token.
+   *
+   * No body sent. Server issues a 5-minute single-use Redis token and records
+   * the request in admin_audit. Returns token + expires_in.
+   *
+   * Per CLAUDE.md: no adminAuth() — protection is origin allowlist + two-step
+   * token + confirmation phrase + rate limiter. Do not add Bearer auth here.
+   *
+   * The origin must be brain.troy-davis.com — the server performs the
+   * authoritative check (fail-closed: unset/unknown NODE_ENV = production).
+   */
+  requestResetToken: (): Promise<AdminResetTokenResponse> => {
+    return request<AdminResetTokenResponse>('/admin/reset-data', { method: 'POST' })
+  },
+
+  /**
+   * POST /api/v1/admin/reset-data (Step 2) — execute the data wipe.
+   *
+   * Requires `confirm: "WIPE ALL DATA"` and the token from step 1.
+   * Server truncates all tables except admin_audit; pre-wipe pg_dump to
+   * /backup/pre-wipe/<ISO>.sql (admin_prewipe_backup volume).
+   *
+   * Every attempt (executed/blocked/error) writes to admin_audit.
+   * admin_audit is excluded from TRUNCATE — code-level test asserts this.
+   */
+  confirmReset: (
+    token: string,
+    phrase: 'WIPE ALL DATA',
+  ): Promise<AdminResetConfirmResponse> => {
+    return request<AdminResetConfirmResponse>('/admin/reset-data', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: phrase, token }),
+    })
+  },
+}
+
+// ---------------------------------------------------------------------------
 // configApi — read integration health via GET /api/v1/config/integrations
 // ---------------------------------------------------------------------------
 

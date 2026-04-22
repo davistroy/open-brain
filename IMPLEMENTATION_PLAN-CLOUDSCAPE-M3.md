@@ -976,76 +976,89 @@ Three tabs: Inbound (captures with source=email), Drafts (`emailApi.list()` with
 ---
 
 #### 6.4 System page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.11
 **Files Affected:**
 - `packages/web-next/app/(shell)/system/page.tsx` (create)
+- `packages/web-next/components/system/SystemTabs.tsx` (create)
 - `packages/web-next/components/system/OverviewTab.tsx` (create)
 - `packages/web-next/components/system/QueuesTab.tsx` (create)
 - `packages/web-next/components/system/SkillsTab.tsx` (create)
-- `packages/web-next/lib/api-client.ts` (modify — add systemApi, skillsApi, mcpActivityApi)
+- `packages/web-next/components/system/FlowsTab.tsx` (create)
+- `packages/web-next/components/system/McpActivityTab.tsx` (create)
+- `packages/web-next/lib/api-client.ts` (modify — add systemHealthApi, adminQueuesApi, skillsListApi, mcpActivityApi)
 
 **Description:**
-5-tab ops dashboard: Overview (health strip + summary), Queues (BullMQ queue status + clear actions), Skills (list + trigger + schedule update), Flows (pipeline flow monitor), MCP Activity (paginated activity log). Health API returns `healthy|degraded|unhealthy`. Multiple API namespaces: `systemHealthApi`, `skillsApi`, `mcpActivityApi`.
+5-tab ops dashboard: Overview (health strip + summary), Queues (BullMQ queue status + clear actions), Skills (list + trigger + schedule update), Flows (pipeline flow monitor), MCP Activity (paginated activity log). Health API returns `healthy|degraded|unhealthy`. Multiple API namespaces: `systemHealthApi`, `adminQueuesApi`, `skillsListApi`, `mcpActivityApi`.
 
 **Tasks:**
-1. [ ] Create page.tsx with 5-tab layout
-2. [ ] Create OverviewTab with health summary
-3. [ ] Create QueuesTab with queue status + clear action
-4. [ ] Create SkillsTab with skill list + trigger + schedule
-5. [ ] Create remaining tabs (Flows + MCP Activity with pagination)
+1. [x] Create page.tsx with 5-tab layout (RSC + SystemTabs client orchestrator)
+2. [x] Create OverviewTab with health strip + summary cards + queue depths + skill last-runs
+3. [x] Create QueuesTab with queue status table + inline clear-failed confirmation
+4. [x] Create SkillsTab with skill list + trigger mutation + inline schedule editor
+5. [x] Create FlowsTab (pipeline stage progression) + McpActivityTab (paginated log, TanStack Query)
 
 **Acceptance Criteria:**
-- [ ] `/system` shows 5 functional tabs
-- [ ] Health status displays correctly
-- [ ] Skill trigger works
-- [ ] MCP activity paginates
+- [x] `/system` shows 5 functional tabs
+- [x] Health status displays correctly (StatusDot green/yellow/red per service)
+- [x] Skill trigger works (fire-and-forget, toast on 202)
+- [x] MCP activity paginates (offset-based, 25/page, tool filter dropdown)
+- [x] Queue clear has confirmation step before POST /admin/queues/:name/clear
 
 ---
 
 #### 6.5 SlackCleanup page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.10
 **Files Affected:**
 - `packages/web-next/app/(shell)/slack-cleanup/page.tsx` (create)
 - `packages/web-next/components/slack/ChannelTable.tsx` (create)
 - `packages/web-next/lib/api-client.ts` (modify — add adminApi)
+- `packages/web-next/components/nav/side-nav.tsx` (modify — add Slack cleanup nav item)
 
 **Description:**
 Sortable channel table with inactivity threshold filter. Archive action with confirmation modal (text input validation). Summary cards (total channels, archived count). Add `adminApi`: `getSlackChannels()`, `archiveSlackChannel(id)`.
 
 **Tasks:**
-1. [ ] Create page.tsx with summary cards + channel table
-2. [ ] Create sortable ChannelTable
-3. [ ] Archive confirmation modal with validation
-4. [ ] Add adminApi namespace
+1. [x] Create page.tsx with summary cards + channel table
+2. [x] Create sortable ChannelTable
+3. [x] Archive confirmation modal with validation
+4. [x] Add adminApi namespace
 
 **Acceptance Criteria:**
-- [ ] `/slack-cleanup` shows channel table
-- [ ] Sort by column works
-- [ ] Archive requires confirmation
+- [x] `/slack-cleanup` shows channel table
+- [x] Sort by column works
+- [x] Archive requires confirmation
 
 ---
 
 #### 6.6 Admin Reset (in System page)
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.13
 **Files Affected:**
 - `packages/web-next/components/system/AdminResetSection.tsx` (create)
+- `packages/web-next/components/settings/DangerZoneSection.tsx` (enhance — add countdown timer)
+- `packages/web-next/lib/api-client.ts` (modify — add adminApi.requestResetToken + confirmReset)
 
 **Description:**
 Two-step reset flow embedded in System page (or Settings Danger zone — wire to whichever is more appropriate). Step 1: POST /admin/reset-data (no confirm) → receive token. Step 2: POST /admin/reset-data with `{ confirm: "WIPE ALL DATA", token }`. Show warning about irreversibility. Check origin allowlist. Per CLAUDE.md: no adminAuth() — protection is origin + token + phrase + rate limit.
 
+AdminResetSection adds a 5-minute CountdownTimer component (M:SS format, turns red in last 60s, auto-expires to error state). DangerZoneSection (Settings → Danger zone) enhanced with the same timer. adminApi.requestResetToken() and adminApi.confirmReset() added to api-client.ts with typed response shapes.
+
 **Tasks:**
-1. [ ] Create AdminResetSection with two-step flow
-2. [ ] Warning UI with confirmation phrase input
-3. [ ] Wire to System or Settings danger zone
-4. [ ] Origin check warning if URL not in allowlist
+1. [x] Create AdminResetSection with two-step flow
+2. [x] Warning UI with confirmation phrase input
+3. [x] Wire to System or Settings danger zone
+4. [x] Origin check warning if URL not in allowlist
+5. [x] 5-minute countdown timer (CountdownTimer component, auto-expires at 0)
+6. [x] Add adminApi.requestResetToken() + confirmReset() to api-client.ts
 
 **Acceptance Criteria:**
-- [ ] Two-step flow works: get token → confirm with phrase
-- [ ] Confirmation phrase must match exactly
-- [ ] Warning displayed prominently
+- [x] Two-step flow works: get token → confirm with phrase
+- [x] Confirmation phrase must match exactly
+- [x] Warning displayed prominently
+- [x] Countdown timer shows time remaining; expires to error state at 0
+- [x] Origin warning shown when not on brain.troy-davis.com
 
 ---
 

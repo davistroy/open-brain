@@ -18,6 +18,7 @@ import {
   LineChart,
   Monitor,
   Settings,
+  Hash,
   ChevronsUpDown,
   type LucideIcon,
 } from 'lucide-react';
@@ -72,8 +73,9 @@ const SECTIONS: NavSection[] = [
   {
     title: 'System',
     items: [
-      { id: 'system',   href: '/system',   icon: Monitor,  label: 'System status', dot: 'success' },
-      { id: 'settings', href: '/settings', icon: Settings, label: 'Settings' },
+      { id: 'system',        href: '/system',        icon: Monitor,  label: 'System status', dot: 'success' },
+      { id: 'slack-cleanup', href: '/slack-cleanup', icon: Hash,     label: 'Slack cleanup' },
+      { id: 'settings',      href: '/settings',      icon: Settings, label: 'Settings' },
     ],
   },
 ];
