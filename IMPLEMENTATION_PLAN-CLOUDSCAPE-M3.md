@@ -894,7 +894,7 @@ Two-pane layout: left session list + right session detail. Active session banner
 ### Work Items
 
 #### 6.1 Wiki page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.1
 **Files Affected:**
 - `packages/web-next/app/(shell)/wiki/[...slug]/page.tsx` (create)
@@ -907,48 +907,49 @@ Two-pane layout: left session list + right session detail. Active session banner
 Wiki with `[...slug]` catch-all for nested pages. 4 tabs: Content, Recent changes, Health, Stats. Sidebar nav tree. Markdown rendering (fetch pre-rendered HTML from API or use shared renderer). Add `wikiApi`: `pages()`, `page(slug)`, `recentChanges()`, `lintReport()`, `stats()`, `search()`, `triggerLint()`, `triggerResynthesize()`.
 
 **Tasks:**
-1. [ ] Create wiki root page + [...slug] dynamic route
-2. [ ] Create WikiNavTree sidebar with page list
-3. [ ] Create WikiTabs with 4 tab views
-4. [ ] Add wikiApi namespace to api-client
-5. [ ] Markdown content rendering
+1. [x] Create wiki root page + [...slug] dynamic route
+2. [x] Create WikiNavTree sidebar with page list
+3. [x] Create WikiTabs with 4 tab views
+4. [x] Add wikiApi namespace to api-client
+5. [x] Markdown content rendering
 
 **Acceptance Criteria:**
-- [ ] `/wiki` renders page list + content
-- [ ] `/wiki/some/nested/page` renders specific wiki page
-- [ ] All 4 tabs functional
+- [x] `/wiki` renders page list + content
+- [x] `/wiki/some/nested/page` renders specific wiki page
+- [x] All 4 tabs functional
 
 ---
 
 #### 6.2 Ingest page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.5
 **Files Affected:**
 - `packages/web-next/app/(shell)/ingest/page.tsx` (create)
 - `packages/web-next/components/ingest/FileDropZone.tsx` (create)
 - `packages/web-next/components/ingest/IngestProgress.tsx` (create)
 - `packages/web-next/components/ingest/RecentUploads.tsx` (create)
+- `packages/web-next/components/ingest/IngestClient.tsx` (create — client orchestrator)
 - `packages/web-next/lib/api-client.ts` (modify — add ingestApi)
 
 **Description:**
 File upload with SSE progress tracking. FileDropZone accepts files → `ingestApi.upload(file, opts)` → returns upload_id → subscribe to SSE events for progress updates. Recent uploads table shows pipeline status. Re-process button for failed items. Add `ingestApi`: `upload(file, opts)`, `list({limit})`, `subscribeToEvents(upload_id)`, `processNow()`, `process(id)`.
 
 **Tasks:**
-1. [ ] Create page.tsx with upload zone + recent uploads
-2. [ ] Implement file upload via FormData
-3. [ ] SSE subscription for upload progress
-4. [ ] Recent uploads table with status badges
-5. [ ] Re-process action for failed items
+1. [x] Create page.tsx with upload zone + recent uploads
+2. [x] Implement file upload via FormData
+3. [x] SSE subscription for upload progress
+4. [x] Recent uploads table with status badges
+5. [x] Re-process action for failed items
 
 **Acceptance Criteria:**
-- [ ] `/ingest` accepts file upload and shows progress
-- [ ] SSE events update progress in real-time
-- [ ] Recent uploads table shows pipeline status
+- [x] `/ingest` accepts file upload and shows progress
+- [x] SSE events update progress in real-time
+- [x] Recent uploads table shows pipeline status
 
 ---
 
 #### 6.3 Email page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.4
 **Files Affected:**
 - `packages/web-next/app/(shell)/email/page.tsx` (create)
@@ -961,16 +962,16 @@ File upload with SSE progress tracking. FileDropZone accepts files → `ingestAp
 Three tabs: Inbound (captures with source=email), Drafts (`emailApi.list()` with send/reject actions), Threads (client-side grouping by normalized subject). Filter bar: sender, date range. Draft actions: send (`emailApi.send(id)`) and reject (`emailApi.reject(id)`). Thread reconstruction: group email captures by subject, sorted by date. Add `emailApi`: `list()`, `send(id)`, `reject(id)`.
 
 **Tasks:**
-1. [ ] Create page.tsx with 3-tab layout
-2. [ ] Create Inbound tab with email captures
-3. [ ] Create Drafts tab with DraftCard + send/reject actions
-4. [ ] Create Threads tab with client-side grouping
-5. [ ] Filter bar (sender, date range)
+1. [x] Create page.tsx with 3-tab layout
+2. [x] Create Inbound tab with email captures
+3. [x] Create Drafts tab with DraftCard + send/reject actions
+4. [x] Create Threads tab with client-side grouping
+5. [x] Filter bar (sender, date range)
 
 **Acceptance Criteria:**
-- [ ] `/email` shows 3 functional tabs
-- [ ] Draft send/reject works with confirmation
-- [ ] Thread view groups emails by subject
+- [x] `/email` shows 3 functional tabs
+- [x] Draft send/reject works with confirmation
+- [x] Thread view groups emails by subject
 
 ---
 

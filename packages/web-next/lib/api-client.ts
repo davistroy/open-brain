@@ -706,6 +706,368 @@ export const voiceSessionApi = {
 }
 
 // ---------------------------------------------------------------------------
+// wikiApi — wiki page listing, content, recent changes, lint, stats, search
+//
+// Endpoint map (see packages/core-api/src/routes/wiki.ts):
+//   GET  /api/v1/wiki/pages              → { pages: WikiPageMeta[], total: number }
+//   GET  /api/v1/wiki/pages/*path        → WikiPageFull (path + frontmatter fields + content)
+//   GET  /api/v1/wiki/recent-changes     → { changes: WikiChange[], total: number }
+//   GET  /api/v1/wiki/lint-report        → WikiLintReport (total_pages, issues[], last_run)
+//   GET  /api/v1/wiki/stats              → WikiStats
+//   GET  /api/v1/wiki/search?q=query     → { query, results, pages, total }
+//   POST /api/v1/wiki/lint               → { jobId, status: 'enqueued' }
+//   POST /api/v1/wiki/resynthesize       → { jobId, pagePath, status: 'enqueued' }
+// ---------------------------------------------------------------------------
+
+/** Flat wiki page metadata — returned by list and search endpoints. */
+export interface WikiPageMeta {
+  path: string
+  title: string
+  type: string
+  created: string
+  updated: string
+  source_count?: number
+  tags?: string[]
+  aliases?: string[]
+}
+
+/** Full wiki page — metadata + raw markdown content. */
+export interface WikiPageFull extends WikiPageMeta {
+  content: string
+}
+
+/** Wiki search result — metadata + snippet. */
+export interface WikiSearchResult extends WikiPageMeta {
+  snippet: string
+}
+
+/** One entry in the recent-changes git log. */
+export interface WikiChange {
+  hash: string
+  message: string
+  author: string
+  date: string
+  files_changed: string[]
+}
+
+/** One lint issue entry from the lint report. */
+export interface WikiLintIssue {
+  path: string
+  rule: string
+  message: string
+  severity: 'error' | 'warning' | 'info'
+}
+
+/** Structured lint report returned by GET /api/v1/wiki/lint-report. */
+export interface WikiLintReport {
+  total_pages: number
+  issues: WikiLintIssue[]
+  last_run: string | null
+}
+
+/** Aggregate wiki statistics returned by GET /api/v1/wiki/stats. */
+export interface WikiStats {
+  total_pages: number
+  by_type: Record<string, number>
+  orphaned_pages: number
+  domains: string[]
+  last_synthesized?: string | null
+}
+
+export const wikiApi = {
+  /** GET /api/v1/wiki/pages — list all wiki pages with optional type/tag filters. */
+  pages: (params: { type?: string; tag?: string } = {}): Promise<{ pages: WikiPageMeta[]; total: number }> => {
+    const qs = buildQueryString(params)
+    return request<{ pages: WikiPageMeta[]; total: number }>(`/wiki/pages${qs}`)
+  },
+
+  /**
+   * GET /api/v1/wiki/pages/*path — fetch a specific page by slug path.
+   * `slug` is the dot-slash joined path segments, e.g. "career/goals" or just "home".
+   * Returns WikiPageFull (metadata + raw markdown content).
+   */
+  page: (slug: string): Promise<WikiPageFull> => {
+    // Encode each segment individually but preserve slashes as path separators.
+    const encodedPath = slug.split('/').map(encodeURIComponent).join('/')
+    return request<WikiPageFull>(`/wiki/pages/${encodedPath}`)
+  },
+
+  /** GET /api/v1/wiki/recent-changes — recent git log entries. */
+  recentChanges: (limit = 20): Promise<{ changes: WikiChange[]; total: number }> => {
+    const qs = buildQueryString({ limit })
+    return request<{ changes: WikiChange[]; total: number }>(`/wiki/recent-changes${qs}`)
+  },
+
+  /** GET /api/v1/wiki/lint-report — structured lint results (or empty report). */
+  lintReport: (): Promise<WikiLintReport> => {
+    return request<WikiLintReport>('/wiki/lint-report')
+  },
+
+  /** GET /api/v1/wiki/stats — aggregate wiki statistics. */
+  stats: (): Promise<WikiStats> => {
+    return request<WikiStats>('/wiki/stats')
+  },
+
+  /** GET /api/v1/wiki/search?q=query — search across wiki page content. */
+  search: (q: string): Promise<{ query: string; results: WikiSearchResult[]; pages: WikiSearchResult[]; total: number }> => {
+    const qs = buildQueryString({ q })
+    return request<{ query: string; results: WikiSearchResult[]; pages: WikiSearchResult[]; total: number }>(
+      `/wiki/search${qs}`,
+    )
+  },
+
+  /** POST /api/v1/wiki/lint — trigger manual lint job. */
+  triggerLint: (): Promise<{ jobId: string; status: string }> => {
+    return request<{ jobId: string; status: string }>('/wiki/lint', { method: 'POST' })
+  },
+
+  /** POST /api/v1/wiki/resynthesize — trigger re-synthesis for a specific page. */
+  triggerResynthesize: (page_path: string): Promise<{ jobId: string; pagePath: string; status: string }> => {
+    return request<{ jobId: string; pagePath: string; status: string }>('/wiki/resynthesize', {
+      method: 'POST',
+      body: JSON.stringify({ page_path }),
+    })
+  },
+}
+
+// ---------------------------------------------------------------------------
+// emailApi — email drafts management (M3, screen 6.3)
+//
+// Endpoint map (see packages/core-api/src/routes/email.ts):
+//   GET    /api/v1/email/drafts              → { items, total, limit, offset }
+//   GET    /api/v1/email/drafts/:id          → EmailDraft
+//   POST   /api/v1/email/drafts/:id/send     → { id, status, sent_at }
+//   DELETE /api/v1/email/drafts/:id          → { id, status }
+// ---------------------------------------------------------------------------
+
+export type EmailDraftStatus = 'draft' | 'approved' | 'sent' | 'rejected' | 'failed';
+export type EmailSendMode = 'review-required' | 'auto-send';
+
+/** Email draft as returned by the API list/get endpoints. */
+export interface EmailDraft {
+  id: string;
+  to_address: string;
+  cc_address: string | null;
+  subject: string;
+  body: string;
+  status: EmailDraftStatus;
+  send_mode: EmailSendMode;
+  source: string | null;
+  approved_at: string | null;   // ISO 8601 or null
+  sent_at: string | null;       // ISO 8601 or null
+  capture_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;           // ISO 8601
+  updated_at: string;           // ISO 8601
+}
+
+export interface EmailDraftsListParams {
+  status?: EmailDraftStatus;
+  limit?: number;
+  offset?: number;
+}
+
+/** Response envelope from POST /api/v1/email/drafts/:id/send */
+export interface EmailDraftSendResult {
+  id: string;
+  status: EmailDraftStatus;
+  sent_at: string | null;
+}
+
+/** Response envelope from DELETE /api/v1/email/drafts/:id */
+export interface EmailDraftRejectResult {
+  id: string;
+  status: EmailDraftStatus;
+}
+
+export const emailApi = {
+  /**
+   * GET /api/v1/email/drafts — paginated list of email drafts.
+   * Optional status filter: 'draft' | 'approved' | 'sent' | 'rejected' | 'failed'.
+   */
+  list: (params: EmailDraftsListParams = {}): Promise<ListEnvelope<EmailDraft>> => {
+    const qs = buildQueryString(params)
+    return request<ListEnvelope<EmailDraft>>(`/email/drafts${qs}`)
+  },
+
+  /**
+   * GET /api/v1/email/drafts/:id — fetch a single draft.
+   */
+  get: (id: string): Promise<EmailDraft> => {
+    return request<EmailDraft>(`/email/drafts/${encodeURIComponent(id)}`)
+  },
+
+  /**
+   * POST /api/v1/email/drafts/:id/send — approve and send a draft.
+   * Transitions draft status to 'approved' then 'sent' (or 'failed').
+   */
+  send: (id: string): Promise<EmailDraftSendResult> => {
+    return request<EmailDraftSendResult>(
+      `/email/drafts/${encodeURIComponent(id)}/send`,
+      { method: 'POST' },
+    )
+  },
+
+  /**
+   * DELETE /api/v1/email/drafts/:id — reject and discard a draft.
+   * Transitions draft status to 'rejected'.
+   */
+  reject: (id: string): Promise<EmailDraftRejectResult> => {
+    return request<EmailDraftRejectResult>(
+      `/email/drafts/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// ingestApi — file uploads via the /api/v1/ingest/* endpoints (CS3.4)
+// ---------------------------------------------------------------------------
+
+/** Lifecycle status of a file_uploads row — mirrors FileUploadStatus in @open-brain/shared */
+export type FileUploadStatus = 'pending' | 'processing' | 'parsed' | 'failed'
+
+/** Ingest source type — matches the bind-mount subfolder */
+export type IngestSourceType = 'financial' | 'utility'
+
+/** Capture-id + short title snippet joined onto a file upload row */
+export interface UploadCaptureSummary {
+  id: string
+  title_snippet: string
+}
+
+/** Single row from GET /api/v1/ingest/uploads */
+export interface FileUploadRow {
+  id: string
+  filename: string
+  size_bytes: number
+  mime_type: string | null
+  source_type: IngestSourceType
+  parser_hint: string | null
+  destination_path: string
+  uploaded_at: string          // ISO 8601
+  status: FileUploadStatus
+  capture_ids: string[]
+  captures: UploadCaptureSummary[]
+  error_message: string | null
+  processed_at: string | null  // ISO 8601 or null
+  duration_ms: number | null
+}
+
+/** Paginated list envelope from GET /api/v1/ingest/uploads */
+export interface ListUploadsResponse {
+  uploads: FileUploadRow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+/** Response from POST /api/v1/ingest/upload */
+export interface UploadFileResponse {
+  upload_id: string
+  status: FileUploadStatus
+  filename: string
+  size_bytes: number
+  source_type: IngestSourceType
+  parser_hint: string | null
+  destination_path: string
+  uploaded_at: string          // ISO 8601
+}
+
+/** Response from POST /api/v1/ingest/process-now and POST /api/v1/ingest/uploads/:id/process */
+export interface ProcessNowResponse {
+  source: IngestSourceType
+  enqueued: boolean
+  message?: string
+}
+
+export interface IngestUploadOptions {
+  source_type?: IngestSourceType
+  parser_hint?: string
+}
+
+export interface IngestListParams {
+  limit?: number
+  offset?: number
+  status?: FileUploadStatus
+  source_type?: IngestSourceType
+}
+
+export const ingestApi = {
+  /**
+   * POST /api/v1/ingest/upload — multipart file upload.
+   * Streams FormData (field name: `file`). Does NOT set Content-Type — browser
+   * sets it with the boundary automatically. Returns 201 with upload_id.
+   */
+  upload: async (file: File, opts: IngestUploadOptions = {}): Promise<UploadFileResponse> => {
+    const formData = new FormData()
+    formData.append('file', file, file.name)
+    if (opts.source_type) formData.append('source_type', opts.source_type)
+    if (opts.parser_hint) formData.append('parser_hint', opts.parser_hint)
+
+    const url = `${API_BASE}/ingest/upload`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        // Do NOT set Content-Type — browser sets it with multipart boundary
+        'X-Open-Brain-Caller': 'web-ui',
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      let body: unknown
+      const contentType = response.headers.get('content-type') ?? ''
+      try {
+        body = contentType.includes('application/json')
+          ? await response.json()
+          : await response.text()
+      } catch {
+        body = null
+      }
+      throw new HttpError(response.status, body, '/ingest/upload')
+    }
+
+    return response.json() as Promise<UploadFileResponse>
+  },
+
+  /**
+   * GET /api/v1/ingest/uploads — paginated list of file upload rows.
+   */
+  list: (params: IngestListParams = {}): Promise<ListUploadsResponse> => {
+    const qs = buildQueryString(params)
+    return request<ListUploadsResponse>(`/ingest/uploads${qs}`)
+  },
+
+  /**
+   * GET /api/v1/ingest/uploads/:id — single file upload row.
+   */
+  get: (id: string): Promise<FileUploadRow> => {
+    return request<FileUploadRow>(`/ingest/uploads/${encodeURIComponent(id)}`)
+  },
+
+  /**
+   * POST /api/v1/ingest/uploads/:id/process — re-enqueue a specific upload for processing.
+   * Used to retry failed uploads. Returns 200 with enqueued: true on success.
+   */
+  process: (id: string): Promise<ProcessNowResponse> => {
+    return request<ProcessNowResponse>(
+      `/ingest/uploads/${encodeURIComponent(id)}/process`,
+      { method: 'POST' },
+    )
+  },
+
+  /**
+   * POST /api/v1/ingest/process-now — manual inbox re-trigger (no upload required).
+   * Fans out a synthetic job per source so the worker can scan the sidecar inbox.
+   */
+  processNow: (source?: IngestSourceType): Promise<ProcessNowResponse> => {
+    const qs = source ? buildQueryString({ source }) : ''
+    return request<ProcessNowResponse>(`/ingest/process-now${qs}`, { method: 'POST' })
+  },
+}
+
+// ---------------------------------------------------------------------------
 // configApi — read integration health via GET /api/v1/config/integrations
 // ---------------------------------------------------------------------------
 
