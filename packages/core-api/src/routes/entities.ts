@@ -3,9 +3,16 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
+import type { Queue } from 'bullmq'
 import type { EntityService } from '../services/entity.js'
 import type { SearchService } from '../services/search.js'
 import { logger } from '@open-brain/shared'
+
+/** Job data shape for skill-execution queue */
+interface SkillExecutionJobData {
+  skillName: string
+  input: Record<string, unknown>
+}
 
 /**
  * Register entity management API routes.
@@ -16,12 +23,14 @@ import { logger } from '@open-brain/shared'
  * POST /api/v1/entities/:id/merge    — merge two entities
  * POST /api/v1/entities/:id/split    — split alias to new entity
  * POST /api/v1/entities/:id/ask      — entity-scoped LLM synthesis (requires searchService + llmGateway)
+ * POST /api/v1/entities/:id/brief    — enqueue entity-brief skill (202 Accepted); strict rate-limit in app.ts
  */
 export function registerEntityRoutes(
   app: Hono,
   entityService: EntityService,
   searchService?: SearchService,
   llmGateway?: LLMGatewayService,
+  skillQueue?: Queue<SkillExecutionJobData>,
 ): void {
   // -------------------------------------------------------------------------
   // GET /api/v1/entities
@@ -267,5 +276,54 @@ export function registerEntityRoutes(
     logger.info({ entityId: id, captureCount: result.capture_count }, '[entities-api] ask complete')
 
     return c.json(result)
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /api/v1/entities/:id/brief
+  // Enqueue an entity-brief skill-execution job (DOSSIER kind).
+  // Validates entity exists first (404 if not).
+  // Returns 202 Accepted with { job_id }.
+  // Strict rate-limit applied in app.ts BEFORE the default /api/v1/* limiter.
+  // Requires skillQueue to be injected; returns 503 if absent.
+  // -------------------------------------------------------------------------
+  app.post('/api/v1/entities/:id/brief', async (c) => {
+    if (!skillQueue) {
+      return c.json({ error: 'Brief generation is not available (skill queue not configured)', code: 'SERVICE_UNAVAILABLE' }, 503)
+    }
+
+    const id = c.req.param('id')
+
+    logger.info({ entityId: id }, '[entities-api] entity-brief generation requested')
+
+    const exists = await entityService.entityExists(id)
+    if (!exists) {
+      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+    }
+
+    // Fetch entity name + type for the job payload so the skill doesn't need
+    // a redundant DB lookup when it starts.
+    const detail = await entityService.getById(id)
+    const entityName: string = (detail as any).name ?? id
+    const entityType: string = (detail as any).entity_type ?? 'unknown'
+
+    const job = await skillQueue.add(
+      'entity-brief',
+      {
+        skillName: 'entity-brief',
+        input: {
+          entityId: id,
+          entityName,
+          entityType,
+        },
+      },
+      {
+        priority: 2,
+        jobId: `entity_brief_${id}_${Date.now()}`,
+      },
+    )
+
+    logger.info({ entityId: id, entityName, jobId: job.id }, '[entities-api] entity-brief job enqueued')
+
+    return c.json({ job_id: job.id }, 202)
   })
 }

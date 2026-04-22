@@ -66,7 +66,7 @@ The plan groups the 10 M3_BACKLOG sections plus the Cloudscape onboarding screen
 ### Work Items
 
 #### 1.1 Entity-brief worker skill
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §2, HANDOFF M3 "brief generator", D112 (BaseSkill.logResult → Promise<string>)
 **Files Affected:**
 - `packages/workers/src/skills/entity-brief.ts` (create)
@@ -96,7 +96,7 @@ Follow weekly-brief.ts pattern exactly: logResult() → build markdown → rende
 ---
 
 #### 1.2 POST /entities/:id/brief endpoint
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §2 "Backend: Endpoint"
 **Files Affected:**
 - `packages/core-api/src/routes/entities.ts` (modify — add POST route)

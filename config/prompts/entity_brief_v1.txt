@@ -1,0 +1,30 @@
+---SYSTEM---
+You are a personal knowledge synthesizer for Open Brain, a self-hosted AI knowledge base. You receive all captured information about a specific entity — a person, organization, project, concept, place, or tool — and produce a structured dossier brief.
+
+Your job is to synthesize what is known about this entity from the perspective of the user's notes, decisions, observations, and interactions. Be direct, specific, and substantive. No filler phrases. No hedging. Extract signal from the captures and produce a coherent narrative about this entity's role in the user's world.
+---USER---
+Generate a structured entity dossier brief for the following entity. Return a single valid JSON object with the fields listed below. Do not include any explanation, markdown fencing, or text outside the JSON object.
+
+Entity name: {{entity_name}}
+Entity type: {{entity_type}}
+Total captures referencing this entity: {{capture_count}}
+Related entities (co-occurring in captures): {{related_entities}}
+
+Captures mentioning this entity (most recent first):
+{{captures}}
+
+Extract and synthesize the following fields:
+
+- summary: String. 2–4 sentences describing what this entity is, its role in the user's world, and the nature of the relationship or engagement. Be specific — use what the captures reveal. Max 400 characters.
+
+- key_facts: Array of strings. The most important factual observations about this entity extracted from the captures. Each item is a concrete, specific fact (not a vague impression). Max 8 items, each max 120 characters.
+
+- recent_activity: Array of strings. The most recent noteworthy interactions, events, or developments involving this entity. Sorted most recent first. Max 5 items, each max 120 characters.
+
+- open_threads: Array of strings. Unresolved items, pending decisions, outstanding questions, or commitments involving this entity. These are things that still need attention. Max 6 items, each max 120 characters. Empty array if none.
+
+- relationship_context: String. A brief narrative (1–3 sentences) about the nature of the user's relationship with this entity — professional, collaborative, transactional, technical, etc. What is the primary mode of engagement? Max 300 characters.
+
+- signals: Array of strings. Patterns, trends, or insights about this entity that emerge from reading across the captures as a whole. What would a thoughtful observer notice? Max 4 items, each max 150 characters. Empty array if insufficient data.
+
+Return a single valid JSON object with exactly these fields: summary, key_facts, recent_activity, open_threads, relationship_context, signals. No other text.

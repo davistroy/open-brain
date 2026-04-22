@@ -3,6 +3,7 @@ import { createApp } from '../app.js'
 import type { EntityService } from '../services/entity.js'
 import type { LLMGatewayService } from '@open-brain/shared'
 import type { SearchService } from '../services/search.js'
+import type { Queue } from 'bullmq'
 
 // ---------------------------------------------------------------------------
 // Mock EntityService
@@ -60,6 +61,12 @@ function makeMockEntityService(overrides: Partial<EntityService> = {}): EntitySe
     }),
     ...overrides,
   } as unknown as EntityService
+}
+
+function makeMockSkillQueue(jobId = 'job-abc-123'): Queue {
+  return {
+    add: vi.fn().mockResolvedValue({ id: jobId }),
+  } as unknown as Queue
 }
 
 function makeMockSearchService(): SearchService {
@@ -700,5 +707,84 @@ describe('POST /api/v1/entities/:id/ask', () => {
     const body = await res.json() as any
     expect(body.capture_count).toBe(0)
     expect(body.response).toContain("couldn't find any captures")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/entities/:id/brief
+// ---------------------------------------------------------------------------
+
+describe('POST /api/v1/entities/:id/brief', () => {
+  it('returns 202 with job_id when entity exists and skillQueue is present', async () => {
+    const entityService = makeMockEntityService()
+    const skillQueue = makeMockSkillQueue('job-abc-123')
+    const app = createApp({ entityService, skillQueue })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/brief', {
+      method: 'POST',
+    })
+
+    expect(res.status).toBe(202)
+    const body = await res.json() as any
+    expect(body.job_id).toBe('job-abc-123')
+    expect(entityService.entityExists).toHaveBeenCalledWith('entity-uuid-1')
+    expect(entityService.getById).toHaveBeenCalledWith('entity-uuid-1')
+    expect(skillQueue.add).toHaveBeenCalledWith(
+      'entity-brief',
+      expect.objectContaining({
+        skillName: 'entity-brief',
+        input: expect.objectContaining({
+          entityId: 'entity-uuid-1',
+          entityName: 'Tom Smith',
+          entityType: 'person',
+        }),
+      }),
+      expect.objectContaining({ priority: 2 }),
+    )
+  })
+
+  it('returns 404 when entity does not exist', async () => {
+    const entityService = makeMockEntityService({
+      entityExists: vi.fn().mockResolvedValue(false),
+    })
+    const skillQueue = makeMockSkillQueue()
+    const app = createApp({ entityService, skillQueue })
+
+    const res = await app.request('/api/v1/entities/nonexistent-uuid/brief', {
+      method: 'POST',
+    })
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+    expect(skillQueue.add).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 when skillQueue is not configured', async () => {
+    const entityService = makeMockEntityService()
+    // omit skillQueue — endpoint should return 503
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/brief', {
+      method: 'POST',
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as any
+    expect(body.code).toBe('SERVICE_UNAVAILABLE')
+  })
+
+  it('enqueues job with correct jobId prefix', async () => {
+    const entityService = makeMockEntityService()
+    const skillQueue = makeMockSkillQueue('job-xyz-999')
+    const app = createApp({ entityService, skillQueue })
+
+    await app.request('/api/v1/entities/entity-uuid-1/brief', {
+      method: 'POST',
+    })
+
+    const addCall = (skillQueue.add as ReturnType<typeof vi.fn>).mock.calls[0]
+    const jobOptions = addCall[2] as { jobId: string }
+    expect(jobOptions.jobId).toMatch(/^entity_brief_entity-uuid-1_\d+$/)
   })
 })

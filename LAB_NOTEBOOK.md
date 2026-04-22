@@ -8924,3 +8924,37 @@ Commitments domain (D111), entity-brief skill for "Generate brief" button, TTS f
 
 ---
 
+--- New session: 2026-04-22 — Cloudscape M3 implementation (orchestrated subagent execution) ---
+
+## Entry 128 — Cloudscape M3 Implementation Kickoff [web] [config] [pipeline] [database]
+
+**Date:** 2026-04-22
+**Environment:** Laptop (development), branch `feat/cloudscape-m3`
+**Tags:** [web] [config] [pipeline] [database]
+
+### Objective
+
+Execute the 8-phase, 41-work-item Cloudscape M3 implementation plan via orchestrated Sonnet subagents. Covers: brief generation, commitments+board, settings, onboarding, TTS, search, timeline, 12 screen ports, production cut-over, and polish.
+
+### Hypothesis
+
+Parallel subagent execution within phases (max 3 concurrent) will complete the full M3 plan in a single session. Expected: ~8,500 LOC across ~120 files. Success criteria: all 41 work items complete, tests passing, PR created.
+
+### Rollback plan
+
+Each phase commits separately. `git revert` any phase. State file (`.implement-plan-state.json`) enables session resume if interrupted.
+
+### Execution strategy
+
+- Phases processed sequentially (1→8), max parallelism within each phase
+- Phase 1: [1.1, 1.2] parallel → [1.3, 1.4] sequential
+- Phase 2: 2.1 → [2.2, 2.3] parallel → 2.4 → 2.5
+- Phases 5-6: up to 3 subagents from the parallel pool at a time
+- All subagents use Sonnet model; orchestrator (Opus) monitors only
+
+### Progress
+
+*(updated as phases complete)*
+
+---
+

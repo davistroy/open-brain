@@ -125,6 +125,8 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Entity ask triggers LLM synthesis — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
   app.use('/api/v1/entities/*/ask', rateLimit(strictLimiter))
+  // Entity brief enqueues an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
+  app.use('/api/v1/entities/*/brief', rateLimit(strictLimiter))
 
   // Admin tier: destructive/config endpoints
   app.use('/api/v1/admin/*', rateLimit(adminLimiter))
@@ -171,7 +173,8 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Entities API
   if (entityService) {
     // searchService + llmGateway are optional — /ask returns 503 when absent
-    registerEntityRoutes(app, entityService, searchService, llmGateway)
+    // skillQueue is optional — /brief returns 503 when absent
+    registerEntityRoutes(app, entityService, searchService, llmGateway, skillQueue)
   }
 
   // Bets API
