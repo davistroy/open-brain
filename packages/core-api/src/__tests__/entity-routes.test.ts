@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createApp } from '../app.js'
 import type { EntityService } from '../services/entity.js'
+import type { LLMGatewayService } from '@open-brain/shared'
+import type { SearchService } from '../services/search.js'
 
 // ---------------------------------------------------------------------------
 // Mock EntityService
@@ -51,8 +53,25 @@ function makeMockEntityService(overrides: Partial<EntityService> = {}): EntitySe
     entityExists: vi.fn().mockResolvedValue(true),
     getRelated: vi.fn().mockResolvedValue(SAMPLE_RELATED),
     getMentionsTimeline: vi.fn().mockResolvedValue([]),
+    ask: vi.fn().mockResolvedValue({
+      response: 'Tom Smith leads the QSR project and is a key stakeholder.',
+      capture_count: 3,
+      entity: { id: 'entity-uuid-1', name: 'Tom Smith', type: 'person' },
+    }),
     ...overrides,
   } as unknown as EntityService
+}
+
+function makeMockSearchService(): SearchService {
+  return {
+    search: vi.fn().mockResolvedValue([]),
+  } as unknown as SearchService
+}
+
+function makeMockLLMGateway(): LLMGatewayService {
+  return {
+    completeByTask: vi.fn().mockResolvedValue('Tom Smith leads the QSR project.'),
+  } as unknown as LLMGatewayService
 }
 
 // ---------------------------------------------------------------------------
@@ -536,5 +555,150 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     const body = await res.json() as any
     expect(body.window).toBe('365d')
     expect(body.bucket).toBe('week')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/entities/:id/ask
+// ---------------------------------------------------------------------------
+
+describe('POST /api/v1/entities/:id/ask', () => {
+  it('returns synthesized response with entity metadata', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.response).toBe('Tom Smith leads the QSR project and is a key stakeholder.')
+    expect(body.capture_count).toBe(3)
+    expect(body.entity.id).toBe('entity-uuid-1')
+    expect(body.entity.name).toBe('Tom Smith')
+    expect(body.entity.type).toBe('person')
+    expect(entityService.entityExists).toHaveBeenCalledWith('entity-uuid-1')
+    expect(entityService.ask).toHaveBeenCalledWith(
+      'entity-uuid-1',
+      'What does Tom Smith work on?',
+      searchService,
+      llmGateway,
+    )
+  })
+
+  it('returns 404 when entity does not exist', async () => {
+    const entityService = makeMockEntityService({
+      entityExists: vi.fn().mockResolvedValue(false),
+    })
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/nonexistent-uuid/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does this entity do?' }),
+    })
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+    expect(entityService.ask).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 when question is missing', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 400 when question exceeds 2000 chars', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'x'.repeat(2001) }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 503 when searchService is not configured', async () => {
+    const entityService = makeMockEntityService()
+    // omit searchService — endpoint should return 503
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as any
+    expect(body.code).toBe('SERVICE_UNAVAILABLE')
+  })
+
+  it('returns 503 when llmGateway is not configured', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    // omit llmGateway — endpoint should return 503
+    const app = createApp({ entityService, searchService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as any
+    expect(body.code).toBe('SERVICE_UNAVAILABLE')
+  })
+
+  it('returns "no relevant captures" response when entity has no linked captures', async () => {
+    const entityService = makeMockEntityService({
+      ask: vi.fn().mockResolvedValue({
+        response: "I couldn't find any captures in your brain that are relevant to this query. Try capturing more notes first.",
+        capture_count: 0,
+        entity: { id: 'entity-uuid-1', name: 'Tom Smith', type: 'person' },
+      }),
+    })
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.capture_count).toBe(0)
+    expect(body.response).toContain("couldn't find any captures")
   })
 })

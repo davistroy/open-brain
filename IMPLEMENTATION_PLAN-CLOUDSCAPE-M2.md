@@ -1031,7 +1031,7 @@ Interval string built server-side from the validated enum, NEVER from user input
 ---
 
 #### 7.3 POST /entities/:id/ask (TS-side intersection with synthesize)
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS3 D114, investigation item 3.3
 **Files Affected:**
 - `packages/core-api/src/services/entity.ts` (modify)
