@@ -160,9 +160,38 @@ export function SearchResults({ query }: SearchResultsProps) {
 
   if (results.length === 0) {
     return (
-      <div className="flex flex-col items-center py-12 text-center text-text-body-secondary border border-dashed border-cloud-light rounded-container">
-        <p className="text-[14px] font-light">No results for &ldquo;{query}&rdquo;</p>
-        <p className="text-[12.5px] mt-1 font-light">Try different terms or a broader search.</p>
+      <div className="flex flex-col items-start py-10 px-2 text-left">
+        {/* Query display */}
+        <p className="font-display text-[24px] font-light italic tracking-[-0.01em] text-text-heading leading-[1.2]">
+          &ldquo;{query}&rdquo;
+        </p>
+        {/* No-match message */}
+        <p className="mt-3 text-[13px] font-light text-text-body-secondary">
+          Nothing matched — but try broader terms or check for typos.
+        </p>
+        {/* Soft suggestions prompt */}
+        <div className="mt-6 pt-6 border-t border-cloud-light w-full">
+          <p className="font-mono text-[10.5px] tracking-[0.06em] uppercase text-text-body-secondary mb-3">
+            Things that might be related
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {query.trim().split(/\s+/).filter(Boolean).map((term) => (
+              <a
+                key={term}
+                href={`/search?q=${encodeURIComponent(term)}`}
+                className={[
+                  'inline-flex items-center px-[10px] py-[4px]',
+                  'font-mono text-[11px] tracking-[0.02em]',
+                  'border border-cloud-medium bg-bg-container',
+                  'text-text-body-secondary hover:text-text-heading hover:bg-ivory-dark',
+                  'transition-colors duration-[100ms]',
+                ].join(' ')}
+              >
+                {term}
+              </a>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

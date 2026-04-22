@@ -417,6 +417,13 @@ html[data-wash="moss"] {
   --color-book-cloth-100: #D4DDCF;
 }
 
+/* Peach is the :root default; explicit block lets CSS reflect any future tweaks. */
+html[data-wash="peach"]:root,
+html[data-wash="peach"] {
+  --color-book-cloth-50:  #FBEFE9;
+  --color-book-cloth-100: #F2D5C6;
+}
+
 /* =============================================================================
    .reader — prose class for brief reading mode (Screen 08)
    ============================================================================= */

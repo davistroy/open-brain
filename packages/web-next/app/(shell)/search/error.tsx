@@ -15,8 +15,8 @@ export default function SearchError({ error, unstable_retry }: SearchErrorProps)
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Search unavailable"
-      description="Unable to load the search page. Please try again."
+      title="We lost the thread."
+      description="Search couldn't load. Try again — the index is still intact."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

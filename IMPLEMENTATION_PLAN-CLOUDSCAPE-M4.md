@@ -203,7 +203,7 @@ Add flat/grouped toggle to SearchResults. Grouped view organizes results under t
 
 #### 2.1 Wash Preference in Settings
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF.md §6 M4 "Wash preference in user settings", HANDOFF.md §3 (wash definitions)
 **Files Affected:**
 - `packages/web-next/components/settings/AppearanceSection.tsx` (create)
@@ -240,7 +240,7 @@ Add an Appearance section to Settings with a wash selector. The design system de
 
 #### 2.2 Empty States Audit
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF.md §6 M4 "Empty states across all surfaces", Cloudscape screen 12
 **Files Affected:**
 - `packages/web-next/app/(shell)/dashboard/page.tsx` (modify — zero-captures conditional)
@@ -275,7 +275,7 @@ Screen 12 defines 6 empty state patterns. Audit each surface and ensure the Empt
 
 #### 2.3 Stale Toast & Stub Cleanup
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** Ultra-plan Phase 1 findings (stale references)
 **Files Affected:**
 - `packages/web-next/components/entities/NeedsAttention.tsx` (modify)

@@ -3,19 +3,12 @@ import { Construction } from 'lucide-react';
 import { PageHeader } from '@/components/design-system/PageHeader';
 import { EmptyState } from '@/components/design-system/EmptyState';
 
-/** Map of top-level route slug → owning milestone label */
-const MILESTONE_MAP: Record<string, string> = {
-  timeline:     'Milestone 2',
-  ingest:       'Milestone 2',
-  voice:        'Milestone 2',
-  wiki:         'Milestone 3',
-  intelligence: 'Milestone 3',
-  board:        'Milestone 3',
-  financial:    'Milestone 3',
-  investments:  'Milestone 3',
-  system:       'Milestone 3',
-  settings:     'Milestone 3',
-};
+/**
+ * Map of top-level route slug → owning milestone label.
+ * All routes that now have dedicated pages have been removed — this catch-all
+ * only fires for routes that are truly not yet implemented.
+ */
+const MILESTONE_MAP: Record<string, string> = {};
 
 function toTitleCase(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -39,7 +32,7 @@ export default async function CatchAllPage({ params }: Props) {
   }
 
   const topSlug = slug[0];
-  const milestone = MILESTONE_MAP[topSlug] ?? 'a future milestone';
+  const milestone = MILESTONE_MAP[topSlug] ?? 'a future update';
   const label = toTitleCase(topSlug.replace(/-/g, ' '));
 
   return (

@@ -15,8 +15,8 @@ export default function EntityDetailError({ error, unstable_retry }: EntityDetai
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load entity"
-      description="Unable to load this entity. Please try again."
+      title="We lost the thread."
+      description="This entity couldn't load. It may have been merged or deleted — try again."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

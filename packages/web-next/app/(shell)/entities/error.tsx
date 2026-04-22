@@ -15,8 +15,8 @@ export default function EntitiesError({ error, unstable_retry }: EntitiesErrorPr
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load entities"
-      description="Unable to load the entities list. Please try again."
+      title="We lost the thread."
+      description="The entities list couldn't load. Try again — entity data is still intact."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

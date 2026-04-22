@@ -24,6 +24,7 @@ import { PageHeader } from '@/components/design-system';
 // Section keys must match SettingsSidebar items
 export type SettingsSection =
   | 'profile'
+  | 'appearance'
   | 'sources'
   | 'brief-preferences'
   | 'privacy'
@@ -38,6 +39,7 @@ const DEFAULT_SECTION: SettingsSection = 'sources';
 function resolveSection(raw: string | undefined): SettingsSection {
   const valid: SettingsSection[] = [
     'profile',
+    'appearance',
     'sources',
     'brief-preferences',
     'privacy',
@@ -101,6 +103,7 @@ import { IngestFiltersSection } from '@/components/settings/IngestFiltersSection
 import { EntityExtractionSection } from '@/components/settings/EntityExtractionSection';
 import { EmptySettingsSection } from '@/components/settings/EmptySettingsSection';
 import { DangerZoneSection } from '@/components/settings/DangerZoneSection';
+import { AppearanceSection } from '@/components/settings/AppearanceSection';
 
 /** Copy map for empty-state sections — Cloudscape editorial voice */
 const EMPTY_SECTION_COPY: Record<string, { title: string; description: string }> = {
@@ -147,6 +150,10 @@ function SettingsSectionContent({ section }: { section: SettingsSection }) {
           <EntityExtractionSection />
         </div>
       );
+
+    case 'appearance':
+      // Live section (2.1): wash preference selector
+      return <AppearanceSection />;
 
     case 'danger':
       // Live section (3.3): two-step data reset flow

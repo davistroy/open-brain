@@ -57,6 +57,43 @@ function groupCaptures(captures: Capture[]): Array<{ dateKey: string; captures: 
 }
 
 // ---------------------------------------------------------------------------
+// Timeline empty state
+// ---------------------------------------------------------------------------
+
+/**
+ * Editorial empty state for the timeline.
+ * Unfiltered + no captures → "A quiet [weekday]." (Screen 12 pattern).
+ * Filtered + no results → softer "Nothing here for this filter."
+ */
+function TimelineEmptyState({ isFiltered }: { isFiltered: boolean }) {
+  if (isFiltered) {
+    return (
+      <div className="px-4 py-12 text-center">
+        <p className="font-display text-[18px] font-light text-text-heading">
+          Nothing here for this filter.
+        </p>
+        <p className="mt-2 text-[12.5px] font-light text-text-body-secondary">
+          Try a different view or source, or clear the filter to see everything.
+        </p>
+      </div>
+    );
+  }
+
+  const weekday = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+
+  return (
+    <div className="px-4 py-16 text-center">
+      <p className="font-display text-[22px] font-light tracking-[-0.01em] text-text-heading">
+        A quiet {weekday}.
+      </p>
+      <p className="mt-2 text-[13px] font-light text-text-body-secondary">
+        No captures yet. Drop a voice memo, send a message, or connect a source.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // TimelineClient
 // ---------------------------------------------------------------------------
 
@@ -156,9 +193,7 @@ export function TimelineClient({ initialItems, initialTotal, view, source }: Tim
       {/* Date-grouped capture list */}
       <div className="border border-cloud-light border-t-0 bg-bg-container">
         {groups.length === 0 ? (
-          <div className="px-4 py-12 text-center text-[13px] text-text-body-secondary font-light">
-            No captures match the current filters.
-          </div>
+          <TimelineEmptyState isFiltered={Boolean(view || source)} />
         ) : (
           groups.map(({ dateKey, captures: groupCaptures }) => (
             <TimelineGroup key={dateKey} dateKey={dateKey} captures={groupCaptures} />

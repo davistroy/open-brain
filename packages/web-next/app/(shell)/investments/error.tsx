@@ -15,8 +15,8 @@ export default function InvestmentsError({ error, reset }: InvestmentsErrorProps
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load investment data"
-      description="Unable to fetch your Schwab captures. Please try again."
+      title="We lost the thread."
+      description="Investment data couldn't load. Your Schwab captures are intact — try again."
       action={
         <Button variant="primary" onClick={reset}>
           Try again

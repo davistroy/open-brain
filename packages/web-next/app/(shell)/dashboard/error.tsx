@@ -15,8 +15,8 @@ export default function DashboardError({ error, unstable_retry }: DashboardError
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load dashboard"
-      description="Unable to load dashboard data. Please try again."
+      title="We lost the thread."
+      description="Couldn't load the dashboard. Check the API connection and try again."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

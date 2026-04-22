@@ -23,10 +23,10 @@ import { commitmentsApi } from '@/lib/api-client';
 import type { BoardCommitment, CommitmentStatus } from '@/lib/types';
 
 const COLUMN_META: Record<CommitmentStatus, { label: string; topBorder: string; emptyText: string }> = {
-  pending:      { label: 'Pending',     topBorder: 'border-t-cloud-dark',   emptyText: 'No pending items' },
-  owed_by_user: { label: 'You owe',     topBorder: 'border-t-faded-red',    emptyText: 'Nothing you owe right now' },
-  waiting_on:   { label: 'Waiting on',  topBorder: 'border-t-book-cloth',   emptyText: 'Nothing waiting on others' },
-  resolved:     { label: 'Resolved',    topBorder: 'border-t-moss',         emptyText: 'No resolved items yet' },
+  pending:      { label: 'Pending',     topBorder: 'border-t-cloud-dark',   emptyText: 'Commitments surface here as Open Brain finds them in your captures.' },
+  owed_by_user: { label: 'You owe',     topBorder: 'border-t-faded-red',    emptyText: 'Nothing on your plate right now.' },
+  waiting_on:   { label: 'Waiting on',  topBorder: 'border-t-book-cloth',   emptyText: 'No open threads waiting on others.' },
+  resolved:     { label: 'Resolved',    topBorder: 'border-t-moss',         emptyText: 'Nothing closed out yet.' },
 };
 
 interface BoardColumnProps {
