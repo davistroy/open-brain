@@ -6,6 +6,10 @@ const config: Config = {
     './components/**/*.{ts,tsx}',
   ],
 
+  // Class-based dark mode: toggled by adding `dark` to <html>
+  // ThemeToggle component manages localStorage + system preference.
+  darkMode: 'class',
+
   theme: {
     extend: {
       // -----------------------------------------------------------------------

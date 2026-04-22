@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation';
 import { TopNav } from '@/components/nav/top-nav';
 import { SideNav } from '@/components/nav/side-nav';
 import { AudioPlayerMount } from '@/components/audio/AudioPlayer';
+import { ServiceWorkerRegistration } from '@/components/pwa/ServiceWorkerRegistration';
+import { PwaInstallPrompt } from '@/components/pwa/PwaInstallPrompt';
+import { ShortcutsProvider } from '@/components/shortcuts/ShortcutsProvider';
 
 // ---------------------------------------------------------------------------
 // First-run detection — server-side settings read
@@ -83,6 +86,11 @@ export default async function ShellLayout({ children }: { children: ReactNode })
       </div>
       {/* Floating audio mini-player — persists across navigation. Client component. */}
       <AudioPlayerMount />
+      {/* PWA — service worker registration + install prompt. Client components. */}
+      <ServiceWorkerRegistration />
+      <PwaInstallPrompt />
+      {/* Keyboard shortcuts — global keydown listener + help modal. Client component. */}
+      <ShortcutsProvider />
     </div>
   );
 }

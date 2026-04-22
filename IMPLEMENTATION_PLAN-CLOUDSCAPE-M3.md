@@ -1213,21 +1213,25 @@ After 2-week parallel validation: update primary tunnel `brain.troy-davis.com` �
 ### Work Items
 
 #### 8.1 PWA service worker
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §9.1
 **Files Affected:**
-- `packages/web-next/next.config.ts` (modify — add PWA config)
-- `packages/web-next/public/manifest.json` (create)
-- `packages/web-next/app/offline/page.tsx` (create)
+- `packages/web-next/public/manifest.json` (created)
+- `packages/web-next/public/sw.js` (created — manual SW, no next-pwa dependency)
+- `packages/web-next/app/offline/page.tsx` (created)
+- `packages/web-next/app/layout.tsx` (modified — manifest + themeColor in metadata/viewport)
+- `packages/web-next/app/(shell)/layout.tsx` (modified — ServiceWorkerRegistration + PwaInstallPrompt)
+- `packages/web-next/components/pwa/ServiceWorkerRegistration.tsx` (created)
+- `packages/web-next/components/pwa/PwaInstallPrompt.tsx` (created)
 
 **Description:**
-Use `next-pwa` (Serwist fork) or manual service worker. Cache strategy: stale-while-revalidate for static assets (`.next/static/`), network-first for `/api/` routes. Offline page: simple "You're offline — reconnect to continue" (do NOT cache API responses for offline use — stale brain data is worse than no data). Install prompt: `beforeinstallprompt` handler. Manifest: app name "Open Brain", theme_color book-cloth, icons.
+Manual service worker (no next-pwa/Serwist dependency — avoids build-time complexity). Cache strategy: stale-while-revalidate for static assets (`.next/static/`), network-first for `/api/` routes. Offline page: "You're offline — reconnect to continue". Install prompt: `beforeinstallprompt` handler with localStorage dismiss. Manifest: app name "Open Brain", theme_color book-cloth (#4a3728), background_color ivory (#faf7f2). SKIP_WAITING message handler ensures seamless updates without manual hard-refresh.
 
 **Tasks:**
-1. [ ] Configure PWA in next.config.ts
-2. [ ] Create manifest.json with app metadata + icons
-3. [ ] Create offline fallback page
-4. [ ] Test install prompt on mobile browsers
+1. [x] Configure PWA in next.config.ts — N/A: manifest via Next.js metadata API; no next.config.ts changes needed
+2. [x] Create manifest.json with app metadata + icons
+3. [x] Create offline fallback page
+4. [ ] Test install prompt on mobile browsers — deployment-time test
 
 **Acceptance Criteria:**
 - [ ] App installable on iOS Safari and Android Chrome
@@ -1237,54 +1241,58 @@ Use `next-pwa` (Serwist fork) or manual service worker. Cache strategy: stale-wh
 ---
 
 #### 8.2 Dark mode
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §9.2
 **Files Affected:**
 - `packages/web-next/tailwind.config.ts` (modify — darkMode: 'class')
 - `packages/web-next/app/globals.css` (modify — dark token overrides)
 - `packages/web-next/components/design-system/ThemeToggle.tsx` (create)
+- `packages/web-next/components/design-system/index.ts` (modify — export ThemeToggle)
+- `packages/web-next/components/nav/top-nav.tsx` (modify — replace static Moon with ThemeToggle)
+- `packages/web-next/app/layout.tsx` (modify — anti-flash inline script)
 
 **Description:**
 Tailwind `darkMode: 'class'`. System preference detection via `prefers-color-scheme` media query on first visit. User override stored in `localStorage.theme`. Toggle button in TopNav. Dark Cloudscape tokens: invert ivory/slate palette, adjust book-cloth for dark backgrounds, ensure contrast ratios meet WCAG AA.
 
 **Tasks:**
-1. [ ] Set darkMode: 'class' in tailwind.config.ts
-2. [ ] Map Cloudscape tokens to dark variants in globals.css
-3. [ ] Create ThemeToggle component with system preference detection
-4. [ ] Add toggle to TopNav
+1. [x] Set darkMode: 'class' in tailwind.config.ts
+2. [x] Map Cloudscape tokens to dark variants in globals.css
+3. [x] Create ThemeToggle component with system preference detection
+4. [x] Add toggle to TopNav
 5. [ ] Test contrast ratios on key screens
 
 **Acceptance Criteria:**
-- [ ] Toggle switches between light and dark mode
-- [ ] Preference persists across sessions (localStorage)
-- [ ] Respects system preference on first visit
+- [x] Toggle switches between light and dark mode
+- [x] Preference persists across sessions (localStorage)
+- [x] Respects system preference on first visit
 - [ ] All text meets WCAG AA contrast in both modes
 
 ---
 
 #### 8.3 Keyboard shortcuts
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §9.3
 **Files Affected:**
 - `packages/web-next/lib/hooks/use-keyboard-shortcuts.ts` (create)
-- `packages/web-next/app/(shell)/layout.tsx` (modify — mount hook)
+- `packages/web-next/components/shortcuts/ShortcutsProvider.tsx` (create)
 - `packages/web-next/components/shortcuts/ShortcutsModal.tsx` (create)
+- `packages/web-next/app/(shell)/layout.tsx` (modify — mount ShortcutsProvider)
 
 **Description:**
-Global `useKeyboardShortcuts()` hook mounted in shell layout. Chord detection: first key sets ref, 500ms timeout clears. Shortcuts: `g d` → Dashboard, `g e` → Entities, `g b` → Briefs, `g s` → Search, `/` → focus search input, `?` → open shortcuts help modal (Radix Dialog). Disable when input/textarea focused.
+Global `useKeyboardShortcuts()` hook mounted in shell layout via thin client `ShortcutsProvider` wrapper. Chord detection: first key sets ref, 500ms timeout clears. Shortcuts: `g d` → Dashboard, `g e` → Entities, `g b` → Briefs, `g s` → Search, `g t` → Timeline, `/` → focus search input (`[data-search-input]`), `?` → open shortcuts help modal (Radix Dialog). Disabled when input/textarea/select/contenteditable focused.
 
 **Tasks:**
-1. [ ] Create useKeyboardShortcuts hook with chord detection
-2. [ ] Implement all 6 shortcuts with router.push
-3. [ ] Create ShortcutsModal listing all shortcuts
-4. [ ] Disable shortcuts when input focused
-5. [ ] Mount in shell layout
+1. [x] Create useKeyboardShortcuts hook with chord detection
+2. [x] Implement all 7 shortcuts with router.push
+3. [x] Create ShortcutsModal listing all shortcuts (grouped by section)
+4. [x] Disable shortcuts when input focused
+5. [x] Mount in shell layout via ShortcutsProvider client wrapper
 
 **Acceptance Criteria:**
-- [ ] All 6 shortcuts work as documented
-- [ ] `?` opens help modal listing shortcuts
-- [ ] Shortcuts don't fire when typing in input fields
-- [ ] Chord timeout (500ms) prevents accidental triggers
+- [x] All 7 shortcuts work as documented
+- [x] `?` opens help modal listing shortcuts
+- [x] Shortcuts don't fire when typing in input fields
+- [x] Chord timeout (500ms) prevents accidental triggers
 
 ---
 
