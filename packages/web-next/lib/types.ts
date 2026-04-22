@@ -58,11 +58,14 @@ export type BrainView =
 /** Entity type values used by the UI */
 export type EntityType = 'person' | 'project' | 'topic' | 'org' | 'decision';
 
-/** Brief kind values from skills_log */
-export type BriefKind = 'DAILY' | 'WEEKLY' | 'DOSSIER' | 'DECISION' | 'PROJECT';
+/** Brief kind values from skills_log — mirrors BriefKind in @open-brain/shared */
+export type BriefKind = 'DAILY' | 'WEEKLY' | 'DOSSIER' | 'DECISION' | 'PROJECT' | 'MONTHLY';
 
-/** Cover theme for brief cards */
-export type BriefCover = 'morning' | 'week' | 'person' | 'decision' | 'project';
+/** Cover theme for brief cards — mirrors BriefCover in @open-brain/shared */
+export type BriefCover = 'parchment' | 'evening' | 'sunrise' | 'gold' | 'canvas' | 'slate';
+
+/** Source type for brief source entries — mirrors BriefSourceType in @open-brain/shared */
+export type BriefSourceType = 'EMAIL' | 'VOICE' | 'MEETING' | 'NOTE';
 
 // ---------------------------------------------------------------------------
 // Core capture type — mirrors GET /api/v1/captures item shape
@@ -170,6 +173,8 @@ export interface Brief {
   subtitle: string;
   generated: string;   // display string e.g. "07:00", "3d ago"
   read: boolean;
+  read_at: string | null;       // ISO 8601 or null
+  dismissed_at: string | null;  // ISO 8601 or null
 }
 
 /** Full brief detail with reader content */
@@ -193,7 +198,7 @@ export interface TocItem {
 
 /** Source capture entry in the right sidebar */
 export interface BriefSource {
-  type: string;    // display label e.g. "EMAIL", "VOICE"
+  type: BriefSourceType;    // display label e.g. "EMAIL", "VOICE", "MEETING", "NOTE"
   title: string;
   date: string;    // display string e.g. "Apr 21"
 }
@@ -280,4 +285,28 @@ export interface EntityDistribution {
 export interface NeedsAttentionItem {
   label: string;
   desc: string;
+}
+
+// ---------------------------------------------------------------------------
+// Entity detail — mentions timeline
+// ---------------------------------------------------------------------------
+
+/** A single bucket from GET /api/v1/entities/:id/mentions-timeline */
+export interface MentionsTimelineBucket {
+  /** ISO 8601 date string for the start of the bucket period */
+  period: string;
+  count: number;
+}
+
+/** Response envelope from the mentions-timeline endpoint */
+export interface MentionsTimelineResponse {
+  buckets: MentionsTimelineBucket[];
+  window: string;   // e.g. "90d"
+  bucket: string;   // e.g. "week"
+}
+
+/** Response from POST /api/v1/entities/:id/ask */
+export interface AskEntityResponse {
+  answer: string;
+  sources: Array<{ id: string; score: number }>;
 }

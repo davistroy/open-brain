@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 16px; background: var(--color-bg-container); font-family: var(--font-family-base); }
+  .row { margin-bottom: 14px; }
+  .row-label { font-size: 11px; font-weight: 600; color: var(--color-text-heading-secondary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .swatches { display: grid; gap: 6px; }
+  .neutrals { grid-template-columns: repeat(8, 1fr); }
+  .accents  { grid-template-columns: repeat(6, 1fr); }
+  .sw { display: flex; flex-direction: column; gap: 4px; }
+  .chip { aspect-ratio: 1.8; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(38,38,36,0.06); }
+  .name { font-size: 11px; font-weight: 600; color: var(--color-text-heading); line-height: 1.2; }
+  .hex  { font-size: 10px; font-family: var(--font-family-monospace); color: var(--color-text-small); }
+</style></head>
+<body>
+  <div class="row">
+    <div class="row-label">Neutrals — ivory → slate</div>
+    <div class="swatches neutrals" id="neutrals"></div>
+  </div>
+  <div class="row">
+    <div class="row-label">Accents — earth tones</div>
+    <div class="swatches accents" id="accents"></div>
+  </div>
+<script>
+const neutrals = [
+  ['Ivory Light',  '--color-ivory-light'],
+  ['Ivory Medium', '--color-ivory-medium'],
+  ['Ivory Dark',   '--color-ivory-dark'],
+  ['Manilla',      '--color-manilla'],
+  ['Cloud Light',  '--color-cloud-light'],
+  ['Cloud Medium', '--color-cloud-medium'],
+  ['Cloud Dark',   '--color-cloud-dark'],
+  ['Slate Light',  '--color-slate-light'],
+];
+const accents = [
+  ['Book Cloth', '--color-book-cloth'],
+  ['Kraft',      '--color-kraft'],
+  ['Clay',       '--color-clay'],
+  ['Moss',       '--color-moss'],
+  ['Sienna',     '--color-sienna'],
+  ['Faded Red',  '--color-faded-red'],
+];
+function render(id, pairs) {
+  const el = document.getElementById(id);
+  const cs = getComputedStyle(document.documentElement);
+  pairs.forEach(([name, v]) => {
+    const hex = cs.getPropertyValue(v).trim();
+    el.innerHTML += `<div class="sw"><div class="chip" style="background:${hex}"></div><div class="name">${name}</div><div class="hex">${hex}</div></div>`;
+  });
+}
+render('neutrals', neutrals);
+render('accents', accents);
+</script>
+</body></html>

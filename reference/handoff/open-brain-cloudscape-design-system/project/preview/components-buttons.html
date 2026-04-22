@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 22px 24px; background: var(--color-bg-container); font-family: var(--font-family-base); }
+  .group { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .group:last-child { margin-bottom: 0; }
+  .label { font-family: var(--font-family-monospace); font-size: 10.5px; color: var(--color-text-small); letter-spacing: 0.06em; text-transform: uppercase; width: 90px; flex-shrink: 0; }
+
+  .btn {
+    font-family: var(--font-family-base);
+    font-weight: 500;
+    letter-spacing: 0.005em;
+    font-size: 14px;
+    padding: 7px 16px;
+    min-height: 34px;
+    border-radius: 0;
+    border: 1px solid;
+    cursor: pointer;
+    transition: all 135ms cubic-bezier(0.2,0,0,1);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .btn.sm { font-size: 12px; padding: 3px 10px; min-height: 26px; }
+
+  .primary { background: var(--color-book-cloth); border-color: var(--color-book-cloth); color: #fff; }
+  .primary:hover { background: var(--color-book-cloth-dark); border-color: var(--color-book-cloth-dark); }
+
+  .normal { background: #fff; border-color: var(--color-slate-medium); color: var(--color-slate-medium); }
+  .normal:hover { background: var(--color-ivory-medium); }
+
+  .link { background: transparent; border-color: transparent; color: var(--color-book-cloth-dark); padding-left: 10px; padding-right: 10px; }
+  .link:hover { background: var(--color-book-cloth-50); }
+
+  .icon { background: transparent; border-color: transparent; color: var(--color-slate-medium); padding: 6px; min-height: 30px; border-radius: 0; }
+  .icon:hover { background: var(--color-cloud-light); }
+
+  .disabled { background: var(--color-cloud-light); border-color: var(--color-cloud-light); color: var(--color-cloud-dark); cursor: not-allowed; }
+  .disabled:hover { background: var(--color-cloud-light); border-color: var(--color-cloud-light); }
+
+  svg { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 900ms linear infinite; }
+</style></head>
+<body>
+  <div class="group">
+    <span class="label">Default</span>
+    <button class="btn primary">Capture</button>
+    <button class="btn normal">Refresh</button>
+    <button class="btn link">View all</button>
+    <button class="btn icon" aria-label="More">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+    </button>
+  </div>
+
+  <div class="group">
+    <span class="label">With&nbsp;icon</span>
+    <button class="btn primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      New capture
+    </button>
+    <button class="btn normal">
+      Export
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <button class="btn primary">
+      <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="9" stroke-dasharray="40" stroke-dashoffset="30" opacity="0.85"/></svg>
+      Saving…
+    </button>
+    <button class="btn disabled" disabled>Unavailable</button>
+  </div>
+
+  <div class="group">
+    <span class="label">Small</span>
+    <button class="btn primary sm">Confirm</button>
+    <button class="btn normal sm">Cancel</button>
+    <button class="btn link sm">Learn more</button>
+  </div>
+</body></html>

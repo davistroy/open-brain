@@ -1,4 +1,7 @@
+'use client';
+
 import { Play, Download, MessageSquarePlus } from 'lucide-react';
+import { toast } from 'sonner';
 import { Eyebrow, Button } from '@/components/design-system';
 import type { TocItem } from '@/lib/types';
 
@@ -11,7 +14,11 @@ interface BriefTocProps {
  * Sticky left column (220px) — "ON THIS PAGE" eyebrow, section anchor links,
  * then an ACTIONS group with three utility buttons.
  * Active item highlighted with 2px terracotta left border.
- * Server component (active state is static in M1 — no scroll detection).
+ *
+ * Listen and Ask follow-up are stubbed with sonner toasts (M3 backlog).
+ * Export is UI-only (no backend in M2).
+ *
+ * 'use client' — toast() requires client context.
  */
 export function BriefToc({ items }: BriefTocProps) {
   return (
@@ -45,6 +52,7 @@ export function BriefToc({ items }: BriefTocProps) {
             variant="secondary"
             size="sm"
             icon={<Play size={11} strokeWidth={1.5} />}
+            onClick={() => toast('Text-to-speech coming in M3')}
           >
             Listen · 4 min
           </Button>
@@ -59,6 +67,7 @@ export function BriefToc({ items }: BriefTocProps) {
             variant="secondary"
             size="sm"
             icon={<MessageSquarePlus size={11} strokeWidth={1.5} />}
+            onClick={() => toast('Follow-up questions coming in M3')}
           >
             Ask follow-up
           </Button>

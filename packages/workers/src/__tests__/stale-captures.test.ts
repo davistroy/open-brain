@@ -40,11 +40,13 @@ const STALE_RECENT = {
  * and records insert() calls for skills_log verification.
  */
 function makeMockDb(staleRows: typeof STALE_RECEIVED[] = [STALE_RECEIVED, STALE_PROCESSING]) {
-  const insertValues = vi.fn().mockResolvedValue(undefined)
+  const insertReturning = vi.fn().mockResolvedValue([{ id: 'mock-log-id' }])
+  const insertValues = vi.fn().mockReturnValue({ returning: insertReturning })
   return {
     execute: vi.fn().mockResolvedValue({ rows: staleRows }),
     insert: vi.fn().mockReturnValue({ values: insertValues }),
     _insertValues: insertValues,
+    _insertReturning: insertReturning,
   }
 }
 
@@ -426,14 +428,14 @@ describe('StaleCapturesSkill', () => {
   describe('execute — skills_log failure', () => {
     it('does not throw when skills_log insert fails', async () => {
       const { skill, db } = makeSkill()
-      db._insertValues.mockRejectedValue(new Error('DB connection lost'))
+      db._insertReturning.mockRejectedValue(new Error('DB connection lost'))
 
       await expect(skill.execute()).resolves.toBeDefined()
     })
 
     it('still returns correct result when skills_log fails', async () => {
       const { skill, db } = makeSkill()
-      db._insertValues.mockRejectedValue(new Error('DB connection lost'))
+      db._insertReturning.mockRejectedValue(new Error('DB connection lost'))
 
       const result = await skill.execute()
 

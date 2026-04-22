@@ -1,6 +1,10 @@
 import type { Hono } from 'hono'
+import { z } from 'zod'
+import { zValidator } from '@hono/zod-validator'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
+import type { LLMGatewayService } from '@open-brain/shared'
 import type { EntityService } from '../services/entity.js'
+import type { SearchService } from '../services/search.js'
 import { logger } from '@open-brain/shared'
 
 /**
@@ -11,8 +15,14 @@ import { logger } from '@open-brain/shared'
  * GET  /api/v1/entities?name=<name>  — lookup by name (redirects to detail)
  * POST /api/v1/entities/:id/merge    — merge two entities
  * POST /api/v1/entities/:id/split    — split alias to new entity
+ * POST /api/v1/entities/:id/ask      — entity-scoped LLM synthesis (requires searchService + llmGateway)
  */
-export function registerEntityRoutes(app: Hono, entityService: EntityService): void {
+export function registerEntityRoutes(
+  app: Hono,
+  entityService: EntityService,
+  searchService?: SearchService,
+  llmGateway?: LLMGatewayService,
+): void {
   // -------------------------------------------------------------------------
   // GET /api/v1/entities
   // List entities with optional filters.
@@ -68,6 +78,80 @@ export function registerEntityRoutes(app: Hono, entityService: EntityService): v
     const id = c.req.param('id')
     const detail = await entityService.getById(id)
     return c.json(detail)
+  })
+
+  // -------------------------------------------------------------------------
+  // GET /api/v1/entities/:id/related
+  // Returns entities that co-occur with entity :id via shared non-deleted captures.
+  // Query params: limit (default 20, max 100)
+  // -------------------------------------------------------------------------
+  app.get('/api/v1/entities/:id/related', async (c) => {
+    const id = c.req.param('id')
+
+    // Basic UUID format guard — reject clearly malformed IDs early
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!UUID_RE.test(id)) {
+      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+    }
+
+    const limitRaw = c.req.query('limit')
+    const limit = Math.min(Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : 20, 100)
+
+    const exists = await entityService.entityExists(id)
+    if (!exists) {
+      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+    }
+
+    const related = await entityService.getRelated(id, limit)
+    return c.json({ related })
+  })
+
+  // -------------------------------------------------------------------------
+  // GET /api/v1/entities/:id/mentions-timeline
+  // Time-bucketed mention counts for a given entity.
+  // Query params: window (7d|30d|90d|365d, default 30d), bucket (day|week|month, default week)
+  // Returns only non-zero buckets; client must zero-fill for chart rendering.
+  // Rejects the combo bucket=day + window=365d (>52 data points, use week instead).
+  // -------------------------------------------------------------------------
+
+  // Zod schema with cross-field refinement — validated here, not in service layer
+  const MentionsTimelineQuerySchema = z
+    .object({
+      window: z.enum(['7d', '30d', '90d', '365d']).default('30d'),
+      bucket: z.enum(['day', 'week', 'month']).default('week'),
+    })
+    .refine(
+      (data) => !(data.bucket === 'day' && data.window === '365d'),
+      {
+        message: 'bucket=day is not allowed with window=365d — use bucket=week or bucket=month',
+        path: ['bucket'],
+      },
+    )
+
+  app.get('/api/v1/entities/:id/mentions-timeline', async (c) => {
+    const id = c.req.param('id')
+
+    // Parse and validate query params
+    const rawWindow = c.req.query('window') ?? '30d'
+    const rawBucket = c.req.query('bucket') ?? 'week'
+    const parsed = MentionsTimelineQuerySchema.safeParse({ window: rawWindow, bucket: rawBucket })
+
+    if (!parsed.success) {
+      const message = parsed.error.errors.map((e) => e.message).join('; ')
+      return c.json({ error: message, code: 'VALIDATION_ERROR' }, 400)
+    }
+
+    const { window, bucket } = parsed.data
+
+    // 404 check before expensive aggregation
+    const exists = await entityService.entityExists(id)
+    if (!exists) {
+      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+    }
+
+    const buckets = await entityService.getMentionsTimeline(id, window, bucket)
+
+    return c.json({ buckets, window, bucket })
   })
 
   // -------------------------------------------------------------------------
@@ -142,5 +226,46 @@ export function registerEntityRoutes(app: Hono, entityService: EntityService): v
       new_entity_id: result.new_entity_id,
       alias,
     }, 201)
+  })
+
+  // -------------------------------------------------------------------------
+  // POST /api/v1/entities/:id/ask
+  // Entity-scoped LLM synthesis: answers a question grounded only in captures
+  // linked to the entity. Rate-limited at strict tier (LLM call).
+  //
+  // Requires searchService + llmGateway to be injected; returns 503 if absent.
+  // Body: { question: string (1–2000 chars) }
+  // Response: { response, capture_count, entity: { id, name, type } }
+  // -------------------------------------------------------------------------
+
+  const askBodySchema = z.object({
+    question: z.string().min(1, 'question is required').max(2000, 'question must be ≤ 2000 chars'),
+  })
+
+  app.post('/api/v1/entities/:id/ask', zValidator('json', askBodySchema, (result, c) => {
+    if (!result.success) {
+      const message = result.error.errors.map(e => e.message).join('; ')
+      return c.json({ error: message, code: 'VALIDATION_ERROR' }, 400)
+    }
+  }), async (c) => {
+    if (!searchService || !llmGateway) {
+      return c.json({ error: 'Ask feature is not available (LLM or search not configured)', code: 'SERVICE_UNAVAILABLE' }, 503)
+    }
+
+    const id = c.req.param('id')
+    const { question } = c.req.valid('json')
+
+    logger.info({ entityId: id, questionLen: question.length }, '[entities-api] ask request received')
+
+    const exists = await entityService.entityExists(id)
+    if (!exists) {
+      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+    }
+
+    const result = await entityService.ask(id, question, searchService, llmGateway)
+
+    logger.info({ entityId: id, captureCount: result.capture_count }, '[entities-api] ask complete')
+
+    return c.json(result)
   })
 }

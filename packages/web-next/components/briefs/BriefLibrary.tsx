@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   LayoutGrid,
   List,
@@ -20,14 +21,17 @@ import type { Brief, BriefKind } from '@/lib/types';
 // Filter tabs config
 // ---------------------------------------------------------------------------
 
-const FILTER_TABS: { id: string; label: string }[] = [
-  { id: 'all',      label: 'All' },
-  { id: 'DAILY',    label: 'Daily' },
-  { id: 'WEEKLY',   label: 'Weekly' },
-  { id: 'DOSSIER',  label: 'Dossiers' },
-  { id: 'DECISION', label: 'Decisions' },
-  { id: 'PROJECT',  label: 'Projects' },
+const FILTER_TABS: { id: string; label: string; param: string | null }[] = [
+  { id: 'all',      label: 'All',       param: null },
+  { id: 'DAILY',    label: 'Daily',     param: 'DAILY' },
+  { id: 'WEEKLY',   label: 'Weekly',    param: 'WEEKLY' },
+  { id: 'MONTHLY',  label: 'Monthly',   param: 'MONTHLY' },
+  { id: 'DOSSIER',  label: 'Dossiers',  param: 'DOSSIER' },
+  { id: 'DECISION', label: 'Decisions', param: 'DECISION' },
+  { id: 'PROJECT',  label: 'Projects',  param: 'PROJECT' },
 ];
+
+const VIEW_STORAGE_KEY = 'open-brain:briefs-view';
 
 // ---------------------------------------------------------------------------
 // Icon helper for list view
@@ -36,6 +40,7 @@ const FILTER_TABS: { id: string; label: string }[] = [
 const KIND_DOT: Record<BriefKind, string> = {
   DAILY:    'var(--color-book-cloth)',
   WEEKLY:   'var(--color-slate-medium)',
+  MONTHLY:  'var(--color-slate-medium)',
   DOSSIER:  'var(--color-book-cloth-dark)',
   DECISION: 'var(--color-success)',
   PROJECT:  'var(--color-cloud-dark)',
@@ -47,6 +52,7 @@ function ListKindIcon({ kind }: { kind: BriefKind }) {
   switch (kind) {
     case 'DAILY':    return <Sunrise {...props} />;
     case 'WEEKLY':   return <Calendar {...props} />;
+    case 'MONTHLY':  return <Calendar {...props} />;
     case 'DOSSIER':  return <UserRound {...props} />;
     case 'DECISION': return <Scale {...props} />;
     case 'PROJECT':  return <FolderKanban {...props} />;
@@ -62,18 +68,53 @@ interface BriefLibraryProps {
 }
 
 /**
- * Library section: segmented filter tabs + grid/list view toggle.
- * Filters briefs by kind; renders BriefCard grid or compact table list.
- * Client component (owns view + filter state).
+ * Library section: segmented filter tabs (URL ?kind=WEEKLY params) + grid/list
+ * view toggle (persisted to localStorage). Filters briefs client-side by kind.
+ * Client component (owns view state, reads searchParams for active filter).
  */
 export function BriefLibrary({ briefs }: BriefLibraryProps) {
-  const [filter, setFilter] = useState<string>('all');
+  const searchParams = useSearchParams();
+  const activeKind = searchParams.get('kind') ?? 'all';
+
+  // View mode: read from localStorage on mount, default 'grid'
   const [view, setView] = useState<'grid' | 'list'>('grid');
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (stored === 'list' || stored === 'grid') {
+        setView(stored);
+      }
+    } catch {
+      // localStorage unavailable in some SSR or private-mode contexts — ignore
+    }
+  }, []);
+
+  function handleViewChange(next: 'grid' | 'list') {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // ignore
+    }
+  }
+
+  // Build href for a filter tab — preserves other search params
+  function buildTabHref(param: string | null): string {
+    const params = new URLSearchParams(searchParams.toString());
+    if (param === null) {
+      params.delete('kind');
+    } else {
+      params.set('kind', param);
+    }
+    const qs = params.toString();
+    return qs ? `?${qs}` : '/briefs';
+  }
+
   const visible =
-    filter === 'all'
+    activeKind === 'all'
       ? briefs
-      : briefs.filter((b) => b.kind === filter);
+      : briefs.filter((b) => b.kind === activeKind);
 
   return (
     <div>
@@ -82,32 +123,35 @@ export function BriefLibrary({ briefs }: BriefLibraryProps) {
         <Eyebrow noMargin>LIBRARY</Eyebrow>
         <div className="flex-1" />
 
-        {/* Filter tabs */}
+        {/* Filter tabs — each is a Link with ?kind= URL param */}
         <div className="flex border border-cloud-medium">
-          {FILTER_TABS.map((tab, i) => (
-            <button
-              key={tab.id}
-              onClick={() => setFilter(tab.id)}
-              className={[
-                'px-[12px] py-[4px] text-[12px] text-text-body cursor-pointer',
-                'font-body border-none',
-                i !== FILTER_TABS.length - 1 ? 'border-r border-cloud-medium' : '',
-                filter === tab.id
-                  ? 'bg-ivory-dark font-normal'
-                  : 'bg-transparent font-light',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {FILTER_TABS.map((tab, i) => {
+            const isActive = tab.id === activeKind;
+            return (
+              <Link
+                key={tab.id}
+                href={buildTabHref(tab.param)}
+                className={[
+                  'px-[12px] py-[4px] text-[12px] text-text-body no-underline',
+                  'font-body border-none',
+                  i !== FILTER_TABS.length - 1 ? 'border-r border-cloud-medium' : '',
+                  isActive
+                    ? 'bg-ivory-dark font-normal'
+                    : 'bg-transparent font-light',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                {tab.label}
+              </Link>
+            );
+          })}
         </div>
 
         {/* View toggle */}
         <div className="flex border border-cloud-medium">
           <button
-            onClick={() => setView('grid')}
+            onClick={() => handleViewChange('grid')}
             aria-label="Grid view"
             className={[
               'px-[10px] py-[4px] inline-flex items-center border-r border-cloud-medium cursor-pointer border-none',
@@ -117,7 +161,7 @@ export function BriefLibrary({ briefs }: BriefLibraryProps) {
             <LayoutGrid size={13} strokeWidth={1.5} className="text-text-body" />
           </button>
           <button
-            onClick={() => setView('list')}
+            onClick={() => handleViewChange('list')}
             aria-label="List view"
             className={[
               'px-[10px] py-[4px] inline-flex items-center cursor-pointer border-none',

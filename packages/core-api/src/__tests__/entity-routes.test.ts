@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createApp } from '../app.js'
 import type { EntityService } from '../services/entity.js'
+import type { LLMGatewayService } from '@open-brain/shared'
+import type { SearchService } from '../services/search.js'
 
 // ---------------------------------------------------------------------------
 // Mock EntityService
@@ -35,6 +37,11 @@ const SAMPLE_DETAIL = {
   linked_captures: [SAMPLE_LINKED_CAPTURE],
 }
 
+const SAMPLE_RELATED = [
+  { id: 'entity-uuid-2', name: 'Alice Jones', type: 'person', shared_count: 3 },
+  { id: 'entity-uuid-3', name: 'QSR Project', type: 'project', shared_count: 1 },
+]
+
 function makeMockEntityService(overrides: Partial<EntityService> = {}): EntityService {
   return {
     list: vi.fn().mockResolvedValue({ items: [SAMPLE_ENTITY], total: 1 }),
@@ -43,8 +50,28 @@ function makeMockEntityService(overrides: Partial<EntityService> = {}): EntitySe
     merge: vi.fn().mockResolvedValue(undefined),
     split: vi.fn().mockResolvedValue({ new_entity_id: 'new-entity-uuid' }),
     recordMention: vi.fn().mockResolvedValue(undefined),
+    entityExists: vi.fn().mockResolvedValue(true),
+    getRelated: vi.fn().mockResolvedValue(SAMPLE_RELATED),
+    getMentionsTimeline: vi.fn().mockResolvedValue([]),
+    ask: vi.fn().mockResolvedValue({
+      response: 'Tom Smith leads the QSR project and is a key stakeholder.',
+      capture_count: 3,
+      entity: { id: 'entity-uuid-1', name: 'Tom Smith', type: 'person' },
+    }),
     ...overrides,
   } as unknown as EntityService
+}
+
+function makeMockSearchService(): SearchService {
+  return {
+    search: vi.fn().mockResolvedValue([]),
+  } as unknown as SearchService
+}
+
+function makeMockLLMGateway(): LLMGatewayService {
+  return {
+    completeByTask: vi.fn().mockResolvedValue('Tom Smith leads the QSR project.'),
+  } as unknown as LLMGatewayService
 }
 
 // ---------------------------------------------------------------------------
@@ -315,5 +342,363 @@ describe('POST /api/v1/entities/:id/split', () => {
     })
 
     expect(res.status).toBe(404)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/entities/:id/related
+// ---------------------------------------------------------------------------
+
+describe('GET /api/v1/entities/:id/related', () => {
+  it('returns related entities with shared_count', async () => {
+    const entityService = makeMockEntityService()
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/related')
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.related).toHaveLength(2)
+    expect(body.related[0].name).toBe('Alice Jones')
+    expect(body.related[0].shared_count).toBe(3)
+    expect(entityService.entityExists).toHaveBeenCalledWith('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+    expect(entityService.getRelated).toHaveBeenCalledWith('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 20)
+  })
+
+  it('returns empty related array when no co-occurrences', async () => {
+    const entityService = makeMockEntityService({
+      getRelated: vi.fn().mockResolvedValue([]),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/related')
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.related).toHaveLength(0)
+  })
+
+  it('respects limit query param (capped at 100)', async () => {
+    const entityService = makeMockEntityService()
+    const app = createApp({ entityService })
+
+    await app.request('/api/v1/entities/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/related?limit=50')
+    expect(entityService.getRelated).toHaveBeenCalledWith('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 50)
+
+    await app.request('/api/v1/entities/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/related?limit=999')
+    expect(entityService.getRelated).toHaveBeenCalledWith('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 100)
+  })
+
+  it('returns 404 when entity does not exist', async () => {
+    const entityService = makeMockEntityService({
+      entityExists: vi.fn().mockResolvedValue(false),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/related')
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+    expect(entityService.getRelated).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 for malformed (non-UUID) id', async () => {
+    const entityService = makeMockEntityService()
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/not-a-uuid/related')
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+    expect(entityService.entityExists).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/entities/:id/mentions-timeline
+// ---------------------------------------------------------------------------
+
+const SAMPLE_BUCKETS = [
+  { period: '2026-01-01', count: 3 },
+  { period: '2026-01-08', count: 1 },
+  { period: '2026-01-15', count: 2 },
+]
+
+describe('GET /api/v1/entities/:id/mentions-timeline', () => {
+  it('returns buckets with defaults (window=30d, bucket=week)', async () => {
+    const entityService = makeMockEntityService({
+      getMentionsTimeline: vi.fn().mockResolvedValue(SAMPLE_BUCKETS),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline')
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.buckets).toHaveLength(3)
+    expect(body.buckets[0]).toEqual({ period: '2026-01-01', count: 3 })
+    expect(body.window).toBe('30d')
+    expect(body.bucket).toBe('week')
+    expect(entityService.getMentionsTimeline).toHaveBeenCalledWith('entity-uuid-1', '30d', 'week')
+  })
+
+  it('passes window and bucket query params to service', async () => {
+    const entityService = makeMockEntityService({
+      getMentionsTimeline: vi.fn().mockResolvedValue(SAMPLE_BUCKETS),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=90d&bucket=month')
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.window).toBe('90d')
+    expect(body.bucket).toBe('month')
+    expect(entityService.getMentionsTimeline).toHaveBeenCalledWith('entity-uuid-1', '90d', 'month')
+  })
+
+  it('returns 400 for invalid window value', async () => {
+    const entityService = makeMockEntityService()
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=60d')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 400 for invalid bucket value', async () => {
+    const entityService = makeMockEntityService()
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?bucket=hour')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 400 for disallowed combo: bucket=day + window=365d', async () => {
+    const entityService = makeMockEntityService()
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=365d&bucket=day')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('bucket=day is not allowed with window=365d')
+  })
+
+  it('returns 404 when entity does not exist', async () => {
+    const entityService = makeMockEntityService({
+      entityExists: vi.fn().mockResolvedValue(false),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/nonexistent-uuid/mentions-timeline')
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+  })
+
+  it('does not call getMentionsTimeline when entity does not exist', async () => {
+    const entityService = makeMockEntityService({
+      entityExists: vi.fn().mockResolvedValue(false),
+    })
+    const app = createApp({ entityService })
+
+    await app.request('/api/v1/entities/nonexistent-uuid/mentions-timeline')
+
+    expect(entityService.getMentionsTimeline).not.toHaveBeenCalled()
+  })
+
+  it('returns empty buckets array when entity has no mentions in window', async () => {
+    const entityService = makeMockEntityService({
+      getMentionsTimeline: vi.fn().mockResolvedValue([]),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=7d&bucket=day')
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.buckets).toEqual([])
+    expect(body.window).toBe('7d')
+    expect(body.bucket).toBe('day')
+  })
+
+  it('allows bucket=day with window=7d (valid combo)', async () => {
+    const entityService = makeMockEntityService({
+      getMentionsTimeline: vi.fn().mockResolvedValue(SAMPLE_BUCKETS),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=7d&bucket=day')
+
+    expect(res.status).toBe(200)
+  })
+
+  it('allows bucket=week with window=365d (valid combo)', async () => {
+    const entityService = makeMockEntityService({
+      getMentionsTimeline: vi.fn().mockResolvedValue(SAMPLE_BUCKETS),
+    })
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=365d&bucket=week')
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.window).toBe('365d')
+    expect(body.bucket).toBe('week')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/entities/:id/ask
+// ---------------------------------------------------------------------------
+
+describe('POST /api/v1/entities/:id/ask', () => {
+  it('returns synthesized response with entity metadata', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.response).toBe('Tom Smith leads the QSR project and is a key stakeholder.')
+    expect(body.capture_count).toBe(3)
+    expect(body.entity.id).toBe('entity-uuid-1')
+    expect(body.entity.name).toBe('Tom Smith')
+    expect(body.entity.type).toBe('person')
+    expect(entityService.entityExists).toHaveBeenCalledWith('entity-uuid-1')
+    expect(entityService.ask).toHaveBeenCalledWith(
+      'entity-uuid-1',
+      'What does Tom Smith work on?',
+      searchService,
+      llmGateway,
+    )
+  })
+
+  it('returns 404 when entity does not exist', async () => {
+    const entityService = makeMockEntityService({
+      entityExists: vi.fn().mockResolvedValue(false),
+    })
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/nonexistent-uuid/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does this entity do?' }),
+    })
+
+    expect(res.status).toBe(404)
+    const body = await res.json() as any
+    expect(body.code).toBe('NOT_FOUND')
+    expect(entityService.ask).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 when question is missing', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 400 when question exceeds 2000 chars', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'x'.repeat(2001) }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('returns 503 when searchService is not configured', async () => {
+    const entityService = makeMockEntityService()
+    // omit searchService — endpoint should return 503
+    const app = createApp({ entityService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as any
+    expect(body.code).toBe('SERVICE_UNAVAILABLE')
+  })
+
+  it('returns 503 when llmGateway is not configured', async () => {
+    const entityService = makeMockEntityService()
+    const searchService = makeMockSearchService()
+    // omit llmGateway — endpoint should return 503
+    const app = createApp({ entityService, searchService })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(503)
+    const body = await res.json() as any
+    expect(body.code).toBe('SERVICE_UNAVAILABLE')
+  })
+
+  it('returns "no relevant captures" response when entity has no linked captures', async () => {
+    const entityService = makeMockEntityService({
+      ask: vi.fn().mockResolvedValue({
+        response: "I couldn't find any captures in your brain that are relevant to this query. Try capturing more notes first.",
+        capture_count: 0,
+        entity: { id: 'entity-uuid-1', name: 'Tom Smith', type: 'person' },
+      }),
+    })
+    const searchService = makeMockSearchService()
+    const llmGateway = makeMockLLMGateway()
+    const app = createApp({ entityService, searchService, llmGateway })
+
+    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json() as any
+    expect(body.capture_count).toBe(0)
+    expect(body.response).toContain("couldn't find any captures")
   })
 })

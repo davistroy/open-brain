@@ -8,6 +8,9 @@ import {
   runAgent,
   resolveTaskModel,
   ModelResolverError,
+  briefs,
+  renderBriefHtml,
+  REFINE_OPTIONS,
 } from '@open-brain/shared'
 import type { AgentTool, AgentResult } from '@open-brain/shared'
 import type { WikiGitService, WikiFrontmatter } from '@open-brain/shared'
@@ -401,12 +404,33 @@ export class MonthlyReflectionSkill extends BaseSkill<MonthlyReflectionOptions, 
       notificationSent,
     }
 
-    await this.logResult(
+    const skillLogId = await this.logResult(
       result,
       `${captureCount} captures across 30 days | ${output.month_label}`,
       `headline: "${output.headline}" | email:${emailSent} wiki:${wikiPageWritten} | iterations:${agentResult.iterations} tools:${agentResult.toolCalls.length}`,
       savedCaptureId ?? undefined,
     )
+
+    // Write brief row — brief failure is non-fatal (same try/catch pattern as 6.1)
+    try {
+      const markdown = buildWikiMarkdown(output)
+      const { html, toc } = renderBriefHtml(markdown)
+      await this.db.insert(briefs).values({
+        kind: 'MONTHLY',
+        cover: 'gold',
+        title: `Monthly Reflection — ${output.month_label}`,
+        subtitle: output.headline,
+        body_html: html,
+        toc,
+        sources: [],
+        refine_options: [...REFINE_OPTIONS],
+        source_skill_log_id: skillLogId || null,
+        generated_at: now,
+      })
+      logger.info('[monthly-reflection] brief row written')
+    } catch (err) {
+      logger.warn({ err }, '[monthly-reflection] brief write failed — skill result unaffected')
+    }
 
     logger.info(
       {

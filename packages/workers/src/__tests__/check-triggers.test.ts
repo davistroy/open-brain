@@ -76,7 +76,7 @@ function makeMockDb(captureRow?: Record<string, unknown>, triggerRows?: Record<s
         where: vi.fn().mockResolvedValue([]),
       }),
     }),
-    insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+    insert: vi.fn().mockReturnValue({ values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }) }),
     execute: vi.fn().mockResolvedValue({ rows: [] }),
     _selectCallCount: () => selectCallCount,
   }

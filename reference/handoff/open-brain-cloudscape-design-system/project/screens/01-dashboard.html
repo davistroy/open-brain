@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  @keyframes obspin { to { transform: rotate(360deg); } }
+  @keyframes obpulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+
+// ---- Stat strip -------------------------------------------------------------
+const StatBlock = ({ label, value, delta, deltaTone = 'success', meta }) => (
+  <div style={{
+    flex: 1, minWidth: 0,
+    padding: '16px 18px',
+    borderRight: '1px solid var(--color-cloud-light)',
+  }}>
+    <div style={{
+      fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, fontWeight: 400,
+      letterSpacing: '0.08em', textTransform: 'uppercase',
+      color: 'var(--color-text-body-secondary)', marginBottom: 10,
+    }}>{label}</div>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+      <div style={{
+        fontFamily: 'var(--font-family-display)',
+        fontSize: 34, fontWeight: 300, letterSpacing: '-0.03em',
+        lineHeight: 1, color: 'var(--color-text-heading)',
+        fontVariantNumeric: 'tabular-nums',
+      }}>{value}</div>
+      {delta && (
+        <span style={{
+          fontFamily: 'var(--font-family-monospace)', fontSize: 11,
+          color: deltaTone === 'success' ? '#5E8F4A' : 'var(--color-faded-red)',
+          letterSpacing: '0.02em',
+        }}>{delta}</span>
+      )}
+    </div>
+    {meta && (
+      <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', marginTop: 8, fontWeight: 300 }}>{meta}</div>
+    )}
+  </div>
+);
+
+const StatStrip = () => (
+  <div style={{
+    display: 'flex', background: 'var(--color-bg-container)',
+    border: '1px solid var(--color-cloud-light)',
+    marginBottom: 20,
+  }}>
+    <StatBlock label="Captures / 7d" value="84" delta="▲ 12%" meta="avg 12/day · on target" />
+    <StatBlock label="Active entities" value="217" delta="▲ 4" meta="3 new this week" />
+    <StatBlock label="Open questions" value="9" delta="▼ 2" meta="2 overdue · 7 on track" />
+    <StatBlock label="Briefs in progress" value="3" meta="next due Thursday" />
+    <div style={{ padding: '16px 18px', minWidth: 160 }}>
+      <div style={{
+        fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, fontWeight: 400,
+        letterSpacing: '0.08em', textTransform: 'uppercase',
+        color: 'var(--color-text-body-secondary)', marginBottom: 10,
+      }}>Pipeline</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 8, height: 8, background: '#5E8F4A', display: 'inline-block' }}></span>
+        <span style={{ fontSize: 13.5, color: 'var(--color-text-heading)' }}>Healthy</span>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', marginTop: 8, fontWeight: 300, fontFamily: 'var(--font-family-monospace)' }}>3 active · 12 queued</div>
+    </div>
+  </div>
+);
+
+// ---- Recent captures -------------------------------------------------------
+const TYPE_ICONS = {
+  voice: 'mic', email: 'mail', upload: 'file-up', meeting: 'calendar', note: 'edit-3', link: 'link',
+};
+
+const RECENTS = [
+  { id: 'c1', type: 'voice',   title: 'Morning walk — Q4 planning thoughts',
+    snippet: 'Need to circle back with Sarah on headcount for the new team…',
+    entities: ['Sarah Chen', 'Q4 Planning', 'Hiring'], captured: '07:12', status: 'processed' },
+  { id: 'c2', type: 'email',   title: 'Re: Advisory board deck v3',
+    snippet: "avi@ventures.co — 'Comments on slides 12–18 inline. Can we discuss…'",
+    entities: ['Avi Sharma', 'Ventures.co', 'Advisory Board'], captured: '07:04', status: 'needs-review' },
+  { id: 'c3', type: 'upload',  title: 'espresso-machine-research.pdf',
+    snippet: '12-page comparison of Lelit vs ECM vs Profitec in the $2.5–4k range',
+    entities: ['Home Office', 'Purchase Decision'], captured: 'Yesterday', status: 'processed' },
+  { id: 'c4', type: 'meeting', title: 'Weekly 1:1 with Maya — notes',
+    snippet: 'Career goals, mentorship ask, ML certification discussion',
+    entities: ['Maya Rodriguez', '1:1', 'Career Development'], captured: 'Yesterday', status: 'processed' },
+  { id: 'c5', type: 'note',    title: 'Book idea — "operating system for a life"',
+    snippet: 'What if personal knowledge management borrowed from ops playbooks?',
+    entities: ['Book Ideas', 'Writing'], captured: '2d', status: 'unlinked' },
+  { id: 'c6', type: 'link',    title: 'simonwillison.net — Datasette for personal data',
+    snippet: 'Bookmarked — might be useful for Open Brain data export design',
+    entities: ['Open Brain', 'Research'], captured: '2d', status: 'processed' },
+];
+
+const StatusDot = ({ status }) => {
+  const map = {
+    processed:    { color: '#5E8F4A', label: 'Processed' },
+    'needs-review': { color: 'var(--color-book-cloth)', label: 'Needs review' },
+    unlinked:     { color: 'var(--color-cloud-dark)', label: 'Unlinked' },
+    processing:   { color: 'var(--color-book-cloth)', label: 'Processing' },
+  };
+  const m = map[status] || map.processed;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--color-text-body-secondary)' }}>
+      <span style={{ width: 6, height: 6, background: m.color, display: 'inline-block', flexShrink: 0 }}></span>
+      {m.label}
+    </span>
+  );
+};
+
+const RecentCaptures = ({ rows, selectedId, onSelect }) => (
+  <div>
+    {rows.map((r, i) => {
+      const active = r.id === selectedId;
+      return (
+        <div key={r.id} onClick={() => onSelect(r.id)} style={{
+          display: 'grid',
+          gridTemplateColumns: '24px 1fr auto',
+          alignItems: 'start', gap: 14,
+          padding: '12px 18px',
+          borderBottom: i === rows.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+          cursor: 'pointer',
+          background: active ? 'var(--color-book-cloth-50)' : 'transparent',
+          borderLeft: active ? '2px solid var(--color-book-cloth)' : '2px solid transparent',
+          transition: 'background 100ms',
+        }}
+        onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--color-ivory-dark)'; }}
+        onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
+          <i data-lucide={TYPE_ICONS[r.type]} style={{ width: 15, height: 15, strokeWidth: 1.4, color: 'var(--color-cloud-dark)', marginTop: 2 }}></i>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)', letterSpacing: '0.002em' }}>{r.title}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--color-text-body-secondary)', fontWeight: 300, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.snippet}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {r.entities.map(e => <Pill key={e} tone="neutral" size="xs">{e}</Pill>)}
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, minWidth: 110 }}>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{r.captured}</span>
+            <StatusDot status={r.status} />
+          </div>
+        </div>
+      );
+    })}
+  </div>
+);
+
+// ---- Open questions (right column) -----------------------------------------
+const OPEN_Q = [
+  { q: 'October front-loaded hiring vs. rolling through Q4?', due: '3d', priority: 'high', context: '3 related captures' },
+  { q: 'Decide: Lelit Bianca vs ECM Synchronika', due: '5d', priority: 'med', context: '2 captures · 1 brief' },
+  { q: 'Should Maya pivot to ML eng this quarter?', due: 'flex', priority: 'med', context: '4 related captures' },
+  { q: 'Budget for advisory board offsite?', due: 'overdue', priority: 'high', context: '2 captures' },
+];
+
+const OpenQ = () => (
+  <div>
+    {OPEN_Q.map((q, i) => (
+      <div key={i} style={{
+        padding: '12px 16px',
+        borderBottom: i === OPEN_Q.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <span style={{
+            width: 4, alignSelf: 'stretch', marginTop: 2, marginBottom: 2,
+            background: q.priority === 'high' ? 'var(--color-book-cloth)' : 'var(--color-cloud-medium)',
+          }}></span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 400, color: 'var(--color-text-heading)', lineHeight: 1.4 }}>{q.q}</div>
+            <div style={{
+              display: 'flex', gap: 10, marginTop: 6, alignItems: 'center',
+              fontFamily: 'var(--font-family-monospace)', fontSize: 10.5,
+              color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em',
+            }}>
+              <span style={{ color: q.due === 'overdue' ? 'var(--color-faded-red)' : 'var(--color-text-body-secondary)' }}>
+                {q.due === 'overdue' ? 'OVERDUE' : 'DUE ' + q.due.toUpperCase()}
+              </span>
+              <span style={{ opacity: 0.4 }}>·</span>
+              <span>{q.context.toUpperCase()}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+// ---- Upcoming briefs -------------------------------------------------------
+const BRIEFS = [
+  { title: 'Q4 Planning — decision memo', progress: 72, due: 'Thu', sources: 12 },
+  { title: 'Advisory board pre-read', progress: 40, due: 'next Tue', sources: 8 },
+  { title: 'Espresso machine decision', progress: 88, due: 'Apr 30', sources: 4 },
+];
+
+const UpcomingBriefs = () => (
+  <div>
+    {BRIEFS.map((b, i) => (
+      <div key={i} style={{
+        padding: '12px 16px',
+        borderBottom: i === BRIEFS.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+          <div style={{ fontSize: 13, fontWeight: 400, color: 'var(--color-text-heading)' }}>{b.title}</div>
+          <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>{b.due.toUpperCase()}</div>
+        </div>
+        <div style={{ height: 2, background: 'var(--color-cloud-light)', marginTop: 10, position: 'relative' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${b.progress}%`, background: 'var(--color-book-cloth)' }}></div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>
+          <span>{b.progress}% SYNTHESIZED</span>
+          <span>{b.sources} SOURCES</span>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+// ---- Quick capture ---------------------------------------------------------
+const QuickCaptureMini = () => {
+  const [type, setType] = React.useState('note');
+  const types = [
+    { id: 'note', label: 'Note', icon: 'edit-3' },
+    { id: 'voice', label: 'Voice', icon: 'mic' },
+    { id: 'upload', label: 'Upload', icon: 'file-up' },
+    { id: 'link', label: 'Link', icon: 'link' },
+  ];
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', gap: 0, marginBottom: 12, border: '1px solid var(--color-cloud-light)' }}>
+        {types.map(t => (
+          <button key={t.id} onClick={() => setType(t.id)} style={{
+            flex: 1, padding: '7px 10px',
+            background: type === t.id ? 'var(--color-slate-medium)' : 'transparent',
+            color: type === t.id ? 'var(--color-ivory-light)' : 'var(--color-text-body-secondary)',
+            border: 'none',
+            fontFamily: 'var(--font-family-base)', fontSize: 12,
+            fontWeight: type === t.id ? 400 : 300,
+            letterSpacing: '0.01em',
+            cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            borderRight: t.id !== 'link' ? '1px solid var(--color-cloud-light)' : 'none',
+          }}>
+            <i data-lucide={t.icon} style={{ width: 13, height: 13, strokeWidth: 1.4 }}></i>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <textarea placeholder="What's on your mind?" style={{
+        width: '100%', minHeight: 72, resize: 'vertical',
+        fontFamily: 'var(--font-family-base)', fontSize: 13.5, fontWeight: 300,
+        padding: 10,
+        background: '#fff',
+        border: '1px solid var(--color-cloud-medium)',
+        borderRadius: 0,
+        color: 'var(--color-text-body)',
+        outline: 'none',
+      }} onFocus={e => e.target.style.borderColor = 'var(--color-slate-medium)'}
+         onBlur={e => e.target.style.borderColor = 'var(--color-cloud-medium)'} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+        <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>⌘↵ TO CAPTURE · ⌘⇧V FOR VOICE</span>
+        <Button variant="primary" size="small">Capture</Button>
+      </div>
+    </div>
+  );
+};
+
+// ---- App -------------------------------------------------------------------
+const App = () => {
+  const [selectedId, setSelectedId] = React.useState('c1');
+  return (
+    <Shell
+      active="dashboard"
+      breadcrumb={["Open Brain", "Dashboard"]}
+      title="Good morning, Troy"
+      subtitle="Tuesday, April 21 · 47 captures this week · 3 open briefs"
+      actions={<>
+        <Button variant="normal" icon={<i data-lucide="refresh-cw" style={{ width: 13, height: 13, strokeWidth: 1.5 }}></i>}>Refresh</Button>
+        <Button variant="normal" icon={<i data-lucide="download" style={{ width: 13, height: 13, strokeWidth: 1.5 }}></i>}>Export</Button>
+        <Button variant="primary" icon={<i data-lucide="plus" style={{ width: 13, height: 13, strokeWidth: 2 }}></i>}>New brief</Button>
+      </>}
+    >
+      <StatStrip />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)', gap: 20 }}>
+        {/* Left column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <Container header="Quick capture" description="Drop a thought — Open Brain handles transcription, entity extraction, linking." padding={false}>
+            <QuickCaptureMini />
+          </Container>
+          <Container
+            header={<>Recent activity <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 12, fontWeight: 400, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>({RECENTS.length})</span></>}
+            description="Last 48 hours across all sources."
+            actions={<>
+              <Button variant="normal" size="small" icon={<i data-lucide="filter" style={{ width: 11, height: 11, strokeWidth: 1.5 }}></i>}>Filter</Button>
+              <Button variant="link" size="small">View all →</Button>
+            </>}
+            padding={false}
+          >
+            <RecentCaptures rows={RECENTS} selectedId={selectedId} onSelect={setSelectedId} />
+          </Container>
+        </div>
+
+        {/* Right column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <Container header="Open questions" description="Unresolved threads Open Brain surfaced." actions={<Button variant="link" size="small">Board →</Button>} padding={false}>
+            <OpenQ />
+          </Container>
+          <Container header="Upcoming briefs" actions={<Button variant="link" size="small">All briefs →</Button>} padding={false}>
+            <UpcomingBriefs />
+          </Container>
+        </div>
+      </div>
+    </Shell>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

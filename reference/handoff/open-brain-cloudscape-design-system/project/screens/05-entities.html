@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Entities</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+const TYPE_META = {
+  person:   { label: 'PERSON',   icon: 'user-round' },
+  project:  { label: 'PROJECT',  icon: 'folder-kanban' },
+  topic:    { label: 'TOPIC',    icon: 'hash' },
+  org:      { label: 'ORG',      icon: 'building-2' },
+  decision: { label: 'DECISION', icon: 'gavel' },
+};
+
+const ENTITIES = [
+  { id: 'sarah-chen',     type: 'person',   name: 'Sarah Chen',          blurb: 'VP of Operations', mentions: 14, lastSeen: 'Apr 18', trend: '▲', related: ['Q4 Planning', 'Hiring'] },
+  { id: 'maya-rodriguez', type: 'person',   name: 'Maya Rodriguez',      blurb: 'Senior Engineer, Platform', mentions: 9, lastSeen: 'Apr 20', trend: '▲', related: ['1:1', 'Career'] },
+  { id: 'avi-sharma',     type: 'person',   name: 'Avi Sharma',          blurb: 'Advisor · Ventures.co', mentions: 7, lastSeen: 'Apr 21', trend: '◆', related: ['Advisory Board'] },
+  { id: 'q4-planning',    type: 'project',  name: 'Q4 Planning',         blurb: 'Decision work-in-progress', mentions: 22, lastSeen: 'Apr 21', trend: '▲', related: ['Hiring', 'Budget'] },
+  { id: 'platform-team',  type: 'project',  name: 'Platform Team',       blurb: 'Cross-functional squad', mentions: 6, lastSeen: 'Apr 21', trend: '▲', related: ['Maya Rodriguez', 'SLA'] },
+  { id: 'open-brain',     type: 'project',  name: 'Open Brain',          blurb: 'This product', mentions: 18, lastSeen: 'Apr 20', trend: '◆', related: ['Research', 'Datasette'] },
+  { id: 'hiring',         type: 'topic',    name: 'Hiring',              blurb: '18 captures over 6 weeks', mentions: 18, lastSeen: 'Apr 21', trend: '▲', related: ['Q4 Planning', 'Sarah Chen'] },
+  { id: 'espresso',       type: 'decision', name: 'Espresso machine',    blurb: 'Pending · due Apr 30', mentions: 4, lastSeen: 'Yesterday', trend: '◆', related: ['Lelit', 'ECM'] },
+  { id: 'ventures',       type: 'org',      name: 'Ventures.co',         blurb: 'Avi\u2019s firm', mentions: 5, lastSeen: 'Apr 21', trend: '◆', related: ['Avi Sharma'] },
+  { id: 'fitness',        type: 'topic',    name: 'Fitness',             blurb: '9 captures', mentions: 9, lastSeen: '3d', trend: '▼', related: ['Personal'] },
+  { id: 'book-ideas',     type: 'topic',    name: 'Book Ideas',          blurb: '6 captures', mentions: 6, lastSeen: '2d', trend: '◆', related: ['Writing'] },
+  { id: 'ravi-shah',      type: 'person',   name: 'Ravi Shah',           blurb: 'PM · Pricing', mentions: 3, lastSeen: '1w', trend: '▼', related: ['Pricing'] },
+];
+
+const TYPE_COUNTS = {
+  all: ENTITIES.length, person: 4, project: 3, topic: 3, org: 1, decision: 1,
+};
+
+const TypeChip = ({ type }) => {
+  const m = TYPE_META[type];
+  return (
+    <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{m.label}</span>
+  );
+};
+
+const App = () => {
+  const [type, setType] = React.useState('all');
+  const shown = type === 'all' ? ENTITIES : ENTITIES.filter(e => e.type === type);
+  return (
+    <Shell
+      active="entities"
+      breadcrumb={['Open Brain', 'Entities']}
+      title="Entities"
+      subtitle="217 people, projects, topics, organizations, and decisions extracted from your captures"
+      actions={<>
+        <SBtn variant="normal" icon={<i data-lucide="git-merge" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Merge</SBtn>
+        <SBtn variant="normal" icon={<i data-lucide="download" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Export</SBtn>
+        <SBtn variant="primary" icon={<i data-lucide="plus" style={{ width: 12, height: 12, strokeWidth: 2 }}></i>}>New entity</SBtn>
+      </>}
+    >
+      {/* Type filter tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-cloud-light)', marginBottom: 18 }}>
+        {[['all','All'],['person','People'],['project','Projects'],['topic','Topics'],['org','Organizations'],['decision','Decisions']].map(([id, label]) => {
+          const on = type === id;
+          return (
+            <button key={id} onClick={() => setType(id)} style={{
+              padding: '10px 18px', background: 'transparent', border: 'none',
+              borderBottom: on ? '2px solid var(--color-book-cloth)' : '2px solid transparent',
+              color: on ? 'var(--color-text-heading)' : 'var(--color-text-body-secondary)',
+              fontFamily: 'var(--font-family-base)', fontSize: 13, fontWeight: on ? 400 : 300,
+              letterSpacing: '0.005em', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8,
+              marginBottom: -1,
+            }}>
+              {label}
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)' }}>{TYPE_COUNTS[id] || 0}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 24 }}>
+        {/* Entities table */}
+        <SCard padded={false}>
+          <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--color-cloud-medium)', gap: 12 }}>
+            <SInput icon="search" placeholder="Filter entities…" style={{ maxWidth: 280 }} />
+            <div style={{ flex: 1 }}></div>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>SORT · MENTIONS ↓</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '20px 240px 1fr 90px 90px 40px', padding: '10px 18px', fontFamily: 'var(--font-family-monospace)', fontSize: 10, letterSpacing: '0.08em', color: 'var(--color-text-body-secondary)', borderBottom: '1px solid var(--color-cloud-medium)', gap: 16 }}>
+            <span></span><span>NAME</span><span>RELATED</span><span>MENTIONS</span><span>LAST SEEN</span><span></span>
+          </div>
+          {shown.map((e, i) => (
+            <div key={e.id} style={{
+              display: 'grid', gridTemplateColumns: '20px 240px 1fr 90px 90px 40px',
+              padding: '12px 18px', alignItems: 'center', gap: 16,
+              borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--color-cloud-light)',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={ev => ev.currentTarget.style.background = 'var(--color-ivory-dark)'}
+            onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}>
+              <i data-lucide={TYPE_META[e.type].icon} style={{ width: 14, height: 14, strokeWidth: 1.4, color: 'var(--color-text-body)' }}></i>
+              <div style={{ minWidth: 0 }}>
+                <TypeChip type={e.type} />
+                <div style={{ fontSize: 13.5, fontWeight: 400, color: 'var(--color-text-heading)', marginTop: 2 }}>{e.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-body-secondary)', fontWeight: 300, marginTop: 2 }}>{e.blurb}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {e.related.map(r => <Pill key={r} tone="neutral" size="xs">{r}</Pill>)}
+              </div>
+              <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 12, color: 'var(--color-text-heading)', fontVariantNumeric: 'tabular-nums' }}>
+                {e.mentions} <span style={{ color: e.trend === '▲' ? '#5E8F4A' : e.trend === '▼' ? 'var(--color-faded-red)' : 'var(--color-text-body-secondary)', marginLeft: 4 }}>{e.trend}</span>
+              </div>
+              <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{e.lastSeen.toUpperCase()}</div>
+              <button style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>
+                <i data-lucide="chevron-right" style={{ width: 14, height: 14, strokeWidth: 1.5, color: 'var(--color-cloud-dark)' }}></i>
+              </button>
+            </div>
+          ))}
+        </SCard>
+
+        {/* Right: entity type distribution + recent merges */}
+        <aside>
+          <SCard header="Distribution" padded={true}>
+            {[
+              { label: 'People',       count: 72, tone: 'var(--color-book-cloth)' },
+              { label: 'Projects',     count: 38, tone: 'var(--color-slate-medium)' },
+              { label: 'Topics',       count: 61, tone: 'var(--color-cloud-dark)' },
+              { label: 'Organizations',count: 28, tone: 'var(--color-book-cloth-dark)' },
+              { label: 'Decisions',    count: 18, tone: '#5E8F4A' },
+            ].map(d => (
+              <div key={d.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-body)' }}>
+                  <span style={{ fontWeight: 300 }}>{d.label}</span>
+                  <span style={{ fontFamily: 'var(--font-family-monospace)' }}>{d.count}</span>
+                </div>
+                <div style={{ height: 3, background: 'var(--color-cloud-light)', marginTop: 4, position: 'relative' }}>
+                  <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${(d.count / 72) * 100}%`, background: d.tone }}></div>
+                </div>
+              </div>
+            ))}
+          </SCard>
+
+          <div style={{ height: 16 }}></div>
+
+          <SCard header="Needs attention" description="Low-confidence extractions" padded={false}>
+            {[
+              { label: 'Avi / Avi Sharma', desc: 'Possible duplicate' },
+              { label: '“the team”', desc: 'Ambiguous reference' },
+              { label: 'Q4 / Q4 Planning', desc: 'Possible duplicate' },
+            ].map((it, i, a) => (
+              <div key={i} style={{ padding: '10px 16px', borderBottom: i === a.length - 1 ? 'none' : '1px solid var(--color-cloud-light)', cursor: 'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <div style={{ fontSize: 12.5, fontWeight: 400, color: 'var(--color-text-heading)' }}>{it.label}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--color-text-body-secondary)', fontWeight: 300, marginTop: 2 }}>{it.desc}</div>
+              </div>
+            ))}
+          </SCard>
+        </aside>
+      </div>
+    </Shell>
+  );
+};
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

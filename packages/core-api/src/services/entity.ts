@@ -1,8 +1,9 @@
 import { eq, sql, desc, asc, ne } from 'drizzle-orm'
 import { entities, entity_links, captures } from '@open-brain/shared'
-import { NotFoundError } from '@open-brain/shared'
-import type { Database } from '@open-brain/shared'
+import { NotFoundError, SafePromptBuilder } from '@open-brain/shared'
+import type { Database, LLMGatewayService } from '@open-brain/shared'
 import type { EntityResolutionService } from './entity-resolution.js'
+import type { SearchService, SearchResult } from './search.js'
 
 export interface EntityRecord {
   id: string
@@ -42,6 +43,33 @@ export interface EntityListFilter {
 export interface EntityListResult {
   items: EntityRecord[]
   total: number
+}
+
+/** Result returned by EntityService.ask() */
+export interface AskResult {
+  response: string
+  capture_count: number
+  entity: { id: string; name: string; type: string }
+}
+
+/** Valid time windows for the mentions timeline endpoint. */
+export type MentionsTimelineWindow = '7d' | '30d' | '90d' | '365d'
+
+/** Valid time bucket granularities for the mentions timeline endpoint. */
+export type MentionsTimelineBucket = 'day' | 'week' | 'month'
+
+/** A single non-zero bucket returned by getMentionsTimeline. */
+export interface TimelineBucket {
+  /** ISO-8601 date string for the start of the bucket (UTC midnight). */
+  period: string
+  count: number
+}
+
+export interface RelatedEntity {
+  id: string
+  name: string
+  type: string
+  shared_count: number
 }
 
 /**
@@ -212,6 +240,97 @@ export class EntityService {
   }
 
   /**
+   * Lightweight existence check — SELECT 1 only.
+   * Used by route handlers to distinguish 404 from empty-result.
+   */
+  async entityExists(id: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ one: sql<number>`1` })
+      .from(entities)
+      .where(sql`${entities.id} = ${id}::uuid`)
+      .limit(1)
+    return rows.length > 0
+  }
+
+  /**
+   * Two-hop self-join: find entities that share ≥1 non-deleted capture
+   * with the target entity. Returns up to `limit` results ordered by
+   * shared_count DESC, name ASC (name tiebreaker for deterministic output).
+   * Excludes captures with deleted_at IS NOT NULL.
+   */
+  async getRelated(id: string, limit = 20): Promise<RelatedEntity[]> {
+    const result = await this.db.execute<{ id: string; name: string; type: string; shared_count: number }>(
+      sql`
+        SELECT
+          e.id::text       AS id,
+          e.name           AS name,
+          e.entity_type    AS type,
+          COUNT(*)::int    AS shared_count
+        FROM entity_links el1
+        JOIN entity_links el2
+          ON  el2.capture_id = el1.capture_id
+          AND el2.entity_id  != el1.entity_id
+        JOIN entities e
+          ON  e.id = el2.entity_id
+        JOIN captures c
+          ON  c.id = el1.capture_id
+          AND c.deleted_at IS NULL
+        WHERE el1.entity_id = ${id}::uuid
+        GROUP BY e.id, e.name, e.entity_type
+        ORDER BY shared_count DESC, e.name ASC
+        LIMIT ${limit}
+      `,
+    )
+    return result.rows as RelatedEntity[]
+  }
+
+  /**
+   * Returns time-bucketed mention counts for a given entity.
+   *
+   * Only non-zero buckets are returned — the client is responsible for zero-filling
+   * the full range when rendering a chart.
+   *
+   * Interval strings are built from validated enum values server-side and NEVER
+   * constructed from raw user input.
+   *
+   * @param id     - Entity UUID
+   * @param window - Look-back window: '7d' | '30d' | '90d' | '365d'
+   * @param bucket - Bucket granularity: 'day' | 'week' | 'month'
+   */
+  async getMentionsTimeline(
+    id: string,
+    window: MentionsTimelineWindow,
+    bucket: MentionsTimelineBucket,
+  ): Promise<TimelineBucket[]> {
+    // Map enum window to Postgres interval — never interpolate raw user input
+    const intervalMap: Record<MentionsTimelineWindow, string> = {
+      '7d': '7 days',
+      '30d': '30 days',
+      '90d': '90 days',
+      '365d': '365 days',
+    }
+    const intervalStr = intervalMap[window]
+
+    // date_trunc truncates to UTC bucket boundary; cast to text for JSON portability
+    const rows = await this.db
+      .select({
+        period: sql<string>`date_trunc(${bucket}, ${captures.created_at})::date::text`,
+        count: sql<number>`COUNT(${entity_links.id})::int`,
+      })
+      .from(entity_links)
+      .innerJoin(captures, eq(captures.id, entity_links.capture_id))
+      .where(
+        sql`${entity_links.entity_id} = ${id}::uuid
+          AND ${captures.created_at} >= NOW() - ${intervalStr}::interval
+          AND ${captures.deleted_at} IS NULL`,
+      )
+      .groupBy(sql`date_trunc(${bucket}, ${captures.created_at})`)
+      .orderBy(sql`date_trunc(${bucket}, ${captures.created_at}) ASC`)
+
+    return rows as TimelineBucket[]
+  }
+
+  /**
    * Update last_seen_at for an entity.
    * Called by the link-entities pipeline stage.
    */
@@ -223,5 +342,135 @@ export class EntityService {
         updated_at: new Date(),
       })
       .where(sql`${entities.id} = ${entityId}::uuid`)
+  }
+
+  /**
+   * Entity-scoped synthesize — answers a question using only captures linked
+   * to the given entity.
+   *
+   * Path (a): intersection strategy
+   *   1. Fetch top-2000 entity-linked capture IDs (non-deleted).
+   *   2. Run searchService.search(question, {limit: 50}) for semantic relevance.
+   *   3. Intersect search result IDs with entity-linked IDs — take top 10.
+   *   4. Fallback if intersection < 3: widen to top-50 entity captures sorted
+   *      by FTS rank (searchMode: 'fts') against the question.
+   *   5. Feed resulting captures to SafePromptBuilder + LLM (search_synthesis).
+   *
+   * Throws NotFoundError if the entity does not exist.
+   * Returns "no relevant captures" response if the entity has no linked captures.
+   */
+  async ask(
+    id: string,
+    question: string,
+    searchService: SearchService,
+    llmGateway: LLMGatewayService,
+  ): Promise<AskResult> {
+    // Fetch entity metadata for the response envelope
+    const entityRows = await this.db
+      .select({
+        id: sql<string>`${entities.id}::text`,
+        name: entities.name,
+        entity_type: entities.entity_type,
+      })
+      .from(entities)
+      .where(sql`${entities.id} = ${id}::uuid`)
+      .limit(1)
+
+    if (entityRows.length === 0) {
+      throw new NotFoundError(`Entity not found: ${id}`)
+    }
+
+    const entity = entityRows[0]!
+    const entityMeta = { id: entity.id, name: entity.name, type: entity.entity_type }
+
+    // Step 1: fetch top-2000 entity-linked capture IDs (non-deleted)
+    const linkedRows = await this.db
+      .select({ capture_id: sql<string>`${entity_links.capture_id}::text` })
+      .from(entity_links)
+      .innerJoin(captures, eq(captures.id, entity_links.capture_id))
+      .where(sql`${entity_links.entity_id} = ${id}::uuid AND ${captures.deleted_at} IS NULL`)
+      .limit(2000)
+
+    if (linkedRows.length === 0) {
+      return {
+        response: "I couldn't find any captures in your brain that are relevant to this query. Try capturing more notes first.",
+        capture_count: 0,
+        entity: entityMeta,
+      }
+    }
+
+    const linkedIdSet = new Set(linkedRows.map(r => r.capture_id))
+
+    // Step 2: run hybrid search for semantic relevance
+    let searchResults: SearchResult[]
+    try {
+      searchResults = await searchService.search(question, { limit: 50, searchMode: 'hybrid' })
+    } catch {
+      // Embedding unavailable — fall back to FTS
+      searchResults = await searchService.search(question, { limit: 50, searchMode: 'fts' })
+    }
+
+    // Step 3: intersect search results with entity-linked IDs, take top 10
+    let candidates = searchResults
+      .filter(r => linkedIdSet.has(r.capture.id!))
+      .slice(0, 10)
+
+    // Fallback if intersection < 3: widen to top-50 entity captures sorted
+    // by FTS rank against the question. This ensures a useful answer even for
+    // entities that are prominent in captures not yet semantically indexed.
+    if (candidates.length < 3) {
+      const fallbackResults = await searchService.search(question, {
+        limit: 50,
+        searchMode: 'fts',
+      })
+      // Filter to entity-linked captures only, deduplicate, take top 10
+      const seenIds = new Set(candidates.map(r => r.capture.id!))
+      const fallbackCandidates = fallbackResults
+        .filter(r => linkedIdSet.has(r.capture.id!) && !seenIds.has(r.capture.id!))
+        .slice(0, 10 - candidates.length)
+      candidates = [...candidates, ...fallbackCandidates]
+    }
+
+    if (candidates.length === 0) {
+      return {
+        response: "I couldn't find any captures in your brain that are relevant to this query. Try capturing more notes first.",
+        capture_count: 0,
+        entity: entityMeta,
+      }
+    }
+
+    // Step 4: build context block and synthesize
+    const builder = new SafePromptBuilder()
+    const safeQuestion = builder.sanitizeInline(question, 'question')
+    const safeEntityName = builder.sanitizeInline(entity.name, 'entity_name')
+
+    const contextBlocks = candidates.map((r, i) => {
+      const date = new Date(r.capture.created_at).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+      })
+      const label = `[${i + 1}] (${r.capture.capture_type}, ${r.capture.brain_view}, ${date})`
+      return `${label}\n${builder.wrapContent(r.capture.content, r.capture.id!)}`
+    })
+    const context = contextBlocks.join('\n\n')
+
+    const prompt = `You are a personal AI assistant with access to the user's knowledge base. Answer the user's question based ONLY on the captures below, which are all linked to the entity "${safeEntityName}". Be concise and specific. If the captures do not contain enough information to answer confidently, say so.
+
+User question: ${safeQuestion}
+
+Relevant captures from knowledge base (filtered to entity: ${safeEntityName}):
+${context}
+
+Answer:`
+
+    const response = await llmGateway.completeByTask(prompt, 'search_synthesis', {
+      maxTokens: 1024,
+      temperature: 0.2,
+    })
+
+    return {
+      response: response.trim(),
+      capture_count: candidates.length,
+      entity: entityMeta,
+    }
   }
 }

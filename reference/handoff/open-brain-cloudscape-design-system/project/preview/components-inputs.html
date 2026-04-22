@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css?v=a4">
+<style>
+  body { padding: 22px 24px; background: var(--color-bg-layout-main); font-family: var(--font-family-base); }
+  .field { display: flex; flex-direction: column; gap: 4px; max-width: 440px; margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  label { font-size: 13px; font-weight: 600; color: var(--color-text-heading); letter-spacing: 0.005em; }
+  .desc { font-size: 12px; color: var(--color-text-small); margin-bottom: 2px; }
+
+  .input, select, textarea {
+    font-family: var(--font-family-base); font-size: 14px;
+    padding: 7px 12px; height: 34px;
+    border: 1px solid var(--color-cloud-medium);
+    border-radius: 0;
+    background: #fff; color: var(--color-text-body);
+    transition: border-color 100ms linear, box-shadow 100ms linear;
+    box-sizing: border-box;
+  }
+  textarea { height: auto; resize: vertical; line-height: 1.45; }
+  .input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--color-slate-medium);
+    box-shadow: 0 0 0 1px var(--color-slate-medium);
+  }
+  .input::placeholder, textarea::placeholder { color: var(--color-cloud-dark); }
+
+  .row { display: flex; gap: 8px; }
+  .row .input { flex: 1; }
+  .search { position: relative; }
+  .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--color-cloud-dark); pointer-events: none; }
+  .search .input { padding-left: 32px; }
+
+  .error-field .input { border-color: var(--color-faded-red); }
+  .error-msg { font-size: 12px; color: var(--color-faded-red); margin-top: 2px; }
+</style></head>
+<body>
+  <div class="field">
+    <label>Quick capture</label>
+    <span class="desc">Capture a thought, decision, or idea</span>
+    <input class="input" placeholder="What's on your mind?">
+  </div>
+
+  <div class="field">
+    <label>Brain view</label>
+    <select>
+      <option>All views</option>
+      <option>Career</option>
+      <option>Personal</option>
+      <option>Household</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Search</label>
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input class="input" placeholder="Search entries, tags, questions…">
+    </div>
+  </div>
+
+  <div class="field error-field">
+    <label>Tag</label>
+    <input class="input" value="q1-planning " aria-invalid="true">
+    <span class="error-msg">Tags cannot contain spaces.</span>
+  </div>
+</body></html>

@@ -35,7 +35,7 @@ function makeMockDb(captures = SAMPLE_CAPTURES) {
   return {
     execute: vi.fn().mockResolvedValue({ rows: captures }),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   } as any
 }
@@ -180,7 +180,7 @@ describe('WikiSynthesisSkill', () => {
 
   it('handles skills_log insert failure gracefully', async () => {
     db.insert.mockReturnValue({
-      values: vi.fn().mockRejectedValue(new Error('DB error')),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockRejectedValue(new Error('DB error')) }),
     })
 
     // Should not throw

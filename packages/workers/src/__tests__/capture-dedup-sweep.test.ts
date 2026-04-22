@@ -49,7 +49,7 @@ function makeMockDb(pairs = SAMPLE_PAIRS) {
   return {
     execute: vi.fn().mockResolvedValue({ rows: pairs }),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -261,7 +261,7 @@ describe('CaptureDedupSweepSkill', () => {
   it('handles skills_log write failure gracefully', async () => {
     const { skill, db } = makeSkill()
     db.insert.mockReturnValue({
-      values: vi.fn().mockRejectedValue(new Error('DB write failed')),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockRejectedValue(new Error('DB write failed')) }),
     })
 
     // Should not throw
@@ -277,7 +277,7 @@ describe('CaptureDedupSweepSkill', () => {
     const db = {
       execute: vi.fn().mockRejectedValue(new Error('connection refused')),
       insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
       }),
     }
     const pushover = makePushoverService()

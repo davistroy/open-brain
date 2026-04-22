@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Capture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+  .transcript em.entity { font-style: normal; background: var(--color-book-cloth-50); color: var(--color-book-cloth-dark); padding: 0 3px; border-bottom: 1px dotted var(--color-book-cloth); cursor: pointer; }
+  .transcript em.decision { font-style: normal; background: #FBF6EC; color: #8B6A3A; padding: 0 3px; border-bottom: 1px dotted #C08870; cursor: pointer; }
+  .wave rect { transition: fill 120ms; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+<script type="text/babel">
+// Seeded pseudo-random for consistent waveform bars
+const seeded = (n) => {
+  const out = [];
+  let s = 17;
+  for (let i = 0; i < n; i++) { s = (s * 9301 + 49297) % 233280; out.push(0.2 + (s / 233280) * 0.8); }
+  return out;
+};
+const WAVE = seeded(140);
+
+const Waveform = ({ progress = 0.34 }) => (
+  <svg viewBox="0 0 420 60" className="wave" style={{ width: '100%', height: 60 }}>
+    {WAVE.map((v, i) => {
+      const played = (i / WAVE.length) < progress;
+      const x = (i / WAVE.length) * 420;
+      const h = v * 52;
+      return <rect key={i} x={x} y={(60 - h) / 2} width={2} height={h} fill={played ? 'var(--color-book-cloth)' : 'var(--color-cloud-dark)'} />;
+    })}
+  </svg>
+);
+
+const App = () => (
+  <Shell
+    active="timeline"
+    breadcrumb={['Open Brain', 'Timeline', 'Apr 21, 07:12']}
+    title={null}
+    actions={null}
+  >
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 28 }}>
+      <div>
+        {/* Capture header */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.12em' }}>VOICE MEMO · TUE, APR 21 · 07:12</span>
+            <span style={{ color: 'var(--color-cloud-medium)' }}>·</span>
+            <Pill tone="accent" size="xs">5 MIN 42 SEC</Pill>
+            <Pill tone="success" size="xs">TRANSCRIBED</Pill>
+            <Pill tone="neutral" size="xs">7 ENTITIES</Pill>
+          </div>
+          <h1 style={{ fontFamily: 'var(--font-family-display)', fontSize: 34, fontWeight: 300, letterSpacing: '-0.025em', lineHeight: 1.1, color: 'var(--color-text-heading)', margin: '0 0 10px' }}>
+            Morning walk — Q4 planning thoughts
+          </h1>
+          <div style={{ fontSize: 13.5, color: 'var(--color-text-body-secondary)', fontWeight: 300 }}>
+            Captured near Mission Dolores Park · iPhone · auto-uploaded 07:14
+          </div>
+        </div>
+
+        {/* Audio player */}
+        <div style={{ background: 'var(--color-slate-dark)', color: 'var(--color-ivory-light)', padding: 20, marginBottom: 22, display: 'grid', gridTemplateColumns: '40px 1fr 120px', alignItems: 'center', gap: 18 }}>
+          <button aria-label="Play" style={{ width: 40, height: 40, background: 'var(--color-book-cloth)', border: 'none', borderRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <i data-lucide="play" style={{ width: 14, height: 14, strokeWidth: 2, color: 'var(--color-ivory-light)', marginLeft: 2 }}></i>
+          </button>
+          <Waveform />
+          <div style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 12, color: 'var(--color-cloud-light)', letterSpacing: '0.02em', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            01:56 / 05:42
+          </div>
+        </div>
+
+        {/* AI summary */}
+        <div style={{ background: 'var(--color-book-cloth-50)', borderLeft: '3px solid var(--color-book-cloth)', padding: '18px 22px', marginBottom: 22 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <i data-lucide="sparkles" style={{ width: 12, height: 12, strokeWidth: 1.5, color: 'var(--color-book-cloth-dark)' }}></i>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>SUMMARY</span>
+          </div>
+          <p style={{ fontFamily: 'var(--font-family-display)', fontSize: 17, fontWeight: 300, lineHeight: 1.55, color: 'var(--color-text-heading)', margin: 0 }}>
+            You're thinking through Q4 headcount. You want Sarah's input on eng ramp timing and plan to ask Maya if she'd take ownership of the SLA dashboard work. You also resolved to cut the London timeline discussion from Thursday's board agenda — it's not ready.
+          </p>
+        </div>
+
+        {/* Transcript */}
+        <SCard header="Transcript" description="Auto-transcribed · 98% confidence · edited once" actions={<SBtn variant="ghost" size="small" icon={<i data-lucide="edit-3" style={{width:11,height:11,strokeWidth:1.5}}></i>}>Edit</SBtn>} padded={true}>
+          <div className="transcript" style={{ fontSize: 14, lineHeight: 1.75, fontWeight: 300, color: 'var(--color-text-body)' }}>
+            <div style={{ marginBottom: 12, display: 'flex', gap: 14 }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em', minWidth: 48, paddingTop: 4 }}>00:12</span>
+              <p style={{ margin: 0, flex: 1 }}>
+                Alright, thinking about <em className="entity">Q4 planning</em>. The thing I keep coming back to is whether we actually need to ramp <em className="entity">engineering</em> headcount in December or if we push that to January. <em className="entity">Sarah</em> thinks December is too aggressive given how the <em className="entity">London office</em> timeline is shaking out, and I think she's probably right but I want to have the numbers in hand before I concede.
+              </p>
+            </div>
+            <div style={{ marginBottom: 12, display: 'flex', gap: 14 }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em', minWidth: 48, paddingTop: 4 }}>01:04</span>
+              <p style={{ margin: 0, flex: 1 }}>
+                Second thing — and I need to remember this — <em className="decision">ask Maya if she wants the SLA dashboard work</em>. That's her chance to get the customer-facing exposure she asked about. If she says yes, it solves two problems; if she says no, I need a plan B because I don't want it sitting on <em className="entity">Ravi</em>'s plate.
+              </p>
+            </div>
+            <div style={{ marginBottom: 12, display: 'flex', gap: 14 }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em', minWidth: 48, paddingTop: 4 }}>02:38</span>
+              <p style={{ margin: 0, flex: 1 }}>
+                Third — the <em className="entity">board</em> agenda on Thursday. I'm going to <em className="decision">cut the London timeline discussion</em>. It's not ready. We'd spend 20 minutes on something that'll land better when we have legal's redline back. Keep it tight. Finance, product, ask.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 14 }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 11, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em', minWidth: 48, paddingTop: 4 }}>04:19</span>
+              <p style={{ margin: 0, flex: 1 }}>
+                One more — reading I want to do. <em className="entity">Stratechery</em> piece on aggregation theory, the newer one. Might reframe the distribution conversation with <em className="entity">Avi</em>.
+              </p>
+            </div>
+          </div>
+        </SCard>
+      </div>
+
+      {/* Right: extractions */}
+      <aside>
+        <SCard header="Extracted" description="Entities & decisions from this capture" padded={false}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--color-cloud-light)' }}>
+            <Eyebrow>ENTITIES · 7</Eyebrow>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {['Q4 Planning', 'Engineering', 'Sarah Chen', 'London Office', 'Maya Rodriguez', 'Ravi Shah', 'Board', 'Avi Sharma', 'Stratechery'].map(e =>
+                <Pill key={e} tone="accent" size="xs">{e}</Pill>
+              )}
+            </div>
+          </div>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--color-cloud-light)' }}>
+            <Eyebrow>DECISIONS · 2</Eyebrow>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ padding: '6px 8px', background: 'var(--color-ivory-dark)', fontSize: 12.5, color: 'var(--color-text-body)', borderLeft: '2px solid var(--color-book-cloth)' }}>Cut London timeline from board Thursday</div>
+              <div style={{ padding: '6px 8px', background: 'var(--color-ivory-dark)', fontSize: 12.5, color: 'var(--color-text-body)', borderLeft: '2px solid var(--color-book-cloth)' }}>Ask Maya about SLA dashboard ownership</div>
+            </div>
+          </div>
+          <div style={{ padding: '10px 16px' }}>
+            <Eyebrow>COMMITMENTS · 2</Eyebrow>
+            <div style={{ fontSize: 12.5, color: 'var(--color-text-body)', padding: '4px 0' }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em', marginRight: 6 }}>YOU OWE</span>
+              Maya — SLA dashboard ask
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--color-text-body)', padding: '4px 0' }}>
+              <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-text-body-secondary)', letterSpacing: '0.05em', marginRight: 6 }}>TO READ</span>
+              Stratechery aggregation piece
+            </div>
+          </div>
+        </SCard>
+
+        <div style={{ height: 16 }}></div>
+
+        <SCard header="Related captures" description="Co-occurring entities" padded={false}>
+          {[
+            { t: 'MEETING', title: '1:1 with Sarah · Apr 20', conf: '4 shared' },
+            { t: 'NOTE', title: 'Agenda scratchpad · Apr 20', conf: '3 shared' },
+            { t: 'EMAIL', title: 'Re: board agenda · Apr 21', conf: '3 shared' },
+          ].map((r, i, a) => (
+            <div key={i} style={{ padding: '10px 14px', borderBottom: i === a.length - 1 ? 'none' : '1px solid var(--color-cloud-light)', cursor: 'pointer' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{r.t}</span>
+                <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-text-body-secondary)' }}>{r.conf.toUpperCase()}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--color-text-heading)', marginTop: 3, fontWeight: 400 }}>{r.title}</div>
+            </div>
+          ))}
+        </SCard>
+
+        <div style={{ height: 16 }}></div>
+
+        <SCard header="Metadata" padded={true}>
+          <div style={{ display: 'grid', gap: 6 }}>
+            <MetaLine label="SOURCE">Voice memo · iOS app</MetaLine>
+            <MetaLine label="DURATION">5 min 42 sec</MetaLine>
+            <MetaLine label="LOCATION">San Francisco</MetaLine>
+            <MetaLine label="LANGUAGE">English</MetaLine>
+            <MetaLine label="WORDS">842</MetaLine>
+            <MetaLine label="SENSITIVITY">Private — owner only</MetaLine>
+            <MetaLine label="ID">cap_01HK7AXBCJ…</MetaLine>
+          </div>
+        </SCard>
+      </aside>
+    </div>
+  </Shell>
+);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
-import { logger, SafePromptBuilder } from '@open-brain/shared'
+import { logger, SafePromptBuilder, renderBriefHtml, mapCaptureSourceToBriefType, briefs, REFINE_OPTIONS } from '@open-brain/shared'
+import type { BriefSource, CaptureSource } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
 import {
@@ -18,6 +19,7 @@ import type {
   DailySweepResult,
   DailySweepOptions,
   VoiceStats,
+  CaptureRow,
 } from './daily-sweep-query.js'
 
 // Re-export types so consumers can import from this file
@@ -121,12 +123,15 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
 
     // Step 7: Log to skills_log via BaseSkill
     const finalResult: DailySweepResult = { output, captureCount, durationMs, savedCaptureId, notificationSent }
-    await this.logResult(
+    const skillLogId = await this.logResult(
       finalResult,
       `${captureCount} captures, ${questions.length} unresolved questions, ${newEntities.length} new entities`,
       `headline: "${output.headline}" | decisions:${output.key_decisions.length} questions:${output.unresolved_questions.length} entities:${output.new_entities.length} tasks:${output.tasks_without_followup.length} | notified:${notificationSent}`,
       savedCaptureId ?? undefined,
     )
+
+    // Write structured brief row — non-fatal; preserves existing Pushover chain
+    await this.writeBrief(output, captures, fmtDate(today), skillLogId)
 
     logger.info(
       { captureCount, durationMs, notificationSent, savedCaptureId, headline: output.headline },
@@ -221,6 +226,51 @@ export class DailySweepSkill extends LLMSkill<DailySweepOptions, DailySweepResul
     } catch {
       // Pushover delivery is non-fatal
       return false
+    }
+  }
+
+  // ----------------------------------------------------------
+  // Private: Write structured brief row
+  // ----------------------------------------------------------
+
+  /**
+   * Renders the daily sweep output to HTML and inserts a row into the briefs table.
+   * Non-fatal — a failure here does not affect Pushover delivery or skill result.
+   */
+  private async writeBrief(
+    output: DailySweepOutput,
+    captures: CaptureRow[],
+    date: string,
+    skillLogId: string,
+  ): Promise<void> {
+    try {
+      const markdown = buildDailySweepMarkdown(output, date)
+      const { html, toc } = renderBriefHtml(markdown)
+
+      const sources: BriefSource[] = captures
+        .slice(0, 12)
+        .map((c) => ({
+          type: mapCaptureSourceToBriefType(c.source as CaptureSource),
+          title: (c.content ?? '').slice(0, 80),
+          excerpt: (c.content ?? '').slice(0, 200),
+          capture_id: c.id,
+        }))
+
+      await this.db.insert(briefs).values({
+        kind: 'DAILY',
+        cover: 'evening',
+        title: `Daily Sweep — ${date}`,
+        subtitle: output.headline || undefined,
+        body_html: html,
+        toc: toc as unknown as Record<string, unknown>[],
+        sources: sources as unknown as Record<string, unknown>[],
+        refine_options: [...REFINE_OPTIONS] as string[],
+        source_skill_log_id: skillLogId || undefined,
+      })
+
+      logger.info({ skillLogId }, '[daily-sweep-skill] brief row inserted')
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[daily-sweep-skill] brief insert failed — non-fatal')
     }
   }
 
@@ -339,6 +389,41 @@ export function parseOutput(raw: string): DailySweepOutput {
   }
 
   return output
+}
+
+// ============================================================
+// Markdown rendering (for briefs table body_html)
+// ============================================================
+
+/**
+ * Renders a DailySweepOutput to Markdown for the unified brief renderer.
+ * Produces h2 sections that map to TOC entries.
+ */
+function buildDailySweepMarkdown(output: DailySweepOutput, date: string): string {
+  const lines: string[] = [
+    `# Daily Sweep — ${date}`,
+    '',
+    output.headline,
+    '',
+  ]
+
+  const sections: Array<{ heading: string; items: string[] }> = [
+    { heading: 'Key Decisions', items: output.key_decisions },
+    { heading: 'Unresolved Questions', items: output.unresolved_questions },
+    { heading: 'New Entities', items: output.new_entities },
+    { heading: 'Tasks Without Follow-up', items: output.tasks_without_followup },
+    { heading: 'Notable Captures', items: output.notable_captures },
+  ]
+
+  for (const { heading, items } of sections) {
+    if (items.length > 0) {
+      lines.push(`## ${heading}`)
+      for (const item of items) lines.push(`- ${item}`)
+      lines.push('')
+    }
+  }
+
+  return lines.join('\n').trim()
 }
 
 // ============================================================

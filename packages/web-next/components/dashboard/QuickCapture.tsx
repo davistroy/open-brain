@@ -2,7 +2,11 @@
 
 import { useState } from 'react';
 import { Edit3, Mic, FileUp, Link } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Button } from '@/components/design-system';
+import { capturesApi } from '@/lib/api-client';
 import type { CaptureType } from '@/lib/types';
 
 type QuickType = 'note' | 'voice' | 'upload' | 'link';
@@ -14,18 +18,48 @@ const TYPES: { id: QuickType; label: string; icon: React.ReactNode }[] = [
   { id: 'link',   label: 'Link',   icon: <Link size={13} strokeWidth={1.4} /> },
 ];
 
+/** Map QuickType to a valid CaptureType for the API */
+function toCaptureType(_quickType: QuickType): CaptureType {
+  // All quick-capture modes submit as 'observation'; richer classification
+  // happens in the pipeline (extract stage).
+  return 'observation';
+}
+
 /**
  * QuickCapture — inline capture widget on the dashboard.
  * 'use client' — has textarea + segmented control state.
- * M1: console.log on submit (no API call yet).
+ * M2: wired to capturesApi.create via useMutation.
+ *   onSuccess → router.refresh() (re-fetches RSC data) + sonner toast.
  */
 export function QuickCapture() {
   const [activeType, setActiveType] = useState<QuickType>('note');
   const [text, setText] = useState('');
+  const router = useRouter();
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      capturesApi.create({
+        content: text.trim(),
+        capture_type: toCaptureType(activeType),
+        brain_view: 'personal',
+        source: 'api',
+      }),
+    onSuccess: () => {
+      setText('');
+      toast('Captured');
+      // Refresh the RSC page so StatStrip + RecentCaptures re-fetch.
+      router.refresh();
+    },
+    onError: (err) => {
+      const message =
+        err instanceof Error ? err.message : 'Failed to capture — please try again.';
+      toast.error(message);
+    },
+  });
 
   function handleCapture() {
-    console.log('[QuickCapture] submit:', { type: activeType, text });
-    setText('');
+    if (!text.trim()) return;
+    mutation.mutate();
   }
 
   return (
@@ -85,9 +119,9 @@ export function QuickCapture() {
           variant="primary"
           size="sm"
           onClick={handleCapture}
-          disabled={!text.trim()}
+          disabled={!text.trim() || mutation.isPending}
         >
-          Capture
+          {mutation.isPending ? 'Capturing…' : 'Capture'}
         </Button>
       </div>
     </div>

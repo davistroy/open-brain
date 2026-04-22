@@ -1,0 +1,16 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@open-brain/shared", "@open-brain/shared/*"],
+            "message": "web-next redeclares types locally (D109). Importing @open-brain/shared drags pg/openai/drizzle-orm into the Next.js bundle. Use lib/types.ts instead — drift-guard enforces parity."
+          }
+        ]
+      }
+    ]
+  }
+}

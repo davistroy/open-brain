@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Brain — Search</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../colors_and_type.css?v=a5" />
+<style>
+  body { background: var(--color-bg-layout-main); min-height: 100vh; }
+  @keyframes obspin { to { transform: rotate(360deg); } }
+  *:focus-visible { outline: 2px solid var(--color-book-cloth); outline-offset: 2px; }
+  mark { background: var(--color-book-cloth-50); color: var(--color-book-cloth-dark); padding: 0 2px; border-radius: 0; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="../ui_kits/dashboard/Button.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Badge.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/Container.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/TopNav.jsx"></script>
+<script type="text/babel" src="../ui_kits/dashboard/SideNav.jsx"></script>
+<script type="text/babel" src="./_shell.jsx"></script>
+
+<script type="text/babel">
+const RESULTS = [
+  { kind: 'capture', type: 'voice', title: 'Morning walk — Q4 planning thoughts',
+    snippet: 'Need to circle back with Sarah on <mark>headcount</mark> for the new team. Budget from ops looks tight but not impossible…',
+    entities: ['Sarah Chen', 'Q4 Planning', 'Hiring'], when: 'Apr 21 · 07:12', score: 0.94 },
+  { kind: 'entity', type: 'person', title: 'Sarah Chen',
+    snippet: 'VP of Operations · mentioned in 14 captures · 3 open threads · last: "<mark>Headcount</mark> sync" on Apr 18',
+    entities: ['Leadership', 'Operations'], when: '14 captures', score: 0.91 },
+  { kind: 'brief', type: 'brief', title: 'Q4 Planning — decision memo',
+    snippet: 'Synthesis in progress. Key tension: front-loaded October <mark>hiring</mark> vs. rolling through the quarter…',
+    entities: ['Q4 Planning', 'Hiring', 'Budget'], when: 'Updated 2h ago', score: 0.88 },
+  { kind: 'capture', type: 'email', title: 'Re: Q3 → Q4 staffing proposal',
+    snippet: 'From sarah@openbrain.io — "Updated proposal attached. <mark>Headcount</mark> request for the platform team lands at 4 FTE…"',
+    entities: ['Sarah Chen', 'Hiring', 'Platform Team'], when: 'Apr 18 · 14:22', score: 0.82 },
+  { kind: 'capture', type: 'meeting', title: 'Quarterly business review — prep notes',
+    snippet: 'Talking points for the QBR. Emphasize the <mark>hiring</mark> plan and the ops budget trade-off…',
+    entities: ['QBR', 'Q4 Planning'], when: 'Apr 15', score: 0.74 },
+  { kind: 'capture', type: 'note', title: 'Decision log — hiring plan',
+    snippet: 'Draft decision framework for the Q4 <mark>hiring</mark> plan. Three options, each with budget and ramp scenarios…',
+    entities: ['Decisions', 'Hiring'], when: 'Apr 12', score: 0.71 },
+];
+
+const KIND_META = {
+  capture: { icon: 'circle-dot', label: 'CAPTURE' },
+  entity: { icon: 'user-round', label: 'ENTITY' },
+  brief: { icon: 'file-text', label: 'BRIEF' },
+};
+const TYPE_ICONS = { voice: 'mic', email: 'mail', upload: 'file-up', meeting: 'calendar', note: 'edit-3', link: 'link', person: 'user-round' };
+
+const FilterRow = ({ active, onChange }) => {
+  const filters = [
+    { id: 'all', label: 'All', count: 148 },
+    { id: 'captures', label: 'Captures', count: 92 },
+    { id: 'entities', label: 'Entities', count: 34 },
+    { id: 'briefs', label: 'Briefs', count: 9 },
+    { id: 'wiki', label: 'Wiki', count: 13 },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--color-cloud-light)', marginBottom: 16 }}>
+      {filters.map(f => {
+        const on = active === f.id;
+        return (
+          <button key={f.id} onClick={() => onChange(f.id)} style={{
+            padding: '10px 18px', background: 'transparent', border: 'none',
+            borderBottom: on ? '2px solid var(--color-book-cloth)' : '2px solid transparent',
+            color: on ? 'var(--color-text-heading)' : 'var(--color-text-body-secondary)',
+            fontFamily: 'var(--font-family-base)', fontSize: 13,
+            fontWeight: on ? 400 : 300, letterSpacing: '0.005em',
+            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8,
+            marginBottom: -1,
+          }}>
+            {f.label}
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{f.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+const Result = ({ r }) => {
+  const km = KIND_META[r.kind];
+  return (
+    <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--color-cloud-light)', cursor: 'pointer', display: 'grid', gridTemplateColumns: '22px 1fr 88px', gap: 16, alignItems: 'start' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--color-ivory-dark)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+      <i data-lucide={TYPE_ICONS[r.type]} style={{ width: 15, height: 15, strokeWidth: 1.4, color: 'var(--color-cloud-dark)', marginTop: 3 }}></i>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10, color: 'var(--color-book-cloth-dark)', letterSpacing: '0.08em' }}>{km.label}</span>
+          <span style={{ fontSize: 14.5, fontWeight: 400, color: 'var(--color-text-heading)', letterSpacing: '0.002em' }}>{r.title}</span>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--color-text-body)', fontWeight: 300, lineHeight: 1.5, maxWidth: 720 }} dangerouslySetInnerHTML={{ __html: r.snippet }}></div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+          {r.entities.map(e => <Pill key={e} tone="neutral" size="xs">{e}</Pill>)}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>
+        <div>{r.when.toUpperCase()}</div>
+        <div style={{ marginTop: 6, color: 'var(--color-cloud-dark)' }}>MATCH {Math.round(r.score * 100)}</div>
+      </div>
+    </div>
+  );
+};
+
+const FacetGroup = ({ title, items }) => (
+  <div style={{ marginBottom: 20 }}>
+    <Eyebrow>{title}</Eyebrow>
+    {items.map((it, i) => (
+      <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer' }}>
+        <input type="checkbox" defaultChecked={it.checked} style={{ accentColor: 'var(--color-book-cloth)' }} />
+        <span style={{ flex: 1, fontSize: 13, fontWeight: 300, color: 'var(--color-text-body)' }}>{it.label}</span>
+        <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.02em' }}>{it.count}</span>
+      </label>
+    ))}
+  </div>
+);
+
+const App = () => {
+  const [filter, setFilter] = React.useState('all');
+  return (
+    <Shell
+      active="search"
+      breadcrumb={['Open Brain', 'Search']}
+      title="Results for “hiring”"
+      subtitle="148 matches across captures, entities, and briefs · sorted by relevance"
+      actions={<>
+        <SBtn variant="normal" icon={<i data-lucide="bookmark" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Save search</SBtn>
+        <SBtn variant="normal" icon={<i data-lucide="sliders-horizontal" style={{ width: 12, height: 12, strokeWidth: 1.5 }}></i>}>Advanced</SBtn>
+      </>}
+    >
+      {/* Query bar */}
+      <div style={{ marginBottom: 18, display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <i data-lucide="search" style={{ width: 14, height: 14, position: 'absolute', left: 14, color: 'var(--color-text-body-secondary)' }}></i>
+          <input defaultValue="hiring" style={{
+            width: '100%', height: 42, padding: '0 16px 0 38px',
+            background: 'var(--color-bg-container)',
+            border: '1px solid var(--color-cloud-medium)', borderRadius: 0,
+            fontFamily: 'var(--font-family-base)', fontSize: 15, fontWeight: 300,
+            color: 'var(--color-text-heading)', outline: 'none', letterSpacing: '0.005em',
+          }} />
+          <span style={{ position: 'absolute', right: 14, fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>48 MS · 148 HITS</span>
+        </div>
+        <SBtn variant="dark">Search</SBtn>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '240px minmax(0, 1fr)', gap: 24 }}>
+        {/* Facets */}
+        <aside>
+          <FacetGroup title="Time" items={[
+            { label: 'Last 24 hours', count: 8 },
+            { label: 'Last 7 days', count: 42, checked: true },
+            { label: 'Last 30 days', count: 94 },
+            { label: 'All time', count: 148 },
+          ]} />
+          <FacetGroup title="Source" items={[
+            { label: 'Voice', count: 34, checked: true },
+            { label: 'Email', count: 41, checked: true },
+            { label: 'Meeting', count: 12 },
+            { label: 'Upload', count: 8 },
+            { label: 'Note', count: 22 },
+            { label: 'Link', count: 9 },
+          ]} />
+          <FacetGroup title="Entity" items={[
+            { label: 'Sarah Chen', count: 14, checked: true },
+            { label: 'Q4 Planning', count: 22 },
+            { label: 'Hiring', count: 18 },
+            { label: 'Platform Team', count: 6 },
+          ]} />
+          <FacetGroup title="Status" items={[
+            { label: 'Processed', count: 132 },
+            { label: 'Needs review', count: 12 },
+            { label: 'Unlinked', count: 4 },
+          ]} />
+        </aside>
+
+        {/* Results */}
+        <div style={{ border: '1px solid var(--color-cloud-light)', background: 'var(--color-bg-container)' }}>
+          <FilterRow active={filter} onChange={setFilter} />
+          <div style={{ padding: '0 2px 4px' }}>
+            {RESULTS.map((r, i) => <Result key={i} r={r} />)}
+          </div>
+          <div style={{ padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontFamily: 'var(--font-family-monospace)', fontSize: 10.5, color: 'var(--color-text-body-secondary)', letterSpacing: '0.03em' }}>SHOWING 1–6 OF 148</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <SBtn variant="normal" size="small" disabled>← Previous</SBtn>
+              <SBtn variant="normal" size="small">Next →</SBtn>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

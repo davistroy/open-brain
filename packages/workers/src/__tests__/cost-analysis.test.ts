@@ -16,7 +16,7 @@ function makeMockDb(spendRows = SAMPLE_SPEND_ROWS) {
   return {
     execute: vi.fn().mockResolvedValue({ rows: spendRows }),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -173,7 +173,7 @@ describe('CostAnalysisSkill', () => {
       const db = {
         execute: vi.fn().mockRejectedValue(new Error('DB connection failed')),
         insert: vi.fn().mockReturnValue({
-          values: vi.fn().mockResolvedValue(undefined),
+          values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
         }),
       }
       const skill = new CostAnalysisSkill({

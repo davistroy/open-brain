@@ -109,7 +109,7 @@ function makeMockDb(opts: {
   return {
     execute: executeMock,
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
@@ -330,10 +330,14 @@ describe('MorningBriefSkill', () => {
 
     await skill.execute({ now: FIXED_NOW })
 
-    expect(db.insert).toHaveBeenCalledOnce()
+    // Two inserts: skills_log (first) + briefs row (second).
+    // The mock returns the same chain object for all insert() calls, so
+    // values() is called twice on the same chain — once per insert.
+    expect(db.insert).toHaveBeenCalledTimes(2)
     const insertChain = db.insert.mock.results[0].value
-    expect(insertChain.values).toHaveBeenCalledOnce()
+    expect(insertChain.values).toHaveBeenCalledTimes(2)
 
+    // First values() call is always skills_log
     const logEntry = insertChain.values.mock.calls[0][0]
     expect(logEntry.skill_name).toBe('morning-brief')
     expect(logEntry.capture_id).toBeNull()
@@ -350,8 +354,8 @@ describe('MorningBriefSkill', () => {
 
     await skill.execute({ now: FIXED_NOW })
 
-    // Only one insert call (skills_log), no capture insertion
-    expect(db.insert).toHaveBeenCalledOnce()
+    // Two insert calls: skills_log + briefs row. No capture insertion.
+    expect(db.insert).toHaveBeenCalledTimes(2)
   })
 
   it('handles Pushover not configured gracefully', async () => {
@@ -376,7 +380,7 @@ describe('MorningBriefSkill', () => {
     const db = {
       execute: vi.fn().mockRejectedValue(new Error('Connection refused')),
       insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
       }),
     }
     const pushover = makePushoverService()
@@ -701,7 +705,8 @@ describe('MorningBriefSkill — Slack DM delivery', () => {
 
     expect(result.slackSent).toBe(false)
     expect(result.notificationSent).toBe(true)
-    expect(db.insert).toHaveBeenCalledOnce()
+    // Two insert calls: skills_log + briefs row
+    expect(db.insert).toHaveBeenCalledTimes(2)
   })
 
   it('sends both Pushover and Slack independently', async () => {

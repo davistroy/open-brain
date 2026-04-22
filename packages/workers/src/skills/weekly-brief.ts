@@ -1,5 +1,6 @@
-import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
-import { logger, HimalayaService, SafePromptBuilder } from '@open-brain/shared'
+import type { Database, LLMGatewayService, AutonomyLevel, CaptureRecord } from '@open-brain/shared'
+import { logger, HimalayaService, SafePromptBuilder, renderBriefHtml, mapCaptureSourceToBriefType, briefs, REFINE_OPTIONS } from '@open-brain/shared'
+import type { BriefSource } from '@open-brain/shared'
 import { EmailService } from '../services/email.js'
 import { LLMSkill } from './llm-skill.js'
 import type { LLMSkillOpts } from './types.js'
@@ -73,12 +74,16 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
     const savedCaptureId = await this.saveBriefCapture(brief, weekStart, weekEnd)
 
     const finalResult: WeeklyBriefResult = { brief, captureCount, durationMs, savedCaptureId }
-    await this.logResult(
+    const skillLogId = await this.logResult(
       finalResult,
       `${captureCount} captures from ${dateRange}`,
       `headline: "${brief.headline}" | wins:${brief.wins.length} blockers:${brief.blockers.length} risks:${brief.risks.length} | delivery:${deliveryMethod}`,
       savedCaptureId ?? undefined,
     )
+
+    // Write structured brief row — non-fatal; preserves existing email/Pushover chain
+    await this.writeBrief(brief, captures, weekStart, weekEnd, skillLogId)
+
     logger.info({ captureCount, durationMs, savedCaptureId }, '[weekly-brief] execution complete')
     return finalResult
   }
@@ -155,6 +160,48 @@ export class WeeklyBriefSkill extends LLMSkill<WeeklyBriefOptions, WeeklyBriefRe
     return 'none'
   }
 
+  /**
+   * Renders the brief output to HTML and inserts a row into the briefs table.
+   * Non-fatal — a failure here does not affect email delivery or skill result.
+   */
+  private async writeBrief(
+    brief: WeeklyBriefOutput,
+    captures: CaptureRecord[],
+    weekStart: string,
+    weekEnd: string,
+    skillLogId: string,
+  ): Promise<void> {
+    try {
+      const markdown = buildWeeklyBriefMarkdown(brief, weekStart, weekEnd)
+      const { html, toc } = renderBriefHtml(markdown)
+
+      const sources: BriefSource[] = captures
+        .slice(0, 12)
+        .map((c) => ({
+          type: mapCaptureSourceToBriefType(c.source),
+          title: (c.content ?? '').slice(0, 80),
+          excerpt: (c.content ?? '').slice(0, 200),
+          capture_id: c.id,
+        }))
+
+      await this.db.insert(briefs).values({
+        kind: 'WEEKLY',
+        cover: 'parchment',
+        title: `Weekly Brief — ${weekStart} to ${weekEnd}`,
+        subtitle: brief.headline || undefined,
+        body_html: html,
+        toc: toc as unknown as Record<string, unknown>[],
+        sources: sources as unknown as Record<string, unknown>[],
+        refine_options: [...REFINE_OPTIONS] as string[],
+        source_skill_log_id: skillLogId || undefined,
+      })
+
+      logger.info({ skillLogId }, '[weekly-brief] brief row inserted')
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, '[weekly-brief] brief insert failed — non-fatal')
+    }
+  }
+
   private async saveBriefCapture(brief: WeeklyBriefOutput, weekStart: string, weekEnd: string): Promise<string | null> {
     try {
       const res = await fetch(`${this.coreApiUrl}/api/v1/captures`, {
@@ -177,6 +224,40 @@ export async function executeWeeklyBrief(db: Database, options: WeeklyBriefOptio
 
 function emptyBrief(): WeeklyBriefOutput {
   return { headline: '', wins: [], blockers: [], risks: [], open_loops: [], next_week_focus: [], avoided_decisions: [], drift_alerts: [], connections: [] }
+}
+
+/**
+ * Renders a WeeklyBriefOutput to Markdown for the unified brief renderer.
+ * Produces h2 sections that map to TOC entries.
+ */
+function buildWeeklyBriefMarkdown(brief: WeeklyBriefOutput, weekStart: string, weekEnd: string): string {
+  const lines: string[] = [
+    `# Weekly Brief — ${weekStart} to ${weekEnd}`,
+    '',
+    brief.headline,
+    '',
+  ]
+
+  const sections: Array<{ heading: string; items: string[] }> = [
+    { heading: 'Wins', items: brief.wins },
+    { heading: 'Blockers', items: brief.blockers },
+    { heading: 'Risks', items: brief.risks },
+    { heading: 'Open Loops', items: brief.open_loops },
+    { heading: 'Next Week Focus', items: brief.next_week_focus },
+    { heading: 'Decisions Avoided', items: brief.avoided_decisions },
+    { heading: 'Drift Alerts', items: brief.drift_alerts },
+    { heading: 'Connections', items: brief.connections },
+  ]
+
+  for (const { heading, items } of sections) {
+    if (items.length > 0) {
+      lines.push(`## ${heading}`)
+      for (const item of items) lines.push(`- ${item}`)
+      lines.push('')
+    }
+  }
+
+  return lines.join('\n').trim()
 }
 
 /** Parses LLM JSON output into a WeeklyBriefOutput. Exported for testing. */

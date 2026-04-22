@@ -85,7 +85,7 @@ function makeMockDb(captures = SAMPLE_CAPTURES) {
       return Promise.resolve({ rows: [] })
     }),
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockResolvedValue(undefined),
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
   }
 }
