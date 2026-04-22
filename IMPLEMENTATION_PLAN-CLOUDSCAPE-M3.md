@@ -291,7 +291,7 @@ Four endpoints: `GET /api/v1/commitments` (list with status/entity_id filters, s
 ---
 
 #### 2.4 Board Kanban page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF M3 "Board", Cloudscape screen 09
 **Files Affected:**
 - `packages/web-next/app/(shell)/board/page.tsx` (create)
@@ -321,7 +321,7 @@ RSC page fetches all commitments via `commitmentsApi.list()`. Groups by status i
 ---
 
 #### 2.5 CommitmentsCard live data
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §1 "Frontend: CommitmentsCard", D111
 **Files Affected:**
 - `packages/web-next/components/entity/commitments-card.tsx` (modify — replace placeholder)

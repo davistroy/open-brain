@@ -310,3 +310,27 @@ export interface AskEntityResponse {
   answer: string;
   sources: Array<{ id: string; score: number }>;
 }
+
+// ---------------------------------------------------------------------------
+// Commitment types — Board Kanban (M3, screen 09)
+// ---------------------------------------------------------------------------
+
+/**
+ * `commitments.status` — 4 values matching the Board's 4 columns.
+ * Canonical enum from migration 0031.
+ */
+export type CommitmentStatus = 'pending' | 'owed_by_user' | 'waiting_on' | 'resolved';
+
+/** Commitment as returned by GET /api/v1/commitments list endpoint. */
+export interface BoardCommitment {
+  id: string;
+  capture_id: string;
+  entity_id: string | null;
+  /** Entity name resolved from entity_id — may be null if no entity linked */
+  entity_name: string | null;
+  text: string;
+  due_date: string | null;     // ISO date e.g. "2026-04-30", or null
+  status: CommitmentStatus;
+  resolved_at: string | null;  // ISO 8601 or null
+  created_at: string;
+}

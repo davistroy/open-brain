@@ -79,7 +79,7 @@ export default async function EntityDetailPage({
         <div>
           <AISummary summary={entity.summary} updatedAt={entity.summary_updated_at} />
 
-          <CommitmentsCard />
+          <CommitmentsCard entityId={id} />
 
           <div className="h-5" />
 
