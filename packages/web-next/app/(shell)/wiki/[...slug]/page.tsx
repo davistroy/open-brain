@@ -22,7 +22,7 @@ import { wikiApi, HttpError } from '@/lib/api-client';
 import type { WikiPageMeta, WikiPageFull, WikiChange, WikiLintReport, WikiStats } from '@/lib/api-client';
 
 const EMPTY_LINT: WikiLintReport = { total_pages: 0, issues: [], last_run: null };
-const EMPTY_STATS: WikiStats = { total_pages: 0, by_type: {}, orphaned_pages: 0, domains: [] };
+const EMPTY_STATS: WikiStats = { page_count: 0, orphan_count: 0, domain_distribution: {}, last_updated: null, last_lint_run: null };
 
 interface WikiSlugPageProps {
   params: Promise<{ slug: string[] }>;

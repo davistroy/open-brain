@@ -20,6 +20,7 @@ import { SkillConfigService, initSkillConfigSingleton } from './services/skill-c
 import { logger } from '@open-brain/shared'
 import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
+import { BriefsService } from './services/briefs.js'
 import { ActivityFeedService } from './services/activity-feed.js'
 import { EmailDraftService } from './services/email-draft.js'
 import { EmailComposeAssistService } from './services/email-compose-assist.js'
@@ -178,6 +179,10 @@ if (wikiRepoUrl && wikiLocalPath) {
   logger.info('WIKI_REPO_URL or WIKI_LOCAL_PATH not set — wiki endpoints disabled')
 }
 
+// Briefs service — list, detail, refine, dismiss, read toggle (CS2 M2)
+// skillQueue is optional (refine() needs it at runtime; other methods work without)
+const briefsService = new BriefsService(db, skillQueue)
+
 // System health service — includes wiki status when configured
 const systemHealthService = new SystemHealthService(db, redisConnection, redisUrl, wikiService)
 
@@ -224,6 +229,7 @@ const app = createApp({
   emailDraftService,
   emailComposeAssistService,
   voiceSessionService,
+  briefsService,
   metricsRedis, // P11b — Composio quota gauge refresh
   ttsDeps,      // CS5 M3 item 4.1 — brief TTS audio cache
 })

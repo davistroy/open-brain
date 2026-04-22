@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { UserRound, FolderKanban, Hash, Building2, Gavel, ChevronRight, type LucideIcon } from 'lucide-react';
+import { UserRound, FolderKanban, Hash, Building2, Gavel, ChevronRight, MapPin, Wrench, type LucideIcon } from 'lucide-react';
 import { Pill } from '@/components/design-system';
 import type { Entity, EntityType } from '@/lib/types';
 
@@ -13,6 +13,9 @@ const TYPE_META: Record<EntityType, { label: string; Icon: LucideIcon }> = {
   topic:    { label: 'TOPIC',    Icon: Hash },
   org:      { label: 'ORG',      Icon: Building2 },
   decision: { label: 'DECISION', Icon: Gavel },
+  concept:  { label: 'CONCEPT',  Icon: Hash },
+  place:    { label: 'PLACE',    Icon: MapPin },
+  tool:     { label: 'TOOL',     Icon: Wrench },
 };
 
 interface EntityRowProps {
@@ -26,7 +29,7 @@ interface EntityRowProps {
  * Server component (Link handles navigation; hover is CSS-only).
  */
 export function EntityRow({ entity, isLast }: EntityRowProps) {
-  const meta = TYPE_META[entity.entity_type];
+  const meta = TYPE_META[entity.entity_type] ?? { label: entity.entity_type.toUpperCase(), Icon: Hash };
   const Icon = meta.Icon;
 
   const trendColor =
