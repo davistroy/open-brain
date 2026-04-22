@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import NextLink from 'next/link';
 import { Mic, Mail, FileUp, Calendar, Edit3, Link } from 'lucide-react';
 import { Pill, StatusDot } from '@/components/design-system';
 import type { Capture, CaptureSource, PipelineStatus } from '@/lib/types';
@@ -65,12 +66,14 @@ export function RecentCaptures({ captures }: RecentCapturesProps) {
         const icon = SOURCE_ICONS[capture.source] ?? <Edit3 size={15} strokeWidth={1.4} />;
 
         return (
-          <div
+          <NextLink
             key={capture.id}
+            href={`/captures/${capture.id}`}
             onClick={() => setSelectedId(capture.id)}
             className={[
               'grid gap-[14px] px-[18px] py-[12px] cursor-pointer',
               'transition-[background] duration-[100ms]',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-book-cloth focus-visible:ring-inset',
               !isLast ? 'border-b border-cloud-light' : '',
               isSelected
                 ? 'bg-book-cloth-50 border-l-[2px] border-l-book-cloth'
@@ -107,7 +110,7 @@ export function RecentCaptures({ captures }: RecentCapturesProps) {
               </span>
               <StatusDot status={dotProps.status} label={dotProps.label} />
             </div>
-          </div>
+          </NextLink>
         );
       })}
     </div>

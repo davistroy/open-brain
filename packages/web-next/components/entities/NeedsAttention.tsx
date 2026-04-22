@@ -2,7 +2,7 @@ import { Card } from '@/components/design-system';
 
 /**
  * "Needs attention" sidebar card.
- * M3 placeholder — low-confidence extraction review UI is deferred.
+ * Placeholder — low-confidence extraction review UI is deferred.
  * Server component.
  */
 export function NeedsAttention() {
@@ -13,7 +13,7 @@ export function NeedsAttention() {
       padded
     >
       <p className="text-[12px] text-text-body-secondary font-light italic">
-        Coming in M3
+        Extraction review coming soon
       </p>
     </Card>
   );

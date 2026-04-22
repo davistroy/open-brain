@@ -8991,3 +8991,55 @@ Each phase commits separately. `git revert` any phase. State file (`.implement-p
 
 ---
 
+## Entry 129 — Cloudscape M4: Polish & Completion [web] [api] [decision]
+
+**Date:** 2026-04-22
+**Environment:** Laptop (development), branch `feat/cloudscape-m4`
+**Tags:** [web] [api] [decision]
+
+### Objective
+
+Execute the 4-phase, 8-work-item Cloudscape M4 implementation plan. Covers: Capture Detail page (screen 10), Search Grouped view (screen 02b), CaptureCard linking, wash preference, empty states, stale toast cleanup, brief export/follow-up, entity merge API + modal wiring. ~1,850 LOC across ~29 files.
+
+### Hypothesis
+
+Parallel subagent execution (Sonnet) within phases will complete M4 in a single session. Phase 1 first (1.1+1.2 parallel, then 1.3), then Phases 2-4 can overlap. Success criteria: all 8 work items complete, tests passing, PR created.
+
+### Rollback plan
+
+Each phase commits separately. `git revert` any phase. State file enables session resume.
+
+### Execution strategy
+
+- Phase 1: [1.1, 1.2] parallel → 1.3 sequential
+- Phase 2: [2.1, 2.2, 2.3] all parallel
+- Phase 3: [3.1, 3.2] parallel
+- Phase 4: 4.1 → 4.2 sequential (backend before frontend)
+- All subagents use Sonnet model; orchestrator (Opus) monitors only
+
+### Progress
+
+**All 8 work items across 4 phases COMPLETE.** 5 commits on `feat/cloudscape-m4`.
+
+| Phase | Items | Commit(s) | Summary |
+|-------|-------|-----------|---------|
+| Phase 1: Screen Completion | 1.1-1.3 | ce2428a, eda317a | Capture detail page (RSC, 7 components), VoicePlayer waveform, search grouped view, CaptureCard linking |
+| Phase 2: Design Polish | 2.1-2.3 | 7fe5139 | Wash preference (4 themes), empty states audit (14 error boundaries), stale M3 toast cleanup |
+| Phase 3: Brief Actions | 3.1-3.2 | 31609fe | Brief export (markdown + print), follow-up questions (inline synthesis) |
+| Phase 4: Entity Merge | 4.1-4.2 | 31609fe, 3223d3f | Transactional merge API (entity_links, commitments, aliases, soft-delete), modal wiring |
+
+**Stats:** ~29 files changed, ~2,900 LOC added. 920 tests passing (109 web-next, 811 core-api). Zero test failures throughout.
+
+**Execution pattern:** Orchestrator (Opus) coordinated Sonnet subagents — max 3 concurrent per batch. Phases 1→2→3+4. ~12 subagent invocations total (8 implementation + 4 testing).
+
+**Key observations:**
+- Both 3.1 and 3.2 modified BriefToc.tsx independently — changes integrated cleanly (no conflict)
+- 4.1 subagent found that `entitiesApi.merge()` was already scaffolded in api-client.ts — 4.2 only needed error handler fix
+- 2.2 created 14 error boundary files across all routes — comprehensive "We lost the thread" pattern
+
+### Duration
+
+~45 minutes (automated orchestration)
+
+---
+

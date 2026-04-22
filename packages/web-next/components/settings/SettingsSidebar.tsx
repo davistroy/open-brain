@@ -14,6 +14,7 @@
 import Link from 'next/link';
 import {
   User,
+  Palette,
   Rss,
   BookOpen,
   ShieldCheck,
@@ -33,6 +34,7 @@ interface SidebarItem {
 
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'profile',           label: 'Profile',           icon: User },
+  { key: 'appearance',        label: 'Appearance',        icon: Palette },
   { key: 'sources',           label: 'Sources',           icon: Rss },
   { key: 'brief-preferences', label: 'Brief preferences', icon: BookOpen },
   { key: 'privacy',           label: 'Privacy & data',    icon: ShieldCheck },

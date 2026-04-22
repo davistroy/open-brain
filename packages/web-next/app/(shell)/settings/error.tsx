@@ -15,8 +15,8 @@ export default function SettingsError({ error, unstable_retry }: SettingsErrorPr
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load settings"
-      description="Unable to load your settings. Please try again."
+      title="We lost the thread."
+      description="Settings couldn't load. Your configuration is unchanged — try again."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

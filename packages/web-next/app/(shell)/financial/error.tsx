@@ -15,8 +15,8 @@ export default function FinancialError({ error, reset }: FinancialErrorProps) {
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load financial data"
-      description="Unable to fetch your financial captures. Please try again."
+      title="We lost the thread."
+      description="Financial data couldn't load. Your captures are intact — try again."
       action={
         <Button variant="primary" onClick={reset}>
           Try again

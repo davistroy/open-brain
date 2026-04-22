@@ -1,7 +1,8 @@
 export const dynamic = 'force-dynamic';
 
-import { RefreshCw, Download, Plus } from 'lucide-react';
+import { RefreshCw, Download, Plus, Mic, Settings } from 'lucide-react';
 import { Button, Container, PageHeader } from '@/components/design-system';
+import { EmptyState } from '@/components/design-system/EmptyState';
 import { StatStrip } from '@/components/dashboard/StatStrip';
 import { QuickCapture } from '@/components/dashboard/QuickCapture';
 import { RecentCaptures } from '@/components/dashboard/RecentCaptures';
@@ -93,6 +94,37 @@ export default async function DashboardPage() {
   const captures = capturesEnvelope.items;
   const openQuestions = mapToOpenQuestions(questionsRaw.questions);
   const upcomingBriefs = mapToUpcomingBriefs(briefsEnvelope.items);
+
+  // Zero-captures empty state — shown when the brain has no data yet
+  if (statsRaw.total_captures === 0) {
+    return (
+      <>
+        <PageHeader
+          breadcrumb={['Open Brain', 'Dashboard']}
+          title="Good morning, Troy"
+          subtitle="No captures yet — connect a source or drop a thought to get started."
+        />
+        <div className="flex flex-col items-center justify-center py-20">
+          <EmptyState
+            title="Your brain is empty."
+            description="Connect a source or capture a thought. Everything starts with one."
+            action={
+              <div className="flex items-center gap-3 mt-2">
+                <a href="/voice" className="inline-flex items-center gap-[5px] whitespace-nowrap rounded-none border text-[12px] px-[10px] py-[4px] font-body font-normal tracking-[0.005em] bg-book-cloth border-book-cloth text-ivory-light hover:bg-book-cloth-dark hover:border-book-cloth-dark transition-[background,border-color,color] duration-[120ms]">
+                  <Mic size={13} strokeWidth={1.5} />
+                  Voice memo
+                </a>
+                <a href="/settings" className="inline-flex items-center gap-[5px] whitespace-nowrap rounded-none border text-[12px] px-[10px] py-[4px] font-body font-normal tracking-[0.005em] bg-bg-container border-cloud-medium text-text-heading hover:bg-ivory-dark transition-[background,border-color,color] duration-[120ms]">
+                  <Settings size={13} strokeWidth={1.5} />
+                  Connect a source
+                </a>
+              </div>
+            }
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

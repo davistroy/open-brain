@@ -4,8 +4,9 @@ import { useState, useCallback } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { GitMerge, X, Search, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { entitiesApi, HttpError } from '@/lib/api-client';
+import { entitiesApi } from '@/lib/api-client';
 import type { Entity } from '@/lib/types';
 
 interface MergeEntityModalProps {
@@ -19,11 +20,13 @@ interface MergeEntityModalProps {
 /**
  * Modal for merging this entity into another entity.
  * Search → pick target → confirm → POST /entities/:id/merge → redirect to target.
- * If the merge API is not yet available, shows a "Coming in M3" toast.
+ * On success: invalidates entity queries, navigates to target entity detail page.
+ * On error: shows sonner error toast and keeps modal open for retry.
  * Client component.
  */
 export function MergeEntityModal({ entityId, entityName, open, onOpenChange }: MergeEntityModalProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Entity[]>([]);
   const [searching, setSearching] = useState(false);
@@ -64,17 +67,16 @@ export function MergeEntityModal({ entityId, entityName, open, onOpenChange }: M
     setMerging(true);
     try {
       await entitiesApi.merge(entityId, selected.id);
-      toast.success(`Merged "${entityName}" into "${selected.name}"`);
+      toast.success('Entities merged');
+      // Invalidate entity queries so list + detail pages reflect the merge
+      queryClient.invalidateQueries({ queryKey: ['entities'] });
       onOpenChange(false);
       router.push(`/entities/${encodeURIComponent(selected.id)}`);
+      router.refresh();
     } catch (err) {
-      if (err instanceof HttpError && (err.status === 404 || err.status === 501)) {
-        // Merge endpoint not yet implemented in M2
-        toast.info('Merge API coming in M3');
-        onOpenChange(false);
-      } else {
-        toast.error('Merge failed. Please try again.');
-      }
+      const message = err instanceof Error ? err.message : 'Merge failed. Please try again.';
+      toast.error(message);
+      // Keep modal open so the user can retry or pick a different target
     } finally {
       setMerging(false);
     }

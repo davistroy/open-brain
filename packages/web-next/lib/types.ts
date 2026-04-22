@@ -72,6 +72,40 @@ export type BriefSourceType = 'EMAIL' | 'VOICE' | 'MEETING' | 'NOTE';
 // ---------------------------------------------------------------------------
 
 /**
+ * Source-specific metadata stored in `captures.source_metadata` (JSONB).
+ * Shape varies by source — only voice/slack are guaranteed to have audio fields.
+ * All fields are optional since older captures may not have metadata.
+ */
+export interface CaptureSourceMetadata {
+  /** Signed or absolute URL to the original audio file (voice, slack audio). */
+  audio_url?: string;
+  /** Duration of the audio recording in seconds. */
+  duration?: number;
+  /** Transcription pipeline status: 'pending' | 'processing' | 'complete' | 'failed' */
+  transcription_status?: string;
+  /** AI-generated summary of the capture content. */
+  summary?: string;
+  /** Device or client that produced the capture (e.g. 'iPhone', 'Watch'). */
+  device?: string;
+  /** Location name associated with the capture (voice captures). */
+  location_name?: string;
+  /** Latitude for geo-tagged voice captures. */
+  latitude?: number;
+  /** Longitude for geo-tagged voice captures. */
+  longitude?: number;
+  /** Location accuracy in metres. */
+  location_accuracy?: number;
+  /** Slack channel or thread identifier for slack-sourced captures. */
+  slack_channel?: string;
+  /** Original filename for document/file captures. */
+  filename?: string;
+  /** MIME type for file captures. */
+  mime_type?: string;
+  /** Allow arbitrary additional fields from the JSONB column. */
+  [key: string]: unknown;
+}
+
+/**
  * Capture as returned by `GET /api/v1/captures` list endpoint.
  * The search endpoint wraps these in `{ results: [{ capture, score }] }`.
  */
@@ -89,6 +123,8 @@ export interface Capture {
   snippet?: string;
   /** Entity names co-mentioned in this capture */
   entities?: string[];
+  /** Source-specific metadata (JSONB). Present on detail fetches; may be absent on list responses. */
+  source_metadata?: CaptureSourceMetadata | null;
 }
 
 /**

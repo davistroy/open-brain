@@ -15,8 +15,8 @@ export default function BriefDetailError({ error, unstable_retry }: BriefDetailE
   return (
     <EmptyState
       icon={TriangleAlert}
-      title="Failed to load brief"
-      description="Unable to load this brief. Please try again."
+      title="We lost the thread."
+      description="This brief couldn't load. It may still be generating — try again in a moment."
       action={
         <Button variant="primary" onClick={unstable_retry}>
           Try again

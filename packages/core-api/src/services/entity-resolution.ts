@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm'
-import { entities, entity_links } from '@open-brain/shared'
+import { entities, entity_links, commitments } from '@open-brain/shared'
 import { NotFoundError } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
@@ -157,15 +157,20 @@ Use match_index null if none of the entities match or confidence < 0.8.`
   }
 
   /**
-   * Merge source entity into target: move all entity_links, merge aliases, delete source.
+   * Merge source entity into target: move all entity_links, update commitments,
+   * merge aliases, delete source. All steps run in a single transaction.
+   *
+   * Returns the updated target entity record so callers can return it to clients.
    */
-  async merge(sourceId: string, targetId: string): Promise<void> {
-    // Verify both exist — Drizzle typed queries
+  async merge(sourceId: string, targetId: string): Promise<EntityRow> {
+    // Verify both exist before entering the transaction — fail fast, no rollback needed
     const [sourceEntities, targetEntities] = await Promise.all([
       this.db
         .select({
           id: entities.id,
           name: entities.name,
+          entity_type: entities.entity_type,
+          canonical_name: entities.canonical_name,
           aliases: entities.aliases,
         })
         .from(entities)
@@ -175,6 +180,8 @@ Use match_index null if none of the entities match or confidence < 0.8.`
         .select({
           id: entities.id,
           name: entities.name,
+          entity_type: entities.entity_type,
+          canonical_name: entities.canonical_name,
           aliases: entities.aliases,
         })
         .from(entities)
@@ -185,35 +192,59 @@ Use match_index null if none of the entities match or confidence < 0.8.`
     if (sourceEntities.length === 0) throw new NotFoundError(`Source entity not found: ${sourceId}`)
     if (targetEntities.length === 0) throw new NotFoundError(`Target entity not found: ${targetId}`)
 
-    const source = sourceEntities[0]
-    const target = targetEntities[0]
+    const source = sourceEntities[0]!
+    const target = targetEntities[0]!
 
-    // Move entity_links from source to target (skip if duplicate — unique constraint on entity_id+capture_id)
-    // INSERT...SELECT with ON CONFLICT isn't expressible in Drizzle query builder
-    await this.db.execute(
-      sql`INSERT INTO entity_links (entity_id, capture_id, relationship, confidence, created_at)
-          SELECT ${targetId}::uuid, capture_id, relationship, confidence, created_at
-          FROM entity_links
-          WHERE entity_id = ${sourceId}::uuid
-          ON CONFLICT (entity_id, capture_id) DO NOTHING`,
-    )
-
-    // Merge aliases: add source name + source aliases to target
+    // Compute merged aliases outside the transaction — pure data, no DB I/O
     const mergedAliases = Array.from(
       new Set([...(target.aliases ?? []), source.name, ...(source.aliases ?? [])]),
     ).filter(a => a.toLowerCase() !== target.name.toLowerCase())
 
-    await this.db
-      .update(entities)
-      .set({ aliases: mergedAliases, updated_at: new Date() })
-      .where(eq(entities.id, targetId))
+    // All mutations in a single transaction
+    const updatedTarget = await this.db.transaction(async (tx) => {
+      // 1. Move entity_links from source to target.
+      //    ON CONFLICT DO NOTHING handles captures already linked to target
+      //    (unique constraint: entity_id + capture_id).
+      await tx.execute(
+        sql`INSERT INTO entity_links (entity_id, capture_id, relationship, confidence, created_at)
+            SELECT ${targetId}::uuid, capture_id, relationship, confidence, created_at
+            FROM entity_links
+            WHERE entity_id = ${sourceId}::uuid
+            ON CONFLICT (entity_id, capture_id) DO NOTHING`,
+      )
 
-    // Delete source entity (entity_links cascade via FK onDelete: cascade) — Drizzle query builder
-    await this.db
-      .delete(entities)
-      .where(eq(entities.id, sourceId))
+      // 2. Re-point commitments from source to target.
+      //    entity_id is nullable (ON DELETE SET NULL), so only rows still pointing
+      //    at source need updating.
+      await tx
+        .update(commitments)
+        .set({ entity_id: targetId })
+        .where(eq(commitments.entity_id, sourceId))
+
+      // 3. Merge aliases into target entity record.
+      const [updated] = await tx
+        .update(entities)
+        .set({ aliases: mergedAliases, updated_at: new Date() })
+        .where(eq(entities.id, targetId))
+        .returning({
+          id: entities.id,
+          name: entities.name,
+          entity_type: entities.entity_type,
+          canonical_name: entities.canonical_name,
+          aliases: entities.aliases,
+        })
+
+      // 4. Delete source entity.
+      //    entity_links cascade via FK onDelete: cascade.
+      //    Source entity_links already copied to target in step 1 — cascade delete
+      //    removes the now-superseded source rows.
+      await tx.delete(entities).where(eq(entities.id, sourceId))
+
+      return updated!
+    })
 
     logger.info({ sourceId, targetId }, '[entity-resolution] merge complete')
+    return updatedTarget as EntityRow
   }
 
   /**
