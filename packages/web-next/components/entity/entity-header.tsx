@@ -1,7 +1,6 @@
 'use client';
 
-import { Sparkles, FileText, GitMerge, MoreHorizontal } from 'lucide-react';
-import { toast } from 'sonner';
+import { Sparkles, FileText, GitMerge, MoreHorizontal, Loader2 } from 'lucide-react';
 import { Button } from '@/components/design-system';
 import { Eyebrow } from '@/components/design-system';
 import type { EntityDetail } from '@/lib/types';
@@ -10,6 +9,8 @@ interface EntityHeaderProps {
   entity: EntityDetail;
   onAskAI: () => void;
   onMerge: () => void;
+  onGenerateBrief: () => void;
+  isBriefPending?: boolean;
 }
 
 /**
@@ -18,7 +19,7 @@ interface EntityHeaderProps {
  * Matches 06-entity-detail.html:92-126.
  * Client component (wires modal open callbacks + sonner toasts).
  */
-export function EntityHeader({ entity, onAskAI, onMerge }: EntityHeaderProps) {
+export function EntityHeader({ entity, onAskAI, onMerge, onGenerateBrief, isBriefPending = false }: EntityHeaderProps) {
   const initials = entity.name
     .split(' ')
     .map((w) => w[0])
@@ -99,10 +100,15 @@ export function EntityHeader({ entity, onAskAI, onMerge }: EntityHeaderProps) {
         <Button
           variant="secondary"
           size="sm"
-          icon={<FileText size={11} strokeWidth={1.5} />}
-          onClick={() => toast.info('Entity brief generation coming in M3')}
+          icon={
+            isBriefPending
+              ? <Loader2 size={11} strokeWidth={1.5} className="animate-spin" />
+              : <FileText size={11} strokeWidth={1.5} />
+          }
+          onClick={onGenerateBrief}
+          disabled={isBriefPending}
         >
-          Generate brief
+          {isBriefPending ? 'Generating…' : 'Generate brief'}
         </Button>
         <Button
           variant="secondary"

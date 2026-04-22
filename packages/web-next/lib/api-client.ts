@@ -245,6 +245,14 @@ export const entitiesApi = {
       { method: 'POST', body: JSON.stringify({ question }) },
     )
   },
+
+  /** POST /api/v1/entities/:id/brief — enqueue entity-brief skill; returns 202 with job_id */
+  brief: (id: string): Promise<{ job_id: string }> => {
+    return request<{ job_id: string }>(
+      `/entities/${encodeURIComponent(id)}/brief`,
+      { method: 'POST' },
+    )
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +430,34 @@ export const intelligenceApi = {
     return request<{ skill: string; job_id: string; status: string; message: string }>(
       `/intelligence/${skill}/trigger`,
       { method: 'POST', body: JSON.stringify(overrides) },
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// skillsApi — generic skill trigger via POST /api/v1/skills/:name/trigger
+// ---------------------------------------------------------------------------
+
+export interface SkillTriggerResponse {
+  skill: string
+  job_id: string
+  status: string
+  message: string
+}
+
+export const skillsApi = {
+  /**
+   * POST /api/v1/skills/:name/trigger — manually trigger any skill by name.
+   * Returns 202 with { skill, job_id, status: 'queued', message }.
+   * Optional params are forwarded as the request body (skill overrides / input).
+   */
+  trigger: (
+    name: string,
+    params: Record<string, unknown> = {},
+  ): Promise<SkillTriggerResponse> => {
+    return request<SkillTriggerResponse>(
+      `/skills/${encodeURIComponent(name)}/trigger`,
+      { method: 'POST', body: JSON.stringify(params) },
     )
   },
 }

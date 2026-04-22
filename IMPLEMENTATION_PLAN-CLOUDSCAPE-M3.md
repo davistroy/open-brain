@@ -120,7 +120,7 @@ Add `POST /api/v1/entities/:id/brief` endpoint. Validates entity exists (404 if 
 ---
 
 #### 1.3 Entity-brief frontend wiring
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §2 "Frontend: Wire Button", D113 (Radix Dialog + sonner)
 **Files Affected:**
 - `packages/web-next/components/entity/entity-detail-client.tsx` (modify)
@@ -144,7 +144,7 @@ Replace the M3 toast stub with real functionality. `entity-header.tsx` "Generate
 ---
 
 #### 1.4 "New brief" trigger on briefs list
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF M3 "brief generator (daily + dossier kinds first)"
 **Files Affected:**
 - `packages/web-next/app/(shell)/briefs/page.tsx` (modify)
