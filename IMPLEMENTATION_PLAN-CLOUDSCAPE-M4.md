@@ -56,7 +56,7 @@ Four change sets ordered by dependency: CS1 creates the capture detail page (a l
 
 #### 1.1 Capture Detail Page — Route, Layout, and Content Components
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF.md §2 Screen 10, M3_BACKLOG.md §7 (implied)
 **Files Affected:**
 - `packages/web-next/app/(shell)/captures/[id]/page.tsx` (create)
@@ -101,7 +101,7 @@ Backend is fully ready: `GET /api/v1/captures/:id` returns content, source_metad
 
 #### 1.2 Capture Detail — Voice Player Component
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF.md §2 Screen 10 (audio player section)
 **Files Affected:**
 - `packages/web-next/components/capture/VoicePlayer.tsx` (create)

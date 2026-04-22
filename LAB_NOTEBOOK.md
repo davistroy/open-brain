@@ -8991,3 +8991,35 @@ Each phase commits separately. `git revert` any phase. State file (`.implement-p
 
 ---
 
+## Entry 129 — Cloudscape M4: Polish & Completion [web] [api] [decision]
+
+**Date:** 2026-04-22
+**Environment:** Laptop (development), branch `feat/cloudscape-m4`
+**Tags:** [web] [api] [decision]
+
+### Objective
+
+Execute the 4-phase, 8-work-item Cloudscape M4 implementation plan. Covers: Capture Detail page (screen 10), Search Grouped view (screen 02b), CaptureCard linking, wash preference, empty states, stale toast cleanup, brief export/follow-up, entity merge API + modal wiring. ~1,850 LOC across ~29 files.
+
+### Hypothesis
+
+Parallel subagent execution (Sonnet) within phases will complete M4 in a single session. Phase 1 first (1.1+1.2 parallel, then 1.3), then Phases 2-4 can overlap. Success criteria: all 8 work items complete, tests passing, PR created.
+
+### Rollback plan
+
+Each phase commits separately. `git revert` any phase. State file enables session resume.
+
+### Execution strategy
+
+- Phase 1: [1.1, 1.2] parallel → 1.3 sequential
+- Phase 2: [2.1, 2.2, 2.3] all parallel
+- Phase 3: [3.1, 3.2] parallel
+- Phase 4: 4.1 → 4.2 sequential (backend before frontend)
+- All subagents use Sonnet model; orchestrator (Opus) monitors only
+
+### Progress
+
+*(updated as phases complete)*
+
+---
+
