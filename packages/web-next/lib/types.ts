@@ -164,17 +164,20 @@ export interface RelatedEntity {
 // Brief types — mirrors skills_log result JSONB shape
 // ---------------------------------------------------------------------------
 
-/** Brief card / list row */
+/** Brief card / list row — mirrors briefs table columns from core-api */
 export interface Brief {
   id: string;
   kind: BriefKind;
   cover: BriefCover;
   title: string;
   subtitle: string;
-  generated: string;   // display string e.g. "07:00", "3d ago"
-  read: boolean;
-  read_at: string | null;       // ISO 8601 or null
-  dismissed_at: string | null;  // ISO 8601 or null
+  source_skill_log_id: string | null;
+  refined_from_id: string | null;
+  generated_at: string;          // ISO 8601
+  read_at: string | null;        // ISO 8601 or null
+  dismissed_at: string | null;   // ISO 8601 or null
+  created_at: string;
+  updated_at: string;
 }
 
 /** Full brief detail with reader content */

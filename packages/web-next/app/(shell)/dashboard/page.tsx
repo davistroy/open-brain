@@ -71,7 +71,7 @@ function mapToUpcomingBriefs(items: Awaited<ReturnType<typeof briefsApi.list>>['
     id: brief.id,
     title: brief.title,
     progress: 0,
-    due: brief.generated,
+    due: brief.generated_at ? new Date(brief.generated_at).toLocaleDateString('en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—',
     source_count: 0,
   }));
 }

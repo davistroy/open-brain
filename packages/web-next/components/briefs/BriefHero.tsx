@@ -75,7 +75,7 @@ export function BriefHero({ brief }: BriefHeroProps) {
       {/* Left: eyebrow, title, excerpt, actions */}
       <div>
         <div className="font-mono text-[10.5px] text-book-cloth-dark tracking-[0.12em] uppercase mb-[10px]">
-          {brief.kind} · {brief.generated}
+          {brief.kind} · {brief.generated_at ? new Date(brief.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
         </div>
         <h2
           className="font-display text-[34px] font-light tracking-[-0.025em] leading-[1.1] text-text-heading mb-[12px] mt-0"

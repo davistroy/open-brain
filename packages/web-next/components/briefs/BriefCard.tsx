@@ -69,7 +69,7 @@ export function BriefCard({ brief }: BriefCardProps) {
           <span className="font-mono text-[10px] text-book-cloth-dark tracking-[0.12em]">
             {brief.kind}
           </span>
-          {!brief.read && (
+          {!brief.read_at && (
             <span
               className="w-[6px] h-[6px] shrink-0"
               style={{ background: 'var(--color-book-cloth)', display: 'inline-block' }}
@@ -90,7 +90,7 @@ export function BriefCard({ brief }: BriefCardProps) {
         {/* Footer: generated timestamp + arrow */}
         <div className="flex items-center justify-between mt-[10px] pt-[8px] border-t border-cloud-light">
           <span className="font-mono text-[10.5px] text-text-body-secondary tracking-[0.03em] uppercase">
-            {brief.generated}
+            {brief.generated_at ? new Date(brief.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
           </span>
           <ArrowRight size={13} strokeWidth={1.5} className="text-cloud-dark" />
         </div>

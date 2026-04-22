@@ -223,7 +223,7 @@ export function BriefLibrary({ briefs }: BriefLibraryProps) {
               style={{ gridTemplateColumns: '90px 1fr 220px 140px 30px' }}
             >
               {/* Unread dot */}
-              {!brief.read && (
+              {!brief.read_at && (
                 <span
                   className="absolute left-[6px] top-1/2 -translate-y-1/2 w-[4px] h-[4px]"
                   style={{ background: 'var(--color-book-cloth)' }}
@@ -242,7 +242,7 @@ export function BriefLibrary({ briefs }: BriefLibraryProps) {
               <div
                 className={[
                   'text-[13.5px] text-text-heading',
-                  brief.read ? 'font-light' : 'font-normal',
+                  brief.read_at ? 'font-light' : 'font-normal',
                 ].join(' ')}
               >
                 {brief.title}
@@ -255,7 +255,7 @@ export function BriefLibrary({ briefs }: BriefLibraryProps) {
 
               {/* Generated */}
               <div className="font-mono text-[11px] text-text-body-secondary tracking-[0.02em] uppercase">
-                {brief.generated}
+                {brief.generated_at ? new Date(brief.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
               </div>
 
               {/* Arrow */}
