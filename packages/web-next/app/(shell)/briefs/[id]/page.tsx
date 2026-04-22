@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { notFound } from 'next/navigation';
 import { PageHeader } from '@/components/design-system';
 import { BriefToc } from '@/components/briefs/BriefToc';

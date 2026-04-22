@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { GitMerge, Download, Plus } from 'lucide-react';
 import { Button, PageHeader } from '@/components/design-system';
 import { TypeFilterTabs } from '@/components/entities/TypeFilterTabs';

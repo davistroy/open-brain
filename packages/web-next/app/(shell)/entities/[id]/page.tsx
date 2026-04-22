@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { notFound } from 'next/navigation';
 import { PageHeader, Card, Button } from '@/components/design-system';
 import { EntityDetailClient } from '@/components/entity/entity-detail-client';

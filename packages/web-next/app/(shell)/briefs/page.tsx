@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { Clock, Plus } from 'lucide-react';
 import { Button, PageHeader } from '@/components/design-system';
 import { BriefHero } from '@/components/briefs/BriefHero';

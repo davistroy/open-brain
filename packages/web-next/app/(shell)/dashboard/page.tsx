@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { RefreshCw, Download, Plus } from 'lucide-react';
 import { Button, Container, PageHeader } from '@/components/design-system';
 import { StatStrip } from '@/components/dashboard/StatStrip';
