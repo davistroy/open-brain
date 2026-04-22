@@ -472,7 +472,7 @@ Add `POST /api/v1/entities/:id/merge` endpoint. Body: `{ target_id: string }`. T
 
 #### 4.2 Wire Merge Modal to API
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** `merge-entity-modal.tsx` stub toast
 **Files Affected:**
 - `packages/web-next/components/entity/merge-entity-modal.tsx` (modify)
