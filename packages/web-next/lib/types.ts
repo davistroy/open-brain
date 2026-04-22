@@ -312,6 +312,36 @@ export interface AskEntityResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Settings types — Settings page (M3, screen 11)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single app_settings entry returned by GET /api/v1/settings/:key.
+ * `value` is JSONB and can be any JSON-serializable shape.
+ */
+export interface SettingEntry {
+  key: string;
+  value: unknown;
+  updated_at: string | null;
+}
+
+/**
+ * Health status of a connected integration.
+ * Mirrors the values returned by GET /api/v1/config/integrations.
+ */
+export type IntegrationStatus = 'healthy' | 'degraded' | 'error' | 'unknown';
+
+/** A connected integration as shown in the Settings → Sources section. */
+export interface Integration {
+  id: string;
+  name: string;
+  description: string;
+  status: IntegrationStatus;
+  /** ISO 8601 timestamp of last successful data ingest — may be null */
+  last_seen: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Commitment types — Board Kanban (M3, screen 09)
 // ---------------------------------------------------------------------------
 

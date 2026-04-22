@@ -123,13 +123,16 @@ import type {
   AskEntityResponse,
   BoardCommitment,
   CommitmentStatus,
+  Integration,
+  IntegrationStatus,
+  SettingEntry as SettingEntryType,
 } from './types'
 
 // ---------------------------------------------------------------------------
 // Re-exported union types — callers can import from here as a convenience
 // ---------------------------------------------------------------------------
 
-export type { Capture, CaptureType, CaptureSource, BrainView, Entity, EntityDetail, EntityType, Brief, BriefDetail, SearchResult, DashboardStats, MentionsTimelineResponse, AskEntityResponse, BoardCommitment, CommitmentStatus }
+export type { Capture, CaptureType, CaptureSource, BrainView, Entity, EntityDetail, EntityType, Brief, BriefDetail, SearchResult, DashboardStats, MentionsTimelineResponse, AskEntityResponse, BoardCommitment, CommitmentStatus, Integration, IntegrationStatus }
 
 // ---------------------------------------------------------------------------
 // Response envelope shapes (API-level, not UI-level)
@@ -517,5 +520,51 @@ export const commitmentsApi = {
       method: 'POST',
       body: JSON.stringify(body),
     })
+  },
+}
+
+// ---------------------------------------------------------------------------
+// settingsApi — read/write app_settings via GET/PUT /api/v1/settings/:key
+// ---------------------------------------------------------------------------
+
+// Re-export SettingEntry from types for callers importing from api-client.
+export type { SettingEntryType as SettingEntry };
+
+export const settingsApi = {
+  /**
+   * GET /api/v1/settings/:key — read a single setting value.
+   * Returns `{ key, value, updated_at }`. Throws HttpError 404 if key not set.
+   */
+  get: (key: string): Promise<SettingEntryType> => {
+    return request<SettingEntryType>(`/settings/${encodeURIComponent(key)}`)
+  },
+
+  /**
+   * PUT /api/v1/settings/:key — write a setting value.
+   * Returns `{ key, value, updated_at }`.
+   */
+  put: (key: string, value: unknown): Promise<SettingEntryType> => {
+    return request<SettingEntryType>(`/settings/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    })
+  },
+}
+
+// ---------------------------------------------------------------------------
+// configApi — read integration health via GET /api/v1/config/integrations
+// ---------------------------------------------------------------------------
+
+export interface IntegrationsResponse {
+  integrations: Integration[];
+}
+
+export const configApi = {
+  /**
+   * GET /api/v1/config/integrations — list all configured integrations with
+   * health status. Used by the Settings → Sources section.
+   */
+  integrations: (): Promise<IntegrationsResponse> => {
+    return request<IntegrationsResponse>('/config/integrations')
   },
 }

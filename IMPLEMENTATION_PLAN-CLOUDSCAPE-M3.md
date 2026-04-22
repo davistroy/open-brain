@@ -378,7 +378,7 @@ Replace EmptyState "Coming in M3" with live data. Fetch open commitments from `c
 ### Work Items
 
 #### 3.1 Settings page skeleton + API namespaces
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §6, Cloudscape screen 11
 **Files Affected:**
 - `packages/web-next/app/(shell)/settings/page.tsx` (create)
@@ -466,7 +466,7 @@ Add 7 new keys to `VALID_SETTINGS_KEYS` in core-api settings route.
 ---
 
 #### 3.4 Onboarding layout + steps 1-2
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF M3 "Onboarding flow", Cloudscape screen 13
 **Files Affected:**
 - `packages/web-next/app/onboarding/layout.tsx` (create)
