@@ -129,6 +129,10 @@
 | D117 | web-next Docker host port 3003 (not 3001) to avoid voice-capture port conflict | 2026-04-22 | ACTIVE | Entry 128 | 3001 was voice-capture; 3003 is free and adjacent to existing port cluster |
 | D118 | Manual service worker for PWA (not next-pwa dependency) — avoids build-time fragility | 2026-04-22 | ACTIVE | Entry 128 | next-pwa: additional webpack plugin, version-lock risk, config complexity with Turbopack |
 | D119 | Dark mode via CSS custom properties + `.dark` class — anti-flash inline script in root layout | 2026-04-22 | ACTIVE | Entry 128 | Tailwind dark mode class strategy; inline script prevents FOUC on cold load without SSR compromise |
+| D120 | Mobile app: no @open-brain/shared dependency — types declared locally in packages/mobile | 2026-04-22 | ACTIVE | Entry 130 | Barrel export bundles pg, drizzle-orm, pino, msal-node — Metro can't resolve Node.js modules |
+| D121 | Mobile app: expo-av for voice recording, batch upload to voice-capture:3001 (not streaming) | 2026-04-22 | ACTIVE | Entry 130 | Streaming requires voice-pipecat WebSocket integration — separate project. Batch Whisper is proven. |
+| D122 | Mobile app: jest with babel-jest (not jest-expo preset) for pnpm monorepo compatibility | 2026-04-22 | ACTIVE | Entry 130 | jest-expo setup.js deeply requires react-native internals that fail under pnpm .pnpm hoisting |
+| D123 | Mobile app: TanStack React Query v5 for data layer (not SWR, not custom) | 2026-04-22 | ACTIVE | Entry 130 | Matches web-next pattern, built-in mutations for board patches, staleTime/retry configurable |
 
 ## Action Items
 
@@ -209,6 +213,9 @@
 | A77 | Write `M3_BACKLOG.md` (M2 deliverable CS5) — fold in `/web` 20-route inventory, commitments domain, TTS, /search/timeline/settings ports, Docker cut-over plan | 2026-04-21 | Entry 127 | MEDIUM — part of M2 final PR |
 | A78 | `BaseSkill.logResult()` signature change — audit + update all ~25 subclasses in single PR | 2026-04-21 | Entry 127 | HIGH — blocks CS2 skill extensions; test the full workers suite post-change |
 | A79 | Add ESLint rule blocking `from '@open-brain/shared'` imports in `packages/web-next/` — belt-and-braces alongside drift-guard | 2026-04-21 | Entry 127 | LOW — defensive; drift-guard catches type drift, ESLint rule catches the root cause |
+| A80 | Mobile app: EAS Build setup + TestFlight deployment | 2026-04-22 | Entry 130 | MEDIUM — `eas.json` config, TestFlight profile, internal testing |
+| A81 | Mobile app: streaming transcript integration (voice-pipecat WebSocket) | 2026-04-22 | Entry 130 | HIGH — completes M2 design vision with live transcript UI |
+| A82 | Mobile app: push notifications (expo-notifications + server-side delivery) | 2026-04-22 | Entry 130 | MEDIUM — highest-impact daily engagement feature |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -9040,6 +9047,84 @@ Each phase commits separately. `git revert` any phase. State file enables sessio
 ### Duration
 
 ~45 minutes (automated orchestration)
+
+---
+
+## Entry 130 — Mobile App: React Native (Expo SDK 53) — 11 screens implemented  [mobile] [decision]
+
+**Date:** 2026-04-22
+**Environment:** Laptop (dev), worktree `.claude/worktrees/feat+mobile-app`
+**Tags:** `[mobile]` `[decision]`
+
+### Objective
+
+Build a React Native mobile app as `packages/mobile` in the monorepo, implementing 11 screens (M1-M11) designed in `reference/handoff/.../mobile/`. Expo Router SDK 53, file-based routing, earth-tone design system matching the web dashboard aesthetic.
+
+### Approach
+
+Subagent-driven development: 15 tasks executed sequentially with fresh subagents per task. Plan generated from ultra-plan Phase 3 investigation (all API endpoints, shared package structure, rate limiter internals verified before any code written).
+
+### Key Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| No @open-brain/shared | Local types in `src/lib/types.ts` | Barrel export bundles pg, drizzle-orm, pino, msal-node — Metro can't resolve (D120) |
+| Voice capture | expo-av → voice-capture:3001, batch Whisper | Streaming needs voice-pipecat WebSocket — separate project (D121) |
+| Test framework | babel-jest direct, not jest-expo | jest-expo preset fails under pnpm hoisted node_modules (D122) |
+| Data layer | TanStack React Query v5 | Matches web-next, built-in mutations, staleTime/retry (D123) |
+| Rate limit | `internal:mobile-app` (18th BYPASS_CALLERS) | `X-Open-Brain-Caller: mobile-app` header → middleware prepends `internal:` |
+| React version | 18.3.1 (not 19) | Expo SDK 53 uses React 18; added peerDependencyRules for web-next coexistence |
+
+### Results
+
+**16 commits** on `feat/mobile-app` branch, **PR #172**:
+
+| Commit | Description |
+|--------|-------------|
+| `420d856` | Scaffold Expo Router project |
+| `b623aaf` | Placeholder icon assets |
+| `fe0d883` | Theme module (tokens, typography, spacing, light/dark) |
+| `1051bbc` | Root layout (8 fonts, QueryClient, ThemeProvider) |
+| `4015830` | Custom TabBar + tab layout + 4 placeholder screens |
+| `8b7402b` | 9 primitive components |
+| `49759f6` | Types, API client, config, storage + rate-limit bypass |
+| `a4697c2` | 6 TanStack Query hooks |
+| `70aa156` | Voice capture (expo-av recording + upload) |
+| `a38cb83` | M1 Home screen |
+| `e7f41af` | M2 Recording + M3 Confirm (voice critical path) |
+| `3da5b7c` | M4 Briefs list + M5 Brief reader |
+| `d9aae19` | M6 Entity dossier |
+| `6b392f6` | M7 Board + M8 Timeline |
+| `3d12498` | M9 Search + M10 Settings + M11 Onboarding |
+| `6bc4d14` | Type-check fixes (@types/react-test-renderer, style array type) |
+
+**File count:** 70 files changed (+9,525 lines), 53 `.ts`/`.tsx` source files, 11 screen routes.
+
+**Verification:**
+- 16/16 mobile unit tests pass
+- `tsc --noEmit` clean (zero errors)
+- 811/811 core-api tests pass (rate-limit bypass safe)
+- Manual device testing: deferred to post-merge
+
+### Discoveries
+
+1. **jest-expo + pnpm incompatibility:** The jest-expo preset's `setup.js` deeply requires `react-native/Libraries/BatchedBridge/NativeModules` which fails under pnpm's `.pnpm` hoisted structure. Solved by using direct `babel-jest` transform with manual RN mock.
+
+2. **@testing-library/react-native unusable without jest-expo:** It depends on `react-test-renderer` which needs the full RN jest environment. Used `react-test-renderer` directly.
+
+3. **Root .gitignore blocks PNG assets:** Root `.gitignore` has `*.png` globally. Fixed with `git add -f` for placeholder icons.
+
+4. **React 18/19 peer dep conflict:** Mobile uses React 18.3.1, web-next uses 19. Fixed with `pnpm.peerDependencyRules` in root `package.json`.
+
+5. **ThemeColors type:** Plan used `typeof lightColors` which fails because light/dark objects have different string literal values. Fixed to `Record<keyof typeof lightColors, string>`.
+
+### Follow-Up (see also memory/mobile-app-deferred.md)
+
+- A80: EAS Build + TestFlight deployment
+- A81: Streaming transcript (voice-pipecat WebSocket) — highest-value enhancement
+- A82: Push notifications — highest-impact for daily engagement
+
+**Duration:** ~2.5 hours (subagent-driven, 15 tasks)
 
 ---
 
