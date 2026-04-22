@@ -44,6 +44,26 @@ export interface EntityListResult {
   total: number
 }
 
+/** Valid time windows for the mentions timeline endpoint. */
+export type MentionsTimelineWindow = '7d' | '30d' | '90d' | '365d'
+
+/** Valid time bucket granularities for the mentions timeline endpoint. */
+export type MentionsTimelineBucket = 'day' | 'week' | 'month'
+
+/** A single non-zero bucket returned by getMentionsTimeline. */
+export interface TimelineBucket {
+  /** ISO-8601 date string for the start of the bucket (UTC midnight). */
+  period: string
+  count: number
+}
+
+export interface RelatedEntity {
+  id: string
+  name: string
+  type: string
+  shared_count: number
+}
+
 /**
  * EntityService — CRUD operations for entities and entity detail views.
  *
@@ -209,6 +229,97 @@ export class EntityService {
       throw new Error('EntityResolutionService not configured')
     }
     return this.resolutionService.split(entityId, alias)
+  }
+
+  /**
+   * Lightweight existence check — SELECT 1 only.
+   * Used by route handlers to distinguish 404 from empty-result.
+   */
+  async entityExists(id: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ one: sql<number>`1` })
+      .from(entities)
+      .where(sql`${entities.id} = ${id}::uuid`)
+      .limit(1)
+    return rows.length > 0
+  }
+
+  /**
+   * Two-hop self-join: find entities that share ≥1 non-deleted capture
+   * with the target entity. Returns up to `limit` results ordered by
+   * shared_count DESC, name ASC (name tiebreaker for deterministic output).
+   * Excludes captures with deleted_at IS NOT NULL.
+   */
+  async getRelated(id: string, limit = 20): Promise<RelatedEntity[]> {
+    const result = await this.db.execute<{ id: string; name: string; type: string; shared_count: number }>(
+      sql`
+        SELECT
+          e.id::text       AS id,
+          e.name           AS name,
+          e.entity_type    AS type,
+          COUNT(*)::int    AS shared_count
+        FROM entity_links el1
+        JOIN entity_links el2
+          ON  el2.capture_id = el1.capture_id
+          AND el2.entity_id  != el1.entity_id
+        JOIN entities e
+          ON  e.id = el2.entity_id
+        JOIN captures c
+          ON  c.id = el1.capture_id
+          AND c.deleted_at IS NULL
+        WHERE el1.entity_id = ${id}::uuid
+        GROUP BY e.id, e.name, e.entity_type
+        ORDER BY shared_count DESC, e.name ASC
+        LIMIT ${limit}
+      `,
+    )
+    return result.rows as RelatedEntity[]
+  }
+
+  /**
+   * Returns time-bucketed mention counts for a given entity.
+   *
+   * Only non-zero buckets are returned — the client is responsible for zero-filling
+   * the full range when rendering a chart.
+   *
+   * Interval strings are built from validated enum values server-side and NEVER
+   * constructed from raw user input.
+   *
+   * @param id     - Entity UUID
+   * @param window - Look-back window: '7d' | '30d' | '90d' | '365d'
+   * @param bucket - Bucket granularity: 'day' | 'week' | 'month'
+   */
+  async getMentionsTimeline(
+    id: string,
+    window: MentionsTimelineWindow,
+    bucket: MentionsTimelineBucket,
+  ): Promise<TimelineBucket[]> {
+    // Map enum window to Postgres interval — never interpolate raw user input
+    const intervalMap: Record<MentionsTimelineWindow, string> = {
+      '7d': '7 days',
+      '30d': '30 days',
+      '90d': '90 days',
+      '365d': '365 days',
+    }
+    const intervalStr = intervalMap[window]
+
+    // date_trunc truncates to UTC bucket boundary; cast to text for JSON portability
+    const rows = await this.db
+      .select({
+        period: sql<string>`date_trunc(${bucket}, ${captures.created_at})::date::text`,
+        count: sql<number>`COUNT(${entity_links.id})::int`,
+      })
+      .from(entity_links)
+      .innerJoin(captures, eq(captures.id, entity_links.capture_id))
+      .where(
+        sql`${entity_links.entity_id} = ${id}::uuid
+          AND ${captures.created_at} >= NOW() - ${intervalStr}::interval
+          AND ${captures.deleted_at} IS NULL`,
+      )
+      .groupBy(sql`date_trunc(${bucket}, ${captures.created_at})`)
+      .orderBy(sql`date_trunc(${bucket}, ${captures.created_at}) ASC`)
+
+    return rows as TimelineBucket[]
   }
 
   /**

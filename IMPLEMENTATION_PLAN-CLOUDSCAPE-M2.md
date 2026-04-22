@@ -979,7 +979,7 @@ Option string validation: Zod enum of the 6 preset refine_options. Rejecting fre
 ### Work Items
 
 #### 7.1 GET /entities/:id/related
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS3 investigation item 3.1
 **Files Affected:**
 - `packages/core-api/src/services/entity.ts` (modify — add getRelated + entityExists)
@@ -1005,7 +1005,7 @@ Query plan verification via EXPLAIN: should use `entity_links_entity_capture_idx
 ---
 
 #### 7.2 GET /entities/:id/mentions-timeline
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS3 investigation item 3.2
 **Files Affected:**
 - `packages/core-api/src/services/entity.ts` (modify)
