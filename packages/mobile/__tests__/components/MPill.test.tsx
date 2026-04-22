@@ -100,7 +100,7 @@ describe('MPill', () => {
     act(() => {
       renderer = create(React.createElement(MPill, {}, 'Test'));
     });
-    const tree = renderer!.toJSON();
+    const tree = renderer!.toJSON() as any;
     // Root should be a View (pill container)
     expect(tree.type).toBe('View');
     // Should contain a Text element

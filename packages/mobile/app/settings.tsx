@@ -16,7 +16,7 @@ export default function SettingsScreen() {
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <TopBar eyebrow="ACCOUNT · TROY @ OPEN BRAIN" title="Settings" />
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
-        <MCard style={[styles.profileCard, { marginBottom: 22 }]}>
+        <MCard style={{ ...styles.profileCard, marginBottom: 22 }}>
           <View style={[styles.avatar, { backgroundColor: colors.accent }]}>
             <Text style={{ color: '#FFF', fontFamily: text.displayMedium.fontFamily, fontSize: 20 }}>T</Text>
           </View>
