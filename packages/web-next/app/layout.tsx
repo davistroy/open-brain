@@ -22,7 +22,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" data-wash="parchment">
+    <html lang="en" data-wash="parchment" suppressHydrationWarning>
       <head>
         {/*
           Anti-flash theme + wash script — executes synchronously before body renders.
