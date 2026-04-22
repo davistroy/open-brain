@@ -22,12 +22,14 @@ import { ShortcutsProvider } from '@/components/shortcuts/ShortcutsProvider';
 async function isOnboardingComplete(): Promise<boolean> {
   // Determine the API base URL. In the Docker container, NEXT_PUBLIC_API_URL
   // is set to the internal core-api address. In dev it falls back to localhost.
-  const apiBase =
-    process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ??
-    'http://localhost:3002/api/v1';
+  const raw = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3002';
+  const apiBase = raw.replace(/\/$/, '');
+  const url = apiBase.includes('/api/v1')
+    ? `${apiBase}/settings/onboarding_completed`
+    : `${apiBase}/api/v1/settings/onboarding_completed`;
 
   try {
-    const res = await fetch(`${apiBase}/settings/onboarding_completed`, {
+    const res = await fetch(url, {
       method: 'GET',
       headers: {
         'X-Open-Brain-Caller': 'web-ui',
