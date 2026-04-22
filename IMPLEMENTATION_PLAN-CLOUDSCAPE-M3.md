@@ -588,7 +588,7 @@ Add to ai-routing.yaml: `tts: { provider: 'openai', model: 'tts-1', voice: 'allo
 ---
 
 #### 4.2 Audio player + Listen button wiring
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §3 "Frontend: Audio Playback"
 **Files Affected:**
 - `packages/web-next/components/audio/AudioPlayer.tsx` (create)

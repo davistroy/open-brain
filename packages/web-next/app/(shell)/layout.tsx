@@ -2,6 +2,7 @@ import { type ReactNode } from 'react';
 import { redirect } from 'next/navigation';
 import { TopNav } from '@/components/nav/top-nav';
 import { SideNav } from '@/components/nav/side-nav';
+import { AudioPlayerMount } from '@/components/audio/AudioPlayer';
 
 // ---------------------------------------------------------------------------
 // First-run detection — server-side settings read
@@ -80,6 +81,8 @@ export default async function ShellLayout({ children }: { children: ReactNode })
           <div className="max-w-[1280px] mx-auto">{children}</div>
         </main>
       </div>
+      {/* Floating audio mini-player — persists across navigation. Client component. */}
+      <AudioPlayerMount />
     </div>
   );
 }

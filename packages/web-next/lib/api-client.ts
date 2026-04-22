@@ -304,6 +304,30 @@ export const briefsApi = {
       body: JSON.stringify({ instruction }),
     })
   },
+
+  /**
+   * GET /api/v1/briefs/:id/audio — fetch TTS audio for a brief.
+   * Returns a Blob (audio/mpeg). Bypasses the `request()` wrapper because we
+   * need the raw Response for Blob extraction (not JSON).
+   * Throws HttpError on non-2xx (same semantics as request()).
+   */
+  audio: async (id: string): Promise<Blob> => {
+    const path = `/briefs/${encodeURIComponent(id)}/audio`
+    const url = `${API_BASE}${path}`
+    const response = await fetch(url, {
+      headers: { 'X-Open-Brain-Caller': 'web-ui' },
+    })
+    if (!response.ok) {
+      let body: unknown
+      try {
+        body = await response.text()
+      } catch {
+        body = null
+      }
+      throw new HttpError(response.status, body, path)
+    }
+    return response.blob()
+  },
 }
 
 // ---------------------------------------------------------------------------
