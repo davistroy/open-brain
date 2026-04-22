@@ -890,7 +890,7 @@ If monthly-reflection doesn't exist as a skill yet, 4.6 still needs the MONTHLY 
 ---
 
 #### 6.3 Backfill script
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS2 investigation item 2.5
 **Files Affected:**
 - `scripts/backfill-briefs.ts` (create)
