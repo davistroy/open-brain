@@ -107,8 +107,15 @@ export function ExtractionsSidebar({
       </Card>
 
       {/* Decisions */}
-      {decisions.length > 0 && (
-        <Card header="Decisions" padded>
+      <Card header="Decisions" padded>
+        {decisions.length === 0 ? (
+          <p
+            className="text-text-body-secondary m-0"
+            style={{ fontSize: 12.5, fontStyle: 'italic' }}
+          >
+            No decisions extracted.
+          </p>
+        ) : (
           <div className="flex flex-col gap-[10px]">
             {decisions.map((decision, i) => (
               <div
@@ -127,8 +134,8 @@ export function ExtractionsSidebar({
               </div>
             ))}
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
 
       {/* Commitments */}
       <Card header="Commitments" padded={false}>

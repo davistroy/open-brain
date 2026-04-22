@@ -77,14 +77,14 @@ export default async function EntityDetailPage({
       >
         {/* Left column */}
         <div>
-          <AISummary summary={entity.summary} updatedAt={entity.summary_updated_at} />
+          <AISummary summary={entity.summary ?? null} updatedAt={entity.summary_updated_at ?? null} />
 
           <CommitmentsCard entityId={id} />
 
           <div className="h-5" />
 
           {/* Recent captures mentioning entity */}
-          {entity.captures && entity.captures.length > 0 && (
+          {(entity.captures ?? []).length > 0 && (
             <Card
               header={`Recent captures mentioning ${entity.name.split(' ')[0]}`}
               actions={
@@ -94,11 +94,11 @@ export default async function EntityDetailPage({
               }
               padded
             >
-              {entity.captures.map((capture, i) => (
+              {(entity.captures ?? []).map((capture, i, arr) => (
                 <CaptureItem
                   key={capture.id}
                   capture={capture}
-                  isLast={i === entity.captures.length - 1}
+                  isLast={i === arr.length - 1}
                 />
               ))}
             </Card>

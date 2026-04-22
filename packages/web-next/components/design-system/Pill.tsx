@@ -17,7 +17,7 @@ interface PillProps {
  */
 const toneClasses: Record<PillTone, string> = {
   neutral:
-    'bg-ivory-dark text-text-body border-cloud-light',
+    'bg-ivory-dark text-text-heading border-cloud-light',
   accent:
     'bg-book-cloth-50 text-book-cloth-dark border-[var(--color-status-accent-border)]',
   success:

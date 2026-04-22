@@ -2,16 +2,19 @@ import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/design-system';
 
 interface AISummaryProps {
-  summary: string;
-  updatedAt: string;
+  summary: string | null | undefined;
+  updatedAt: string | null | undefined;
 }
 
 /**
  * Terracotta callout block — AI-generated summary with update timestamp.
  * Matches 06-entity-detail.html:149-166.
+ * Renders nothing if summary is absent (not yet generated).
  * Server component.
  */
 export function AISummary({ summary, updatedAt }: AISummaryProps) {
+  if (!summary) return null;
+
   return (
     <div
       className="mb-5"
@@ -36,7 +39,7 @@ export function AISummary({ summary, updatedAt }: AISummaryProps) {
             letterSpacing: '0.08em',
           }}
         >
-          AI SUMMARY · UPDATED {updatedAt.toUpperCase()}
+          AI SUMMARY{updatedAt ? ` · UPDATED ${updatedAt.toUpperCase()}` : ''}
         </span>
       </div>
 

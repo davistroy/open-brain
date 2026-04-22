@@ -16,8 +16,9 @@ interface BriefReaderProps {
  * Server component.
  */
 export function BriefReader({ brief }: BriefReaderProps) {
-  // Split meta into segments for dot-separated display
-  const metaSegments = brief.meta.split(' · ');
+  // Split meta into segments for dot-separated display.
+  // Guard: meta may be empty string if the API returned no subtitle and fallback failed.
+  const metaSegments = (brief.meta ?? '').split(' · ').filter(Boolean);
 
   return (
     <article className="min-w-0">
