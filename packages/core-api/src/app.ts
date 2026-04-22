@@ -32,6 +32,7 @@ import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
 import { registerInsurancePoliciesRoutes } from './routes/insurance-policies.js'
 import { registerBriefRoutes } from './routes/briefs.js'
+import { registerCommitmentRoutes } from './routes/commitments.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -246,6 +247,13 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // but list/get/dismiss/patchRead work without it.
   if (briefsService) {
     registerBriefRoutes(app, briefsService)
+  }
+
+  // Commitments API — list, entity-scoped list, toggle resolved, manual create (CS2 M3).
+  // GET /api/v1/commitments, GET /api/v1/entities/:id/commitments,
+  // PATCH /api/v1/commitments/:id, POST /api/v1/commitments
+  if (db) {
+    registerCommitmentRoutes(app, db)
   }
 
   // MCP endpoint — requires all services to be available

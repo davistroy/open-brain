@@ -19,11 +19,11 @@ describe('buildIngestFlow', () => {
     expect(flow.opts?.jobId).toBe(`ingest-root_${captureId}`)
   })
 
-  it('has exactly two children by default: embed-capture and extract-entities', () => {
-    expect(flow.children).toHaveLength(2)
+  it('has exactly three children by default: embed-capture, extract-entities, extract-commitments', () => {
+    expect(flow.children).toHaveLength(3)
 
     const queueNames = flow.children!.map(c => c.queueName).sort()
-    expect(queueNames).toEqual(['embed-capture', 'extract-entities'])
+    expect(queueNames).toEqual(['embed-capture', 'extract-commitments', 'extract-entities'])
   })
 
   it('sets failParentOnFailure on embed-capture child', () => {
@@ -41,6 +41,16 @@ describe('buildIngestFlow', () => {
     expect(extractChild.opts?.failParentOnFailure).toBeUndefined()
   })
 
+  it('sets removeDependencyOnFailure on extract-commitments child', () => {
+    const commitmentsChild = flow.children!.find(c => c.queueName === 'extract-commitments')!
+    expect(commitmentsChild.opts?.removeDependencyOnFailure).toBe(true)
+  })
+
+  it('does NOT set failParentOnFailure on extract-commitments', () => {
+    const commitmentsChild = flow.children!.find(c => c.queueName === 'extract-commitments')!
+    expect(commitmentsChild.opts?.failParentOnFailure).toBeUndefined()
+  })
+
   it('sets correct captureId and traceId data on all children', () => {
     for (const child of flow.children!) {
       expect(child.data).toEqual({ captureId, traceId: undefined })
@@ -53,6 +63,9 @@ describe('buildIngestFlow', () => {
 
     const extractChild = flow.children!.find(c => c.queueName === 'extract-entities')!
     expect(extractChild.opts?.jobId).toBe(`extract-entities_${captureId}`)
+
+    const commitmentsChild = flow.children!.find(c => c.queueName === 'extract-commitments')!
+    expect(commitmentsChild.opts?.jobId).toBe(`extract-commitments_${captureId}`)
   })
 
   it('sets 5 attempts with custom backoff on embed and extract children', () => {
@@ -101,22 +114,22 @@ describe('buildIngestFlow with wiki-ingest', () => {
     const flow = buildIngestFlow(captureId)
     const wikiChild = flow.children!.find(c => c.queueName === 'wiki-ingest')
     expect(wikiChild).toBeUndefined()
-    expect(flow.children).toHaveLength(2)
+    expect(flow.children).toHaveLength(3)
   })
 
   it('does not include wiki-ingest when includeWikiIngest is false', () => {
     const flow = buildIngestFlow(captureId, { includeWikiIngest: false })
     const wikiChild = flow.children!.find(c => c.queueName === 'wiki-ingest')
     expect(wikiChild).toBeUndefined()
-    expect(flow.children).toHaveLength(2)
+    expect(flow.children).toHaveLength(3)
   })
 
-  it('adds wiki-ingest as third child when includeWikiIngest is true', () => {
+  it('adds wiki-ingest as fourth child when includeWikiIngest is true', () => {
     const flow = buildIngestFlow(captureId, { includeWikiIngest: true })
-    expect(flow.children).toHaveLength(3)
+    expect(flow.children).toHaveLength(4)
 
     const queueNames = flow.children!.map(c => c.queueName).sort()
-    expect(queueNames).toEqual(['embed-capture', 'extract-entities', 'wiki-ingest'])
+    expect(queueNames).toEqual(['embed-capture', 'extract-commitments', 'extract-entities', 'wiki-ingest'])
   })
 
   it('sets removeDependencyOnFailure on wiki-ingest child', () => {

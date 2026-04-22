@@ -233,7 +233,7 @@ Drizzle schema mirrors migration. Types file defines `CommitmentStatus` union an
 ---
 
 #### 2.2 Extract-commitments pipeline job
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §1 "Worker: Extraction Skill"
 **Files Affected:**
 - `packages/workers/src/jobs/extract-commitments.ts` (create)
@@ -264,7 +264,7 @@ Add `commitment_extraction` task key to ai-routing.yaml under t1_spark (routine 
 ---
 
 #### 2.3 Commitments API routes
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §1 "Backend: API Endpoints"
 **Files Affected:**
 - `packages/core-api/src/routes/commitments.ts` (create)

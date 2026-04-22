@@ -191,7 +191,8 @@ task_routing:
   # t1_spark is the right choice: 35B model handles complex NER reliably.
   # ===================================================================
 
-  entity_extraction: t1_spark   # JSON mode required (openai_compat only). 35B handles NER reliably.
+  entity_extraction: t1_spark      # JSON mode required (openai_compat only). 35B handles NER reliably.
+  commitment_extraction: t1_spark  # JSON mode required (openai_compat only). Extracts forward-looking obligations from captures.
 
   # ===================================================================
   # CONSTRAINT CLASS: CLASSIFICATION (fast, cheap -- Jetson 4B)
