@@ -157,6 +157,8 @@ export interface CapturesListParams {
   capture_type?: CaptureType
   source?: CaptureSource
   pipeline_status?: string
+  /** Filter by `source_metadata.source_provider` — used by the Financial page provider tabs. */
+  source_provider?: string
 }
 
 export interface CreateCapturePayload {

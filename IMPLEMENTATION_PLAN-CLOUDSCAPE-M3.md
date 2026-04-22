@@ -742,7 +742,7 @@ RSC page with initial fetch (25 captures). TimelineFilters: brain_view tabs + so
 ### Work Items
 
 #### 5.1 Financial page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.6
 **Files Affected:**
 - `packages/web-next/app/(shell)/financial/page.tsx` (create)
@@ -763,7 +763,7 @@ Tabbed view over 6 financial providers. Each tab fetches `capturesApi.list({sour
 ---
 
 #### 5.2 Intelligence page
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.8
 **Files Affected:**
 - `packages/web-next/app/(shell)/intelligence/page.tsx` (create)
@@ -785,7 +785,7 @@ Two read-only cards (ConnectionsCard, DriftCard) with "Run now" trigger buttons.
 ---
 
 #### 5.3 VoiceUpload + Help pages
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §7.12, §7.9
 **Files Affected:**
 - `packages/web-next/app/(shell)/voice-upload/page.tsx` (create)

@@ -241,11 +241,11 @@ const CANONICAL_PIPELINE_STATUSES = [
   'chunked', 'complete', 'deleted', 'embedded', 'extracted', 'failed', 'pending', 'processing',
 ] as const
 
-// Canonical 11-value PipelineEventStage set (P09b / migration 0025 / issue #119).
+// Canonical 12-value PipelineEventStage set (P09b / migration 0025; extended M3 / migration 0031).
 // Source of truth: packages/shared/src/types/pipeline-event.ts.
 const CANONICAL_PIPELINE_EVENT_STAGES = [
   'check_triggers', 'classify', 'document-chunk', 'document-embed',
-  'document-parse', 'embed', 'extract', 'extract_entities',
+  'document-parse', 'embed', 'extract', 'extract_commitments', 'extract_entities',
   'link_entities', 'notify', 'received',
 ] as const
 
@@ -455,7 +455,7 @@ describe('PipelineStatus drift guard (phase-P09a / #119)', () => {
 describe('PipelineEvent type drift guard (phase-P09b / #119)', () => {
   const pipelineEventSource = readFileSync(PIPELINE_EVENT_TYPES_PATH, 'utf8')
 
-  it('PipelineEventStage TS union matches canonical 11-value list', () => {
+  it('PipelineEventStage TS union matches canonical 12-value list', () => {
     const unionLiterals = extractUnionLiterals(pipelineEventSource, 'PipelineEventStage')
     const unionSorted = sorted(unionLiterals)
     const canonicalSorted = sorted(CANONICAL_PIPELINE_EVENT_STAGES)
