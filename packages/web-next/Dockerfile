@@ -30,6 +30,11 @@ COPY packages/web-next/ ./packages/web-next/
 RUN pnpm --filter @open-brain/shared build
 
 # Build Next.js with standalone output
+# API_URL is baked into the route rewrites at build time (Next.js resolves
+# process.env in next.config.ts during build, not at runtime for rewrites).
+ARG API_URL=http://core-api:3000
+ENV API_URL=${API_URL}
+
 # outputFileTracingRoot in next.config.ts traces workspace deps so the
 # standalone bundle is self-contained at /app/packages/web-next/.next/standalone/
 RUN NODE_OPTIONS="--max-old-space-size=4096" \
