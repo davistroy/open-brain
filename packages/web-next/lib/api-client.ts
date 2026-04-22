@@ -319,7 +319,7 @@ export const briefsApi = {
    */
   audio: async (id: string): Promise<Blob> => {
     const path = `/briefs/${encodeURIComponent(id)}/audio`
-    const url = `${API_BASE}${path}`
+    const url = `${getApiBase()}${path}`
     const response = await fetch(url, {
       headers: { 'X-Open-Brain-Caller': 'web-ui' },
     })
@@ -1009,7 +1009,7 @@ export const ingestApi = {
     if (opts.source_type) formData.append('source_type', opts.source_type)
     if (opts.parser_hint) formData.append('parser_hint', opts.parser_hint)
 
-    const url = `${API_BASE}/ingest/upload`
+    const url = `${getApiBase()}/ingest/upload`
     const response = await fetch(url, {
       method: 'POST',
       headers: {
