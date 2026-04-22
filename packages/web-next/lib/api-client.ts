@@ -233,12 +233,22 @@ export const entitiesApi = {
     )
   },
 
-  /** GET /api/v1/entities/:id/related — entities co-mentioned with this entity */
-  related: (id: string, params: { limit?: number } = {}): Promise<{ items: import('./types').RelatedEntity[]; total: number }> => {
+  /** GET /api/v1/entities/:id/related — entities co-mentioned with this entity.
+   *  API returns { related: [{id, name, type, shared_count}] }; we normalise
+   *  the `type` → `entity_type` rename and wrap in the { items, total } envelope
+   *  the page expects. */
+  related: async (id: string, params: { limit?: number } = {}): Promise<{ items: import('./types').RelatedEntity[]; total: number }> => {
     const qs = buildQueryString(params)
-    return request<{ items: import('./types').RelatedEntity[]; total: number }>(
+    const raw = await request<{ related: Array<{ id: string; name: string; type: string; shared_count: number }> }>(
       `/entities/${encodeURIComponent(id)}/related${qs}`,
     )
+    const items = (raw.related ?? []).map(r => ({
+      id: r.id,
+      name: r.name,
+      entity_type: r.type as import('./types').EntityType,
+      shared_count: r.shared_count,
+    }))
+    return { items, total: items.length }
   },
 
   /** GET /api/v1/entities/:id/mentions-timeline — mention counts bucketed over time */

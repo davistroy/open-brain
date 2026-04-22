@@ -44,7 +44,7 @@ export default async function EntityDetailPage({
 
   const relatedEntities =
     relatedResult.status === 'fulfilled'
-      ? relatedResult.value.items
+      ? (relatedResult.value.items ?? [])
       : entity.related_entities ?? [];
 
   const mentionBuckets =
