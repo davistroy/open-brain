@@ -1139,7 +1139,7 @@ Add `web-next` service to docker-compose.yml. Port 3001:3001. `depends_on: core-
 ---
 
 #### 7.3 Parallel tunnel URL
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §8.2
 **Files Affected:**
 - `config/cloudflare/tunnel.yaml` (modify)
@@ -1148,7 +1148,7 @@ Add `web-next` service to docker-compose.yml. Port 3001:3001. `depends_on: core-
 Add parallel ingress rule: `brain-next.troy-davis.com` → `http://web-next:3001`. Keep existing `brain.troy-davis.com` → `http://web:80`. Both active simultaneously for side-by-side comparison. Requires Cloudflare DNS CNAME for `brain-next` subdomain.
 
 **Tasks:**
-1. [ ] Add brain-next ingress rule to tunnel.yaml
+1. [x] Add brain-next ingress rule to tunnel.yaml
 2. [ ] Create DNS CNAME in Cloudflare dashboard
 3. [ ] Restart cloudflared container
 4. [ ] Verify brain-next.troy-davis.com serves web-next
@@ -1160,10 +1160,10 @@ Add parallel ingress rule: `brain-next.troy-davis.com` → `http://web-next:3001
 ---
 
 #### 7.4 Primary tunnel swap + decommission plan
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §8.2, §8.3
 **Files Affected:**
-- `config/cloudflare/tunnel.yaml` (modify — swap primary)
+- `config/cloudflare/tunnel.yaml` (modify — swap primary documented in runbook)
 - `scripts/apply-tunnel-swap.md` (create — runbook)
 
 **Description:**
@@ -1172,13 +1172,13 @@ After 2-week parallel validation: update primary tunnel `brain.troy-davis.com` �
 **Tasks:**
 1. [ ] Screenshot both URLs at all routes — verify visual parity
 2. [ ] Update tunnel.yaml primary ingress to web-next:3001
-3. [ ] Create swap runbook with rollback instructions
-4. [ ] Document /web decommission sequence
+3. [x] Create swap runbook with rollback instructions
+4. [x] Document /web decommission sequence
 
 **Acceptance Criteria:**
 - [ ] Primary tunnel serves web-next after swap
 - [ ] Rollback procedure tested (revert → /web restored)
-- [ ] Runbook documents full swap + decommission sequence
+- [x] Runbook documents full swap + decommission sequence
 
 ---
 
