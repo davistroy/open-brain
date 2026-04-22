@@ -178,6 +178,8 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
       'internal:ingest-repair',
       // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
       'internal:newsletter-pipeline',
+      // Mobile app — Expo React Native client
+      'internal:mobile-app',
     ])
     if (BYPASS_CALLERS.has(key)) {
       await next()
