@@ -191,15 +191,11 @@ export function registerEntityRoutes(
 
     logger.info({ sourceId, targetId: target_id }, '[entities-api] merging entities')
 
-    await entityService.merge(sourceId, target_id.trim())
+    const targetEntity = await entityService.merge(sourceId, target_id.trim())
 
     logger.info({ sourceId, targetId: target_id }, '[entities-api] merge complete')
 
-    return c.json({
-      message: `Entity ${sourceId} merged into ${target_id}`,
-      source_id: sourceId,
-      target_id: target_id.trim(),
-    })
+    return c.json(targetEntity)
   })
 
   // -------------------------------------------------------------------------

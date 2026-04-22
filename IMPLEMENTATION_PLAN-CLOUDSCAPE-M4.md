@@ -345,7 +345,7 @@ Several components reference "Coming in M3" or show stale milestone labels. Upda
 
 #### 3.1 Brief Export (Markdown + Print)
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** HANDOFF.md §7 Q4 (brief export), BriefToc.tsx comment "Export is UI-only"
 **Files Affected:**
 - `packages/web-next/components/briefs/BriefToc.tsx` (modify — wire Export button)
@@ -376,7 +376,7 @@ Client-side only — no new API endpoint needed. Brief content (`body_html`) is 
 
 #### 3.2 Brief Follow-up Questions
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** BriefToc.tsx stub toast ("Follow-up questions coming in M3")
 **Files Affected:**
 - `packages/web-next/components/briefs/BriefToc.tsx` (modify — replace toast)
@@ -434,7 +434,7 @@ Replace the follow-up toast with an inline question input below the TOC actions.
 
 #### 4.1 Entity Merge API Endpoint
 
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG.md §7.2 (entity operations implied), merge-entity-modal.tsx stub
 **Files Affected:**
 - `packages/core-api/src/routes/entities.ts` (modify — add merge endpoint)

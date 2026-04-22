@@ -59,6 +59,7 @@ export default async function BriefPage({ params }: BriefPageProps) {
           briefId={id}
           briefTitle={brief.title}
           estimatedDurationSecs={estimatedDurationSecs}
+          bodyHtml={brief.body_html}
         />
         <BriefReaderWrapper brief={brief} />
         <BriefSources

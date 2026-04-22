@@ -219,13 +219,16 @@ export class EntityService {
 
   /**
    * Merge source entity into target. Delegates to EntityResolutionService.
-   * All entity_links from source are moved to target; source is deleted.
+   * All entity_links and commitments from source are moved to target;
+   * source entity is deleted.
+   *
+   * Returns the updated target entity record.
    */
-  async merge(sourceId: string, targetId: string): Promise<void> {
+  async merge(sourceId: string, targetId: string): Promise<EntityRecord> {
     if (!this.resolutionService) {
       throw new Error('EntityResolutionService not configured')
     }
-    await this.resolutionService.merge(sourceId, targetId)
+    return this.resolutionService.merge(sourceId, targetId) as Promise<EntityRecord>
   }
 
   /**

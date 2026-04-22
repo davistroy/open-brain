@@ -297,9 +297,43 @@ describe('EntityResolutionService.resolve — new entity creation', () => {
 // ---------------------------------------------------------------------------
 
 describe('EntityResolutionService.merge', () => {
-  it('moves entity_links, merges aliases, deletes source', async () => {
-    const sourceEntity = { id: 'source-id', name: 'Tom', aliases: ['Tommy'], entity_type: 'person' }
-    const targetEntity = { id: 'target-id', name: 'Tom Smith', aliases: ['Thomas'], entity_type: 'person' }
+  it('moves entity_links, updates commitments, merges aliases, deletes source', async () => {
+    const sourceEntity = { id: 'source-id', name: 'Tom', aliases: ['Tommy'], entity_type: 'person', canonical_name: 'tom' }
+    const targetEntity = { id: 'target-id', name: 'Tom Smith', aliases: ['Thomas'], entity_type: 'person', canonical_name: 'tom smith' }
+    const updatedTarget = { ...targetEntity, aliases: ['Thomas', 'Tom', 'Tommy'] }
+
+    // Mocks for operations inside the transaction callback
+    const txExecute = vi.fn().mockResolvedValue({ rows: [] })  // INSERT...SELECT links
+    const txUpdateCommitmentsWhere = vi.fn().mockResolvedValue([])
+    const txUpdateAliasesReturning = vi.fn().mockResolvedValue([updatedTarget])
+    const txUpdateAliasesWhere = vi.fn().mockReturnValue({ returning: txUpdateAliasesReturning })
+    const txUpdateSet = vi.fn().mockReturnValue({ where: txUpdateAliasesWhere })
+    const txDelete = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) })
+
+    // The update mock must handle two calls:
+    // 1st call = commitments update (returns array, no .returning())
+    // 2nd call = entities aliases update (returns via .returning())
+    let txUpdateCallCount = 0
+    const txUpdate = vi.fn().mockImplementation(() => {
+      txUpdateCallCount++
+      if (txUpdateCallCount === 1) {
+        // commitments update: .set().where()
+        return {
+          set: vi.fn().mockReturnValue({
+            where: txUpdateCommitmentsWhere,
+          }),
+        }
+      }
+      // entities aliases update: .set().where().returning()
+      return { set: txUpdateSet }
+    })
+
+    // Transaction mock: executes the callback with tx as its own mini-db mock
+    const tx = {
+      execute: txExecute,
+      update: txUpdate,
+      delete: txDelete,
+    }
 
     let selectCallCount = 0
     const db = {
@@ -308,28 +342,26 @@ describe('EntityResolutionService.merge', () => {
         if (selectCallCount === 1) return selectChain([sourceEntity])  // source lookup
         return selectChain([targetEntity])  // target lookup
       }),
-      execute: vi.fn().mockResolvedValue({ rows: [] }),  // INSERT...SELECT links
-      update: vi.fn().mockReturnValue({
-        set: vi.fn().mockReturnValue({
-          where: vi.fn().mockResolvedValue([]),
-        }),
-      }),
-      delete: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
-      }),
+      transaction: vi.fn().mockImplementation((callback: (tx: typeof tx) => Promise<unknown>) => callback(tx)),
     }
 
     const service = new EntityResolutionService(db as any)
-    await service.merge('source-id', 'target-id')
+    const result = await service.merge('source-id', 'target-id')
 
-    // select: 2 lookups (source + target)
+    // select: 2 lookups (source + target) — before transaction
     expect(db.select).toHaveBeenCalledTimes(2)
+    // transaction called once
+    expect(db.transaction).toHaveBeenCalledOnce()
+    // Inside transaction:
     // execute: INSERT...SELECT links = 1 call
-    expect(db.execute).toHaveBeenCalledTimes(1)
-    // update: aliases merge = 1 call
-    expect(db.update).toHaveBeenCalledOnce()
+    expect(txExecute).toHaveBeenCalledTimes(1)
+    // update: commitments + aliases = 2 calls
+    expect(txUpdate).toHaveBeenCalledTimes(2)
     // delete: remove source entity = 1 call
-    expect(db.delete).toHaveBeenCalledOnce()
+    expect(txDelete).toHaveBeenCalledOnce()
+    // Returns the updated target entity
+    expect(result.id).toBe('target-id')
+    expect(result.name).toBe('Tom Smith')
   })
 
   it('throws NotFoundError when source entity does not exist', async () => {

@@ -425,6 +425,131 @@ html[data-wash="peach"] {
 }
 
 /* =============================================================================
+   @media print — brief print/PDF export layout
+   Hides shell chrome (TopNav, SideNav, BriefToc, BriefSources, audio player,
+   PWA prompts) and renders the brief article full-width for clean PDF output.
+   Triggered by triggerPrint() in lib/export.ts via window.print().
+   ============================================================================= */
+@media print {
+  /* Reset page margins and background for print */
+  @page {
+    margin: 20mm 18mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #1a1a1a !important;
+    font-size: 11pt;
+  }
+
+  /* Hide all navigation, sidebars, overlays, and shell chrome */
+  header,
+  nav,
+  aside,
+  footer,
+  [role="banner"],
+  [role="navigation"],
+  [role="complementary"] {
+    display: none !important;
+  }
+
+  /* Hide audio player, PWA, shortcuts, and any fixed/sticky overlays */
+  [data-sonner-toaster],
+  [data-radix-popper-content-wrapper] {
+    display: none !important;
+  }
+
+  /* The shell flex layout — make article fill full width */
+  .flex.flex-col.min-h-screen,
+  .flex.flex-1.min-h-0 {
+    display: block !important;
+  }
+
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* The 3-column brief layout grid — collapse to single column */
+  main > div,
+  .grid {
+    display: block !important;
+    max-width: 100% !important;
+  }
+
+  /* Brief article — full-width, clean typography */
+  article {
+    max-width: 100% !important;
+    width: 100% !important;
+    display: block !important;
+    break-inside: auto;
+  }
+
+  /* Prose typography for print */
+  article h1 {
+    font-size: 22pt;
+    margin-bottom: 6pt;
+    color: #141413 !important;
+  }
+
+  article .reader p {
+    font-size: 11pt;
+    line-height: 1.65;
+    color: #1a1a1a !important;
+    margin-bottom: 10pt;
+  }
+
+  article .reader h3 {
+    font-size: 13pt;
+    margin-top: 18pt;
+    margin-bottom: 6pt;
+    color: #141413 !important;
+  }
+
+  article .reader blockquote {
+    border-left: 2px solid #CC785C;
+    padding-left: 10pt;
+    margin-left: 0;
+    color: #141413 !important;
+    background: none !important;
+  }
+
+  /* Eyebrow — mono metadata line */
+  article > div:first-child {
+    font-size: 8pt;
+    letter-spacing: 0.08em;
+    color: #CC785C !important;
+    margin-bottom: 6pt;
+  }
+
+  /* Meta row — hide separator styling issues on paper */
+  article > div:nth-child(3) {
+    font-size: 9pt;
+    color: #666 !important;
+    border-bottom: 1px solid #ccc !important;
+    padding-bottom: 8pt;
+    margin-bottom: 14pt;
+  }
+
+  /* Avoid page breaks inside headings and short elements */
+  h1, h2, h3, h4, h5, h6 {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+
+  p, li {
+    break-inside: avoid;
+  }
+
+  /* Suppress link underlines / color changes that look bad in print */
+  a {
+    color: inherit !important;
+    border-bottom: none !important;
+    text-decoration: none !important;
+  }
+}
+
+/* =============================================================================
    .reader — prose class for brief reading mode (Screen 08)
    ============================================================================= */
 .reader p {
