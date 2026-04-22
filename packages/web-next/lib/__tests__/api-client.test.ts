@@ -267,15 +267,16 @@ describe('namespace helpers — successful responses', () => {
     server.use(
       http.post('/api/v1/synthesize', async ({ request: req }) => {
         const body = await req.json() as { query: string; limit?: number }
+        // Actual route response shape: { response: string, capture_count: number }
         return HttpResponse.json({
-          answer: `Synthesized: ${body.query}`,
-          sources: [],
-          query: body.query,
+          response: `Synthesized: ${body.query}`,
+          capture_count: 3,
         })
       }),
     )
     const result = await synthesizeApi.query({ query: 'what decisions did I make?', limit: 5 })
-    expect(result.answer).toContain('what decisions did I make?')
+    expect(result.response).toContain('what decisions did I make?')
+    expect(result.capture_count).toBe(3)
   })
 
   it('intelligenceApi.summary() returns connections and drift fields', async () => {

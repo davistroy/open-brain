@@ -367,10 +367,14 @@ export interface SynthesizePayload {
   limit?: number
 }
 
+/**
+ * Actual response shape from POST /api/v1/synthesize.
+ * Route returns { response: string, capture_count: number } — NOT { answer, sources, query }.
+ * See packages/core-api/src/routes/synthesize.ts c.json({response, capture_count}).
+ */
 export interface SynthesizeResponse {
-  answer: string
-  sources: Array<{ id: string; score: number }>
-  query: string
+  response: string
+  capture_count: number
 }
 
 export const synthesizeApi = {

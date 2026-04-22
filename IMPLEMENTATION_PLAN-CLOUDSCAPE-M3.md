@@ -559,7 +559,7 @@ Full-bleed layout outside shell (no SideNav/TopNav). Two-panel: left editorial p
 ### Work Items
 
 #### 4.1 TTS endpoint + audio config
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §3, D120
 **Files Affected:**
 - `packages/core-api/src/routes/briefs.ts` (modify — add POST /briefs/:id/audio)
@@ -619,7 +619,7 @@ Replace sonner toasts on Listen buttons: click → `briefsApi.audio(id)` → fet
 ---
 
 #### 4.3 Search page + input
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §4
 **Files Affected:**
 - `packages/web-next/app/(shell)/search/page.tsx` (create)
@@ -649,7 +649,7 @@ RSC page with PageHeader. SearchInput is a client component: controlled input wi
 ---
 
 #### 4.4 Search results + synthesis answer
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §4
 **Files Affected:**
 - `packages/web-next/components/search/SearchResults.tsx` (create)
@@ -678,7 +678,7 @@ RSC page with PageHeader. SearchInput is a client component: controlled input wi
 ---
 
 #### 4.5 Timeline page + infinite scroll
-**Status: PENDING**
+**Status: COMPLETE 2026-04-22**
 **Requirement Refs:** M3_BACKLOG §5
 **Files Affected:**
 - `packages/web-next/app/(shell)/timeline/page.tsx` (create)
