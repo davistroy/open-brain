@@ -1,7 +1,14 @@
+'use client';
+
+import { useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Loader2 } from 'lucide-react';
 import { Card, Eyebrow } from '@/components/design-system';
+import { briefsApi } from '@/lib/api-client';
 import type { BriefSource } from '@/lib/types';
 
 interface BriefSourcesProps {
+  briefId: string;
   sources: BriefSource[];
   sourceTotal: number;
   refineOptions: string[];
@@ -11,12 +18,32 @@ interface BriefSourcesProps {
  * Right sidebar for the brief reader page.
  * Two sections:
  *   1. "Grounded in" card — list of BriefSource entries + "Show all N →" footer
- *   2. "REFINE THIS BRIEF" box — plain text buttons (ivory-dark bg)
+ *   2. "REFINE THIS BRIEF" box — clickable refine buttons
  *
- * Sources are displayed with type label and date; not linked in M1.
- * Server component.
+ * Refine buttons POST to /api/v1/briefs/:id/refine (async).
+ * A "Refining..." toast is shown on click; the new brief arrives via SSE
+ * (brief_created event) which auto-invalidates the briefs query key.
+ *
+ * 'use client' — useMutation + toast require client context.
  */
-export function BriefSources({ sources, sourceTotal, refineOptions }: BriefSourcesProps) {
+export function BriefSources({ briefId, sources, sourceTotal, refineOptions }: BriefSourcesProps) {
+  const refineMutation = useMutation({
+    mutationFn: (instruction: string) => briefsApi.refine(briefId, instruction),
+    onMutate: (instruction: string) => {
+      toast.loading(`Refining: ${instruction}…`, { id: `refine-${briefId}` });
+    },
+    onSuccess: () => {
+      toast.success('Refinement queued — brief will update when ready', {
+        id: `refine-${briefId}`,
+      });
+    },
+    onError: (err) => {
+      const message =
+        err instanceof Error ? err.message : 'Refinement failed — please try again.';
+      toast.error(message, { id: `refine-${briefId}` });
+    },
+  });
+
   return (
     <aside className="sticky top-[22px] flex flex-col gap-[16px]">
       {/* Grounded in — source list */}
@@ -73,15 +100,38 @@ export function BriefSources({ sources, sourceTotal, refineOptions }: BriefSourc
       >
         <Eyebrow noMargin>REFINE THIS BRIEF</Eyebrow>
         <div className="flex flex-col gap-[6px] mt-[8px]">
-          {refineOptions.map((option, i) => (
-            <button
-              key={i}
-              type="button"
-              className="text-left bg-transparent border-none p-0 py-[4px] text-[12.5px] font-light text-text-body cursor-pointer hover:text-text-heading transition-colors duration-[120ms]"
-            >
-              {option}
-            </button>
-          ))}
+          {refineOptions.map((option, i) => {
+            const isPending =
+              refineMutation.isPending && refineMutation.variables === option;
+            return (
+              <button
+                key={i}
+                type="button"
+                disabled={refineMutation.isPending}
+                onClick={() => refineMutation.mutate(option)}
+                className={[
+                  'text-left bg-transparent border-none p-0 py-[4px]',
+                  'text-[12.5px] font-light text-text-body',
+                  'transition-colors duration-[120ms]',
+                  'inline-flex items-center gap-[6px]',
+                  refineMutation.isPending
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'cursor-pointer hover:text-text-heading',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                {isPending && (
+                  <Loader2
+                    size={11}
+                    className="animate-spin shrink-0"
+                    aria-hidden="true"
+                  />
+                )}
+                {option}
+              </button>
+            );
+          })}
         </div>
       </div>
     </aside>

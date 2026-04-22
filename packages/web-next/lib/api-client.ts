@@ -119,13 +119,15 @@ import type {
   BriefDetail,
   SearchResult,
   DashboardStats,
+  MentionsTimelineResponse,
+  AskEntityResponse,
 } from './types'
 
 // ---------------------------------------------------------------------------
 // Re-exported union types — callers can import from here as a convenience
 // ---------------------------------------------------------------------------
 
-export type { Capture, CaptureType, CaptureSource, BrainView, Entity, EntityDetail, EntityType, Brief, BriefDetail, SearchResult, DashboardStats }
+export type { Capture, CaptureType, CaptureSource, BrainView, Entity, EntityDetail, EntityType, Brief, BriefDetail, SearchResult, DashboardStats, MentionsTimelineResponse, AskEntityResponse }
 
 // ---------------------------------------------------------------------------
 // Response envelope shapes (API-level, not UI-level)
@@ -216,6 +218,33 @@ export const entitiesApi = {
       { method: 'POST', body: JSON.stringify({ target_id: targetId }) },
     )
   },
+
+  /** GET /api/v1/entities/:id/related — entities co-mentioned with this entity */
+  related: (id: string, params: { limit?: number } = {}): Promise<{ items: import('./types').RelatedEntity[]; total: number }> => {
+    const qs = buildQueryString(params)
+    return request<{ items: import('./types').RelatedEntity[]; total: number }>(
+      `/entities/${encodeURIComponent(id)}/related${qs}`,
+    )
+  },
+
+  /** GET /api/v1/entities/:id/mentions-timeline — mention counts bucketed over time */
+  mentionsTimeline: (
+    id: string,
+    params: { window?: string; bucket?: string } = {},
+  ): Promise<MentionsTimelineResponse> => {
+    const qs = buildQueryString(params)
+    return request<MentionsTimelineResponse>(
+      `/entities/${encodeURIComponent(id)}/mentions-timeline${qs}`,
+    )
+  },
+
+  /** POST /api/v1/entities/:id/ask — LLM synthesis answering a question about this entity */
+  ask: (id: string, question: string): Promise<AskEntityResponse> => {
+    return request<AskEntityResponse>(
+      `/entities/${encodeURIComponent(id)}/ask`,
+      { method: 'POST', body: JSON.stringify({ question }) },
+    )
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +267,21 @@ export const briefsApi = {
   /** GET /api/v1/briefs/:id — full brief with body_html + TOC + sources */
   get: (id: string): Promise<BriefDetail> => {
     return request<BriefDetail>(`/briefs/${encodeURIComponent(id)}`)
+  },
+
+  /** PATCH /api/v1/briefs/:id — update brief metadata (e.g. mark as read) */
+  patchRead: (id: string, read: boolean): Promise<void> => {
+    return request<void>(`/briefs/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ read }),
+    })
+  },
+
+  /** POST /api/v1/briefs/:id/dismiss — soft-dismiss without marking read */
+  dismiss: (id: string): Promise<void> => {
+    return request<void>(`/briefs/${encodeURIComponent(id)}/dismiss`, {
+      method: 'POST',
+    })
   },
 
   /** POST /api/v1/briefs/:id/refine — async refinement; response arrives via SSE */

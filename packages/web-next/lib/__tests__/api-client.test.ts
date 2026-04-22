@@ -30,7 +30,7 @@ import {
 function captureRequestHeaders(
   method: 'get' | 'post' | 'put' | 'patch' | 'delete',
   path: string,
-  responseBody: unknown = {},
+  responseBody: Record<string, unknown> = {},
 ): Promise<Headers> {
   return new Promise((resolve) => {
     server.use(
@@ -325,5 +325,94 @@ describe('request() — raw helper', () => {
     )
     const result = await request<{ status: string }>('/health')
     expect(result.status).toBe('healthy')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8. briefsApi.patchRead — PATCH /api/v1/briefs/:id
+// ---------------------------------------------------------------------------
+
+describe('briefsApi.patchRead()', () => {
+  it('sends PATCH with read: true and resolves on 204', async () => {
+    server.use(
+      http.patch('/api/v1/briefs/brief-001', async ({ request: req }) => {
+        const body = await req.json() as { read: boolean }
+        if (body.read === true) {
+          return new HttpResponse(null, { status: 204 })
+        }
+        return HttpResponse.json({ error: 'Unexpected body' }, { status: 400 })
+      }),
+    )
+    await expect(briefsApi.patchRead('brief-001', true)).resolves.toBeUndefined()
+  })
+
+  it('sends PATCH with read: false for mark-unread', async () => {
+    let receivedBody: unknown
+    server.use(
+      http.patch('/api/v1/briefs/brief-002', async ({ request: req }) => {
+        receivedBody = await req.json()
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    await briefsApi.patchRead('brief-002', false)
+    expect(receivedBody).toMatchObject({ read: false })
+  })
+
+  it('throws HttpError 404 when brief does not exist', async () => {
+    server.use(
+      http.patch('/api/v1/briefs/no-such-brief', () =>
+        HttpResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 }),
+      ),
+    )
+    const err = await briefsApi.patchRead('no-such-brief', true).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(HttpError)
+    expect((err as HttpError).status).toBe(404)
+  })
+
+  it('sets X-Open-Brain-Caller: web-ui on PATCH', async () => {
+    const headersPromise = captureRequestHeaders('patch', '/api/v1/briefs/brief-001', {})
+    // MSW 204 handler will already be set by the default handler
+    briefsApi.patchRead('brief-001', true).catch(() => { /* 204 response, ignore */ })
+    const headers = await headersPromise
+    expect(headers.get('x-open-brain-caller')).toBe('web-ui')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 9. briefsApi.refine — POST /api/v1/briefs/:id/refine
+// ---------------------------------------------------------------------------
+
+describe('briefsApi.refine()', () => {
+  it('sends POST with instruction and returns job_id', async () => {
+    server.use(
+      http.post('/api/v1/briefs/brief-001/refine', async ({ request: req }) => {
+        const body = await req.json() as { instruction: string }
+        return HttpResponse.json({ job_id: `job-${body.instruction}` })
+      }),
+    )
+    const result = await briefsApi.refine('brief-001', 'Shorter')
+    expect(result.job_id).toBe('job-Shorter')
+  })
+
+  it('throws HttpError 404 when brief does not exist', async () => {
+    server.use(
+      http.post('/api/v1/briefs/ghost/refine', () =>
+        HttpResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 }),
+      ),
+    )
+    const err = await briefsApi.refine('ghost', 'Longer').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(HttpError)
+    expect((err as HttpError).status).toBe(404)
+  })
+
+  it('sets Content-Type: application/json on POST', async () => {
+    const headersPromise = captureRequestHeaders(
+      'post',
+      '/api/v1/briefs/brief-001/refine',
+      { job_id: 'job-test' },
+    )
+    briefsApi.refine('brief-001', 'More formal').catch(() => { /* ignore */ })
+    const headers = await headersPromise
+    expect(headers.get('content-type')).toMatch('application/json')
   })
 })

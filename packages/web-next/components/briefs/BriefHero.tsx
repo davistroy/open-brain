@@ -1,10 +1,16 @@
+'use client';
+
 import Link from 'next/link';
 import { ArrowRight, Play } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import { Button } from '@/components/design-system';
-import type { BriefDetail } from '@/lib/types';
+import { briefsApi } from '@/lib/api-client';
+import type { Brief } from '@/lib/types';
 
 interface BriefHeroProps {
-  brief: BriefDetail;
+  brief: Brief;
 }
 
 const HERO_ITEMS = [
@@ -19,9 +25,30 @@ const HERO_ITEMS = [
  * Featured hero block for the latest/most relevant brief.
  * Warm paper (book-cloth-50) background, 3px left book-cloth rail,
  * 2-col grid: content left | "IN THIS BRIEF" list right.
- * Server component.
+ * Client component — wires Dismiss (POST /briefs/:id/dismiss + router.refresh)
+ * and Listen (M3 stub toast).
  */
 export function BriefHero({ brief }: BriefHeroProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const dismissMutation = useMutation({
+    mutationFn: () => briefsApi.dismiss(brief.id),
+    onSuccess: () => {
+      toast('Brief dismissed');
+      // Invalidate briefs list so the RSC re-fetches without this brief as hero
+      queryClient.invalidateQueries({ queryKey: ['briefs'] });
+      router.refresh();
+    },
+    onError: () => {
+      toast.error('Could not dismiss brief — please try again.');
+    },
+  });
+
+  function handleListen() {
+    toast('Text-to-speech coming in M3');
+  }
+
   return (
     <div
       className="grid gap-12 mb-[24px] p-[32px_40px] border border-[var(--color-status-accent-border)]"
@@ -34,17 +61,15 @@ export function BriefHero({ brief }: BriefHeroProps) {
       {/* Left: eyebrow, title, excerpt, actions */}
       <div>
         <div className="font-mono text-[10.5px] text-book-cloth-dark tracking-[0.12em] uppercase mb-[10px]">
-          DAILY · TUESDAY, APRIL 21 · 07:00
+          {brief.kind} · {brief.generated}
         </div>
         <h2
           className="font-display text-[34px] font-light tracking-[-0.025em] leading-[1.1] text-text-heading mb-[12px] mt-0"
         >
-          {brief.headline}
+          {brief.title}
         </h2>
         <p className="text-[14.5px] font-light leading-[1.6] text-text-body max-w-[620px] m-0">
-          The London office budget memo needs a response (2 days overdue). Sarah has pushed
-          back on the Q4 eng hiring timeline twice — worth a 15-minute call before Thursday&apos;s
-          board. Maya asked about customer exposure last Friday; you haven&apos;t replied.
+          {brief.subtitle}
         </p>
         <div className="flex items-center gap-[8px] mt-[18px]">
           <Link href={`/briefs/${brief.id}`}>
@@ -60,11 +85,17 @@ export function BriefHero({ brief }: BriefHeroProps) {
             variant="secondary"
             size="sm"
             icon={<Play size={12} strokeWidth={1.5} />}
+            onClick={handleListen}
           >
-            Listen · 4 min
+            Listen
           </Button>
-          <Button variant="ghost" size="sm">
-            Dismiss
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => dismissMutation.mutate()}
+            disabled={dismissMutation.isPending}
+          >
+            {dismissMutation.isPending ? 'Dismissing…' : 'Dismiss'}
           </Button>
         </div>
       </div>

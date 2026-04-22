@@ -173,6 +173,8 @@ export interface Brief {
   subtitle: string;
   generated: string;   // display string e.g. "07:00", "3d ago"
   read: boolean;
+  read_at: string | null;       // ISO 8601 or null
+  dismissed_at: string | null;  // ISO 8601 or null
 }
 
 /** Full brief detail with reader content */
@@ -283,4 +285,28 @@ export interface EntityDistribution {
 export interface NeedsAttentionItem {
   label: string;
   desc: string;
+}
+
+// ---------------------------------------------------------------------------
+// Entity detail — mentions timeline
+// ---------------------------------------------------------------------------
+
+/** A single bucket from GET /api/v1/entities/:id/mentions-timeline */
+export interface MentionsTimelineBucket {
+  /** ISO 8601 date string for the start of the bucket period */
+  period: string;
+  count: number;
+}
+
+/** Response envelope from the mentions-timeline endpoint */
+export interface MentionsTimelineResponse {
+  buckets: MentionsTimelineBucket[];
+  window: string;   // e.g. "90d"
+  bucket: string;   // e.g. "week"
+}
+
+/** Response from POST /api/v1/entities/:id/ask */
+export interface AskEntityResponse {
+  answer: string;
+  sources: Array<{ id: string; score: number }>;
 }

@@ -204,6 +204,24 @@ export const handlers = [
     return HttpResponse.json(brief)
   }),
 
+  // PATCH brief — mark read / unread
+  http.patch('/api/v1/briefs/:id', ({ params }) => {
+    const brief = mockBriefs.find(b => b.id === params.id)
+    if (!brief) {
+      return HttpResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
+    }
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  // POST brief refine — enqueue async refinement job
+  http.post('/api/v1/briefs/:id/refine', ({ params }) => {
+    const brief = mockBriefs.find(b => b.id === params.id)
+    if (!brief) {
+      return HttpResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
+    }
+    return HttpResponse.json({ job_id: `job-refine-${params.id as string}` })
+  }),
+
   // Stats
   http.get('/api/v1/stats', () => {
     return HttpResponse.json(mockStats)

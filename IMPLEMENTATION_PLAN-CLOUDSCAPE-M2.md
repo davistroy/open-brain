@@ -1150,7 +1150,7 @@ EntityTable text search is client-side only (filters already-loaded results). Fo
 ### Work Items
 
 #### 8.1 Wire Entity Detail screen + Ask AI & Merge modals
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS4 investigation items 4.3, 4.8, 4.9, 4.11
 **Files Affected:**
 - `packages/web-next/app/(shell)/entities/[id]/page.tsx` (modify — remove staticParams, parallel fetches)
@@ -1187,7 +1187,7 @@ Modal library: `@radix-ui/react-dialog` (added in Phase 1). Toast library: `sonn
 ---
 
 #### 8.2 Wire Briefs library screen
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS4 investigation item 4.4
 **Files Affected:**
 - `packages/web-next/app/(shell)/briefs/page.tsx` (modify — async RSC)
@@ -1216,7 +1216,7 @@ If briefsApi returns empty list on fresh DB (no backfill), the library shows emp
 ---
 
 #### 8.3 Wire Brief Reader screen
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** CS4 investigation item 4.5
 **Files Affected:**
 - `packages/web-next/app/(shell)/briefs/[id]/page.tsx` (modify — async RSC)
@@ -1246,7 +1246,7 @@ Mark-as-read on EVERY mount is correct for MVP (user returning to a read brief i
 ---
 
 #### 8.4 M3 handoff document
-**Status: PENDING**
+**Status: COMPLETE 2026-04-21**
 **Requirement Refs:** A77, CS5
 **Files Affected:**
 - `M3_BACKLOG.md` (create)
