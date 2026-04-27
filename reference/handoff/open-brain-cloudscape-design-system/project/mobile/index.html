@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Open Brain · Mobile screens</title>
+<link rel="stylesheet" href="../colors_and_type.css" />
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  html, body { margin: 0; background: var(--color-ivory-medium); height: 100%; }
+  body { font-family: var(--font-family-base); }
+  #root { width: 100%; height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="../ios-frame.jsx"></script>
+<script type="text/babel" src="../design-canvas.jsx"></script>
+<script type="text/babel" src="_mobile-shell.jsx"></script>
+<script type="text/babel" src="m1-home.jsx"></script>
+<script type="text/babel" src="m2-record.jsx"></script>
+<script type="text/babel" src="m3-confirm.jsx"></script>
+<script type="text/babel" src="m4-briefs.jsx"></script>
+<script type="text/babel" src="m5-reader.jsx"></script>
+<script type="text/babel" src="m6-entity.jsx"></script>
+<script type="text/babel" src="m7-board.jsx"></script>
+<script type="text/babel" src="m8-timeline.jsx"></script>
+<script type="text/babel" src="m9-search.jsx"></script>
+<script type="text/babel" src="m10-settings.jsx"></script>
+<script type="text/babel" src="m11-empty.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const AB_W = 430, AB_H = 932;
+
+function App() {
+  React.useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []);
+
+  return (
+    <DesignCanvas>
+      <DCSection id="capture" title="Capture — the hero loop"
+        subtitle="Voice is the primary mobile input. Tap-to-record is always on screen; confirm lets you correct before save.">
+        <DCArtboard id="home-l" label="01 · Home (light)" width={AB_W} height={AB_H}><MHome /></DCArtboard>
+        <DCArtboard id="home-d" label="01 · Home (dark)" width={AB_W} height={AB_H}><MHome dark /></DCArtboard>
+        <DCArtboard id="rec-l" label="02 · Recording (light)" width={AB_W} height={AB_H}><MRecord /></DCArtboard>
+        <DCArtboard id="rec-d" label="02 · Recording (dark)" width={AB_W} height={AB_H}><MRecord dark /></DCArtboard>
+        <DCArtboard id="conf" label="03 · Confirm capture" width={AB_W} height={AB_H}><MConfirm /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="read" title="Read — briefs & dossiers"
+        subtitle="Mobile is a fine reading surface. Long-form briefs get editorial treatment; dossier surfaces synthesis first.">
+        <DCArtboard id="briefs" label="04 · Briefs list" width={AB_W} height={AB_H}><MBriefs /></DCArtboard>
+        <DCArtboard id="reader-l" label="05 · Brief reader (light)" width={AB_W} height={AB_H}><MReader /></DCArtboard>
+        <DCArtboard id="reader-d" label="05 · Brief reader (dark)" width={AB_W} height={AB_H}><MReader dark /></DCArtboard>
+        <DCArtboard id="entity" label="06 · Entity dossier" width={AB_W} height={AB_H}><MEntity /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="navigate" title="Navigate — board, feed, search"
+        subtitle="The library side. Board holds open questions, timeline is raw captures, search is the escape hatch.">
+        <DCArtboard id="board" label="07 · Board" width={AB_W} height={AB_H}><MBoard /></DCArtboard>
+        <DCArtboard id="timeline" label="08 · Timeline" width={AB_W} height={AB_H}><MTimeline /></DCArtboard>
+        <DCArtboard id="search" label="09 · Search" width={AB_W} height={AB_H}><MSearch /></DCArtboard>
+      </DCSection>
+
+      <DCSection id="system" title="System — settings & empty"
+        subtitle="Everything else. Settings groups by intent; empty state pitches the product in under 7 seconds.">
+        <DCArtboard id="settings" label="10 · Settings" width={AB_W} height={AB_H}><MSettings /></DCArtboard>
+        <DCArtboard id="empty" label="11 · First-run empty" width={AB_W} height={AB_H}><MEmpty /></DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
