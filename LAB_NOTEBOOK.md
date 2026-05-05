@@ -9458,6 +9458,30 @@ No commit. No push. No state-file edits.
 
 ---
 
+#### Phase 6, Item 6.2: mobile-auth middleware — COMPLETE 2026-05-05 [security] [api] [testing]
+
+**Findings:**
+
+`packages/core-api/src/middleware/mobile-auth.ts` created as a Hono `MiddlewareHandler<{Variables:{auth_tier:string}}>`. Pattern mirrors `mcp/auth.ts` and `middleware/admin-auth.ts` exactly: `crypto.timingSafeEqual()` with a length pre-check (prevents RangeError on mismatched buffer lengths), SHA-256 prefix hash logging only (first 16 hex chars), `@open-brain/shared` logger, fail-closed for unconfigured key.
+
+**Key adaptation from mcp/auth.ts:** `mcp/auth.ts` returns a Web `Response` object; `mobile-auth` returns `c.json(...)` (Hono's native JSON helper) with typed status codes (`401 | 503`), then calls `await next()` on success after `c.set('auth_tier', 'mobile')`. This is the standard Hono middleware contract vs. the Web Request/Response pattern the MCP layer uses.
+
+**503 vs 401 for unconfigured key:** `admin-auth.ts` returns 401 for missing config; `mobile-auth.ts` returns 503 with `AUTH_NOT_CONFIGURED` per the Phase 6 spec. This is intentional — 503 signals server misconfiguration vs. a client credential error, making ops alerts easier to triage.
+
+**Fetch API header normalization discovery:** The Node `Request` constructor strips trailing whitespace from header values per HTTP spec. `'Bearer '` (just "Bearer" + space, no token) is normalized to `'Bearer'` by the time it reaches Hono — so it fails the `startsWith('Bearer ')` check and returns AUTH_INVALID via the scheme-check branch rather than the empty-token branch. Test comments document this behavior. Both paths produce AUTH_INVALID so the security contract is unchanged.
+
+**Test results:** 15/15 pass in 1.66s. `pnpm --filter @open-brain/core-api lint` — only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new lint errors.
+
+**Edge cases covered:** missing header (AUTH_MISSING), wrong scheme (Basic, bearer, Token), empty token after normalization, wrong-but-non-empty token, correct token (success + auth_tier set + next() called), MOBILE_API_KEY unset (503), MOBILE_API_KEY empty string (503), length-mismatch short token (no throw), length-mismatch long token (no throw), unprotected route unaffected, whitespace-trimming of token value.
+
+**Files created:**
+- `packages/core-api/src/middleware/mobile-auth.ts`
+- `packages/core-api/src/middleware/__tests__/mobile-auth.test.ts`
+
+No commit. No push. No state-file edits.
+
+---
+
 #### Phase 5: Closing Summary — 5.1–5.4 COMPLETE; 5.5 + 5.6 DEFERRED → Phase 5b (2026-05-05)
 
 **Phase 5 outcomes (committed together):**
@@ -9486,3 +9510,244 @@ packages/core-api/src/__tests__/integration/mcp-tools.test.ts
 - **A118** — Fix mcp-tools search_brain FTS test. File: `packages/core-api/src/__tests__/integration/mcp-tools.test.ts` ~L122. Evidence: 0/10 green over 13 days, same deterministic failure. Unblock criterion: ≥9/10 green integration-test runs after A118 is fixed.
 - **Phase 5b** — CI Promotion (deferred from Phase 5). Blocked by A118. Unblock criterion: ≥9/10 green. Sibling to Phase 5, does not bump Phase 6 numbering.
 
+---
+
+#### Phase 6.1: MOBILE_API_KEY secret plumbing — COMPLETE 2026-05-05
+
+**Tags:** [config] [security] [decision]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Subagent:** 6.1 (secret template + map only)
+
+**Findings:**
+
+Steps 1 and 2 of the P08 3-step secret lockstep added for `MOBILE_API_KEY`:
+
+1. `deploy/.env.secrets.template` — added a `MOBILE_API_KEY=` placeholder block (lines 37–41) in the "MCP / Admin Authentication" section, immediately after `ADMIN_API_KEY=`. Comment block follows existing style: "Used by:", "Bitwarden:" path, and an operator note referencing A119.
+
+2. `scripts/lib/secrets-map.sh` — added `["dev/open-brain/mobile-api-key"]="MOBILE_API_KEY"` to `OPTIONAL_SECRETS` (not `REQUIRED_SECRETS`) because the BWS item does not exist yet — placing it in REQUIRED would cause `load-secrets.sh` to fail on the next reconcile. An inline comment references A119 and names the Phase 6 consumers (6.2 middleware + 6.4 mobile client). `bash -n` syntax check: PASS. shellcheck: not installed on host (non-blocking per constraint).
+
+**BWS path:** `dev/open-brain/mobile-api-key` → `MOBILE_API_KEY`.
+
+**A119 (BWS item creation):** Operator-deferred. The Bitwarden item `dev/open-brain/mobile-api-key` does NOT yet exist in BWS. `load-secrets.sh` will silently skip it (OPTIONAL_SECRETS path) until an operator runs `bws secret create dev/open-brain/mobile-api-key <value>`. The item should be created before mobile client testing begins and promoted to `REQUIRED_SECRETS` at that time if desired. A119 is tracked as a pending action item.
+
+**Split-lockstep coordination (intentional CLAUDE.md deviation):** CLAUDE.md §Backup/DR states "new secret in BWS must be added in the same commit to (1) template, (2) map, (3) consumer." Phase 6 intentionally splits step 3 across three subagents — 6.1 owns template + map, 6.2 owns the core-api middleware that reads `MOBILE_API_KEY` for Bearer validation, and 6.4 owns the mobile client that supplies the token. The Phase 6 ops subagent is responsible for verifying all three steps are present before making the Phase 6 commit, ensuring the full lockstep is satisfied in the final committed state even though intermediate subagent work is incremental. This deviation is deliberate and tracked here.
+
+**Files modified:**
+- `deploy/.env.secrets.template` — lines 37–41 (new `MOBILE_API_KEY` block)
+- `scripts/lib/secrets-map.sh` — `OPTIONAL_SECRETS` array (new `dev/open-brain/mobile-api-key` entry + inline comment)
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 6.6: Mobile onboarding runbook — COMPLETE 2026-05-05
+
+**Tags:** [security] [decision] [config]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Subagent:** 6.6 (runbook only)
+
+**Findings:**
+
+`docs/runbooks/mobile-onboarding.md` created (new file). The runbook covers the operator workflow for provisioning a Bearer token to the iPhone/Watch mobile client after Phase 6 (R8) deploys.
+
+**Key decisions recorded in the runbook:**
+
+- **Secure-store key:** the token is stored under `ob_api_token` (the existing key in `packages/mobile/src/lib/storage.ts` — `KEYS.API_TOKEN`). The BWS secret name is `dev/open-brain/mobile-api-key` and the env var is `MOBILE_API_KEY` (server side). These are distinct namespaces; the runbook calls out both explicitly.
+- **A119 referenced by name** — the runbook notes that BWS secret creation is deferred until mobile testing begins and references A119 as the tracking action item. The prerequisite section explains the exact `bws secret create` command to run.
+- **Onboarding flow:** the existing `packages/mobile/app/onboarding.tsx` is a welcome/intro screen (no token input). Phase 6.4 adds the Bearer-aware client; the token is pasted via Settings once the app detects `ob_api_token` is absent from Keychain. The runbook documents the Settings path rather than the onboarding screen, which accurately reflects the Phase 6.4 contract (`storage.getApiToken()` → "not yet onboarded" UI state on miss).
+- **Sequencing rule documented explicitly** — Phase 6.4 (mobile client) must sideload and smoke-test before Phase 6.5 (BYPASS removal) ships to production. The runbook records the rationale so the operator doesn't skip the pre-check and create a lockout window.
+- **Failure mode table covers all three 401 error codes** (`AUTH_NOT_CONFIGURED` / `AUTH_INVALID` / `AUTH_MISSING`) plus the 503 case (key not loaded server-side) and 429 (mobile tier post-6.5).
+- **3-step lockstep compliance** — the Related section links to the CLAUDE.md 3-step secrets lockstep rule and reminds the operator that A119 execution requires the same-commit update to all three files (`deploy/.env.secrets.template`, `scripts/lib/secrets-map.sh`, and the consumer). Phase 6.1 already handles steps 1 and 2; step 3 (the consumer middleware and API client) lands in 6.2 and 6.4.
+
+**Files created:**
+- `docs/runbooks/mobile-onboarding.md` (new, 152 lines)
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 6.4: Mobile API client Bearer auth — COMPLETE 2026-05-05
+
+**Tags:** [security] [mobile] [testing]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Subagent:** 6.4 (mobile client token attach + onboarding screen + settings token UI)
+
+**Findings:**
+
+**expo-secure-store dependency:** Already present in `packages/mobile/package.json` as `expo-secure-store: ~15.0.8`. No install required; `pnpm-lock.yaml` unchanged.
+
+**storage.ts pre-wired:** `packages/mobile/src/lib/storage.ts` already wrapped `expo-secure-store` with `getApiToken()` / `setApiToken()` using key `ob_api_token` (exact match to the runbook). Only addition: `deleteApiToken()` for the logout path.
+
+**Token attach design — `request<T>` return type preserved:** The `NotOnboardedError` sentinel is a thrown class (extends `Error`), not a union return type. This is the right shape: callers already catch `HttpError`; adding `NotOnboardedError` to the catch block is the natural extension. The alternative (returning `T | NotOnboardedError`) required widening every typed API helper return signature — ~10 sites — and would propagate the union through all hooks (React Query `useCaptures`, `useBriefs`, etc.), creating noise everywhere.
+
+**Module-level token cache:** `_cachedToken` starts `undefined` (not-yet-read). On first `request()` call, SecureStore is queried once; the result (`string | null`) is stored. Subsequent calls in the same process skip SecureStore. `clearTokenCache()` resets to `undefined`. This is exported so settings.tsx can call it after `setApiToken()` and `deleteApiToken()` — ensuring the new token is picked up immediately without an app restart.
+
+**Onboarding screen:** `packages/mobile/app/onboarding.tsx` is a welcome/intro flow (no token UI). The runbook (6.6) explicitly documents Settings as the token-paste path. No change to onboarding.tsx — this was the correct call per the runbook spec.
+
+**Settings screen — new Connection section:** Added before the Capture section. Contains:
+- "API Token" row: shows status (`Configured` / `Not set — tap to configure`), toggling an inline TextInput for token paste.
+- TextInput validates exactly 64 lowercase hex chars (matches `openssl rand -hex 32` per runbook). Error message shown inline on invalid input.
+- "Save Token" button calls `storage.setApiToken(token)` + `clearTokenCache()`.
+- "Clear API Token" row: `Alert.alert` two-step confirmation → `storage.deleteApiToken()` + `clearTokenCache()`.
+- `LogOut` + `KeyRound` icons from `lucide-react-native` (already a project dependency).
+
+**`_layout.tsx` not modified:** The Expo Router stack does not need a new `Stack.Screen` for the token flow — it lives in the existing `/settings` route. No new screen registrations.
+
+**Tests:** Jest is configured in `packages/mobile/jest.config.js`. Existing `__tests__/lib/api-client.test.ts` (3 tests: HttpError, buildQueryString ×3) extended with 8 new token-attach tests. All 12 pass. Total suite: **4 suites / 24 tests / 0 fail**.
+
+**Key test patterns:**
+- `jest.mock('expo-secure-store', ...)` — prevents any real Keychain access.
+- `jest.mock('../../src/lib/config', ...)` — stable base URL `https://test.local/api/v1`.
+- `(globalThis as Record<string, unknown>)['fetch'] = mockFetch` — avoids TS2304 `Cannot find name 'global'` (Expo tsconfig targets DOM, not Node; `global` is not in scope).
+- `clearTokenCache()` called in `beforeEach` — prevents test cross-contamination via the module-level cache.
+
+**Lint:** Only pre-existing MPill.test.tsx ×5 and TabBar.test.tsx ×1 TS2345 errors (react-test-renderer types mismatch vs React 19, confirmed pre-existing via `git stash` round-trip). Zero new errors in modified or added files.
+
+**Files modified/added:**
+- MODIFIED: `packages/mobile/src/lib/api-client.ts` — `NotOnboardedError` class, `clearTokenCache()`, `getToken()` cache, Bearer header in `request<T>`.
+- MODIFIED: `packages/mobile/src/lib/storage.ts` — added `deleteApiToken()`.
+- MODIFIED: `packages/mobile/app/settings.tsx` — Connection section with token paste UI and clear action.
+- MODIFIED: `packages/mobile/__tests__/lib/api-client.test.ts` — 8 new token-attach tests.
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 6.3: Mobile-auth conditional middleware wiring — COMPLETE 2026-05-05
+
+**Tags:** [security] [api] [testing]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Subagent:** 6.3 (conditional middleware + app.ts wiring + routing tests)
+
+**Findings:**
+
+**Design choice — Option A (conditional wrapper):** A 5-line `requireMobileAuthIfMobileCaller` middleware was appended to `packages/core-api/src/middleware/mobile-auth.ts` as a sibling export. It checks `c.req.header('x-open-brain-caller')` and delegates to `mobileAuth` only when the value is exactly `'mobile-app'`. All other callers (`web-next-public`, `integration-test`, `workers`, `slack-bot`, absent header) call `await next()` directly — zero performance cost for the 99% non-mobile path.
+
+Option B (tagged sub-router) was considered and rejected: it would require restructuring how routes are mounted in `app.ts` (16+ route registration calls), a much larger change surface. Option C (skip logic inside `mobileAuth` itself) was rejected because it would require modifying the 6.2 middleware (out of scope) and couple identity-awareness into a function that should only validate tokens.
+
+**Routes protected (11 `app.use` registrations):**
+- `/api/v1/captures` + `/api/v1/captures/*`
+- `/api/v1/search`
+- `/api/v1/briefs` + `/api/v1/briefs/*`
+- `/api/v1/commitments` + `/api/v1/commitments/*`
+- `/api/v1/settings` + `/api/v1/settings/*`
+- `/api/v1/stats` + `/api/v1/stats/*`
+
+Placement in `app.ts`: AFTER all rate-limit `app.use(...)` registrations (so BYPASS_CALLERS check runs first, preserving mobile-app bypass during the 6.3->6.5 transition), BEFORE route handler registrations.
+
+`/mcp` is explicitly NOT in the list — MCP has its own auth layer (`mcp/auth.ts`). Test case 11 in the new test file verifies this.
+
+**Test results — 12/12 pass** in the new `src/__tests__/mobile-auth-routing.test.ts`:
+
+| # | Scenario | Expected | Actual |
+|---|----------|----------|--------|
+| 1 | mobile-app, no Authorization header | 401 AUTH_MISSING | 401 AUTH_MISSING pass |
+| 2 | mobile-app, wrong Bearer token | 401 AUTH_INVALID | 401 AUTH_INVALID pass |
+| 3 | mobile-app, correct Bearer token | auth passes (not 401/503) | 404 (no service) pass |
+| 4 | web-next-public, no Bearer | auth skipped (not 401/503) | 404 pass |
+| 5 | integration-test, no Bearer | auth skipped (not 401/503) | 404 pass |
+| 6 | workers, no Bearer | auth skipped (not 401/503) | 404 pass |
+| 7 | no caller header, no Bearer | auth skipped (not 401/503) | 404 pass |
+| 8 | mobile-app on /api/v1/search, no Bearer | 401 AUTH_MISSING | 401 AUTH_MISSING pass |
+| 9 | mobile-app on /api/v1/commitments, no Bearer | 401 AUTH_MISSING | 401 AUTH_MISSING pass |
+| 10 | mobile-app on /api/v1/settings, no Bearer | 401 AUTH_MISSING | 401 AUTH_MISSING pass |
+| 11 | mobile-app on /mcp, no Bearer | NOT rejected by mobile-auth | 404 (MCP disabled, not mobile-auth) pass |
+| 12 | MOBILE_API_KEY unset + mobile-app + Bearer | 503 AUTH_NOT_CONFIGURED | 503 AUTH_NOT_CONFIGURED pass |
+
+**Full suite regression check:** 66 files / 1,154 tests / 0 fail (+12 new tests from this work item).
+
+**Lint:** Only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new lint errors introduced.
+
+**BYPASS_CALLERS intact:** `internal:mobile-app` remains in rate-limit.ts's bypass set. This is intentional — 6.5 removes it after the conditional mobile-auth layer is validated end-to-end on the mobile client (sequencing constraint documented in 6.6 runbook).
+
+**Files added/modified:**
+- MODIFIED: `packages/core-api/src/middleware/mobile-auth.ts` — appended `requireMobileAuthIfMobileCaller` sibling export (~25 LOC including JSDoc)
+- MODIFIED: `packages/core-api/src/app.ts` — import + 11 `app.use(...)` registrations (~18 LOC including comment block)
+- NEW: `packages/core-api/src/__tests__/mobile-auth-routing.test.ts` — 12 tests, 172 LOC
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 6.5: Mobile tier rate-limit + BYPASS_CALLERS removal — COMPLETE 2026-05-05
+
+**Tags:** [security] [api] [testing] [refactor]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Subagent:** 6.5 (BYPASS removal + mobile tier + integration test + CLAUDE.md update)
+
+**Findings:**
+
+**BYPASS_CALLERS audit before change:** `internal:mobile-app` was present as the 18th entry in the Set (CLAUDE.md said 16 but was already stale — P21 added `internal:newsletter-pipeline` without updating the count, making it 17 entries before mobile-app; 18 with it). **After removal: 17 entries.** CLAUDE.md corrected from "16" to "17" and `newsletter-pipeline` added to the documented list.
+
+**Middleware ordering — critical discovery:** `app.ts` wires rate-limit BEFORE mobile-auth. This means `c.get('auth_tier')` is NOT set when rate-limit runs — so the approach of reading `auth_tier` from Hono context in rate-limit is impossible without reordering. **Design decision: detect mobile callers from the rate-limit layer itself** (read `X-Open-Brain-Caller: mobile-app` + check `isInternalIp()` on XFF) and extract the Bearer token from the `Authorization` header directly in `getClientKey()`. This avoids any middleware reordering and makes the rate-limit layer self-contained. The mobile-auth middleware continues to run AFTER rate-limit and does full Bearer validation; rate-limit reads the token hash only for bucketing, not for auth.
+
+**getClientKey() return type change:** Promoted from `function getClientKey(...): string` to `export function getClientKey(...): { key: string; tier?: keyof typeof RATE_LIMIT_TIERS }`. The `tier` field is populated only for `'mobile'` callers; absent for all other paths. `rateLimit()` signature extended to accept an optional `mobileLimiter?: RateLimiter` second argument — when `tier === 'mobile'` and `mobileLimiter` is provided, the mobile limiter is used instead of the passed limiter. Backward-compatible: callers that pass only one limiter continue to work (mobile callers fall back to the base limiter — acceptable for test isolation).
+
+**Mobile tier:** `RATE_LIMIT_TIERS.mobile = { maxRequests: 200, windowMs: 60_000 }`. Rationale: default=100 (general web), strict=20 (LLM endpoints), admin=5 (destructive). Mobile=200 sits above default — the mobile app is a single authenticated user who may do burst reads (offline sync, load on open) and the Bearer token proves identity, so a more generous limit is appropriate. 200 is a round number above default but below any "runaway loop" threshold (the app has ~11 rate-limited endpoints; 200 is roughly 18 calls per endpoint per minute, more than enough for human usage but not for an infinite loop).
+
+**Bearer-token bucket keying:** `mobile:<sha256_hex_prefix_16>`. Same hash computation as `mobile-auth.ts` (`createHash('sha256').update(token).digest('hex').slice(0, 16)`). Each unique token gets an independent bucket — matters for the future when the user has both an iPhone and an Apple Watch with separate tokens. No-token fallback: keys on source IP (mobile-auth will reject the request downstream; rate-limit still counts the attempt against the IP).
+
+**Internal-IP edge case:** mobile-app from a private/Tailscale IP → `isInternalIp()` returns true → falls into the `internal:mobile-app` branch → checked against BYPASS_CALLERS → NOT present → falls through to base limiter keyed on `internal:mobile-app`. This is not in BYPASS_CALLERS (removed), so internal mobile gets rate-limited like any other unnamed internal caller. Acceptable edge case (no phone on the LAN in production; iPhone always hits via Cloudflare Tunnel WAN IP).
+
+**Defense-in-depth confirmed:** Public-IP caller claiming `X-Open-Brain-Caller: mobile-app` → goes to mobile tier rate-limit (200 req/min per token hash) → must still pass mobile-auth Bearer validation. Cannot bypass rate-limit by claiming mobile-app identity (removed from BYPASS_CALLERS). Cannot bypass auth by having a low request rate (mobile-auth runs regardless). The `isInternalIp()` check in `getClientKey()` still prevents public callers from obtaining `internal:*` keys for any caller name — structurally preserved.
+
+**CLAUDE.md change:** Line 38 — count corrected 16 → 17; `newsletter-pipeline` added to the listed entries (was in code but missing from docs since P21); `mobile-app` removed from the bypass context with a note explaining the Phase 6 R8 architectural shift.
+
+**Test results:**
+- `pnpm --filter @open-brain/core-api lint` — only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new lint errors.
+- Targeted (mobile-rate-limit.test.ts + rate-limit.test.ts): **9 + 51 = 60 tests, 0 fail.**
+- Full suite: **67 files / 1,163 tests / 0 fail** (up from 66/1,154 — +1 file, +9 tests).
+
+**Test cases:**
+- (a) mobile + valid Bearer + public IP, below threshold: PASS (3 requests all 200 on threshold=5)
+- (b) mobile + valid Bearer, over threshold: PASS (3rd request 429, Retry-After present)
+- (c) mobile + no Bearer + public IP: PASS (falls back to IP key, 429 on 2nd request with threshold=1)
+- (d) integration-test caller: PASS (bypasses regardless — 3 requests all 200 on threshold=1)
+- (bonus) two different tokens → independent buckets: PASS
+- (bonus) same token from two IPs → same bucket: PASS
+- (bonus) mobile from internal IP → base limiter not mobile limiter: PASS
+- (bonus) RATE_LIMIT_TIERS.mobile sanity check: PASS
+- (bonus) mobileKey() format: PASS
+
+**Files added/modified:**
+- MODIFIED: `packages/core-api/src/middleware/rate-limit.ts` — `import { createHash }` added; `RATE_LIMIT_TIERS.mobile` added; `getClientKey()` promoted to `export`, returns `{key, tier?}`, mobile-path added; `rateLimit()` accepts optional `mobileLimiter`, routes mobile tier; `BYPASS_CALLERS` removes `'internal:mobile-app'` + adds comment; JSDoc updated.
+- MODIFIED: `packages/core-api/src/app.ts` — `mobileLimiter` instantiation added; all `rateLimit(limiter)` calls updated to `rateLimit(limiter, mobileLimiter)`.
+- NEW: `packages/core-api/src/__tests__/mobile-rate-limit.test.ts` — 9 tests, ~200 LOC.
+- MODIFIED: `packages/core-api/src/__tests__/rate-limit.test.ts` — comment updated on mobile-app test; RATE_LIMIT_TIERS test extended to include `mobile` tier assertions.
+- MODIFIED: `CLAUDE.md` — line 38: count 16 → 17; `newsletter-pipeline` added; mobile-app removed from bypass context with Phase 6 R8 note.
+
+No commit. No push. No state-file edits.
+
+
+
+---
+
+### Phase 6 Closing Summary -- COMPLETE 2026-05-05
+
+**Tags:** [security] [mobile] [api] [testing] [config] [decision]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+
+**All 6 items delivered:**
+
+- **6.1 Secret plumbing** -- `MOBILE_API_KEY` placeholder added to `deploy/.env.secrets.template` and `scripts/lib/secrets-map.sh` (OPTIONAL_SECRETS block). BWS item creation deferred to operator as A119 before mobile testing. 3-step lockstep: template OK secrets-map OK consumer OK (`process.env.MOBILE_API_KEY` read in `mobile-auth.ts`).
+- **6.2 mobile-auth middleware** -- timing-safe Bearer compare, SHA-256 prefix hash logging, fail-closed 503 `AUTH_NOT_CONFIGURED` when env not loaded. 15 unit tests in `packages/core-api/src/middleware/__tests__/mobile-auth.test.ts`.
+- **6.3 Conditional middleware wiring** -- `requireMobileAuthIfMobileCaller` sibling export in `mobile-auth.ts`; wired on 11 route prefixes in `app.ts`. `/mcp` explicitly excluded. `web-next-public` + internal callers pass-through. 12 routing tests in `mobile-auth-routing.test.ts`.
+- **6.4 Mobile API client** -- `packages/mobile/src/lib/api-client.ts` attaches `Authorization: Bearer` from `expo-secure-store` (key `ob_api_token`, module-cached); `NotOnboardedError` surfaces missing-token UI state. `storage.ts` gets `deleteApiToken()`. Settings screen (`app/settings.tsx`) gains token paste + two-step clear UI. 8 new tests (12 total in `api-client.test.ts`).
+- **6.5 BYPASS_CALLERS demote** -- `internal:mobile-app` removed (18 to 17 entries). `RATE_LIMIT_TIERS.mobile` added (200 req/min). `getClientKey()` promoted to `export`, returns `{key, tier?}`. `rateLimit()` accepts optional `mobileLimiter`. Bearer-token bucket keying: `mobile:<sha256_hex_prefix_16>`. 9 tests in `mobile-rate-limit.test.ts`. CLAUDE.md count corrected: stale 16 to 17 (P21 added `newsletter-pipeline` without updating docs).
+- **6.6 Mobile onboarding runbook** -- `docs/runbooks/mobile-onboarding.md` (166 lines). Covers provisioning, rotation, failure-mode table (AUTH_MISSING / AUTH_INVALID / AUTH_NOT_CONFIGURED / 503 / 429), sequencing constraint (6.4 smoke before 6.5 production deploy), and 3-step lockstep reference.
+
+**Tests landed:** 15 (6.2) + 12 (6.3) + 8 (6.4) + 9 (6.5) = **44 new tests**. Final core-api state: **67 files / 1,163 tests / 0 fail**. Mobile suite: **4 suites / 24 tests / 0 fail**.
+
+**3-step lockstep verification:**
+1. `deploy/.env.secrets.template` -- `MOBILE_API_KEY=` placeholder added
+2. `scripts/lib/secrets-map.sh` -- `dev/open-brain/mobile-api-key` to `MOBILE_API_KEY` mapping added to OPTIONAL_SECRETS
+3. Consumer -- `packages/core-api/src/middleware/mobile-auth.ts` reads `process.env.MOBILE_API_KEY`
+
+**BYPASS_CALLERS demote:** 18 to 17. CLAUDE.md count corrected from stale 16 (left over from before P21 added `newsletter-pipeline`). The documented 17 entries now match the code exactly.
+
+**Action items:**
+- **A119** (BWS secret creation -- `bws secret create dev/open-brain/mobile-api-key`) is explicitly deferred to operator before mobile testing. Documented in runbook.
+- **A120** (6 TS2345 errors in `MPill.test.tsx` + `TabBar.test.tsx` -- `react-test-renderer` vs React 19 type incompatibility) recorded as new pre-existing baseline alongside A106/A108.
+- **A118 forcing function:** `mcp-tools search_brain FTS test` must be fixed BEFORE Phase 7 dispatch. The state file records this as `next_phase_blocker`. Do not dispatch Phase 7 work items until A118 is resolved and >=9/10 green integration-test runs are confirmed.
+
+**Lint (pre-commit):** `pnpm --filter @open-brain/core-api lint` -- only A106 (entity-resolution.test.ts:345 TS2502). `pnpm --filter @open-brain/mobile lint` -- only A120 (6 TS2345 in MPill + TabBar). No new errors introduced.

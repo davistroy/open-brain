@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { MiddlewareHandler } from 'hono'
 import { logger } from '@open-brain/shared'
 
@@ -17,11 +18,16 @@ export interface RateLimitConfig {
  * - default: 100 req/min — general API reads and writes
  * - strict:  20 req/min  — endpoints that trigger LLM/embedding calls (captures, search, synthesize)
  * - admin:    5 req/min  — destructive admin operations (reset-data, config reload)
+ * - mobile:  200 req/min — authenticated mobile clients (Expo React Native). Bearer-token bucket
+ *                          per unique token so each device gets its own window. Between default and
+ *                          lenient — human-driven mobile usage is burstier than anonymous web but
+ *                          single-user, so a generous-but-finite limit prevents runaway loops.
  */
 export const RATE_LIMIT_TIERS = {
   default: { maxRequests: 100, windowMs: 60_000 },
   strict: { maxRequests: 20, windowMs: 60_000 },
   admin: { maxRequests: 5, windowMs: 60_000 },
+  mobile: { maxRequests: 200, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitConfig>
 
 /** Sliding window entry: list of request timestamps within the current window */
@@ -192,49 +198,79 @@ export function isInternalIp(ip: string): boolean {
  * Extracts a rate-limit key from the request.
  *
  * Priority:
- * 1. X-Open-Brain-Caller — set by internal Docker services (slack-bot, workers)
- *    to get their own rate-limit bucket instead of sharing 'default-client'.
- *    **Defense-in-depth (Phase 2.3):** the caller header is honored ONLY when
- *    the source IP (first entry of `X-Forwarded-For`) is internal per
- *    `isInternalIp()`, OR when no `X-Forwarded-For` is present (meaning the
- *    request came directly to core-api — only reachable from the Docker
- *    network in production). A public XFF IP forces fall-through to IP
- *    keying regardless of any client-supplied caller header.
- * 2. X-Forwarded-For (first hop) — set by reverse proxies / Cloudflare Tunnel.
- * 3. 'default-client' — fallback when neither header is present.
+ * 1. X-Open-Brain-Caller: mobile-app from a PUBLIC source IP — mobile tier, keyed
+ *    on the SHA-256 prefix of the Bearer token (first 16 hex chars). Each unique
+ *    token gets its own bucket, supporting multiple physical devices in the future.
+ *    If no Bearer token is present (auth will reject the request downstream), the
+ *    key falls back to the source IP so the unauthenticated attempt is still counted.
+ *    **Phase 6 (R8):** mobile-app removed from BYPASS_CALLERS — authenticated via
+ *    Bearer (mobile-auth middleware) and rate-limited via the 'mobile' tier instead.
+ * 2. X-Open-Brain-Caller (non-mobile) — set by internal Docker services (slack-bot,
+ *    workers) to get their own rate-limit bucket instead of sharing 'default-client'.
+ *    **Defense-in-depth (Phase 2.3):** the caller header is honored ONLY when the
+ *    source IP (first entry of `X-Forwarded-For`) is internal per `isInternalIp()`,
+ *    OR when no `X-Forwarded-For` is present (meaning the request came directly to
+ *    core-api — only reachable from the Docker network in production). A public XFF
+ *    IP forces fall-through to IP keying regardless of any client-supplied caller header.
+ * 3. X-Forwarded-For (first hop) — set by reverse proxies / Cloudflare Tunnel.
+ * 4. 'default-client' — fallback when neither header is present.
  */
-function getClientKey(headers: Headers): string {
+export function getClientKey(headers: Headers): { key: string; tier?: keyof typeof RATE_LIMIT_TIERS } {
   const caller = headers.get('x-open-brain-caller')
   const forwarded = headers.get('x-forwarded-for')
   const sourceIp = forwarded ? forwarded.split(',')[0]!.trim() : ''
+
+  // Mobile callers from a public IP get their own rate-limit tier keyed on token hash.
+  // Defense-in-depth: internal source IP + mobile-app is treated as an internal caller
+  // (BYPASS_CALLERS path) — an iPhone on the LAN would skip the mobile tier.  In
+  // practice, all mobile traffic arrives via Cloudflare Tunnel (public WAN IP).
+  if (caller === 'mobile-app' && sourceIp && !isInternalIp(sourceIp)) {
+    const authHeader = headers.get('authorization')
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice('Bearer '.length).trim()
+      if (token) {
+        const tokenPrefix = createHash('sha256').update(token).digest('hex').slice(0, 16)
+        return { key: `mobile:${tokenPrefix}`, tier: 'mobile' }
+      }
+    }
+    // No (or malformed) Bearer token — key on source IP; mobile-auth rejects next.
+    return { key: sourceIp, tier: 'mobile' }
+  }
 
   if (caller) {
     // Defense-in-depth: ignore caller header when the source IP is public.
     // Absence of XFF means the request did not transit a reverse proxy —
     // in production, only the Docker network can reach core-api directly.
     if (!sourceIp || isInternalIp(sourceIp)) {
-      return `internal:${caller}`
+      return { key: `internal:${caller}` }
     }
     // Public source IP — fall through to IP-based keying. Caller header ignored.
   }
 
   if (sourceIp) {
-    return sourceIp
+    return { key: sourceIp }
   }
-  return 'default-client'
+  return { key: 'default-client' }
 }
 
 /**
  * Creates a Hono rate-limiting middleware using the given RateLimiter instance.
  *
+ * Mobile callers (X-Open-Brain-Caller: mobile-app from a public IP) are
+ * automatically routed to a separate mobile-tier limiter (200 req/min) keyed
+ * on the Bearer token hash, regardless of which endpoint limiter this
+ * middleware instance is mounted on.  All other callers use the provided limiter.
+ *
  * Returns 429 Too Many Requests with a Retry-After header (in seconds)
  * when the client exceeds the configured limit.
  */
-export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
+export function rateLimit(limiter: RateLimiter, mobileLimiter?: RateLimiter): MiddlewareHandler {
   return async (c, next) => {
-    const key = getClientKey(c.req.raw.headers)
+    const { key, tier } = getClientKey(c.req.raw.headers)
 
-    // Bypass rate limiting for trusted internal callers
+    // Bypass rate limiting for trusted internal callers.
+    // mobile-app removed in Phase 6 (R8) — now authenticated via Bearer
+    // (mobile-auth middleware) and rate-limited via the 'mobile' tier instead.
     const BYPASS_CALLERS = new Set([
       'internal:integration-test',
       'internal:web-ui',
@@ -257,15 +293,16 @@ export function rateLimit(limiter: RateLimiter): MiddlewareHandler {
       'internal:ingest-repair',
       // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
       'internal:newsletter-pipeline',
-      // Mobile app — Expo React Native client
-      'internal:mobile-app',
     ])
     if (BYPASS_CALLERS.has(key)) {
       await next()
       return
     }
 
-    const result = limiter.check(key)
+    // Mobile-tier callers use a dedicated limiter (200 req/min per token hash).
+    // Fall back to the provided limiter when no mobileLimiter is injected (e.g., tests).
+    const activeLimiter = (tier === 'mobile' && mobileLimiter) ? mobileLimiter : limiter
+    const result = activeLimiter.check(key)
 
     // Always set informational headers
     c.header('X-RateLimit-Remaining', String(result.remaining))

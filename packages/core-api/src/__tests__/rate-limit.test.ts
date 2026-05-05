@@ -102,10 +102,12 @@ describe('RATE_LIMIT_TIERS', () => {
     expect(RATE_LIMIT_TIERS.default.maxRequests).toBe(100)
     expect(RATE_LIMIT_TIERS.strict.maxRequests).toBe(20)
     expect(RATE_LIMIT_TIERS.admin.maxRequests).toBe(5)
+    expect(RATE_LIMIT_TIERS.mobile.maxRequests).toBe(200)
     // All windows are 60 seconds
     expect(RATE_LIMIT_TIERS.default.windowMs).toBe(60_000)
     expect(RATE_LIMIT_TIERS.strict.windowMs).toBe(60_000)
     expect(RATE_LIMIT_TIERS.admin.windowMs).toBe(60_000)
+    expect(RATE_LIMIT_TIERS.mobile.windowMs).toBe(60_000)
   })
 })
 
@@ -436,11 +438,12 @@ describe('rateLimit middleware — defense-in-depth caller header (Phase 2.3)', 
     }
   })
 
-  it('IGNORES X-Open-Brain-Caller: mobile-app from 1.2.3.4 (public IP) — falls through to IP key', async () => {
+  it('mobile-app from 1.2.3.4 (public IP, no Bearer) — keys on source IP, 429 on second request', async () => {
     const { app, limiter } = createApp(1)
     try {
-      // mobile-app is in BYPASS_CALLERS, but source IP 1.2.3.4 is public → caller header ignored.
-      // First request keys on '1.2.3.4', allowed.
+      // Phase 6 (R8): mobile-app is no longer in BYPASS_CALLERS.  Without a Bearer token
+      // the mobile path falls back to source-IP keying (mobile-auth will reject next, but
+      // rate-limit still counts the attempt).  First request from 1.2.3.4 → allowed.
       const res1 = await app.request(
         new Request('http://localhost/api/test', {
           headers: {
@@ -450,7 +453,7 @@ describe('rateLimit middleware — defense-in-depth caller header (Phase 2.3)', 
         }),
       )
       expect(res1.status).toBe(200)
-      // Second request with same public IP → over limit (proves we did NOT bypass).
+      // Second request from same public IP → over limit (proves we did NOT bypass).
       const res2 = await app.request(
         new Request('http://localhost/api/test', {
           headers: {
