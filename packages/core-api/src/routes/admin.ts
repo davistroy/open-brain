@@ -12,7 +12,15 @@ import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import type { ConfigService, Database } from '@open-brain/shared'
-import { logger, admin_audit } from '@open-brain/shared'
+import {
+  logger,
+  admin_audit,
+  AppError,
+  ConfigError,
+  ResetForbiddenError,
+  ServiceUnavailableError,
+  ValidationError,
+} from '@open-brain/shared'
 import { adminAuth } from '../middleware/admin-auth.js'
 import { SlackChannelService } from '../services/slack-channel.js'
 
@@ -178,7 +186,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
   // Origin check, JSON body, exact confirmation phrase, Redis token, and admin rate limiter.
   router.post('/reset-data', async (c) => {
     if (!db) {
-      return c.json({ error: 'Database not configured for reset endpoint' }, 503)
+      throw new ConfigError('Database not configured for reset endpoint')
     }
 
     // Parse body — tolerate missing or malformed JSON
@@ -206,7 +214,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
           ip_address,
         })
       }
-      return c.json({ error: 'Forbidden' }, 403)
+      throw new ResetForbiddenError('Forbidden')
     }
 
     // ── Step 2: confirm + token present ─────────────────────────────────────
@@ -220,7 +228,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
           origin,
           ip_address,
         })
-        return c.json({ error: 'Confirmation required. Send { "confirm": "WIPE ALL DATA", "token": "<token>" }' }, 400)
+        throw new ValidationError('Confirmation required. Send { "confirm": "WIPE ALL DATA", "token": "<token>" }')
       }
 
       if (!body.token || typeof body.token !== 'string') {
@@ -232,12 +240,12 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
           origin,
           ip_address,
         })
-        return c.json({ error: 'Token required. Perform step 1 first to obtain a single-use token.' }, 400)
+        throw new ValidationError('Token required. Perform step 1 first to obtain a single-use token.')
       }
 
       // GETDEL — atomic single-use; null if missing or expired
       if (!resetRedis) {
-        return c.json({ error: 'Token validation requires Redis' }, 503)
+        throw new ServiceUnavailableError('Token validation requires Redis')
       }
       const tokenData = await resetRedis.getdel(`admin:reset-token:${body.token}`)
       if (!tokenData) {
@@ -249,7 +257,11 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
           origin,
           ip_address,
         })
-        return c.json({ error: 'Invalid or expired token. Perform step 1 to obtain a new token.' }, 401)
+        throw new AppError(
+          'Invalid or expired token. Perform step 1 to obtain a new token.',
+          401,
+          'RESET_TOKEN_INVALID',
+        )
       }
 
       // Run pg_dump before TRUNCATE — abort wipe on failure
@@ -267,7 +279,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
           ip_address,
         })
         logger.error({ err: e }, '[admin] pg_dump failed — aborting reset')
-        return c.json({ error: 'pg_dump failed', detail: msg }, 500)
+        throw new AppError(`pg_dump failed: ${msg}`, 500, 'PG_DUMP_FAILED')
       }
 
       logger.warn({ actor, backupPath }, '[admin] Data reset initiated — wiping all user data')
@@ -322,7 +334,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
 
     // ── Step 1: issue token ──────────────────────────────────────────────────
     if (!resetRedis) {
-      return c.json({ error: 'Token issuance requires Redis' }, 503)
+      throw new ServiceUnavailableError('Token issuance requires Redis')
     }
     const token = randomBytes(32).toString('base64url')
     await resetRedis.set(
@@ -521,14 +533,14 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
       } catch (err) {
         logger.error({ err }, '[admin] Failed to list Slack channels')
         const message = err instanceof Error ? err.message : 'Unknown error listing Slack channels'
-        return c.json({ error: 'Failed to list Slack channels', message }, 500)
+        throw new AppError(`Failed to list Slack channels: ${message}`, 500, 'SLACK_LIST_FAILED')
       }
     })
 
     router.post('/slack/channels/:id/archive', async (c) => {
       const channelId = c.req.param('id')
       if (!channelId) {
-        return c.json({ error: 'Bad request', message: 'Channel ID is required' }, 400)
+        throw new ValidationError('Channel ID is required')
       }
 
       try {
@@ -538,24 +550,22 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
       } catch (err) {
         logger.error({ err, channelId }, '[admin] Failed to archive Slack channel')
         const message = err instanceof Error ? err.message : 'Unknown error archiving Slack channel'
-        return c.json({ error: 'Failed to archive Slack channel', message }, 500)
+        throw new AppError(`Failed to archive Slack channel: ${message}`, 500, 'SLACK_ARCHIVE_FAILED')
       }
     })
 
     logger.info('[admin] Slack channel management routes registered')
   } else {
-    router.get('/slack/channels', (c) => {
-      return c.json({
-        error: 'Service unavailable',
-        message: 'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
-      }, 503)
+    router.get('/slack/channels', () => {
+      throw new ConfigError(
+        'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
+      )
     })
 
-    router.post('/slack/channels/:id/archive', (c) => {
-      return c.json({
-        error: 'Service unavailable',
-        message: 'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
-      }, 503)
+    router.post('/slack/channels/:id/archive', () => {
+      throw new ConfigError(
+        'No Slack token available. Set SLACK_BOT_TOKEN or SLACK_USER_TOKEN.',
+      )
     })
   }
 
@@ -580,7 +590,7 @@ export function createAdminRouter({ configService, redisConnection, db }: AdminR
     router.post('/banner', async (c) => {
       const body = await c.req.json<{ message?: string; level?: string }>()
       if (!body.message || typeof body.message !== 'string') {
-        return c.json({ error: 'message is required' }, 400)
+        throw new ValidationError('message is required')
       }
       const validLevels: readonly AdminBanner['level'][] = ['info', 'success', 'warning']
       const level: AdminBanner['level'] = validLevels.includes(body.level as AdminBanner['level'])

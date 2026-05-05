@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import { sql } from 'drizzle-orm'
 import type { BriefsService } from '../services/briefs.js'
-import { NotFoundError, logger } from '@open-brain/shared'
+import { AppError, ServiceUnavailableError, logger } from '@open-brain/shared'
 import { BriefKindSchema, ai_audit_log } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
 
@@ -125,16 +125,8 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // -------------------------------------------------------------------------
   app.get('/api/v1/briefs/:id', async (c) => {
     const id = c.req.param('id')
-
-    try {
-      const brief = await briefsService.getById(id)
-      return c.json({ brief })
-    } catch (err) {
-      if (err instanceof NotFoundError) {
-        return c.json({ error: err.message, code: 'NOT_FOUND' }, 404)
-      }
-      throw err
-    }
+    const brief = await briefsService.getById(id)
+    return c.json({ brief })
   })
 
   // -------------------------------------------------------------------------
@@ -144,16 +136,8 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   app.post('/api/v1/briefs/:id/refine', zValidator('json', refineBriefSchema), async (c) => {
     const id = c.req.param('id')
     const body = c.req.valid('json')
-
-    try {
-      const result = await briefsService.refine(id, body.option)
-      return c.json(result, 202)
-    } catch (err) {
-      if (err instanceof NotFoundError) {
-        return c.json({ error: err.message, code: 'NOT_FOUND' }, 404)
-      }
-      throw err
-    }
+    const result = await briefsService.refine(id, body.option)
+    return c.json(result, 202)
   })
 
   // -------------------------------------------------------------------------
@@ -161,16 +145,8 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // -------------------------------------------------------------------------
   app.post('/api/v1/briefs/:id/dismiss', async (c) => {
     const id = c.req.param('id')
-
-    try {
-      await briefsService.dismiss(id)
-      return c.body(null, 204)
-    } catch (err) {
-      if (err instanceof NotFoundError) {
-        return c.json({ error: err.message, code: 'NOT_FOUND' }, 404)
-      }
-      throw err
-    }
+    await briefsService.dismiss(id)
+    return c.body(null, 204)
   })
 
   // -------------------------------------------------------------------------
@@ -179,16 +155,8 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   app.patch('/api/v1/briefs/:id', zValidator('json', patchBriefSchema), async (c) => {
     const id = c.req.param('id')
     const body = c.req.valid('json')
-
-    try {
-      const brief = await briefsService.patchRead(id, body.read)
-      return c.json({ brief })
-    } catch (err) {
-      if (err instanceof NotFoundError) {
-        return c.json({ error: err.message, code: 'NOT_FOUND' }, 404)
-      }
-      throw err
-    }
+    const brief = await briefsService.patchRead(id, body.read)
+    return c.json({ brief })
   })
 
   // -------------------------------------------------------------------------
@@ -208,28 +176,20 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // -------------------------------------------------------------------------
   app.post('/api/v1/briefs/:id/audio', zValidator('query', audioQuerySchema), async (c) => {
     if (!ttsDeps) {
-      return c.json({ error: 'TTS not configured', code: 'SERVICE_UNAVAILABLE' }, 503)
+      throw new ServiceUnavailableError('TTS not configured')
     }
 
     const { db, redis, openaiBaseUrl, openaiApiKey } = ttsDeps
     const id = c.req.param('id')
     const { voice } = c.req.valid('query')
 
-    // Step 1: fetch brief
-    let brief: Awaited<ReturnType<typeof briefsService.getById>>
-    try {
-      brief = await briefsService.getById(id)
-    } catch (err) {
-      if (err instanceof NotFoundError) {
-        return c.json({ error: (err as Error).message, code: 'NOT_FOUND' }, 404)
-      }
-      throw err
-    }
+    // Step 1: fetch brief — NotFoundError propagates to global errorHandler
+    const brief = await briefsService.getById(id)
 
     // Step 2: strip HTML to plain text
     const plainText = htmlToPlainText(brief.body_html)
     if (!plainText) {
-      return c.json({ error: 'Brief has no readable content', code: 'UNPROCESSABLE' }, 422)
+      throw new AppError('Brief has no readable content', 422, 'UNPROCESSABLE')
     }
 
     // Step 3: check Redis cache
@@ -278,14 +238,15 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
       if (!ttsResponse.ok) {
         const errText = await ttsResponse.text().catch(() => 'unknown')
         logger.error({ briefId: id, status: ttsResponse.status, body: errText }, '[tts] OpenAI TTS API error')
-        return c.json({ error: 'TTS generation failed', code: 'TTS_ERROR', detail: errText }, 502)
+        throw new AppError(`TTS generation failed: ${errText}`, 502, 'TTS_ERROR')
       }
 
       const arrayBuffer = await ttsResponse.arrayBuffer()
       audioBuffer = Buffer.from(arrayBuffer)
     } catch (err) {
+      if (err instanceof AppError) throw err
       logger.error({ err, briefId: id }, '[tts] fetch to OpenAI TTS failed')
-      return c.json({ error: 'TTS generation failed', code: 'TTS_ERROR' }, 502)
+      throw new AppError('TTS generation failed', 502, 'TTS_ERROR')
     }
 
     const durationMs = Date.now() - startMs

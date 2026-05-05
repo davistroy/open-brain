@@ -28,7 +28,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { type, config } = body as {
@@ -41,12 +41,8 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
     }
 
     if (!type || !VALID_TYPES.includes(type as SessionType)) {
-      return c.json(
-        {
-          error: `type is required and must be one of: ${VALID_TYPES.join(', ')}`,
-          code: 'VALIDATION_ERROR',
-        },
-        400,
+      throw new ValidationError(
+        `type is required and must be one of: ${VALID_TYPES.join(', ')}`,
       )
     }
 
@@ -119,13 +115,13 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { message } = body as { message?: string }
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return c.json({ error: 'message is required and must be a non-empty string', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('message is required and must be a non-empty string')
     }
 
     logger.info({ sessionId: id, messageLen: message.length }, '[sessions-api] processing respond')

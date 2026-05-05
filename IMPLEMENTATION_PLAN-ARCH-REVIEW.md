@@ -86,7 +86,7 @@ Every phase MUST comply with:
 **Effort:** S
 **Goal:** Clear root clutter; standardize route error responses on AppError throws.
 
-### 1.1 Archive completed implementation plans
+### 1.1 Archive completed implementation plans ✅ Completed 2026-05-05
 
 **Files:** `IMPLEMENT_LLM_GATEWAY_REFACTOR.md`, `IMPLEMENT_REFACTOR_2026-04-16.md`, `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md`, `IMPLEMENT_WAVES_2026-04-17.md`, `IMPLEMENTATION_PLAN-CLOUDSCAPE-M1.md`, `M3_BACKLOG.md` → `docs/archived/implementation-plans/`
 
@@ -98,7 +98,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R5
 
-### 1.2 Add missing AppError subclasses
+### 1.2 Add missing AppError subclasses ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/middleware/error-handler.ts`
 
@@ -109,7 +109,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R4
 
-### 1.3 Convert direct `c.json({error,...})` returns to `throw new AppError(...)`
+### 1.3 Convert direct `c.json({error,...})` returns to `throw new AppError(...)` ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/routes/admin.ts` (lines 181, 209, 270), `packages/core-api/src/routes/ingest.ts` (line 458), `packages/core-api/src/routes/bets.ts` (line 75), plus any others surfaced by grep `c.json\(\s*\{\s*error`
 
@@ -120,7 +120,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R4
 
-### 1.4 README + CLAUDE.md cross-references
+### 1.4 README + CLAUDE.md cross-references ✅ Completed 2026-05-05
 
 **Files:** `README.md`, `CLAUDE.md`
 

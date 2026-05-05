@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import { NotFoundError } from '@open-brain/shared'
+import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { BetService } from '../services/bet.js'
 import { logger } from '@open-brain/shared'
 
@@ -44,9 +44,8 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
 
     const VALID_STATUSES = ['pending', 'correct', 'incorrect', 'ambiguous'] as const
     if (status && !VALID_STATUSES.includes(status as (typeof VALID_STATUSES)[number])) {
-      return c.json(
-        { error: `Invalid status filter: ${status}. Valid values: ${VALID_STATUSES.join(', ')}`, code: 'VALIDATION_ERROR' },
-        400,
+      throw new ValidationError(
+        `Invalid status filter: ${status}. Valid values: ${VALID_STATUSES.join(', ')}`,
       )
     }
 
@@ -72,7 +71,7 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { statement, confidence, domain, due_date, session_id } = body as {
@@ -84,22 +83,22 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
     }
 
     if (!statement || typeof statement !== 'string' || statement.trim().length === 0) {
-      return c.json({ error: 'statement is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('statement is required')
     }
 
     if (confidence === undefined || confidence === null || typeof confidence !== 'number') {
-      return c.json({ error: 'confidence is required and must be a number', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('confidence is required and must be a number')
     }
 
     if (confidence < 0 || confidence > 1) {
-      return c.json({ error: 'confidence must be between 0.0 and 1.0', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('confidence must be between 0.0 and 1.0')
     }
 
     let parsedDueDate: Date | undefined
     if (due_date) {
       parsedDueDate = new Date(due_date)
       if (Number.isNaN(parsedDueDate.getTime())) {
-        return c.json({ error: 'due_date must be a valid ISO 8601 date string', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('due_date must be a valid ISO 8601 date string')
       }
     }
 
@@ -139,7 +138,7 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { resolution, evidence } = body as {
@@ -149,12 +148,8 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
 
     const VALID_RESOLUTIONS = ['correct', 'incorrect', 'ambiguous'] as const
     if (!resolution || !VALID_RESOLUTIONS.includes(resolution as (typeof VALID_RESOLUTIONS)[number])) {
-      return c.json(
-        {
-          error: `resolution is required. Valid values: ${VALID_RESOLUTIONS.join(', ')}`,
-          code: 'VALIDATION_ERROR',
-        },
-        400,
+      throw new ValidationError(
+        `resolution is required. Valid values: ${VALID_RESOLUTIONS.join(', ')}`,
       )
     }
 

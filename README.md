@@ -6,6 +6,13 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 **v1.5.0** — Implementation complete. 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. P08–P15a: secrets reconciliation, sibling enum CHECKs, CI expansion, observability, search perf, prompt injection hardening, doc alignment shipped 2026-04-19. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
+## Current Plans
+
+- **`IMPLEMENTATION_PLAN-ARCH-REVIEW.md`** — Architecture review remediation (active, started 2026-05-05)
+- **`IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md`, `M3.md`, `M4.md`** — Mobile app design milestones (Expo Router, React Native, 11 screens)
+- **`IMPLEMENTATION_PLAN.md`** — LLM model consolidation into ai-routing.yaml (in progress, 20/31 items complete)
+- **`docs/archived/implementation-plans/`** — Historical phase plans (Phases 1-22, tech debt cleanup, waves, completed 2026-04-19)
+
 ---
 
 ## Architecture

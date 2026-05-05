@@ -9178,3 +9178,31 @@ Execute the 9-phase architecture review remediation plan (R1–R9, R11, R12; R10
 
 ---
 
+#### Phase 1: Repo Hygiene + Error Standardization — COMPLETE 2026-05-05
+
+**Items 1.1, 1.2, 1.3, 1.4 — all marked ✅ in plan.**
+
+**1.1 — Archive completed plans (haiku subagent):** `git mv` 6 files from repo root into `docs/archived/implementation-plans/`: `IMPLEMENT_LLM_GATEWAY_REFACTOR.md`, `IMPLEMENT_REFACTOR_2026-04-16.md`, `IMPLEMENT_TECH_DEBT_CLEANUP_2026-04-17.md`, `IMPLEMENT_WAVES_2026-04-17.md`, `IMPLEMENTATION_PLAN-CLOUDSCAPE-M1.md`, `M3_BACKLOG.md`. Root `.md` count: 18 → 12.
+
+**1.4 — README "Current Plans" section (haiku subagent):** 4-bullet list pointing to active milestone plans, the architecture review plan, the LLM model consolidation plan (peeked: 20/31 items checked), and `docs/archived/implementation-plans/`. CLAUDE.md untouched (the "NOT Next.js" correction lands in Phase 7.1).
+
+**1.2 — Add missing AppError subclasses (sonnet subagent):** discovered `AppError` actually lives in `packages/shared/src/utils/errors.ts`, NOT `packages/core-api/src/middleware/error-handler.ts` as the plan asserted (plan-text bug — the middleware is the *handler*, not the class definitions). Added `ConfigError` (503), `UploadNotFoundError` (404), `ResetForbiddenError` (403) to the shared module. Widened `errorHandler()`'s `c.json` overload status union from `400|404|409|422|500` → `400|401|403|404|409|422|500|502|503` to satisfy Hono's typed status discriminator.
+
+**1.3 — c.json error-return codemod (sonnet subagent):** `grep c\.json\(\s*\{\s*error packages/core-api/src/routes/` surfaced **96 sites across 16 route files**, not the ~13 the plan estimated. All converted to `throw new <AppError-subclass>(...)`. Wire shape unchanged — `errorHandler()` still produces `{error, code}` at the documented status. Final grep: zero matches.
+
+**Discoveries (non-trivial — to be captured to memory):**
+
+1. **Pre-existing test-app onError gap:** 3 test files (`admin-reset-two-step.test.ts`, `wiki-routes.test.ts`, `slack-channel-routes.test.ts`) instantiate `new Hono()` directly without registering `app.onError(errorHandler())`. This was invisible while routes returned `c.json` directly, but became a regression as soon as routes started throwing. Subagent fixed by adding `app.onError(errorHandler())` to each test setup. **Pattern for memory:** any new route test that builds its own Hono app must register the central error handler, or AppError throws will produce 500s instead of the documented 4xx.
+
+2. **Slack-channel-routes.test.ts asserted on `{error, message}`** (a non-canonical two-field shape) — only place in the codebase using that shape. Updated to `{error, code}`. The mismatch had been masked by the c.json direct-return path.
+
+3. **Pre-existing TS2502 in `entity-resolution.test.ts:345`** ("'tx' is referenced directly or indirectly in its own type annotation"). Confirmed pre-existing via `git diff main..HEAD` (zero diff on that file in this branch) and `git log` (last touched in `f13e6aa`, M4). **Action item: A106 — investigate why CI on main has been green despite this lint failure** (probably the lint script is differently scoped in CI vs interactive `pnpm --filter ... lint`). Out of scope for this phase.
+
+**Plan-estimate variance:** Phase 1 LOC estimate was ~250; actual change footprint is ~600+ LOC across 35 files (most of the variance is the 96-site codemod, much larger than the 13 the plan named). No new public surfaces introduced; just a behavioral-equivalence refactor.
+
+**Verification (subagent-run):** `pnpm --filter @open-brain/core-api test` → 811/811 pass (47 files). `pnpm --filter @open-brain/core-api lint` → only the pre-existing TS2502 above. `pnpm --filter @open-brain/shared lint` → clean.
+
+**Commit (Phase 1):** to be assigned by main agent on `git commit`.
+
+---
+

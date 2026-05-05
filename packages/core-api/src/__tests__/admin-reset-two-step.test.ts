@@ -98,7 +98,9 @@ async function buildApp(options: {
 } = {}) {
   vi.resetModules()
   const { createAdminRouter } = await import('../routes/admin.js')
+  const { errorHandler } = await import('../middleware/error-handler.js')
   const app = new Hono()
+  app.onError(errorHandler())
   const adminRouter = createAdminRouter({
     configService: mockConfigService,
     redisConnection: options.withRedis !== false ? { host: 'localhost', port: 6379 } : undefined,

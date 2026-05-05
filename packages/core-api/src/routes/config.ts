@@ -8,7 +8,7 @@
 import type { Hono } from 'hono'
 import { sql } from 'drizzle-orm'
 import type { Database, ConfigService } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { AppError, logger } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,7 +113,7 @@ export function registerConfigRoutes(
       return c.json(response)
     } catch (err) {
       logger.error({ err }, 'Failed to build AI routing config')
-      return c.json({ error: 'Failed to load AI routing config' }, 500)
+      throw new AppError('Failed to load AI routing config', 500, 'CONFIG_LOAD_FAILED')
     }
   })
 
