@@ -163,7 +163,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R2
 
-### 2.2 Strip/overwrite `X-Open-Brain-Caller` at the public boundary
+### 2.2 Strip/overwrite `X-Open-Brain-Caller` at the public boundary ✅ Completed 2026-05-05
 
 **Files:** `packages/web-next/next.config.ts` (lines 8-21) AND/OR `packages/web-next/src/middleware.ts` (new, conditional)
 
@@ -174,7 +174,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R2
 
-### 2.3 Defense-in-depth: ignore caller header from non-internal IPs
+### 2.3 Defense-in-depth: ignore caller header from non-internal IPs ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/middleware/rate-limit.ts` (lines 136-146, `getClientKey()`)
 
@@ -185,7 +185,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R2
 
-### 2.4 Integration test: public 429 with spoofed caller header
+### 2.4 Integration test: public 429 with spoofed caller header ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/integration/rate-limit-public.test.ts` (new)
 
@@ -196,12 +196,12 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R2
 
-### 2.5 CLAUDE.md audit rule for next.config rewrites
+### 2.5 CLAUDE.md audit rule for next.config rewrites ✅ Completed 2026-05-05
 
 **Files:** `CLAUDE.md`
 
 **Acceptance:**
-- [ ] New rule under "Internal HTTP callers" section: every `packages/web-next/next.config.ts` rewrite proxying to core-api MUST set or strip `X-Open-Brain-Caller`. Mirrors existing nginx audit rule.
+- [x] New rule under "Internal HTTP callers" section: every `packages/web-next/next.config.ts` rewrite proxying to core-api MUST set or strip `X-Open-Brain-Caller`. Mirrors existing nginx audit rule.
 
 **Requirement Refs:** R2
 
@@ -872,7 +872,7 @@ Every phase MUST comply with:
 
 | ID | Unknown | Severity | Affected Phase/Item | Resolution Strategy | Status |
 |---|---|---|---|---|---|
-| U1 | Does Next.js 16 `rewrites()` support per-rewrite header overwrite, or is `headers()`/middleware required? | Medium | 2.2 | **RESOLVED 2026-05-05:** Neither `rewrites()` nor `headers()` config sets request headers upstream. Use `packages/web-next/src/middleware.ts` (Edge Middleware) with matcher `/api/:path*`: clone `new Headers(request.headers)`, `.set('X-Open-Brain-Caller', 'web-next-public')`, return `NextResponse.next({ request: { headers } })`. Source: Next.js 16.1.6 backend-for-frontend.mdx + next-response.mdx. Phase 2.2 implementation locked to this approach; `next.config.ts` rewrites stay unchanged. | Resolved |
+| U1 | Does Next.js 16 `rewrites()` support per-rewrite header overwrite, or is `headers()`/middleware required? | Medium | 2.2 | **RESOLVED 2026-05-05:** Neither `rewrites()` nor `headers()` config sets request headers upstream. Next.js 16 renamed `middleware` → `proxy`; canonical file is `packages/web-next/proxy.ts` at project root, exported function is `proxy(request: NextRequest)`. Pattern: clone `new Headers(request.headers)`, `.set('X-Open-Brain-Caller', 'web-next-public')`, return `NextResponse.next({ request: { headers } })`, with `export const config = { matcher: '/api/:path*' }`. Source: Next.js 16.2.4 docs `version-16.mdx` upgrade guide + `proxy.mdx` file-convention doc. Phase 2.2 implementation landed at `packages/web-next/proxy.ts` (verified compiled into build output as `ƒ Proxy (Middleware)`). `next.config.ts` rewrites unchanged. | Resolved |
 | U2 | Are `Voice` and `System` pages actually missing from web-next? Recon left these "unclear" | Medium | 7.2 | First step of 7.2 is a definitive parity-table audit | Open |
 | U3 | What auth mechanism does the mobile app currently use, end-to-end? | Low | 6.4 | Trace `packages/mobile/src/lib/api-client.ts` end-to-end at start of Phase 6 | Open |
 | U4 | Does Cloudflare Access already issue an identity token usable by the mobile app, or is a separate bootstrap required? | Medium | 6.6 | Investigate `tunnel.yaml` Access policies; document in onboarding runbook | Open |

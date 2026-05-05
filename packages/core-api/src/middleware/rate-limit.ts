@@ -125,22 +125,101 @@ export class RateLimiter {
 }
 
 /**
+ * Defense-in-depth: returns true when `ip` belongs to a network range that
+ * we trust as "internal" for purposes of accepting an `X-Open-Brain-Caller`
+ * bypass header.
+ *
+ * Trusted ranges:
+ * - Loopback: 127.0.0.0/8, ::1
+ * - RFC1918 private: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+ * - Tailscale CGNAT: 100.64.0.0/10
+ * - Link-local: 169.254.0.0/16 (defensive — some Docker setups), fe80::/10
+ * - IPv6 unique local: fc00::/7
+ *
+ * A public IP appearing in `X-Forwarded-For` (e.g., the originating client
+ * behind nginx / Cloudflare Tunnel) MUST NOT be allowed to set caller
+ * bypass headers. Implementation is dependency-free per CLAUDE.md.
+ */
+export function isInternalIp(ip: string): boolean {
+  if (!ip) return false
+  const trimmed = ip.trim().toLowerCase()
+  if (!trimmed) return false
+
+  // Strip surrounding brackets or zone suffix (e.g., "fe80::1%eth0")
+  const cleaned = trimmed.replace(/^\[|\]$/g, '').split('%')[0]!
+
+  // IPv6 loopback
+  if (cleaned === '::1') return true
+
+  // IPv6 link-local (fe80::/10 — first 10 bits = 1111111010)
+  // Practical match: starts with "fe8", "fe9", "fea", or "feb"
+  if (/^fe[89ab]/.test(cleaned)) return true
+
+  // IPv6 unique local (fc00::/7 — first 7 bits = 1111110)
+  // Practical match: starts with "fc" or "fd"
+  if (/^f[cd]/.test(cleaned)) return true
+
+  // IPv4-mapped IPv6 (e.g., "::ffff:10.0.0.1") — extract embedded v4
+  const v4MappedMatch = cleaned.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  const candidate = v4MappedMatch ? v4MappedMatch[1]! : cleaned
+
+  // IPv4 octet parse
+  const m = candidate.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (!m) return false
+  const o1 = Number(m[1])
+  const o2 = Number(m[2])
+  const o3 = Number(m[3])
+  const o4 = Number(m[4])
+  if ([o1, o2, o3, o4].some((o) => o < 0 || o > 255)) return false
+
+  // 127.0.0.0/8
+  if (o1 === 127) return true
+  // 10.0.0.0/8
+  if (o1 === 10) return true
+  // 172.16.0.0/12 (172.16 – 172.31)
+  if (o1 === 172 && o2 >= 16 && o2 <= 31) return true
+  // 192.168.0.0/16
+  if (o1 === 192 && o2 === 168) return true
+  // 100.64.0.0/10 (Tailscale CGNAT — 100.64 – 100.127)
+  if (o1 === 100 && o2 >= 64 && o2 <= 127) return true
+  // 169.254.0.0/16 (link-local)
+  if (o1 === 169 && o2 === 254) return true
+
+  return false
+}
+
+/**
  * Extracts a rate-limit key from the request.
  *
  * Priority:
  * 1. X-Open-Brain-Caller — set by internal Docker services (slack-bot, workers)
  *    to get their own rate-limit bucket instead of sharing 'default-client'.
+ *    **Defense-in-depth (Phase 2.3):** the caller header is honored ONLY when
+ *    the source IP (first entry of `X-Forwarded-For`) is internal per
+ *    `isInternalIp()`, OR when no `X-Forwarded-For` is present (meaning the
+ *    request came directly to core-api — only reachable from the Docker
+ *    network in production). A public XFF IP forces fall-through to IP
+ *    keying regardless of any client-supplied caller header.
  * 2. X-Forwarded-For (first hop) — set by reverse proxies / Cloudflare Tunnel.
  * 3. 'default-client' — fallback when neither header is present.
  */
 function getClientKey(headers: Headers): string {
   const caller = headers.get('x-open-brain-caller')
-  if (caller) {
-    return `internal:${caller}`
-  }
   const forwarded = headers.get('x-forwarded-for')
-  if (forwarded) {
-    return forwarded.split(',')[0]!.trim()
+  const sourceIp = forwarded ? forwarded.split(',')[0]!.trim() : ''
+
+  if (caller) {
+    // Defense-in-depth: ignore caller header when the source IP is public.
+    // Absence of XFF means the request did not transit a reverse proxy —
+    // in production, only the Docker network can reach core-api directly.
+    if (!sourceIp || isInternalIp(sourceIp)) {
+      return `internal:${caller}`
+    }
+    // Public source IP — fall through to IP-based keying. Caller header ignored.
+  }
+
+  if (sourceIp) {
+    return sourceIp
   }
   return 'default-client'
 }

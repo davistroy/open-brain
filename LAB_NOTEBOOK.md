@@ -9168,9 +9168,10 @@ Execute the 9-phase architecture review remediation plan (R1–R9, R11, R12; R10
 
 **U1 resolved** (Next.js 16 request header overwrite for proxied API requests).
 - **Question:** Can `next.config.ts` `rewrites()` overwrite request headers, or do we need `headers()` / `middleware.ts`?
-- **Answer:** Neither `rewrites()` nor `headers()` config sets *request* headers to upstream. `headers()` is response-only. **`src/middleware.ts` (Next.js Edge Middleware) is the only option** — clone request headers via `new Headers(request.headers)`, `.set('X-Open-Brain-Caller', 'web-next-public')` to forcibly overwrite, then `NextResponse.next({ request: { headers } })` forwards modified headers upstream without leaking to the client.
+- **Answer:** Neither `rewrites()` nor `headers()` config sets *request* headers to upstream. `headers()` is response-only. **`packages/web-next/proxy.ts` (Next.js 16 renamed `middleware` → `proxy`; the function is also at the project root, not under `src/`) is the only option** — clone request headers via `new Headers(request.headers)`, `.set('X-Open-Brain-Caller', 'web-next-public')` to forcibly overwrite, then `NextResponse.next({ request: { headers } })` forwards modified headers upstream without leaking to the client.
 - **Source:** Next.js 16.1.6 docs — backend-for-frontend.mdx + next-response.mdx (vercel/next.js@v16.1.6).
-- **Implication:** Phase 2.2 implementation creates `packages/web-next/src/middleware.ts` with matcher `'/api/:path*'`. `next.config.ts` rewrites stay as-is. Effort estimate (S) holds.
+- **Implication:** Phase 2.2 implementation creates `packages/web-next/proxy.ts` with `export function proxy(request: NextRequest)` and `export const config = { matcher: '/api/:path*' }`. `next.config.ts` rewrites stay as-is. Effort estimate (S) holds.
+- **2026-05-05 verification:** subagent confirmed via context7 against `vercel/next.js@16.2.4` upgrade docs (`docs/01-app/02-guides/upgrading/version-16.mdx`): "Updates the named export from `middleware` to `proxy`". File-convention doc is `proxy.mdx`. Build output reports `ƒ Proxy (Middleware)`.
 
 **Plan updated:** U1 status flipped from Open → Resolved in the Unknowns Register.
 
@@ -9202,7 +9203,35 @@ Execute the 9-phase architecture review remediation plan (R1–R9, R11, R12; R10
 
 **Verification (subagent-run):** `pnpm --filter @open-brain/core-api test` → 811/811 pass (47 files). `pnpm --filter @open-brain/core-api lint` → only the pre-existing TS2502 above. `pnpm --filter @open-brain/shared lint` → clean.
 
-**Commit (Phase 1):** to be assigned by main agent on `git commit`.
+**Commit (Phase 1):** `fa1b5cc` — feat(arch-review-phase-1).
+
+---
+
+#### Phase 2: Public-Origin Header Hardening (R2) — COMPLETE 2026-05-05
+
+**Items 2.1, 2.2, 2.3, 2.4, 2.5 — all marked ✅ in plan.**
+
+**Surprise — Next.js 16 renamed `middleware` → `proxy`.** The U1 research had said "src/middleware.ts" but the v16 upgrade docs (`version-16.mdx`) explicitly rename the named export AND file-convention name. Subagent 2.2 verified via context7 against `vercel/next.js@16.2.4`. The actual file landed at `packages/web-next/proxy.ts` (project root, alongside `app/`), with `export function proxy(...)` and `export const config = { matcher: '/api/:path*' }`. Build output reports `ƒ Proxy (Middleware)`. The CLAUDE.md audit rule (2.5) and the U1 entry in the plan were updated post-hoc to reflect the correct name. The legacy `middleware.ts`/`middleware()` is still accepted but deprecated; we used the canonical v16 names.
+
+**2.2 — web-next public-boundary header overwrite:** `packages/web-next/proxy.ts` clones request headers and `.set('X-Open-Brain-Caller', 'web-next-public')` for all `/api/:path*` requests. Returns `NextResponse.next({ request: { headers } })` — modified headers go upstream to core-api but never to the client. Verified via `pnpm --filter @open-brain/web-next build` (compiled successfully, proxy chunk includes `X-Open-Brain-Caller`/`web-next-public` literals). Lint baseline preserved (24 pre-existing `HelpContent.tsx` errors, validated via `git stash` round-trip; new file is clean).
+
+**2.3 — rate-limit defense-in-depth:** Added `isInternalIp(ip): boolean` to `packages/core-api/src/middleware/rate-limit.ts`. Predicate covers RFC1918 (10/8, 172.16/12, 192.168/16), Tailscale CGNAT (100.64/10), loopback (127/8, ::1), link-local (169.254/16, fe80::/10), and IPv6 ULA (fc00::/7). `getClientKey()` now ignores `X-Open-Brain-Caller` when the source IP is non-internal — falls through to IP-based keying. 39 new test cases (32 predicate `it.each` rows + 6 middleware integration cases + 1 no-XFF honored case). 850/850 core-api tests pass. Dependency-free per CLAUDE.md.
+
+**2.4 — public-origin integration test:** `packages/core-api/src/__tests__/integration/rate-limit-public.test.ts`, 5 cases. (1) public IP + spoofed `mobile-app` caller is keyed on IP and 429s within 22 requests; (2) per-IP isolation — second public IP same caller doesn't share the bucket; (3) RFC1918 internal still bypasses; (4) Tailscale CGNAT internal still bypasses; (5) sanity check — public IP + no caller still hits the limit. 5/5 pass in 3.02s.
+
+**2.5 — CLAUDE.md audit rule for next.config rewrites:** Added a "Next.js proxy audit rule" bullet at line 42, immediately after the existing nginx audit rule. Captures both the public-boundary overwrite mechanism (`proxy.ts`) AND the rate-limit defense-in-depth (`isInternalIp()`) so a future reader sees both layers. Updated post-hoc to use `proxy.ts` (not `middleware.ts`) once subagent 2.2 surfaced the v16 rename.
+
+**Discovery — `strictLimiter` double-registration on captures (action item A107):** During 2.4, subagent surfaced that `packages/core-api/src/index.ts` (or app.ts) registers the same `strictLimiter` singleton on BOTH `/api/v1/captures` AND `/api/v1/captures/*`. Every POST burns 2 limiter slots, so the effective per-IP budget on captures is ~10 req/min, not the documented 20. Tests are tolerant (assert "429 within first 22 requests"). **A107 — collapse to a single registration** (e.g., `app.use('/api/v1/captures{,/*}', strictLimiter)`, or pick one of the two paths and delete the other). Out of scope for Phase 2; logged as an action item.
+
+**Verification:**
+- `pnpm --filter @open-brain/web-next build` — exit 0, proxy chunk in build output.
+- `pnpm --filter @open-brain/core-api lint` — pre-existing TS2502 only (A106), no new lint errors.
+- `pnpm --filter @open-brain/core-api test` — 850/850 pass.
+- Integration: `pnpm test:integration` (rate-limit-public.test.ts subset) — 7/7 (5 new + 2 existing rate-limit-internal) pass in 3.35s.
+
+**Plan-estimate variance:** Phase 2 estimate ~120 LOC across ~5 files; actual is ~9 files / ~430 LOC (mostly from the 39 new unit tests in 2.3 and the 5 new integration tests in 2.4 — both more thorough than the plan estimated).
+
+**Commit (Phase 2):** to be assigned by main agent on `git commit`.
 
 ---
 
