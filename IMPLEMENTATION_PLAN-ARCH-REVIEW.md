@@ -323,7 +323,7 @@ Every phase MUST comply with:
 **Goal:** Bring all 16 untested routes under unit-test coverage.
 **Parallelizable within phase:** YES — each work item is an independent test file.
 
-### 4.1 commitments + config route tests
+### 4.1 commitments + config route tests ✅ Completed 2026-05-05
 
 **Files:** `commitments-routes.test.ts`, `config-routes.test.ts` (new)
 
@@ -333,7 +333,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 4.2 entities + documents route tests
+### 4.2 entities + documents route tests ✅ Completed 2026-05-05
 
 **Files:** `entities-routes.test.ts`, `documents-routes.test.ts` (new)
 
@@ -343,7 +343,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 4.3 events + triggers route tests
+### 4.3 events + triggers route tests ✅ Completed 2026-05-05
 
 **Files:** `events-routes.test.ts`, `triggers-routes.test.ts` (new)
 
@@ -353,7 +353,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 4.4 stats + voice-sessions + insurance-policies route tests
+### 4.4 stats + voice-sessions + insurance-policies route tests ✅ Completed 2026-05-05
 
 **Files:** `stats-routes.test.ts`, `voice-sessions-routes.test.ts`, `insurance-policies-routes.test.ts` (new)
 
