@@ -155,6 +155,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - **PWA service worker aggressively caches Vite-hashed bundles.** After every web deploy: hard-refresh (Ctrl+Shift+R) AND in DevTools console run `caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))`. SW unregister alone is insufficient. Recurring issue after every web rebuild.
 - Web package must be self-contained for Docker build. Vite `?raw` imports that escape `packages/web/` fail (`.dockerignore` excludes `docs/`). User-facing markdown must live in `packages/web/src/content/`.
 - `CaptureCard` is a single shared component (`packages/web/src/components/CaptureCard.tsx`) — Dashboard, Timeline, EntityDetail, Search all use it.
+- **A126 deferred until Phase 8b:** `packages/web/src/App.tsx` has TS2786 JSX type errors (React Router type mismatch) that fail the `build-and-test` CI job. NOT fixed because `packages/web` is being sunset in Phase 8b — fixing now is work thrown away. Effect: `build-and-test` stays red on PRs until Phase 8b lands. NOT in `required_status_checks`, so it does not block merges. Do NOT promote `build-and-test` to required until `packages/web` is deleted.
 
 **Testing / CI**
 - Integration tests: `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts` (not `npx`; filename word order matters).
@@ -171,6 +172,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 **Git / GitHub**
 - Verify `gh auth status` before any write operation — the client can silently switch to a read-only account, causing opaque 404s on label/milestone/issue creation. Confirm active account has push/admin on target repo.
 - `gh issue create --milestone` takes the milestone TITLE (not number). Quote the full title including punctuation.
+- **Branch protection on main (Phase 5b, 2026-05-05):** `required_status_checks = ["Integration tests (core-api + real DB)"]` only. `enforce_admins=false` (admin escape hatch preserved for solo recovery). `strict=false` (no merge races as single user). `required_pull_request_reviews=null` (self-review adds friction, no second-eyes benefit). `build-and-test` deliberately NOT required until Phase 8b web sunset (A126 — packages/web App.tsx TS2786 errors block that job; fixing now is work thrown away). Tighten only if the system gains additional users.
 
 ---
 

@@ -9874,3 +9874,19 @@ The reported symptom was `expected 'No weekly briefs generated yet'` but receive
 - Lint: only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new errors.
 
 **Phase 5b is now unblocked.** The pre-flight gate (≥9/10 green integration-test runs) must be confirmed via `gh run list --workflow=ci.yml --limit 20` after this commit merges to CI. Once 9/10 runs are green, dispatch Phase 5b to flip `ci.yml:171` from `continue-on-error: true` to the required gate.
+
+---
+
+#### Documentation pass — Deferred Items Registry (2026-05-05) [decision] [implement-plan]
+
+**Objective:** Make all deferred action items durably discoverable in git-tracked docs. `.implement-plan-state.json` is gitignored — deferred work is invisible to future sessions without an echo into committed files.
+
+**Changes made:**
+
+1. **`CLAUDE.md` — Git/GitHub section:** Added branch protection rationale (Phase 5b, 2026-05-05) — `required_status_checks = ["Integration tests (core-api + real DB)"]` only; `enforce_admins=false`; `strict=false`; no PR reviews required (solo system). Documents why `build-and-test` is intentionally advisory only until Phase 8b.
+
+2. **`CLAUDE.md` — Front-end/web section:** Added A126 deferral note — `packages/web` `App.tsx` TS2786 React Router JSX errors block `build-and-test` but are not fixed because Phase 8b deletes the package. Explicitly states do NOT promote `build-and-test` to required until `packages/web` is deleted.
+
+3. **`IMPLEMENTATION_PLAN-ARCH-REVIEW.md` — Deferred Items appendix:** New `## Deferred Items (Action Item Registry)` section with a 21-row table (A106–A126), including status, location, and unblock criteria for every action item. Guidance block identifies which open items affect operational behavior vs. pre-existing baselines. A119 confirmed CLOSED (operator created BWS secret 2026-05-05); A126 added (was not previously in the action_items array in the state file).
+
+All open action items are now git-tracked and discoverable. `.implement-plan-state.json` remains the chronological source-of-truth with full SHAs and timestamps; the registry table is the human-readable snapshot that survives compaction and session boundaries.

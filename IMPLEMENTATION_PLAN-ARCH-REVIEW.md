@@ -974,4 +974,40 @@ Every phase MUST comply with:
 
 ---
 
+## Deferred Items (Action Item Registry)
+
+All action items surfaced during the architecture review remediation, with status as of 2026-05-05. The `.implement-plan-state.json` file (gitignored) holds the full chronological status; this table is the git-tracked snapshot that survives compaction and session boundaries.
+
+| ID | Description | Status | Location | Unblock / Resolution |
+|----|-------------|--------|----------|----------------------|
+| A106 | TS2502 in `entity-resolution.test.ts:345` (`'tx'` referenced in its own type annotation) | Pre-existing baseline | `packages/core-api/src/__tests__/entity-resolution.test.ts:345` | Out of scope; tracked for visibility |
+| A107 | `strictLimiter` double-registered on `/captures` (burns 2 slots per request, halving effective budget) | Out of scope | `packages/core-api/src/middleware/rate-limit.ts` | Phase 5 D candidate; not addressed |
+| A108 | 24 `react/no-unescaped-entities` lint errors in `HelpContent.tsx` | Pre-existing baseline | `packages/web-next/src/components/help/HelpContent.tsx` | Out of scope; will disappear with Phase 8b |
+| A109 | Plan-text drift — acceptance criteria pointed to wrong files (title-hash 409, HMAC trigger, synthesize DI shape, AppError location) | Process learning | (process) | Captured in this plan's commit history; ultra-plan should do deeper file reads |
+| A110 | Settings `GET` has no whitelist gate — non-whitelisted key returns 404 instead of 400 | Phase 5 D candidate | `packages/core-api/src/routes/settings.ts` | Not co-located with Phase 5 work; pending future scope |
+| A111 | `email_allowlist` has no array validator in `SETTINGS_VALIDATORS` | Phase 5 D candidate | `packages/core-api/src/routes/settings.ts` | Same as A110 |
+| A112 | `INTELLIGENCE_SKILLS` single source of truth | CLOSED | Phase 5.3 (commit `b173ff8`) | — |
+| A113 | UUID validation on briefs/sessions `:id` path param | Phase 5 D candidate | `packages/core-api/src/routes/{briefs,sessions}.ts` | Pending future scope |
+| A114 | `sessions` `status_filter` silently dropped instead of 400-rejected | Phase 5 D candidate | `packages/core-api/src/routes/sessions.ts` | Pending future scope |
+| A115 | Two Redis clients in `admin.ts` (`resetRedis` + `bannerRedis`) | CLOSED | Phase 5.1 (commit `b173ff8`) | — |
+| A116 | vitest 2.x bump for per-file glob threshold support | Out of scope | (build infra) | Tracked for future tooling pass; current global lines: 80 gate holds |
+| A117 | SSE `onAbort` / post-promise cleanup branches unreachable without live abort signal | Out of scope | `packages/core-api/src/routes/system-health.ts` | Excluded via `/* v8 ignore */`; integration test would require abort mid-stream |
+| A118 | `createTestCapture` embedding `null` → zero-vector; hybrid_search() requires `IS NOT NULL` | CLOSED | `packages/core-api/src/__tests__/integration/helpers.ts` (commit `b08946a`) | — |
+| A119 | `MOBILE_API_KEY` in Bitwarden | CLOSED | Operator action 2026-05-05 | — |
+| A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (react-test-renderer@19 / @types/react@19 mismatch) | Pre-existing baseline | `packages/mobile/__tests__/components/` | Out of scope; React 19 / react-test-renderer drift, fix in separate PR |
+| A121 | `skills_log.result` JSONB column missing from `init-schema.sql` | CLOSED | `scripts/init-schema.sql` (commit `b08946a`) | — |
+| A122 | `get-capture.ts` used `e.type` (column does not exist; should be `e.entity_type AS type`) — production bug | CLOSED | `packages/core-api/src/mcp/tools/get-capture.ts` (commit `b08946a`) | Production behavior fix; entities now populate in `get_capture` MCP responses |
+| A123 | `commitments` table missing from `init-schema.sql` | CLOSED | `scripts/init-schema.sql` (commit `b08946a`) | — |
+| A124 | `rate-limit-public.test.ts` spoofed `mobile-app` caller — stale after Phase 6 R8 | CLOSED | `packages/core-api/src/__tests__/rate-limit-public.test.ts` (commit `b08946a`) | — |
+| A125 | `init-schema.sql` missing `pipeline_events.stage` CHECK constraint (migration 0025) | Future audit | `scripts/init-schema.sql` | Schema parity sweep TODO — audit init-schema.sql against all `0*.sql` migrations |
+| A126 | `packages/web` `App.tsx` TS2786 React Router JSX type errors fail `build-and-test` CI job | Deferred until Phase 8b | `packages/web/src/App.tsx` | Disappears when `packages/web` is deleted in Phase 8b |
+
+### Guidance for future sessions
+
+- **Open items affecting operational behavior:** A107, A110, A111, A113, A114, A125, A126. Address before promoting any of those areas to a required CI gate.
+- **Pre-existing baselines (long-term debt, do not fix in arch-review scope):** A106, A108, A120. Will need targeted cleanup PRs or disappear naturally (A108, A126 with Phase 8b).
+- **State file is source-of-truth:** `.implement-plan-state.json` (gitignored) holds the full chronological record including discovery timestamps and commit SHAs. This table is the git-tracked human-readable snapshot — update it whenever an item's status changes.
+
+---
+
 *Source: `/personal-plugin:create-plan` invocation following `/ultra-plan` analysis on 2026-05-05.*
