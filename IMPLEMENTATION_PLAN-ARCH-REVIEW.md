@@ -229,7 +229,7 @@ Every phase MUST comply with:
 **Effort:** M
 **Goal:** Establish reusable test helpers and cover the highest-blast-radius routes.
 
-### 3.1 Extract `__tests__/helpers.ts`
+### 3.1 Extract `__tests__/helpers.ts` ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/helpers.ts` (new)
 
@@ -240,7 +240,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 3.2 admin route tests
+### 3.2 admin route tests ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/admin-routes.test.ts` (new)
 
@@ -254,7 +254,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 3.3 ingest route tests
+### 3.3 ingest route tests ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/ingest-routes.test.ts` (new)
 
@@ -266,7 +266,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 3.4 synthesize route tests
+### 3.4 synthesize route tests ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/synthesize-routes.test.ts` (new)
 
@@ -277,7 +277,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 3.5 sessions route tests
+### 3.5 sessions route tests ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/sessions-routes.test.ts` (new)
 
@@ -288,7 +288,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R6
 
-### 3.6 settings + briefs route tests
+### 3.6 settings + briefs route tests ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/__tests__/settings-routes.test.ts`, `packages/core-api/src/__tests__/briefs-routes.test.ts` (new)
 

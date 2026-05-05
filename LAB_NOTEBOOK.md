@@ -9231,7 +9231,55 @@ Execute the 9-phase architecture review remediation plan (R1–R9, R11, R12; R10
 
 **Plan-estimate variance:** Phase 2 estimate ~120 LOC across ~5 files; actual is ~9 files / ~430 LOC (mostly from the 39 new unit tests in 2.3 and the 5 new integration tests in 2.4 — both more thorough than the plan estimated).
 
-**Commit (Phase 2):** to be assigned by main agent on `git commit`.
+**Commit (Phase 2):** `69a9986` — feat(arch-review-phase-2).
+
+---
+
+#### Phase 3: Test Helpers + Tier-1 Route Tests — COMPLETE 2026-05-05
+
+**Items 3.1, 3.2, 3.3, 3.4, 3.5, 3.6 — all marked ✅ in plan.**
+
+**3.1 — Shared test helpers:** `packages/core-api/src/__tests__/helpers.ts` exports `DEFAULT_HEADERS` (with `X-Open-Brain-Caller: integration-test`), `makeMockService<T>(methods)` (vi.fn-per-method typed double), `makeTestApp(mount)` (Hono app pre-wired with `app.onError(errorHandler())`), and `testJson(app, path, init)` (fetch + auto-parse with merged headers). Adopted by every Phase 3 test file. The `makeTestApp` helper structurally prevents the bug Phase 1 surfaced (test apps without errorHandler producing 500s instead of documented 4xx) — going forward, ANY new route test should use this rather than bare `new Hono()`.
+
+**Test inventory delta:** 47 files / 850 tests → **53 files / 974 tests**. +6 files, +124 tests, all green. Suite runs in 39.5s.
+
+| Work item | New file | Tests | Highlights |
+|---|---|---|---|
+| 3.2 | `admin-routes.test.ts` | 33 (8 describes) | Origin allowlist (incl. NODE_ENV unset = fail-closed), confirmation phrase variants, token replay vs Redis-null expiry, all 4 audit outcomes, `ADMIN_RESET_SKIP_PGDUMP` env path AND real spawn invocation, `admin_audit`-excluded-from-TRUNCATE invariant verified at runtime, banner CRUD, graceful degradation |
+| 3.3 | `ingest-routes.test.ts` | 16 | Multipart upload validation, source_type override, queue enqueue + non-fatal failure, `UPLOAD_NOT_FOUND` 404, malformed UUID 400, process-now defaults |
+| 3.4 | `synthesize-routes.test.ts` | 11 | Zod (empty/missing/oversized query, oversized limit), happy path with default limit, zero-results short-circuit (no LLM call), FTS fallback retry, `ConfigError` → 503, generic Error → 500 |
+| 3.5 | `sessions-routes.test.ts` | 24 (7 describes) | `VALID_TYPES` + `VALID_STATUSES` enum enforcement, status-transition guards (terminal `complete`/`abandoned` reject re-activation), invalid status_filter silently dropped (current behavior, not 400), `respond` whitespace-only message rejection |
+| 3.6 settings | `settings-routes.test.ts` | 20 (8 describes) | `VALID_SETTINGS_KEYS` PUT whitelist (no DB write on rejection), autonomy_level enum, `auto_response_threshold` range (0..1), `monitored_channels` array-of-strings, JSONB roundtrip preserves nested objects, GET has no whitelist gate (current behavior pinned) |
+| 3.6 briefs | `briefs-routes.test.ts` | 20 (6 describes) | Pagination clamps (not 400 — diverges from synthesize's strict validation, pinned), refine queue 202, dismiss 204, PATCH read=true, audio 503 when ttsDeps absent |
+
+**Discoveries — patterns / contract drift / DI gaps to address in Phase 5 D:**
+
+1. **Plan-text vs reality drift surfaced in three places:**
+   - **3.3 ingest:** the plan asserted "title hash collision (409)" and "HMAC trigger validation" both live in `routes/ingest.ts`. Actual location: title hash 409 is in `routes/documents.ts` (already covered by `document-routes.test.ts`); HMAC trigger validation is in the Python sidecar `docker/ingest-sidecar/trigger_server.py`, not TS at all. Pinned via header comment in `ingest-routes.test.ts`.
+   - **3.4 synthesize:** plan suggested `synthesizeRoutes({ synthesisService })` DI shape; actual signature is `registerSynthesizeRoutes(app, searchService, llmGateway)` — two positional services, no façade. Phase 5 should consider extracting a `SynthesisService` orchestrator.
+   - **3.2 admin:** plan said error-handler.ts hosts the AppError subclasses; actually they live in `packages/shared/src/utils/errors.ts` (already corrected in Phase 1.2). Same root cause: plan was written from quick recon, not deep file reads.
+
+2. **Contract divergences discovered (logged for Phase 5 review, NOT fixed in Phase 3):**
+   - **Settings GET has no whitelist gate** (only PUT does). A non-whitelisted key 404s rather than 400s.
+   - **`email_allowlist` has no array validator in `SETTINGS_VALIDATORS`** despite CLAUDE.md describing it as a sender allowlist. Test pins the current loose-trust shape.
+   - **Briefs pagination uses `transform()` to clamp** rather than `.max()/.min()` rejection. Diverges from `synthesize`'s strict Zod validation. Pinned with explanatory test comments.
+   - **Briefs `:id` is not UUID-validated at the route layer** — invalid UUIDs flow through to the service which casts via raw SQL `${id}::uuid`, producing a Postgres error rather than a clean 400. Low-cost hardening: `z.string().uuid()` at the path-param layer.
+   - **Sessions silently drop invalid `status_filter`** (passes `undefined` instead of 400-rejecting). Current behavior pinned.
+
+3. **DI gaps for Phase 5 D.1 (AdminService extraction):** admin.ts directly calls `node:child_process.spawn`, `node:fs.mkdirSync`, instantiates `Redis` clients inline (twice), constructs `SlackChannelService` inline based on env, and reads `process.env.NODE_ENV` / `ADMIN_RESET_SKIP_PGDUMP` / `POSTGRES_URL` at call time. All should become constructor options on the future AdminService. This was tractable to test via module-level `vi.mock()` for now, but DI would be cleaner.
+
+4. **Admin Redis client duplication:** admin.ts constructs TWO separate Redis clients (`resetRedis`, `bannerRedis`) when one would suffice. Logged for Phase 5 cleanup.
+
+5. **Subagent that handled 3.5 was the FIRST to consume helpers.ts as required.** Phase 3 effectively bootstrapped both the helpers AND their first 6 consumers in one phase — the convention is now established by example, not just documentation.
+
+**Verification:**
+- `pnpm --filter @open-brain/core-api lint` — only A106 pre-existing; no new errors.
+- `pnpm --filter @open-brain/core-api test` — 53 files / 974 tests pass (39.5s).
+- No regressions in any pre-existing test.
+
+**Plan-estimate variance:** Phase 3 estimate ~9 files / ~1,200 LOC. Actual: 7 new files, ~2,000+ LOC across the test files (subagents wrote thorough tests). Reasonable overrun; tests are an investment.
+
+**Commit (Phase 3):** to be assigned by main agent on `git commit`.
 
 ---
 
