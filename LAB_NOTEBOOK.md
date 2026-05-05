@@ -9512,6 +9512,34 @@ packages/core-api/src/__tests__/integration/mcp-tools.test.ts
 
 ---
 
+#### Phase 5b — CI Promotion COMPLETE (2026-05-05) [ci] [testing] [decision]
+
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Subagent:** Phase 5b ops
+
+**Context:** Deferred items 5.5 (promote `continue-on-error` → required) and 5.6 (branch protection) executed after A118 cascade bundle resolved 126/126 integration tests locally. Original bar was "≥9/10 green over recent runs" — a flake-detection threshold. With the failure deterministic and root-cause identified (A118 null embedding, cascade A121–A124), that threshold no longer measures the right property.
+
+**Bar relaxed (orchestrator-authorized 2026-05-05):** "1 green integration-test CI run on `b08946a` + local 126/126 + root-cause documented in commit message." Rationale: the original ≥9/10 bar was designed for flake detection. Once the failure is provably deterministic and the fix is committed, a single qualifying green run is sufficient evidence that the fix works; additional runs would only accumulate time without adding information.
+
+**5.5 — ci.yml change:** Removed `continue-on-error: true` from the `integration-test` job (line 171). Replaced the `# OBSERVE MODE` comment block with `# REQUIRED: promoted 2026-05-05` citing run 25406460328 as the qualifying green. No other jobs' `continue-on-error` touched (`doc-sync` retains its own `continue-on-error: true` — it was not part of this promotion).
+
+**5.6 — Branch protection:** `gh api repos/davistroy/open-brain/branches/main/protection` returned 404 (branch was previously unprotected). Created protection via PUT with:
+- `required_status_checks.contexts: ["Integration tests (core-api + real DB)"]`
+- `required_status_checks.strict: false` (no up-to-date branch requirement — keeps PR flow flexible)
+- `enforce_admins: false`, `required_pull_request_reviews: null`, `restrictions: null`
+
+Verification: `gh api .../protection --jq '.required_status_checks.contexts'` → `["Integration tests (core-api + real DB)"]`. PUT response confirmed `app_id: 15368` (GitHub Actions).
+
+**A119 closure:** `MOBILE_API_KEY` created in Bitwarden manually by operator 2026-05-05. A119 recorded as CLOSED in `.implement-plan-state.json`.
+
+**Pre-commit checks:**
+- `pnpm --filter @open-brain/core-api lint` → only pre-existing A106 TS2502 (entity-resolution.test.ts:345). No new errors.
+- `git status` → only `.github/workflows/ci.yml` + `LAB_NOTEBOOK.md` + `IMPLEMENTATION_PLAN-ARCH-REVIEW.md` + `.implement-plan-state.json` staged.
+
+**Phase 5b → COMPLETE.**
+
+---
+
 #### Phase 6.1: MOBILE_API_KEY secret plumbing — COMPLETE 2026-05-05
 
 **Tags:** [config] [security] [decision]
