@@ -398,7 +398,7 @@ Every phase MUST comply with:
 **Goal:** Move DB orchestration out of route handlers; gate CI on integration tests.
 **Parallelizable within phase:** 5.1 / 5.2 / 5.3 are independent services; 5.5 / 5.6 are CI/repo-config (unblocked once 5.4 verifies).
 
-### 5.1 AdminService extraction
+### 5.1 AdminService extraction ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/services/admin.ts` (new), `packages/core-api/src/routes/admin.ts` (refactor)
 
@@ -410,7 +410,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R7
 
-### 5.2 BudgetService for getSpend
+### 5.2 BudgetService for getSpend ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/services/budget.ts` (new) OR extend `services/skill-config.ts`, `packages/core-api/src/routes/config.ts` (refactor)
 
@@ -421,7 +421,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R7
 
-### 5.3 IntelligenceService extraction
+### 5.3 IntelligenceService extraction ✅ Completed 2026-05-05
 
 **Files:** `packages/core-api/src/services/intelligence.ts` (new), `packages/core-api/src/routes/intelligence.ts` (refactor)
 
@@ -432,7 +432,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R7
 
-### 5.4 Regression smoke
+### 5.4 Regression smoke ✅ Completed 2026-05-05
 
 **Files:** none (verification step)
 
@@ -443,7 +443,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R7
 
-### 5.5 Promote integration-test job to required
+### 5.5 Promote integration-test job to required — DEFERRED → Phase 5b (blocked by A118)
 
 **Files:** `.github/workflows/ci.yml:171`
 
@@ -453,7 +453,7 @@ Every phase MUST comply with:
 
 **Requirement Refs:** R1
 
-### 5.6 Update branch protection
+### 5.6 Update branch protection — DEFERRED → Phase 5b (blocked by A118)
 
 **Files:** none (GitHub repo settings)
 
@@ -464,21 +464,65 @@ Every phase MUST comply with:
 **Requirement Refs:** R1
 
 ### Phase 5 Completion Checklist
-- [ ] All 6 work items complete.
-- [ ] Lab notebook entry created BEFORE first commit.
-- [ ] AdminService refactor reviewed manually before merge (security-sensitive).
-- [ ] Integration test required-gate confirmed via test PR.
+- [x] 5.1, 5.2, 5.3 service extractions complete — COMMITTED 2026-05-05.
+- [x] 5.4 Regression smoke GREEN — 64 files / 1,127 tests / 0 fail.
+- [x] Lab notebook entry (Entry 105) appended BEFORE first commit.
+- [x] AdminService refactor reviewed manually before merge (security-sensitive).
+- [ ] 5.5 + 5.6 DEFERRED — moved to Phase 5b. Blocked by A118.
+- [ ] Integration test required-gate confirmed via test PR. (Phase 5b)
 
 ### Definition of Done (Runnable)
 <!-- BEGIN DOD -->
-| Check | Command | Pass Criteria |
-|---|---|---|
-| Tests | `pnpm -r test` | Exit code 0 |
-| Integration | `pnpm test:integration` | Exit code 0 |
-| Lint | `pnpm -r lint` | Exit code 0 |
-| Coverage | `pnpm --filter @open-brain/core-api test -- --coverage` | ≥70% on every service + route file |
-| CI gate | `gh api repos/davistroy/open-brain/branches/main/protection \| jq '.required_status_checks.contexts'` | Includes `integration-test` |
+| Check | Command | Pass Criteria | Status |
+|---|---|---|---|
+| Tests | `pnpm -r test` | Exit code 0 | PASS (2026-05-05) |
+| Lint | `pnpm -r lint` | Exit code 0 (A106+A108 baseline) | PASS (2026-05-05) |
+| Coverage | `pnpm --filter @open-brain/core-api test -- --coverage` | ≥70% on every service + route file | PASS (2026-05-05) |
+| Integration | `pnpm test:integration` | Exit code 0 | BLOCKED — A118 |
+| CI gate | `gh api repos/davistroy/open-brain/branches/main/protection \| jq '.required_status_checks.contexts'` | Includes `integration-test` | BLOCKED — A118 |
 <!-- END DOD -->
+
+---
+
+## Phase 5b: CI Promotion (deferred from Phase 5)
+
+**Set:** C.3 (partial)
+**Effort:** S
+**Goal:** Promote the integration-test CI job from `continue-on-error: true` to a required status check once the FTS test is reliably green.
+**Prerequisite:** A118 fixed (mcp-tools search_brain FTS deterministic failure resolved).
+**Blocked by:** A118 — `packages/core-api/src/__tests__/integration/mcp-tools.test.ts > search_brain > returns results when captures exist (FTS match)` returns empty FTS results after INSERT in 0/10 integration-test runs over 13 days. Diagnosis: missing tsvector refresh / transaction commit timing before search executes.
+**Unblock criterion:** ≥9/10 green integration-test runs after A118 is fixed.
+**Numbering note:** Phase 5b is a sibling to Phase 5. Phase 6 numbering is unchanged.
+
+### 5b.1 Fix A118 — mcp-tools FTS test
+
+**Files:** `packages/core-api/src/__tests__/integration/mcp-tools.test.ts` (~L122)
+
+**Acceptance:**
+- [ ] Test `returns results when captures exist (FTS match)` passes reliably.
+- [ ] `gh run list --workflow=ci.yml --limit 20` shows ≥9/10 green integration-test runs.
+
+**Requirement Refs:** R1
+
+### 5b.2 Promote integration-test job to required (was 5.5)
+
+**Files:** `.github/workflows/ci.yml:171`
+
+**Acceptance:**
+- [ ] WHEN the last 10 PRs' integration-test job runs are reviewed THEN ≥9 SHALL be green.
+- [ ] `continue-on-error: true` removed from integration-test job.
+
+**Requirement Refs:** R1
+
+### 5b.3 Update branch protection (was 5.6)
+
+**Files:** none (GitHub repo settings)
+
+**Acceptance:**
+- [ ] `gh api repos/davistroy/open-brain/branches/main/protection | jq '.required_status_checks.contexts'` includes `integration-test`.
+- [ ] One test PR opened to confirm the gate fires (then closed).
+
+**Requirement Refs:** R1
 
 ---
 

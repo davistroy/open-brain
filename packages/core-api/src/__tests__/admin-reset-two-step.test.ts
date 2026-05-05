@@ -349,16 +349,35 @@ describe('POST /admin/reset-data — two-step flow', () => {
   })
 
   // ── Test 10: admin_audit NOT in TRUNCATE list (code-level assertion) ───────
-  it('10. admin_audit is NOT present in the TRUNCATE statement in admin.ts source', () => {
-    const adminTsPath = resolve(__dirname, '../routes/admin.ts')
-    const src = readFileSync(adminTsPath, 'utf-8')
+  // After Phase 5.1 AdminService extraction, the TRUNCATE lives in admin.service.ts.
+  // We assert both the service file AND the route file to prevent regressions
+  // if the TRUNCATE ever migrates back to the route layer.
+  it('10. admin_audit is NOT present in the TRUNCATE statement in admin.service.ts source', () => {
+    const adminServicePath = resolve(__dirname, '../services/admin.service.ts')
+    const src = readFileSync(adminServicePath, 'utf-8')
 
-    // Find the TRUNCATE block
-    const truncateMatch = src.match(/TRUNCATE[\s\S]+?CASCADE/)
+    // Find the SQL-level TRUNCATE block (not JSDoc/comment occurrences of "TRUNCATE").
+    // Pattern: sql`` template literal immediately followed by whitespace then TRUNCATE.
+    // This matches `sql`\n      TRUNCATE ...` but skips prose references.
+    const truncateMatch = src.match(/sql`\s*\n\s+TRUNCATE[\s\S]+?CASCADE/)
     expect(truncateMatch).not.toBeNull()
 
     if (truncateMatch) {
       expect(truncateMatch[0]).not.toMatch(/admin_audit/)
     }
+  })
+
+  it('10b. admin_audit is NOT present in TRUNCATE in routes/admin.ts source (regression guard)', () => {
+    const adminTsPath = resolve(__dirname, '../routes/admin.ts')
+    const src = readFileSync(adminTsPath, 'utf-8')
+
+    // After service extraction, admin.ts should have no TRUNCATE at all.
+    // If one ever appears (regression), it must not include admin_audit.
+    const truncateMatch = src.match(/TRUNCATE[\s\S]+?CASCADE/)
+    if (truncateMatch) {
+      expect(truncateMatch[0]).not.toMatch(/admin_audit/)
+    }
+    // Primary assertion: no TRUNCATE in route file (the service owns it)
+    expect(truncateMatch).toBeNull()
   })
 })

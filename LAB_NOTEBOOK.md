@@ -9358,3 +9358,131 @@ Missing tests for infrastructure + flows endpoints account for the bulk of the c
 
 ---
 
+#### Phase 5.3: IntelligenceService extraction — COMPLETE 2026-05-05
+
+**Findings:**
+
+IntelligenceService extracted from `packages/core-api/src/routes/intelligence.ts` into `packages/core-api/src/services/intelligence.service.ts`. Three methods: `getLatest(skillName)`, `getHistory(skillName, limit)`, `getSummary()`. The `INTELLIGENCE_SKILLS` Set (the allowlist) moved into the service as a single exported constant — the route now imports it for the trigger endpoint validation, making the service the single source of truth for all allowed skill names (A112 addressed — see below).
+
+**Allowlist before/after:** Before: two separate inline `const INTELLIGENCE_SKILLS = new Set(...)` declarations — one inside `registerIntelligenceRoutes` for the read endpoints (implicit, embedded in SQL literals), one at module scope for the trigger endpoint. After: one exported `INTELLIGENCE_SKILLS` Set in `intelligence.service.ts`; the route imports it for the trigger-endpoint guard. Both `assertSkillName()` (service) and the trigger guard (route) reference the same Set.
+
+**Wire contract before/after:** Identical. `getLatest` returns the formatted entry or `null` (wrapped as `{ data: ... }` in the route); `getHistory` returns an array (wrapped as `{ data: [...] }`); `getSummary` returns `{ connections, drift }`. The `result ?? null` COALESCE behavior is preserved in `formatEntry()`.
+
+**A112 (intelligence whitelist scope):** Addressed. The `INTELLIGENCE_SKILLS` Set is now the single source of truth for both read-skill validation (via `assertSkillName()` in the service) and trigger-skill validation (route imports same Set). The prior state had the trigger using a module-scope Set that differed from the inline allowlist used in the SQL `WHERE skill_name IN (...)` literals. Now both surfaces reference one exported constant. The unresolved-questions endpoint remains directly on `db` (it's a raw SQL query against `captures`, not a skill-log query — out of scope for IntelligenceService).
+
+**Test results:**
+- `pnpm --filter @open-brain/core-api lint` — only the pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new errors.
+- `src/services/__tests__/intelligence.service.test.ts` — **21/21 pass** (allowlist, getLatest hit/miss/null-result/rejection, getHistory array/empty/rejection/message content, getSummary both/none/one/filter-guard/null-result).
+- `src/__tests__/intelligence-routes.test.ts` — **19/19 pass** (existing route tests, all green against the refactored thin-delegator route).
+- Combined: **40/40 intelligence tests pass**.
+- Pre-existing `admin-reset-two-step.test.ts` failure (1 test) confirmed pre-existing via `git stash` isolation — caused by subagent 5.1 AdminService extraction moving TRUNCATE SQL out of `admin.ts`, which broke a `readFileSync` source-scan test. Not introduced by this work item.
+
+**Files added/modified:**
+- NEW: `packages/core-api/src/services/intelligence.service.ts`
+- NEW: `packages/core-api/src/services/__tests__/intelligence.service.test.ts`
+- MODIFIED: `packages/core-api/src/routes/intelligence.ts` (thin delegator — ~120 LOC reduction)
+- MODIFIED: `packages/core-api/src/services/index.ts` (added `export * from './intelligence.service.js'`)
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 5.2: BudgetService extraction — COMPLETE 2026-05-05
+
+**Findings:**
+
+`BudgetService` extracted from `packages/core-api/src/routes/config.ts` into `packages/core-api/src/services/budget.service.ts`. One method: `getSpend(month: string): Promise<SpendResult>`. The route's `registerConfigRoutes` signature gains an optional 4th parameter `budgetService?: BudgetService` — when absent, the service is instantiated from `db` on router startup (production path). Tests inject the mock directly.
+
+**SQL boundary change (intentional):** The original route used `date_trunc('month', CURRENT_DATE)` to select the current month dynamically. The service instead accepts a `YYYY-MM` string and derives `YYYY-MM-01` as the Postgres date literal, enabling tests to assert month-specific queries without time dependence. The wire contract is unchanged — the route still computes the current `YYYY-MM` string and passes it to `getSpend()`.
+
+**Wire contract before/after:** Identical. `GET /api/v1/config/ai-routing` returns `{ models: ModelRoutingEntry[], budget: { soft_limit_usd, hard_limit_usd, month_total_usd } }`. The `ModelRoutingEntry.month_spend_usd` and `.month_calls` fields are populated from `SpendResult.byModel` (same source values as before). `Math.round(...* 1000000) / 1000000` precision logic preserved in the route handler, not the service (service returns raw floats — route rounds for wire output).
+
+**A110 / A111 (settings GET whitelist, email_allowlist array validator):** These items touch `routes/settings.ts`, which was NOT co-located with the BudgetService extraction (the work only touched `routes/config.ts`). Both items deferred per constraint 5 — they should be addressed in a future phase.
+
+**Collateral fix — admin-reset-two-step.test.ts test 10 regex:** Phase 5.1 (AdminService extraction) updated test 10 to read `admin.service.ts` using regex `sql\`[\s\S]+?TRUNCATE[\s\S]+?CASCADE`, but that regex hit the **first** `sql\`` literal in the file (the pg_dump function) rather than the TRUNCATE statement. Running the full suite in Phase 5.2 surfaced this as a failure. Fixed by anchoring the regex to `sql\`\s*\n\s+TRUNCATE[\s\S]+?CASCADE` which matches only the SQL template literal whose first non-whitespace content is `TRUNCATE`. This was a pre-existing bug introduced by 5.1, discovered and fixed here.
+
+**Test results:**
+- `pnpm --filter @open-brain/core-api lint` — only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new lint errors.
+- `src/services/__tests__/budget.service.test.ts` — **8/8 pass** (empty rows, single-model, multi-model, null fields, db failure graceful, single execute call, month param date literal, independence across calls).
+- `src/__tests__/config-routes.test.ts` — **13/13 pass** (updated to inject `BudgetService` mock via `makeMockService<BudgetService>` + `makeMockBudgetService()` fixture; db mock retained only for integrations endpoint's MCP last_call query).
+- `src/__tests__/admin-reset-two-step.test.ts` — **11/11 pass** (regex fix applied).
+- Full suite: **64 files / ~1,135 tests / 0 fail**.
+
+**Files added/modified:**
+- NEW: `packages/core-api/src/services/budget.service.ts`
+- NEW: `packages/core-api/src/services/__tests__/budget.service.test.ts`
+- MODIFIED: `packages/core-api/src/routes/config.ts` (BudgetService injection, thin delegator for ai-routing spend)
+- MODIFIED: `packages/core-api/src/__tests__/config-routes.test.ts` (BudgetService mock injection, updated fixtures)
+- MODIFIED: `packages/core-api/src/__tests__/admin-reset-two-step.test.ts` (collateral regex fix from 5.1 bug)
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 5.1: AdminService extraction — COMPLETE 2026-05-05
+
+**Findings:**
+
+`AdminService` extracted from `packages/core-api/src/routes/admin.ts` into `packages/core-api/src/services/admin.service.ts`. Five methods: `writeAuditRow(input)`, `runPreWipeDump(backupDir)`, `truncateUserData()`, `issueResetToken(actor)`, `consumeResetToken(token)`. Origin allowlist (`checkOrigin`), CF-Access actor parsing (`getActor`), client IP extraction (`getClientIp`), and rate-limit logic all remain in the route layer — these are presentational/auth concerns, not data layer. Service has zero Hono dependencies.
+
+**A115 (Redis consolidation) closed:** Before: `admin.ts` constructed two separate `ioredis.Redis` instances at router creation time — `resetRedis` for token issuance/GETDEL, and `bannerRedis` for banner CRUD. Both used the same `redisConnection` options, so they were duplicates. After: one `sharedRedis` instance (constructed in `createAdminRouter`) is shared across both token ops (via the service) and banner routes. `AdminService` receives this single shared Redis via constructor injection — it does not new-up any Redis client internally. Redis client count in `admin.ts`: 2 → 1.
+
+**DI strategy and ADMIN_RESET_SKIP_PGDUMP:** `spawnPgDump` is injected via `AdminServiceOptions` (defaults to `DEFAULT_SPAWN_PG_DUMP`). `DEFAULT_SPAWN_PG_DUMP` handles the env escape hatch (`ADMIN_RESET_SKIP_PGDUMP=true` → returns `SKIPPED-FOR-TESTS` path without spawning). Tests in `admin-routes.test.ts` continue to use module-level `vi.mock('node:child_process', ...)` because `DEFAULT_SPAWN_PG_DUMP` uses `spawn` from `node:child_process` — that mock still intercepts it correctly.
+
+**admin_audit TRUNCATE invariant:**
+- TRUNCATE SQL now lives in `admin.service.ts:truncateUserData()`, not `admin.ts`.
+- `admin-reset-two-step.test.ts` test 10 updated: now reads `admin.service.ts` (not `admin.ts`) with the regex `sql`\s*\n\s+TRUNCATE[\s\S]+?CASCADE` to skip JSDoc comments that mention the table name.
+- Test 10b added as regression guard: asserts `admin.ts` contains NO TRUNCATE (service owns it; any future back-slip would immediately fail this check).
+- New service test `truncateUserData()` asserts via `TRUNCATE_TABLES` exported constant AND a source-level read (with narrower regex `TRUNCATE\s*\n\s+\w[\s\S]+?CASCADE` to skip JSDoc).
+- `TRUNCATE_TABLES` constant exported from service — makes the exclusion machine-readable for tests.
+
+**`AdminRouterOptions.adminService` injection point added:** allows future tests to inject a full mock AdminService without module-level ioredis mocking. Existing tests in `admin-routes.test.ts` and `admin-reset-two-step.test.ts` continue to use the module-mock path (they build the real service from mocked ioredis) — backward compatible, no breakage.
+
+**Regex pitfall caught:** source-level TRUNCATE assertions using `TRUNCATE[\s\S]+?CASCADE` without anchoring hit the JSDoc comment at the top of the service file (`TRUNCATE user-data tables (admin_audit excluded — invariant)`) because that text preceded the actual `sql\`` template literal. Fixed by anchoring to `sql\`` with `TRUNCATE\s*\n\s+\w` to target only the SQL body.
+
+**Test results:**
+- `pnpm --filter @open-brain/core-api lint` — only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. Zero new lint errors. Confirmed pre-existing via `git stash` round-trip.
+- `src/__tests__/admin-routes.test.ts` — **33/33 pass** (all Phase 3.2 tests intact against the delegating route).
+- `src/__tests__/admin-reset-two-step.test.ts` — **11/11 pass** (10 original + test 10b new regression guard).
+- `src/__tests__/admin-service.test.ts` — **18/18 pass** (writeAuditRow 3, runPreWipeDump 2, truncateUserData 5, issueResetToken 3, consumeResetToken 3, DEFAULT_SPAWN_PG_DUMP 2).
+- Full suite: **64 files / 1,127 tests / 0 fail** (up from 1,079 — 48 new tests: 18 service + existing tests + 2 new source-scan tests).
+
+**Files added/modified:**
+- NEW: `packages/core-api/src/services/admin.service.ts`
+- NEW: `packages/core-api/src/__tests__/admin-service.test.ts`
+- MODIFIED: `packages/core-api/src/routes/admin.ts` (service delegation, single Redis client, adminService injection point)
+- MODIFIED: `packages/core-api/src/__tests__/admin-reset-two-step.test.ts` (test 10 reads service file, test 10b new)
+- MODIFIED: `packages/core-api/src/services/index.ts` (added `export * from './admin.service.js'`)
+
+No commit. No push. No state-file edits.
+
+---
+
+#### Phase 5: Closing Summary — 5.1–5.4 COMPLETE; 5.5 + 5.6 DEFERRED → Phase 5b (2026-05-05)
+
+**Phase 5 outcomes (committed together):**
+
+- **5.1 AdminService** — extracted from `routes/admin.ts` into `services/admin.service.ts`. Five methods: `writeAuditRow`, `runPreWipeDump`, `truncateUserData`, `issueResetToken`, `consumeResetToken`. A115 closed: Redis clients consolidated 2 → 1 (`resetRedis` + `bannerRedis` → single shared instance injected into service). `admin_audit` TRUNCATE exclusion moved into service; source-scan regression guard added (test 10 + test 10b in `admin-reset-two-step.test.ts`).
+
+- **5.2 BudgetService** — extracted from `routes/config.ts:54-80` into `services/budget.service.ts`. Single method `getSpend(month: string)`. Wire contract identical; `config-routes.test.ts` updated to inject mock via `makeMockService<BudgetService>`. Collateral fix: regex anchor in `admin-reset-two-step.test.ts` test 10 (Phase 5.1 bug surfaced during Phase 5.2 full-suite run — anchored to skip JSDoc before the actual TRUNCATE SQL literal).
+
+- **5.3 IntelligenceService** — extracted from `routes/intelligence.ts` into `services/intelligence.service.ts`. Three methods: `getLatest`, `getHistory`, `getSummary`. A112 closed: `INTELLIGENCE_SKILLS` Set is now a single exported constant in the service; the route imports it for the trigger-endpoint guard. Previously the trigger path used a separate inline Set that could drift from the read-path allowlist.
+
+- **5.4 Regression smoke** — GREEN: 64 files / 1,127 tests / 0 fail. Lint clean vs A106/A108 pre-existing baseline. Manual two-step admin-reset smoke 6/6 PASS. Coverage gate not broken (global ≥80% line threshold holds).
+
+**Phase 5b deferral:**
+
+Items 5.5 (promote integration-test job to required) and 5.6 (update branch protection) are **formally deferred to Phase 5b**. Pre-flight gate could not be cleared: `gh run list --workflow=ci.yml --limit 20` shows **0/10 green integration-test runs over the past 13 days**. Same deterministic failure on every run:
+
+```
+packages/core-api/src/__tests__/integration/mcp-tools.test.ts
+  > search_brain
+  > returns results when captures exist (FTS match)
+```
+
+**Diagnosis hypothesis:** The test inserts a capture into the test DB but FTS returns empty. Most probable root cause: the `to_tsvector` expression-based GIN index is not refreshed within the transaction by the time the search executes — either a `COMMIT` timing issue (the INSERT is still in the same transaction as the search), or `SET LOCAL` session variables not surviving across connection pool boundaries. A full investigation with explicit `COMMIT` + reconnect before the FTS query, or switching to a `VACUUM ANALYZE` flush in test setup, is needed.
+
+**Tracking refs:**
+- **A118** — Fix mcp-tools search_brain FTS test. File: `packages/core-api/src/__tests__/integration/mcp-tools.test.ts` ~L122. Evidence: 0/10 green over 13 days, same deterministic failure. Unblock criterion: ≥9/10 green integration-test runs after A118 is fixed.
+- **Phase 5b** — CI Promotion (deferred from Phase 5). Blocked by A118. Unblock criterion: ≥9/10 green. Sibling to Phase 5, does not bump Phase 6 numbering.
+

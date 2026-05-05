@@ -9,17 +9,16 @@
  *   - Use makeTestApp + registerConfigRoutes directly (no createApp) — faster,
  *     no rate-limiter, no pg/redis/ioredis stubs required.
  *   - configService is a minimal vi.fn() object that implements only .get().
- *   - db.execute() is mocked via vi.fn() to return { rows: [] } by default.
+ *   - BudgetService is injected as a mock (Phase 5.2 extraction) — the route's
+ *     4th param. db.execute() is kept for the integrations endpoint (MCP last_call).
  *   - Environment variable checks (SLACK_BOT_TOKEN, WIKI_REPO_URL) are isolated
  *     per-test via vi.stubEnv / process.env assignment + cleanup.
- *
- * Note: Phase 5 D.2 will extract a BudgetService from getSpend; when that
- * lands, the db-level mock here becomes a BudgetService mock.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { ConfigService } from '@open-brain/shared'
+import type { BudgetService, SpendResult } from '../services/budget.service.js'
 import { registerConfigRoutes } from '../routes/config.js'
-import { makeTestApp, testJson } from './helpers.js'
+import { makeTestApp, testJson, makeMockService } from './helpers.js'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -40,9 +39,13 @@ function makeAiConfig(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** Minimal spend rows returned by db.execute() */
-function makeSpendRows(rows: Array<{ model: string; total_spend: string; call_count: string }> = []) {
-  return { rows }
+/** Default empty SpendResult (no spend in DB) */
+function makeSpendResult(overrides: Partial<SpendResult> = {}): SpendResult {
+  return {
+    byModel: {},
+    monthTotal: 0,
+    ...overrides,
+  }
 }
 
 /** Build a mock ConfigService with a .get() spy */
@@ -55,15 +58,23 @@ function makeMockConfigService(aiConfig = makeAiConfig()): Pick<ConfigService, '
   }
 }
 
-/** Build a mock db with .execute() returning spend rows */
-function makeMockDb(spendRows = makeSpendRows()) {
+/** Build a mock BudgetService using makeMockService. */
+function makeMockBudgetService(spendResult = makeSpendResult()) {
+  const svc = makeMockService<BudgetService>(['getSpend'])
+  svc.getSpend.mockResolvedValue(spendResult)
+  return svc
+}
+
+/** Build a mock db with .execute() used only by the integrations route (MCP last_call). */
+function makeMockDb(lastCallRow: { last_call: string | null } | null = null) {
   return {
-    execute: vi.fn().mockResolvedValue(spendRows),
+    execute: vi.fn().mockResolvedValue({ rows: lastCallRow ? [lastCallRow] : [] }),
   }
 }
 
 function buildApp(
   configService = makeMockConfigService(),
+  budgetService = makeMockBudgetService(),
   db = makeMockDb(),
 ) {
   const app = makeTestApp((a) => {
@@ -71,9 +82,10 @@ function buildApp(
       a,
       configService as unknown as ConfigService,
       db as any,
+      budgetService as unknown as BudgetService,
     )
   })
-  return { app, configService, db }
+  return { app, configService, budgetService, db }
 }
 
 // ---------------------------------------------------------------------------
@@ -112,11 +124,11 @@ describe('GET /api/v1/config/ai-routing — happy path', () => {
     }
   })
 
-  it('merges db spend rows into the correct model entry', async () => {
-    const db = makeMockDb(
-      makeSpendRows([{ model: 'gpt-5.4', total_spend: '1.234567', call_count: '42' }]),
+  it('merges BudgetService spend into the correct model entry', async () => {
+    const budgetService = makeMockBudgetService(
+      makeSpendResult({ byModel: { 'gpt-5.4': { spend: 1.234567, calls: 42 } }, monthTotal: 1.234567 }),
     )
-    const { app } = buildApp(makeMockConfigService(), db)
+    const { app } = buildApp(makeMockConfigService(), budgetService)
     const { body } = await testJson(app, '/api/v1/config/ai-routing')
 
     const b = body as { models: Array<{ model: string; month_spend_usd: number; month_calls: number }> }
@@ -127,8 +139,8 @@ describe('GET /api/v1/config/ai-routing — happy path', () => {
   })
 
   it('returns zero spend for models with no ai_audit_log rows', async () => {
-    const db = makeMockDb(makeSpendRows([])) // no spend data
-    const { app } = buildApp(makeMockConfigService(), db)
+    const budgetService = makeMockBudgetService(makeSpendResult()) // empty spend
+    const { app } = buildApp(makeMockConfigService(), budgetService)
     const { body } = await testJson(app, '/api/v1/config/ai-routing')
 
     const b = body as { models: Array<{ month_spend_usd: number; month_calls: number }> }
@@ -138,12 +150,12 @@ describe('GET /api/v1/config/ai-routing — happy path', () => {
     }
   })
 
-  it('handles db.execute() failure gracefully (returns 0 spend, not 500)', async () => {
-    const db = { execute: vi.fn().mockRejectedValue(new Error('db connection failed')) }
-    const { app } = buildApp(makeMockConfigService(), db as any)
+  it('returns zero spend when BudgetService.getSpend() returns empty (graceful degradation)', async () => {
+    // BudgetService itself swallows DB errors and returns empty — route still returns 200
+    const budgetService = makeMockBudgetService(makeSpendResult())
+    const { app } = buildApp(makeMockConfigService(), budgetService)
     const { status, body } = await testJson(app, '/api/v1/config/ai-routing')
 
-    // Route catches the db error with logger.warn and continues — should still return 200
     expect(status).toBe(200)
     const b = body as { models: Array<{ month_spend_usd: number }> }
     for (const entry of b.models) {
@@ -255,10 +267,8 @@ describe('GET /api/v1/config/integrations', () => {
   })
 
   it('always reports MCP as connected (embedded in core-api)', async () => {
-    const db = {
-      execute: vi.fn().mockResolvedValue({ rows: [{ last_call: '2026-05-05T08:00:00Z' }] }),
-    }
-    const { app } = buildApp(makeMockConfigService(), db as any)
+    const db = makeMockDb({ last_call: '2026-05-05T08:00:00Z' })
+    const { app } = buildApp(makeMockConfigService(), makeMockBudgetService(), db as any)
     const { body } = await testJson(app, '/api/v1/config/integrations')
 
     const b = body as { integrations: Array<{ name: string; status: string }> }

@@ -3,12 +3,15 @@
  *
  * GET /api/v1/config/ai-routing     — model routing table + per-model monthly spend
  * GET /api/v1/config/integrations   — integration connectivity statuses
+ *
+ * Phase 5.2: spend query extracted to BudgetService; route is now a thin delegator.
  */
 
 import type { Hono } from 'hono'
 import { sql } from 'drizzle-orm'
 import type { Database, ConfigService } from '@open-brain/shared'
 import { AppError, logger } from '@open-brain/shared'
+import { BudgetService } from '../services/budget.service.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,38 +52,23 @@ export function registerConfigRoutes(
   app: Hono,
   configService: ConfigService,
   db: Database,
+  budgetService?: BudgetService,
 ): void {
+  // Instantiate BudgetService from db if not injected (production path).
+  const budget = budgetService ?? new BudgetService(db)
+
   // ---- AI Routing config + spend ----
   app.get('/api/v1/config/ai-routing', async (c) => {
     try {
       const aiConfig = configService.get('ai')
 
-      // Per-model monthly spend from ai_audit_log
-      let spendByModel: Record<string, { spend: number; calls: number }> = {}
-      let monthTotal = 0
-      try {
-        const rows = await db.execute<{
-          model: string
-          total_spend: string | null
-          call_count: string | null
-        }>(sql`
-          SELECT
-            model,
-            COALESCE(SUM(cost_usd), 0) AS total_spend,
-            COUNT(*)::text AS call_count
-          FROM ai_audit_log
-          WHERE created_at >= date_trunc('month', CURRENT_DATE)
-          GROUP BY model
-        `)
-        for (const row of rows.rows) {
-          const spend = parseFloat(String(row.total_spend))
-          const calls = parseInt(String(row.call_count), 10)
-          spendByModel[row.model] = { spend, calls }
-          monthTotal += spend
-        }
-      } catch (err) {
-        logger.warn({ err }, 'Failed to query per-model spend')
-      }
+      // Derive the current YYYY-MM month string for BudgetService.
+      const now = new Date()
+      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+      // Per-model monthly spend — delegated to BudgetService.
+      // Failures are logged+swallowed inside the service; result is always a valid SpendResult.
+      const { byModel: spendByModel, monthTotal } = await budget.getSpend(month)
 
       // Build routing entries from config
       const models: ModelRoutingEntry[] = []
