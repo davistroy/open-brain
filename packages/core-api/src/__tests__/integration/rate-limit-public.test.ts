@@ -78,13 +78,14 @@ function buildCaptureRequest(opts: {
 }
 
 describe('Rate limiter — public-IP origin defense-in-depth (Phase 2.3 / 2.4)', () => {
-  it('public X-Forwarded-For + spoofed X-Open-Brain-Caller: mobile-app → strict-tier 429 (caller header ignored on public IP)', async () => {
-    // Strict tier RateLimiter is configured 20 req/min, but `app.ts` registers it
-    // on BOTH `/api/v1/captures` and `/api/v1/captures/*` for the same singleton,
-    // so each POST burns 2 slots — the effective per-IP budget is 10 requests.
-    // Either way, the property under test is: the 429 fires keyed on the public
-    // IP (1.2.3.4), proving the spoofed `X-Open-Brain-Caller: mobile-app` was
-    // IGNORED. We send 25 requests and assert 429s appeared.
+  it('public X-Forwarded-For + spoofed X-Open-Brain-Caller: integration-test → strict-tier 429 (caller header ignored on public IP)', async () => {
+    // Phase 6 (R8): mobile-app from public IP now routes to the mobile tier
+    // (200 req/min) not the strict tier, so we use a spoofed internal-service
+    // caller name instead. From a public source IP, the caller header is ignored
+    // and the limiter falls through to IP-based strict keying (20 req/min).
+    // Property under test: 429 fires keyed on the public IP (1.2.3.4), proving
+    // the spoofed X-Open-Brain-Caller: integration-test was IGNORED.
+    // We send 25 requests and assert 429s appeared.
     const PUBLIC_IP = '1.2.3.4'
     const N = 25
 
@@ -92,7 +93,7 @@ describe('Rate limiter — public-IP origin defense-in-depth (Phase 2.3 / 2.4)',
     for (let i = 0; i < N; i++) {
       const res = await ctx.app.fetch(
         buildCaptureRequest({
-          caller: 'mobile-app',
+          caller: 'integration-test',
           xff: PUBLIC_IP,
         }),
       )
@@ -116,14 +117,14 @@ describe('Rate limiter — public-IP origin defense-in-depth (Phase 2.3 / 2.4)',
     // still have its OWN budget — the first few requests must succeed. This
     // proves the limiter is keying per-IP, not maintaining a global "spoofed
     // caller" bucket. Sample only the first 5 requests (well under the
-    // double-counted ~10-request effective budget) to avoid flakiness.
+    // strict-tier 20-request budget) to avoid flakiness.
     const PUBLIC_IP_2 = '5.6.7.8'
 
     const statuses: number[] = []
     for (let i = 0; i < 5; i++) {
       const res = await ctx.app.fetch(
         buildCaptureRequest({
-          caller: 'mobile-app',
+          caller: 'integration-test',
           xff: PUBLIC_IP_2,
         }),
       )

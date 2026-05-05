@@ -9751,3 +9751,98 @@ No commit. No push. No state-file edits.
 - **A118 forcing function:** `mcp-tools search_brain FTS test` must be fixed BEFORE Phase 7 dispatch. The state file records this as `next_phase_blocker`. Do not dispatch Phase 7 work items until A118 is resolved and >=9/10 green integration-test runs are confirmed.
 
 **Lint (pre-commit):** `pnpm --filter @open-brain/core-api lint` -- only A106 (entity-resolution.test.ts:345 TS2502). `pnpm --filter @open-brain/mobile lint` -- only A120 (6 TS2345 in MPill + TabBar). No new errors introduced.
+
+---
+
+#### A118 Fix — mcp-tools search_brain FTS test — COMPLETE 2026-05-05
+
+**Hypotheses tested:**
+- **H1 (pipeline_status filter):** Ruled out. `hybrid_search()` has no `WHERE pipeline_status = 'complete'` filter. Status is irrelevant to search.
+- **H2 (embedding IS NOT NULL filter):** CONFIRMED ROOT CAUSE. `hybrid_search()` FTS CTE (lines 247–254 in `init-schema.sql`) filters `WHERE c.embedding IS NOT NULL`. The `vector_ranked` CTE has the same filter (line 265). A capture with `embedding = NULL` is invisible to both legs of the hybrid search — even the FTS leg.
+- **H3 (connection/transaction visibility):** Ruled out. `createTestCapture` uses the Drizzle ORM db instance (same pool as SearchService); no wrapping transaction.
+- **H4 (FTS dictionary mismatch):** Ruled out. `SELECT to_tsvector('english', 'PostgreSQL migration')` produces `'migrat':2 'postgresql':1` — both tokens present.
+- **H5 (deleted_at IS NULL filter):** Ruled out. `createTestCapture` sets no `deleted_at`.
+- **H6 (migration not applied):** Ruled out. `fts_only_search` function exists in the test DB (schema is re-applied from `init-schema.sql` in `beforeAll`).
+- **H7 (score threshold):** Ruled out. `threshold: 0.0` passed; post-search filter only triggers when `input.threshold > 0`.
+- **H8 (wrong DB):** Ruled out. Single `TEST_POSTGRES_URL` used throughout.
+
+**Root cause (structural):** `searchBrainTool` calls `searchWithRelated` with default `searchMode: 'hybrid'`. The `hybrid_search()` SQL function requires `c.embedding IS NOT NULL` on BOTH the FTS and vector CTEs (designed this way so RRF fusion only operates over fully-embedded captures). `createTestCapture` defaulted `embedding` to `null`. Result: test captures were invisible to hybrid search — the FTS leg of the hybrid function skipped them, returning zero rows, hence "No captures found."
+
+The `fts_only_search` function (used when `searchMode: 'fts'` is explicitly passed) does NOT require embeddings. But `searchBrainTool` does not expose `searchMode` — it always calls `searchWithRelated` which routes through `hybrid_search`.
+
+**Fix:** `packages/core-api/src/__tests__/integration/helpers.ts` — `createTestCapture` now defaults `embedding` to `new Array(768).fill(0)` (the zero vector produced by the stub `EmbeddingService` in `setup.ts`). This makes test captures visible to `hybrid_search`. Callers who need null embedding for specific tests can pass `embedding: null` explicitly (the `?? null` logic was replaced with `overrides.embedding !== undefined ? overrides.embedding : new Array(768).fill(0)`).
+
+**Verification:** 5 consecutive runs of the target test: 5/5 green. Full integration suite (with my fix): 23 passed, 1 failed. The 1 failure (`get_weekly_brief > returns "no weekly briefs" when skills_log is empty`) is a PRE-EXISTING failure confirmed to exist before my change — assertion expects `'No weekly briefs generated yet'` but production code returns a different message (`'Weekly briefs are not yet available...'`). That is a separate defect, not introduced here.
+
+**Lint:** Same baseline as Phase 6 — only A106 (entity-resolution.test.ts:345 TS2502), pre-existing. No new errors.
+
+**Time:** ~20 minutes (reproduction 3 min, investigation 10 min, fix + verify 7 min).
+
+---
+
+#### A121 Fix — get_weekly_brief integration test + cascade failures — COMPLETE 2026-05-05
+
+**Root cause analysis — NOT simple assertion drift:**
+
+The reported symptom was `expected 'No weekly briefs generated yet'` but received `'Weekly briefs are not yet available...'`. This is NOT a message-wording change — both strings are in the production file at different code paths. The production path at `packages/core-api/src/mcp/tools/get-weekly-brief.ts:43` correctly returns `'No weekly briefs generated yet'` for empty rows. The test was hitting the `catch` branch at line 38 (`'Weekly briefs are not yet available...'`) because the `SELECT ... result FROM skills_log` query was throwing a PostgreSQL error.
+
+**Root cause:** `scripts/init-schema.sql` was stale — it defined `skills_log` without the `result JSONB` column added by migration `0007_skills_log_result.sql` (introduced in commit `5bb3126`, April 7 2026). The `applySchema` call in `initTestDatabase()` uses `CREATE TABLE IF NOT EXISTS`, which does NOT add new columns to an already-existing table. The running test DB had the old schema; the new query failed; the catch swallowed it silently.
+
+**Cascade revealed by bail:1:** With `bail: 1` in `vitest.config.integration.ts`, the test runner stops at the first failure. Fixing A118 (search_brain) removed the first bail. A121 (weekly_brief) was then the first failure. Fixing A121 revealed three more pre-existing failures that had never been reached. All four were fixed:
+
+1. **A121 (weekly_brief):** `scripts/init-schema.sql` — added `result JSONB` to `skills_log` CREATE TABLE + `ALTER TABLE ... ADD COLUMN IF NOT EXISTS result JSONB` for idempotent backfill on existing test DBs. Also removed non-existent `status` column from the second test's INSERT.
+
+2. **get-capture linked entities:** `packages/core-api/src/mcp/tools/get-capture.ts:68` — SQL query used `e.type` (no such column; actual column is `entity_type`). Fixed to `e.entity_type AS type`. The catch block silently swallowed the error; entities never appeared in `getCaptureTool` output on a real DB. Pre-existing bug introduced in commit `5bb3126`.
+
+3. **entity merge 500:** `scripts/init-schema.sql` missing `commitments` table (added in migration `0031_commitments.sql`). `EntityResolutionService.merge()` updates `commitments` as part of the merge transaction → `relation "commitments" does not exist`. Fixed by adding full `CREATE TABLE IF NOT EXISTS commitments` DDL to `init-schema.sql`.
+
+4. **rate-limit-public test:** `rate-limit-public.test.ts` test 1 used `caller: 'mobile-app'` expecting strict-tier 429s. Phase 6 (R8) moved `mobile-app` from BYPASS_CALLERS to the mobile tier (200 req/min). 25 requests never hit the mobile-tier limit → `first429Index = -1` → test fails. Fixed by changing the spoofed caller to `'integration-test'` (spoofed internal name from a public IP → falls through to IP-keyed strict tier, 20 req/min → 429 at ~request 21).
+
+**Files changed:**
+- `scripts/init-schema.sql` — `result JSONB` column + `commitments` table
+- `packages/core-api/src/__tests__/integration/mcp-tools.test.ts` — removed `status` from `skills_log` INSERT
+- `packages/core-api/src/__tests__/integration/entities.test.ts` — merge response shape fix (`body.id` not `body.source_id`)
+- `packages/core-api/src/__tests__/integration/rate-limit-public.test.ts` — `mobile-app` → `integration-test` for public-spoof test
+- `packages/core-api/src/mcp/tools/get-capture.ts` — `e.type` → `e.entity_type AS type`
+
+**Verification:**
+- Target test: `get_weekly_brief > returns "no weekly briefs" when skills_log is empty` — GREEN.
+- Full integration suite: **126/126 pass** (7 files, 0 failures).
+- Unit suite: **67 files / 1163 tests / 0 failures** — no regression.
+- Lint: same A106 pre-existing TS2502 in `entity-resolution.test.ts:345`. No new errors.
+- No commit. No push. No state-file edits.
+
+---
+
+#### Phase 5b-prep — A118 Cascade — Bundle Closing Summary (2026-05-05) [testing] [ci] [api] [database]
+
+**Tags:** [testing] [ci] [api] [database] [decision]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Operator:** ops subagent (commit + push)
+
+**Nature of discovery:** A118 was not a one-file fix — it was a cascade. The A118 root cause (`createTestCapture` default embedding = `null`, making test captures invisible to `hybrid_search()`) was the FIRST failure in a `bail: 1` integration suite. Fixing A118 unmasked four more pre-existing failures that had been hidden for 13+ days by `ci.yml continue-on-error: true`. All five share a single goal: get the integration-test job green so Phase 5b can promote it to required. They are bundled into one commit.
+
+**A118 — helpers.ts embedding default (root cause):**
+`packages/core-api/src/__tests__/integration/helpers.ts` `createTestCapture` defaulted `embedding` to `null`. The `hybrid_search()` SQL function (both the `fts_ranked` and `vector_ranked` CTEs) requires `c.embedding IS NOT NULL`. Test captures with `null` embeddings were invisible to both legs of hybrid search — not just the vector leg. Fix: default embedding is now `new Array(768).fill(0)` (the zero-vector the stub `EmbeddingService` in `setup.ts` would produce). Callers needing null embedding can pass `embedding: null` explicitly. No application code changed.
+
+**A121 — init-schema.sql missing `result JSONB` on skills_log (root cause):**
+`scripts/init-schema.sql` defined `skills_log` without the `result JSONB` column added by migration `0007_skills_log_result.sql` (backported April 7 2026). `initTestDatabase()` uses `CREATE TABLE IF NOT EXISTS`, which does NOT add columns to an existing table — so the running test DB had stale schema. The MCP `get_weekly_brief` tool's `SELECT result FROM skills_log` threw a PostgreSQL column-not-found error; the `catch` block swallowed it silently and returned a fallback message, causing assertion drift. Fix: backported the `result JSONB` column into the `CREATE TABLE` in `init-schema.sql` plus added an `ALTER TABLE ... ADD COLUMN IF NOT EXISTS result JSONB` guard for existing test DBs. Also removed the phantom `status` column from a mcp-tools test INSERT that referenced a column that has never existed.
+
+**A122 — get-capture.ts SQL alias bug (root cause, production behavior fix):**
+`packages/core-api/src/mcp/tools/get-capture.ts` queried `e.type` (no such column on `entity_links`; actual column is `entity_type`). PostgreSQL threw a column-not-found error on every real-DB `getCaptureTool` call that included linked entities. The `catch` block in the MCP tool silently swallowed the error — entities simply never appeared in the `get_capture` MCP tool response on the real database. This was a production bug introduced in commit `5bb3126`. Fix: `e.type` → `e.entity_type AS type`. Entity types are now actually populated in `get_capture` responses. This is a behavior change on production: the MCP tool will now return populated `type` fields where it previously returned nothing.
+
+**A123 — init-schema.sql missing `commitments` table (root cause):**
+`scripts/init-schema.sql` never included the `commitments` table, added by migration `0031_commitments.sql`. `EntityResolutionService.merge()` updates `commitments` as part of the entity merge transaction. When the integration test triggered a merge on the test DB (which uses `init-schema.sql`), Postgres raised `relation "commitments" does not exist`. Fix: full `CREATE TABLE IF NOT EXISTS commitments` DDL backported into `init-schema.sql`, including the `status` CHECK constraint matching the canonical TS union in `packages/shared/src/types/commitment.ts`. Lockstep audit passed — no new canonical surfaces required (schema-only addition to the test bootstrap file, existing application code unchanged).
+
+**A124 — rate-limit-public.test.ts stale post-Phase-6 (root cause):**
+`packages/core-api/src/__tests__/rate-limit-public.test.ts` test 1 spoofed caller `'mobile-app'` and expected the strict tier (20 req/min) to 429 within 25 requests. Phase 6 R8 removed `internal:mobile-app` from `BYPASS_CALLERS` and moved it to the mobile tier (200 req/min). After Phase 6, 25 requests never hit the mobile-tier limit — `first429Index` was `-1`, causing the test to fail with no actionable assertion message. The test was a vacuous green before Phase 6 (mobile-app was bypassed entirely — it never actually 429'd for a different reason). Fix: changed the spoofed caller to `'integration-test'`. A public-IP caller claiming `X-Open-Brain-Caller: integration-test` is not in `BYPASS_CALLERS` (bypass requires internal IP, per the `isInternalIp()` defense-in-depth in `getClientKey()`) — it falls through to IP-keyed strict tier (20 req/min), which 429s at ~request 21, which is what the test asserts.
+
+**A125 noted (not fixed in this commit):**
+`scripts/init-schema.sql` is also missing the `pipeline_events.stage` CHECK constraint added in migration `0025`. The stage column exists in the table but has no constraint, so the test DB does not enforce the 11-value enum. This is a pre-existing gap (not a regression from this session) and was not blocking any tests. Tracked as A125 for a future audit pass over `init-schema.sql` vs all migrations.
+
+**Final state:**
+- Integration suite: **126/126 pass** across 7 files (was 0/10 green over 13 days — the 13-day streak of failures is closed).
+- Unit suite: **67 files / 1,163 tests / 0 fail** — no regression from the bundle.
+- Lint: only pre-existing A106 TS2502 in `entity-resolution.test.ts:345`. No new errors.
+
+**Phase 5b is now unblocked.** The pre-flight gate (≥9/10 green integration-test runs) must be confirmed via `gh run list --workflow=ci.yml --limit 20` after this commit merges to CI. Once 9/10 runs are green, dispatch Phase 5b to flip `ci.yml:171` from `continue-on-error: true` to the required gate.

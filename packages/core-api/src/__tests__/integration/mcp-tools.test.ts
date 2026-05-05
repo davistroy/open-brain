@@ -440,8 +440,8 @@ describe('MCP tool: get_weekly_brief', () => {
     // Insert a weekly-brief entry directly into skills_log
     const pool = getTestPool()
     await pool.query(`
-      INSERT INTO skills_log (skill_name, status, output_summary, result, created_at)
-      VALUES ('weekly-brief', 'complete', 'Test brief summary', '{"content": "Full weekly brief content for integration test"}', NOW())
+      INSERT INTO skills_log (skill_name, output_summary, result, created_at)
+      VALUES ('weekly-brief', 'Test brief summary', '{"content": "Full weekly brief content for integration test"}', NOW())
     `)
 
     const input: GetWeeklyBriefInput = { weeks_ago: 0 }

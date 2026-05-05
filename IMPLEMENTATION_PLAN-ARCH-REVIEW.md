@@ -490,17 +490,20 @@ Every phase MUST comply with:
 **Effort:** S
 **Goal:** Promote the integration-test CI job from `continue-on-error: true` to a required status check once the FTS test is reliably green.
 **Prerequisite:** A118 fixed (mcp-tools search_brain FTS deterministic failure resolved).
-**Blocked by:** A118 — `packages/core-api/src/__tests__/integration/mcp-tools.test.ts > search_brain > returns results when captures exist (FTS match)` returns empty FTS results after INSERT in 0/10 integration-test runs over 13 days. Diagnosis: missing tsvector refresh / transaction commit timing before search executes.
+**Blocked by:** ~~A118~~ **RESOLVED 2026-05-05** — A118 cascade bundle (A118+A121+A122+A123+A124) committed. Integration suite is 126/126 green. Pre-flight gate (`gh run list --workflow=ci.yml --limit 20`) must confirm ≥9/10 green CI runs before executing 5b.2 + 5b.3.
 **Unblock criterion:** ≥9/10 green integration-test runs after A118 is fixed.
 **Numbering note:** Phase 5b is a sibling to Phase 5. Phase 6 numbering is unchanged.
+**Status: READY TO DISPATCH** — A118 blocker resolved. Re-run pre-flight gate, then execute 5b.2 and 5b.3.
 
-### 5b.1 Fix A118 — mcp-tools FTS test
+### 5b.1 Fix A118 — mcp-tools FTS test ✅ RESOLVED 2026-05-05
 
-**Files:** `packages/core-api/src/__tests__/integration/mcp-tools.test.ts` (~L122)
+**Files:** `packages/core-api/src/__tests__/integration/helpers.ts`, `scripts/init-schema.sql`, `packages/core-api/src/mcp/tools/get-capture.ts`, `packages/core-api/src/__tests__/integration/mcp-tools.test.ts`, `packages/core-api/src/__tests__/integration/entities.test.ts`, `packages/core-api/src/__tests__/rate-limit-public.test.ts`
+
+**Root cause:** `createTestCapture` defaulted `embedding: null`; `hybrid_search()` requires `embedding IS NOT NULL` on both FTS and vector CTEs. Five cascading pre-existing failures were uncovered and fixed in the same bundle (A118+A121+A122+A123+A124). See LAB_NOTEBOOK Entry 105 closing summary.
 
 **Acceptance:**
-- [ ] Test `returns results when captures exist (FTS match)` passes reliably.
-- [ ] `gh run list --workflow=ci.yml --limit 20` shows ≥9/10 green integration-test runs.
+- [x] Test `returns results when captures exist (FTS match)` passes reliably.
+- [ ] `gh run list --workflow=ci.yml --limit 20` shows ≥9/10 green integration-test runs. **(Confirm after this commit reaches CI.)**
 
 **Requirement Refs:** R1
 
