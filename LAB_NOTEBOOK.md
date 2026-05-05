@@ -9128,3 +9128,53 @@ Subagent-driven development: 15 tasks executed sequentially with fresh subagents
 
 ---
 
+### Entry 105 — Architecture Review Remediation: Implementation Session [implement-plan] [arch-review] [decision] [security] [testing] [refactor]
+
+**Date:** 2026-05-05
+**Branch:** `feat/arch-review-remediation`
+**Driver:** `/personal-plugin:implement-plan IMPLEMENTATION_PLAN-ARCH-REVIEW.md --pause-between-phases`
+
+**Objective**
+Execute the 9-phase architecture review remediation plan (R1–R9, R11, R12; R10 dropped). 49 work items, ~7,870 LOC across ~99 files. Six change sets: A (Web Consolidation), B (Security R2→R8), C (Test/CI R4→R6→R1), D (Service Layer R7), E (Repo Hygiene R5). One ADR (ADR-0001-web-consolidation, drafted Proposed; ratified in Phase 7.1).
+
+**Hypothesis (success criteria, per-phase)**
+- Phase 1: ≥6 IMPLEMENT_*.md/M3_BACKLOG/M1 archived; 13 c.json error returns converted; tests still green.
+- Phase 2: public POST `/api/v1/captures` with spoofed `X-Open-Brain-Caller: mobile-app` returns 429 on the 21st request/min via `brain.troy-davis.com`.
+- Phase 3+4: 16 originally-untested core-api routes now have `*-routes.test.ts` files at ≥70% coverage.
+- Phase 5: AdminService/BudgetService/IntelligenceService extracted; admin two-step reset still works on staging; integration-test job promoted to required.
+- Phase 6: `curl -H 'Authorization: Bearer $MOBILE_API_KEY'` returns 200; missing header returns 401; mobile-app removed from BYPASS_CALLERS.
+- Phase 7: ADR-0001 ratified; web-next parity gaps closed; web-only utilities migrated.
+- Phase 8a: 21-domain web-next API client built; bundle size +<5%.
+- Phase 8b: 6 god pages split; `packages/web` deleted; rollback tag `pre-web-sunset-2026-05` pushed; `brain.troy-davis.com` smokes clean.
+
+**Rollback plan**
+- Feature-branch isolated; no `main` commits until PR merge.
+- Each phase is its own commit chain — `git revert <sha>` per phase if needed.
+- Phase 8b adds an explicit `pre-web-sunset-2026-05` git tag for permanent rollback path.
+- `tunnel.yaml:18` rollback comment preserved through Phase 8a.6.
+
+**Architectural compliance prepended to every implementation subagent prompt**
+1. Append a Findings/Result paragraph to *this* lab notebook entry (Entry 105) BEFORE the first commit of the phase. CLAUDE.md treats this as a BLOCKING precondition.
+2. Internal services still set `X-Open-Brain-Caller`; bypass mechanism is preserved for Docker-network callers.
+3. Rebuild `@open-brain/shared` before `tsc --noEmit` on dependents whenever shared types change.
+4. `pnpm-lock.yaml` committed with any `package.json` change.
+5. Schema-touching CHECK constraint changes require lockstep update of canonical TS union + Zod + DB CHECK + route validator (none currently planned in this session).
+
+---
+
+#### Phase 0: Session prep (2026-05-05)
+
+**Setup commit:** `feat/arch-review-remediation` branch from `main`. Plan + ADR + lab notebook entry committed together.
+
+**U1 resolved** (Next.js 16 request header overwrite for proxied API requests).
+- **Question:** Can `next.config.ts` `rewrites()` overwrite request headers, or do we need `headers()` / `middleware.ts`?
+- **Answer:** Neither `rewrites()` nor `headers()` config sets *request* headers to upstream. `headers()` is response-only. **`src/middleware.ts` (Next.js Edge Middleware) is the only option** — clone request headers via `new Headers(request.headers)`, `.set('X-Open-Brain-Caller', 'web-next-public')` to forcibly overwrite, then `NextResponse.next({ request: { headers } })` forwards modified headers upstream without leaking to the client.
+- **Source:** Next.js 16.1.6 docs — backend-for-frontend.mdx + next-response.mdx (vercel/next.js@v16.1.6).
+- **Implication:** Phase 2.2 implementation creates `packages/web-next/src/middleware.ts` with matcher `'/api/:path*'`. `next.config.ts` rewrites stay as-is. Effort estimate (S) holds.
+
+**Plan updated:** U1 status flipped from Open → Resolved in the Unknowns Register.
+
+(Phase results below will be appended as each phase completes.)
+
+---
+
