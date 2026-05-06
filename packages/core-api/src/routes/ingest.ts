@@ -52,6 +52,11 @@ import {
 /** Hard cap (100 MiB) — enforced while streaming the request body. */
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
+type CaptureSnippetRow = {
+  id: string
+  content: string | null
+}
+
 /**
  * Root directory that contains one subfolder per IngestSourceType. Matches the
  * bind-mount the sidecars will receive in CS3.13 deploy. Overridable for
@@ -149,21 +154,29 @@ async function streamBodyToFile(
 }
 
 /**
- * GET-side row shaper. Joins capture rows on demand to produce the
- * `captures` snippet array the dashboard needs. A zero-capture row
- * returns `captures: []` without an extra query.
+ * GET-side row shaper. Uses a prefetched capture lookup when supplied to
+ * avoid per-upload SELECTs on list responses. A zero-capture row returns
+ * `captures: []` without an extra query.
  */
 async function shapeFileUploadRow(
   db: Database,
   row: typeof file_uploads.$inferSelect,
+  captureLookup?: Map<string, CaptureSnippetRow>,
 ): Promise<FileUploadRow> {
   const ids = (row.capture_ids ?? []) as string[]
   let captureSummaries: { id: string; title_snippet: string }[] = []
   if (ids.length > 0) {
-    const rows = await db
-      .select({ id: captures.id, content: captures.content })
-      .from(captures)
-      .where(inArray(captures.id, ids))
+    let rows: CaptureSnippetRow[]
+    if (captureLookup) {
+      rows = ids
+        .map((id) => captureLookup.get(id))
+        .filter((r): r is CaptureSnippetRow => Boolean(r))
+    } else {
+      rows = await db
+        .select({ id: captures.id, content: captures.content })
+        .from(captures)
+        .where(inArray(captures.id, ids))
+    }
     captureSummaries = rows.map((r) => ({
       id: r.id,
       title_snippet: (r.content ?? '').slice(0, 120),
@@ -432,7 +445,17 @@ export function registerIngestRoutes(
         .where(where),
     ])
 
-    const uploads = await Promise.all(rows.map((r) => shapeFileUploadRow(db, r)))
+    const captureIds = Array.from(
+      new Set(rows.flatMap((r) => ((r.capture_ids ?? []) as string[]))),
+    )
+    const captureRows = captureIds.length > 0
+      ? await db
+        .select({ id: captures.id, content: captures.content })
+        .from(captures)
+        .where(inArray(captures.id, captureIds))
+      : []
+    const captureLookup = new Map(captureRows.map((r) => [r.id, r]))
+    const uploads = await Promise.all(rows.map((r) => shapeFileUploadRow(db, r, captureLookup)))
     const total = totalRow[0]?.count ?? 0
 
     const response: ListUploadsResponse = {

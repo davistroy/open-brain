@@ -7,10 +7,6 @@ settings:
 importers:
 
   .:
-    dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.39.0
-        version: 0.39.0
     devDependencies:
       tsx:
         specifier: ^4.7.0
@@ -453,27 +449,6 @@ importers:
       pino:
         specifier: ^10.3.1
         version: 10.3.1
-      rehype-autolink-headings:
-        specifier: ^7.1.0
-        version: 7.1.0
-      rehype-slug:
-        specifier: ^6.0.0
-        version: 6.0.0
-      rehype-stringify:
-        specifier: ^10.0.1
-        version: 10.0.1
-      remark-parse:
-        specifier: ^11.0.0
-        version: 11.0.0
-      remark-rehype:
-        specifier: ^11.1.1
-        version: 11.1.2
-      unified:
-        specifier: ^11.0.5
-        version: 11.0.5
-      xss:
-        specifier: ^1.0.15
-        version: 1.0.15
       zod:
         specifier: ^3.23.0
         version: 3.25.76
