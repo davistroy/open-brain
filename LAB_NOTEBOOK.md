@@ -9945,3 +9945,137 @@ Phase 8b feasibility: **Conditional YES** — gated on Phase 7.3 completing the 
 #### Round 1 Closing Summary — committed 2026-05-05 [decision] [implement-plan] [web]
 
 ADR-0001 ratified (Status Proposed → Accepted, 2026-05-05). This is the first formal ADR in the repo; it sets the convention for future decisions. CLAUDE.md "NOT Next.js" misinformation removed — replaced with accurate two-package transition framing (web-next canonical production ingress; packages/web sunsetting Phase 8b). TDD §14 received a 2026-05-05 blockquote pointing to ADR-0001 and the new section. New section landed at §24 (not §15 as recon guessed — §15–§23 were already occupied by Testing Strategy through Email Pipeline; no renumbering done). Parity audit doc written (docs/web-parity-audit.md, 6 sections): all 19 web routes covered in web-next, 3 web-next-only extras. Settings gap larger than recon ballpark: 8 MISSING + 2 PARTIAL (not 5–6 MISSING). Phase 8b verdict from audit: Conditional YES — gated on Phase 7.3 rebuilding 8 Settings sections; no other hard blockers, all backing APIs exist. Round 2 dispatch decisions: port-IA (rebuild all 8 in Settings, not split to System); sequential exemplar-first then parallel batch; Cloudscape-native (not shadcn port).
+
+---
+
+#### Phase 7.3 Exemplar: TriggersSection — COMPLETE 2026-05-05 [web] [decision] [refactor]
+
+**IMPORTANT DESIGN CORRECTION:** The "Cloudscape-native" brief instruction was invalidated by codebase inspection. `packages/web-next` has NO `@cloudscape-design/components` dependency. The 7 existing settings sections use the repo's own `@/components/design-system` (Card, Button, Input, EmptyState, etc.) + Tailwind CSS custom vars + TanStack Query v5. Using Cloudscape would introduce a new dependency, break visual consistency, and contradict the exemplar-first pattern principle. Decision: follow the actual existing pattern, not the brief's terminology. The term "Cloudscape" in the brief was likely used loosely to mean "the web-next design system."
+
+**Files added:**
+- `packages/web-next/components/settings/TriggersSection.tsx` — 275 LOC; list + inline add form; uses Card/Button/Input from design-system; TanStack Query for fetch + invalidate-on-mutate.
+
+**Files modified:**
+- `packages/web-next/lib/types.ts` — added `Trigger` interface (mirrors web/src/lib/types.ts; canonical shape for the triggers table).
+- `packages/web-next/lib/api-client.ts` — added `Trigger` to type import + re-export; added `CreateTriggerPayload` interface; added `triggersApi` namespace (`list`, `create`, `delete`).
+- `packages/web-next/app/(shell)/settings/page.tsx` — added `'triggers'` to `SettingsSection` union, `resolveSection` valid list, and `case 'triggers':` in switch; imported `TriggersSection`.
+- `packages/web-next/components/settings/SettingsSidebar.tsx` — added `Bell` to lucide imports; added `{ key: 'triggers', label: 'Triggers', icon: Bell }` to SIDEBAR_ITEMS between 'sources' and 'brief-preferences'.
+
+**Build result:** PASS — Next.js 16.2.4 Turbopack build succeeds, TypeScript check passes (13.7s, zero errors). Build required `NODE_OPTIONS="--max-old-space-size=4096"` (strip the pre-existing `--report-on-fatalerror` flag which is rejected by Next.js worker threads — pre-existing env issue, not introduced by this change).
+
+**Lint result:** 24 pre-existing errors in `dashboard/page.tsx` and `HelpContent.tsx` (verified via git stash before/after). Zero errors introduced by this change set. Baseline confirmed.
+
+**Tests:** No test files exist for any settings section in web-next (glob `packages/web-next/**/*.test.tsx` returns empty). Skipped per "consistency over coverage" rule — adding a test would be the first, inconsistent with the batch. Document for Phase 8 cleanup.
+
+**Wire contract:** YES — `triggersApi.list()` calls `GET /api/v1/triggers`, `triggersApi.create()` calls `POST /api/v1/triggers`, `triggersApi.delete(id)` calls `DELETE /api/v1/triggers/:id`. Exact same endpoints and request/response shapes as `packages/web/src/components/settings/TriggersSection.tsx`.
+
+**UX parity with web original:** YES with one intentional improvement — "Add" button is in the Card header `actions` slot (web puts it as a standalone button in the section header). Same fields (name + queryText for create), same display metadata per row (active badge, delivery channel badge, query_text, threshold, cooldown_minutes, fire_count, last_fired_at), same immediate delete (no confirmation).
+
+**Was TriggersSection a good exemplar choice?** YES. It exercises all patterns that sibling sections need: TanStack Query list fetch, mutation with invalidation, inline add form with local state, error UI, loading skeleton, empty state, list rows with badges. The `EmailAllowlistSection` (list-CRUD shape) can diverge on the delete-with-confirmation pattern without affecting the exemplar. The 4 read-only status sections (ServiceHealth, VersionUptime, Voice, Wiki) are simpler — they only need the fetch + error + skeleton patterns, a subset of what TriggersSection establishes.
+
+---
+
+**Exemplar Patterns Established for Sibling Sections**
+
+All code in `packages/web-next/components/settings/TriggersSection.tsx`. File naming: PascalCase.tsx in `packages/web-next/components/settings/`.
+
+**1. Hook pattern — GET + mutation cycle (~10 LOC)**
+```ts
+const queryClient = useQueryClient();
+const { data, isLoading, isError, error } = useQuery({
+  queryKey: ['my-resource'],
+  queryFn: () => myApi.list(),
+  staleTime: 30_000,
+});
+const mutation = useMutation({
+  mutationFn: (payload: MyPayload) => myApi.create(payload),
+  onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['my-resource'] }); },
+});
+```
+Note: use `invalidateQueries` (not `setQueryData`) for list mutations — simpler, no shape mismatch risk.
+
+**2. Error UI pattern**
+```tsx
+{isError && (
+  <div className="flex items-start gap-3 px-4 py-3 border border-[var(--color-status-error-border)] bg-[var(--color-status-error-bg)]" role="alert">
+    <TriangleAlert size={14} strokeWidth={1.5} className="text-[var(--color-status-error-fg)] shrink-0 mt-[1px]" />
+    <p className="text-[12.5px] text-[var(--color-status-error-fg)] font-light leading-[1.5]">{errorMessage}</p>
+  </div>
+)}
+```
+
+**3. Loading UI pattern (skeleton rows)**
+```tsx
+function SkeletonRow() {
+  return (
+    <div className="px-[18px] py-[14px] flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-[6px] flex-1 min-w-0">
+        <div className="h-[13px] w-[140px] bg-cloud-light animate-pulse" />
+        <div className="h-[11px] w-[240px] bg-cloud-light animate-pulse opacity-60" />
+      </div>
+      <div className="h-[22px] w-[22px] bg-cloud-light animate-pulse shrink-0" />
+    </div>
+  );
+}
+// Usage: {isLoading && !isError && <><SkeletonRow /><SkeletonRow /></>}
+```
+
+**4. Form component structure**
+- Outer: `<Card header="..." description="..." padded={false} actions={<Button ...>Add</Button>}>`
+- Inline form (when toggled): plain `<form>` with `<Input label=... />` from design-system, submit `<Button variant="primary" size="sm">`, cancel `<Button variant="ghost" size="sm">`.
+- Local state: `const [adding, setAdding] = useState(false)` in parent; form has its own `submitting` + `error` state.
+- Error inline below last field as `<p className="text-[12px] text-[var(--color-status-error-fg)]">`.
+
+**5. api-client wrapper pattern**
+- Location: append new namespace at the END of `packages/web-next/lib/api-client.ts`.
+- Add the type to both the `import type {...} from './types'` block AND the `export type {...}` re-export line.
+- Type interface in `packages/web-next/lib/types.ts` (append at end of file with a `// ---` divider comment block).
+- Namespace naming: `{resource}Api` (e.g., `triggersApi`). Methods: `list`, `get`, `create`, `delete`, `patch` — match REST verbs. Each method is a one-liner calling `request<T>(path, init?)`.
+
+**6. File location convention**
+- Component: `packages/web-next/components/settings/PascalCaseSection.tsx`
+- Section key: kebab-case string literal in `SettingsSection` union in `packages/web-next/app/(shell)/settings/page.tsx`.
+
+**7. Settings page wiring**
+Three edits in `packages/web-next/app/(shell)/settings/page.tsx`:
+  (a) Add key to `SettingsSection` union type.
+  (b) Add key to `valid` array in `resolveSection()`.
+  (c) Add `case 'my-key': return <MySection />;` in `SettingsSectionContent` switch.
+One edit in `packages/web-next/components/settings/SettingsSidebar.tsx`:
+  Add `{ key: 'my-key', label: 'My Section', icon: SomeIcon }` to `SIDEBAR_ITEMS` array (insert at desired nav position).
+
+**Key gotcha for read-only status sections (ServiceHealth, VersionUptime, Voice, Wiki):**
+These only need `useQuery` + error + skeleton patterns — no mutation, no form. They can use the same `Card` wrapper with `padded={false}` and rows in `px-[18px]`. No `useMutation` needed.
+
+**Key gotcha for EmailAllowlistSection (list-CRUD with delete confirmation):**
+Add a `deletingId` state + `onDelete` handler, but wrap the delete button in a confirmation state (pattern: `confirmingDeleteId: string | null` state, show confirm UI inline on the row before firing the mutation). The exemplar's immediate-delete pattern (no confirmation) is intentional for triggers; allowlist deletes warrant confirmation.
+
+No commit. No push. No `.implement-plan-state.json` edits.
+
+---
+
+#### Phase 7.3 + 7.4 Closing Summary — COMPLETE 2026-05-05 [web] [refactor] [decision]
+
+**Tags:** [web] [refactor] [decision] [implement-plan]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+**Ops subagent:** collated 4 wiring files after 7-wide parallel component fan-out
+
+8 settings sections built in two rounds (1 exemplar + 7 parallel-batch): TriggersSection (275 LOC, exemplar, list-CRUD with immediate delete), AIRoutingSection (243 LOC, read-only routing table + budget meter), EmailAllowlistSection (441 LOC, list-CRUD with inline two-step confirm-delete), EmailConfigSection (191 LOC, read-only filtered integrations view), ServiceHealthSection (273 LOC, /health dependency status), VersionUptimeSection (166 LOC, /health version + uptime), VoiceSection (291 LOC, reuses voiceSessionApi + integrations), WikiSection (181 LOC, reuses wikiApi + systemHealthApi + skillsListApi). Total: 2,061 LOC across 8 files. The recon ballpark of ~675 LOC was 3x off — the subagents wrote thorough components with full skeleton/error/empty-state variants for every section, which is the right tradeoff. Future recon estimates for settings sections should budget ~200–450 LOC per section depending on CRUD complexity.
+
+**Pattern breakdown:** 4 read-only status sections (ServiceHealth, VersionUptime, Voice, Wiki) using only useQuery + skeleton + error patterns; 3 config-form/display sections (AIRouting, EmailConfig, and the new EmailAllowlist); 1 list-CRUD with confirm-delete (EmailAllowlist — most complex due to two-step inline delete pattern). The exemplar (TriggersSection) covers the full CRUD cycle; status sections reuse the simpler subset as predicted.
+
+**Wiring approach:** 7-wide fan-out for component files only; ops subagent collated all 4 shared wiring files (api-client.ts, types.ts, settings/page.tsx, SettingsSidebar.tsx) in a single pass. This avoided 7-way merge conflicts on those files. Pattern proven: always fan-out only leaf files, never shared-registry files; one ops agent per registry. New convention added to .implement-plan-state.json.
+
+**API client additions:** `aiRoutingApi.get()` → `GET /api/v1/config/ai-routing`; `emailAllowlistApi.list/add/remove()` → wraps `settingsApi.get/put('email_allowlist')` for the JSONB string[] (handles 404 as empty); `emailConfigApi.get()` → filters `configApi.integrations()` to Email (Inbound)/(Outbound) with status mapping; `serviceHealthApi.get()` → `GET /api/v1/health`. Reused existing: `voiceSessionApi`, `wikiApi`, `systemHealthApi`, `configApi.integrations()`, `skillsListApi.list()`, and `request()` directly in VersionUptimeSection. New types added to types.ts: `AIRoutingConfig`, `ModelRoutingEntry`, `EmailConfig`, `EmailChannel`, `EmailChannelStatus`, `ServiceHealthStatus`. New interface added directly to api-client.ts (matching the systemHealthApi pattern): `HealthResponse`, `ServiceCheck`.
+
+**Consolidation win — HealthResponse type:** VersionUptimeSection had a local `HealthInfo` interface for the `/health` response. ServiceHealthSection independently defined `HealthResponse` for the same endpoint. Caught at ops time: unified to `HealthResponse` in api-client.ts; `VersionUptimeSection.tsx` updated to import `HealthResponse` from api-client instead of using the local `HealthInfo`. Eliminates one about-to-be-duplicated type definition. This is the structural debt prevention that the ops-collation pattern is designed for.
+
+**Phase 7.4 (utility migration): NO MIGRATION REQUIRED.** Phase 7.2 audit confirmed web-next is strictly more complete on lib utilities (query-client, source-icons, synthesis-detect, export, mock-data all exist in web-next and not web). Nothing to migrate. Phase 7.4 closed as a no-op.
+
+**Phase 8b unblocker satisfied:** All 8 missing Settings sections are now rebuilt in web-next. The `packages/web` settings components can be safely deleted when Phase 8b runs. No settings-related functionality remains exclusively in packages/web (the 2 PARTIAL sections — IntegrationsSection, AutonomyLevelSection — are either covered by existing SourcesSection or deferred per Phase 7.2 audit decision).
+
+**Build status:** GREEN. `pnpm --filter @open-brain/web-next build` succeeds with TypeScript pass (zero errors, 8.1s typecheck). Lint: 24 pre-existing errors in dashboard/page.tsx + HelpContent.tsx (A127 baseline, unchanged). Zero new errors introduced.
+
+**Note:** Requires `NODE_OPTIONS="--max-old-space-size=4096"` (strips the pre-existing `--report-on-fatalerror` flag rejected by Next.js worker threads). Pre-existing env issue on this laptop, not introduced by this change.
+
+**Commit:** to be assigned by ops on `git commit`.

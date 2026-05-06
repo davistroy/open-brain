@@ -26,6 +26,14 @@ export type SettingsSection =
   | 'profile'
   | 'appearance'
   | 'sources'
+  | 'triggers'
+  | 'ai-routing'
+  | 'email-config'
+  | 'email-allowlist'
+  | 'voice'
+  | 'wiki'
+  | 'service-health'
+  | 'version-uptime'
   | 'brief-preferences'
   | 'privacy'
   | 'workspaces'
@@ -41,6 +49,14 @@ function resolveSection(raw: string | undefined): SettingsSection {
     'profile',
     'appearance',
     'sources',
+    'triggers',
+    'ai-routing',
+    'email-config',
+    'email-allowlist',
+    'voice',
+    'wiki',
+    'service-health',
+    'version-uptime',
     'brief-preferences',
     'privacy',
     'workspaces',
@@ -104,6 +120,14 @@ import { EntityExtractionSection } from '@/components/settings/EntityExtractionS
 import { EmptySettingsSection } from '@/components/settings/EmptySettingsSection';
 import { DangerZoneSection } from '@/components/settings/DangerZoneSection';
 import { AppearanceSection } from '@/components/settings/AppearanceSection';
+import { TriggersSection } from '@/components/settings/TriggersSection';
+import { AIRoutingSection } from '@/components/settings/AIRoutingSection';
+import { EmailAllowlistSection } from '@/components/settings/EmailAllowlistSection';
+import { EmailConfigSection } from '@/components/settings/EmailConfigSection';
+import { ServiceHealthSection } from '@/components/settings/ServiceHealthSection';
+import { VersionUptimeSection } from '@/components/settings/VersionUptimeSection';
+import { VoiceSection } from '@/components/settings/VoiceSection';
+import { WikiSection } from '@/components/settings/WikiSection';
 
 /** Copy map for empty-state sections — Cloudscape editorial voice */
 const EMPTY_SECTION_COPY: Record<string, { title: string; description: string }> = {
@@ -154,6 +178,38 @@ function SettingsSectionContent({ section }: { section: SettingsSection }) {
     case 'appearance':
       // Live section (2.1): wash preference selector
       return <AppearanceSection />;
+
+    case 'triggers':
+      // Live section (7.3): semantic trigger list + create/delete
+      return <TriggersSection />;
+
+    case 'ai-routing':
+      // Live section (7.3): AI routing table + budget meter
+      return <AIRoutingSection />;
+
+    case 'email-config':
+      // Live section (7.3): email inbound/outbound channel health
+      return <EmailConfigSection />;
+
+    case 'email-allowlist':
+      // Live section (7.3): email sender allowlist CRUD
+      return <EmailAllowlistSection />;
+
+    case 'voice':
+      // Live section (7.3): voice integration status + session counts
+      return <VoiceSection />;
+
+    case 'wiki':
+      // Live section (7.3): wiki repo health + stats
+      return <WikiSection />;
+
+    case 'service-health':
+      // Live section (7.3): core dependency health (postgres, redis, llm)
+      return <ServiceHealthSection />;
+
+    case 'version-uptime':
+      // Live section (7.3): build version + uptime
+      return <VersionUptimeSection />;
 
     case 'danger':
       // Live section (3.3): two-step data reset flow

@@ -130,13 +130,20 @@ import type {
   Integration,
   IntegrationStatus,
   SettingEntry as SettingEntryType,
+  Trigger,
+  AIRoutingConfig,
+  ModelRoutingEntry,
+  EmailConfig,
+  EmailChannel,
+  EmailChannelStatus,
+  ServiceHealthStatus,
 } from './types'
 
 // ---------------------------------------------------------------------------
 // Re-exported union types — callers can import from here as a convenience
 // ---------------------------------------------------------------------------
 
-export type { Capture, CaptureType, CaptureSource, BrainView, Entity, EntityDetail, EntityType, Brief, BriefDetail, SearchResult, DashboardStats, MentionsTimelineResponse, AskEntityResponse, BoardCommitment, CommitmentStatus, Integration, IntegrationStatus }
+export type { Capture, CaptureType, CaptureSource, BrainView, Entity, EntityDetail, EntityType, Brief, BriefDetail, SearchResult, DashboardStats, MentionsTimelineResponse, AskEntityResponse, BoardCommitment, CommitmentStatus, Integration, IntegrationStatus, Trigger, AIRoutingConfig, ModelRoutingEntry, EmailConfig, EmailChannel, EmailChannelStatus, ServiceHealthStatus }
 
 // ---------------------------------------------------------------------------
 // Response envelope shapes (API-level, not UI-level)
@@ -1497,4 +1504,184 @@ export const configApi = {
   integrations: (): Promise<IntegrationsResponse> => {
     return request<IntegrationsResponse>('/config/integrations')
   },
+}
+
+// ---------------------------------------------------------------------------
+// triggersApi — semantic trigger management (Settings → Triggers)
+//
+// Endpoint map (see packages/core-api/src/routes/triggers.ts):
+//   GET    /api/v1/triggers          → { triggers: Trigger[] }
+//   POST   /api/v1/triggers          → { trigger: Trigger }   (201)
+//   DELETE /api/v1/triggers/:id      → { message: string }
+// ---------------------------------------------------------------------------
+
+export interface CreateTriggerPayload {
+  name: string;
+  queryText: string;
+  description?: string;
+  threshold?: number;
+  cooldownMinutes?: number;
+  deliveryChannel?: 'pushover' | 'slack' | 'both';
+}
+
+export const triggersApi = {
+  /**
+   * GET /api/v1/triggers — list all triggers (active and inactive).
+   * Returns { triggers: Trigger[] }.
+   */
+  list: (): Promise<{ triggers: Trigger[] }> => {
+    return request<{ triggers: Trigger[] }>('/triggers')
+  },
+
+  /**
+   * POST /api/v1/triggers — create a new trigger.
+   * Generates an embedding from queryText server-side.
+   * Returns 201 { trigger: Trigger }.
+   */
+  create: (payload: CreateTriggerPayload): Promise<{ trigger: Trigger }> => {
+    return request<{ trigger: Trigger }>('/triggers', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  /**
+   * DELETE /api/v1/triggers/:id — hard-delete a trigger by UUID or name.
+   * Returns { message: string }.
+   */
+  delete: (id: string): Promise<{ message: string }> => {
+    return request<{ message: string }>(
+      `/triggers/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    )
+  },
+}
+
+// ---------------------------------------------------------------------------
+// aiRoutingApi — GET /api/v1/config/ai-routing (Settings → AI routing)
+// ---------------------------------------------------------------------------
+
+export const aiRoutingApi = {
+  /**
+   * GET /api/v1/config/ai-routing — task-to-model routing table + monthly budget.
+   * Returns AIRoutingConfig { models: ModelRoutingEntry[], budget: { ... } }.
+   */
+  get: (): Promise<AIRoutingConfig> => request<AIRoutingConfig>('/config/ai-routing'),
+}
+
+// ---------------------------------------------------------------------------
+// emailAllowlistApi — wraps settingsApi for the email_allowlist key.
+//
+// The allowlist is stored as a plain string[] in app_settings (key: 'email_allowlist').
+// Add/remove is a read-modify-write: fetch current list, splice, PUT.
+// A 404 on GET means the list has never been set — treated as empty [].
+// ---------------------------------------------------------------------------
+
+export const emailAllowlistApi = {
+  /**
+   * GET allowlist: fetches settings/email_allowlist and returns the value as string[].
+   * Returns [] on 404 (key not yet set).
+   */
+  list: async (): Promise<string[]> => {
+    try {
+      const res = await settingsApi.get('email_allowlist')
+      return Array.isArray(res.value) ? (res.value as string[]) : []
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) return []
+      throw err
+    }
+  },
+
+  /**
+   * Add an entry to the allowlist. Reads current list then PUTs merged array.
+   * `current` is the pre-fetched list (from the list() call) to avoid a second GET.
+   */
+  add: async (current: string[], entry: string): Promise<void> => {
+    await settingsApi.put('email_allowlist', [...current, entry])
+  },
+
+  /**
+   * Remove an entry from the allowlist. Reads current list then PUTs filtered array.
+   * `current` is the pre-fetched list (from the list() call) to avoid a second GET.
+   */
+  remove: async (current: string[], entry: string): Promise<void> => {
+    await settingsApi.put('email_allowlist', current.filter((e) => e !== entry))
+  },
+}
+
+// ---------------------------------------------------------------------------
+// emailConfigApi — email channel health from GET /api/v1/config/integrations.
+//
+// Filters configApi.integrations() to the two email channels and maps the
+// Integration status values to EmailChannelStatus for the Settings view.
+// ---------------------------------------------------------------------------
+
+function integrationStatusToEmailChannelStatus(
+  integration: Integration | undefined,
+): EmailChannelStatus {
+  if (!integration) return 'not_configured'
+  switch (integration.status) {
+    case 'healthy':  return 'connected'
+    case 'degraded': return 'degraded'
+    case 'error':    return 'error'
+    default:         return 'not_configured'
+  }
+}
+
+export const emailConfigApi = {
+  /**
+   * GET email config: fetches all integrations and extracts the two email channels.
+   * Returns EmailConfig { inbound: EmailChannel, outbound: EmailChannel }.
+   */
+  get: async (): Promise<EmailConfig> => {
+    const { integrations } = await configApi.integrations()
+    const inboundInteg = integrations.find((i) => i.name === 'Email (Inbound)')
+    const outboundInteg = integrations.find((i) => i.name === 'Email (Outbound)')
+    return {
+      inbound: {
+        status: integrationStatusToEmailChannelStatus(inboundInteg),
+        detail: inboundInteg?.description,
+      },
+      outbound: {
+        status: integrationStatusToEmailChannelStatus(outboundInteg),
+        detail: outboundInteg?.description,
+      },
+    }
+  },
+}
+
+// ---------------------------------------------------------------------------
+// serviceHealthApi — GET /api/v1/health (Settings → Service health)
+//
+// /api/v1/health is the lightweight dependency check endpoint (postgres, redis,
+// llm) as opposed to /api/v1/system/health which is the full operational snapshot.
+// HealthResponse is also used by VersionUptimeSection (consolidates HealthInfo).
+// ---------------------------------------------------------------------------
+
+/** One service dependency check result from GET /api/v1/health. */
+export interface ServiceCheck {
+  status: ServiceHealthStatus
+  latency_ms?: number
+  error?: string
+}
+
+/**
+ * Full health response from GET /api/v1/health.
+ * Used by both ServiceHealthSection and VersionUptimeSection.
+ * Consolidates the local HealthInfo interface from VersionUptimeSection.
+ */
+export interface HealthResponse {
+  status: ServiceHealthStatus
+  timestamp: string
+  version?: string
+  uptime_s?: number
+  services: Record<string, ServiceCheck>
+}
+
+export const serviceHealthApi = {
+  /**
+   * GET /api/v1/health — lightweight dependency health check.
+   * Returns HealthResponse { status, timestamp, version?, uptime_s?, services }.
+   */
+  get: (): Promise<HealthResponse> => request<HealthResponse>('/health'),
 }
