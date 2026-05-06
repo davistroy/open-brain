@@ -207,7 +207,7 @@ export function HelpContent() {
             from the dashboard Quick Capture widget.
           </P>
           <Ul>
-            <Li><strong>Voice (iPhone/Watch):</strong> Use the iOS Shortcut — tap "Record to Brain", speak, done. The Shortcut uploads directly to the voice-capture endpoint. Transcribed by Whisper.</Li>
+            <Li><strong>Voice (iPhone/Watch):</strong> Use the iOS Shortcut — tap &quot;Record to Brain&quot;, speak, done. The Shortcut uploads directly to the voice-capture endpoint. Transcribed by Whisper.</Li>
             <Li><strong>Voice file upload:</strong> Drop an audio file on the <em>Voice Upload</em> page. Accepts MP3, M4A, WAV, AAC, OGG, FLAC up to 50 MB.</Li>
             <Li><strong>Slack:</strong> Mention @OpenBrain in any channel, or send a direct message. Plain messages are captured; <Code>!commands</Code> trigger skills.</Li>
             <Li><strong>Email:</strong> Forward any email to brain@troy-davis.com. Sender must be on the allowlist (Settings → Sources).</Li>
@@ -231,7 +231,7 @@ export function HelpContent() {
           </P>
           <Ul>
             <Li>Plain keywords → hybrid FTS + vector search.</Li>
-            <Li>Questions ("What have I captured about…?") → AI synthesis answer card above results.</Li>
+            <Li>Questions (&quot;What have I captured about…?&quot;) → AI synthesis answer card above results.</Li>
             <Li>Filter by brain view using the tabs.</Li>
             <Li>Entity facets in the sidebar narrow results by named entities mentioned.</Li>
           </Ul>
@@ -253,9 +253,9 @@ export function HelpContent() {
           <Ul>
             <Li>Entity detail shows: all linked captures, related entities (co-mentioned), and open commitments.</Li>
             <Li>Mention timeline chart shows capture frequency over 90 days.</Li>
-            <Li>"Ask a question" lets you query the LLM about a specific entity using its full context.</Li>
-            <Li>"Generate brief" produces a DOSSIER brief summarizing everything captured about an entity.</Li>
-            <Li>Merge two entities when extraction creates duplicates (e.g. "Troy" vs "Troy Davis").</Li>
+            <Li>&quot;Ask a question&quot; lets you query the LLM about a specific entity using its full context.</Li>
+            <Li>&quot;Generate brief&quot; produces a DOSSIER brief summarizing everything captured about an entity.</Li>
+            <Li>Merge two entities when extraction creates duplicates (e.g. &quot;Troy&quot; vs &quot;Troy Davis&quot;).</Li>
           </Ul>
         </section>
 
@@ -272,11 +272,11 @@ export function HelpContent() {
             <Li><strong>DOSSIER brief:</strong> Entity-specific summary — trigger from any entity detail page.</Li>
           </Ul>
           <P>
-            Each brief has a TOC sidebar, source citations, and a "Listen" button that synthesizes
+            Each brief has a TOC sidebar, source citations, and a &quot;Listen&quot; button that synthesizes
             the text to audio via OpenAI TTS. Audio is cached for 24 hours.
           </P>
           <P>
-            Use "Refine" to regenerate a section with a different focus (e.g. "Focus on decisions only").
+            Use &quot;Refine&quot; to regenerate a section with a different focus (e.g. &quot;Focus on decisions only&quot;).
           </P>
         </section>
 
@@ -294,8 +294,8 @@ export function HelpContent() {
             <Li><strong>Resolved:</strong> Closed commitments.</Li>
           </Ul>
           <P>
-            Click the checkbox or "Mark resolved" on any card to move it to Resolved. Add manual
-            commitments with the "New item" button. Overdue items (past due date, not resolved) are
+            Click the checkbox or &quot;Mark resolved&quot; on any card to move it to Resolved. Add manual
+            commitments with the &quot;New item&quot; button. Overdue items (past due date, not resolved) are
             highlighted in red.
           </P>
         </section>

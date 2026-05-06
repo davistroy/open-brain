@@ -677,6 +677,103 @@ CREATE INDEX IF NOT EXISTS admin_audit_actor_idx ON admin_audit(actor);
 CREATE INDEX IF NOT EXISTS admin_audit_created_at_idx ON admin_audit(created_at);
 
 -- ============================================================
+-- Migration 0024: captures.capture_type + captures.pipeline_status CHECK constraints
+-- ============================================================
+
+ALTER TABLE captures
+  DROP CONSTRAINT IF EXISTS captures_capture_type_check;
+
+ALTER TABLE captures
+  ADD CONSTRAINT captures_capture_type_check
+  CHECK (capture_type IN (
+    'decision',
+    'idea',
+    'observation',
+    'task',
+    'win',
+    'blocker',
+    'question',
+    'reflection'
+  ));
+
+ALTER TABLE captures
+  DROP CONSTRAINT IF EXISTS captures_pipeline_status_check;
+
+ALTER TABLE captures
+  ADD CONSTRAINT captures_pipeline_status_check
+  CHECK (pipeline_status IN (
+    'pending',
+    'processing',
+    'extracted',
+    'embedded',
+    'chunked',
+    'complete',
+    'failed',
+    'deleted'
+  ));
+
+-- ============================================================
+-- Migration 0025: pipeline_events.stage + pipeline_events.status CHECK constraints
+-- ============================================================
+
+ALTER TABLE pipeline_events
+  DROP CONSTRAINT IF EXISTS pipeline_events_stage_check;
+
+ALTER TABLE pipeline_events
+  ADD CONSTRAINT pipeline_events_stage_check
+  CHECK (stage IN (
+    'classify',
+    'check_triggers',
+    'document-chunk',
+    'document-embed',
+    'document-parse',
+    'embed',
+    'extract',
+    'extract_entities',
+    'link_entities',
+    'notify',
+    'received'
+  ));
+
+ALTER TABLE pipeline_events
+  DROP CONSTRAINT IF EXISTS pipeline_events_status_check;
+
+ALTER TABLE pipeline_events
+  ADD CONSTRAINT pipeline_events_status_check
+  CHECK (status IN (
+    'started',
+    'success',
+    'failed'
+  ));
+
+-- ============================================================
+-- Migration 0026: sessions.session_type + sessions.status CHECK constraints
+-- ============================================================
+
+ALTER TABLE sessions
+  DROP CONSTRAINT IF EXISTS sessions_session_type_check;
+
+ALTER TABLE sessions
+  ADD CONSTRAINT sessions_session_type_check
+  CHECK (session_type IN (
+    'governance',
+    'review',
+    'planning'
+  ));
+
+ALTER TABLE sessions
+  DROP CONSTRAINT IF EXISTS sessions_status_check;
+
+ALTER TABLE sessions
+  ADD CONSTRAINT sessions_status_check
+  CHECK (status IN (
+    'active',
+    'paused',
+    'complete',
+    'abandoned'
+  ));
+
+-- ============================================================
 -- Migration 0029: insurance_policies table
 -- ============================================================
 
