@@ -10355,7 +10355,7 @@ Code comment explaining intentional placeholder; not a functional regression.
 **Objective:** Execute Phase 2 of `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` by aligning README, PRD, TDD, and the action registry with source-of-truth implementation state after PR #180.
 **Hypothesis:** Documentation drift can be corrected without runtime changes by grounding claims in checked source files: package manifests, worker skill implementations, scheduler configuration, `config/ai-routing.yaml`, and compose service declarations.
 **Rollback plan:** Revert the Phase 2 documentation commit. No data migrations, package changes, or runtime code changes are expected.
-**Duration:** In progress.
+**Duration:** ~1 hr.
 
 **Results log:**
 - Initial source checks found package manifests for `core-api`, `mobile`, `shared`, `slack-bot`, `voice-capture`, `web-next`, and `workers`.
@@ -10369,3 +10369,4 @@ Code comment explaining intentional placeholder; not a functional regression.
 - Verification: README `packages/web/` scrub returned `0`.
 - Verification: doc-sync semantic equivalent passed on Windows: package.json, PRD current-system note, README status, and CHANGELOG all resolve to `1.5.0`. Direct `bash scripts/sync-docs.sh` is blocked locally by CRLF/bash handling on Windows checkout, not by doc version divergence.
 - Verification: `docker compose -f docker-compose.yml config --services` still exits 1 with `service "cloudflared" depends on undefined service "web": invalid compose project`; this remains tracked as A130 and was not fixed in Phase 2.
+- Git: committed Phase 2 documentation alignment as `8f464c1` (`docs: align post-remediation plan state`). No push.
