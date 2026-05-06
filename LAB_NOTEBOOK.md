@@ -9890,3 +9890,58 @@ The reported symptom was `expected 'No weekly briefs generated yet'` but receive
 3. **`IMPLEMENTATION_PLAN-ARCH-REVIEW.md` — Deferred Items appendix:** New `## Deferred Items (Action Item Registry)` section with a 21-row table (A106–A126), including status, location, and unblock criteria for every action item. Guidance block identifies which open items affect operational behavior vs. pre-existing baselines. A119 confirmed CLOSED (operator created BWS secret 2026-05-05); A126 added (was not previously in the action_items array in the state file).
 
 All open action items are now git-tracked and discoverable. `.implement-plan-state.json` remains the chronological source-of-truth with full SHAs and timestamps; the registry table is the human-readable snapshot that survives compaction and session boundaries.
+
+---
+
+#### Phase 7.1: Documentation Ratification — COMPLETE 2026-05-05 [decision] [implement-plan]
+
+**Tags:** [decision] [implement-plan] [web]
+**Environment:** laptop, branch `feat/arch-review-remediation`
+
+**Three doc edits executed (no code changes, no commit):**
+
+1. **`docs/adr/ADR-0001-web-consolidation.md` — ratified.** Status changed from `Proposed` → `Accepted`; added `**Accepted:** 2026-05-05` line below the Status field. No other content modified. ADR is now the formal decision record for web stack consolidation.
+
+2. **`CLAUDE.md` line 241 — "NOT Next.js" corrected.** Old: `- **Web:** Vite + React + Tailwind + shadcn/ui (NOT Next.js).` Replaced with accurate two-package-in-transition framing: web-next is the canonical production ingress; packages/web sunsets in Phase 8b; all new UI work goes to web-next; cites ADR-0001. Line number confirmed at 241 (grep validated before edit).
+
+3. **`docs/TDD.md` — §14 note added + §24 created.** §14 (Web Dashboard, Phase 4) received a `> **Note (2026-05-05):**` blockquote at the top citing the transition and cross-referencing ADR-0001 and §24. Surgical — no existing content removed. §15 already occupied by "Testing Strategy", so the new Web Stack Consolidation section was added as **§24** (after §23 Email Pipeline, before the Appendices block). §24 includes a summary paragraph (M3 timeline, ADR ratification date, Phase 8b sunset) and a Migration Plan subsection with a 3-row table covering Phases 7 / 8a / 8b. Both IMPLEMENTATION_PLAN-ARCH-REVIEW.md and ADR-0001 are cross-referenced.
+
+**Drift surprise:** §15 in TDD.md is "Testing Strategy" (not a candidate for renaming), so the new section landed at §24 rather than §15. This is a numbering gap (§15–§23 exist, new section is §24) — not structural drift, just the organic document growth pattern. No renumbering of existing sections was done.
+
+**Cross-doc consistency check:** All three files (CLAUDE.md, TDD.md §14 note, ADR-0001 Status) now agree: web-next is canonical production ingress; packages/web sunsets Phase 8b; ADR-0001 is the decision record. No contradictions found.
+
+---
+
+#### Phase 7.2: Web ↔ Web-Next Parity Audit — COMPLETE 2026-05-05 [web] [decision]
+
+**Output:** `docs/web-parity-audit.md` (6 sections, ~290 lines)
+
+**Findings:**
+
+Routes: All 19 web pages have a web-next equivalent. web-next adds 3 routes not in web (captures/[id], onboarding, offline). No missing routes.
+
+Settings sections — the critical gap: web has 12 components (`packages/web/src/components/settings/`); web-next has 7 (`packages/web-next/components/settings/`). After direct inspection of every file:
+
+| Status | Count | Components |
+|--------|-------|-----------|
+| PARITY | 1 | DangerZoneSection (web-next version is substantially more complete) |
+| PARTIAL | 2 | IntegrationsSection (SourcesSection covers core list, missing URL/last_activity), AutonomyLevelSection (superseded by AutonomyCard in web itself; neither in web-next) |
+| MISSING | 8 | AIRoutingSection, EmailAllowlistSection, EmailConfigSection, ServiceHealthSection, TriggersSection, VersionUptimeSection, VoiceSection, WikiSection |
+
+All 8 missing sections already have existing backend API endpoints — no server work required for Phase 7.3.
+
+Lib utilities: All 5 web lib files have equivalents in web-next. web-next lib is strictly more complete (adds query-client, source-icons, synthesis-detect, export, mock-data).
+
+Components: All 20 custom non-settings components and 6 system/ tab components have equivalents in web-next. No web-only components not covered.
+
+shadcn/ui: web is the sole consumer of the full shadcn/ui set (114 import sites, 9 Radix primitives). web-next uses only `@radix-ui/react-dialog` and `@radix-ui/react-dropdown-menu` directly (6 sites, no shadcn wrapper). Deleting packages/web drops 9 Radix packages from the monorepo.
+
+Phase 8b feasibility: **Conditional YES** — gated on Phase 7.3 completing the 8 missing Settings sections plus Autonomy section. No other hard blockers. Estimated rebuild ~675 LOC of Settings components.
+
+**Surprise vs. recon:** recon identified 10 "missing" sections; actual is 8 MISSING + 2 PARTIAL. DangerZoneSection exists in web-next (recon listed it as missing). IntegrationsSection is PARTIAL via SourcesSection (recon listed as missing). Count corrected via direct file reads.
+
+---
+
+#### Round 1 Closing Summary — committed 2026-05-05 [decision] [implement-plan] [web]
+
+ADR-0001 ratified (Status Proposed → Accepted, 2026-05-05). This is the first formal ADR in the repo; it sets the convention for future decisions. CLAUDE.md "NOT Next.js" misinformation removed — replaced with accurate two-package transition framing (web-next canonical production ingress; packages/web sunsetting Phase 8b). TDD §14 received a 2026-05-05 blockquote pointing to ADR-0001 and the new section. New section landed at §24 (not §15 as recon guessed — §15–§23 were already occupied by Testing Strategy through Email Pipeline; no renumbering done). Parity audit doc written (docs/web-parity-audit.md, 6 sections): all 19 web routes covered in web-next, 3 web-next-only extras. Settings gap larger than recon ballpark: 8 MISSING + 2 PARTIAL (not 5–6 MISSING). Phase 8b verdict from audit: Conditional YES — gated on Phase 7.3 rebuilding 8 Settings sections; no other hard blockers, all backing APIs exist. Round 2 dispatch decisions: port-IA (rebuild all 8 in Settings, not split to System); sequential exemplar-first then parallel batch; Cloudscape-native (not shadcn port).

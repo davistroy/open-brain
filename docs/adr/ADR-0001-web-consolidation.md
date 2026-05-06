@@ -1,6 +1,7 @@
 # ADR-0001: Consolidate Web UI on `packages/web-next` (Next.js 16); Sunset `packages/web` (Vite)
 
-**Status:** Proposed
+**Status:** Accepted
+**Accepted:** 2026-05-05
 **Date:** 2026-05-05
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` architecture review remediation, items R3 + R12

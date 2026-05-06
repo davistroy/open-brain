@@ -636,27 +636,29 @@ Every phase MUST comply with:
 **Effort:** M
 **Goal:** Ratify web-next as canonical; close parity gaps; migrate utilities.
 
-### 7.1 Generate ADR + ratify decision
+### 7.1 Generate ADR + ratify decision ✅ Completed 2026-05-05
 
-**Files:** `docs/adr/ADR-0001-web-consolidation.md` (already drafted; flip Status to "Accepted"), `docs/TDD.md` (§14 + new §15), `CLAUDE.md`
+**Files:** `docs/adr/ADR-0001-web-consolidation.md` (already drafted; flip Status to "Accepted"), `docs/TDD.md` (§14 + new §24), `CLAUDE.md`
 
 **Acceptance:**
-- [ ] ADR-0001 status: Proposed → Accepted; date stamped.
-- [ ] `docs/TDD.md §14 (Web Dashboard)` updated to describe Next.js 16 / React 19 / Cloudscape (not Vite).
-- [ ] `docs/TDD.md §15 (Architecture Evolution)` adds a "Web Stack Consolidation 2026-05" entry.
-- [ ] CLAUDE.md "Vite + React + Tailwind + shadcn/ui (NOT Next.js)" line corrected to reflect web-next as canonical; legacy `packages/web` flagged as sunsetting.
-- [ ] `tunnel.yaml:18` rollback comment preserved (single-line `web:80` fallback).
+- [x] ADR-0001 status: Proposed → Accepted; date stamped.
+- [x] `docs/TDD.md §14 (Web Dashboard)` updated to describe Next.js 16 / React 19 / Cloudscape (not Vite) via 2026-05-05 blockquote.
+- [x] `docs/TDD.md §24 (Web Stack Consolidation 2026-05)` added (§15 was occupied by Testing Strategy; new section landed at §24 — no renumbering done).
+- [x] CLAUDE.md "Vite + React + Tailwind + shadcn/ui (NOT Next.js)" line corrected to reflect web-next as canonical; legacy `packages/web` flagged as sunsetting with ADR-0001 cross-reference.
+- [x] `tunnel.yaml:18` rollback comment preserved (single-line `web:80` fallback) — not modified.
 
 **Requirement Refs:** R3
 
-### 7.2 Parity audit — route inventory
+### 7.2 Parity audit — route inventory ✅ Completed 2026-05-05
 
-**Files:** `docs/web-parity-audit.md` (new, temp; archive after Phase 8b)
+**Files:** `docs/web-parity-audit.md` (new, 178 lines, 6 sections — see file for full detail; archive after Phase 8b)
 
 **Acceptance:**
-- [ ] Table: every route in `packages/web/src/pages/` → presence in `packages/web-next/src/app/` → status (parity / partial / missing).
-- [ ] Voice and System routes (flagged as "unclear" in Phase 2 investigation) explicitly resolved.
-- [ ] Each "missing" entry has a sub-task in 7.3.
+- [x] Table: every route in `packages/web/src/pages/` → presence in `packages/web-next/src/app/` → status (parity / partial / missing). All 19 web pages → parity in web-next; 3 web-next-only extras.
+- [x] Voice and System routes (flagged as "unclear" in Phase 2 investigation) explicitly resolved — both parity.
+- [x] Settings gap quantified: 8 MISSING + 2 PARTIAL (not 5–6 as recon estimated). All 8 sub-tasks carried into 7.3.
+
+**Phase 8b verdict from audit:** Conditional YES — gated on Phase 7.3 rebuilding 8 Settings sections. No other hard blockers. Estimated ~675 LOC of Settings components.
 
 **Requirement Refs:** R3, R12
 
@@ -692,11 +694,18 @@ Every phase MUST comply with:
 **Requirement Refs:** R3, R12
 
 ### Phase 7 Completion Checklist
-- [ ] All 5 work items complete.
-- [ ] Lab notebook entry created BEFORE first commit.
-- [ ] ADR-0001 reviewed and accepted.
-- [ ] `pnpm --filter @open-brain/web-next build` green.
-- [ ] Manual smoke: every route in web-next renders against production core-api.
+
+**Status: 7.1 PASS, 7.2 PASS, 7.3 IN PROGRESS, 7.4 PENDING**
+
+- [x] 7.1 — ADR-0001 ratified + CLAUDE.md + TDD §14/§24 updated. Committed 2026-05-05.
+- [x] 7.2 — Parity audit complete. `docs/web-parity-audit.md` written (6 sections). 8 MISSING + 2 PARTIAL Settings sections identified. Committed 2026-05-05.
+- [ ] 7.3 — Close parity gaps: rebuild 8 missing Settings sections in web-next (Cloudscape-native). See `docs/web-parity-audit.md` §2 for the full list.
+- [ ] 7.4 — Migrate web-only utilities (sseClient.ts, custom hooks without Cloudscape equivalents).
+- [ ] 7.5 — Resolve unknown U2 (parity status) — resolved by 7.2; close when 7.3 starts.
+- [ ] Lab notebook entry created BEFORE first commit. ✅ (Entry 105 pre-dated commit)
+- [ ] ADR-0001 reviewed and accepted. ✅
+- [ ] `pnpm --filter @open-brain/web-next build` green. (pending 7.3 completion)
+- [ ] Manual smoke: every route in web-next renders against production core-api. (pending 7.3 completion)
 
 ### Definition of Done (Runnable)
 <!-- BEGIN DOD -->

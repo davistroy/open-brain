@@ -238,7 +238,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 - **Search:** Hybrid FTS + vector (RRF) + ACT-R temporal decay + Hebbian boost + spreading activation (`include_related`). Default `temporal_weight` 0.0 (cold start).
 - **MCP:** Embedded in Core API at `/mcp` (Streamable HTTP, no separate container). 8 tools (`search_brain`, `list_captures`, `brain_stats`, `capture_thought`, `get_entity`, `list_entities`, `get_weekly_brief`, `get_capture`) + 1 resource (`open_brain://context`). Auth: `Authorization: Bearer` header (not URL query).
 - **Pipeline:** BullMQ + Redis async stages.
-- **Web:** Vite + React + Tailwind + shadcn/ui (NOT Next.js).
+- **Web:** Two UI packages in transition — `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query, **canonical production ingress** at brain.troy-davis.com) and `packages/web` (Vite + React 18 + Tailwind + shadcn/ui, **sunsetting in Phase 8b** — see ADR-0001). All new UI work goes to web-next.
 - **External access:** Cloudflare Tunnel → `brain.troy-davis.com` (dashboard); MCP via LiteLLM gateway at `llm.troy-davis.com/mcp`.
 - **Docker:** Single `open-brain` network. Build: tsx dev, tsup (esbuild) prod.
 - **Slack:** `@slack/bolt` with `socketMode: true`.
