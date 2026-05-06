@@ -10325,3 +10325,26 @@ Code comment explaining intentional placeholder; not a functional regression.
 - Verification retry: started Docker Desktop, confirmed Docker engine `29.4.1`.
 - Verification attempt: `pnpm test:integration` exited 0 but did not run core-api integration tests on Windows. Root cause: the root package script's shell separator caused pnpm to look for a package script named `test:integration;`. Follow-up tracked as A129 in `OPEN_ITEMS.md`; do not fix in Phase 1.
 - Verification: explicit Windows-safe sequence `docker compose -f docker-compose.test.yml up -d --wait; pnpm --filter @open-brain/core-api test:integration; docker compose -f docker-compose.test.yml down -v` exited 0. Result: 7 integration test files passed, 126 tests passed. Test containers and network were removed afterward.
+
+### Entry 132 — PR #180 GitHub CI remediation: mobile lint baseline [mobile] [deps] [testing]
+**Date:** 2026-05-06
+**Environment:** Local laptop (`C:\Users\Troy Davis\dev\personal\open-brain`), branch `codex/post-remediation-phase-1`, PR #180 open and pushed at `1cd7c73`.
+**Objective:** Fix all GitHub-identified failures on PR #180 before merge. Current GitHub findings: both failed `build-and-test` jobs stop at `packages/mobile lint`; all integration, Python, doc sync, schema, and GitGuardian checks pass.
+**Hypothesis:** The mobile lint failure is caused by the mobile package pinning `react-test-renderer` and `@types/react-test-renderer` to React 19.0-era packages while the app itself uses React 19.1. Aligning the test renderer packages with React 19.1 should remove the duplicate `@types/react@19.0.14` type universe and make the existing tests type-check without behavior changes.
+**Rollback plan:** Revert the mobile dependency alignment and lockfile changes, then rerun `pnpm install --frozen-lockfile` and `pnpm --filter @open-brain/mobile lint` to restore and verify the prior baseline if the fix introduces new failures.
+**Duration:** ~35 min.
+
+**Results log:**
+- GitHub pre-flight: `gh pr checks 180` showed only two failing checks, both named `build-and-test`; `gh pr view 180` showed no review comments or PR comments.
+- Failed job log review: both `build-and-test` jobs fail during `packages/mobile lint` with TS2345 errors in `__tests__/components/MPill.test.tsx` and `__tests__/components/TabBar.test.tsx`.
+- Local reproduction: `pnpm --filter @open-brain/mobile lint` reproduced the same TS2345 errors.
+- Dependency audit: `pnpm --filter @open-brain/mobile why @types/react` showed direct `@types/react@19.1.17` plus transitive `@types/react@19.0.14` from `@types/react-test-renderer@19.0.0`; `pnpm --filter @open-brain/mobile why react-test-renderer` showed direct `react-test-renderer@19.0.0` while `jest-expo` already brings `react-test-renderer@19.1.0`.
+- Dependency fix: updated `packages/mobile` dev dependencies to `react-test-renderer@19.1.0` and `@types/react-test-renderer@^19.1.0`; committed the matching `pnpm-lock.yaml` change.
+- Verification: `pnpm --filter @open-brain/mobile lint` exited 0 after dependency alignment.
+- Verification: `pnpm install --frozen-lockfile` exited 0.
+- Verification: CI build sequence exited 0: `pnpm --filter @open-brain/shared build`, then `pnpm --filter "!@open-brain/shared" -r build`.
+- Follow-on lint finding: full `pnpm -r lint` then advanced past mobile and exposed the known core-api A106 test type issue in `entity-resolution.test.ts` line 345 (`tx` referenced directly or indirectly in its own type annotation).
+- Core-api lint fix: added a local `type TxMock = typeof tx` alias before the mocked transaction callback and used that alias in the callback signature, preserving runtime test behavior.
+- Verification: full `pnpm -r lint` exited 0.
+- Verification note: plain local `pnpm -r test` timed out because at least one test command is watch-mode sensitive outside CI. Stale pnpm/vitest test processes from that timeout were stopped.
+- Verification: `$env:CI='true'; pnpm -r test` exited 0, matching GitHub Actions behavior for the Node test step.

@@ -334,6 +334,7 @@ describe('EntityResolutionService.merge', () => {
       update: txUpdate,
       delete: txDelete,
     }
+    type TxMock = typeof tx
 
     let selectCallCount = 0
     const db = {
@@ -342,7 +343,7 @@ describe('EntityResolutionService.merge', () => {
         if (selectCallCount === 1) return selectChain([sourceEntity])  // source lookup
         return selectChain([targetEntity])  // target lookup
       }),
-      transaction: vi.fn().mockImplementation((callback: (tx: typeof tx) => Promise<unknown>) => callback(tx)),
+      transaction: vi.fn().mockImplementation((callback: (tx: TxMock) => Promise<unknown>) => callback(tx)),
     }
 
     const service = new EntityResolutionService(db as any)
