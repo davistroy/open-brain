@@ -1,18 +1,18 @@
 # Product Requirements Document (PRD)
 # Open Brain — Personal AI Knowledge Infrastructure
 
-**Version**: 0.7
+**Version**: 0.7.1
 **Author**: Troy Davis / Claude
-**Date**: 2026-04-19
-**Status**: Current — Architectural Review v2 Applied; P15b AI gateway scrub complete
+**Date**: 2026-05-06
+**Status**: Current — post-remediation Phase 2 documentation alignment complete
 
 ---
 
 ## 1. Executive Summary
 
-Open Brain is a self-hosted, Docker-based personal knowledge infrastructure system that ingests information from multiple sources (voice memos, Slack messages, documents, bookmarks, calendar events), processes and embeds them for semantic search, and provides rich output through AI-powered skills — including weekly briefs, career governance sessions, pattern detection, and ad-hoc synthesis.
+Open Brain is a self-hosted, Docker-based personal knowledge infrastructure system that ingests information from multiple sources (voice memos, Slack messages, documents, email, files, and future bookmark/calendar inputs), processes and embeds them for semantic search, and provides rich output through AI-powered skills — including weekly briefs, career governance sessions, pattern detection, operational monitoring, and ad-hoc synthesis.
 
-The system runs entirely on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and routes all AI requests through a cost-tiered LLM gateway (`LLMGatewayService` + `config/ai-routing.yaml`) — free local GPU tiers first, paid Anthropic API only for quality-critical tasks. It is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a web dashboard, email reports, and push notifications.
+The system runs on the user's Unraid home server (`homeserver.k4jda.net`), stores all data in Postgres 16 with pgvector, and routes AI inference through a cost-tiered LLM gateway (`LLMGatewayService` + `config/ai-routing.yaml`) — optional free local GPU tiers first, paid Anthropic API only for quality-critical tasks. It is accessible through Slack (bidirectional — capture and query), an MCP endpoint embedded in the Core API (for Claude, ChatGPT, and other AI tools via Streamable HTTP), a Next.js web dashboard, an Expo mobile app, email reports, push notifications, Pipecat voice sessions, and file extraction services.
 
 Open Brain replaces and consolidates two existing projects:
 - **board-journal** — a Flutter mobile app for voice-first career governance with AI-powered board sessions, weekly briefs, and bet tracking
@@ -81,7 +81,7 @@ This is a single-user personal tool. The sole user is a senior technology execut
 ### Anti-Personas
 - **Multi-user teams** — this is explicitly single-user; no auth, no multi-tenancy, no access control
 - **Non-technical users** — setup requires Docker, Unraid, CLI configuration; there is no guided installer
-- **Mobile-app-first users** — there is no native mobile app; mobile interaction is through Slack and PWA
+- **Mobile-app-first users** — an Expo React Native app exists, but the primary system remains self-hosted infrastructure with Slack, MCP, web, and voice entry points rather than a consumer mobile product
 
 ---
 
@@ -205,23 +205,35 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | Phase 3 | Implemented |
 | F17 | Board governance skills (quick check, quarterly) | Should Have | Phase 3 | Implemented |
 | F18 | Bet tracking and evaluation | Should Have | Phase 3 | Implemented |
-| F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 | Implemented |
+| F19 | Web dashboard (Next.js 16 + Cloudscape + React 19) | Could Have | Phase 4 / Cloudscape M2-M4 | Implemented (2026-04-21/22) |
 | F20 | Slack voice clip processing | Could Have | Phase 3 | Implemented |
-| F21 | Daily connection/pattern detection skill | Should Have | Phase 5A | Implemented |
-| F22 | Drift monitor skill | Should Have | Phase 5A | Implemented |
+| F21 | Daily connection/pattern detection skill | Should Have | Phase 5A | Implemented (scheduled 6:10 AM) |
+| F22 | Drift monitor skill | Should Have | Phase 5A | Implemented (scheduled 7:15 AM) |
 | F23 | Document ingestion (PDF, docx) | Could Have | Phase 4 | Implemented |
 | F24 | URL/bookmark capture | Should Have | Phase 5B | Planned |
 | F25 | Calendar integration | Could Have | Phase 4 | **DEFERRED** |
 | F26 | Notion output skill (optional mirror) | Won't Have | Future | **DEFERRED** |
 | F27 | Screenshot/image capture (vision model) | Could Have | Future | **DEFERRED** |
 | F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C | Implemented |
-| F29 | Queue management UI (clear/drain per queue) | Should Have | Phase 6 | Planned |
-| F30 | Trigger delete fix (field name mismatch) | Must Have | Phase 6 | Planned |
-| F31 | Skill schedule editing (PATCH endpoint + UI) | Should Have | Phase 6 | Planned |
-| F32 | Dark mode toggle | Could Have | Phase 6 | Planned |
-| F33 | Settings page reorganization (3 sections) | Should Have | Phase 6 | Planned |
-| F34 | In-app help/documentation viewer | Should Have | Phase 6 | Planned |
-| F35 | Slack channel cleanup (admin action) | Should Have | Phase 6 | Planned |
+| F29 | Queue management UI (clear/drain per queue) | Should Have | Phase 6 | Implemented (2026-03-12) |
+| F30 | Trigger delete fix (field name mismatch) | Must Have | Phase 6 | Implemented (2026-03-12) |
+| F31 | Skill schedule editing (PATCH endpoint + UI) | Should Have | Phase 6 | Implemented (2026-03-12) |
+| F32 | Dark mode toggle | Could Have | Phase 6 / Cloudscape | Implemented (2026-04-21/22) |
+| F33 | Settings page reorganization (3 sections) | Should Have | Phase 6 / Cloudscape | Implemented (2026-04-21/22) |
+| F34 | In-app help/documentation viewer | Should Have | Phase 6 / Cloudscape | Implemented (2026-04-21/22) |
+| F35 | Slack channel cleanup (admin action) | Should Have | Phase 6 / Cloudscape | Implemented (2026-04-21/22) |
+| F36 | Morning brief skill | Should Have | Operations | Implemented |
+| F37 | Monthly reflection skill | Should Have | Operations | Implemented |
+| F38 | Capture reminder skills | Should Have | Operations | Implemented |
+| F39 | Cost analysis skill | Should Have | Operations | Implemented |
+| F40 | Container health synthetic monitor | Should Have | Operations | Implemented |
+| F41 | Storage audit skill | Should Have | Operations | Implemented |
+| F42 | Secret rotation audit skill | Should Have | Operations | Implemented |
+| F43 | Capture dedupe sweep | Should Have | Operations | Implemented |
+| F44 | Brief refinement transform | Should Have | Operations | Implemented |
+| F45 | Entity brief synthesis | Should Have | Operations | Implemented |
+| F46 | Commitment extraction pipeline + API | Should Have | Operations | Implemented |
+| F47 | Voice session lifecycle API | Should Have | Voice | Implemented |
 
 ### 5.2 Detailed Feature Specifications
 
@@ -1088,7 +1100,7 @@ monthly_budget:
 
 #### F19: Web Dashboard
 
-**Description**: Vite + React SPA (PWA) running on Unraid for browsing, searching, voice capture, and viewing skill outputs.
+**Description**: Next.js 16 + React 19 dashboard running on Unraid for browsing, searching, voice capture, and viewing skill outputs. The current UI uses the in-repo Cloudscape design system patterns and TanStack Query for client data fetching.
 
 **Pages**:
 | Page | Purpose |
@@ -1102,15 +1114,15 @@ monthly_budget:
 | Voice | MediaRecorder-based voice capture (record → transcribe → ingest) |
 | Settings | Pipeline config viewer, skill schedules, AI routing, system status |
 
-**Tech**: Vite + React, Tailwind CSS, shadcn/ui, vite-plugin-pwa. Pure SPA that talks to Core API — no SSR needed since Core API handles all server-side logic.
+**Tech**: Next.js 16 App Router, React 19, Tailwind CSS, Cloudscape design system components/styles, TanStack Query, server-side rewrites to Core API. Docker service is `web-next`, built from `packages/web-next/Dockerfile`.
 
-**Access**: `brain.k4jda.net` via LAN or Tailscale. No auth (single user, network-secured). PWA installable on iPhone home screen for app-like experience.
+**Access**: `brain.k4jda.net` via LAN, Tailscale, or Cloudflare Tunnel. No auth (single user, network-secured). The Expo mobile app covers native mobile workflows; the web dashboard remains installable/useful from mobile browsers.
 
 **Acceptance Criteria**:
 - Responsive — works on iPhone Safari and desktop
-- PWA installable
 - Search results <5 seconds
-- Voice capture functional from iPhone browser
+- Voice capture and voice session views available
+- Dashboard, timeline, search, entities, briefs, board, voice, ingest, email, wiki, investments, system, settings, help, and Slack cleanup screens available
 - Dashboard loads <2 seconds
 
 ---
@@ -1370,7 +1382,7 @@ F13 (Pushover), F14 (Email)
 
 **Description**: Add a Help page accessible from the UI that renders `USER_QUICK_START.md` and `USER_GUIDE.md` in a nicely formatted, scrollable view. Users can switch between the quick start and full guide.
 
-**Tech**: New `/help` route. Markdown files bundled at build time (Vite raw import) or fetched from the API. Rendered with a markdown-to-React library (e.g., `react-markdown` + `remark-gfm`). Tab or sidebar navigation between quick start and full guide.
+**Tech**: New `/help` route in `packages/web-next`. Markdown content is bundled with the Next.js app or fetched from the API and rendered with the in-repo help renderer. Tab or sidebar navigation switches between quick start and full guide.
 
 **Acceptance Criteria**:
 - Help link visible in the sidebar navigation
@@ -1393,6 +1405,27 @@ F13 (Pushover), F14 (Email)
 - Full run deletes all messages with progress indication
 - Respects Slack API rate limits (1/sec)
 - Results shown: deleted count, failed count, duration
+
+---
+
+#### F36-F47: Operational Skills and New Surfaces
+
+These shipped capabilities were added after the original feature table and are now part of the implemented product surface. Source-of-truth code surfaces are `packages/workers/src/skills/`, `packages/workers/src/scheduler.ts`, `packages/workers/src/jobs/extract-commitments.ts`, `packages/core-api/src/routes/commitments.ts`, and `packages/core-api/src/routes/voice-sessions.ts`.
+
+| ID | Capability | Source Surface | Schedule / Entry Point |
+|----|------------|----------------|------------------------|
+| F36 | Morning brief | `morning-brief.ts` | Weekdays 6:30 AM |
+| F37 | Monthly reflection | `monthly-reflection.ts` | 1st of month 9:00 AM |
+| F38 | Capture reminders | `capture-reminder.ts` | Weekdays 6:45 AM and daily 9:00 PM |
+| F39 | Cost analysis | `cost-analysis.ts` | Daily 6:20 AM |
+| F40 | Container health synthetic monitor | `container-health.ts` | Every 15 minutes |
+| F41 | Storage audit | `storage-audit.ts` | Sundays 3:00 AM |
+| F42 | Secret rotation audit | `secret-rotation.ts` | 1st of month 10:00 AM |
+| F43 | Capture dedupe sweep | `capture-dedup-sweep.ts` | Saturdays 4:00 AM |
+| F44 | Brief refinement transform | `refine-brief.ts` | API/manual skill execution |
+| F45 | Entity brief synthesis | `entity-brief.ts` | Entity-page/API demand |
+| F46 | Commitment extraction pipeline + API | `extract-commitments.ts`, `commitments.ts` | Ingest child job + `/api/v1/commitments` |
+| F47 | Voice session lifecycle API | `voice-sessions.ts` | `/api/v1/voice/sessions` |
 
 ---
 
@@ -1439,10 +1472,11 @@ F13 (Pushover), F14 (Email)
 │  │ capture  │                                               │
 │  └──────────┘                                               │
 │                                                              │
-│  ┌──────────┐  ┌──────────┐                                 │
-│  │  Web UI  │  │ rclone   │  (both Phase 4)                 │
-│  │(Vite+    │  │(doc sync)│                                 │
-│  │ React)   │  └──────────┘                                 │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+│  │ Web Next │  │ File     │  │ Mobile   │                  │
+│  │(Next.js  │  │Ingestion │  │(Expo RN) │                  │
+│  │+Cloud-   │  │ FastAPI) │  └──────────┘                  │
+│  │ scape)   │  └──────────┘                                │
 │  └──────────┘                                               │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -1450,8 +1484,8 @@ F13 (Pushover), F14 (Email)
 ### Docker Network Topology
 
 Single Docker network:
-- **`open-brain`** — All containers (Core API, Slack bot, Workers, Postgres, faster-whisper, Redis, voice-capture, Web UI). Simple DNS resolution between containers (`http://redis:6379`, `http://postgres:5432`). External AI services (Anthropic API, OpenAI embeddings API, Jetson at `192.168.10.58`, Spark at `spark.k4jda.net`) are reached over LAN/internet — not in this Docker network.
-- **Host port exposure**: Core API (port 3000, also serves MCP at `/mcp` via Cloudflare Tunnel), Slack bot (Socket Mode — no inbound port needed), and Web UI (Phase 4).
+- **`open-brain`** — All compose services (Core API, Slack bot, Workers, Postgres, faster-whisper, Redis, voice-capture, voice-pipecat, file-ingestion, web-next, ingest sidecars, and observability services). Simple DNS resolution between containers (`http://redis:6379`, `http://postgres:5432`). External AI services (Anthropic API, OpenAI embeddings API, Jetson at `192.168.10.58`, Spark at `spark.k4jda.net`) are reached over LAN/internet — not in this Docker network.
+- **Host port exposure**: Core API (port 3000, also serves MCP at `/mcp` via Cloudflare Tunnel), web-next (host port 3003 to container port 3001), voice/file service endpoints, and observability ports as configured in `docker-compose.yml`. Slack bot uses Socket Mode and needs no inbound port.
 
 ### Configuration File Structure
 
@@ -1481,7 +1515,10 @@ open-brain/
 │   ├── slack-bot/                  # @slack/bolt event handler + intent router
 │   ├── workers/                    # Pipeline processing + scheduled skill execution
 │   ├── voice-capture/              # Voice memo HTTP endpoint + transcription adapter
-│   └── web/                        # Vite + React dashboard (Phase 4)
+│   ├── voice-pipecat/              # Conversational voice sessions (Pipecat + Deepgram + Claude)
+│   ├── file-ingestion/             # FastAPI document extraction service
+│   ├── web-next/                   # Next.js 16 + Cloudscape dashboard
+│   └── mobile/                     # Expo React Native app
 ├── pnpm-workspace.yaml
 ├── package.json                    # Root workspace config
 ├── tsconfig.base.json              # Shared TypeScript config
@@ -1712,17 +1749,17 @@ Smaller build/test cycles with explicit test gates at each sub-phase. Each sub-p
 | F17 | Board governance skills (quick check, quarterly) | Implemented |
 | F18 | Bet tracking | Implemented |
 | F20 | Slack voice clip handling | Implemented |
-| F21 | Daily connection finder | Moved to Phase 5A |
-| F22 | Drift monitor | Moved to Phase 5A |
+| F21 | Daily connection finder | Implemented in Phase 5A |
+| F22 | Drift monitor | Implemented in Phase 5A |
 
-**Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. F21/F22 moved to Phase 5A.
+**Definition of Done**: Entities auto-created and linked. Board quick check runs in Slack. F21/F22 implemented in Phase 5A.
 
 ### Phase 4: Polish
 **Goal**: Web UI, document ingestion, additional input sources.
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| F19 | Web dashboard (Vite + React PWA) | Implemented |
+| F19 | Web dashboard (Next.js 16 + Cloudscape + React 19) | Implemented |
 | F23 | Document ingestion (PDF, docx) | Implemented |
 | F24 | URL/bookmark capture | Moved to Phase 5B |
 | F25 | Calendar integration | **DEFERRED** — test stubs only, no service implementation |
@@ -1743,8 +1780,8 @@ via `source_metadata.parent_document_id`).
 
 | Feature | Description | Status |
 |---------|-------------|--------|
-| F21 | Daily connection/pattern detection skill | Planned |
-| F22 | Drift monitor skill | Planned |
+| F21 | Daily connection/pattern detection skill | Implemented |
+| F22 | Drift monitor skill | Implemented |
 
 **Test Gate**:
 - Daily connections skill runs on schedule and surfaces non-obvious cross-domain patterns
@@ -1863,7 +1900,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | 5 | Slack voice clip routing | Route through voice-capture container (single audio path) |
 | 6 | Backup strategy | Daily pg_dump to Unraid share (7-day local) + weekly offsite to cloud storage via rclone (30-day) |
 | 7 | Notion parallel migration | No — hard cutover. One-time Notion backfill script as safety net. |
-| 8 | Web UI framework | Vite + React (lightweight SPA) with Tailwind + shadcn/ui + vite-plugin-pwa |
+| 8 | Web UI framework | Next.js 16 + React 19 with Tailwind, Cloudscape design system patterns, and TanStack Query |
 | 9 | Slack command interface | Both: prefix commands as baseline (Socket Mode), slash commands as enhancement once Cloudflare Tunnel is stable |
 
 **Additional decisions resolved (beyond original 9):**
@@ -1942,6 +1979,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 
 | Date | Version | Changes |
 |------|---------|---------|
+| 2026-05-06 | 0.7.1 | Post-remediation Phase 2 documentation alignment: updated web stack to `web-next` / Next.js 16 / Cloudscape / React 19, corrected shipped statuses for F21/F22 and F29-F35, added F36-F47 for operational skills and voice/commitment surfaces, and added voice-pipecat/file-ingestion/mobile package surfaces. |
 | 2026-04-19 | 0.7 | P15b AI gateway scrub + architectural refresh. Replaced all stale gateway references with current architecture: `LLMGatewayService` multi-tier routing (`t1_jetson` 4B → `t1_spark` 35B → `t1_fast` Haiku → `t2_quality` Sonnet), OpenAI `text-embedding-3-large` with `dimensions: 768` for embeddings. Updated F07/F07a/F08, pipeline config YAML, architecture diagram, Docker topology, config reference, glossary. Added Architecture Evolution section. Removed P15a doc-status notes. |
 | 2026-04-19 | 0.6 (P15a) | P15a alignment pass: source enum corrected to 9 canonical values (`slack`, `voice`, `api`, `document`, `mcp`, `email`, `file`, `consolidation`, `system`). Doc-status notes added; full rewrite deferred to P15b. |
 | 2026-03-04 | 0.1 | Initial draft based on conceptual discussion |

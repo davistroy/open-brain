@@ -8,19 +8,19 @@
 
 ## Active plans (with pending work)
 
-### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — all pending
+### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — Phase 2 complete locally
 
 **Scope:** F1–F8 (Entry 106 architectural audit) + W1, W2, W3, W4, W7, S1, S3, S4, S5, W6 (Entry 107 intent review). Authored 2026-05-06.
 
-| Phase | Items | Effort | Risk |
-|---|---|---|---|
-| 1 — Quick wins (deps + perf microfixes) | 4 | S | Low |
-| 2 — Documentation alignment (README + PRD + TDD) | 3 | M | None |
-| 3 — Type system & lint hygiene | 4 | S–M | Med |
-| 4 — Workers test rigor (coverage + CI) | 5 | M | Med |
-| 5 — Vitest 2.x migration | — | L | **DEFERRED** to its own plan |
+| Phase | Items | Effort | Risk | Status |
+|---|---|---|---|---|
+| 1 — Quick wins (deps + perf microfixes) | 4 | S | Low | Complete in PR #180 |
+| 2 — Documentation alignment (README + PRD + TDD) | 3 | M | None | Complete locally on `codex/post-remediation-phase-2-docs`; not pushed |
+| 3 — Type system & lint hygiene | 4 | S–M | Med | Pending |
+| 4 — Workers test rigor (coverage + CI) | 5 | M | Med | Pending |
+| 5 — Vitest 2.x migration | — | L | **DEFERRED** to its own plan | Deferred |
 
-**Total:** 16 work items pending. Phases 1–4 mutually independent (no file overlap); recommended sequential 1→2→3→4 in increasing-risk order.
+**Total:** 9 remaining pending work items after Phase 2, plus deferred Vitest 2.x migration. Recommended next sequence is 3→4 in increasing-risk order.
 
 ---
 
@@ -92,13 +92,20 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A127 | 24 `react/no-unescaped-entities` lint errors in `HelpContent.tsx` | Pre-existing baseline | Targeted cleanup PR |
 | A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
 | A129 | Root `pnpm test:integration` script is not Windows-safe; PowerShell/pnpm parsed `test:integration;` as a script name, so use explicit compose up → package test → compose down sequence locally | Operational | Cross-platform script cleanup PR |
+| A130 | `docker compose -f docker-compose.yml config --services` fails because `cloudflared.depends_on` points at legacy service name `web` while compose declares `web-next` | Operational | Compose topology cleanup PR |
+| A131 | `bash scripts/sync-docs.sh` fails on local Windows CRLF checkout (`set: pipefail\r`) even though the version surfaces agree; CI Linux checkout should still run it with LF | Operational | Cross-platform doc-sync script cleanup |
 | A116 | Vitest 2.x bump for per-file glob threshold support | Pre-existing baseline | See post-remediation Phase 5 (deferred) |
 | A117 | SSE `onAbort` / post-promise cleanup branches unreachable | Pre-existing baseline | Excluded via `/* v8 ignore */` |
-| A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
-| A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | Pre-existing baseline | Separate PR |
 
-**Operational items (8):** real follow-ups that should land in a future plan.
-**Pre-existing baselines (6):** long-term debt; do not bundle into operational work.
+**Operational items (10):** real follow-ups that should land in a future plan.
+**Pre-existing baselines (4):** long-term debt; do not bundle into operational work.
+
+**Recently closed action items:**
+
+| ID | Description | Closed |
+|---|---|---|
+| A106 | TS2502 in `entity-resolution.test.ts:345` | PR #180 (2026-05-06) |
+| A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | PR #180 (2026-05-06) |
 
 ---
 

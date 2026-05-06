@@ -10348,3 +10348,24 @@ Code comment explaining intentional placeholder; not a functional regression.
 - Verification: full `pnpm -r lint` exited 0.
 - Verification note: plain local `pnpm -r test` timed out because at least one test command is watch-mode sensitive outside CI. Stale pnpm/vitest test processes from that timeout were stopped.
 - Verification: `$env:CI='true'; pnpm -r test` exited 0, matching GitHub Actions behavior for the Node test step.
+
+### Entry 133 — Post-Remediation Phase 2 documentation alignment [docs] [audit]
+**Date:** 2026-05-06
+**Environment:** Local laptop (`C:\Users\Troy Davis\dev\personal\open-brain`), branch `codex/post-remediation-phase-2-docs`, baseline `main` merge commit `284c509`.
+**Objective:** Execute Phase 2 of `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` by aligning README, PRD, TDD, and the action registry with source-of-truth implementation state after PR #180.
+**Hypothesis:** Documentation drift can be corrected without runtime changes by grounding claims in checked source files: package manifests, worker skill implementations, scheduler configuration, `config/ai-routing.yaml`, and compose service declarations.
+**Rollback plan:** Revert the Phase 2 documentation commit. No data migrations, package changes, or runtime code changes are expected.
+**Duration:** In progress.
+
+**Results log:**
+- Initial source checks found package manifests for `core-api`, `mobile`, `shared`, `slack-bot`, `voice-capture`, `web-next`, and `workers`.
+- Worker skill source includes daily connections, drift monitor, cost analysis, container health, storage audit, secret rotation, capture dedupe sweep, refine brief, entity brief, morning brief, monthly reflection, wiki ingest/lint/synthesis, and related query/rendering modules.
+- `docker compose -f docker-compose.yml config --services` currently fails because `cloudflared` depends on undefined service `web` while the declared app service is `web-next`; this is new operational debt to track outside the Phase 2 doc alignment.
+- Raw `docker-compose.yml` service declarations show 17 services: `postgres`, `redis`, `core-api`, `workers`, `slack-bot`, `voice-pipecat`, `file-ingestion`, `faster-whisper`, `voice-capture`, `web-next`, `cloudflared`, `financial-ingest`, `loki`, `pushgateway`, `prometheus`, `grafana`, and `utility-ingest`.
+- README updated: removed deleted `packages/web` references, replaced Vite/shadcn web row with `web-next`, added voice-pipecat/file-ingestion/mobile package surfaces, corrected web dashboard port to 3003, removed F21/F22 from deferred features, and documented the 17 declared compose services with the A130 caveat.
+- PRD updated: bumped document version to 0.7.1, updated F19 to Next.js 16 + Cloudscape + React 19, corrected F21/F22 and F29-F35 shipped statuses, added F36-F47 for operational skills/commitments/voice sessions, and added package surfaces for voice-pipecat, file-ingestion, and mobile.
+- TDD updated: bumped document version to 0.7.2, demoted Jetson and Spark to optional cost-saving tiers, added the explicit note that core deployment does not require those endpoints, and aligned main web-stack references with `web-next`.
+- OPEN_ITEMS updated: marked Phase 1 complete via PR #180, moved A106/A120 to recently closed, added A130 for the compose validation bug, and added A131 for the local Windows CRLF doc-sync script failure found during verification.
+- Verification: README `packages/web/` scrub returned `0`.
+- Verification: doc-sync semantic equivalent passed on Windows: package.json, PRD current-system note, README status, and CHANGELOG all resolve to `1.5.0`. Direct `bash scripts/sync-docs.sh` is blocked locally by CRLF/bash handling on Windows checkout, not by doc version divergence.
+- Verification: `docker compose -f docker-compose.yml config --services` still exits 1 with `service "cloudflared" depends on undefined service "web": invalid compose project`; this remains tracked as A130 and was not fixed in Phase 2.

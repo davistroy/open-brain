@@ -1,15 +1,16 @@
 # Open Brain
 
-Self-hosted personal AI knowledge infrastructure running on an Unraid home server. Ingests information from voice memos (Apple Watch/iPhone), Slack, and documents; stores everything in Postgres with pgvector; provides semantic search, AI synthesis, weekly briefs, governance sessions, and entity tracking — powered by OpenAI API (gpt-5.4 + text-embedding-3-large).
+Self-hosted personal AI knowledge infrastructure running on an Unraid home server. Ingests information from voice memos (Apple Watch/iPhone), Slack, documents, email, and files; stores everything in Postgres with pgvector; provides semantic search, AI synthesis, weekly briefs, governance sessions, operational skills, and entity tracking through OpenAI embeddings plus cost-tiered LLM routing.
 
 ## Status
 
-**v1.5.0** — Implementation complete. 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. P08–P15a: secrets reconciliation, sibling enum CHECKs, CI expansion, observability, search perf, prompt injection hardening, doc alignment shipped 2026-04-19. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
+**v1.5.0** — Implementation complete. 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. P08–P15a: secrets reconciliation, sibling enum CHECKs, CI expansion, observability, search perf, prompt injection hardening, doc alignment shipped 2026-04-19. Cloudscape web rollout (M2/M3/M4) shipped 2026-04-21/22. Four "Could Have" / "Won't Have" features (F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
 ## Current Plans
 
-- **`IMPLEMENTATION_PLAN-ARCH-REVIEW.md`** — Architecture review remediation (active, started 2026-05-05)
-- **`IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md`, `M3.md`, `M4.md`** — Mobile app design milestones (Expo Router, React Native, 11 screens)
+- **`IMPLEMENTATION_PLAN-POST-REMEDIATION.md`** — Current remediation follow-up plan; Phase 1 complete in PR #180, Phase 2 documentation alignment complete locally
+- **`IMPLEMENTATION_PLAN-ARCH-REVIEW.md`** — Architecture review remediation complete in PR #175 (R1-R12)
+- **`IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md`, `M3.md`, `M4.md`** — Cloudscape rollout shipped 2026-04-21/22
 - **`IMPLEMENTATION_PLAN.md`** — LLM model consolidation into ai-routing.yaml (in progress, 20/31 items complete)
 - **`docs/archived/implementation-plans/`** — Historical phase plans (Phases 1-22, tech debt cleanup, waves, completed 2026-04-19)
 
@@ -26,12 +27,22 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-core-api` | build: target=core-api | Hono API — capture CRUD, search, MCP, governance, entities |
 | `open-brain-workers` | build: target=workers | BullMQ workers — embed, classify, extract entities, triggers, skills |
 | `open-brain-slack-bot` | build: target=slack-bot | @slack/bolt Socket Mode — capture + query + commands |
-| `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
+| `open-brain-voice-pipecat` | build: packages/voice-pipecat/Dockerfile | Conversational voice service — Pipecat + Deepgram + Claude |
+| `open-brain-file-ingestion` | build: packages/file-ingestion/Dockerfile | FastAPI document extraction for PDF, Office, text, CSV, HTML |
 | `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.5.0-cpu | Speech-to-text (large-v3, CPU int8) |
-| `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
+| `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
+| `open-brain-web-next` | build: packages/web-next/Dockerfile | Next.js 16 + Cloudscape design system + React 19 + TanStack Query dashboard |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
+| `open-brain-financial-ingest` | build: docker/ingest-sidecar/Dockerfile | Scheduled financial data ingestion sidecar |
+| `open-brain-loki` | grafana/loki:latest | Central log aggregation |
+| `open-brain-pushgateway` | prom/pushgateway:latest | Push metrics bridge for jobs and sidecars |
+| `open-brain-prometheus` | prom/prometheus:latest | Metrics scrape and retention |
+| `open-brain-grafana` | grafana/grafana:latest | Observability dashboards |
+| `open-brain-utility-ingest` | build: docker/ingest-sidecar/Dockerfile | Scheduled utility data ingestion sidecar |
 
-**External dependency**: OpenAI API (`https://api.openai.com/v1`) handles ALL AI — embeddings via `text-embedding-3-large` (768d via `dimensions` parameter) and LLM inference via `gpt-5.4` (aliases: `fast`, `synthesis`, `governance`, `intent`). Configured in `config/ai-routing.yaml`. API key in Bitwarden.
+This table reflects the 17 service declarations in `docker-compose.yml`. `docker compose -f docker-compose.yml config --services` is temporarily blocked by tracked item A130 (`cloudflared` depends on legacy service name `web` instead of `web-next`).
+
+**External dependencies**: OpenAI API handles embeddings via `text-embedding-3-large` (768d via `dimensions` parameter). `LLMGatewayService` routes LLM inference through `config/ai-routing.yaml` tiers: optional free local GPU endpoints (`t1_jetson`, `t1_spark`) first, paid Anthropic tiers (`t1_fast`, `t2_quality`) for tasks that need them. API keys live in Bitwarden.
 
 ### Monorepo Layout
 
@@ -42,10 +53,12 @@ packages/
   workers/         # BullMQ jobs, pipeline stages, skills
   slack-bot/       # Slack bot (@slack/bolt, Socket Mode)
   voice-capture/   # Voice ingestion HTTP server
-  web/             # Vite + React dashboard (nginx Docker)
-    src/content/   # User-facing docs rendered in Help page
+  voice-pipecat/   # Conversational voice service (Pipecat + Deepgram + Claude)
+  file-ingestion/  # FastAPI document extraction service
+  web-next/        # Next.js 16 + Cloudscape design system dashboard
+  mobile/          # Expo React Native app
 config/
-  ai-routing.yaml  # OpenAI model aliases + budget limits
+  ai-routing.yaml  # Embedding config + LLM tier routing + budget limits
   brain-views.yaml # Five views: career/personal/technical/work-internal/client
   pipeline.yaml    # Pipeline stage definitions + retry/backoff settings
   notifications.yaml
@@ -60,8 +73,8 @@ scripts/
   regression-test.mjs     # Comprehensive regression suite (91 tests)
   monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
 docs/
-  PRD.md           # Product requirements (v0.6)
-  TDD.md           # Technical design (v0.6)
+  PRD.md           # Product requirements (v0.7.1)
+  TDD.md           # Technical design (v0.7.2)
   ios-shortcut.md  # iOS Shortcut setup guide for voice capture
 ```
 
@@ -92,14 +105,16 @@ Search:
   FTS-only (?search_mode=fts): bypasses embedding, works when OpenAI is unavailable
 
 AI calls:
-  all services → OpenAI API at https://api.openai.com/v1
+  embeddings → OpenAI API at https://api.openai.com/v1
     → text-embedding-3-large (768d via dimensions parameter)
-    → gpt-5.4 (all aliases: fast, synthesis, governance, intent)
+  LLM inference → LLMGatewayService
+    → t1_jetson / t1_spark optional free local GPU tiers
+    → t1_fast / t2_quality paid Anthropic tiers when required
 ```
 
 ### Key Design Decisions
 
-- **No local LLM container** — embeddings and inference both run through OpenAI API; no AI in this stack
+- **No required local LLM container** — embeddings run through OpenAI API; optional Jetson/Spark tiers reduce inference cost when available
 - **vector(768)** everywhere, no fallback if OpenAI is down — queue and retry
 - **Hybrid search**: FTS + vector with RRF + ACT-R temporal decay (default `temporal_weight: 0.0` at launch, ramp as history builds)
 - **MCP embedded** in core-api at `/mcp` route (Streamable HTTP, `Authorization: Bearer` header)
@@ -125,7 +140,7 @@ AI calls:
 - **Output**: Pushover notifications, HTML email delivery, Slack responses
 - **Governance**: LLM-driven interactive sessions via Slack with guardrails
 - **Entity Graph**: Auto-extraction, 3-tier resolution, relationship tracking
-- **Web Dashboard**: Vite + React + shadcn/ui — timeline, search, entities, board, briefs, voice, documents, settings
+- **Web Dashboard**: Next.js 16 + Cloudscape design system + React 19 + TanStack Query — timeline, search, entities, board, briefs, voice, documents, settings
 - **MCP**: Embedded Streamable HTTP endpoint at `/mcp` for Claude, ChatGPT, and other AI tools
 - **Infrastructure**: Postgres 16 + pgvector, Redis, faster-whisper (CPU), Cloudflare Tunnel, SSE live updates
 
@@ -150,14 +165,18 @@ AI calls:
 - **Spreading Activation**: Entity graph traversal (1-2 hops via `entity_links` + `entity_relationships`) surfaces related captures during search. Available via `include_related` param on search API and MCP `search_brain` tool.
 - **Memory Consolidation**: Scheduled weekly skill (4 AM Sundays) identifies clusters of near-duplicate captures (cosine > 0.92), LLM-merges them with a safety valve, migrates entity links and associations, soft-deletes originals.
 
+**Operational Intelligence + Cloudscape Web (shipped 2026-04-19 to 2026-04-22)**
+
+- **Scheduled Skills**: Daily connections (6:10 AM), drift monitor (7:15 AM), morning brief, monthly reflection, capture reminders, cost analysis, container health, storage audit, secret rotation, capture dedupe, wiki synthesis/lint, email classification.
+- **Web Dashboard Refresh**: Next.js 16 shell, Cloudscape design system screens, settings decomposition, Slack cleanup, capture detail, entity merge, brief actions.
+- **Mobile App Blueprint**: Expo SDK 54 React Native app with 11 screens shipped via PR #172 and PR #174; remaining mobile work is tracked separately.
+
 ### Deferred Features
 
 These PRD features were planned but not implemented. They remain candidates for future development:
 
 | Feature | PRD Ref | Description | Notes |
 |---------|---------|-------------|-------|
-| Daily connections skill | F21 | Cross-capture pattern detection — surfaces connections between unrelated topics | Removed from KNOWN_SKILLS; no handler code |
-| Drift monitor skill | F22 | Alerts when tracked projects/bets go quiet | Removed from KNOWN_SKILLS; no handler code |
 | URL/bookmark capture | F24 | Browser bookmark import with content extraction (readability/cheerio) | Test stubs exist; no service implementation |
 | Calendar integration | F25 | iCal feed sync — creates captures from calendar events | Test stubs exist; no service implementation |
 | Notion output skill | F26 | Mirror outputs (briefs, governance) to Notion | Classified as "Won't Have" in PRD |
@@ -173,7 +192,7 @@ These PRD features were planned but not implemented. They remain candidates for 
 
 - Docker + Docker Compose
 - `bws` CLI v2.0.0 at `~/bin/bws.exe` with `BWS_ACCESS_TOKEN` set
-- OpenAI API key (all AI calls route directly to `https://api.openai.com/v1`; model aliases configured in `config/ai-routing.yaml`)
+- OpenAI API key for embeddings; Anthropic API key for paid LLM tiers when configured. Model tiers and fallbacks live in `config/ai-routing.yaml`.
 - Bitwarden secrets populated for the `ai-work` project (see `scripts/load-secrets.sh`)
 
 ### 1. Clone and install
@@ -191,7 +210,8 @@ Secrets are never stored in `.env` files. Load them into a `.env.secrets` file t
 ```bash
 # Retrieve your secrets from Bitwarden and write to .env.secrets (git-ignored)
 # Required keys:
-#   OPENAI_API_KEY        — OpenAI API key for all LLM + embedding calls
+#   OPENAI_API_KEY        — OpenAI API key for embeddings
+#   ANTHROPIC_API_KEY     — Anthropic API key for paid LLM tiers
 #   MCP_API_KEY           — bearer token for MCP endpoint
 #   POSTGRES_PASSWORD     — Postgres password (default: openbrain_dev for local)
 #   SLACK_BOT_TOKEN       — xoxb-... Slack bot token
@@ -215,7 +235,7 @@ source ./scripts/load-secrets.sh
 docker compose up -d
 ```
 
-This starts all 9 containers. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+The intended stack contains all 17 declared services. As of the 2026-05-06 documentation audit, A130 must be fixed first because `cloudflared.depends_on` still references the legacy `web` service instead of `web-next`. First successful run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
 
 ### 5. Verify
 
@@ -227,7 +247,7 @@ curl http://localhost:3002/health
 curl http://localhost:3001/health
 
 # Web dashboard
-open http://localhost:5173
+open http://localhost:3003
 
 # Bull Board (queue monitor)
 open http://localhost:3002/api/v1/admin/queues
@@ -264,15 +284,13 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
 | `IMPLEMENTATION_PLAN-PHASE6.md` | Phases 21–25 (UX polish + admin tools) — complete |
 | `IMPLEMENT_IMPROVED_MEMORY.md` | Cognitive memory (Hebbian, spreading activation, consolidation) — complete |
-| `docs/PRD.md` | Product requirements (v0.6) |
-| `docs/TDD.md` | Technical design (v0.6) |
+| `docs/PRD.md` | Product requirements (v0.7.1) |
+| `docs/TDD.md` | Technical design (v0.7.2) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
-| `packages/web/src/content/USER_QUICK_START.md` | User quick start guide (rendered in Help page) |
-| `packages/web/src/content/USER_GUIDE.md` | Detailed user guide (rendered in Help page) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
 | `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
-| `config/ai-routing.yaml` | OpenAI model aliases and budget thresholds |
+| `config/ai-routing.yaml` | Embedding config, LLM tier routing, and budget thresholds |
 | `config/brain-views.yaml` | Brain view definitions |
 | `config/pipeline.yaml` | Pipeline stage definitions + retry/backoff settings |
 | `docs/archived/` | Completed implementation plans and historical test results |

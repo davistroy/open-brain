@@ -144,11 +144,11 @@ Every phase MUST comply with:
 
 ### Phase 1 Completion Checklist
 
-- [ ] All 4 work items complete.
-- [ ] Lab notebook entry created BEFORE first commit.
-- [ ] `pnpm-lock.yaml` committed in same PR as `package.json` changes.
-- [ ] CI green.
-- [ ] `git status` shows clean working tree at end.
+- [x] All 4 work items complete.
+- [x] Lab notebook entry created BEFORE first commit.
+- [x] `pnpm-lock.yaml` committed in same PR as `package.json` changes.
+- [x] CI green.
+- [x] `git status` shows clean working tree at end.
 
 ### Definition of Done (Runnable)
 <!-- BEGIN DOD -->
@@ -176,13 +176,13 @@ Every phase MUST comply with:
 **Files:** `README.md`
 
 **Acceptance:**
-- [ ] **Container count:** line ~218 ("9 containers") corrected to authoritative count from `docker compose -f docker-compose.yml config --services | wc -l`. Recommend stating "13 core services" (per CLAUDE.md P11a) with note that ingest cron services bring active count to 17 in production.
-- [ ] **Architecture table** (line ~31): `open-brain-web ... Vite + React + shadcn/ui` row removed (web deleted in Phase 8b per ADR-0001). Replace with `open-brain-web-next ... Next.js 16 + Cloudscape + React 19 + TanStack Query` row.
-- [ ] **Monorepo layout** (line ~39): `packages/web/` row removed. Add rows for `packages/web-next/`, `packages/voice-pipecat/` (Pipecat VAD→Deepgram→Claude→TTS), `packages/file-ingestion/` (FastAPI file extraction), `packages/mobile/` (Expo React Native).
-- [ ] **Deleted file references** (lines 271–272): `packages/web/src/content/USER_QUICK_START.md` + `USER_GUIDE.md` references removed (deleted in Phase 8b).
-- [ ] **Stale "Deferred Features"** (lines 159–160): daily-connections + drift-monitor removed from deferred list (both shipped with cron schedules at 6:10 AM and 7:15 AM).
-- [ ] **PRD/TDD version references** updated from v0.6 → v0.7 (S5 fold-in).
-- [ ] **Verification:** `grep -c "packages/web/" README.md` returns 0.
+- [x] **Container count:** line ~218 ("9 containers") corrected to 17 declared compose services; config command caveat tracked as A130 because `cloudflared` depends on legacy `web`.
+- [x] **Architecture table** (line ~31): `open-brain-web ... Vite + React + shadcn/ui` row removed (web deleted in Phase 8b per ADR-0001). Replaced with `open-brain-web-next ... Next.js 16 + Cloudscape + React 19 + TanStack Query` row.
+- [x] **Monorepo layout** (line ~39): `packages/web/` row removed. Added rows for `packages/web-next/`, `packages/voice-pipecat/`, `packages/file-ingestion/`, `packages/mobile/`.
+- [x] **Deleted file references** (lines 271–272): `packages/web/src/content/USER_QUICK_START.md` + `USER_GUIDE.md` references removed (deleted in Phase 8b).
+- [x] **Stale "Deferred Features"** (lines 159–160): daily-connections + drift-monitor removed from deferred list (both shipped with cron schedules at 6:10 AM and 7:15 AM).
+- [x] **PRD/TDD version references** updated from v0.6 → current doc versions (PRD v0.7.1, TDD v0.7.2).
+- [x] **Verification:** `grep -c "packages/web/" README.md` returns 0.
 
 **Requirement Refs:** W1, W2, W3, S5, W6 (partial)
 
@@ -191,10 +191,10 @@ Every phase MUST comply with:
 **Files:** `docs/PRD.md`
 
 **Acceptance:**
-- [ ] **F19 description:** "Web dashboard (Vite + React PWA)" → "Web dashboard (Next.js 16 + Cloudscape + React 19)".
-- [ ] **F21 (daily-connections), F22 (drift-monitor):** Status `Deferred` → `Complete` with approximate ship date (cron registration in `packages/workers/src/scheduler.ts` is authoritative).
-- [ ] **F29–F35:** Status `Planned` → `Complete` with ship dates.
-- [ ] **New feature IDs (F36+) added** for previously-undocumented capabilities:
+- [x] **F19 description:** "Web dashboard (Vite + React PWA)" → "Web dashboard (Next.js 16 + Cloudscape + React 19)".
+- [x] **F21 (daily-connections), F22 (drift-monitor):** Status updated to implemented with scheduler-backed run times.
+- [x] **F29–F35:** Status `Planned` → `Implemented` with ship dates.
+- [x] **New feature IDs (F36+) added** for previously-undocumented capabilities:
   - `monthly-reflection` — monthly summary skill
   - `morning-brief` — proactive AM briefing
   - `capture-reminder-morning` + `capture-reminder-evening` — autonomy-gated nudges
@@ -207,8 +207,8 @@ Every phase MUST comply with:
   - `entity-brief` — entity-page synthesis
   - `extract-commitments` — LLM commitment extraction (full pipeline + table + routes)
   - `voice-sessions` — Pipecat session lifecycle REST API
-- [ ] **Status column** reflects code reality (cross-reference `packages/workers/src/skills/` directory + `packages/core-api/src/routes/`).
-- [ ] **Three undocumented packages** (W6) added to PRD §1 (System Overview): voice-pipecat, file-ingestion, mobile.
+- [x] **Status column** reflects code reality (cross-reference `packages/workers/src/skills/` directory + `packages/core-api/src/routes/`).
+- [x] **Three undocumented packages** (W6) added to PRD §1 (System Overview): voice-pipecat, file-ingestion, mobile.
 
 **Requirement Refs:** W4, S1, S3, S4, W6 (partial)
 
@@ -217,26 +217,26 @@ Every phase MUST comply with:
 **Files:** `docs/TDD.md`
 
 **Acceptance:**
-- [ ] **§2.1:** "Jetson Orin Nano (Required)" → "Jetson Orin Nano (Optional cost-saving tier)".
-- [ ] **§2.1:** "DGX Spark (Required)" → "DGX Spark (Optional cost-saving tier)".
-- [ ] **Explicit note added:** "Core system runs on OpenAI API alone; Jetson/Spark provide free-tier cost savings via `t1_jetson`/`t1_spark` entries in `config/ai-routing.yaml`. Neither is required to deploy or operate the system."
-- [ ] **Verification:** cross-reference `config/ai-routing.yaml` confirms `t1_jetson`/`t1_spark` are tier entries with explicit `cost_per_1k_*: 0`, not hard dependencies.
+- [x] **§2.1:** "Jetson Orin Nano (Required)" → "Jetson GPU (external) (Optional cost-saving tier)".
+- [x] **§2.1:** "DGX Spark (Required)" → "DGX Spark (Optional cost-saving tier)".
+- [x] **Explicit note added:** Core system can deploy and operate without Jetson/Spark; those tiers provide zero-cost routing entries in `config/ai-routing.yaml`.
+- [x] **Verification:** cross-reference `config/ai-routing.yaml` confirms `t1_jetson`/`t1_spark` are tier entries with explicit `cost_per_1k_*: 0`, not hard dependencies.
 
 **Requirement Refs:** W7
 
 ### Phase 2 Completion Checklist
 
-- [ ] All 3 work items complete.
-- [ ] Lab notebook entry created BEFORE first commit.
-- [ ] Manual proofread: every file path in README exists; every PRD feature ID matches a code surface; TDD §2.1 matches `ai-routing.yaml`.
-- [ ] `grep -c "packages/web/" README.md` returns 0.
+- [x] All 3 work items complete.
+- [x] Lab notebook entry created BEFORE first commit.
+- [x] Manual proofread: every file path in README exists; every PRD feature ID matches a code surface; TDD §2.1 matches `ai-routing.yaml`.
+- [x] `grep -c "packages/web/" README.md` returns 0.
 
 ### Definition of Done (Runnable)
 <!-- BEGIN DOD -->
 | Check | Command | Pass Criteria |
 |---|---|---|
 | Web reference scrub | `grep -c "packages/web/" README.md` | 0 |
-| Container count sanity | `docker compose -f docker-compose.yml config --services \| wc -l` | Number matches README claim |
+| Container count sanity | `docker compose -f docker-compose.yml config --services \| wc -l` | Blocked by A130 until `cloudflared.depends_on` points at `web-next`; README now documents 17 raw declared services with caveat |
 | Doc-sync CI | (existing `doc-sync` job in `.github/workflows/ci.yml`) | Green |
 <!-- END DOD -->
 
@@ -470,7 +470,7 @@ Every phase MUST comply with:
 | U2 | What is the current workers test coverage `lines%` and `functions%`? | Medium | 4.1, 4.2 | Run `pnpm --filter @open-brain/workers test -- --coverage` on main; record baseline | Open |
 | U3 | Does `packages/workers/vitest.config.integration.ts` exist? | Low | 4.3, 4.4 | First step of 4.3: file check; create if absent | Open |
 | U4 | Does `eslint-config-next@^16.2.4` introduce lint rules that fail outside `HelpContent.tsx`? | Low | 3.3 | First step of 3.3: bump + lint + count errors | Open |
-| U5 | Authoritative container count for README — 13 (CLAUDE.md "P11a") or 17 (Entry 107)? | Low | 2.1 | `docker compose -f docker-compose.yml config --services \| wc -l` is authoritative | Open |
+| U5 | Authoritative container count for README — 13 (CLAUDE.md "P11a") or 17 (Entry 107)? | Low | 2.1 | `docker compose -f docker-compose.yml config --services` currently blocked by A130; raw `docker-compose.yml` declarations show 17 services | Resolved for docs with caveat |
 
 ## Success Metrics
 

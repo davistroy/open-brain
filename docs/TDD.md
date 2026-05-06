@@ -2,10 +2,10 @@
 
 | Document Information |                                    |
 |---------------------|-------------------------------------|
-| Version             | 0.7                                 |
-| Status              | Current — P15b AI gateway scrub complete |
+| Version             | 0.7.2                               |
+| Status              | Current — post-remediation Phase 2 documentation alignment complete |
 | Author              | Troy Davis / Claude                 |
-| Last Updated        | 2026-04-19                          |
+| Last Updated        | 2026-05-06                          |
 
 ## Document History
 | Version | Date | Author | Changes |
@@ -17,11 +17,12 @@
 | 0.5 | 2026-03-05 | Troy Davis / Claude | Architectural review v2: Fixed composite score formula (multiplicative boost), extracted pipeline_log to pipeline_events table, extracted session transcript to session_messages table, removed linked_entities denormalization from captures, added DELETE captures endpoint, fixed temporal_weight default (0.0), changed BrainView type to config-driven string, clarified ai_audit_log purpose (dropped cost_estimate), added entity resolution confidence threshold (0.8), added MCP key rotation runbook, config Zod validation, scheduled skill retry policy, thread expiration UX, migration-at-startup entrypoint, Ollama CPU benchmark requirement, content_hash window configurability note, MCP in-progress capture visibility note. |
 | 0.6 | 2026-03-10 | Troy Davis / Claude | Hardening 7.2: Replaced speculative SQL functions (match_captures, match_captures_hybrid) with actual as-built functions (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search) matching init-schema.sql. Updated synthesize endpoint contract to match implementation ({query, limit} request, {response, capture_count} response). Updated all cross-references to old function names. |
 | 0.7 | 2026-04-19 | Troy Davis / Claude | P15b AI gateway scrub: replaced all stale proxy gateway references with current `LLMGatewayService` / `ai-routing.yaml` architecture (multi-tier: t0_local, t1_jetson, t1_spark, t1_fast, t2_quality). Updated §1.1/1.3/1.4, §2.1/2.2, §6.3 sequence diagrams, §8.2/8.3/8.7 integration sections, EmbeddingService/AIRouterService pseudocode, operational runbook, glossary, appendix. Removed P15a doc-status note. |
+| 0.7.2 | 2026-05-06 | Troy Davis / Claude | Post-remediation Phase 2 documentation alignment: demoted Jetson/Spark from required infrastructure to optional cost-saving tiers, updated web stack references to Next.js 16 / Cloudscape / React 19, and acknowledged mobile/file/voice package surfaces. |
 
 ## Related Documents
 | Document | Link | Relevance |
 |----------|------|-----------|
-| PRD | [PRD.md](PRD.md) | Product requirements v0.6, all architectural decisions |
+| PRD | [PRD.md](PRD.md) | Product requirements v0.7.1, all architectural decisions |
 | PRD Answers | [reference/answers-PRD-20260304-160000.json](reference/answers-PRD-20260304-160000.json) | PRD decision rationale |
 | PRD Questions | [reference/questions-PRD-20260304-120000.json](reference/questions-PRD-20260304-120000.json) | PRD questions extracted |
 | TDD Answers | [reference/answers-TDD-20260304-214500.json](reference/answers-TDD-20260304-214500.json) | TDD decision rationale (32 questions) |
@@ -43,12 +44,12 @@ The system runs entirely on an Unraid home server, ingests captures from Slack, 
 - Phase 1 (Foundation/MVP): Core API, Postgres+pgvector, Pipeline, Slack capture/query, MCP (embedded in Core API), AI router (`LLMGatewayService` + `ai-routing.yaml`)
 - Phase 2 (Voice + Outputs): faster-whisper, voice-capture integration, weekly brief skill, notifications, email
 - Phase 3 (Intelligence): Entity graph, governance sessions, bet tracking
-- Phase 4 (Polish): Web dashboard (Vite + React PWA), document ingestion
+- Phase 4 (Polish): Web dashboard (Next.js 16 + Cloudscape + React 19), document ingestion
 - Phase 5 (Proactive Intelligence + URL Capture): Daily connections, drift monitor, URL/bookmark capture
 
 **Out of Scope**:
 - Multi-user support, authentication system
-- Mobile native apps
+- Mobile native app expansion beyond the current single-user Expo app
 - Notion output skill (deferred to "Future")
 - Screenshot/image capture via vision models (F27 — documented in PRD, deferred pending vision tier addition to `ai-routing.yaml`)
 
@@ -61,7 +62,7 @@ The system runs entirely on an Unraid home server, ingests captures from Slack, 
 | ORM | Drizzle | Schema-as-code, type-safe queries, drizzle-kit for migrations |
 | Database | Postgres 16 + pgvector | Proven, pgvector for semantic search, pgvector/pgvector:pg16 image |
 | Package Manager | pnpm | Strict dependency isolation, disk-efficient, native workspace support |
-| Monorepo | pnpm workspaces | Single repo: shared, core-api, slack-bot, workers, voice-capture |
+| Monorepo | pnpm workspaces | Single repo: shared, core-api, slack-bot, workers, voice-capture, voice-pipecat, file-ingestion, web-next, mobile |
 | Dev Runtime | tsx | Run TypeScript directly with hot reload (tsx watch) |
 | Production Build | tsup (esbuild) | Zero-config bundler, single .mjs per service, ESM output |
 | Queue | BullMQ + Redis | Mature Node.js job queue, retries, priorities, dashboards |
@@ -69,7 +70,7 @@ The system runs entirely on an Unraid home server, ingests captures from Slack, 
 | Embeddings | OpenAI `text-embedding-3-large` with `dimensions: 768` | Direct API call. Trained MRL — `dimensions` parameter gives high-quality 768d vectors. No fallback — queue and retry. Schema: `vector(768)` |
 | Search | Hybrid (FTS + vector + RRF) + ACT-R temporal decay | Best-of-both retrieval with recency/frequency-weighted ranking |
 | Transcription | faster-whisper (large-v3, CPU int8) | Local, accurate, no API cost |
-| Web UI | Vite + React + Tailwind + shadcn/ui | Lightweight SPA, no SSR needed |
+| Web UI | Next.js 16 + React 19 + Tailwind + Cloudscape design system + TanStack Query | App Router dashboard with server-side API rewrites |
 | Container orchestration | Docker Compose on Unraid | Simple, fits single-server deployment |
 | External access | Cloudflare Tunnel (free) for brain.k4jda.net | Existing Tailscale/SWAG unchanged |
 
@@ -105,7 +106,7 @@ Phase 3: Intelligence
   → F18 Bet Tracking → F20 Slack Voice
 
 Phase 4: Polish
-  F19 Web Dashboard → F23 Document Ingestion
+  F19 Web Dashboard (web-next) → F23 Document Ingestion
 
 Phase 5A: Proactive Intelligence
   F21 Daily Connections → F22 Drift Monitor
@@ -130,11 +131,13 @@ Phase 5B: URL Capture
 | pgvector | 0.7+ | Vector similarity search | Required |
 | Redis | 7+ | Job queues (BullMQ), thread context cache | Required |
 | Node.js | 22 LTS | Runtime for all TypeScript services | Required |
-| Jetson GPU (external) | llama.cpp | `t1_jetson` — `qwen3.5-4b`, 7 classification tasks, free. Static IP `192.168.10.58:8080/v1`. | Required for free-tier inference |
-| DGX Spark (external) | vLLM | `t1_spark` — `qwen3.5-35b`, entity extraction + synthesis, free. `spark.k4jda.net:8000/v1`. | Required for free-tier synthesis |
+| Jetson GPU (external) | llama.cpp | `t1_jetson` — `qwen3.5-4b`, 7 classification tasks, free. Static IP `192.168.10.58:8080/v1`. | Optional cost-saving tier |
+| DGX Spark (external) | vLLM | `t1_spark` — `qwen3.5-35b`, entity extraction + synthesis, free. `spark.k4jda.net:8000/v1`. | Optional cost-saving tier |
 | faster-whisper | latest | Local speech-to-text | Required (Phase 2) |
 | Cloudflare Tunnel | latest | External access for brain.k4jda.net | Required (for MCP/slash commands) |
 | Tailscale | existing | Remote access to Unraid services | Required (existing) |
+
+The core system can deploy and operate without Jetson or Spark. `config/ai-routing.yaml` defines `t1_jetson` and `t1_spark` as zero-cost routing tiers with explicit `cost_per_1k_input: 0` and `cost_per_1k_output: 0`; `LLMGatewayService` falls through to paid tiers when optional local endpoints are unavailable.
 
 ### 2.2 External Service Dependencies
 
@@ -3493,7 +3496,7 @@ This is used for:
 
 ## 14. Web Dashboard (Phase 4)
 
-> **Note (2026-05-05):** `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is now the canonical production ingress at brain.troy-davis.com. `packages/web` (Vite stack documented in this section) is sunsetting in Phase 8b. All new UI work goes to web-next. See ADR-0001 and §24 (Web Stack Consolidation 2026-05).
+> **Note (2026-05-06):** `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is the canonical production ingress at brain.troy-davis.com. The former `packages/web` Vite stack documented in this historical section was deleted in Phase 8b. Use §24 (Web Stack Consolidation 2026-05) and `packages/web-next/` for current UI architecture.
 
 ### 14.1 Architecture
 
@@ -4169,7 +4172,7 @@ No feature flag service — single user, phased deployment. Features enabled by:
 | Search | Configurable threshold | Skip low-similarity results, reduce result set |
 | Caching | Redis thread context | Avoid re-embedding for follow-up queries in same thread |
 | Config | Per-job YAML reload | No restart needed for config changes |
-| Web UI | Vite code splitting | Lazy load pages, minimize initial bundle |
+| Web UI | Next.js route splitting | Lazy load route segments and minimize initial bundle |
 | Web UI | PWA caching | Service worker caches static assets |
 
 ### 18.3 HNSW Index Tuning
@@ -4435,6 +4438,7 @@ Templates are versioned (`v1`, `v2`, `v3`), stored in `config/prompts/`, hot-rel
 | 2026-03-10 | v0.6: Hardening 7.2 — Replaced speculative SQL functions with as-built implementations (hybrid_search, fts_only_search, actr_temporal_score, update_capture_embedding, vector_search, fts_search). Updated synthesize endpoint to match simplified implementation. Updated all cross-references. | Troy Davis / Claude |
 | 2026-03-11 | v0.7: Phase 5 — Added technical design for F21 (daily connections skill), F22 (drift monitor skill), F24 (URL/bookmark capture). New TDD sections: 12.2c (daily connections), 12.2d (drift monitor), 12.2e (URL extraction service). Updated scope, phased implementation, job definitions, scheduled jobs. F27 (image capture) documented in PRD but deferred from TDD. | Troy Davis / Claude |
 | 2026-04-19 | v0.7.1 (P15b): LiteLLM scrub — replaced 134 LiteLLM references with current architecture (OpenAI embeddings, Anthropic/Qwen inference via LLMGatewayService, cost-tiered ai-routing.yaml). Added cognitive memory, autonomy levels, cost-tier routing, and email pipeline sections. | Troy Davis / Claude |
+| 2026-05-06 | v0.7.2: Post-remediation Phase 2 documentation alignment — Jetson/Spark optional cost-saving tiers, web stack references updated to web-next, mobile/file/voice package surfaces acknowledged. | Troy Davis / Claude |
 
 ### E. Operational Runbook
 
