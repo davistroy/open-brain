@@ -27,11 +27,8 @@
       ]
     }
   },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0"
-  },
   "devDependencies": {
-    "vitest": "^1.6.0",
-    "tsx": "^4.7.0"
+    "tsx": "^4.7.0",
+    "vitest": "^1.6.0"
   }
 }

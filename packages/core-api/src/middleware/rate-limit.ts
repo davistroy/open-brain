@@ -30,6 +30,31 @@ export const RATE_LIMIT_TIERS = {
   mobile: { maxRequests: 200, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitConfig>
 
+// Module-scope: constructed once, not per-request.
+const BYPASS_CALLERS = new Set([
+  'internal:integration-test',
+  'internal:web-ui',
+  'internal:email-worker',
+  'internal:financial-pipeline',
+  'internal:utility-pipeline',
+  // CS3 — batch ingest sidecar + ingest-process worker callbacks
+  'internal:ingest',
+  // P07 — new internal service callers
+  'internal:slack-bot',
+  'internal:voice-capture',
+  'internal:memory-consolidation',
+  'internal:workers',
+  // P07 — callers that already set the header but were missing from bypass
+  'internal:email-classify',
+  'internal:email-compose-skill',
+  'internal:batch-wiki-ingest',
+  'internal:email-pipeline',
+  'internal:ingest-onedrive',
+  'internal:ingest-repair',
+  // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
+  'internal:newsletter-pipeline',
+])
+
 /** Sliding window entry: list of request timestamps within the current window */
 interface WindowEntry {
   timestamps: number[]
@@ -271,29 +296,6 @@ export function rateLimit(limiter: RateLimiter, mobileLimiter?: RateLimiter): Mi
     // Bypass rate limiting for trusted internal callers.
     // mobile-app removed in Phase 6 (R8) — now authenticated via Bearer
     // (mobile-auth middleware) and rate-limited via the 'mobile' tier instead.
-    const BYPASS_CALLERS = new Set([
-      'internal:integration-test',
-      'internal:web-ui',
-      'internal:email-worker',
-      'internal:financial-pipeline',
-      'internal:utility-pipeline',
-      // CS3 — batch ingest sidecar + ingest-process worker callbacks
-      'internal:ingest',
-      // P07 — new internal service callers
-      'internal:slack-bot',
-      'internal:voice-capture',
-      'internal:memory-consolidation',
-      'internal:workers',
-      // P07 — callers that already set the header but were missing from bypass
-      'internal:email-classify',
-      'internal:email-compose-skill',
-      'internal:batch-wiki-ingest',
-      'internal:email-pipeline',
-      'internal:ingest-onedrive',
-      'internal:ingest-repair',
-      // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
-      'internal:newsletter-pipeline',
-    ])
     if (BYPASS_CALLERS.has(key)) {
       await next()
       return

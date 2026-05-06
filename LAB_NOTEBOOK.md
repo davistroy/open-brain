@@ -133,6 +133,7 @@
 | D121 | Mobile app: expo-av for voice recording, batch upload to voice-capture:3001 (not streaming) | 2026-04-22 | ACTIVE | Entry 130 | Streaming requires voice-pipecat WebSocket integration — separate project. Batch Whisper is proven. |
 | D122 | Mobile app: jest with babel-jest (not jest-expo preset) for pnpm monorepo compatibility | 2026-04-22 | ACTIVE | Entry 130 | jest-expo setup.js deeply requires react-native internals that fail under pnpm .pnpm hoisting |
 | D123 | Mobile app: TanStack React Query v5 for data layer (not SWR, not custom) | 2026-04-22 | ACTIVE | Entry 130 | Matches web-next pattern, built-in mutations for board patches, staleTime/retry configurable |
+| D124 | Post-remediation baseline: 3.7/5 architectural health, 7/10 intent alignment. No CRITICAL findings. Primary gap is documentation staleness, not structural defects. | 2026-05-06 | ACTIVE | Entry 106, 107 | Full /review-arch + /review-intent audits run post-PR #175/#178/#179; see Entries 106 and 107 for detailed findings and remediation roadmap |
 
 ## Action Items
 
@@ -10145,3 +10146,205 @@ Tags: [web] [refactor] [deletion] [ci]
 - TypeScript: 0 errors across all packages post-deletion
 
 **Duration:** ~30 min (4 rounds, parallel where possible)
+
+---
+
+### Entry 106 — Post-Remediation Architectural Audit [architecture] [audit]
+**Date:** 2026-05-06
+**Environment:** Local (post-PR #175, #178, #179 merge)
+**Objective:** Baseline architectural health assessment after R1-R12 remediation arc completion.
+
+**Architecture Scorecard:**
+| Dimension | Rating | Notes |
+|---|---|---|
+| Structure & Organization | 4/5 | Clean star-topology, proper service layer, bounded ingest.ts exception |
+| Code Quality | 4/5 | Large files well-structured, consistent skill/query split pattern |
+| Dependency Management | 3/5 | @types/node mismatch, redundant declarations, vitest 1.6 vs 2.x |
+| Testing | 3/5 | Strong core-api (80% thresholds), workers integration tests not in CI |
+| Security | 4/5 | Timing-safe tokens, fail-closed, IP-gated bypass, no hardcoded secrets |
+| Performance & Scalability | 4/5 | Optimized search hot path, one N+1 in low-traffic endpoint |
+| **Overall** | **3.7/5** | Sound fundamentals, finishing-quality debt remaining |
+
+**Findings:**
+
+**F1 — @types/node version mismatch (MEDIUM)**
+core-api + voice-capture declare @types/node ^25.3.5; web-next declares ^22.0.0. Runtime is Node 22. Node 25 types expose APIs that don't exist on Node 22 runtime — type-clean builds could fail at runtime. Two separate resolution trees confirmed in pnpm-lock.yaml.
+Location: packages/core-api/package.json:46, packages/voice-capture/package.json:29, packages/web-next/package.json:30
+
+**F2 — Workers integration tests not in CI (MEDIUM)**
+CI integration-test job runs only core-api integration tests. Three workers integration tests (pipeline.test.ts, ingest-e2e.test.ts, access-stats-e2e.test.ts) exist but are never invoked in GitHub Actions. BullMQ pipeline job chain has no automated regression guard.
+Location: packages/workers/src/__tests__/integration/, .github/workflows/ci.yml
+
+**F3 — Markdown/XSS ecosystem declared in both shared and workers (LOW)**
+remark-parse, remark-rehype, rehype-slug, rehype-stringify, rehype-autolink-headings, xss, unified declared in both packages. Only shared uses them (brief-renderer.ts). Workers declarations are redundant — doubled install, confusing ownership.
+Location: packages/shared/package.json, packages/workers/package.json
+
+**F4 — @anthropic-ai/sdk orphaned in root package.json (LOW)**
+Root package.json declares @anthropic-ai/sdk ^0.39.0 as a dependency. No root-level TS file imports it. SDK is independently declared in shared, core-api, workers, voice-capture.
+Location: /package.json:31
+
+**F5 — eslint-config-next version behind Next.js (LOW)**
+eslint-config-next ^15.0.0 vs next ^16.2.4. Next 16 lint rules silently missing.
+Location: packages/web-next/package.json:39
+
+**F6 — N+1 query in GET /api/v1/ingest/uploads (LOW)**
+shapeFileUploadRow() issues one SELECT per upload row (max 20 per page). Negligible at current scale but structurally wrong.
+Fix: collect all capture_ids, issue one inArray query, build lookup map.
+Location: packages/core-api/src/routes/ingest.ts:435, lines 156-189
+
+**F7 — BYPASS_CALLERS Set rebuilt on every request (LOW)**
+new Set([...17 entries...]) constructed inside middleware closure on every HTTP request. Should be module-scope const.
+Location: packages/core-api/src/middleware/rate-limit.ts:274-296
+
+**F8 — Workers package has no coverage thresholds (LOW)**
+Core-api enforces 80% line/function coverage. Workers has no thresholds despite housing 24 skills and all BullMQ job processors.
+Location: packages/workers/vitest.config.ts
+
+**F9 — Vitest 1.6.1 with 2.x available (LOW)**
+Major-version lag on primary test runner. v2 adds improved pool handling. Windows forks-pool compat needs verification before upgrade.
+
+**Remediation Roadmap:**
+- Quick wins (S): R1 hoist BYPASS_CALLERS, R2 remove root @anthropic-ai/sdk, R3 remove redundant markdown deps from workers, R4 bump eslint-config-next to ^16
+- Short-term (M): R5 add workers integration tests to CI, R6 fix N+1 in ingest/uploads, R7 add workers coverage thresholds
+- Strategic (L): R8 align @types/node to ^22 across all packages, R9 vitest 2.x migration
+- Long-term (XL): R10 morning-brief.ts decomposition (only if adding delivery channels)
+
+---
+
+### Entry 107 — Post-Remediation Intent Review [docs] [audit]
+**Date:** 2026-05-06
+**Environment:** Local (post-PR #175, #178, #179 merge)
+**Objective:** Compare original project intent (PRD, TDD, README) against current implementation to surface documentation drift and scope tracking gaps.
+
+**Intent Scorecard:**
+| Dimension | Score | Status |
+|---|---|---|
+| Feature Completeness | 8/10 | All Must/Should features shipped; 4 genuinely deferred (F24, F25, F26, F27) |
+| Architecture Alignment | 9/10 | Stack matches TDD; one stale infrastructure description |
+| Documentation Accuracy | 4/10 | README wrong on container count, packages, feature status; PRD 9 features misstated |
+| Scope Discipline | 7/10 | 10+ undocumented skills + 3 undocumented packages; all coherent, none bloat |
+| Overall Intent Alignment | 7/10 | Building the right thing; docs haven't kept pace |
+
+**WARNING Findings:**
+
+**W1 — README container count wrong by 2x**
+README states "9 containers." Reality: 17 active services in docker-compose.yml. Missing: voice-pipecat, file-ingestion, web-next, financial-ingest, utility-ingest, loki, pushgateway, prometheus, grafana, cloudflared.
+
+**W2 — README references deleted packages/web**
+README lines 44-45 reference packages/web/ in monorepo layout. Lines 271-272 reference packages/web/src/content/USER_QUICK_START.md and USER_GUIDE.md. Both paths deleted in PR #175.
+
+**W3 — README version/status description stale**
+README line 6: "v1.5.0" and architecture table still lists open-brain-web with Vite/React/shadcn stack. System has grown substantially since this was written.
+
+**W4 — README falsely states F21/F22 have "no handler code"**
+README lines 159-160 under "Deferred Features": daily-connections and drift-monitor listed as "Removed from KNOWN_SKILLS; no handler code." Both are fully implemented with cron schedules (daily-connections at 6:10 AM, drift-monitor at 7:15 AM), registered in skill-config.ts DEFAULT_SKILLS, and have dedicated query modules.
+
+**W5 — PRD F29-F35 marked "Planned" but all implemented**
+PRD table marks F29 (Queue Management), F30 (Trigger Delete Fix), F31 (Skill Schedule Editing), F32 (Dark Mode), F33 (Settings Reorganization), F34 (Help Page), F35 (Slack Channel Cleanup) as "Planned." Code confirms all shipped months ago.
+
+**W6 — Three undocumented packages in monorepo**
+voice-pipecat (Python, Pipecat VAD→Deepgram STT→Claude LLM→TTS), file-ingestion (Python, FastAPI file extraction), mobile (Expo React Native) — none in README or PRD. voice-pipecat and file-ingestion are in docker-compose.yml as active services.
+
+**W7 — TDD §2.1 lists Jetson/Spark as "Required"**
+TDD describes Jetson GPU and DGX Spark as "Required" infrastructure. Current runtime uses OpenAI API directly for all inference. Jetson/Spark are optional cost-saving tiers in ai-routing.yaml, not prerequisites.
+
+**SUGGESTION Findings:**
+
+**S1 — 10+ skills implemented but absent from PRD**
+monthly-reflection, morning-brief, capture-reminder (morning + evening), cost-analysis, container-health, storage-audit, secret-rotation, capture-dedup-sweep, refine-brief, entity-brief — all well-implemented, no PRD feature IDs.
+
+**S2 — Known TODO: memory-consolidation task key (A71)**
+workers/src/skills/memory-consolidation.ts:348 — pre-existing known deferral, correctly documented in CLAUDE.md.
+
+**S3 — extract-commitments job undocumented**
+Full LLM-based commitment extraction pipeline with dedicated commitments table, API routes, status filters — no PRD feature entry.
+
+**S4 — Voice sessions / Pipecat integration partially documented**
+core-api/src/routes/voice-sessions.ts provides full REST API for Pipecat voice session lifecycle. Infrastructure substantially built; soak test is the outstanding gap.
+
+**S5 — README PRD/TDD version references stale**
+README references PRD as v0.6 (actual: v0.7), TDD as v0.6 (actual: v0.7).
+
+**S6 — F19 description wrong in PRD**
+PRD lists F19 as "Web dashboard (Vite + React PWA)" — now Next.js 16 + Cloudscape + React 19, and packages/web is deleted.
+
+**S7 — ingest.ts TODO is documentation-level**
+Code comment explaining intentional placeholder; not a functional regression.
+
+**Quantitative Summary:**
+- PRD features defined: 35 (F01-F35)
+- PRD Must/Should implemented: 30/30
+- PRD features marked "Planned" but shipped: 7 (F29-F35)
+- PRD features marked "Deferred" but shipped: 2 (F21, F22)
+- Skills not in PRD: 10+
+- Packages not in README: 4
+- Active containers vs README stated: 17 vs 9
+- Implemented routes not in PRD: 9
+
+**Recommendations:**
+1. README rewrite (1 session) — container table, package layout, feature status, version refs
+2. PRD feature table update (1 hour) — fix 9 status errors, update F19, add IDs for undocumented capabilities
+3. TDD §2.1 — demote Jetson/Spark from "Required" to "Optional cost-saving tier"
+4. Scope decisions — document voice-pipecat transition plan, mobile package status, F24 roadmap decision
+
+---
+
+--- New session: 2026-05-06 — Post-remediation Phase 1 quick wins ---
+
+### Entry 131 — Post-Remediation Phase 1: deps + perf microfixes [api] [pipeline] [config] [testing]
+**Date:** 2026-05-06
+**Environment:** Local laptop (`C:\Users\Troy Davis\dev\personal\open-brain`), branch `main` behind `origin/main` by 2 commits. Pre-existing worktree state before this entry: `LAB_NOTEBOOK.md` modified; `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` and `OPEN_ITEMS.md` untracked.
+**Objective:** Execute Phase 1 of `IMPLEMENTATION_PLAN-POST-REMEDIATION.md`: hoist `BYPASS_CALLERS`, fix the `GET /api/v1/ingest/uploads` N+1 capture lookup, remove redundant markdown/XSS deps from workers, and remove orphaned root `@anthropic-ai/sdk`.
+**Hypothesis:** The four quick wins are low-risk and behavior-preserving. Success criteria: all 17 internal bypass caller entries remain verbatim; upload list response shape stays unchanged while capture lookup drops from per-row SELECTs to one batched SELECT; `packages/workers/package.json`, root `package.json`, and `pnpm-lock.yaml` stay synchronized; targeted core-api/workers build/test checks and `pnpm install --frozen-lockfile` pass.
+**Rollback plan:** Revert this Phase 1 changeset with `git revert` (or restore the touched files from the pre-change branch state) and run `pnpm install` to restore `pnpm-lock.yaml` if dependency removals need to be undone.
+**Duration:** ~25 min.
+
+**Results log:**
+- Pre-flight read-only review complete before modifying application files. Source docs read in requested order: `OPEN_ITEMS.md`, `IMPLEMENTATION_PLAN-POST-REMEDIATION.md`, `CLAUDE.md`, then LAB_NOTEBOOK Entry 106 and Entry 107.
+- Worktree pre-flight: `git status --short --branch` showed `main...origin/main [behind 2]`, modified `LAB_NOTEBOOK.md`, and untracked `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` + `OPEN_ITEMS.md`. No attempt made to pull, reset, or push.
+- Workers markdown import pre-flight: `Select-String -Path 'packages\workers\src\**\*.ts' -Pattern 'import.*(remark|rehype|unified|xss)'` returned zero matches.
+- Root Anthropic import pre-flight: root-level `*.ts/*.tsx/*.mts/*.cts` search for `@anthropic-ai/sdk` returned zero matches. Cross-package imports also returned zero matches; package declarations remain independent per the Entry 106 finding.
+- Code edit 1.1: moved the 17-entry `BYPASS_CALLERS` Set from inside `rateLimit()` to module scope in `packages/core-api/src/middleware/rate-limit.ts`; preserved every entry verbatim and added `// Module-scope: constructed once, not per-request.`
+- Code edit 1.2: updated `packages/core-api/src/routes/ingest.ts` so `GET /api/v1/ingest/uploads` collects unique `capture_ids`, issues one batched `captures` select, builds a `Map`, and passes it to `shapeFileUploadRow()` instead of issuing one capture lookup per upload row. Single-upload detail still falls back to the existing on-demand lookup.
+- Dependency edit 1.3: `pnpm --filter @open-brain/workers remove remark-parse remark-rehype rehype-slug rehype-stringify rehype-autolink-headings unified xss` exited 0. Warnings were existing ecosystem noise: `node_modules` present, deprecated transitive deps, and mobile peer warnings.
+- Dependency edit 1.4: `pnpm remove -w @anthropic-ai/sdk` exited 0 and removed the root dependency. Root `devDependencies` remained `tsx` and `vitest`; pnpm reordered those keys only.
+- Post-removal manifest checks: workers package no longer declares the seven markdown/XSS deps; root `package.json` no longer declares `@anthropic-ai/sdk`; `pnpm-lock.yaml` importer sections for root and workers changed in lockstep. Shared/core-api/workers/voice-capture package-owned Anthropic declarations remain untouched.
+- Verification: `pnpm --filter @open-brain/core-api exec tsc --noEmit` exited 1 on known pre-existing A106 baseline: `src/__tests__/entity-resolution.test.ts(345,59): error TS2502: 'tx' is referenced directly or indirectly in its own type annotation.` No Phase 1 touched-file errors surfaced before that baseline failure.
+- Verification: `pnpm --filter @open-brain/core-api exec vitest run src/__tests__/rate-limit.test.ts src/__tests__/ingest-routes.test.ts` exited 0. Result: 2 test files passed, 67 tests passed.
+- Verification: `pnpm --filter @open-brain/core-api build` exited 0. `tsup` ESM and DTS builds succeeded.
+- Verification: `pnpm --filter @open-brain/workers build` exited 0. Both `src/index.ts` and `src/main.ts` tsup builds succeeded.
+- Verification: `pnpm --filter @open-brain/workers test` exited 0. Result: 51 test files passed, 1,021 tests passed. Logged warn/error lines are expected test fixtures for failure-path behavior.
+- Verification: `pnpm install --frozen-lockfile` exited 0. Lockfile is up to date; resolution step skipped.
+- Verification: `pnpm --filter @open-brain/shared build` exited 0; `pnpm --filter @open-brain/shared test` exited 0 with 18 test files passed and 336 tests passed.
+- Verification: `pnpm --filter @open-brain/voice-capture build` exited 0; `pnpm --filter @open-brain/voice-capture test` exited 0 with 5 test files passed and 82 tests passed.
+- Verification: BYPASS caller audit counted 17 quoted `internal:*` entries in `packages/core-api/src/middleware/rate-limit.ts`: `integration-test`, `web-ui`, `email-worker`, `financial-pipeline`, `utility-pipeline`, `ingest`, `slack-bot`, `voice-capture`, `memory-consolidation`, `workers`, `email-classify`, `email-compose-skill`, `batch-wiki-ingest`, `email-pipeline`, `ingest-onedrive`, `ingest-repair`, `newsletter-pipeline`.
+- Verification: final workers markdown import grep returned zero matches.
+- Verification attempt: `pnpm test:integration` exited 1 before tests ran because Docker Desktop is not running/available on this laptop (`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`). No containers were started.
+- Outcome: Phase 1 code/dependency work completed locally. No commits created and nothing pushed.
+- Git: created branch `codex/post-remediation-phase-1`; staged Phase 1 files plus `OPEN_ITEMS.md` and `IMPLEMENTATION_PLAN-POST-REMEDIATION.md`; committed local change as `8775eec` (`chore: post-remediation phase 1 quick wins`). No push.
+- Verification retry: started Docker Desktop, confirmed Docker engine `29.4.1`.
+- Verification attempt: `pnpm test:integration` exited 0 but did not run core-api integration tests on Windows. Root cause: the root package script's shell separator caused pnpm to look for a package script named `test:integration;`. Follow-up tracked as A129 in `OPEN_ITEMS.md`; do not fix in Phase 1.
+- Verification: explicit Windows-safe sequence `docker compose -f docker-compose.test.yml up -d --wait; pnpm --filter @open-brain/core-api test:integration; docker compose -f docker-compose.test.yml down -v` exited 0. Result: 7 integration test files passed, 126 tests passed. Test containers and network were removed afterward.
+
+### Entry 132 — PR #180 GitHub CI remediation: mobile lint baseline [mobile] [deps] [testing]
+**Date:** 2026-05-06
+**Environment:** Local laptop (`C:\Users\Troy Davis\dev\personal\open-brain`), branch `codex/post-remediation-phase-1`, PR #180 open and pushed at `1cd7c73`.
+**Objective:** Fix all GitHub-identified failures on PR #180 before merge. Current GitHub findings: both failed `build-and-test` jobs stop at `packages/mobile lint`; all integration, Python, doc sync, schema, and GitGuardian checks pass.
+**Hypothesis:** The mobile lint failure is caused by the mobile package pinning `react-test-renderer` and `@types/react-test-renderer` to React 19.0-era packages while the app itself uses React 19.1. Aligning the test renderer packages with React 19.1 should remove the duplicate `@types/react@19.0.14` type universe and make the existing tests type-check without behavior changes.
+**Rollback plan:** Revert the mobile dependency alignment and lockfile changes, then rerun `pnpm install --frozen-lockfile` and `pnpm --filter @open-brain/mobile lint` to restore and verify the prior baseline if the fix introduces new failures.
+**Duration:** ~35 min.
+
+**Results log:**
+- GitHub pre-flight: `gh pr checks 180` showed only two failing checks, both named `build-and-test`; `gh pr view 180` showed no review comments or PR comments.
+- Failed job log review: both `build-and-test` jobs fail during `packages/mobile lint` with TS2345 errors in `__tests__/components/MPill.test.tsx` and `__tests__/components/TabBar.test.tsx`.
+- Local reproduction: `pnpm --filter @open-brain/mobile lint` reproduced the same TS2345 errors.
+- Dependency audit: `pnpm --filter @open-brain/mobile why @types/react` showed direct `@types/react@19.1.17` plus transitive `@types/react@19.0.14` from `@types/react-test-renderer@19.0.0`; `pnpm --filter @open-brain/mobile why react-test-renderer` showed direct `react-test-renderer@19.0.0` while `jest-expo` already brings `react-test-renderer@19.1.0`.
+- Dependency fix: updated `packages/mobile` dev dependencies to `react-test-renderer@19.1.0` and `@types/react-test-renderer@^19.1.0`; committed the matching `pnpm-lock.yaml` change.
+- Verification: `pnpm --filter @open-brain/mobile lint` exited 0 after dependency alignment.
+- Verification: `pnpm install --frozen-lockfile` exited 0.
+- Verification: CI build sequence exited 0: `pnpm --filter @open-brain/shared build`, then `pnpm --filter "!@open-brain/shared" -r build`.
+- Follow-on lint finding: full `pnpm -r lint` then advanced past mobile and exposed the known core-api A106 test type issue in `entity-resolution.test.ts` line 345 (`tx` referenced directly or indirectly in its own type annotation).
+- Core-api lint fix: added a local `type TxMock = typeof tx` alias before the mocked transaction callback and used that alias in the callback signature, preserving runtime test behavior.
+- Verification: full `pnpm -r lint` exited 0.
+- Verification note: plain local `pnpm -r test` timed out because at least one test command is watch-mode sensitive outside CI. Stale pnpm/vitest test processes from that timeout were stopped.
+- Verification: `$env:CI='true'; pnpm -r test` exited 0, matching GitHub Actions behavior for the Node test step.
