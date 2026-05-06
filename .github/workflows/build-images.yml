@@ -82,19 +82,6 @@ jobs:
           cache-from: type=gha,scope=voice-capture
           cache-to: type=gha,mode=max,scope=voice-capture
 
-      # ── web ──────────────────────────────────────────────────────────────────
-      - name: Build and push web
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: packages/web/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/davistroy/open-brain/web:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/web:latest
-          cache-from: type=gha,scope=web
-          cache-to: type=gha,mode=max,scope=web
-
       # ── voice-pipecat ────────────────────────────────────────────────────────
       - name: Build and push voice-pipecat
         uses: docker/build-push-action@v6

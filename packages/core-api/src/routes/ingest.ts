@@ -11,6 +11,7 @@ import {
   logger,
   ValidationError,
   AppError,
+  UploadNotFoundError,
   file_uploads,
   captures,
   type Database,
@@ -455,7 +456,7 @@ export function registerIngestRoutes(
       .where(eq(file_uploads.id, paramsParsed.data.id))
       .limit(1)
     if (rows.length === 0) {
-      return c.json({ error: 'Upload not found', id: paramsParsed.data.id }, 404)
+      throw new UploadNotFoundError(`Upload not found: ${paramsParsed.data.id}`)
     }
     const shaped = await shapeFileUploadRow(db, rows[0]!)
     return c.json(shaped)
@@ -476,7 +477,7 @@ export function registerIngestRoutes(
       .where(eq(file_uploads.id, paramsParsed.data.id))
       .limit(1)
     if (rows.length === 0) {
-      return c.json({ error: 'Upload not found', id: paramsParsed.data.id }, 404)
+      throw new UploadNotFoundError(`Upload not found: ${paramsParsed.data.id}`)
     }
     const row = rows[0]!
 

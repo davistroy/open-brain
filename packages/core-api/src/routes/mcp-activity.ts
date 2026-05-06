@@ -14,7 +14,7 @@ import type { Hono } from 'hono'
 import { desc, and, eq, gte, sql } from 'drizzle-orm'
 import { mcp_activity } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { AppError, logger } from '@open-brain/shared'
 
 export function registerMcpActivityRoutes(app: Hono, db: Database): void {
   app.get('/api/v1/mcp/activity', async (c) => {
@@ -67,7 +67,7 @@ export function registerMcpActivityRoutes(app: Hono, db: Database): void {
       })
     } catch (err) {
       logger.error({ err }, 'Failed to query MCP activity')
-      return c.json({ error: 'Failed to query MCP activity' }, 500)
+      throw new AppError('Failed to query MCP activity', 500, 'MCP_ACTIVITY_QUERY_FAILED')
     }
   })
 }

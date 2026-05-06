@@ -1,7 +1,13 @@
 import type { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
-import { logger, app_settings, AUTONOMY_LEVELS } from '@open-brain/shared'
+import {
+  NotFoundError,
+  ValidationError,
+  app_settings,
+  AUTONOMY_LEVELS,
+  logger,
+} from '@open-brain/shared'
 
 /** Valid settings keys — prevents unbounded key creation */
 const VALID_SETTINGS_KEYS = new Set([
@@ -60,7 +66,7 @@ export function registerSettingsRoutes(app: Hono, db: Database): void {
     const key = c.req.param('key')
     const rows = await db.select().from(app_settings).where(eq(app_settings.key, key))
     if (rows.length === 0) {
-      return c.json({ error: 'Not found', key }, 404)
+      throw new NotFoundError(`Setting not found: ${key}`)
     }
     return c.json({ key: rows[0].key, value: rows[0].value, updated_at: rows[0].updated_at })
   })
@@ -68,16 +74,16 @@ export function registerSettingsRoutes(app: Hono, db: Database): void {
   app.put('/api/v1/settings/:key', async (c) => {
     const key = c.req.param('key')
     if (!VALID_SETTINGS_KEYS.has(key)) {
-      return c.json({ error: 'Unknown settings key', key }, 400)
+      throw new ValidationError(`Unknown settings key: ${key}`)
     }
     let body: { value: unknown }
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
     if (body.value === undefined) {
-      return c.json({ error: 'value is required' }, 400)
+      throw new ValidationError('value is required')
     }
 
     // Type-specific validation for settings that need it
@@ -85,7 +91,7 @@ export function registerSettingsRoutes(app: Hono, db: Database): void {
     if (validator) {
       const validationError = validator(body.value)
       if (validationError) {
-        return c.json({ error: validationError, key }, 400)
+        throw new ValidationError(`${validationError} (key: ${key})`)
       }
     }
 

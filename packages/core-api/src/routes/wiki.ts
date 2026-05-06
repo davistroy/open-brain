@@ -22,6 +22,7 @@ import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
 import type { WikiService, WikiPageSummary, WikiSearchResult } from '../services/wiki.js'
 import type { WikiFrontmatter } from '@open-brain/shared'
+import { ConfigError, NotFoundError } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -123,7 +124,7 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
     const { captureId } = c.req.valid('json')
     const jobId = await wikiService.triggerIngest(captureId)
     if (jobId === null) {
-      return c.json({ error: 'Wiki ingest queue not configured' }, 503)
+      throw new ConfigError('Wiki ingest queue not configured')
     }
     return c.json({ jobId, captureId, status: 'enqueued' }, 202)
   })
@@ -132,7 +133,7 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
   app.post('/api/v1/wiki/lint', async (c) => {
     const jobId = await wikiService.triggerLint()
     if (jobId === null) {
-      return c.json({ error: 'Wiki lint queue not configured' }, 503)
+      throw new ConfigError('Wiki lint queue not configured')
     }
     return c.json({ jobId, status: 'enqueued' }, 202)
   })
@@ -142,7 +143,7 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
     const { page_path } = c.req.valid('json')
     const jobId = await wikiService.triggerResynthesize(page_path)
     if (jobId === null) {
-      return c.json({ error: 'Wiki resynthesize queue not configured' }, 503)
+      throw new ConfigError('Wiki resynthesize queue not configured')
     }
     return c.json({ jobId, pagePath: page_path, status: 'enqueued' }, 202)
   })
@@ -152,7 +153,7 @@ export function registerWikiRoutes(app: Hono, wikiService: WikiService): void {
     const pagePath = c.req.param('path')
     const page = await wikiService.getPage(pagePath)
     if (!page) {
-      return c.json({ error: `Wiki page not found: ${pagePath}` }, 404)
+      throw new NotFoundError(`Wiki page not found: ${pagePath}`)
     }
     // Flatten frontmatter into response to match WikiPageFull client type
     return c.json({

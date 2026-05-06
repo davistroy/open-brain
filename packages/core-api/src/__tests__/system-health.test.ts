@@ -396,6 +396,141 @@ describe('system-health routes', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('text/event-stream')
   }, 30_000)
+
+  // ---- Infrastructure endpoint ----
+
+  it('GET /api/v1/system/infrastructure returns 200 with infrastructure shape', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+
+    const infraData = {
+      container_health: [
+        { id: 'c1', timestamp: '2026-05-01T00:00:00Z', container_name: 'core-api', healthy: true, response_ms: 42, error: null },
+      ],
+      backups: [
+        { id: 'b1', timestamp: '2026-05-01T03:00:00Z', backup_type: 'full', file_path: '/backup/pre-wipe/2026-05.sql', size_bytes: 1024, duration_seconds: 10, status: 'success', error: null, pruned_count: 0 },
+      ],
+      cost: { month: '2026-05', total_usd: 3.5, by_model: [{ model: 'gpt-5.4', cost_usd: 3.5, call_count: 10 }] },
+    }
+    vi.spyOn(service, 'getInfrastructureData').mockResolvedValue(infraData)
+
+    const app = createApp({ systemHealthService: service })
+    const res = await app.request('/api/v1/system/infrastructure')
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.container_health).toBeInstanceOf(Array)
+    expect(body.backups).toBeInstanceOf(Array)
+    expect(body.cost).toBeDefined()
+    expect(body.cost.month).toBe('2026-05')
+  }, 30_000)
+
+  it('GET /api/v1/system/infrastructure returns 500 when service throws', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+    vi.spyOn(service, 'getInfrastructureData').mockRejectedValue(new Error('DB connection failed'))
+
+    const app = createApp({ systemHealthService: service })
+    const res = await app.request('/api/v1/system/infrastructure')
+
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('INTERNAL_ERROR')
+  }, 30_000)
+
+  // ---- Pipeline flows endpoint ----
+
+  it('GET /api/v1/system/flows returns 200 with flows array', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+
+    const mockFlows = [
+      {
+        capture_id: 'cap-uuid-1',
+        trace_id: 'trace-abc',
+        pipeline_status: 'complete',
+        created_at: '2026-05-01T12:00:00Z',
+        stages: [{ stage: 'embed', status: 'success', duration_ms: 80, error: null, started_at: '2026-05-01T12:00:01Z' }],
+      },
+    ]
+    vi.spyOn(service, 'getPipelineFlows').mockResolvedValue(mockFlows)
+
+    const app = createApp({ systemHealthService: service })
+    const res = await app.request('/api/v1/system/flows')
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.flows).toBeInstanceOf(Array)
+    expect(body.flows).toHaveLength(1)
+    expect(body.flows[0].capture_id).toBe('cap-uuid-1')
+  }, 30_000)
+
+  it('GET /api/v1/system/flows forwards default limit=20 to service', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+    const spy = vi.spyOn(service, 'getPipelineFlows').mockResolvedValue([])
+
+    const app = createApp({ systemHealthService: service })
+    await app.request('/api/v1/system/flows')
+
+    expect(spy).toHaveBeenCalledWith(20)
+  }, 30_000)
+
+  it('GET /api/v1/system/flows forwards custom ?limit= to service', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+    const spy = vi.spyOn(service, 'getPipelineFlows').mockResolvedValue([])
+
+    const app = createApp({ systemHealthService: service })
+    await app.request('/api/v1/system/flows?limit=10')
+
+    expect(spy).toHaveBeenCalledWith(10)
+  }, 30_000)
+
+  it('GET /api/v1/system/flows clamps ?limit= at 100', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+    const spy = vi.spyOn(service, 'getPipelineFlows').mockResolvedValue([])
+
+    const app = createApp({ systemHealthService: service })
+    await app.request('/api/v1/system/flows?limit=999')
+
+    expect(spy).toHaveBeenCalledWith(100)
+  }, 30_000)
+
+  it('GET /api/v1/system/flows returns 500 when service throws', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+    vi.spyOn(service, 'getPipelineFlows').mockRejectedValue(new Error('DB timeout'))
+
+    const app = createApp({ systemHealthService: service })
+    const res = await app.request('/api/v1/system/flows')
+
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.code).toBe('INTERNAL_ERROR')
+  }, 30_000)
+
+  it('GET /api/v1/system/flows returns empty flows array when service returns none', async () => {
+    const { createApp } = await import('../app.js')
+    const db = makeMockDb()
+    const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+    vi.spyOn(service, 'getPipelineFlows').mockResolvedValue([])
+
+    const app = createApp({ systemHealthService: service })
+    const res = await app.request('/api/v1/system/flows?limit=5')
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.flows).toEqual([])
+  }, 30_000)
 })
 
 // ---------------------------------------------------------------------------

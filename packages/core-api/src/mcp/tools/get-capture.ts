@@ -65,7 +65,7 @@ export async function getCaptureTool(input: GetCaptureInput, captureService: Cap
   // Fetch linked entities
   try {
     const entityRows = await db.execute<LinkedEntity>(
-      sql`SELECT e.name, e.type, el.relationship
+      sql`SELECT e.name, e.entity_type AS type, el.relationship
           FROM entity_links el
           JOIN entities e ON e.id = el.entity_id
           WHERE el.capture_id = ${input.id}::uuid

@@ -155,11 +155,14 @@ CREATE TABLE IF NOT EXISTS skills_log (
   session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
   input_summary TEXT,
   output_summary TEXT,
+  result JSONB,
   duration_ms INTEGER,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS skills_log_skill_name_idx ON skills_log(skill_name);
 CREATE INDEX IF NOT EXISTS skills_log_created_at_idx ON skills_log(created_at);
+-- Idempotent backfill for migration 0007 (result JSONB added after initial release)
+ALTER TABLE skills_log ADD COLUMN IF NOT EXISTS result JSONB;
 
 CREATE TABLE IF NOT EXISTS triggers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -711,5 +714,23 @@ CREATE INDEX IF NOT EXISTS insurance_policies_effective_date_idx
 CREATE UNIQUE INDEX IF NOT EXISTS insurance_policies_source_file_idx
   ON insurance_policies (source_file)
   WHERE source_file IS NOT NULL;
+
+-- commitments table (migration 0031)
+CREATE TABLE IF NOT EXISTS commitments (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  capture_id   UUID        NOT NULL REFERENCES captures(id) ON DELETE CASCADE,
+  entity_id    UUID        REFERENCES entities(id) ON DELETE SET NULL,
+  text         TEXT        NOT NULL,
+  due_date     DATE,
+  status       TEXT        NOT NULL DEFAULT 'pending',
+  resolved_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE commitments DROP CONSTRAINT IF EXISTS commitments_status_check;
+ALTER TABLE commitments ADD CONSTRAINT commitments_status_check
+  CHECK (status IN ('pending', 'owed_by_user', 'waiting_on', 'resolved'));
+CREATE INDEX IF NOT EXISTS commitments_entity_status_idx ON commitments (entity_id, status);
+CREATE INDEX IF NOT EXISTS commitments_capture_id_idx ON commitments (capture_id);
+CREATE INDEX IF NOT EXISTS commitments_status_due_date_idx ON commitments (status, due_date);
 
 SELECT 'Schema initialization complete' AS result;

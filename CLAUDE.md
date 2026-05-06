@@ -24,21 +24,21 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 ### Verified operational rules (do not repeat these mistakes)
 
 **Docker / infra**
-- Healthchecks use `127.0.0.1`, not `localhost` — Alpine resolves to IPv6; wget fails silently. Affects core-api, voice-capture, web.
+- Healthchecks use `127.0.0.1`, not `localhost` — Alpine resolves to IPv6; wget fails silently. Affects core-api, voice-capture, web-next.
 - Docker Compose `ports` in override files are appended, not replaced. Set correct ports in `docker-compose.yml` directly.
 - voice-capture entry is `dist/server.js` (builds from `server.ts`).
 - `postgresql.conf` must set `listen_addresses = '*'` — default blocks container-to-container.
-- Node 22 LTS base images (both `Dockerfile` and `packages/web/Dockerfile` = `node:22-alpine`). CI matches (`engines: >=22`).
+- Node 22 LTS base images (`Dockerfile` and `packages/web-next/Dockerfile` = `node:22-alpine`). CI matches (`engines: >=22`).
 - **No auto-migration on startup** — after Postgres volume recreation, manually apply `scripts/init-schema.sql` + all `packages/shared/drizzle/0*.sql`. Check `\dt` in psql first.
 - `CREATE TRIGGER` is not idempotent — always `DROP TRIGGER IF EXISTS <name> ON <table>` before `CREATE TRIGGER`. Affects `scripts/init-schema.sql`.
 - core-api Docker image ships `postgresql-client` (for P04a pg_dump). Tests can set `ADMIN_RESET_SKIP_PGDUMP=true`; never in production compose.
 - **All 13 compose services log to Loki via Docker `loki` log driver (P11a).** Driver URL parameterized by `LOKI_URL` in `.env` (default: `http://homeserver.k4jda.net:3100/loki/api/v1/push`). If Loki is unreachable, Docker falls back to `none` driver — log lines are dropped (not buffered). Plugin must be pre-installed once on the Docker host: `docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions`. `logging:` changes require `--force-recreate` to take effect (restart is not enough). Use Grafana Loki explorer with `{container_name="open-brain-<svc>"}` for cross-container log search.
 
 **Internal HTTP callers (rate-limit) — P07**
-- **Every internal service calling core-api MUST set `X-Open-Brain-Caller: <name>` AND have `internal:<name>` in `BYPASS_CALLERS`** (`packages/core-api/src/middleware/rate-limit.ts`). Missing either side = silent 429s under burst load. Current 16 bypass entries: `integration-test`, `web-ui`, `email-worker`, `financial-pipeline`, `utility-pipeline`, `ingest`, `slack-bot`, `voice-capture`, `memory-consolidation`, `workers`, `email-classify`, `email-compose-skill`, `batch-wiki-ingest`, `email-pipeline`, `ingest-onedrive`, `ingest-repair`.
+- **Every internal service calling core-api MUST set `X-Open-Brain-Caller: <name>` AND have `internal:<name>` in `BYPASS_CALLERS`** (`packages/core-api/src/middleware/rate-limit.ts`). Missing either side = silent 429s under burst load. Current 17 bypass entries: `integration-test`, `web-ui`, `email-worker`, `financial-pipeline`, `utility-pipeline`, `ingest`, `slack-bot`, `voice-capture`, `memory-consolidation`, `workers`, `email-classify`, `email-compose-skill`, `batch-wiki-ingest`, `email-pipeline`, `ingest-onedrive`, `ingest-repair`, `newsletter-pipeline`. **`mobile-app` removed in Phase 6 (R8) — mobile clients authenticate via Bearer token (mobile-auth middleware) and are rate-limited via the `mobile` tier (200 req/min per token hash), not bypass.**
 - **slack-bot `CoreApiClient.request()`** is the single choke point for all slack-bot → core-api calls — set `X-Open-Brain-Caller` once there, spread `...options.headers` AFTER the default so test helpers can still override (e.g., to `integration-test`).
 - **Worker skills use `'workers'` as the shared caller value** (same container, simpler bypass entry) except `memory-consolidation` which keeps its own name (named in the arch review — finer observability for the destructive skill).
-- **nginx proxy_set_header audit rule:** every new `location` block in `packages/web/nginx.conf` that proxies to core-api MUST explicitly set OR clear `X-Open-Brain-Caller`. `proxy_set_header X-Open-Brain-Caller "web-ui"` overwrites (nginx behavior); `proxy_set_header X-Open-Brain-Caller ""` strips (required for `/mcp` where client-supplied value would bypass limits). No silent inheritance.
+- **Next.js proxy audit rule:** `packages/web-next/proxy.ts` (Next.js 16 renamed `middleware` → `proxy`; legacy `middleware.ts`/`middleware()` still works but is deprecated) is the public boundary that overwrites `X-Open-Brain-Caller` to `web-next-public` for all `/api/*` requests proxied to core-api (R2, ADR-0001). Any change to `packages/web-next/next.config.ts` rewrites OR `proxy.ts` must preserve this overwrite — `next.config.ts` `rewrites()` and `headers()` cannot set request headers upstream; the proxy/middleware function is the only mechanism. If a new rewrite path proxies to core-api outside `/api/*`, the `config.matcher` must be widened to cover it. Defense-in-depth in `rate-limit.ts` (2026-05 Phase 2.3): `getClientKey()` calls `isInternalIp()` on the source IP and ignores `X-Open-Brain-Caller` for non-RFC1918/non-CGNAT/non-loopback origins — so even if the proxy.ts overwrite is bypassed, public callers cannot claim internal-bypass identity.
 
 **BullMQ scheduler + concurrency — P06 + P07**
 - **Scheduler slot registry — ALL windows.** Before adding a new cron to `packages/workers/src/scheduler.ts`, grep for the exact cron string. Current slots: Sunday `0 3` storage-audit / `30 3` prune-associations / `0 4` memory-consolidation / `0 5` wiki-lint. Weekday morning cluster (06:00–07:15): `0 6` wiki-synthesis, `10 6` daily-connections, `20 6` cost-analysis, `30 6` morning-brief (weekdays), `45 6` capture-reminder-morning (weekdays), `0 7` budget-check, `15 7` drift-monitor. **No two repeatable jobs on same minute.**
@@ -151,9 +151,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - **`load-secrets.sh` JSON parser:** prefers `jq` (canonical), falls back to `python3` if `jq` is missing. Both are universally available on Unraid (nerdpack), Ubuntu (apt), Alpine (apk). Same fallback in `verify-secrets.sh`. Do NOT remove the python3 path — Windows dev environments often lack `jq`, and the fixture (`scripts/test-secrets-roundtrip.sh`) needs it to run locally.
 
 **Front-end / web**
-- **PWA service worker aggressively caches Vite-hashed bundles.** After every web deploy: hard-refresh (Ctrl+Shift+R) AND in DevTools console run `caches.keys().then(names => Promise.all(names.map(n => caches.delete(n))))`. SW unregister alone is insufficient. Recurring issue after every web rebuild.
-- Web package must be self-contained for Docker build. Vite `?raw` imports that escape `packages/web/` fail (`.dockerignore` excludes `docs/`). User-facing markdown must live in `packages/web/src/content/`.
-- `CaptureCard` is a single shared component (`packages/web/src/components/CaptureCard.tsx`) — Dashboard, Timeline, EntityDetail, Search all use it.
+- **A126 RESOLVED (Phase 8b):** `packages/web` deleted. `build-and-test` CI job is now clean. `web-next` (`packages/web-next`) is the sole UI package. All new UI work goes to `web-next`.
 
 **Testing / CI**
 - Integration tests: `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts` (not `npx`; filename word order matters).
@@ -170,6 +168,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 **Git / GitHub**
 - Verify `gh auth status` before any write operation — the client can silently switch to a read-only account, causing opaque 404s on label/milestone/issue creation. Confirm active account has push/admin on target repo.
 - `gh issue create --milestone` takes the milestone TITLE (not number). Quote the full title including punctuation.
+- **Branch protection on main (Phase 5b, 2026-05-05):** `required_status_checks = ["Integration tests (core-api + real DB)"]` only. `enforce_admins=false` (admin escape hatch preserved for solo recovery). `strict=false` (no merge races as single user). `required_pull_request_reviews=null` (self-review adds friction, no second-eyes benefit). `build-and-test` can now be promoted to required (A126 resolved — packages/web deleted in Phase 8b). Tighten only if the system gains additional users.
 
 ---
 
@@ -235,7 +234,7 @@ Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slac
 - **Search:** Hybrid FTS + vector (RRF) + ACT-R temporal decay + Hebbian boost + spreading activation (`include_related`). Default `temporal_weight` 0.0 (cold start).
 - **MCP:** Embedded in Core API at `/mcp` (Streamable HTTP, no separate container). 8 tools (`search_brain`, `list_captures`, `brain_stats`, `capture_thought`, `get_entity`, `list_entities`, `get_weekly_brief`, `get_capture`) + 1 resource (`open_brain://context`). Auth: `Authorization: Bearer` header (not URL query).
 - **Pipeline:** BullMQ + Redis async stages.
-- **Web:** Vite + React + Tailwind + shadcn/ui (NOT Next.js).
+- **Web:** `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) — sole UI package, canonical production ingress at brain.troy-davis.com. `packages/web` deleted in Phase 8b (ADR-0001).
 - **External access:** Cloudflare Tunnel → `brain.troy-davis.com` (dashboard); MCP via LiteLLM gateway at `llm.troy-davis.com/mcp`.
 - **Docker:** Single `open-brain` network. Build: tsx dev, tsup (esbuild) prod.
 - **Slack:** `@slack/bolt` with `socketMode: true`.

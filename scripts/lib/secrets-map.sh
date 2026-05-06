@@ -61,6 +61,9 @@ declare -A OPTIONAL_SECRETS=(
   ["open-brain-smtp-pass"]="SMTP_PASS"
   ["open-brain-smtp-from"]="SMTP_FROM"
   ["open-brain-grafana-admin-password"]="GRAFANA_ADMIN_PASSWORD"
+  # A119: BWS item creation operator-deferred until mobile testing begins.
+  # Consumer: core-api mobile Bearer auth (Phase 6.2 middleware + Phase 6.4 client).
+  ["dev/open-brain/mobile-api-key"]="MOBILE_API_KEY"
 )
 
 # Non-secret SMTP port default emitted alongside any SMTP_* present.

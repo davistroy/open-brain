@@ -93,7 +93,11 @@ export async function createTestCapture(
       tags: overrides.tags ?? [],
       pipeline_status: overrides.pipeline_status ?? 'pending',
       captured_at: overrides.captured_at ?? new Date(),
-      embedding: overrides.embedding ?? null,
+      // Default to a zero vector so hybrid_search() FTS CTE (which requires
+      // embedding IS NOT NULL) can find test captures. Matches the stub
+      // EmbeddingService in setup.ts that returns Array(768).fill(0).
+      // Pass embedding: null explicitly if you need to test the null case.
+      embedding: overrides.embedding !== undefined ? overrides.embedding : new Array(768).fill(0),
     })
     .returning()
 

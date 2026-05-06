@@ -10,9 +10,6 @@
 # MCP access: Claude Desktop connects to https://llm.troy-davis.com/mcp
 # (LiteLLM MCP gateway — proxies to this stack's core-api:3000/mcp)
 #
-# ROLLBACK: change brain.troy-davis.com service back to http://web:80
-# and restart cloudflared. Old /web container stays in compose as standby.
-
 ingress:
   # PRIMARY — Next.js 16 Cloudscape UI (standalone server, /api/* proxied via next.config.ts rewrites)
   - hostname: brain.troy-davis.com

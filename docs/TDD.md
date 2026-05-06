@@ -3493,6 +3493,8 @@ This is used for:
 
 ## 14. Web Dashboard (Phase 4)
 
+> **Note (2026-05-05):** `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is now the canonical production ingress at brain.troy-davis.com. `packages/web` (Vite stack documented in this section) is sunsetting in Phase 8b. All new UI work goes to web-next. See ADR-0001 and §24 (Web Stack Consolidation 2026-05).
+
 ### 14.1 Architecture
 
 ```
@@ -4335,6 +4337,22 @@ Cloudflare Email Worker at `brain@troy-davis.com` → `POST /api/v1/captures` wi
 
 ### 23.3 File Ingestion
 `packages/file-ingestion/` Python service processes PDF/DOCX via `document-pipeline` BullMQ worker. Chunk-based processing creates per-chunk capture records with `source: 'file'`. Multi-chunk documents set `pipeline_status: 'chunked'`.
+
+---
+
+## 24. Web Stack Consolidation (2026-05)
+
+`packages/web-next` was introduced during the Cloudscape M1 milestone (~2026-04-21) and became the public ingress at brain.troy-davis.com by M3. ADR-0001 was written and ratified on 2026-05-05 to formalise this reality: `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is the canonical UI; `packages/web` (Vite + React 18 + Tailwind + shadcn/ui) is sunsetting. The decision closes Finding F6 from the 2026-05-05 architecture review (R3 + R12). See IMPLEMENTATION_PLAN-ARCH-REVIEW.md and ADR-0001 for full context.
+
+### 24.1 Migration Plan
+
+| Phase | Scope |
+|-------|-------|
+| **Phase 7** (this cycle) | Ratify ADR-0001; correct CLAUDE.md and TDD.md; parity audit — verify Voice and System routes exist in web-next; close any gaps. |
+| **Phase 8a** | Split `packages/web/src/lib/api.ts` (1,232 LOC, 21 domains) into ~21 typed domain modules under `packages/web-next/src/lib/api/`. Build the typed API client in web-next from day one with the right shape. |
+| **Phase 8b** | Split remaining god pages in web-next (Wiki, Email, Dashboard, Ingest, Board, Investments) by tab/section into child components; tag last `packages/web`-alive commit (`pre-web-sunset-2026-05`); remove `packages/web/` from the tree; drop `web` service from `docker-compose.yml`; remove rollback comment from `config/cloudflare/tunnel.yaml`; update CI to stop building/testing web. |
+
+The `pre-web-sunset-2026-05` git tag preserves the rollback option indefinitely. Recovery steps are documented in `docs/runbooks/web-rollback.md`.
 
 ---
 
