@@ -10321,3 +10321,7 @@ Code comment explaining intentional placeholder; not a functional regression.
 - Verification: final workers markdown import grep returned zero matches.
 - Verification attempt: `pnpm test:integration` exited 1 before tests ran because Docker Desktop is not running/available on this laptop (`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`). No containers were started.
 - Outcome: Phase 1 code/dependency work completed locally. No commits created and nothing pushed.
+- Git: created branch `codex/post-remediation-phase-1`; staged Phase 1 files plus `OPEN_ITEMS.md` and `IMPLEMENTATION_PLAN-POST-REMEDIATION.md`; committed local change as `8775eec` (`chore: post-remediation phase 1 quick wins`). No push.
+- Verification retry: started Docker Desktop, confirmed Docker engine `29.4.1`.
+- Verification attempt: `pnpm test:integration` exited 0 but did not run core-api integration tests on Windows. Root cause: the root package script's shell separator caused pnpm to look for a package script named `test:integration;`. Follow-up tracked as A129 in `OPEN_ITEMS.md`; do not fix in Phase 1.
+- Verification: explicit Windows-safe sequence `docker compose -f docker-compose.test.yml up -d --wait; pnpm --filter @open-brain/core-api test:integration; docker compose -f docker-compose.test.yml down -v` exited 0. Result: 7 integration test files passed, 126 tests passed. Test containers and network were removed afterward.

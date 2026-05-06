@@ -91,12 +91,13 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A125 | `init-schema.sql` missing migration 0025 CHECK constraints (parity audit) | Operational | Schema parity sweep |
 | A127 | 24 `react/no-unescaped-entities` lint errors in `HelpContent.tsx` | Pre-existing baseline | Targeted cleanup PR |
 | A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
+| A129 | Root `pnpm test:integration` script is not Windows-safe; PowerShell/pnpm parsed `test:integration;` as a script name, so use explicit compose up → package test → compose down sequence locally | Operational | Cross-platform script cleanup PR |
 | A116 | Vitest 2.x bump for per-file glob threshold support | Pre-existing baseline | See post-remediation Phase 5 (deferred) |
 | A117 | SSE `onAbort` / post-promise cleanup branches unreachable | Pre-existing baseline | Excluded via `/* v8 ignore */` |
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
 | A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | Pre-existing baseline | Separate PR |
 
-**Operational items (7):** real follow-ups that should land in a future plan.
+**Operational items (8):** real follow-ups that should land in a future plan.
 **Pre-existing baselines (6):** long-term debt; do not bundle into operational work.
 
 ---
