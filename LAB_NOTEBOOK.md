@@ -10123,3 +10123,25 @@ No commit. No push. No `.implement-plan-state.json` edits.
 **TanStack Query hook extraction:** Deferred to follow-up action item A128. The file split is independently valuable and behaviorally complete; hook extraction is design work scoped separately.
 
 **Commit:** see Phase 8a commit on `feat/arch-review-remediation`. Phase 8b next: tab-split god pages + delete packages/web.
+
+---
+
+### Phase 8b: Tab-split god pages + delete packages/web (2026-05-06)
+Tags: [web] [refactor] [deletion] [ci]
+
+**Objective:** Decompose remaining god pages in web-next; delete packages/web to complete the web consolidation (ADR-0001).
+
+**Results:**
+- Page extractions: dashboard 235→143 LOC, settings 242→110 LOC. 5 other pages verified as already-clean thin parents (wiki 101, email 92, ingest 74, board 58, investments 60)
+- New components: `DashboardEmptyState.tsx`, `SettingsSectionContent.tsx`, `lib/dashboard-mappers.ts`
+- Fixed 2 of 24 A127 baseline lint errors (dashboard `<a>` → `<Link>`)
+- Tag `pre-web-sunset-2026-05` created as rollback point before deletion
+- Rollback runbook: `docs/runbooks/web-rollback.md`
+- Deleted: `packages/web/` (entire package), `web-type-drift.test.ts`
+- De-wired: docker-compose web service, build-images.yml web step, tunnel config rollback comment, CLAUDE.md (6 edits), test-all.md
+- Archived: `docs/web-parity-audit.md`
+- Regenerated pnpm-lock.yaml
+- Action items resolved: A126 (TS2786), A108 (HelpContent lint errors in packages/web)
+- TypeScript: 0 errors across all packages post-deletion
+
+**Duration:** ~30 min (4 rounds, parallel where possible)
