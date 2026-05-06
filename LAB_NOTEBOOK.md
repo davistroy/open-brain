@@ -10078,4 +10078,48 @@ No commit. No push. No `.implement-plan-state.json` edits.
 
 **Note:** Requires `NODE_OPTIONS="--max-old-space-size=4096"` (strips the pre-existing `--report-on-fatalerror` flag rejected by Next.js worker threads). Pre-existing env issue on this laptop, not introduced by this change.
 
-**Commit:** to be assigned by ops on `git commit`.
+**Commit:** `685a65b` — feat(arch-review-phase-7). 14 files changed, 2,828 insertions(+), 23 deletions(-).
+
+---
+
+#### Phase 8a Round 1: core.ts scaffolding — COMPLETE 2026-05-06 [web] [refactor]
+
+**Subagent:** 8a-R1 (Sonnet). Single-file extraction, no commit, no push.
+
+**File created:** `packages/web-next/lib/api/core.ts` — 130 LOC.
+
+**Exports (in file order):**
+1. Type re-exports block — verbatim from `api-client.ts` lines 114–146: all 20 named types imported from `../types` and re-exported as `export type { ... }`. The `SettingEntry as SettingEntryType` alias is preserved so the public barrel can expose it as `SettingEntry`.
+2. `HttpError` class — verbatim from lines 16–28. `export class HttpError extends Error` with `status`, `body`, `path` readonly fields.
+3. `getApiBase()` — verbatim body from lines 34–38, **`export` keyword added** (was module-private in `api-client.ts`). This is the only behavior-affecting change in the file.
+4. `request<T>()` — verbatim from lines 45–82. JSDoc comment preserved.
+5. `buildQueryString()` — verbatim from lines 92–108. JSDoc comment preserved.
+6. `ListEnvelope<T>` interface — verbatim from lines 153–158 (with JSDoc). Note: includes `limit` and `offset` fields (as specified in the original), not just `items` and `total`.
+
+**Surprising finding — `ListEnvelope` has 4 fields, not 2:** The mission spec described `ListEnvelope<T>` as `{items: T[], total: number}` (2 fields), but the actual definition has 4: `items`, `total`, `limit`, `offset`. Copied verbatim — no deviation. Round 2 domain subagents that import `ListEnvelope` from `./core` will get the correct 4-field shape.
+
+**No circular dependency risk:** `core.ts` imports only from `../types` (one leaf module). `../types` has no imports at all. No circular paths.
+
+**Duplication with `api-client.ts`:** Expected and intentional per mission spec. `api-client.ts` is not modified. Round 3 ops will replace it with a thin barrel.
+
+**Typecheck:** `pnpm --filter @open-brain/web-next exec tsc --noEmit` — exit 0, no errors.
+
+**Lint:** `pnpm --filter @open-brain/web-next lint` — 24 errors, all pre-existing A127 baseline in `dashboard/page.tsx` (2) and `HelpContent.tsx` (22). Zero errors in `core.ts`.
+
+**No commit, no push, no `.implement-plan-state.json` edit.**
+
+---
+
+#### Phase 8a Round 3: Barrel wiring + api-client.ts rewrite — COMPLETE 2026-05-06 [web] [refactor]
+
+**Subagent:** 8a-R3 (ops, Sonnet). Barrel creation + thin re-export rewrite + build gate.
+
+**Phase 8a closing summary:** Phase 8a converted `packages/web-next/lib/api-client.ts` (1,491 LOC on disk at start of Round 3) from a god module into 22 domain files in `packages/web-next/lib/api/`. Round 1 produced `core.ts` (130 LOC) with `HttpError`, `request`, `getApiBase` (newly exported — was module-private), `buildQueryString`, `ListEnvelope`, and type re-exports from `../types`. Round 2 used 21 parallel subagents to write 21 domain files (captures, entities, briefs, stats, search, synthesize, intelligence, skills, commitments, settings, investments, voice, wiki, email, ingest, system-health, admin, mcp-activity, config, email-settings, service-health) — largest is ingest.ts at 163 LOC, all others well under 200 LOC. Round 3 (this entry) created `lib/api/index.ts` (23-line barrel, `export * from` all 22 files) and rewrote `lib/api-client.ts` as a 5-line thin re-export (`export * from './api'`). Zero consumer changes required — all 84 files importing `'@/lib/api-client'` continue to work via the barrel.
+
+**Name-collision check:** `core.ts` imports `SettingEntry as SettingEntryType` from `../types` and uses the alias internally — does NOT re-export `SettingEntry` under that name. `settings.ts` similarly imports it aliased. No consumers import `SettingEntry` from `api-client`. `tsc --noEmit` clean — zero conflicts.
+
+**Build results:** `pnpm --filter @open-brain/web-next build` — PASS (NODE_OPTIONS stripped of `--report-on-fatalerror` / `--report-directory` which Next.js 16 Turbopack worker sandbox rejects; those flags are Claude Code process-injected and pre-existing). All 26 routes compiled, TypeScript clean. `pnpm --filter @open-brain/shared build` — PASS (162 KB ESM + 298 KB DTS). Lint: 24 errors, all A127 pre-existing baseline, zero new errors in `lib/api/` files.
+
+**TanStack Query hook extraction:** Deferred to follow-up action item A128. The file split is independently valuable and behaviorally complete; hook extraction is design work scoped separately.
+
+**Commit:** see Phase 8a commit on `feat/arch-review-remediation`. Phase 8b next: tab-split god pages + delete packages/web.
