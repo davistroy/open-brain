@@ -1,0 +1,26 @@
+// Barrel for the split-by-domain API client.
+// Each domain file is independently importable as '@/lib/api/<domain>',
+// or via the legacy '@/lib/api-client' barrel which re-exports everything here.
+
+export * from './core'
+export * from './captures'
+export * from './entities'
+export * from './briefs'
+export * from './stats'
+export * from './search'
+export * from './synthesize'
+export * from './intelligence'
+export * from './skills'
+export * from './commitments'
+export * from './settings'
+export * from './investments'
+export * from './voice'
+export * from './wiki'
+export * from './email'
+export * from './ingest'
+export * from './system-health'
+export * from './admin'
+export * from './mcp-activity'
+export * from './config'
+export * from './email-settings'
+export * from './service-health'

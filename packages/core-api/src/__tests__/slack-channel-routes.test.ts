@@ -84,7 +84,9 @@ describe('Slack Channel Routes — with SLACK_USER_TOKEN', () => {
     }))
 
     const { createAdminRouter } = await import('../routes/admin.js')
+    const { errorHandler } = await import('../middleware/error-handler.js')
     app = new Hono()
+    app.onError(errorHandler())
     const adminRouter = createAdminRouter({
       configService: mockConfigService,
       redisConnection: { host: 'localhost', port: 6379 },
@@ -140,8 +142,9 @@ describe('Slack Channel Routes — with SLACK_USER_TOKEN', () => {
       const res = await app.request('/api/v1/admin/slack/channels')
       expect(res.status).toBe(500)
       const body = await res.json()
-      expect(body.error).toBe('Failed to list Slack channels')
-      expect(body.message).toContain('invalid_auth')
+      expect(body.error).toContain('Failed to list Slack channels')
+      expect(body.error).toContain('invalid_auth')
+      expect(body.code).toBe('SLACK_LIST_FAILED')
     })
   })
 
@@ -176,8 +179,9 @@ describe('Slack Channel Routes — with SLACK_USER_TOKEN', () => {
       })
       expect(res.status).toBe(500)
       const body = await res.json()
-      expect(body.error).toBe('Failed to archive Slack channel')
-      expect(body.message).toContain('already_archived')
+      expect(body.error).toContain('Failed to archive Slack channel')
+      expect(body.error).toContain('already_archived')
+      expect(body.code).toBe('SLACK_ARCHIVE_FAILED')
     })
   })
 })
@@ -220,7 +224,9 @@ describe('Slack Channel Routes — without any Slack token', () => {
     }))
 
     const { createAdminRouter } = await import('../routes/admin.js')
+    const { errorHandler } = await import('../middleware/error-handler.js')
     app = new Hono()
+    app.onError(errorHandler())
     const adminRouter = createAdminRouter({
       configService: mockConfigService,
     })
@@ -244,8 +250,8 @@ describe('Slack Channel Routes — without any Slack token', () => {
     const res = await app.request('/api/v1/admin/slack/channels')
     expect(res.status).toBe(503)
     const body = await res.json()
-    expect(body.error).toBe('Service unavailable')
-    expect(body.message).toContain('Slack token')
+    expect(body.error).toContain('Slack token')
+    expect(body.code).toBe('CONFIG_ERROR')
   })
 
   it('POST /admin/slack/channels/:id/archive returns 503 when no token is available', async () => {
@@ -256,7 +262,7 @@ describe('Slack Channel Routes — without any Slack token', () => {
     })
     expect(res.status).toBe(503)
     const body = await res.json()
-    expect(body.error).toBe('Service unavailable')
-    expect(body.message).toContain('Slack token')
+    expect(body.error).toContain('Slack token')
+    expect(body.code).toBe('CONFIG_ERROR')
   })
 })

@@ -7,7 +7,7 @@ function handleError(err: Error | unknown, c: Context) {
     logger.warn({ err, code: err.code }, 'AppError caught')
     return c.json(
       { error: err.message, code: err.code },
-      err.statusCode as 400 | 404 | 409 | 422 | 500 | 503,
+      err.statusCode as 400 | 401 | 403 | 404 | 409 | 422 | 500 | 502 | 503,
     )
   }
   logger.error({ err }, 'Unexpected error')

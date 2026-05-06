@@ -5,6 +5,7 @@ import type { ConnectionOptions, Queue } from 'bullmq'
 import type { ConfigService, Database, IngestProcessJobData } from '@open-brain/shared'
 import { errorHandler } from './middleware/error-handler.js'
 import { RateLimiter, RATE_LIMIT_TIERS, rateLimit } from './middleware/rate-limit.js'
+import { requireMobileAuthIfMobileCaller } from './middleware/mobile-auth.js'
 import { registerHealthRoutes } from './routes/health.js'
 import { createAdminRouter } from './routes/admin.js'
 import { registerCaptureRoutes } from './routes/captures.js'
@@ -110,6 +111,10 @@ export function createApp(deps: AppDependencies = {}): Hono {
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
   const strictLimiter = new RateLimiter(RATE_LIMIT_TIERS.strict)
   const adminLimiter = new RateLimiter(RATE_LIMIT_TIERS.admin)
+  // Mobile tier: 200 req/min, keyed per Bearer token hash (Phase 6 R8).
+  // Shared across all route groups so a mobile client never gets more than
+  // 200 req/min total, regardless of which endpoint it hits.
+  const mobileLimiter = new RateLimiter(RATE_LIMIT_TIERS.mobile)
 
   // Global middleware
   app.use('*', honoLogger())
@@ -118,27 +123,47 @@ export function createApp(deps: AppDependencies = {}): Hono {
   app.onError(errorHandler())
 
   // Rate limiting — tiered by endpoint group
+  // Mobile clients (X-Open-Brain-Caller: mobile-app, public WAN IP) are automatically
+  // routed to mobileLimiter (200 req/min, per-token-hash bucket) by getClientKey()
+  // regardless of which limiter instance is passed. All other callers use the named tier.
   // Strict tier: endpoints that trigger LLM/embedding calls
-  app.use('/api/v1/captures', rateLimit(strictLimiter))
-  app.use('/api/v1/captures/*', rateLimit(strictLimiter))
-  app.use('/api/v1/search', rateLimit(strictLimiter))
-  app.use('/api/v1/synthesize', rateLimit(strictLimiter))
+  app.use('/api/v1/captures', rateLimit(strictLimiter, mobileLimiter))
+  app.use('/api/v1/captures/*', rateLimit(strictLimiter, mobileLimiter))
+  app.use('/api/v1/search', rateLimit(strictLimiter, mobileLimiter))
+  app.use('/api/v1/synthesize', rateLimit(strictLimiter, mobileLimiter))
   // Briefs refine triggers an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
-  app.use('/api/v1/briefs/*/refine', rateLimit(strictLimiter))
+  app.use('/api/v1/briefs/*/refine', rateLimit(strictLimiter, mobileLimiter))
   // Briefs audio calls OpenAI TTS API — strict rate-limit BEFORE default /api/v1/* mount
-  app.use('/api/v1/briefs/*/audio', rateLimit(strictLimiter))
+  app.use('/api/v1/briefs/*/audio', rateLimit(strictLimiter, mobileLimiter))
   // Entity ask triggers LLM synthesis — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
-  app.use('/api/v1/entities/*/ask', rateLimit(strictLimiter))
+  app.use('/api/v1/entities/*/ask', rateLimit(strictLimiter, mobileLimiter))
   // Entity brief enqueues an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
-  app.use('/api/v1/entities/*/brief', rateLimit(strictLimiter))
+  app.use('/api/v1/entities/*/brief', rateLimit(strictLimiter, mobileLimiter))
 
   // Admin tier: destructive/config endpoints
-  app.use('/api/v1/admin/*', rateLimit(adminLimiter))
+  app.use('/api/v1/admin/*', rateLimit(adminLimiter, mobileLimiter))
 
   // Default tier: everything else under /api/v1
-  app.use('/api/v1/*', rateLimit(defaultLimiter))
+  app.use('/api/v1/*', rateLimit(defaultLimiter, mobileLimiter))
+
+  // Mobile Bearer auth — conditional on X-Open-Brain-Caller: mobile-app.
+  // Applied AFTER rate-limiting (rate-limit bypass for mobile-app must resolve first)
+  // and ONLY on the route prefixes the mobile app needs.  All other callers
+  // (web-next-public, internal:*, integration-test) pass through unchanged.
+  // /mcp is deliberately excluded — it has its own auth layer (mcp/auth.ts).
+  app.use('/api/v1/captures', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/captures/*', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/search', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/briefs', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/briefs/*', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/commitments', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/commitments/*', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/settings', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/settings/*', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/stats', requireMobileAuthIfMobileCaller)
+  app.use('/api/v1/stats/*', requireMobileAuthIfMobileCaller)
 
   // Routes (health, events, metrics are outside /api/v1, intentionally not rate-limited)
   registerHealthRoutes(app)

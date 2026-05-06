@@ -428,3 +428,76 @@ export interface BoardCommitment {
   resolved_at: string | null;  // ISO 8601 or null
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Trigger — semantic trigger for Pushover/Slack notifications
+// Mirrors the triggers table + packages/web/src/lib/types.ts Trigger interface.
+// ---------------------------------------------------------------------------
+
+export interface Trigger {
+  id: string;
+  name: string;
+  description?: string;
+  /** Legacy compat: some API responses use `enabled`, others use `is_active`. */
+  enabled: boolean;
+  is_active?: boolean;
+  query_text?: string;
+  delivery_channel?: string;
+  threshold?: number;
+  cooldown_minutes?: number;
+  fire_count?: number;
+  last_fired_at?: string;     // ISO 8601 or undefined
+  conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>;
+  created_at: string;         // ISO 8601
+}
+
+// ---------------------------------------------------------------------------
+// AI routing types — mirrors GET /api/v1/config/ai-routing response shape
+// ---------------------------------------------------------------------------
+
+/** One task-to-model routing entry in the AI routing table. */
+export interface ModelRoutingEntry {
+  task: string;
+  model: string;
+  client: string;
+  /** Monthly call count for this task route (from ai_audit_log). */
+  month_calls: number;
+}
+
+/** Full AI routing config as returned by GET /api/v1/config/ai-routing. */
+export interface AIRoutingConfig {
+  models: ModelRoutingEntry[];
+  budget: {
+    month_total_usd: number;
+    soft_limit_usd: number;
+    hard_limit_usd: number;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Email config types — mirrors GET /api/v1/config/integrations filtered shape
+// ---------------------------------------------------------------------------
+
+/** Status of an email channel (inbound or outbound). */
+export type EmailChannelStatus = 'connected' | 'degraded' | 'error' | 'not_configured';
+
+/** One email channel (inbound or outbound) with health info. */
+export interface EmailChannel {
+  status: EmailChannelStatus;
+  /** Optional descriptive detail (e.g. address, hostname). */
+  detail?: string;
+}
+
+/** Filtered email config view — two channels from the integrations endpoint. */
+export interface EmailConfig {
+  inbound: EmailChannel;
+  outbound: EmailChannel;
+}
+
+// ---------------------------------------------------------------------------
+// Service health types — mirrors GET /api/v1/health response shape
+// ---------------------------------------------------------------------------
+
+/** Health level for a single service dependency. */
+export type ServiceHealthStatus = 'healthy' | 'degraded' | 'unhealthy';

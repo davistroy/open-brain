@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import { NotFoundError, ValidationError } from '@open-brain/shared'
+import { NotFoundError, ServiceUnavailableError, ValidationError } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
 import type { Queue } from 'bullmq'
 import type { EntityService } from '../services/entity.js'
@@ -45,7 +45,7 @@ export function registerEntityRoutes(
     if (name) {
       const entity = await entityService.getByName(name.trim())
       if (!entity) {
-        return c.json({ error: `Entity not found: ${name}`, code: 'NOT_FOUND' }, 404)
+        throw new NotFoundError(`Entity not found: ${name}`)
       }
       return c.json({ entity })
     }
@@ -100,7 +100,7 @@ export function registerEntityRoutes(
     // Basic UUID format guard — reject clearly malformed IDs early
     const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     if (!UUID_RE.test(id)) {
-      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+      throw new NotFoundError(`Entity not found: ${id}`)
     }
 
     const limitRaw = c.req.query('limit')
@@ -108,7 +108,7 @@ export function registerEntityRoutes(
 
     const exists = await entityService.entityExists(id)
     if (!exists) {
-      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+      throw new NotFoundError(`Entity not found: ${id}`)
     }
 
     const related = await entityService.getRelated(id, limit)
@@ -147,7 +147,7 @@ export function registerEntityRoutes(
 
     if (!parsed.success) {
       const message = parsed.error.errors.map((e) => e.message).join('; ')
-      return c.json({ error: message, code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError(message)
     }
 
     const { window, bucket } = parsed.data
@@ -155,7 +155,7 @@ export function registerEntityRoutes(
     // 404 check before expensive aggregation
     const exists = await entityService.entityExists(id)
     if (!exists) {
-      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+      throw new NotFoundError(`Entity not found: ${id}`)
     }
 
     const buckets = await entityService.getMentionsTimeline(id, window, bucket)
@@ -176,17 +176,17 @@ export function registerEntityRoutes(
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { target_id } = body as { target_id?: string }
 
     if (!target_id || typeof target_id !== 'string' || target_id.trim().length === 0) {
-      return c.json({ error: 'target_id is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('target_id is required')
     }
 
     if (sourceId === target_id.trim()) {
-      return c.json({ error: 'source and target entities must be different', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('source and target entities must be different')
     }
 
     logger.info({ sourceId, targetId: target_id }, '[entities-api] merging entities')
@@ -210,13 +210,13 @@ export function registerEntityRoutes(
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { alias } = body as { alias?: string }
 
     if (!alias || typeof alias !== 'string' || alias.trim().length === 0) {
-      return c.json({ error: 'alias is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('alias is required')
     }
 
     logger.info({ entityId, alias }, '[entities-api] splitting entity')
@@ -247,14 +247,14 @@ export function registerEntityRoutes(
     question: z.string().min(1, 'question is required').max(2000, 'question must be ≤ 2000 chars'),
   })
 
-  app.post('/api/v1/entities/:id/ask', zValidator('json', askBodySchema, (result, c) => {
+  app.post('/api/v1/entities/:id/ask', zValidator('json', askBodySchema, (result) => {
     if (!result.success) {
       const message = result.error.errors.map(e => e.message).join('; ')
-      return c.json({ error: message, code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError(message)
     }
   }), async (c) => {
     if (!searchService || !llmGateway) {
-      return c.json({ error: 'Ask feature is not available (LLM or search not configured)', code: 'SERVICE_UNAVAILABLE' }, 503)
+      throw new ServiceUnavailableError('Ask feature is not available (LLM or search not configured)')
     }
 
     const id = c.req.param('id')
@@ -264,7 +264,7 @@ export function registerEntityRoutes(
 
     const exists = await entityService.entityExists(id)
     if (!exists) {
-      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+      throw new NotFoundError(`Entity not found: ${id}`)
     }
 
     const result = await entityService.ask(id, question, searchService, llmGateway)
@@ -284,7 +284,7 @@ export function registerEntityRoutes(
   // -------------------------------------------------------------------------
   app.post('/api/v1/entities/:id/brief', async (c) => {
     if (!skillQueue) {
-      return c.json({ error: 'Brief generation is not available (skill queue not configured)', code: 'SERVICE_UNAVAILABLE' }, 503)
+      throw new ServiceUnavailableError('Brief generation is not available (skill queue not configured)')
     }
 
     const id = c.req.param('id')
@@ -293,7 +293,7 @@ export function registerEntityRoutes(
 
     const exists = await entityService.entityExists(id)
     if (!exists) {
-      return c.json({ error: `Entity not found: ${id}`, code: 'NOT_FOUND' }, 404)
+      throw new NotFoundError(`Entity not found: ${id}`)
     }
 
     // Fetch entity name + type for the job payload so the skill doesn't need

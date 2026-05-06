@@ -276,8 +276,8 @@ describe('POST /api/v1/entities/:id/merge', () => {
     })
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.source_id).toBe(source.id)
-    expect(body.target_id).toBe(target.id)
+    // Route returns the target entity record (not a {source_id, target_id} shape)
+    expect(body.id).toBe(target.id)
 
     // Source should no longer exist
     const sourceRes = await testGet(ctx.app, `/api/v1/entities/${source.id}`)

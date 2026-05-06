@@ -1,4 +1,5 @@
 import { config } from './config';
+import { storage } from './storage';
 import type {
   Capture, Entity, EntityDetail, Brief, BriefDetail,
   SearchResult, BoardCommitment, ListEnvelope, BrainView, CaptureType,
@@ -19,11 +20,48 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * Thrown when the API token is absent from SecureStore (device not yet
+ * onboarded). UI code catches this to show the Settings → API Token flow.
+ */
+export class NotOnboardedError extends Error {
+  constructor() {
+    super('API token not provisioned. Go to Settings → API Token to configure.');
+    this.name = 'NotOnboardedError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Module-level token cache — avoids a SecureStore round-trip per request.
+// SecureStore reads are cheap on iOS but serialized; caching prevents latency
+// accumulation on screens that fire multiple parallel queries.
+// Call clearTokenCache() after setApiToken() or deleteApiToken() so the next
+// request picks up the new value.
+// ---------------------------------------------------------------------------
+let _cachedToken: string | null | undefined = undefined; // undefined = not yet read
+
+export function clearTokenCache(): void {
+  _cachedToken = undefined;
+}
+
+async function getToken(): Promise<string | null> {
+  if (_cachedToken !== undefined) return _cachedToken;
+  _cachedToken = await storage.getApiToken();
+  return _cachedToken;
+}
+
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const token = await getToken();
+
+  if (token === null) {
+    throw new NotOnboardedError();
+  }
+
   const url = `${config.apiBaseUrl}${path}`;
 
   const headers: Record<string, string> = {
     'X-Open-Brain-Caller': 'mobile-app',
+    'Authorization': `Bearer ${token}`,
     ...(init.headers as Record<string, string> | undefined),
   };
 

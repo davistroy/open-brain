@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { CaptureService } from '../services/capture.js'
-import { ConfigService, ValidationError } from '@open-brain/shared'
+import { ConfigError, ConfigService, ValidationError } from '@open-brain/shared'
 import {
   createCaptureSchema,
   updateCaptureSchema,
@@ -109,7 +109,7 @@ export function registerCaptureRoutes(
     const capture = await captureService.getById(id)
 
     if (!pipelineService) {
-      return c.json({ error: 'Pipeline service not configured' }, 503)
+      throw new ConfigError('Pipeline service not configured')
     }
 
     // Parse optional ?stage= query param (reserved for future per-stage retry)

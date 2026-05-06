@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import { logger } from '@open-brain/shared'
+import { ValidationError, logger } from '@open-brain/shared'
 import type { VoiceSessionService, TranscriptTurn } from '../services/voice-session.js'
 
 /**
@@ -65,15 +65,12 @@ export function registerVoiceSessionRoutes(
     try {
       body = (await c.req.json()) as Record<string, unknown>
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const sessionKey = body.session_key
     if (typeof sessionKey !== 'string' || !sessionKey.trim()) {
-      return c.json(
-        { error: 'Missing or invalid "session_key" field', code: 'VALIDATION_ERROR' },
-        400,
-      )
+      throw new ValidationError('Missing or invalid "session_key" field')
     }
 
     const metadata =
@@ -111,42 +108,42 @@ export function registerVoiceSessionRoutes(
     try {
       body = (await c.req.json()) as Record<string, unknown>
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const updateData: Record<string, unknown> = {}
 
     if (body.transcript !== undefined) {
       if (!Array.isArray(body.transcript)) {
-        return c.json({ error: '"transcript" must be an array', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"transcript" must be an array')
       }
       updateData.transcript = body.transcript as TranscriptTurn[]
     }
 
     if (body.turn_count !== undefined) {
       if (typeof body.turn_count !== 'number' || !Number.isInteger(body.turn_count)) {
-        return c.json({ error: '"turn_count" must be an integer', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"turn_count" must be an integer')
       }
       updateData.turn_count = body.turn_count
     }
 
     if (body.summary !== undefined) {
       if (typeof body.summary !== 'string') {
-        return c.json({ error: '"summary" must be a string', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"summary" must be a string')
       }
       updateData.summary = body.summary
     }
 
     if (body.captures_created !== undefined) {
       if (!Array.isArray(body.captures_created)) {
-        return c.json({ error: '"captures_created" must be an array', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"captures_created" must be an array')
       }
       updateData.captures_created = body.captures_created
     }
 
     if (body.metadata !== undefined) {
       if (typeof body.metadata !== 'object' || body.metadata === null) {
-        return c.json({ error: '"metadata" must be an object', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"metadata" must be an object')
       }
       updateData.metadata = body.metadata
     }
@@ -154,14 +151,14 @@ export function registerVoiceSessionRoutes(
     if (body.ended_at !== undefined) {
       const d = new Date(body.ended_at as string)
       if (isNaN(d.getTime())) {
-        return c.json({ error: '"ended_at" must be a valid ISO date', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"ended_at" must be a valid ISO date')
       }
       updateData.ended_at = d
     }
 
     if (body.duration_seconds !== undefined) {
       if (typeof body.duration_seconds !== 'number' || !Number.isInteger(body.duration_seconds)) {
-        return c.json({ error: '"duration_seconds" must be an integer', code: 'VALIDATION_ERROR' }, 400)
+        throw new ValidationError('"duration_seconds" must be an integer')
       }
       updateData.duration_seconds = body.duration_seconds
     }
@@ -185,7 +182,7 @@ export function registerVoiceSessionRoutes(
     try {
       body = (await c.req.json()) as Record<string, unknown>
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { transcript, summary, capture_ids } = body as {
@@ -195,10 +192,10 @@ export function registerVoiceSessionRoutes(
     }
 
     if (!Array.isArray(transcript)) {
-      return c.json({ error: '"transcript" is required and must be an array', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('"transcript" is required and must be an array')
     }
     if (typeof summary !== 'string' || !summary.trim()) {
-      return c.json({ error: '"summary" is required and must be a non-empty string', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('"summary" is required and must be a non-empty string')
     }
 
     const captureIds = Array.isArray(capture_ids) ? capture_ids : []

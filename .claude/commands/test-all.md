@@ -37,7 +37,7 @@ The packages and their test files are:
 - `@open-brain/core-api` — `packages/core-api/src/__tests__/**`
 - `@open-brain/workers` — `packages/workers/src/__tests__/**`
 - `@open-brain/slack-bot` — `packages/slack-bot/src/__tests__/**`
-- `@open-brain/web` — `packages/web/src/**/__tests__/**`
+- `@open-brain/web-next` — `packages/web-next/src/**/__tests__/**`
 
 ---
 

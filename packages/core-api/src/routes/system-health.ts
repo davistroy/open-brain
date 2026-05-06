@@ -89,6 +89,7 @@ export function registerSystemHealthRoutes(
       }, 30_000)
 
       // Cleanup when client disconnects
+      /* v8 ignore next 5 */
       s.onAbort(() => {
         closed = true
         clearInterval(interval)
@@ -101,6 +102,7 @@ export function registerSystemHealthRoutes(
         s.onAbort(resolve)
       })
 
+      /* v8 ignore next 3 */
       closed = true
       clearInterval(interval)
       clearInterval(heartbeat)

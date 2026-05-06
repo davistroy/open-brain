@@ -161,14 +161,9 @@ jobs:
     name: Integration tests (core-api + real DB)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # OBSERVE MODE — promotion checklist:
-    # 1. Verify 2 consecutive PRs show this job green in GitHub Actions
-    # 2. Remove the `continue-on-error: true` line below
-    # 3. Add "Integration tests (core-api + real DB)" to branch protection
-    #    required status checks: Settings > Branches > main > Edit >
-    #    "Require status checks to pass" > search for job name
-    # 4. Update this comment to: "REQUIRED: promoted YYYY-MM-DD PR #NNN"
-    continue-on-error: true
+    # REQUIRED: promoted 2026-05-05 — A118 cascade resolved; integration suite 126/126 green.
+    # Bar relaxed from >=9/10 runs to "1 green CI on b08946a + local 126/126 + root-cause documented"
+    # (orchestrator-authorized 2026-05-05). Run 25406460328 was the qualifying green on this branch.
 
     steps:
       - name: Checkout

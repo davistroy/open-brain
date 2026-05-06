@@ -36,3 +36,36 @@ export class ServiceUnavailableError extends AppError {
     super(message, 503, 'SERVICE_UNAVAILABLE')
   }
 }
+
+/**
+ * Raised when a required configuration / service dependency is missing
+ * (e.g., "Database not configured", "LLM provider unavailable",
+ * "Pipeline service not configured"). Distinct from
+ * `ServiceUnavailableError` which signals a transient outage.
+ */
+export class ConfigError extends AppError {
+  constructor(message = 'Service is not configured') {
+    super(message, 503, 'CONFIG_ERROR')
+  }
+}
+
+/**
+ * Specialised 404 for the file-upload (ingest) routes — keeps the
+ * generic `NotFoundError` free for capture / entity / brief lookups.
+ */
+export class UploadNotFoundError extends AppError {
+  constructor(message = 'Upload not found') {
+    super(message, 404, 'UPLOAD_NOT_FOUND')
+  }
+}
+
+/**
+ * Origin / token failures on the destructive `POST /admin/reset-data`
+ * endpoint. Distinct status (403) and code from generic auth failures
+ * so audit / alerting can target reset attempts specifically.
+ */
+export class ResetForbiddenError extends AppError {
+  constructor(message = 'Forbidden') {
+    super(message, 403, 'RESET_FORBIDDEN')
+  }
+}

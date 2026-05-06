@@ -8,6 +8,7 @@ const KEYS = {
 export const storage = {
   getApiToken: () => SecureStore.getItemAsync(KEYS.API_TOKEN),
   setApiToken: (token: string) => SecureStore.setItemAsync(KEYS.API_TOKEN, token),
+  deleteApiToken: () => SecureStore.deleteItemAsync(KEYS.API_TOKEN),
   getVoiceUrl: () => SecureStore.getItemAsync(KEYS.VOICE_URL),
   setVoiceUrl: (url: string) => SecureStore.setItemAsync(KEYS.VOICE_URL, url),
 };

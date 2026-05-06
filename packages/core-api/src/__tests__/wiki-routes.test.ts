@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Hono } from 'hono'
 import { registerWikiRoutes } from '../routes/wiki.js'
+import { errorHandler } from '../middleware/error-handler.js'
 import type { WikiService } from '../services/wiki.js'
 import type { WikiFrontmatter } from '@open-brain/shared'
 
@@ -55,6 +56,7 @@ describe('Wiki routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     app = new Hono()
+    app.onError(errorHandler())
     registerWikiRoutes(app, createMockWikiService())
   })
 

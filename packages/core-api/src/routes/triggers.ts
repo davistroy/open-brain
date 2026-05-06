@@ -33,7 +33,7 @@ export function registerTriggerRoutes(app: Hono, triggerService: TriggerService)
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { name, queryText, description, threshold, cooldownMinutes, deliveryChannel } = body as {
@@ -46,11 +46,11 @@ export function registerTriggerRoutes(app: Hono, triggerService: TriggerService)
     }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return c.json({ error: 'name is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('name is required')
     }
 
     if (!queryText || typeof queryText !== 'string' || queryText.trim().length === 0) {
-      return c.json({ error: 'queryText is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('queryText is required')
     }
 
     logger.info({ name, queryText }, '[triggers-api] creating trigger')
@@ -95,13 +95,13 @@ export function registerTriggerRoutes(app: Hono, triggerService: TriggerService)
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { queryText, limit } = body as { queryText?: string; limit?: number }
 
     if (!queryText || typeof queryText !== 'string' || queryText.trim().length === 0) {
-      return c.json({ error: 'queryText is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('queryText is required')
     }
 
     const maxLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 20) : 5

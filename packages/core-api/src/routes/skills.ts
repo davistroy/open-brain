@@ -1,7 +1,7 @@
 import type { Hono } from 'hono'
 import type { Queue } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { NotFoundError, ValidationError, logger } from '@open-brain/shared'
 import {
   getSkillConfigSingleton,
   type SkillConfig,
@@ -89,7 +89,7 @@ export function registerSkillRoutes(
     const name = c.req.param('name')
 
     if (!name || !/^[a-z0-9-]+$/.test(name)) {
-      return c.json({ error: 'Invalid skill name', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid skill name')
     }
 
     let overrides: Record<string, unknown> = {}
@@ -161,14 +161,11 @@ export function registerSkillRoutes(
     const name = c.req.param('name')
 
     if (!name || !/^[a-z0-9-]+$/.test(name)) {
-      return c.json({ error: 'Invalid skill name', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid skill name')
     }
 
     if (!skillConfig.get(name)) {
-      return c.json(
-        { error: 'Skill not found', code: 'NOT_FOUND', message: `Unknown skill: ${name}` },
-        404,
-      )
+      throw new NotFoundError(`Unknown skill: ${name}`)
     }
 
     let body: Record<string, unknown>

@@ -3,6 +3,7 @@ import { and, asc, eq, isNull, ne } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import { commitments } from '@open-brain/shared'
 import { CommitmentStatusSchema } from '@open-brain/shared'
+import { NotFoundError, ValidationError } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 
 /**
@@ -134,19 +135,19 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { resolved } = body as { resolved?: unknown }
 
     if (typeof resolved !== 'boolean') {
-      return c.json({ error: '`resolved` (boolean) is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('`resolved` (boolean) is required')
     }
 
     // Verify commitment exists
     const existing = await db.select().from(commitments).where(eq(commitments.id, id)).limit(1)
     if (existing.length === 0) {
-      return c.json({ error: `Commitment not found: ${id}`, code: 'NOT_FOUND' }, 404)
+      throw new NotFoundError(`Commitment not found: ${id}`)
     }
 
     const updated = await db
@@ -174,7 +175,7 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
     try {
       body = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const { text, capture_id, entity_id, due_date, status } = body as {
@@ -187,10 +188,10 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
 
     // Required fields
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      return c.json({ error: '`text` is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('`text` is required')
     }
     if (!capture_id || typeof capture_id !== 'string' || capture_id.trim().length === 0) {
-      return c.json({ error: '`capture_id` is required', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('`capture_id` is required')
     }
 
     // Optional status — default 'pending', validate if provided
@@ -198,9 +199,8 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
     if (status !== undefined) {
       const parsed = CommitmentStatusSchema.safeParse(status)
       if (!parsed.success) {
-        return c.json(
-          { error: `Invalid status. Valid values: pending, owed_by_user, waiting_on, resolved`, code: 'VALIDATION_ERROR' },
-          400,
+        throw new ValidationError(
+          'Invalid status. Valid values: pending, owed_by_user, waiting_on, resolved',
         )
       }
       resolvedStatus = parsed.data
@@ -208,7 +208,7 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
 
     // Optional due_date — basic YYYY-MM-DD format check
     if (due_date !== undefined && typeof due_date !== 'string') {
-      return c.json({ error: '`due_date` must be a string (YYYY-MM-DD)', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('`due_date` must be a string (YYYY-MM-DD)')
     }
 
     const newRow = await db

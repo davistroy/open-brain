@@ -1,6 +1,6 @@
 import type { Hono } from 'hono'
 import { z } from 'zod'
-import { logger } from '@open-brain/shared'
+import { ServiceUnavailableError, ValidationError, logger } from '@open-brain/shared'
 import type { EmailDraftService } from '../services/email-draft.js'
 import type { EmailComposeAssistService } from '../services/email-compose-assist.js'
 
@@ -102,7 +102,7 @@ export function registerEmailRoutes(
     try {
       body = (await c.req.json()) as Record<string, unknown>
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     // Required fields
@@ -111,21 +111,20 @@ export function registerEmailRoutes(
     const emailBody = body.body
 
     if (typeof to !== 'string' || !to.trim()) {
-      return c.json({ error: 'Missing or invalid "to" field', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Missing or invalid "to" field')
     }
     if (typeof subject !== 'string' || !subject.trim()) {
-      return c.json({ error: 'Missing or invalid "subject" field', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Missing or invalid "subject" field')
     }
     if (typeof emailBody !== 'string' || !emailBody.trim()) {
-      return c.json({ error: 'Missing or invalid "body" field', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Missing or invalid "body" field')
     }
 
     // Optional fields
     const sendMode = body.sendMode ?? body.send_mode
     if (sendMode !== undefined && !VALID_SEND_MODES.includes(sendMode as (typeof VALID_SEND_MODES)[number])) {
-      return c.json(
-        { error: `Invalid sendMode: ${sendMode}. Valid values: ${VALID_SEND_MODES.join(', ')}`, code: 'VALIDATION_ERROR' },
-        400,
+      throw new ValidationError(
+        `Invalid sendMode: ${sendMode}. Valid values: ${VALID_SEND_MODES.join(', ')}`,
       )
     }
 
@@ -172,17 +171,13 @@ export function registerEmailRoutes(
     try {
       rawBody = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const parsed = patchDraftSchema.safeParse(rawBody)
     if (!parsed.success) {
-      return c.json(
-        {
-          error: parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid body',
-          code: 'VALIDATION_ERROR',
-        },
-        400,
+      throw new ValidationError(
+        parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid body',
       )
     }
 
@@ -250,12 +245,8 @@ export function registerEmailRoutes(
   // -----------------------------------------------------------------------
   app.post('/api/v1/email/compose-draft', async (c) => {
     if (!emailComposeAssistService) {
-      return c.json(
-        {
-          error: 'AI compose is unavailable — compose service is not configured',
-          code: 'SERVICE_UNAVAILABLE',
-        },
-        503,
+      throw new ServiceUnavailableError(
+        'AI compose is unavailable — compose service is not configured',
       )
     }
 
@@ -263,17 +254,13 @@ export function registerEmailRoutes(
     try {
       rawBody = await c.req.json()
     } catch {
-      return c.json({ error: 'Invalid JSON body', code: 'VALIDATION_ERROR' }, 400)
+      throw new ValidationError('Invalid JSON body')
     }
 
     const parsed = composeDraftSchema.safeParse(rawBody)
     if (!parsed.success) {
-      return c.json(
-        {
-          error: parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid body',
-          code: 'VALIDATION_ERROR',
-        },
-        400,
+      throw new ValidationError(
+        parsed.error.issues.map((i) => i.message).join('; ') || 'Invalid body',
       )
     }
 
