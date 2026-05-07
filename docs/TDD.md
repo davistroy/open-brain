@@ -130,11 +130,13 @@ Phase 5B: URL Capture
 | pgvector | 0.7+ | Vector similarity search | Required |
 | Redis | 7+ | Job queues (BullMQ), thread context cache | Required |
 | Node.js | 22 LTS | Runtime for all TypeScript services | Required |
-| Jetson GPU (external) | llama.cpp | `t1_jetson` — `qwen3.5-4b`, 7 classification tasks, free. Static IP `192.168.10.58:8080/v1`. | Required for free-tier inference |
-| DGX Spark (external) | vLLM | `t1_spark` — `qwen3.5-35b`, entity extraction + synthesis, free. `spark.k4jda.net:8000/v1`. | Required for free-tier synthesis |
+| Jetson GPU (external) | llama.cpp | `t1_jetson` — `qwen3.5-4b`, 7 classification tasks, free. Static IP `192.168.10.58:8080/v1`. | Optional cost-saving tier |
+| DGX Spark (external) | vLLM | `t1_spark` — `qwen3.5-35b`, entity extraction + synthesis, free. `spark.k4jda.net:8000/v1`. | Optional cost-saving tier |
 | faster-whisper | latest | Local speech-to-text | Required (Phase 2) |
 | Cloudflare Tunnel | latest | External access for brain.k4jda.net | Required (for MCP/slash commands) |
 | Tailscale | existing | Remote access to Unraid services | Required (existing) |
+
+> **Note on inference tiers.** The core system runs on the OpenAI API alone — every capture path, search query, skill, and MCP tool can complete with `t2_quality` / `t1_fast` / `t3_realtime` OpenAI tiers. `t1_jetson` (Jetson Orin NX) and `t1_spark` (DGX Spark) are listed in `config/ai-routing.yaml` with explicit `cost_per_1k_input: 0` / `cost_per_1k_output: 0` and exist purely to shift routine classification + synthesis traffic off paid endpoints. If either device is unreachable, the configured fallback chain (`t1_jetson → t1_spark → t1_fast` and `t1_spark → t1_fast`) routes the call through OpenAI; no skill is gated on local GPU availability. Neither device is required to deploy or operate the system.
 
 ### 2.2 External Service Dependencies
 
