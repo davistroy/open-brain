@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { ValidationError, NotFoundError } from '@open-brain/shared'
 import type { SessionService, SessionType, SessionStatus } from '../services/session.js'
 import { logger } from '@open-brain/shared'
+import { parseUUIDParam } from '../lib/validation.js'
 
 /**
  * Register session management API routes.
@@ -71,9 +72,13 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
     const limitRaw = c.req.query('limit')
     const offsetRaw = c.req.query('offset')
 
-    const statusFilter = statusRaw && VALID_STATUSES.includes(statusRaw as SessionStatus)
-      ? (statusRaw as SessionStatus)
-      : undefined
+    let statusFilter: SessionStatus | undefined
+    if (statusRaw !== undefined) {
+      if (!VALID_STATUSES.includes(statusRaw as SessionStatus)) {
+        throw new ValidationError(`status_filter must be one of: ${VALID_STATUSES.join(', ')}`)
+      }
+      statusFilter = statusRaw as SessionStatus
+    }
 
     const limit = Math.min(Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : 20, 100)
     const offset = Number.isFinite(Number(offsetRaw)) ? Number(offsetRaw) : 0
@@ -92,7 +97,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
   // GET /api/v1/sessions/:id — get session state + transcript
   // -------------------------------------------------------------------------
   app.get('/api/v1/sessions/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const withTranscript = c.req.query('include_transcript') !== 'false'
 
     if (withTranscript) {
@@ -109,7 +114,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
   // Body: { message: string }
   // -------------------------------------------------------------------------
   app.post('/api/v1/sessions/:id/respond', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {
@@ -138,7 +143,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
   // POST /api/v1/sessions/:id/pause
   // -------------------------------------------------------------------------
   app.post('/api/v1/sessions/:id/pause', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     logger.info({ sessionId: id }, '[sessions-api] pausing session')
 
@@ -151,7 +156,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
   // POST /api/v1/sessions/:id/resume
   // -------------------------------------------------------------------------
   app.post('/api/v1/sessions/:id/resume', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     logger.info({ sessionId: id }, '[sessions-api] resuming session')
 
@@ -167,7 +172,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
   // POST /api/v1/sessions/:id/complete
   // -------------------------------------------------------------------------
   app.post('/api/v1/sessions/:id/complete', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     logger.info({ sessionId: id }, '[sessions-api] completing session')
 
@@ -183,7 +188,7 @@ export function registerSessionRoutes(app: Hono, sessionService: SessionService)
   // POST /api/v1/sessions/:id/abandon
   // -------------------------------------------------------------------------
   app.post('/api/v1/sessions/:id/abandon', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     logger.info({ sessionId: id }, '[sessions-api] abandoning session')
 
