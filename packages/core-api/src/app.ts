@@ -127,7 +127,9 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // routed to mobileLimiter (200 req/min, per-token-hash bucket) by getClientKey()
   // regardless of which limiter instance is passed. All other callers use the named tier.
   // Strict tier: endpoints that trigger LLM/embedding calls
-  app.use('/api/v1/captures', rateLimit(strictLimiter, mobileLimiter))
+  // Note: Hono's /* wildcard matches the bare path as well as sub-paths, so a single
+  // /* registration covers both POST /api/v1/captures and GET /api/v1/captures/:id.
+  // A duplicate bare-path registration would double-fire on bare-path requests (A107).
   app.use('/api/v1/captures/*', rateLimit(strictLimiter, mobileLimiter))
   app.use('/api/v1/search', rateLimit(strictLimiter, mobileLimiter))
   app.use('/api/v1/synthesize', rateLimit(strictLimiter, mobileLimiter))
@@ -153,16 +155,12 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // and ONLY on the route prefixes the mobile app needs.  All other callers
   // (web-next-public, internal:*, integration-test) pass through unchanged.
   // /mcp is deliberately excluded — it has its own auth layer (mcp/auth.ts).
-  app.use('/api/v1/captures', requireMobileAuthIfMobileCaller)
+  // /* covers bare path + sub-paths in Hono v4 (A107 — no duplicate bare-path registrations)
   app.use('/api/v1/captures/*', requireMobileAuthIfMobileCaller)
   app.use('/api/v1/search', requireMobileAuthIfMobileCaller)
-  app.use('/api/v1/briefs', requireMobileAuthIfMobileCaller)
   app.use('/api/v1/briefs/*', requireMobileAuthIfMobileCaller)
-  app.use('/api/v1/commitments', requireMobileAuthIfMobileCaller)
   app.use('/api/v1/commitments/*', requireMobileAuthIfMobileCaller)
-  app.use('/api/v1/settings', requireMobileAuthIfMobileCaller)
   app.use('/api/v1/settings/*', requireMobileAuthIfMobileCaller)
-  app.use('/api/v1/stats', requireMobileAuthIfMobileCaller)
   app.use('/api/v1/stats/*', requireMobileAuthIfMobileCaller)
 
   // Routes (health, events, metrics are outside /api/v1, intentionally not rate-limited)
