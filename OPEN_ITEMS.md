@@ -2,25 +2,25 @@
 
 **Purpose:** Single index of what's actually open across all implementation plans. Each entry links to the source plan for detail. Update when plans ship items or new plans land.
 
-**Last refreshed:** 2026-05-06
+**Last refreshed:** 2026-05-07
 
 ---
 
 ## Active plans (with pending work)
 
-### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — all pending
+### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — Phases 1–2 shipped, 3–4 pending
 
 **Scope:** F1–F8 (Entry 106 architectural audit) + W1, W2, W3, W4, W7, S1, S3, S4, S5, W6 (Entry 107 intent review). Authored 2026-05-06.
 
-| Phase | Items | Effort | Risk |
-|---|---|---|---|
-| 1 — Quick wins (deps + perf microfixes) | 4 | S | Low |
-| 2 — Documentation alignment (README + PRD + TDD) | 3 | M | None |
-| 3 — Type system & lint hygiene | 4 | S–M | Med |
-| 4 — Workers test rigor (coverage + CI) | 5 | M | Med |
-| 5 — Vitest 2.x migration | — | L | **DEFERRED** to its own plan |
+| Phase | Items | Effort | Risk | Status |
+|---|---|---|---|---|
+| 1 — Quick wins (deps + perf microfixes) | 4 | S | Low | ✅ COMPLETE — PR #180 (2026-05-06) |
+| 2 — Documentation alignment (README + PRD + TDD) | 3 | M | None | ✅ COMPLETE — PR #181 (2026-05-07) |
+| 3 — Type system & lint hygiene | 4 | S–M | Med | Pending |
+| 4 — Workers test rigor (coverage + CI) | 5 | M | Med | Pending |
+| 5 — Vitest 2.x migration | — | L | **DEFERRED** to its own plan | Deferred |
 
-**Total:** 16 work items pending. Phases 1–4 mutually independent (no file overlap); recommended sequential 1→2→3→4 in increasing-risk order.
+**Total:** 9 work items pending across Phases 3–4 (was 16; 7 shipped). Phase 3 (`@types/node` realignment with tsc-error decision gate) is the recommended next slice. Lab notebook references: Entry 131 (Phase 1 scope), Entry 132 (Phase 1 CI fix), Entry 133 (Phase 2).
 
 ---
 
@@ -120,7 +120,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 |---|---|
 | **Post-remediation Phase 3 (`@types/node` align) ↔ Mobile deferred** | If picking up mobile EAS Build before post-remediation Phase 3 lands, ensure mobile package isn't pinned at a different `@types/node`. |
 | **Post-remediation Phase 4 (workers CI) ↔ A128 (TanStack Query)** | Both touch testing infrastructure; sequence post-remediation first since it's smaller scope. |
-| **A71 (memory-consolidation task key) ↔ Post-remediation Phase 2** | Phase 2 PRD update should add the F-ID for memory-consolidation skill; A71 fix is independent (config edit) but worth bundling for one PR. |
+| **A71 (memory-consolidation task key)** | Standalone now — Phase 2 (PR #181) shipped without adding an F-ID for memory-consolidation; A71 remains an independent ~1 hr config edit. |
 | **P23 (cognitive memory tuning) ↔ A107 (strictLimiter double-reg)** | P23 measures live search behavior; A107 affects rate-limit effective budget — fix A107 before P23 starts to keep measurement clean. |
 
 ---
