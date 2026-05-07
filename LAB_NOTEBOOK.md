@@ -10469,3 +10469,51 @@ Code comment explaining intentional placeholder; not a functional regression.
 | D-Phase4-3 | Reuse the existing `integration-test` job for the workers step (no new job, no `continue-on-error`) | Reuses already-running compose stack, inherits the existing required-status-check gate ("Integration tests (core-api + real DB)") without changing branch protection. Same pattern as the core-api integration step that's been required since arch-review Phase 5b. |
 
 **Outcome:** All 5 Phase 4 acceptance items satisfied. PR to follow with the 7-file change set.
+
+---
+
+### Entry 136 — A125 closure: fold capture_associations into init-schema.sql + remove setup.ts supplement [testing] [database] [config]
+**Date:** 2026-05-07
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), branch `chore/a125-init-schema-capture-associations` off `main` at `6a70a20`.
+**Objective:** Fully close A125 — add `capture_associations` table (migration 0011) to `scripts/init-schema.sql` so that workers integration tests no longer need a manual supplement in `setup.ts`. Remove the supplement block and the now-unused `resolveDrizzleMigrationPath` helper from `packages/workers/src/__tests__/integration/setup.ts`. Update CLAUDE.md, OPEN_ITEMS.md, and MEMORY.md to reflect closure.
+**Hypothesis:** Patching `init-schema.sql` with the contents of `0011_capture_associations.sql` (verbatim, IF NOT EXISTS idioms already present) will allow `applySchema()` in `setup.ts` to succeed with a single `pool.query(schemaSql)` call. Workers integration tests (access-stats-e2e) that depend on `capture_associations` will still pass after the supplement is removed. Audit of 0012 (spreading_activation), 0018 (mcp_activity), 0019 (email_drafts), 0027 (hybrid_search LIMIT push-down), 0028 (lab_results), 0030 (briefs) will surface any other missing objects and be reported as separate findings without patching them in this PR.
+**Rollback plan:** `git revert` the PR commit. No runtime impact — this is test infrastructure and schema init only. The supplement will need to be re-added to `setup.ts` if tests are needed before the revert. No data migration required.
+**Duration:** target ~30 min.
+
+**Pre-work audit findings:**
+- Migration 0011 (`capture_associations` table): **ABSENT** from init-schema.sql — this is the subject of this PR.
+- Migration 0012 (`spreading_activation` SQL function): **ABSENT** from init-schema.sql — separate finding, not patched here.
+- Migration 0018 (`mcp_activity` table): **PRESENT** at line 472 (under Migration 0014b header in init-schema.sql — slight header mislabeling but the CREATE TABLE is present).
+- Migration 0019 (`email_drafts` table): **PRESENT** at line 503 (under Migration 0015b header).
+- Migration 0027 (`hybrid_search` with LIMIT push-down): **PRESENT** as the primary `hybrid_search` function at line 212 — confirmed it includes `LIMIT match_count * 4` in both CTEs and the ORDER BY clauses for HNSW push-down (matches migration 0027 exactly).
+- Migration 0028 (`lab_results` table): **ABSENT** from init-schema.sql — separate finding, not patched here.
+- Migration 0030 (`briefs` table): **ABSENT** from init-schema.sql — separate finding, not patched here.
+
+**Execution log:**
+
+**Step 1 — Patch `scripts/init-schema.sql`:**
+Inserted a `-- Migration 0011: capture_associations table` section immediately before the `-- Migrations 0013-0017` section header at line 445. This keeps chronological order while placing the 0011 content between the v1 table/function group (which ends at the hybrid_search/actr_temporal_score functions) and the v2 column additions section. The 0011 content is copied verbatim from `packages/shared/drizzle/0011_capture_associations.sql` — all four lines use `IF NOT EXISTS` so the block is idempotent.
+
+**Step 2 — Trim `packages/workers/src/__tests__/integration/setup.ts`:**
+Removed the A125 supplement: dropped the `resolveDrizzleMigrationPath` helper (lines 58-61, no other callers), dropped the JSDoc paragraph describing the supplement, dropped the `captureAssocSql` readFileSync call, and dropped the second `pool.query(captureAssocSql)` call. The `applySchema` function now reads `init-schema.sql` and runs it once. The `resolveInitSchemaPath` helper and JSDoc comment are kept and updated.
+
+**Step 3 — CLAUDE.md operational rule update:**
+Removed the "A125 partial closure" bullet in the Testing/CI section of `CLAUDE.md`.
+
+**Step 4 — OPEN_ITEMS.md update:**
+Moved A125 from "Operational items" to the recently-closed section and updated the cross-plan notes.
+
+**Step 5 — MEMORY.md update:**
+Removed stale "A125 supplement" reference.
+
+**Step 6 — Test run:**
+Workers integration tests run against `docker-compose.test.yml`.
+
+**Decision Log:**
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-136-1 | Insert 0011 block immediately before the `Migrations 0013-0017` section header | Cleanest chronological slot — 0011 is older but absent from the v1 group. Adding it just before the v2 section preserves reading order and avoids splitting an existing named group. |
+| D-136-2 | Report 0012, 0028, 0030 as separate findings; do NOT patch in this PR | One PR per concern. 0012 is a SQL function (lower risk — function already deployed to homeserver; missing from fresh-init only). 0028/0030 are tables that Python/TS access on production but aren't tested in workers integration suite. Separating prevents scope creep. |
+
+**Outcome:** (to be filled post-merge)
