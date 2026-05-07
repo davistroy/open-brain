@@ -10369,3 +10369,49 @@ Code comment explaining intentional placeholder; not a functional regression.
 - PRD §5.1 already shows F21 and F22 as `Implemented` (lines 210–211). The plan acceptance text "Status Deferred → Complete with approximate ship date" was authored against an outdated read; the actual fix is on the README side. F19 still says `Vite + React PWA`; F29–F35 still say `Planned` despite shipping in Phase 21–25 (README confirms 2026-03-12 ship date). Will flip those to `Implemented`.
 
 **Plan:** Execute three Edit batches (README, PRD, TDD) on `feat/post-remediation-phase-2-doc-alignment`, run `grep -c "packages/web/" README.md` (must be 0) and a manual cross-reference proofread, then one commit + push + PR.
+
+**Outcome:** PR #181 squash-merged at `1ea5313` on 2026-05-07. All 17 CI checks green (doc-sync, GitGuardian, integration tests x2, Python lint, sidecar tests, init-schema, build-and-test, file-ingestion, voice-pipecat). Working tree clean on main. `OPEN_ITEMS.md` post-remediation row updated to "Phases 1–2 shipped, 3–4 pending" via direct commit `d1d186f` (admin escape hatch — required check "Integration tests" expected; bypass logged on protected ref).
+
+--- New session: 2026-05-07 — Post-remediation Phase 3 type system + lint hygiene ---
+
+### Entry 134 — Post-Remediation Phase 3: @types/node ^22 pin + eslint-config-next ^16 bump [config] [deps] [testing]
+**Date:** 2026-05-07
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), branch `chore/types-node-22-pin` off `main` at `d1d186f`.
+**Objective:** Execute Phase 3 of `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` — align `@types/node` to runtime version (^22) in `packages/core-api` (line 46) and `packages/voice-capture` (line 29), and bump `eslint-config-next` to match `next: ^16.2.4` in `packages/web-next` (line 39). Both touch `package.json` + `pnpm-lock.yaml`; both can surface latent errors needing same-PR fixes.
+**Hypothesis:** The `@types/node` downgrade from ^25 → ^22 is the riskier move — Node 25 type defs cover newer DOM/streams/test-runner surfaces that ^22 may not, so latent type drift could surface as `tsc --noEmit` errors in services that incidentally rely on the newer types. The eslint-config-next bump is bounded — any new rule violations are fixable inline. Success criteria per plan acceptance: tsc errors ≤ 5 surfaces (decision gate 3.1) so the same PR can carry the fixes; lint errors do not extend the A127 24-error baseline (`HelpContent.tsx`); `pnpm install --frozen-lockfile` exit 0; `pnpm -r build` exit 0; `CI=1 pnpm -r test` exit 0.
+**Rollback plan:** `git revert` the Phase 3 commit; run `pnpm install` to restore the lockfile to pre-Phase-3 state. No runtime impact (these are dev/build-time deps only).
+**Duration:** target 30–60 min.
+
+**U1 / U4 resolution (decision gates — pre-flight read):**
+- **U1 (3.1 decision gate):** No tsc-error count yet. The downgrade is from ^25 to ^22 — exactly the gap addressed by `web-next` previously, which already pins ^22 cleanly. core-api + voice-capture have been buildable on ^22 historically (Node 22 LTS is the runtime per CLAUDE.md). Expectation: ≤ 5 surfaces, but log every error in this entry once `tsc --noEmit` runs.
+- **U4 (3.3 decision gate):** A127 baseline is 24 `react/no-unescaped-entities` errors in `HelpContent.tsx`, fixed via PR #179 (`cf71345`). After PR #179 merged, the baseline should be 0 unless the eslint-config-next ^15 → ^16 bump introduces new rules. If new rules appear, fix inline in same PR; do not extend the baseline.
+
+**Pre-flight verification (read-only investigation):**
+- Confirmed package.json line numbers per plan: `packages/core-api/package.json:46` declares `"@types/node": "^25.3.5"`; `packages/voice-capture/package.json:29` declares `"@types/node": "^25.3.5"`; `packages/web-next/package.json:30` is the ^22.0.0 baseline; `packages/web-next/package.json:36` declares `"eslint-config-next": "^15.0.0"`; `packages/web-next/package.json:19` declares `"next": "^16.2.4"` (eslint-config-next is one major behind).
+- `packages/workers`, `packages/shared`, `packages/slack-bot`, `packages/mobile` do not declare `@types/node` directly; they inherit through `pnpm` hoisting from a workspace devDependency or via transitive resolution. Phase 3 scope per plan acceptance is limited to the two packages above + web-next; do not touch the rest.
+
+**Execution log:**
+- Branch `chore/types-node-22-pin` created off `main` at `d1d186f`.
+- 3.1+3.2 edits: `packages/core-api/package.json:46` and `packages/voice-capture/package.json:29` both changed `"@types/node": "^25.3.5"` → `"@types/node": "^22.0.0"` (matching `packages/web-next/package.json:30` baseline).
+- `corepack enable` + `pnpm@9.15.0` activated (corepack-managed; `pnpm` was not on the VM PATH on first invocation — corepack needed enabling, then `~/.nvm/versions/node/v22.16.0/bin` added to PATH for the session).
+- `pnpm install` exit 0 — `pnpm-lock.yaml` regenerated (175-line diff). Mobile peer-dep warnings are pre-existing baseline (per Entry 131): `expo-router 6.0.23` unmet peer `@expo/metro-runtime@^6.1.2 / expo-linking@^8.0.11`; `@types/react-dom 19.2.3` unmet peer `@types/react@^19.2.0`. None introduced by this change.
+- First `pnpm -r exec tsc --noEmit` surfaced 6 errors, all `Cannot find module '@open-brain/shared'` from `packages/voice-capture/src/{server,services/*}.ts`. Root cause: `pnpm install` cleared `packages/shared/dist/`, so the workspace `@open-brain/shared` import couldn't resolve. Pattern documented in MEMORY.md: "always rebuild @open-brain/shared before running tsc on dependent packages." Built shared via `pnpm --filter @open-brain/shared build` — exited 0, ESM `162.19 KB` + DTS `298.91 KB`.
+- **Decision gate 3.1 (U1 resolution):** Re-ran `pnpm -r exec tsc --noEmit` after shared rebuild — **exit 0, zero type errors across all packages**. Far below the plan's 5-error escalation threshold; proceed with 3.2 in same PR.
+- 3.3 attempt: `packages/web-next/package.json:36` edited from `"eslint-config-next": "^15.0.0"` → `"^16.2.4"` to match `next: ^16.2.4`. `pnpm install` reported peer warning: `eslint-config-next 16.2.5` requires `eslint>=9.0.0`, found `8.57.1`. Install proceeded but warning was structural.
+- `pnpm --filter @open-brain/web-next lint` crashed with `TypeError: Converting circular structure to JSON` from `@eslint/eslintrc@2.1.4` — eslint-config-next 16 ships an ESLint 9 flat-config schema, and ESLint 8's legacy `.eslintrc.json` resolver creates a circular ref when materializing the config tree.
+- **Decision gate 3.3 (U4 resolution):** Bumping eslint-config-next ^15 → ^16 is gated by an ESLint 8 → 9 + flat-config migration that is well outside Phase 3's S–M scope. Reverted `packages/web-next/package.json:36` to `^15.0.0`. Re-ran `pnpm install` (exit 0) + `pnpm --filter @open-brain/web-next lint` (exit 0, zero errors — A127 baseline of 24 errors in `HelpContent.tsx` remained 0 post PR #179). **3.3 escalated to a separate plan/PR** ("ESLint 9 + flat-config migration"); same pattern as the plan's 3.1 escalation rule. Tracked as A130 in OPEN_ITEMS.md (to be added by the cleanup commit).
+- 3.4 verification:
+  - `pnpm install --frozen-lockfile` exit 0 (lockfile up to date; CI parity confirmed).
+  - `pnpm -r build` exit 0 across all 5 TS packages (shared ESM 162.19 KB / DTS 298.91 KB; voice-capture, slack-bot, workers, core-api all green; longest DTS build 17.35 s on core-api).
+  - `CI=1 pnpm -r test` exit 0. core-api alone reports 67 test files / 1163 tests passed in 114.67 s. All other packages green per recursive exit propagation.
+  - `pnpm --filter @open-brain/web-next lint` exit 0 (zero errors — A127 baseline preserved at 0 post PR #179).
+
+**Outcome — Phase 3 ships partial:** 3.1, 3.2, 3.4 complete in this PR; 3.3 (eslint-config-next ^16) escalated to a separate plan/PR (A130 — "ESLint 9 + flat-config migration"). Same-PR scope: `packages/core-api/package.json:46` + `packages/voice-capture/package.json:29` aligned to `^22.0.0`; lockfile regenerated; full DoD green (frozen-lockfile, tsc, build, test, lint).
+
+**Decision Log:**
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-Phase3-1 | Pin `@types/node` to `^22.0.0` in core-api + voice-capture (matching web-next baseline) | Aligns dev type defs with Node 22 LTS runtime; eliminates spurious type drift between packages; surfaced zero tsc errors. |
+| D-Phase3-2 | Defer `eslint-config-next ^16.2.4` to a separate plan/PR (A130) | The bump implicitly requires ESLint 8 → 9 + flat-config migration; loading the v16 config under ESLint 8 hits a circular-JSON crash. Out of Phase 3's S–M scope; same escalation pattern as 3.1's >5-error rule. |
+| D-Phase3-3 | Use `CI=1 pnpm -r test` on this VM (not plain `pnpm -r test`) | Per Entry 132: at least one package's test command is watch-mode-sensitive outside CI; CI=1 makes vitest force-exit on completion (matches GitHub Actions). |
