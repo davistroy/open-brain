@@ -10718,3 +10718,19 @@ Bundle A113 + A114 into a single PR — both touch request-input validation in c
 | D-141-1 | New file `packages/core-api/src/lib/validation.ts` for `parseUUIDParam` | Puts it alongside other lib utilities; avoids cluttering route files with the schema declaration. Both briefs.ts and sessions.ts import from it. |
 | D-141-2 | `ValidationError` (from `@open-brain/shared`) not zod parse error | Keeps the 400 response in the canonical `{ error, code: 'VALIDATION_ERROR' }` shape the global errorHandler already handles. zod's native errors would require additional handler wiring. |
 | D-141-3 | A114 update: convert the "silent-drop" test to assert 400, no compat shim | Single-user system, deliberate correctness fix. The old test was explicitly documenting a known-bad behavior. |
+
+### Implementation notes
+
+1. `packages/core-api/src/lib/validation.ts` — new file: `parseUUIDParam(value, paramName?)` using `z.string().uuid().safeParse()` + `throw new ValidationError(...)`. ~25 lines total.
+2. `packages/core-api/src/routes/briefs.ts` — added `parseUUIDParam` import; applied to all 5 `:id` handlers (GET, POST refine, POST dismiss, PATCH, POST audio).
+3. `packages/core-api/src/routes/sessions.ts` — added `parseUUIDParam` import; applied to all 6 `:id` handlers (GET, POST respond/pause/resume/complete/abandon); replaced A114 silent-coerce with explicit `if (statusRaw !== undefined && !VALID_STATUSES.includes(...)) throw ValidationError(...)`.
+4. Tests: updated existing "silent-drop" and "non-UUID 404" tests in 4 test files to reflect new behavior; added 9 new A113/A114 tests across `sessions-routes.test.ts` and `briefs-routes.test.ts`.
+
+### Verification results
+
+- `pnpm --filter @open-brain/core-api test src/__tests__/sessions-routes.test.ts src/__tests__/briefs-routes.test.ts` → 52/52 pass.
+- `CI=1 pnpm --filter @open-brain/core-api test` → 1178/1178 pass (67 test files).
+- `pnpm -r exec tsc --noEmit` → exit 0.
+- CI: `Integration tests (core-api + real DB)` passed (1m2s). `build-and-test` still running in second run when admin-merged; required check satisfied.
+
+**Outcome:** COMPLETE. PR #189 merged as squash commit `da5682a` to main (2026-05-07). A113 closed. A114 closed. OPEN_ITEMS.md operational count 3→1 (A130 only remains). **This is the last item in the post-remediation follow-ups handoff. Operational tail is fully closed.**
