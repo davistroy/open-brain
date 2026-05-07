@@ -68,8 +68,8 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 
 | ID | Description | Class | Trigger to address |
 |---|---|---|---|
-| A113 | UUID validation on briefs/sessions `:id` path param | Operational | Future scope |
-| A114 | `sessions` `status_filter` silently dropped instead of 400-rejected | Operational | Future scope |
+| ~~A113~~ | ~~UUID validation on briefs/sessions `:id` path param~~ | ~~Operational~~ | Closed via PR #189 (2026-05-07) |
+| ~~A114~~ | ~~`sessions` `status_filter` silently dropped instead of 400-rejected~~ | ~~Operational~~ | Closed via PR #189 (2026-05-07) |
 | A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
 | A130 | `eslint-config-next` ^15 → ^16 bump (post-remediation Phase 3.3) implicitly requires ESLint 8 → 9 + flat-config migration. v16 config under ESLint 8 hits circular-JSON crash in `@eslint/eslintrc`. Reverted in PR #182; needs its own plan covering `eslint`, `eslint-config-next`, `.eslintrc.json` → `eslint.config.{js,mjs}` migration, plugin compat audit, and any new lint rules surfaced by the v16 ruleset | Operational | Separate plan/PR — "ESLint 9 + flat-config migration" |
 | A116 | Vitest 2.x bump for per-file glob threshold support | Pre-existing baseline | See post-remediation Phase 5 (deferred) |
@@ -77,7 +77,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
 | A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | Pre-existing baseline | Separate PR |
 
-**Operational items (3):** A113, A114, A130 — real follow-ups that should land in future plans. (A110 + A111 closed via PR #188 / `chore/a110-a111-settings-hardening`.)
+**Operational items (1):** A130 — ESLint 9 + flat-config migration (its own plan). (A113 + A114 closed via PR #189 / `chore/a113-a114-validation-hardening`; A110 + A111 closed via PR #188 / `chore/a110-a111-settings-hardening`.)
 **Pre-existing baselines (5):** A128, A116, A117, A106, A120 — long-term debt; do not bundle into operational work. (A125 closed via this PR; A127 closed via PR #179; A126 closed via Phase 8b.)
 
 ---

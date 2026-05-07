@@ -6,6 +6,7 @@ import type { BriefsService } from '../services/briefs.js'
 import { AppError, ServiceUnavailableError, logger } from '@open-brain/shared'
 import { BriefKindSchema, ai_audit_log } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
+import { parseUUIDParam } from '../lib/validation.js'
 
 // ---------------------------------------------------------------------------
 // Query / body schemas
@@ -124,7 +125,7 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // GET /api/v1/briefs/:id
   // -------------------------------------------------------------------------
   app.get('/api/v1/briefs/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const brief = await briefsService.getById(id)
     return c.json({ brief })
   })
@@ -134,7 +135,7 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // Strict rate-limit is applied in app.ts BEFORE the default /api/v1/* limiter.
   // -------------------------------------------------------------------------
   app.post('/api/v1/briefs/:id/refine', zValidator('json', refineBriefSchema), async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const body = c.req.valid('json')
     const result = await briefsService.refine(id, body.option)
     return c.json(result, 202)
@@ -144,7 +145,7 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // POST /api/v1/briefs/:id/dismiss  — 204 No Content
   // -------------------------------------------------------------------------
   app.post('/api/v1/briefs/:id/dismiss', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     await briefsService.dismiss(id)
     return c.body(null, 204)
   })
@@ -153,7 +154,7 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
   // PATCH /api/v1/briefs/:id  — read/unread toggle
   // -------------------------------------------------------------------------
   app.patch('/api/v1/briefs/:id', zValidator('json', patchBriefSchema), async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const body = c.req.valid('json')
     const brief = await briefsService.patchRead(id, body.read)
     return c.json({ brief })
@@ -180,7 +181,7 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
     }
 
     const { db, redis, openaiBaseUrl, openaiApiKey } = ttsDeps
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const { voice } = c.req.valid('query')
 
     // Step 1: fetch brief — NotFoundError propagates to global errorHandler

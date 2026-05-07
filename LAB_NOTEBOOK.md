@@ -10686,3 +10686,35 @@ Existing test at line 120 of `settings-routes.test.ts` explicitly documents the 
 - CI: `Integration tests (core-api + real DB)` passed on both runs (1m5s); all required checks green.
 
 **Outcome:** COMPLETE. PR #188 merged as squash commit `46227a7` to main (2026-05-07). A110 closed. A111 closed. OPEN_ITEMS.md operational count 5→3.
+
+---
+
+### Entry 141 — A113+A114: UUID path-param validation + sessions status_filter 400 [api] [testing]
+
+**Date:** 2026-05-07
+**Environment:** open-brain-vm, branch `chore/a113-a114-validation-hardening`
+**Tags:** `[api]` `[testing]`
+
+### Objective
+
+Bundle A113 + A114 into a single PR — both touch request-input validation in core-api routes:
+- **A113:** Malformed UUIDs on `:id` path params in `/api/v1/briefs/:id` (5 endpoints) and `/api/v1/sessions/:id` (6 endpoints) reach the DB and return opaque 500s. Fix: validate at the route boundary with `z.string().uuid()`, throw `ValidationError` (400) on failure.
+- **A114:** `GET /api/v1/sessions?status_filter=<invalid>` silently drops the filter and returns unfiltered results instead of 400. This is a footgun (typos produce silently wrong results). Fix: throw `ValidationError` when `statusRaw` is provided but not in `VALID_STATUSES`.
+
+### Hypothesis
+
+- A113: Adding `parseUUIDParam()` helper in `packages/core-api/src/lib/validation.ts` and calling it at the start of each `:id` handler changes the response from 500 (DB error) to 400 (VALIDATION_ERROR). All valid-UUID paths unchanged. Helper is ~8 lines; keeps both route files clean.
+- A114: Replacing the silent-coerce pattern with an explicit throw changes the response from 200 (wrong results) to 400 (VALIDATION_ERROR) for invalid values. This is technically a breaking change — callers passing a typo now get an error instead of all records. On this single-user system, that's strictly better behavior.
+- Existing test in `sessions-routes.test.ts` line 148 explicitly asserts the old silent-drop behavior — it must be updated to assert 400. The test comment even says "drops ... silently (passes undefined)" — that exact semantics is what we're removing.
+
+### Rollback plan
+
+`git revert` the squash commit + `git push origin main` — no schema changes, no migration. Both changes are pure validation logic in route handlers.
+
+### Decision Log
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-141-1 | New file `packages/core-api/src/lib/validation.ts` for `parseUUIDParam` | Puts it alongside other lib utilities; avoids cluttering route files with the schema declaration. Both briefs.ts and sessions.ts import from it. |
+| D-141-2 | `ValidationError` (from `@open-brain/shared`) not zod parse error | Keeps the 400 response in the canonical `{ error, code: 'VALIDATION_ERROR' }` shape the global errorHandler already handles. zod's native errors would require additional handler wiring. |
+| D-141-3 | A114 update: convert the "silent-drop" test to assert 400, no compat shim | Single-user system, deliberate correctness fix. The old test was explicitly documenting a known-bad behavior. |

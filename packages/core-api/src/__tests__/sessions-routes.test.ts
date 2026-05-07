@@ -145,12 +145,15 @@ describe('GET /api/v1/sessions — VALID_STATUSES filter sanitization', () => {
     },
   )
 
-  it('drops invalid status_filter="cancelled" silently (passes undefined)', async () => {
+  it('rejects invalid status_filter="cancelled" with 400 VALIDATION_ERROR (A114)', async () => {
     const res = await env.app.request('/api/v1/sessions?status_filter=cancelled', {
       headers: DEFAULT_HEADERS,
     })
-    expect(res.status).toBe(200)
-    expect(env.sessionService.list).toHaveBeenCalledWith(undefined, 20, 0)
+    expect(res.status).toBe(400)
+    const body = await res.json() as { code: string; error: string }
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('status_filter must be one of')
+    expect(env.sessionService.list).not.toHaveBeenCalled()
   })
 
   it('caps limit at 100 and applies offset', async () => {
@@ -182,11 +185,12 @@ describe('GET /api/v1/sessions/:id', () => {
 
   it('returns 404 + NotFoundError code when session not found', async () => {
     const { app, sessionService } = buildApp()
+    const missingId = '99999999-9999-9999-9999-999999999999'
     sessionService.getWithTranscript.mockRejectedValue(
-      new NotFoundError('Session not found: nonexistent'),
+      new NotFoundError(`Session not found: ${missingId}`),
     )
 
-    const { status, body } = await testJson(app, '/api/v1/sessions/nonexistent')
+    const { status, body } = await testJson(app, `/api/v1/sessions/${missingId}`)
     expect(status).toBe(404)
     expect((body as { code: string }).code).toBe('NOT_FOUND')
   })
@@ -341,5 +345,51 @@ describe('POST /api/v1/sessions/:id/respond — message validation', () => {
     expect(status).toBe(400)
     expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
     expect(sessionService.respond).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A113 — UUID path-param validation on sessions /:id endpoints
+// ---------------------------------------------------------------------------
+
+describe('A113 — UUID validation on sessions /:id path params', () => {
+  it('GET /api/v1/sessions/:id rejects non-UUID with 400 VALIDATION_ERROR', async () => {
+    const { app, sessionService } = buildApp()
+    const { status, body } = await testJson(app, '/api/v1/sessions/not-a-uuid')
+    expect(status).toBe(400)
+    expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+    expect((body as { error: string }).error).toContain('must be a valid UUID')
+    expect(sessionService.getWithTranscript).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/v1/sessions/:id/pause rejects non-UUID with 400 VALIDATION_ERROR', async () => {
+    const { app, sessionService } = buildApp()
+    const { status, body } = await testJson(app, '/api/v1/sessions/bad-id/pause', {
+      method: 'POST',
+    })
+    expect(status).toBe(400)
+    expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+    expect(sessionService.pause).not.toHaveBeenCalled()
+  })
+
+  it('POST /api/v1/sessions/:id/abandon rejects non-UUID with 400 VALIDATION_ERROR', async () => {
+    const { app, sessionService } = buildApp()
+    const { status, body } = await testJson(app, '/api/v1/sessions/12345/abandon', {
+      method: 'POST',
+    })
+    expect(status).toBe(400)
+    expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+    expect(sessionService.abandon).not.toHaveBeenCalled()
+  })
+
+  it('GET /api/v1/sessions/:id with valid UUID proceeds to service call', async () => {
+    const { app, sessionService } = buildApp()
+    sessionService.getWithTranscript.mockResolvedValue({
+      ...makeSession(),
+      transcript: [],
+    })
+    const { status } = await testJson(app, `/api/v1/sessions/${SESSION_ID}`)
+    expect(status).toBe(200)
+    expect(sessionService.getWithTranscript).toHaveBeenCalledWith(SESSION_ID)
   })
 })
