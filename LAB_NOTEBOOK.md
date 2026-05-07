@@ -10549,3 +10549,47 @@ Workers integration tests run against `docker-compose.test.yml`.
 | D-137-2 | Do not change `ENTITY_BRIEF_TASK = 'search_synthesis'` | Decision D116 explicitly retained that key as intentional reuse; A71 scope is memory-consolidation only. |
 
 **Outcome:** COMPLETE. PR #185 merged as squash commit `9a9303a` to main (2026-05-07). All CI checks green (Integration tests, build-and-test, Python checks, Validate init-schema.sql, GitGuardian, Doc version sync). Workers unit tests: 51 files / 1021 passed. tsc: exit 0. Core-api unit tests: 67 files / 1163 passed. A71 closed; OPEN_ITEMS.md operational count 8→7.
+
+---
+
+### Entry 138 — A107: remove duplicate strictLimiter registration on /api/v1/captures [api] [config] [testing] [decision]
+**Date:** 2026-05-07
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), branch `chore/a107-strict-limiter-dedup` off `main` at `feb3cdd`.
+**Objective:** Close A107 — confirm and fix the double-registration of `rateLimit(strictLimiter, mobileLimiter)` on `/api/v1/captures` in `packages/core-api/src/app.ts` (lines 130 + 131), add a unit test asserting the middleware fires exactly once per sub-path request, update OPEN_ITEMS.md.
+**Hypothesis:** Both registrations fire on bare-path requests (`POST/GET /api/v1/captures`), halving the effective rate-limit budget for those callers. On sub-paths (`GET /api/v1/captures/:id`), only the `*` form fires. Removing the bare-path form and keeping `*`-only will cover all paths exactly once. Success: new unit test passes; `GET /api/v1/captures/:id` decrements strict limiter exactly once; full core-api suite exits 0; tsc exits 0.
+**Rollback plan:** `git revert` the PR squash commit. No data migration, no infrastructure change.
+
+**Hono routing investigation (empirical — run 2026-05-07):**
+
+Wrote a `node -e` test against Hono v4.12.5 (`node_modules/.pnpm/hono@4.12.5/`) mounting two middleware handlers:
+- `app.use('/api/v1/captures', ...)` — bare path form
+- `app.use('/api/v1/captures/*', ...)` — star form
+
+Results per request target:
+| Request | bare fires | star fires | total hits |
+|---------|-----------|-----------|------------|
+| `POST /api/v1/captures` | 1 | 1 | **2** (bug) |
+| `GET /api/v1/captures` | 1 | 1 | **2** (bug) |
+| `GET /api/v1/captures/:id` | 0 | 1 | 1 (ok) |
+| `GET /api/v1/captures/` | 0 | 1 | 1 (ok) |
+
+Key insight: **Hono's `*` wildcard matches the bare path as well as sub-paths** (`/api/v1/captures/*` matches `/api/v1/captures` with empty suffix). This is the opposite of Express behavior where `*` requires at least one character. The `*` form is therefore the complete superset — the bare form is the pure duplicate.
+
+Verified that `*`-only covers all request types exactly once (follow-up test confirmed: all three request shapes → 1 hit each).
+
+**Scope expansion — same bug in `requireMobileAuthIfMobileCaller` registrations:**
+
+Lines 156–157 in `app.ts` have the identical pattern:
+```
+app.use('/api/v1/captures', requireMobileAuthIfMobileCaller)
+app.use('/api/v1/captures/*', requireMobileAuthIfMobileCaller)
+```
+Same empirical result: bare-path requests double-fire. Fixed in the same PR since it's the same structural bug in the same file, introduced at the same time (Phase 6 R8). The `briefs` and `commitments` pairs at lines 159–160 and 161–162 have the same pattern — fixing all of them while in the file.
+
+**Decision Log:**
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-138-1 | Keep `*`-only form, remove bare-path form | `*` is a superset in Hono v4 — covers bare path + sub-paths. Removing the bare form eliminates double-fire on bare-path requests without losing any coverage. |
+| D-138-2 | Fix `requireMobileAuthIfMobileCaller` duplicates in same PR | Same structural bug, same file, same root cause. Fixing in isolation would leave an identical double-fire bug on mobile auth. A107 scoped to strictLimiter but both share the same fix pattern. |
+| D-138-3 | Unit test via isolated Hono app (not createApp bootstrap) | Rate-limit middleware is already tested in isolation in `rate-limit.test.ts`. Extending that file with a targeted sub-path test is least invasive and fastest. No need for full `createApp()` since the bug is in the middleware registration pattern, not in the middleware logic itself. |

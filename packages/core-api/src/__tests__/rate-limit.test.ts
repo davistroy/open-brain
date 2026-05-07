@@ -306,6 +306,71 @@ describe('rateLimit middleware', () => {
   })
 })
 
+describe('rateLimit middleware — no double-registration on /api/v1/captures (A107)', () => {
+  // Regression guard: Hono v4 /* wildcard matches the bare path as well as sub-paths.
+  // A duplicate bare-path registration fires middleware twice on bare-path requests,
+  // halving the effective rate-limit budget.  This test catches that regression.
+  //
+  // Method: mount the middleware ONLY via the /* form (as app.ts does post-fix),
+  // verify it fires exactly once for both bare-path and sub-path requests.
+  // If the old dual-registration were re-introduced, bare-path requests would
+  // decrement the limiter by 2 (Remaining drops from maxRequests-1 to maxRequests-2
+  // on the first request) and the header assertions below would fail.
+
+  it('/* registration fires exactly once for GET /api/v1/captures (bare path)', async () => {
+    const limiter = new RateLimiter({ maxRequests: 5, windowMs: 60_000 })
+    const app = new Hono()
+    app.use('/api/v1/captures/*', rateLimit(limiter))
+    app.get('/api/v1/captures', (c) => c.json({ ok: true }))
+
+    try {
+      const res = await app.request(new Request('http://localhost/api/v1/captures'))
+      expect(res.status).toBe(200)
+      // Exactly one decrement: 5 - 1 = 4 remaining
+      expect(res.headers.get('X-RateLimit-Remaining')).toBe('4')
+    } finally {
+      limiter.dispose()
+    }
+  })
+
+  it('/* registration fires exactly once for GET /api/v1/captures/:id (sub-path)', async () => {
+    const limiter = new RateLimiter({ maxRequests: 5, windowMs: 60_000 })
+    const app = new Hono()
+    app.use('/api/v1/captures/*', rateLimit(limiter))
+    app.get('/api/v1/captures/:id', (c) => c.json({ ok: true }))
+
+    try {
+      const res = await app.request(
+        new Request('http://localhost/api/v1/captures/550e8400-e29b-41d4-a716-446655440000'),
+      )
+      expect(res.status).toBe(200)
+      // Exactly one decrement: 5 - 1 = 4 remaining
+      expect(res.headers.get('X-RateLimit-Remaining')).toBe('4')
+    } finally {
+      limiter.dispose()
+    }
+  })
+
+  it('dual-registration would decrement twice on bare path (documents the pre-fix bug)', async () => {
+    // This test intentionally uses the OLD pattern (both bare + star) to document
+    // what the bug looked like.  Bare-path request decrements by 2, not 1.
+    const limiter = new RateLimiter({ maxRequests: 5, windowMs: 60_000 })
+    const app = new Hono()
+    app.use('/api/v1/captures', rateLimit(limiter)) // bare — OLD duplicate
+    app.use('/api/v1/captures/*', rateLimit(limiter)) // star — kept form
+    app.get('/api/v1/captures', (c) => c.json({ ok: true }))
+
+    try {
+      const res = await app.request(new Request('http://localhost/api/v1/captures'))
+      expect(res.status).toBe(200)
+      // Both middleware fire: 5 - 2 = 3 (double-decrement exposes the bug)
+      expect(res.headers.get('X-RateLimit-Remaining')).toBe('3')
+    } finally {
+      limiter.dispose()
+    }
+  })
+})
+
 describe('isInternalIp predicate', () => {
   it.each([
     ['127.0.0.1', true],
