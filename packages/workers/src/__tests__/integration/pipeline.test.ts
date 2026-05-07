@@ -140,9 +140,9 @@ describe('Pipeline Flow', () => {
     const flowArg = flowProducer.add.mock.calls[0][0]
     expect(flowArg.name).toBe('ingest-root')
     expect(flowArg.data.captureId).toBe(captureId)
-    expect(flowArg.children).toHaveLength(2)
+    expect(flowArg.children).toHaveLength(3)
     const childQueues = flowArg.children.map((c: any) => c.queueName).sort()
-    expect(childQueues).toEqual(['embed-capture', 'extract-entities'])
+    expect(childQueues).toEqual(['embed-capture', 'extract-commitments', 'extract-entities'])
   })
 
   it('processes embed stage independently and advances to complete', async () => {
