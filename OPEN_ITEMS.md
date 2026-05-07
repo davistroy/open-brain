@@ -74,7 +74,6 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A111 | `email_allowlist` has no array validator in `SETTINGS_VALIDATORS` | Operational | With A110 |
 | A113 | UUID validation on briefs/sessions `:id` path param | Operational | Future scope |
 | A114 | `sessions` `status_filter` silently dropped instead of 400-rejected | Operational | Future scope |
-| A125 | `init-schema.sql` missing migration 0025 CHECK constraints (parity audit) | Operational | Schema parity sweep |
 | A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
 | A129 | Root `pnpm test:integration` script is not Windows-safe; PowerShell/pnpm parsed `test:integration;` as a script name, so use explicit compose up → package test → compose down sequence locally | Operational | Cross-platform script cleanup PR |
 | A130 | `eslint-config-next` ^15 → ^16 bump (post-remediation Phase 3.3) implicitly requires ESLint 8 → 9 + flat-config migration. v16 config under ESLint 8 hits circular-JSON crash in `@eslint/eslintrc`. Reverted in PR #182; needs its own plan covering `eslint`, `eslint-config-next`, `.eslintrc.json` → `eslint.config.{js,mjs}` migration, plugin compat audit, and any new lint rules surfaced by the v16 ruleset | Operational | Separate plan/PR — "ESLint 9 + flat-config migration" |
@@ -83,8 +82,8 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
 | A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | Pre-existing baseline | Separate PR |
 
-**Operational items (9):** A71, A107, A110, A111, A113, A114, A125 (partial closure), A129, A130 — real follow-ups that should land in future plans.
-**Pre-existing baselines (5):** A128, A116, A117, A106, A120 — long-term debt; do not bundle into operational work. (A127 closed via PR #179; A126 closed via Phase 8b.)
+**Operational items (8):** A71, A107, A110, A111, A113, A114, A129, A130 — real follow-ups that should land in future plans.
+**Pre-existing baselines (5):** A128, A116, A117, A106, A120 — long-term debt; do not bundle into operational work. (A125 closed via this PR; A127 closed via PR #179; A126 closed via Phase 8b.)
 
 ---
 
@@ -106,7 +105,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | Risk | Detail |
 |---|---|
 | **A71 (memory-consolidation task key)** | Standalone — Phase 2 (PR #181) shipped without adding an F-ID for memory-consolidation; A71 remains an independent ~1 hr config edit. |
-| **A125 partial closure ↔ workers integration tests** | PR #178 (2026-05-06) added migration 0025 CHECKs to `init-schema.sql` but did not add `capture_associations` (migration 0011). Phase 4 (PR #183) bridged this with a `setup.ts` supplement carrying an explicit removal comment. Full A125 closure should patch `init-schema.sql` directly so the supplement can be removed. |
+| **A125 CLOSED ↔ workers integration tests** | `capture_associations` (migration 0011) added to `init-schema.sql` and `setup.ts` supplement removed. See PR #184 (2026-05-07). |
 | **A128 (TanStack Query hooks extraction) ↔ A130 (ESLint 9 + flat-config migration)** | Both touch the web-next package. A130 migrates lint config; A128 restructures hooks. Sequence A130 first if both pick up — flat-config rules may surface lint errors that A128's restructure should respect. |
 | **P23 (cognitive memory tuning) ↔ A107 (strictLimiter double-reg)** | P23 measures live search behavior; A107 affects rate-limit effective budget — fix A107 before P23 starts to keep measurement clean. |
 
