@@ -10628,3 +10628,11 @@ Same empirical result: bare-path requests double-fire. Fixed in the same PR sinc
 | D-139-1 | Node ESM `spawnSync` + try/finally in `scripts/test-integration.mjs` | Shell-agnostic, no new deps, explicit teardown semantics, aligns with Node 22 project standard |
 | D-139-2 | `shell: false` in spawnSync options | Eliminates per-platform shell-quoting variations; `pnpm` and `docker` are on PATH everywhere |
 | D-139-3 | Keep workers integration test out of root script | Workers integration step runs in CI's existing job; root script only covers core-api (matching the original intent of the broken script) |
+
+**Verification results:**
+- Happy path: `pnpm run test:integration` → exit 0; 7 files / 126 tests passed; compose ps empty after.
+- Failure path (deliberate `expect(1).toBe(2)`): `node scripts/test-integration.mjs` → exit 1; `pnpm run test:integration` → exit 1; containers torn down (Network removed confirmed in output).
+- `pnpm -r exec tsc --noEmit` → exit 0.
+- CI: all 16 checks green; `Integration tests (core-api + real DB)` passed in 1m1s / 1m6s across both CI runs.
+
+**Outcome:** COMPLETE. PR #187 merged as squash commit `3e7c60c` to main (2026-05-07). A129 closed. OPEN_ITEMS.md operational count 6→5. CLAUDE.md bullet updated. MEMORY.md updated.
