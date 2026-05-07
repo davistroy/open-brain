@@ -68,7 +68,6 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 
 | ID | Description | Class | Trigger to address |
 |---|---|---|---|
-| A71 | memory-consolidation task key (`'search_synthesis'` placeholder; real key `'memory_consolidation'` not in `ai-routing.yaml`) | Operational | ~1 hr filler work |
 | A107 | `strictLimiter` double-registered on `/captures` (halves effective rate-limit budget) | Operational | Phase 5 D candidate |
 | A110 | Settings `GET` has no whitelist gate — non-whitelisted key returns 404 instead of 400 | Operational | Future scope |
 | A111 | `email_allowlist` has no array validator in `SETTINGS_VALIDATORS` | Operational | With A110 |
@@ -82,7 +81,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
 | A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | Pre-existing baseline | Separate PR |
 
-**Operational items (8):** A71, A107, A110, A111, A113, A114, A129, A130 — real follow-ups that should land in future plans.
+**Operational items (7):** A107, A110, A111, A113, A114, A129, A130 — real follow-ups that should land in future plans.
 **Pre-existing baselines (5):** A128, A116, A117, A106, A120 — long-term debt; do not bundle into operational work. (A125 closed via this PR; A127 closed via PR #179; A126 closed via Phase 8b.)
 
 ---
@@ -104,7 +103,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 
 | Risk | Detail |
 |---|---|
-| **A71 (memory-consolidation task key)** | Standalone — Phase 2 (PR #181) shipped without adding an F-ID for memory-consolidation; A71 remains an independent ~1 hr config edit. |
+| **A71 CLOSED** | Closed via PR (2026-05-07) — `memory_consolidation` task key added to `ai-routing.yaml`; `memory-consolidation.ts` updated to use real key. |
 | **A125 CLOSED ↔ workers integration tests** | `capture_associations` (migration 0011) added to `init-schema.sql` and `setup.ts` supplement removed. See PR #184 (2026-05-07). |
 | **A128 (TanStack Query hooks extraction) ↔ A130 (ESLint 9 + flat-config migration)** | Both touch the web-next package. A130 migrates lint config; A128 restructures hooks. Sequence A130 first if both pick up — flat-config rules may surface lint errors that A128's restructure should respect. |
 | **P23 (cognitive memory tuning) ↔ A107 (strictLimiter double-reg)** | P23 measures live search behavior; A107 affects rate-limit effective budget — fix A107 before P23 starts to keep measurement clean. |

@@ -345,8 +345,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
 
     // Prefer LLMGatewayService (task-based tier routing with audit log)
     if (this.llmGateway) {
-      // TODO A71: rename task key to 'memory_consolidation' once ai-routing.yaml entry is added
-      const raw = await this.llmGateway.completeByTask(prompt, 'search_synthesis', {
+      const raw = await this.llmGateway.completeByTask(prompt, 'memory_consolidation', {
         temperature: 0.2,
         maxTokens: 2048,
       })

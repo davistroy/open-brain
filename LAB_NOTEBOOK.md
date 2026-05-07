@@ -10517,3 +10517,35 @@ Workers integration tests run against `docker-compose.test.yml`.
 | D-136-2 | Report 0012, 0028, 0030 as separate findings; do NOT patch in this PR | One PR per concern. 0012 is a SQL function (lower risk — function already deployed to homeserver; missing from fresh-init only). 0028/0030 are tables that Python/TS access on production but aren't tested in workers integration suite. Separating prevents scope creep. |
 
 **Outcome:** COMPLETE. PR #184 merged as squash commit `dff5127` to main (2026-05-07). Workers integration tests: 14 passed / 2 skipped, exit 0 both before and after merge. Workers unit tests: 51 files / 1021 passed. tsc: exit 0. All CI checks green (Integration tests, build-and-test, Validate init-schema.sql, Python checks, GitGuardian). Separate findings (0012 spreading_activation, 0028 lab_results, 0030 briefs missing from init-schema.sql) logged for future PRs.
+
+---
+
+### Entry 137 — A71: add memory_consolidation task_routing key to ai-routing.yaml [config] [skills] [decision]
+**Date:** 2026-05-07
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), branch `chore/a71-memory-consolidation-task-key` off `main` at `8d709c8`.
+**Objective:** Close A71 — add `memory_consolidation` task routing key to `config/ai-routing.yaml` pointing at `t1_spark`, update `packages/workers/src/skills/memory-consolidation.ts` to use the real key, remove the TODO comment, update the corresponding test assertion, and clean up all stale documentation references (CLAUDE.md placeholder bullet, OPEN_ITEMS.md A71 row, MEMORY.md stale reference).
+**Hypothesis:** The `memory-consolidation` skill is a Sunday 4 AM batch synthesis job — `t1_spark` (DGX Spark 35B, free tier, 4096-token output, 120s timeout) is appropriate and consistent with neighboring synthesis tasks (`search_synthesis`, `wiki_synthesis`, `daily_sweep`, etc.). Changing the task key is a one-line routing change with no behavioral difference — both `search_synthesis` and `memory_consolidation` route to `t1_spark`. Success: workers test on the changed file exits 0; full workers suite exits 0; `tsc --noEmit` exits 0.
+**Rollback plan:** `git revert` the PR squash commit. No runtime impact beyond restoring the `search_synthesis` routing (both keys target `t1_spark`). No data migration.
+
+**Cost-field verification:** `t1_spark` at `config/ai-routing.yaml` lines 106–119 declares `cost_per_1k_input: 0` and `cost_per_1k_output: 0` (explicit zeros, canonical per CLAUDE.md). No tier-side edits needed.
+
+**Uncontroversial call sites (DO NOT CHANGE):**
+- `packages/workers/src/skills/entity-brief.ts` — `ENTITY_BRIEF_TASK = 'search_synthesis'` is intentional reuse (decision D116), separate from A71.
+- `packages/workers/src/__tests__/entity-brief.test.ts:497` — mirrors D116, no change.
+
+**Files changed:**
+1. `config/ai-routing.yaml` — added `memory_consolidation: t1_spark` entry in CONSTRAINT CLASS: ROUTINE TASKS block.
+2. `packages/workers/src/skills/memory-consolidation.ts` — changed `'search_synthesis'` → `'memory_consolidation'` in `completeByTask()` call; removed TODO A71 comment.
+3. `packages/workers/src/__tests__/memory-consolidation.test.ts` — updated test name and `toBe` assertion to match new key.
+4. `CLAUDE.md` — removed stale "memory-consolidation routes via 'search_synthesis' task key (A71 pending)" bullet.
+5. `OPEN_ITEMS.md` — removed A71 row; decremented operational count 8 → 7; updated cross-plan notes.
+6. `~/.claude/projects/.../memory/MEMORY.md` — removed stale A71 pending reference (if present).
+
+**Decision Log:**
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-137-1 | Route `memory_consolidation` to `t1_spark` | Batch Sunday skill, no user waiting, free tier sufficient. Matches `search_synthesis`, `wiki_synthesis`, `daily_sweep` neighbors in the same constraint class. Spark 35B handles multi-document synthesis well at 4096-token output budget. |
+| D-137-2 | Do not change `ENTITY_BRIEF_TASK = 'search_synthesis'` | Decision D116 explicitly retained that key as intentional reuse; A71 scope is memory-consolidation only. |
+
+**Outcome:** (to be filled after PR merge)
