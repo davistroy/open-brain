@@ -55,31 +55,19 @@ function resolveInitSchemaPath(): string {
   return join(__dirname, '..', '..', '..', '..', '..', 'scripts', 'init-schema.sql')
 }
 
-/** Resolve a drizzle migration SQL path relative to repo root. */
-function resolveDrizzleMigrationPath(filename: string): string {
-  return join(__dirname, '..', '..', '..', '..', '..', 'packages', 'shared', 'drizzle', filename)
-}
-
 /**
  * Apply the full schema DDL to the test database.
  * Uses a raw pg Pool (not Drizzle) so we can execute multi-statement SQL.
  *
- * init-schema.sql is the primary source (all tables up to 0031), but
- * capture_associations is absent from it (tracked as A125). Apply migration
- * 0011 as a supplement so access-stats-e2e tests can use the table.
- * Remove this supplement once A125 is resolved and init-schema.sql is patched.
+ * init-schema.sql is the single source of truth (all tables through migration 0031).
  */
 async function applySchema(connectionString: string): Promise<void> {
   const schemaPath = resolveInitSchemaPath()
   const schemaSql = readFileSync(schemaPath, 'utf8')
 
-  // A125 supplement: capture_associations (migration 0011) absent from init-schema.sql
-  const captureAssocSql = readFileSync(resolveDrizzleMigrationPath('0011_capture_associations.sql'), 'utf8')
-
   const pool = new Pool({ connectionString })
   try {
     await pool.query(schemaSql)
-    await pool.query(captureAssocSql)
   } finally {
     await pool.end()
   }
