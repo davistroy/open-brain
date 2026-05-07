@@ -8,7 +8,7 @@
 
 ## Active plans (with pending work)
 
-### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — Phases 1–2 shipped, 3–4 pending
+### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — Phases 1–3 shipped (3 partial), Phase 4 pending
 
 **Scope:** F1–F8 (Entry 106 architectural audit) + W1, W2, W3, W4, W7, S1, S3, S4, S5, W6 (Entry 107 intent review). Authored 2026-05-06.
 
@@ -16,11 +16,11 @@
 |---|---|---|---|---|
 | 1 — Quick wins (deps + perf microfixes) | 4 | S | Low | ✅ COMPLETE — PR #180 (2026-05-06) |
 | 2 — Documentation alignment (README + PRD + TDD) | 3 | M | None | ✅ COMPLETE — PR #181 (2026-05-07) |
-| 3 — Type system & lint hygiene | 4 | S–M | Med | Pending |
+| 3 — Type system & lint hygiene | 4 | S–M | Med | ⚠️ PARTIAL — PR #182 (2026-05-07): 3.1+3.2+3.4 shipped (`@types/node` ^22 pin); 3.3 escalated to A130 |
 | 4 — Workers test rigor (coverage + CI) | 5 | M | Med | Pending |
 | 5 — Vitest 2.x migration | — | L | **DEFERRED** to its own plan | Deferred |
 
-**Total:** 9 work items pending across Phases 3–4 (was 16; 7 shipped). Phase 3 (`@types/node` realignment with tsc-error decision gate) is the recommended next slice. Lab notebook references: Entry 131 (Phase 1 scope), Entry 132 (Phase 1 CI fix), Entry 133 (Phase 2).
+**Total:** 5 work items pending in Phase 4 + 1 escalation (A130). Lab notebook references: Entry 131 (Phase 1 scope), Entry 132 (Phase 1 CI fix), Entry 133 (Phase 2), Entry 134 (Phase 3).
 
 ---
 
@@ -92,6 +92,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A127 | 24 `react/no-unescaped-entities` lint errors in `HelpContent.tsx` | Pre-existing baseline | Targeted cleanup PR |
 | A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
 | A129 | Root `pnpm test:integration` script is not Windows-safe; PowerShell/pnpm parsed `test:integration;` as a script name, so use explicit compose up → package test → compose down sequence locally | Operational | Cross-platform script cleanup PR |
+| A130 | `eslint-config-next` ^15 → ^16 bump (post-remediation Phase 3.3) implicitly requires ESLint 8 → 9 + flat-config migration. v16 config under ESLint 8 hits circular-JSON crash in `@eslint/eslintrc`. Reverted in PR #182; needs its own plan covering `eslint`, `eslint-config-next`, `.eslintrc.json` → `eslint.config.{js,mjs}` migration, plugin compat audit, and any new lint rules surfaced by the v16 ruleset | Operational | Separate plan/PR — "ESLint 9 + flat-config migration" |
 | A116 | Vitest 2.x bump for per-file glob threshold support | Pre-existing baseline | See post-remediation Phase 5 (deferred) |
 | A117 | SSE `onAbort` / post-promise cleanup branches unreachable | Pre-existing baseline | Excluded via `/* v8 ignore */` |
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
