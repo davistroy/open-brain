@@ -154,7 +154,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 
 **Testing / CI**
 - Integration tests: `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts` (not `npx`; filename word order matters).
-- **Windows local integration runner:** root `pnpm test:integration` is not reliable on PowerShell as of 2026-05-06; pnpm parsed `test:integration;` as a script name and exited 0 before tests ran. Use explicit sequence locally: `docker compose -f docker-compose.test.yml up -d --wait; pnpm --filter @open-brain/core-api test:integration; docker compose -f docker-compose.test.yml down -v`. Tracked as A129 for cross-platform script cleanup.
+- **Root `pnpm test:integration`** runs `node scripts/test-integration.mjs` — cross-platform compose-up → core-api integration tests → compose-down with try/finally tear-down (A129, 2026-05-07). Works on bash and PowerShell. Containers are torn down even on test failure. Direct invocation `node scripts/test-integration.mjs` also works and propagates test exit code faithfully.
 - All test HTTP helpers send `X-Open-Brain-Caller: integration-test` header — rate limiter bypasses this key. Without it, strict tier (20 req/min) exhausts.
 - **Vitest `pool: 'forks'` requires both `minForks: 1` + `maxForks: N`** on vitest 1.6 (single-arg trips Tinypool `RangeError`). Applied in core-api + workers configs with `hookTimeout/testTimeout: 30_000` — avoids Windows ioredis/bullmq races.
 - Mock external service calls in tests (Pushgateway, Prometheus) — `pushMetrics()` hits `http://pushgateway:9091` which hangs on DNS in tests (5s). Always `vi.mock('../lib/push-metrics.js', ...)`.

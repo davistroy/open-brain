@@ -10595,3 +10595,36 @@ Same empirical result: bare-path requests double-fire. Fixed in the same PR sinc
 | D-138-3 | Unit test via isolated Hono app (not createApp bootstrap) | Rate-limit middleware is already tested in isolation in `rate-limit.test.ts`. Extending that file with a targeted sub-path test is least invasive and fastest. No need for full `createApp()` since the bug is in the middleware registration pattern, not in the middleware logic itself. |
 
 **Outcome:** COMPLETE. PR #186 merged as squash commit `fe3419c` to main (2026-05-07). All required CI gate `Integration tests (core-api + real DB)` passed (SUCCESS, completed 2026-05-07T19:22:54Z). Core-api unit tests: 67 files / 1163 passed. tsc: exit 0. All CI checks green (integration tests, build-and-test, Python lint, sidecar tests, init-schema validation, doc sync, GitGuardian). A107 closed; `*`-only forms confirmed to cover all path patterns exactly once. Scope expansion (briefs, commitments, mobile auth duplicates) fixed in same PR.
+
+---
+
+### Entry 139 — A129: cross-platform `pnpm test:integration` via node ESM script [testing] [config] [decision]
+**Date:** 2026-05-07
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), branch `chore/a129-test-integration-cross-platform` off `main` at `5230bec`.
+**Objective:** Close A129 — fix root `package.json test:integration` so it works on both bash and PowerShell. Current script uses `;` as a statement separator which PowerShell parses as part of a script name, causing pnpm to exit 0 before any tests run.
+**Hypothesis:** Replacing the shell-script one-liner with a Node.js ESM runner (`scripts/test-integration.mjs`) using `spawnSync` + try/finally eliminates the shell-escaping problem entirely and guarantees `docker compose down -v` runs even if tests crash. Success criteria: `pnpm test:integration` exits with the underlying test exit code; compose services are torn down after both success and failure; `pnpm -r exec tsc --noEmit` still exits 0.
+**Rollback plan:** `git revert` the PR squash commit. No infrastructure change, no schema change.
+
+**Approach selection — why node ESM script over alternatives:**
+
+| Alternative | Why rejected |
+|-------------|-------------|
+| `npm-run-all2` with sub-scripts | Requires a new dev dep + 3 new sub-scripts; `npm-run-all2` doesn't natively model try/finally (compose-down on failure) without a `pre`/`post` pair that still breaks on non-zero exit |
+| `cross-env` + `&&` operator | Doesn't fix the core `&&` problem; PowerShell <7 doesn't support `&&`; still needs `;` for the teardown step |
+| A bash/sh script | Doesn't run on Windows without WSL; violates the spirit of "works on both without extra setup" |
+| Node ESM `spawnSync` + try/finally | Shell-agnostic; Node 22 is the project runtime already on PATH; `shell: false` means zero quoting edge cases; try/finally is explicit about teardown semantics; no new deps |
+
+**CI impact check:** `.github/workflows/ci.yml` integration-test job uses `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts` and `pnpm --filter @open-brain/workers exec vitest run --config vitest.config.integration.ts` directly — root `test:integration` is NOT invoked by CI. Change is safe.
+
+**Verification plan:**
+1. Happy path: `pnpm test:integration` exits 0; compose ps shows nothing after.
+2. Failure path: deliberate `expect(1).toBe(2)` in one test → `pnpm test:integration` exits non-zero AND compose ps shows nothing.
+3. Regression: `pnpm -r exec tsc --noEmit` exits 0 (`.mjs` files not typechecked, no TS changes).
+
+**Decision Log:**
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-139-1 | Node ESM `spawnSync` + try/finally in `scripts/test-integration.mjs` | Shell-agnostic, no new deps, explicit teardown semantics, aligns with Node 22 project standard |
+| D-139-2 | `shell: false` in spawnSync options | Eliminates per-platform shell-quoting variations; `pnpm` and `docker` are on PATH everywhere |
+| D-139-3 | Keep workers integration test out of root script | Workers integration step runs in CI's existing job; root script only covers core-api (matching the original intent of the broken script) |
