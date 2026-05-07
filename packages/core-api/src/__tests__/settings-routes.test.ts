@@ -117,14 +117,28 @@ describe('GET /api/v1/settings/:key', () => {
     expect((body as { code?: string }).code).toBe('NOT_FOUND')
   })
 
-  it('returns 404 for non-whitelisted key (GET has no whitelist gate; missing row → 404)', async () => {
-    // The GET route does NOT enforce VALID_SETTINGS_KEYS — it just queries DB.
-    // A non-whitelisted key will simply have no row → 404. This documents
-    // current behavior so a future tightening (whitelist on GET) is a
-    // deliberate, test-driven change.
+  it('returns 400 ValidationError for non-whitelisted key (A110)', async () => {
+    // A110: GET now enforces VALID_SETTINGS_KEYS whitelist — non-whitelisted key
+    // returns 400 + VALIDATION_ERROR rather than falling through to DB and
+    // returning 404. Error message matches the PUT endpoint's pattern exactly.
+    const { app, select } = buildApp({ selectRows: [] })
+
+    const { status, body } = await testJson(app, '/api/v1/settings/totally_made_up_key')
+
+    expect(status).toBe(400)
+    expect((body as { code?: string }).code).toBe('VALIDATION_ERROR')
+    expect((body as { error?: string }).error).toMatch(/Unknown settings key/i)
+    // Whitelist check fires before DB query
+    expect(select).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when whitelisted key has no row in DB (A110 regression)', async () => {
+    // Whitelisted key with no DB row must still return 404 (not 400).
+    // This confirms the whitelist gate fires before the DB query but that
+    // a valid key with a missing row still reaches NotFoundError normally.
     const { app } = buildApp({ selectRows: [] })
 
-    const { status, body } = await testJson(app, '/api/v1/settings/random_key')
+    const { status, body } = await testJson(app, '/api/v1/settings/user_profile')
 
     expect(status).toBe(404)
     expect((body as { code?: string }).code).toBe('NOT_FOUND')
@@ -289,11 +303,11 @@ describe('PUT /api/v1/settings/:key — JSONB roundtrip', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Email allowlist (PUT email_allowlist) — array shape
+// Email allowlist (PUT email_allowlist) — A111 array validator
 // ---------------------------------------------------------------------------
 
 describe('PUT /api/v1/settings/email_allowlist', () => {
-  it('accepts a valid email array (no type validator on this key — pass-through JSONB)', async () => {
+  it('accepts a valid array of email strings (A111)', async () => {
     const allowlist = ['troy@example.com', 'ops@example.com', 'brain@troy-davis.com']
     const { app, upsertedSets } = buildApp()
 
@@ -307,22 +321,55 @@ describe('PUT /api/v1/settings/email_allowlist', () => {
     expect(upsertedSets[0]?.value).toEqual(allowlist)
   })
 
-  it('accepts a non-array value because email_allowlist has no type validator (documents current behavior)', async () => {
-    // CLAUDE.md notes the sender allowlist lives in app_settings, but the
-    // route currently has NO type validator for `email_allowlist` — only
-    // autonomy_level / auto_response_threshold / auto_response_staleness_days
-    // / monitored_channels are validated. This test pins that gap so a
-    // future tightening (zod-validate every key) is a deliberate change,
-    // not an accidental break.
+  it('accepts an empty array (clearing the allowlist is valid) (A111)', async () => {
     const { app, upsertedSets } = buildApp()
 
     const { status } = await testJson(app, '/api/v1/settings/email_allowlist', {
       method: 'PUT',
-      body: JSON.stringify({ value: 'not-an-array' }),
+      body: JSON.stringify({ value: [] }),
     })
 
     expect(status).toBe(200)
-    expect(upsertedSets[0]?.value).toBe('not-an-array')
+    expect(upsertedSets[0]?.value).toEqual([])
+  })
+
+  it('returns 400 when value is a string instead of array (A111)', async () => {
+    const { app } = buildApp()
+
+    const { status, body } = await testJson(app, '/api/v1/settings/email_allowlist', {
+      method: 'PUT',
+      body: JSON.stringify({ value: 'foo@bar.com' }),
+    })
+
+    expect(status).toBe(400)
+    expect((body as { code?: string }).code).toBe('VALIDATION_ERROR')
+    expect((body as { error?: string }).error).toMatch(/array of valid email addresses/i)
+  })
+
+  it('returns 400 when array contains a non-string entry (A111)', async () => {
+    const { app } = buildApp()
+
+    const { status, body } = await testJson(app, '/api/v1/settings/email_allowlist', {
+      method: 'PUT',
+      body: JSON.stringify({ value: [42] }),
+    })
+
+    expect(status).toBe(400)
+    expect((body as { code?: string }).code).toBe('VALIDATION_ERROR')
+    expect((body as { error?: string }).error).toMatch(/array of valid email addresses/i)
+  })
+
+  it('returns 400 when array contains a malformed email string (A111)', async () => {
+    const { app } = buildApp()
+
+    const { status, body } = await testJson(app, '/api/v1/settings/email_allowlist', {
+      method: 'PUT',
+      body: JSON.stringify({ value: ['not-an-email'] }),
+    })
+
+    expect(status).toBe(400)
+    expect((body as { code?: string }).code).toBe('VALIDATION_ERROR')
+    expect((body as { error?: string }).error).toMatch(/array of valid email addresses/i)
   })
 })
 

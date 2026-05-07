@@ -68,8 +68,6 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 
 | ID | Description | Class | Trigger to address |
 |---|---|---|---|
-| A110 | Settings `GET` has no whitelist gate — non-whitelisted key returns 404 instead of 400 | Operational | Future scope |
-| A111 | `email_allowlist` has no array validator in `SETTINGS_VALIDATORS` | Operational | With A110 |
 | A113 | UUID validation on briefs/sessions `:id` path param | Operational | Future scope |
 | A114 | `sessions` `status_filter` silently dropped instead of 400-rejected | Operational | Future scope |
 | A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
@@ -79,7 +77,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
 | A120 | TS2345 in `MPill.test.tsx` + `TabBar.test.tsx` (React 19 / react-test-renderer drift) | Pre-existing baseline | Separate PR |
 
-**Operational items (5):** A110, A111, A113, A114, A130 — real follow-ups that should land in future plans.
+**Operational items (3):** A113, A114, A130 — real follow-ups that should land in future plans. (A110 + A111 closed via PR #188 / `chore/a110-a111-settings-hardening`.)
 **Pre-existing baselines (5):** A128, A116, A117, A106, A120 — long-term debt; do not bundle into operational work. (A125 closed via this PR; A127 closed via PR #179; A126 closed via Phase 8b.)
 
 ---
