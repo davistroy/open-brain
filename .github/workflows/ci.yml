@@ -204,6 +204,13 @@ jobs:
           TEST_REDIS_URL: redis://localhost:6381
           NODE_ENV: test
 
+      - name: Run workers integration tests
+        run: pnpm --filter @open-brain/workers exec vitest run --config vitest.config.integration.ts
+        env:
+          TEST_POSTGRES_URL: postgresql://openbrain_test:test_password@localhost:5433/openbrain_test
+          TEST_REDIS_URL: redis://localhost:6381
+          NODE_ENV: test
+
       - name: Dump service logs on failure
         if: failure()
         run: docker compose -f docker-compose.test.yml logs --no-color

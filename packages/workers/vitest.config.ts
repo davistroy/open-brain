@@ -16,7 +16,11 @@ export default defineConfig({
     hookTimeout: 30_000,
     testTimeout: 30_000,
     coverage: {
-      reporter: ['text', 'json-summary'],
+      provider: 'v8',
+      reporter: ['text', 'lcov', 'json-summary'],
+      include: ['src/**/*.ts'],
+      exclude: ['src/index.ts', 'src/main.ts', 'src/__tests__/**'],
+      thresholds: { lines: 78, functions: 81 },
     },
   },
 })

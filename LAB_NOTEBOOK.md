@@ -10415,3 +10415,57 @@ Code comment explaining intentional placeholder; not a functional regression.
 | D-Phase3-1 | Pin `@types/node` to `^22.0.0` in core-api + voice-capture (matching web-next baseline) | Aligns dev type defs with Node 22 LTS runtime; eliminates spurious type drift between packages; surfaced zero tsc errors. |
 | D-Phase3-2 | Defer `eslint-config-next ^16.2.4` to a separate plan/PR (A130) | The bump implicitly requires ESLint 8 → 9 + flat-config migration; loading the v16 config under ESLint 8 hits a circular-JSON crash. Out of Phase 3's S–M scope; same escalation pattern as 3.1's >5-error rule. |
 | D-Phase3-3 | Use `CI=1 pnpm -r test` on this VM (not plain `pnpm -r test`) | Per Entry 132: at least one package's test command is watch-mode-sensitive outside CI; CI=1 makes vitest force-exit on completion (matches GitHub Actions). |
+
+--- New session: 2026-05-07 — Post-remediation Phase 4 workers test rigor ---
+
+### Entry 135 — Post-Remediation Phase 4: workers coverage thresholds + CI integration step [testing] [config] [decision]
+**Date:** 2026-05-07
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), branch `chore/workers-test-rigor` off `main` at `2bdfcc0`. Orchestrated by Opus; mechanical work delegated to Haiku/Sonnet subagents per user directive.
+**Objective:** Execute Phase 4 of `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` — add coverage thresholds to `packages/workers/vitest.config.ts` (matching core-api's pattern but pinned to the measured floor, not 80%) AND wire the workers integration test suite into the CI `integration-test` job so the gate is enforced. Both ship together.
+**Hypothesis:** Workers test coverage is high enough that pinning to the measured floor adds rigor without forcing a same-PR coverage uplift. Adding the workers integration step to the existing `integration-test` job (which already starts the test compose stack) reuses infrastructure and inherits the existing required-status-check gate ("Integration tests (core-api + real DB)") without changing branch protection. Success criteria per plan acceptance: workers coverage gate active and exit 0; workers integration tests run green in the same CI job that's already required; branch protection still requires the integration-test job; lab notebook captures U2 (measured baseline) + U3 (integration config existence/contents).
+**Rollback plan:** `git revert` the Phase 4 commit; `pnpm install` is a no-op (no dep changes). CI workflow change reverts cleanly with the file edit. No runtime impact (test infrastructure only).
+**Duration:** target 45–90 min (subagent dispatch overhead included).
+
+**U2 / U3 resolutions (decision gates — to be filled by subagents):**
+- **U2 (4.1 measurement):** No prior workers coverage measurement. Subagent A to run `pnpm --filter @open-brain/workers test -- --coverage` and report `lines%` / `functions%`. Threshold pinned to the floor (safer; same pattern as core-api Phase 4 of arch-review).
+- **U3 (4.3 config existence):** Plan asks to verify or create `packages/workers/vitest.config.integration.ts`. Subagent B to check for existence + run integration tests locally against `docker-compose.test.yml`.
+
+**Orchestration plan:**
+- Wave 1 (parallel — investigation + measurement, 3 subagents):
+  - Agent A (Haiku, general-purpose): 4.1 — coverage baseline measurement.
+  - Agent B (Sonnet, general-purpose): 4.3 — verify/create integration config + run tests.
+  - Agent C (Haiku, general-purpose): 4.5 — branch protection audit via gh API.
+- Wave 2 (parallel — edits using Wave 1 outputs, 2 subagents, both Sonnet):
+  - Agent D: 4.2 — edit `packages/workers/vitest.config.ts` with measured floor.
+  - Agent E: 4.4 — add workers integration step to `.github/workflows/ci.yml`.
+- Wave 3 (orchestrator): final DoD verification, commit, push, PR, watch, merge.
+
+**Execution log:**
+
+**Wave 1 (3 parallel subagents):**
+- **Agent A (Haiku, 4.1):** Ran `pnpm --filter @open-brain/workers test -- --coverage` after adding `@vitest/coverage-v8@^1.6.1` to workers devDependencies. Result: 51 test files / 1021 tests passing in 43.59 s. Coverage — Statements 78.79%, Branches 83.38%, Functions 81.59%, Lines 78.79%. **U2 resolved:** floor(lines)=78, floor(functions)=81; pinned to floor (safer; matches arch-review Phase 4 pattern).
+- **Agent B (Sonnet, 4.3):** `packages/workers/vitest.config.integration.ts` already exists with the correct shape (mirrors core-api: `pool: 'forks'` + `singleFork: true`, hookTimeout/testTimeout 30_000, `include: ['src/__tests__/integration/**/*.test.ts']`). All 3 plan-expected test files present. **U3 resolved:** no config changes needed. However, two real bugs blocked green: (a) `pipeline.test.ts:140-145` had a stale DAG-children assertion (expected 2 children: `embed-capture`, `extract-entities`; actual is 3 — `extract-commitments` was added per F46 in Phase 2 docs but never reflected in the test); (b) `setup.ts` only applies `init-schema.sql`, which is missing the `capture_associations` table (migration 0011 — A125 partial closure: PR #178 added 0025 CHECKs but not 0011's table). Fixed both: corrected the assertion to length 3 with sorted child queues `['embed-capture', 'extract-commitments', 'extract-entities']`; added an A125-supplement block to `setup.ts` that applies `packages/shared/drizzle/0011_capture_associations.sql` after `init-schema.sql`, with an inline comment "Remove this supplement once A125 is resolved." Final result: 3 files, 14 passed, 2 skipped (gated within their own test bodies), 0 failed; `docker compose down -v` clean.
+- **Agent C (Haiku, 4.5):** `gh api repos/davistroy/open-brain/branches/main/protection --jq '.required_status_checks.contexts'` returned `["Integration tests (core-api + real DB)"]`. Confirmed required, no other contexts; `gh auth status` confirmed admin push as `davistroy`. **No branch-protection change needed:** the new workers integration step inherits the existing required gate by being part of the same `integration-test` job.
+
+**Wave 2 (2 parallel subagents):**
+- **Agent D (Sonnet, 4.2):** Edited `packages/workers/vitest.config.ts` `test.coverage` block from `{ reporter: ['text', 'json-summary'] }` to the canonical shape: `provider: 'v8'`, `reporter: ['text', 'lcov', 'json-summary']`, `include: ['src/**/*.ts']`, `exclude: ['src/index.ts', 'src/main.ts', 'src/__tests__/**']`, `thresholds: { lines: 78, functions: 81 }`. Forks-pool config preserved (`pool: 'forks'`, `minForks: 1`, `maxForks: 4`, both timeouts `30_000`). `pnpm --filter @open-brain/workers test -- --coverage` exit 0; actual coverage exceeded floors (lines 80.05% ≥ 78, functions 83.47% ≥ 81). Build exit 0.
+- **Agent E (Sonnet, 4.4):** Edited `.github/workflows/ci.yml` adding step "Run workers integration tests" inside the existing `integration-test` job, after "Run integration tests" (line 207), before "Dump service logs on failure". Command: `pnpm --filter @open-brain/workers exec vitest run --config vitest.config.integration.ts`. Env vars match the existing core-api integration step exactly: `TEST_POSTGRES_URL=postgresql://openbrain_test:test_password@localhost:5433/openbrain_test`, `TEST_REDIS_URL=redis://localhost:6381`, `NODE_ENV=test`. Reuses already-running compose stack — no new services, no new compose-up step. YAML still parses cleanly.
+
+**Wave 3 — final DoD verification (Haiku subagent):**
+
+| Check | Exit | Notes |
+|---|---|---|
+| `pnpm install --frozen-lockfile` | 0 | Lockfile consistent post `@vitest/coverage-v8` add |
+| `pnpm -r exec tsc --noEmit` | 0 | No shared rebuild needed |
+| `pnpm -r build` | 0 | All 5 TS packages built; core-api DTS 17.4 s longest |
+| `CI=1 pnpm -r test` | 0 | 1163 core-api + 980+ workers + others, all green |
+
+**Decision Log:**
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-Phase4-1 | Pin workers thresholds to measured floor (78 lines, 81 functions), not 80% | Same pattern as core-api Phase 4 of arch-review remediation. Adds rigor without forcing same-PR coverage uplift; raise incrementally in follow-ups. |
+| D-Phase4-2 | Bundle two test fixes (pipeline.test.ts assertion drift + setup.ts A125 supplement) into Phase 4 PR | Both gate the integration tests from running green in CI. Without them, the very CI step Phase 4.4 wires would fail. Documenting both inline (commit + lab notebook) preserves traceability; A125 supplement carries an explicit removal comment so it goes away when A125 fully closes. |
+| D-Phase4-3 | Reuse the existing `integration-test` job for the workers step (no new job, no `continue-on-error`) | Reuses already-running compose stack, inherits the existing required-status-check gate ("Integration tests (core-api + real DB)") without changing branch protection. Same pattern as the core-api integration step that's been required since arch-review Phase 5b. |
+
+**Outcome:** All 5 Phase 4 acceptance items satisfied. PR to follow with the 7-file change set.
