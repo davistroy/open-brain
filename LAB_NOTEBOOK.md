@@ -10548,4 +10548,4 @@ Workers integration tests run against `docker-compose.test.yml`.
 | D-137-1 | Route `memory_consolidation` to `t1_spark` | Batch Sunday skill, no user waiting, free tier sufficient. Matches `search_synthesis`, `wiki_synthesis`, `daily_sweep` neighbors in the same constraint class. Spark 35B handles multi-document synthesis well at 4096-token output budget. |
 | D-137-2 | Do not change `ENTITY_BRIEF_TASK = 'search_synthesis'` | Decision D116 explicitly retained that key as intentional reuse; A71 scope is memory-consolidation only. |
 
-**Outcome:** (to be filled after PR merge)
+**Outcome:** COMPLETE. PR #185 merged as squash commit `9a9303a` to main (2026-05-07). All CI checks green (Integration tests, build-and-test, Python checks, Validate init-schema.sql, GitGuardian, Doc version sync). Workers unit tests: 51 files / 1021 passed. tsc: exit 0. Core-api unit tests: 67 files / 1163 passed. A71 closed; OPEN_ITEMS.md operational count 8→7.
