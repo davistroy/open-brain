@@ -28,7 +28,11 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-slack-bot` | build: target=slack-bot | @slack/bolt Socket Mode — capture + query + commands |
 | `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
 | `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.5.0-cpu | Speech-to-text (large-v3, CPU int8) |
-| `open-brain-web` | build: packages/web/Dockerfile | Vite + React + shadcn/ui dashboard (nginx, PWA) |
+| `open-brain-web-next` | build: packages/web-next/Dockerfile | Next.js 16 + Cloudscape + React 19 + TanStack Query — sole UI package; canonical ingress at brain.troy-davis.com |
+| `open-brain-voice-pipecat` | build: packages/voice-pipecat | Pipecat realtime voice pipeline (VAD → Deepgram → Claude → TTS) |
+| `open-brain-file-ingestion` | build: packages/file-ingestion | FastAPI sidecar — extracts text from PDF/DOCX/XLSX/PPTX/etc. for the document pipeline |
+| `open-brain-financial-ingest` / `utility-ingest` | image: alpine + cron | Hourly Python pullers for financial + utility data; results POST'd to `/api/v1/captures` |
+| `open-brain-loki` / `prometheus` / `pushgateway` / `grafana` | grafana images | Observability stack — Loki log aggregation (P11a), Prometheus + pushgateway metrics, Grafana dashboards |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
 
 **External dependency**: OpenAI API (`https://api.openai.com/v1`) handles ALL AI — embeddings via `text-embedding-3-large` (768d via `dimensions` parameter) and LLM inference via `gpt-5.4` (aliases: `fast`, `synthesis`, `governance`, `intent`). Configured in `config/ai-routing.yaml`. API key in Bitwarden.
@@ -41,9 +45,11 @@ packages/
   core-api/        # Hono app — routes, services, MCP endpoint
   workers/         # BullMQ jobs, pipeline stages, skills
   slack-bot/       # Slack bot (@slack/bolt, Socket Mode)
-  voice-capture/   # Voice ingestion HTTP server
-  web/             # Vite + React dashboard (nginx Docker)
-    src/content/   # User-facing docs rendered in Help page
+  voice-capture/   # Voice ingestion HTTP server (iOS Shortcut → faster-whisper batch path)
+  voice-pipecat/   # Realtime voice pipeline (VAD → Deepgram → Claude → TTS)
+  file-ingestion/  # FastAPI sidecar — text extraction for PDF/DOCX/XLSX/PPTX/etc.
+  web-next/        # Next.js 16 + Cloudscape + React 19 + TanStack Query (sole UI package)
+  mobile/          # Expo (React Native) mobile app — 11 screens
 config/
   ai-routing.yaml  # OpenAI model aliases + budget limits
   brain-views.yaml # Five views: career/personal/technical/work-internal/client
@@ -125,7 +131,7 @@ AI calls:
 - **Output**: Pushover notifications, HTML email delivery, Slack responses
 - **Governance**: LLM-driven interactive sessions via Slack with guardrails
 - **Entity Graph**: Auto-extraction, 3-tier resolution, relationship tracking
-- **Web Dashboard**: Vite + React + shadcn/ui — timeline, search, entities, board, briefs, voice, documents, settings
+- **Web Dashboard**: Next.js 16 + Cloudscape + React 19 + TanStack Query — timeline, search, entities, board, briefs, voice, documents, settings (`packages/web-next`)
 - **MCP**: Embedded Streamable HTTP endpoint at `/mcp` for Claude, ChatGPT, and other AI tools
 - **Infrastructure**: Postgres 16 + pgvector, Redis, faster-whisper (CPU), Cloudflare Tunnel, SSE live updates
 
@@ -156,8 +162,6 @@ These PRD features were planned but not implemented. They remain candidates for 
 
 | Feature | PRD Ref | Description | Notes |
 |---------|---------|-------------|-------|
-| Daily connections skill | F21 | Cross-capture pattern detection — surfaces connections between unrelated topics | Removed from KNOWN_SKILLS; no handler code |
-| Drift monitor skill | F22 | Alerts when tracked projects/bets go quiet | Removed from KNOWN_SKILLS; no handler code |
 | URL/bookmark capture | F24 | Browser bookmark import with content extraction (readability/cheerio) | Test stubs exist; no service implementation |
 | Calendar integration | F25 | iCal feed sync — creates captures from calendar events | Test stubs exist; no service implementation |
 | Notion output skill | F26 | Mirror outputs (briefs, governance) to Notion | Classified as "Won't Have" in PRD |
@@ -215,7 +219,7 @@ source ./scripts/load-secrets.sh
 docker compose up -d
 ```
 
-This starts all 9 containers. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+This starts all 17 containers — 13 application/data services (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest) plus the 4-service observability stack (loki, prometheus, pushgateway, grafana). First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
 
 ### 5. Verify
 
@@ -264,12 +268,10 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
 | `IMPLEMENTATION_PLAN-PHASE6.md` | Phases 21–25 (UX polish + admin tools) — complete |
 | `IMPLEMENT_IMPROVED_MEMORY.md` | Cognitive memory (Hebbian, spreading activation, consolidation) — complete |
-| `docs/PRD.md` | Product requirements (v0.6) |
-| `docs/TDD.md` | Technical design (v0.6) |
+| `docs/PRD.md` | Product requirements (v0.7) |
+| `docs/TDD.md` | Technical design (v0.7) |
 | `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
-| `packages/web/src/content/USER_QUICK_START.md` | User quick start guide (rendered in Help page) |
-| `packages/web/src/content/USER_GUIDE.md` | Detailed user guide (rendered in Help page) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
 | `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
 | `config/ai-routing.yaml` | OpenAI model aliases and budget thresholds |

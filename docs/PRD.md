@@ -205,7 +205,7 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F16 | Slack bot — interactive sessions (LLM-driven governance) | Should Have | Phase 3 | Implemented |
 | F17 | Board governance skills (quick check, quarterly) | Should Have | Phase 3 | Implemented |
 | F18 | Bet tracking and evaluation | Should Have | Phase 3 | Implemented |
-| F19 | Web dashboard (Vite + React PWA) | Could Have | Phase 4 | Implemented |
+| F19 | Web dashboard (Next.js 16 + Cloudscape + React 19) | Could Have | Phase 4 / Phase 8b | Implemented |
 | F20 | Slack voice clip processing | Could Have | Phase 3 | Implemented |
 | F21 | Daily connection/pattern detection skill | Should Have | Phase 5A | Implemented |
 | F22 | Drift monitor skill | Should Have | Phase 5A | Implemented |
@@ -215,13 +215,25 @@ This is a single-user personal tool. The sole user is a senior technology execut
 | F26 | Notion output skill (optional mirror) | Won't Have | Future | **DEFERRED** |
 | F27 | Screenshot/image capture (vision model) | Could Have | Future | **DEFERRED** |
 | F28 | Semantic push triggers (proactive memory surfacing) | Should Have | Phase 2C | Implemented |
-| F29 | Queue management UI (clear/drain per queue) | Should Have | Phase 6 | Planned |
-| F30 | Trigger delete fix (field name mismatch) | Must Have | Phase 6 | Planned |
-| F31 | Skill schedule editing (PATCH endpoint + UI) | Should Have | Phase 6 | Planned |
-| F32 | Dark mode toggle | Could Have | Phase 6 | Planned |
-| F33 | Settings page reorganization (3 sections) | Should Have | Phase 6 | Planned |
-| F34 | In-app help/documentation viewer | Should Have | Phase 6 | Planned |
-| F35 | Slack channel cleanup (admin action) | Should Have | Phase 6 | Planned |
+| F29 | Queue management UI (clear/drain per queue) | Should Have | Phase 6 | Implemented |
+| F30 | Trigger delete fix (field name mismatch) | Must Have | Phase 6 | Implemented |
+| F31 | Skill schedule editing (PATCH endpoint + UI) | Should Have | Phase 6 | Implemented |
+| F32 | Dark mode toggle | Could Have | Phase 6 | Implemented |
+| F33 | Settings page reorganization (3 sections) | Should Have | Phase 6 | Implemented |
+| F34 | In-app help/documentation viewer | Should Have | Phase 6 | Implemented |
+| F35 | Slack channel cleanup (admin action) | Should Have | Phase 6 | Implemented |
+| F36 | Morning brief skill (`morning-brief`, weekdays 06:30) | Should Have | Wave 2 | Implemented |
+| F37 | Capture reminder nudges (`capture-reminder-morning` 06:45 wkdys + `capture-reminder-evening` 21:00 daily) — autonomy-gated Pushover | Should Have | Wave 2 | Implemented |
+| F38 | Monthly reflection skill (`monthly-reflection`, 1st of month 09:00) — LLM synthesis of prior month | Should Have | Wave 2 | Implemented |
+| F39 | Cost analysis skill (`cost-analysis`, daily 06:20) — LLM cost rollup against budget | Should Have | Wave 2 | Implemented |
+| F40 | Container health synthetic monitor (`container-health`, every 15 min) — `/health` checks across all containers | Should Have | Wave 3 | Implemented |
+| F41 | Storage audit skill (`storage-audit`, Sundays 03:00) — Postgres / Redis / backup / wiki size telemetry | Should Have | Wave 3 | Implemented |
+| F42 | Secret rotation reminder (`secret-rotation`, 1st of month 10:00) — checks BWS key ages, alerts > 90 days | Should Have | Wave 3 | Implemented |
+| F43 | Capture dedup hygiene sweep (`capture-dedup-sweep`, Saturdays 04:00) — flags near-duplicate captures (cosine > 0.95) | Should Have | Wave 3 | Implemented |
+| F44 | Refine-brief skill (`refine-brief`) — async LLM HTML transform applied to weekly/morning briefs | Should Have | Wave 4 | Implemented |
+| F45 | Entity-brief skill (`entity-brief`) — LLM-synthesized entity-page summary card | Should Have | Wave 4 | Implemented |
+| F46 | Commitment extraction (`extract-commitments`) — pipeline + `commitments` table + `/api/v1/commitments` routes; surfaces forward-looking obligations from captures | Should Have | Wave 4 | Implemented |
+| F47 | Voice sessions REST API (`/api/v1/voice-sessions`) — Pipecat session lifecycle (create / append-turn / complete / fetch) | Should Have | Wave 4 | Implemented |
 
 ### 5.2 Detailed Feature Specifications
 
@@ -1480,8 +1492,11 @@ open-brain/
 │   ├── core-api/                   # Hono API server + embedded MCP endpoint
 │   ├── slack-bot/                  # @slack/bolt event handler + intent router
 │   ├── workers/                    # Pipeline processing + scheduled skill execution
-│   ├── voice-capture/              # Voice memo HTTP endpoint + transcription adapter
-│   └── web/                        # Vite + React dashboard (Phase 4)
+│   ├── voice-capture/              # Voice memo HTTP endpoint + transcription adapter (iOS Shortcut → faster-whisper batch path)
+│   ├── voice-pipecat/              # Realtime voice pipeline (VAD → Deepgram → Claude → TTS)
+│   ├── file-ingestion/             # FastAPI sidecar — text extraction for PDF/DOCX/XLSX/PPTX/etc.
+│   ├── web-next/                   # Next.js 16 + Cloudscape + React 19 + TanStack Query (sole UI package; replaces deleted `web/` per Phase 8b)
+│   └── mobile/                     # Expo (React Native) mobile app — 11 screens
 ├── pnpm-workspace.yaml
 ├── package.json                    # Root workspace config
 ├── tsconfig.base.json              # Shared TypeScript config
@@ -1892,7 +1907,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Semantic triggers | Persistent semantic patterns. Separate BullMQ job (not inline pipeline stage). Max 20 triggers, in-memory comparison. Phase 2C. |
 | MCP architecture | Embedded in Core API at `/mcp` route. Streamable HTTP transport. No separate container. |
 | Voice capture flow | Direct API from iPhone/Apple Watch via iOS Shortcut. No Google Drive sync, no rclone for voice. |
-| Monorepo structure | pnpm workspaces: packages/shared, core-api, slack-bot, workers, voice-capture, web. |
+| Monorepo structure | pnpm workspaces: packages/shared, core-api, slack-bot, workers, voice-capture, voice-pipecat, file-ingestion, web-next, mobile. (`packages/web` deleted in Phase 8b.) |
 | Build tooling | tsx for dev (hot reload), tsup (esbuild) for production (single .mjs per service, ESM). |
 | Slack SDK | @slack/bolt with socketMode: true. |
 | Entity resolution | Three-tier matching: exact name → alias → LLM disambiguation. |
