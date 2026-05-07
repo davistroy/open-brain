@@ -228,13 +228,13 @@ describe('MemoryConsolidationSkill', () => {
   // ----------------------------------------------------------
 
   describe('execute — via LLMGateway', () => {
-    it('calls completeByTask with search_synthesis task key when gateway injected', async () => {
+    it('calls completeByTask with memory_consolidation task key when gateway injected', async () => {
       const { skill, gateway } = makeSkillWithGateway()
       await skill.execute()
 
       const spy = vi.mocked(gateway.completeByTask)
       expect(spy).toHaveBeenCalledOnce()
-      expect(spy.mock.calls[0][1]).toBe('search_synthesis')
+      expect(spy.mock.calls[0][1]).toBe('memory_consolidation')
     })
 
     it('returns MemoryConsolidationResult with shouldMerge=true and newCaptureId when LLM says merge', async () => {

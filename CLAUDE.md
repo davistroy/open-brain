@@ -86,7 +86,6 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - OpenAI `gpt-5.4` uses `max_completion_tokens` (not `max_tokens`, rejected 400). **No `extra_body`** (vLLM-specific, rejected 400).
 - `createLiteLLMClient()` returns `null` when API key is empty — callers must check and disable LLM features (core-api governance engine pattern).
 - **`callClaude` removed in P02b.** All LLM skills + `extract-entities` use `LLMGatewayService.completeByTask()`; `litellmClient` is a test-mock injection point only. Do not reintroduce direct Anthropic SDK in skills — add a `task_routing` entry instead.
-- `memory-consolidation` routes via `'search_synthesis'` task key (A71 pending) — real key `'memory_consolidation'` doesn't exist in `ai-routing.yaml` yet. Do not "fix" in a drive-by edit.
 - Skills must resolve model aliases from `configService.get('ai').models[alias]` before dispatching to OpenAI. Same pattern as `extract-entities.ts`.
 - Classification tasks route to `t1_jetson` by default (6 tasks: intent, capture, brain_view, voice, confidence, question_detection). Fallback: `t1_jetson → t1_fast → t2_quality`.
 - `openai_compat` tiers: gateway creates per-tier OpenAI SDK clients from tier `base_url`. `ollama` keeps the constructor-injected client (preserves test mock compatibility).
