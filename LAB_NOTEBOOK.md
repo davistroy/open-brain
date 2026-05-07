@@ -10636,3 +10636,45 @@ Same empirical result: bare-path requests double-fire. Fixed in the same PR sinc
 - CI: all 16 checks green; `Integration tests (core-api + real DB)` passed in 1m1s / 1m6s across both CI runs.
 
 **Outcome:** COMPLETE. PR #187 merged as squash commit `3e7c60c` to main (2026-05-07). A129 closed. OPEN_ITEMS.md operational count 6→5. CLAUDE.md bullet updated. MEMORY.md updated.
+
+---
+
+### Entry 140 — A110+A111: settings GET whitelist gate + email_allowlist validator [api] [config] [testing] [decision]
+
+**Date:** 2026-05-07
+**Environment:** open-brain-vm, branch `chore/a110-a111-settings-hardening`
+**Tags:** `[api]` `[config]` `[testing]` `[decision]`
+**Duration:** ~45 min
+
+### Objective
+
+Bundle A110 + A111 into a single PR since both touch `packages/core-api/src/routes/settings.ts`:
+- **A110:** `GET /api/v1/settings/:key` for a non-whitelisted key returns 404 (no row in DB) instead of 400 (explicit rejection). Fix: add `VALID_SETTINGS_KEYS` whitelist gate before the DB query, matching the PUT endpoint's pattern.
+- **A111:** `email_allowlist` has no validator in `SETTINGS_VALIDATORS`. The setting controls who can send captures via email — it must be an array of valid email strings, not arbitrary JSON.
+
+### Hypothesis
+
+Adding the whitelist gate on GET changes the HTTP status from 404 → 400 for non-whitelisted keys. This is technically a breaking change for callers, but on a single-user system any caller receiving a 404 for a non-existent key already knew it wasn't valid. The corrected semantics (400 = bad request, 404 = known key missing row) are unambiguously better. Adding `email_allowlist` validator follows the existing `monitored_channels` pattern exactly — same array-of-strings shape, same error message style.
+
+Existing test at line 120 of `settings-routes.test.ts` explicitly documents the old behavior ("GET has no whitelist gate") and notes "future tightening is a deliberate, test-driven change." That test must be updated to assert 400 + `VALIDATION_ERROR` — the test was written as a pin against accidental drift, not a contract to preserve.
+
+### Rollback plan
+
+`git revert` the squash commit + `git push origin main` — no schema changes, no migration, no infrastructure impact. Settings API behavior is internal; no external contract. OPEN_ITEMS.md rows can be re-opened.
+
+### Implementation notes
+
+1. **A110:** Insert `if (!VALID_SETTINGS_KEYS.has(key)) { throw new ValidationError(...) }` at top of GET handler, before `db.select()`. Exact same check as PUT line 76 — same error message for consistency.
+2. **A111:** Add `EMAIL_REGEX` at module scope. Add `email_allowlist` validator to `SETTINGS_VALIDATORS` following `monitored_channels` pattern: `Array.isArray + v.every(item => typeof item === 'string' && EMAIL_REGEX.test(item))`. Simple `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` — intentionally permissive (Troy controls the inputs; full RFC 5322 would just add noise).
+3. **Tests:** 
+   - Update the existing "404 for non-whitelisted key" test → now expects 400 + VALIDATION_ERROR.
+   - Update the existing "accepts a non-array value" test for email_allowlist → now expects 400 (validator added).
+   - Add 6 new test cases: GET non-whitelisted → 400; GET whitelisted missing row → 404; PUT non-array → 400; PUT array with non-string → 400; PUT array with bad email → 400; PUT valid emails → 200; PUT empty array → 200.
+
+### Decision Log
+
+| # | Decision | Rationale |
+|---|---|---|
+| D-140-1 | Use `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` for EMAIL_REGEX | Permissive enough for a personal allowlist; catches obvious non-emails (no @, no domain, spaces). RFC 5322 adds no practical safety here. |
+| D-140-2 | Update existing "non-whitelisted 404" test rather than keep it alongside a 400 test | The old test was explicitly labeled as documenting current-but-wrong behavior. Keeping both would be confusing. Update in place. |
+| D-140-3 | Update existing "non-array email_allowlist accepted" test to assert 400 | Same reasoning — test was a pin against a known gap, not a preserved contract. |

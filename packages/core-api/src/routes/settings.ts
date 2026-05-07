@@ -9,6 +9,9 @@ import {
   logger,
 } from '@open-brain/shared'
 
+/** Simple email format check — permissive but catches obvious non-emails */
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 /** Valid settings keys — prevents unbounded key creation */
 const VALID_SETTINGS_KEYS = new Set([
   'email_allowlist',
@@ -53,6 +56,12 @@ const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
     Array.isArray(v) && v.every((item: unknown) => typeof item === 'string')
       ? null
       : 'monitored_channels must be an array of channel ID strings',
+  email_allowlist: (v) =>
+    Array.isArray(v) && v.every((item: unknown) =>
+      typeof item === 'string' && EMAIL_REGEX.test(item)
+    )
+      ? null
+      : 'email_allowlist must be an array of valid email addresses',
 }
 
 /**
@@ -64,6 +73,9 @@ const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
 export function registerSettingsRoutes(app: Hono, db: Database): void {
   app.get('/api/v1/settings/:key', async (c) => {
     const key = c.req.param('key')
+    if (!VALID_SETTINGS_KEYS.has(key)) {
+      throw new ValidationError(`Unknown settings key: ${key}`)
+    }
     const rows = await db.select().from(app_settings).where(eq(app_settings.key, key))
     if (rows.length === 0) {
       throw new NotFoundError(`Setting not found: ${key}`)
