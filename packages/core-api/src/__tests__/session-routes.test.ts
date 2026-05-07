@@ -7,7 +7,7 @@ import type { SessionService } from '../services/session.js'
 // ---------------------------------------------------------------------------
 
 const SAMPLE_SESSION = {
-  id: 'session-uuid-1',
+  id: '11111111-1111-1111-1111-111111111111',
   session_type: 'governance',
   status: 'active',
   config: { max_turns: 20, turn_count: 0 },
@@ -20,8 +20,8 @@ const SAMPLE_SESSION = {
 
 const SAMPLE_TRANSCRIPT = [
   {
-    id: 'msg-uuid-1',
-    session_id: 'session-uuid-1',
+    id: '22222222-2222-2222-2222-222222222222',
+    session_id: '11111111-1111-1111-1111-111111111111',
     role: 'assistant',
     content: "Let's begin the quick board check.",
     metadata: { turn_index: 0 },
@@ -81,7 +81,7 @@ describe('POST /api/v1/sessions', () => {
 
     expect(res.status).toBe(201)
     const body = await res.json() as any
-    expect(body.session.id).toBe('session-uuid-1')
+    expect(body.session.id).toBe('11111111-1111-1111-1111-111111111111')
     expect(body.first_message).toContain("board check")
     expect(sessionService.create).toHaveBeenCalledWith({ type: 'governance', config: undefined })
   })
@@ -192,13 +192,16 @@ describe('GET /api/v1/sessions', () => {
     expect(sessionService.list).toHaveBeenCalledWith('active', 20, 0)
   })
 
-  it('ignores invalid status_filter', async () => {
+  it('rejects invalid status_filter with 400 VALIDATION_ERROR (A114)', async () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    await app.request('/api/v1/sessions?status_filter=garbage')
+    const res = await app.request('/api/v1/sessions?status_filter=garbage')
 
-    expect(sessionService.list).toHaveBeenCalledWith(undefined, 20, 0)
+    expect(res.status).toBe(400)
+    const body = await res.json() as { code: string }
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(sessionService.list).not.toHaveBeenCalled()
   })
 
   it('caps limit at 100', async () => {
@@ -220,23 +223,23 @@ describe('GET /api/v1/sessions/:id', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1')
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.id).toBe('session-uuid-1')
+    expect(body.id).toBe('11111111-1111-1111-1111-111111111111')
     expect(body.transcript).toHaveLength(1)
-    expect(sessionService.getWithTranscript).toHaveBeenCalledWith('session-uuid-1')
+    expect(sessionService.getWithTranscript).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   })
 
   it('returns session without transcript when include_transcript=false', async () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1?include_transcript=false')
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111?include_transcript=false')
 
     expect(res.status).toBe(200)
-    expect(sessionService.getById).toHaveBeenCalledWith('session-uuid-1')
+    expect(sessionService.getById).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
     expect(sessionService.getWithTranscript).not.toHaveBeenCalled()
   })
 
@@ -247,7 +250,7 @@ describe('GET /api/v1/sessions/:id', () => {
     })
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/nonexistent-id')
+    const res = await app.request('/api/v1/sessions/99999999-9999-9999-9999-999999999999')
 
     expect(res.status).toBe(404)
   })
@@ -262,7 +265,7 @@ describe('POST /api/v1/sessions/:id/respond', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/respond', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'I am working on the QSR project.' }),
@@ -272,7 +275,7 @@ describe('POST /api/v1/sessions/:id/respond', () => {
     const body = await res.json() as any
     expect(body.bot_message).toBeDefined()
     expect(sessionService.respond).toHaveBeenCalledWith(
-      'session-uuid-1',
+      '11111111-1111-1111-1111-111111111111',
       'I am working on the QSR project.',
     )
   })
@@ -281,20 +284,20 @@ describe('POST /api/v1/sessions/:id/respond', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    await app.request('/api/v1/sessions/session-uuid-1/respond', {
+    await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: '  hello world  ' }),
     })
 
-    expect(sessionService.respond).toHaveBeenCalledWith('session-uuid-1', 'hello world')
+    expect(sessionService.respond).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111', 'hello world')
   })
 
   it('returns 400 when message is missing', async () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/respond', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -309,7 +312,7 @@ describe('POST /api/v1/sessions/:id/respond', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/respond', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: '' }),
@@ -322,7 +325,7 @@ describe('POST /api/v1/sessions/:id/respond', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/respond', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: 'bad-json',
@@ -341,14 +344,14 @@ describe('POST /api/v1/sessions/:id/pause', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/pause', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/pause', {
       method: 'POST',
     })
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.session.status).toBe('paused')
-    expect(sessionService.pause).toHaveBeenCalledWith('session-uuid-1')
+    expect(sessionService.pause).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   })
 })
 
@@ -361,14 +364,14 @@ describe('POST /api/v1/sessions/:id/resume', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/resume', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/resume', {
       method: 'POST',
     })
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.context_message).toContain('Welcome back')
-    expect(sessionService.resume).toHaveBeenCalledWith('session-uuid-1')
+    expect(sessionService.resume).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   })
 })
 
@@ -381,7 +384,7 @@ describe('POST /api/v1/sessions/:id/complete', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/complete', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/complete', {
       method: 'POST',
     })
 
@@ -389,7 +392,7 @@ describe('POST /api/v1/sessions/:id/complete', () => {
     const body = await res.json() as any
     expect(body.session.status).toBe('complete')
     expect(body.summary).toBe('Session completed.')
-    expect(sessionService.complete).toHaveBeenCalledWith('session-uuid-1')
+    expect(sessionService.complete).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   })
 })
 
@@ -402,13 +405,13 @@ describe('POST /api/v1/sessions/:id/abandon', () => {
     const sessionService = makeMockSessionService()
     const app = createApp({ sessionService })
 
-    const res = await app.request('/api/v1/sessions/session-uuid-1/abandon', {
+    const res = await app.request('/api/v1/sessions/11111111-1111-1111-1111-111111111111/abandon', {
       method: 'POST',
     })
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.session.status).toBe('abandoned')
-    expect(sessionService.abandon).toHaveBeenCalledWith('session-uuid-1')
+    expect(sessionService.abandon).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   })
 })

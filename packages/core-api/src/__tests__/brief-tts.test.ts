@@ -21,7 +21,7 @@ import type { TtsDeps, TtsRedisClient } from '../routes/briefs.js'
 // Sample data
 // ---------------------------------------------------------------------------
 
-const SAMPLE_BRIEF_ID = 'brief-uuid-tts-1'
+const SAMPLE_BRIEF_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
 const SAMPLE_BRIEF = {
   id: SAMPLE_BRIEF_ID,
@@ -141,13 +141,14 @@ describe('POST /api/v1/briefs/:id/audio — no TTS deps', () => {
 
 describe('POST /api/v1/briefs/:id/audio — brief not found', () => {
   it('returns 404 for nonexistent brief', async () => {
+    const missingId = '99999999-9999-9999-9999-999999999999'
     const briefsService = makeMockBriefsService({
-      getById: vi.fn().mockRejectedValue(new NotFoundError('Brief not found: nonexistent')),
+      getById: vi.fn().mockRejectedValue(new NotFoundError(`Brief not found: ${missingId}`)),
     })
     const ttsDeps = makeTtsDeps()
     const app = createApp({ briefsService, ttsDeps })
 
-    const res = await app.request('/api/v1/briefs/nonexistent/audio', { method: 'POST' })
+    const res = await app.request(`/api/v1/briefs/${missingId}/audio`, { method: 'POST' })
 
     expect(res.status).toBe(404)
     const body = await res.json() as { code: string }

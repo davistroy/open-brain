@@ -20,6 +20,9 @@ import { makeMockService, makeTestApp, testJson } from './helpers.js'
 // Fixtures
 // ---------------------------------------------------------------------------
 
+/** A UUID that looks valid but the mock service will reject with NotFoundError */
+const MISSING_BRIEF_ID = '99999999-9999-9999-9999-999999999999'
+
 const SAMPLE_LIST_ITEM: BriefListItem = {
   id: '11111111-1111-4111-8111-111111111111',
   kind: 'WEEKLY',
@@ -192,15 +195,15 @@ describe('briefs routes', () => {
 
     it('propagates NotFoundError as 404 with NOT_FOUND code', async () => {
       briefsService.getById.mockRejectedValueOnce(
-        new NotFoundError('Brief not found: missing-id'),
+        new NotFoundError(`Brief not found: ${MISSING_BRIEF_ID}`),
       )
       const app = buildApp(briefsService)
 
-      const { status, body } = await testJson(app, '/api/v1/briefs/missing-id')
+      const { status, body } = await testJson(app, `/api/v1/briefs/${MISSING_BRIEF_ID}`)
 
       expect(status).toBe(404)
       expect(body).toEqual({
-        error: 'Brief not found: missing-id',
+        error: `Brief not found: ${MISSING_BRIEF_ID}`,
         code: 'NOT_FOUND',
       })
     })
@@ -278,11 +281,11 @@ describe('briefs routes', () => {
 
     it('returns 404 when the source brief does not exist (NotFoundError from service)', async () => {
       briefsService.refine.mockRejectedValueOnce(
-        new NotFoundError('Brief not found: missing-id'),
+        new NotFoundError(`Brief not found: ${MISSING_BRIEF_ID}`),
       )
       const app = buildApp(briefsService)
 
-      const { status, body } = await testJson(app, '/api/v1/briefs/missing-id/refine', {
+      const { status, body } = await testJson(app, `/api/v1/briefs/${MISSING_BRIEF_ID}/refine`, {
         method: 'POST',
         body: JSON.stringify({ option: 'Shorter' }),
       })
@@ -312,11 +315,11 @@ describe('briefs routes', () => {
 
     it('propagates NotFoundError as 404 when the brief does not exist', async () => {
       briefsService.dismiss.mockRejectedValueOnce(
-        new NotFoundError('Brief not found: missing-id'),
+        new NotFoundError(`Brief not found: ${MISSING_BRIEF_ID}`),
       )
       const app = buildApp(briefsService)
 
-      const { status } = await testJson(app, '/api/v1/briefs/missing-id/dismiss', {
+      const { status } = await testJson(app, `/api/v1/briefs/${MISSING_BRIEF_ID}/dismiss`, {
         method: 'POST',
       })
 
@@ -398,6 +401,57 @@ describe('briefs routes', () => {
 
       expect(status).toBe(503)
       expect(body).toMatchObject({ code: 'SERVICE_UNAVAILABLE' })
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // A113 — UUID path-param validation
+  // -------------------------------------------------------------------------
+
+  describe('A113 — UUID validation on briefs /:id path params', () => {
+    it('GET /api/v1/briefs/:id rejects non-UUID with 400 VALIDATION_ERROR', async () => {
+      const app = buildApp(briefsService)
+      const { status, body } = await testJson(app, '/api/v1/briefs/not-a-uuid')
+
+      expect(status).toBe(400)
+      expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+      expect((body as { error: string }).error).toContain('must be a valid UUID')
+      expect(briefsService.getById).not.toHaveBeenCalled()
+    })
+
+    it('POST /api/v1/briefs/:id/dismiss rejects non-UUID with 400 VALIDATION_ERROR', async () => {
+      const app = buildApp(briefsService)
+      const { status, body } = await testJson(app, '/api/v1/briefs/bad-id/dismiss', {
+        method: 'POST',
+      })
+
+      expect(status).toBe(400)
+      expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+      expect(briefsService.dismiss).not.toHaveBeenCalled()
+    })
+
+    it('PATCH /api/v1/briefs/:id with non-UUID rejects 400', async () => {
+      const app = buildApp(briefsService)
+      const { status, body } = await testJson(app, '/api/v1/briefs/not-a-uuid', {
+        method: 'PATCH',
+        body: JSON.stringify({ read: true }),
+      })
+
+      expect(status).toBe(400)
+      expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+      expect(briefsService.patchRead).not.toHaveBeenCalled()
+    })
+
+    it('GET /api/v1/briefs/:id with valid UUID proceeds to service call', async () => {
+      const app = buildApp(briefsService)
+      const { status, body } = await testJson(
+        app,
+        `/api/v1/briefs/${SAMPLE_DETAIL_ITEM.id}`,
+      )
+
+      expect(status).toBe(200)
+      expect((body as { brief: { id: string } }).brief.id).toBe(SAMPLE_DETAIL_ITEM.id)
+      expect(briefsService.getById).toHaveBeenCalledWith(SAMPLE_DETAIL_ITEM.id)
     })
   })
 })
