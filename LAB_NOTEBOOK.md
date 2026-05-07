@@ -10678,3 +10678,11 @@ Existing test at line 120 of `settings-routes.test.ts` explicitly documents the 
 | D-140-1 | Use `/^[^\s@]+@[^\s@]+\.[^\s@]+$/` for EMAIL_REGEX | Permissive enough for a personal allowlist; catches obvious non-emails (no @, no domain, spaces). RFC 5322 adds no practical safety here. |
 | D-140-2 | Update existing "non-whitelisted 404" test rather than keep it alongside a 400 test | The old test was explicitly labeled as documenting current-but-wrong behavior. Keeping both would be confusing. Update in place. |
 | D-140-3 | Update existing "non-array email_allowlist accepted" test to assert 400 | Same reasoning — test was a pin against a known gap, not a preserved contract. |
+
+**Verification results:**
+- `pnpm --filter @open-brain/core-api test src/__tests__/settings-routes.test.ts` → 24/24 pass.
+- `CI=1 pnpm --filter @open-brain/core-api test` → 1170/1170 pass (67 test files).
+- `pnpm -r exec tsc --noEmit` → exit 0.
+- CI: `Integration tests (core-api + real DB)` passed on both runs (1m5s); all required checks green.
+
+**Outcome:** COMPLETE. PR #188 merged as squash commit `46227a7` to main (2026-05-07). A110 closed. A111 closed. OPEN_ITEMS.md operational count 5→3.
