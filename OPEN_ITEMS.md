@@ -8,9 +8,7 @@
 
 ## Active plans (with pending work)
 
-_(none — IMPLEMENTATION_PLAN-POST-REMEDIATION.md closed via PR #183 on 2026-05-07; see Recently-closed section below.)_
-
----
+> `IMPLEMENTATION_PLAN-POST-REMEDIATION.md` closed via PR #183 (2026-05-07) — see Recently-closed section below. The plans listed here are either lightly remaining (verification residue) or external-trigger-gated.
 
 ### [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — LLM model consolidation — verification residue
 
