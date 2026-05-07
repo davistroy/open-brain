@@ -8,19 +8,7 @@
 
 ## Active plans (with pending work)
 
-### [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) — Phases 1–3 shipped (3 partial), Phase 4 pending
-
-**Scope:** F1–F8 (Entry 106 architectural audit) + W1, W2, W3, W4, W7, S1, S3, S4, S5, W6 (Entry 107 intent review). Authored 2026-05-06.
-
-| Phase | Items | Effort | Risk | Status |
-|---|---|---|---|---|
-| 1 — Quick wins (deps + perf microfixes) | 4 | S | Low | ✅ COMPLETE — PR #180 (2026-05-06) |
-| 2 — Documentation alignment (README + PRD + TDD) | 3 | M | None | ✅ COMPLETE — PR #181 (2026-05-07) |
-| 3 — Type system & lint hygiene | 4 | S–M | Med | ⚠️ PARTIAL — PR #182 (2026-05-07): 3.1+3.2+3.4 shipped (`@types/node` ^22 pin); 3.3 escalated to A130 |
-| 4 — Workers test rigor (coverage + CI) | 5 | M | Med | Pending |
-| 5 — Vitest 2.x migration | — | L | **DEFERRED** to its own plan | Deferred |
-
-**Total:** 5 work items pending in Phase 4 + 1 escalation (A130). Lab notebook references: Entry 131 (Phase 1 scope), Entry 132 (Phase 1 CI fix), Entry 133 (Phase 2), Entry 134 (Phase 3).
+_(none — IMPLEMENTATION_PLAN-POST-REMEDIATION.md closed via PR #183 on 2026-05-07; see Recently-closed section below.)_
 
 ---
 
@@ -107,6 +95,7 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 
 | Plan | Status | Closed | Notes |
 |---|---|---|---|
+| [IMPLEMENTATION_PLAN-POST-REMEDIATION.md](IMPLEMENTATION_PLAN-POST-REMEDIATION.md) | ✅ COMPLETE (Phase 3.3 escalated to A130) | PRs #180/#181/#182/#183 (2026-05-06 → 2026-05-07) | 4 phases / 16 items shipped; Phase 5 (Vitest 2.x) deferred to its own plan as authored. Phase 3.3 (`eslint-config-next` ^16) escalated to A130 — ESLint 9 + flat-config migration. Lab notebook Entries 131–135. |
 | [IMPLEMENTATION_PLAN-ARCH-REVIEW.md](IMPLEMENTATION_PLAN-ARCH-REVIEW.md) | ✅ COMPLETE | PR #175 (2026-05-05) | R1–R12 (R10 dropped); 9 phases |
 | [IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md](IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md) | ✅ COMPLETE | 2026-04-21 | 8/8 phases, 41 work items |
 | [IMPLEMENTATION_PLAN-CLOUDSCAPE-M3.md](IMPLEMENTATION_PLAN-CLOUDSCAPE-M3.md) | ✅ COMPLETE | 2026-04-22 (PR #170) | 8/8 phases; entity-brief, commitments, board, settings, onboarding |
@@ -119,9 +108,9 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 
 | Risk | Detail |
 |---|---|
-| **Post-remediation Phase 3 (`@types/node` align) ↔ Mobile deferred** | If picking up mobile EAS Build before post-remediation Phase 3 lands, ensure mobile package isn't pinned at a different `@types/node`. |
-| **Post-remediation Phase 4 (workers CI) ↔ A128 (TanStack Query)** | Both touch testing infrastructure; sequence post-remediation first since it's smaller scope. |
-| **A71 (memory-consolidation task key)** | Standalone now — Phase 2 (PR #181) shipped without adding an F-ID for memory-consolidation; A71 remains an independent ~1 hr config edit. |
+| **A71 (memory-consolidation task key)** | Standalone — Phase 2 (PR #181) shipped without adding an F-ID for memory-consolidation; A71 remains an independent ~1 hr config edit. |
+| **A125 partial closure ↔ workers integration tests** | PR #178 (2026-05-06) added migration 0025 CHECKs to `init-schema.sql` but did not add `capture_associations` (migration 0011). Phase 4 (PR #183) bridged this with a `setup.ts` supplement carrying an explicit removal comment. Full A125 closure should patch `init-schema.sql` directly so the supplement can be removed. |
+| **A128 (TanStack Query hooks extraction) ↔ A130 (ESLint 9 + flat-config migration)** | Both touch the web-next package. A130 migrates lint config; A128 restructures hooks. Sequence A130 first if both pick up — flat-config rules may surface lint errors that A128's restructure should respect. |
 | **P23 (cognitive memory tuning) ↔ A107 (strictLimiter double-reg)** | P23 measures live search behavior; A107 affects rate-limit effective budget — fix A107 before P23 starts to keep measurement clean. |
 
 ---
