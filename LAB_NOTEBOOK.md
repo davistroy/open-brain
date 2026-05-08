@@ -10734,3 +10734,71 @@ Bundle A113 + A114 into a single PR — both touch request-input validation in c
 - CI: `Integration tests (core-api + real DB)` passed (1m2s). `build-and-test` still running in second run when admin-merged; required check satisfied.
 
 **Outcome:** COMPLETE. PR #189 merged as squash commit `da5682a` to main (2026-05-07). A113 closed. A114 closed. OPEN_ITEMS.md operational count 3→1 (A130 only remains). **This is the last item in the post-remediation follow-ups handoff. Operational tail is fully closed.**
+
+---
+
+### Entry 142 — Post-handoff exit state and remaining work [open-items] [planning] [decision]
+
+**Date:** 2026-05-08
+**Environment:** ubuntu-vm (`/home/davistroy/dev/personal/open-brain`), main at `6e873ad` after Entries 136–141 / PRs #184–#189 closed the post-remediation follow-ups handoff.
+
+### Objective
+
+Snapshot the project's residual work after the 2026-05-07 follow-ups handoff so the next session has a single-glance entry point. No new work executed in this entry; it's a planning-context dump. Entries 136–141 closed 6 follow-ups bundled into 4 PRs (#184–#189), leaving **A130 as the sole operational blocker.** Categories below reflect everything else.
+
+### Categories of remaining work
+
+**Operational (1 item — LARGEST BLOCKER):**
+
+- **A130** — ESLint 9 + flat-config migration. **CRASH SIGNATURE:** When `eslint-config-next` is bumped to `^16.x`, loading it under ESLint 8 + `.eslintrc.json` hits `TypeError: Converting circular structure to JSON` in `@eslint/eslintrc@2.1.4`. Per CLAUDE.md P08 testing-CI rules: **`eslint-config-next` MUST stay at `^15.0.0` until A130 lands.** Scoped as its own plan per handoff commit msg item 7. Recommended path: invoke `/ultra-plan` or `/create-plan` to author the plan first before implementation. ~3–4 hour estimated work (LSP migration, flat-config rewrite, dependency chain cleanup).
+
+**Deferred (gated on A130):**
+
+- **A128** — TanStack Query hooks extraction (Phase 8a follow-up). Cross-plan note in `OPEN_ITEMS.md`: sequence AFTER A130 so flat-config rules can shape the restructure. Avoid scheduling before A130 resolves.
+
+**Pre-existing baselines (long-term debt, do not bundle with A130):**
+
+- **A106** — TS2502 in `entity-resolution.test.ts:345` (type narrowing artifact). Test passes at runtime; excluded via `// @ts-expect-error`.
+- **A116** — Vitest 2.x bump for per-file glob threshold support. Unlocks finer-grained coverage gates (workers currently pinned to global thresholds). Low priority; current gates (78%/81%) are stable.
+- **A117** — Unreachable SSE `onAbort` code paths and post-promise cleanup branches. Excluded via `/* v8 ignore */` comments. Noise-to-signal ratio prevents prioritization.
+- **A120** — TS2345 in `MPill.test.tsx:52` + `TabBar.test.tsx:65` — React 19 / `react-test-renderer` type drift. Workaround exists; separate PR when React types stabilize (~next Vite upgrade).
+
+**New findings surfaced in Entries 136–141 (not yet ticketed — next PR or A-number):**
+
+| Migration | Status | Location | Work |
+|-----------|--------|----------|------|
+| **0012** (`spreading_activation` function) | Absent from `init-schema.sql` | `packages/shared/drizzle/0012_*.sql` | Add to init-schema.sql |
+| **0028** (`lab_results` table) | Absent from `init-schema.sql` | `packages/shared/drizzle/0028_*.sql` | Add to init-schema.sql |
+| **0030** (`briefs` table) | Absent from `init-schema.sql` | `packages/shared/drizzle/0030_*.sql` | Add to init-schema.sql |
+
+**Remediation:** Fold each migration's DDL into `init-schema.sql` (currently has migrations 0001–0011, 0013–0027), then verify with `pnpm --filter @open-brain/workers exec vitest run --config vitest.config.integration.ts` (integration tests apply `init-schema.sql` fresh; if they pass, parity is restored). Roughly 30 min mechanical work each, or one combined PR for all three (roughly 1 hour total). **Cross-reference:** Entry 136 (A125 closure) raised these; pattern same as A125 — `setup.ts` integration test patch exists.
+
+**External-trigger-gated (master plan tail — `IMPLEMENT_MASTER_PLAN.md` + `PHASED_PLAN.md`):**
+
+- **P23** — Cognitive memory tuning. Data-gated; earliest start ~2026-05-17 (≥4 weeks of search activity since P06 producer wiring on 2026-04-19). Measurable: search + co-access tracking volume; tuning targets `temporal_weight`, `hnsw.ef_search`, spreading activation depth.
+- **P24** — Pipecat voice 2-week structured-conversation soak. Manual; needs Troy's time for conversations. Unscheduled.
+- **P25** — Voice architecture decision (keep both stacks vs. consolidate). Depends on P24 results.
+- **P33** — Qdrant evaluation. Scale-gated; fires when embeddings count ≥ 50K (currently ~11K, added ~200/day).
+- **P34** — RTX PRO 2000 deployment. Hardware purchase decision; eliminates API embedding cost (~$10–15/month when local). Timeline: unknown.
+
+**Verification residue (cheapest close-out):**
+
+- **`IMPLEMENTATION_PLAN.md`** (LLM model consolidation, authored 2026-04-21). Implementation appears done (all 10 checklist items checked); only **verification boxes** (3 lines) remain unticked. Rough work: run `CI=1 pnpm -r test`, grep across codebase for hardcoded model names (should be zero hits), tick boxes, mark plan COMPLETE. **~30 min.**
+
+### Recommendation for next session
+
+**Pick the smallest for quick progress:**
+- Init-schema parity sweep (0012/0028/0030) — ~30 min per migration, or 1 hour for all three combined.
+- LLM model consolidation verification — ~30 min, closes `IMPLEMENTATION_PLAN.md`.
+
+**Targeting biggest impact:**
+- **A130 (ESLint 9)** — needs a written plan first. Invoke `/ultra-plan` or `/create-plan skill`. Largest remaining operational blocker; unblocks A128 sequence.
+
+**What NOT to do:**
+- Do not bundle A130 with other work. It's a self-contained plan.
+- Do not bump `eslint-config-next` above `^15.0.0` until A130 is authored and scoped.
+- Do not schedule A128 before A130 is resolved.
+
+### Outcome
+
+No code changes. Snapshot committed directly to main as planning-context entry. Next session should read this entry + `OPEN_ITEMS.md` for current scope, then pick a category. A130 plan is the critical path; all others are parallel or long-term.
