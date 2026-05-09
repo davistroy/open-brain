@@ -6,6 +6,22 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 
 ---
 
+## Active master plan
+
+**[IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md](IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md)** — 11-issue cohesive remediation, 7 phases (A–G), ~14–18 h effort, sequenced by interaction dependencies.
+
+| Phase | Closes | Brief |
+|---|---|---|
+| A — Stop the bleeding | #197 (greeting), #198 (CORS), #199 (Slack), #200 (744 failed jobs) | Model name fix in ai-routing.yaml, column typo, CF Access bypass, Slack admin toggle, failed-jobs cleanup |
+| B — UI hydration unification | #197, #198 (RC1) | Time-aware greeting + `new Date()` audit |
+| C — Settings hygiene | #200 RC4 | GET /settings/:key returns 200 with null instead of 404 |
+| D — Observability profile | #200 RC3 | `docker compose --profile observability up -d` (P12 closeout) |
+| E — Small verifications | #191, #194, #193 | Plan close-out audit, TS2502 fix, defer SSE coverage |
+| F — Vitest 2.x bump | #192 | A116 closeout |
+| G — Hooks → ESLint 9 → RTL | #177, #190, #195 | A128 → A130 → A120 sequenced refactor |
+
+---
+
 ## Open issues by priority
 
 | # | Title | Gate |
