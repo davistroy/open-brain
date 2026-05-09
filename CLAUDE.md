@@ -151,6 +151,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 
 **Front-end / web**
 - **A126 RESOLVED (Phase 8b):** `packages/web` deleted. `build-and-test` CI job is now clean. `web-next` (`packages/web-next`) is the sole UI package. All new UI work goes to `web-next`.
+- **When deleting a Compose service, grep `docker-compose.yml` AND overrides for the service name in `depends_on:` blocks** — not just in `services:`. Phase 8b removed the `web` service definition but left `cloudflared.depends_on.web`; `docker compose config` returned an invalid-project error and blocked all deploys until `d479c04` fixed it (2026-05-09, Entry 143).
 
 **Testing / CI**
 - Integration tests: `pnpm --filter @open-brain/core-api exec vitest run --config vitest.config.integration.ts` (not `npx`; filename word order matters).
