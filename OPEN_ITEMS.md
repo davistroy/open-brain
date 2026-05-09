@@ -8,7 +8,7 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 
 ## Active master plan
 
-**[IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md](IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md)** — 11-issue cohesive remediation, 7 phases (A–G), ~14–18 h effort, sequenced by interaction dependencies.
+**[IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md](IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md)** — 11-issue cohesive remediation, 7 phases (A–G). **Status: COMPLETE (2026-05-09)**
 
 | Phase | Closes | Brief |
 |---|---|---|
@@ -37,11 +37,28 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 | [#192](https://github.com/davistroy/open-brain/issues/192) | A116: Vitest 2.x bump | Low priority baseline |
 | [#193](https://github.com/davistroy/open-brain/issues/193) | A117: SSE onAbort coverage | Low priority baseline |
 | ~~[#194](https://github.com/davistroy/open-brain/issues/194)~~ | ~~A106: TS2502 entity-resolution.test.ts~~ | **CLOSED (already resolved by commit 6948a12 — Phase E.2 audit 2026-05-09)** |
-| [#195](https://github.com/davistroy/open-brain/issues/195) | A120: TS2345 MPill/TabBar tests | Low priority baseline — after #190 |
+| ~~[#195](https://github.com/davistroy/open-brain/issues/195)~~ | ~~A120: RTL migration MPill/TabBar tests~~ | CLOSED — Phase G.3, PR #216 (2026-05-09) |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile deferred scope | No gate — when mobile is a priority |
 | [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection: 6.5M-token context blowup | Bug — discovered during Phase A.5 |
 | [#205](https://github.com/davistroy/open-brain/issues/205) | Stale BullMQ repeat-job keys for removed skills | Bug — discovered during Phase A.5 |
 | [#207](https://github.com/davistroy/open-brain/issues/207) | A83: 17 cosmetic hydration risks (new Date/Date.now) | Tech debt — deferred, low priority |
+
+---
+
+## Recently closed (2026-05-09 remediation session)
+
+| # | Title | Closed by |
+|---|-------|-----------|
+| #191 | LLM model consolidation verification | Phase E.1 audit |
+| #194 | TS2502 entity-resolution (A106) | Phase E.2 audit (pre-existing fix confirmed) |
+| #197 | Greeting bug + hydration | PR #206 |
+| #198 | React #418 hydration (CORS) | PR #206 |
+| #199 | Slack DMs | Manual: Slack admin toggle |
+| #200 | 744 failed jobs | PRs #201, #202, #203 |
+| #192 | Vitest 2.x bump (A116) | PR #210 |
+| #177 | TanStack Query hooks (A128) | PRs #211–#214 |
+| #190 | ESLint 9 + flat-config (A130) | PR #215 |
+| #195 | RTL migration MPill/TabBar (A120) | PR #216 |
 
 ---
 
