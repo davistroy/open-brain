@@ -39,6 +39,8 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 | [#194](https://github.com/davistroy/open-brain/issues/194) | A106: TS2502 entity-resolution.test.ts | Low priority baseline |
 | [#195](https://github.com/davistroy/open-brain/issues/195) | A120: TS2345 MPill/TabBar tests | Low priority baseline — after #190 |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile deferred scope | No gate — when mobile is a priority |
+| [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection: 6.5M-token context blowup | Bug — discovered during Phase A.5 |
+| [#205](https://github.com/davistroy/open-brain/issues/205) | Stale BullMQ repeat-job keys for removed skills | Bug — discovered during Phase A.5 |
 
 ---
 
