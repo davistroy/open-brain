@@ -161,6 +161,17 @@ const TOGGLE_SETTINGS = [
   },
 ] as const;
 
+/**
+ * Default values for entity extraction settings.
+ * API returns {value: null} for whitelisted-but-unset keys (Phase C);
+ * components read `data?.value ?? DEFAULTS[key]` instead of .catch() plumbing.
+ */
+const DEFAULTS = {
+  entity_extract_locations: true,
+  entity_extract_monetary: false,
+  entity_confidence_threshold: 0.7,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -170,34 +181,19 @@ export function EntityExtractionSection() {
 
   const locationQuery = useQuery({
     queryKey: ['settings', 'entity_extract_locations'],
-    queryFn: () =>
-      settingsApi.get('entity_extract_locations').catch(() => ({
-        key: 'entity_extract_locations',
-        value: TOGGLE_SETTINGS[0].defaultValue,
-        updated_at: null,
-      })),
+    queryFn: () => settingsApi.get('entity_extract_locations'),
     staleTime: 60_000,
   });
 
   const monetaryQuery = useQuery({
     queryKey: ['settings', 'entity_extract_monetary'],
-    queryFn: () =>
-      settingsApi.get('entity_extract_monetary').catch(() => ({
-        key: 'entity_extract_monetary',
-        value: TOGGLE_SETTINGS[1].defaultValue,
-        updated_at: null,
-      })),
+    queryFn: () => settingsApi.get('entity_extract_monetary'),
     staleTime: 60_000,
   });
 
   const confidenceQuery = useQuery({
     queryKey: ['settings', 'entity_confidence_threshold'],
-    queryFn: () =>
-      settingsApi.get('entity_confidence_threshold').catch(() => ({
-        key: 'entity_confidence_threshold',
-        value: 0.7,
-        updated_at: null,
-      })),
+    queryFn: () => settingsApi.get('entity_confidence_threshold'),
     staleTime: 60_000,
   });
 
@@ -225,17 +221,17 @@ export function EntityExtractionSection() {
   const locationChecked =
     typeof locationQuery.data?.value === 'boolean'
       ? locationQuery.data.value
-      : TOGGLE_SETTINGS[0].defaultValue;
+      : DEFAULTS.entity_extract_locations;
 
   const monetaryChecked =
     typeof monetaryQuery.data?.value === 'boolean'
       ? monetaryQuery.data.value
-      : TOGGLE_SETTINGS[1].defaultValue;
+      : DEFAULTS.entity_extract_monetary;
 
   const confidenceValue =
     typeof confidenceQuery.data?.value === 'number'
       ? confidenceQuery.data.value
-      : 0.7;
+      : DEFAULTS.entity_confidence_threshold;
 
   return (
     <Card

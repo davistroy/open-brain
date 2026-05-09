@@ -10885,6 +10885,26 @@ Close 5 skipped test cases from Entry 143 test run:
 
 ---
 
+--- New session: 2026-05-09 — Remediation Phase C: settings GET 404→200 noise elimination ---
+
+## Entry 146 — Phase C: settings GET 404→200 (2026-05-09)  [api] [web] [decision]
+
+**Date:** 2026-05-09
+**Environment:** laptop VM; affects core-api + web-next containers on homeserver
+**Duration:** TBD
+
+**Objective:** Eliminate ~6 NotFoundError stack traces per dashboard load (issue #200 RC4). Every fresh dashboard load fires GET /api/v1/settings/:key for each whitelisted-but-unset key (autonomy_level, ingest_voice_min_duration, entity_confidence_threshold, etc.). The route threw NotFoundError for missing rows, producing stack-trace log noise even though the frontend already had `.catch(() => default)` workarounds.
+
+**Hypothesis:** Changing GET semantic from 404 → 200 with `{key, value: null, updated_at: null}` matches the frontend's existing assumption (missing = use default). Frontend `.catch()` plumbing can be removed and replaced with `data?.value ?? DEFAULTS[key]` reads. Test A110 regression (missing-row → 404) must be updated in lockstep. Observable but non-breaking: API consumers that check for 404 will need updating, but there are none except the removed `.catch()` wrappers.
+
+**Rollback plan:** `git revert <sha>` — no schema changes, no migrations.
+
+**Action:** Route change in `packages/core-api/src/routes/settings.ts` (2 lines); test update in `settings-routes.test.ts` (update 2 existing + add 1 new); frontend cleanup in `IngestFiltersSection.tsx` + `EntityExtractionSection.tsx` (drop `.catch()`, add `DEFAULTS` const, read `DEFAULTS.key` instead of inline literals).
+
+**Result:** TBD — pending deploy and log verification.
+
+---
+
 --- New session: 2026-05-09 — Remediation Phase A.1+A.2: t1_spark model name + source_metadata column typo ---
 
 ## Entry 131 — Phase A.1+A.2: t1_spark model name + source_metadata column typo  [deploy] [config] [api] [debug] [decision]
