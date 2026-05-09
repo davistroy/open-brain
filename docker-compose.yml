@@ -535,8 +535,6 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
-      web:
-        condition: service_healthy
     mem_limit: 256m
     networks:
       - open-brain
