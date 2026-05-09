@@ -10885,6 +10885,48 @@ Close 5 skipped test cases from Entry 143 test run:
 
 ---
 
+--- New session: 2026-05-09 — Phase G.1 TanStack Query hooks (A128) ---
+
+## Entry 148 — Phase G.1 Batch 1: TanStack Query hooks — captures, search, briefs, intelligence, settings, entities (2026-05-09)  [web] [refactor]
+
+**Date:** 2026-05-09
+**Environment:** open-brain-remediation worktree; branch feat/phase-g1-batch-1
+**Duration:** ~45 min
+
+**Objective:** Create TanStack Query hook files for 6 high-traffic API domains. Migrate inline `useQuery`/`useMutation` constructions in components to use the new hooks. Refs #177 (A128).
+
+**Hypothesis:** Eliminates duplicated queryKey strings and inline queryFn lambdas. Components become thinner. No behaviour change — same query keys, same staleTime values.
+
+**Rollback plan:** `git revert` the batch commit — no DB or infra changes.
+
+**Hooks created:**
+- `lib/api/captures.hooks.ts` — `useCaptures`, `useCapture`, `useCreateCapture`
+- `lib/api/search.hooks.ts` — `useSearch` (shared query key between SearchResults + EntityFacets)
+- `lib/api/briefs.hooks.ts` — `useBriefs`, `useBrief`, `usePatchBriefRead`, `useDismissBrief`, `useRefineBrief`
+- `lib/api/intelligence.hooks.ts` — `useIntelligenceSummary`, `useConnectionsLatest`, `useDriftLatest`, `useUnresolvedQuestions`, `useTriggerIntelligence`
+- `lib/api/settings.hooks.ts` — `useSetting`, `usePutSetting`
+- `lib/api/entities.hooks.ts` — `useEntities`, `useEntity`, `useEntityCaptures`, `useEntityRelated`, `useEntityMentionsTimeline`, `useMergeEntity`, `useAskEntity`, `useGenerateEntityBrief`
+
+**Consumers migrated (7):**
+- `components/search/SearchResults.tsx` — `useQuery` → `useSearch`
+- `components/search/EntityFacets.tsx` — `useQuery` → `useSearch`
+- `components/dashboard/QuickCapture.tsx` — `useMutation` → `useCreateCapture`
+- `components/briefs/BriefHero.tsx` — `useMutation` → `useDismissBrief`
+- `components/briefs/BriefSources.tsx` — `useMutation` → `useRefineBrief`
+- `components/entity/entity-detail-client.tsx` — `useMutation` → `useGenerateEntityBrief`
+- `components/settings/EntityExtractionSection.tsx` — 3×`useQuery` + `useMutation` → `useSetting` × 3 + `usePutSetting`
+- `components/settings/IngestFiltersSection.tsx` — 4×`useQuery` + `useMutation` → `useSetting` × 4 + `usePutSetting`
+
+**Key decisions:**
+- Hooks NOT exported via `lib/api/index.ts` barrel — hook files import `@tanstack/react-query` which must stay client-component-only; barrel has no 'use client' directive and is imported from RSC pages. Consumers import directly from `@/lib/api/<domain>.hooks`.
+- `onMutate` is not a valid key in TanStack Query v5 `MutateOptions` — loading toasts moved to the click handler immediately before `mutate()`.
+- `useSearch` preserves `staleTime: 30_000` so EntityFacets and SearchResults share the same cache entry (no duplicate fetch).
+- `useSetting` preserves `staleTime: 60_000` convention from all settings consumers.
+
+**Result:** tsc --noEmit clean. 118/118 tests pass.
+
+---
+
 --- New session: 2026-05-09 — Remediation Phase F: Vitest 2.x bump ---
 
 ## Entry 147 — Phase F: Vitest 2.x bump (2026-05-09)  [test] [config] [decision]

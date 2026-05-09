@@ -17,10 +17,9 @@
  * Refetch interval: none — user controls via URL changes.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { List, LayoutGrid } from 'lucide-react';
-import { searchApi } from '@/lib/api-client';
+import { useSearch } from '@/lib/api/search.hooks';
 import type { SearchResult } from '@/lib/types';
 import { ResultCard, GroupedResults } from './GroupedResults';
 
@@ -133,17 +132,7 @@ export function SearchResults({ query }: SearchResultsProps) {
     localStorage.setItem(LS_KEY, mode);
   }
 
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
-    queryKey: ['search', query],
-    queryFn: () => searchApi.search({ q: query, hybrid: true, limit: 20 }),
-    enabled: Boolean(query.trim()),
-    staleTime: 30_000,
-  });
+  const { data, isLoading, isError, error } = useSearch({ q: query, hybrid: true, limit: 20 });
 
   if (isLoading) return <ResultSkeletons />;
 
