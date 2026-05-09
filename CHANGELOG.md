@@ -10,6 +10,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.6.0] — 2026-05-09
+
+Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration.
+
+### Added
+- **React Native mobile app** (PR #172): 11 screens — captures list, capture detail, search, voice, briefs, sessions, entities, settings, add capture, loading, offline. Expo SDK 53 → 54.
+- **Cloudscape M1–M4** (PRs #168–#171): Next.js 16 + React 19 + Cloudscape full UI migration — capture detail, design polish, brief actions, entity merge. `packages/web-next` is now the sole UI package.
+- **Architecture review remediation R1–R12** (PR #175): 12 hardening items across security, rate limiting, observability, and type safety.
+- **UUID path-param validation** (A113, PR #189): `GET/PATCH/DELETE` briefs + sessions `:id` endpoints return 400 on malformed UUID (was 500).
+- **sessions `status_filter` 400** (A114, PR #189): Invalid `status_filter` query param returns 400 instead of silently dropping.
+- **settings GET whitelist gate** (A110, PR #188): `GET /api/v1/settings/:key` rejects unknown keys with 404.
+- **email_allowlist validator** (A111, PR #188): `PUT /api/v1/settings/email_allowlist` validates entries as valid email addresses.
+- **Cross-platform `test:integration`** (A129, PR #187): `node scripts/test-integration.mjs` — compose-up → tests → compose-down with try/finally teardown. Works on bash and PowerShell.
+- **Workers coverage gate** (Phase 4, PR #183): `thresholds: { lines: 78, functions: 81 }` in `packages/workers/vitest.config.ts`. Workers integration tests in CI.
+- **Wiki construction** (P26, PR #60): browser UI + pipeline hardening.
+- **Pyright coverage** (P27–P32, PRs #120–#121): Full pyright coverage for all Python scripts (voice-pipecat, financial, utility, email, file-management, ingestion).
+- **LLM model consolidation** (PR #167): All LLM model assignments in `config/ai-routing.yaml`. No hardcoded model names in application code.
+- **Lab report synthesis** (P20b, PR #159): T0 PDF extraction + T2 Claude CLI trend synthesis.
+- **Insurance pipeline** (P22a/b, PRs #157–#158): T0 policy extraction + migration 0029 + gap analysis.
+
+### Changed
+- **`packages/web` deleted** (Phase 8b, ADR-0001): `packages/web-next` is the sole web UI. `brain.troy-davis.com` tunnels to `web-next`.
+- **GitHub issues as authoritative tracker**: `OPEN_ITEMS.md` is now a lightweight redirect table. All pending work tracked in GitHub issues at https://github.com/davistroy/open-brain/issues.
+- **Completed implementation plans archived**: `IMPLEMENTATION_PLAN-ARCH-REVIEW.md`, `-CLOUDSCAPE-M2.md`, `-CLOUDSCAPE-M3.md`, `-CLOUDSCAPE-M4.md`, `-POST-REMEDIATION.md` moved to `docs/archived/`.
+- **Ops hardening** (A71/A107/A125, PRs #184–#186): `memory_consolidation` task-routing key; removed duplicate `strictLimiter` on `/captures`; `capture_associations` migration folded into `init-schema.sql`.
+
+### Fixed
+- **Stale `depends_on: web` in `cloudflared`** (d479c04): Phase 8b removed `open-brain-web` service but left `cloudflared.depends_on.web` — `docker compose config` returned invalid-project error blocking all deploys.
+- **`scripts/__pycache__` tracked in git**: `deepgram-spike.cpython-314.pyc` was committed before `.gitignore` rule was added; removed with `git rm --cached`.
+
+---
+
 ## [1.5.0] — 2026-04-19
 
 P08–P15a: secrets reconciliation, sibling enum CHECK constraints, CI expansion, observability, search performance, prompt injection hardening, doc alignment.
