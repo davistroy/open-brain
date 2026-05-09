@@ -33,7 +33,7 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 | [#73](https://github.com/davistroy/open-brain/issues/73) | P33: Qdrant evaluation | Scale-gated — fires at ≥50K embeddings |
 | [#177](https://github.com/davistroy/open-brain/issues/177) | A128: TanStack Query hooks extraction | Ready — sequence before #190 |
 | [#190](https://github.com/davistroy/open-brain/issues/190) | A130: ESLint 9 + flat-config migration | Ready — sequence after #177 |
-| [#191](https://github.com/davistroy/open-brain/issues/191) | Close out IMPLEMENTATION_PLAN.md verification | Ready — ~30 min |
+| ~~[#191](https://github.com/davistroy/open-brain/issues/191)~~ | ~~Close out IMPLEMENTATION_PLAN.md verification~~ | **CLOSED (Phase E.1 audit 2026-05-09)** |
 | [#192](https://github.com/davistroy/open-brain/issues/192) | A116: Vitest 2.x bump | Low priority baseline |
 | [#193](https://github.com/davistroy/open-brain/issues/193) | A117: SSE onAbort coverage | Low priority baseline |
 | [#194](https://github.com/davistroy/open-brain/issues/194) | A106: TS2502 entity-resolution.test.ts | Low priority baseline |
