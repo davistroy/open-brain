@@ -16,9 +16,8 @@
  * Client component (interactivity required).
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/design-system';
-import { settingsApi } from '@/lib/api-client';
+import { useSetting, usePutSetting } from '@/lib/api/settings.hooks';
 
 // ---------------------------------------------------------------------------
 // Toggle row
@@ -177,33 +176,10 @@ const DEFAULTS = {
 // ---------------------------------------------------------------------------
 
 export function EntityExtractionSection() {
-  const queryClient = useQueryClient();
-
-  const locationQuery = useQuery({
-    queryKey: ['settings', 'entity_extract_locations'],
-    queryFn: () => settingsApi.get('entity_extract_locations'),
-    staleTime: 60_000,
-  });
-
-  const monetaryQuery = useQuery({
-    queryKey: ['settings', 'entity_extract_monetary'],
-    queryFn: () => settingsApi.get('entity_extract_monetary'),
-    staleTime: 60_000,
-  });
-
-  const confidenceQuery = useQuery({
-    queryKey: ['settings', 'entity_confidence_threshold'],
-    queryFn: () => settingsApi.get('entity_confidence_threshold'),
-    staleTime: 60_000,
-  });
-
-  const putMutation = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: unknown }) =>
-      settingsApi.put(key, value),
-    onSuccess: (result) => {
-      queryClient.setQueryData(['settings', result.key], result);
-    },
-  });
+  const locationQuery = useSetting('entity_extract_locations');
+  const monetaryQuery = useSetting('entity_extract_monetary');
+  const confidenceQuery = useSetting('entity_confidence_threshold');
+  const putMutation = usePutSetting();
 
   const handleToggle = (key: string, next: boolean) => {
     putMutation.mutate({ key, value: next });

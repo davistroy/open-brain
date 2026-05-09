@@ -15,9 +15,8 @@
  * Client component (interactivity required).
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/design-system';
-import { settingsApi } from '@/lib/api-client';
+import { useSetting, usePutSetting } from '@/lib/api/settings.hooks';
 
 // ---------------------------------------------------------------------------
 // Toggle row types
@@ -177,31 +176,14 @@ const DEFAULTS = {
 // ---------------------------------------------------------------------------
 
 export function IngestFiltersSection() {
-  const queryClient = useQueryClient();
-
   // Fetch all toggle settings in parallel
   const toggleQueries = TOGGLE_SETTINGS.map((cfg) =>
     // eslint-disable-next-line react-hooks/rules-of-hooks -- stable array, safe
-    useQuery({
-      queryKey: ['settings', cfg.key],
-      queryFn: () => settingsApi.get(cfg.key),
-      staleTime: 60_000,
-    }),
+    useSetting(cfg.key),
   );
 
-  const voiceDurationQuery = useQuery({
-    queryKey: ['settings', 'ingest_voice_min_duration'],
-    queryFn: () => settingsApi.get('ingest_voice_min_duration'),
-    staleTime: 60_000,
-  });
-
-  const putMutation = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: unknown }) =>
-      settingsApi.put(key, value),
-    onSuccess: (result) => {
-      queryClient.setQueryData(['settings', result.key], result);
-    },
-  });
+  const voiceDurationQuery = useSetting('ingest_voice_min_duration');
+  const putMutation = usePutSetting();
 
   const handleToggle = (key: string, next: boolean) => {
     putMutation.mutate({ key, value: next });
