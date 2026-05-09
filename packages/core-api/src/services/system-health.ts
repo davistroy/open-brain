@@ -428,9 +428,9 @@ export class SystemHealthService {
         id: string
         pipeline_status: string
         created_at: string
-        metadata: Record<string, unknown> | null
+        source_metadata: Record<string, unknown> | null
       }>(sql`
-        SELECT id, pipeline_status, created_at, metadata
+        SELECT id, pipeline_status, created_at, source_metadata
         FROM captures
         WHERE pipeline_status IN ('processing', 'pending', 'partial', 'complete', 'failed')
         ORDER BY created_at DESC
@@ -470,7 +470,7 @@ export class SystemHealthService {
 
       return rows.rows.map(r => ({
         capture_id: r.id,
-        trace_id: (r.metadata as Record<string, unknown>)?.trace_id as string | null ?? null,
+        trace_id: r.source_metadata?.trace_id as string | null ?? null,
         pipeline_status: r.pipeline_status,
         created_at: r.created_at,
         stages: eventMap.get(r.id) ?? [],
