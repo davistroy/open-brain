@@ -353,6 +353,12 @@ describe('SystemHealthService', () => {
       expect(capturesQuery).toContain('source_metadata')
       expect(capturesQuery).not.toContain('"metadata"')
 
+      // Regression guard: the pipeline_events query must use created_at (actual column),
+      // NOT started_at (which does not exist on pipeline_events and causes a silent [] return).
+      const eventsQuery = capturedSqls[1] ?? ''
+      expect(eventsQuery).toContain('created_at')
+      expect(eventsQuery).not.toContain('started_at')
+
       // Verify the trace_id is correctly read from source_metadata
       expect(flows).toHaveLength(2)
       expect(flows[0].trace_id).toBe('tr-1')
@@ -503,7 +509,7 @@ describe('system-health routes', () => {
         trace_id: 'trace-abc',
         pipeline_status: 'complete',
         created_at: '2026-05-01T12:00:00Z',
-        stages: [{ stage: 'embed', status: 'success', duration_ms: 80, error: null, started_at: '2026-05-01T12:00:01Z' }],
+        stages: [{ stage: 'embed', status: 'success', duration_ms: 80, error: null, created_at: '2026-05-01T12:00:01Z' }],
       },
     ]
     vi.spyOn(service, 'getPipelineFlows').mockResolvedValue(mockFlows)
