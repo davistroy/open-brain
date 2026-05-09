@@ -134,6 +134,7 @@
 | D122 | Mobile app: jest with babel-jest (not jest-expo preset) for pnpm monorepo compatibility | 2026-04-22 | ACTIVE | Entry 130 | jest-expo setup.js deeply requires react-native internals that fail under pnpm .pnpm hoisting |
 | D123 | Mobile app: TanStack React Query v5 for data layer (not SWR, not custom) | 2026-04-22 | ACTIVE | Entry 130 | Matches web-next pattern, built-in mutations for board patches, staleTime/retry configurable |
 | D124 | Post-remediation baseline: 3.7/5 architectural health, 7/10 intent alignment. No CRITICAL findings. Primary gap is documentation staleness, not structural defects. | 2026-05-06 | ACTIVE | Entry 106, 107 | Full /review-arch + /review-intent audits run post-PR #175/#178/#179; see Entries 106 and 107 for detailed findings and remediation roadmap |
+| D125 | web-next container must set `TZ: America/New_York` — UTC container + getHours() in RSC = wrong greeting + potential hydration mismatches | 2026-05-09 | ACTIVE | Entry 145 | suppressHydrationWarning (band-aid, not root fix); always-UTC display (wrong for user); client-only clock (loses SSR benefit) |
 
 ## Action Items
 
@@ -217,6 +218,7 @@
 | A80 | Mobile app: EAS Build setup + TestFlight deployment | 2026-04-22 | Entry 130 | MEDIUM — `eas.json` config, TestFlight profile, internal testing |
 | A81 | Mobile app: streaming transcript integration (voice-pipecat WebSocket) | 2026-04-22 | Entry 130 | HIGH — completes M2 design vision with live transcript UI |
 | A82 | Mobile app: push notifications (expo-notifications + server-side delivery) | 2026-04-22 | Entry 130 | MEDIUM — highest-impact daily engagement feature |
+| A83 | Prop-lift `now` to RSC parents for remaining 17 class-(b) hydration-risk components (EmailTabs, ChannelTable, ProviderTabs, FlowsTab, SkillsTab, OverviewTab, TimelineEntry, TimelineClient, SkillCard, etc.) | 2026-05-09 | Entry 145 | LOW — TZ=America/New_York fix reduces blast radius; these are cosmetic time-display offsets, not data integrity issues |
 
 ### Completed
 | # | Action | Created | Completed | Source |
@@ -11014,3 +11016,90 @@ Fix (same pattern as `search.ts` lines 138–148): convert JS array to Postgres 
 **Flows response after PR #202:** still `{"flows":[]}` (new Postgres error caught silently)
 **PR #203 (A.2c):** fixes `ANY(${captureIds})` → `ANY(${pgCaptureIds}::uuid[])` following search.ts pattern
 **Final flows count after PR #203 deploy:** TBD
+
+---
+
+--- New session: 2026-05-09 — Phase B: time-aware greeting + hydration audit ---
+
+### Entry 145 — Phase B: time-aware greeting + hydration audit (2026-05-09)
+
+**Date:** 2026-05-09
+**Environment:** laptop VM (development), homeserver (deploy)
+**Tags:** `[web]` `[decision]` `[deploy]`
+**Duration:** ~45 minutes
+
+### Objective
+
+Phase B of the 2026-05-09 remediation plan — two items:
+1. Replace hardcoded "Good morning, Troy" with a time-aware greeting (closes #197)
+2. Audit all `new Date()` / `Date.now()` in client components for SSR/CSR hydration risk (closes #198 RC1)
+
+### Pre-flight — Container TZ check
+
+```
+docker exec open-brain-web-next date '+%H %Z'
+# → 21 UTC
+```
+
+Result: **UTC**. Container is missing timezone configuration. Added `TZ: America/New_York` to web-next `environment:` in `docker-compose.yml`. Without this, `getGreeting()` running in the RSC server would read UTC hours while the browser reads the user's local hours — a consistent SSR/CSR mismatch after midnight or before noon.
+
+### Hypothesis
+
+`getGreeting()` extracting hour from a `Date` object will return accurate greetings when the container TZ matches the user's timezone. Lifting `now = new Date()` from `RecentCaptures.tsx` render scope to the RSC parent and passing as a prop will eliminate hydration mismatch for relative timestamps.
+
+### Rollback plan
+
+`git revert <sha>` + remove `TZ: America/New_York` from docker-compose.yml + `docker compose up -d --force-recreate web-next`.
+
+### B.1 — Time-aware greeting
+
+New file: `packages/web-next/lib/greeting.ts` — `getGreeting(now?: Date): string` with morning/afternoon/evening boundaries at h=12 and h=17.
+
+New test file: `packages/web-next/lib/__tests__/greeting.test.ts` — 8-case table-driven test covering hours 0, 5, 6, 11, 12, 16, 17, 23, plus a no-arg smoke test.
+
+Updated:
+- `packages/web-next/app/(shell)/dashboard/page.tsx`: `import { getGreeting }`, capture `const now = new Date()` once in `DashboardPage()`, use `title={\`${getGreeting(now)}, Troy\`}`
+- `packages/web-next/components/dashboard/DashboardEmptyState.tsx`: server component — `getGreeting()` called at render time with no arg, safe because RSC renders once per request
+
+### B.2 — Hydration audit
+
+Grepped `new Date()\|Date\.now()` across `packages/web-next/components` and `packages/web-next/app`, excluding test files. Found 23 hits total.
+
+**Classification:**
+
+| Class | Description | Count |
+|-------|-------------|-------|
+| (a) Server component | No `'use client'`, renders once on server | 3 |
+| (b) Client component render scope — HYDRATION RISK | `'use client'`, called in render body (not useEffect/handler) | 18 |
+| (c) Inside useEffect or event handler — safe | `Date.now()` in async handler, setState callback | 2 |
+
+**Class (a) — server components, safe:**
+- `ExtractionsSidebar.tsx` — no `'use client'`, used in `isOverdue()` for date-string comparison only
+- `TimelineGroup.tsx` — no `'use client'`, `formatGroupHeader()` runs at server render time
+- `app/(shell)/system/page.tsx` — RSC, single render
+
+**Class (c) — inside event handlers, safe:**
+- `DangerZoneSection.tsx:133` — `setTokenIssuedAt(Date.now())` inside `handleStep1()` async function
+- `AdminResetSection.tsx:175` — same pattern
+
+**Class (b) — hydration risks, all in helper functions called during render:**
+- `RecentCaptures.tsx` — `formatCapturedAt()` — **FIXED**: `now` lifted to RSC parent `DashboardPage`, passed as prop
+- `GroupedResults.tsx`, `ChannelTable.tsx`, `ProviderTabs.tsx`, `FlowsTab.tsx`, `SkillsTab.tsx`, `OverviewTab.tsx`, `commitments-card.tsx`, `SessionList.tsx`, `BoardCard.tsx`, `RecentUploads.tsx`, `TimelineClient.tsx`, `TimelineEntry.tsx`, `SkillCard.tsx`, `EmailTabs.tsx`, `DraftCard.tsx`, `ThreadView.tsx` — all use `Date.now()` or `new Date()` in pure formatting helpers
+
+**Scope decision for remaining (b) hits:** The 17 remaining components all use date formatting helpers that are called during render. Those that are primarily populated via TanStack Query (e.g., `RecentUploads`, `SessionList`, `CommitmentsCard`) have no SSR-populated initial state — their hydration is deferred to after client mount, so no mismatch occurs in practice. The ones that do receive RSC-prefetched props (e.g., `EmailTabs`, `ChannelTable`, `ProviderTabs`, `TimelineEntry`) share the same structural risk as `RecentCaptures`. However, prop-lifting `now` to all 7+ RSC parent pages is out of scope for this PR per the plan's phase boundary. These are logged as A83 for a follow-up pass. The `TZ=America/New_York` fix significantly reduces the blast radius (server and client hours now agree).
+
+### Post-verify audit check
+
+After fixes, re-ran grep. Remaining class (b) hits in `components/` are all in helper functions — none in `'use client'` component body scope at module level (all are inside functions). The `RecentCaptures.tsx` fix eliminates the primary dashboard hydration source.
+
+### Results
+
+- `pnpm --filter @open-brain/web-next exec tsc --noEmit`: PASS (no output)
+- `pnpm --filter @open-brain/web-next test greeting`: 9/9 PASS
+- `pnpm --filter @open-brain/web-next test` (full suite): TBD after deploy
+
+### Action Items
+
+| # | Action | Priority |
+|---|--------|----------|
+| A83 | Prop-lift `now` to RSC parents for remaining 17 class-(b) components (EmailTabs, ChannelTable, ProviderTabs, FlowsTab, SkillsTab, OverviewTab, TimelineEntry, TimelineClient, SkillCard, etc.) | LOW — TZ fix reduces blast radius; these are cosmetic time-display offsets, not data integrity issues |
