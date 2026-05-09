@@ -22,7 +22,6 @@
  */
 
 import { useState, useMemo } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Inbox,
@@ -35,7 +34,8 @@ import {
 import { EmptyState, Input } from '@/components/design-system';
 import { DraftCard } from './DraftCard';
 import { ThreadView } from './ThreadView';
-import { emailApi, type EmailDraft } from '@/lib/api-client';
+import { useSendEmailDraft, useRejectEmailDraft } from '@/lib/api/email.hooks';
+import type { EmailDraft } from '@/lib/api-client';
 import type { Capture } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -386,8 +386,6 @@ function FilterBar({
 // ---------------------------------------------------------------------------
 
 export function EmailTabs({ initialCaptures, initialDrafts }: EmailTabsProps) {
-  const queryClient = useQueryClient();
-
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>('inbound');
 
@@ -412,56 +410,10 @@ export function EmailTabs({ initialCaptures, initialDrafts }: EmailTabsProps) {
   }
 
   // ---- Send mutation ----
-  const sendMutation = useMutation({
-    mutationFn: (id: string) => emailApi.send(id),
-    onMutate: (id) => {
-      setSendingId(id);
-    },
-    onSuccess: (result) => {
-      // Optimistic update: replace draft with updated status
-      setDrafts((prev) =>
-        prev.map((d) =>
-          d.id === result.id
-            ? { ...d, status: result.status, sent_at: result.sent_at }
-            : d,
-        ),
-      );
-      toast.success('Email sent successfully');
-      queryClient.invalidateQueries({ queryKey: ['email-drafts'] });
-    },
-    onError: (err, id) => {
-      console.error('[EmailTabs] send failed for draft:', id, err);
-      toast.error('Failed to send email — please try again.');
-    },
-    onSettled: () => {
-      setSendingId(null);
-    },
-  });
+  const sendMutation = useSendEmailDraft();
 
   // ---- Reject mutation ----
-  const rejectMutation = useMutation({
-    mutationFn: (id: string) => emailApi.reject(id),
-    onMutate: (id) => {
-      setRejectingId(id);
-    },
-    onSuccess: (result) => {
-      // Optimistic update: replace draft status with 'rejected'
-      setDrafts((prev) =>
-        prev.map((d) =>
-          d.id === result.id ? { ...d, status: result.status } : d,
-        ),
-      );
-      toast.success('Draft rejected');
-      queryClient.invalidateQueries({ queryKey: ['email-drafts'] });
-    },
-    onError: (err, id) => {
-      console.error('[EmailTabs] reject failed for draft:', id, err);
-      toast.error('Failed to reject draft — please try again.');
-    },
-    onSettled: () => {
-      setRejectingId(null);
-    },
-  });
+  const rejectMutation = useRejectEmailDraft();
 
   // Tab definitions with dynamic counts
   const pendingDraftCount = drafts.filter(
@@ -553,8 +505,44 @@ export function EmailTabs({ initialCaptures, initialDrafts }: EmailTabsProps) {
         {activeTab === 'drafts' && (
           <DraftsPanel
             drafts={drafts}
-            onSend={(id) => sendMutation.mutate(id)}
-            onReject={(id) => rejectMutation.mutate(id)}
+            onSend={(id) => {
+              setSendingId(id);
+              sendMutation.mutate(id, {
+                onSuccess: (result) => {
+                  setDrafts((prev) =>
+                    prev.map((d) =>
+                      d.id === result.id
+                        ? { ...d, status: result.status, sent_at: result.sent_at }
+                        : d,
+                    ),
+                  );
+                  toast.success('Email sent successfully');
+                },
+                onError: (err) => {
+                  console.error('[EmailTabs] send failed for draft:', id, err);
+                  toast.error('Failed to send email — please try again.');
+                },
+                onSettled: () => setSendingId(null),
+              });
+            }}
+            onReject={(id) => {
+              setRejectingId(id);
+              rejectMutation.mutate(id, {
+                onSuccess: (result) => {
+                  setDrafts((prev) =>
+                    prev.map((d) =>
+                      d.id === result.id ? { ...d, status: result.status } : d,
+                    ),
+                  );
+                  toast.success('Draft rejected');
+                },
+                onError: (err) => {
+                  console.error('[EmailTabs] reject failed for draft:', id, err);
+                  toast.error('Failed to reject draft — please try again.');
+                },
+                onSettled: () => setRejectingId(null),
+              });
+            }}
             sendingId={sendingId}
             rejectingId={rejectingId}
           />

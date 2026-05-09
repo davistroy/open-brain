@@ -10887,6 +10887,36 @@ Close 5 skipped test cases from Entry 143 test run:
 
 --- New session: 2026-05-09 — Phase G.1 TanStack Query hooks (A128) ---
 
+## Entry 151 — Phase G.1 Batch 4: TanStack Query hooks — admin, email (2026-05-09)  [web] [refactor]
+
+**Date:** 2026-05-09
+**Environment:** open-brain-remediation worktree; branch feat/phase-g1-batch-4
+**Duration:** ~20 min
+
+**Objective:** Final batch — create hook files for 2 remaining mutation-only domains. Migrate 3 consumers. Completes Phase G.1 (GitHub issue #177 / A128). Refs #177.
+
+**Rollback plan:** `git revert` — no DB or infra changes.
+
+**Hooks created:**
+- `lib/api/admin.hooks.ts` — `useArchiveSlackChannel` (invalidates `['slack-channels']`), `useClearQueue` (no cache invalidation — page reloads on success)
+- `lib/api/email.hooks.ts` — `useSendEmailDraft` (invalidates `['email-drafts']`), `useRejectEmailDraft` (invalidates `['email-drafts']`); exports `EMAIL_DRAFTS_QUERY_KEY`
+
+**Consumers migrated (3):**
+- `components/slack/ChannelTable.tsx` — `useMutation`+`useQueryClient`+`adminApi` → `useArchiveSlackChannel`; toast/local-state update moved to `mutate()` callbacks (v5 pattern: no `onMutate` in MutateOptions)
+- `components/system/QueuesTab.tsx` — `useMutation`+`adminQueuesApi` → `useClearQueue`; toast/reload moved to `mutate()` callbacks with `{ name, state }` variables shape
+- `components/email/EmailTabs.tsx` — 2×`useMutation`+`useQueryClient`+`emailApi` → `useSendEmailDraft`+`useRejectEmailDraft`; `setSendingId`/`setRejectingId` called before `mutate()` (replaces v5-incompatible `onMutate`); optimistic local-state update + toast in per-call callbacks
+
+**VoiceSection fully migrated:** Batch 3 rebase onto main (post-Batch-2 merge) resolved conflict — VoiceSection now uses both `useIntegrations` (config.hooks) + `useVoiceSessions`/`useActiveVoiceSessions` (voice.hooks). `useQuery` import removed entirely.
+
+**Key decisions:**
+- `useClearQueue` receives `{ name, state }` variables (not just `name`) — same shape as `adminQueuesApi.clear(name, state)`. Callers hardcode `state: 'failed'` at the call site.
+- Email mutation hooks do cache invalidation at the hook level; EmailTabs also does local-state optimistic update in per-call `onSuccess` for immediate UX update without waiting for re-fetch.
+- `EMAIL_DRAFTS_QUERY_KEY = ['email-drafts']` exported from email.hooks.ts matches the invalidation key already used inline in the prior consumers.
+
+**Result:** tsc --noEmit clean. 118/118 tests pass.
+
+---
+
 ## Entry 150 — Phase G.1 Batch 3: TanStack Query hooks — commitments, config, synthesize, service-health, email-settings (2026-05-09)  [web] [refactor]
 
 **Date:** 2026-05-09
