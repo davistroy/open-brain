@@ -11013,4 +11013,5 @@ Fix (same pattern as `search.ts` lines 138–148): convert JS array to Postgres 
 **PR #202 deploy:** `3d50a27` on homeserver
 **Flows response after PR #202:** still `{"flows":[]}` (new Postgres error caught silently)
 **PR #203 (A.2c):** fixes `ANY(${captureIds})` → `ANY(${pgCaptureIds}::uuid[])` following search.ts pattern
-**Final flows count after PR #203 deploy:** TBD
+**Final flows count after PR #203 deploy:** 20 (PASS)
+**Homeserver HEAD after PR #203:** `b4d1082`
