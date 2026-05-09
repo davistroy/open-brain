@@ -10916,10 +10916,28 @@ Stop ~700 of 744 failed BullMQ jobs caused by t1_spark model name 404 (workers r
    - Asserts empty array returned when DB throws (covers the silent-catch pattern).
 
 ### Result
-TBD — fill in after deploy verification on homeserver.
+**Deploy date:** 2026-05-09  
+**Homeserver HEAD:** `b7dfd11` (squash merge of PR #201)  
+**Deploy method:** `git pull --ff-only origin main` + `docker compose build core-api` + `docker compose up -d --no-deps core-api` + `docker compose restart workers`  
+**Note:** `docker compose restart` alone reuses the existing image — the source fix only takes effect after `docker compose build` + `up`. Container rebuild was required.
+
+**A.1 — t1_spark model name (PASS):**
+- `docker logs --since 3m open-brain-workers | grep -c 'qwen3.5-35b'` → **0**
+- No model-404 errors in workers logs in the 3-minute post-restart window.
+- (No skill execution jobs fired in the window — expected, cron-driven. Absence of errors is the confirmation.)
+
+**A.2 — source_metadata column fix (PARTIAL PASS / NEW BUG FOUND):**
+- First query (`captures` SELECT with `source_metadata`) now executes correctly — `metadata` column-not-exist error is gone.
+- Second query (`pipeline_events` JOIN) fails: `column "started_at" does not exist`.
+- `pipeline_events` actual schema: columns are `created_at` (not `started_at`) and `metadata` (not `source_metadata`). The PR #201 fix only addressed the `captures` table's column name; the `pipeline_events` SELECT in `getPipelineFlows()` references two non-existent columns.
+- `/api/v1/system/flows` still returns `{"flows":[]}` due to the second `catch` swallowing the `started_at` error.
+- `grep -c 'column "metadata" does not exist'` in core-api logs → **0** (original bug is fixed; new bug surfaced).
+
+**Status:** A.1 fully resolved. A.2 partially resolved — one of two column bugs fixed. Second bug (`started_at` → `created_at` in pipeline_events query, and `error`/`started_at` SELECT fields vs actual schema) is a follow-on regression that was not in scope of PR #201 and was not caught by the unit test (test mocked the DB, not the real schema). STOPPING as instructed — surfacing to orchestrator. No rollback needed (system is functional, flows endpoint just remains empty as before).
 
 ### Decision Log update
-No new decisions. Pre-existing D75 (add t1_spark) is amended: model id was wrong from the start; now corrected to `spark-llm`.
+No new decisions. Pre-existing D75 (add t1_spark) is amended: model id was wrong from the start; now corrected to `spark-llm`. A.2 bug is compound — needs a follow-up fix to the `pipeline_events` query.
 
 ### Action Items
-- A.5: After deploy — verify `docker logs --since 5m open-brain-workers | grep qwen3.5-35b | wc -l` = 0 and flows endpoint returns non-empty array. Clear failed-job backlog via Bull Board.
+- **[NEW] A.2b:** Fix `getPipelineFlows()` pipeline_events query — `started_at` → `created_at` in both SELECT and ORDER BY; verify actual pipeline_events columns match the TypeScript interface fields.
+- A.5: After A.2b is resolved — clear failed-job backlog via Bull Board. Verify flows endpoint returns non-empty array.
