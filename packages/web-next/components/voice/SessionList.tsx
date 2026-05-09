@@ -18,10 +18,9 @@
  *   onSelect         — callback when a session row is clicked
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Mic, MicOff, Radio } from 'lucide-react';
-import { voiceSessionApi, type VoiceSession } from '@/lib/api-client';
-import type { ListEnvelope } from '@/lib/api-client';
+import { useVoiceSessions, useActiveVoiceSessions } from '@/lib/api/voice.hooks';
+import type { VoiceSession } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -198,26 +197,13 @@ export function SessionList({
   onSelect,
 }: SessionListProps) {
   // Full session list — no polling needed; sessions only added, never mutated in-place
-  const { data: sessionsData } = useQuery<ListEnvelope<VoiceSession>>({
-    queryKey: ['voice-sessions'],
-    queryFn: () => voiceSessionApi.list({ limit: 100 }),
-    initialData: {
-      items: initialSessions,
-      total: initialTotal,
-      limit: 100,
-      offset: 0,
-    },
-    refetchOnWindowFocus: false,
-  });
+  const { data: sessionsData } = useVoiceSessions(
+    { limit: 100 },
+    { initialData: { items: initialSessions, total: initialTotal, limit: 100, offset: 0 } },
+  );
 
-  // Active sessions — polled every 10 seconds
-  const { data: activeData } = useQuery<{ items: VoiceSession[] }>({
-    queryKey: ['voice-sessions-active'],
-    queryFn: () => voiceSessionApi.active(),
-    initialData: { items: [] },
-    refetchInterval: 10_000,
-    refetchOnWindowFocus: true,
-  });
+  // Active sessions — polled every 10 seconds (shared key with VoiceConversationsClient)
+  const { data: activeData } = useActiveVoiceSessions();
 
   const sessions = sessionsData?.items ?? initialSessions;
   const activeSessions = activeData?.items ?? [];
