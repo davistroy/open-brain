@@ -160,6 +160,18 @@ const TOGGLE_SETTINGS = [
   },
 ] as const;
 
+/**
+ * Default values for ingest filter settings.
+ * API returns {value: null} for whitelisted-but-unset keys (Phase C);
+ * components read `data?.value ?? DEFAULTS[key]` instead of .catch() plumbing.
+ */
+const DEFAULTS = {
+  ingest_skip_automated_emails: true,
+  ingest_skip_low_signal_slack: true,
+  ingest_capture_bare_calendar: false,
+  ingest_voice_min_duration: 5,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -172,24 +184,14 @@ export function IngestFiltersSection() {
     // eslint-disable-next-line react-hooks/rules-of-hooks -- stable array, safe
     useQuery({
       queryKey: ['settings', cfg.key],
-      queryFn: () =>
-        settingsApi.get(cfg.key).catch(() => ({
-          key: cfg.key,
-          value: cfg.defaultValue,
-          updated_at: null,
-        })),
+      queryFn: () => settingsApi.get(cfg.key),
       staleTime: 60_000,
     }),
   );
 
   const voiceDurationQuery = useQuery({
     queryKey: ['settings', 'ingest_voice_min_duration'],
-    queryFn: () =>
-      settingsApi.get('ingest_voice_min_duration').catch(() => ({
-        key: 'ingest_voice_min_duration',
-        value: 5,
-        updated_at: null,
-      })),
+    queryFn: () => settingsApi.get('ingest_voice_min_duration'),
     staleTime: 60_000,
   });
 
@@ -243,7 +245,7 @@ export function IngestFiltersSection() {
           value={
             typeof voiceDurationQuery.data?.value === 'number'
               ? voiceDurationQuery.data.value
-              : 5
+              : DEFAULTS.ingest_voice_min_duration
           }
           min={0}
           max={300}
