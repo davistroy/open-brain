@@ -2,11 +2,10 @@
 
 import { useState } from 'react';
 import { Edit3, Mic, FileUp, Link } from 'lucide-react';
-import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/design-system';
-import { capturesApi } from '@/lib/api-client';
+import { useCreateCapture } from '@/lib/api/captures.hooks';
 import type { CaptureType } from '@/lib/types';
 
 type QuickType = 'note' | 'voice' | 'upload' | 'link';
@@ -36,30 +35,31 @@ export function QuickCapture() {
   const [text, setText] = useState('');
   const router = useRouter();
 
-  const mutation = useMutation({
-    mutationFn: () =>
-      capturesApi.create({
+  const mutation = useCreateCapture();
+
+  function handleCapture() {
+    if (!text.trim()) return;
+    mutation.mutate(
+      {
         content: text.trim(),
         capture_type: toCaptureType(activeType),
         brain_view: 'personal',
         source: 'api',
-      }),
-    onSuccess: () => {
-      setText('');
-      toast('Captured');
-      // Refresh the RSC page so StatStrip + RecentCaptures re-fetch.
-      router.refresh();
-    },
-    onError: (err) => {
-      const message =
-        err instanceof Error ? err.message : 'Failed to capture — please try again.';
-      toast.error(message);
-    },
-  });
-
-  function handleCapture() {
-    if (!text.trim()) return;
-    mutation.mutate();
+      },
+      {
+        onSuccess: () => {
+          setText('');
+          toast('Captured');
+          // Refresh the RSC page so StatStrip + RecentCaptures re-fetch.
+          router.refresh();
+        },
+        onError: (err) => {
+          const message =
+            err instanceof Error ? err.message : 'Failed to capture — please try again.';
+          toast.error(message);
+        },
+      },
+    );
   }
 
   return (

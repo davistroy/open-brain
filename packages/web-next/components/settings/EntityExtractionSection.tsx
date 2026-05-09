@@ -16,9 +16,8 @@
  * Client component (interactivity required).
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/design-system';
-import { settingsApi } from '@/lib/api-client';
+import { useSetting, usePutSetting } from '@/lib/api/settings.hooks';
 
 // ---------------------------------------------------------------------------
 // Toggle row
@@ -161,53 +160,26 @@ const TOGGLE_SETTINGS = [
   },
 ] as const;
 
+/**
+ * Default values for entity extraction settings.
+ * API returns {value: null} for whitelisted-but-unset keys (Phase C);
+ * components read `data?.value ?? DEFAULTS[key]` instead of .catch() plumbing.
+ */
+const DEFAULTS = {
+  entity_extract_locations: true,
+  entity_extract_monetary: false,
+  entity_confidence_threshold: 0.7,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function EntityExtractionSection() {
-  const queryClient = useQueryClient();
-
-  const locationQuery = useQuery({
-    queryKey: ['settings', 'entity_extract_locations'],
-    queryFn: () =>
-      settingsApi.get('entity_extract_locations').catch(() => ({
-        key: 'entity_extract_locations',
-        value: TOGGLE_SETTINGS[0].defaultValue,
-        updated_at: null,
-      })),
-    staleTime: 60_000,
-  });
-
-  const monetaryQuery = useQuery({
-    queryKey: ['settings', 'entity_extract_monetary'],
-    queryFn: () =>
-      settingsApi.get('entity_extract_monetary').catch(() => ({
-        key: 'entity_extract_monetary',
-        value: TOGGLE_SETTINGS[1].defaultValue,
-        updated_at: null,
-      })),
-    staleTime: 60_000,
-  });
-
-  const confidenceQuery = useQuery({
-    queryKey: ['settings', 'entity_confidence_threshold'],
-    queryFn: () =>
-      settingsApi.get('entity_confidence_threshold').catch(() => ({
-        key: 'entity_confidence_threshold',
-        value: 0.7,
-        updated_at: null,
-      })),
-    staleTime: 60_000,
-  });
-
-  const putMutation = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: unknown }) =>
-      settingsApi.put(key, value),
-    onSuccess: (result) => {
-      queryClient.setQueryData(['settings', result.key], result);
-    },
-  });
+  const locationQuery = useSetting('entity_extract_locations');
+  const monetaryQuery = useSetting('entity_extract_monetary');
+  const confidenceQuery = useSetting('entity_confidence_threshold');
+  const putMutation = usePutSetting();
 
   const handleToggle = (key: string, next: boolean) => {
     putMutation.mutate({ key, value: next });
@@ -225,17 +197,17 @@ export function EntityExtractionSection() {
   const locationChecked =
     typeof locationQuery.data?.value === 'boolean'
       ? locationQuery.data.value
-      : TOGGLE_SETTINGS[0].defaultValue;
+      : DEFAULTS.entity_extract_locations;
 
   const monetaryChecked =
     typeof monetaryQuery.data?.value === 'boolean'
       ? monetaryQuery.data.value
-      : TOGGLE_SETTINGS[1].defaultValue;
+      : DEFAULTS.entity_extract_monetary;
 
   const confidenceValue =
     typeof confidenceQuery.data?.value === 'number'
       ? confidenceQuery.data.value
-      : 0.7;
+      : DEFAULTS.entity_confidence_threshold;
 
   return (
     <Card

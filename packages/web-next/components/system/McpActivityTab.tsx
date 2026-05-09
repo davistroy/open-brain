@@ -14,10 +14,10 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button, StatusDot } from '@/components/design-system';
-import { mcpActivityApi, type McpActivityEntry, type ListEnvelope } from '@/lib/api-client';
+import { Button } from '@/components/design-system';
+import { useMcpActivity } from '@/lib/api/mcp-activity.hooks';
+import type { McpActivityEntry, ListEnvelope } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,18 +132,10 @@ export function McpActivityTab({ initialData }: McpActivityTabProps) {
   const [offset, setOffset] = useState(0);
   const [toolFilter, setToolFilter] = useState('');
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ['mcp-activity', offset, toolFilter],
-    queryFn: () =>
-      mcpActivityApi.list({
-        limit: PAGE_SIZE,
-        offset,
-        tool_name: toolFilter || undefined,
-      }),
-    // Use initial data for offset=0 with no filter
-    initialData: offset === 0 && !toolFilter ? initialData : undefined,
-    staleTime: 30_000,
-  });
+  const { data, isLoading, isError } = useMcpActivity(
+    { limit: PAGE_SIZE, offset, tool_name: toolFilter || undefined },
+    { initialData: offset === 0 && !toolFilter ? initialData : undefined },
+  );
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;

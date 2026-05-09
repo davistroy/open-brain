@@ -11,15 +11,15 @@
  *                            pending → processing → failed  (terminal failure)
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, FileText, Loader2, AlertCircle } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Button, Pill, EmptyState } from '@/components/design-system';
-import { ingestApi } from '@/lib/api-client';
+import { useIngestUploads, useReprocessUpload, INGEST_UPLOADS_QUERY_KEY } from '@/lib/api/ingest.hooks';
 import type { FileUploadStatus, ListUploadsResponse } from '@/lib/api-client';
 import { toast } from 'sonner';
 
-/** Exported so IngestClient can invalidate after upload and seed initialData. */
-export const INGEST_UPLOADS_QUERY_KEY = ['ingest', 'uploads'] as const;
+/** Re-export so IngestClient can invalidate after upload without importing hooks. */
+export { INGEST_UPLOADS_QUERY_KEY };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,39 +88,22 @@ const REFRESH_INTERVAL_MS = 10_000; // 10s polling while any row is non-terminal
 
 export function RecentUploads({ activeUploadId, limit = 20, initialData }: RecentUploadsProps) {
   const queryClient = useQueryClient();
+  const { data, isLoading, isError, error } = useIngestUploads(
+    { limit },
+    {
+      initialData,
+      // Poll while there are in-progress rows (pending/processing)
+      refetchInterval: (query) => {
+        const uploads = query.state.data?.uploads ?? [];
+        const hasInProgress = uploads.some(
+          (u) => u.status === 'pending' || u.status === 'processing',
+        );
+        return hasInProgress ? REFRESH_INTERVAL_MS : false;
+      },
+    },
+  );
 
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: [...INGEST_UPLOADS_QUERY_KEY, limit],
-    queryFn: () => ingestApi.list({ limit }),
-    initialData,
-    // Poll while there are in-progress rows (pending/processing)
-    refetchInterval: (query) => {
-      const uploads = query.state.data?.uploads ?? [];
-      const hasInProgress = uploads.some(
-        (u) => u.status === 'pending' || u.status === 'processing',
-      );
-      return hasInProgress ? REFRESH_INTERVAL_MS : false;
-    },
-    staleTime: 5_000,
-  });
-
-  const reprocessMutation = useMutation({
-    mutationFn: (id: string) => ingestApi.process(id),
-    onSuccess: (_result, id) => {
-      toast.success('Reprocess queued', {
-        description: `Upload ${id.slice(0, 8)}… has been re-enqueued.`,
-        duration: 4000,
-      });
-      void queryClient.invalidateQueries({ queryKey: INGEST_UPLOADS_QUERY_KEY });
-    },
-    onError: (err, id) => {
-      const message = err instanceof Error ? err.message : 'Failed to reprocess';
-      toast.error('Reprocess failed', {
-        description: `${id.slice(0, 8)}… — ${message}`,
-        duration: 5000,
-      });
-    },
-  });
+  const reprocessMutation = useReprocessUpload();
 
   // ---------------------------------------------------------------------------
   // Loading state
@@ -243,7 +226,23 @@ export function RecentUploads({ activeUploadId, limit = 20, initialData }: Recen
                 </Pill>
                 {isFailed && (
                   <button
-                    onClick={() => reprocessMutation.mutate(upload.id)}
+                    onClick={() =>
+                      reprocessMutation.mutate(upload.id, {
+                        onSuccess: (_result, id) => {
+                          toast.success('Reprocess queued', {
+                            description: `Upload ${id.slice(0, 8)}… has been re-enqueued.`,
+                            duration: 4000,
+                          });
+                        },
+                        onError: (err, id) => {
+                          const message = err instanceof Error ? err.message : 'Failed to reprocess';
+                          toast.error('Reprocess failed', {
+                            description: `${id.slice(0, 8)}… — ${message}`,
+                            duration: 5000,
+                          });
+                        },
+                      })
+                    }
                     disabled={isReprocessing}
                     title="Retry processing"
                     className="text-[var(--color-text-body-secondary)] hover:text-[var(--color-book-cloth)] transition-colors disabled:opacity-50"

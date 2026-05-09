@@ -10,6 +10,7 @@ import { UpcomingBriefs } from '@/components/dashboard/UpcomingBriefs';
 import { DashboardEmptyState } from '@/components/dashboard/DashboardEmptyState';
 import { capturesApi, statsApi, intelligenceApi, briefsApi } from '@/lib/api-client';
 import { mapStatsToDashboard, mapToOpenQuestions, mapToUpcomingBriefs } from '@/lib/dashboard-mappers';
+import { getGreeting } from '@/lib/greeting';
 
 /**
  * Dashboard page — Screen 01.
@@ -34,11 +35,15 @@ export default async function DashboardPage() {
   const openQuestions = mapToOpenQuestions(questionsRaw.questions);
   const upcomingBriefs = mapToUpcomingBriefs(briefsEnvelope.items);
 
+  // Capture server-side timestamp once; pass to client components that need
+  // relative time formatting to prevent SSR/CSR hydration mismatches.
+  const now = new Date();
+
   return (
     <>
       <PageHeader
         breadcrumb={['Open Brain', 'Dashboard']}
-        title="Good morning, Troy"
+        title={`${getGreeting(now)}, Troy`}
         subtitle={`${stats.captures_7d} total captures · ${openQuestions.length} open questions · pipeline ${stats.pipeline_status}`}
         actions={
           <>
@@ -106,7 +111,7 @@ export default async function DashboardPage() {
             }
             padding={false}
           >
-            <RecentCaptures captures={captures} />
+            <RecentCaptures captures={captures} now={now} />
           </Container>
         </div>
 

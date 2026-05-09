@@ -16,11 +16,11 @@
  */
 
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2, AlertTriangle } from 'lucide-react';
 import { Button, StatusDot } from '@/components/design-system';
-import { adminQueuesApi, type QueueStats } from '@/lib/api-client';
+import { useClearQueue } from '@/lib/api/admin.hooks';
+import type { QueueStats } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,21 +44,7 @@ interface QueueRowProps {
 
 function QueueRow({ queue }: QueueRowProps) {
   const [confirming, setConfirming] = useState(false);
-
-  const clearMutation = useMutation({
-    mutationFn: () => adminQueuesApi.clear(queue.name, 'failed'),
-    onSuccess: (result) => {
-      toast.success(`Cleared ${result.cleared_count} failed job${result.cleared_count !== 1 ? 's' : ''} from ${queue.name}`);
-      setConfirming(false);
-      // Reload to refresh server-side counts
-      setTimeout(() => window.location.reload(), 800);
-    },
-    onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Clear failed';
-      toast.error(`Failed to clear queue: ${message}`);
-      setConfirming(false);
-    },
-  });
+  const clearMutation = useClearQueue();
 
   return (
     <>
@@ -136,7 +122,25 @@ function QueueRow({ queue }: QueueRowProps) {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => clearMutation.mutate()}
+                  onClick={() =>
+                    clearMutation.mutate(
+                      { name: queue.name, state: 'failed' },
+                      {
+                        onSuccess: (result) => {
+                          toast.success(
+                            `Cleared ${result.cleared_count} failed job${result.cleared_count !== 1 ? 's' : ''} from ${queue.name}`,
+                          );
+                          setConfirming(false);
+                          setTimeout(() => window.location.reload(), 800);
+                        },
+                        onError: (err: unknown) => {
+                          const message = err instanceof Error ? err.message : 'Clear failed';
+                          toast.error(`Failed to clear queue: ${message}`);
+                          setConfirming(false);
+                        },
+                      },
+                    )
+                  }
                   disabled={clearMutation.isPending}
                   className="bg-amber-600 border-amber-600 hover:bg-amber-700"
                 >

@@ -29,10 +29,13 @@ function statusToDot(ps: PipelineStatus): { status: 'success' | 'accent' | 'neut
   }
 }
 
-/** Format ISO date to display string */
-function formatCapturedAt(isoDate: string): string {
+/**
+ * Format ISO date to display string.
+ * @param isoDate  ISO 8601 timestamp from the API.
+ * @param now      Reference time (pass from RSC parent to keep SSR/CSR in sync).
+ */
+function formatCapturedAt(isoDate: string, now: Date): string {
   const d = new Date(isoDate);
-  const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffH = diffMs / (1000 * 60 * 60);
   if (diffH < 24) {
@@ -45,6 +48,12 @@ function formatCapturedAt(isoDate: string): string {
 
 interface RecentCapturesProps {
   captures: Capture[];
+  /**
+   * Reference timestamp for relative time formatting.
+   * Passed from the RSC parent so SSR and CSR use the same value,
+   * preventing React hydration mismatches (error #418).
+   */
+  now: Date;
 }
 
 /**
@@ -52,7 +61,7 @@ interface RecentCapturesProps {
  * 'use client' — has selected-row expand state.
  * Each row: source icon | title + snippet + entity pills | time + status dot.
  */
-export function RecentCaptures({ captures }: RecentCapturesProps) {
+export function RecentCaptures({ captures, now }: RecentCapturesProps) {
   const [selectedId, setSelectedId] = useState<string>(captures[0]?.id ?? '');
 
   const rows = captures.slice(0, 8);
@@ -106,7 +115,7 @@ export function RecentCaptures({ captures }: RecentCapturesProps) {
             {/* Meta: time + status */}
             <div className="flex flex-col items-end gap-[6px] min-w-[110px]">
               <span className="font-mono text-[11px] text-text-body-secondary tracking-[0.02em]">
-                {formatCapturedAt(capture.created_at)}
+                {formatCapturedAt(capture.created_at, now)}
               </span>
               <StatusDot status={dotProps.status} label={dotProps.label} />
             </div>

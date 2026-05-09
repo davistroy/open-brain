@@ -29,17 +29,10 @@
  *   not return this field — it was a UI artefact pointing at a stale shape).
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { RefreshCw, TriangleAlert } from 'lucide-react';
 import { Card, StatusDot, Button } from '@/components/design-system';
-import { serviceHealthApi } from '@/lib/api-client';
+import { useServiceHealth } from '@/lib/api/service-health.hooks';
 import type { ServiceHealthStatus } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// Query key
-// ---------------------------------------------------------------------------
-
-const HEALTH_QUERY_KEY = ['service-health'] as const;
 
 // ---------------------------------------------------------------------------
 // Type helpers
@@ -164,12 +157,7 @@ function ServiceRow({ name, entry }: ServiceRowProps) {
 // ---------------------------------------------------------------------------
 
 export function ServiceHealthSection() {
-  const query = useQuery({
-    queryKey: HEALTH_QUERY_KEY,
-    queryFn: () => serviceHealthApi.get(),
-    // Health data can change quickly — 30s stale time is reasonable
-    staleTime: 30_000,
-  });
+  const query = useServiceHealth();
 
   const data = query.data;
   const isLoading = query.isLoading;

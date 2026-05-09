@@ -26,7 +26,7 @@ export function BriefReaderWrapper({ brief }: BriefReaderWrapperProps) {
     briefsApi.patchRead(brief.id, true).catch(() => {
       // Fire-and-forget — mark-as-read failure is non-fatal.
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally once per mount (id is stable at mount time)
   }, []);
 
   return <BriefReader brief={brief} />;

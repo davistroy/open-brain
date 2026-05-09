@@ -23,18 +23,11 @@
  * - Client component required for interactivity / data fetching.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Send, TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { StatusDot } from '@/components/design-system/StatusDot';
-import { emailConfigApi } from '@/lib/api-client';
+import { useEmailConfig } from '@/lib/api/email-settings.hooks';
 import type { EmailConfig } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// Query key
-// ---------------------------------------------------------------------------
-
-const EMAIL_CONFIG_QUERY_KEY = ['email-config'] as const;
 
 // ---------------------------------------------------------------------------
 // Inline error alert — matches TriggersSection / DangerZoneSection pattern
@@ -137,11 +130,7 @@ function EmailChannelRow({ label, channel }: EmailChannelRowProps) {
 // ---------------------------------------------------------------------------
 
 export function EmailConfigSection() {
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: EMAIL_CONFIG_QUERY_KEY,
-    queryFn: () => emailConfigApi.get(),
-    staleTime: 30_000,
-  });
+  const { data, isLoading, isError, error } = useEmailConfig();
 
   // ── Render ──────────────────────────────────────────────────────────────
   return (

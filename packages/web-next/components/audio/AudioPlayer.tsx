@@ -133,7 +133,6 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('ended', onEnded);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const play = useCallback((blob: Blob, title: string, estimatedSecs?: number) => {
@@ -161,7 +160,6 @@ export function AudioPlayerProvider({ children }: { children: ReactNode }) {
     audio.play().catch(() => {
       // Browser may block autoplay — user can hit play manually.
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.speed]);
 
   const pause = useCallback(() => {

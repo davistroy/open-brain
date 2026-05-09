@@ -9,13 +9,14 @@ import Link from 'next/link';
 import { Mic, Settings } from 'lucide-react';
 import { PageHeader } from '@/components/design-system';
 import { EmptyState } from '@/components/design-system/EmptyState';
+import { getGreeting } from '@/lib/greeting';
 
 export function DashboardEmptyState() {
   return (
     <>
       <PageHeader
         breadcrumb={['Open Brain', 'Dashboard']}
-        title="Good morning, Troy"
+        title={`${getGreeting()}, Troy`}
         subtitle="No captures yet — connect a source or drop a thought to get started."
       />
       <div className="flex flex-col items-center justify-center py-20">
