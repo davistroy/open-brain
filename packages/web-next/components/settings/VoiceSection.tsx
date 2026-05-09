@@ -32,19 +32,12 @@
  * - active() endpoint returns { items: VoiceSession[] } (not { sessions: [] }).
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Mic, TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { StatusDot } from '@/components/design-system/StatusDot';
-import { configApi } from '@/lib/api-client';
+import { useIntegrations } from '@/lib/api/config.hooks';
 import { useVoiceSessions, useActiveVoiceSessions } from '@/lib/api/voice.hooks';
 import type { Integration } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// Query keys
-// ---------------------------------------------------------------------------
-
-const INTEGRATIONS_QUERY_KEY = ['config', 'integrations'] as const;
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -156,11 +149,7 @@ export function VoiceSection() {
     isLoading: integrationsLoading,
     isError: integrationsError,
     error: integrationsErr,
-  } = useQuery({
-    queryKey: INTEGRATIONS_QUERY_KEY,
-    queryFn: () => configApi.integrations(),
-    staleTime: 60_000,
-  });
+  } = useIntegrations();
 
   // ── Fetch total session count (limit=1; we only need the total) ────────────
   const { data: sessionsListData, isLoading: sessionsListLoading } = useVoiceSessions({ limit: 1 });

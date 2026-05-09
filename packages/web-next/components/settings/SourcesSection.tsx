@@ -10,7 +10,6 @@
  * Client component because it needs TanStack Query for data fetching + mutation.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import {
   Slack,
   Mic,
@@ -22,7 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Card, StatusDot, Button } from '@/components/design-system';
-import { configApi } from '@/lib/api-client';
+import { useIntegrations } from '@/lib/api/config.hooks';
 import type { Integration, IntegrationStatus } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -130,16 +129,7 @@ function IntegrationSkeleton() {
 // ---------------------------------------------------------------------------
 
 export function SourcesSection() {
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-  } = useQuery({
-    queryKey: ['config', 'integrations'],
-    queryFn: () => configApi.integrations(),
-    staleTime: 30_000,
-  });
+  const { data, isLoading, isError, error } = useIntegrations();
 
   const integrations = data?.integrations ?? [];
 

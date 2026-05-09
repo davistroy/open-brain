@@ -13,9 +13,8 @@
  * (fixed from incorrect { answer, sources, query } type — see api-client.ts)
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { Brain, Loader2 } from 'lucide-react';
-import { synthesizeApi } from '@/lib/api-client';
+import { useSynthesizeQuery } from '@/lib/api/synthesize.hooks';
 import { isSynthesisRequest } from '@/lib/synthesis-detect';
 import { Eyebrow } from '@/components/design-system/Eyebrow';
 
@@ -27,15 +26,10 @@ export function SynthesisAnswer({ query }: SynthesisAnswerProps) {
   // Only show this component for synthesis-style queries
   const shouldSynthesize = isSynthesisRequest(query);
 
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ['synthesize', query],
-    queryFn: () => synthesizeApi.query({ query }),
-    enabled: shouldSynthesize && Boolean(query.trim()),
-    // Synthesis is expensive — don't retry on failure, don't refetch on window focus
-    retry: false,
-    refetchOnWindowFocus: false,
-    staleTime: 120_000,
-  });
+  const { data, isLoading, isError, error } = useSynthesizeQuery(
+    { query },
+    { enabled: shouldSynthesize },
+  );
 
   // Don't render anything for non-synthesis queries
   if (!shouldSynthesize) return null;
