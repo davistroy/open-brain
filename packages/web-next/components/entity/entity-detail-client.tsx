@@ -2,12 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { EntityHeader } from './entity-header';
 import { AskAIModal } from './ask-ai-modal';
 import { MergeEntityModal } from './merge-entity-modal';
-import { entitiesApi } from '@/lib/api-client';
+import { useGenerateEntityBrief } from '@/lib/api/entities.hooks';
 import { SseClient } from '@/lib/sse-client';
 import type { EntityDetail } from '@/lib/types';
 
@@ -31,22 +30,7 @@ export function EntityDetailClient({ entity }: EntityDetailClientProps) {
   // Track a pending brief job so the SSE handler can match entity_id.
   const pendingBriefRef = useRef<boolean>(false);
 
-  const briefMutation = useMutation({
-    mutationFn: () => entitiesApi.brief(entity.id),
-    onMutate: () => {
-      pendingBriefRef.current = true;
-      toast.loading('Generating dossier…', { id: 'entity-brief' });
-    },
-    onSuccess: () => {
-      // Toast stays as "loading" until SSE brief_created arrives or we get an error.
-      // If SSE never arrives the toast will persist — acceptable for M3.
-    },
-    onError: () => {
-      pendingBriefRef.current = false;
-      toast.dismiss('entity-brief');
-      toast.error('Brief generation failed — please try again.');
-    },
-  });
+  const briefMutation = useGenerateEntityBrief();
 
   // Listen for brief_created SSE events. When the entity_id matches, navigate.
   useEffect(() => {
@@ -94,7 +78,17 @@ export function EntityDetailClient({ entity }: EntityDetailClientProps) {
         entity={entity}
         onAskAI={() => setAskOpen(true)}
         onMerge={() => setMergeOpen(true)}
-        onGenerateBrief={() => briefMutation.mutate()}
+        onGenerateBrief={() => {
+          pendingBriefRef.current = true;
+          toast.loading('Generating dossier…', { id: 'entity-brief' });
+          briefMutation.mutate(entity.id, {
+            onError: () => {
+              pendingBriefRef.current = false;
+              toast.dismiss('entity-brief');
+              toast.error('Brief generation failed — please try again.');
+            },
+          });
+        }}
         isBriefPending={briefMutation.isPending}
       />
 

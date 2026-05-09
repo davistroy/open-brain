@@ -1,10 +1,9 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { Card, Eyebrow } from '@/components/design-system';
-import { briefsApi } from '@/lib/api-client';
+import { useRefineBrief } from '@/lib/api/briefs.hooks';
 import type { BriefSource } from '@/lib/types';
 
 interface BriefSourcesProps {
@@ -27,22 +26,7 @@ interface BriefSourcesProps {
  * 'use client' — useMutation + toast require client context.
  */
 export function BriefSources({ briefId, sources, sourceTotal, refineOptions }: BriefSourcesProps) {
-  const refineMutation = useMutation({
-    mutationFn: (instruction: string) => briefsApi.refine(briefId, instruction),
-    onMutate: (instruction: string) => {
-      toast.loading(`Refining: ${instruction}…`, { id: `refine-${briefId}` });
-    },
-    onSuccess: () => {
-      toast.success('Refinement queued — brief will update when ready', {
-        id: `refine-${briefId}`,
-      });
-    },
-    onError: (err) => {
-      const message =
-        err instanceof Error ? err.message : 'Refinement failed — please try again.';
-      toast.error(message, { id: `refine-${briefId}` });
-    },
-  });
+  const refineMutation = useRefineBrief();
 
   return (
     <aside className="sticky top-[22px] flex flex-col gap-[16px]">
@@ -102,13 +86,31 @@ export function BriefSources({ briefId, sources, sourceTotal, refineOptions }: B
         <div className="flex flex-col gap-[6px] mt-[8px]">
           {refineOptions.map((option, i) => {
             const isPending =
-              refineMutation.isPending && refineMutation.variables === option;
+              refineMutation.isPending &&
+              refineMutation.variables?.instruction === option;
             return (
               <button
                 key={i}
                 type="button"
                 disabled={refineMutation.isPending}
-                onClick={() => refineMutation.mutate(option)}
+                onClick={() => {
+                  toast.loading(`Refining: ${option}…`, { id: `refine-${briefId}` });
+                  refineMutation.mutate(
+                    { id: briefId, instruction: option },
+                    {
+                      onSuccess: () => {
+                        toast.success('Refinement queued — brief will update when ready', {
+                          id: `refine-${briefId}`,
+                        });
+                      },
+                      onError: (err) => {
+                        const message =
+                          err instanceof Error ? err.message : 'Refinement failed — please try again.';
+                        toast.error(message, { id: `refine-${briefId}` });
+                      },
+                    },
+                  );
+                }}
                 className={[
                   'text-left bg-transparent border-none p-0 py-[4px]',
                   'text-[12.5px] font-light text-text-body',

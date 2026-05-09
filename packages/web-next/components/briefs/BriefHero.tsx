@@ -2,12 +2,12 @@
 
 import Link from 'next/link';
 import { ArrowRight, Play } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/design-system';
 import { briefsApi } from '@/lib/api-client';
+import { useDismissBrief } from '@/lib/api/briefs.hooks';
 import { useAudioPlayer } from '@/components/audio/AudioPlayer';
 import type { Brief } from '@/lib/types';
 
@@ -32,22 +32,10 @@ const HERO_ITEMS = [
  */
 export function BriefHero({ brief }: BriefHeroProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const audioPlayer = useAudioPlayer();
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
 
-  const dismissMutation = useMutation({
-    mutationFn: () => briefsApi.dismiss(brief.id),
-    onSuccess: () => {
-      toast('Brief dismissed');
-      // Invalidate briefs list so the RSC re-fetches without this brief as hero
-      queryClient.invalidateQueries({ queryKey: ['briefs'] });
-      router.refresh();
-    },
-    onError: () => {
-      toast.error('Could not dismiss brief — please try again.');
-    },
-  });
+  const dismissMutation = useDismissBrief();
 
   async function handleListen() {
     if (isLoadingAudio) return;
@@ -107,7 +95,17 @@ export function BriefHero({ brief }: BriefHeroProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => dismissMutation.mutate()}
+            onClick={() =>
+              dismissMutation.mutate(brief.id, {
+                onSuccess: () => {
+                  toast('Brief dismissed');
+                  router.refresh();
+                },
+                onError: () => {
+                  toast.error('Could not dismiss brief — please try again.');
+                },
+              })
+            }
             disabled={dismissMutation.isPending}
           >
             {dismissMutation.isPending ? 'Dismissing…' : 'Dismiss'}
