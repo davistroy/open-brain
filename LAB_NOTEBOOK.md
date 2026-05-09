@@ -11002,8 +11002,15 @@ tsc --noEmit: clean (no output)
 pnpm --filter @open-brain/core-api test system-health: 39/39 PASS
 ```
 
+### Post-deploy finding (A.2c — surfaced same deploy)
+
+After PR #202 merged and deployed, `created_at` fix confirmed working (no more `column started_at does not exist` error). However a **third** bug surfaced: Drizzle's `sql` tag interpolates a JS `string[]` as individual positional params `($1, $2, ...)`, so `ANY(${captureIds})` became `ANY(($1, $2, ...))` — a tuple/row, not an array. Postgres rejected it: `op ANY/ALL (array) requires array on right side`.
+
+Fix (same pattern as `search.ts` lines 138–148): convert JS array to Postgres array literal `{uuid1,uuid2,...}` string, then cast: `ANY(${pgCaptureIds}::uuid[])`. Applied in PR #203 (A.2c).
+
 ### Result
 
-**Deploy date:** 2026-05-09 (TBD — see deploy section)
-**Homeserver HEAD:** TBD
-**Expected:** `curl http://localhost:3002/api/v1/system/flows | jq '.flows | length'` > 0
+**PR #202 deploy:** `3d50a27` on homeserver
+**Flows response after PR #202:** still `{"flows":[]}` (new Postgres error caught silently)
+**PR #203 (A.2c):** fixes `ANY(${captureIds})` → `ANY(${pgCaptureIds}::uuid[])` following search.ts pattern
+**Final flows count after PR #203 deploy:** TBD
