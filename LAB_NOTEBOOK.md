@@ -11415,6 +11415,26 @@ After fixes, re-ran grep. Remaining class (b) hits in `components/` are all in h
 
 --- New session: 2026-05-09 — Phase G.2: ESLint 9 + flat-config migration ---
 
+## Entry 153 — Phase G.3: RTL migration for MPill/TabBar tests (2026-05-09)  [test] [mobile] [decision]
+
+**Date:** 2026-05-09
+**Environment:** laptop VM; affects packages/mobile only
+**Duration:** ~30 min
+
+**Objective:** Migrate `packages/mobile/__tests__/components/MPill.test.tsx` and `TabBar.test.tsx` from `react-test-renderer` to `@testing-library/react-native`. Closes #195 (A120).
+
+**Findings:**
+- Files live in `packages/mobile`, not `packages/web-next` as stated in issue #195 title — no TS2345 errors were active (current `@types/react-test-renderer@^19.1.0` matches React 19.1.0). The actual problem was noisy `act()` and deprecation warnings from `react-test-renderer`.
+- RNTL's `render()` uses `react-test-renderer` under the hood (peer dep). The deprecation warning (`react-test-renderer is deprecated`) still fires through RNTL — this is RNTL's own issue, not ours. The previous `act()` environment mismatch warning is eliminated.
+- RNTL's `detectHostComponentNames()` requires `TextInput`, `Image`, `Switch`, `ScrollView`, `Modal` from the react-native mock — the original minimal mock was missing these. Added them as string literals.
+- RNTL's `getByText` query calls `StyleSheet.flatten` internally — added it to the mock: `(style) => Array.isArray(style) ? Object.assign({}, ...style) : style ?? {}`.
+- For structural assertions (`findAllByType` by string type — 'View', 'Pressable', 'Mic', etc.), `UNSAFE_getAllByType` can't be used because it expects `React.ComponentType`, not strings. Kept `toJSON()` + custom walk helpers for these assertions.
+- `@types/react-test-renderer` removed from devDependencies (no longer imported directly). `react-test-renderer` kept as RNTL peer dep requirement.
+
+**Result:** 24 tests pass, tsc clean, `@types/react-test-renderer` dependency dropped.
+
+---
+
 ## Entry 152 — Phase G.2: ESLint 9 + flat-config migration (2026-05-09)  [web] [config] [decision]
 
 **Date:** 2026-05-09
