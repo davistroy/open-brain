@@ -15,9 +15,8 @@
  * Client component (interactivity required).
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card } from '@/components/design-system';
-import { settingsApi } from '@/lib/api-client';
+import { useSetting, usePutSetting } from '@/lib/api/settings.hooks';
 
 // ---------------------------------------------------------------------------
 // Toggle row types
@@ -160,46 +159,31 @@ const TOGGLE_SETTINGS = [
   },
 ] as const;
 
+/**
+ * Default values for ingest filter settings.
+ * API returns {value: null} for whitelisted-but-unset keys (Phase C);
+ * components read `data?.value ?? DEFAULTS[key]` instead of .catch() plumbing.
+ */
+const DEFAULTS = {
+  ingest_skip_automated_emails: true,
+  ingest_skip_low_signal_slack: true,
+  ingest_capture_bare_calendar: false,
+  ingest_voice_min_duration: 5,
+} as const;
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export function IngestFiltersSection() {
-  const queryClient = useQueryClient();
-
   // Fetch all toggle settings in parallel
   const toggleQueries = TOGGLE_SETTINGS.map((cfg) =>
     // eslint-disable-next-line react-hooks/rules-of-hooks -- stable array, safe
-    useQuery({
-      queryKey: ['settings', cfg.key],
-      queryFn: () =>
-        settingsApi.get(cfg.key).catch(() => ({
-          key: cfg.key,
-          value: cfg.defaultValue,
-          updated_at: null,
-        })),
-      staleTime: 60_000,
-    }),
+    useSetting(cfg.key),
   );
 
-  const voiceDurationQuery = useQuery({
-    queryKey: ['settings', 'ingest_voice_min_duration'],
-    queryFn: () =>
-      settingsApi.get('ingest_voice_min_duration').catch(() => ({
-        key: 'ingest_voice_min_duration',
-        value: 5,
-        updated_at: null,
-      })),
-    staleTime: 60_000,
-  });
-
-  const putMutation = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: unknown }) =>
-      settingsApi.put(key, value),
-    onSuccess: (result) => {
-      queryClient.setQueryData(['settings', result.key], result);
-    },
-  });
+  const voiceDurationQuery = useSetting('ingest_voice_min_duration');
+  const putMutation = usePutSetting();
 
   const handleToggle = (key: string, next: boolean) => {
     putMutation.mutate({ key, value: next });
@@ -243,7 +227,7 @@ export function IngestFiltersSection() {
           value={
             typeof voiceDurationQuery.data?.value === 'number'
               ? voiceDurationQuery.data.value
-              : 5
+              : DEFAULTS.ingest_voice_min_duration
           }
           min={0}
           max={300}

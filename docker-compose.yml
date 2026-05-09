@@ -481,6 +481,9 @@ services:
       NODE_ENV: production
       PORT: "3001"
       HOSTNAME: "0.0.0.0"
+      # TZ: ensures getHours() in RSC server code matches the user's timezone,
+      # preventing SSR/CSR hydration mismatches (e.g. greeting, date headers).
+      TZ: America/New_York
       # API_URL: used by next.config.ts rewrites (server-side, not browser-exposed)
       API_URL: http://core-api:3000
       # NEXT_PUBLIC_API_URL: browser-visible URL — intentionally empty in Docker;

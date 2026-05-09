@@ -14,14 +14,13 @@
  */
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 import { GroupByBar, type GroupBy } from './GroupByBar';
 import { BoardColumn } from './BoardColumn';
 import { Button } from '@/components/design-system/Button';
 import { Input } from '@/components/design-system/Input';
-import { commitmentsApi } from '@/lib/api-client';
+import { useCreateCommitment } from '@/lib/api/commitments.hooks';
 import type { BoardCommitment, CommitmentStatus } from '@/lib/types';
 
 const COLUMN_ORDER: CommitmentStatus[] = ['pending', 'owed_by_user', 'waiting_on', 'resolved'];
@@ -31,8 +30,6 @@ interface BoardClientProps {
 }
 
 export function BoardClient({ initialGrouped }: BoardClientProps) {
-  const queryClient = useQueryClient();
-
   // GroupByBar state — Status is default per Cloudscape screen 09.
   // Other groupings are accepted by UI but fall back to status grouping (M3).
   const [groupBy, setGroupBy] = useState<GroupBy>('status');
@@ -51,28 +48,7 @@ export function BoardClient({ initialGrouped }: BoardClientProps) {
   // For M3, we use initialGrouped + track optimistic updates via query cache.
   const grouped = initialGrouped;
 
-  // Create commitment mutation
-  const createMutation = useMutation({
-    mutationFn: () =>
-      commitmentsApi.create({
-        text: newText.trim(),
-        status: modalStatus,
-        due_date: newDueDate || undefined,
-      }),
-    onSuccess: () => {
-      toast.success('Commitment added');
-      setModalOpen(false);
-      setNewText('');
-      setNewDueDate('');
-      // Invalidate so RSC re-fetches on next navigation; for immediate feedback
-      // the parent RSC will revalidate on the next request.
-      queryClient.invalidateQueries({ queryKey: ['commitments'] });
-    },
-    onError: (err) => {
-      console.error('[BoardClient] create failed:', err);
-      toast.error('Failed to add commitment — please try again.');
-    },
-  });
+  const createMutation = useCreateCommitment();
 
   function openModal(status: CommitmentStatus) {
     setModalStatus(status);
@@ -84,7 +60,21 @@ export function BoardClient({ initialGrouped }: BoardClientProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!newText.trim()) return;
-    createMutation.mutate();
+    createMutation.mutate(
+      { text: newText.trim(), status: modalStatus, due_date: newDueDate || undefined },
+      {
+        onSuccess: () => {
+          toast.success('Commitment added');
+          setModalOpen(false);
+          setNewText('');
+          setNewDueDate('');
+        },
+        onError: (err) => {
+          console.error('[BoardClient] create failed:', err);
+          toast.error('Failed to add commitment — please try again.');
+        },
+      },
+    );
   }
 
   return (

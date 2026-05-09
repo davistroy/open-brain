@@ -16,10 +16,9 @@
  */
 
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { BoardCard } from './BoardCard';
-import { commitmentsApi } from '@/lib/api-client';
+import { useResolveCommitment } from '@/lib/api/commitments.hooks';
 import type { BoardCommitment, CommitmentStatus } from '@/lib/types';
 
 const COLUMN_META: Record<CommitmentStatus, { label: string; topBorder: string; emptyText: string }> = {
@@ -37,28 +36,11 @@ interface BoardColumnProps {
 
 export function BoardColumn({ status, commitments, onNewItem }: BoardColumnProps) {
   const meta = COLUMN_META[status];
-  const queryClient = useQueryClient();
 
   // Track which card is currently being resolved so we can disable its button.
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
-  const resolveMutation = useMutation({
-    mutationFn: (id: string) => commitmentsApi.patch(id, { resolved: true }),
-    onMutate: (id) => {
-      setResolvingId(id);
-    },
-    onSuccess: () => {
-      // Invalidate the board query so the resolved card moves to the Resolved column.
-      queryClient.invalidateQueries({ queryKey: ['commitments'] });
-    },
-    onError: (err) => {
-      console.error('[BoardColumn] resolve failed:', err);
-      toast.error('Failed to resolve commitment — please try again.');
-    },
-    onSettled: () => {
-      setResolvingId(null);
-    },
-  });
+  const resolveMutation = useResolveCommitment();
 
   return (
     <div className="flex flex-col min-h-0">
@@ -98,7 +80,16 @@ export function BoardColumn({ status, commitments, onNewItem }: BoardColumnProps
             <BoardCard
               key={c.id}
               commitment={c}
-              onResolve={(id) => resolveMutation.mutate(id)}
+              onResolve={(id) => {
+              setResolvingId(id);
+              resolveMutation.mutate(id, {
+                onError: (err) => {
+                  console.error('[BoardColumn] resolve failed:', err);
+                  toast.error('Failed to resolve commitment — please try again.');
+                },
+                onSettled: () => setResolvingId(null),
+              });
+            }}
               resolving={resolvingId === c.id}
             />
           ))

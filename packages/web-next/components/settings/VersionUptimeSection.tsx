@@ -21,17 +21,9 @@
  * and TanStack Query useQuery.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
-import { request } from '@/lib/api-client';
-import type { HealthResponse } from '@/lib/api-client';
-
-// ---------------------------------------------------------------------------
-// Query key
-// ---------------------------------------------------------------------------
-
-const VERSION_UPTIME_QUERY_KEY = ['settings', 'version-uptime'] as const;
+import { useVersionUptime } from '@/lib/api/service-health.hooks';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,13 +120,7 @@ function DataRow({
 // ---------------------------------------------------------------------------
 
 export function VersionUptimeSection() {
-  const { data, isLoading, isError, error } = useQuery<HealthResponse>({
-    queryKey: VERSION_UPTIME_QUERY_KEY,
-    queryFn: () => request<HealthResponse>('/health'),
-    staleTime: 30_000,
-    // Re-fetch every 60s so uptime stays reasonably current without hammering the API.
-    refetchInterval: 60_000,
-  });
+  const { data, isLoading, isError, error } = useVersionUptime();
 
   return (
     <Card

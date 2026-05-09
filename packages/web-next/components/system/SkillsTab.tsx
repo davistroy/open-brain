@@ -15,11 +15,11 @@
  */
 
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Play, Edit2, Check, X, Clock } from 'lucide-react';
 import { Button } from '@/components/design-system';
-import { skillsApi, skillsListApi, type SkillRecord } from '@/lib/api-client';
+import { useTriggerSkill, useUpdateSkillSchedule } from '@/lib/api/skills.hooks';
+import type { SkillRecord } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,31 +56,10 @@ function SkillRow({ skill }: SkillRowProps) {
   const [scheduleInput, setScheduleInput] = useState(skill.schedule ?? '');
 
   // Trigger mutation — fire-and-forget (202 queued)
-  const triggerMutation = useMutation({
-    mutationFn: () => skillsApi.trigger(skill.name),
-    onSuccess: (result) => {
-      toast.success(`Skill "${skill.name}" queued (job ${result.job_id})`);
-    },
-    onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Trigger failed';
-      toast.error(`Failed to trigger "${skill.name}": ${message}`);
-    },
-  });
+  const triggerMutation = useTriggerSkill();
 
   // Schedule update mutation
-  const scheduleMutation = useMutation({
-    mutationFn: () => skillsListApi.updateSchedule(skill.name, scheduleInput.trim()),
-    onSuccess: (result) => {
-      toast.success(`Schedule updated: ${result.schedule}`);
-      setEditingSchedule(false);
-      // Reflect new schedule in the displayed row without a full reload
-      skill.schedule = result.schedule;
-    },
-    onError: (err: unknown) => {
-      const message = err instanceof Error ? err.message : 'Update failed';
-      toast.error(`Failed to update schedule: ${message}`);
-    },
-  });
+  const scheduleMutation = useUpdateSkillSchedule();
 
   function handleCancelEdit() {
     setScheduleInput(skill.schedule ?? '');
@@ -128,7 +107,20 @@ function SkillRow({ skill }: SkillRowProps) {
                 ].join(' ')}
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') scheduleMutation.mutate();
+                  if (e.key === 'Enter') scheduleMutation.mutate(
+                    { name: skill.name, schedule: scheduleInput.trim() },
+                    {
+                      onSuccess: (result) => {
+                        toast.success(`Schedule updated: ${result.schedule}`);
+                        setEditingSchedule(false);
+                        skill.schedule = result.schedule;
+                      },
+                      onError: (err: unknown) => {
+                        const message = err instanceof Error ? err.message : 'Update failed';
+                        toast.error(`Failed to update schedule: ${message}`);
+                      },
+                    },
+                  );
                   if (e.key === 'Escape') handleCancelEdit();
                 }}
               />
@@ -136,7 +128,20 @@ function SkillRow({ skill }: SkillRowProps) {
                 variant="primary"
                 size="sm"
                 icon={<Check size={11} strokeWidth={1.5} />}
-                onClick={() => scheduleMutation.mutate()}
+                onClick={() => scheduleMutation.mutate(
+                    { name: skill.name, schedule: scheduleInput.trim() },
+                    {
+                      onSuccess: (result) => {
+                        toast.success(`Schedule updated: ${result.schedule}`);
+                        setEditingSchedule(false);
+                        skill.schedule = result.schedule;
+                      },
+                      onError: (err: unknown) => {
+                        const message = err instanceof Error ? err.message : 'Update failed';
+                        toast.error(`Failed to update schedule: ${message}`);
+                      },
+                    },
+                  )}
                 disabled={scheduleMutation.isPending || !scheduleInput.trim()}
               >
                 {scheduleMutation.isPending ? 'Saving…' : 'Save'}
@@ -184,7 +189,20 @@ function SkillRow({ skill }: SkillRowProps) {
               variant="secondary"
               size="sm"
               icon={<Play size={11} strokeWidth={1.5} />}
-              onClick={() => triggerMutation.mutate()}
+              onClick={() =>
+                triggerMutation.mutate(
+                  { name: skill.name },
+                  {
+                    onSuccess: (result) => {
+                      toast.success(`Skill "${skill.name}" queued (job ${result.job_id})`);
+                    },
+                    onError: (err: unknown) => {
+                      const message = err instanceof Error ? err.message : 'Trigger failed';
+                      toast.error(`Failed to trigger "${skill.name}": ${message}`);
+                    },
+                  },
+                )
+              }
               disabled={triggerMutation.isPending}
               title={`Trigger ${skill.name} now`}
             >

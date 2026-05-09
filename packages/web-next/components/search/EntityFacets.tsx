@@ -12,9 +12,8 @@
  * Renders only when there are results with entities.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { searchApi } from '@/lib/api-client';
+import { useSearch } from '@/lib/api/search.hooks';
 import { Eyebrow } from '@/components/design-system/Eyebrow';
 
 interface EntityFacetsProps {
@@ -46,12 +45,7 @@ export function EntityFacets({ query }: EntityFacetsProps) {
   const router = useRouter();
 
   // Re-use the same query key as SearchResults — no duplicate fetch
-  const { data } = useQuery({
-    queryKey: ['search', query],
-    queryFn: () => searchApi.search({ q: query, hybrid: true, limit: 20 }),
-    enabled: Boolean(query.trim()),
-    staleTime: 30_000,
-  });
+  const { data } = useSearch({ q: query, hybrid: true, limit: 20 });
 
   const results = data?.results ?? [];
   const facets = extractEntityCounts(results);

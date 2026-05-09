@@ -25,17 +25,10 @@
  * - Client badge: anthropic = accent pill, others = neutral pill.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { TriangleAlert, RefreshCw } from 'lucide-react';
 import { Card, Pill } from '@/components/design-system';
-import { aiRoutingApi } from '@/lib/api-client';
+import { useAIRouting } from '@/lib/api/config.hooks';
 import type { AIRoutingConfig, ModelRoutingEntry } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// Query key
-// ---------------------------------------------------------------------------
-
-const AI_ROUTING_QUERY_KEY = ['ai-routing'] as const;
 
 // ---------------------------------------------------------------------------
 // Inline error alert — matches TriggersSection / DangerZoneSection pattern
@@ -187,11 +180,7 @@ function BudgetMeter({ budget }: BudgetMeterProps) {
 // ---------------------------------------------------------------------------
 
 export function AIRoutingSection() {
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery<AIRoutingConfig>({
-    queryKey: AI_ROUTING_QUERY_KEY,
-    queryFn: () => aiRoutingApi.get(),
-    staleTime: 60_000,   // routing config rarely changes; re-fetch after 60s
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } = useAIRouting();
 
   const models = data?.models ?? [];
 

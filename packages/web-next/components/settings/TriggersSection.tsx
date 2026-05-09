@@ -32,19 +32,12 @@
  */
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, TriangleAlert, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { Button } from '@/components/design-system/Button';
 import { Input } from '@/components/design-system/Input';
-import { triggersApi } from '@/lib/api-client';
+import { useTriggers, useCreateTrigger, useDeleteTrigger } from '@/lib/api/config.hooks';
 import type { Trigger } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// Query key
-// ---------------------------------------------------------------------------
-
-const TRIGGERS_QUERY_KEY = ['triggers'] as const;
 
 // ---------------------------------------------------------------------------
 // Inline error alert — matches DangerZoneSection error pattern
@@ -282,48 +275,30 @@ function AddTriggerForm({ onAdd, onCancel }: AddTriggerFormProps) {
 // ---------------------------------------------------------------------------
 
 export function TriggersSection() {
-  const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // ── Fetch list ────────────────────────────────────────────────────────────
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: TRIGGERS_QUERY_KEY,
-    queryFn: () => triggersApi.list(),
-    staleTime: 30_000,
-  });
+  const { data, isLoading, isError, error } = useTriggers();
 
   const triggers = data?.triggers ?? [];
 
-  // ── Create mutation ───────────────────────────────────────────────────────
-  const createMutation = useMutation({
-    mutationFn: ({ name, queryText }: { name: string; queryText: string }) =>
-      triggersApi.create({ name, queryText }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: TRIGGERS_QUERY_KEY });
-      setAdding(false);
-    },
-  });
-
-  // ── Delete mutation ───────────────────────────────────────────────────────
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => triggersApi.delete(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: TRIGGERS_QUERY_KEY });
-      setDeletingId(null);
-    },
-    onError: () => {
-      setDeletingId(null);
-    },
-  });
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const createMutation = useCreateTrigger();
+  const deleteMutation = useDeleteTrigger();
 
   function handleAdd(name: string, queryText: string): Promise<void> {
-    return createMutation.mutateAsync({ name, queryText }).then(() => undefined);
+    return createMutation.mutateAsync({ name, queryText }).then(() => {
+      setAdding(false);
+    });
   }
 
   function handleDelete(id: string) {
     setDeletingId(id);
-    deleteMutation.mutate(id);
+    deleteMutation.mutate(id, {
+      onSuccess: () => setDeletingId(null),
+      onError: () => setDeletingId(null),
+    });
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
