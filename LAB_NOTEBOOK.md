@@ -10887,6 +10887,49 @@ Close 5 skipped test cases from Entry 143 test run:
 
 --- New session: 2026-05-09 — Phase G.1 TanStack Query hooks (A128) ---
 
+## Entry 150 — Phase G.1 Batch 3: TanStack Query hooks — commitments, config, synthesize, service-health, email-settings (2026-05-09)  [web] [refactor]
+
+**Date:** 2026-05-09
+**Environment:** open-brain-remediation worktree; branch feat/phase-g1-batch-3
+**Duration:** ~30 min
+
+**Objective:** Create TanStack Query hook files for 5 domains. Migrate inline `useQuery`/`useMutation` in 12 components. Refs #177 (A128).
+
+**Hypothesis:** Same as Batch 1 — fewer inline queries, stable query key hierarchy, no behaviour change.
+
+**Rollback plan:** `git revert` — no DB or infra changes.
+
+**Hooks created:**
+- `lib/api/commitments.hooks.ts` — `useCommitments`, `useCommitmentsForEntity`, `useResolveCommitment`, `usePatchCommitment`, `useCreateCommitment`
+- `lib/api/config.hooks.ts` — `useIntegrations`, `useTriggers`, `useCreateTrigger`, `useDeleteTrigger`, `useAIRouting`
+- `lib/api/synthesize.hooks.ts` — `useSynthesizeQuery` (retry:false, refetchOnWindowFocus:false, staleTime:120s)
+- `lib/api/service-health.hooks.ts` — `useServiceHealth`, `useVersionUptime` (refetchInterval:60s)
+- `lib/api/email-settings.hooks.ts` — `useEmailAllowlist`, `useAddEmailAllowlistEntry`, `useRemoveEmailAllowlistEntry`, `useEmailConfig`
+
+**Consumers migrated (12):**
+- `components/entity/commitments-card.tsx` — `useQuery`+`useMutation`+`useQueryClient` → `useCommitmentsForEntity`+`useResolveCommitment`
+- `components/board/BoardClient.tsx` — `useMutation`+`useQueryClient` → `useCreateCommitment`
+- `components/board/BoardColumn.tsx` — `useMutation`+`useQueryClient` → `useResolveCommitment`
+- `components/settings/TriggersSection.tsx` — `useQuery`+2×`useMutation`+`useQueryClient` → `useTriggers`+`useCreateTrigger`+`useDeleteTrigger`
+- `components/settings/SourcesSection.tsx` — `useQuery` → `useIntegrations`
+- `components/settings/AIRoutingSection.tsx` — `useQuery` → `useAIRouting`
+- `components/settings/VoiceSection.tsx` — `configApi.integrations()` inline `useQuery` → `useIntegrations`; voice session queries kept inline (batch-2 voice.hooks.ts not yet merged to main)
+- `components/search/SynthesisAnswer.tsx` — `useQuery` → `useSynthesizeQuery`
+- `components/settings/ServiceHealthSection.tsx` — `useQuery` → `useServiceHealth`
+- `components/settings/VersionUptimeSection.tsx` — `useQuery` → `useVersionUptime`
+- `components/settings/EmailConfigSection.tsx` — `useQuery` → `useEmailConfig`
+- `components/settings/EmailAllowlistSection.tsx` — `useQuery`+2×`useMutation`+`useQueryClient` → `useEmailAllowlist`+`useAddEmailAllowlistEntry`+`useRemoveEmailAllowlistEntry`
+
+**Key decisions:**
+- `useResolveCommitment(entityId?)` accepts optional entityId for CommitmentsCard's optimistic per-entity list removal; BoardColumn uses no entityId (board invalidates global `['commitments']` key only).
+- `useAddEmailAllowlistEntry` / `useRemoveEmailAllowlistEntry` take `{ current, entry }` to avoid a second GET in the mutation — callers pass the pre-fetched list from `useEmailAllowlist`.
+- VoiceSection voice session queries kept as inline `useQuery` pending batch-2 merge; the configApi integration query migrated to `useIntegrations`.
+- `useSynthesizeQuery` preserves all three special options: `retry: false`, `refetchOnWindowFocus: false`, `staleTime: 120_000`.
+
+**Result:** tsc --noEmit clean. 118/118 tests pass.
+
+---
+
 ## Entry 148 — Phase G.1 Batch 1: TanStack Query hooks — captures, search, briefs, intelligence, settings, entities (2026-05-09)  [web] [refactor]
 
 **Date:** 2026-05-09

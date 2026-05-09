@@ -1,10 +1,9 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { CheckSquare, Square, ClipboardList } from 'lucide-react';
 import { Card, EmptyState } from '@/components/design-system';
-import { commitmentsApi } from '@/lib/api-client';
+import { useCommitmentsForEntity, useResolveCommitment } from '@/lib/api/commitments.hooks';
 import type { BoardCommitment } from '@/lib/types';
 
 interface CommitmentsCardProps {
@@ -108,48 +107,17 @@ function CommitmentRow({ commitment, resolvingId, onResolve }: CommitmentRowProp
  * Client component.
  */
 export function CommitmentsCard({ entityId }: CommitmentsCardProps) {
-  const queryClient = useQueryClient();
+  const { data, isLoading, isError } = useCommitmentsForEntity(entityId);
 
-  const queryKey = ['commitments', 'entity', entityId];
+  const resolveMutation = useResolveCommitment(entityId);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey,
-    queryFn: () => commitmentsApi.forEntity(entityId),
-    staleTime: 30_000,
-  });
-
-  // Track in-flight resolve id for per-row pending state
-  const resolveMutation = useMutation({
-    mutationFn: (id: string) => commitmentsApi.patch(id, { resolved: true }),
-
-    // Optimistic update: remove the resolved commitment from the list immediately
-    onMutate: async (id: string) => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData(queryKey);
-      queryClient.setQueryData(queryKey, (old: typeof data) => {
-        if (!old) return old;
-        return {
-          ...old,
-          items: old.items.filter((c) => c.id !== id),
-          total: Math.max(0, old.total - 1),
-        };
-      });
-      return { previous };
-    },
-
-    onError: (_err, _id, context) => {
-      // Roll back on error
-      if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous);
-      }
-      toast.error('Failed to resolve commitment — please try again.');
-    },
-
-    onSettled: () => {
-      // Always refetch after mutation to sync with server
-      queryClient.invalidateQueries({ queryKey });
-    },
-  });
+  function handleResolve(id: string) {
+    resolveMutation.mutate(id, {
+      onError: () => {
+        toast.error('Failed to resolve commitment — please try again.');
+      },
+    });
+  }
 
   // Sort items: due_date ASC, nulls last
   const sorted = data?.items.slice().sort((a, b) => {
@@ -198,7 +166,7 @@ export function CommitmentsCard({ entityId }: CommitmentsCardProps) {
               key={commitment.id}
               commitment={commitment}
               resolvingId={resolveMutation.isPending ? (resolveMutation.variables ?? null) : null}
-              onResolve={(id) => resolveMutation.mutate(id)}
+              onResolve={handleResolve}
             />
           ))}
         </div>

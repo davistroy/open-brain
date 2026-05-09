@@ -31,18 +31,15 @@
  */
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, TriangleAlert, RefreshCw, Mail } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { Button } from '@/components/design-system/Button';
 import { Input } from '@/components/design-system/Input';
-import { emailAllowlistApi } from '@/lib/api-client';
-
-// ---------------------------------------------------------------------------
-// Query key
-// ---------------------------------------------------------------------------
-
-const ALLOWLIST_QUERY_KEY = ['settings', 'email_allowlist'] as const;
+import {
+  useEmailAllowlist,
+  useAddEmailAllowlistEntry,
+  useRemoveEmailAllowlistEntry,
+} from '@/lib/api/email-settings.hooks';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -306,47 +303,33 @@ function AddAllowlistForm({ existingEntries, onAdd, onCancel }: AddAllowlistForm
 // ---------------------------------------------------------------------------
 
 export function EmailAllowlistSection() {
-  const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [removingEntry, setRemovingEntry] = useState<string | null>(null);
 
   // ── Fetch list ─────────────────────────────────────────────────────────────
-  const { data, isLoading, isError, error } = useQuery({
-    queryKey: ALLOWLIST_QUERY_KEY,
-    queryFn: () => emailAllowlistApi.list(),
-    staleTime: 30_000,
-  });
+  const { data, isLoading, isError, error } = useEmailAllowlist();
 
   const entries: string[] = data ?? [];
 
-  // ── Add mutation ───────────────────────────────────────────────────────────
-  const addMutation = useMutation({
-    mutationFn: (entry: string) => emailAllowlistApi.add(entries, entry),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ALLOWLIST_QUERY_KEY });
-      setAdding(false);
-    },
-  });
-
-  // ── Remove mutation ────────────────────────────────────────────────────────
-  const removeMutation = useMutation({
-    mutationFn: (entry: string) => emailAllowlistApi.remove(entries, entry),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ALLOWLIST_QUERY_KEY });
-      setRemovingEntry(null);
-    },
-    onError: () => {
-      setRemovingEntry(null);
-    },
-  });
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const addMutation = useAddEmailAllowlistEntry();
+  const removeMutation = useRemoveEmailAllowlistEntry();
 
   function handleAdd(entry: string): Promise<void> {
-    return addMutation.mutateAsync(entry).then(() => undefined);
+    return addMutation.mutateAsync({ current: entries, entry }).then(() => {
+      setAdding(false);
+    });
   }
 
   function handleRemove(entry: string) {
     setRemovingEntry(entry);
-    removeMutation.mutate(entry);
+    removeMutation.mutate(
+      { current: entries, entry },
+      {
+        onSuccess: () => setRemovingEntry(null),
+        onError: () => setRemovingEntry(null),
+      },
+    );
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
