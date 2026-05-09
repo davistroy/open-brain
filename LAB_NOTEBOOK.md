@@ -10923,6 +10923,38 @@ Close 5 skipped test cases from Entry 143 test run:
 - `useSearch` preserves `staleTime: 30_000` so EntityFacets and SearchResults share the same cache entry (no duplicate fetch).
 - `useSetting` preserves `staleTime: 60_000` convention from all settings consumers.
 
+---
+
+## Entry 149 — Phase G.1 Batch 2: TanStack Query hooks — system-health, mcp-activity, wiki, ingest, voice + skills (2026-05-09)  [web] [refactor]
+
+**Date:** 2026-05-09
+**Environment:** open-brain-remediation worktree; branch feat/phase-g1-batch-2
+**Duration:** ~30 min
+
+**Objective:** Create TanStack Query hook files for 5 mid-traffic API domains + skills (pulled forward from Batch 4 because WikiSection requires it). Migrate inline `useQuery`/`useMutation` in 8 components. Refs #177 (A128).
+
+**Hypothesis:** Identical to Batch 1 — fewer inline queries in components, stable query key hierarchy.
+
+**Rollback plan:** `git revert` — no DB or infra changes.
+
+**Hooks created:**
+- `lib/api/system-health.hooks.ts` — `useSystemHealthSnapshot`, `useSystemFlows`, `useSystemInfrastructure`
+- `lib/api/mcp-activity.hooks.ts` — `useMcpActivity` (with initialData + custom staleTime)
+- `lib/api/wiki.hooks.ts` — `useWikiPages`, `useWikiPage`, `useWikiRecentChanges`, `useWikiLintReport`, `useWikiStats`, `useWikiSearch`, `useTriggerWikiLint`, `useTriggerWikiResynthesize`
+- `lib/api/ingest.hooks.ts` — `useIngestUploads`, `useIngestUpload`, `useUploadFile`, `useReprocessUpload`, `useIngestProcessNow` + exports `INGEST_UPLOADS_QUERY_KEY`
+- `lib/api/voice.hooks.ts` — `useVoiceSessions`, `useActiveVoiceSessions`, `useVoiceSession`
+- `lib/api/skills.hooks.ts` — `useSkillsList`, `useTriggerSkill`, `useUpdateSkillSchedule` (pulled forward — needed by WikiSection migration)
+
+**Consumers migrated (8):**
+- `components/system/McpActivityTab.tsx` — `useQuery` → `useMcpActivity`
+- `components/settings/WikiSection.tsx` — 3×`useQuery` → `useWikiStats` + `useSystemHealthSnapshot` + `useSkillsList`
+- `components/ingest/RecentUploads.tsx` — `useQuery`+`useMutation` → `useIngestUploads`+`useReprocessUpload`; re-exports `INGEST_UPLOADS_QUERY_KEY`
+- `components/voice/VoiceConversationsClient.tsx` — `useQuery` → `useActiveVoiceSessions`
+- `components/voice/SessionList.tsx` — 2×`useQuery` → `useVoiceSessions`+`useActiveVoiceSessions`
+- `components/voice/SessionDetail.tsx` — `useQuery` (session) → `useVoiceSession`; kept inline `useQuery` for LinkedCaptures batch-fetch
+- `components/settings/VoiceSection.tsx` — 2×`useQuery` (voice) → `useVoiceSessions`+`useActiveVoiceSessions`; left configApi `useQuery` inline (Batch 4)
+- `components/system/SkillsTab.tsx` — 2×`useMutation` → `useTriggerSkill`+`useUpdateSkillSchedule`
+
 **Result:** tsc --noEmit clean. 118/118 tests pass.
 
 ---

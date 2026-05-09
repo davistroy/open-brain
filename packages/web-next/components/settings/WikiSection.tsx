@@ -26,20 +26,13 @@
  * - Auto-ingest badge: Enabled (default) / Disabled based on wiki-ingest/wiki-synthesis skill schedule.
  */
 
-import { useQuery } from '@tanstack/react-query';
 import { BookOpen, TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { StatusDot } from '@/components/design-system/StatusDot';
-import { wikiApi, systemHealthApi, skillsListApi } from '@/lib/api-client';
-import type { WikiStats, SystemHealthSnapshot, SkillRecord } from '@/lib/api-client';
-
-// ---------------------------------------------------------------------------
-// Query keys
-// ---------------------------------------------------------------------------
-
-const WIKI_STATS_QUERY_KEY  = ['wiki', 'stats'] as const;
-const SYSTEM_HEALTH_QUERY_KEY = ['system', 'health'] as const;
-const SKILLS_LIST_QUERY_KEY  = ['skills', 'list'] as const;
+import { useWikiStats } from '@/lib/api/wiki.hooks';
+import { useSystemHealthSnapshot } from '@/lib/api/system-health.hooks';
+import { useSkillsList } from '@/lib/api/skills.hooks';
+import type { SystemHealthSnapshot, SkillRecord } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,25 +137,13 @@ function AutoIngestBadge({ enabled }: { enabled: boolean }) {
 
 export function WikiSection() {
   // ── Wiki stats ────────────────────────────────────────────────────────────
-  const statsQuery = useQuery<WikiStats>({
-    queryKey: WIKI_STATS_QUERY_KEY,
-    queryFn: () => wikiApi.stats(),
-    staleTime: 60_000,
-  });
+  const statsQuery = useWikiStats();
 
   // ── System health snapshot (for repo URL + connection status) ─────────────
-  const healthQuery = useQuery<SystemHealthSnapshot>({
-    queryKey: SYSTEM_HEALTH_QUERY_KEY,
-    queryFn: () => systemHealthApi.snapshot(),
-    staleTime: 60_000,
-  });
+  const healthQuery = useSystemHealthSnapshot();
 
   // ── Skills list (for wiki-lint schedule and auto-ingest skill presence) ───
-  const skillsQuery = useQuery<{ skills: SkillRecord[] }>({
-    queryKey: SKILLS_LIST_QUERY_KEY,
-    queryFn: () => skillsListApi.list(),
-    staleTime: 120_000,
-  });
+  const skillsQuery = useSkillsList();
 
   const isLoading = statsQuery.isLoading || healthQuery.isLoading || skillsQuery.isLoading;
   const isError   = statsQuery.isError   || healthQuery.isError;

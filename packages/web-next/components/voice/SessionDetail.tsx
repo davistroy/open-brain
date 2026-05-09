@@ -19,7 +19,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Loader2, Mic2, User, Bot, FileText, Clock, Hash } from 'lucide-react';
-import { voiceSessionApi, capturesApi, type VoiceSession, type TranscriptTurn } from '@/lib/api-client';
+import { useVoiceSession } from '@/lib/api/voice.hooks';
+import { capturesApi, type VoiceSession, type TranscriptTurn } from '@/lib/api-client';
 import type { Capture } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -220,7 +221,7 @@ function LinkedCaptures({ captureIds }: LinkedCapturesProps) {
         </div>
       ) : (
         <div>
-          {(captures ?? []).map((capture) => (
+          {(captures ?? []).map((capture: Capture) => (
             <div
               key={capture.id}
               className="px-[18px] py-[10px] border-b border-cloud-light last:border-b-0"
@@ -258,14 +259,7 @@ interface SessionDetailProps {
 }
 
 export function SessionDetail({ sessionId, isActive = false }: SessionDetailProps) {
-  const { data: session, isLoading, isError, error } = useQuery<VoiceSession>({
-    queryKey: ['voice-session', sessionId],
-    queryFn: () => voiceSessionApi.get(sessionId),
-    // Poll every 10 seconds for live sessions; no polling for completed sessions
-    refetchInterval: isActive ? 10_000 : false,
-    refetchOnWindowFocus: isActive,
-    staleTime: isActive ? 0 : 60_000,
-  });
+  const { data: session, isLoading, isError, error } = useVoiceSession(sessionId, { isActive });
 
   if (isLoading) {
     return (
