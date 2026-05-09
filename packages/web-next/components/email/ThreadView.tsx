@@ -32,7 +32,6 @@ const RE_FWD_PREFIXES = /^(re|fwd?|fw)\s*:\s*/i;
 /** Strip Re:/Fwd:/FW: prefixes recursively, trim and lowercase. */
 function normalizeSubject(raw: string): string {
   let s = raw.trim();
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const stripped = s.replace(RE_FWD_PREFIXES, '').trim();
     if (stripped === s) break;

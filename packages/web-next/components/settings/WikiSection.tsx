@@ -32,7 +32,7 @@ import { StatusDot } from '@/components/design-system/StatusDot';
 import { useWikiStats } from '@/lib/api/wiki.hooks';
 import { useSystemHealthSnapshot } from '@/lib/api/system-health.hooks';
 import { useSkillsList } from '@/lib/api/skills.hooks';
-import type { SystemHealthSnapshot, SkillRecord } from '@/lib/api-client';
+import type { SystemHealthSnapshot } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers

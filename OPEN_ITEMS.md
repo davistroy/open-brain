@@ -31,14 +31,17 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 | [#71](https://github.com/davistroy/open-brain/issues/71) | P23: Cognitive memory tuning | Data-gated — earliest ~2026-05-17 |
 | [#72](https://github.com/davistroy/open-brain/issues/72) | P34: RTX PRO 2000 deployment | Hardware purchase decision |
 | [#73](https://github.com/davistroy/open-brain/issues/73) | P33: Qdrant evaluation | Scale-gated — fires at ≥50K embeddings |
-| [#177](https://github.com/davistroy/open-brain/issues/177) | A128: TanStack Query hooks extraction | Ready — sequence before #190 |
-| [#190](https://github.com/davistroy/open-brain/issues/190) | A130: ESLint 9 + flat-config migration | Ready — sequence after #177 |
+| ~~[#177](https://github.com/davistroy/open-brain/issues/177)~~ | ~~A128: TanStack Query hooks extraction~~ | CLOSED — PRs #211 #212 #213 #214 (2026-05-09) |
+| ~~[#190](https://github.com/davistroy/open-brain/issues/190)~~ | ~~A130: ESLint 9 + flat-config migration~~ | CLOSED — Phase G.2, PR #215 (2026-05-09) |
 | ~~[#191](https://github.com/davistroy/open-brain/issues/191)~~ | ~~Close out IMPLEMENTATION_PLAN.md verification~~ | **CLOSED (Phase E.1 audit 2026-05-09)** |
 | [#192](https://github.com/davistroy/open-brain/issues/192) | A116: Vitest 2.x bump | Low priority baseline |
 | [#193](https://github.com/davistroy/open-brain/issues/193) | A117: SSE onAbort coverage | Low priority baseline |
 | ~~[#194](https://github.com/davistroy/open-brain/issues/194)~~ | ~~A106: TS2502 entity-resolution.test.ts~~ | **CLOSED (already resolved by commit 6948a12 — Phase E.2 audit 2026-05-09)** |
 | [#195](https://github.com/davistroy/open-brain/issues/195) | A120: TS2345 MPill/TabBar tests | Low priority baseline — after #190 |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile deferred scope | No gate — when mobile is a priority |
+| [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection: 6.5M-token context blowup | Bug — discovered during Phase A.5 |
+| [#205](https://github.com/davistroy/open-brain/issues/205) | Stale BullMQ repeat-job keys for removed skills | Bug — discovered during Phase A.5 |
+| [#207](https://github.com/davistroy/open-brain/issues/207) | A83: 17 cosmetic hydration risks (new Date/Date.now) | Tech debt — deferred, low priority |
 
 ---
 

@@ -24,7 +24,6 @@
 import { TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { useVersionUptime } from '@/lib/api/service-health.hooks';
-import type { HealthResponse } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers

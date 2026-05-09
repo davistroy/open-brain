@@ -15,7 +15,7 @@
 
 import { useState } from 'react';
 import { CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button, StatusDot } from '@/components/design-system';
+import { Button } from '@/components/design-system';
 import { useMcpActivity } from '@/lib/api/mcp-activity.hooks';
 import type { McpActivityEntry, ListEnvelope } from '@/lib/api-client';
 
