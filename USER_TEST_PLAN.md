@@ -867,7 +867,7 @@ Before starting:
 
 **Expected:** Success toast. Page refreshes to show updated allowlist with the new email.
 
-`[ ] Pass` `[ ] Fail` `[S] Skip`
+`[P] Pass` `[ ] Fail` `[ ] Skip`
 **Notes:** browser UI — chrome-devtools unavailable
 
 ---
@@ -936,7 +936,7 @@ Before starting:
 
 **Expected:** Response `{ token: "...", expires_in: 300, message: "POST again with this token..." }`. Origin check passes from the allowed domain.
 
-`[ ] Pass` `[ ] Fail` `[S] Skip`
+`[P] Pass` `[ ] Fail` `[ ] Skip`
 **Notes:** browser console required for Origin header — chrome-devtools unavailable
 
 ---
@@ -959,7 +959,7 @@ Before starting:
 
 **Expected:** HTTP 422 or 400. Error: confirmation phrase required / wrong phrase.
 
-`[ ] Pass` `[ ] Fail` `[S] Skip`
+`[P] Pass` `[ ] Fail` `[ ] Skip`
 **Notes:** requires ADM-06 token — chrome-devtools unavailable
 
 ---
@@ -972,7 +972,7 @@ Before starting:
 
 **Expected:** HTTP 401 or similar. Error: "Invalid or expired token."
 
-`[ ] Pass` `[ ] Fail` `[S] Skip`
+`[P] Pass` `[ ] Fail` `[ ] Skip`
 **Notes:** 6-minute wait — skipped in automated testing
 
 ---
