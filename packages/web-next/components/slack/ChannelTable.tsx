@@ -15,7 +15,6 @@
  */
 
 import { useState, useMemo, useCallback, useRef } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
@@ -30,7 +29,8 @@ import {
   X,
 } from 'lucide-react';
 import { Card, Button, EmptyState } from '@/components/design-system';
-import { adminApi, type SlackChannel } from '@/lib/api-client';
+import { useArchiveSlackChannel } from '@/lib/api/admin.hooks';
+import type { SlackChannel } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -291,8 +291,6 @@ function ArchiveModal({ channel, onClose, onConfirm, isLoading }: ArchiveModalPr
 // ---------------------------------------------------------------------------
 
 export function ChannelTable({ initialChannels }: ChannelTableProps) {
-  const queryClient = useQueryClient();
-
   // Local channel list — starts from server-prefetched data
   const [channels, setChannels] = useState<SlackChannel[]>(initialChannels);
 
@@ -316,25 +314,25 @@ export function ChannelTable({ initialChannels }: ChannelTableProps) {
   }
 
   // Archive mutation
-  const archiveMutation = useMutation({
-    mutationFn: (id: string) => adminApi.archiveSlackChannel(id),
-    onSuccess: (_result, id) => {
-      setChannels((prev) =>
-        prev.map((ch) => (ch.id === id ? { ...ch, is_archived: true } : ch)),
-      );
-      toast.success(`#${archiveTarget?.name ?? id} archived`);
-      setArchiveTarget(null);
-      queryClient.invalidateQueries({ queryKey: ['slack-channels'] });
-    },
-    onError: (err, id) => {
-      console.error('[ChannelTable] archive failed for channel:', id, err);
-      toast.error('Failed to archive channel — please try again.');
-    },
-  });
+  const archiveMutation = useArchiveSlackChannel();
 
   const handleArchiveConfirm = useCallback(
-    (id: string) => archiveMutation.mutate(id),
-    [archiveMutation],
+    (id: string) => {
+      archiveMutation.mutate(id, {
+        onSuccess: () => {
+          setChannels((prev) =>
+            prev.map((ch) => (ch.id === id ? { ...ch, is_archived: true } : ch)),
+          );
+          toast.success(`#${archiveTarget?.name ?? id} archived`);
+          setArchiveTarget(null);
+        },
+        onError: (err) => {
+          console.error('[ChannelTable] archive failed for channel:', id, err);
+          toast.error('Failed to archive channel — please try again.');
+        },
+      });
+    },
+    [archiveMutation, archiveTarget],
   );
 
   // Filtered + sorted channels
