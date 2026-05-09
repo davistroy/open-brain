@@ -10885,6 +10885,51 @@ Close 5 skipped test cases from Entry 143 test run:
 
 ---
 
+--- New session: 2026-05-09 — Remediation Phase F: Vitest 2.x bump ---
+
+## Entry 147 — Phase F: Vitest 2.x bump (2026-05-09)  [test] [config] [decision]
+
+**Date:** 2026-05-09
+**Environment:** open-brain-remediation worktree; branch feat/phase-f-vitest-2x
+**Duration:** ~45 min
+
+**Objective:** Bump vitest + @vitest/coverage-v8 from ^1.6.x to ^2.x across all 6 packages (shared, core-api, workers, voice-capture, web-next, slack-bot). Add per-file glob coverage thresholds in workers (Vitest 2.x feature). Closes #192.
+
+**Hypothesis:** Clean bump — Vitest 2.x pool config syntax for `poolOptions.forks.{minForks, maxForks, singleFork}` unchanged from 1.x; only breaking change affecting us is `coverage.ignoreEmptyLines` defaulting to true (V8 provider). All 5 test suites pass.
+
+**Rollback:** `git revert` the dep bump commit + `pnpm install`.
+
+**Migration research (vitest.dev/guide/migration for 2.x):**
+- Default pool changed 'threads' → 'forks' globally (no impact — we already specify `pool: 'forks'` explicitly)
+- `poolOptions.forks.{minForks, maxForks, singleFork}` syntax unchanged — no config edits needed
+- `coverage.ignoreEmptyLines` defaults to `true` (V8 provider) — changes line counting slightly but doesn't affect threshold failures
+- `vi.fn<TArgs, TReturn>` → `vi.fn<T>` generic simplification (no impact — we don't use generic typed mocks)
+- `afterAll/afterEach` now run in reverse order (no impact — our hooks are independent)
+- No breaking changes to `hookTimeout`, `testTimeout`, `bail`, or `globals`
+
+**Config syntax verdict:** All existing `poolOptions.forks` configs already match the Vitest 2.x schema exactly. Zero config edits required beyond the dep version bump.
+
+**Actions:**
+1. Updated all 6 package.json devDependencies: vitest ^1.6.x → ^2.0.0; @vitest/coverage-v8 ^1.6.x → ^2.0.0
+2. Workspace root already had ^2 from earlier `pnpm -w add -D` attempt; packages needed explicit edits
+3. `pnpm install` resolved vitest@2.1.9 and @vitest/coverage-v8@2.1.9 across all packages
+4. Ran each package's test suite — all 5 pass cleanly (1021 workers, 1180 core-api, 336 shared, 118 web-next, 82 voice-capture)
+5. Added per-file glob thresholds to workers vitest.config.ts for 4 high-coverage modules (100%/100% measured baseline)
+
+**Per-file glob thresholds added (workers):**
+- `src/skills/base-skill.ts`: lines: 100, functions: 100 (foundational dispatch layer)
+- `src/lib/ingest-dedup.ts`: lines: 100, functions: 100 (dedup critical path)
+- `src/lib/spend-tracker.ts`: lines: 100, functions: 100 (budget circuit breaker)
+- `src/flows/ingest-pipeline.ts`: lines: 100, functions: 100 (flow orchestration)
+
+**Coverage pre-existing gap (A116):** Workers `vitest run --coverage` fails at 73.67% lines vs 78% threshold. Confirmed pre-existing — same failure on main with vitest 1.x. CI only runs `pnpm -r test` (no --coverage flag), so this doesn't block CI. The 78% threshold was set as an aspirational floor in Phase 4 (PR #183); new code added in later phases wasn't backed by tests. A116 is a separate tracked item.
+
+**Result:** tsc clean (via `pnpm -r lint`), all 5 packages green (no test failures introduced by bump), per-file glob thresholds locked in, pnpm-lock.yaml updated.
+
+**Decision:** CLAUDE.md operational rule for Vitest pool config does NOT need updating — `poolOptions.forks: { minForks, maxForks }` syntax was already Vitest 2.x compatible.
+
+---
+
 --- New session: 2026-05-09 — Remediation Phase C: settings GET 404→200 noise elimination ---
 
 ## Entry 146 — Phase C: settings GET 404→200 (2026-05-09)  [api] [web] [decision]
