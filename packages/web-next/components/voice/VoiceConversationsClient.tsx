@@ -12,11 +12,10 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
-import { voiceSessionApi, type VoiceSession } from '@/lib/api-client';
-import type { ListEnvelope } from '@/lib/api-client';
+import { useActiveVoiceSessions } from '@/lib/api/voice.hooks';
+import type { VoiceSession } from '@/lib/api-client';
 import { MicOff } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -38,13 +37,7 @@ export function VoiceConversationsClient({
   );
 
   // Poll for active sessions to determine the isActive flag for SessionDetail
-  const { data: activeData } = useQuery<{ items: VoiceSession[] }>({
-    queryKey: ['voice-sessions-active'],
-    queryFn: () => voiceSessionApi.active(),
-    initialData: { items: [] },
-    refetchInterval: 10_000,
-    refetchOnWindowFocus: true,
-  });
+  const { data: activeData } = useActiveVoiceSessions();
 
   const activeIds = new Set((activeData?.items ?? []).map((s) => s.id));
   const selectedIsActive = selectedId !== null && activeIds.has(selectedId);

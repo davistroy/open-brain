@@ -36,7 +36,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Mic, TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { StatusDot } from '@/components/design-system/StatusDot';
-import { configApi, voiceSessionApi } from '@/lib/api-client';
+import { configApi } from '@/lib/api-client';
+import { useVoiceSessions, useActiveVoiceSessions } from '@/lib/api/voice.hooks';
 import type { Integration } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -44,8 +45,6 @@ import type { Integration } from '@/lib/types';
 // ---------------------------------------------------------------------------
 
 const INTEGRATIONS_QUERY_KEY = ['config', 'integrations'] as const;
-const VOICE_SESSIONS_TOTAL_QUERY_KEY = ['voice', 'sessions', 'total'] as const;
-const VOICE_SESSIONS_ACTIVE_QUERY_KEY = ['voice', 'sessions', 'active'] as const;
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -164,24 +163,10 @@ export function VoiceSection() {
   });
 
   // ── Fetch total session count (limit=1; we only need the total) ────────────
-  const {
-    data: sessionsListData,
-    isLoading: sessionsListLoading,
-  } = useQuery({
-    queryKey: VOICE_SESSIONS_TOTAL_QUERY_KEY,
-    queryFn: () => voiceSessionApi.list({ limit: 1 }),
-    staleTime: 30_000,
-  });
+  const { data: sessionsListData, isLoading: sessionsListLoading } = useVoiceSessions({ limit: 1 });
 
   // ── Fetch active sessions ──────────────────────────────────────────────────
-  const {
-    data: activeData,
-    isLoading: activeLoading,
-  } = useQuery({
-    queryKey: VOICE_SESSIONS_ACTIVE_QUERY_KEY,
-    queryFn: () => voiceSessionApi.active(),
-    staleTime: 30_000,
-  });
+  const { data: activeData, isLoading: activeLoading } = useActiveVoiceSessions();
 
   const isLoading = integrationsLoading || sessionsListLoading || activeLoading;
 
