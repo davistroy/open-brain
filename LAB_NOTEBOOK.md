@@ -10883,6 +10883,22 @@ Close 5 skipped test cases from Entry 143 test run:
 
 ---
 
+--- New session: 2026-05-09 — Remediation Phase C: settings GET 404→200 noise elimination ---
+
+## Entry 146 — Phase C: settings GET 404→200 (2026-05-09)  [api] [web] [decision]
+
+**Date:** 2026-05-09
+**Environment:** laptop VM; affects core-api + web-next containers on homeserver
+**Duration:** ~20 min
+
+**Objective:** Eliminate ~6 NotFoundError stack traces per dashboard load (issue #200 RC4).
+
+**Action:** Route change in `settings.ts` (2 lines); test update in `settings-routes.test.ts` (update 2 existing + add 1 new); frontend cleanup in `IngestFiltersSection.tsx` + `EntityExtractionSection.tsx` (drop `.catch()`, add `DEFAULTS` const).
+
+**Result:** PR #208 merged (5f92742). Deploy verified. `curl http://localhost:3002/api/v1/settings/ingest_voice_min_duration` → `{"key":"ingest_voice_min_duration","value":null,"updated_at":null}`. Zero "Setting not found" in core-api logs post-deploy. Settings 404 log noise eliminated.
+
+---
+
 --- New session: 2026-05-09 — Remediation Phase A.1+A.2: t1_spark model name + source_metadata column typo ---
 
 ## Entry 131 — Phase A.1+A.2: t1_spark model name + source_metadata column typo  [deploy] [config] [api] [debug] [decision]
