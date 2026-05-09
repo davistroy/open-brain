@@ -440,6 +440,9 @@ export class SystemHealthService {
       const captureIds = rows.rows.map(r => r.id)
       if (captureIds.length === 0) return []
 
+      // Postgres array literal — same pattern as search.ts getHebbianBoosts()
+      const pgCaptureIds = `{${captureIds.join(',')}}`
+
       // Fetch pipeline_events for these captures
       const events = await this.db.execute<{
         capture_id: string
@@ -451,7 +454,7 @@ export class SystemHealthService {
       }>(sql`
         SELECT capture_id, stage, status, duration_ms, error, created_at
         FROM pipeline_events
-        WHERE capture_id = ANY(${captureIds})
+        WHERE capture_id = ANY(${pgCaptureIds}::uuid[])
         ORDER BY created_at ASC
       `)
 
