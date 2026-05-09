@@ -11123,3 +11123,27 @@ After fixes, re-ran grep. Remaining class (b) hits in `components/` are all in h
 | # | Action | Priority |
 |---|--------|----------|
 | A83 | Prop-lift `now` to RSC parents for remaining 17 class-(b) components (EmailTabs, ChannelTable, ProviderTabs, FlowsTab, SkillsTab, OverviewTab, TimelineEntry, TimelineClient, SkillCard, etc.) | LOW — TZ fix reduces blast radius; these are cosmetic time-display offsets, not data integrity issues |
+
+---
+
+### Entry 147 — Phase E.2: TS2502 in entity-resolution.test.ts (2026-05-09)
+
+**Date:** 2026-05-09
+**Environment:** laptop VM (investigation only — no deploy)
+**Tags:** `[debug]` `[test]`
+**Duration:** ~10 minutes
+
+**Objective:** Investigate and fix TS2502 circular type error at `packages/workers/src/__tests__/entity-resolution.test.ts:345`, close #194 (A106).
+
+**Hypothesis:** The file at line 345 contained a circular `infer` constraint in a Vitest mock type that needed an explicit annotation to break the cycle.
+
+**Rollback plan:** N/A — test-only investigation; no code changes made.
+
+**Action:** Investigation found the error no longer exists:
+- `packages/workers/src/__tests__/entity-resolution.test.ts` does not exist — the actual file is `packages/core-api/src/__tests__/entity-resolution.test.ts`.
+- `pnpm --filter @open-brain/workers lint` → Exit 0 (no TS errors).
+- `pnpm --filter @open-brain/core-api lint` → Exit 0 (no TS errors).
+- The entity-resolution service was refactored in commit `6948a12` (fix: entity-resolution merge/split use Drizzle update() for aliases array) which rewrote the mock structure in the test file, eliminating the circular type inference at line 345.
+- 13/13 entity-resolution tests pass: `pnpm --filter @open-brain/core-api test entity-resolution`.
+
+**Result:** Pre-existing baseline already resolved by prior refactor commit `6948a12`. No code change required. Closing #194 via commit `Closes #194` in OPEN_ITEMS.md update. tsc clean (workers + core-api), 13/13 tests pass.
