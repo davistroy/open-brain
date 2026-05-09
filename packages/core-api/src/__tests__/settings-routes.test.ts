@@ -7,7 +7,7 @@
  *
  * Per CLAUDE.md, `app_settings` is a generic key/value store. The route
  * enforces:
- *   - VALID_SETTINGS_KEYS whitelist on PUT (404 path on GET when row missing)
+ *   - VALID_SETTINGS_KEYS whitelist on PUT (200+null payload on GET when row missing — Phase C)
  *   - Type-specific validators (autonomy_level, auto_response_threshold,
  *     auto_response_staleness_days, monitored_channels)
  *   - JSONB roundtrip preservation (value passed through to upsert as-is)
@@ -108,19 +108,21 @@ describe('GET /api/v1/settings/:key', () => {
     })
   })
 
-  it('returns 404 NotFoundError when whitelisted key has no row in DB', async () => {
+  it('returns 200 with null payload when whitelisted key has no row in DB', async () => {
+    // Phase C: missing-row is no longer a 404. Route returns 200 with null value
+    // so frontend can read data?.value ?? DEFAULT cleanly without .catch() plumbing.
     const { app } = buildApp({ selectRows: [] })
 
     const { status, body } = await testJson(app, '/api/v1/settings/autonomy_level')
 
-    expect(status).toBe(404)
-    expect((body as { code?: string }).code).toBe('NOT_FOUND')
+    expect(status).toBe(200)
+    expect(body).toEqual({ key: 'autonomy_level', value: null, updated_at: null })
   })
 
   it('returns 400 ValidationError for non-whitelisted key (A110)', async () => {
-    // A110: GET now enforces VALID_SETTINGS_KEYS whitelist — non-whitelisted key
-    // returns 400 + VALIDATION_ERROR rather than falling through to DB and
-    // returning 404. Error message matches the PUT endpoint's pattern exactly.
+    // A110: GET enforces VALID_SETTINGS_KEYS whitelist — non-whitelisted key
+    // returns 400 + VALIDATION_ERROR rather than falling through to DB.
+    // Error message matches the PUT endpoint's pattern exactly.
     const { app, select } = buildApp({ selectRows: [] })
 
     const { status, body } = await testJson(app, '/api/v1/settings/totally_made_up_key')
@@ -132,16 +134,16 @@ describe('GET /api/v1/settings/:key', () => {
     expect(select).not.toHaveBeenCalled()
   })
 
-  it('returns 404 when whitelisted key has no row in DB (A110 regression)', async () => {
-    // Whitelisted key with no DB row must still return 404 (not 400).
-    // This confirms the whitelist gate fires before the DB query but that
-    // a valid key with a missing row still reaches NotFoundError normally.
+  it('returns 200 with null payload for whitelisted-but-unset key (Phase C RC4)', async () => {
+    // Phase C: whitelisted-but-unset key returns {key, value: null, updated_at: null}.
+    // This confirms the whitelist gate fires before the DB query and that
+    // a valid key with a missing row returns the null-payload shape, not 404.
     const { app } = buildApp({ selectRows: [] })
 
     const { status, body } = await testJson(app, '/api/v1/settings/user_profile')
 
-    expect(status).toBe(404)
-    expect((body as { code?: string }).code).toBe('NOT_FOUND')
+    expect(status).toBe(200)
+    expect(body).toEqual({ key: 'user_profile', value: null, updated_at: null })
   })
 })
 
