@@ -10737,6 +10737,41 @@ Bundle A113 + A114 into a single PR — both touch request-input validation in c
 
 ---
 
+### Entry 143 — Homeserver redeploy: 31-commit gap + stale depends_on bug [deploy] [docker] [debug]
+
+**Date:** 2026-05-09
+**Environment:** homeserver.k4jda.net (`/mnt/user/appdata/open-brain`), claude@homeserver via SSH
+**Duration:** ~6 minutes
+
+### Objective
+Bring homeserver from `be41b36` (late April) to `948fb83` (main HEAD, 31 commits of post-remediation + validation hardening) and restore `open-brain-web` → removed (Phase 8b container cleanup).
+
+### What happened
+
+**Git pull succeeded** (no conflicts — homeserver had no local modifications).
+
+**Blocker found:** `docker compose config` returned invalid project error. Root cause: `docker-compose.yml` `cloudflared` service had `depends_on: web` left over from Phase 8b when `packages/web` was deleted but the compose reference was not cleaned up. With `open-brain-web` gone, compose's dependency graph was broken and `up` could not proceed.
+
+**Fix:** Removed `depends_on: web` from `cloudflared` service block in `docker-compose.yml`. Committed as `d479c04` ("fix(compose): remove stale web depends_on from cloudflared (Phase 8b followup)") and pushed to main.
+
+**Container changes after fix:**
+- `open-brain-web` (stale nginx for deleted `packages/web`) — stopped and removed
+- 9 services rebuilt from fresh images: `core-api`, `workers`, `slack-bot`, `web-next`, `voice-capture`, `voice-pipecat`, `file-ingestion`, `financial-ingest`, `utility-ingest`
+- 4 unchanged: `postgres`, `redis`, `faster-whisper`, `cloudflared`
+
+### Final state: 13 containers healthy/up
+core-api (healthy), web-next (healthy), voice-capture (healthy), voice-pipecat (healthy), file-ingestion (healthy), faster-whisper (healthy), postgres (healthy), redis (healthy), workers (up), slack-bot (up), cloudflared (up), financial-ingest (up), utility-ingest (up)
+
+**Health verified:** `GET /api/v1/captures?limit=1` returned live capture data. Web-next port 3003 returned HTTP 200.
+
+### System insight
+When deleting a Docker Compose service, grep `docker-compose.yml` AND any override files for the service name in `depends_on:` blocks — not just in the `services:` block. Phase 8b removed the `web` service definition but missed the `cloudflared.depends_on.web` reference. The `config` validation step catches this before `up`, but only if you run it.
+
+### Outcome
+Deploy complete. Main HEAD `d479c04`. All 13 containers running.
+
+---
+
 ### Entry 142 — Post-handoff exit state and remaining work [open-items] [planning] [decision]
 
 **Date:** 2026-05-08
