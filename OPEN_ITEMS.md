@@ -41,6 +41,7 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile deferred scope | No gate — when mobile is a priority |
 | [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection: 6.5M-token context blowup | Bug — discovered during Phase A.5 |
 | [#205](https://github.com/davistroy/open-brain/issues/205) | Stale BullMQ repeat-job keys for removed skills | Bug — discovered during Phase A.5 |
+| [#207](https://github.com/davistroy/open-brain/issues/207) | A83: 17 cosmetic hydration risks (new Date/Date.now) | Tech debt — deferred, low priority |
 
 ---
 
