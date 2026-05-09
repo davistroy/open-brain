@@ -26,7 +26,6 @@ import type {
   CommitmentStatus,
   Integration,
   IntegrationStatus,
-  SettingEntry as SettingEntryType,
   Trigger,
   AIRoutingConfig,
   ModelRoutingEntry,

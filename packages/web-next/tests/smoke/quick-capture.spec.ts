@@ -25,7 +25,6 @@ import { randomUUID } from 'crypto'
 
 const CORE_API_HEALTH = 'http://localhost:3002/api/v1/captures?limit=1'
 const DASHBOARD_URL = 'http://localhost:3001/dashboard'
-const CAPTURE_ENDPOINT = '**/api/v1/captures'
 
 /**
  * Return true if core-api is reachable. Uses a simple GET to a known

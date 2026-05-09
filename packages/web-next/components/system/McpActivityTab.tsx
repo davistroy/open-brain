@@ -16,7 +16,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CheckCircle, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Button, StatusDot } from '@/components/design-system';
+import { Button } from '@/components/design-system';
 import { mcpActivityApi, type McpActivityEntry, type ListEnvelope } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------

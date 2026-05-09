@@ -10,7 +10,7 @@
 // Type imports from the local types file (never from @open-brain/shared)
 // ---------------------------------------------------------------------------
 
-import type { EmailConfig, EmailChannel, EmailChannelStatus, Integration } from '../types'
+import type { EmailConfig, EmailChannelStatus, Integration } from '../types'
 
 // ---------------------------------------------------------------------------
 // Cross-domain peer imports — resolved once peer files exist (Round 3 build)

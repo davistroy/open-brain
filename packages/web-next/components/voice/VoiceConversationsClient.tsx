@@ -16,7 +16,6 @@ import { useQuery } from '@tanstack/react-query';
 import { SessionList } from './SessionList';
 import { SessionDetail } from './SessionDetail';
 import { voiceSessionApi, type VoiceSession } from '@/lib/api-client';
-import type { ListEnvelope } from '@/lib/api-client';
 import { MicOff } from 'lucide-react';
 
 // ---------------------------------------------------------------------------

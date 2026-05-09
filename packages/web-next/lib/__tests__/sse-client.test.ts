@@ -244,7 +244,7 @@ describe('SseClient — exponential backoff reconnect', () => {
     client.start()
 
     const delays = [1_000, 2_000, 4_000, 8_000, 30_000]
-    let elapsed = 0
+    let _elapsed = 0
 
     for (let attempt = 0; attempt < delays.length; attempt++) {
       latestInstance().simulateError()
@@ -255,7 +255,7 @@ describe('SseClient — exponential backoff reconnect', () => {
 
       // Advance the final millisecond — new connection created.
       vi.advanceTimersByTime(1)
-      elapsed += delays[attempt]
+      _elapsed += delays[attempt]
 
       if (attempt < delays.length - 1) {
         // Not yet exhausted — a new EventSource should be created.

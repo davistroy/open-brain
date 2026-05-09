@@ -182,7 +182,6 @@ function VoicePlayerInner({ audioUrl, durationSecs }: VoicePlayerInnerProps) {
       aria-label="Voice recording player"
     >
       {/* Hidden native <audio> element — all control via JS */}
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio ref={audioRef} src={audioUrl} preload="metadata" />
 
       {/* Play / Pause button — 40x40 book-cloth circle */}
