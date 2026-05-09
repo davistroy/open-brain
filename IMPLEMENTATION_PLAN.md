@@ -1,5 +1,7 @@
 # Implementation Plan: Consolidate LLM Model Assignments into ai-routing.yaml
 
+**Status: COMPLETE (verified 2026-05-09 via Phase E.1 audit)**
+
 **Date:** 2026-04-21
 **Scope:** Move all hardcoded LLM model references into `config/ai-routing.yaml`, add comprehensive documentation
 **Risk:** Low — plumbing changes only, no behavior change for existing features
@@ -23,7 +25,7 @@
 - [x] `wiki_lint`, `monthly_reflection` entries present in task_routing
 - [x] `wiki_ingest` points to `t1_fast` (Anthropic tier)
 - [x] `models.intent` entry present
-- [ ] ConfigService loads without error (run unit tests)
+- [x] ConfigService loads without error (run unit tests)
 
 ### 1.2 Wire configService to wiki-ingest skill
 
@@ -44,7 +46,7 @@
 - [x] No hardcoded model string in wiki-ingest.ts
 - [x] `resolveTaskModel()` called in constructor
 - [x] ModelResolverError thrown if no configService and no opts.model
-- [ ] Existing wiki-ingest tests pass (may need mock configService updates)
+- [x] Existing wiki-ingest tests pass (may need mock configService updates)
 
 ### 1.3 Wire configService to wiki-lint skill
 
@@ -59,7 +61,7 @@
 **Acceptance:**
 - [x] No hardcoded model string in wiki-lint.ts
 - [x] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
-- [ ] Existing tests pass
+- [x] Existing tests pass
 
 ### 1.4 Wire configService to monthly-reflection skill
 
@@ -73,7 +75,7 @@
 **Acceptance:**
 - [x] No hardcoded model string in monthly-reflection.ts
 - [x] Old model ID `claude-sonnet-4-5-20250929` removed from codebase
-- [ ] Existing tests pass
+- [x] Existing tests pass
 
 ### 1.5 Pass configService to agent skills in skill-execution worker
 
@@ -106,7 +108,7 @@
 
 **Acceptance:**
 - [x] All worker tests pass: `pnpm --filter @open-brain/workers test`
-- [ ] All core-api tests pass: `pnpm --filter @open-brain/core-api test`
+- [x] All core-api tests pass: `pnpm --filter @open-brain/core-api test`
 - [x] TypeScript clean: `pnpm --filter @open-brain/workers exec tsc --noEmit`
 
 ---
@@ -141,12 +143,12 @@
 
 ## Verification Checklist (run after all phases)
 
-- [ ] `pnpm --filter @open-brain/workers test` — all tests pass
-- [ ] `pnpm --filter @open-brain/core-api test` — all tests pass
-- [ ] `pnpm --filter @open-brain/workers exec tsc --noEmit` — TypeScript clean
-- [ ] `grep -rn 'claude-sonnet-4-5-20250929\|claude-haiku-4-5-20251001' packages/workers/src/skills/` returns zero hits (no hardcoded models remain)
-- [ ] `grep -n 'models.intent\|gpt-5.4' config/ai-routing.yaml` confirms intent model present
-- [ ] Local startup test: workers process connects and logs resolved models at INFO level
+- [x] `pnpm --filter @open-brain/workers test` — all tests pass (1021/1021)
+- [x] `pnpm --filter @open-brain/core-api test` — all tests pass (1180/1180)
+- [x] `pnpm --filter @open-brain/workers exec tsc --noEmit` — TypeScript clean
+- [x] `grep -rn 'claude-sonnet-4-5-20250929\|claude-haiku-4-5-20251001' packages/workers/src/skills/` — zero functional hits (two JSDoc comment examples in wiki-ingest.ts; no runtime defaults)
+- [x] `grep -n 'models.intent\|gpt-5.4' config/ai-routing.yaml` — intent model present (line 51: `intent: "gpt-5.4"`)
+- [ ] Local startup test: workers process connects and logs resolved models at INFO level (skipped — deployment-side verification, not CI-verifiable locally)
 
 ---
 
