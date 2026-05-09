@@ -31,7 +31,7 @@ GitHub issues are the single source of truth for all pending work as of 2026-05-
 | [#71](https://github.com/davistroy/open-brain/issues/71) | P23: Cognitive memory tuning | Data-gated — earliest ~2026-05-17 |
 | [#72](https://github.com/davistroy/open-brain/issues/72) | P34: RTX PRO 2000 deployment | Hardware purchase decision |
 | [#73](https://github.com/davistroy/open-brain/issues/73) | P33: Qdrant evaluation | Scale-gated — fires at ≥50K embeddings |
-| [#177](https://github.com/davistroy/open-brain/issues/177) | A128: TanStack Query hooks extraction | Ready — sequence before #190 |
+| ~~[#177](https://github.com/davistroy/open-brain/issues/177)~~ | ~~A128: TanStack Query hooks extraction~~ | CLOSED — PRs #211 #212 #213 #214 (2026-05-09) |
 | [#190](https://github.com/davistroy/open-brain/issues/190) | A130: ESLint 9 + flat-config migration | Ready — sequence after #177 |
 | [#191](https://github.com/davistroy/open-brain/issues/191) | Close out IMPLEMENTATION_PLAN.md verification | Ready — ~30 min |
 | [#192](https://github.com/davistroy/open-brain/issues/192) | A116: Vitest 2.x bump | Low priority baseline |
