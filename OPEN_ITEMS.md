@@ -2,7 +2,7 @@
 
 **Purpose:** Single index of what's actually open across all implementation plans. Each entry links to the source plan for detail. Update when plans ship items or new plans land.
 
-**Last refreshed:** 2026-05-07
+**Last refreshed:** 2026-05-09
 
 ---
 
@@ -33,13 +33,13 @@
 
 **Scope:** Master roadmap (Arcs 0–5) and 45-PR phased rollout. ~85% of items shipped via PRs P01–P32 + Cloudscape arc; tail items are all gated by external triggers.
 
-| Item | Source | Gate | Effort |
-|---|---|---|---|
-| P23 — Cognitive memory tuning | Master 4C / Phased Wave 5 | **Data-gated:** ≥4 weeks search activity since P06 producer wiring (2026-04-19). Earliest start ~2026-05-17. | S |
-| P24 — Pipecat voice soak test | Master 0D / Phased Wave 6 | **Manual:** 2-week structured conversation soak; needs Troy time. | Manual / 2 wk |
-| P25 — Voice architecture decision | Master 1C / Phased Wave 6 | **Depends on P24** results. Likely "keep both unless Pipecat gains HTTP upload". | S |
-| P33 — Qdrant evaluation | Phased Wave 9 | **Scale-gated:** fires when embeddings count ≥ 50K (currently ~11K). | M |
-| P34 — RTX PRO 2000 deployment | Master 5A / Phased Wave 9 | **Hardware:** purchase decision; eliminates API embedding cost when local. | Hardware / 1 wk |
+| Item | Source | Gate | Effort | Issue |
+|---|---|---|---|---|
+| P23 — Cognitive memory tuning | Master 4C / Phased Wave 5 | **Data-gated:** ≥4 weeks search activity since P06 producer wiring (2026-04-19). Earliest start ~2026-05-17. | S | [#71](https://github.com/davistroy/open-brain/issues/71) |
+| P24 — Pipecat voice soak test | Master 0D / Phased Wave 6 | **Manual:** 2-week structured conversation soak; needs Troy time. | Manual / 2 wk | [#54](https://github.com/davistroy/open-brain/issues/54) |
+| P25 — Voice architecture decision | Master 1C / Phased Wave 6 | **Depends on P24** results. Likely "keep both unless Pipecat gains HTTP upload". | S | [#57](https://github.com/davistroy/open-brain/issues/57) |
+| P33 — Qdrant evaluation | Phased Wave 9 | **Scale-gated:** fires when embeddings count ≥ 50K (currently ~11K). | M | [#73](https://github.com/davistroy/open-brain/issues/73) |
+| P34 — RTX PRO 2000 deployment | Master 5A / Phased Wave 9 | **Hardware:** purchase decision; eliminates API embedding cost when local. | Hardware / 1 wk | [#72](https://github.com/davistroy/open-brain/issues/72) |
 
 **Plus stragglers from Master Plan:** "Observability & Monitoring" + "LiteLLM Cost Routing" already substantially shipped (Loki, Grafana, Prometheus live; LiteLLM retired in CS5) — likely close-out items.
 
@@ -70,8 +70,8 @@ From [IMPLEMENTATION_PLAN-ARCH-REVIEW.md §Deferred Items](IMPLEMENTATION_PLAN-A
 |---|---|---|---|
 | ~~A113~~ | ~~UUID validation on briefs/sessions `:id` path param~~ | ~~Operational~~ | Closed via PR #189 (2026-05-07) |
 | ~~A114~~ | ~~`sessions` `status_filter` silently dropped instead of 400-rejected~~ | ~~Operational~~ | Closed via PR #189 (2026-05-07) |
-| A128 | TanStack Query hooks extraction (Phase 8a follow-up) | Pre-existing baseline | Separate plan; design work |
-| A130 | `eslint-config-next` ^15 → ^16 bump (post-remediation Phase 3.3) implicitly requires ESLint 8 → 9 + flat-config migration. v16 config under ESLint 8 hits circular-JSON crash in `@eslint/eslintrc`. Reverted in PR #182; needs its own plan covering `eslint`, `eslint-config-next`, `.eslintrc.json` → `eslint.config.{js,mjs}` migration, plugin compat audit, and any new lint rules surfaced by the v16 ruleset | Operational | Separate plan/PR — "ESLint 9 + flat-config migration" |
+| A128 | TanStack Query hooks extraction (Phase 8a follow-up) — [#177](https://github.com/davistroy/open-brain/issues/177) | Pre-existing baseline | Separate plan; design work |
+| A130 | ESLint 9 + flat-config migration — [#190](https://github.com/davistroy/open-brain/issues/190). `eslint-config-next` ^15 → ^16 bump requires ESLint 8 → 9 + flat-config migration. Reverted in PR #182; see issue for full scope. | Operational | Separate plan/PR — "ESLint 9 + flat-config migration". Sequence after A128. |
 | A116 | Vitest 2.x bump for per-file glob threshold support | Pre-existing baseline | See post-remediation Phase 5 (deferred) |
 | A117 | SSE `onAbort` / post-promise cleanup branches unreachable | Pre-existing baseline | Excluded via `/* v8 ignore */` |
 | A106 | TS2502 in `entity-resolution.test.ts:345` | Pre-existing baseline | Out of scope |
