@@ -112,7 +112,7 @@ export interface PipelineFlowEntry {
     status: string
     duration_ms: number | null
     error: string | null
-    started_at: string | null
+    created_at: string | null
   }>
 }
 
@@ -447,12 +447,12 @@ export class SystemHealthService {
         status: string
         duration_ms: number | null
         error: string | null
-        started_at: string | null
+        created_at: string | null
       }>(sql`
-        SELECT capture_id, stage, status, duration_ms, error, started_at
+        SELECT capture_id, stage, status, duration_ms, error, created_at
         FROM pipeline_events
         WHERE capture_id = ANY(${captureIds})
-        ORDER BY started_at ASC
+        ORDER BY created_at ASC
       `)
 
       // Group events by capture_id
@@ -464,7 +464,7 @@ export class SystemHealthService {
           status: e.status,
           duration_ms: e.duration_ms,
           error: e.error,
-          started_at: e.started_at,
+          created_at: e.created_at,
         })
       }
 
