@@ -10882,3 +10882,44 @@ Close 5 skipped test cases from Entry 143 test run:
 120 pass / 1 fail / 25 skip (was 115/1/30). Remaining 25 skips: 17 Slack (manual), 4 voice (iOS), 2 OBS (Grafana/Loki browser), 1 WD-03 (data present), 1 ADM-09 (origin-restricted).
 
 ---
+
+--- New session: 2026-05-09 — Remediation Phase A.1+A.2: t1_spark model name + source_metadata column typo ---
+
+## Entry 131 — Phase A.1+A.2: t1_spark model name + source_metadata column typo  [deploy] [config] [api] [debug] [decision]
+
+**Date:** 2026-05-09
+**Environment:** laptop (this VM); affects core-api + workers containers on homeserver
+**Duration:** TBD
+
+### Objective
+Stop ~700 of 744 failed BullMQ jobs caused by t1_spark model name 404 (workers requesting `qwen3.5-35b` but vLLM serves `spark-llm`). Also restore `/api/v1/system/flows` which silently returns `[]` due to a `metadata` vs `source_metadata` column typo in `getPipelineFlows()`.
+
+### Hypothesis
+- Changing `t1_spark.model` from `"qwen3.5-35b"` to `"spark-llm"` will eliminate the model-404 errors that cause entity extraction, enrichment, synthesis, and all other `t1_spark`-routed tasks to fail. Spark vLLM confirmed to serve model id `spark-llm` via pre-flight curl.
+- Fixing `metadata` → `source_metadata` in `getPipelineFlows()` SQL query + TS interface will stop the silent Postgres column-not-found error that the `catch` block swallows, returning `[]` and making the flows endpoint appear always empty.
+
+### Pre-flight verification
+- Spark model id: `curl http://spark.k4jda.net:8000/v1/models | jq -r '.data[].id'` → **`spark-llm`**
+- Confirmed: vLLM root is `Qwen/Qwen3.6-35B-A3B` served under alias `spark-llm`. Old config had `qwen3.5-35b` — mismatched at every step since Phase 4 (D75) when the tier was introduced.
+
+### Rollback plan
+`git revert <sha>` + `docker compose restart core-api workers` on homeserver. Config reload instant (no volume recreation needed). Failed jobs will need manual clearing via Bull Board — see Phase A.5.
+
+### Action
+1. `config/ai-routing.yaml`: `t1_spark.model` `qwen3.5-35b` → `spark-llm`. Updated inline comment to document the actual model: "Qwen3.6-35B-A3B served as `spark-llm` via vLLM".
+2. `packages/core-api/src/services/system-health.ts` `getPipelineFlows()`:
+   - TS interface field: `metadata` → `source_metadata`
+   - SQL SELECT: `metadata` → `source_metadata`
+   - Result mapping: `(r.metadata as Record<string, unknown>)?.trace_id` → `r.source_metadata?.trace_id`
+3. `packages/core-api/src/__tests__/system-health.test.ts`: Added `describe('getPipelineFlows()')` with two tests:
+   - Asserts SQL string contains `source_metadata` and NOT `"metadata"`; verifies `trace_id` correctly read from `source_metadata` field.
+   - Asserts empty array returned when DB throws (covers the silent-catch pattern).
+
+### Result
+TBD — fill in after deploy verification on homeserver.
+
+### Decision Log update
+No new decisions. Pre-existing D75 (add t1_spark) is amended: model id was wrong from the start; now corrected to `spark-llm`.
+
+### Action Items
+- A.5: After deploy — verify `docker logs --since 5m open-brain-workers | grep qwen3.5-35b | wc -l` = 0 and flows endpoint returns non-empty array. Clear failed-job backlog via Bull Board.

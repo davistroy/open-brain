@@ -104,13 +104,13 @@ model_tiers:
     fallback: t1_spark
 
   t1_spark:
-    # DGX Spark -- GB10 GPU at spark.k4jda.net. 35B Qwen model via vLLM.
+    # DGX Spark -- GB10 GPU at spark.k4jda.net. Qwen3.6-35B-A3B served as `spark-llm` via vLLM.
     # Free, higher quality than Jetson, handles complex structured output.
     # OpenAI-compatible endpoint -- does NOT support Anthropic tool_use.
     # Best for: entity extraction (JSON mode), synthesis, wiki tasks, daily ops.
     # WARNING: 120s timeout -- some heavy completions take 30-60s on 35B model.
     provider: openai_compat
-    model: "qwen3.5-35b"
+    model: "spark-llm"
     base_url: "http://spark.k4jda.net:8000/v1"
     max_completion_tokens: 4096
     timeout_ms: 120000

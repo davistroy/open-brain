@@ -319,6 +319,56 @@ describe('SystemHealthService', () => {
     })
   })
 
+  describe('getPipelineFlows()', () => {
+    it('reads source_metadata column (not metadata) in SQL query', async () => {
+      // Regression test for column typo: getPipelineFlows() must query
+      // source_metadata (the actual schema column), not metadata (which does not exist).
+      // A wrong column name causes Postgres to throw, which the catch block swallows
+      // silently, returning [] and making /api/v1/system/flows appear always empty.
+      const capturedSqls: string[] = []
+      const db = {
+        execute: vi.fn().mockImplementation((sqlTag: { queryChunks?: unknown[] }) => {
+          // Drizzle sql`` tags have a queryChunks array; stringify to inspect the SQL text
+          const raw = JSON.stringify(sqlTag)
+          capturedSqls.push(raw)
+          // First call: captures query — return two rows
+          if (capturedSqls.length === 1) {
+            return Promise.resolve({
+              rows: [
+                { id: 'cap-1', pipeline_status: 'complete', created_at: '2026-05-09T00:00:00Z', source_metadata: { trace_id: 'tr-1' } },
+                { id: 'cap-2', pipeline_status: 'failed',   created_at: '2026-05-09T00:01:00Z', source_metadata: null },
+              ],
+            })
+          }
+          // Second call: pipeline_events query
+          return Promise.resolve({ rows: [] })
+        }),
+      }
+      const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+
+      const flows = await service.getPipelineFlows(10)
+
+      // The SQL for the captures query must reference source_metadata, not metadata
+      const capturesQuery = capturedSqls[0] ?? ''
+      expect(capturesQuery).toContain('source_metadata')
+      expect(capturesQuery).not.toContain('"metadata"')
+
+      // Verify the trace_id is correctly read from source_metadata
+      expect(flows).toHaveLength(2)
+      expect(flows[0].trace_id).toBe('tr-1')
+      expect(flows[1].trace_id).toBeNull()
+    })
+
+    it('returns empty array when database throws', async () => {
+      const db = { execute: vi.fn().mockRejectedValue(new Error('column metadata does not exist')) }
+      const service = new SystemHealthService(db as any, DEFAULT_REDIS_CONNECTION, DEFAULT_REDIS_URL)
+
+      const flows = await service.getPipelineFlows()
+
+      expect(flows).toEqual([])
+    })
+  })
+
   describe('overall status derivation', () => {
     it('unhealthy overrides everything', async () => {
       // Redis critical + queue normal → unhealthy
