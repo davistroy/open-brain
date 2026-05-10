@@ -11878,3 +11878,32 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [api] [mobile] [decision]
 **Environment:** laptop (development)
 **Duration:** ~30 min
+
+---
+
+## Entry 159 — Phase B: /mobile route shell (2026-05-10)  [web] [mobile] [decision]
+
+**Objective:** Create `/mobile` page shell — full-bleed layout (no TopNav/SideNav), proper iPhone viewport handling, state container for subsequent phases. Second of 5 mobile SPA phases.
+
+**Hypothesis:** Placing `/mobile` outside the `(shell)` route group bypasses TopNav, SideNav, onboarding redirect, and keyboard shortcuts automatically. Root layout's `<Providers>` (TanStack Query, SSE, AudioPlayer) still wrap the page.
+
+**Approach:**
+- `app/mobile/layout.tsx` — RSC, viewport override (`viewportFit: 'cover'`, `themeColor: '#F0EEE6'` ivory-medium, `userScalable: false`)
+- `app/mobile/page.tsx` — RSC, reads `?q=` search param, passes to MobileShell
+- `components/mobile/MobileShell.tsx` — client component, holds mode/captureType/brainView/query state, renders eyebrow header + placeholder sections
+- Uses `min-h-[100dvh]` (dynamic viewport height) to avoid iOS Safari URL bar layout shift
+- `env(safe-area-inset-top)` padding on header for notch clearance
+
+**Design decisions:**
+- **Outside `(shell)` route group:** Full-bleed mobile experience — no nav, no onboarding check, no keyboard shortcuts. Matches design spec.
+- **Viewport `viewportFit: 'cover'`:** Required for `env(safe-area-inset-*)` to work on iOS. Overrides root viewport's book-cloth theme color with ivory-medium for the mobile chrome.
+- **State in MobileShell, not URL:** Mode, captureType, brainView are ephemeral — no reason to serialize to URL params. Only search query `q` persists via URL.
+
+**Results:**
+- 3 new files: layout, page, MobileShell client component
+- Typecheck + build pass
+- Placeholder sections ready for Phase C (capture zone) and Phase E (search)
+
+**Tags:** [web] [mobile] [decision]
+**Environment:** laptop (development)
+**Duration:** ~30 min
