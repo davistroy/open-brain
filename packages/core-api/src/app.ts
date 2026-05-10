@@ -31,6 +31,7 @@ import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
 import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
+import { registerVoiceCaptureRoutes } from './routes/voice-captures.js'
 import { registerInsurancePoliciesRoutes } from './routes/insurance-policies.js'
 import { registerBriefRoutes } from './routes/briefs.js'
 import type { TtsDeps } from './routes/briefs.js'
@@ -133,6 +134,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   app.use('/api/v1/captures/*', rateLimit(strictLimiter, mobileLimiter))
   app.use('/api/v1/search', rateLimit(strictLimiter, mobileLimiter))
   app.use('/api/v1/synthesize', rateLimit(strictLimiter, mobileLimiter))
+  app.use('/api/v1/voice-captures', rateLimit(strictLimiter, mobileLimiter))
   // Briefs refine triggers an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
   app.use('/api/v1/briefs/*/refine', rateLimit(strictLimiter, mobileLimiter))
@@ -284,6 +286,10 @@ export function createApp(deps: AppDependencies = {}): Hono {
   if (db) {
     registerCommitmentRoutes(app, db)
   }
+
+  // Voice captures proxy — forwards multipart uploads to internal voice-capture service.
+  // No service deps — pure HTTP proxy. Rate-limited at strict tier (triggers transcription).
+  registerVoiceCaptureRoutes(app)
 
   // MCP endpoint — requires all services to be available
   if (captureService && searchService && configService && db) {
