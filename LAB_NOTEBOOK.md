@@ -11627,3 +11627,96 @@ Direct `/api/v1/synthesize` test will confirm response is non-empty after image 
 ### Rollback plan
 
 `git revert` the gateway commit + `docker compose up -d --build core-api workers slack-bot` on homeserver. No schema changes, no migrations.
+
+---
+
+## Entry 155 — Synthesis context-window strategy: deferred decision, hybrid routing recommended (2026-05-09)  [architecture] [llm] [decision] [deferred]
+
+**Date:** 2026-05-09
+**Environment:** N/A — analysis only, no system changes
+**Tags:** `[architecture]` `[llm]` `[decision]` `[deferred]`
+**Status:** PROPOSED — user deferred action; logging analysis for future reference
+
+### Trigger
+
+After fixing Spark thinking-mode (Entry 154) and reducing synthesize default `limit: 10 → 5` (commit `ce1dcad`), Slack synthesis works but the underlying constraint remains: file-ingested captures are 50,000 chars (~12,500 tokens) each, and the corpus is growing. Current `limit: 5` works only because the search query at the time happened to retrieve mostly small captures. A query that retrieves 5 file captures will still overflow the 32,768-token Spark vLLM ceiling.
+
+User question: "Should I look at expanding the model's context window? Or use a cheap cloud model?"
+
+### Options analyzed
+
+| | A. Expand Spark context (32k → 128k) | B. All synthesis → cloud | C. Hybrid (synthesis on cloud, rest on Spark) |
+|---|---|---|---|
+| **Marginal cost** | $0/month | $0.50–5/month | $0.50–5/month |
+| **Engineering** | vLLM restart + tuning + verify VRAM fits on GB10 | 1-line `ai-routing.yaml` change | Same as B |
+| **Synthesis quality** | Same Qwen3.6, just more room | gpt-5.4 / gpt-4o-mini > Qwen3.6 | gpt-5.4 quality |
+| **Privacy** | Local | Cloud | Cloud (only synthesis) |
+| **Failure mode** | Spark down → synthesis down | Cloud down → synthesis down | Cloud down → synthesis down; capture pipeline still works |
+| **Long-term scaling** | Hits VRAM ceiling eventually | Scales for years | Scales for years |
+
+### Cost math (option B/C)
+
+Per Slack synthesis at `limit: 5` (~30k input tokens):
+- Input:  30k × $0.15/1M (gpt-4o-mini) = $0.0045
+- Output: 1k × $0.60/1M = $0.0006
+- **Total: ~$0.005 per query**
+
+100 synthesis queries/month = $0.50. 1,000 = $5. Negligible vs the $30/month soft cap and $50 hard cap. Anthropic Claude Haiku 4.5 ≈ $0.024/query (5× more, still trivial).
+
+### Why expanding Spark context is the worst answer
+
+1. **VRAM math** — Qwen3.6-35B-A3B at 32k → 128k context ≈ 3-4× KV-cache VRAM. Spark's GB10 has 128 GB unified memory shared with system. Probably fits but tight; needs tuning.
+2. **Lost-in-the-middle** — Quality at long context degrades for ALL models, including frontier ones. Stuffing 100k of captures into a Qwen prompt won't synthesize meaningfully better than 30k.
+3. **Doesn't fix the structural issue** — Prompts grow unboundedly with corpus. Hits the new ceiling in months.
+4. **vLLM tuning rabbit hole** — chunked prefill, KV cache settings, TP config. Real time investment.
+
+### Why pure cloud is suboptimal
+
+- `capture_enrichment` runs ~hundreds of times per day on every new capture. Cloud would matter at that volume.
+- `mcp_context` runs per agent call — spiky.
+- `daily_sweep`, `wiki_synthesis`, `auto_response_draft` — non-user-facing batch; no need for premium quality.
+
+### Recommendation: Option C (hybrid)
+
+Match the **CLAUDE.md cost-tiering doc** exactly:
+> T3 (paid API): Real-time, streaming, tool_use, embeddings — Last resort. Only when a human is actively waiting (MCP, Slack, voice, governance).
+
+Slack DMs and web-UI search synthesis = human waiting. That's the documented T3 use case.
+
+**Implementation (when approved):** 1 line in `config/ai-routing.yaml`:
+```yaml
+task_routing:
+  search_synthesis: t2_quality   # was: t1_spark
+```
+
+`t2_quality` is already defined as `gpt-5.4` with proper cost fields (verified in current ai-routing.yaml). No code change. No rebuild. Edit config + restart core-api + workers ≈ 2 minutes.
+
+### Combined with #204 long-term fix
+
+Issue #204 proposes per-capture token-budget truncation (`packTokenBudget`) for monthly-reflection. The same util applied to `synthesize.ts` would give:
+- **Better quality** at lower cost (smarter capture selection, not just first-N)
+- **More captures** fit (10-20 truncated > 5 full)
+- **Hybrid still wins** — even with truncation, Qwen3.6 synthesis < gpt-5.4 synthesis on diverse content
+
+### Decision
+
+DEFERRED at user's direction (2026-05-09 night session). Current state:
+- `search_synthesis: t1_spark` (Spark, free, 32k ceiling)
+- `limit: 5` default (works for typical queries; will fail on file-heavy retrievals)
+
+When this entry is acted on:
+- Update `config/ai-routing.yaml` to route `search_synthesis: t2_quality`
+- Restart core-api + workers (`docker compose up -d --build` on homeserver)
+- Confirm via direct synthesize call that response time is acceptable (gpt-5.4 typically 5-15s for synthesis)
+- Update Decision Log at top of LAB_NOTEBOOK with the new D-number and supersede semantics
+- Increase `limit` default in synthesize.ts back to 10-15 (since gpt-5.4 has 128k context, the ceiling is no longer at 5)
+
+### Why we're deferring
+
+User wants to observe how often the current state fails in practice before paying for cloud routing. The cost is trivial but the principle (verify need before adding paid dependency) is sound. Re-evaluate after a week of usage data via `ai_audit_log` queries showing how often `search_synthesis` queries hit the 32k ceiling vs succeed.
+
+### Action Items
+
+- [ ] Watch `ai_audit_log` for `search_synthesis` failures over 1-2 weeks
+- [ ] If failure rate > 10% of synthesis queries, revisit and apply Option C
+- [ ] Independently file `packTokenBudget` work as part of #204's scope expansion (covers synthesize + monthly-reflection)
