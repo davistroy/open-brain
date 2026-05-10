@@ -1,6 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import { CaptureZone } from './CaptureZone'
+import { BottomSheet } from './BottomSheet'
+import { TypePicker } from './TypePicker'
+import { ViewPicker } from './ViewPicker'
 
 type CaptureMode = 'text' | 'voice' | 'live'
 
@@ -13,6 +17,12 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
   const [captureType, setCaptureType] = useState('observation')
   const [brainView, setBrainView] = useState('technical')
   const [query, setQuery] = useState(initialQuery)
+  const [typePickerOpen, setTypePickerOpen] = useState(false)
+  const [viewPickerOpen, setViewPickerOpen] = useState(false)
+
+  function handleCaptured() {
+    console.log('Captured!')
+  }
 
   return (
     <div className="flex flex-col min-h-[100dvh]">
@@ -29,12 +39,17 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
         </span>
       </header>
 
-      {/* Capture zone placeholder */}
-      <section
-        data-zone="capture"
-        className="flex items-center justify-center p-8 border-b border-cloud-medium bg-ivory-light"
-      >
-        <p className="text-sm text-cloud-dark">Capture zone — Phase C</p>
+      {/* Capture zone */}
+      <section data-zone="capture" className="border-b border-cloud-medium">
+        <CaptureZone
+          mode={mode}
+          onModeChange={setMode}
+          captureType={captureType}
+          brainView={brainView}
+          onOpenTypePicker={() => setTypePickerOpen(true)}
+          onOpenViewPicker={() => setViewPickerOpen(true)}
+          onCaptured={handleCaptured}
+        />
       </section>
 
       {/* Search section placeholder */}
@@ -44,6 +59,36 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
       >
         <p className="text-sm text-cloud-dark">Search section — Phase E</p>
       </section>
+
+      {/* Type picker bottom sheet */}
+      <BottomSheet
+        open={typePickerOpen}
+        onClose={() => setTypePickerOpen(false)}
+        title="Capture Type"
+      >
+        <TypePicker
+          selected={captureType}
+          onSelect={(type) => {
+            setCaptureType(type)
+            setTypePickerOpen(false)
+          }}
+        />
+      </BottomSheet>
+
+      {/* View picker bottom sheet */}
+      <BottomSheet
+        open={viewPickerOpen}
+        onClose={() => setViewPickerOpen(false)}
+        title="Brain View"
+      >
+        <ViewPicker
+          selected={brainView}
+          onSelect={(view) => {
+            setBrainView(view)
+            setViewPickerOpen(false)
+          }}
+        />
+      </BottomSheet>
     </div>
   )
 }

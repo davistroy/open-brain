@@ -11907,3 +11907,37 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [web] [mobile] [decision]
 **Environment:** laptop (development)
 **Duration:** ~30 min
+
+---
+
+## Entry 160 — Phase C: capture zone — text + voice file modes (2026-05-10)  [web] [mobile] [decision]
+
+**Objective:** Build functional sticky capture zone with 3-mode selector, text capture mode wired to captures API, voice file upload mode wired to voice-captures proxy, and bottom sheet pickers for capture type + brain view. Third of 5 mobile SPA phases.
+
+**Hypothesis:** Reusing existing TanStack mutation hooks (useCreateCapture, useVoiceCapture) for the mobile UI keeps API integration consistent. The auto-expanding textarea and file picker patterns are well-proven on mobile browsers.
+
+**Approach:**
+- 8 new components in `components/mobile/`: CaptureZone, ModeSelector, TextMode, VoiceFileMode, BottomSheet, TypePicker, ViewPicker
+- 2 new API files: `lib/api/voice-captures.ts` + `voice-captures.hooks.ts` (mirrors ingest.ts pattern)
+- MobileShell updated to wire CaptureZone + bottom sheets
+- Text mode: auto-expanding textarea, char count, capture type/view pills, submit button
+- Voice file mode: dashed-border file picker, file info card, upload with indeterminate spinner
+- BottomSheet: shared primitive with backdrop, slide-up panel, drag handle
+- Live record mode: placeholder for Phase D
+
+**Design decisions:**
+- **Indeterminate spinner over progress bar:** `fetch` doesn't expose upload progress natively. XHR would work but adds complexity for single-user system with bounded file sizes (≤10MB). Deferred optimization.
+- **No capture type pill in voice mode:** Voice-capture service auto-classifies. Only brain view is user-selectable.
+- **Auto-expanding textarea:** CSS-only approach using scrollHeight — simpler than contentEditable, better mobile keyboard behavior.
+
+**Results:**
+- 10 files created/modified
+- Text capture creates real captures via API
+- Voice file upload proxies through Phase A's voice-captures route
+- Bottom sheets for type/view selection
+- Mode selector switches between text/voice/live (live is Phase D placeholder)
+- Typecheck + build pass
+
+**Tags:** [web] [mobile] [decision]
+**Environment:** laptop (development)
+**Duration:** ~90 min
