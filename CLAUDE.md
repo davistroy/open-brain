@@ -55,6 +55,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 - `POST /admin/reset-data` has no `adminAuth()` (web UI has no Bearer mechanism). Protection is origin allowlist + two-step token + confirmation phrase + rate limiter. Do not re-add `adminAuth()` without a web UI auth mechanism.
 - **`NODE_ENV` production detection must be fail-closed** for security-sensitive checks: `if (env === 'development' || env === 'test') return true`. Unset/unknown NODE_ENV is treated as production. Applied in P04a `checkOrigin()`.
 - `checkLLMProvider()` detects baseUrl ending `/v1` to avoid doubling the prefix when building `/models` URL.
+- `POST /api/v1/voice-captures` proxies multipart uploads to internal voice-capture service (`VOICE_CAPTURE_URL`, default `http://voice-capture:3001/api/capture`). Buffer-and-rebuild strategy (D126). Strict rate-limit tier. Sets `X-Open-Brain-Caller: web-next-public` on upstream — public callers (mobile/web) are correctly NOT in BYPASS_CALLERS. Returns upstream response verbatim (status + body). 502 with `code: 'BAD_GATEWAY'` if voice-capture is unreachable.
 
 **Database / schema**
 - `vector(768)` everywhere (not 1536).

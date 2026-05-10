@@ -11848,3 +11848,33 @@ Most of this session's work either:
 - Is forward-looking artifact (the IMPLEMENTATION_PLAN.md itself documents the work)
 
 No need to duplicate; this entry just establishes the meta-state pointer.
+
+---
+
+## Entry 158 — Phase A: voice-captures proxy route in core-api (2026-05-10)  [api] [mobile] [decision]
+
+**Objective:** Add `POST /api/v1/voice-captures` proxy route to core-api, forwarding multipart uploads to internal voice-capture service at `http://voice-capture:3001/api/capture`. First phase of 5-phase mobile SPA implementation (IMPLEMENTATION_PLAN.md).
+
+**Hypothesis:** Buffer-and-rebuild multipart proxy (parse FormData, copy fields, fetch upstream) will work cleanly for bounded audio files (≤10MB). Expect proxy adds <50ms overhead on homeserver (same Docker network, no WAN hop).
+
+**Approach:**
+- New file `packages/core-api/src/routes/voice-captures.ts` (~50 LOC)
+- Pure proxy — no DB deps, no service injection. Registered unconditionally in `app.ts`
+- Strict rate-limit tier (triggers transcription + classification LLM calls)
+- Sets `X-Open-Brain-Caller: web-next-public` on upstream request — mobile/web clients are public callers, correctly NOT in BYPASS_CALLERS
+- 5 integration test cases: 201 success, upstream 400, missing file→400, upstream unreachable→502, optional fields forwarded
+
+**Design decisions:**
+- **Buffer-and-rebuild over raw streaming (D126):** Zero codebase precedent for `duplex: 'half'` streaming. Audio files bounded ≤10MB by voice-capture's existing checks. Buffering is safe for single-user system. Simpler to test (FormData round-trip vs stream pipe).
+- **Why proxy instead of direct Cloudflare Tunnel:** Voice-capture runs on internal Docker network with no direct tunnel exposure. Proxy keeps infra simple — single public endpoint (core-api) handles all API traffic. Adding another tunnel target would require CF config changes and creates another ingress point to monitor.
+- **Strict rate-limit:** Transcription triggers faster-whisper + LLM classification. Same tier as captures/search/synthesize.
+
+**Results:**
+- Route file: `packages/core-api/src/routes/voice-captures.ts`
+- Registration: `app.ts` — unconditional (no deps), strict rate limit at `/api/v1/voice-captures`
+- Integration tests: 5 cases, all using `vi.spyOn(global, 'fetch')` mock pattern
+- CLAUDE.md updated with endpoint documentation
+
+**Tags:** [api] [mobile] [decision]
+**Environment:** laptop (development)
+**Duration:** ~30 min
