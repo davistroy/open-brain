@@ -11562,3 +11562,68 @@ After fixes, re-ran grep. Remaining class (b) hits in `components/` are all in h
 **Action:** Created eslint.config.mjs using defineConfig([...nextVitals, ...nextTs, globalIgnores, customRules]). Bumped eslint 8->9, eslint-config-next ^15->^16. Removed deprecated --ext .ts,.tsx from lint script. Downgraded 4 new react-hooks v5 rules to warn (set-state-in-effect x8, static-components x5, refs x3, immutability x2). Removed 4 stale eslint-disable directives. Fixed 5 genuine unused imports/vars. --max-warnings set to 19 (documented baseline matching downgraded rule count). CLAUDE.md pin rule removed. OPEN_ITEMS.md #190 CLOSED.
 
 **Result:** 0 errors, 19 warnings. TSC clean. 109/109 tests pass. CI green. PR #215 merged.
+
+---
+
+## Entry 154 — Spark vLLM thinking-mode bug: empty `content`, all t1_spark tasks broken (2026-05-09)  [api] [llm] [debug] [decision]
+
+**Date:** 2026-05-09
+**Environment:** homeserver Spark via Tailscale (`spark.k4jda.net:8000`). Affects all task types routed to `t1_spark`: `capture_enrichment`, `search_synthesis`, `daily_sweep`, `mcp_context`, `auto_response_draft`, `wiki_synthesis`.
+**Duration:** ~30 min diagnose + fix
+**Tags:** `[api]` `[llm]` `[debug]` `[decision]`
+
+### Objective
+
+Slack DM "what's the latest weather" failed silently with no response. Find why and fix.
+
+### Hypothesis
+
+Layered failure: container down → restart → real bug somewhere in the synthesize path.
+
+### Findings
+
+1. **Layer 1 (deploy):** `open-brain-slack-bot` container was in "Created" state, never started — along with 6 other services (grafana, prometheus, loki, financial-ingest, voice-capture, utility-ingest). Some `docker compose up` 4 hours ago started 5 services and left 7 idle. `docker compose up -d slack-bot` fixed connectivity ("Slack bot connected via Socket Mode"). Slack DMs now reach the bot.
+
+2. **Layer 2 (Slack post error):** First post-restart DMs hit slack-bot, routed to `handleSynthesis`, called core-api `/api/v1/synthesize` (200 OK in 26s), then failed with `Error: An API error occurred: no_text` from `chat.postMessage`. The Bolt warning revealed: top-level `text` argument was empty.
+
+3. **Layer 3 (root cause — Spark thinking mode):** Direct call to core-api `/api/v1/synthesize` returned `{ response: "", capture_count: 5 }`. Direct probe of Spark with `model=spark-llm`, `max_tokens=50` and even `1024` returned `{ message: { content: null, reasoning: "Here's a thinking process: ..." }, finish_reason: "length" }`. Qwen3.6-35B-A3B running on Spark vLLM uses **thinking mode by default** — chain-of-thought tokens fill `reasoning`, `content` stays null until thinking concludes. Even 1024 tokens isn't enough; the model spent the entire budget deliberating between 3-word greetings.
+
+4. **Verification of fix:** Same prompt with `chat_template_kwargs: { enable_thinking: false }` returned `{ message: { content: "Hello, how are you?", reasoning: null }, finish_reason: "stop" }` in 7 completion tokens. Reproducible toggle.
+
+### Failure mode for the user
+
+ALL six tasks routed to `t1_spark` were silently broken:
+- `search_synthesis` → Slack/web returns empty (Slack rejects with no_text)
+- `capture_enrichment` → captures missing tags + summary
+- `daily_sweep` → 3am sweep produces nothing useful
+- `mcp_context` → MCP `open_brain://context` resource is empty
+- `auto_response_draft` → Slack auto-response drafts blank
+- `wiki_synthesis` → wiki pages get empty content
+
+This bug has likely been silently active since the Spark Qwen model was upgraded to a thinking-capable variant (~Qwen3.5 → Qwen3.6 transition).
+
+### Decision
+
+**Fix at the LLM gateway layer**: thread provider info into `completeViaOpenAISDK` and pass `extra_body: { chat_template_kwargs: { enable_thinking: false } }` for `openai_compat` tiers only. Preserves OpenAI proper compatibility (it rejects `extra_body`). Llama.cpp / Ollama servers ignore unknown `chat_template_kwargs`.
+
+Rejected alternatives:
+- Restart vLLM with thinking-disabled default — affects all callers; out of band of this repo
+- Bump max_tokens to 4096+ for synthesis — wastes tokens, doesn't fix the structural issue
+- Switch `search_synthesis` to OpenAI tier — leaves the other 5 tasks broken
+
+### Action
+
+`packages/shared/src/services/llm-gateway.ts:completeViaOpenAISDK` — accept optional `provider` param; when `provider === 'openai_compat'`, include `extra_body: { chat_template_kwargs: { enable_thinking: false } }` in the chat completion request.
+
+### Result (pending deploy verification)
+
+Direct `/api/v1/synthesize` test will confirm response is non-empty after image rebuild + container restart. Slack DM end-to-end will confirm user-facing flow.
+
+### Action Items
+
+- [ ] Add a defensive null-check in gateway: if response is empty + finish_reason === 'length' + reasoning != null, log a structured warning so future recurrences are visible immediately
+- [ ] Audit other openai_compat tiers (Jetson llama.cpp) — verify they accept `chat_template_kwargs` silently when key isn't recognized
+
+### Rollback plan
+
+`git revert` the gateway commit + `docker compose up -d --build core-api workers slack-bot` on homeserver. No schema changes, no migrations.

@@ -365,6 +365,7 @@ export class LLMGatewayService {
             openaiClient, prompt, model,
             { ...options, maxTokens: options.maxTokens ?? maxTokens },
             timeoutMs,
+            client,
           )
           text = result.text
           promptTokens = result.promptTokens
@@ -455,6 +456,15 @@ export class LLMGatewayService {
   /**
    * Call the OpenAI SDK (LiteLLM or Ollama) with a per-call timeout.
    * Used by tier-based routing where each tier specifies its own timeout.
+   *
+   * For `openai_compat` providers (Spark vLLM, Jetson llama.cpp), passes
+   * `chat_template_kwargs: { enable_thinking: false }` via `extra_body`. Qwen3.x
+   * served by vLLM defaults to thinking mode — chain-of-thought tokens fill the
+   * separate `reasoning` field while `content` stays null until thinking
+   * concludes, which silently empties the response (Entry 154, 2026-05-09).
+   * OpenAI proper rejects `extra_body` with 400, so this is gated on provider.
+   * Llama.cpp ignores unknown `chat_template_kwargs` keys, so the flag is safe
+   * for Jetson too.
    */
   private async completeViaOpenAISDK(
     client: OpenAI,
@@ -462,6 +472,7 @@ export class LLMGatewayService {
     model: string,
     options: LLMCompleteOptions,
     timeoutMs?: number,
+    provider?: AIClientType,
   ): Promise<{ text: string; promptTokens: number; completionTokens: number; totalTokens: number }> {
     const requestOptions = timeoutMs ? { timeout: timeoutMs } : undefined
 
@@ -472,12 +483,30 @@ export class LLMGatewayService {
         temperature: options.temperature ?? 0.2,
         max_completion_tokens: options.maxTokens ?? 2048,
         ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+        ...(provider === 'openai_compat'
+          ? { extra_body: { chat_template_kwargs: { enable_thinking: false } } }
+          : {}),
       },
       requestOptions,
     )
 
     const usage = response.usage
     const text = response.choices[0]?.message?.content ?? ''
+
+    if (!text) {
+      const finishReason = response.choices[0]?.finish_reason
+      const reasoningField = (response.choices[0]?.message as { reasoning?: string } | undefined)?.reasoning
+      logger.warn(
+        {
+          model,
+          provider,
+          finishReason,
+          hasReasoning: typeof reasoningField === 'string' && reasoningField.length > 0,
+          completionTokens: usage?.completion_tokens ?? 0,
+        },
+        'LLM returned empty content — possible thinking-mode budget exhaustion (Entry 154)',
+      )
+    }
 
     return {
       text,
