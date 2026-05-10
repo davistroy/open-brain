@@ -7,7 +7,10 @@ import { logger, SafePromptBuilder } from '@open-brain/shared'
 
 const synthesizeBodySchema = z.object({
   query: z.string().min(1, 'Query is required').max(2000),
-  limit: z.number().int().min(1).max(30).default(10),
+  // Default 5 — many captures are file-ingested at 50,000 chars (~12,500 tokens)
+  // each, so 10 hits Spark vLLM's 32k context ceiling. Long-term: per-capture
+  // token-budget truncation (similar to #204 for monthly-reflection).
+  limit: z.number().int().min(1).max(30).default(5),
 })
 
 /**
