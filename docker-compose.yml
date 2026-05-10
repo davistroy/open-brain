@@ -642,12 +642,12 @@ services:
     restart: unless-stopped
     profiles:
       - observability
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3100/ready || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+    # No in-container healthcheck: grafana/loki:latest is a scratch-based image
+    # with no shell and no wget — any CMD-SHELL probe fails with "executable not
+    # found" and Docker marks the container unhealthy forever, even when Loki is
+    # responding 200 on /ready. A `loki -version` healthcheck would always pass
+    # (worse — masks real failures). External monitoring: prometheus scrapes
+    # Loki, grafana datasource UI surfaces query problems. See issue #218.
     # NOTE: No logging driver on loki itself — prevents chicken-and-egg startup failure.
 
   pushgateway:
@@ -719,7 +719,10 @@ services:
       prometheus:
         condition: service_healthy
       loki:
-        condition: service_healthy
+        # Loki has no in-container healthcheck (scratch-based image, see #218).
+        # service_started is the most we can wait for; restart: unless-stopped
+        # handles crash recovery, prometheus scraping handles ongoing health.
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3050/api/health || exit 1"]
       interval: 30s
