@@ -81,9 +81,12 @@ export async function handleSynthesis(
   })
 
   try {
+    // Use core-api's default limit (10). Hardcoded 20 here historically pushed
+    // the context past Spark vLLM's 32k ceiling on knowledge-heavy queries
+    // (31745 input tokens + 1024 output > 32768). Real long-term fix is
+    // per-capture token budgeting on the core-api side; tracked under #204.
     const result = await coreApiClient.synthesize_query({
       query: queryText,
-      limit: 20,
     })
 
     await say({ text: result.response, thread_ts: ts })
