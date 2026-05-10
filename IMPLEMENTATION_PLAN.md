@@ -57,7 +57,7 @@ If multi-user volume ever arrives, revisit.
 
 **Goal:** New route `POST /api/v1/voice-captures` in core-api that proxies multipart uploads to internal `voice-capture:3001/api/capture`.
 
-**Status:** PENDING
+**Status:** COMPLETE (47553ea)
 
 **Files Affected:**
 - `packages/core-api/src/routes/voice-captures.ts` (NEW, ~70 LOC)
@@ -188,7 +188,7 @@ ssh claude@homeserver.k4jda.net 'docker exec open-brain-core-api curl -sf -X POS
 
 **Goal:** Empty `/mobile` page that renders correctly on iPhone with full-bleed layout (no shell chrome) and proper safe-area / viewport handling. Provides the shell + state container for subsequent phases.
 
-**Status:** PENDING
+**Status:** COMPLETE (39cd0cf)
 
 **Depends on:** None (can run parallel to A but ships after for natural sequencing)
 
@@ -276,7 +276,7 @@ pnpm --filter @open-brain/web-next build
 
 **Goal:** Functional sticky capture zone with the mode selector, text mode, and voice file mode wired to real APIs. Bottom sheet pickers for capture type + brain view. Submit creates real captures.
 
-**Status:** PENDING
+**Status:** COMPLETE (efc7653)
 
 **Depends on:** A (voice-captures route), B (page shell)
 
@@ -434,7 +434,7 @@ pnpm --filter @open-brain/web-next build
 
 **Goal:** In-browser MediaRecorder integration. User taps mic, grants permission, records, taps stop, blob uploads via `/api/v1/voice-captures`.
 
-**Status:** PENDING
+**Status:** COMPLETE (47dfb76)
 
 **Depends on:** A, B, C (reuses `useVoiceCapture` from C)
 
@@ -590,7 +590,7 @@ pnpm --filter @open-brain/web-next build
 
 **Goal:** Below the capture zone: mobile-adapted search bar, synthesis card (conditional), result cards, all empty/loading/no-match/error states, pull-to-refresh, sticky-collapse, toast confirmation, transcript echo.
 
-**Status:** PENDING
+**Status:** COMPLETE (7a61ed6)
 
 **Depends on:** A (for any voice transcript echo), B (page shell), C (toast / transcript echo wiring), D (transcript echo on live record)
 
