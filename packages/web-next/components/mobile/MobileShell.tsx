@@ -1,10 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { CaptureZone } from './CaptureZone'
 import { BottomSheet } from './BottomSheet'
 import { TypePicker } from './TypePicker'
 import { ViewPicker } from './ViewPicker'
+import { MobileSearchBar } from './MobileSearchBar'
+import { MobileResultsList } from './MobileResultsList'
+import { MobileSynthesisCard } from './MobileSynthesisCard'
+import { MobilePullSpinner } from './MobilePullSpinner'
+import { Toast } from './Toast'
+import { TranscriptEcho } from './TranscriptEcho'
+import { useStickyCollapse } from '@/hooks/useStickyCollapse'
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 
 type CaptureMode = 'text' | 'voice' | 'live'
 
@@ -19,9 +27,25 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
   const [query, setQuery] = useState(initialQuery)
   const [typePickerOpen, setTypePickerOpen] = useState(false)
   const [viewPickerOpen, setViewPickerOpen] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type?: string } | null>(null)
+  const [transcriptEcho, setTranscriptEcho] = useState<{ text: string; duration: number } | null>(null)
+  const [searchRefreshKey, setSearchRefreshKey] = useState(0)
 
-  function handleCaptured() {
-    console.log('Captured!')
+  const { collapsed, expand } = useStickyCollapse(200)
+
+  const handleRefresh = useCallback(() => {
+    setSearchRefreshKey((k) => k + 1)
+  }, [])
+
+  const { pullProgress, isRefreshing, onTouchStart, onTouchMove, onTouchEnd } =
+    usePullToRefresh({ onRefresh: handleRefresh })
+
+  function handleCaptured(transcript?: { text: string; duration: number }) {
+    if (transcript) {
+      setTranscriptEcho(transcript)
+    } else {
+      setToast({ message: 'Captured!', type: captureType })
+    }
   }
 
   return (
@@ -39,7 +63,7 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
         </span>
       </header>
 
-      {/* Capture zone */}
+      {/* Capture zone with sticky-collapse */}
       <section data-zone="capture" className="border-b border-cloud-medium">
         <CaptureZone
           mode={mode}
@@ -48,16 +72,33 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
           brainView={brainView}
           onOpenTypePicker={() => setTypePickerOpen(true)}
           onOpenViewPicker={() => setViewPickerOpen(true)}
-          onCaptured={handleCaptured}
+          onCaptured={() => handleCaptured()}
+          collapsed={collapsed}
+          onExpand={expand}
         />
       </section>
 
-      {/* Search section placeholder */}
+      {/* Search section */}
       <section
         data-zone="search"
-        className="flex-1 flex items-center justify-center p-8"
+        className="flex-1 flex flex-col"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
-        <p className="text-sm text-cloud-dark">Search section — Phase E</p>
+        {/* Pull-to-refresh spinner */}
+        <MobilePullSpinner pullProgress={pullProgress} isRefreshing={isRefreshing} />
+
+        <div className="px-4 pt-4 pb-3">
+          <MobileSearchBar query={query} onQueryChange={setQuery} />
+        </div>
+
+        <div className="px-4 pb-8 flex flex-col gap-3" key={searchRefreshKey}>
+          {query.trim() && (
+            <MobileSynthesisCard query={query} />
+          )}
+          <MobileResultsList query={query} />
+        </div>
       </section>
 
       {/* Type picker bottom sheet */}
@@ -89,6 +130,19 @@ export function MobileShell({ initialQuery }: MobileShellProps) {
           }}
         />
       </BottomSheet>
+
+      {/* Toast notification */}
+      <Toast
+        message={toast?.message ?? null}
+        type={toast?.type}
+        onDismiss={() => setToast(null)}
+      />
+
+      {/* Transcript echo */}
+      <TranscriptEcho
+        transcript={transcriptEcho}
+        onDismiss={() => setTranscriptEcho(null)}
+      />
     </div>
   )
 }

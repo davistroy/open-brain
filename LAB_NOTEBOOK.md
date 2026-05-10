@@ -11974,3 +11974,38 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [web] [mobile] [decision]
 **Environment:** laptop (development)
 **Duration:** ~60 min
+
+---
+
+## Entry 162 — Phase E: search section + polish (2026-05-10)  [web] [mobile] [decision]
+
+**Objective:** Complete the mobile SPA with mobile-adapted search (search bar, results list, synthesis card), sticky-collapse for the capture zone, pull-to-refresh, toast confirmation, and transcript echo. Fifth and final mobile SPA phase.
+
+**Hypothesis:** Reusing existing `useSearch` and `useSynthesizeQuery` hooks for the mobile search section ensures identical API behavior to the desktop search page. Sticky-collapse at 200px scroll threshold and pull-to-refresh at 60px pull distance are standard mobile interaction patterns.
+
+**Approach:**
+- 9 new components: MobileSearchBar, MobileResultCard, MobileResultsList, MobileSynthesisCard, MobileEmptyState, MobileNoMatch, MobilePullSpinner, Toast, TranscriptEcho
+- 2 new hooks: useStickyCollapse (throttled scroll listener, 200px threshold), usePullToRefresh (touch events, 60px threshold)
+- CaptureZone updated: collapsed prop toggles between full capture zone and minimal 56px bar
+- MobileShell updated: wires all search + polish components, manages toast/transcriptEcho state
+- Search bar: 300ms debounce, URL sync via `history.replaceState`
+- Synthesis card: conditional on `isSynthesisRequest(query)`, shows response + source count
+- Result cards: source label, relative date, content preview (2-line clamp), tags, score
+- Toast: 1.5s auto-dismiss for text captures
+- TranscriptEcho: 3s auto-dismiss for voice captures
+
+**Design decisions:**
+- **Debounced URL sync:** Using `history.replaceState` (not router.push) to update `?q=` without triggering full page navigation. Maintains back button behavior.
+- **Skeleton loading:** 4 placeholder cards during search, consistent with desktop pattern.
+- **Pull-to-refresh on touch only:** Touch events (`onTouchStart/Move/End`) ensure the gesture only works on touch devices. No mouse equivalent needed.
+- **1.5s vs 3s auto-dismiss:** Text captures show brief toast (captures are instant). Voice captures show longer transcript echo (user wants to verify transcription accuracy).
+
+**Results:**
+- All 5 mobile SPA phases complete (A through E)
+- 11 files created/modified in Phase E
+- Full mobile experience: text capture, voice file upload, live recording, search, synthesis, sticky-collapse, pull-to-refresh, toast/echo confirmations
+- Typecheck + build pass
+
+**Tags:** [web] [mobile] [decision]
+**Environment:** laptop (development)
+**Duration:** ~60 min
