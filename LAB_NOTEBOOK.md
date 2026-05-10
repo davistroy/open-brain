@@ -135,6 +135,7 @@
 | D123 | Mobile app: TanStack React Query v5 for data layer (not SWR, not custom) | 2026-04-22 | ACTIVE | Entry 130 | Matches web-next pattern, built-in mutations for board patches, staleTime/retry configurable |
 | D124 | Post-remediation baseline: 3.7/5 architectural health, 7/10 intent alignment. No CRITICAL findings. Primary gap is documentation staleness, not structural defects. | 2026-05-06 | ACTIVE | Entry 106, 107 | Full /review-arch + /review-intent audits run post-PR #175/#178/#179; see Entries 106 and 107 for detailed findings and remediation roadmap |
 | D125 | web-next container must set `TZ: America/New_York` — UTC container + getHours() in RSC = wrong greeting + potential hydration mismatches | 2026-05-09 | ACTIVE | Entry 145 | suppressHydrationWarning (band-aid, not root fix); always-UTC display (wrong for user); client-only clock (loses SSR benefit) |
+| D126 | Mobile SPA: route at `/mobile` (NOT `/quick`), full-bleed (outside `(shell)` group), 3 capture modes (text/voice-file/live-record), no photo. Voice routed through new core-api proxy `POST /api/v1/voice-captures` (multipart buffer-and-rebuild, NOT streaming). | 2026-05-09 | PROPOSED | Entry 156, IMPLEMENTATION_PLAN.md | Direct CF tunnel exposure of voice-capture (more infra); Path B/C photo upload (no native image pipeline); raw `duplex:'half'` streaming (no codebase precedent, audio bounded ≤10MB) |
 
 ## Action Items
 
@@ -11720,3 +11721,130 @@ User wants to observe how often the current state fails in practice before payin
 - [ ] Watch `ai_audit_log` for `search_synthesis` failures over 1-2 weeks
 - [ ] If failure rate > 10% of synthesis queries, revisit and apply Option C
 - [ ] Independently file `packTokenBudget` work as part of #204's scope expansion (covers synthesize + monthly-reflection)
+
+---
+
+## Entry 156 — Post-thinking-mode follow-ups: Spark context overflow + Loki healthcheck (2026-05-09)  [api] [llm] [observability] [decision]
+
+**Date:** 2026-05-09 (late session, ~22:00 ET)
+**Environment:** homeserver, all 17 containers
+**Tags:** `[api]` `[llm]` `[observability]` `[decision]`
+
+### Trigger
+
+After Entry 154's thinking-mode fix landed (commits `4078685` + `1c5eb42`), real Slack DM "What's the latest weather?" ran the LLM successfully but threw HTTP 503 from Spark vLLM: `prompt contains at least 31745 input tokens... max 32768`. Off by 1.
+
+### Findings
+
+1. **Capture corpus has many 50,000-char file imports** (verified via `SELECT length(content) ... ORDER BY length DESC` — 20 captures at 50k char cap from file ingestion). Each is ~12,500 tokens after SafePromptBuilder wrapping.
+
+2. **`limit:10` overflows Spark when retrieved set is file-heavy.** 10 × ~3.2k avg = ~32k input + 1024 output > 32768. Probe table:
+   - limit=10 → 503 (31745 input)
+   - limit=5 → 200 (424 chars synthesized)
+   - limit=3, 2, 1 → 200
+
+3. **Two callers contribute:**
+   - slack-bot: hardcoded `limit:20` (worse — never works on file-heavy queries)
+   - core-api default: `limit:10` (works only on small captures)
+
+### Decision
+
+Two-step fix:
+1. slack-bot: drop hardcoded `limit:20` override → defer to core-api default. Commit `e771d5a`.
+2. core-api: change synthesize default `limit:10 → 5`. Commit `ce1dcad`.
+
+This is a workaround. Real fix is per-capture `packTokenBudget` truncation (Entry 155 + #204) — under that approach, `limit:10` would work because each capture is capped at e.g. 3k tokens. Deferred to user observation period.
+
+### Loki healthcheck — separate finding from same session
+
+While bringing up `--profile observability` (Phase D extension): Loki marked `unhealthy` despite responding 200 on `/ready` + flowing logs. Root cause: `grafana/loki:latest` is a **scratch-based image** with no shell + no wget. The compose healthcheck `wget -qO- http://127.0.0.1:3100/ready || exit 1` always fails ("executable not found"). Cascaded: Grafana refused to start because `depends_on: { loki: { condition: service_healthy } }`.
+
+Filed #218, then resolved tonight: removed Loki's healthcheck entirely (no in-container probe possible — `loki -version` would fake-pass and mask real failures), changed Grafana's loki dep to `service_started`. External monitoring (Prometheus scraping + Grafana datasource health UI) is the actual reliable signal. Commit `4f2dfb9`.
+
+### Validation
+
+Direct synthesize probe after deploy: `STATUS: 200, response length: 478, capture_count: 5` — synthesis returns real content. Slack flow now works end-to-end.
+
+Loki: 4 observability containers running clean (loki + prometheus + grafana + pushgateway), no `unhealthy` flags.
+
+### Action Items
+
+- [ ] Implement `packTokenBudget` util in shared (folded into #204's scope) — long-term real fix for context overflow
+- [ ] Watch `ai_audit_log` for any `limit:5` results that still overflow on rare large-capture clusters
+- [ ] Re-bump synthesize default `limit:5 → 10+` once `packTokenBudget` ships (currently artificially low)
+
+### Rollback
+
+`git revert ce1dcad e771d5a 4f2dfb9` + `docker compose up -d --build core-api slack-bot` on homeserver. Loki healthcheck reinstall would require re-adding compose stanza.
+
+---
+
+## Entry 157 — Repo cleanup + mobile SPA spec + design + plan (2026-05-09)  [housekeeping] [decision] [meta]
+
+**Date:** 2026-05-09 → 2026-05-10 (session spanning midnight)
+**Environment:** local + origin + homeserver
+**Tags:** `[housekeeping]` `[decision]` `[meta]`
+
+### Repo cleanup work
+
+After v1.6.0 shipped (Phases A–G remediation plan, 12 PRs, all merged), the repo state had drift:
+- `package.json` still at `1.5.0` while `CHANGELOG.md`, `README.md` advertised 1.6.0
+- `OPEN_ITEMS.md` listed 6 closed issues as open + missing #200/#204/#207/#217
+- 5 completed implementation plans at root (IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION, IMPLEMENTATION_PLAN, IMPLEMENT_MASTER_PLAN, PHASED_PLAN, ORCHESTRATOR)
+- 14 squash-merged feature branches lingering locally
+- 16 stale `origin/feat/*` and `origin/chore/*` remote-tracking refs
+- 1 worktree (`open-brain-remediation`) for fully-merged work
+
+Resolved tonight via commit `66aedc0`:
+- All version refs synced to v1.6.0 (`package.json`, `CLAUDE.md` Status line, `CHANGELOG.md` compare links)
+- `OPEN_ITEMS.md` rewritten against authoritative GitHub issue list (10 open: #54, #57, #71, #72, #73, #196, #200, #204, #207, #217)
+- 5 plans archived to `docs/archived/` (one renamed `IMPLEMENTATION_PLAN.md → IMPLEMENTATION_PLAN-LLM-CONSOLIDATION.md` to avoid collision with existing voice-capture-location plan)
+- 14 local branches deleted
+- 16 stale remote refs pruned via `git fetch --prune`
+- worktree removed
+
+Sync method: when local diverged from origin, used `git reset --hard origin/main` + cherry-pick of unique cleanup work (de90833) onto fresh base + insertion of unique LAB Entry 133 chunk into origin's LAB_NOTEBOOK at the right chronological position. Net result: behind=0, ahead=0, no work lost.
+
+### Mobile SPA work
+
+Three artifacts produced for follow-up implementation:
+
+1. **`docs/SPEC-mobile-quick.md`** (358 lines, commit `1803751`) — comprehensive spec for mobile capture+search page. Originally `/quick` route, later renamed to `/mobile` per user direction.
+
+2. **Claude Design handoff received** — fetched from `https://api.anthropic.com/v1/design/h/KizxceiBxvmieBv6Pxt0xA`. Tarball extracted to `/tmp/design-spec/mobile-spa/`. 12 artboards across 3 sections (capture / search / overlays). Design tokens already match web-next's Tailwind config (book-cloth, ivory-medium, font-display etc.).
+
+3. **`IMPLEMENTATION_PLAN.md`** (uncommitted, ~600 lines) — 5-phase plan generated via `/personal-plugin:ultra-plan`. Phases:
+   - A: Backend voice-captures proxy route (~30 min)
+   - B: `/mobile` route shell, full-bleed (~40 min)
+   - C: Capture zone — text + voice file modes (~90 min)
+   - D: Capture zone — live record (MediaRecorder) (~75 min)
+   - E: Search section + polish (~60 min)
+
+   Each phase = 1 PR. Strict A→B→C→D→E sequencing. Each ends with a Lab Notebook entry as gate (Entries 158–162 reserved).
+
+Architectural decision recorded as **D126** (multipart proxy: buffer-and-rebuild, not streaming). Decision rationale: zero codebase precedent for streamed `fetch({ duplex: 'half' })`, audio bounded ≤10MB by voice-capture's existing checks, simpler integration tests.
+
+### State at end of session (2026-05-10 00:30 ET)
+
+- Local main HEAD: 1803751 (last committed) — IMPLEMENTATION_PLAN.md still uncommitted
+- Origin main HEAD: 1803751
+- Homeserver HEAD: 1803751 (synced after `git pull` post v1.6.0 deploy)
+- 17 containers running, 16 healthy + Loki "Up" (no healthcheck — by design per Entry 156)
+- Slack DM end-to-end works
+- Pushover voice-capture spam stopped
+- Mobile plan ready to start at Phase A
+
+### Action Items
+
+- [ ] Commit `IMPLEMENTATION_PLAN.md` (and this LAB entry)
+- [ ] Begin Phase A of mobile plan (backend voice-captures proxy route)
+- [ ] After Phase E: bump synthesize `limit:5 → 10+` once `packTokenBudget` ships (#204)
+
+### Why this is a brief consolidated entry
+
+Most of this session's work either:
+- Has its own dedicated lab entry (154 thinking-mode, 155 cloud-vs-local synthesis, 156 limit/Loki)
+- Is housekeeping with adequate commit-message coverage (cleanup commit 66aedc0)
+- Is forward-looking artifact (the IMPLEMENTATION_PLAN.md itself documents the work)
+
+No need to duplicate; this entry just establishes the meta-state pointer.
