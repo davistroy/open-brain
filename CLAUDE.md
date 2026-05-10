@@ -226,7 +226,7 @@ Troy has a Claude Max subscription covering Claude Code. API usage (Anthropic / 
 
 Self-hosted personal AI knowledge infrastructure. Ingests from voice memos, Slack, documents, email (brain@troy-davis.com via Cloudflare Email Worker); stores in Postgres+pgvector; provides semantic search, AI synthesis, weekly briefs, governance sessions.
 
-**Status:** v1.5.0. All 25 phases + Phase 7 consolidation + email pipeline + web synthesis + proactive intelligence + cognitive memory (Hebbian, spreading activation, memory consolidation). 1,569 unit + 95 regression tests passing. Deployed.
+**Status:** v1.6.0 (2026-05-09). All 25 phases + Phase 7 consolidation + email pipeline + web synthesis + proactive intelligence + cognitive memory + Phase 8b web consolidation + arch-review remediation + mobile app. Deployed. Pending work tracked at https://github.com/davistroy/open-brain/issues — see `OPEN_ITEMS.md` for the one-page summary.
 
 ## Key Architecture
 
