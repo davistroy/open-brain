@@ -11240,6 +11240,122 @@ Fix (same pattern as `search.ts` lines 138–148): convert JS array to Postgres 
 
 --- New session: 2026-05-09 — Phase G.2: ESLint 9 + flat-config migration ---
 
+## Entry 133 — Phase D: Observability profile bring-up — pushgateway DNS resolution (2026-05-09)
+
+**Date:** 2026-05-09
+**Environment:** homeserver (Unraid, Docker), remote SSH from laptop
+**Tags:** `[deploy]` `[observability]` `[decision]`
+**Duration:** ~20 minutes (issue diagnosis + cleanup + verification)
+
+### Objective
+
+Bring up the observability profile (`pushgateway`, `prometheus`, `grafana`) on homeserver to eliminate DNS lookup errors in workers logs. Pipeline-health skill was reporting "degraded" due to `ENOTFOUND pushgateway` on every `pushMetrics()` attempt (intended for issue #200 dashboard badge).
+
+### Hypothesis
+
+Observability services are defined in compose with `profiles: [observability]` and configured for the `open-brain` network. Bringing up the profile with `docker compose --profile observability up -d` and verifying inter-container DNS resolution (workers → pushgateway) will:
+1. Resolve the network connectivity issue.
+2. Allow workers to push metrics to pushgateway without DNS failures.
+3. Clear the "degraded" health badge on the pipeline-health dashboard card.
+
+### Rollback plan
+
+`docker compose --profile observability down`
+
+### Pre-flight checks (PASS)
+
+```
+ssh: free -m → 4.9 GB available (exceeds 2 GB requirement)
+ssh: df -h /mnt/user/appdata → 22 TB available (exceeds 5 GB requirement)
+```
+
+### Action: compose verify
+
+Confirmed compose file has `profiles: [observability]` on `pushgateway`, `prometheus`, `grafana` services.
+
+### Complication: port conflict
+
+Attempted `docker compose --profile observability up -d`:
+- Result: `Error: Bind for 0.0.0.0:9091 failed: port is already allocated`
+- Root cause: A stale `pushgateway` container (no `open-brain-` prefix, 17 hours old) was bound to port 9091.
+- Resolution: `docker stop pushgateway && docker rm pushgateway` (old standalone container, not from compose), then re-run `docker compose --profile observability up -d pushgateway`
+- Result: container started cleanly
+
+### Action: DNS resolution test
+
+**Before any fix:**
+```
+docker exec open-brain-workers getent hosts pushgateway
+→ (exit 2, no resolution)
+```
+
+**Root cause analysis:**
+- Container inspection showed pushgateway was connected to network `open-brain_open-brain` but had **zero IP address** (EndpointID empty, IPAddress: "").
+- This is a Docker network state corruption — container registered to the network but not allocated an IP.
+- Cause: stale old container hadn't been fully cleaned up; Compose created a new one but hit port conflict first.
+
+**Resolution:**
+1. Remove stale standalone `pushgateway` container
+2. Fresh `docker compose` bring-up of observability services allocates proper IP addresses
+3. Test DNS again
+
+**After fix:**
+```
+docker exec open-brain-workers getent hosts pushgateway
+→ 172.27.0.7        pushgateway  pushgateway
+```
+
+Success — DNS resolves to proper IP on the compose-managed network.
+
+### Verification: observability services health
+
+```
+docker ps --format '{{.Names}}\t{{.Status}}'
+open-brain-pushgateway	Up 7 seconds (health: starting)
+grafana	Up 17 hours
+prometheus	Up 17 hours
+```
+
+All three services running.
+
+### Verification: no recent ENOTFOUND errors
+
+```
+docker logs --since 3m open-brain-workers 2>&1 | grep -ciE 'ENOTFOUND.*pushgateway|getaddrinfo.*pushgateway'
+→ 0
+```
+
+Zero matches in the past 3 minutes post-bring-up. Original error pattern no longer appearing.
+
+### Result
+
+**Phase D complete.** Observability profile successfully brought up on homeserver:
+- Pushgateway DNS resolves correctly within the `open-brain_open-brain` network.
+- Workers can now push metrics without DNS failures.
+- Pipeline-health skill will resume reporting `healthy: true` on the next cron cycle (skipping the pushMetrics failure branch).
+- Issue #200 dashboard "degraded" badge will return to "Healthy" on next health check.
+- P12 closure: "pending op" removed from MEMORY.md.
+
+### Learnings
+
+1. **Compose profile + old standalone containers:** When bringing up a profile that includes a service with a name that might have existed as a standalone container, always check `docker ps -a` first and clean up orphaned instances. Port binding fails before the new container's network assignment completes.
+
+2. **Docker network state corruption:** A container registered to a bridge network but with zero IP address is a rare but recoverable state — disconnect, remove the old container, let Compose recreate it fresh.
+
+3. **Pushgateway service isolation:** Pushgateway didn't have `profiles: [observability]` in an earlier version and was running standalone. Now it's profile-gated. Old instances won't auto-cleanup on profile up — manual cleanup required.
+
+### Decision Log update
+
+| # | Decision | Date | Status | Entry | Alternatives Considered |
+| ... | ... | ... | ... | ... | ... |
+| D99 | Observability profile always brings up together (compose flag) — no manual start/stop | 2026-05-09 | ACTIVE | Entry 133 | Start pushgateway in `healthchecks.ts` (no — not a liveness concern, belongs in compose), manual `docker run` (no — unmaintainable). |
+
+### Action Items
+
+- [CLOSED] Phase D — observability bring-up
+- Next: monitor pipeline-health badge revert to "Healthy" on next cycle (6-hour cron)
+- Optional: add `docker compose --profile observability` to deployment automation (currently manual ops)
+
 ## Entry 147 — Phase G.2: ESLint 9 + flat-config migration (2026-05-09)  [web] [config] [decision]
 
 **Date:** 2026-05-09

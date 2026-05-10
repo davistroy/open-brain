@@ -4,14 +4,12 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 ## Status
 
-**v1.5.0** — Implementation complete. 25 phases + cognitive memory shipped across four implementation plans. Core infrastructure (Phases 1-16, ~11,100 LOC) shipped 2026-03-05. Intelligence features (Phases 17-20) shipped 2026-03-11. UX polish and admin tools (Phases 21-25) shipped 2026-03-12. Cognitive memory (Hebbian learning, spreading activation, memory consolidation) shipped 2026-04-09. P08–P15a: secrets reconciliation, sibling enum CHECKs, CI expansion, observability, search perf, prompt injection hardening, doc alignment shipped 2026-04-19. Six "Could Have" / "Won't Have" features (F21, F22, F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
+**v1.6.0** — Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration shipped 2026-05-09. See [CHANGELOG](CHANGELOG.md) for the full v1.6.0 entry. Pending work tracked in [GitHub issues](https://github.com/davistroy/open-brain/issues) (10 open as of 2026-05-09; quick summary in [OPEN_ITEMS.md](OPEN_ITEMS.md)). Four "Could Have" / "Won't Have" features (F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
-## Current Plans
+## Plans
 
-- **`IMPLEMENTATION_PLAN-ARCH-REVIEW.md`** — Architecture review remediation (active, started 2026-05-05)
-- **`IMPLEMENTATION_PLAN-CLOUDSCAPE-M2.md`, `M3.md`, `M4.md`** — Mobile app design milestones (Expo Router, React Native, 11 screens)
-- **`IMPLEMENTATION_PLAN.md`** — LLM model consolidation into ai-routing.yaml (in progress, 20/31 items complete)
-- **`docs/archived/implementation-plans/`** — Historical phase plans (Phases 1-22, tech debt cleanup, waves, completed 2026-04-19)
+- **GitHub issues** — single source of truth for all open work. See [OPEN_ITEMS.md](OPEN_ITEMS.md) for a one-page summary.
+- **`docs/archived/`** — completed implementation plans (Phases 1–22 + tech-debt waves through 2026-04-19; Cloudscape M1–M4; arch-review; post-remediation; 2026-05-09 cohesive remediation).
 
 ---
 
@@ -265,13 +263,11 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 | File | Purpose |
 |------|---------|
 | `CHANGELOG.md` | Version history and recent changes |
-| `IMPLEMENTATION_PLAN-PHASE5.md` | Phases 17–20 (Intelligence features) — complete |
-| `IMPLEMENTATION_PLAN-PHASE6.md` | Phases 21–25 (UX polish + admin tools) — complete |
-| `IMPLEMENT_IMPROVED_MEMORY.md` | Cognitive memory (Hebbian, spreading activation, consolidation) — complete |
+| `OPEN_ITEMS.md` | One-page summary of open GitHub issues |
+| `LAB_NOTEBOOK.md` | Experiment + decision log (append-only) |
+| `USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/PRD.md` | Product requirements (v0.7) |
 | `docs/TDD.md` | Technical design (v0.7) |
-| `docs/USER_TEST_PLAN.md` | End-to-end test plan for all phases |
-| `docs/TEST_RESULTS_2026-03-09.md` | Deployment validation test results (all passing) |
 | `docs/ios-shortcut.md` | iOS Shortcut setup for Apple Watch voice capture |
 | `docs/setup-slack-cloudflare.md` | Slack bot and Cloudflare tunnel setup guide |
 | `config/ai-routing.yaml` | OpenAI model aliases and budget thresholds |

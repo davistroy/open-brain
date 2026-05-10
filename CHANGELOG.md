@@ -12,7 +12,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [1.6.0] — 2026-05-09
 
-Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration.
+Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration, 2026-05-09 cohesive remediation (Phases A–G).
+
+**Issues closed in this window (40):** #60, #62, #66, #67, #68, #70, #102, #104, #106, #107, #108, #109, #111, #112, #113, #114, #115, #116, #117, #118, #119, #120, #121, #122, #131, #135, #136, #137, #176, #177, #190, #191, #192, #193, #194, #195, #197, #198, #199, #205. PR refs in entries below.
 
 ### Added
 - **React Native mobile app** (PR #172): 11 screens — captures list, capture detail, search, voice, briefs, sessions, entities, settings, add capture, loading, offline. Expo SDK 53 → 54.
@@ -250,7 +252,8 @@ Initial complete implementation of all 16 phases.
 
 ---
 
-[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/davistroy/open-brain/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/davistroy/open-brain/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/davistroy/open-brain/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/davistroy/open-brain/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/davistroy/open-brain/compare/v1.2.0...v1.3.0
