@@ -478,19 +478,21 @@ export class LLMGatewayService {
 
     // For openai_compat (vLLM), pass `chat_template_kwargs` directly in the body
     // (Node SDK has no `extra_body` wrapper like Python — unknown body fields are
-    // forwarded verbatim). Cast to bypass TS check on unknown body fields.
-    const requestBody: Record<string, unknown> = {
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: options.temperature ?? 0.2,
-      max_completion_tokens: options.maxTokens ?? 2048,
-      ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
-      ...(provider === 'openai_compat'
-        ? { chat_template_kwargs: { enable_thinking: false } }
-        : {}),
-    }
+    // forwarded verbatim). The SDK's typed signature doesn't include this vLLM
+    // extension, so cast just the spread.
+    const vllmExtension =
+      provider === 'openai_compat'
+        ? ({ chat_template_kwargs: { enable_thinking: false } } as Record<string, unknown>)
+        : {}
     const response = await client.chat.completions.create(
-      requestBody as Parameters<typeof client.chat.completions.create>[0],
+      {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: options.temperature ?? 0.2,
+        max_completion_tokens: options.maxTokens ?? 2048,
+        ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+        ...vllmExtension,
+      },
       requestOptions,
     )
 
