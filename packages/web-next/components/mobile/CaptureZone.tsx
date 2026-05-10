@@ -3,6 +3,7 @@
 import { ModeSelector } from './ModeSelector'
 import { TextMode } from './TextMode'
 import { VoiceFileMode } from './VoiceFileMode'
+import { LiveRecordMode } from './LiveRecordMode'
 
 type CaptureMode = 'text' | 'voice' | 'live'
 
@@ -47,9 +48,7 @@ export function CaptureZone({
           />
         )}
         {mode === 'live' && (
-          <div className="flex items-center justify-center py-8 text-sm text-cloud-dark font-body">
-            Live recording — Phase D
-          </div>
+          <LiveRecordMode brainView={brainView} onCaptured={onCaptured} />
         )}
       </div>
     </div>

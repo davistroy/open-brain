@@ -11941,3 +11941,36 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [web] [mobile] [decision]
 **Environment:** laptop (development)
 **Duration:** ~90 min
+
+---
+
+## Entry 161 — Phase D: live record mode — MediaRecorder (2026-05-10)  [web] [mobile] [decision]
+
+**Objective:** Implement in-browser live recording via MediaRecorder API. User taps mic button, grants permission, records audio, taps stop, blob auto-uploads via existing voice-captures proxy. Fourth of 5 mobile SPA phases.
+
+**Hypothesis:** MediaRecorder API with `audio/mp4` (iOS Safari) / `audio/webm` (Chrome) will produce files accepted by voice-capture's faster-whisper transcriber. The `.m4a` extension naming trick (File constructor) bypasses voice-capture's extension-based validation regardless of actual container format.
+
+**Approach:**
+- `hooks/useMediaRecorder.ts` — custom hook managing MediaRecorder lifecycle (5 phases: idle → requesting-permission → recording → processing → error)
+- `components/mobile/LiveRecordMode.tsx` — renders 5 visual states: idle (big mic button), requesting permission (spinner), recording (red pulse + timer + waveform + stop button), processing/uploading (spinner), error (retry)
+- `components/mobile/Waveform.tsx` — 32-bar frequency visualizer driven by AnalyserNode + requestAnimationFrame
+- CaptureZone.tsx updated: live mode placeholder replaced with LiveRecordMode component
+- Auto-stop at 10 minutes (600s timer guard)
+- Auto-upload: `useEffect` watches for `phase === 'processing' && blob` → triggers `useVoiceCapture().mutate()`
+- Stream cleanup: all MediaStream tracks stopped + AudioContext closed after recording ends
+
+**Design decisions:**
+- **`.m4a` extension trick (D126):** Voice-capture validates by file extension, not MIME type. `new File([blob], 'recording.m4a', { type: blob.type })` works for both `audio/mp4` (Safari) and `audio/webm` (Chrome) because faster-whisper accepts both container formats regardless of extension.
+- **AnalyserNode for waveform:** Tapped into MediaStream via AudioContext, reads frequency data at 60fps via rAF. Cheaper than canvas — 32 divs with height transitions.
+- **Auto-upload on blob ready:** Eliminates a "Send" button step in the live record flow. Recording → stop → upload is seamless.
+- **`webkitAudioContext` fallback:** Required for older iOS Safari versions. Cast via `(window as unknown as ...)` to satisfy TypeScript.
+
+**Results:**
+- 3 new files: useMediaRecorder hook, LiveRecordMode component, Waveform visualizer
+- CaptureZone updated to wire LiveRecordMode
+- Typecheck + build pass
+- Live record tab fully functional (pending real-device mic testing)
+
+**Tags:** [web] [mobile] [decision]
+**Environment:** laptop (development)
+**Duration:** ~60 min
