@@ -476,17 +476,21 @@ export class LLMGatewayService {
   ): Promise<{ text: string; promptTokens: number; completionTokens: number; totalTokens: number }> {
     const requestOptions = timeoutMs ? { timeout: timeoutMs } : undefined
 
+    // For openai_compat (vLLM), pass `chat_template_kwargs` directly in the body
+    // (Node SDK has no `extra_body` wrapper like Python — unknown body fields are
+    // forwarded verbatim). Cast to bypass TS check on unknown body fields.
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: options.temperature ?? 0.2,
+      max_completion_tokens: options.maxTokens ?? 2048,
+      ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+      ...(provider === 'openai_compat'
+        ? { chat_template_kwargs: { enable_thinking: false } }
+        : {}),
+    }
     const response = await client.chat.completions.create(
-      {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: options.temperature ?? 0.2,
-        max_completion_tokens: options.maxTokens ?? 2048,
-        ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
-        ...(provider === 'openai_compat'
-          ? { extra_body: { chat_template_kwargs: { enable_thinking: false } } }
-          : {}),
-      },
+      requestBody as Parameters<typeof client.chat.completions.create>[0],
       requestOptions,
     )
 
