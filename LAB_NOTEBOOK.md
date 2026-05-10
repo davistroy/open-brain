@@ -12009,3 +12009,48 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [web] [mobile] [decision]
 **Environment:** laptop (development)
 **Duration:** ~60 min
+
+---
+
+## Entry 162 — Grafana dashboard provisioning fix (2026-05-10)  [observability] [debug]
+
+**Objective:** Diagnose why Grafana had no visible dashboards on homeserver despite 3 dashboard JSON files present in repo.
+
+**Hypothesis:** Grafana's legacy provisioning loader expects dashboards to be in a specific directory structure. The issue was either: (a) dashboards.yaml in wrong location, (b) missing provisioning subdirectory, (c) dashboards not mounted correctly, or (d) auth/permissions blocking visibility.
+
+**Investigation:**
+1. SSH to homeserver; queried Grafana API — got 401 Unauthorized (auth required, expected)
+2. Verified compose mounts: `./config/grafana/provisioning:/etc/grafana/provisioning:ro` and `./config/grafana/dashboards:/var/lib/grafana/dashboards/open-brain:ro` were correct
+3. Checked Grafana container: dashboard JSONs present in `/var/lib/grafana/dashboards/open-brain/`, datasources.yaml present in `/etc/grafana/provisioning/datasources/`
+4. Read dashboards.yaml — correct path spec: `/var/lib/grafana/dashboards/open-brain`
+5. **Found root cause:** Grafana logs showed:
+   ```
+   logger=provisioning.dashboard error="can't read dashboard provisioning files from directory" 
+   path=/etc/grafana/provisioning/dashboards error="no such file or directory"
+   ```
+   The dashboards.yaml file was at `/etc/grafana/provisioning/dashboards.yaml` (root of provisioning), but Grafana's legacy loader scans `<provisioning>/dashboards/` subdirectory specifically
+
+**Root cause:** Grafana v11+ uses two parallel provisioning systems:
+- **Legacy** (file-based): expects YAML files in `<provisioning>/dashboards/`, `<provisioning>/datasources/`, `<provisioning>/alerting/`, `<provisioning>/plugins/` subdirectories
+- **Modern** (kubernetes-style CRD): decoupled from filesystem structure, but legacy system still runs and logs errors if directories don't exist
+
+**Solution:**
+1. Created `config/grafana/provisioning/dashboards/` subdirectory
+2. Moved `dashboards.yaml` into it: `config/grafana/provisioning/dashboards/dashboards.yaml`
+3. Redeployed: `docker compose --profile observability up -d --force-recreate grafana`
+4. Verified logs: `"finished to provision dashboards"` (no error this time)
+5. Confirmed: dashboard JSONs mounted and loadable, datasources provisioned, Prometheus + Loki connected
+
+**Decision:** Grafana provisioning directory structure must match legacy loader expectations. While the compose mounts both the root provisioning dir and the dashboards dir, the YAML file must be in the `dashboards/` subdirectory for the loader to discover it.
+
+**Lessons:**
+- Grafana logs are the source of truth — "directory not found" errors are easily missed if you only check the UI
+- Provisioning directory structure is not self-documenting; it's a matter of convention enforced by the legacy loader
+- This is distinct from the newer resource-based provisioning (Kubernetes CRDs) that Grafana now prefers but still runs legacy loaders for backward compatibility
+
+**Tags:** [observability] [debug]
+**Environment:** homeserver (production) + development
+**Duration:** ~20 min (diagnosis + fix + deploy + verify)
+
+**Commits:**
+- `db8d60a` — move dashboards.yaml into provisioning/dashboards/ subdirectory
