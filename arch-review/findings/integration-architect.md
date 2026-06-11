@@ -1,17 +1,11 @@
 # Integration Architect Findings
 
 **Reviewer:** Integration Architect
-**Date:** 2026-04-18
-**Target:** `C:/Users/Troy Davis/dev/personal/open-brain`
+**Date:** 2026-06-10
+**Target:** /home/davistroy/dev/personal/open-brain
 **Confidence:** High
 
----
-
-## Executive Summary
-
-The system's seams are unusually disciplined for a single-operator personal-AI stack. Authentication, rate-limiting, retry/backoff, and audit logging are all present at the boundaries that matter. The five design invariants that define this system — (1) BYPASS_CALLERS is a tightly-curated allowlist, (2) cost-tiered LLM routing with same-provider-only agent fallback, (3) patient BullMQ retry with 5 hops + 2h tail, (4) HMAC-authenticated sidecar trigger, (5) Cloudflare tunnel terminates at nginx → core-api — are all honored in code.
-
-That said, three integration-layer issues rise above the noise: **internal HTTP callers inconsistently set `X-Open-Brain-Caller`**, **Composio usage is unmetered against its 20K/month free-tier budget**, and **two skills still bypass the LLMGatewayService** (memory-consolidation has a fallback path to raw Anthropic SDK; weekly-brief's legacy fallback also exists). Several Medium items about timeout coverage, webhook idempotency on Cloudflare Email retries, and the lack of circuit-breakers on external HTTP calls round out the picture.
+Confidence rationale: full source access to all nine packages, both Cloudflare workers, Python sidecars, and the operational rule base (CLAUDE.md); claims below are grounded in specific files/lines. Runtime behavior (homeserver, CF Tunnel routing, actual port exposure) was not probed live.
 
 ---
 
@@ -21,276 +15,143 @@ That said, three integration-layer issues rise above the noise: **internal HTTP 
 
 | Endpoint | Method | Contract Documented? | Versioned? | Auth? |
 |----------|--------|---------------------|-----------|-------|
-| `/api/v1/captures` | POST, GET | Zod schema in `schemas/capture.ts` | `/v1/` path | rate-limit only (single-user) |
-| `/api/v1/captures/:id` | GET, PATCH, DELETE | Zod schema | `/v1/` | rate-limit |
-| `/api/v1/search` | POST | Zod schema | `/v1/` | rate-limit (strict) |
-| `/api/v1/synthesize` | POST | Zod schema | `/v1/` | rate-limit (strict) |
-| `/api/v1/stats` | GET | typed response | `/v1/` | rate-limit |
-| `/api/v1/skills/:name/trigger` | POST | typed | `/v1/` | rate-limit |
-| `/api/v1/skills/:name/logs` | GET | typed | `/v1/` | rate-limit |
-| `/api/v1/triggers`, `/triggers/test`, `/triggers/:id` | CRUD | typed | `/v1/` | rate-limit |
-| `/api/v1/entities`, `/entities/:id`, `/entities/merge`, `/entities/:id/split` | CRUD + ops | typed | `/v1/` | rate-limit |
-| `/api/v1/bets`, `/bets/:id`, `/bets/expiring` | CRUD | typed | `/v1/` | rate-limit |
-| `/api/v1/sessions` (+ respond/pause/resume/complete/abandon) | CRUD | typed | `/v1/` | rate-limit |
-| `/api/v1/settings/:key` (whitelisted) | GET, PUT | typed | `/v1/` | rate-limit |
-| `/api/v1/admin/*` | ops | typed | `/v1/` | `ADMIN_API_KEY` Bearer + admin rate-limit (stricter) |
-| `/api/v1/admin/reset-data` | POST | typed | `/v1/` | **no adminAuth** — JSON confirmation phrase + admin rate-limit only (intentional — web UI lacks token) |
-| `/api/v1/events` | GET (SSE) | event types documented | `/v1/` | none (stream) |
-| `/api/v1/email/drafts` (+ `/:id`, `/:id/send`) | CRUD | typed | `/v1/` | rate-limit |
-| `/api/v1/ingest/upload`, `/ingest/list`, `/ingest/:id/process-now` | POST, GET | typed | `/v1/` | rate-limit |
-| `/api/v1/voice-sessions` | CRUD | typed | `/v1/` | rate-limit |
-| `/health`, `/api/v1/health` | GET | typed | partial | public (Docker healthcheck) |
-| `/metrics` | GET | Prometheus exposition | — | public (assumes internal) |
-| `/mcp` | POST (Streamable HTTP) | MCP SDK schema | embedded | `MCP_BEARER_TOKEN` Bearer (required, fail-closed) |
-| voice-capture `/api/capture` | POST multipart | ad-hoc JSON | unversioned | public (iOS Shortcut contract) |
-| sidecar `/process`, `/trigger/:src` | POST | ad-hoc JSON | unversioned | `X-Open-Brain-Caller: ingest` + Bearer HMAC |
-| sidecar `/healthz`, `/health` | GET | typed | unversioned | public |
-| email-worker (Cloudflare) | `email()` handler | postal-mime parsed | — | Cloudflare sender allowlist check |
-
-Contract is implicit via TypeScript types. No generated `openapi.yaml` (intake confirms). Zod validation is thorough at the ingress; types flow through the monorepo via `@open-brain/shared` and the drift-guard test keeps `packages/web` in lockstep for three enums (but not `CaptureSource`, per intake).
+| `/api/v1/captures` (+`/:id`, `/:id/retry`) | GET/POST | TS types + CLAUDE.md prose (no OpenAPI) | v1 | None in-boundary; CF Tunnel perimeter; strict rate tier |
+| `/api/v1/search`, `/api/v1/synthesize` | GET/POST | TS types + prose | v1 | None; strict tier |
+| `/api/v1/documents` | POST | Prose (title-hash 409 rule) | v1 | None; strict tier |
+| `/api/v1/entities`, `/bets`, `/sessions`, `/triggers`, `/briefs`, `/commitments`, `/skills`, `/settings`, `/stats`, `/wiki`, `/email/drafts`, `/insurance-policies`, `/activity`, `/intelligence` | CRUD | TS types; per-route Zod/manual validators | v1 | None; default tier |
+| `/api/v1/voice-captures` | POST | Prose (D126 buffer-and-rebuild) | v1 | None; strict tier; proxies to voice-capture |
+| `/api/v1/ingest/*` | POST | TS types | v1 | `INGEST_TRIGGER_SECRET` on sidecar legs |
+| `/admin/reset-data` | POST | Prose (P04a two-step) | unversioned | Origin allowlist + 2-step token + phrase + admin tier (accepted design, not re-reported) |
+| `/mcp` (8 tools + 1 resource) | Streamable HTTP | Tool schemas in code (`mcp/tools/*`) | implicit | Bearer (`MCP_BEARER_TOKEN`) |
+| `/health`, `/metrics`, `/api/v1/system/health` | GET | Prose | mixed | Docker-internal by convention |
+| voice-capture `:3001/api/capture` | POST (multipart) | Prose (field = `file`) | unversioned | **None — see M5** |
+| Mobile-gated routes | GET/POST | TS types | v1 | Bearer (`MOBILE_API_KEY`), fail-closed, timing-safe — well built |
+| Email ingress (brain@troy-davis.com) | SMTP via CF Email Worker | Worker source | n/a | Sender allowlist via `app_settings` |
+| web-next `/api/*` proxy | all | `proxy.ts` (R2/ADR-0001) | v1 passthrough | Overwrites `X-Open-Brain-Caller: web-next-public` |
 
 ### Consumed Integrations
 
 | Dependency | Type | Has Timeout? | Has Retry? | Has Circuit Breaker? | Fallback? |
 |------------|------|-------------|-----------|---------------------|-----------|
-| OpenAI API (embeddings) | REST | 60s SDK | **BullMQ patient backoff** (5 attempts: 30s/2m/10m/30m/2h) | budget soft/hard limit | none (blocks pipeline if down) |
-| OpenAI API (chat via openai_compat tiers) | REST | per-tier (5s–120s) | 3 same-tier retries for "loading" + 2-hop tier fallback | monthly budget check | tier chain (Jetson → Spark → Haiku → Sonnet) |
-| Anthropic SDK (gateway path) | REST | per-tier 20s–30s | tier fallback | budget check (skipped for anthropic — subscription-covered) | chain |
-| Anthropic SDK (runAgent legacy path, memory-consolidation fallback) | REST | SDK default | SDK default (2 retries) | **none** | **none** |
-| DGX Spark vLLM (t1_spark) | openai_compat | 120s | same-tier loading retry + fallback to t1_fast | — | Haiku (paid) |
-| Jetson llama.cpp (t1_jetson) | openai_compat | 5s | same-tier loading retry + fallback to t1_spark | — | Spark (free) |
-| Ollama (t0_local, disabled) | openai_compat | 15s | loading retry | — | t1_jetson |
-| Pushover | HTTP form-post | 10s `AbortSignal.timeout` | **none** (single attempt) — caller decides via `onError: 'throw' \| 'swallow'` | none | credentials-missing → silent skip |
-| Deepgram (voice-pipecat only) | Pipecat stub | Pipecat default | Pipecat default | none | — |
-| Composio MCP | Streamable HTTP | 60s | **none** (single attempt, returns null) | **no usage metering** | caller skips gracefully |
-| Gitea (wiki) | simple-git over HTTPS | none explicit | simple-git default | none | clone-pulls serialized by queue concurrency=1 |
-| Gmail (direct REST via googleapis stub) | REST via fetch | none explicit | **429 respects Retry-After** (hotmail-client pattern; gmail-client has GmailApiError for caller) | none | — |
-| Microsoft Graph (direct REST) | REST | default | **429 respects Retry-After**, attempt-counted | none | — |
-| Himalaya CLI (weekly-brief outbound email) | subprocess | process default | none | none | nodemailer → Pushover fallback chain |
-| Slack Web API (SlackMessenger) | REST | `SLACK_TIMEOUT_MS` | none | none | caller logs + continues |
-| Slack Bolt Socket Mode (inbound) | WebSocket | Bolt default | Bolt auto-reconnect | Bolt-managed | Socket Mode recovers after disconnect |
-| Core API (from slack-bot, voice-capture, email-worker, sidecar pipelines) | REST | 15s (voice) / none (slack-bot, email-worker) | voice: 3 retries exponential; others: none | none | — |
-| Ingest sidecar (trigger_server) | REST | 300s | BullMQ `ingest-process` 5-attempt custom backoff | sidecar `ProcessLock` serializes per container | — |
-| Postgres (pgvector) | pg / drizzle | 3s connect for healthcheck | pg-notify: exponential backoff 1s→30s, 5 attempts | none | — |
-| Redis (BullMQ) | ioredis | 3s connect | ioredis reconnection default | none | queue work stalls |
-| Cloudflare Tunnel | cloudflared daemon | daemon | daemon | daemon | (if tunnel down, whole public surface down) |
-
----
+| OpenAI (LLM via gateway) | HTTPS | Yes — per-tier `timeout_ms` (`llm-gateway.ts`) | Yes — tier fallback chain + transient retry (`run-agent.ts`) | Yes — `checkBudget()` hard-stop | Tier fallback (e.g., `t1_jetson → t1_fast → t2_quality`) |
+| OpenAI (embeddings) | HTTPS | Yes — `EMBEDDING_TIMEOUT_MS` | Via BullMQ 5-attempt patient backoff | **No — bypasses budget gate (M2)** | None by design (queue + retry) |
+| OpenAI (voice classification, direct client) | HTTPS | Yes — 30s / `fast` tier | No | **No — bypasses budget gate (M2)** | `CLASSIFICATION_MODEL` env override only |
+| faster-whisper | HTTP (Docker) | Yes — `TRANSCRIPTION_TIMEOUT_MS` | No (caller returns 4xx/5xx to client) | No | No |
+| core-api ← voice-capture (`IngestService`) | HTTP | Yes | Yes — 3× exp backoff, 4xx non-retried | No | **No dead-letter on exhaustion (M4)** |
+| core-api ← slack-bot (`CoreApiClient`) | HTTP | **No (H1)** | **No (H1)** | No | No |
+| core-api ← workers skills (autonomy fetch etc.) | HTTP | Yes — `AbortSignal.timeout(15_000)` everywhere | Skill-level via BullMQ | No | Default `observe` on error — good fail-safe |
+| core-api ← email worker (CF) | HTTPS | No explicit (CF platform limit) | **No — `setReject` on transient failure (M3)** | No | Bounce to sender |
+| core-api ← mobile app | HTTPS | **No (L2)** | No | No | UI error states |
+| voice-capture ← mobile (direct `:3001`) | **Plain HTTP, LAN** | RN default | No | No | **None (M5)** |
+| ingest sidecars ← workers | HTTP | Yes — `INGEST_TIMEOUT_MS` + secret | Yes — 5-attempt patient backoff, ECONNREFUSED-tolerant | No | Daily sweep re-queue |
+| Composio | HTTPS | Yes — 60s AbortSignal | No | Yes — quota meter, 95% hard stop, 75% Pushover warn | Direct-API policy per CLAUDE.md |
+| Slack (Socket Mode) | WSS | Bolt-managed | Bolt-managed reconnect | n/a | n/a |
+| Pushover | HTTPS | 30s (queue opts) | 3× / 5s fixed (BullMQ) | No | Loss tolerated (notifications) |
+| Postgres LISTEN/NOTIFY | TCP | n/a | Yes — exp backoff 1s→30s ×5, re-LISTEN | n/a | SSE resumes |
+| Gitea wiki (git) | SSH/HTTP | git defaults | wiki-ingest queue concurrency 1 | No | Lint report parse falls back gracefully (verified benign) |
+| Loki log driver | Docker plugin | n/a | **No — falls back to `none`, lines dropped** (documented, feeds M7) | No | None |
 
 ## Contract Fidelity Assessment
 
-- **MCP tool schemas** are declared via `server.registerTool()` calls in `packages/core-api/src/mcp/tools/`; Zod input schemas are enforced on invocation. 8 tools, 1 resource (`open_brain://context`). Response contracts match TDD §13.
-- **Capture create response** (`{id, pipeline_status, created_at}`) is documented in CLAUDE.md and matches the POST handler (captures.ts:36). Slack bot's `CoreApiClient.captures_create` also assumes this shape.
-- **Search API contract** (`{results: [{capture, score}]}`) is uniformly mapped by CoreApiClient (`search_query`) and web's search page — matches the CLAUDE.md note that the API returns `results` not `captures`.
-- **Voice-capture `/api/capture`** contract (`file` multipart field, optional `latitude/longitude/location_name/location_accuracy`) is documented in a comment block on server.ts:40-50, matching the iOS Shortcut contract.
-- **Email-worker contract** (POST to `/api/v1/captures` with `source: 'email'`, shaped `source_metadata`) matches captures' Zod schema and the source enum's `email` value.
-- **No contract testing** (no Pact, no consumer tests). Given single-operator scope this is acceptable, but it means silent schema drift in `@open-brain/shared` types is caught only by the drift-guard test (which covers 2 enums, not Capture).
+There is **no machine-readable contract** anywhere in the system: no OpenAPI/Swagger, no AsyncAPI for the 15+ BullMQ queues, no JSON Schema exports. The de facto contract is `@open-brain/shared` TS types + Zod validators + ~40 CLAUDE.md prose rules ("`GET /api/v1/search` returns `{results: [{capture, score}]}`, not a flat array").
 
----
+Fidelity evidence is mixed:
+
+- **Good:** Enum lockstep discipline is exceptional — `captures.source` (9 values), `capture_type` (8), `pipeline_status` (8), `pipeline_events.stage` (11) each enforced across TS union + Zod + DB CHECK in lockstep, with a documented pre-flight DB audit rule. The drift-guard test enforces web ↔ shared type parity. Mobile auth and rate-limit boundaries have dedicated middleware tests.
+- **Drift symptoms:** `packages/slack-bot/src/lib/core-api-client.ts` performs ad-hoc consumer-side remapping — `mention_count → capture_count`, `entity_type → type`, `items → captures` — and comments like "API uses mention_count (not capture_count)" show the client adapting to drift rather than a contract preventing it (M6). slack-bot, mobile, and web-next each maintain independent hand-written type sets for the same API; only web is drift-guarded.
+- **No contract tests** (Pact or equivalent) between any consumer and core-api. Integration tests hit the real API, which partially compensates for web/core, but slack-bot and mobile consumers are validated only by unit tests against their own mocks.
+
+For a single-user system with one author this is a deliberate, defensible trade-off — but the slack-bot remapping shims are the early-warning signal that the prose-contract approach is already paying interest.
 
 ## Resilience Pattern Coverage
 
 | Integration | Timeout | Retry | Circuit Breaker | Bulkhead | Fallback | Assessment |
 |-------------|---------|-------|----------------|----------|----------|------------|
-| Pipeline stages (capture-pipeline, embed, extract-entities) | N/A (BullMQ owns) | 5 attempts custom backoff 30s/2m/10m/30m/2h | daily-sweep re-enqueues stuck captures | BullMQ concurrency limits | pipeline stages are idempotent via content_hash | **Excellent** |
-| OpenAI embeddings | 60s + adaptive truncation 16K→2K chars | 5 BullMQ attempts | budget check | none | none | **Good** — no fallback model, but queue absorbs outages |
-| OpenAI chat (openai_compat tiers) | per-tier 5s–120s | loading retry + 2-hop fallback | budget (post-resolved) | per-tier OpenAI client pool | chain to Haiku → Sonnet | **Excellent** |
-| Anthropic (gateway path) | per-tier 20s/30s | tier fallback, same-provider | budget (skipped — subscription) | SDK defaults | chain | **Good** — but anthropic subscription isn't actually "free"; Anthropic API bills per-token regardless (see Risk Register) |
-| Anthropic (runAgent direct via resolveAgentClient) | per-tier 20s/30s | 1 fallback-swap-per-iteration on transient | none at loop level | SDK defaults | same-provider chain | **Good** — but not all skills use the gateway path (memory-consolidation falls back to raw SDK; see H-1) |
-| MCP server | N/A (each request is stateless per `sessionIdGenerator: undefined`) | N/A | N/A | per-request McpServer instance | — | **Good** — stateless is correct for Hono; no session-bleed risk |
-| Slack Bolt Socket Mode | Bolt-managed | Bolt auto-reconnect | — | — | — | **Good** — Bolt handles disconnect |
-| Slack outbound (SlackMessenger) | `SLACK_TIMEOUT_MS` | none | — | — | log + continue | **Weak** — no retry on 429/500; relies on caller |
-| Pushover | 10s | none (single attempt) | — | — | swallow/throw mode | **Weak** — `onError: throw` hands retry to BullMQ (OK); `onError: swallow` drops failures silently |
-| Composio MCP | 60s | none | **no budget cap enforced** | — | null on failure | **Critical gap** — see H-2 |
-| Voice-capture → Core API | 15s | 3 retries, exponential 1s/2s/4s; 4xx skip retry | none | — | — | **Good** |
-| Cloudflare Email Worker → Core API | implicit fetch default | **Cloudflare retries `message.setReject` rejections**, but success path is fire-once | Cloudflare frontend budget | — | `message.setReject` triggers sender-side retry (not our API) | **Medium** — see M-1 |
-| Sidecar trigger HTTP | 300s subprocess cap | BullMQ `ingest-process` 5 attempts patient | sidecar `/tmp/process.lock` serializes | per-source sidecar container | — | **Excellent** |
-| Gitea wiki git ops | none | simple-git default (internal) | none | workers concurrency=1 | — | **Weak** — if Gitea is down and `git pull` blocks indefinitely, wiki-ingest can stall. See M-4 |
-| pg-notify (SSE backbone) | N/A | automatic exponential reconnect 1s→30s, 5 attempts + LISTEN re-register | — | — | — | **Excellent** (recently added, per CLAUDE.md) |
-
-No Opossum or resilience4j-style circuit breakers anywhere. For a single-user system this is acceptable: **the system's "circuit breaker" is the BullMQ retry window + budget hard-limit + operator monitoring via Pushover alerts**. Outbound calls that fail fast and surface to an operator are more valuable than a dedicated CB library.
-
----
+| LLM gateway → OpenAI | ✅ per-tier | ✅ transient + tier-chain | ✅ budget hard-stop | BullMQ concurrency 1–2 | ✅ tier fallback | **Strong** — best boundary in the system |
+| Embeddings → OpenAI | ✅ | ✅ (BullMQ 5×, 30s→2h) | ❌ budget-blind | ✅ queue | None (by design) | Adequate; see M2 |
+| Pipeline stages (BullMQ) | ✅ | ✅ 5× patient backoff + daily sweep | n/a | ✅ documented concurrency caps | re-queue | **Strong** |
+| slack-bot → core-api | ❌ | ❌ | ❌ | ❌ | ❌ | **Weakest internal boundary (H1)** |
+| voice-capture chain | ✅ each hop | ✅ ingest leg only | ❌ | ❌ | ❌ transcript discarded on ingest exhaustion | See M4 |
+| core-api voice proxy | ❌ no AbortSignal | n/a | ❌ | strict rate tier | 502 BAD_GATEWAY | See L1 |
+| Email worker → core-api | ❌ (CF platform) | ❌ (SMTP reject) | ❌ | CF isolate | bounce | See M3 |
+| Mobile → core-api | ❌ | ❌ | ❌ | mobile rate tier (server) | UI errors | See L2 |
+| Workers skills → core-api | ✅ 15s uniform | ✅ | ❌ | ✅ | ✅ default `observe` | **Strong** |
+| Composio | ✅ 60s | ❌ | ✅ quota | n/a | policy doc | Good |
+| Sidecar trigger | ✅ | ✅ 5× | ❌ | concurrency 1 | sweep | Good |
+| pg-notify / SSE | n/a | ✅ exp backoff ×5 | n/a | n/a | re-LISTEN | Good |
 
 ## Idempotency Audit
 
-State-mutating ingress surfaces and their idempotency story:
+Overall: **strong**. The system was clearly designed with re-entrancy in mind.
 
-| Endpoint | Idempotency Key | Strategy | Status |
-|----------|----------------|----------|--------|
-| `POST /api/v1/captures` | `content_hash` (sha256 of content) | 60s dedup window + DB `UNIQUE(content_hash)` | **Good** — double-submit returns 409 Conflict |
-| `POST /api/v1/documents` | `content_hash` on `"[Document] {title}"` | same | **Watch** — hash is on title string not file bytes (per CLAUDE.md); intentional, but surprising |
-| Email worker → `POST /captures` | content_hash fired by core-api | if sender retransmits, Cloudflare retries the worker; deduped by hash + 60s | **Good** (accidental but correct) |
-| Voice-capture → `POST /captures` | content_hash on transcription text | deduped by hash | **Good** |
-| BullMQ job dedup | `jobId` (e.g., `embed_${captureId}`) | BullMQ deduplicates by jobId | **Good** — flow definition uses per-capture jobIds |
-| Capture-associations insert (Hebbian) | canonical pair ordering `a<b` + `ON CONFLICT DO UPDATE` | **Good** — explicit canonical order is enforced (CLAUDE.md rule) |
-| Memory-consolidation merge | tracks `original_capture_ids` in source_metadata | soft-delete with `deleted_at` enables recovery | **Good** |
-| MCP tool calls | none | stateless per-request | **Acceptable** — MCP clients retry at their own layer |
-| Sidecar `/process` | `/tmp/process.lock` | single-slot; rejects with 409 Busy | **Good** |
-| Pushover notification | none | Pushover itself may dedupe within 60s window (their design), but we don't set a unique key | **Low risk** — intentional; over-notify is better than miss |
-
-**Overall: strong.** Idempotency is the strongest single integration pattern in this codebase.
-
----
+- **Captures:** content-hash dedup (60s window check + DB unique-constraint backstop catching `content_hash` violations in `capture.ts`). Email re-delivery with identical content dedups correctly. Documents dedup on title hash (`[Document] {title}` → 409) — documented and intentional.
+- **BullMQ:** `jobId = pipeline_${captureId}` dedups pipeline enqueues; explicit retry deliberately busts dedup with timestamp suffix. Daily-sweep re-enqueue uses `jobId = captureId` (no-op on duplicates). All repeatable jobs use stable jobIds.
+- **Hebbian associations:** canonical pair ordering (`capture_id_a < capture_id_b`) + single batch `INSERT ... ON CONFLICT DO UPDATE` — safely re-entrant.
+- **Admin reset:** single-use 5-min Redis token makes the destructive step non-replayable.
+- **Gaps (minor):** email worker does not use `message-id` for dedup — a re-sent email with edited content creates a second capture (acceptable: that's arguably a new capture). slack-bot `captures_create` has no retry, so its idempotency is untested in practice; if H1 is fixed by adding retries, the existing content-hash 409 will correctly absorb replays — but the client must then treat 409 as success, which it currently does not (it throws on any non-2xx).
 
 ## Versioning and Evolution Assessment
 
-- **API prefix** is `/api/v1/*`. No `/v2/` rollout mechanism (e.g., version-based routing, Accept-Version header). Would need to either duplicate routes under `/api/v2/` or add a version middleware.
-- **Database migrations** via Drizzle (`packages/shared/drizzle/0001.sql`–`0021.sql` per MEMORY.md). Manual application after volume recreation (CLAUDE.md). No auto-migration.
-- **`@open-brain/shared` ABI drift** is governed by:
-  - drift-guard test on `packages/web` (covers 2 enums, **not** `CaptureSource`)
-  - monorepo build order (shared built before dependents)
-  - no semantic versioning between packages (they all move together)
-- **Model-alias drift** is resolved by the `model-resolver` helper (PR #98) — any code calling OpenAI resolves `gpt-5.4` aliases before dispatch. This closed a real cross-service versioning risk.
-- **MCP protocol version** is hardcoded to `'2024-11-05'` in ComposioClient; core-api MCP uses SDK-default negotiation. No migration plan if Composio upgrades its MCP protocol version.
-- **AI-routing.yaml** is a versioned config file (`v3` per comment); it can be hot-reloaded via admin route. Tier additions (e.g., t1_spark added mid-April after cost incident) were handled via config PR + restart, not runtime swap.
-
----
+- Single `/api/v1` namespace; no `/v2`, no deprecation mechanism, no `Accept-Version`. Fine for a system whose only consumers are in the same monorepo + two CF workers — coordinated deploys substitute for versioning.
+- Evolution discipline lives in CLAUDE.md "lockstep" rules (4-surface enum updates, 3-step secret addition, BYPASS_CALLERS pairing). These are process controls, not technical controls — they work because one careful operator follows them, and several rules exist precisely because they were violated once (Entry 089, P07 cycle-1).
+- Dependency-side evolution: OpenAI API changes are absorbed at one choke point (`openai-client.ts` / gateway) — the `max_completion_tokens` migration shows this works. MCP SDK and Next.js 16 `middleware → proxy` rename were handled with documented audit rules.
+- The mobile app is the riskiest evolution surface: it is deployed out-of-band (Expo) from the server, so a server-side response-shape change can break devices in the field with no version negotiation. With one user this is an annoyance, not an outage.
 
 ## Integration Observability
 
-- **Request logging:** Hono's `logger()` middleware logs every request; nginx logs the external hop. MCP requests additionally land in `mcp_activity` table via `McpActivityLogger` (fire-and-forget, activity-logger.ts).
-- **AI call audit log:** every LLM call (gateway path) writes a row to `ai_audit_log` with task_type, model, tokens, duration, cost_usd, client_used, capture_id/session_id, and **error message on failure**. This is stronger than typical — the audit log doubles as operational traces.
-- **Prometheus metrics:** core-api exposes `/metrics`; metricsMiddleware() wraps requests. workers push metrics to Pushgateway (`pushpushover → LabNotebook`).
-- **SSE events** (`/api/v1/events`): pg-notify-backed real-time stream with automatic reconnect. nginx disables proxy_buffering for this location.
-- **Skill run log:** `skills_log` table captures every skill execution (BaseSkill.logResult); `result` JSONB carries structured output, `output_summary` is truncated preview.
-- **Gaps:**
-  - No distributed tracing header propagation (no X-Request-Id or W3C traceparent). `trace_id` is set on captures' source_metadata for pipeline correlation, but doesn't propagate to external services (Composio, OpenAI, Anthropic).
-  - No latency/error histograms segmented **by external dependency** in the metrics route (can't say "OpenAI p99 = X" from current metrics).
-  - Composio call volume is not instrumented against the 20K/mo free-tier budget (see H-2).
-  - Tier-fallback events are logged but not counted as a metric — hard to detect "t1_jetson is failing over to t1_spark too often" from dashboards.
-
----
+- **Inbound:** good — `http_requests_total` / duration histogram by route+method+status, captures counter by source, rate-limit logging.
+- **Outbound: thin (M7).** No per-dependency latency/error metrics exist for OpenAI, faster-whisper, the voice proxy, Composio, or sidecar calls. `llm_cost_total` and `budget_spent_usd` cover spend but not availability. Boundary failures are diagnosable only via Loki logs and `pipeline_events` rows — and the documented Loki-driver failure mode (silent fallback to `none`, lines dropped) means the primary failure-diagnosis channel can itself fail silently.
+- **Alerting:** solid coverage of macro health — synthetic monitor (2-consecutive-failure Pushover + recovery), pipeline-health every 6h with capture-flow check, container-health, budget-check, drift-monitor, plus 10 runbooks including `integration-alert.md`. What's missing is anything that would distinguish "OpenAI is slow" from "embed worker is wedged" without log spelunking.
 
 ## Dependency Risk Register
 
 | Dependency | Failure Impact | No Mitigation? | Risk Level |
 |------------|---------------|----------------|------------|
-| Cloudflare Tunnel | Entire public surface (brain.troy-davis.com, MCP) goes dark | no redundancy, no second tunnel | **Medium** (operator-only access via Tailscale is still viable) |
-| OpenAI embeddings API | Pipeline backs up (BullMQ queue grows); no degraded mode | 5-attempt backoff absorbs ~3h of outage before jobs fail; daily-sweep re-queues | **Low** (by design — no fallback, queue and retry) |
-| OpenAI chat inference | Falls back to Jetson → Spark → Haiku → Sonnet per ai-routing.yaml | tier fallback chain is robust | **Low** |
-| Anthropic API (for t1_fast Haiku / t2_quality Sonnet) | Final hop of the fallback chain; if down, quality-critical tasks fail | no further fallback; budget check won't stop hard failure | **Medium** — weekly-brief and governance could lose a week if Anthropic has an extended outage |
-| Jetson (192.168.10.58) | t1_jetson classification fails; falls back to t1_spark | fallback in place | **Low** (but fragile if static IP changes — see the 2026-04-15 cost incident) |
-| DGX Spark (spark.k4jda.net:8000) | t1_spark (the workhorse of routine tasks) fails; falls back to Haiku (**paid**) | tier fallback works, but cost-wise this is the failure mode that drove the $100 cost incident | **Medium** — the entire cost-tiering strategy pivots on Spark being up. Monitor its uptime as a first-class SLO. |
-| Composio MCP | Morning-brief calendar section missing; other integrations degrade to empty | client returns null on failure; caller handles gracefully | **Medium** — graceful degradation, but no budget visibility (see H-2) |
-| Gitea wiki | wiki-ingest stalls; pipeline can continue without wiki (removeDependencyOnFailure) | good | **Low** |
-| Deepgram | voice-pipecat fails to transcribe; voice-capture (iOS Shortcut path) uses faster-whisper instead | `/api/capture` via faster-whisper is independent | **Low** — there are two voice paths |
-| Pushover | Notifications silently dropped (swallow mode) or job retried (throw mode) | — | **Low** |
-| Tailscale network | Bond/Jetson/Spark all unreachable → full LLM fallback to Anthropic | no fallback; will spike costs | **Medium** — same failure mode as Spark-down |
-| Homeserver Postgres volume loss | 25 migrations required; no auto-migration | documented, but a full recovery exercise has not been drilled recently | **Medium** — operational risk, not code risk |
+| OpenAI API | All embedding + inference halts; pipeline backlogs | Mitigated: 5× patient backoff + sweep; tier fallback for inference | Medium (accepted: no embedding fallback by design) |
+| core-api (from slack-bot) | Slack handlers hang indefinitely; ack windows expire | **Yes — no timeout/retry** | **High** |
+| core-api (from email worker) | Inbound email bounced on transient failure | **Partially — bounce notifies sender, but mail content lost** | Medium |
+| voice-capture LAN exposure | Unauthenticated audio→paid-LLM endpoint on home LAN | **Yes — no auth on :3001; mobile default uses it in plaintext** | Medium (home LAN, single user) |
+| Budget breaker blind spots | Runaway spend via embeddings / voice classification invisible to hard-stop | **Yes — direct clients bypass `checkBudget()`** | Medium (prior $100 incident proves the failure class is real) |
+| Loki driver | All container logs silently dropped while Loki down | Documented but unmitigated (no buffering) | Medium |
+| Slack Socket Mode | Bot offline; captures via other channels unaffected | Bolt auto-reconnect | Low |
+| Pushover | Notification loss | 3× retry; loss tolerated | Low |
+| Composio | Quota exhaustion blocks calendar/notion reads | Quota meter + hard stop | Low |
+| Gitea wiki | Wiki ingest stalls; queue serialized | Queue retry; non-critical path | Low |
 
----
+## Findings Detail
 
-## Findings by Severity
+**H1 — slack-bot `CoreApiClient.request()` has no timeout and no retry.** `packages/slack-bot/src/lib/core-api-client.ts:41-57` — bare `fetch` with no `AbortSignal`, no retry, for all ~35 API methods. Every other internal caller (workers skills: 15s AbortSignal; voice-capture: 3× backoff; even the email CF worker is platform-bounded) is hardened; this is the one internal boundary that can hang a consumer indefinitely. A wedged core-api connection blocks Bolt handlers past Slack's ack window, producing user-visible silent failures. Fix is cheap because it's the documented single choke point: `AbortSignal.timeout(15_000)` to match the workers convention, plus treating 409 as success on `captures_create` if retries are added.
 
-### Critical
+**M2 — Budget circuit breaker does not cover all paid-API paths.** `checkBudget()` (`llm-gateway.ts:649`) hard-stops only calls routed through `LLMGatewayService`. `EmbeddingService` (`embedding.ts` — zero budget references) and voice-capture `classification.ts` (its own `createOpenAIClient`) hit the paid OpenAI API outside the breaker. The April 2026 incident ($100+ overnight) demonstrated that bulk paths are exactly where runaway spend happens; a bulk re-embed or a voice-upload loop today would sail past the $50 hard limit, detected only by the next 07:00 budget-check alert.
 
-_None._ All hard-gate boundaries (auth on MCP, admin auth, HMAC on sidecar) are fail-closed; embedding loss queues cleanly; budget hard-limit is enforced before every paid-tier call.
+**M3 — Email worker converts transient failures into permanent bounces.** `cloudflare/email-worker/src/index.ts:99,104,185` calls `message.setReject('... — will retry')` when the allowlist fetch or capture POST fails. `setReject` issues an SMTP-time permanent rejection — most sending MTAs bounce immediately and do not retry, contradicting the comment. A 5-minute core-api restart window means inbound brain mail during it is lost (sender does get a bounce, so loss is at least visible). Alternatives: `message.forward()` to a fallback mailbox on transient failure, or queue raw mail to KV/R2 for replay.
 
-### High
+**M4 — Voice ingest exhaustion discards the transcript.** `voice-capture/src/server.ts:189-196`: after successful (paid) transcription + classification, if `IngestService` exhausts its 3 retries the handler returns 502 and the transcript exists nowhere server-side — no dead-letter file, no local queue. The iOS Shortcut client may not retain the recording. Persisting the assembled capture payload to disk (the container already has a volume) for sweep-based replay would close the only data-loss hole in an otherwise careful pipeline.
 
-**H-1. Memory-consolidation skill has a fallback path to raw Anthropic SDK, bypassing gateway budget + audit.**
-Location: `packages/workers/src/skills/memory-consolidation.ts:348-390`.
-The gateway path is preferred (line 349), but the legacy Anthropic/OpenAI fallbacks (lines 359–389) still exist. If `this.llmGateway` is unset in some wiring path, the skill calls `callClaude(this.anthropicClient, …)` or raw OpenAI SDK directly — neither writes to `ai_audit_log`, neither checks budget, neither supports tier fallback.
-Why it matters: the 2026-04-15 cost incident showed that every non-gateway path is a blind spot. Intake already lists this as a known follow-up. Recommend removing the legacy branches and making `llmGateway` a required constructor dependency; throw at construction if missing.
+**M5 — Mobile voice upload bypasses every boundary control.** `packages/mobile/src/lib/config.ts` defaults `voiceCaptureUrl` to `http://homeserver.k4jda.net:3001` — plaintext HTTP, direct to voice-capture, no Bearer token, no `X-Open-Brain-Caller`, no rate limit; and `voice-capture/src/server.ts` has no auth at all. This both contradicts the mobile-auth model (every other mobile call is Bearer-gated) and confirms `:3001` is LAN-reachable: any device on the home network can submit audio that triggers paid transcription+classification. Intersects the documented deferred item "CF Tunnel for voice" (mobile-app-deferred), so this is a known gap — flagged here because the interim state leaves an unauthenticated paid-action endpoint open, and routing through the existing `POST /api/v1/voice-captures` proxy (which already exists for exactly this purpose) would close it without waiting on tunnel work.
 
-**H-2. Composio MCP client has no usage metering against the 20K/month free-tier quota.**
-Location: `packages/shared/src/services/composio-client.ts` + `packages/workers/src/skills/morning-brief.ts:406-408`.
-The client has no counter, no budget gate, no alerts. `morning-brief` runs daily; each run calls `fetchCalendarEvents` → likely 2–3 Composio tool executions per run = ~90/month. Currently safe, but if Composio usage is expanded (calendar reads, drive lookups, etc., as described in CLAUDE.md) without instrumentation, Troy won't learn he's over-quota until Composio starts rate-limiting or billing. The intake explicitly names this as a cost boundary.
-Recommendation: add a per-day counter to `ComposioClient.execute()` backed by Redis (INCR `composio:calls:YYYY-MM-DD`, 31-day TTL); expose it on `/metrics` and trip a Pushover warning at 15K calls in a month.
+**M6 — No machine-readable contract; consumer-side drift shims accumulating.** See Contract Fidelity. Evidence: slack-bot remapping (`core-api-client.ts:79-80,182-184,192-194,207-209`), three independent hand-written type sets (slack-bot `core-api-types.ts`, mobile `src/lib`, web-next), drift-guard covering only web↔shared. Minimum viable fix: generate one OpenAPI document from the existing Zod schemas (`@hono/zod-openapi` is a drop-in for this stack) and point all three consumers' types at it.
 
-**H-3. Internal HTTP callers inconsistently set `X-Open-Brain-Caller`, creating a two-class rate-limit story.**
-Locations:
-- `packages/slack-bot/src/lib/core-api-client.ts:47` — sends only `Content-Type: application/json`, no caller header.
-- `packages/voice-capture/src/services/ingest.ts:58-60` — same (no caller header).
-- `packages/workers/src/skills/memory-consolidation.ts:438-440` — no caller header.
-- `packages/web/nginx.conf:46,73` — correctly sets `X-Open-Brain-Caller: web-ui`.
-- `cloudflare/email-worker/src/index.ts:87,171` — correctly sets `X-Open-Brain-Caller: email-worker`.
-- `packages/shared/src/services/ingest-router.ts:289` — correctly sets `X-Open-Brain-Caller: ingest`.
-Why it matters: slack-bot, voice-capture, and consolidation POSTs land in the strict rate-limit tier as a single `default-client` bucket (or worse, share the X-Forwarded-For of their Docker bridge IP). During high activity or test runs, they can exhaust the 20-req/min strict limit and start 429ing each other. The fix is trivial (add the header in each client); the BYPASS_CALLERS pattern is already designed for this.
-Recommendation: add `'X-Open-Brain-Caller': 'slack-bot'` / `'voice-capture'` / `'memory-consolidation'` in each client; add them to BYPASS_CALLERS in `rate-limit.ts`.
+**M7 — No outbound-dependency metrics; log channel can fail silently.** No latency/error/throughput series per external dependency (OpenAI, whisper, voice proxy, Composio, sidecars) in `metrics.ts`; diagnosis depends on Loki, whose driver drops lines when Loki is unreachable (documented P11a behavior, no buffer). A single `outbound_request_duration_seconds{dependency,outcome}` histogram wrapped around the existing client choke points would cover ~90% of boundaries.
 
-### Medium
+**L1 — Voice proxy fetch unbounded.** `core-api/src/routes/voice-captures.ts:29` has no `AbortSignal`; the public request is bounded only transitively by voice-capture's internal timeouts. A hung socket (not a slow response) holds the strict-tier slot open indefinitely.
 
-**M-1. Cloudflare Email Worker → core-api has no content-level idempotency beyond content_hash; a worker retry on a 5xx response creates a duplicate conversation state.**
-Location: `cloudflare/email-worker/src/index.ts:176-187`.
-The worker rejects the email (`message.setReject`) only if the allowlist fetch fails or core-api returns non-2xx. Cloudflare will retry rejected messages sender-side. That means the same email can arrive twice; the second attempt will be deduped by content_hash (good), but the first attempt's `pipeline_status` may have been already updated before the retry — resulting in orphaned `pipeline_events` rows tied to two trace_ids for one real email.
-Recommendation: the worker could include a stable idempotency key (e.g., the message's `Message-ID` header) in the metadata; core-api could check `source_metadata.message_id` before dedup-window + content_hash. Alternatively, accept the current minor duplication.
-
-**M-2. No HTTP timeouts on `CoreApiClient` (slack-bot), `WikiGitService.init()`, Himalaya subprocess calls, Gmail/Graph REST calls.**
-Locations:
-- `packages/slack-bot/src/lib/core-api-client.ts:43` — plain `fetch(url, options)`, no `AbortSignal.timeout`.
-- `packages/shared/src/services/wiki-git.ts:261,267` — `git.pull()`, `git.clone()` have no explicit timeout.
-- `packages/shared/src/services/himalaya.ts` — subprocess calls (per intake).
-- `packages/shared/src/services/email/gmail-client.ts:459,474` — plain fetch, no explicit AbortSignal.
-Why it matters: if core-api hangs (deadlocked DB connection, slow query), slack-bot's Bolt handler blocks indefinitely. Slack requires ack() within 3s; Bolt's default timeout eventually fires, but a per-HTTP timeout is cheaper insurance.
-Recommendation: standardize a 30s default timeout across all internal HTTP clients (or export a shared `fetchWithTimeout` helper from `@open-brain/shared`).
-
-**M-3. `recordAgentCompletion` in email-compose uses fire-and-forget audit logging — if the gateway was down at audit-write time, the agent run isn't recorded at all.**
-Location: `packages/workers/src/skills/email-compose.ts:366-382` and `packages/shared/src/services/llm-gateway.ts:806-843`.
-The `logAudit` swallow-on-failure is correct for not breaking the success path, but it also means the budget-check's local ai_audit_log estimation could undercount agent-loop spend if Postgres had a transient hiccup during audit write. Budget is enforced at the top of `completeWithTierFallback` via `checkBudget` which queries `ai_audit_log` — an un-logged expensive agent run is invisible until the next (paid) call.
-Recommendation: write the audit-log row in a BullMQ retry queue (3 attempts) rather than a plain try/catch. This is cheap insurance for expensive agent runs.
-
-**M-4. `WikiGitService.init()` calls `git.pull('origin', 'main')` with no timeout and no circuit. If Gitea is down or slow, wiki-ingest / wiki-synthesis skills stall the BullMQ worker.**
-Location: `packages/shared/src/services/wiki-git.ts:253-270`.
-`removeDependencyOnFailure: true` in the flow helps — but `init()` is called at skill construction, before the flow observes a failure. A hung git clone or pull can occupy a worker indefinitely.
-Recommendation: wrap `git.pull` / `git.clone` with `Promise.race` against a 60s timer. If it times out, throw a WikiGitError that BullMQ can classify as transient.
-
-**M-5. Pushover in `'swallow'` mode drops notification failures silently; no telemetry counter.**
-Location: `packages/shared/src/services/pushover.ts:121-124`.
-For non-critical paths (morning-brief, pipeline-health low-priority), the default log-only behavior is fine. But a running spike of Pushover failures (network issue, API changes) would be invisible. Recommendation: add a `pushover_send_failures_total{priority=…}` Prometheus counter so Grafana can alert on sustained swallowed failures.
-
-**M-6. MCP bearer token is checked with constant-time compare, but the same token is used for all MCP clients — there's no client differentiation.**
-Location: `packages/core-api/src/mcp/auth.ts:47-53` + `packages/core-api/src/mcp/server.ts:52-56`.
-The token's SHA-256 prefix is used as `clientId` for activity logging, so per-client activity is attributable only by token. If Troy hands the same token to Claude Desktop on laptop and to OpenClaw, they appear as the same `clientId`. Intake confirms that OpenClaw's `OPENCLAW_OPEN_BRAIN_TOKEN` shares the value with `MCP_API_KEY`. Not a security risk (single-operator), but it limits forensic attribution.
-Recommendation: emit multiple MCP tokens (one per client) when onboarding a new MCP consumer. Keep the current env-var `MCP_BEARER_TOKEN` as a list (comma-separated) and match any.
-
-### Low
-
-**L-1. voice-capture `/api/capture` is un-authenticated and unversioned.**
-Location: `packages/voice-capture/src/server.ts:53`.
-The endpoint is exposed on port 3001 locally, and only reachable via Tailscale from iPhone (no public Cloudflare route). Not a security issue for the operator's trust boundary, but a reader will be surprised. Add a `/api/v1/capture` alias + comment justifying the lack of auth.
-
-**L-2. Slack Bolt Socket Mode requires both `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` — the token check in `app.ts` does not assert that both are present before `new App()`.**
-Location: `packages/slack-bot/src/app.ts:22`.
-If either is missing, `@slack/bolt` throws at WebSocket connect time with a cryptic message. A preflight check in index.ts that fails fast with a clear error message (and mentions the Bitwarden secret names) would save time during redeploys.
-
-**L-3. No `/version` or `/ready` endpoint distinct from `/health`.**
-`/health` checks Postgres, Redis, LLM; returns 200 or 503. There's no cheap liveness probe (e.g., process is up, event loop responsive) that doesn't hit dependencies. For Docker's `start_period: 15s`, a fast probe prevents false-positive unhealthy during dependency wake-up. Intake notes `checkPostgres` uses a 3s connect timeout — if Postgres is 4s into startup, a naive healthcheck fails. Current 15s `start_period` masks this, but a distinct `/live` endpoint (just returns 200) would be cleaner.
-
-**L-4. `/metrics` is unauthenticated and served from core-api.**
-Assumed internal-only. If Cloudflare Tunnel exposes `/metrics` through nginx (it doesn't today per the tunnel config), it would be world-readable. Current design is safe, but add a comment to the tunnel.yaml + nginx.conf explicitly denying `/metrics` so future edits don't accidentally expose it.
-
-**L-5. `MCP_API_KEY` is still accepted as a fallback env var name for `MCP_BEARER_TOKEN`.**
-Location: `packages/core-api/src/mcp/auth.ts:13`.
-Legacy compatibility. Intake notes OpenClaw uses `OPENCLAW_OPEN_BRAIN_TOKEN` = `MCP_API_KEY`. Not a bug — but the double env-var surface is minor tech debt. Plan a single env var name for the next operational-rules pass.
-
-**L-6. LLM health-check probes only `/models` on OpenAI base URL — does not probe Anthropic, Jetson, or Spark.**
-Location: `packages/core-api/src/routes/health.ts:68-88`.
-If Spark is down but OpenAI is up, `/health` returns `healthy` while a huge swath of routine tasks is actually going to paid-tier fallback. Recommendation: extend health check to probe all configured tiers and return `degraded` if any non-critical tier is down.
-
-### Requires Investigation
-
-**RI-1. `LLM_SPEND_URL` environment variable is optional; when unset, budget-check relies solely on local `ai_audit_log` estimation.**
-Intake confirms this. If Troy spins up an external LiteLLM proxy in the future, cost estimation could double-count (proxy + local). Flagged to verify interaction before enabling any external spend proxy.
-
----
+**L2 — Mobile `api-client.ts` fetch has no timeout.** `mobile/src/lib/api-client.ts:74` — RN fetch on a dead network hangs until the OS gives up; UI spinners with no deadline. Add `AbortSignal.timeout`.
 
 ## Findings Summary
 
 | Severity | Count |
 |----------|-------|
 | Critical | 0 |
-| High | 3 |
+| High | 1 |
 | Medium | 6 |
-| Low | 6 |
-| Requires Investigation | 1 |
-| **Total** | **16** |
+| Low | 2 |
 
----
+(Requires investigation: 0 — the suspect bare-catch blocks in `WikiService` were inspected and are benign logged fallbacks.)
 
-## Top 3 Recommendations
+## Verified Strengths (not findings)
 
-1. **Close the caller-header gap (H-3).** Adding `'X-Open-Brain-Caller': '<service>'` in slack-bot, voice-capture, and memory-consolidation HTTP clients, plus the matching entries in BYPASS_CALLERS, removes an accidental cross-service rate-limit interaction. Two-hour fix, eliminates a whole class of intermittent 429s.
-2. **Instrument Composio usage against the 20K/month budget (H-2).** A Redis counter + Pushover warning at 15K/month prevents surprise quota hits. This is the one integration where "no visibility" meets "hard external cap" — the same failure mode that caused the 2026-04-15 cost incident on LLM tiers. The fix is generic (same pattern can extend to Pushover, Deepgram minutes, and SimpleFIN once added).
-3. **Make `LLMGatewayService` a required dependency for every LLM-calling skill; remove raw-SDK fallback branches (H-1).** The gateway is the single source of truth for budget, audit log, and tier fallback. Each skill that retains a raw-SDK path is a potential blind spot. Remove the legacy paths in memory-consolidation and weekly-brief; fail fast at construction if the gateway is absent. This tightens the seam the cost-tiering strategy depends on.
+- Prior arch-review remediations (R2 proxy overwrite, R8 mobile-tier, `isInternalIp()` defense-in-depth) confirmed present and correct in code.
+- `mobile-auth.ts` is exemplary boundary auth: fail-closed on missing key (503, never bypass), timing-safe compare, hash-prefix-only logging.
+- Idempotency design (content hash + DB backstop, BullMQ jobIds, canonical pair ordering, batch UPSERT, single-use admin tokens) is consistently strong.
+- Composio quota meter and the LLM gateway tier-fallback + budget gate are textbook third-party containment — the gap is coverage (M2), not design.

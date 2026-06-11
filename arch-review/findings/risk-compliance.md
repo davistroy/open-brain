@@ -1,181 +1,156 @@
 # Risk & Compliance Findings
 
 **Reviewer:** Risk & Compliance
-**Date:** 2026-04-18
-**Target:** `C:/Users/Troy Davis/dev/personal/open-brain`
+**Date:** 2026-06-10
+**Target:** /home/davistroy/dev/personal/open-brain
 **Confidence:** High
-**Note:** Compliance assessment is based on code and configuration analysis only. Legal/regulatory determination requires qualified legal review. For a single-user, self-hosted system the risk frame is catastrophic loss (data destruction, credential compromise, third-party account suspension, cost runaway) rather than regulatory audit.
+**Note:** Compliance assessment is based on code and configuration analysis only (plus one read-only live check of the homeserver crontab). Legal/regulatory determination requires qualified legal review. For a single-user, self-hosted system the operative risk frame is catastrophic loss (data destruction, credential compromise, vendor account loss, cost runaway) plus third-party PII stewardship — not enterprise audit readiness.
+
+This report supersedes the 2026-04-18 Risk & Compliance review. Section "Prior-Review Closure Verification" records what was verified closed vs. carried forward.
+
+---
+
+## Prior-Review Closure Verification (2026-04-18 → 2026-06-10)
+
+| Prior finding | Status | Evidence |
+|---------------|--------|----------|
+| H1 (part 1): backups include plaintext `.env.secrets` | **CLOSED** | `scripts/backup.sh:78-80` explicitly excludes `.env.secrets`; regression guard `scripts/test-backup-secrets-redaction.sh`; BWS round-trip tooling (`load-secrets.sh`, `verify-secrets.sh`, `test-secrets-roundtrip.sh`) per P04b/P08. |
+| H1 (part 2): backup lives on the same host, no offsite | **OPEN** → re-raised as RC-1 (High) | See RC-1. TDD documents offsite rclone-crypt that does not exist in the repo or homeserver cron. |
+| H2: `reset-data` single-call destruction, no audit, no pre-wipe backup | **CLOSED** | P04a: two-step 5-min single-use Redis token + `confirm: "WIPE ALL DATA"` + origin allowlist + fail-closed NODE_ENV; pre-wipe `pg_dump` aborts the wipe on failure (`admin.ts:229-244`); every attempt writes `admin_audit` (migration 0023); `admin_audit` excluded from TRUNCATE with code-level test. Bearer-auth absence is an accepted, documented posture with compensating controls — not re-reported. |
+| H3: autonomy gating not enforced across proactive skills | **CLOSED** | P05: `BaseSkill.execute()` checks `static minimum_autonomy` before `run()` (`base-skill.ts:79-85`); per-skill declarations present (email-compose `advise`, memory-consolidation `assist`, etc.). |
+| M1: `callClaude` bypasses `ai_audit_log` | **CLOSED** | P02b: `callClaude` removed; zero non-test hits in `packages/`; all skills route through `LLMGatewayService.completeByTask()`. |
+| M2: no retention / hard-delete for soft-deleted captures and event tables | **OPEN** → carried as RC-4 (Medium) | Only `prune-associations` (Hebbian edges) and `storage-audit` (size monitoring) exist in `scheduler.ts`. |
+| M3: no DB audit row for admin actions | **CLOSED** | `admin_audit` table (migration 0023) with event_type/actor/created_at indexes; CF Access email forwarded for actor attribution. |
+| M4: no regression test for zero cost fields in ai-routing.yaml | **CLOSED** | `packages/shared/src/services/ai-config-schema.ts:41-52` — `ConfigService.load()` throws fail-fast when paid-provider tiers lack `cost_per_1k_input`/`cost_per_1k_output`. |
+| M5: email worker rejections not durably logged | **OPEN** → carried as RC-7 (Low) | `cloudflare/email-worker/src/index.ts:93` — `console.log` only (ephemeral CF worker logs). |
+| M6: Composio single point of multi-account trust, no usage alerting | **CLOSED (controls added)** | P03: `composio-client.ts` quota meter — Redis monthly counter, hard stop at 19,000 calls, Pushover warn at 15,000. Trust-concentration on Composio itself remains inherent and accepted. |
+| L1 + L4: provider account settings / ToS review cadence undocumented | **OPEN** → carried and elevated as RC-5 (Medium) | No `docs/PROVIDER_SETTINGS.md` or equivalent found; no training-opt-out / retention documentation; elevation justified because health data now flows to vendors (RC-3). |
+| L2: no CODEOWNERS / branch protection | **CLOSED (deliberate posture)** | Branch protection configured Phase 5b (one required check, `enforce_admins=false`, no required reviews) — documented solo-operator decision. Could not verify live (gh CLI unauthenticated in this environment — RI-1). |
+| L3: LAB_NOTEBOOK operational detail committed | **OPEN** → carried as RC-8 (Low) | LAB_NOTEBOOK.md now 162+ entries; repo visibility could not be verified (gh unauthenticated). |
+| L5: Pushover receives capture snippets | Folded into vendor register; accepted. | — |
 
 ---
 
 ## Detected Regulatory Scope
 
-The intake is explicit that this is a single-user, self-hosted personal knowledge system. Operator = data subject = data controller. Conventional regimes largely N/A:
-
 | Framework | Applies? | Reason |
 |-----------|----------|--------|
-| GDPR / UK-GDPR | **Partially** | Household exception (Art. 2(2)(c)) covers purely personal activity. BUT: correspondents (email senders, people mentioned in captures) are third-party data subjects whose data is processed and transmitted to OpenAI / Anthropic. If Troy ever shares synthesis outputs externally, household exception narrows. |
-| CCPA / CPRA | No | Single-person operation, no sale of personal information, well below business thresholds. |
-| HIPAA | No | No PHI handling. |
-| SOX / PCI-DSS | No | No regulated financial system-of-record; `data/` contains personal CSVs, not card holder data. |
-| FTC Act §5 | Indirect | Privacy claims in the README/PRD would become enforceable if the system were commercialized. Not in scope today. |
+| GDPR / UK-GDPR | **Marginally** | US operator, personal household activity (Art. 2(2)(c) household exception analog). Residual exposure: third-party correspondents' PII (email bodies, meeting/voice transcripts naming colleagues and clients) is processed and transmitted to OpenAI/Anthropic. Troy is a consultant — client-confidential material can enter via email/voice capture; the binding obligations there are **contractual (client MSAs/NDAs)**, not statutory. |
+| CCPA/CPRA | No | Not a business; no sale/sharing thresholds met. |
+| HIPAA | No | Not a covered entity or business associate. **However** (new since prior review): the system now stores structured personal health data — `lab_results` (migration 0028: test names, LOINC codes, values, ordering provider) and health `insurance_policies` (migration 0029: policy numbers, insured names, coverage trees). HIPAA does not attach to an individual managing their own records, but the data sensitivity class changed materially — see RC-3. |
+| PCI-DSS / SOX | No | No cardholder data, no regulated financial reporting; financial CSVs are personal records. |
+| FTC Act §5 | Indirect | Only relevant if commercialized. |
 
-**Effective control frame:** catastrophic-loss-avoidance (data destruction, credential compromise, third-party account suspension, cost runaway) — not regulatory audit. The rest of this report is scoped accordingly.
+**Effective control frame:** catastrophic-loss avoidance + third-party PII / client-confidentiality stewardship + vendor data-sharing hygiene.
 
 ---
 
 ## Compliance Control Mapping
 
 | Control Area | Framework | Status | Evidence | Gap |
-|--------------|-----------|--------|----------|-----|
-| Access control | Household | **Partial** | `adminAuth` (Bearer on `/api/v1/admin/config|queues/*`); MCP Bearer token; single-user trust model. | `POST /admin/reset-data` and `/admin/queues/:name/clear` intentionally bypass `adminAuth` ("web UI cannot send Bearer tokens"). Mitigated by confirmation phrase + admin rate limiter; still a wider attack surface than the Bearer paths. |
-| Audit logging (LLM) | Household | **Good** | `ai_audit_log` (task_type, model, tokens, cost_usd, client_used, capture_id, error) with indexes; `mcp_activity`; `pipeline_events`; `skills_log` (input_summary, output_summary, result JSONB, duration_ms); `activity_feed`. | `memory-consolidation` calls Anthropic via `callClaude()` directly — audit coverage via skills_log only, not `ai_audit_log` row per call. Intake also flags weekly-brief + memory-consolidation as bypassing LLMGatewayService. |
-| Audit logging (admin) | Household | **Partial** | `logger.warn([admin] Data reset initiated…)` prints a pino log line. | No database audit row for destructive admin actions (reset-data, queue clear, banner set/delete). Logs are ephemeral unless Loki retention catches them (30-day). |
-| Encryption at rest | Household | **Implicit only** | Postgres volume + Redis RDB + backup archive all live on Unraid XFS; no disk-level encryption indicated anywhere. `backup.sh` emits unencrypted pg_dump + `.env` + `.env.secrets` to `/mnt/user/backup/openbrain/`. | Plain-text secrets on the backup share. Any offsite copy (rclone, USB) propagates them. |
-| Encryption in transit | Household | **Good** | Cloudflare Tunnel fronts public routes with TLS 1.3; OpenAI/Anthropic over HTTPS; Tailscale overlay for remote hardware (WireGuard). | `postgresql.conf` uses `listen_addresses = '*'` on the docker network with no TLS — fine inside the bridge, concerning if Postgres port is ever exposed. |
-| Data retention | Household | **Partial** | Backup: 14 daily / 4 weekly / 3 monthly (`scripts/backup.sh`). Loki: 720h (30 days). `captures.deleted_at` supports soft-delete; `captures` never hard-purged. | **No periodic hard-delete anywhere.** Memory consolidation soft-deletes originals (recoverable) but no job prunes `deleted_at IS NOT NULL` rows after N days, nor `pipeline_events`, `mcp_activity`, `session_messages`, or `ai_audit_log`. Tables grow unbounded. |
-| Right to erasure | GDPR-adjacent | **Absent** | `DELETE /api/v1/captures/:id` = soft delete only (per PRD.md:1506). | If a correspondent ever asks "remove my emails from your system," there is no inventory/search for "all content mentioning person X" beyond manual entity-graph traversal, no hard-delete tool, no way to purge entity graph + embeddings for that person. Same for voice transcripts and Slack messages naming third parties. |
-| Breach notification readiness | Household | **N/A** | No PII-of-others inventory, no template. | If the homeserver were compromised (SSH, Cloudflare tunnel, Slack token), there's no contact list of third parties whose data was involved. Decide whether this matters at all — likely not for most threat models, but note it. |
-| Vendor agreements (DPA) | Household | **Not applicable** | Consumer tiers only; no enterprise DPAs. | OpenAI / Anthropic **consumer** terms opt captures into training by default on some SKUs — need to verify that the accounts used are API-mode (not ChatGPT/Claude.ai consumer) and that data-retention/opt-out settings are explicit. Not visible in code. |
-| License compliance | FOSS hygiene | **Likely clean** | Apache 2.0 `LICENSE`. No per-package `"license"` field in `package.json` (all `private: true`). Flagged deps audited below. | `simple-git` is MIT (clean). `googleapis` is Apache-2.0 (clean). `pg`, `ioredis`, `bullmq`, `drizzle-orm`, `hono`, `@slack/bolt`, `openai`, `@anthropic-ai/sdk`, `@modelcontextprotocol/sdk` all MIT/Apache. No AGPL/GPL direct deps surfaced. Full `pnpm licenses list` not run in-scope. |
+|-------------|-----------|--------|----------|-----|
+| Access control | Household | **Good (accepted posture)** | CF Tunnel + CF Access perimeter; MCP Bearer; mobile Bearer (`mobile-auth.ts`: timing-safe compare, fail-closed 503 on missing key, dedicated 200 req/min rate tier); admin reset two-step token + origin allowlist + fail-closed NODE_ENV; rate-limit caller-spoofing defense (`isInternalIp()`). | Mobile token is a single static shared secret with no rotation/revocation procedure (RC-6). |
+| Audit logging | Household | **Good** | `admin_audit` (0023, TRUNCATE-excluded, code-asserted), `ai_audit_log` (real per-tier costs since P03), `skills_log` (incl. gated-status records), `pipeline_events`, `mcp_activity`, capture provenance (`source` 9-value CHECK, 0022). | Failed mobile/MCP auth attempts and email-worker rejections persist only in pino/Loki (30d) — no durable security-event log (RC-6, RC-7). |
+| Data encryption at rest | Household | **Absent (accepted)** | Postgres/Redis/backups on Unraid XFS, no disk encryption indicated. TDD §4245 acknowledges and rests on physical+network security — defensible for a home server. | TDD claims "Offsite backups encrypted via rclone crypt" — that offsite path does not exist (RC-1). |
+| Data encryption in transit | Household | **Good** | CF Tunnel TLS for all public ingress; vendor APIs over HTTPS; Tailscale (WireGuard) for remote hardware; Postgres confined to Docker bridge. | None material. |
+| Data retention | Household | **Partial** | Backup retention 14/4/3; Loki 720h; soft-delete (`deleted_at`) on captures; pre-wipe dumps in dedicated volume. | No hard-delete/prune for soft-deleted captures, `pipeline_events`, `mcp_activity`, `ai_audit_log`, `activity_feed` — unbounded growth, no purge path for any future erasure need (RC-4). |
+| Right to erasure | GDPR-adjacent | **Absent (low exposure)** | `DELETE /api/v1/captures/:id` is soft-delete only. | No "purge all content mentioning person X" capability across captures + embeddings + entity graph + associations + audit tables (RC-9). Household context makes this Low. |
+| Breach notification readiness | Household | **Informal** | Pushover alerting, runbooks for operational alerts. | No inventory of whose PII is held (correspondents/clients); no "homeserver compromised — who do I owe a heads-up" checklist. Accepted at this scale; noted, not counted. |
+| Vendor agreements (DPA) | Household | **N/A — consumer/API tiers** | API-mode usage for OpenAI/Anthropic (no consumer chat products in the data path). | Provider retention/training-opt-out settings live outside the repo, undocumented and unverified (RC-5, RI-2). |
 
 ---
 
 ## Audit Trail Assessment
 
-**Strong:** The LLM audit trail is explicitly designed and load-bearing. `ai_audit_log` (migration 0000 + 0013) captures every inference call with tokens, model, cost, and which client (Anthropic SDK vs OpenAI SDK). `budget-check` reads it to estimate spend when no external proxy is configured. `mcp_activity` logs every MCP tool invocation with sanitized parameters (SENSITIVE_PARAM_KEYS redacted, strings >200 chars truncated). `pipeline_events` records stage transitions. `skills_log` records skill runs with input/output summaries and structured `result` JSONB. `activity_feed` gives unified dashboard visibility. `container_health` and `backup_log` (legacy but retained) cover infrastructure.
+**Strong and materially improved since 2026-04-18.** Destructive admin operations now write durable `admin_audit` rows for every attempt (requested/executed/blocked/error) with actor attribution via the CF Access email header, and the table is excluded from the wipe itself with a code-level invariant test. LLM spend attribution is complete: `callClaude` is gone, all inference flows through `LLMGatewayService`, and `estimateTierCostUsd()` reads real per-tier costs (explicit-zero canonical for free tiers, fail-fast on missing fields). Skill executions — including autonomy-gated no-ops (`status: 'gated'`) — land in `skills_log`. Pipeline stage transitions land in `pipeline_events` with CHECK-constrained enums. Capture provenance is enforced at the DB level (9-value `source` CHECK).
 
-**Gaps:**
+**Remaining gaps:**
 
-1. **Direct Anthropic SDK calls bypass `ai_audit_log`.** `memory-consolidation.ts:360` uses `callClaude(this.anthropicClient, prompt, …)`; `weekly-brief` has both gateway and direct paths. `runAgent` multi-turn loops have dedicated `logAgentAudit` (llm-gateway.ts:~796), but `callClaude` in isolation does not guarantee a row. This is consistent with intake's flagged follow-up PR.
-2. **Admin actions are not persisted to the database.** `POST /admin/reset-data`, `POST /admin/queues/:name/clear`, `POST /admin/slack/channels/:id/archive`, banner set/delete all emit pino logs but no audit row. If the homeserver is ever compromised and reset-data is invoked maliciously, the only record would be Loki (30d) and the truncation of `captures` itself.
-3. **Autonomous action audit is uneven.** Auto-response shadow-mode logging is thorough (confidence factors, threshold, autonomy level). Daily-sweep, memory-consolidation, and email-compose auto-send log to `skills_log` with a result JSONB — that is actually acceptable. But there is no single audit view that answers "what proactive actions did Open Brain take in the last 24h, under what autonomy level, with what outcome?"
-4. **Email worker inbound doesn't audit rejections.** Cloudflare Email Worker 403s non-allowlisted senders — there is no central log of who was rejected when (useful for spotting misdirected mail or reconnaissance).
+1. **Security-event durability.** Failed Bearer attempts (mobile, MCP), malformed auth headers, and rate-limit denials are pino log lines only — Loki's 30-day retention is the entire forensic window, and the Docker Loki driver drops (not buffers) lines when Loki is unreachable. A month-old "was someone probing the tunnel?" question cannot be answered. (RC-6)
+2. **Email-worker rejections** are `console.log` in the Cloudflare worker — effectively unlogged. (RC-7)
+3. **Mobile token lifecycle has no audit events** — there is no issuance/rotation/revocation to audit because the token is a static env var. (RC-6)
 
 ---
 
 ## Data Residency Assessment
 
-| Location | Data |
-|----------|------|
-| Homeserver (`/mnt/user/appdata/open-brain/`, Postgres, Redis, backups) | Captures, embeddings, entity graph, voice transcripts, session messages, audit logs, email drafts, allowlist |
-| Homeserver (`data/` on dev box, 128 MB) | Personal financial CSVs, tax filings, brokerage transactions, order exports (gitignored) |
-| OpenAI (api.openai.com/v1) | Embedding inputs (capture content) + LLM prompt content for t1_fast/t2_quality when routed; organization-level retention per OpenAI API ToS |
-| Anthropic (api.anthropic.com) | LLM prompt content for t1_fast, t2_quality, weekly-brief, governance, email-compose, memory-consolidation |
-| Anthropic via Claude Code CLI (`open-brain-vm`) | T2 batch synthesis prompts — subject to Claude Max subscription ToS (Anthropic states no training on API/CLI traffic; verify current policy) |
-| DGX Spark / Jetson (LAN, Tailscale) | Stays on LAN; no third-party exposure |
-| Deepgram | Voice audio fragments (capped $5/mo) |
-| Composio | Gmail/Outlook/Drive/Notion/Slack credentials + flow logs (free 20K/mo tier — verify data handling) |
-| Pushover | Notification titles + truncated bodies |
-| Cloudflare | Email routing metadata + tunnel traffic metadata (not content) |
-| Gitea (Tailscale-only) | Wiki page markdown (private repo, self-hosted) |
-| GitHub | Source code, CI logs, PR comments (NOT prod data) — standard consumer repo |
+All primary data resides on the US home server (`/mnt/user/appdata/open-brain/`). No cross-border transfer obligations attach (US operator). Loki log sink is LAN (`homeserver.k4jda.net:3100`). Gitea wiki is Tailscale-only, self-hosted. No data leaves the US except incidentally via global vendor infrastructure (Cloudflare).
 
-**Cross-border transfer** is not regulated here (US operator), but the data flow to OpenAI/Anthropic is voluminous and continuous. An operator-level decision would be to confirm:
+**Vendor data flows (what actually leaves the house):**
 
-- OpenAI org is on an **API plan with zero-retention or standard 30-day retention** (org admin setting), not consumer ChatGPT terms.
-- Anthropic API key is **org-level** and zero-retention eligible where available.
-- Neither account has training opt-in enabled.
-
-No code-level evidence was found of those policy settings — they live outside the repo.
+- **OpenAI** — every capture's full text (embeddings) + prompt content for all routed inference. Highest-volume flow. Now includes embeddings of health/insurance **synthesis captures** (RC-3).
+- **Anthropic (Claude Code CLI, Max subscription)** — T2 batch synthesis prompts, including **full structured lab-result payloads** (`scripts/lab-report-synthesis.py`) and **insurance coverage data** (`scripts/insurance-gap-analysis.py` calls `claude --print`). Anthropic's stated policy is no training on this traffic — a trust-boundary assumption, not code-enforced, and undocumented in-repo (RC-5).
+- **Deepgram** — voice audio (capped spend).
+- **Cloudflare** — raw inbound email content transits the Email Worker pre-allowlist; tunnel sees encrypted traffic metadata; CF Access sees identity.
+- **Slack** — channel messages and bot interactions (inherent).
+- **Composio** — OAuth tokens to external accounts; quota-metered (19K hard stop).
+- **Pushover** — notification titles + capture snippets (accepted broadcast-equivalent).
+- **Bitwarden** — entire secret inventory (its job).
+- **GitHub** — code, CI logs, LAB_NOTEBOOK operational detail (RC-8 if visibility is ever public).
 
 ---
 
 ## Third-Party Risk Register
 
-| Vendor | Data Shared | Risk Level | Contract Posture | Finding |
-|--------|-------------|------------|------------------|---------|
-| **OpenAI** | Capture text (embeddings + prompts), model aliases gpt-5.4 everywhere | HIGH volume | API ToS (consumer) | Voluminous; every capture is embedded. One API-policy change (training opt-in, retention change) propagates system-wide. No abstraction for switching providers without re-embedding (embeddings dimension coupling). |
-| **Anthropic API** | Synthesis, governance, weekly brief, memory consolidation, email-compose prompts + capture context | MED volume | API ToS | t2_quality only; budget cap $35/mo hard. Memory consolidation runs weekly and pushes clustered capture text for merge decisions — this is the highest-sensitivity prompt payload (aggregated personal content). |
-| **Anthropic Claude Code CLI** (Max subscription) | T2 batch synthesis — aggregated batched captures | LOW call count / HIGH content | Max subscription ToS | Per current Anthropic policy, Claude Code does not train on user content. Confirm current policy — this is a trust-boundary assumption, not code-enforced. |
-| **Cloudflare** (Tunnel + Email Worker) | Tunnel traffic (encrypted, metadata only) + inbound email routing | LOW | Cloudflare Free/Pro ToS | Tunnel token compromise = full API + web exposure. Email Worker handles raw inbound mail before allowlist check — Cloudflare sees content. Acceptable for personal use. |
-| **Deepgram** | Voice audio | LOW volume | API ToS | Budget capped $5/mo; hardware-gated by iOS Shortcut. |
-| **Composio** | OAuth tokens to Gmail, Outlook, Drive, Notion, Slack | **HIGH trust** | Free tier ToS | One vendor holds read/write tokens to five external accounts. Account compromise = multi-account compromise. No circuit-breaker if Composio itself is breached. CLAUDE.md correctly guides "direct API for writes + high volume" but read-path still depends on Composio. |
-| **Pushover** | Notification titles + truncated bodies (may include capture content) | LOW | Pushover ToS | Notifications intentionally include snippet of message + "relevant captures" count. Treated as broadcast-equivalent. |
-| **Gitea** (self-hosted, Tailscale-only) | Wiki markdown | LOW | Self-owned | Same trust as homeserver. |
-| **GitHub** | Source, CI logs, issue/PR comments, secret scanning (GitGuardian) | LOW | GitHub ToS | LAB_NOTEBOOK.md is committed and contains detailed operational context, decision history, and occasional production debug detail — currently public visibility state of the repo matters (assumption: private or owner-only). |
-| **Plaid / SimpleFIN** (future) | Financial account access tokens | HIGH (if adopted) | TBD | Currently off. Evaluate before adoption. |
-
-**Single point of trust concentration:** Composio holds tokens for five external consumer services. This is the most consequential third-party account in the system after the LLM providers.
+| Vendor | Data Shared | Risk Level | DPA/SCC in Place? | Finding |
+|--------|------------|------------|------------------|---------|
+| OpenAI | All capture text (embeddings + inference), incl. synthesized health/financial summaries | **High** (volume + sensitivity + no fallback) | No (API ToS) | Single point of failure by design (no fallback embeddings — queue and retry). Retention/training settings unverified (RC-5). Provider switch requires corpus re-embed (medium lock-in). |
+| Anthropic (Claude CLI) | Aggregated batch synthesis incl. full lab results, insurance coverage | **High sensitivity / low volume** | No (Max subscription ToS) | Health data now in prompt payloads (RC-3); policy posture undocumented (RC-5). |
+| Cloudflare | Inbound email content (worker), tunnel metadata, CF Access identity | Medium | No (consumer ToS) | Ingress single point of failure; tunnel-token compromise = full exposure; token in BWS, staleness monitored by `secret-rotation` skill (90-day alert) — good. |
+| Deepgram | Voice audio | Low | No | Spend-capped; low volume. |
+| Slack | Messages, bot tokens | Medium | No | `SLACK_USER_TOKEN` (xoxp) blast radius noted previously; accepted for F35. |
+| Composio | OAuth tokens to Gmail/Outlook/Drive/Notion/Slack | **High trust concentration** | No (free tier) | Quota meter + Pushover alerting added (P03) — prior M6 closed. Multi-account blast radius remains inherent; "reads only, writes direct" rule is the right compensating control. |
+| Pushover | Notification snippets | Low | No | Accepted. |
+| Bitwarden (BWS) | All secrets | High trust (appropriate) | No | Single key-person dependency on the BWS access token + the operator's vault credentials — bus-factor-1 reality (see BCP). |
+| GitHub | Code, LAB_NOTEBOOK, CI logs | Low–Medium | No | Verify repo is private; scrub LAB_NOTEBOOK before any visibility change (RC-8). |
+| Gitea (self-hosted) | Wiki markdown | Low | Self | Same trust domain as homeserver. |
 
 ---
 
 ## Business Continuity Assessment
 
-- **DR plan documented:** Partial — `scripts/backup.sh` is the canonical procedure (pg_dump custom format + config YAML + `.env.secrets` + wiki git bundle + Redis RDB). Retention is 14/4/3. Cron runs at 03:00 via host. Backup path = `/mnt/user/backup/openbrain/` on the same machine.
-- **DR plan tested:** Unknown — the intake does not reference a recent restore drill. `CLAUDE.md` notes "No auto-migration on startup" and mandates manual `scripts/init-schema.sql` + `0001-0022.sql` after volume loss; this is a well-documented runbook but has never been invoked under time pressure in visible evidence.
-- **Incident response process:** Ad-hoc. `LAB_NOTEBOOK.md` is the response log. Cost incident 2026-04-15 ($100+ Anthropic) was diagnosed in-session. `budget-check` job runs on a schedule and sends Pushover alerts at $30 soft / $50 hard. That **was** the fix — before the incident, cost fields in ai-routing.yaml were all zero so the circuit-breaker was blind (CLAUDE.md rule added: "verify ai-routing.yaml cost path before ANY bulk operation").
-- **SLA vs architecture:** No SLA. Best-effort resilience with patient retry backoffs (30s/2m/10m/30m/2h) + daily auto-sweep at 03:00. Acceptable for single-user.
-
-**Critical backup gaps:**
-
-1. **Backup lives on the same machine.** `/mnt/user/backup/openbrain/` is on the same Unraid host being backed up. Single drive loss or filesystem corruption destroys both primaries and backups. No evidence of off-host copy (though LAB_NOTEBOOK references "VM cron" as canonical off-host and homeserver cron as supplemental — verify actual state; could not confirm from repo.)
-2. **Backups include plaintext secrets.** `backup.sh:79-81` copies `.env.secrets` into the backup directory. Combined with on-machine storage, any backup-share read = full credential exfiltration (OPENAI, ANTHROPIC, SLACK BOT/USER/APP, DEEPGRAM, COMPOSIO, CLOUDFLARE_TUNNEL_TOKEN, PUSHOVER, GITEA, MCP bearer, ADMIN_API_KEY). Bitwarden is the source of truth but a fresh `.env.secrets` is regenerated and backed up.
-3. **No verified restore procedure.** pg_dump custom format is appropriate, but there's no documented or tested "restore from backup N" runbook with success criteria.
-4. **Redis RDB BGSAVE has 60s timeout then "skip."** Acceptable for small job queue, but if Redis BGSAVE ever chronically times out, the failure is logged and backup proceeds — could mask a slowly degrading Redis.
+- **DR plan documented: Yes** — `scripts/backup.sh` (manifest + row counts), `scripts/restore-rehearsal.sh`, `docs/runbooks/restore-rehearsal.md`, `deploy/cron/unraid-restore-rehearsal.cron`, secrets rebuild runbook (P08: `load-secrets.sh` single-command rebuild from BWS). Genuinely good for this scale.
+- **DR plan tested: NO — automation designed but not installed.** Live check of the homeserver crontab (2026-06-10) shows the nightly backup (`0 3 * * *`) installed but **no restore-rehearsal entry**. The P16 weekly rehearsal (ephemeral pg_restore + row-count validation + Pushover pass/fail) has been a "pending homeserver op" since ~2026-04-19 — ~7 weeks of backups whose restorability has never been machine-verified (RC-2).
+- **Offsite backup: MISSING.** `BACKUP_ROOT=/mnt/user/backup/openbrain` is on the same Unraid host as the primaries. TDD (lines ~4040, ~4245) documents "Weekly offsite to Google Drive via rclone (30-day cloud retention)" and "Offsite backups encrypted via rclone crypt" — no such script, cron, or config exists in the repo or the homeserver crontab (`scripts/setup-rclone.sh` is the OneDrive *ingest* mirror, unrelated). One host-level event (fire, theft, filesystem corruption, ransomware) destroys primaries and all backups together (RC-1).
+- **Incident response process: Partial** — runbooks exist for budget/capture-flow/container-health/pipeline/integration alerts; LAB_NOTEBOOK is the incident record (the 2026-04-15 cost incident was handled and converted into durable controls — the system demonstrably learns). No formal IR doc; acceptable at this scale.
+- **SLA commitments vs architecture capability: Aligned** — no SLA; best-effort with patient retry + sweeps is appropriate.
+- **Bus factor: 1, structurally.** Single operator, single host, secrets behind one Bitwarden account. Recovery-from-nothing depends on the operator + BWS access token. Accepted reality for a personal system; the P08 runbook at least makes recovery mechanical. Not counted as a finding.
 
 ---
 
 ## Change Management Controls
 
-- **No `CODEOWNERS` file.** Single-developer repo; direct-to-main commits are normal.
-- **No branch protection on main visible** (no `.github/branch-protection*.json`, no required reviewers config). All merges are by the same operator. For single-user: acceptable.
-- **CI on `main` was red for 18h** (per intake) because `pnpm -r lint` (which runs `tsc --noEmit` including tests) diverged from `tsup` build (which excludes tests). Fixed in PR #101. Highlights that lint + build should be covered by a single "passes" gate in CI, not two different type-check behaviors.
-- **Secret scanning:** GitGuardian referenced in intake but no config in repo; assumed external integration.
-- **Deployments are manual pull + compose up** on homeserver. No pipeline. Intake notes the homeserver was 7 PRs behind main until today — drift between main and production is undetected until an operator notices.
+- **Branch protection (per CLAUDE.md Phase 5b):** one required status check ("Integration tests (core-api + real DB)"), `enforce_admins=false` (solo escape hatch), no required reviews. Deliberate, documented, proportionate. Could not verify live — gh CLI in this review environment is unauthenticated (RI-1; note CLAUDE.md's own warning that gh can silently switch accounts).
+- **No CODEOWNERS** — appropriate for one contributor.
+- **LAB_NOTEBOOK.md as change record:** unusual but real and enforced (blocking precondition for commits, 162+ entries, decision log with supersession). A genuine compensating control for the absent review gate — arguably stronger evidence of change rationale than most enterprise PR templates produce.
+- **Deploys:** manual pull + compose on homeserver. Drift between main and production was previously undetected for weeks (31-commit gap closed 2026-05-09); no drift alarm exists. Minor; not counted separately — RC-2 is the operative instance of the "designed control not deployed" pattern.
 
 ---
 
-## Key Single-User Catastrophic-Loss Scenarios
+## Findings Detail
 
-This is the operative framework. Each row is a realistic loss scenario, its current mitigation, and the gap:
+### High
 
-| Scenario | Current Mitigation | Gap |
-|----------|-------------------|-----|
-| **Unraid drive loss** | `backup.sh` nightly; parity in array | Backup on same host; no offsite verified |
-| **Credential exfiltration from backup share** | Bitwarden is SoT | `.env.secrets` is copied in backup dir in plaintext (`backup.sh:79-81`) |
-| **Cloudflare Tunnel token compromise** | Token in Bitwarden; in `.env.secrets` on host | No rotation schedule visible; no tripwire (alert if an unexpected tunnel client appears) |
-| **Composio account compromise** | Per-integration OAuth scopes | Single vendor = five account blast radius; no alerting on Composio spend/usage anomalies |
-| **LLM cost runaway** | `budget-check` at $30 soft / $50 hard; Pushover alerts; local `ai_audit_log` estimation fallback | Discovered 2026-04-15 that zero cost fields + wrong Jetson IP made budget blind. Fixed, but no automated test asserts that all t1_* tiers have non-zero `cost_per_1k_*` fields when `provider` is paid. Repeat-class risk. |
-| **OpenAI / Anthropic account suspension** (ToS, payment failure) | None visible | All of t1_fast/t2_quality routes to Anthropic; t1_spark (Spark) is a real fallback for non-synthesis. No alarm path if paid tiers 401. |
-| **Anthropic consumer-terms drift** (training opt-in default change) | None visible in code | Trust-boundary; outside code. Operator must re-verify account settings periodically. |
-| **Destruction via `POST /admin/reset-data`** | Confirmation phrase `"WIPE ALL DATA"`; admin rate limiter (5 req/min) | **No `adminAuth` Bearer** (web UI cannot send). Exposed via web package on Tunnel. Confirmation phrase is in public source. Replay protection = rate limit only. If any CSRF or tunnel compromise occurs, a single POST wipes captures + entities + sessions + audit. No soft-wipe (confirm → 24h delay → execute). No automatic pre-wipe backup trigger. |
-| **`POST /admin/queues/:name/clear`** | Whitelist of queue names | No adminAuth; `state: 'completed'` is legal → silently erases completion history. |
-| **Slack token leak** | Bitwarden + GitGuardian | SLACK_USER_TOKEN = xoxp (user scope) can delete any message. Broader than bot scope. Justified for F35 channel cleanup but raises blast radius. |
-| **Memory consolidation bad merge** | Soft-delete of originals (recoverable via `deleted_at IS NOT NULL`); `similarityThreshold 0.92`; min cluster 3; 4 AM Sundays | No cap on merges per run beyond "top 5." No undo skill. Human review not required before merges. Consolidation source type `'consolidation'` makes originals identifiable for SQL recovery, but the operator must notice the bad merge within some window; no tombstone cleanup job removes `deleted_at` rows means recovery is feasible indefinitely — that is actually a positive. |
+- **RC-1 — No offsite backup; TDD documents one that doesn't exist.** Backups, pre-wipe dumps, and primaries share one physical host. TDD claims weekly rclone-crypt offsite to Google Drive; nothing implements it (repo + live crontab checked). This is the largest remaining catastrophic-loss exposure and also a doc-vs-reality integrity gap. Remediation: implement the documented rclone-crypt weekly sync (encryption key stored in BWS, *not* on the host) or amend the TDD; either way, reconcile.
+- **RC-2 — Restore rehearsal designed but not running.** `restore-rehearsal.sh` + runbook + cron file shipped in P16; the cron is not installed on the homeserver (verified live 2026-06-10: `crontab -l` shows only the 03:00 backup). Backups are unvalidated in practice — exactly the failure mode the rehearsal exists to catch. Remediation: one SSH session per the cron file's own install instructions; confirm the first Sunday pass notification.
 
----
+### Medium
 
-## LLM Governance & Autonomy Enforcement
+- **RC-3 — Health and insurance data entered the system without a sensitivity-classification update.** `lab_results` (0028) and `insurance_policies` (0029) hold structured medical lab values (with ordering provider) and policy/insured details; both flow to Anthropic via `claude --print` synthesis, and synthesis captures are embedded via OpenAI. `docs/SECURITY.md` is scoped solely to prompt injection; no document inventories data classes or vendor flows. Remediation: a one-page data-classification + vendor-flow table in docs (could live in SECURITY.md §0), so future data sources get classified deliberately.
+- **RC-4 — No retention/hard-delete for soft-deleted captures and event tables** (carried from M2). `pipeline_events`, `mcp_activity`, `ai_audit_log`, `activity_feed`, and `deleted_at` captures grow unbounded; `storage-audit` monitors size but nothing prunes. Also forecloses any practical erasure capability (RC-9).
+- **RC-5 — Provider account posture undocumented and unverified** (carried from L1+L4, elevated by RC-3). OpenAI org retention/training settings, Anthropic policy assumptions, and a ToS re-review cadence exist nowhere in the repo. Now that lab data rides these channels, a `docs/PROVIDER_SETTINGS.md` recording required-state per vendor + a quarterly review reminder is warranted.
+- **RC-6 — Mobile bearer token has no lifecycle, and security events are ephemeral.** `MOBILE_API_KEY` is one static shared secret on a public Cloudflare-tunnel-exposed boundary: no expiry, rotation procedure, or per-device revocation; failed auth attempts (mobile, MCP) persist only in Loki (30d, drop-on-unreachable). Compensating controls are good (timing-safe compare, fail-closed 503 on missing key, dedicated rate tier, token-hash logging). Remediation: document a rotation procedure (ensure `MOBILE_API_KEY` is in BWS so the `secret-rotation` skill's 90-day staleness alert covers it), and consider mirroring auth failures into a durable table or longer-retention Loki stream.
 
-**Claim** (CLAUDE.md): "Autonomy levels gate all proactive features." **Reality**: `meetsAutonomyLevel()` is invoked **only in `packages/slack-bot/src/handlers/auto-response.ts`** (two sites: assist-mode DM + advise-mode threaded reply). No other proactive path checks autonomy:
+### Low
 
-- `daily-sweep-skill` (8 PM LLM summary) — no autonomy check; runs regardless of level.
-- `weekly-brief` — no autonomy check; sends email/Pushover regardless.
-- `memory-consolidation` — no autonomy check; soft-deletes + merges regardless.
-- `email-compose` with `send_mode: 'auto-send'` — fires via Himalaya directly (`email-draft.ts:142-152`). **The `send_mode` flag is caller-specified, not autonomy-gated.** A caller (skill, Slack command, API) can request auto-send at any configured autonomy level including default `observe`.
-- Auto-response-draft (buttons that let the owner "send as-is" from Slack) — requires owner approval, so autonomy is de-facto respected there.
-- Daily connections / drift monitoring / wiki ingest — no autonomy check.
+- **RC-7 — Email-worker rejections unlogged** (carried from M5). `console.log` only; a bounded rejected-senders buffer surfaced in the dashboard would close it.
+- **RC-8 — LAB_NOTEBOOK/repo-visibility hygiene** (carried from L3). The notebook contains hostnames, LAN IPs, Tailscale names, and operational detail. Fine while private; scrub before any visibility change. Repo visibility could not be verified this session.
+- **RC-9 — No erasure capability for third-party PII** (carried). Soft-delete only; no person-scoped purge across captures/embeddings/entities/associations. Household exposure is low; a client-confidentiality request is the realistic trigger.
 
-**This is a consistency finding, not necessarily a bug.** For a single-user personal system the owner chose what runs. But the CLAUDE.md rule and README framing imply uniform enforcement. Either:
+### Requires Investigation
 
-1. **Tighten:** Have every proactive skill read `app_settings.autonomy_level` at entry and no-op / degrade to notification-only below the threshold. Cleanest.
-2. **Reframe docs:** Acknowledge explicitly that autonomy gating applies only to Slack auto-response; proactive skills are enabled/disabled via scheduling not autonomy.
-
-Either is acceptable. Silent divergence between doc claims and runtime behavior is the finding.
-
----
-
-## Data Export and Portability
-
-- **Database:** pg_dump custom format in `backup.sh` is reversible anywhere with Postgres 16 + pgvector. Good.
-- **Capture-level export:** No `GET /api/v1/captures/export` or equivalent. Direct SQL only. Not a practical gap for a single user but means there is no "one-command export my whole brain as JSON" path.
-- **Wiki:** Git bundle in backup = full history. Good.
-- **Redis:** RDB snapshot. Good for queue state recovery.
-- **Embeddings:** Re-embed-able from content; no lock-in risk.
-- **Entity graph / associations:** Export only via SQL. Reasonable.
-
-Format lock-in is low. Provider lock-in (OpenAI embeddings with `dimensions: 768` MRL parameter) is medium — switching providers requires re-embedding the corpus (one-time, non-trivial).
+- **RI-1 — Branch protection live state and repo visibility** could not be confirmed (gh CLI unauthenticated in this environment). Both are documented; verify with `gh auth status`, then `gh api repos/davistroy/open-brain/branches/main/protection` and `gh repo view --json visibility`.
+- **RI-2 — OpenAI/Anthropic account-level retention and training-opt-out settings** live outside the repo and could not be inspected. Resolve in the course of RC-5.
 
 ---
 
@@ -184,41 +159,19 @@ Format lock-in is low. Provider lock-in (OpenAI embeddings with `dimensions: 768
 | Severity | Count |
 |----------|-------|
 | Critical | 0 |
-| High | 3 |
-| Medium | 6 |
-| Low | 5 |
-
-### HIGH
-
-- **H1. Backups include plaintext `.env.secrets` and live on the same host.** `backup.sh:79-81` copies all secret env files into the backup dir; dir is on the same Unraid XFS share. Any read of `/mnt/user/backup/openbrain/` exfiltrates the full credential set (OpenAI, Anthropic, Slack user+bot+app, Deepgram, Composio, Cloudflare Tunnel, Pushover, Gitea, MCP, ADMIN_API_KEY). Combined with no verified offsite copy (intake hints at VM cron but not confirmed), a single host compromise or drive failure is both a primary-data loss AND a credential compromise. Either encrypt the backup archive (age / gpg to a key stored OUTSIDE the host) or stop copying secrets entirely (Bitwarden is source of truth; re-seed on restore).
-- **H2. `POST /admin/reset-data` is exposed via public tunnel without Bearer auth.** Authentication is a JSON confirmation phrase in public source + 5 req/min rate limit. One successful unauthenticated POST TRUNCATEs captures, entities, sessions, pipeline_events, and `ai_audit_log`. There is no pre-wipe automated snapshot, no soft-wipe (mark-then-execute), and no audit row — only a pino log line and Loki's 30-day retention. Mitigations: add a mandatory pre-wipe automated `pg_dump` (synchronous, check exit code), stage as "pending wipe, confirm again within 10 minutes," AND write an immutable `admin_audit_log` row before executing. Even in single-user context, the default should be "no single API call can destroy everything."
-- **H3. Autonomy-level gating is not enforced across proactive features.** `meetsAutonomyLevel()` guards Slack auto-response only. `email-compose` `auto-send`, `memory-consolidation`, `daily-sweep-skill`, `weekly-brief`, and other scheduled skills run regardless of `app_settings.autonomy_level`. CLAUDE.md claims "Autonomy levels gate all proactive features." Either enforce uniformly (every skill reads autonomy at entry) or reframe the documentation. Risk: a user setting autonomy to `observe` expecting no proactive actions still gets outbound emails on auto-send, weekly briefs, and overnight memory-consolidation merges.
-
-### MEDIUM
-
-- **M1. Direct Anthropic SDK calls bypass `ai_audit_log`.** `memory-consolidation` and `weekly-brief` (direct path) call `callClaude` without guaranteed `ai_audit_log` row; budget estimation (local fallback) under-counts these calls, potentially masking drift beyond the $30/$50 thresholds. Already an intake-flagged follow-up; confirmed via grep. Route through LLMGatewayService or ensure `callClaude` always writes an audit row.
-- **M2. No hard-delete / retention job for supporting tables.** `pipeline_events`, `mcp_activity`, `session_messages`, `ai_audit_log`, `activity_feed`, `container_health` grow unbounded. Low urgency given homeserver capacity, but eventually VACUUM / partition / prune is needed. Also affects any future right-to-erasure scenario for correspondents.
-- **M3. No audit row for admin actions.** reset-data, queue clear, banner set/delete, Slack channel archive all log to pino only. On a 30-day Loki retention, a month-old forensic question cannot be answered. A lightweight `admin_audit_log` table (actor placeholder, action, request body hash, timestamp, outcome) is cheap insurance.
-- **M4. Cost-field regression has no regression test.** 2026-04-15 cost incident root cause — zero `cost_per_1k_*` values in ai-routing.yaml — is now fixed but not asserted. Add a config-loader unit test: any `provider: anthropic|openai|openai_compat` tier must have non-zero `cost_per_1k_input` and `cost_per_1k_output` when routed to paid endpoints. Same class of bug can recur on the next tier addition.
-- **M5. Email worker rejections are not centrally logged.** Cloudflare Email Worker 403s non-allowlisted senders without a durable log accessible from the dashboard. Adding an allowlist entry later requires either memory or Cloudflare logs. A small "rejected_senders" bounded buffer (last 100 rejections with timestamps) would help.
-- **M6. Composio is a single point of multi-account compromise.** One compromise = Gmail + Outlook + Drive + Notion + Slack. The current "Composio for reads + low volume" rule is right. Consider revoking write scopes on all Composio OAuth grants and documenting that write operations go direct. Add a monthly check: log Composio account usage delta; alert if > 50 calls/day unexpectedly.
-
-### LOW
-
-- **L1. Anthropic/OpenAI account-level settings live outside the repo.** Training opt-out, zero-retention org settings, API plan tier. Document in a runbook (e.g., `docs/PROVIDER_SETTINGS.md`) the required-state of each provider account; add to monthly audit checklist.
-- **L2. No CODEOWNERS / branch protection.** Acceptable single-user; flag in case the repo goes multi-contributor.
-- **L3. `LAB_NOTEBOOK.md` is detailed and committed.** 449 KB of operational context, debug transcripts, and decision history. If the repo is ever made public, scrub for host names, IP addresses, and any third-party PII that crept into debug log pastes. A grep for `@`, IPs (`192.168.\d+.\d+`, public IPs), and phone patterns would take minutes.
-- **L4. No documented vendor ToS review cadence.** OpenAI and Anthropic policies change. A quarterly or bi-annual read-through (15 minutes) should be on the calendar; currently nothing schedules it.
-- **L5. Pushover notifications include capture snippets.** Treating Pushover as broadcast-equivalent is fine; worth calling out in the same runbook as L1 so an operator can opt-out if family members see the phone screen.
+| High | 2 |
+| Medium | 4 |
+| Low | 3 |
+| Requires Investigation | 2 |
 
 ---
 
-## Recommended Priorities (single-user catastrophic-loss frame)
+## Recommended Priorities
 
-1. **H1 first.** Encrypt or stop backing up `.env.secrets`. This is the single biggest blast-radius vulnerability in the system. 1-2 hours of work.
-2. **H2 second.** Add pre-wipe automated backup + admin audit row on reset-data. 2-3 hours.
-3. **M4 + H3 together.** Formalize the "no-zero-cost-field" test and decide whether autonomy gates all proactive skills or only Slack auto-response. Both are documentation-reality alignment issues.
-4. **M1, M3** together. Route `memory-consolidation` and `weekly-brief` through LLMGatewayService (already intake-flagged); add `admin_audit_log`. One-day of cleanup.
-5. **L1, L3, L4** are checklist items, not engineering.
+1. **RC-2 (minutes of work):** install the rehearsal cron — the control is already built.
+2. **RC-1 (half a day):** implement the documented offsite rclone-crypt sync, key in BWS.
+3. **RC-3 + RC-5 together (an hour of writing):** data-classification table + provider-settings runbook + quarterly ToS reminder.
+4. **RC-4, RC-6:** schedule for the next hygiene wave.
+5. RC-7/8/9 and RI items: checklist work, not engineering.
 
-Everything else (M2, M5, M6, L2, L5) is good hygiene for year 2 of operation — not urgent.
+The control trajectory since the 2026-04-18 review is strongly positive: 8 of 11 substantive prior findings verified closed with durable, tested mechanisms (admin audit, autonomy gates, secrets-free backups, cost fail-fast, Composio metering). The two High findings here are both "last mile" — controls that were designed and documented but never switched on.

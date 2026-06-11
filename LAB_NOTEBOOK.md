@@ -12054,3 +12054,44 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 
 **Commits:**
 - `db8d60a` — move dashboards.yaml into provisioning/dashboards/ subdirectory
+
+--- New session: 2026-06-10 — Full 9-agent architecture review (/arch-review) ---
+
+## Entry 163 — Architecture review v3: 9-agent parallel review of full repo (2026-06-10)  [decision] [debug] [database] [pipeline] [deploy]
+
+**Objective:** Run the full `/arch-review` team (9 domain specialists in parallel worktrees) against main @ `ac42938` (v1.6.0), superseding the 2026-04-18 review whose remediation shipped via PRs #180–#189.
+
+**Hypothesis:** Prior remediations hold; residual risk concentrates in convention-enforced invariants. **Rollback plan:** N/A — read-only analysis; report artifacts in `arch-review/` are git-tracked (prior versions recoverable via git).
+
+**Result:** 119 findings — **C:1 H:18 M:47 L:46 RI:7**. Recommendation: **CONDITIONAL GO**. All prior-review remediations verified genuinely closed by every agent before raising new findings. Reports: `arch-review/reports/executive-summary.md` + 9 domain files in `arch-review/findings/`.
+
+**Top findings:**
+1. **CRITICAL (SE-1):** Both stuck-capture sweepers (`workers/src/jobs/daily-sweep.ts:39`, `workers/src/skills/stale-captures.ts:165`) filter `pipeline_status IN ('received','processing')` — `'received'` is a `pipeline_events.stage` value, NOT a valid capture status. Captures stuck in `'pending'` or `'extracted'` are never re-enqueued; the entire "no embedding fallback, queue and retry" recovery architecture is inert. 2-hour fix.
+2. **DR cluster (RC-1/RC-2/DA-H1):** No offsite backup exists (TDD documents rclone-crypt offsite that was never built — verified via live homeserver crontab); restore-rehearsal cron (P16) confirmed NOT installed (live `crontab -l` shows only the 03:00 backup); init-schema.sql is also missing `app_settings` (0010) beyond the known 0012/0028/0030, and both integration-test suites bootstrap solely from this drifted file (CI schema ≠ production schema).
+3. **LAN exposure (SEC-02):** compose publishes core-api :3002, Postgres :5432 (default-password fallback `openbrain_dev`), password-less Redis :6380 on 0.0.0.0; `isInternalIp()` trusts RFC1918, so any LAN host gets full unauthenticated read/write + internal caller identity.
+4. **SEC-03:** `next ^16.2.4` < 16.2.5 proxy-bypass fix — `proxy.ts` is the load-bearing caller-header control. One-line bump.
+5. **Dormant gates (QA-H1/H2):** coverage thresholds (workers 78/81 + per-file 100% locks; core-api 80/80) have NEVER run — no `--coverage` anywhere in CI/scripts (CLAUDE.md claims "enforces"); `build-and-test` never promoted to required check despite A126 resolved.
+6. **PLT highs:** web-next image absent from `build-images.yml` (manual out-of-band UI deploys); workers container is alerting SPOF (Pushgateway staleness freezes all gauges at "healthy" if workers dies — no absent()/staleness rules, no workers healthcheck); compose Loki default URL `loki:3100` unresolvable from daemon-level driver and observability.md Step 6 instructs switching to exactly that broken value.
+7. **PE-H1:** memory-consolidation + capture-dedup-sweep each run weekly O(N²) cosine self-joins (HNSW can't serve join predicates); infeasible ~50–100K captures. Rewrite as per-row HNSW k-NN.
+8. **Other notable mediums:** budget breaker bypassed by EmbeddingService + voice classification (same failure class as April $100 incident); `spreading_activation()` lacks `deleted_at` filter — consolidated/soft-deleted captures resurface via MCP `include_related` (default true); prompt-injection wrapping missing on extract-entities/extract-commitments ingest side; slack-bot CoreApiClient has no timeout/retry; email worker `setReject` bounces on transient failures; core-api access-stats Queue lacks defaultJobOptions (unbounded Redis job leak per search); drizzle `meta/` empty so `scripts/migrate.sh` cannot work; health/insurance data (0028/0029) flows to Anthropic/OpenAI with no data-classification or provider-settings doc.
+
+**Meta-finding:** convention-enforced invariants drift even under exceptional discipline — recommended converting top conventions (schema parity, type-union mirrors in web-next/mobile, cron-slot uniqueness, coverage activation) into CI-enforced checks.
+
+**Immediate-action list (this week):** SE-1 sweep fix · install rehearsal cron · bump next ≥16.2.5 · verify CF Access policy · stand up offsite backup.
+
+**Tags:** [decision] [debug] [database] [pipeline] [deploy]
+**Environment:** ubuntu-vm (static repo review) + one read-only homeserver crontab check
+**Duration:** ~25 min (9 agents parallel, ~500–680s each)
+
+--- New session: 2026-06-11 — Arch-review v3 immediate-action remediation ---
+
+## Entry 164 — Arch-review v3 immediate actions: SE-1 sweep fix, RC-2 cron, SEC-03 next bump, SEC-01 CF Access, RC-1 offsite scoping (2026-06-11)  [pipeline] [database] [deploy] [config] [debug]
+
+**Objective:** Execute the Entry 163 immediate-action list: (1) commit the uncommitted arch-review v3 artifacts; (2) fix SE-1 — both stuck-capture sweepers filter `pipeline_status IN ('received','processing')` where `'received'` is not a valid capture status, so `'pending'`/`'extracted'` captures are never re-enqueued; (3) bump `next` to ≥16.2.5 (SEC-03 proxy-bypass fix protecting `proxy.ts` caller-header control); (4) install the restore-rehearsal cron on homeserver (RC-2 — designed in P16, never installed); (5) verify CF Access policy covers brain.troy-davis.com and document it (SEC-01); (6) stand up or scope the rclone-crypt offsite backup (RC-1).
+
+**Hypothesis:** SE-1 fix = type the swept-status arrays as `PipelineStatus[]` from `@open-brain/shared` (compile-time pin per TD-2) with tests asserting the exact swept set `['pending','processing','extracted']`; workers unit tests + tsc pass. Next bump resolves cleanly within ^16. Cron install follows the existing backup-cron persistence pattern on Unraid. CF Access verifiable externally via redirect-to-cloudflareaccess.com check.
+
+**Rollback plan:** Code changes: `git revert` + redeploy. Cron install: remove the added crontab line (and its persistence entry) on homeserver. CF Access check: read-only, N/A. Offsite backup: new rclone remote/script is additive; disable cron line to roll back.
+
+**Results:** (logged as work proceeds)
+
