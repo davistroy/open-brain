@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef } from 'react'
 import { Search, X } from 'lucide-react'
 
 interface MobileSearchBarProps {
@@ -12,10 +12,13 @@ export function MobileSearchBar({ query, onQueryChange }: MobileSearchBarProps) 
   const [localValue, setLocalValue] = useState(query)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Sync if parent changes query externally
-  useEffect(() => {
+  // Sync if parent changes query externally — adjust state during render
+  // (not in an effect) per react.dev "You Might Not Need an Effect"
+  const [prevQuery, setPrevQuery] = useState(query)
+  if (query !== prevQuery) {
+    setPrevQuery(query)
     setLocalValue(query)
-  }, [query])
+  }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const value = e.target.value
