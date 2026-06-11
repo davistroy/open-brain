@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { StaleCapturesSkill } from '../skills/stale-captures.js'
 import type { StaleCapturesOptions } from '../skills/stale-captures.js'
 import { PushoverService } from '../services/pushover.js'
@@ -10,9 +11,9 @@ import { PushoverService } from '../services/pushover.js'
 const NOW = new Date('2026-03-06T12:00:00Z')
 
 /** Captures stuck in various states */
-const STALE_RECEIVED = {
+const STALE_PENDING = {
   id: 'cap-aaaaaaaaa1',
-  pipeline_status: 'received',
+  pipeline_status: 'pending',
   created_at: '2026-03-06T10:00:00Z', // 120min ago
   age_minutes: 120,
 }
@@ -26,7 +27,7 @@ const STALE_PROCESSING = {
 
 const STALE_RECENT = {
   id: 'cap-ccccccccc3',
-  pipeline_status: 'received',
+  pipeline_status: 'pending',
   created_at: '2026-03-06T11:30:00Z', // 30min ago — below 60min threshold
   age_minutes: 30,
 }
@@ -39,7 +40,7 @@ const STALE_RECENT = {
  * Creates a mock DB that returns the given stale rows from execute()
  * and records insert() calls for skills_log verification.
  */
-function makeMockDb(staleRows: typeof STALE_RECEIVED[] = [STALE_RECEIVED, STALE_PROCESSING]) {
+function makeMockDb(staleRows: typeof STALE_PENDING[] = [STALE_PENDING, STALE_PROCESSING]) {
   const insertReturning = vi.fn().mockResolvedValue([{ id: 'mock-log-id' }])
   const insertValues = vi.fn().mockReturnValue({ returning: insertReturning })
   return {
@@ -80,11 +81,11 @@ function makePushoverService(configured = true) {
  * Builds a StaleCapturesSkill with all external I/O mocked.
  */
 function makeSkill(opts: {
-  staleRows?: typeof STALE_RECEIVED[]
+  staleRows?: typeof STALE_PENDING[]
   queueFailForId?: string
   pushoverConfigured?: boolean
 } = {}) {
-  const db = makeMockDb(opts.staleRows ?? [STALE_RECEIVED, STALE_PROCESSING])
+  const db = makeMockDb(opts.staleRows ?? [STALE_PENDING, STALE_PROCESSING])
   const queue = makeMockQueue(opts.queueFailForId)
   const pushover = makePushoverService(opts.pushoverConfigured ?? true)
 
@@ -154,6 +155,35 @@ describe('StaleCapturesSkill', () => {
   })
 
   // ----------------------------------------------------------
+  // SE-1 regression: query must target real stuck statuses
+  // ----------------------------------------------------------
+
+  describe('stale query filter (SE-1)', () => {
+    it('queries pending, processing, and extracted captures', async () => {
+      const { skill, db } = makeSkill({ staleRows: [] })
+
+      await skill.execute()
+
+      const sqlArg = db.execute.mock.calls[0][0]
+      const { params } = new PgDialect().sqlToQuery(sqlArg)
+      expect(params).toContain('pending')
+      expect(params).toContain('processing')
+      expect(params).toContain('extracted')
+    })
+
+    it("does not query 'received' — a pipeline_events stage, not a capture status", async () => {
+      const { skill, db } = makeSkill({ staleRows: [] })
+
+      await skill.execute()
+
+      const sqlArg = db.execute.mock.calls[0][0]
+      const query = new PgDialect().sqlToQuery(sqlArg)
+      expect(query.params).not.toContain('received')
+      expect(query.sql).not.toContain("'received'")
+    })
+  })
+
+  // ----------------------------------------------------------
   // Happy path — stale captures found and re-queued
   // ----------------------------------------------------------
 
@@ -174,8 +204,8 @@ describe('StaleCapturesSkill', () => {
       const result = await skill.execute()
 
       expect(result.staleCaptures).toHaveLength(2)
-      expect(result.staleCaptures[0].id).toBe(STALE_RECEIVED.id)
-      expect(result.staleCaptures[0].pipeline_status).toBe('received')
+      expect(result.staleCaptures[0].id).toBe(STALE_PENDING.id)
+      expect(result.staleCaptures[0].pipeline_status).toBe('pending')
       expect(result.staleCaptures[0].age_minutes).toBe(120)
       expect(result.staleCaptures[1].id).toBe(STALE_PROCESSING.id)
       expect(result.staleCaptures[1].pipeline_status).toBe('processing')
@@ -189,8 +219,8 @@ describe('StaleCapturesSkill', () => {
       expect(queue.add).toHaveBeenCalledTimes(2)
       expect(queue.add).toHaveBeenCalledWith(
         'ingest',
-        { captureId: STALE_RECEIVED.id },
-        { jobId: STALE_RECEIVED.id },
+        { captureId: STALE_PENDING.id },
+        { jobId: STALE_PENDING.id },
       )
       expect(queue.add).toHaveBeenCalledWith(
         'ingest',
@@ -235,7 +265,7 @@ describe('StaleCapturesSkill', () => {
       await skill.execute()
 
       const message = ((pushover.send as unknown as ReturnType<typeof vi.spyOn>).mock.calls[0][0] as any).message
-      // First 8 chars of STALE_RECEIVED.id = 'cap-aaaa'
+      // First 8 chars of STALE_PENDING.id = 'cap-aaaa'
       expect(message).toContain('cap-aaaa')
     })
 
@@ -327,17 +357,17 @@ describe('StaleCapturesSkill', () => {
 
   describe('execute — partial re-queue failure', () => {
     it('counts failed re-queues separately from successful ones', async () => {
-      const { skill } = makeSkill({ queueFailForId: STALE_RECEIVED.id })
+      const { skill } = makeSkill({ queueFailForId: STALE_PENDING.id })
 
       const result = await skill.execute()
 
       expect(result.requeued).toBe(1) // STALE_PROCESSING succeeded
-      expect(result.failed).toBe(1)  // STALE_RECEIVED failed
+      expect(result.failed).toBe(1)  // STALE_PENDING failed
       expect(result.found).toBe(2)
     })
 
     it('still sends Pushover when some re-queues fail', async () => {
-      const { skill, pushover } = makeSkill({ queueFailForId: STALE_RECEIVED.id })
+      const { skill, pushover } = makeSkill({ queueFailForId: STALE_PENDING.id })
 
       await skill.execute()
 
@@ -345,7 +375,7 @@ describe('StaleCapturesSkill', () => {
     })
 
     it('includes failed count in Pushover message', async () => {
-      const { skill, pushover } = makeSkill({ queueFailForId: STALE_RECEIVED.id })
+      const { skill, pushover } = makeSkill({ queueFailForId: STALE_PENDING.id })
 
       await skill.execute()
 
@@ -354,7 +384,7 @@ describe('StaleCapturesSkill', () => {
     })
 
     it('still writes skills_log when some re-queues fail', async () => {
-      const { skill, db } = makeSkill({ queueFailForId: STALE_RECEIVED.id })
+      const { skill, db } = makeSkill({ queueFailForId: STALE_PENDING.id })
 
       await skill.execute()
 
