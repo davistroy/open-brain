@@ -5,6 +5,7 @@ import { logger } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
+import { SWEEPABLE_STATUSES } from '../lib/sweepable-statuses.js'
 
 // ============================================================
 // Types
@@ -143,8 +144,9 @@ export class StaleCapturesSkill extends BaseSkill<StaleCapturesOptions, StaleCap
   // ----------------------------------------------------------
 
   /**
-   * Finds captures stuck in 'received' or 'processing' for longer than the
-   * specified threshold, ordered oldest-first.
+   * Finds captures stuck in a sweepable status (pending / processing /
+   * extracted — see SWEEPABLE_STATUSES) for longer than the specified
+   * threshold, ordered oldest-first.
    *
    * Uses created_at (not captured_at) as the reference — this is when the
    * row was written, so it accurately reflects how long the pipeline has
@@ -162,7 +164,7 @@ export class StaleCapturesSkill extends BaseSkill<StaleCapturesOptions, StaleCap
       SELECT id, pipeline_status, created_at,
              EXTRACT(EPOCH FROM (NOW() - created_at)) / 60 AS age_minutes
       FROM captures
-      WHERE pipeline_status IN ('received', 'processing')
+      WHERE pipeline_status IN (${sql.join(SWEEPABLE_STATUSES.map((s) => sql`${s}`), sql`, `)})
         AND created_at < ${threshold.toISOString()}::timestamptz
       ORDER BY created_at ASC
     `)

@@ -5,6 +5,7 @@ import type { Database } from '@open-brain/shared'
 import { captures } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
+import { SWEEPABLE_STATUSES } from '../lib/sweepable-statuses.js'
 
 export interface DailySweepJobData {
   triggeredAt: string // ISO 8601 — informational
@@ -13,9 +14,10 @@ export interface DailySweepJobData {
 /**
  * Daily sweep job handler.
  *
- * Finds captures stuck in 'pending' or 'processing' status for more than
- * 2 hours (outlasted the initial 5-attempt / 2h-total retry window) and
- * re-enqueues them as fresh capture-pipeline jobs.
+ * Finds captures stuck in a sweepable status (pending / processing /
+ * extracted — see SWEEPABLE_STATUSES) for more than 1 hour (outlasted the
+ * initial 5-attempt / 2h-total retry window) and re-enqueues them as fresh
+ * capture-pipeline jobs.
  *
  * Re-enqueue uses jobId = captureId so BullMQ deduplicates — if a capture
  * is already queued, adding it again with the same jobId is a no-op.
@@ -36,7 +38,7 @@ export async function processDailySweepJob(
     .from(captures)
     .where(
       and(
-        inArray(captures.pipeline_status, ['received', 'processing']),
+        inArray(captures.pipeline_status, [...SWEEPABLE_STATUSES]),
         lt(captures.created_at, oneHourAgo),
       ),
     )

@@ -12095,3 +12095,6 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 
 **Results:** (logged as work proceeds)
 
+1. **Arch-review artifacts committed** — `748cb83` (13 files, Entry 163 + 164 included).
+2. **SE-1 FIXED (TDD).** RED: new `daily-sweep.test.ts` + SE-1 regression tests in `stale-captures.test.ts` render the actual query via `PgDialect.sqlToQuery()` and assert bound params — 4 failed against old code for exactly the right reason (`IN ('received','processing')` in SQL text; daily-sweep params `['received','processing']`). GREEN: new `lib/sweepable-statuses.ts` exports `SWEEPABLE_STATUSES = ['pending','processing','extracted'] as const satisfies readonly PipelineStatus[]` (compile-time pin to canonical union per TD-2 — an invalid string now fails tsc); `daily-sweep.ts` uses `inArray(captures.pipeline_status, [...SWEEPABLE_STATUSES])`; `stale-captures.ts` builds the SQL `IN` list from the same const via `sql.join`. Stale-captures test fixtures updated `'received'` → `'pending'` (rows with `'received'` cannot exist — DB CHECK 0024). Verification: 35/35 in the two files, full workers suite 1028/1028 (52 files), `tsc --noEmit` clean.
+
