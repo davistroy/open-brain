@@ -1,69 +1,49 @@
 # Data Architect Findings
 
 **Reviewer:** Data Architect
-**Date:** 2026-04-18
-**Target:** `C:/Users/Troy Davis/dev/personal/open-brain`
+**Date:** 2026-06-10
+**Target:** /home/davistroy/dev/personal/open-brain
 **Confidence:** High
+
+> Supersedes the 2026-04-18 data-architect review. Items remediated via PRs #180–#189 were verified closed and are not re-reported. Known/accepted baselines (A130, A128/A116/A117/A106/A120, no-Bearer admin reset) are not re-reported.
 
 ---
 
 ## Data Store Inventory
 
 | Store | Technology | Data Stored | Access Pattern | Fit Assessment |
-|-------|-----------|-------------|----------------|----------------|
-| Primary DB | Postgres 16 + pgvector (`pgvector/pgvector:pg16`) | Captures, embeddings (vector(768)), entities, entity graph, associations (Hebbian), activity_feed, audit logs, sessions, file_uploads | Hybrid FTS+vector search (RRF), spreading activation graph walk, soft-delete filtered reads, LISTEN/NOTIFY for SSE | Correct fit. Single-node deployment matches single-user design. pgvector + FTS + relational graph eliminates need for separate vector DB, graph DB, search engine — a deliberate and correct consolidation. |
-| Queue | Redis (BullMQ) | Job queues (pipeline stages, skills, scheduled jobs), PWA SW cache, rate-limit counters | Append-heavy, short-lived jobs | Good fit. 5-attempt backoff (30s→2h) + daily sweep is resilient for async pipelines. |
-| Filesystem | Docker bind-mounts (`/mnt/user/...`) | File ingest inbox (financial/utility), daily backup artifacts, voice audio | Cron writer, background reader | Adequate; detailed review in Ops / Infra agent. |
-| External | OpenAI (text-embedding-3-large `dimensions:768`) | Embeddings only; NOT used for primary storage | Synchronous single-vector | Correct — OpenAI handles MRL natively, schema stays `vector(768)`. |
+|-------|-----------|-------------|---------------|----------------|
+| Postgres 16 + pgvector 0.8 (`pgvector/pgvector:pg16`) | Relational + vector(768) + FTS | Captures, embeddings, entities/graph, sessions, briefs, lab_results, insurance_policies, commitments, audit tables (28 tables) | Hybrid FTS+HNSW search via `hybrid_search()`, graph traversal via `spreading_activation()`, OLTP CRUD, append-only audit | **Strong fit.** One store covers vector, FTS, graph-lite, and OLTP — right call at 11K-capture scale. Tuned conf (shared_buffers 2GB, work_mem 64MB; max_connections 50 vs pool max 20/service across ~5 services — adequate but near ceiling) |
+| Redis 7 (alpine, AOF on) | KV / queues | BullMQ jobs (14+ queues), admin reset tokens (5-min TTL), banner (30-day TTL), TTS audio cache (24h TTL), Composio monthly quota counters | Queue ops, single-key get/set | **Good fit.** AOF persistence + daily RDB copy in backup. No maxmemory set — acceptable with noeviction default for BullMQ correctness |
+| Gitea git repo (open-brain-wiki) | Git/markdown | Wiki pages, storage-audit reports | Batch write from workers, clone on startup | Good fit; backed up as git bundle |
+| In-process caches | Module-level JS | Autonomy level (5-min TTL in slack-bot + workers), pipeline config | Read-heavy | Fine; documented invalidation lag is by design |
+| Filesystem volumes | Docker volumes / bind mounts | Ingest drop zone (`file_uploads.destination_path`), `admin_prewipe_backup` pre-wipe pg_dumps | Write-once | Adequate; pre-wipe volume has no pruning (folded into L2) |
 
-Data layer is a single-Postgres monolith. No shards, no replicas, no read replica, no write-ahead shipping. For a 1-user / ~12K-row scale this is correct; no scaling pressure is visible yet.
+Tool availability: psql/mysql/sqlite3/mongosh/redis-cli all unavailable in this environment — review is static (code + SQL); no live-DB verification of index usage, bloat, or row counts.
 
 ---
 
 ## Schema Assessment
 
-**Overall:** Drizzle ORM definitions in `packages/shared/src/schema/` are the conceptual source of truth; hand-written SQL migrations in `packages/shared/drizzle/0001-0022.sql` are what actually runs (there is no auto-migration — `scripts/init-schema.sql` is applied manually on volume recreation). The schema is thoughtfully designed: canonical pair-ordering checks for undirected graph tables (`entity_relationships`, `capture_associations`), partial indexes on hot subsets (deleted_at, container_health.unhealthy, file_uploads.in-flight), expression-based FTS GIN on `to_tsvector('english', content)`, HNSW for vector_cosine_ops with appropriate `m=16, ef_construction=64` for current volume.
+The schema is well-modeled for its access patterns:
 
-**Deliberately tolerated compromise:** CHECK constraint (migration 0022) rather than `pgEnum` for `captures.source`. The rationale in the migration comment is correct: `ALTER TYPE ADD VALUE` commits immediately and removing values requires a table rewrite. The CHECK approach is easier to iterate on in a single-user system. **The 9-value allowlist is verified correct** — matches the `CaptureSource` union in `packages/shared/src/types/capture.ts` exactly: `slack | voice | api | document | mcp | email | file | consolidation | system`.
-
-**Schema drift found (non-trivial):**
-
-1. **`voice_sessions.captures_created` column type mismatch.** Migration `0017_voice_sessions.sql` declares `captures_created UUID[] DEFAULT '{}'`, but Drizzle schema (`packages/shared/src/schema/supporting.ts:407`) declares it as `text('captures_created').array()`. The `init-schema.sql` file similarly declares `UUID[]`. This will cause Drizzle's inferred types to widen to `string[]`, and runtime inserts to route through text casting rather than uuid casting. Likely harmless today because the array only holds UUID strings, but it is a silent drift that bypasses the CHECK the DB would otherwise enforce when inserting a non-UUID value.
-
-2. **`sessions.context_capture_ids` declared `text[]`** (supporting.ts:94) while the values are UUIDs. Same class of issue as #1 — weaker typing than the data warrants. Consistent with the existing pattern but worth noting.
-
-3. **Web UI capture-source filter is stale.** `packages/web/src/components/SearchFilters.tsx:10` hardcodes `CAPTURE_SOURCES: CaptureSource[] = ['slack', 'voice', 'api', 'document', 'mcp', 'email']` — missing `file`, `consolidation`, `system`. The **type** is correct (9 values, `packages/web/src/lib/types.ts:9`); the literal array is 6 values. Consequence: user can never filter for file-ingested, consolidated, or system-emitted captures in the UI. Matches the intake's note that "PR #97 drift-guard covers IngestSourceType + FileUploadStatus but NOT CaptureSource." Drift-guard extension is needed.
-
-4. **`pipeline_status` is free-text** with no CHECK constraint — in contrast to `source` which now has one. Values in the codebase include `pending | processing | embedded | extracted | chunked | complete | partial | failed | deleted | received`. The variety is not a bug but it is untyped at the DB level, and `softDelete()` writes `pipeline_status='deleted'` (capture.ts:217) while other code paths may use `deleted_at IS NOT NULL` alone. The mixed signal (two deletion flags) means a row can theoretically be deleted by one and not the other.
-
-5. **`ai_audit_log.client_used` default is `'litellm'`** (migration 0013 + schema) and the backfill writes `'litellm'` to all historical rows. LiteLLM was removed in CS5 (2026-04-17, PR #88). The column default should be updated to `'openai'` (or the current canonical client name), and a follow-up migration should rename/rewrite historic values to reflect actual provider for audit accuracy. Otherwise cost analytics broken out by client are misleading.
+- **Captures as the hub** with `content_hash` dedup (unique index), soft delete (`deleted_at`), pipeline state-machine columns, and access-stats columns (`access_count`, `last_accessed_at`) for ACT-R decay. Indexes line up with query predicates (type/view/source/status/created_at).
+- **Enum discipline is exemplary**: TEXT + CHECK constraints (migrations 0022/0024/0025/0026) with canonical TS unions and documented lockstep rules — far easier to evolve than native enums. **Exception:** `file_uploads.status` uses a native Postgres `ENUM` type (0021) — the only one in the schema; adding a status there requires `ALTER TYPE` instead of a constraint swap (L4).
+- **Graph tables** (`entity_relationships`, `capture_associations`) enforce canonical pair ordering (`a < b`) via CHECK + unique index — correct undirected-edge modeling that prevents the (A,B)/(B,A) duplication class.
+- **vector(768)** consistently; HNSW (m=16, ef_construction=64) on captures + triggers; expression-based GIN FTS index (no `tsv` column to keep in sync) — all appropriate.
+- **briefs** (0030) stores rendered `body_html` + JSONB toc/sources, a partial unread index, and a refinement-chain self-FK — denormalization justified for a read-heavy single-user inbox.
+- `ai_audit_log.session_id` is FK-less (forward-ref) and `voice_sessions.captures_created UUID[]` is an FK-less array — minor referential-integrity soft spots, acceptable at this scale.
 
 ---
 
 ## Access Pattern Analysis
 
-**Strong patterns:**
-- Search pushes all filters into the SQL function signatures (migration 0009). No more 5x overfetch + in-memory filter pattern.
-- Entity resolution uses case-insensitive functional indexes (`lower(name)`, `lower(canonical_name)` in 0004) — lookup is O(log n) rather than full scan.
-- `captures_content_hash_idx` is a unique index — dedup is DB-enforced, the 60-second dedup window (capture.ts:11) is a cheap application-level pre-check.
-- Pipeline events indexed by `(capture_id)`, `(stage)`, `(created_at)` — all three common query paths are covered.
-- Partial indexes (`captures_deleted_at_idx WHERE deleted_at IS NULL`, `container_health_unhealthy_idx WHERE healthy=false`, `file_uploads_status WHERE status IN ('pending','processing')`) trim index size for hot-path queries.
-
-**Inefficiencies and risks:**
-
-1. **Search path uses `SELECT *` twice** (search.ts:245, 341) including the `embedding` column (768 floats × ~8 bytes ≈ 6KB per row). Top-20 search transfers ~120KB of vector data back to Node only to discard it — the embedding isn't used after ranking. Explicit column list excluding `embedding` would save an order of magnitude bandwidth per query. Low impact today at ~12K rows; will become the dominant query cost as captures grow past 100K.
-
-2. **`content_hash` unique index is NOT partial.** Two legitimate captures with identical normalized content across different `brain_view`s (e.g., a personal task and a client reminder with the same text) are permanently blocked. Soft-deleting a capture does NOT free the hash. Better: `CREATE UNIQUE INDEX captures_content_hash_idx ON captures(content_hash) WHERE deleted_at IS NULL`. This lets consolidation/restoration cycles work cleanly. The existing CLAUDE.md rule ("Document upload hashes title, not file content") is a workaround but the underlying global unique is still overly strict.
-
-3. **HNSW index covers soft-deleted rows.** Migration 0001 creates the HNSW index unconditionally on `captures.embedding`; the search function then filters `deleted_at IS NULL` in the CTE after vector matching. Soft-deleted captures consume HNSW graph memory and are probed during recall. Better: `CREATE INDEX captures_embedding_hnsw_idx ON captures USING hnsw (embedding vector_cosine_ops) WITH (m=16, ef_construction=64) WHERE deleted_at IS NULL`. Only relevant at scale, but memory consolidation (runs Sunday 4 AM, source='consolidation') increases soft-deletes over time — eventually the HNSW graph can contain significant dead weight.
-
-4. **No `hnsw.ef_search` configuration.** TDD.md explicitly recommends starting at 40 and tuning up to 100 when recall drops. No `SET hnsw.ef_search = ...` anywhere in code or migrations. Either the pgvector default of 40 is being relied on silently, or the recall tuning was never operationalized. Fine for current scale, but the TDD guidance is not wired up.
-
-5. **No index on `source_metadata` or `source_metadata->>'trace_id'`.** Pipeline trace IDs are stored inside the JSONB `source_metadata` (capture.ts:71) but there is no GIN or expression index on it. Any trace-driven lookup (correlating a capture through pipeline_events) falls back to a table scan. TDD.md line 1888 notes this was *planned* but the migration was not written.
-
-6. **`email_classifications (provider, message_id)` is a non-unique index.** If the email classifier re-processes the same Graph/Gmail message (on retry, reconnect, or script re-run), duplicates are inserted silently. Should be `UNIQUE`.
-
-7. **No indexes on `email_drafts.created_at DESC`-with-status for the review UI**, but `(status)` + `(created_at DESC)` likely scales to the single-user volume.
+- **No N+1 patterns found in hot paths.** `SearchService` hydrates results with one `WHERE id = ANY(uuid[])` query; spreading activation hydrates the same way; `upsertCoAccessAssociations` is a single batch UPSERT regardless of pair count (verified); the ingest N+1 fix from PR #180 stands.
+- **`hybrid_search()` LIMIT push-down (0027) verified intact** — both CTEs bound at `match_count * 4`, keeping HNSW early-stop active. Per-query ef_search injected from config, not hardcoded. Good.
+- **(L1) `SET hnsw.ef_search` race on pooled connections** — `packages/core-api/src/services/search.ts:225` issues a session-level `SET` as one `db.execute`, then calls `hybrid_search()` in a second `db.execute`. With `pg.Pool` (max 20), the two statements can run on *different* connections; a search may execute with default ef_search until all pooled connections have eventually been "painted" with the setting. The code comment correctly notes `SET LOCAL` is a no-op outside a transaction — the fix is to wrap `SET LOCAL` + the function call in one transaction (or pin a client via `pool.connect()`). Converges over time and all searches use the same value, so impact is nondeterministic early-life behavior only.
+- **(M3) `access-stats` job retention gap** — core-api instantiates its own `new Queue('access-stats', { connection })` (`packages/core-api/src/index.ts:96`) with **no `defaultJobOptions`**, while the workers-side factory (`packages/workers/src/queues/access-stats.ts`) sets `removeOnComplete: {count: 100}` / `removeOnFail: {count: 50}` plus `attempts: 1`. BullMQ applies retention from the *producer's* job options at `add()` time — and the producers are the 5 search sites in core-api. Result: every search leaves a completed-job record in Redis forever, and jobs get default retry semantics instead of the intended single attempt. This is the failure mode the "cross-package queue instantiation" rule invites: Redis routes by queue *name*, but `defaultJobOptions` do not travel with the name. Slow leak (one hash per search), unbounded. Fix: copy the job options into the core-api Queue instantiation and add a parity test. All other queues audited carry explicit retention (10–500 kept).
+- Raw SQL usage is disciplined: parameterized `sql` templates throughout; the two `sql.raw()` sites (ef_search int from zod-validated config; staleDays internal default) are not reachable from user input.
+- `db.select()` (full-row) is pervasive but all hot-path uses carry `limit()`/keyed predicates; acceptable.
 
 ---
 
@@ -71,79 +51,48 @@ Data layer is a single-Postgres monolith. No shards, no replicas, no read replic
 
 | Dimension | Assessment | Finding |
 |-----------|-----------|---------|
-| Retention policy — captures | Soft-delete only (deleted_at). Memory-consolidation skill soft-deletes originals when `source='consolidation'` merges cluster. | **No hard-purge job.** Soft-deleted rows accumulate indefinitely. At current rate (~50/day) this is decades away from being a problem, but there is no policy decision recorded. |
-| Retention policy — high-cardinality append-only | `pipeline_events`, `ai_audit_log`, `mcp_activity`, `activity_feed`, `container_health`, `skills_log` | **No retention policy defined.** All grow unbounded. `container_health` in particular writes one row per container per 15 minutes = ~1,248 rows/day/13 containers ≈ 455K rows/year. `pipeline_events` writes multiple rows per capture per pipeline stage. On a 2026-04-17 audit, these would be material within 6–12 months. |
-| PII handling | Voice transcripts (full JSONB), email content (captures + email_drafts.body), capture content (personal notes), email sender addresses in `app_settings.email_allowlist` | **PII is stored in plaintext.** No pgcrypto, no application-layer encryption. Justified by single-user + single-trust-boundary model, but documented nowhere in the schema. Volume backup at rest has whatever protection Unraid provides (which is ad-hoc at best). |
-| Encryption at rest | None at DB layer; Unraid storage uses its own disk-level options (reviewable under Ops) | Not flagged as a security finding at single-user trust boundary, but any data escaping the trust boundary (a backup taken to a laptop, a DB dump uploaded to a cloud, etc.) carries the full PII. Daily backup writes `.env.secrets` **into the backup payload** (`backup.sh:80`). Backup protection boundary = filesystem protection of `/mnt/user/backup/openbrain/`. |
-| Right to erasure / GDPR | N/A per charter (single-user) | Deliberately out of scope. However: soft-delete preserves the content and embedding; an actual "purge this" operation would require a hard-delete across captures + pipeline_events + entity_links + capture_associations + ai_audit_log. No such operation is implemented. |
-| Soft delete vs hard delete | **Mostly soft.** `bet.ts:198` does hard delete (regression test cleanup only). Memory consolidation soft-deletes (preserves originals for undo). `captures.delete_at` is the canonical flag. | Two-signal deletion (pipeline_status='deleted' in `softDelete()` AND `deleted_at`) risks divergence. Search functions filter on `deleted_at IS NULL` only, making the `pipeline_status='deleted'` signal a dead field. Drop one. |
-| Backup tested? | Unclear — see Backup & Recovery below. | No automated restore rehearsal test exists. |
+| Retention policy | Partial | Hebbian associations pruned weekly (weight < 0.1 AND stale > 90d) — good. **No retention for append-only tables**: `pipeline_events` (~5–10 rows/capture), `ai_audit_log`, `activity_feed`, `mcp_activity`, `email_classifications`, plus the `admin_prewipe_backup` volume dumps. Unbounded but slow growth; storage-audit skill observes size weekly but nothing acts (L2) |
+| PII handling | High-sensitivity data, perimeter-only controls | Health labs (0028), insurance policies incl. `insured_name`/`policy_number`/`raw_text` (0029), voice transcripts + GPS location (`voice_sessions.transcript`, captures `source_metadata.location`), email content, financial data — all plaintext in one DB. Acceptable for a single-user self-hosted system, but there is **no data-classification inventory** distinguishing "annoying to leak" from "regulated-equivalent" (health/financial) data (folded into M4) |
+| Encryption at rest | **Absent** | No pgcrypto, no volume encryption indicated; pg_dump backups and Redis RDB are plaintext on the Unraid array. Threat-model gap is physical theft / disk RMA of a home server holding health + financial + location history (M4) |
+| Right to erasure / GDPR | Incomplete by construction | Capture DELETE is soft-delete only (`deleted_at` + status `deleted`); content, embedding, and entity links remain in the live DB indefinitely and in 14 daily + 4 weekly + 3 monthly backups. No hard-purge job exists. GDPR doesn't apply (own data), but "I want this gone" currently isn't achievable without manual SQL plus ~3 months of backup expiry (L6) |
+| Soft delete vs hard delete | Mostly consistent, two gaps | Read paths filter `deleted_at IS NULL` (capture service, `hybrid_search`, `fts_only_search`) — **except** `spreading_activation()` (0012) and its hydration query in `findRelatedCaptures()`, neither of which filters `deleted_at`. Soft-deleted captures — including originals destructively merged by memory-consolidation — can resurface through `include_related` search, which defaults **true** on MCP (M2). Also: the global unique index on `content_hash` means re-capturing content identical to a soft-deleted capture 409s against an invisible row; should be a partial unique index `WHERE deleted_at IS NULL` (L3) |
 
-### Voice transcript PII — specific concern
-
-`voice_sessions.transcript` is a JSONB array of `{role, content, timestamp}` turns (`supporting.ts:405`, `0017_voice_sessions.sql:11`). Transcripts capture raw speech-to-text and assistant responses, which are typically the richest PII in the system (dates, locations, people names, medical references, financial details). They are stored without encryption, without hash, and the session row is never purged. At a 1-voice-session-per-day cadence, a year's corpus fits in a single `jq` query by anyone with DB read access. Match this against the trust model — if the trust boundary is the Unraid host, fine; if backups travel, this is the richest PII leak surface.
+- Admin wipe controls verified as documented: two-step token + confirmation phrase + origin allowlist; `admin_audit` excluded from TRUNCATE with a code-level test; pre-wipe pg_dump to a dedicated volume. Good.
+- **(L5)** `email_classifications` has an index on `(provider, message_id)` but **no unique constraint** — pipeline re-runs can insert duplicate classification rows for the same message, skewing daily summaries. Sibling tables (`lab_results`, `insurance_policies`) got idempotency keys; this one didn't.
 
 ---
 
 ## Caching Strategy Assessment
 
-- **TemplateCache (`packages/shared/src/services/template-cache.ts`)** — in-memory; prompt templates loaded once, rendered per call. Correct pattern for the 1.5 GB RSS ceiling; does not need TTL because templates are static.
-- **Autonomy level cache (5 minutes)** — simple expiry; documented in CLAUDE.md.
-- **PWA service worker** — caches Vite-hashed JS bundles. CLAUDE.md already flags the "stale SW after web rebuild" recurring issue. Not a data-architecture concern, more a deployment choreography one.
-- **No Redis cache for search results or entity lookups.** Every search hits Postgres. Correct at current scale; pre-mature to add caching layer.
-- **Hit rate observability** — none. No cache_hit/cache_miss metric on TemplateCache or autonomy cache. Low priority.
+- **TTL discipline is good where Redis is used as a cache**: reset tokens 5-min single-use (atomic GETDEL), banner 30-day, TTS audio 24h keyed `tts:{brief_id}:{voice}`. Composio quota counters are monthly-keyed without TTL (12 keys/year — fine, and arguably correct to retain for history).
+- **In-process autonomy cache** (5-min TTL, module-level, per package) has a documented worst-case 5-minute lag on autonomy *downgrades* — after dropping from `partner` to `observe`, a worker can still act autonomously for up to 5 minutes. Accepted by design; noted, not counted.
+- **No cache hit-rate observability** — none of the caches emit metrics. Low stakes at this scale; not counted as a finding.
+- **Invalidation correctness**: no shared mutable cache exists whose staleness could corrupt data; the riskiest pattern (pipeline config) is read-at-startup, invalidated by restart. Sound overall.
 
 ---
 
 ## Schema Evolution Assessment
 
-**How hard is it to evolve the schema today?** Medium.
+This is the weakest area of an otherwise strong data architecture.
 
-**What works:**
-- Migrations are numbered, versioned, reviewed via PR.
-- Drizzle schema + hand-written SQL split is a pragmatic choice — Drizzle can't generate partial indexes, expression indexes, or pgvector types, so raw SQL is needed. Having both is more maintenance but covers the gaps.
-- `init-schema.sql` provides a single-file fresh-DB recovery path. It incorporates migrations 0001-0017 inline (a full-restore shortcut).
-
-**What does not work:**
-- **`init-schema.sql` is stale as of migration 0018.** It includes 0013-0017 inline but stops there. Migrations 0018-0022 are NOT folded in. If the Postgres volume is recreated, a new deploy has to apply 0018.sql, 0019.sql, 0020.sql, 0021.sql, 0022.sql by hand after init-schema.sql runs. This is documented in CLAUDE.md ("No auto-migration on startup") but `init-schema.sql` is also claimed there as authoritative; those two statements contradict unless you know the inline-migrations convention. Recommend: adopt a strict "init-schema.sql is the concatenation of all 0001-latest migrations" convention and regenerate on each merge, OR drop init-schema.sql entirely and require `for f in drizzle/0*.sql; do psql ... < $f; done`.
-- **No idempotency test** — migrations don't have a CI job that applies them against a blank Postgres container and checks for errors. A broken migration (like the `plainplainto_tsquery` typo in 0002 that had to be fixed by 0006) isn't caught until someone runs it.
-- **No migration rollback path.** Each migration is DDL-forward-only. For a single-user system, fine; but destructive migrations (column renames, type narrowings) need a rollback plan and there is no convention.
-- **Drizzle meta directory** (`packages/shared/drizzle/meta/`) contains Drizzle's internal migration journal. This needs to stay in sync with the SQL migrations. A new team member running `drizzle-kit generate` would produce drift.
-
-**What was just fixed:**
-- The 0022 CHECK constraint + mandatory pre-flight audit rule (PR #101, CLAUDE.md) is exactly the right pattern. The rationale block at the top of 0022 documenting why `pgEnum` was rejected is model-quality schema documentation.
+- **(M1) There is no migration ledger.** `packages/shared/drizzle/meta/` contains only `.keep` — no `_journal.json`, no snapshots. `scripts/migrate.sh` calls `pnpm drizzle-kit migrate`, which **requires the journal and cannot apply these migrations** — the script is effectively dead code, and the real process is the CLAUDE.md rule "manually apply init-schema.sql + all 0*.sql, check `\dt` first." Nothing records *which* migrations a given database has received. This process has already produced incidents (Entry 089 pre-flight audits, repeated init-schema drift, homeserver manual application through 0031). Fix options: restore the drizzle journal + migrations table, or adopt a minimal `schema_migrations` ledger applied by a loop script.
+- **(H1) `scripts/init-schema.sql` drift is worse than documented.** The known issue says 0012/0028/0030 are missing. Verified missing: `spreading_activation()` (0012), `lab_results` (0028), `briefs` (0030) — **and also `app_settings` (0010), which is not in the known-issue list** (zero hits for "settings" in init-schema.sql; 25 CREATE TABLEs present vs 28+ expected). Compounding it: both integration-test setups bootstrap **exclusively from init-schema.sql**, and `packages/workers/src/__tests__/integration/setup.ts:62` falsely claims it is "the single source of truth (all tables through migration 0031)." Consequences: (a) CI integration tests run against a schema that diverges from production — any code path touching `app_settings`, `briefs`, `lab_results`, or `spreading_activation` is untestable in integration (search integration tests indeed pin `include_related: false`); (b) a fresh disaster bootstrap that runs only init-schema.sql silently lacks the settings store holding the email allowlist and autonomy level. Fix: regenerate init-schema.sql from `pg_dump --schema-only` of a fully-migrated DB (the daily backup already produces exactly this artifact as `schema.sql`), and add a CI parity check (apply init-schema vs apply all migrations into two scratch DBs, diff `pg_dump --schema-only` output).
+- Positives: migrations are mostly idempotent (`IF NOT EXISTS`, `DROP TRIGGER IF EXISTS` from 0023 onward, DO-block enum guard in 0021); each carries rollback notes; CHECK-constraint migrations follow the mandatory pre-flight DISTINCT audit; slot pre-assignment (0028 vs 0029) avoided a parallel-work collision. The TEXT+CHECK enum strategy keeps column evolution cheap. Migration 0001 still has non-guarded `CREATE TRIGGER`s, but in practice it is only applied to virgin databases — not counted separately.
 
 ---
 
 ## Backup and Recovery
 
 | Store | Backup Mechanism | RTO | RPO | Tested? |
-|-------|------------------|-----|-----|---------|
-| Postgres | `scripts/backup.sh` → daily cron 3 AM (per intake "ad-hoc VM cron 2 AM" — actual script has 3 AM). `pg_dump --format=custom --compress=6` + schema-only dump. 14 daily / 4 weekly (Sunday) / 3 monthly (1st) retention. | Not defined. Single-user tolerance high. | 24 hours. | No documented restore rehearsal. **Untested backups are schrodinger-backups.** |
-| Redis | BGSAVE + `docker cp /data/dump.rdb` | Same cron as above. | 24 hours, but Redis is queue state — reset after crash is acceptable for BullMQ. | No. |
-| Wiki (Gitea) | `git bundle --all` of `/tmp/open-brain-wiki` inside a running container | Same cron. | 24 hours. Redundant with Gitea's own storage. | No. |
-| Config / .env | `cp` of `config/*.yaml`, `.env`, `.env.secrets`, `docker-compose.yml` into backup dir | Same cron. | 24 hours. | No. |
+|-------|-----------------|-----|-----|---------|
+| Postgres | Daily 03:00 `pg_dump` custom format + schema-only dump + manifest with row counts; retention 14d/4w/3m | ~1–2h (manual restore; runbook exists) | 24h | **Yes — weekly automated restore rehearsal** (Sunday 05:30): ephemeral pgvector container, `pg_restore --exit-on-error`, row counts vs manifest ±10%, Pushover on fail. Best-in-class for a home lab |
+| Redis | AOF (`--appendonly yes`) + daily BGSAVE→RDB copy with LASTSAVE polling | Minutes | ~seconds via AOF (same host); 24h for the RDB copy | Implicitly (AOF replay on restart); RDB restore not rehearsed — acceptable, queue state is reconstructible |
+| Wiki | Daily git bundle (`--all`) from a container clone | Minutes | 24h | Bundle integrity implicit; Gitea origin is itself a live replica |
+| Secrets | Bitwarden (source of truth); backup deliberately excludes `.env.secrets` (regression-guard script verified present); `load-secrets.sh`/`verify-secrets.sh` round-trip with SHA256 drift alerting | Minutes | n/a | Yes — `test-secrets-roundtrip.sh` 5-case fixture |
 
-**Significant findings:**
-
-1. **`.env.secrets` is copied into every backup.** `scripts/backup.sh:80` unconditionally copies `.env.secrets` to `${BACKUP_DIR}/config/dot-env-secrets`. The backup directory is `/mnt/user/backup/openbrain/` which is filesystem-protected but not encrypted. CLAUDE.md says "All secrets via Bitwarden (bws CLI) — never in .env files" as policy, but `.env.secrets` exists on disk at runtime and is then copied to backup. **Secrets are duplicated into backup artifacts that will eventually be off-site.** Verify backup destination trust boundary or redact secrets from backup payload (e.g., `bws get` at restore time instead of backing up the file).
-
-2. **No offsite replication from the scripts in the repo.** The intake said "weekly offsite to Google Drive via rclone (30-day cloud retention)" from TDD.md. `scripts/backup.sh` does not perform rclone upload. Either it lives in a separate cron not in this repo (plausible) or the offsite is aspirational. Flag for confirmation.
-
-3. **No restore test.** Neither the backup script nor CI exercises a `pg_restore` pass. A broken `pg_dump` (wrong permissions, missing extension, schema change that corrupts custom format) is discovered only when the restore is needed. Recommended: monthly maintenance cron includes `pg_restore --list` against the latest dump to verify readability.
-
-4. **HNSW index is NOT preserved across pg_dump restore without care.** `pg_restore` rebuilds indexes from their DDL, which means the 768-dim HNSW has to be rebuilt on restore. At current volume this takes seconds; at 100K+ rows it takes minutes; at 1M rows, it can take tens of minutes. Document the expected restore duration.
-
-5. **Backup retention policy violated the intake's stated policy.** Intake says "ad-hoc VM cron daily at 2 AM." The script in repo (`scripts/backup.sh`) is a 14/4/3 tiered retention — richer than "ad-hoc," if it's wired. Recommend: reconcile which is actually running on homeserver by examining `crontab -l` and update the intake.
-
----
-
-## Cost-Tiered Processing — Data Layer Implications
-
-The T0–T3 tiering is primarily an LLM-layer concern but has two data-architecture consequences:
-
-- **`ai_audit_log` is the cost-attribution ground truth.** It logs `client_used`, `cost_usd` per call. The circuit breaker reads from this table. This is correct. But note: cost-incident recovery (the 2026-04-15 $100 Anthropic incident in MEMORY) happened because `cost_per_1k` was zero in `ai-routing.yaml`, NOT because `ai_audit_log` was broken. The audit log correctly captured zero cost because the config said zero cost. Consider: add a CHECK on `ai_audit_log.cost_usd > 0` for paid-tier models, and a daily assert job that verifies paid-tier rows have non-null cost. Cheap insurance against the same class of config bug.
-- **No embedding cost tracking.** OpenAI embeddings at `text-embedding-3-large` with 768-dim output are billed by token. There is no separate audit row per embedding call visible in the schema — or the intent is for embedding calls to flow through the same `ai_audit_log` as LLM calls. Verify this is the case, because embeddings are the #1 cost line after T3 LLM.
+- **(H2) No offsite copy — 3-2-1 fails at the "1".** `BACKUP_ROOT=/mnt/user/backup/openbrain` lives on the **same Unraid chassis** as `postgres_data`. A repo-wide search found no rsync/restic/rclone/B2/S3 step for the openbrain backup tree (the only rclone config is OneDrive *ingest*). Fire, theft, ransomware, or simultaneous multi-disk failure destroys primary and all ~21 retained backups together. The data is explicitly irreplaceable (11K+ captures, health/financial/insurance records). Mitigation is cheap: nightly restic/rclone push of `latest/` (one pgdump + bundle) to B2/S3 or even another LAN host with separate failure domain (bond/Spark). **Requires investigation (R1):** whether host-level urBackup or other replication already covers `/mnt/user/backup` — not verifiable from the repository; if it does, downgrade H2 to Low and document it in the backup runbook.
+- No WAL archiving / PITR — RPO is a hard 24h. For a capture system fed by Slack/email/voice (sources that are themselves retainable), losing up to a day is a tolerable, conscious trade; noted in the table, not counted as a separate finding.
+- `wal_level = replica` is set but unused (no replica, no archive_command) — free option value, no action needed.
 
 ---
 
@@ -152,45 +101,28 @@ The T0–T3 tiering is primarily an LLM-layer concern but has two data-architect
 | Severity | Count |
 |----------|-------|
 | Critical | 0 |
-| High | 3 |
-| Medium | 7 |
-| Low | 5 |
-| Requires Investigation | 2 |
-| **Total** | **17** |
+| High | 2 |
+| Medium | 4 |
+| Low | 6 |
+| Requires investigation | 1 |
 
-### Critical
-(none)
+**High**
+- **H1** — init-schema.sql drift larger than documented: missing `app_settings` (0010) in addition to known 0012/0028/0030; integration tests bootstrap solely from this drifted file, so CI schema ≠ production schema (the "single source of truth through 0031" comment in `packages/workers/src/__tests__/integration/setup.ts:62` is false). Regenerate from `pg_dump --schema-only` and add a CI parity check.
+- **H2** — Backups have no offsite copy; primary data and all retained backups share one chassis (final severity pending R1).
 
-### High
-1. **Backup copies `.env.secrets` into the daily backup payload.** `scripts/backup.sh:80`. Violates the stated "never write secrets to disk" policy the moment a backup is taken off-host. Remediate by either redacting secrets from the backup, backing up a `bws`-reference stub instead, or explicitly marking backup storage as a trusted secret custodian and documenting that in the threat model.
-2. **No backup restore rehearsal.** No CI or cron verifies the `pg_dump` is restorable. Recommend monthly `pg_restore --list $LATEST_DUMP` smoke test; quarterly full restore into a scratch Postgres to a recent backup.
-3. **Web UI `CaptureSource` filter is stale (6 values vs 9 canonical).** `packages/web/src/components/SearchFilters.tsx:10`. User cannot filter for `file | consolidation | system` captures. Extend drift-guard from PR #97 to cover this literal.
+**Medium**
+- **M1** — No migration ledger; drizzle `meta/` is empty so `scripts/migrate.sh` (`drizzle-kit migrate`) cannot work; applied-migration state per environment is tribal knowledge.
+- **M2** — `spreading_activation()` (0012) and `findRelatedCaptures()` hydration do not filter `deleted_at` — soft-deleted/consolidated captures resurface via `include_related` (default true on MCP).
+- **M3** — core-api's `access-stats` producer Queue lacks `defaultJobOptions`; every search leaks a completed-job record into Redis indefinitely and bypasses the intended `attempts: 1` (workers-side factory options don't apply to core-api's adds).
+- **M4** — No encryption at rest for health/insurance/financial/location/voice data; pg_dump backups and RDB are plaintext on the same array; no data-classification inventory.
 
-### Medium
-4. **`content_hash` unique index is not partial on `deleted_at IS NULL`** — soft-deleting does not release the hash, blocking legitimate re-captures after consolidation.
-5. **HNSW index covers soft-deleted rows** — memory consolidation silently grows HNSW graph dead weight. Add `WHERE deleted_at IS NULL`.
-6. **No retention policy on append-only tables** — `container_health` (~455K rows/year), `pipeline_events`, `ai_audit_log`, `mcp_activity`, `activity_feed`, `skills_log` all grow forever.
-7. **`voice_sessions.transcript` PII is stored plaintext + never purged.** Richest PII surface in the system. Consider retention (e.g., soft-delete transcripts > 90 days) or field-level encryption if backups travel.
-8. **Schema drift: `voice_sessions.captures_created` declared `text[]` in Drizzle, `UUID[]` in migration SQL.** Silent; types widen to `string[]`.
-9. **`email_classifications (provider, message_id)` is non-unique** — re-processing creates duplicates. Make it UNIQUE.
-10. **`ai_audit_log.client_used` default is stale `'litellm'`** — LiteLLM was removed in CS5 (PR #88). Update default and document provider rename semantics.
+**Low**
+- **L1** — `SET hnsw.ef_search` issued on a pooled connection separate from the `hybrid_search()` call; nondeterministic ef_search until the pool converges. Wrap in a transaction with `SET LOCAL`.
+- **L2** — No retention for append-only tables (`pipeline_events`, `ai_audit_log`, `activity_feed`, `mcp_activity`, `email_classifications`) or the pre-wipe dump volume.
+- **L3** — Global unique `content_hash` index blocks re-capturing content identical to a soft-deleted capture; should be partial (`WHERE deleted_at IS NULL`).
+- **L4** — `file_uploads.status` is the schema's only native Postgres ENUM, breaking the TEXT+CHECK convention and complicating evolution.
+- **L5** — `email_classifications` lacks a unique constraint on `(provider, message_id)`; re-runs can duplicate rows.
+- **L6** — Right-to-erasure is incomplete: soft delete retains content + embedding live and in backups up to ~3 months; no hard-purge path exists.
 
-### Low
-11. **Search `SELECT *` pulls `embedding` column unnecessarily** — ~6KB/row wasted bandwidth per search. Explicit column list would help at 100K+ scale.
-12. **No GIN index on `source_metadata` / `source_metadata->>'trace_id'`** — trace correlation falls back to sequential scan. TDD notes this was planned but never migrated.
-13. **No `hnsw.ef_search` configuration** — relies on pgvector default (40). TDD guidance (tune up to 100 when recall drops) is not operationalized.
-14. **`pipeline_status` is free-text, no CHECK constraint** — 10+ distinct values in code; `softDelete()` sets `pipeline_status='deleted'` AND `deleted_at` (two signals of the same state).
-15. **`init-schema.sql` stops at migration 0017** — migrations 0018-0022 must be applied separately after init. Document the convention or regenerate init-schema.sql on each merge.
-
-### Requires Investigation
-16. **Offsite backup (rclone to Google Drive, per TDD.md line 4021)** — script does not appear in `scripts/`. Confirm whether this is running via a separate cron on homeserver or is aspirational.
-17. **Embedding cost tracking in `ai_audit_log`** — verify embedding calls write rows with `task_type='embed'` and populate `cost_usd`, otherwise #1 variable cost is untracked at the DB layer.
-
----
-
-## Architecture-Level Observations
-
-- **The schema design is above average for a personal project.** Canonical pair-ordering on undirected graph tables, partial indexes on hot subsets, expression indexes for case-insensitive lookup, GIN on `to_tsvector('english', ...)` rather than a denormalized tsv column — these are patterns you'd expect from a team with dedicated DB expertise, not a single operator. The quality of the 0022 migration comment block (explaining WHY pgEnum was rejected) shows mature schema thinking.
-- **The data layer is under-instrumented relative to the LLM layer.** There is no `pg_stat_statements` configured anywhere in repo. `VACUUM/ANALYZE` isn't referenced. Query-cost observability gap is the cleanest next win — before optimizing any individual query, turn on pg_stat_statements and learn what's actually slow.
-- **Drizzle + raw SQL migration split is load-bearing.** Nothing in CI enforces that the Drizzle schema matches the SQL migrations. The `voice_sessions.captures_created` drift found above would have been caught by a CI step that does `drizzle-kit generate` and diffs against the hand-written SQL. Recommend: add a CI job that runs drizzle introspection against a container post-migration and asserts column types match Drizzle definitions.
-- **The 9th source value (`'system'`) surfacing 1 day before this review (intake note on PR #101)** is a case study for the "pre-flight audit before CHECK migrations" rule that was just added. The fact that this system caught the 9th value before the constraint was applied is a win; the fact that the ultra-plan investigation missed `bet.ts` initially is a correctable process gap. The new CLAUDE.md operational rule is well-placed.
+**Requires investigation**
+- **R1** — Verify whether host-level replication (urBackup or other) already copies `/mnt/user/backup/openbrain` off-chassis; determines final severity of H2.
