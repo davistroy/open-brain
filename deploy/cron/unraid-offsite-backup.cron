@@ -1,0 +1,30 @@
+# Open Brain — Encrypted offsite backup cron entry (Unraid host)
+#
+# INSTALLED 2026-06-11 (Entry 164, arch-review v3 RC-1). Kept for reference/rebuild.
+#
+# INSTALL (once, after a homeserver rebuild):
+#   1. SSH to homeserver as `root` (/boot/config is root-only readable).
+#   2. Append the cron line below (with its comment) to:
+#        /boot/config/plugins/dynamix/custom.cron
+#   3. Reload cron: /usr/local/sbin/update_cron
+#   4. Verify: grep offsite-backup /etc/cron.d/root
+#   5. Recreate the [open-brain-offsite] crypt remote in
+#      /mnt/user/appdata/rclone-onedrive/config/rclone.conf if missing —
+#      see docs/runbooks/offsite-backup.md (password + salt in BWS).
+#
+# SCHEDULE: daily 03:45 — after backup.sh (03:00, takes <10 min) writes the
+#   new daily dir. Slot audited 2026-06-11: 45 3 * * * is free across host
+#   crons (0 3 backup, 0 3,15 rclone-onedrive, 0 4,16 rclone-gdrive) and
+#   BullMQ scheduler slots (Sunday 0 3 / 30 3 / 0 4 / 0 5).
+#
+# ROLLBACK:
+#   sed -i '/offsite-backup/d' /boot/config/plugins/dynamix/custom.cron
+#   /usr/local/sbin/update_cron
+#   Remote data persists until manually deleted (rclone purge open-brain-offsite:).
+#
+# LOGS: /var/log/open-brain-offsite-backup.log
+#
+# PUSHOVER: failure alert (priority 1) via scripts/lib/pushover-notify.sh —
+#   cron line sources .env.secrets (set -a) for PUSHOVER_APP_TOKEN/USER_KEY.
+
+45 3 * * * cd /mnt/user/appdata/open-brain && bash -c 'set -a; . ./.env.secrets 2>/dev/null; set +a; bash scripts/offsite-backup.sh' >> /var/log/open-brain-offsite-backup.log 2>&1

@@ -167,9 +167,15 @@ fi
 # --- 6. Manifest ---
 echo "[6/6] Writing manifest..."
 
-# Get row counts per table
+# Get EXACT row counts per table. n_live_tup is a stats-collector estimate
+# that goes stale on small low-churn tables (below autovacuum thresholds) —
+# restore-rehearsal.sh compares these counts against the restored dump at
+# ±10%, and stale estimates produce false FAILs (2026-06-11 rehearsal:
+# sessions 14 actual vs 12 estimated, session_messages 52 vs 18).
 TABLE_COUNTS=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -c "
-    SELECT relname || ':' || n_live_tup
+    SELECT relname || ':' || (xpath('/row/c/text()',
+        query_to_xml(format('SELECT count(*) AS c FROM %I.%I', schemaname, relname), false, true, '')
+    ))[1]::text
     FROM pg_stat_user_tables
     ORDER BY relname
 ")
