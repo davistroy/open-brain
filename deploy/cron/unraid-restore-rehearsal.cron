@@ -1,16 +1,18 @@
 # Open Brain — Restore rehearsal cron entry (Unraid host)
 #
-# INSTALL (post-merge, once):
-#   1. SSH to homeserver as `claude` (has passwordless sudo for cron operations).
-#   2. Append this file to the Unraid system crontab:
-#        sudo tee -a /boot/config/plugins/dynamix/custom.cron \
-#          < deploy/cron/unraid-restore-rehearsal.cron
+# INSTALLED 2026-06-11 (Entry 164, arch-review v3 RC-2). Kept for reference/rebuild.
+#
+# INSTALL (once, after a homeserver rebuild):
+#   1. SSH to homeserver as `root` (claude's passwordless sudo does NOT cover
+#      tee/cat; /boot/config is root-only readable).
+#   2. Append the cron line below (with its comment) to:
+#        /boot/config/plugins/dynamix/custom.cron
 #      Unraid reads /boot/config/plugins/dynamix/*.cron on boot and merges them
-#      into the live crontab (same persistence path as backup.sh and ingest cron).
+#      into /etc/cron.d/root (same persistence path as the ingest cron).
 #   3. Reload cron so the line takes effect without a reboot:
-#        sudo /usr/local/sbin/update_cron
-#   4. Verify:
-#        crontab -l | grep restore-rehearsal
+#        /usr/local/sbin/update_cron
+#   4. Verify (NOT `crontab -l` — dynamix merges into /etc/cron.d/root):
+#        grep restore-rehearsal /etc/cron.d/root
 #
 # SCHEDULE: Sunday 05:30 — after wiki-lint (0 5 * * 0) and before the
 #   production week starts. Staggered per P16 cron-slot audit: 0 5 * * 0
@@ -18,22 +20,24 @@
 #   DO NOT change to 0 5 * * 0 — that slot is occupied.
 #
 # ROLLBACK:
-#   Remove this line from /boot/config/plugins/dynamix/custom.cron and
-#   run update_cron again:
-#     sudo sed -i '/restore-rehearsal/d' /boot/config/plugins/dynamix/custom.cron
-#     sudo /usr/local/sbin/update_cron
-#     crontab -l | grep restore-rehearsal  # should return nothing
+#   Remove the line from /boot/config/plugins/dynamix/custom.cron and
+#   run update_cron again (as root):
+#     sed -i '/restore-rehearsal/d' /boot/config/plugins/dynamix/custom.cron
+#     /usr/local/sbin/update_cron
+#     grep restore-rehearsal /etc/cron.d/root  # should return nothing
 #   Script can remain in repo — it makes no writes unless explicitly invoked.
 #   Ephemeral container (open-brain-rehearsal-pg) uses --rm; no persistent state.
 #
 # LOGS: /var/log/open-brain-restore-rehearsal.log
-#   Rotate manually with: sudo : > /var/log/open-brain-restore-rehearsal.log
+#   Rotate manually with: : > /var/log/open-brain-restore-rehearsal.log
 #   Or via logrotate — add to /etc/logrotate.d/ if log grows large.
 #
 # PUSHOVER: Pass notification (priority 0/normal) and fail notification
 #   (priority 1/high) sent via scripts/lib/pushover-notify.sh.
-#   Requires PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY in environment.
-#   These are set via .env.secrets (loaded by the cron preamble in custom.cron
-#   or by sourcing /mnt/user/appdata/open-brain/.env.secrets before invocation).
+#   Requires PUSHOVER_APP_TOKEN and PUSHOVER_USER_KEY in environment — cron's
+#   env is bare, so the cron line wraps the script in `bash -c 'set -a;
+#   . ./.env.secrets; set +a; ...'` to auto-export them at run time.
+#   (Do NOT put the secrets in custom.cron itself — that copies them onto the
+#   /boot flash drive.)
 
-30 5 * * 0 cd /mnt/user/appdata/open-brain && bash scripts/restore-rehearsal.sh >> /var/log/open-brain-restore-rehearsal.log 2>&1
+30 5 * * 0 cd /mnt/user/appdata/open-brain && bash -c 'set -a; . ./.env.secrets 2>/dev/null; set +a; bash scripts/restore-rehearsal.sh' >> /var/log/open-brain-restore-rehearsal.log 2>&1
