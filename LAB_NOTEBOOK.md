@@ -12241,3 +12241,40 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [observability] [ci] [deploy] [config] [decision]
 **Environment:** ubuntu-vm (dev; homeserver deploy batched with Phases 2+3)
 **Duration:** ~30 min
+
+--- New session: 2026-06-15 — Arch-review v3 Wave 2 Phase 5 (Schema Fidelity Machine, CS-5) ---
+
+## Entry 170 — Phase 5: schema fidelity machine — init-schema regen, two-DB CI parity diff, manual migration ledger, migration 0033 (2026-06-15)  [database] [ci] [config] [decision]
+
+**Objective:** IMPLEMENTATION_PLAN Phase 5 (CS-5) — make init-schema drift self-catching.
+- **5.1 (DA-H1/SA-2)** regenerate `scripts/init-schema.sql` from a fully-migrated scratch DB (was missing `app_settings`/`spreading_activation()`/`lab_results`/`briefs`).
+- **5.2 (DA-H1 CI)** replace the weak validator with a two-DB `pg_dump` parity diff that fails on drift.
+- **5.3** correct the false "single source of truth … through 0031" comments in both integration `setup.ts`.
+- **5.4 (DA-M1/D-3)** manual `schema_migrations` ledger + `migrate-manual.sh`, preserving "no auto-migration".
+- **5.5** migration **0033**: DA-L3 partial-unique `captures_content_hash_idx WHERE deleted_at IS NULL`; DA-L5 `email_classifications` UNIQUE(provider, message_id) after a dedup pre-flight.
+
+**Architecture findings (ground truth, empirically verified against `pgvector/pgvector:pg16`):**
+- `drizzle/0000_initial_schema.sql` is an EMPTY stub (0 non-comment lines) — `drizzle-kit generate` was never actually run. Base DDL (captures, entities, sessions, bets, …) lives ONLY in `scripts/init-schema.sql` (hand-maintained, all `IF NOT EXISTS`). The `0*.sql` files are ADDITIVE deltas applied idempotently on top during deploy. A pure-migration-chain reference DB is therefore impossible — the only canonical schema is `init-schema + all migrations`.
+- Confirmed drift = exactly the 4 objects the review named. init+migrations on a scratch DB → all 4 present, 28 tables. Only 3 benign non-idempotency errors on re-apply (triggers in 0001; ADD CONSTRAINT in 0029/0031) — objects already present, structurally no-ops, tolerated with `ON_ERROR_STOP=0`.
+- **Parity invariant chosen:** "init-schema ALONE ≡ init-schema + all migrations." If every migration is fully absorbed into init-schema, DB-A==DB-B; a future un-back-ported migration (or a hand-edit) trips the diff. Catches the precise DA-H1 class without the larger refactor of moving base DDL into 0000.
+- pg_dump artifacts that MUST be stripped: `\restrict <token>`/`\unrestrict` (random token per run → nondeterministic; also psql-only backslash commands that break node-postgres, which `setup.ts` uses via `pool.query()`) and `-- Dumped from/by` version comments. Shared `scripts/lib/pgdump-normalize.sh` used by BOTH the regenerator and the parity check so they cannot diverge. `setup.ts` closes the load pool before opening the Drizzle connection, so the dump's `set_config('search_path','')` does not leak.
+
+**Hypothesis:** regenerated init-schema applies cleanly via node-postgres Pool (the real setup.ts path) and via `psql ON_ERROR_STOP=1`; parity diff is empty on main, non-empty on synthetic drift; `migrate-manual.sh` is idempotent on a scratch DB. **Rollback:** revert PR (init-schema is git-tracked — old file restorable). Pre-change SHA `dc05538`.
+
+**Implemented:**
+- **5.1 (DA-H1/SA-2):** new `scripts/lib/pgdump-normalize.sh` (shared normalizer — strips `\restrict`/`\unrestrict` tokens, `-- Dumped` version comments, and the `set_config('search_path','')` line) + `scripts/regenerate-init-schema.sh` (self-verifying: builds init+migrations on a scratch DB, dumps+normalizes, round-trips the result on a 2nd clean DB before replacing the file). Regenerated `scripts/init-schema.sql` (866 → 1898 lines) — a faithful, **deterministic** snapshot now including `app_settings`, `spreading_activation()`, `lab_results`, `briefs`.
+- **5.2 (DA-H1 CI):** `scripts/validate-init-schema.sh` rewritten as a two-DB parity diff (DB-A init-schema-only vs DB-B init-schema+all-migrations, normalized `pg_dump`, fail on diff). Same CI job `Validate init-schema.sql`, unconditional.
+- **5.3:** both integration `setup.ts` docstrings corrected (generated + CI-parity-checked, not "single source of truth through 0031"); `applySchema()` now **applies-once-then-skips** (`SELECT to_regclass('public.captures')`) — required because a pg_dump snapshot is NOT idempotent on re-apply (`CREATE TYPE`/`CREATE TABLE`/`ADD CONSTRAINT`), and the suites run single-fork serial so this exactly matches the prior IF-NOT-EXISTS no-op behavior.
+- **5.4 (DA-M1/D-3):** `scripts/migrate-manual.sh` (modes: apply / `--baseline NNNN` / `--status` / `--dry-run`) + a manual `schema_migrations` ledger, kept **orthogonal** to the app schema (created by the script, not in init-schema/migrations → parity-neutral). CLAUDE.md deploy rule rewritten to the ledger model (init-schema snapshot → `--baseline <latest>` → `migrate-manual.sh` for newer; no more "init + ALL migrations").
+- **5.5 (migration 0033, `0033_schema_correctness`):** DA-L3 partial-unique `captures_content_hash_idx WHERE deleted_at IS NULL` (soft-deleted content re-ingestable; live-dup 23505 preserved — `capture.ts` catches by code, no `ON CONFLICT` inference); DA-L5 `email_classifications` UNIQUE(provider, message_id) after a ctid dedup pre-flight.
+
+**Surprises (regeneration exposed real cruft — root-caused, not patched):**
+- **Duplicate search-function overloads in prod:** `hybrid_search`/`fts_only_search` each had TWO overloads — migration 0009 added filtered signatures but never dropped the pre-0009 short forms. Surfaced as the `smoke.test` `toHaveLength(1)` failure. Confirmed `services/search.ts` calls ONLY the filtered forms → dropped the dead 5-arg `hybrid_search` + 2-arg `fts_only_search` in 0033 (also removes an overload-resolution ambiguity). init-schema 2005 → 1898 lines after cleanup.
+- **`\restrict <token>`** is per-dump-random (would diff every regen) AND a psql-only backslash command that **breaks node-postgres** (`setup.ts` uses `pool.query`) — the normalizer is load-bearing for both stability and node-pg compat.
+- **`0000_initial_schema.sql` is an empty stub**; base DDL lives only in init-schema, the `0*.sql` files are additive deltas → the parity invariant must be "init ≡ init+migrations", not a pure-chain rebuild.
+
+**Verification:** `pnpm -r lint` clean (tsc all packages incl. tests). Parity validator **PASS on main**, proven to **FAIL (exit 1, diff shown) on an injected `0034_` drift**. Regeneration **deterministic** (byte-identical 2nd run). node-pg `setup.ts` smoke: applies clean → 28 tables, all 4 drifted objects reachable. `migrate-manual.sh` idempotent (`--baseline 0033` → apply no-op → +fake 0034 applies once → no-op). **core-api unit 1188/1188, coverage 85.63% lines (gate 80) PASS · core-api integration 131/131 · workers integration 14 passed/2 skipped.** Migration 0033 applies idempotently. **NOT yet deployed** (batched with Phases 2–4; on the homeserver, after `init-schema.sql`, run `migrate-manual.sh --baseline 0033`).
+
+**Tags:** [database] [ci] [config] [decision]
+**Environment:** ubuntu-vm (dev/test; homeserver deploy batched with Phases 2–4). postgresql-client 16 installed on the VM for script testing.
+**Duration:** ~90 min
