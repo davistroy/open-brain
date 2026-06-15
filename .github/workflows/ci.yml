@@ -207,7 +207,11 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql://openbrain_test:test_password@localhost:5433/openbrain_test
           TEST_REDIS_URL: redis://localhost:6381
-          INGEST_E2E: '1'  # QA-M3: run the sidecar e2e suite (was always skipped)
+          # QA-M3 (INGEST_E2E) intentionally NOT enabled here: the e2e suite's
+          # docstring requires a full stack (core-api + workers + sidecar), but
+          # docker-compose.test.yml only runs postgres + redis + sidecar. Enabling
+          # the flag without standing up core-api/workers fails (no :3002). Tracked
+          # as a follow-up — needs the full-stack test compose, not a one-liner.
           NODE_ENV: test
 
       - name: Dump service logs on failure
