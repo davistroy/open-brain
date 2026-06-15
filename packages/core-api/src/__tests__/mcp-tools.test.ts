@@ -127,6 +127,38 @@ describe('search_brain tool', () => {
     expect(result).toContain('No captures found')
   })
 
+  it('filters by tag_filter: only captures with ALL requested tags pass', async () => {
+    // mockCapture has tags ['qsr', 'pricing'] — matches tag_filter ['qsr']
+    const resultMatch = await searchBrainTool(
+      { query: 'test', limit: 10, threshold: 0.0, tag_filter: ['qsr'], include_related: true },
+      mockSearchService as any,
+    )
+    expect(resultMatch).toContain(mockCapture.id)
+    expect(resultMatch).not.toContain('No captures found')
+
+    // tag_filter ['qsr', 'pricing'] — still matches (AND: capture has both)
+    mockSearchService.searchWithRelated.mockResolvedValueOnce({
+      results: [{ capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 }],
+      relatedResults: [],
+    })
+    const resultBothTags = await searchBrainTool(
+      { query: 'test', limit: 10, threshold: 0.0, tag_filter: ['qsr', 'pricing'], include_related: true },
+      mockSearchService as any,
+    )
+    expect(resultBothTags).toContain(mockCapture.id)
+
+    // tag_filter ['restaurant'] — mockCapture lacks 'restaurant'; should return no results
+    mockSearchService.searchWithRelated.mockResolvedValueOnce({
+      results: [{ capture: mockCapture, score: 0.85, ftsScore: 0.8, vectorScore: 0.9 }],
+      relatedResults: [],
+    })
+    const resultNoMatch = await searchBrainTool(
+      { query: 'test', limit: 10, threshold: 0.0, tag_filter: ['restaurant'], include_related: true },
+      mockSearchService as any,
+    )
+    expect(resultNoMatch).toContain('No captures found')
+  })
+
   it('includes related captures section when include_related is true', async () => {
     const result = await searchBrainTool(
       { query: 'QSR pricing', limit: 10, threshold: 0.0, include_related: true },

@@ -700,6 +700,68 @@ describe('SearchService', () => {
   })
 
   // -------------------------------------------------------------------------
+  // SE-10: vector search mode passes fts_weight=0 to hybrid_search
+  // -------------------------------------------------------------------------
+
+  describe('SE-10 — searchMode=vector sets fts_weight=0', () => {
+    it('passes fts_weight=0 to hybrid_search when searchMode is vector', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.0, vector_score: 0.8 }]
+      const execute = vi.fn()
+      // Call 1: SET hnsw.ef_search (P13)
+      execute.mockResolvedValueOnce({ rows: [] })
+      // Call 2: hybrid_search
+      execute.mockResolvedValueOnce({ rows: hybridRows })
+      // Call 3: SELECT captures
+      execute.mockResolvedValueOnce({ rows: [capture] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+
+      await service.search('pure vector query', { searchMode: 'vector', ftsWeight: 0.5 })
+
+      // The hybrid_search SQL call is the 2nd execute. Stringify the SQL object
+      // to verify fts_weight 0 was passed (not the caller-supplied 0.5).
+      const hybridCallArg = JSON.stringify(execute.mock.calls[1][0])
+      // The SQL template encodes numeric values in queryChunks; '0' for ftsWeight
+      // must appear and '0.5' must NOT appear as the fts_weight argument.
+      // We check that execute was called 3 times (correct path) and embedding was called.
+      expect(execute).toHaveBeenCalledTimes(3)
+      expect(embeddingService.embed).toHaveBeenCalledOnce()
+      // Verify fts_weight value: Drizzle sql`` encodes numeric params as bare JSON numbers
+      // in queryChunks. The effective fts_weight must be 0 (not the caller-supplied 0.5).
+      // We check the serialized arg contains ,0, (the ftsWeight slot) and NOT ,0.5,
+      // in the position after the vector literal and limit.
+      // Simpler: parse queryChunks and find the numeric param slots directly.
+      const chunks = JSON.parse(hybridCallArg).queryChunks as unknown[]
+      // queryChunks alternates SQL strings and param values. Filter to just numbers.
+      const numericParams = chunks.filter((c): c is number => typeof c === 'number')
+      // params in order: limit(10), ftsWeight(0), vectorWeight(0.5)
+      expect(numericParams[0]).toBe(10)    // limit
+      expect(numericParams[1]).toBe(0)     // effectiveFtsWeight — must be 0 for vector mode
+      expect(numericParams[2]).toBe(0.5)   // vectorWeight
+    })
+
+    it('passes caller fts_weight when searchMode is hybrid (unchanged)', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+
+      const service = new SearchService(db as any, embeddingService as any)
+
+      const results = await service.search('hybrid query', { searchMode: 'hybrid', ftsWeight: 0.4 })
+
+      expect(results).toHaveLength(1)
+      // 3 calls: SET hnsw + hybrid_search + captures
+      expect(db.execute).toHaveBeenCalledTimes(3)
+      // Drizzle sql`` encodes numeric params as bare JSON numbers in queryChunks.
+      const hybridCallChunks = (JSON.parse(JSON.stringify(db.execute.mock.calls[1][0])).queryChunks as unknown[])
+      const numericParams = hybridCallChunks.filter((c): c is number => typeof c === 'number')
+      // params in order: limit(10), ftsWeight(0.4), vectorWeight(0.5)
+      expect(numericParams[1]).toBe(0.4)   // caller-supplied ftsWeight preserved in hybrid mode
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // EmbeddingUnavailableError propagation
   // -------------------------------------------------------------------------
 
