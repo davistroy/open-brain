@@ -639,7 +639,7 @@ describe('MorningBriefSkill — Slack DM delivery', () => {
 
     expect(result.slackSent).toBe(true)
     const slackCalls = fetchMock.mock.calls.filter(
-      (c: [string, ...unknown[]]) => typeof c[0] === 'string' && c[0].includes('slack.com'),
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('slack.com'),
     )
     expect(slackCalls.length).toBe(1)
 
@@ -661,7 +661,7 @@ describe('MorningBriefSkill — Slack DM delivery', () => {
 
     expect(result.slackSent).toBe(false)
     const slackCalls = fetchMock.mock.calls.filter(
-      (c: [string, ...unknown[]]) => typeof c[0] === 'string' && c[0].includes('slack.com'),
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('slack.com'),
     )
     expect(slackCalls.length).toBe(0)
   })

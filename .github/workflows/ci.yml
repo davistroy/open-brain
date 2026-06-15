@@ -48,6 +48,12 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      - name: Secrets redaction guard
+        run: bash scripts/test-backup-secrets-redaction.sh
+
+      - name: Secrets round-trip guard
+        run: bash scripts/test-secrets-roundtrip.sh
+
   sidecar-test:
     name: Sidecar tests (Python)
     runs-on: ubuntu-latest
@@ -129,18 +135,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect schema-related changes
-        id: diff
-        run: |
-          CHANGED=$(git diff --name-only origin/main...HEAD 2>/dev/null || git diff --name-only HEAD~1...HEAD)
-          if echo "$CHANGED" | grep -qE '(scripts/init-schema\.sql|packages/shared/drizzle/|packages/shared/src/schema/)'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Run schema validator
-        if: steps.diff.outputs.changed == 'true'
+        # Unconditional (QA-L11, 2026-06-15): previously gated on a schema-path
+        # diff, which let init-schema drift slip through PRs that didn't touch
+        # those paths. Phase 5 (DA-H1) replaces this with a two-DB parity diff.
         run: bash scripts/validate-init-schema.sh
 
   python-lint:
@@ -209,6 +207,11 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql://openbrain_test:test_password@localhost:5433/openbrain_test
           TEST_REDIS_URL: redis://localhost:6381
+          # QA-M3 (INGEST_E2E) intentionally NOT enabled here: the e2e suite's
+          # docstring requires a full stack (core-api + workers + sidecar), but
+          # docker-compose.test.yml only runs postgres + redis + sidecar. Enabling
+          # the flag without standing up core-api/workers fails (no :3002). Tracked
+          # as a follow-up — needs the full-stack test compose, not a one-liner.
           NODE_ENV: test
 
       - name: Dump service logs on failure

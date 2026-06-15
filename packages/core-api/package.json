@@ -14,7 +14,7 @@
     "build": "tsup src/index.ts --format esm --dts",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run --coverage --passWithNoTests",
     "test:integration": "vitest run -c vitest.config.integration.ts",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"

@@ -5,7 +5,7 @@ import type { AgentResult } from '@open-brain/shared'
 // ---------------------------------------------------------------------------
 // Mock runAgent
 // ---------------------------------------------------------------------------
-const mockRunAgent = vi.fn<any[], Promise<AgentResult>>()
+const mockRunAgent = vi.fn<(...args: any[]) => Promise<AgentResult>>()
 
 vi.mock('@open-brain/shared', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
