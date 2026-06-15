@@ -34,6 +34,7 @@ unset _bash_major
 # -----------------------------------------------------------------------------
 declare -A REQUIRED_SECRETS=(
   ["open-brain-postgres-password"]="POSTGRES_PASSWORD"
+  ["open-brain-redis-password"]="REDIS_PASSWORD"
   ["open-brain-openai-api-key"]="OPENAI_API_KEY"
   ["open-brain-mcp-api-key"]="MCP_API_KEY"
   ["open-brain-admin-api-key"]="ADMIN_API_KEY"

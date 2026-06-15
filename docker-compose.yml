@@ -20,9 +20,9 @@ services:
     environment:
       POSTGRES_DB: openbrain
       POSTGRES_USER: openbrain
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-openbrain_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — see deploy/.env.secrets.template}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./config/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
@@ -58,12 +58,14 @@ services:
     image: redis:7-alpine
     container_name: open-brain-redis
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes
+    # requirepass (SEC-08) + bounded memory with noeviction (PE-M3): BullMQ enqueue
+    # must fail loudly under back-pressure, never silently evict job state.
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set — see deploy/.env.secrets.template} --maxmemory 400mb --maxmemory-policy noeviction
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -101,7 +103,7 @@ services:
       NODE_ENV: production
       PORT: "3000"
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       OPENAI_BASE_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
@@ -116,7 +118,10 @@ services:
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
       # SLACK_USER_TOKEN: set in .env.secrets (xoxp-... user token for channel cleanup — requires channels:history, chat:write scopes)
     ports:
-      - "3002:3000"
+      # Dual-bind (ADR-0002): loopback for host + Tailscale IP for OpenClaw MCP
+      # (bond.k4jda.net → 100.101.61.122:3002/mcp). NOT 0.0.0.0 — closes the LAN.
+      - "127.0.0.1:3002:3000"
+      - "${TAILSCALE_IP:-100.101.61.122}:3002:3000"
     volumes:
       - ./config:/app/config:ro
       - admin_prewipe_backup:/backup/pre-wipe
@@ -164,7 +169,7 @@ services:
     environment:
       NODE_ENV: production
       POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       OPENAI_BASE_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
@@ -232,7 +237,7 @@ services:
     environment:
       NODE_ENV: production
       CORE_API_URL: http://core-api:3000
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       OPENAI_BASE_URL: https://api.openai.com/v1
       NODE_OPTIONS: "--max-old-space-size=1200"
       # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
@@ -276,7 +281,7 @@ services:
     environment:
       # DEEPGRAM_API_KEY: set in .env.secrets
       # ANTHROPIC_API_KEY: set in .env.secrets
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       CORE_API_URL: http://core-api:3000
     ports:
       - "8765:8765"   # WebSocket for Pipecat audio streams
@@ -343,7 +348,7 @@ services:
       PORT: "8080"
       LOG_LEVEL: "INFO"
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ${STAGING_DIR:-/mnt/user/openbrain/staging}:/data/staging:ro
     depends_on:
@@ -387,7 +392,7 @@ services:
       WHISPER__DEVICE: cpu
       WHISPER__COMPUTE_TYPE: int8
     ports:
-      - "10300:8000"
+      - "127.0.0.1:10300:8000"
     volumes:
       - whisper_model_cache:/root/.cache/huggingface
     healthcheck:
@@ -500,10 +505,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-    deploy:
-      resources:
-        limits:
-          memory: 512m
+    # mem_limit (not deploy.resources, which `docker compose` ignores outside
+    # swarm — PLT-L2): matches every other service and actually takes effect.
+    mem_limit: 512m
     networks:
       - open-brain
     restart: unless-stopped
@@ -634,7 +638,7 @@ services:
       - loki_data:/loki/data
       - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     mem_limit: 512m
     networks:
@@ -654,7 +658,7 @@ services:
     image: prom/pushgateway:latest
     container_name: open-brain-pushgateway
     ports:
-      - "9091:9091"
+      - "127.0.0.1:9091:9091"
     mem_limit: 128m
     networks:
       - open-brain
@@ -675,7 +679,7 @@ services:
       - ./config/prometheus/alerts:/etc/prometheus/alerts:ro
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -700,7 +704,7 @@ services:
     image: grafana/grafana:latest
     container_name: open-brain-grafana
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — see deploy/.env.secrets.template}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_SERVER_HTTP_PORT: "3050"
     volumes:
