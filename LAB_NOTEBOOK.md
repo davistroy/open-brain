@@ -12163,3 +12163,30 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [test] [config] [ci] [debug] [decision]
 **Environment:** ubuntu-vm (dev); GitHub branch protection API
 **Duration:** ~50 min
+
+--- New session: 2026-06-15 — Arch-review v3 Phase 2 (LAN perimeter, CS-1/ADR-0002) ---
+
+## Entry 167 — Phase 2: LAN perimeter hardening — compose bindings + Redis auth + fail-closed creds (2026-06-15)  [config] [deploy] [security] [decision]
+
+**Objective:** Implement IMPLEMENTATION_PLAN Phase 2 (CS-1, ADR-0002): close the LAN attack surface (SEC-02/08/11, PLT-L1/L2/L3, PE-M3) by binding data-store ports to loopback, dual-binding core-api for Tailscale MCP, adding Redis requirepass + bounded memory, and failing closed on default credentials.
+
+**Hypothesis:** `docker compose config` renders correct host_ip bindings; the P08 secret lockstep for the new REDIS_PASSWORD passes the round-trip guard; CI stays green (CI exercises docker-compose.test.yml, not the main compose). **Rollback plan:** revert the PR; on the homeserver, `git checkout` the prior compose + `docker compose up -d --force-recreate`. Pre-change SHA: 3261ac9.
+
+**Implemented (verified via rendered `docker compose config`, exit 0):**
+- **SEC-02:** `127.0.0.1` bind for postgres:5432, redis:6380, file-ingestion:8080, faster-whisper:10300, loki:3100, prometheus:9090, pushgateway:9091. **core-api dual-bind** `127.0.0.1:3002` + `${TAILSCALE_IP:-100.101.61.122}:3002` (OpenClaw MCP survives). web-next:3003 + grafana:3050 stay LAN (owner's browser). voice-capture:3001 deferred to Phase 8 (needs Bearer auth first); voice-pipecat:8765/8766 left (client-facing WS, out of ADR scope).
+- **SEC-08 + PE-M3:** redis `--requirepass ${REDIS_PASSWORD:?...} --maxmemory 400mb --maxmemory-policy noeviction`; healthcheck switched to authenticated `redis-cli -a … ping`. All 4 consumers' REDIS_URL → `redis://:${REDIS_PASSWORD}@redis:6379`.
+- **SEC-11 + PLT-L1:** `POSTGRES_PASSWORD` and `GRAFANA_ADMIN_PASSWORD` fail-closed (`:?`, removed `:-openbrain_dev`/`:-admin`).
+- **PLT-L2:** web-next `deploy.resources.limits.memory` (ignored outside swarm) → `mem_limit: 512m` (now actually enforced).
+- **P08 lockstep for REDIS_PASSWORD (hex, openssl rand -hex 32):** added to `deploy/.env.secrets.template`, `scripts/lib/secrets-map.sh` (`open-brain-redis-password`), `.env.example` (+ TAILSCALE_IP), and the round-trip test fixture. The round-trip guard (now a CI step from Phase 1) **caught the incomplete lockstep** when the fixture lacked the new secret — fixed; 6/6 pass.
+
+**Key deploy subtlety discovered:** compose `${VAR}` interpolation reads the shell/`.env` (auto-loaded), NOT the `env_file: .env.secrets` directive. So the fail-closed vars (POSTGRES_PASSWORD already present; REDIS_PASSWORD + GRAFANA_ADMIN_PASSWORD NEW) must be in the homeserver's `.env` at `docker compose up` time, not only `.env.secrets`.
+
+**NOT YET DEPLOYED — deploy is the deliberate next step (homeserver):**
+1. `bws secret create open-brain-redis-password <openssl rand -hex 32>`; set/confirm `open-brain-grafana-admin-password`.
+2. Stage REDIS_PASSWORD + GRAFANA_ADMIN_PASSWORD (and confirm POSTGRES_PASSWORD) in homeserver `.env` (interpolation source).
+3. `docker compose up -d --force-recreate` (logging/binding changes need force-recreate).
+4. Verify: `nmap <lan-ip>` shows only 3003/3050 of this stack; from bond `curl 100.101.61.122:3002/api/v1/captures?limit=1` (MCP bearer) still works; one search round-trips (Redis auth); grafana login with new password.
+
+**Tags:** [config] [deploy] [security] [decision]
+**Environment:** ubuntu-vm (dev — config validation only; NO production change yet)
+**Duration:** ~40 min (in progress — deploy pending)

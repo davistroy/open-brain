@@ -116,6 +116,7 @@ export BWS_ACCESS_TOKEN="mock-token-not-used"
 KEYSET_FILE="${WORK_DIR}/bws-keyset.txt"
 cat > "${KEYSET_FILE}" <<'EOF'
 open-brain-postgres-password
+open-brain-redis-password
 open-brain-openai-api-key
 open-brain-mcp-api-key
 open-brain-admin-api-key
