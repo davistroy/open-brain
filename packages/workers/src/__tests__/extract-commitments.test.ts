@@ -152,7 +152,7 @@ describe('processExtractCommitmentsJob', () => {
     // Find the commitment insert (not pipeline_events or entities)
     // It's the one passed to 'commitments' table - check values arg has status
     const commitmentInsertValues = insertCalls.find(
-      ([_table]: [unknown]) => {
+      (_call: any[]) => {
         // The call is db.insert(commitments).values({...}) — we look for the values call
         return true
       },

@@ -532,7 +532,7 @@ describe('DailySweepSkill', () => {
       const capturePostCall = mockFetch.mock.calls.find(
         (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('/api/v1/captures'),
       )
-      const fetchBody = JSON.parse(capturePostCall[1].body)
+      const fetchBody = JSON.parse(capturePostCall![1].body)
       expect(fetchBody.capture_type).toBe('reflection')
       expect(fetchBody.brain_view).toBe('personal')
       expect(fetchBody.tags).toEqual(['daily-sweep', 'skill-output'])

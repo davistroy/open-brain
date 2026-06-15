@@ -53,16 +53,13 @@ const fakeAudioBlob = new Blob(['fake audio data'], { type: 'audio/mp4' })
 // ---------------------------------------------------------------------------
 
 describe('POST /api/v1/voice-captures', () => {
-  // Typed as MockInstance<Parameters<typeof fetch>, ReturnType<typeof fetch>>
-  // to satisfy lib.dom.d.ts — avoids the "unknown[] vs [string | Request | URL, ...]"
-  // variance error described in CLAUDE.md test patterns.
-  let fetchSpy: MockInstance<Parameters<typeof fetch>, ReturnType<typeof fetch>>
+  // Vitest 2.x: MockInstance takes a single function-type arg (was 2 args in 1.x).
+  // `typeof fetch` is the full signature — satisfies lib.dom.d.ts and avoids the
+  // "unknown[] vs [string | Request | URL, ...]" variance error in CLAUDE.md patterns.
+  let fetchSpy: MockInstance<typeof fetch>
 
   beforeEach(() => {
-    fetchSpy = vi.spyOn(global, 'fetch') as MockInstance<
-      Parameters<typeof fetch>,
-      ReturnType<typeof fetch>
-    >
+    fetchSpy = vi.spyOn(global, 'fetch') as MockInstance<typeof fetch>
   })
 
   afterEach(() => {
