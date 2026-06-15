@@ -107,10 +107,10 @@ Every work item below complies with these. Three are **flagged decisions** the o
 
 | # | Work item | Files | Acceptance criteria | Status |
 |---|-----------|-------|---------------------|--------|
-| 4.1 | **PLT-H2**: workers-staleness alerting | `config/prometheus/alerts/pipeline.yml`, `docker-compose.yml` | Prometheus rule fires when `time() - push_time_seconds{instance="workers"} > 1500` (25 min vs 15-min cadence) + an `absent()` rule on a keystone gauge; workers + slack-bot get `node -e 0`-class healthchecks, cloudflared a `/ready` probe. | PENDING |
-| 4.2 | **PLT-H1 (+PLT-RI-2)**: web-next CI image | `.github/workflows/build-images.yml` | build-images builds + pushes `ghcr.io/davistroy/open-brain/web-next` with `API_URL` build-arg; post-merge the GHCR tag exists and is current. | PENDING |
-| 4.3 | **PLT-H3 / SA-3**: Loki driver URL + runbook | `docker-compose.yml`, `docs/runbooks/observability.md` | compose Loki default points to a host-reachable URL (not daemon-unresolvable `loki:3100`); observability.md Step 6 no longer instructs the broken value; logs appear in Loki after `--force-recreate`. | PENDING |
-| 4.4 | **PE-L5**: non-blocking log driver | `docker-compose.yml` | shared `x-logging` anchor adds `mode: non-blocking` + `max-buffer-size`; a slow Loki no longer back-pressures container stdout. | PENDING |
+| 4.1 | **PLT-H2**: workers-staleness alerting | `config/prometheus/alerts/pipeline.yml`, `docker-compose.yml` | Prometheus rule fires when `time() - push_time_seconds{instance="workers"} > 1500` (25 min vs 15-min cadence) + an `absent()` rule on a keystone gauge; workers + slack-bot get `node -e 0`-class healthchecks, cloudflared a `/ready` probe. | COMPLETE 2026-06-15 (deploy pending) |
+| 4.2 | **PLT-H1 (+PLT-RI-2)**: web-next CI image | `.github/workflows/build-images.yml` | build-images builds + pushes `ghcr.io/davistroy/open-brain/web-next` with `API_URL` build-arg; post-merge the GHCR tag exists and is current. | COMPLETE 2026-06-15 (deploy pending) |
+| 4.3 | **PLT-H3 / SA-3**: Loki driver URL + runbook | `docker-compose.yml`, `docs/runbooks/observability.md` | compose Loki default points to a host-reachable URL (not daemon-unresolvable `loki:3100`); observability.md Step 6 no longer instructs the broken value; logs appear in Loki after `--force-recreate`. | COMPLETE 2026-06-15 (deploy pending) |
+| 4.4 | **PE-L5**: non-blocking log driver | `docker-compose.yml` | shared `x-logging` anchor adds `mode: non-blocking` + `max-buffer-size`; a slow Loki no longer back-pressures container stdout. | COMPLETE 2026-06-15 (deploy pending) |
 
 **DoD (runnable):** stop workers on a test basis → Pushover staleness alert fires within the window · `docker compose pull` retrieves a fresh web-next image · `{container_name="open-brain-core-api"}` shows recent lines in Grafana Loki explorer.
 

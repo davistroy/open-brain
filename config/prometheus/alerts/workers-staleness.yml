@@ -1,0 +1,81 @@
+# Prometheus alert rules — workers Pushgateway staleness
+# Metric source: Pushgateway auto-metric (job=open-brain, instance=workers)
+# Pushgateway retains the last pushed value forever — if workers dies, every
+# metric it pushed (container health, queue depth, etc.) stays frozen at its
+# last good value, causing all downstream alerts to appear healthy even though
+# the system is dark.
+#
+# Detection strategy:
+#   push_time_seconds{job="open-brain", instance="workers"} — Pushgateway
+#   automatically records the Unix timestamp of the most recent push for each
+#   job/instance pair. Workers pushes container-health every 15 minutes;
+#   25 minutes (1.6× interval) is the staleness threshold.
+#
+# Two distinct failure modes are covered:
+#   PushgatewayStale     — workers pushed recently but now has gone quiet
+#                          (workers process dead, crashed, or network split)
+#   WorkersMetricsAbsent — the Pushgateway series itself is missing
+#                          (Pushgateway restarted and lost state, or workers
+#                          never successfully pushed even once)
+#
+# Related code: packages/workers/src/skills/container-health.ts
+#               packages/workers/src/lib/push-metrics.ts (push path)
+
+groups:
+  - name: open-brain-workers-staleness
+    interval: 1m
+    rules:
+      - alert: PushgatewayStale
+        # Fires when workers has not pushed to Pushgateway for >25 minutes.
+        # The container-health skill pushes every 15 minutes; 25 minutes = ~1.6×
+        # the push interval, giving one full missed cycle plus a margin before
+        # paging. All Pushover-capable skills live in the workers container, so
+        # a dead workers process silences ALL downstream alerting.
+        expr: time() - push_time_seconds{job="open-brain", instance="workers"} > 1500
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Workers container has not pushed metrics for 25+ minutes — all alerting may be frozen"
+          description: >
+            The workers container last pushed to Pushgateway more than 25 minutes ago.
+            Because Pushgateway retains stale values forever, all container-health and
+            queue-depth metrics are frozen at their last known good state.
+            This means ContainerDown and queue-saturation alerts will NOT fire even if
+            containers are unhealthy or queues are backing up.
+            Immediate checks:
+              docker ps --filter name=open-brain-workers (on homeserver)
+              docker logs open-brain-workers-1 --tail 50
+              docker compose restart workers
+            If workers is running but not pushing, check PUSHGATEWAY_URL in .env.secrets
+            and verify pushgateway container is healthy.
+          runbook: "docs/runbooks/container-health-alert.md"
+
+      - alert: WorkersMetricsAbsent
+        # Fires when the openbrain_container_healthy series is entirely absent.
+        # This is distinct from PushgatewayStale: absent() triggers when
+        # Pushgateway has no record of the metric at all — either workers never
+        # successfully pushed (first-boot failure, misconfigured job label) or
+        # Pushgateway was restarted and lost its in-memory state.
+        # 10-minute for: window absorbs a single Pushgateway restart + workers
+        # re-push cycle (15 min push interval) without false-paging.
+        expr: absent(openbrain_container_healthy{job="open-brain"})
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No container-health metrics received from workers — push pipeline may be down"
+          description: >
+            The openbrain_container_healthy metric is completely absent from Prometheus.
+            This is different from PushgatewayStale (which fires when push_time_seconds
+            exists but is old). WorkersMetricsAbsent fires when Pushgateway has no record
+            of the metric at all, indicating one of:
+              1. Pushgateway restarted and lost all pushed state (most common)
+              2. Workers container has never successfully pushed (boot failure, bad PUSHGATEWAY_URL)
+              3. The job or instance label in push-metrics.ts was changed and no longer
+                 matches job="open-brain"
+            Immediate checks:
+              curl http://pushgateway:9091/metrics | grep openbrain_container_healthy
+              docker logs open-brain-workers-1 --tail 50 | grep -i push
+              docker logs open-brain-pushgateway-1 --tail 20
+          runbook: "docs/runbooks/container-health-alert.md"
