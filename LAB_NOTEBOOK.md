@@ -12139,3 +12139,25 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Environment:** ubuntu-vm (static analysis only)
 **Duration:** ~40 min (8 parallel investigation agents + synthesis)
 
+
+--- New session: 2026-06-15 — Arch-review v3 remediation execution (/implement-plan, Phase 1) ---
+
+## Entry 166 — Phase 1 (CI gates) execution: gate activation surfaced + fixed real drift (2026-06-15)  [test] [config] [ci] [debug] [decision]
+
+**Objective:** Execute IMPLEMENTATION_PLAN.md Phase 1 (activate dormant CI gates, CS-2) on branch `feat/arch-v3-phase1-ci-gates`. Item 1.1 (measure coverage before enabling) is the gate for 1.2 per unknown U-1.
+
+**Hypothesis:** coverage clears the configured thresholds; flip gates on. **Result: U-1 resolved UNFAVORABLY — and turning the gates on surfaced exactly the drift QA-H1/H2 predicted.** Findings, all pre-existing on main (undetected because `build-and-test` is not a required check — the QA-H2 finding, literally manifest):
+
+1. **Stale unit test (RED on main):** `synthesize-routes.test.ts` asserted `limit: 10` but `ce1dcad` (2026-05-09) intentionally changed the synthesize default to `5` (Spark 32k context overflow). Code changed, test didn't, merged red. **Fixed** the assertion → core-api 1180/1180.
+2. **11 tsc errors across test files (vitest 1.x→2.x type drift):** 2 in core-api `voice-captures.test.ts` + 9 in workers (`wiki-ingest`, `wiki-lint`, `daily-sweep-skill`, `extract-commitments`, `morning-brief`). `MockInstance<Args,Return>` → single-arg `MockInstance<fn>`; tightened mock overloads. All test-only, no behavior change. **Fixed** (workers fix delegated to a sub-agent) → all packages `tsc --noEmit` clean, workers 1028/1028.
+3. **Coverage measured:** core-api **85.57% lines / 85.66% funcs** (passes 80/80) — gate enabled. workers **74.02% lines** vs 78 floor (functions 82.08% pass; 4 per-file 100% locks pass). Eroded ~4.8pt from the 2026-05-07 baseline (78.79%) while the gate was dormant. Gap = **447 lines**, concentrated in 3 large 0%-covered job files (`jobs/skill-execution.ts` 484, `scheduler.ts` 280, `jobs/ingest-process.ts` 202). **Constitution: raise coverage, never lower the threshold** → workers `--coverage` enablement DEFERRED (decision surfaced to owner: write ~½-day of tests now vs dedicated catch-up PR).
+
+**Shipped (Phase 1 Part A — PR):** stale-test fix; 11 tsc fixes; core-api `test` runs `--coverage` (gate ON); secrets-redaction + round-trip guards as CI steps (1.5); `INGEST_E2E=1` on workers integration step (1.4); `validate-schema` unconditional (1.6, verified passing); web-next `test` → `vitest run` (1.7); CLAUDE.md gate-status corrected (1.8). build-and-test promoted to required check (1.3, gh api) — now possible since the suite is green. Full repo lint exit 0.
+
+**Deferred (Phase 1 Part B):** workers `--coverage` enablement, pending the 447-line test catch-up. Threshold NOT lowered.
+
+**Rollback plan:** revert the PR; `gh api ... --method PUT` to restore the single-context required-check list.
+
+**Tags:** [test] [config] [ci] [debug] [decision]
+**Environment:** ubuntu-vm (dev); GitHub branch protection API
+**Duration:** ~50 min

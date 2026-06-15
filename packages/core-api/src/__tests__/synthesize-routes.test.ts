@@ -163,7 +163,7 @@ describe('POST /api/v1/synthesize', () => {
     expect(llmGateway.completeByTask).toHaveBeenCalledOnce()
   })
 
-  it('uses the default limit of 10 when not provided', async () => {
+  it('uses the default limit of 5 when not provided', async () => {
     const app = buildApp(searchService, llmGateway)
     const { status } = await testJson(app, '/api/v1/synthesize', {
       method: 'POST',
@@ -173,7 +173,9 @@ describe('POST /api/v1/synthesize', () => {
     expect(status).toBe(200)
     expect(searchService.search).toHaveBeenCalledWith(
       'defaulted query',
-      expect.objectContaining({ limit: 10, searchMode: 'hybrid' }),
+      // Default is 5, not 10 (ce1dcad, 2026-05-09): file captures @ 50k chars
+      // overflow the 32k Spark context at limit 10.
+      expect.objectContaining({ limit: 5, searchMode: 'hybrid' }),
     )
   })
 
