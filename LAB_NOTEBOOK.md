@@ -12217,3 +12217,27 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [pipeline] [api] [database] [test] [decision]
 **Environment:** ubuntu-vm (dev/test; migration 0032 + worker/core-api redeploy pending the batched homeserver deploy)
 **Duration:** ~30 min (4 parallel implementers + verification)
+
+--- New session: 2026-06-15 — Arch-review v3 Phase 4 (Alerting SPOF & deploy pipeline, CS-4) ---
+
+## Entry 169 — Phase 4: observability/deploy hardening — workers SPOF alerts, web-next CI image, Loki driver fix (2026-06-15)  [observability] [ci] [deploy] [config] [decision]
+
+**Objective:** IMPLEMENTATION_PLAN Phase 4 (CS-4): close the workers alerting SPOF (PLT-H2), build the production UI image in CI (PLT-H1), fix the silent-log-drop Loki driver URL (PLT-H3/SA-3), and stop log back-pressure (PE-L5). Finishes Wave 1.
+
+**Hypothesis:** config-only (no TS) → required CI checks pass trivially; `docker compose config` + prometheus/CI YAML validate. **Rollback:** revert PR. Pre-change SHA 44c9a7b.
+
+**Method:** 3 parallel sub-agents on disjoint files (prometheus rules / build-images.yml / observability.md) + orchestrator did the docker-compose coordination (one file).
+
+**Implemented:**
+- **PLT-H2** (High): new `config/prometheus/alerts/workers-staleness.yml` (auto-included via `alerts/*.yml` glob) — `PushgatewayStale` (`time() - push_time_seconds{job=open-brain,instance=workers} > 1500`, 5m) + `WorkersMetricsAbsent` (`absent(openbrain_container_healthy{job=open-brain})`, 10m), both critical. These detect the case where workers dies and every pushed gauge freezes at "healthy". Plus liveness healthchecks on **workers** + **slack-bot** (`node -e 'process.exit(0)'` — node images; real detection is the staleness rules since a wedged event loop still passes).
+- **PLT-H1** (High): `web-next` added to `.github/workflows/build-images.yml` (build-arg `API_URL=http://core-api:3000`) — was 7/8 images; GHCR `web-next:latest` will exist after the next main build (closes PLT-RI-2).
+- **PLT-H3/SA-3** (High) + **PE-L5** (Low): refactored all **13 identical** inline `logging:` blocks to a shared `x-logging: &default_logging` anchor with `loki-url` default → `http://localhost:3100/...` (daemon-reachable; `loki:3100` is NOT resolvable from the daemon-level driver — silent log drop) and `mode: non-blocking` + `max-buffer-size: 4m`. observability.md Step 6 rewritten to stop instructing the broken `loki:3100`.
+- **PLT-M6** (partial): cloudflared `command` += `--metrics 127.0.0.1:2000` (enables /ready + scrape); CMD healthcheck deferred (distroless image, no shell — external synthetic monitor covers tunnel liveness).
+
+**Verification:** `docker compose config` exit 0 (13 healthchecks, all logging localhost+non-blocking); prometheus + build-images YAML valid. No TS touched.
+
+**DEPLOY interaction (CRITICAL for the batched deploy):** Phase 2 binds Loki to 127.0.0.1:3100; Phase 4 sets the driver URL to localhost. So at deploy the homeserver `.env` `LOKI_URL` MUST become `http://localhost:3100/loki/api/v1/push` (the old external hostname stops working once Loki is loopback-only). `logging:` changes need `--force-recreate`. web-next image builds post-merge on main.
+
+**Tags:** [observability] [ci] [deploy] [config] [decision]
+**Environment:** ubuntu-vm (dev; homeserver deploy batched with Phases 2+3)
+**Duration:** ~30 min

@@ -124,9 +124,19 @@ curl -s http://localhost:3050/api/health
 
 ### Step 6: Update LOKI_URL in .env.secrets
 
-The 13 application services use `${LOKI_URL:-http://loki:3100/loki/api/v1/push}` as the log driver URL. Once Loki is in compose on the same Docker network, the default `loki:3100` is correct. If `LOKI_URL` was previously set in `.env.secrets` to `http://homeserver.k4jda.net:3100/...`, either remove it (to use the new default) or update it to `http://loki:3100/loki/api/v1/push`.
+**Why `loki:3100` is wrong here.** The Loki Docker log driver runs in the Docker *daemon* context — on the host, not inside any container. The daemon cannot resolve compose-network service DNS names like `loki`. If `LOKI_URL` is set to `http://loki:3100/...`, the driver silently drops every log line (it discards, it does not buffer). Logs appear to be collected but are gone permanently. This failure mode is invisible until you look at Loki and find nothing.
 
-After changing `LOKI_URL`, application containers must be recreated (not just restarted) for the new log driver URL to take effect:
+**The correct value is `http://localhost:3100/loki/api/v1/push`** (equivalently `http://127.0.0.1:3100/...`). Per ADR-0002, Loki binds its published port to `127.0.0.1:3100` on the host. The Docker daemon runs on the same host, so `localhost:3100` is reachable from the daemon-level log driver. The compose default has been updated to reflect this.
+
+Set the following in `.env.secrets` on the homeserver:
+
+```
+LOKI_URL=http://localhost:3100/loki/api/v1/push
+```
+
+If `LOKI_URL` was previously set to the old external hostname (`http://homeserver.k4jda.net:3100/...`), replace it with the value above — the external hostname stops working once Loki is bound loopback-only per ADR-0002.
+
+After changing `LOKI_URL`, application containers must be recreated (not just restarted) for the new log driver URL to take effect — `docker compose restart` does not re-evaluate the `logging:` block:
 
 ```bash
 docker compose up -d --force-recreate

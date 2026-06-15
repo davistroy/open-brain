@@ -13,6 +13,32 @@ volumes:
   grafana_data:
   loki_data:
 
+# Shared Loki logging (PLT-H3 + PE-L5):
+#  - loki-url default = localhost (the Docker log driver runs in the DAEMON, which
+#    can't resolve compose DNS like `loki:3100`; Loki binds 127.0.0.1:3100 per
+#    ADR-0002, so localhost IS daemon-reachable). Homeserver .env LOKI_URL must
+#    also be localhost (not the old external hostname — Loki is loopback-only now).
+#  - mode: non-blocking so a slow/down Loki never back-pressures container stdout.
+x-logging: &default_logging
+  driver: loki
+  options:
+    loki-url: "${LOKI_URL:-http://localhost:3100/loki/api/v1/push}"
+    loki-batch-size: "400"
+    loki-retries: "3"
+    loki-max-backoff: "800ms"
+    loki-timeout: "2s"
+    mode: "non-blocking"
+    max-buffer-size: "4m"
+    loki-pipeline-stages: |
+      - json:
+          expressions:
+            level: level
+            name: name
+            msg: msg
+      - labels:
+          level:
+          name:
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -36,23 +62,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   redis:
     image: redis:7-alpine
@@ -73,23 +83,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   core-api:
     image: ghcr.io/davistroy/open-brain/core-api:latest
@@ -140,23 +134,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   workers:
     image: ghcr.io/davistroy/open-brain/workers:latest
@@ -204,27 +182,20 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      # Liveness (PLT-H2/M6): confirms the container's node runtime responds — a
+      # dead/hung container fails the exec. The real "workers stopped pushing
+      # metrics" detector is the Prometheus PushgatewayStale / WorkersMetricsAbsent
+      # rules (a wedged event loop can still pass this probe).
+      test: ["CMD-SHELL", "node -e 'process.exit(0)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   slack-bot:
     image: ghcr.io/davistroy/open-brain/slack-bot:latest
@@ -248,27 +219,18 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    healthcheck:
+      # Liveness (PLT-M6): node runtime responds. slack-bot is Socket Mode (no HTTP
+      # endpoint to probe); a dead/hung container fails the exec.
+      test: ["CMD-SHELL", "node -e 'process.exit(0)'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     mem_limit: 1500m
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   voice-pipecat:
     image: ghcr.io/davistroy/open-brain/voice-pipecat:latest
@@ -301,23 +263,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   # Ollama runs as standalone container — connected via scripts/post-compose-up.sh
   # ollama:
@@ -364,23 +310,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   # --- Legacy voice services (kept for fallback until voice-pipecat is validated) ---
 
@@ -405,23 +335,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   voice-capture:
     image: ghcr.io/davistroy/open-brain/voice-capture:latest
@@ -458,23 +372,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   web-next:
     image: ghcr.io/davistroy/open-brain/web-next:latest
@@ -511,28 +409,15 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: open-brain-cloudflared
-    command: tunnel --no-autoupdate --config /etc/cloudflared/tunnel.yaml run
+    # --metrics exposes /ready + /metrics (PLT-H2/M6). No CMD healthcheck: the
+    # cloudflared image is distroless (no shell for CMD-SHELL); tunnel liveness is
+    # covered by the external synthetic monitor (health.troy-davis.com).
+    command: tunnel --no-autoupdate --metrics 127.0.0.1:2000 --config /etc/cloudflared/tunnel.yaml run
     environment:
       # CLOUDFLARE_TUNNEL_TOKEN: set in .env.secrets
       # Retrieve from Bitwarden before starting: bws secret get <open-brain-cloudflare-tunnel-token>
@@ -546,23 +431,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   # Python batch-ingest sidecar — hosts financial-pipeline.py + utility-pipeline.py.
   # Long-lived container; host cron shells in with `docker exec` to run tasks.
@@ -604,23 +473,7 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
 
   # Utility batch-ingest sidecar — same image as financial-ingest, different
   # config + inbox. Handles utility-pipeline.py (gas, power, water summaries).
@@ -762,20 +615,4 @@ services:
     networks:
       - open-brain
     restart: unless-stopped
-    logging:
-      driver: loki
-      options:
-        loki-url: "${LOKI_URL:-http://loki:3100/loki/api/v1/push}"
-        loki-batch-size: "400"
-        loki-retries: "3"
-        loki-max-backoff: "800ms"
-        loki-timeout: "2s"
-        loki-pipeline-stages: |
-          - json:
-              expressions:
-                level: level
-                name: name
-                msg: msg
-          - labels:
-              level:
-              name:
+    logging: *default_logging
