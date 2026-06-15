@@ -136,9 +136,11 @@ jobs:
           fetch-depth: 0
 
       - name: Run schema validator
-        # Unconditional (QA-L11, 2026-06-15): previously gated on a schema-path
-        # diff, which let init-schema drift slip through PRs that didn't touch
-        # those paths. Phase 5 (DA-H1) replaces this with a two-DB parity diff.
+        # Unconditional (QA-L11, 2026-06-15). Phase 5 (DA-H1) made this a two-DB
+        # parity diff: it builds (init-schema only) vs (init-schema + every drizzle
+        # 0*.sql), pg_dumps both, and fails if they differ — i.e. if a migration was
+        # added without back-porting it into the generated scripts/init-schema.sql.
+        # Fix on failure: `bash scripts/regenerate-init-schema.sh` and commit the result.
         run: bash scripts/validate-init-schema.sh
 
   python-lint:
