@@ -7,6 +7,13 @@ export interface CapturePipelineJobData {
   pipelineName?: string
   /** Pipeline trace ID (UUID v4) for cross-stage correlation in logs and pipeline_events */
   traceId?: string
+  /**
+   * When true, the ingestion worker bypasses the terminal-status guard for
+   * 'failed' captures and reprocesses from the beginning.  Set by the
+   * POST /api/v1/captures/:id/retry endpoint via PipelineService.enqueue().
+   * 'complete' and 'deleted' remain terminal regardless of this flag.
+   */
+  forceRetry?: boolean
 }
 
 /**

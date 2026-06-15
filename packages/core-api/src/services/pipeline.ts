@@ -9,6 +9,11 @@ import { logger } from '@open-brain/shared'
 interface CapturePipelineJobData {
   captureId: string
   pipelineName?: string
+  /**
+   * When true, the ingestion worker bypasses the terminal-status guard for
+   * 'failed' captures.  Must match CapturePipelineJobData in @open-brain/workers.
+   */
+  forceRetry?: boolean
 }
 
 export interface PipelineQueueHealth {
@@ -53,7 +58,7 @@ export class PipelineService {
       : `pipeline_${captureId}`
     await this.queue.add(
       'capture-pipeline',
-      { captureId, pipelineName },
+      { captureId, pipelineName, ...(forceRetry ? { forceRetry: true } : {}) },
       { jobId },
     )
     logger.info({ captureId, pipelineName, forceRetry }, '[pipeline] job enqueued')

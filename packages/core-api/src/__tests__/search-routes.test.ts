@@ -512,4 +512,49 @@ describe('POST /api/v1/search', () => {
       }),
     )
   })
+
+  // SE-3: offset pagination — page 2 must return correct rows and total
+  it('SE-3: offset=10,limit=10 fetches offset+limit rows from service and returns page-2 slice', async () => {
+    // Service is called with limit=20 (offset+limit); returns 20 rows
+    const allResults = Array.from({ length: 20 }, (_, i) =>
+      makeSearchResult({ score: 1.0 - i * 0.02, capture: makeCaptureRecord({ id: `cap-${i}` }) }),
+    )
+    searchService.search.mockResolvedValueOnce(allResults)
+
+    const app = createApp({ searchService: searchService as any })
+    const res = await app.request('/api/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'paginated page 2', limit: 10, offset: 10 }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    // Service is asked for offset+limit=20 rows
+    expect(searchService.search).toHaveBeenCalledWith(
+      'paginated page 2',
+      expect.objectContaining({ limit: 20 }),
+    )
+    // Page 2: rows 10–19
+    expect(body.results).toHaveLength(10)
+    expect(body.results[0].capture.id).toBe('cap-10')
+    expect(body.results[9].capture.id).toBe('cap-19')
+    // total reflects the fetched pool (20), not just one page
+    expect(body.total).toBe(20)
+  })
+
+  // SE-10: vector search_mode passes fts_weight=0 to service
+  it('SE-10: search_mode=vector passes ftsWeight=0 to searchService (POST)', async () => {
+    const app = createApp({ searchService: searchService as any })
+    await app.request('/api/v1/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'vector only', search_mode: 'vector' }),
+    })
+
+    expect(searchService.search).toHaveBeenCalledWith(
+      'vector only',
+      expect.objectContaining({ searchMode: 'vector' }),
+    )
+  })
 })

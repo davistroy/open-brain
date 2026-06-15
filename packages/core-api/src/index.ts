@@ -27,6 +27,7 @@ import { EmailComposeAssistService } from './services/email-compose-assist.js'
 import { VoiceSessionService } from './services/voice-session.js'
 import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
+import { ACCESS_STATS_JOB_OPTIONS } from './lib/access-stats-options.js'
 
 // Load config
 const configDir = join(process.cwd(), 'config')
@@ -93,9 +94,10 @@ const documentPipelineQueue = new Queue('document-pipeline', { connection: redis
 // uploaded files (CSVs, PDFs, images) from the web UI and sidecars.
 const ingestProcessQueue = new Queue('ingest-process', { connection: redisConnection })
 // P06 — access-stats queue fires after every search to update Hebbian co-access associations
+// DA-M3: defaultJobOptions mirrors workers-side consumer so retention is applied at add-time.
 const accessStatsQueue = new Queue<{ captureIds: string[]; accessedAt: string }>(
   'access-stats',
-  { connection: redisConnection },
+  { connection: redisConnection, defaultJobOptions: ACCESS_STATS_JOB_OPTIONS },
 )
 
 // Services — instantiation order respects dependency graph
