@@ -138,6 +138,8 @@
 | D126 | Mobile SPA: route at `/mobile` (NOT `/quick`), full-bleed (outside `(shell)` group), 3 capture modes (text/voice-file/live-record), no photo. Voice routed through new core-api proxy `POST /api/v1/voice-captures` (multipart buffer-and-rebuild, NOT streaming). | 2026-05-09 | PROPOSED | Entry 156, IMPLEMENTATION_PLAN.md | Direct CF tunnel exposure of voice-capture (more infra); Path B/C photo upload (no native image pipeline); raw `duplex:'half'` streaming (no codebase precedent, audio bounded ≤10MB) |
 | D127 | Offsite backup = rclone **crypt** remote over existing `gdrive` remote (`gdrive:Backups/open-brain-crypt`), daily 03:45 cron, 30-day remote retention. Password+salt in BWS. | 2026-06-11 | ACTIVE | Entry 164 | OneDrive target (1 TB free, viable fallback); plaintext rclone copy (TDD literal — rejected: health/financial data); new B2/S3 account (new cost + creds for no benefit); weekly cadence (TDD §16 — daily is cheap, better RPO) |
 | D128 | `backup.sh` manifest row counts use exact `COUNT(*)` via `query_to_xml`, never `pg_stat_user_tables.n_live_tup` | 2026-06-11 | ACTIVE | Entry 164 | n_live_tup estimate (stale on small low-churn tables below autovacuum thresholds → false FAILs in restore-rehearsal validation) |
+| D129 | LAN exposure: bind data stores to 127.0.0.1, dual-bind core-api loopback+Tailscale IP (OpenClaw MCP survives), fail-closed creds | 2026-06-15 | PROPOSED | ADR-0002, Entry 165 | core-api loopback-only (breaks OpenClaw); re-route OpenClaw to LiteLLM gateway (touches 2nd system — deferred); status-quo accept (rejected) |
+| D130 | Replace O(N²) cosine self-joins (consolidation + dedup-sweep) with per-row HNSW k-NN probes via shared `hnsw-similarity.ts` | 2026-06-15 | PROPOSED | ADR-0003, Entry 165 | coarse pre-filter buckets (still O(N²)); materialized pairs table (premature); raise MAX_PAIRS (bounds output not compute); Qdrant (scale-gated #73) |
 
 ## Action Items
 
@@ -12114,4 +12116,26 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [pipeline] [database] [deploy] [config] [debug] [decision]
 **Environment:** ubuntu-vm (dev/test) + homeserver (cron installs, rehearsal, rclone, workers/web-next redeploy) + Cloudflare edge (SEC-01 probes)
 **Duration:** ~70 min
+
+--- New session: 2026-06-15 — Arch-review v3 remediation planning (/ultra-plan) ---
+
+## Entry 165 — Remediation plan for remaining arch-review v3 findings (A132): IMPLEMENTATION_PLAN.md + ADR-0002/0003 (2026-06-15)  [decision] [meta] [planning]
+
+**Objective:** Convert the 15 remaining High + 41 Medium + actionable Low arch-review v3 findings (A132, excludes the 5 immediate-action items closed in Entry 164) into a formal, sequenced implementation plan via `/ultra-plan`.
+
+**Process:** 8 parallel Explore agents investigated every finding against current code (clusters: LAN-perimeter, quality-gates, SE-correctness, platform/observability, schema-fidelity, integration-hardening, performance, doc/governance). Phase 3 interaction-mapping grouped 9 change sets; Phase 4 designed integrated solutions; Phase 5 summary approved by user ("implement").
+
+**Result:** `IMPLEMENTATION_PLAN.md` (root) — 10 phases / 4 waves, 1 PR per phase. Wave 1: gates-first (CS-2) → LAN data stores (CS-1) → recovery+search contract (CS-3) → alerting+deploy (CS-4). Wave 2: schema-fidelity machine (CS-5) → integration+spend (CS-6) → k-NN similarity rewrite (CS-7). Wave 3: ingest edges+voice auth (CS-8) → convention→CI+governance (CS-9). Wave 4: residual Lows + RI closeouts. Migration numbers claimed in execution order: 0032 (SE-6) → 0033 (DA-L3/L5) → 0034 (PE-M2) → 0035 (RC-4). Two ADRs generated (Proposed): ADR-0002 (LAN exposure — dual-bind core-api loopback+Tailscale per D-1), ADR-0003 (k-NN similarity rewrite per PE-H1).
+
+**Investigation corrections (verified, not from the review text):** (a) SEC-03 already shipped (next 16.2.9, Entry 164) — dropped from scope; (b) the two SE-12 "0 6 / 0 7 collisions" are host-cron vs BullMQ load *overlaps* (acceptable, documented), NOT registry violations — the real SE-12 items are two Sunday-only in-scheduler overlaps (storage-audit/daily-sweep, wiki-lint/email-classify); (c) mobile app's voice default is plain-HTTP LAN `:3001` *because* CF Access gates the tunnel `/api/*` path — so SEC-02 and INT-M5 are one coupled problem (Phase 8 must add Bearer auth before loopback-binding :3001); (d) init-schema is missing FOUR objects incl. `spreading_activation()` itself, and both integration suites carry a false "source of truth through 0031" comment; (e) core-api access-stats producer leaks one Redis job hash per search (DA-M3, unbounded).
+
+**Flagged decisions (owner accepted defaults by not overriding at Phase 5):** D-1 core-api dual-bind loopback+Tailscale (vs OpenClaw re-route to LiteLLM gateway — deferred follow-up); D-2 Bearer-on-:3001 now, tunnel+CF-service-token later; D-3 manual `schema_migrations` ledger (vs restoring drizzle journal — preserves "no auto-migration").
+
+**Rollback plan:** N/A — planning artifacts only (plan doc + 2 ADRs, no code/system change). Each phase carries its own rollback in the plan's Risk Mitigation table.
+
+**Next:** execute Wave 1 (Phase 1 gates first — protects all subsequent PRs). A132 now has a concrete plan; closes the "needs its own plan" note.
+
+**Tags:** [decision] [meta] [planning]
+**Environment:** ubuntu-vm (static analysis only)
+**Duration:** ~40 min (8 parallel investigation agents + synthesis)
 
