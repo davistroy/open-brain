@@ -122,3 +122,20 @@ jobs:
             ghcr.io/davistroy/open-brain/ingest-sidecar:latest
           cache-from: type=gha,scope=ingest-sidecar
           cache-to: type=gha,mode=max,scope=ingest-sidecar
+
+      # ── web-next ────────────────────────────────────────────────────────────
+      # Build context is repo root — Next.js monorepo build requires pnpm workspace
+      # root. API_URL is baked at build time for server-side next.config.ts rewrites.
+      - name: Build and push web-next
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/web-next/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/web-next:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/web-next:latest
+          build-args: |
+            API_URL=http://core-api:3000
+          cache-from: type=gha,scope=web-next
+          cache-to: type=gha,mode=max,scope=web-next
