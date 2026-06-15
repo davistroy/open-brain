@@ -38,7 +38,7 @@ type HybridSearchRow = {
   vector_score: number
 }
 
-/** Row shape returned by SELECT * FROM captures WHERE id = ANY(...) */
+/** Row shape returned by the enumerated captures SELECT (embedding column excluded — PE-L2) */
 type CaptureQueryRow = {
   id: string
   content: string
@@ -48,7 +48,6 @@ type CaptureQueryRow = {
   source: string
   source_metadata: Record<string, unknown> | null
   tags: string[]
-  embedding: number[] | null
   pipeline_status: string
   pipeline_attempts: number
   pipeline_error: string | null
@@ -224,6 +223,11 @@ export class SearchService {
       // Safe for single-user system — all searches use the same config value.
       await this.db.execute(sql`SET hnsw.ef_search = ${sql.raw(String(this.hnswEfSearch))}`)
 
+      // SE-10: vector-only mode — suppress FTS contribution entirely by passing
+      // fts_weight=0. hybrid_search still runs through the same SQL function;
+      // RRF scoring becomes pure vector when fts_weight is 0.
+      const effectiveFtsWeight = searchMode === 'vector' ? 0 : ftsWeight
+
       // Step 3: call hybrid_search with filters — Postgres applies WHERE clauses
       hybridRows = await this.db.execute<HybridSearchRow>(sql`
         SELECT capture_id::text, rrf_score, fts_score, vector_score
@@ -231,7 +235,7 @@ export class SearchService {
           ${query},
           ${vectorLiteral}::vector(768),
           ${limit},
-          ${ftsWeight},
+          ${effectiveFtsWeight},
           ${vectorWeight},
           ${pgBrainViews}::text[],
           ${pgCaptureTypes}::text[],
@@ -251,8 +255,14 @@ export class SearchService {
     // Pass as PostgreSQL array literal — Drizzle's sql`` sends JS arrays as
     // record tuples ($1,$2) which cannot be cast to uuid[].
     const pgArrayLiteral = `{${captureIds.join(',')}}`
+    // PE-L2: enumerate columns explicitly — omit the vector(768) `embedding` column
+    // which is large (3 KB per row) and unused by any search result consumer.
     const captureRows = await this.db.execute<CaptureQueryRow>(sql`
-      SELECT *
+      SELECT id, content, content_hash, capture_type, brain_view, source,
+             source_metadata, tags, pipeline_status, pipeline_attempts,
+             pipeline_error, pipeline_completed_at, pre_extracted,
+             created_at, updated_at, captured_at, deleted_at,
+             access_count, last_accessed_at
       FROM captures
       WHERE id = ANY(${pgArrayLiteral}::uuid[])
     `)
@@ -347,10 +357,17 @@ export class SearchService {
     // Fetch full capture records for the related captures
     const relatedIds = activationRows.rows.map(r => r.capture_id)
     const pgRelatedIds = `{${relatedIds.join(',')}}`
+    // PE-L2: enumerate columns explicitly — omit the vector(768) `embedding` column.
+    // SE-6: filter deleted captures so soft-deleted rows never surface via entity graph.
     const captureRows = await this.db.execute<CaptureQueryRow>(sql`
-      SELECT *
+      SELECT id, content, content_hash, capture_type, brain_view, source,
+             source_metadata, tags, pipeline_status, pipeline_attempts,
+             pipeline_error, pipeline_completed_at, pre_extracted,
+             created_at, updated_at, captured_at, deleted_at,
+             access_count, last_accessed_at
       FROM captures
       WHERE id = ANY(${pgRelatedIds}::uuid[])
+        AND deleted_at IS NULL
     `)
 
     const captureMap = new Map<string, CaptureRecord>()

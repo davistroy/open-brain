@@ -80,18 +80,26 @@ export async function searchBrainTool(
     ? filtered.filter(r => r.capture.source === input.source_filter)
     : filtered
 
-  if (sourced.length === 0) {
+  // Apply tag filter post-search (AND semantics: capture must contain every requested tag)
+  const tagged = input.tag_filter && input.tag_filter.length > 0
+    ? sourced.filter(r => {
+        const captureTags: string[] = r.capture.tags ?? []
+        return (input.tag_filter as string[]).every(t => captureTags.includes(t))
+      })
+    : sourced
+
+  if (tagged.length === 0) {
     return `No captures found matching "${input.query}"${input.days ? ` in the last ${input.days} days` : ''}.`
   }
 
   const lines: string[] = [
     `Search results for: "${input.query}"`,
-    `Found ${sourced.length} result${sourced.length !== 1 ? 's' : ''}`,
+    `Found ${tagged.length} result${tagged.length !== 1 ? 's' : ''}`,
     '',
   ]
 
-  for (let i = 0; i < sourced.length; i++) {
-    lines.push(...formatResult(i + 1, sourced[i]))
+  for (let i = 0; i < tagged.length; i++) {
+    lines.push(...formatResult(i + 1, tagged[i]))
     lines.push('')
   }
 

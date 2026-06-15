@@ -14,7 +14,7 @@ const csvToArray = z
 const searchQuerySchema = z.object({
   q: z.string().min(1, 'Query string is required'),
   limit: z.coerce.number().int().min(1).max(50).default(10),
-  temporal_weight: z.coerce.number().min(0).max(1).default(0.1),
+  temporal_weight: z.coerce.number().min(0).max(1).default(0.0),
   fts_weight: z.coerce.number().min(0).max(1).default(0.5),
   vector_weight: z.coerce.number().min(0).max(1).default(0.5),
   search_mode: z.enum(['hybrid', 'vector', 'fts']).default('hybrid'),
@@ -91,8 +91,13 @@ export function registerSearchRoutes(
   app.post('/api/v1/search', zValidator('json', searchSchema), async (c) => {
     const body = c.req.valid('json')
 
+    // Fetch offset+limit rows so pagination always has enough candidates.
+    // The service does not have an offset param (hybrid_search SQL has no OFFSET);
+    // we over-fetch here and slice in TS. total reflects the fetched pool size.
+    const fetchLimit = body.offset + body.limit
+
     const searchOptions = {
-      limit: body.limit,
+      limit: fetchLimit,
       temporalWeight: body.temporal_weight,
       ftsWeight: body.fts_weight,
       vectorWeight: body.vector_weight,

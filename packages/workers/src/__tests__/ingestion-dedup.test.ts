@@ -74,8 +74,8 @@ describe('processIngestionJob — content hash dedup', () => {
       dedup,
     )
 
-    // Should have checked dedup
-    expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123')
+    // Should have checked dedup — captureId is now part of the call signature
+    expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123', 'cap-1')
 
     // Should NOT have enqueued flow DAG
     expect(flowProducer.add).not.toHaveBeenCalled()
@@ -98,7 +98,7 @@ describe('processIngestionJob — content hash dedup', () => {
       dedup,
     )
 
-    expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123')
+    expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123', 'cap-1')
 
     // Should have proceeded to enqueue flow DAG
     expect(flowProducer.add).toHaveBeenCalled()
@@ -153,6 +153,95 @@ describe('processIngestionJob — content hash dedup', () => {
 
     // Terminal status check happens before dedup — dedup should not be called
     expect(dedup.isDuplicate).not.toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
+  })
+
+  // SE-2 dedup — same captureId retry must pass captureId to isDuplicate
+  it('passes captureId to isDuplicate so a capture retry is not self-classified as duplicate', async () => {
+    const capture = makeCapture()
+    const db = makeDb(capture)
+    const flowProducer = makeFlowProducer()
+    const dedup = makeDedup(false)
+
+    await processIngestionJob(
+      { captureId: 'cap-1' },
+      db as never,
+      flowProducer as never,
+      dedup,
+    )
+
+    // isDuplicate must now receive captureId so the key is scoped per-capture
+    expect(dedup.isDuplicate).toHaveBeenCalledWith('hash-abc-123', 'cap-1')
+    expect(flowProducer.add).toHaveBeenCalled()
+  })
+})
+
+// ============================================================
+// SE-2 — forceRetry bypass for 'failed' captures
+// ============================================================
+
+describe('processIngestionJob — forceRetry', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('skips a failed capture without forceRetry (existing behavior)', async () => {
+    const capture = makeCapture({ pipeline_status: 'failed' })
+    const db = makeDb(capture)
+    const flowProducer = makeFlowProducer()
+
+    await processIngestionJob(
+      { captureId: 'cap-1' },
+      db as never,
+      flowProducer as never,
+    )
+
+    // Without forceRetry, failed is terminal — no pipeline work
+    expect(flowProducer.add).not.toHaveBeenCalled()
+  })
+
+  it('reprocesses a failed capture when forceRetry is true', async () => {
+    const capture = makeCapture({ pipeline_status: 'failed' })
+    const db = makeDb(capture)
+    const flowProducer = makeFlowProducer()
+
+    await processIngestionJob(
+      { captureId: 'cap-1', forceRetry: true },
+      db as never,
+      flowProducer as never,
+    )
+
+    // forceRetry bypasses the terminal check for 'failed' — pipeline must run
+    expect(flowProducer.add).toHaveBeenCalled()
+  })
+
+  it('still treats complete as terminal even with forceRetry', async () => {
+    const capture = makeCapture({ pipeline_status: 'complete' })
+    const db = makeDb(capture)
+    const flowProducer = makeFlowProducer()
+
+    await processIngestionJob(
+      { captureId: 'cap-1', forceRetry: true },
+      db as never,
+      flowProducer as never,
+    )
+
+    // 'complete' stays terminal regardless of forceRetry
+    expect(flowProducer.add).not.toHaveBeenCalled()
+  })
+
+  it('still treats deleted as terminal even with forceRetry', async () => {
+    const capture = makeCapture({ pipeline_status: 'deleted' })
+    const db = makeDb(capture)
+    const flowProducer = makeFlowProducer()
+
+    await processIngestionJob(
+      { captureId: 'cap-1', forceRetry: true },
+      db as never,
+      flowProducer as never,
+    )
+
+    // 'deleted' always terminal
     expect(flowProducer.add).not.toHaveBeenCalled()
   })
 })

@@ -12190,3 +12190,30 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [config] [deploy] [security] [decision]
 **Environment:** ubuntu-vm (dev — config validation only; NO production change yet)
 **Duration:** ~40 min (in progress — deploy pending)
+
+--- New session: 2026-06-15 — Arch-review v3 Phase 3 (Recovery & Search Contract, CS-3) ---
+
+## Entry 168 — Phase 3: recovery + search-contract fixes (SE-2/3/4/6/8/9/10, PE-L2, DA-M3) (2026-06-15)  [pipeline] [api] [database] [test] [decision]
+
+**Objective:** Implement IMPLEMENTATION_PLAN Phase 3 (CS-3): fix the manual-recovery no-op, the broken search pagination + mode/default drift, the soft-delete leak, the dead MCP tag_filter, and the unbounded access-stats Redis leak.
+
+**Hypothesis:** TDD fixes across disjoint file-groups (ingest / search / MCP / queue) integrate cleanly; full lint + core-api coverage gate + workers suite stay green. **Rollback:** revert PR; migration 0032 reverts via DROP/CREATE OR REPLACE of the prior `spreading_activation()`. Pre-change SHA c828956.
+
+**Method:** 4 parallel implementer sub-agents on disjoint files (no commits; targeted tests only), then orchestrator ran full verification + single commit.
+
+**Implemented:**
+- **SE-2** (High): `/captures/:id/retry` now carries `forceRetry` in `CapturePipelineJobData` (mirrored in core-api `pipeline.ts`); ingestion-worker lets `'failed'` reprocess when set (`'complete'`/`'deleted'` stay terminal). Manual recovery of failed captures works.
+- **SE-4** (Med): dedup key now `ob:ingest:dedup:<hash>:<captureId>` — a capture's own BullMQ retry is no longer self-classified duplicate; a *different* capture with identical content still dedupes.
+- **SE-3** (High): search service fetches `offset+limit`; route slices after + reports true `total`. Page 2+ returns rows.
+- **SE-9** (Low): GET `temporal_weight` default 0.1→0.0 (matches docs/cold-start).
+- **SE-10** (Low): `search_mode='vector'` now sets `fts_weight=0` (pure vector).
+- **PE-L2** (Low): hydration queries enumerate columns minus the `vector(768)` embedding (was `SELECT *`).
+- **SE-6** (Med, migration **0032**): `spreading_activation()` CREATE OR REPLACE adds `captures.deleted_at IS NULL` join in both hops; `findRelatedCaptures()` TS fetch adds the same filter. Consolidated-away captures no longer surface via MCP `include_related`.
+- **SE-8** (Med): MCP `search_brain` `tag_filter` now post-filters (AND semantics) — was advertised-but-ignored.
+- **DA-M3** (Med): core-api `access-stats` Queue gets `defaultJobOptions` (removeOnComplete/Fail) via shared `lib/access-stats-options.ts`; parity-guard test prevents drift from the workers side.
+
+**Verification:** `pnpm -r lint` exit 0; core-api **1188/1188**, coverage **85.63% lines** (gate 80, passes); workers **1036/1036**. Migration 0032 applies to homeserver in the batched deploy (NOT yet deployed).
+
+**Tags:** [pipeline] [api] [database] [test] [decision]
+**Environment:** ubuntu-vm (dev/test; migration 0032 + worker/core-api redeploy pending the batched homeserver deploy)
+**Duration:** ~30 min (4 parallel implementers + verification)

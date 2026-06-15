@@ -72,7 +72,7 @@ export async function processIngestionJob(
   flowProducer: FlowProducer,
   ingestDedup?: IngestDedup,
 ): Promise<void> {
-  const { captureId } = data
+  const { captureId, forceRetry } = data
 
   logger.info({ captureId }, '[ingestion] job received')
 
@@ -96,9 +96,16 @@ export async function processIngestionJob(
     )
   }
 
-  // Skip if already terminal — daily sweep may re-enqueue completed captures
-  if (capture.pipeline_status === 'complete' || capture.pipeline_status === 'failed') {
-    logger.info({ captureId, pipeline_status: capture.pipeline_status }, '[ingestion] already terminal, skipping')
+  // Skip if already terminal — daily sweep may re-enqueue completed captures.
+  // forceRetry (from POST /api/v1/captures/:id/retry) bypasses the 'failed'
+  // guard only; 'complete' and 'deleted' remain terminal unconditionally.
+  const isTerminal =
+    capture.pipeline_status === 'complete' ||
+    capture.pipeline_status === 'deleted' ||
+    (capture.pipeline_status === 'failed' && !forceRetry)
+
+  if (isTerminal) {
+    logger.info({ captureId, pipeline_status: capture.pipeline_status, forceRetry }, '[ingestion] already terminal, skipping')
     return
   }
 
@@ -113,7 +120,7 @@ export async function processIngestionJob(
   // The DB unique index on content_hash is the permanent dedup — this is a
   // fast-path optimization to avoid wasted pipeline work.
   if (ingestDedup && capture.content_hash) {
-    const isDup = await ingestDedup.isDuplicate(capture.content_hash)
+    const isDup = await ingestDedup.isDuplicate(capture.content_hash, captureId)
     if (isDup) {
       logger.info(
         { captureId, content_hash: capture.content_hash },
