@@ -59,7 +59,11 @@ function resolveInitSchemaPath(): string {
  * Apply the full schema DDL to the test database.
  * Uses a raw pg Pool (not Drizzle) so we can execute multi-statement SQL.
  *
- * init-schema.sql is the single source of truth (all tables through migration 0031).
+ * scripts/init-schema.sql is a GENERATED, complete snapshot of the canonical schema
+ * (init-schema + every drizzle 0*.sql). It is produced by scripts/regenerate-init-schema.sh
+ * and kept honest by scripts/validate-init-schema.sh, which fails CI if it ever drifts from
+ * the migration chain — so applying it alone faithfully reproduces production. It is NOT a
+ * hand-maintained "tables through 00NN" file; do not edit it by hand (regenerate instead).
  */
 async function applySchema(connectionString: string): Promise<void> {
   const schemaPath = resolveInitSchemaPath()
@@ -67,6 +71,13 @@ async function applySchema(connectionString: string): Promise<void> {
 
   const pool = new Pool({ connectionString })
   try {
+    // init-schema.sql is a generated pg_dump snapshot (CREATE TYPE/TABLE/... without
+    // IF NOT EXISTS), so it is NOT safe to re-run. Integration suites run single-fork
+    // (serial) and every test file's beforeAll calls this against the SHARED test DB —
+    // apply once, then no-op on subsequent files. This matches the prior behavior, where
+    // the old hand-maintained IF-NOT-EXISTS init-schema made re-application a no-op.
+    const { rows } = await pool.query("SELECT to_regclass('public.captures') AS present")
+    if (rows[0]?.present) return
     await pool.query(schemaSql)
   } finally {
     await pool.end()
