@@ -2,8 +2,8 @@ import OpenAI from 'openai'
 import type Anthropic from '@anthropic-ai/sdk'
 import { sql } from 'drizzle-orm'
 import { ServiceUnavailableError } from '../utils/errors.js'
-import { ai_audit_log } from '../schema/index.js'
 import { logger } from '../lib/logger.js'
+import { recordSpend } from './spend-recorder.js'
 import { ModelResolverError } from './model-resolver.js'
 import { PAID_PROVIDERS } from './ai-config-schema.js'
 import type { ConfigService } from '../config/loader.js'
@@ -686,24 +686,8 @@ export class LLMGatewayService {
     sessionId?: string
     error?: string
   }): Promise<void> {
-    try {
-      await this.db.insert(ai_audit_log).values({
-        task_type: params.taskType,
-        model: params.model,
-        prompt_tokens: params.promptTokens ?? null,
-        completion_tokens: params.completionTokens ?? null,
-        total_tokens: params.totalTokens ?? null,
-        duration_ms: params.durationMs ?? null,
-        capture_id: params.captureId ?? null,
-        session_id: params.sessionId ?? null,
-        error: params.error ?? null,
-        client_used: params.clientUsed,
-        cost_usd: params.costUsd !== null ? String(params.costUsd) : null,
-      })
-    } catch (err) {
-      // Audit log failures must not break the caller
-      logger.error({ err }, 'Failed to write audit log')
-    }
+    // Single audit writer (INT-M2): shared with EmbeddingService + voice classification.
+    await recordSpend(this.db, params)
   }
 
   // ---------------------------------------------------------------------------

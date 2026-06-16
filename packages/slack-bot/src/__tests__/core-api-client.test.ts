@@ -183,9 +183,13 @@ describe('CoreApiClient', () => {
       expect(result).toEqual(expected)
     })
 
-    it('throws on 409 Conflict (duplicate)', async () => {
-      global.fetch = mockFetchError(409, 'Capture already exists')
-      await expect(client.captures_create(payload)).rejects.toThrow('409')
+    it('treats 409 Conflict (duplicate) as success — returns a CaptureResult (INT-H1)', async () => {
+      global.fetch = mockFetchError(409, 'Duplicate capture: content already exists')
+      // 409 = already captured (content_hash dedup). Must NOT throw.
+      const result = await client.captures_create(payload)
+      expect(typeof result.id).toBe('string')
+      expect(result.id.length).toBeGreaterThanOrEqual(8)
+      expect(result.source).toBe(payload.source)
     })
 
     it('throws on 422 Unprocessable Entity (validation)', async () => {

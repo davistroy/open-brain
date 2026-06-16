@@ -125,6 +125,78 @@ describe('CaptureService', () => {
       ).rejects.toThrow(ConflictError)
     })
 
+    it('throws ConflictError on a pg unique-violation (23505) on the content_hash index', async () => {
+      // Dedup pre-check passes (no recent duplicate) but the INSERT races and
+      // hits the partial unique index — pg raises 23505 with the constraint name.
+      db.select.mockReturnValueOnce(selectChain([]))
+
+      const pgErr = Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'captures_content_hash_idx',
+      })
+      const insertChain = {
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockRejectedValue(pgErr) }),
+      }
+      db.insert.mockReturnValueOnce(insertChain)
+
+      await expect(
+        service.create({
+          content: 'Test capture content',
+          capture_type: 'idea',
+          brain_view: 'technical',
+          source: 'api',
+        }),
+      ).rejects.toThrow(ConflictError)
+    })
+
+    it('throws ConflictError on a drizzle-wrapped 23505 error (code/constraint on err.cause)', async () => {
+      db.select.mockReturnValueOnce(selectChain([]))
+
+      // drizzle-orm wraps the driver error; the original pg error sits on .cause
+      const driverErr = Object.assign(new Error('duplicate key value violates unique constraint'), {
+        code: '23505',
+        constraint: 'captures_content_hash_idx',
+      })
+      const wrapped = Object.assign(new Error('Failed query: insert into captures ...'), {
+        cause: driverErr,
+      })
+      const insertChain = {
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockRejectedValue(wrapped) }),
+      }
+      db.insert.mockReturnValueOnce(insertChain)
+
+      await expect(
+        service.create({
+          content: 'Test capture content',
+          capture_type: 'idea',
+          brain_view: 'technical',
+          source: 'api',
+        }),
+      ).rejects.toThrow(ConflictError)
+    })
+
+    it('re-propagates non-unique pg errors (e.g. FK violation 23503) instead of swallowing them', async () => {
+      db.select.mockReturnValueOnce(selectChain([]))
+
+      const fkErr = Object.assign(new Error('insert or update on table violates foreign key constraint'), {
+        code: '23503',
+      })
+      const insertChain = {
+        values: vi.fn().mockReturnValue({ returning: vi.fn().mockRejectedValue(fkErr) }),
+      }
+      db.insert.mockReturnValueOnce(insertChain)
+
+      const promise = service.create({
+        content: 'Test capture content',
+        capture_type: 'idea',
+        brain_view: 'technical',
+        source: 'api',
+      })
+
+      await expect(promise).rejects.toThrow(fkErr)
+      await expect(promise).rejects.not.toBeInstanceOf(ConflictError)
+    })
+
     it('uses captured_at from metadata when provided', async () => {
       const record = makeCaptureRecord({ captured_at: new Date('2026-01-01T00:00:00Z') })
 

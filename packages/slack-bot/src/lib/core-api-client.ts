@@ -31,6 +31,24 @@ import type {
 
 // Client implementation
 
+/** Per-request fetch timeout (ms). A wedged core-api must not hang past Slack's ~3s ack window. */
+const REQUEST_TIMEOUT_MS = 15_000
+
+/** Total attempts for idempotent (GET) requests: 1 initial + 2 retries. */
+const MAX_GET_ATTEMPTS = 3
+
+/** Backoff between GET retry attempts (ms). Index 0 is the wait before attempt 2. */
+const RETRY_BACKOFF_MS = [250, 500] as const
+
+/** Options that tune {@link CoreApiClient.request} behaviour beyond the raw fetch init. */
+interface RequestExtra {
+  /**
+   * HTTP statuses that are NOT errors for this call. The parsed response body is
+   * returned instead of throwing (e.g. 409 on capture-create = "already captured").
+   */
+  okStatuses?: number[]
+}
+
 export class CoreApiClient {
   private baseUrl: string
 
@@ -38,31 +56,108 @@ export class CoreApiClient {
     this.baseUrl = baseUrl.replace(/\/$/, '') // Strip trailing slash
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(path: string, options: RequestInit = {}, extra: RequestExtra = {}): Promise<T> {
     const url = `${this.baseUrl}${path}`
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Open-Brain-Caller': 'slack-bot',
-        ...options.headers,
-      },
-    })
+    const okStatuses = extra.okStatuses ?? []
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${await response.text()}`)
+    // Retry only idempotent requests. POST/PUT/PATCH/DELETE may double-write on retry.
+    const method = (options.method ?? 'GET').toUpperCase()
+    const idempotent = method === 'GET'
+    const maxAttempts = idempotent ? MAX_GET_ATTEMPTS : 1
+
+    let lastError: unknown
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let response: Response
+      try {
+        response = await fetch(url, {
+          ...options,
+          // 15s budget per attempt — AbortSignal.timeout fires AbortError on expiry.
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Open-Brain-Caller': 'slack-bot',
+            ...options.headers,
+          },
+        })
+      } catch (err) {
+        // Network rejection or timeout. Timeouts surface as a clear message.
+        lastError = this.isAbortError(err)
+          ? new Error(`core-api request timed out after ${REQUEST_TIMEOUT_MS}ms: ${path}`)
+          : err
+        if (idempotent && attempt < maxAttempts) {
+          await this.backoff(attempt)
+          continue
+        }
+        throw lastError
+      }
+
+      if (okStatuses.includes(response.status)) {
+        return response.json() as Promise<T>
+      }
+
+      if (!response.ok) {
+        const error = new Error(`HTTP ${response.status}: ${await response.text()}`)
+        // 5xx is transient → retry idempotent calls. 4xx is deterministic → never retry.
+        if (idempotent && response.status >= 500 && attempt < maxAttempts) {
+          lastError = error
+          await this.backoff(attempt)
+          continue
+        }
+        throw error
+      }
+
+      return response.json() as Promise<T>
     }
 
-    return response.json()
+    // Unreachable in practice (loop either returns or throws), but keeps tsc total-return happy.
+    throw lastError instanceof Error ? lastError : new Error(`core-api request failed: ${path}`)
+  }
+
+  /** True for AbortSignal.timeout / abort errors regardless of host DOMException naming. */
+  private isAbortError(err: unknown): boolean {
+    return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
+  }
+
+  /** Wait the configured backoff before the next idempotent attempt. */
+  private backoff(attempt: number): Promise<void> {
+    const ms = RETRY_BACKOFF_MS[attempt - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1]
+    return new Promise<void>((resolve) => setTimeout(resolve, ms))
   }
 
   // Captures
 
   async captures_create(payload: CreateCapturePayload): Promise<CaptureResult> {
-    return this.request<CaptureResult>('/api/v1/captures', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    })
+    // 409 = ConflictError from core-api content_hash dedup. A duplicate means the
+    // thought is *already captured*, so it must succeed (not throw). We accept the
+    // 409 body and normalise it into a CaptureResult so callers (capture handler)
+    // can confirm without special-casing.
+    const raw = await this.request<CaptureResult | { error?: string; code?: string }>(
+      '/api/v1/captures',
+      { method: 'POST', body: JSON.stringify(payload) },
+      { okStatuses: [409] },
+    )
+
+    // A successful create returns a CaptureResult with an `id`. A 409 body is the
+    // AppError envelope `{ error, code }` with no `id`.
+    if (raw && typeof (raw as CaptureResult).id === 'string') {
+      return raw as CaptureResult
+    }
+
+    // Conflict path: core-api's "within 60 seconds" message embeds the existing
+    // id (`... (id: <uuid>)`); the DB-constraint path does not. Extract when present,
+    // else fall back to a stable, type-safe duplicate marker (>=8 chars for slice).
+    const errMsg = (raw as { error?: string }).error ?? ''
+    const idMatch = errMsg.match(/id:\s*([0-9a-fA-F-]{8,})/)
+    return {
+      id: idMatch?.[1] ?? 'duplicate',
+      content: payload.content,
+      capture_type: payload.capture_type,
+      brain_view: payload.brain_view,
+      source: payload.source,
+      pipeline_status: 'complete',
+      tags: payload.metadata?.tags ?? [],
+      created_at: new Date().toISOString(),
+    }
   }
 
   async captures_get(id: string): Promise<CaptureResult> {

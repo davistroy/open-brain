@@ -1,7 +1,7 @@
 import { Worker, UnrecoverableError, DelayedError } from 'bullmq'
 import { sql } from 'drizzle-orm'
 import { eq } from 'drizzle-orm'
-import type { ConnectionOptions } from 'bullmq'
+import type { ConnectionOptions, Job } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures, pipeline_events, EmbeddingService, EmbeddingUnavailableError } from '@open-brain/shared'
 import type { ConfigService } from '@open-brain/shared'
@@ -41,12 +41,13 @@ const THROTTLE_DELAY_MS = 30_000 // 30 seconds between jobs
 const PAUSE_DELAY_MS = 600_000 // 10 minutes before re-checking
 
 export async function processEmbedCaptureJob(
-  data: EmbedCaptureJobData,
+  job: Job<EmbedCaptureJobData>,
+  token: string | undefined,
   db: Database,
   embeddingService: EmbeddingService,
   spendTracker?: SpendTracker,
 ): Promise<void> {
-  const { captureId, traceId } = data
+  const { captureId, traceId } = job.data
   const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
   log.info('[embed] job received')
@@ -59,10 +60,13 @@ export async function processEmbedCaptureJob(
 
     if (spend.action === 'paused') {
       log.warn(
-        { monthlySpend: spend.monthlySpend },
+        { monthlySpend: spend.monthlySpend, delayMs: PAUSE_DELAY_MS },
         '[embed] non-Claude spend at hard limit — delaying job',
       )
-      // Move job to delayed state — BullMQ will re-process after delay
+      // SE-5: BullMQ requires moveToDelayed(timestamp, token) to run BEFORE throwing
+      // DelayedError. Throwing DelayedError on its own FAILS the job (consuming a retry
+      // attempt) instead of re-queuing it after the delay. PAUSE_DELAY_MS was dead until now.
+      await job.moveToDelayed(Date.now() + PAUSE_DELAY_MS, token)
       throw new DelayedError(`Embed paused: non-Claude spend $${spend.monthlySpend.toFixed(2)} at hard limit`)
     }
 
@@ -210,12 +214,12 @@ export function createEmbedCaptureWorker(
   litellmApiKey: string,
   spendTracker?: SpendTracker,
 ): Worker<EmbedCaptureJobData> {
-  const embeddingService = new EmbeddingService({ baseUrl: litellmBaseUrl, apiKey: litellmApiKey, configService })
+  const embeddingService = new EmbeddingService({ baseUrl: litellmBaseUrl, apiKey: litellmApiKey, configService, db })
 
   const worker = new Worker<EmbedCaptureJobData>(
     'embed-capture',
-    async (job) => {
-      await processEmbedCaptureJob(job.data, db, embeddingService, spendTracker)
+    async (job, token) => {
+      await processEmbedCaptureJob(job, token, db, embeddingService, spendTracker)
     },
     {
       connection,

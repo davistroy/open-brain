@@ -86,6 +86,12 @@ export class ClassificationService {
 
     logger.info({ textLength: transcriptText.length }, 'Classifying voice transcript')
 
+    // INT-M2 (voice): this OpenAI call's spend is not yet recorded in ai_audit_log, so the
+    // budget circuit breaker does not see it. The high-volume blind spot (embeddings) is
+    // closed via EmbeddingService.recordSpend. voice-capture is intentionally thin (no DB,
+    // no ai-routing config) — the resilient way to record this low-volume, human-gated
+    // spend is to attach `response.usage` to the capture payload and let core-api (which
+    // owns the DB + cost config) write the row at ingest. Tracked follow-up: INT-M2-voice.
     const response = await this.client.chat.completions.create({
       model: CLASSIFICATION_MODEL,
       messages: [{ role: 'user', content: prompt }],
