@@ -25,6 +25,7 @@ import { createWikiIngestWorker } from './jobs/wiki-ingest-worker.js'
 import { registerScheduledJobs } from './scheduler.js'
 import { SpendTracker } from './lib/spend-tracker.js'
 import { IngestDedup } from './lib/ingest-dedup.js'
+import { requireCoreApiUrl } from './lib/require-core-api-url.js'
 import { logger, TemplateCache, PushoverService, WikiGitService } from '@open-brain/shared'
 import { FlowProducer } from 'bullmq'
 import type { Worker } from 'bullmq'
@@ -65,6 +66,14 @@ async function main() {
   if (!openaiApiKey) {
     logger.warn('OPENAI_API_KEY not set — embedding, entity extraction, and skill execution will fail')
   }
+
+  // SE-16 startup guard: core-api base URL is required for proactive-skill
+  // autonomy gating. In production an unset OPEN_BRAIN_API_URL throws here so a
+  // misconfigured deploy fails loudly at boot rather than silently gating every
+  // autonomy-gated skill to 'observe'. In dev/test it warns and falls back to
+  // localhost. Resolve once and reuse below (skill-execution worker).
+  const coreApiUrl = requireCoreApiUrl()
+  logger.info({ coreApiUrl }, 'core-api URL resolved (proactive-skill autonomy gating)')
 
   // Anthropic client for Claude SDK routing (used by skill-execution and future agentic workers)
   const anthropicClient = createAnthropicClient({ maxRetries: 0 }) // BullMQ handles retries
@@ -207,7 +216,7 @@ async function main() {
     litellmUrl: openaiBaseUrl,
     litellmApiKey: openaiApiKey,
     promptsDir,
-    coreApiUrl: process.env.OPEN_BRAIN_API_URL ?? 'http://core-api:3000',
+    coreApiUrl,
     configService,
     anthropicClient: anthropicClient ?? undefined,
     ollamaClient: ollamaClient ?? undefined,

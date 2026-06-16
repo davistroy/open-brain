@@ -1,8 +1,10 @@
 import OpenAI from 'openai'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import type { ConfigService } from '../config/loader.js'
-import { resolveModelName } from '../types/config.js'
+import type { Database } from '../db/index.js'
+import { resolveModelName, getModelEntry } from '../types/config.js'
 import { logger } from '../lib/logger.js'
+import { recordSpend } from './spend-recorder.js'
 
 /**
  * Thrown when the embedding API is unreachable or returns a non-200 response.
@@ -58,12 +60,20 @@ export interface EmbeddingServiceOpts {
   baseUrl?: string
   apiKey: string
   configService: ConfigService
+  /**
+   * Optional DB handle. When provided, each embedding call records its spend in
+   * `ai_audit_log` (INT-M2) so the budget circuit breaker isn't blind to embedding
+   * cost — the high-volume gap behind the 2026-04 bulk-ingest incident. Callers
+   * without a DB (e.g. health checks) simply omit it and no row is written.
+   */
+  db?: Database
 }
 
 export class EmbeddingService {
   private client: OpenAI
   private configService: ConfigService
   private baseURL: string
+  private db?: Database
 
   constructor(opts: EmbeddingServiceOpts) {
     this.baseURL = opts.baseUrl ?? process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
@@ -74,6 +84,29 @@ export class EmbeddingService {
       maxRetries: 0,  // BullMQ handles retries with patient backoff; no SDK-level retries
     })
     this.configService = opts.configService
+    this.db = opts.db
+  }
+
+  /**
+   * Records embedding spend in `ai_audit_log` (INT-M2). No-op without a DB.
+   * Cost is read from the `embedding` tier in ai-routing.yaml (never hardcoded);
+   * embeddings are input-only, so total_tokens == prompt_tokens.
+   * Failures are swallowed by `recordSpend` — never breaks the embedding path.
+   */
+  private async recordEmbeddingSpend(totalTokens: number, durationMs: number): Promise<void> {
+    if (!this.db || totalTokens <= 0) return
+    const aiConfig = this.configService.get('ai')
+    const entry = getModelEntry(aiConfig, 'embedding')
+    const costUsd = (totalTokens * (entry.cost_per_1k_input ?? 0)) / 1000
+    await recordSpend(this.db, {
+      taskType: 'embedding',
+      model: entry.model,
+      clientUsed: entry.client,
+      costUsd,
+      promptTokens: totalTokens,
+      totalTokens,
+      durationMs,
+    })
   }
 
   /**
@@ -100,6 +133,7 @@ export class EmbeddingService {
    * halves the limit and retries until MIN_EMBEDDING_CHARS.
    */
   private async embedWithAdaptiveTruncation(text: string, model: string): Promise<number[]> {
+    const startedAt = Date.now()
     let limit = MAX_EMBEDDING_CHARS
     let input = this.truncateToLimit(text, limit)
     const wasOriginallyTruncated = input.length < text.length
@@ -125,6 +159,7 @@ export class EmbeddingService {
             `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding, got ${raw?.length ?? 0}`,
           )
         }
+        await this.recordEmbeddingSpend(response.usage?.total_tokens ?? 0, Date.now() - startedAt)
         return normalizeVector(raw)
       } catch (err) {
         if (err instanceof EmbeddingUnavailableError) throw err
@@ -163,6 +198,7 @@ export class EmbeddingService {
 
     const model = this.getModelName()
     const truncatedTexts = texts.map(t => this.truncateToLimit(t, MAX_EMBEDDING_CHARS))
+    const startedAt = Date.now()
 
     try {
       const response = await this.client.embeddings.create({
@@ -179,7 +215,7 @@ export class EmbeddingService {
         )
       }
 
-      return sorted.map(item => {
+      const vectors = sorted.map(item => {
         if (!item.embedding || item.embedding.length !== EMBEDDING_DIMENSIONS) {
           throw new EmbeddingUnavailableError(
             `Expected ${EMBEDDING_DIMENSIONS}-dimensional embedding at index ${item.index}, got ${item.embedding?.length ?? 0}`,
@@ -187,6 +223,8 @@ export class EmbeddingService {
         }
         return normalizeVector(item.embedding)
       })
+      await this.recordEmbeddingSpend(response.usage?.total_tokens ?? 0, Date.now() - startedAt)
+      return vectors
     } catch (err) {
       if (err instanceof EmbeddingUnavailableError) throw err
       const message = err instanceof Error ? err.message : String(err)

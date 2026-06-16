@@ -12278,3 +12278,39 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [database] [ci] [config] [decision]
 **Environment:** ubuntu-vm (dev/test; homeserver deploy batched with Phases 2–4). postgresql-client 16 installed on the VM for script testing.
 **Duration:** ~90 min
+
+--- New session: 2026-06-16 — Arch-review v3 Wave 2 Phase 6 (Integration & Spend Hardening, CS-6) ---
+
+## Entry 171 — Phase 6: integration & spend hardening (INT-H1, SEC-05, INT-M2, SE-5/15/16, SEC-06/07) (2026-06-16)  [pipeline] [api] [security] [test] [decision]
+
+**Objective:** IMPLEMENTATION_PLAN Phase 6 (CS-6) — 7 resilience/spend fixes, all TDD:
+- **6.1 INT-H1** slack-bot `CoreApiClient.request()`: `AbortSignal.timeout(15s)` + bounded retry (idempotent GETs only) + 409-as-success on capture-create. Today a wedged core-api hangs the slack request past Slack's ack.
+- **6.2 SEC-05** ingest-side prompt-injection: wrap `capture.content` via `SafePromptBuilder.wrapContent()` (the P14b read-side pattern) in `extract-entities.ts` + `extract-commitments.ts`.
+- **6.3 INT-M2** budget-breaker blind spot: `EmbeddingService.embed*()` and voice `ClassificationService.classify()` bypass the gateway, so their OpenAI spend never lands in `ai_audit_log` → `SpendTracker` undercounts (the April incident). Extract a shared `recordSpend()` (from gateway `logAudit`) and call it after each embedding/classification call.
+- **6.4 SE-5** embed pause is a no-op: `processEmbedCaptureJob` throws `DelayedError` WITHOUT first calling `job.moveToDelayed(now+PAUSE_DELAY_MS, token)` (BullMQ requires the move first) and `PAUSE_DELAY_MS` is dead. Pass `job`+`token`; move-then-throw.
+- **6.5 SE-16** `base-skill.ts:82` silently falls back to `http://localhost:3000` when `OPEN_BRAIN_API_URL` is unset → autonomy fetch fails → every gated skill defaults to `observe`. Add a startup fail-fast/WARN.
+- **6.6 SE-15** `capture.ts` duplicate detection matches the substring `'content_hash'`/`'23505'` in the error message; inspect the pg error `code === '23505'` + constraint name on the cause chain instead.
+- **6.7 SEC-06/07** verify advisory ranges for `drizzle-orm ^0.45.1` + `simple-git ^3.27.0`; bump to patched; `pnpm audit` clean; commit lockfile.
+
+**Findings (pre-impl):** gateway row-writer is the private `LLMGatewayService.logAudit()` (inserts `ai_audit_log`); `EmbeddingService`(shared) + voice `ClassificationService`(voice-capture) have `configService`/OpenAI client but the spend hook must be added. `SpendTracker` sums `ai_audit_log WHERE client_used != 'anthropic'`. BullMQ `^5.0.0`. `SafePromptBuilder.wrapContent(content, id)` in `@open-brain/shared`.
+
+**Hypothesis:** each fix is unit-testable in isolation; suites stay green; `pnpm audit` clean. **Rollback:** revert PR. Pre-change SHA `cb8fd3d`. **No deploy** (batched).
+
+**Implemented:**
+- **6.1 INT-H1** (slack-bot `core-api-client.ts`): every `fetch` carries `AbortSignal.timeout(15s)`; GET-only bounded retry (3 attempts, 250→500ms backoff) on network/timeout/5xx; non-GET never retried. New optional `okStatuses` makes `captures_create` treat a 409 as success — parses the existing-capture UUID from the 409 body, else a `'duplicate'` marker, `pipeline_status: 'complete'`. (40 client tests + 30 consumer-regression pass.)
+- **6.2 SEC-05** (`extract-entities.ts` + `extract-commitments.ts`): user-controlled `capture.content` now wrapped via `new SafePromptBuilder().wrapContent(content, captureId)` before the template render — the P14b read-side pattern, ingest side. No template-file changes. (4 new sanitization assertions; injection phrase redacted + fenced.)
+- **6.3 INT-M2** (the budget blind spot): new shared `recordSpend(db, params)` (single `ai_audit_log` writer); gateway `logAudit` refactored to delegate to it. **EmbeddingService** gains an optional `db`; it captures `response.usage.total_tokens`, computes cost from the `embedding` tier (`getModelEntry`, never hardcoded), and records `task_type:'embedding'` after each `embed`/`embedBatch`. embed-capture worker injects `db`. This closes the **high-volume** April-incident blind spot (every capture is embedded). **Voice classification deferred** (see Decision below).
+- **6.4 SE-5** (`embed-capture.ts`): processor now takes `(job, token, …)` and on spend-paused calls `await job.moveToDelayed(Date.now()+PAUSE_DELAY_MS, token)` BEFORE `throw new DelayedError` — BullMQ requires the move first, else the job FAILS (consuming a retry) instead of re-queuing. `PAUSE_DELAY_MS` is now live. (6 `pipeline.test.ts` call sites + the unit test updated; test asserts `moveToDelayed(future, token)` then DelayedError.)
+- **6.5 SE-16** (workers): new `require-core-api-url.ts` — fail-closed (`OPEN_BRAIN_API_URL` unset in prod/unknown NODE_ENV → throw; dev/test → WARN + localhost). `base-skill.ts` + `main.ts` (startup guard) + the skill-execution worker now use it; no more silent `localhost:3000` that gated every skill to `observe`. (7 tests.)
+- **6.6 SE-15** (`capture.ts`): `extractPgError()` walks the `err`/`.cause` chain (cycle-guarded) for `{code, constraint}`; duplicate → `ConflictError` only on `code==='23505'` (+ `captures_content_hash_idx` when present), so FK/not-null errors propagate. Replaces fragile message-substring matching. (3 cases added.)
+- **6.7 SEC-06/07**: real advisories confirmed — `drizzle-orm <0.45.2` (moderate, GHSA-gpj5-g38j-94v9) and `simple-git <3.36.0` (HIGH RCE, GHSA-hffm-xvc3-vprc; installed 3.35.2 *was* vulnerable). Bumped to `^0.45.2` / `^3.36.0`; lockfile committed; both CLEAN in `pnpm audit`.
+
+**Decision — voice classification spend (INT-M2 residual):** voice-capture is a deliberately thin container with **no DB and no ai-routing config** (gpt-5.4 model hardcoded). Coupling it to Postgres + cost-config to record one low-volume, human-gated call would reduce transcription resilience (transcription would depend on DB reachability) — disproportionate. The April incident was *bulk automated* spend (3,230 files → embeddings/entity-extraction), which voice cannot reproduce. The architecturally-sound fix is to attach `response.usage` to the capture payload and let core-api (which owns DB+config) record at ingest — a clean, self-contained follow-up (**INT-M2-voice**). Code comment added in `classification.ts` for discoverability. The high-volume blind spot (embeddings) is fully closed.
+
+**Out-of-scope residual audits (NOT SEC-06/07):** `vitest <3.2.6` (critical — UI-server file read; dev-only; needs a 2→3 major migration = its own PR), `shell-quote` + `picomatch` (transitive via `packages/mobile` → expo/react-native). Tracked, not silently claimed clean.
+
+**Verification:** `pnpm -r lint` clean (tsc all pkgs incl. tests). **Unit:** shared 342/342 · workers 1047/1047 · core-api 1191/1191 @ **85.68% lines** (gate 80) · slack-bot 504/504 · voice-capture 82/82 · web-next 118/118. **Integration:** core-api 131/131 · workers 14 passed/2 skipped (pipeline sig change + embedding-records-spend path exercised). `pnpm audit`: drizzle-orm + simple-git clean. **No deploy** (batched; voice-capture needs no deploy change).
+
+**Tags:** [pipeline] [api] [security] [test] [decision]
+**Environment:** ubuntu-vm (dev/test; no homeserver deploy required for this phase — all code/test + a dep bump).
+**Duration:** ~2.5 h (4 parallel TDD sub-agents for the isolated items + orchestrator did shared/voice/bullmq/dep-bump + full verification)

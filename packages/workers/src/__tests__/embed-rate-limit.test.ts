@@ -38,6 +38,19 @@ function makeSpendTracker(result: SpendCheckResult) {
   } as unknown as SpendTracker
 }
 
+/**
+ * Minimal BullMQ Job stand-in. `moveToDelayed` is a spy so SE-5 can assert the
+ * job is moved-to-delayed (re-queued) rather than failed.
+ */
+function makeJob(data: { captureId: string; traceId?: string }) {
+  return {
+    data,
+    moveToDelayed: vi.fn().mockResolvedValue(undefined),
+  }
+}
+
+const TOKEN = 'lock-tok-1'
+
 // ============================================================
 // Tests
 // ============================================================
@@ -54,7 +67,8 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
     const tracker = makeSpendTracker({ monthlySpend: 3.00, action: 'normal' })
 
     await processEmbedCaptureJob(
-      { captureId: 'cap-1' },
+      makeJob({ captureId: 'cap-1' }) as never,
+      TOKEN,
       db as never,
       embedService as never,
       tracker,
@@ -65,20 +79,31 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
     expect(tracker.check).toHaveBeenCalledOnce()
   })
 
-  it('throws DelayedError when spend tracker returns action=paused', async () => {
+  it('moves job to delayed (not failed) then throws DelayedError when spend is paused (SE-5)', async () => {
     const capture = { id: 'cap-1', content: 'Test content', pipeline_status: 'extracted' }
     const db = makeDb(capture)
     const embedService = makeEmbeddingService()
     const tracker = makeSpendTracker({ monthlySpend: 12.00, action: 'paused' })
+    const job = makeJob({ captureId: 'cap-1' })
 
+    const before = Date.now()
     await expect(
       processEmbedCaptureJob(
-        { captureId: 'cap-1' },
+        job as never,
+        TOKEN,
         db as never,
         embedService as never,
         tracker,
       ),
     ).rejects.toThrow(DelayedError)
+
+    // SE-5: the job was MOVED to delayed (with the lock token) BEFORE the DelayedError —
+    // this is what re-queues it after the delay instead of consuming a retry attempt.
+    expect(job.moveToDelayed).toHaveBeenCalledOnce()
+    const [delayUntil, tok] = job.moveToDelayed.mock.calls[0]
+    expect(tok).toBe(TOKEN)
+    // Delayed ~10 minutes (PAUSE_DELAY_MS) into the future.
+    expect(delayUntil).toBeGreaterThanOrEqual(before + 600_000)
 
     // Embedding should NOT have been called
     expect(embedService.embed).not.toHaveBeenCalled()
@@ -94,7 +119,8 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
     vi.useFakeTimers()
 
     const promise = processEmbedCaptureJob(
-      { captureId: 'cap-1' },
+      makeJob({ captureId: 'cap-1' }) as never,
+      TOKEN,
       db as never,
       embedService as never,
       tracker,
@@ -117,7 +143,8 @@ describe('processEmbedCaptureJob — spend-aware rate limiting', () => {
 
     // No spendTracker — should proceed normally
     await processEmbedCaptureJob(
-      { captureId: 'cap-1' },
+      makeJob({ captureId: 'cap-1' }) as never,
+      TOKEN,
       db as never,
       embedService as never,
       undefined, // no tracker

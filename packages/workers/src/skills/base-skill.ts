@@ -1,6 +1,7 @@
 import { skills_log, logger, PushoverService, meetsAutonomyLevel } from '@open-brain/shared'
 import type { Database, AutonomyLevel } from '@open-brain/shared'
 import type { BaseResult, BaseSkillOpts } from './types.js'
+import { requireCoreApiUrl } from '../lib/require-core-api-url.js'
 
 // Module-level autonomy cache (5-minute TTL, matches slack-bot pattern)
 let _autonomyCache: { level: AutonomyLevel; fetchedAt: number } | null = null
@@ -79,7 +80,9 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
     const minimumAutonomy = ctor.minimum_autonomy
 
     if (minimumAutonomy !== undefined) {
-      const coreApiUrl = process.env.OPEN_BRAIN_API_URL ?? 'http://localhost:3000'
+      // SE-16: fail-closed resolution — no silent localhost fallback in production.
+      // (main.ts asserts this at boot, so production never reaches the throw here.)
+      const coreApiUrl = requireCoreApiUrl()
       const currentLevel = await fetchAutonomyLevel(coreApiUrl)
 
       if (!meetsAutonomyLevel(currentLevel, minimumAutonomy)) {

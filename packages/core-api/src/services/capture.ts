@@ -10,6 +10,38 @@ import { logger } from '@open-brain/shared'
 
 const DEDUP_WINDOW_MS = 60_000 // 60 seconds
 
+/** Unique index that backs the content_hash dedup constraint (migration 0033 made it PARTIAL — name unchanged). */
+const CONTENT_HASH_CONSTRAINT = 'captures_content_hash_idx'
+
+interface PgErrorInfo {
+  code?: string
+  constraint?: string
+  detail?: string
+}
+
+/**
+ * Walk an error and its `.cause` chain, returning the first PostgreSQL error
+ * fields found. node-postgres puts `code`/`constraint`/`detail` as own-properties
+ * on the driver error; drizzle-orm may wrap it, placing the original on `.cause`
+ * (possibly nested). Treats the error structurally rather than parsing message text.
+ */
+function extractPgError(err: unknown): PgErrorInfo {
+  const seen = new Set<unknown>()
+  let current: unknown = err
+  while (current && typeof current === 'object' && !seen.has(current)) {
+    seen.add(current)
+    const rec = current as Record<string, unknown>
+    const code = typeof rec.code === 'string' ? rec.code : undefined
+    const constraint = typeof rec.constraint === 'string' ? rec.constraint : undefined
+    const detail = typeof rec.detail === 'string' ? rec.detail : undefined
+    if (code !== undefined || constraint !== undefined || detail !== undefined) {
+      return { code, constraint, detail }
+    }
+    current = rec.cause
+  }
+  return {}
+}
+
 export interface CaptureStats {
   total_captures: number
   by_source: Record<string, number>
@@ -91,12 +123,15 @@ export class CaptureService {
         .returning()
       created = row
     } catch (err: unknown) {
-      // Handle DB-level unique constraint violation on content_hash
-      // Drizzle wraps pg errors — check message and cause chain
-      const errStr = err instanceof Error ? err.message : String(err)
-      const causeStr = err instanceof Error && err.cause instanceof Error ? err.cause.message : ''
-      if (errStr.includes('content_hash') || causeStr.includes('content_hash') ||
-          errStr.includes('23505') || causeStr.includes('23505')) {
+      // Handle DB-level unique constraint violation on content_hash.
+      // Inspect the PostgreSQL error CODE/constraint structurally (drizzle may
+      // wrap the driver error onto `.cause`) rather than matching message text.
+      const { code, constraint } = extractPgError(err)
+      // 23505 = unique_violation. When the constraint name is present it must be
+      // the content_hash index; when absent, accept the bare 23505 — content_hash
+      // is the only unique index an insert into `captures` can violate. Other pg
+      // errors (FK 23503, not-null 23502, etc.) re-propagate unchanged.
+      if (code === '23505' && (constraint === undefined || constraint === CONTENT_HASH_CONSTRAINT)) {
         throw new ConflictError('Duplicate capture: content already exists')
       }
       throw err
