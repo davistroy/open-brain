@@ -29,6 +29,13 @@ import { processEmbedCaptureJob } from '../../jobs/embed-capture.js'
 import type { CapturePipelineJobData } from '../../queues/capture-pipeline.js'
 import type { EmbedCaptureJobData } from '../../queues/embed-capture.js'
 
+// SE-5: processEmbedCaptureJob now takes (job, token, ...). For direct calls in these
+// tests, wrap the data in a minimal Job stand-in (moveToDelayed is only hit on the
+// spend-paused path, which these tests don't exercise).
+function embedJob(captureId: string): never {
+  return { data: { captureId }, moveToDelayed: async () => {} } as never
+}
+
 // ---------------------------------------------------------------------------
 // Queue name generator -- unique per test to avoid cross-test collision
 // ---------------------------------------------------------------------------
@@ -163,7 +170,8 @@ describe('Pipeline Flow', () => {
 
     // Process embed job directly
     await processEmbedCaptureJob(
-      { captureId },
+      embedJob(captureId),
+      undefined,
       db,
       stubEmbeddingService as any,
     )
@@ -296,7 +304,8 @@ describe('Pipeline Flow', () => {
 
     // Process embed -- should skip
     await processEmbedCaptureJob(
-      { captureId },
+      embedJob(captureId),
+      undefined,
       db,
       stubEmbeddingService as any,
     )
@@ -360,9 +369,10 @@ describe('Retry Behavior', () => {
     // Create embed worker that processes jobs from real Redis
     const embedWorker = new Worker<EmbedCaptureJobData>(
       embedQueueName,
-      async (job) => {
+      async (job, token) => {
         await processEmbedCaptureJob(
-          job.data,
+          job,
+          token,
           db,
           failThenSucceedEmbedding as any,
         )
@@ -430,7 +440,8 @@ describe('Retry Behavior', () => {
     // Process directly -- expect throw
     await expect(
       processEmbedCaptureJob(
-        { captureId },
+        embedJob(captureId),
+        undefined,
         db,
         failingEmbeddingService as any,
       ),
@@ -513,7 +524,8 @@ describe('Idempotency', () => {
 
     // Process embed -- should skip (idempotency guard)
     await processEmbedCaptureJob(
-      { captureId },
+      embedJob(captureId),
+      undefined,
       db,
       stubEmbeddingService as any,
     )
@@ -550,7 +562,7 @@ describe('Idempotency', () => {
     expect(flowProducer.add).toHaveBeenCalledOnce()
 
     // Step 2: Run embed (simulating what the flow DAG child would do)
-    await processEmbedCaptureJob({ captureId }, db, stubEmbeddingService as any)
+    await processEmbedCaptureJob(embedJob(captureId), undefined, db, stubEmbeddingService as any)
 
     // Verify final state
     const [final] = await db

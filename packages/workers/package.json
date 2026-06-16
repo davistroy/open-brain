@@ -23,7 +23,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@open-brain/shared": "workspace:*",
     "bullmq": "^5.0.0",
-    "drizzle-orm": "^0.45.1",
+    "drizzle-orm": "^0.45.2",
     "ioredis": "^5.10.0",
     "mammoth": "^1.11.0",
     "nodemailer": "^8.0.1",

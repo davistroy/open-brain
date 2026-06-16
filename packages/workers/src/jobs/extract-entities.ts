@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import type OpenAI from 'openai'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { captures, pipeline_events, logger, createOpenAIClient, TemplateCache } from '@open-brain/shared'
+import { captures, pipeline_events, logger, createOpenAIClient, TemplateCache, SafePromptBuilder } from '@open-brain/shared'
 import type { ConfigService, LLMGatewayService } from '@open-brain/shared'
 import { EXTRACT_ENTITIES_BACKOFF_DELAYS_MS } from '../queues/extract-entities.js'
 import type { ExtractEntitiesJobData } from '../queues/extract-entities.js'
@@ -117,7 +117,10 @@ export async function processExtractEntitiesJob(
 
   try {
     // ── Load prompt template ─────────────────────────────────────────────────
-    const prompt = templates.render('extract-entities.v1.txt', { content: capture.content })
+    // SEC-05: capture.content is fully user-controlled — fence + strip injection
+    // patterns via SafePromptBuilder before it enters the LLM prompt.
+    const safeContent = new SafePromptBuilder().wrapContent(capture.content, captureId)
+    const prompt = templates.render('extract-entities.v1.txt', { content: safeContent })
 
     // ── Call LLM for entity extraction ────────────────────────────────────────
     // Primary: LLMGatewayService with task-based tier routing

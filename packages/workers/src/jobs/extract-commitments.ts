@@ -3,7 +3,7 @@ import { Worker } from 'bullmq'
 import { eq, and, sql } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
-import { captures, pipeline_events, commitments, logger, TemplateCache } from '@open-brain/shared'
+import { captures, pipeline_events, commitments, logger, TemplateCache, SafePromptBuilder } from '@open-brain/shared'
 import type { LLMGatewayService } from '@open-brain/shared'
 import { EXTRACT_COMMITMENTS_BACKOFF_DELAYS_MS } from '../queues/extract-commitments.js'
 import type { ExtractCommitmentsJobData } from '../queues/extract-commitments.js'
@@ -171,7 +171,10 @@ export async function processExtractCommitmentsJob(
 
   try {
     // ── Load prompt template ─────────────────────────────────────────────────
-    const prompt = templates.render('extract-commitments.v1.txt', { content: capture.content })
+    // SEC-05: capture.content is fully user-controlled — fence + strip injection
+    // patterns via SafePromptBuilder before it enters the LLM prompt.
+    const safeContent = new SafePromptBuilder().wrapContent(capture.content, captureId)
+    const prompt = templates.render('extract-commitments.v1.txt', { content: safeContent })
 
     // ── Call T1 LLM for commitment extraction ────────────────────────────────
     const rawText = await llmGateway.completeByTask(prompt, 'commitment_extraction', {
