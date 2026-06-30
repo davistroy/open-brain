@@ -50,7 +50,7 @@ declare -A REQUIRED_SECRETS=(
 )
 
 # -----------------------------------------------------------------------------
-# OPTIONAL secrets (7) — written if present in BWS, silently skipped if not.
+# OPTIONAL secrets (9) — written if present in BWS, silently skipped if not.
 # SMTP_HOST/USER/PASS/FROM are interlocked: any one present causes
 # load-secrets.sh to also emit SMTP_PORT=$SMTP_PORT_DEFAULT (a non-secret).
 # -----------------------------------------------------------------------------
@@ -65,6 +65,11 @@ declare -A OPTIONAL_SECRETS=(
   # A119: BWS item creation operator-deferred until mobile testing begins.
   # Consumer: core-api mobile Bearer auth (Phase 6.2 middleware + Phase 6.4 client).
   ["dev/open-brain/mobile-api-key"]="MOBILE_API_KEY"
+  # INT-M5 (Phase 8.1): voice-capture Bearer auth. Optional/two-phase — when set,
+  # voice-capture enforces Bearer on POST /api/capture and the core-api proxy
+  # forwards it upstream; unset = pre-rollout warn-and-allow. BWS item creation
+  # operator-deferred until the iOS Shortcut + clients are updated to send it.
+  ["dev/open-brain/voice-capture-secret"]="VOICE_CAPTURE_SECRET"
 )
 
 # Non-secret SMTP port default emitted alongside any SMTP_* present.

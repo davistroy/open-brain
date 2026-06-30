@@ -23,7 +23,7 @@
 | 5 | Schema fidelity machine | 2 | M (~1d) | 1 | ✅ MERGED #223 + DEPLOYED |
 | 6 | Integration & spend hardening | 2 | M (~1d) | 1 | ✅ MERGED #224 (no deploy needed; code-only) |
 | 7 | Similarity-scan rewrite (k-NN) | 2 | L (~1–1.5d) | 5 (init-schema CI), ADR-0003 | ✅ MERGED #225 + DEPLOYED 2026-06-30 (Entry 175, migration 0034 applied) |
-| 8 | Ingest edges + voice auth | 3 | M (~1d) | 2 (SEC-02, **re-scoped per D131**) | ⏭️ NEXT |
+| 8 | Ingest edges + voice auth | 3 | M (~1d) | 2 (SEC-02, **re-scoped per D131**) | 🔶 CODE DONE (8.1/8.3/8.4/8.5/8.6, Entry 176); 8.2 deferred (D132) |
 | 9 | Convention→CI + governance/doc sweep | 3 | M (~1d) | 1, 4 | PENDING |
 | 10 | Opportunistic Lows + RI closeouts | 4 | S–M | — | PENDING |
 
@@ -177,12 +177,12 @@ Every work item below complies with these. Three are **flagged decisions** the o
 
 | # | Work item | Files | Acceptance criteria | Status |
 |---|-----------|-------|---------------------|--------|
-| 8.1 | **INT-M5**: voice-capture Bearer auth | `packages/voice-capture/src/server.ts`, `packages/mobile/src/lib/config.ts`, P08 lockstep for `VOICE_CAPTURE_SECRET` | `POST /api/capture` requires a timing-safe Bearer check; mobile + iOS Shortcut send it; unauthenticated LAN POST returns 401. | PENDING |
-| 8.2 | **SEC-02 (app ports, re-scoped)**: bind voice-capture | `docker-compose.yml` | with 8.1 in place, **voice-capture:3001** binds `127.0.0.1`; this is now the last SEC-02 *app-port* close (core-api stays `0.0.0.0` per D131; observability ports → ops backlog). | PENDING |
-| 8.3 | **INT-M3**: email-worker transient handling | `cloudflare/email-worker/src/index.ts` | 5xx/network → throw (CF retries) instead of `setReject`; only 4xx → permanent reject; inbound mail during a core-api restart is no longer bounced. | PENDING |
-| 8.4 | **INT-M4**: voice transcript dead-letter | `packages/voice-capture/src/server.ts` + daily sweep | classified transcript spooled to the container volume before ingest; daily job retries the spool and deletes on success; a core-api outage no longer loses a transcribed memo. | PENDING |
-| 8.5 | **SE-13 + PE-L4**: voice input validation | `packages/voice-capture/src/server.ts`, `core-api/src/routes/voice-captures.ts` | `brain_view` validated against config before paid transcription; 413 on uploads > 50 MB. | PENDING |
-| 8.6 | **RC-6**: mobile token rotation | `docs/`, BWS | rotation procedure documented; `MOBILE_API_KEY` confirmed in BWS (90-day staleness alert via `secret-rotation`). | PENDING |
+| 8.1 | **INT-M5**: voice-capture Bearer auth | `packages/voice-capture/src/server.ts`, `packages/mobile/src/lib/config.ts`, P08 lockstep for `VOICE_CAPTURE_SECRET` | `POST /api/capture` requires a timing-safe Bearer check; mobile + iOS Shortcut send it; unauthenticated LAN POST returns 401. | ✅ DONE (TDD) — fail-closed-when-set/warn-allow-when-unset; core-api proxy forwards Bearer; mobile `audio.ts`; P08 lockstep |
+| 8.2 | **SEC-02 (app ports, re-scoped)**: bind voice-capture | `docker-compose.yml` | with 8.1 in place, **voice-capture:3001** binds `127.0.0.1`; this is now the last SEC-02 *app-port* close (core-api stays `0.0.0.0` per D131; observability ports → ops backlog). | ⏸️ DEFERRED (D132/Option 1 — voice-capture stays `0.0.0.0` Bearer-gated; loopback bind → Deployment & Ops backlog with the voice-tunnel work) |
+| 8.3 | **INT-M3**: email-worker transient handling | `cloudflare/email-worker/src/index.ts` | 5xx/network → throw (CF retries) instead of `setReject`; only 4xx → permanent reject; inbound mail during a core-api restart is no longer bounced. | ✅ DONE — `isTransientStatus()`; allowlist-fetch + 5xx throw; TDD exception (standalone CF worker, no monorepo test infra) |
+| 8.4 | **INT-M4**: voice transcript dead-letter | `packages/voice-capture/src/lib/transcript-spool.ts`, `server.ts`, compose `voice_spool_data` | classified transcript spooled to the container volume before ingest; daily job retries the spool and deletes on success; a core-api outage no longer loses a transcribed memo. | ✅ DONE (TDD) — write-ahead spool, delete-on-success; **self-contained 30-min `setInterval`** (`NODE_ENV`-gated/`unref`) replaces a cross-container "daily sweep" |
+| 8.5 | **SE-13 + PE-L4**: voice input validation | `packages/voice-capture/src/server.ts`, `core-api/src/routes/voice-captures.ts` | `brain_view` validated against config before paid transcription; 413 on uploads > 50 MB. | ✅ DONE (TDD) — `lib/brain-views.ts` lightweight load + `./config:ro` mount; 413 in both voice-capture + proxy (`VOICE_MAX_UPLOAD_BYTES`) |
+| 8.6 | **RC-6**: mobile token rotation | `docs/`, BWS | rotation procedure documented; `MOBILE_API_KEY` confirmed in BWS (90-day staleness alert via `secret-rotation`). | ✅ DONE — `docs/runbooks/voice-capture-auth.md`; `secret-rotation` auto-covers both secrets (scans all BWS); BWS item creation operator-deferred |
 
 **DoD (runnable):** iOS Shortcut + mobile SPA + Expo app each capture successfully after the change · unauthenticated `curl` to `:3001/api/capture` → 401 · `nmap` from LAN shows `:3001` closed · oversized upload → 413.
 
@@ -272,6 +272,7 @@ Not in the original plan — these are operational follow-ups the homeserver dep
 | D&O-3 | **QA-M3 / INGEST_E2E in CI** | Re-scoped from Phase 1.4 — needs a full-stack test compose (core-api + workers + sidecar), not a flag flip. Stand up the stack in CI, then set `INGEST_E2E=1`. | DEFERRED |
 | D&O-4 | **Workers coverage Part B** | workers lines 74.02% < 78 floor (gap ~447 lines: `skill-execution.ts` 0%, `scheduler.ts` 0%, `ingest-process.ts` 0%). Raise coverage in a dedicated PR, then enable `--coverage` in the workers `test` script. **Never lower the threshold.** | DEFERRED |
 | D&O-5 | **INT-M2-voice** | Route voice-capture classification spend through core-api at ingest (the thin voice container has no DB/config to call `recordSpend()` directly). Closes the last budget-breaker blind spot. | DEFERRED |
+| D&O-6 | **Voice-capture loopback bind (SEC-02 8.2)** | Bind `voice-capture:3001` to `127.0.0.1` once the live iOS Shortcut + mobile clients route through a tunnel (currently they POST direct to `homeserver:3001`, Bearer-gated per D132). Pairs with standing up CF-tunnel-for-voice. Until then, the Bearer auth (8.1) is the control and the port stays LAN. | DEFERRED (D132) |
 
 ---
 

@@ -189,4 +189,78 @@ describe('POST /api/v1/voice-captures', () => {
     expect(forwardedFile).toBeTruthy()
     expect(forwardedFile).toBeInstanceOf(Blob)
   })
+
+  // -------------------------------------------------------------------------
+  // 6. Upstream Bearer auth (8.1, INT-M5) — proxy forwards VOICE_CAPTURE_SECRET
+  // -------------------------------------------------------------------------
+
+  describe('upstream Bearer auth', () => {
+    const ORIGINAL = process.env.VOICE_CAPTURE_SECRET
+
+    afterEach(() => {
+      if (ORIGINAL === undefined) delete process.env.VOICE_CAPTURE_SECRET
+      else process.env.VOICE_CAPTURE_SECRET = ORIGINAL
+    })
+
+    it('forwards Authorization: Bearer to the upstream when VOICE_CAPTURE_SECRET is set', async () => {
+      process.env.VOICE_CAPTURE_SECRET = 'proxy-secret-xyz'
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+
+      const res = await app.fetch(buildMultipartRequest({ file: fakeAudioBlob }))
+      expect(res.status).toBe(201)
+
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+      const headers = init.headers as Record<string, string>
+      expect(headers['Authorization']).toBe('Bearer proxy-secret-xyz')
+      // The internal caller header must still be set (R2 boundary contract).
+      expect(headers['X-Open-Brain-Caller']).toBe('web-next-public')
+    })
+
+    it('omits Authorization when VOICE_CAPTURE_SECRET is unset (pre-rollout)', async () => {
+      delete process.env.VOICE_CAPTURE_SECRET
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 201,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+
+      const res = await app.fetch(buildMultipartRequest({ file: fakeAudioBlob }))
+      expect(res.status).toBe(201)
+
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+      const headers = init.headers as Record<string, string>
+      expect(headers['Authorization']).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // 7. Upload size limit (PE-L4) — 413 before proxying
+  // -------------------------------------------------------------------------
+
+  describe('upload size limit', () => {
+    const ORIG_MAX = process.env.VOICE_MAX_UPLOAD_BYTES
+
+    afterEach(() => {
+      if (ORIG_MAX === undefined) delete process.env.VOICE_MAX_UPLOAD_BYTES
+      else process.env.VOICE_MAX_UPLOAD_BYTES = ORIG_MAX
+    })
+
+    it('returns 413 PAYLOAD_TOO_LARGE when the upload exceeds the max, without calling upstream', async () => {
+      // fakeAudioBlob = 'fake audio data' = 15 bytes; cap at 5.
+      process.env.VOICE_MAX_UPLOAD_BYTES = '5'
+
+      const res = await app.fetch(buildMultipartRequest({ file: fakeAudioBlob }))
+
+      expect(res.status).toBe(413)
+      const body = await res.json()
+      expect(body.code).toBe('PAYLOAD_TOO_LARGE')
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+  })
 })
