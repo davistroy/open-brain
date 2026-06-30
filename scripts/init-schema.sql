@@ -96,19 +96,19 @@ BEGIN
     SELECT
       c.id AS capture_id,
       ts_rank_cd(
-        to_tsvector('english', c.content),
+        c.content_tsvector,
         plainto_tsquery('english', query_text)
       )::float AS fts_score,
       ROW_NUMBER() OVER (
         ORDER BY ts_rank_cd(
-          to_tsvector('english', c.content),
+          c.content_tsvector,
           plainto_tsquery('english', query_text)
         ) DESC
       ) AS fts_rank
     FROM captures c
     WHERE
       c.deleted_at IS NULL
-      AND to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      AND c.content_tsvector @@ plainto_tsquery('english', query_text)
       AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
       AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
       AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
@@ -157,12 +157,12 @@ BEGIN
     SELECT
       c.id AS capture_id,
       ts_rank_cd(
-        to_tsvector('english', c.content),
+        c.content_tsvector,
         plainto_tsquery('english', query_text)
       )::float AS fts_score,
       ROW_NUMBER() OVER (
         ORDER BY ts_rank_cd(
-          to_tsvector('english', c.content),
+          c.content_tsvector,
           plainto_tsquery('english', query_text)
         ) DESC
       ) AS fts_rank
@@ -170,13 +170,13 @@ BEGIN
     WHERE
       c.embedding IS NOT NULL
       AND c.deleted_at IS NULL
-      AND to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text)
+      AND c.content_tsvector @@ plainto_tsquery('english', query_text)
       AND (filter_brain_views IS NULL OR c.brain_view = ANY(filter_brain_views))
       AND (filter_capture_types IS NULL OR c.capture_type = ANY(filter_capture_types))
       AND (filter_date_from IS NULL OR c.captured_at >= filter_date_from)
       AND (filter_date_to IS NULL OR c.captured_at <= filter_date_to)
     ORDER BY ts_rank_cd(
-      to_tsvector('english', c.content),
+      c.content_tsvector,
       plainto_tsquery('english', query_text)
     ) DESC
     LIMIT match_count * 4   -- overquery: GIN+tsquery prunes first, LIMIT handles pathological common-term cases
@@ -549,6 +549,7 @@ CREATE TABLE public.captures (
     deleted_at timestamp with time zone,
     access_count integer DEFAULT 0 NOT NULL,
     last_accessed_at timestamp with time zone,
+    content_tsvector tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, content)) STORED,
     CONSTRAINT captures_capture_type_check CHECK ((capture_type = ANY (ARRAY['decision'::text, 'idea'::text, 'observation'::text, 'task'::text, 'win'::text, 'blocker'::text, 'question'::text, 'reflection'::text]))),
     CONSTRAINT captures_pipeline_status_check CHECK ((pipeline_status = ANY (ARRAY['pending'::text, 'processing'::text, 'extracted'::text, 'embedded'::text, 'chunked'::text, 'complete'::text, 'failed'::text, 'deleted'::text]))),
     CONSTRAINT captures_source_check CHECK ((source = ANY (ARRAY['slack'::text, 'voice'::text, 'api'::text, 'document'::text, 'mcp'::text, 'email'::text, 'file'::text, 'consolidation'::text, 'system'::text])))
@@ -1322,17 +1323,17 @@ CREATE INDEX captures_capture_type_idx ON public.captures USING btree (capture_t
 
 
 --
--- Name: captures_content_fts_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX captures_content_fts_idx ON public.captures USING gin (to_tsvector('english'::regconfig, content));
-
-
---
 -- Name: captures_content_hash_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX captures_content_hash_idx ON public.captures USING btree (content_hash) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: captures_content_tsvector_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX captures_content_tsvector_idx ON public.captures USING gin (content_tsvector);
 
 
 --

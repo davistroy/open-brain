@@ -3,6 +3,15 @@ import type { Database, AutonomyLevel } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
+import {
+  findSimilarPairs,
+  readScanWatermark,
+  writeScanWatermark,
+  CAPTURE_DEDUP_WATERMARK_KEY,
+} from '../lib/hnsw-similarity.js'
+
+/** ADR-0003 rollback hatch: `SIMILARITY_SCAN_LEGACY=1` → old O(N²) self-join for one weekend. */
+const LEGACY_SCAN = process.env.SIMILARITY_SCAN_LEGACY === '1'
 
 // ============================================================
 // Types
@@ -71,6 +80,14 @@ interface DedupPairRow {
   created_at_b: string
 }
 
+/** Row shape for the k-NN-path content/created_at hydration query. */
+interface DedupHydrationRow {
+  [key: string]: unknown
+  id: string
+  content: string
+  created_at: string
+}
+
 // ============================================================
 // CaptureDedupSweepSkill
 // ============================================================
@@ -98,13 +115,21 @@ export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, 
     } = options
 
     const startMs = Date.now()
+    const scanStartedAt = new Date()
     logger.info(
       { similarityThreshold, maxPairs },
       '[capture-dedup-sweep] starting execution',
     )
 
-    // Step 1: Query near-duplicate pairs
-    const pairs = await this.queryDuplicatePairs(similarityThreshold, maxPairs)
+    // Step 0: PE-H1 incremental scoping — only flag duplicates among captures
+    // created since the last successful sweep. First run (null) = full scan.
+    const candidatesSince = await readScanWatermark(this.db, CAPTURE_DEDUP_WATERMARK_KEY)
+
+    // Step 1: Query near-duplicate pairs (throws on DB failure → watermark not advanced)
+    const pairs = await this.queryDuplicatePairs(similarityThreshold, maxPairs, candidatesSince)
+
+    // Scan succeeded → advance the watermark before notifying/logging.
+    await writeScanWatermark(this.db, CAPTURE_DEDUP_WATERMARK_KEY, scanStartedAt)
 
     logger.info(
       { pairsFound: pairs.length },
@@ -159,6 +184,54 @@ export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, 
   private async queryDuplicatePairs(
     similarityThreshold: number,
     maxPairs: number,
+    candidatesSince: Date | null = null,
+  ): Promise<DedupPair[]> {
+    if (LEGACY_SCAN) {
+      return this.queryDuplicatePairsLegacy(similarityThreshold, maxPairs)
+    }
+
+    // PE-H1 / ADR-0003: per-row HNSW k-NN probe instead of the O(N²) self-join.
+    // Dedup excludes source='consolidation' (excludeConsolidationSource:true).
+    // Errors propagate so run() never advances the scan watermark on failure.
+    const simPairs = await findSimilarPairs(this.db, {
+      threshold: similarityThreshold,
+      maxPairs,
+      excludeConsolidationSource: true,
+      candidatesSince,
+    })
+    if (simPairs.length === 0) return []
+
+    // Hydrate content + created_at previews for the involved captures in one query.
+    // PG array literal (Drizzle sends JS arrays as record tuples, not uuid[]).
+    const ids = [...new Set(simPairs.flatMap((p) => [p.capture_id_a, p.capture_id_b]))]
+    const pgIds = `{${ids.join(',')}}`
+    const hydrated = await this.db.execute<DedupHydrationRow>(sql`
+      SELECT id::text AS id,
+             LEFT(content, ${PREVIEW_LENGTH}) AS content,
+             created_at::text AS created_at
+      FROM captures
+      WHERE id = ANY(${pgIds}::uuid[])
+    `)
+    const byId = new Map(hydrated.rows.map((r) => [r.id, r]))
+
+    return simPairs.map((p) => ({
+      capture_id_a: p.capture_id_a,
+      capture_id_b: p.capture_id_b,
+      similarity: p.similarity,
+      content_a_preview: byId.get(p.capture_id_a)?.content ?? '',
+      content_b_preview: byId.get(p.capture_id_b)?.content ?? '',
+      created_at_a: byId.get(p.capture_id_a)?.created_at ?? '',
+      created_at_b: byId.get(p.capture_id_b)?.created_at ?? '',
+    }))
+  }
+
+  /**
+   * Legacy O(N²) cosine self-join — retained behind `SIMILARITY_SCAN_LEGACY=1` as the
+   * one-weekend rollback hatch for ADR-0003. Routed via {@link queryDuplicatePairs}.
+   */
+  private async queryDuplicatePairsLegacy(
+    similarityThreshold: number,
+    maxPairs: number,
   ): Promise<DedupPair[]> {
     try {
       const rows = await this.db.execute<DedupPairRow>(sql`
@@ -195,7 +268,7 @@ export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, 
         created_at_b: row.created_at_b,
       }))
     } catch (err) {
-      logger.error({ err }, '[capture-dedup-sweep] failed to query duplicate pairs')
+      logger.error({ err }, '[capture-dedup-sweep] failed to query duplicate pairs (legacy)')
       return []
     }
   }
