@@ -11,7 +11,12 @@
  * functions must be created inside the factory closures and exported so tests
  * can reference them via the mocked module.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { fileURLToPath } from 'node:url'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+// Repo config/ dir (career/personal/technical/work-internal/client) for the
+// brain_view-validation tests, which exercise the real lightweight config load.
+const REPO_CONFIG_DIR = fileURLToPath(new URL('../../../../config', import.meta.url))
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Mock all service modules.
@@ -103,6 +108,7 @@ function buildCaptureRequest(opts: {
   longitude?: string
   location_name?: string
   location_accuracy?: string
+  authorization?: string
 }): Request {
   const {
     filename = 'memo.m4a',
@@ -113,6 +119,7 @@ function buildCaptureRequest(opts: {
     longitude,
     location_name,
     location_accuracy,
+    authorization,
   } = opts
 
   const formData = new FormData()
@@ -128,6 +135,7 @@ function buildCaptureRequest(opts: {
   return new Request('http://localhost/api/capture', {
     method: 'POST',
     body: formData,
+    ...(authorization ? { headers: { Authorization: authorization } } : {}),
   })
 }
 
@@ -540,5 +548,140 @@ describe('POST /api/capture — location fields', () => {
     const body = await res.json() as { error: string; code: string }
     expect(body.code).toBe('BAD_REQUEST')
     expect(body.error).toContain('valid numbers')
+  })
+})
+
+describe('POST /api/capture — Bearer auth (8.1, INT-M5)', () => {
+  const SECRET = 'test-voice-secret-abc123'
+  const ORIGINAL = process.env.VOICE_CAPTURE_SECRET
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTranscribe.mockResolvedValue(TRANSCRIPTION_RESULT)
+    mockClassify.mockResolvedValue(CLASSIFICATION_RESULT)
+    mockIngest.mockResolvedValue(INGEST_RESULT)
+    mockNotify.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.VOICE_CAPTURE_SECRET
+    else process.env.VOICE_CAPTURE_SECRET = ORIGINAL
+  })
+
+  it('returns 401 UNAUTHORIZED when secret is set but no Authorization header', async () => {
+    process.env.VOICE_CAPTURE_SECRET = SECRET
+
+    const res = await app.request(buildCaptureRequest({ filename: 'memo.m4a' }))
+
+    expect(res.status).toBe(401)
+    const body = await res.json() as { error: string; code: string }
+    expect(body.code).toBe('UNAUTHORIZED')
+    // Auth runs first — no paid transcription on an unauthenticated request
+    expect(mockTranscribe).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 when secret is set but the Bearer token is wrong', async () => {
+    process.env.VOICE_CAPTURE_SECRET = SECRET
+
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      authorization: 'Bearer wrong-token',
+    }))
+
+    expect(res.status).toBe(401)
+    const body = await res.json() as { code: string }
+    expect(body.code).toBe('UNAUTHORIZED')
+    expect(mockTranscribe).not.toHaveBeenCalled()
+  })
+
+  it('proceeds (200) when secret is set and the Bearer token matches', async () => {
+    process.env.VOICE_CAPTURE_SECRET = SECRET
+
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      authorization: `Bearer ${SECRET}`,
+    }))
+
+    expect(res.status).toBe(200)
+  })
+
+  it('proceeds (200) when secret is unset — pre-rollout warn-and-allow (two-phase)', async () => {
+    delete process.env.VOICE_CAPTURE_SECRET
+
+    const res = await app.request(buildCaptureRequest({ filename: 'memo.m4a' }))
+
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/capture — input validation (8.5, SE-13 + PE-L4)', () => {
+  const ORIG_CONFIG = process.env.CONFIG_DIR
+  const ORIG_MAX = process.env.VOICE_MAX_UPLOAD_BYTES
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTranscribe.mockResolvedValue(TRANSCRIPTION_RESULT)
+    mockClassify.mockResolvedValue(CLASSIFICATION_RESULT)
+    mockIngest.mockResolvedValue(INGEST_RESULT)
+    mockNotify.mockResolvedValue(undefined)
+  })
+
+  afterEach(() => {
+    if (ORIG_CONFIG === undefined) delete process.env.CONFIG_DIR
+    else process.env.CONFIG_DIR = ORIG_CONFIG
+    if (ORIG_MAX === undefined) delete process.env.VOICE_MAX_UPLOAD_BYTES
+    else process.env.VOICE_MAX_UPLOAD_BYTES = ORIG_MAX
+  })
+
+  it('returns 413 PAYLOAD_TOO_LARGE when the upload exceeds the max, before transcription (PE-L4)', async () => {
+    process.env.VOICE_MAX_UPLOAD_BYTES = '10'
+
+    const res = await app.request(buildCaptureRequest({
+      filename: 'big.m4a',
+      content: 'this content is well over ten bytes',
+    }))
+
+    expect(res.status).toBe(413)
+    const body = await res.json() as { error: string; code: string }
+    expect(body.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(mockTranscribe).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 for a brain_view not in config, before transcription (SE-13)', async () => {
+    process.env.CONFIG_DIR = REPO_CONFIG_DIR
+
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      brainView: 'bogus-view',
+    }))
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error: string; code: string }
+    expect(body.code).toBe('BAD_REQUEST')
+    expect(body.error).toContain('brain_view')
+    // SE-13: reject before paying for transcription + classification
+    expect(mockTranscribe).not.toHaveBeenCalled()
+  })
+
+  it('accepts a valid configured brain_view (technical)', async () => {
+    process.env.CONFIG_DIR = REPO_CONFIG_DIR
+
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      brainView: 'technical',
+    }))
+
+    expect(res.status).toBe(200)
+  })
+
+  it('skips brain_view validation when config is unavailable (graceful — core-api backstops)', async () => {
+    delete process.env.CONFIG_DIR // → /app/config (absent in tests) → null → skip
+
+    const res = await app.request(buildCaptureRequest({
+      filename: 'memo.m4a',
+      brainView: 'anything-goes',
+    }))
+
+    expect(res.status).toBe(200)
   })
 })

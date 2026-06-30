@@ -22,10 +22,12 @@
     "@hono/node-server": "^1.19.11",
     "@open-brain/shared": "workspace:*",
     "hono": "^4.12.5",
+    "js-yaml": "^4.1.1",
     "openai": "^4.98.0"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.7.0",

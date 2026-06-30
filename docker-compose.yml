@@ -111,6 +111,7 @@ services:
       # MCP_API_KEY: set in .env.secrets
       # ADMIN_API_KEY: set in .env.secrets (protects admin endpoints; falls back to MCP_BEARER_TOKEN)
       # SLACK_USER_TOKEN: set in .env.secrets (xoxp-... user token for channel cleanup — requires channels:history, chat:write scopes)
+      # VOICE_CAPTURE_SECRET: set in .env.secrets (INT-M5 — forwarded as Bearer to voice-capture by the /api/v1/voice-captures proxy)
     ports:
       # Dual-bind (ADR-0002): loopback for host + Tailscale IP for OpenClaw MCP
       # (bond.k4jda.net → 100.101.61.122:3002/mcp). NOT 0.0.0.0 — closes the LAN.
@@ -355,8 +356,15 @@ services:
       # OPENAI_API_KEY: set in .env.secrets
       # PUSHOVER_TOKEN: set in .env.secrets
       # PUSHOVER_USER: set in .env.secrets
+      # VOICE_CAPTURE_SECRET: set in .env.secrets (INT-M5 Bearer auth on /api/capture;
+      #   warn-and-allow if unset — two-phase rollout). Port stays LAN per D132/Option 1
+      #   (live iOS Shortcut posts here directly); 8.2 loopback bind deferred to ops backlog.
     ports:
       - "3001:3001"
+    volumes:
+      # SE-13: brain-views.yaml is read for brain_view validation (lightweight,
+      # like slack-bot). Read-only — voice-capture never writes config.
+      - ./config:/app/config:ro
     depends_on:
       core-api:
         condition: service_healthy

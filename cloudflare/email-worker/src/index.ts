@@ -15,6 +15,21 @@ interface Env {
   DEFAULT_CAPTURE_TYPE: string
 }
 
+/**
+ * INT-M3: classify a failed core-api HTTP call for Cloudflare Email Routing.
+ *
+ * - 5xx → transient: throw so Cloudflare RETRIES delivery later (core-api was
+ *   down/restarting — the mail is fine and should not be bounced).
+ * - 4xx → permanent: the request is malformed; retrying can't fix it, so the
+ *   caller may `setReject` (permanent bounce).
+ *
+ * Network errors (fetch throws) are inherently transient — let them propagate
+ * out of the handler, which Cloudflare also treats as a retryable failure.
+ */
+function isTransientStatus(status: number): boolean {
+  return status >= 500
+}
+
 /** Common email signature delimiters — strip everything after the first match */
 const SIGNATURE_PATTERNS = [
   /^--\s*$/m,                          // standard "-- " delimiter
@@ -95,14 +110,17 @@ export default {
           return
         }
       } else {
-        console.error(`Allowlist fetch failed: ${alRes.status}`)
-        message.setReject('Allowlist check failed — will retry')
-        return
+        // INT-M3: an allowlist fetch failure is always server-side (core-api
+        // unreachable or erroring) — never the sender's fault. Throw so
+        // Cloudflare RETRIES delivery instead of permanently bouncing a
+        // legitimate email during a core-api restart.
+        throw new Error(`Allowlist fetch failed: HTTP ${alRes.status}`)
       }
     } catch (err) {
+      // Network error or the throw above — transient; rethrow so Cloudflare
+      // retries delivery (do NOT setReject, which is a permanent bounce).
       console.error('Allowlist fetch error:', err)
-      message.setReject('Allowlist check failed — will retry')
-      return
+      throw err instanceof Error ? err : new Error(String(err))
     }
 
     // ── Parse email ──────────────────────────────────────────────────────────
@@ -182,6 +200,12 @@ export default {
     if (!response.ok) {
       const errorBody = await response.text()
       console.error(`Capture creation failed: ${response.status} ${response.statusText} — ${errorBody}`)
+      // INT-M3: 5xx → transient (throw so Cloudflare retries delivery — inbound
+      // mail during a core-api restart is no longer bounced). 4xx → permanent
+      // (malformed request; retrying won't help) → setReject.
+      if (isTransientStatus(response.status)) {
+        throw new Error(`Capture API returned ${response.status} (transient — Cloudflare will retry)`)
+      }
       message.setReject(`Capture API returned ${response.status}`)
       return
     }

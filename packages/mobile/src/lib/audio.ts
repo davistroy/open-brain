@@ -61,9 +61,16 @@ export async function uploadAudio(
   formData.append('brain_view', brainView);
   formData.append('device', 'mobile_app');
 
+  // INT-M5: send the voice-capture Bearer when configured.
+  const headers: Record<string, string> = {};
+  if (config.voiceCaptureSecret) {
+    headers['Authorization'] = `Bearer ${config.voiceCaptureSecret}`;
+  }
+
   const response = await fetch(`${config.voiceCaptureUrl}/api/capture`, {
     method: 'POST',
     body: formData,
+    headers,
     // Do NOT set Content-Type — fetch sets it with multipart boundary
   });
 

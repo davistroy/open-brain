@@ -18,17 +18,35 @@ export function registerVoiceCaptureRoutes(app: Hono): void {
       throw new ValidationError('Missing required field: file')
     }
 
+    // PE-L4: reject oversized uploads before proxying (and before the upstream
+    // pays for transcription). Configurable via VOICE_MAX_UPLOAD_BYTES (default 50 MB).
+    const maxUploadBytes = Number(process.env.VOICE_MAX_UPLOAD_BYTES ?? 50 * 1024 * 1024)
+    if (file.size > maxUploadBytes) {
+      return c.json(
+        { error: `Audio file too large: ${file.size} bytes (max ${maxUploadBytes})`, code: 'PAYLOAD_TOO_LARGE' },
+        413,
+      )
+    }
+
     const upstreamForm = new FormData()
     for (const [key, value] of formData.entries()) {
       upstreamForm.append(key, value)
     }
+
+    // INT-M5: forward the voice-capture Bearer upstream when configured, so the
+    // web/proxy voice path keeps working once voice-capture enforces auth. The
+    // R2 boundary caller header is preserved (this is server-to-server on the
+    // docker network; the public caller identity is still web-next-public).
+    const upstreamHeaders: Record<string, string> = { 'X-Open-Brain-Caller': 'web-next-public' }
+    const voiceSecret = process.env.VOICE_CAPTURE_SECRET
+    if (voiceSecret) upstreamHeaders['Authorization'] = `Bearer ${voiceSecret}`
 
     const t0 = Date.now()
     let response: Response
     try {
       response = await fetch(VOICE_CAPTURE_URL, {
         method: 'POST',
-        headers: { 'X-Open-Brain-Caller': 'web-next-public' },
+        headers: upstreamHeaders,
         body: upstreamForm,
       })
     } catch (err) {
