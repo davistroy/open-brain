@@ -1,7 +1,7 @@
 # ADR-0002: LAN Exposure Model — Bind Data Stores to Loopback, Dual-Bind core-api for Tailscale MCP
 
-**Status:** Proposed
-**Date:** 2026-06-15
+**Status:** Accepted — **core-api exposure AMENDED 2026-06-30** (see [Amendment](#amendment-2026-06-30--core-api-exposure-on-unraid-supersedes-the-core-api-row); data-store binds + fail-closed creds + Redis auth stand as written and are deployed)
+**Date:** 2026-06-15 (amended 2026-06-30)
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` remediation of arch-review v3 — findings SEC-02, SEC-08, SEC-11, PLT-L1, PLT-L3 (LAN-perimeter cluster, change set CS-1)
 
@@ -34,7 +34,7 @@ Concretely, in `docker-compose.yml`:
 | file-ingestion | 8080 | `0.0.0.0` | `127.0.0.1` | Internal sidecar |
 | faster-whisper | 10300 | `0.0.0.0` | `127.0.0.1` | Internal; voice-capture reaches over Docker network |
 | voice-capture | 3001 | `0.0.0.0` | (deferred to CS-8) | INT-M5 adds Bearer auth first, then loopback-binds |
-| **core-api** | 3002 | `0.0.0.0` | `127.0.0.1` **+ `${TAILSCALE_IP}`** | OpenClaw MCP over Tailscale must survive |
+| **core-api** | 3002 | `0.0.0.0` | ~~`127.0.0.1` **+ `${TAILSCALE_IP}`**~~ → **`0.0.0.0` (see Amendment 2026-06-30)** | OpenClaw MCP over Tailscale must survive; dual-bind superseded by a risk-acceptance |
 | web-next | 3003 | `0.0.0.0` | `0.0.0.0` (keep) | Troy's LAN browser access to the dashboard |
 | grafana | 3050 | `0.0.0.0` | `0.0.0.0` (keep) | Troy's LAN browser access to dashboards |
 
@@ -61,3 +61,28 @@ Credentials fail closed: `POSTGRES_PASSWORD:?must be set` and `GRAFANA_ADMIN_PAS
 **Verification:** From a separate LAN host, `nmap <homeserver-lan-ip>` shows only `3003` + `3050` open (plus host services outside this stack); `3002/5432/6380/9091` filtered. From bond.k4jda.net, `curl 100.101.61.122:3002/api/v1/captures?limit=1` with the MCP bearer still succeeds. `docker compose config` validates; full-stack health passes; one search round-trips (exercises Redis auth).
 
 **Rollback:** revert the compose diff + `docker compose up -d --force-recreate`. The `REDIS_PASSWORD` secret can remain in BWS unused.
+
+---
+
+## Amendment (2026-06-30) — core-api exposure on Unraid (supersedes the core-api row)
+
+The 2026-06-29 deploy (LAB_NOTEBOOK Entry 172) could not apply the core-api dual-bind and reverted it to `0.0.0.0:3002`, attributing the failure to "Unraid runs Tailscale in userspace mode — no bindable interface." **That diagnosis was wrong.** The corrected technical record (LAB_NOTEBOOK Entry 174, verified read-only on the host):
+
+- The host Tailscale daemon (Unraid plugin) runs `tailscaled … -tun tailscale1` — a **real kernel TUN interface named `tailscale1`** (not `tailscale0`). It is UP with `inet 100.101.61.122/32`, routed locally, and **bindable by host processes.** Entry 172 ran `ip link show tailscale0` (wrong name), found nothing, and inferred userspace mode. The dual-bind to `${TAILSCALE_IP}` is therefore technically *possible* here.
+- The actual obstacle is a **boot-ordering race**: on this host `dockerd` starts at `14:43:06` and `tailscaled` at `14:43:14` — **Docker (and its containers) come up ~8 s before `tailscale1` exists.** A container that publishes `100.101.61.122:3002` at boot fails to bind (the IP is not yet assigned) and core-api will not start until manual intervention. `0.0.0.0` always binds regardless of interface readiness. So the original Consequences note ("Unraid plugin start order already brings Tailscale up early") was also incorrect — the plugin brings Tailscale up *after* Docker.
+
+**Decision (owner, 2026-06-30): keep core-api published on `0.0.0.0:3002` — an explicit, documented risk-acceptance — rather than the dual-bind or a `tailscale serve` forward.**
+
+Rationale:
+- **Reliability beats the marginal hardening here.** The dual-bind reintroduces the reboot hazard (core-api down after every power event until `tailscale1` is up); a restart-policy band-aid would flap. `0.0.0.0` is boot-robust.
+- **`tailscale serve --tcp 3002 → 127.0.0.1` would close the exposure boot-safely** (loopback always binds; tailscaled forwards once up; OpenClaw unaffected) and was offered, but the owner declined the extra dependency/moving part for this single-user home system.
+- **The residual exposure is bounded and partly pre-accepted.** What `0.0.0.0` leaves open: the **unauthenticated general `/api/v1/*` surface** (`captures`, `search`) is reachable by any LAN host — a real path to read/write the full (health/financial/personal) knowledge base, since the single-user design has no in-boundary auth (already in the risk-acceptance register). MCP (`/mcp`, Bearer `MCP_API_KEY`) and `/admin/*` (origin allowlist + two-step token) remain gated. The `isInternalIp` defense-in-depth only stops *public* IPs from claiming internal-caller identity; it does not gate LAN hosts.
+
+**This is an informed acceptance of the single-user / trusted-home-LAN posture, not a remediation.** It is consistent with the review's existing Risk-Acceptance Register entry "no in-boundary auth." The rest of CS-1 — Postgres/whisper/file-ingestion loopback binds, Redis no longer host-published + `requirepass`, fail-closed Postgres/Grafana credentials — **stands as written and is deployed** (Entry 172); this amendment changes only the core-api row.
+
+**Revisit triggers (promote to `tailscale serve` loopback, the deferred clean target):**
+1. The system gains a second user or any non-owner client.
+2. The home LAN admits untrusted/unsegmented devices the owner would not hand raw medical/financial data to (new IoT, guest VLAN bridging, etc.).
+3. core-api gains a general-API authentication mechanism (then loopback-only + `tailscale serve` becomes free of the OpenClaw-break concern).
+
+**Net (Unraid):** data stores closed to the LAN; core-api LAN-reachable with sensitive endpoints auth-gated and the general API accepted-open under the single-user posture. The separate observability ports (loki/prometheus/pushgateway) remaining on `0.0.0.0` are a *deferred* item (the docker port-wedge needs a `systemctl restart docker` window), not part of this decision.
