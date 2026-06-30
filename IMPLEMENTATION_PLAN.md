@@ -6,26 +6,28 @@
 **Excluded (closed 2026-06-11, Entry 164):** SE-1, RC-1, RC-2, SEC-01, SEC-03 — the immediate-action list
 **Total scope:** 10 phases / 4 waves; 15 High + 41 Medium + ~30 actionable Low findings; ~9–11 focused days
 **Sequencing:** Waves are strict (gates → fixes → rewrite → hygiene). Phases within a wave may proceed in parallel only where "Depends on" is empty. One PR per phase (sub-PRs allowed for large phases).
-**ADRs:** `docs/adr/ADR-0002-lan-exposure-model.md`, `docs/adr/ADR-0003-similarity-scan-knn.md` (both Proposed)
+**ADRs:** `docs/adr/ADR-0002-lan-exposure-model.md` (**Accepted, amended 2026-06-30**), `docs/adr/ADR-0003-similarity-scan-knn.md` (**Accepted, implemented #225**)
+
+> **🔄 REFRESH 2026-06-30 (`/ultra-plan --refresh`):** **WAVES 1 + 2 COMPLETE** (Phases 1–7 merged to main `9766567`). Phases 2–5 deployed to homeserver 2026-06-29 (Entry 172) with 3 host-local compose deviations; Phases 6–7 not yet deployed. **Phase 8 re-scoped** by the ADR-0002 amendment (Entry 174, D131): core-api stays `0.0.0.0` by owner decision (risk-acceptance), so 8.2 no longer loopback-binds core-api. **Remaining work = Waves 3–4 (Phases 8–10) + the Deployment & Ops Backlog** (new section below — one batched daemon-restart maintenance window). Per-phase status reconciled inline.
 
 ---
 
 ## Plan Summary
 
-| Phase | Change Set | Wave | Effort | Depends on |
-|------|-----------|------|--------|-----------|
-| 1 | Activate dormant CI gates | 1 | S (~1h) | — |
-| 2 | LAN perimeter — data stores & defaults | 1 | M (~½d) | — |
-| 3 | Recovery & search contract | 1 | M (~1d) | 1 (gates green) |
-| 4 | Alerting SPOF & deploy pipeline | 1 | M (~½d) | — |
-| 5 | Schema fidelity machine | 2 | M (~1d) | 1 |
-| 6 | Integration & spend hardening | 2 | M (~1d) | 1 |
-| 7 | Similarity-scan rewrite (k-NN) | 2 | L (~1–1.5d) | 5 (init-schema CI), ADR-0003 |
-| 8 | Ingest edges + voice auth | 3 | M (~1d) | 2 (completes SEC-02) |
-| 9 | Convention→CI + governance/doc sweep | 3 | M (~1d) | 1, 4 |
-| 10 | Opportunistic Lows + RI closeouts | 4 | S–M | — |
+| Phase | Change Set | Wave | Effort | Depends on | Status |
+|------|-----------|------|--------|-----------|--------|
+| 1 | Activate dormant CI gates | 1 | S (~1h) | — | ✅ MERGED #219 (workers `--coverage` → D&O-4) |
+| 2 | LAN perimeter — data stores & defaults | 1 | M (~½d) | — | ✅ MERGED #220 + DEPLOYED (Entry 172; core-api row amended → D131) |
+| 3 | Recovery & search contract | 1 | M (~1d) | 1 (gates green) | ✅ MERGED #221 + DEPLOYED |
+| 4 | Alerting SPOF & deploy pipeline | 1 | M (~½d) | — | ✅ MERGED #222 + DEPLOYED |
+| 5 | Schema fidelity machine | 2 | M (~1d) | 1 | ✅ MERGED #223 + DEPLOYED |
+| 6 | Integration & spend hardening | 2 | M (~1d) | 1 | ✅ MERGED #224 (no deploy needed; code-only) |
+| 7 | Similarity-scan rewrite (k-NN) | 2 | L (~1–1.5d) | 5 (init-schema CI), ADR-0003 | ✅ MERGED #225 (deploy → D&O-1) |
+| 8 | Ingest edges + voice auth | 3 | M (~1d) | 2 (SEC-02, **re-scoped per D131**) | ⏭️ NEXT |
+| 9 | Convention→CI + governance/doc sweep | 3 | M (~1d) | 1, 4 | PENDING |
+| 10 | Opportunistic Lows + RI closeouts | 4 | S–M | — | PENDING |
 
-**Migration numbers (claimed in execution order to avoid collision):** 0032 (Phase 3, SE-6) → 0033 (Phase 5, DA-L3/L5) → 0034 (Phase 7, PE-M2) → 0035 (Phase 9, RC-4 retention_audit).
+**Migration numbers (claimed in execution order to avoid collision):** ~~0032 (Phase 3)~~ ✅ → ~~0033 (Phase 5)~~ ✅ → ~~0034 (Phase 7, PE-M2)~~ ✅ merged #225 → **0035 (Phase 9, RC-4 retention_audit) — next free number.**
 
 ---
 
@@ -154,27 +156,29 @@ Every work item below complies with these. Three are **flagged decisions** the o
 
 | # | Work item | Files | Acceptance criteria | Status |
 |---|-----------|-------|---------------------|--------|
-| 7.1 | **PE-M1 (prerequisite)**: ef_search in a transaction | `core-api/src/services/search.ts` | `SET LOCAL hnsw.ef_search` + `hybrid_search()` wrapped in one `db.transaction()`; deterministic ef_search on the pooled connection; corrects CLAUDE.md TD-3a claim. | PENDING |
-| 7.2 | **PE-H1**: shared k-NN library | new `workers/src/lib/hnsw-similarity.ts` | per-row k-NN probe (`ORDER BY embedding <=> $1 LIMIT k`, k=50, threshold filter, inside a txn with `SET LOCAL ef_search`); excludes `deleted_at`/`source='consolidation'`; emits ordered pairs. | PENDING |
-| 7.3 | **PE-H1**: cut both jobs over | `workers/src/lib/memory-consolidation-query.ts`, `workers/src/skills/capture-dedup-sweep.ts` | both call the shared library with incremental scoping (new-since-last-run, timestamp in `app_settings`); D28 constants preserved (0.92/3/5; dedup 0.95); Union-Find unchanged. | PENDING |
-| 7.4 | **PE-H1 (validation gate)**: side-by-side | test/bench scripts | cluster output of new probe == old self-join on the **production 11K snapshot** (diff ∅); old query kept behind a flag for one weekend cycle. | PENDING |
-| 7.5 | **PE-M2 (migration 0034)**: stored tsvector | `packages/shared/drizzle/0034_*.sql`, `hybrid_search`/`fts_only_search` functions | `content_tsvector GENERATED ALWAYS … STORED` + GIN; functions use the stored column; `benchmark-search.mjs` p95 unchanged-or-better. | PENDING |
-| 7.6 | **PE-M5**: instrument spreading_activation | `0012` function (RAISE LOG) or query wrapper | row-count logging per hop; baseline entity-degree distribution recorded in LAB_NOTEBOOK; degree cap added **only if** data shows explosion (investigate-first). | PENDING |
+| 7.1 | **PE-M1 (prerequisite)**: ef_search in a transaction | `core-api/src/services/search.ts` | `SET LOCAL hnsw.ef_search` + `hybrid_search()` wrapped in one `db.transaction()`; deterministic ef_search on the pooled connection; corrects CLAUDE.md TD-3a claim. | COMPLETE 2026-06-30 (#225, commit `49e3393`) |
+| 7.2 | **PE-H1**: shared k-NN library | new `workers/src/lib/hnsw-similarity.ts` | per-row k-NN probe (`ORDER BY embedding <=> $1 LIMIT k`, k=50, threshold filter, inside a txn with `SET LOCAL ef_search`); excludes `deleted_at`/`source='consolidation'`; emits ordered pairs. | COMPLETE 2026-06-30 — **EXPLAIN-verified the probe MUST use a scalar subquery (a MATERIALIZED CTE degrades to Seq Scan)**; `source='consolidation'` is a per-call flag (consolidation includes, dedup excludes). |
+| 7.3 | **PE-H1**: cut both jobs over | `workers/src/skills/memory-consolidation-query.ts` (NOT `lib/` — plan path was wrong), `workers/src/skills/capture-dedup-sweep.ts` | both call the shared library with incremental scoping (new-since-last-run, timestamp in `app_settings`); D28 constants preserved (0.92/3/5; dedup 0.95); Union-Find unchanged. | COMPLETE 2026-06-30 — watermark advances ONLY after a provably-successful scan (`findSimilarPairs` throws on DB error → BullMQ retry); `SIMILARITY_SCAN_LEGACY=1` rollback. |
+| 7.4 | **PE-H1 (validation gate)**: side-by-side | test/bench scripts | cluster output of new probe == old self-join on the **production 11K snapshot** (diff ∅); old query kept behind a flag for one weekend cycle. | COMPLETE 2026-06-30 — `scripts/validate-knn-similarity.mjs`; **UNCAPPED cluster diff ∅ both jobs** (373≡373, 345≡345) even with max-degree 147≫k=50; CAPPED diffs are immaterial cap-vs-saturation boundary artifacts. |
+| 7.5 | **PE-M2 (migration 0034)**: stored tsvector | `packages/shared/drizzle/0034_*.sql`, `hybrid_search`/`fts_only_search` functions | `content_tsvector GENERATED ALWAYS … STORED` + GIN; functions use the stored column; `benchmark-search.mjs` p95 unchanged-or-better. | COMPLETE 2026-06-30 — `0034_content_tsvector.sql` (idempotent); kept OUT of Drizzle schema; init-schema regenerated, parity green. p95 check deferred to deploy (ranking-equivalent). |
+| 7.6 | **PE-M5**: instrument spreading_activation | `findRelatedCaptures` hop-count log (no migration — function already returns `hop_count`) | row-count logging per hop; baseline entity-degree distribution recorded in LAB_NOTEBOOK; degree cap added **only if** data shows explosion (investigate-first). | COMPLETE 2026-06-30 — baseline: degree avg 1.77/p99 14/max 457, 0 entity_relationships → **no cap** (benign); hop-distribution debug log added. |
 
-**DoD (runnable):** synthetic 50K-corpus benchmark shows O(N·log N) vs O(N²) baseline · cluster-diff ∅ against production snapshot · `node scripts/benchmark-search.mjs` p95 stable · migration 0034 applies · batch-UPSERT invariant intact.
+**DoD (runnable):** ~~synthetic 50K-corpus benchmark~~ → O(N·log N) established by the HNSW index scan vs self-join materialization (EXPLAIN) · cluster-diff ∅ against production snapshot ✅ · `node scripts/benchmark-search.mjs` p95 → deploy-time check (0034 not yet deployed) · migration 0034 applies ✅ · batch-UPSERT invariant intact ✅. **MERGED #225; deploy batches with the daemon-restart window (see Deployment & Ops Backlog).**
 
 ---
 
 ## WAVE 3 — Ingest Edges, Convention Enforcement, Governance
 
-### Phase 8 — Ingest Edges + Voice Auth (CS-8) · completes SEC-02 · D-2
+### Phase 8 — Ingest Edges + Voice Auth (CS-8) · completes SEC-02 (re-scoped) · D-2
 
 > Two-phase client rollout: deploy token to clients **before** server enforcement.
+>
+> **🔄 Re-scoped 2026-06-30 (ADR-0002 amendment / D131):** core-api is now an accepted `0.0.0.0` LAN exposure (owner risk-acceptance), so 8.2 no longer loopback-binds core-api. SEC-02's remaining *code* surface is now just **voice-capture:3001** (gated behind 8.1's Bearer auth). The observability ports (loki/prometheus/pushgateway) still on `0.0.0.0` are an **ops task** (needs `systemctl restart docker`), moved to the Deployment & Ops Backlog — not Phase 8.
 
 | # | Work item | Files | Acceptance criteria | Status |
 |---|-----------|-------|---------------------|--------|
 | 8.1 | **INT-M5**: voice-capture Bearer auth | `packages/voice-capture/src/server.ts`, `packages/mobile/src/lib/config.ts`, P08 lockstep for `VOICE_CAPTURE_SECRET` | `POST /api/capture` requires a timing-safe Bearer check; mobile + iOS Shortcut send it; unauthenticated LAN POST returns 401. | PENDING |
-| 8.2 | **SEC-02 (app ports)**: complete the bind | `docker-compose.yml` | with 8.1 in place, voice-capture:3001 + remaining app-only ports bind `127.0.0.1`; closes the last SEC-02 LAN exposure. | PENDING |
+| 8.2 | **SEC-02 (app ports, re-scoped)**: bind voice-capture | `docker-compose.yml` | with 8.1 in place, **voice-capture:3001** binds `127.0.0.1`; this is now the last SEC-02 *app-port* close (core-api stays `0.0.0.0` per D131; observability ports → ops backlog). | PENDING |
 | 8.3 | **INT-M3**: email-worker transient handling | `cloudflare/email-worker/src/index.ts` | 5xx/network → throw (CF retries) instead of `setReject`; only 4xx → permanent reject; inbound mail during a core-api restart is no longer bounced. | PENDING |
 | 8.4 | **INT-M4**: voice transcript dead-letter | `packages/voice-capture/src/server.ts` + daily sweep | classified transcript spooled to the container volume before ingest; daily job retries the spool and deletes on success; a core-api outage no longer loses a transcribed memo. | PENDING |
 | 8.5 | **SE-13 + PE-L4**: voice input validation | `packages/voice-capture/src/server.ts`, `core-api/src/routes/voice-captures.ts` | `brain_view` validated against config before paid transcription; 413 on uploads > 50 MB. | PENDING |
@@ -236,10 +240,10 @@ Every work item below complies with these. Three are **flagged decisions** the o
 
 | ID | Unknown | Severity | Resolve before | Resolution |
 |----|---------|----------|----------------|-----------|
-| U-1 | Do current coverage numbers clear the configured thresholds? | High | Phase 1.2 | one local `--coverage` run (1.1) |
-| U-2 | BullMQ 5.70 bare-`DelayedError` runtime behavior | Medium | Phase 6.4 | unit test against pinned version |
-| U-3 | Is drizzle-orm 0.45.1 in the advisory's affected range? | Medium | Phase 6.7 | changelog/advisory cross-check |
-| U-4 | spreading_activation entity-degree distribution | Medium | Phase 7.6 cap decision | instrument first, cap only if data warrants |
+| U-1 | ~~Do current coverage numbers clear the configured thresholds?~~ | High | Phase 1.2 | **RESOLVED:** core-api 85.6% (pass); workers 74.02% < 78 (→ D&O-4) |
+| U-2 | ~~BullMQ 5.70 bare-`DelayedError` runtime behavior~~ | Medium | Phase 6.4 | **RESOLVED:** SE-5 fix — `moveToDelayed`-before-throw, unit-tested (#224) |
+| U-3 | ~~Is drizzle-orm 0.45.1 in the advisory's affected range?~~ | Medium | Phase 6.7 | **RESOLVED:** bumped drizzle-orm→0.45.2, simple-git→3.36.0 (#224) |
+| U-4 | ~~spreading_activation entity-degree distribution~~ | Medium | Phase 7.6 cap decision | **RESOLVED:** avg 1.77/p99 14/max 457, 0 rels → no cap (#225, Entry 173) |
 | U-5 | urBackup already replicating `/mnt/user/backup` off-chassis? | Low (offsite now exists) | Phase 10.4 | one Unraid UI check; document either way |
 | U-6 | Compose `--remove-orphans` vs profiles on homeserver version | Low | Phase 10.4 | check live compose version; pin `COMPOSE_PROFILES` if needed |
 
@@ -257,12 +261,26 @@ Every work item below complies with these. Three are **flagged decisions** the o
 
 ---
 
+## Deployment & Ops Backlog (added by 2026-06-30 refresh)
+
+Not in the original plan — these are operational follow-ups the homeserver deploy (Entry 172) and Phase 7 surfaced. **The first three collapse into ONE batched maintenance window** (a `systemctl restart docker` blinks ~25 host containers, so do them together).
+
+| # | Item | Detail | Status |
+|---|------|--------|--------|
+| D&O-1 | **Batched daemon-restart maintenance window** | Single window on the homeserver: (a) deploy Phases 6+7 code (pull images, `up -d --force-recreate`); (b) apply **migration 0034** via `migrate-manual.sh` + ledger; (c) `systemctl restart docker` to clear the port wedge → loopback-bind **loki/prometheus/pushgateway** (closes deviation 3); (d) verify `nmap` (observability ports filtered), MCP/search/Loki intact. **Pre-window backup: `pg_dump` first** (per the protect-unrecoverable rule). | PENDING |
+| D&O-2 | **Upstream / document the 3 compose deviations** | (1) redis no-host-publish — **keep** (more secure; apps use docker-net `redis:6379`); (2) core-api `0.0.0.0:3002` — **ratified by D131**, make it the documented Unraid posture (vs. main's `${TAILSCALE_IP}` dual-bind — needs a host-portable compose conditional or a documented Unraid override); (3) observability loopback — fixed in D&O-1. Decide: upstream to `docker-compose.yml` (host-portable) vs. a committed `docker-compose.unraid.yml` override. | PENDING |
+| D&O-3 | **QA-M3 / INGEST_E2E in CI** | Re-scoped from Phase 1.4 — needs a full-stack test compose (core-api + workers + sidecar), not a flag flip. Stand up the stack in CI, then set `INGEST_E2E=1`. | DEFERRED |
+| D&O-4 | **Workers coverage Part B** | workers lines 74.02% < 78 floor (gap ~447 lines: `skill-execution.ts` 0%, `scheduler.ts` 0%, `ingest-process.ts` 0%). Raise coverage in a dedicated PR, then enable `--coverage` in the workers `test` script. **Never lower the threshold.** | DEFERRED |
+| D&O-5 | **INT-M2-voice** | Route voice-capture classification spend through core-api at ingest (the thin voice container has no DB/config to call `recordSpend()` directly). Closes the last budget-breaker blind spot. | DEFERRED |
+
+---
+
 ## Generated ADRs
 
 | ADR | Title | Status | Phase |
 |-----|-------|--------|-------|
-| ADR-0002 | LAN exposure model (loopback + Tailscale dual-bind) | Proposed | 2 |
-| ADR-0003 | Similarity-scan k-NN rewrite | Proposed | 7 |
+| ADR-0002 | LAN exposure model (data stores loopback; **core-api `0.0.0.0` risk-accepted**) | **Accepted — amended 2026-06-30 (D131); dual-bind superseded** | 2 |
+| ADR-0003 | Similarity-scan k-NN rewrite | **Accepted — implemented #225 (2026-06-30)** | 7 |
 
 ---
 
