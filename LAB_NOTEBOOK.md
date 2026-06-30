@@ -138,8 +138,9 @@
 | D126 | Mobile SPA: route at `/mobile` (NOT `/quick`), full-bleed (outside `(shell)` group), 3 capture modes (text/voice-file/live-record), no photo. Voice routed through new core-api proxy `POST /api/v1/voice-captures` (multipart buffer-and-rebuild, NOT streaming). | 2026-05-09 | PROPOSED | Entry 156, IMPLEMENTATION_PLAN.md | Direct CF tunnel exposure of voice-capture (more infra); Path B/C photo upload (no native image pipeline); raw `duplex:'half'` streaming (no codebase precedent, audio bounded ≤10MB) |
 | D127 | Offsite backup = rclone **crypt** remote over existing `gdrive` remote (`gdrive:Backups/open-brain-crypt`), daily 03:45 cron, 30-day remote retention. Password+salt in BWS. | 2026-06-11 | ACTIVE | Entry 164 | OneDrive target (1 TB free, viable fallback); plaintext rclone copy (TDD literal — rejected: health/financial data); new B2/S3 account (new cost + creds for no benefit); weekly cadence (TDD §16 — daily is cheap, better RPO) |
 | D128 | `backup.sh` manifest row counts use exact `COUNT(*)` via `query_to_xml`, never `pg_stat_user_tables.n_live_tup` | 2026-06-11 | ACTIVE | Entry 164 | n_live_tup estimate (stale on small low-churn tables below autovacuum thresholds → false FAILs in restore-rehearsal validation) |
-| D129 | LAN exposure: bind data stores to 127.0.0.1, dual-bind core-api loopback+Tailscale IP (OpenClaw MCP survives), fail-closed creds | 2026-06-15 | PROPOSED | ADR-0002, Entry 165 | core-api loopback-only (breaks OpenClaw); re-route OpenClaw to LiteLLM gateway (touches 2nd system — deferred); status-quo accept (rejected) |
-| D130 | Replace O(N²) cosine self-joins (consolidation + dedup-sweep) with per-row HNSW k-NN probes via shared `hnsw-similarity.ts` | 2026-06-15 | PROPOSED | ADR-0003, Entry 165 | coarse pre-filter buckets (still O(N²)); materialized pairs table (premature); raise MAX_PAIRS (bounds output not compute); Qdrant (scale-gated #73) |
+| D129 | LAN exposure: bind data stores to 127.0.0.1, ~~dual-bind core-api~~ (AMENDED→D131), fail-closed creds | 2026-06-15 | ACTIVE (data stores); core-api AMENDED by D131 | ADR-0002, Entry 165/172/174 | core-api loopback-only (breaks OpenClaw); re-route OpenClaw to LiteLLM gateway (touches 2nd system — deferred); status-quo accept (now chosen for core-api per D131) |
+| D130 | Replace O(N²) cosine self-joins (consolidation + dedup-sweep) with per-row HNSW k-NN probes via shared `hnsw-similarity.ts` | 2026-06-15 | ACTIVE (merged #225) | ADR-0003, Entry 165/173 | coarse pre-filter buckets (still O(N²)); materialized pairs table (premature); raise MAX_PAIRS (bounds output not compute); Qdrant (scale-gated #73) |
+| D131 | core-api stays on `0.0.0.0:3002` (LAN-reachable) on Unraid — explicit risk-acceptance, NOT the dual-bind. Corrects Entry 172: host Tailscale is kernel-TUN `tailscale1` (bindable), real blocker is a boot race (dockerd starts ~8s before tailscaled). | 2026-06-30 | ACTIVE | ADR-0002 Amendment, Entry 174 | dual-bind loopback+`tailscale1` (boot-race reliability hazard, would flap on reboot); loopback + `tailscale serve --tcp` (boot-safe + closes LAN, but owner declined the extra dependency); re-route OpenClaw (touches 2nd system, deferred) |
 
 ## Action Items
 
@@ -12387,4 +12388,26 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 
 **Follow-up noted (not Phase 7 scope):** the corpus holds ~25K near-duplicate pairs >0.92 vs a 5,000 consolidation cap — the consolidation `MAX_PAIRS`/threshold operate in a saturated regime on full-scan runs. A tuning review (raise cap, or raise threshold, or rely on incremental) is worth a separate look; it does not affect k-NN correctness.
 
-**Status:** Phase 7 code COMPLETE; PR next. Deploy (migration 0034) batches with the deferred observability daemon-restart window.
+**Status:** Phase 7 MERGED — PR #225 squash-merged to main `9766567` (both required CI checks green). Deploy (migration 0034) batches with the deferred observability daemon-restart window.
+
+---
+
+## Entry 174 — ADR-0002 amendment: settle core-api Unraid exposure (Option 3, risk-acceptance) + correct the Entry 172 Tailscale misdiagnosis (2026-06-30)  [deploy] [security] [decision] [debug]
+
+**Objective:** Settle the open ADR-0002 follow-up — how core-api should be exposed on the Unraid host — before the Phase 8 (`/ultra-plan --refresh`) re-plan, since Phase 8.2 (SEC-02 app-port binding) depends on it. Read-only investigation only; no system change (the homeserver is already on `0.0.0.0:3002` from the Entry 172 deploy — this ratifies + documents it).
+
+**Investigation (read-only SSH, `claude@homeserver`) — Entry 172's root-cause was WRONG:**
+- Entry 172 concluded "Unraid runs Tailscale in USERSPACE mode — no `tailscale0`, so `${TAILSCALE_IP}:3002` is unbindable." **False.** The host Tailscale plugin runs `/usr/local/sbin/tailscaled -statedir /boot/config/plugins/tailscale/state -tun tailscale1 …` — a **kernel TUN iface named `tailscale1`** (not `tailscale0`), UP with `inet 100.101.61.122/32`, locally routed, **bindable by host procs.** Entry 172 checked `tailscale0` (wrong name) → found nothing → inferred userspace. (The userspace tailscaled procs on the box are unrelated per-app `*-tailscale` sidecar containers.)
+- **Real blocker = boot-order race:** `ps -o lstart` shows `dockerd` started `Fri Apr 10 14:43:06`, `tailscaled` `14:43:14` — **Docker comes up ~8 s before `tailscale1` exists.** A container publishing `100.101.61.122:3002` at boot fails to bind (IP not yet assigned) → core-api won't start. `0.0.0.0` binds regardless. So the dual-bind is *technically possible* (when tailscale1 is up) but a **reboot hazard.** The original ADR's "plugin brings Tailscale up early" note was also wrong.
+
+**Options weighed (presented to owner with the unauthenticated-`/api/v1` exposure made explicit):**
+1. Loopback-only + `tailscale serve --tcp 3002 → 127.0.0.1` — closes the LAN hole AND boot-safe (loopback always binds; tailscaled forwards once up; OpenClaw unaffected). One serve config in host tailscaled state. *Clean target.*
+2. Dual-bind `127.0.0.1` + `tailscale1` IP (original ADR) — closes the hole but reintroduces the boot race (flaps on reboot).
+3. Accept `0.0.0.0:3002` + auth (status quo) — robust/simplest; general `/api/v1/*` stays LAN-reachable unauthenticated (MCP/admin gated).
+
+**Decision (owner): Option 3.** Keep core-api on `0.0.0.0:3002` as an explicit risk-acceptance for the single-user trusted-home-LAN posture. Reliability > the marginal hardening; owner declined the `tailscale serve` dependency. Consistent with the existing Risk-Acceptance Register entry "no in-boundary auth." **Residual risk documented** (any LAN host can read/write the full health/financial/personal knowledge base via the unauthenticated general API; MCP Bearer + admin origin-allowlist still gate the sensitive endpoints; `isInternalIp` only blocks *public* IPs from claiming internal identity). **Revisit triggers:** 2nd user / non-owner client; untrusted LAN devices; or core-api gaining general-API auth → promote to Option 1.
+
+**Recorded:** `docs/adr/ADR-0002-lan-exposure-model.md` Amendment section + Status→Accepted(amended); Decision Log D129 (core-api → AMENDED), new **D131**. Rest of CS-1 (data-store loopback, Redis no-host-publish+requirepass, fail-closed creds) stands + is deployed (Entry 172). The observability ports still on `0.0.0.0` are a separate *deferred* item (needs `systemctl restart docker`), NOT part of this decision.
+
+**Tags:** [deploy] [security] [decision] [debug]
+**Environment:** homeserver (Unraid) — read-only Tailscale-SSH investigation from ubuntu-vm. **Duration:** ~25 min. **No system modification.**
