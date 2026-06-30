@@ -8,7 +8,7 @@
 **Sequencing:** Waves are strict (gates → fixes → rewrite → hygiene). Phases within a wave may proceed in parallel only where "Depends on" is empty. One PR per phase (sub-PRs allowed for large phases).
 **ADRs:** `docs/adr/ADR-0002-lan-exposure-model.md` (**Accepted, amended 2026-06-30**), `docs/adr/ADR-0003-similarity-scan-knn.md` (**Accepted, implemented #225**)
 
-> **🔄 REFRESH 2026-06-30 (`/ultra-plan --refresh`):** **WAVES 1 + 2 COMPLETE** (Phases 1–7 merged to main `9766567`). Phases 2–5 deployed to homeserver 2026-06-29 (Entry 172) with 3 host-local compose deviations; Phases 6–7 not yet deployed. **Phase 8 re-scoped** by the ADR-0002 amendment (Entry 174, D131): core-api stays `0.0.0.0` by owner decision (risk-acceptance), so 8.2 no longer loopback-binds core-api. **Remaining work = Waves 3–4 (Phases 8–10) + the Deployment & Ops Backlog** (new section below — one batched daemon-restart maintenance window). Per-phase status reconciled inline.
+> **🔄 REFRESH 2026-06-30 (`/ultra-plan --refresh`):** **WAVES 1 + 2 COMPLETE** (Phases 1–7 merged to main `9766567`). Phases 2–5 deployed to homeserver 2026-06-29 (Entry 172) with 3 host-local compose deviations; **Phases 6–7 + migration 0034 deployed 2026-06-30 (Entry 175)** — homeserver now current with main `17e17b5` (code). **Phase 8 re-scoped** by the ADR-0002 amendment (Entry 174, D131): core-api stays `0.0.0.0` by owner decision (risk-acceptance), so 8.2 no longer loopback-binds core-api. **Remaining work = Waves 3–4 (Phases 8–10) + the Deployment & Ops Backlog** (new section below — one batched daemon-restart maintenance window). Per-phase status reconciled inline.
 
 ---
 
@@ -22,7 +22,7 @@
 | 4 | Alerting SPOF & deploy pipeline | 1 | M (~½d) | — | ✅ MERGED #222 + DEPLOYED |
 | 5 | Schema fidelity machine | 2 | M (~1d) | 1 | ✅ MERGED #223 + DEPLOYED |
 | 6 | Integration & spend hardening | 2 | M (~1d) | 1 | ✅ MERGED #224 (no deploy needed; code-only) |
-| 7 | Similarity-scan rewrite (k-NN) | 2 | L (~1–1.5d) | 5 (init-schema CI), ADR-0003 | ✅ MERGED #225 (deploy → D&O-1) |
+| 7 | Similarity-scan rewrite (k-NN) | 2 | L (~1–1.5d) | 5 (init-schema CI), ADR-0003 | ✅ MERGED #225 + DEPLOYED 2026-06-30 (Entry 175, migration 0034 applied) |
 | 8 | Ingest edges + voice auth | 3 | M (~1d) | 2 (SEC-02, **re-scoped per D131**) | ⏭️ NEXT |
 | 9 | Convention→CI + governance/doc sweep | 3 | M (~1d) | 1, 4 | PENDING |
 | 10 | Opportunistic Lows + RI closeouts | 4 | S–M | — | PENDING |
@@ -267,7 +267,7 @@ Not in the original plan — these are operational follow-ups the homeserver dep
 
 | # | Item | Detail | Status |
 |---|------|--------|--------|
-| D&O-1 | **Batched daemon-restart maintenance window** | Single window on the homeserver: (a) deploy Phases 6+7 code (pull images, `up -d --force-recreate`); (b) apply **migration 0034** via `migrate-manual.sh` + ledger; (c) `systemctl restart docker` to clear the port wedge → loopback-bind **loki/prometheus/pushgateway** (closes deviation 3); (d) verify `nmap` (observability ports filtered), MCP/search/Loki intact. **Pre-window backup: `pg_dump` first** (per the protect-unrecoverable rule). | PENDING |
+| D&O-1 | **Batched daemon-restart maintenance window** | ~~(a) deploy Phases 6+7 code; (b) apply **migration 0034**~~ ✅ **DONE 2026-06-30 (Entry 175)** — non-disruptive subset deployed (backup-first `pg_dump`, path-scoped 0034 land, `sudo docker compose pull` + surgical `--force-recreate --no-deps core-api/workers/slack-bot`; **`/dev/shm`=64 MB parallel-migration gotcha** fixed via `PGOPTIONS` parallel-off). **REMAINING — needs `systemctl restart docker` (blinks ~25 host containers):** (c) loopback-bind **loki/prometheus/pushgateway** (deviation 3); (c2) add postgres `shm_size: "512mb"` so future parallel migrations/index builds don't hit the 64 MB DSM wall; (d) verify `nmap` shows observability ports filtered, MCP/search/Loki intact. | PARTIAL (code+0034 done; obs-loopback + shm_size remain) |
 | D&O-2 | **Upstream / document the 3 compose deviations** | (1) redis no-host-publish — **keep** (more secure; apps use docker-net `redis:6379`); (2) core-api `0.0.0.0:3002` — **ratified by D131**, make it the documented Unraid posture (vs. main's `${TAILSCALE_IP}` dual-bind — needs a host-portable compose conditional or a documented Unraid override); (3) observability loopback — fixed in D&O-1. Decide: upstream to `docker-compose.yml` (host-portable) vs. a committed `docker-compose.unraid.yml` override. | PENDING |
 | D&O-3 | **QA-M3 / INGEST_E2E in CI** | Re-scoped from Phase 1.4 — needs a full-stack test compose (core-api + workers + sidecar), not a flag flip. Stand up the stack in CI, then set `INGEST_E2E=1`. | DEFERRED |
 | D&O-4 | **Workers coverage Part B** | workers lines 74.02% < 78 floor (gap ~447 lines: `skill-execution.ts` 0%, `scheduler.ts` 0%, `ingest-process.ts` 0%). Raise coverage in a dedicated PR, then enable `--coverage` in the workers `test` script. **Never lower the threshold.** | DEFERRED |
