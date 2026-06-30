@@ -12314,3 +12314,38 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [pipeline] [api] [security] [test] [decision]
 **Environment:** ubuntu-vm (dev/test; no homeserver deploy required for this phase — all code/test + a dep bump).
 **Duration:** ~2.5 h (4 parallel TDD sub-agents for the isolated items + orchestrator did shared/voice/bullmq/dep-bump + full verification)
+
+--- New session: 2026-06-29 — Batched homeserver deploy of Wave 1 (Phases 2–4) + Phase 5 ---
+
+## Entry 172 — Homeserver deploy: Wave 1 (Phases 2–4) + Phase 5 — verified state + plan (2026-06-29)  [deploy] [docker] [database] [security] [decision]
+
+**Objective:** Deploy the merged-but-undeployed Phases 2 (LAN perimeter), 3 (recovery+search), 4 (observability), 5 (schema fidelity) to the homeserver. Phase 6 needs no deploy.
+
+**Verified pre-deploy state (read-only SSH, `claude@homeserver`):**
+- Repo at `/mnt/user/appdata/open-brain` HEAD `d2e8574` (Entry 164, ~06-11) — a **clean 8-commit fast-forward** behind `origin/main` `a1629e4` (`rev-list --count` = `8 0`, no local commits). `d2e8574` IS on origin/main.
+- **`docker-compose.yml` has ONE uncommitted local change: named-volumes → bind-mounts** under `/mnt/user/appdata/open-brain/` (pgdata, redis-data, grafana-data, loki-data, prometheus-data, financial-ingest-data, admin-prewipe-backup). Standard Unraid practice; NOT in git. **A naive `git pull`/checkout would repoint Postgres at an empty named volume → 11,258-capture DB would appear wiped.** Phase 2/4 rewrote the SAME file → must merge main's changes while preserving the bind mounts.
+- **`REDIS_PASSWORD` NOT staged** (neither `.env` nor `.env.secrets`) → Phase 2 fail-closed `${REDIS_PASSWORD:?}` refuses to start until created. `GRAFANA_ADMIN_PASSWORD` + `POSTGRES_PASSWORD` ARE in `.env` (compose `${VAR}` interpolation reads `.env`, not `.env.secrets`). `LOKI_URL` set to old external value → must flip to `http://localhost:3100/loki/api/v1/push` (Phase 2 binds Loki to 127.0.0.1).
+- **DB:** 11,258 captures (live). `briefs`(0030)+`commitments`(0031) present; **0032 + 0033 NOT applied** (content_hash full-unique not partial; no `ec_provider_message_uniq`; 2 dead `hybrid_search` overloads). **No `schema_migrations` ledger.** → DB work = create ledger, `--baseline 0031`, apply 0032 (idempotent CREATE OR REPLACE) + 0033 (idempotent DROP/CREATE + email dedup DELETE).
+- 17 open-brain containers healthy (19h uptime) alongside many UNRELATED Unraid containers (immich/jellyfin/litellm/navidrome/paperless/…) — must touch ONLY the `open-brain` compose project; NO `--remove-orphans`.
+
+**Plan:** (1) backups — pre-deploy `pg_dump` (11K captures), copy compose + `.env`, capture current image digests for rollback, export Grafana dashboards; (2) create `REDIS_PASSWORD` (BWS + `.env`), flip `LOKI_URL` to localhost; (3) reconcile compose (stash bind-mounts → ff-pull → re-apply/merge, verify `docker compose config` shows bind mounts + Phase 2 binds/auth); (4) `docker compose pull` + `up -d --force-recreate`; (5) migrations via ledger (0032+0033); (6) grafana-cli admin pw reset; (7) verify nmap (only 3003/3050), MCP over Tailscale, Redis auth, Loki logs, all healthy.
+
+**Hypothesis:** stack comes up healthy with new posture; DB intact at 11,258 + 0033; OpenClaw MCP still reaches `100.101.61.122:3002/mcp`. **Rollback:** restore `docker-compose.yml.bak.pre-phase2-20260629` + captured image digests → `up -d --force-recreate`; DB → pre-deploy pg_dump; Redis requirepass removal is compose-revert (bind-mount data persists). **ATTENDED deploy.**
+
+**Results — DEPLOY FUNCTIONALLY COMPLETE (with 3 documented deviations):**
+- **Backups:** pre-deploy `pg_dump` 116 MB (11,258 captures), compose, `.env`, image digests, `grafana.db` — all in `/mnt/user/appdata/open-brain/backups/`.
+- **Reconciliation:** homeserver was a clean 8-commit FF behind main + the uncommitted bind-mount compose. `git stash`→`merge --ff-only`→`stash pop` hit ONE conflict (redis: bind-mount vs Phase 2 requirepass); resolved to bind-mount + requirepass. (No `python3` on Unraid — rebuilt the compose locally from main + re-applied the 8 bind-mount conversions via sed, validated `docker compose config`, pushed.)
+- **Stack:** all 17 open-brain containers healthy on new images (core-api/workers/slack-bot/voice-capture/web-next pulled). **Data intact: 11,258 captures.** Search round-trips (HTTP 200, hybrid FTS+vector; ~12–19 s due to query-embedding latency — pre-existing). **MCP over Tailscale preserved: `100.101.61.122:3002` → HTTP 200, 9 ms.** Redis auth verified (workers healthy + search access-stats).
+- **Schema:** `schema_migrations` ledger created + baselined 0000–0031 + **0032 (spreading_activation soft-delete filter) + 0033 (partial content_hash idx, `ec_provider_message_uniq`, email dedup `DELETE 0`, dropped dead hybrid_search/fts_only_search overloads)** applied via `docker exec psql`. Ledger = 34 rows.
+- **Observability:** prometheus SIGHUP-reloaded → **PLT-H2 alerts active** (PushgatewayStale, WorkersMetricsAbsent). Logs flowing to Loki (`status:success`).
+
+**DEVIATIONS (host-local; not yet upstreamed to main's compose):**
+1. **redis host-port publish removed** — a docker port-reservation wedge blocked rebinding `0.0.0.0:6380`→`127.0.0.1:6380` (port free per `ss`, but `EADDRINUSE`; can't `sudo kill` the wedged proxy — `kill` not in passwordless set). Apps use docker-net `redis:6379`, so the publish was unused → removing it is MORE secure (redis not host-published at all) + sidestepped the wedge.
+2. **core-api on `0.0.0.0:3002`** (reverted from ADR-0002's `127.0.0.1`+`${TAILSCALE_IP}` dual-bind). **Root cause: Unraid runs Tailscale in USERSPACE mode** — `tailscale ip -4`=100.101.61.122 but there is NO `tailscale0` kernel interface, so no socket can `bind()` that IP. Pre-deploy core-api was `0.0.0.0:3002` and Tailscale delivered MCP to the host stack; restored that. core-api stays LAN-exposed but auth-protected (Bearer on MCP/admin + `isInternalIp` rate-limit). **ADR-0002 assumed standard kernel-mode Tailscale; needs an Unraid amendment (or a `tailscale serve`→loopback follow-up).**
+3. **loki/prometheus/pushgateway still `0.0.0.0`** (NOT loopback-bound) — force-recreating them to apply Phase 2's loopback binds would hit the same wedge. Residual LAN exposure of observability services (unauthed). Clean fix needs a `systemctl restart docker` (clears the wedge) — DEFERRED (high-impact: blinks all ~25 host containers).
+
+**Net security posture achieved:** data stores (postgres/redis/file-ingestion/whisper) loopback + Redis requirepass + fail-closed creds = the core SEC-02/08/11 win. Residual: core-api + observability services on LAN (auth-protected for core-api; observability unauthed). **Rollback unused** (deploy succeeded). Pre-deploy SHA on homeserver was `d2e8574`; now `a1629e4` + the 3 host-local compose deviations.
+
+**Tags:** [deploy] [docker] [database] [security] [debug] [decision]
+**Environment:** homeserver (Unraid; 17 open-brain containers) — deployed from ubuntu-vm over Tailscale SSH.
+**Duration:** ~2 h (mostly diagnosing the Unraid userspace-Tailscale incompatibility + the docker port-reservation wedge)
