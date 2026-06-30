@@ -976,6 +976,50 @@ describe('SearchService', () => {
   })
 
   // -------------------------------------------------------------------------
+  // PE-M5 — spreading_activation hop instrumentation
+  // -------------------------------------------------------------------------
+
+  describe('PE-M5 — spreading_activation hop instrumentation', () => {
+    it('logs the hop-count distribution of returned related captures', async () => {
+      const { logger } = await import('@open-brain/shared')
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined as never)
+
+      const cap1 = makeCaptureRecord({ id: 'rel-1' })
+      const cap2 = makeCaptureRecord({ id: 'rel-2' })
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'rel-1', activation_score: 0.8, hop_count: 1 },
+        { capture_id: 'rel-2', activation_score: 0.6, hop_count: 2 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [cap1, cap2] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+      await service.findRelatedCaptures(['seed-1'])
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ hopCounts: expect.objectContaining({ 1: 1, 2: 1 }) }),
+        expect.stringContaining('spreading_activation'),
+      )
+      debugSpy.mockRestore()
+    })
+
+    it('does not log when there are no related captures', async () => {
+      const { logger } = await import('@open-brain/shared')
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined as never)
+
+      const execute = vi.fn().mockResolvedValueOnce({ rows: [] })
+      const service = new SearchService({ execute } as any, embeddingService as any)
+      await service.findRelatedCaptures(['seed-1'])
+
+      const hopLogs = debugSpy.mock.calls.filter(
+        (c) => typeof c[1] === 'string' && c[1].includes('spreading_activation'),
+      )
+      expect(hopLogs).toHaveLength(0)
+      debugSpy.mockRestore()
+    })
+  })
+
+  // -------------------------------------------------------------------------
   // searchWithRelated — includeRelated integration
   // -------------------------------------------------------------------------
 

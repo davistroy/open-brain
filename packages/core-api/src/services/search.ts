@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
 import type { EmbeddingService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 
 export interface SearchOptions {
   limit?: number
@@ -356,6 +357,20 @@ export class SearchService {
     if (activationRows.rows.length === 0) {
       return []
     }
+
+    // PE-M5: instrument spreading_activation fan-out — log the hop distribution of
+    // returned related captures. Baseline (LAB_NOTEBOOK Entry 173): entity_links
+    // degree avg 1.77 / p99 14 / max 457, 0 entity_relationships (hop-2 inert);
+    // the function already caps output at max_related=10, so no degree cap is
+    // warranted (investigate-first). This log surfaces drift if that changes.
+    const hopCounts = activationRows.rows.reduce<Record<number, number>>((acc, r) => {
+      acc[r.hop_count] = (acc[r.hop_count] ?? 0) + 1
+      return acc
+    }, {})
+    logger.debug(
+      { seeds: seedCaptureIds.length, returned: activationRows.rows.length, hopCounts },
+      '[search] spreading_activation hop distribution',
+    )
 
     // Fetch full capture records for the related captures
     const relatedIds = activationRows.rows.map(r => r.capture_id)
