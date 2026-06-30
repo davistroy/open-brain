@@ -8,6 +8,11 @@ import {
   type ConsolidationCluster,
   type ConsolidationQueryResult,
 } from './memory-consolidation-query.js'
+import {
+  readScanWatermark,
+  writeScanWatermark,
+  MEMORY_CONSOLIDATION_WATERMARK_KEY,
+} from '../lib/hnsw-similarity.js'
 
 // ============================================================
 // Types
@@ -101,14 +106,26 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
       maxClusters,
     } = options
     const startMs = Date.now()
+    const scanStartedAt = new Date()
     logger.info({ similarityThreshold, minClusterSize, maxClusters }, '[memory-consolidation] starting execution')
 
-    // Step 1: Find candidate clusters
+    // Step 0: PE-H1 incremental scoping — only scan captures created since the last
+    // successful run. First run (null watermark) = full scan / baseline.
+    const candidatesSince = await readScanWatermark(this.db, MEMORY_CONSOLIDATION_WATERMARK_KEY)
+
+    // Step 1: Find candidate clusters. The scan THROWS on DB failure (propagated
+    // from findSimilarPairs) so we never advance the watermark on a failed scan.
     const queryResult = await findConsolidationCandidates(this.db, {
       similarityThreshold,
       minClusterSize,
       maxClusters,
+      candidatesSince,
     })
+
+    // Scan completed successfully → advance the watermark (even if no clusters found,
+    // the window up to scanStartedAt is now covered). Subsequent merge errors are
+    // per-cluster (caught) and do not retroactively invalidate scan coverage.
+    await writeScanWatermark(this.db, MEMORY_CONSOLIDATION_WATERMARK_KEY, scanStartedAt)
 
     if (queryResult.clusters.length === 0) {
       logger.info('[memory-consolidation] no consolidation candidates found')

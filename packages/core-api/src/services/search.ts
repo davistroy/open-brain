@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
 import type { EmbeddingService } from '@open-brain/shared'
+import { logger } from '@open-brain/shared'
 
 export interface SearchOptions {
   limit?: number
@@ -217,32 +218,35 @@ export class SearchService {
       const queryVector = await this.embeddingService.embed(query)
       const vectorLiteral = `[${queryVector.join(',')}]`
 
-      // Step 2: set HNSW ef_search — session-scoped SET (not SET LOCAL, which
-      // is a no-op outside an explicit transaction in Drizzle auto-commit).
-      // sql.raw() required: SET does not accept parameterized $1 values.
-      // Safe for single-user system — all searches use the same config value.
-      await this.db.execute(sql`SET hnsw.ef_search = ${sql.raw(String(this.hnswEfSearch))}`)
-
       // SE-10: vector-only mode — suppress FTS contribution entirely by passing
       // fts_weight=0. hybrid_search still runs through the same SQL function;
       // RRF scoring becomes pure vector when fts_weight is 0.
       const effectiveFtsWeight = searchMode === 'vector' ? 0 : ftsWeight
 
-      // Step 3: call hybrid_search with filters — Postgres applies WHERE clauses
-      hybridRows = await this.db.execute<HybridSearchRow>(sql`
-        SELECT capture_id::text, rrf_score, fts_score, vector_score
-        FROM hybrid_search(
-          ${query},
-          ${vectorLiteral}::vector(768),
-          ${limit},
-          ${effectiveFtsWeight},
-          ${vectorWeight},
-          ${pgBrainViews}::text[],
-          ${pgCaptureTypes}::text[],
-          ${pgDateFrom}::timestamptz,
-          ${pgDateTo}::timestamptz
-        )
-      `)
+      // Steps 2+3: PE-M1 — set HNSW ef_search and run hybrid_search() inside ONE
+      // transaction so `SET LOCAL` scopes the GUC to this query on the pooled
+      // connection. A bare session-scoped `SET` leaks ef_search onto the pooled
+      // connection for whatever query reuses it next; `SET LOCAL` is reverted at
+      // COMMIT. (SET LOCAL is a no-op outside an explicit transaction, hence the
+      // wrap.) sql.raw() required: SET does not accept parameterized $1 values;
+      // the value is an int from validated config (same for every single-user search).
+      hybridRows = await this.db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL hnsw.ef_search = ${sql.raw(String(this.hnswEfSearch))}`)
+        return await tx.execute<HybridSearchRow>(sql`
+          SELECT capture_id::text, rrf_score, fts_score, vector_score
+          FROM hybrid_search(
+            ${query},
+            ${vectorLiteral}::vector(768),
+            ${limit},
+            ${effectiveFtsWeight},
+            ${vectorWeight},
+            ${pgBrainViews}::text[],
+            ${pgCaptureTypes}::text[],
+            ${pgDateFrom}::timestamptz,
+            ${pgDateTo}::timestamptz
+          )
+        `)
+      })
     }
 
     if (hybridRows.rows.length === 0) {
@@ -353,6 +357,20 @@ export class SearchService {
     if (activationRows.rows.length === 0) {
       return []
     }
+
+    // PE-M5: instrument spreading_activation fan-out — log the hop distribution of
+    // returned related captures. Baseline (LAB_NOTEBOOK Entry 173): entity_links
+    // degree avg 1.77 / p99 14 / max 457, 0 entity_relationships (hop-2 inert);
+    // the function already caps output at max_related=10, so no degree cap is
+    // warranted (investigate-first). This log surfaces drift if that changes.
+    const hopCounts = activationRows.rows.reduce<Record<number, number>>((acc, r) => {
+      acc[r.hop_count] = (acc[r.hop_count] ?? 0) + 1
+      return acc
+    }, {})
+    logger.debug(
+      { seeds: seedCaptureIds.length, returned: activationRows.rows.length, hopCounts },
+      '[search] spreading_activation hop distribution',
+    )
 
     // Fetch full capture records for the related captures
     const relatedIds = activationRows.rows.map(r => r.capture_id)

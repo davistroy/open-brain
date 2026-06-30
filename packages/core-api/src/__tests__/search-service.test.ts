@@ -48,12 +48,27 @@ function makeMockEmbeddingService(vector = makeUnitVector()) {
 }
 
 /**
+ * Wrap a bare `execute` mock into a db-like object that also supports
+ * `db.transaction(cb)` (PE-M1). The transaction callback receives a `tx`
+ * whose `.execute` is the SAME mock as `db.execute`, so call-order
+ * (mockResolvedValueOnce queue) and call-count assertions span both
+ * `tx.execute` (SET LOCAL ef_search + hybrid_search) and `db.execute`
+ * (captures hydration, association lookup) uniformly.
+ */
+function dbWith(execute: ReturnType<typeof vi.fn>) {
+  return {
+    execute,
+    transaction: vi.fn(async (cb: (tx: { execute: typeof execute }) => unknown) => cb({ execute })),
+  }
+}
+
+/**
  * Build a mock db for hybrid search mode (default) where:
- *  - Call 1: SET hnsw.ef_search = N  (P13 — before hybrid_search)
- *  - Call 2: hybrid_search result
- *  - Call 3: SELECT * FROM captures
+ *  - Call 1: SET LOCAL hnsw.ef_search = N  (PE-M1 — inside db.transaction, before hybrid_search)
+ *  - Call 2: hybrid_search result            (inside the same transaction)
+ *  - Call 3: SELECT * FROM captures          (after the transaction commits)
  *
- * For FTS mode use makeMockDbFts() -- no SET LOCAL call in that path.
+ * For FTS mode use makeMockDbFts() -- no transaction / SET LOCAL in that path.
  * Temporal decay is computed in-memory; no further execute() calls.
  */
 function makeMockDb(
@@ -62,7 +77,7 @@ function makeMockDb(
 ) {
   const execute = vi.fn()
 
-  // Call 1: SET hnsw.ef_search = N (P13 -- before hybrid_search)
+  // Call 1: SET LOCAL hnsw.ef_search = N (PE-M1 -- inside txn, before hybrid_search)
   execute.mockResolvedValueOnce({ rows: [] })
 
   // Call 2: hybrid_search
@@ -71,7 +86,7 @@ function makeMockDb(
   // Call 3: SELECT * FROM captures
   execute.mockResolvedValueOnce({ rows: captureRows })
 
-  return { execute }
+  return dbWith(execute)
 }
 
 /**
@@ -91,7 +106,7 @@ function makeMockDbFts(
   // Call 2: SELECT * FROM captures
   execute.mockResolvedValueOnce({ rows: captureRows })
 
-  return { execute }
+  return dbWith(execute)
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +246,7 @@ describe('SearchService', () => {
       // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [capture1, capture2] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       // temporalWeight=0 → scores are rrf_score values (0.6 and 0.9)
       const results = await service.search('multi-result query')
@@ -259,7 +274,7 @@ describe('SearchService', () => {
       // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: captures })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('paginated query', { limit: 3 })
 
@@ -346,18 +361,18 @@ describe('SearchService', () => {
       expect(svc3).toBeInstanceOf(SearchService)
     })
 
-    it('issues SET hnsw.ef_search before hybrid_search in hybrid mode', async () => {
+    it('issues SET LOCAL hnsw.ef_search before hybrid_search in hybrid mode', async () => {
       const capture = makeCaptureRecord({ id: 'cap-1' })
       const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
       const execute = vi.fn()
-      // Call 1: SET hnsw.ef_search
+      // Call 1: SET LOCAL hnsw.ef_search (inside the transaction)
       execute.mockResolvedValueOnce({ rows: [] })
       // Call 2: hybrid_search
       execute.mockResolvedValueOnce({ rows: hybridRows })
       // Call 3: SELECT captures
       execute.mockResolvedValueOnce({ rows: [capture] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any, 80)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any, 80)
       await service.search('ef_search check')
 
       // Must be 3 calls total (SET LOCAL + hybrid_search + captures)
@@ -368,7 +383,9 @@ describe('SearchService', () => {
       // Drizzle SQL objects have a `queryChunks` array or a `.sql` property
       // depending on version. We stringify the whole structure to find the token.
       const firstArgStr = JSON.stringify(firstArg)
-      expect(firstArgStr).toMatch(/hnsw/)
+      expect(firstArgStr).toMatch(/hnsw\.ef_search/)
+      // PE-M1: must be SET LOCAL (transaction-scoped), not a session-leaking SET
+      expect(firstArgStr).toMatch(/SET LOCAL/i)
     })
 
     it('does NOT issue SET hnsw.ef_search when searchMode is fts', async () => {
@@ -381,6 +398,49 @@ describe('SearchService', () => {
 
       // Only 2 calls: fts_only_search + SELECT captures (no SET LOCAL)
       expect(db.execute).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // PE-M1 — ef_search via SET LOCAL inside a transaction
+  // -------------------------------------------------------------------------
+
+  describe('PE-M1 — ef_search via SET LOCAL inside a transaction', () => {
+    it('wraps SET LOCAL hnsw.ef_search + hybrid_search in a single db.transaction()', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const hybridRows = [{ capture_id: 'cap-1', rrf_score: 0.8, fts_score: 0.7, vector_score: 0.9 }]
+      const db = makeMockDb(hybridRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      await service.search('txn check')
+
+      // Exactly one transaction opened for the ef_search-scoped hybrid_search
+      expect(db.transaction).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT open a transaction in FTS mode (no HNSW, no ef_search)', async () => {
+      const capture = makeCaptureRecord({ id: 'cap-1' })
+      const ftsRows = [{ capture_id: 'cap-1', rrf_score: 0.9, fts_score: 0.8, vector_score: 0.0 }]
+      const db = makeMockDbFts(ftsRows, [capture])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      await service.search('fts no txn', { searchMode: 'fts' })
+
+      expect(db.transaction).not.toHaveBeenCalled()
+    })
+
+    it('does NOT open a transaction when embed() fails (embed precedes the txn)', async () => {
+      embeddingService.embed.mockRejectedValueOnce(
+        new EmbeddingUnavailableError('embedding down'),
+      )
+      const db = makeMockDb([], [])
+      const service = new SearchService(db as any, embeddingService as any)
+
+      await expect(service.search('embed fails before txn')).rejects.toThrow(
+        EmbeddingUnavailableError,
+      )
+      expect(db.transaction).not.toHaveBeenCalled()
+      expect(db.execute).not.toHaveBeenCalled()
     })
   })
 
@@ -480,7 +540,7 @@ describe('SearchService', () => {
       // Call 3: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: captures })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('limit check', { limit: 3 })
 
@@ -571,7 +631,7 @@ describe('SearchService', () => {
       // Call 4: association lookup — cap-1 has an association with a recent capture
       execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 5.0 }] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
 
@@ -600,7 +660,7 @@ describe('SearchService', () => {
       // Call 4: Association with very high weight — normalized to 1.0
       execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 999.0 }] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
 
@@ -632,7 +692,7 @@ describe('SearchService', () => {
         { capture_id: 'cap-2', max_weight: 5.0 },
       ] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
 
@@ -658,7 +718,7 @@ describe('SearchService', () => {
       // Call 4: No associations found
       execute.mockResolvedValueOnce({ rows: [] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
 
@@ -685,7 +745,7 @@ describe('SearchService', () => {
       // Call 4: Only cap-1 has an association with a recent capture
       execute.mockResolvedValueOnce({ rows: [{ capture_id: 'cap-1', max_weight: 3.0 }] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.search('test', { recentCaptureIds: ['recent-1'] })
 
@@ -715,7 +775,7 @@ describe('SearchService', () => {
       // Call 3: SELECT captures
       execute.mockResolvedValueOnce({ rows: [capture] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       await service.search('pure vector query', { searchMode: 'vector', ftsWeight: 0.5 })
 
@@ -817,7 +877,7 @@ describe('SearchService', () => {
       // Call 2: SELECT * FROM captures
       execute.mockResolvedValueOnce({ rows: [relatedCapture] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.findRelatedCaptures(['seed-1', 'seed-2'])
 
@@ -832,7 +892,7 @@ describe('SearchService', () => {
       const execute = vi.fn()
       execute.mockResolvedValueOnce({ rows: [] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.findRelatedCaptures(['seed-1'])
 
@@ -850,7 +910,7 @@ describe('SearchService', () => {
       ] })
       execute.mockResolvedValueOnce({ rows: [relatedCapture] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.findRelatedCaptures(['seed-1'], 10, 1.0)
 
@@ -869,7 +929,7 @@ describe('SearchService', () => {
       ] })
       execute.mockResolvedValueOnce({ rows: [cap1, cap2] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.findRelatedCaptures(['seed-1'])
 
@@ -889,7 +949,7 @@ describe('SearchService', () => {
       execute.mockResolvedValueOnce({ rows: activationRows })
       execute.mockResolvedValueOnce({ rows: captures })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.findRelatedCaptures(['seed-1'], 3)
 
@@ -906,12 +966,56 @@ describe('SearchService', () => {
       ] })
       execute.mockResolvedValueOnce({ rows: [cap1] }) // only rel-1 exists
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const results = await service.findRelatedCaptures(['seed-1'])
 
       expect(results).toHaveLength(1)
       expect(results[0].capture.id).toBe('rel-1')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // PE-M5 — spreading_activation hop instrumentation
+  // -------------------------------------------------------------------------
+
+  describe('PE-M5 — spreading_activation hop instrumentation', () => {
+    it('logs the hop-count distribution of returned related captures', async () => {
+      const { logger } = await import('@open-brain/shared')
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined as never)
+
+      const cap1 = makeCaptureRecord({ id: 'rel-1' })
+      const cap2 = makeCaptureRecord({ id: 'rel-2' })
+      const execute = vi.fn()
+      execute.mockResolvedValueOnce({ rows: [
+        { capture_id: 'rel-1', activation_score: 0.8, hop_count: 1 },
+        { capture_id: 'rel-2', activation_score: 0.6, hop_count: 2 },
+      ] })
+      execute.mockResolvedValueOnce({ rows: [cap1, cap2] })
+
+      const service = new SearchService({ execute } as any, embeddingService as any)
+      await service.findRelatedCaptures(['seed-1'])
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ hopCounts: expect.objectContaining({ 1: 1, 2: 1 }) }),
+        expect.stringContaining('spreading_activation'),
+      )
+      debugSpy.mockRestore()
+    })
+
+    it('does not log when there are no related captures', async () => {
+      const { logger } = await import('@open-brain/shared')
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined as never)
+
+      const execute = vi.fn().mockResolvedValueOnce({ rows: [] })
+      const service = new SearchService({ execute } as any, embeddingService as any)
+      await service.findRelatedCaptures(['seed-1'])
+
+      const hopLogs = debugSpy.mock.calls.filter(
+        (c) => typeof c[1] === 'string' && c[1].includes('spreading_activation'),
+      )
+      expect(hopLogs).toHaveLength(0)
+      debugSpy.mockRestore()
     })
   })
 
@@ -953,7 +1057,7 @@ describe('SearchService', () => {
       // Call 5: SELECT captures (related)
       execute.mockResolvedValueOnce({ rows: [relatedCapture] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const response = await service.searchWithRelated('test', { includeRelated: true })
 
@@ -988,7 +1092,7 @@ describe('SearchService', () => {
       // Call 5: SELECT captures (related)
       execute.mockResolvedValueOnce({ rows: [cap2, relatedCapture] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const response = await service.searchWithRelated('test', { includeRelated: true })
 
@@ -1019,7 +1123,7 @@ describe('SearchService', () => {
       // Call 4: spreading_activation
       execute.mockResolvedValueOnce({ rows: [] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       await service.searchWithRelated('test', { includeRelated: true })
 
@@ -1043,7 +1147,7 @@ describe('SearchService', () => {
       // Call 4: Spreading activation returns nothing
       execute.mockResolvedValueOnce({ rows: [] })
 
-      const service = new SearchService({ execute } as any, embeddingService as any)
+      const service = new SearchService(dbWith(execute) as any, embeddingService as any)
 
       const response = await service.searchWithRelated('test', { includeRelated: true })
 
@@ -1085,7 +1189,7 @@ describe('SearchService', () => {
       ] })
       // Call 5: SELECT * FROM captures (related)
       execute.mockResolvedValueOnce({ rows: [makeCaptureRecord({ id: 'related-1' })] })
-      const service2 = new SearchService({ execute } as any, embeddingService as any)
+      const service2 = new SearchService(dbWith(execute) as any, embeddingService as any)
       const response = await service2.searchWithRelated('test', { includeRelated: true })
 
       // Primary results should be identical
