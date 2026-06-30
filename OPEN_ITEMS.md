@@ -4,7 +4,21 @@
 
 GitHub issues are the single source of truth for all pending work. This file is a quick-reference summary only — close issues there, not here.
 
-Last reconciled: 2026-05-09.
+Last reconciled: 2026-06-30.
+
+---
+
+## Architecture Review v3 remediation (plan A132 — not in GitHub issues)
+
+Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), not GitHub issues. **Waves 1–2 COMPLETE** (Phases 1–7 merged to `main`); **Waves 3–4 + a batched production-deploy window remain.**
+
+| Remaining | Where |
+|-----------|-------|
+| Phase 8 (ingest edges + voice Bearer auth) | IMPLEMENTATION_PLAN.md Wave 3 |
+| Phase 9 (convention→CI + governance/doc sweep, incl. PRD/TDD content) | Wave 3 |
+| Phase 10 (residual lows + RI closeouts) | Wave 4 |
+| **Deploy & Ops Backlog** (deploy Phases 6+7 + migration 0034; observability loopback via `systemctl restart docker`; upstream compose deviations) | IMPLEMENTATION_PLAN.md "Deployment & Ops Backlog" |
+| Deferred: workers coverage Part B (74%<78), QA-M3 INGEST_E2E, INT-M2-voice | same |
 
 ---
 

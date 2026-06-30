@@ -1972,7 +1972,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 
 ## 15. Architecture Evolution
 
-The current system (v1.5.0) diverges significantly from the original v0.4 external-proxy design documented in earlier PRD versions. This section summarizes the key migrations.
+The current system (v1.6.0) diverges significantly from the original v0.4 external-proxy design documented in earlier PRD versions. This section summarizes the key migrations.
 
 ### CS-α through CS-ε: OpenAI API Migration (2026-03-30)
 

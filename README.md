@@ -4,7 +4,9 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 ## Status
 
-**v1.6.0** — Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration shipped 2026-05-09. See [CHANGELOG](CHANGELOG.md) for the full v1.6.0 entry. Pending work tracked in [GitHub issues](https://github.com/davistroy/open-brain/issues) (10 open as of 2026-05-09; quick summary in [OPEN_ITEMS.md](OPEN_ITEMS.md)). Four "Could Have" / "Won't Have" features (F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
+**v1.6.0** — Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration shipped 2026-05-09. See [CHANGELOG](CHANGELOG.md) for the full v1.6.0 entry.
+
+**In progress (post-1.6.0):** Architecture Review v3 remediation (plan A132, [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)) — **Waves 1–2 complete** (Phases 1–7 merged: CI gates, LAN perimeter, recovery/search fixes, observability, schema fidelity machine, integration/spend hardening, and the O(N²)→HNSW k-NN similarity rewrite). Waves 3–4 + the batched production deploy remain. See the [Unreleased CHANGELOG](CHANGELOG.md#unreleased) section. Other pending work tracked in [GitHub issues](https://github.com/davistroy/open-brain/issues) (quick summary in [OPEN_ITEMS.md](OPEN_ITEMS.md)). Four "Could Have" / "Won't Have" features (F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
 ## Plans
 

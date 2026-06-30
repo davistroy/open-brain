@@ -8,6 +8,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Architecture Review v3 Remediation (2026-06 — plan A132 / `IMPLEMENTATION_PLAN.md`)
+
+Post-1.6.0 hardening from the 2026-06-10 nine-agent architecture review (119 findings, CONDITIONAL GO). **Waves 1–2 complete (Phases 1–7, merged); Waves 3–4 + the production deploy are in progress.** No version bump yet — this accumulates here until the remediation is complete and deployed.
+
+**Immediate actions (2026-06-11):** SE-1 stuck-capture sweep fix (sweepers filtered an invalid `'received'` status, so `pending`/`extracted` captures were never re-enqueued); restore-rehearsal + encrypted offsite-backup crons installed; `next` ≥ 16.2.9 (proxy-bypass advisory); CF Access verified.
+
+**Wave 1 — gates & perimeter:**
+- **Phase 1 (#219):** activated the dormant CI coverage gate (core-api `--coverage`, 85.6%), promoted `build-and-test` to a required check, added secrets-regression + init-schema validators.
+- **Phase 2 (#220, ADR-0002):** LAN perimeter — data stores bound to loopback, Redis `requirepass` + new `REDIS_PASSWORD` secret, fail-closed Postgres/Grafana credentials.
+- **Phase 3 (#221, migration 0032):** failed-capture retry + dedup key; POST-search pagination; vector/temporal/MCP-tag search fixes; spreading-activation soft-delete leak; access-stats retention.
+- **Phase 4 (#222):** workers-staleness (SPOF) alerting; web-next CI image; Loki driver URL + non-blocking log driver.
+
+**Wave 2 — schema, resilience, the quadratic rewrite:**
+- **Phase 5 (#223, migration 0033):** schema fidelity machine — `init-schema.sql` is now a generated `pg_dump` snapshot with a two-DB CI parity diff + a manual `schema_migrations` ledger.
+- **Phase 6 (#224):** integration & spend hardening — slack client timeout/retry, ingest prompt-injection wrap, embedding-spend recording, embed budget-delay fix (SE-5), drizzle-orm/simple-git RCE bumps.
+- **Phase 7 (#225, migration 0034):** **replaced the O(N²) cosine self-joins** (memory-consolidation + dedup-sweep) **with HNSW k-NN probes** — validated cluster-equivalence ∅ on the live 11K corpus; scoped `hnsw.ef_search` in a transaction; stored `content_tsvector`; instrumented spreading-activation.
+
+**Decisions:** ADR-0002 (LAN exposure; core-api `0.0.0.0` risk-accepted on Unraid — boot-order race, not userspace Tailscale; 2026-06-30), ADR-0003 (similarity-scan k-NN rewrite).
+
 ---
 
 ## [1.6.0] — 2026-05-09
