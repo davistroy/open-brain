@@ -62,7 +62,7 @@ After any non-trivial finding (container startup failure, networking quirk, pipe
 **Database / schema**
 - `vector(768)` everywhere (not 1536).
 - Matryoshka truncation check uses `< 768`, not `!== 768` — `raw.slice(0, 768)` runs after.
-- Captures has no `tsv` column — FTS uses expression-based GIN index on `to_tsvector('english', content)`.
+- **`captures.content_tsvector` is a STORED generated column (PE-M2, migration 0034):** `tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, content)) STORED` + GIN index `captures_content_tsvector_idx`. `hybrid_search()`/`fts_only_search()` read this column instead of recomputing `to_tsvector()` per row; the old expression index `captures_content_fts_idx` was dropped. **It is intentionally NOT in the Drizzle schema** — it's a DB-internal artifact for the SQL FTS functions only (an index-like column, like the HNSW index), and adding it would bloat `SELECT * FROM captures` (the PE-L2 concern). The `to_tsvector('english'::regconfig, …)` 2-arg form is required for the IMMUTABLE generated expression.
 - Drizzle does not emit SQL `AS` for computed SELECTs — use the full expression in ORDER BY (e.g., `desc(sql\`COUNT(${entity_links.id})\`)`), not the JS alias.
 - `capture_associations` uses canonical pair ordering (`capture_id_a < capture_id_b`) — sort UUIDs before insert.
 - `spreading_activation` SQL function requires migrations 0011 + 0012 together.
