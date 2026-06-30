@@ -12,6 +12,7 @@ volumes:
   prometheus_data:
   grafana_data:
   loki_data:
+  voice_spool_data:   # INT-M4: durable dead-letter spool for voice transcripts
 
 # Shared Loki logging (PLT-H3 + PE-L5):
 #  - loki-url default = localhost (the Docker log driver runs in the DAEMON, which
@@ -365,6 +366,8 @@ services:
       # SE-13: brain-views.yaml is read for brain_view validation (lightweight,
       # like slack-bot). Read-only — voice-capture never writes config.
       - ./config:/app/config:ro
+      # INT-M4: durable spool for dead-lettered transcripts (survives restart).
+      - voice_spool_data:/data/voice-spool
     depends_on:
       core-api:
         condition: service_healthy

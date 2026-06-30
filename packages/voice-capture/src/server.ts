@@ -8,6 +8,7 @@ import { ClassificationService } from './services/classification.js'
 import { IngestService } from './services/ingest.js'
 import { NotificationService } from './services/notification.js'
 import { getValidBrainViews } from './lib/brain-views.js'
+import { spoolTranscript, removeSpooled, retrySpooledTranscripts } from './lib/transcript-spool.js'
 
 const log = createLogger('voice-capture')
 
@@ -243,14 +244,27 @@ app.post('/api/capture', async (c) => {
     },
   }
 
+  // INT-M4: write-ahead spool so a transient core-api outage never loses a
+  // transcribed memo. Spool BEFORE ingest, delete on success; on failure the
+  // file survives for the periodic retry sweep. Best-effort — if spooling itself
+  // fails (e.g. volume unavailable) we log and continue rather than drop the capture.
+  let spoolPath: string | undefined
+  try {
+    spoolPath = await spoolTranscript(ingestPayload)
+  } catch (err) {
+    log.warn({ err }, 'Failed to spool transcript — dead-letter safety net unavailable')
+  }
+
   let created
   try {
     created = await ingestService.ingest(ingestPayload)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    log.error({ err }, 'Core API ingest failed after all attempts')
-    return c.json({ error: message, code: 'INGEST_ERROR' }, 502)
+    log.error({ err, spooled: !!spoolPath }, 'Core API ingest failed — transcript spooled for retry')
+    return c.json({ error: message, code: 'INGEST_ERROR', spooled: !!spoolPath }, 502)
   }
+
+  if (spoolPath) await removeSpooled(spoolPath)
 
   // Step 4: Pushover notification (non-blocking, failure is non-fatal)
   const topicsField = classification.fields.find((f) => f.name === 'topics')
@@ -282,6 +296,20 @@ app.post('/api/capture', async (c) => {
 
 // Unknown routes
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404))
+
+// INT-M4: periodically re-ingest dead-lettered transcripts. Gated out of tests
+// (NODE_ENV=test) and unref'd so it never keeps the process alive.
+if (process.env.NODE_ENV !== 'test') {
+  const retryMs = Number(process.env.VOICE_SPOOL_RETRY_MS ?? 30 * 60 * 1000)
+  const timer = setInterval(() => {
+    retrySpooledTranscripts((p) => ingestService.ingest(p as Parameters<typeof ingestService.ingest>[0]))
+      .then((r) => {
+        if (r.retried > 0) log.info(r, 'Dead-letter spool retry sweep complete')
+      })
+      .catch((err) => log.warn({ err }, 'Dead-letter spool retry sweep failed'))
+  }, retryMs)
+  timer.unref()
+}
 
 // Start server
 const port = Number(process.env.PORT ?? 3001)

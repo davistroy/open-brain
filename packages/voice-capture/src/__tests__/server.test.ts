@@ -12,7 +12,17 @@
  * can reference them via the mocked module.
  */
 import { fileURLToPath } from 'node:url'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, readdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest'
+
+// INT-M4: point the dead-letter spool at a temp dir for the whole file so the
+// write-ahead spool exercises real disk I/O without touching /data. Read
+// per-request by the server, so setting it here (module scope) covers all tests.
+const SPOOL_DIR = mkdtempSync(join(tmpdir(), 'voice-spool-srv-'))
+process.env.VOICE_SPOOL_DIR = SPOOL_DIR
+afterAll(() => rmSync(SPOOL_DIR, { recursive: true, force: true }))
 
 // Repo config/ dir (career/personal/technical/work-internal/client) for the
 // brain_view-validation tests, which exercise the real lightweight config load.
@@ -683,5 +693,35 @@ describe('POST /api/capture — input validation (8.5, SE-13 + PE-L4)', () => {
     }))
 
     expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/capture — dead-letter spool (8.4, INT-M4)', () => {
+  const spoolCount = () => readdirSync(SPOOL_DIR).filter((f) => f.endsWith('.json')).length
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    for (const f of readdirSync(SPOOL_DIR)) rmSync(join(SPOOL_DIR, f), { force: true })
+    mockTranscribe.mockResolvedValue(TRANSCRIPTION_RESULT)
+    mockClassify.mockResolvedValue(CLASSIFICATION_RESULT)
+    mockIngest.mockResolvedValue(INGEST_RESULT)
+    mockNotify.mockResolvedValue(undefined)
+  })
+
+  it('leaves a spooled transcript and returns 502 when ingest fails (memo not lost)', async () => {
+    mockIngest.mockRejectedValue(new Error('Failed to ingest capture after 3 attempts'))
+
+    const res = await app.request(buildCaptureRequest({ filename: 'memo.m4a' }))
+
+    expect(res.status).toBe(502)
+    // The transcribed memo is dead-lettered for retry, not lost.
+    expect(spoolCount()).toBe(1)
+  })
+
+  it('removes the spool file after a successful ingest (write-ahead cleared)', async () => {
+    const res = await app.request(buildCaptureRequest({ filename: 'memo.m4a' }))
+
+    expect(res.status).toBe(200)
+    expect(spoolCount()).toBe(0)
   })
 })
