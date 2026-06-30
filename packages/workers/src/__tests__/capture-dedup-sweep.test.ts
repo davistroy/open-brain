@@ -6,48 +6,51 @@ import {
 } from '../skills/capture-dedup-sweep.js'
 import type { CaptureDedupSweepOptions, DedupPair } from '../skills/capture-dedup-sweep.js'
 import { PushoverService } from '../services/pushover.js'
+import {
+  findSimilarPairs,
+  readScanWatermark,
+  writeScanWatermark,
+  type SimilarPair,
+} from '../lib/hnsw-similarity.js'
+
+// The k-NN scan + scan watermark are unit-isolated here (their own tests live in
+// hnsw-similarity.test.ts). This file exercises the skill's orchestration: turning
+// scanned pairs into hydrated DedupPairs, notifying, and logging.
+vi.mock('../lib/hnsw-similarity.js', () => ({
+  findSimilarPairs: vi.fn(),
+  readScanWatermark: vi.fn().mockResolvedValue(null), // null = full scan
+  writeScanWatermark: vi.fn().mockResolvedValue(undefined),
+  CAPTURE_DEDUP_WATERMARK_KEY: 'capture_dedup_last_scan_at',
+}))
 
 // ============================================================
 // Fixtures
 // ============================================================
 
-const SAMPLE_PAIRS = [
-  {
-    capture_id_a: 'aaa-111',
-    capture_id_b: 'bbb-222',
-    similarity: '0.97',
-    content_a: 'Meeting with team about Q3 roadmap planning session',
-    content_b: 'Meeting with team about Q3 roadmap planning',
-    created_at_a: '2026-04-01T10:00:00Z',
-    created_at_b: '2026-04-01T10:05:00Z',
-  },
-  {
-    capture_id_a: 'ccc-333',
-    capture_id_b: 'ddd-444',
-    similarity: '0.96',
-    content_a: 'Need to follow up on the Kubernetes deployment',
-    content_b: 'Follow up on Kubernetes deployment is needed',
-    created_at_a: '2026-04-02T14:00:00Z',
-    created_at_b: '2026-04-02T14:30:00Z',
-  },
-  {
-    capture_id_a: 'eee-555',
-    capture_id_b: 'fff-666',
-    similarity: '0.955',
-    content_a: 'Budget review for AI infrastructure costs this quarter',
-    content_b: 'Budget review: AI infrastructure costs for the quarter',
-    created_at_a: '2026-04-03T09:00:00Z',
-    created_at_b: '2026-04-03T09:15:00Z',
-  },
+// What the k-NN scan returns (canonical id pairs + similarity).
+const SIM_PAIRS: SimilarPair[] = [
+  { capture_id_a: 'aaa-111', capture_id_b: 'bbb-222', similarity: 0.97 },
+  { capture_id_a: 'ccc-333', capture_id_b: 'ddd-444', similarity: 0.96 },
+  { capture_id_a: 'eee-555', capture_id_b: 'fff-666', similarity: 0.955 },
+]
+
+// What the hydration query returns (content/created_at previews keyed by id).
+const HYDRATION_ROWS = [
+  { id: 'aaa-111', content: 'Meeting with team about Q3 roadmap planning session', created_at: '2026-04-01T10:00:00Z' },
+  { id: 'bbb-222', content: 'Meeting with team about Q3 roadmap planning', created_at: '2026-04-01T10:05:00Z' },
+  { id: 'ccc-333', content: 'Need to follow up on the Kubernetes deployment', created_at: '2026-04-02T14:00:00Z' },
+  { id: 'ddd-444', content: 'Follow up on Kubernetes deployment is needed', created_at: '2026-04-02T14:30:00Z' },
+  { id: 'eee-555', content: 'Budget review for AI infrastructure costs this quarter', created_at: '2026-04-03T09:00:00Z' },
+  { id: 'fff-666', content: 'Budget review: AI infrastructure costs for the quarter', created_at: '2026-04-03T09:15:00Z' },
 ]
 
 // ============================================================
 // Mock helpers
 // ============================================================
 
-function makeMockDb(pairs = SAMPLE_PAIRS) {
+function makeMockDb(hydrationRows: typeof HYDRATION_ROWS = HYDRATION_ROWS) {
   return {
-    execute: vi.fn().mockResolvedValue({ rows: pairs }),
+    execute: vi.fn().mockResolvedValue({ rows: hydrationRows }), // hydration query
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
     }),
@@ -64,11 +67,17 @@ function makePushoverService(configured = true) {
 }
 
 function makeSkill(opts: {
-  pairs?: typeof SAMPLE_PAIRS
+  simPairs?: SimilarPair[]
+  hydrationRows?: typeof HYDRATION_ROWS
   pushoverConfigured?: boolean
 } = {}) {
-  const db = makeMockDb(opts.pairs ?? SAMPLE_PAIRS)
+  const simPairs = opts.simPairs ?? SIM_PAIRS
+  const db = makeMockDb(opts.hydrationRows ?? HYDRATION_ROWS)
   const pushover = makePushoverService(opts.pushoverConfigured ?? true)
+
+  vi.mocked(findSimilarPairs).mockResolvedValue(simPairs)
+  vi.mocked(readScanWatermark).mockResolvedValue(null)
+  vi.mocked(writeScanWatermark).mockResolvedValue(undefined)
 
   const skill = new CaptureDedupSweepSkill({
     db: db as unknown as import('@open-brain/shared').Database,
@@ -111,7 +120,7 @@ describe('CaptureDedupSweepSkill', () => {
   })
 
   it('returns empty results when no duplicates found', async () => {
-    const { skill } = makeSkill({ pairs: [] })
+    const { skill } = makeSkill({ simPairs: [] })
     const result = await skill.execute()
 
     expect(result.pairsFound).toBe(0)
@@ -127,12 +136,14 @@ describe('CaptureDedupSweepSkill', () => {
     expect(DEFAULT_SIMILARITY_THRESHOLD).toBe(0.95)
   })
 
-  it('passes custom similarity threshold to SQL query', async () => {
-    const { skill, db } = makeSkill()
+  it('passes custom similarity threshold to the k-NN scan', async () => {
+    const { skill } = makeSkill()
     await skill.execute({ similarityThreshold: 0.98 })
 
-    // Verify the execute was called (threshold is in the SQL)
-    expect(db.execute).toHaveBeenCalledTimes(1)
+    expect(findSimilarPairs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ threshold: 0.98 }),
+    )
   })
 
   it('uses default max pairs (100)', () => {
@@ -143,14 +154,15 @@ describe('CaptureDedupSweepSkill', () => {
   // Exclusion filter
   // ----------------------------------------------------------
 
-  it('SQL query excludes consolidated captures (verified via call)', async () => {
-    const { skill, db } = makeSkill()
+  it('excludes consolidated captures via excludeConsolidationSource', async () => {
+    const { skill } = makeSkill()
     await skill.execute()
 
-    // The SQL query is in the db.execute call. We verify it was called.
-    // The actual SQL contains `AND a.source != 'consolidation'` and
-    // `AND b.source != 'consolidation'` — verified in implementation.
-    expect(db.execute).toHaveBeenCalledTimes(1)
+    // The dedup sweep must exclude source='consolidation' (parity with the old self-join).
+    expect(findSimilarPairs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ excludeConsolidationSource: true }),
+    )
   })
 
   // ----------------------------------------------------------
@@ -181,19 +193,16 @@ describe('CaptureDedupSweepSkill', () => {
   })
 
   it('shows overflow count when more than 3 pairs', async () => {
-    const extraPairs = [
-      ...SAMPLE_PAIRS,
-      {
-        capture_id_a: 'ggg-777',
-        capture_id_b: 'hhh-888',
-        similarity: '0.951',
-        content_a: 'Extra capture A',
-        content_b: 'Extra capture B',
-        created_at_a: '2026-04-04T10:00:00Z',
-        created_at_b: '2026-04-04T10:05:00Z',
-      },
+    const extraSimPairs: SimilarPair[] = [
+      ...SIM_PAIRS,
+      { capture_id_a: 'ggg-777', capture_id_b: 'hhh-888', similarity: 0.951 },
     ]
-    const { skill, pushover } = makeSkill({ pairs: extraPairs })
+    const extraHydration = [
+      ...HYDRATION_ROWS,
+      { id: 'ggg-777', content: 'Extra capture A', created_at: '2026-04-04T10:00:00Z' },
+      { id: 'hhh-888', content: 'Extra capture B', created_at: '2026-04-04T10:05:00Z' },
+    ]
+    const { skill, pushover } = makeSkill({ simPairs: extraSimPairs, hydrationRows: extraHydration })
     await skill.execute()
 
     const call = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]
@@ -201,7 +210,7 @@ describe('CaptureDedupSweepSkill', () => {
   })
 
   it('does not send Pushover when no duplicates found', async () => {
-    const { skill, pushover } = makeSkill({ pairs: [] })
+    const { skill, pushover } = makeSkill({ simPairs: [] })
     await skill.execute()
 
     expect(pushover.send).not.toHaveBeenCalled()
@@ -249,7 +258,7 @@ describe('CaptureDedupSweepSkill', () => {
   })
 
   it('writes "No near-duplicates found" to skills_log when empty', async () => {
-    const { skill, db } = makeSkill({ pairs: [] })
+    const { skill, db } = makeSkill({ simPairs: [] })
     await skill.execute()
 
     const valuesCall = db.insert.mock.results[0].value.values
@@ -273,24 +282,22 @@ describe('CaptureDedupSweepSkill', () => {
   // DB query error handling
   // ----------------------------------------------------------
 
-  it('returns empty pairs when DB query fails', async () => {
-    const db = {
-      execute: vi.fn().mockRejectedValue(new Error('connection refused')),
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
-      }),
-    }
+  it('propagates a scan failure and does NOT advance the watermark', async () => {
+    // A scan DB error must surface as a skill failure (→ BullMQ retry), not a
+    // silent empty result, and the watermark must not advance (else the un-scanned
+    // captures would be permanently skipped).
+    const db = makeMockDb()
     const pushover = makePushoverService()
+    vi.mocked(readScanWatermark).mockResolvedValue(null)
+    vi.mocked(findSimilarPairs).mockRejectedValue(new Error('connection refused'))
     const skill = new CaptureDedupSweepSkill({
       db: db as unknown as import('@open-brain/shared').Database,
       pushover,
     })
 
-    const result = await skill.execute()
-
-    expect(result.pairsFound).toBe(0)
-    expect(result.pairs).toHaveLength(0)
-    expect(result.notificationSent).toBe(false)
+    await expect(skill.execute()).rejects.toThrow('connection refused')
+    expect(writeScanWatermark).not.toHaveBeenCalled()
+    expect(pushover.send).not.toHaveBeenCalled()
   })
 
   // ----------------------------------------------------------
@@ -298,8 +305,7 @@ describe('CaptureDedupSweepSkill', () => {
   // ----------------------------------------------------------
 
   it('uses singular "pair" for exactly 1 duplicate', async () => {
-    const singlePair = [SAMPLE_PAIRS[0]]
-    const { skill, pushover } = makeSkill({ pairs: singlePair })
+    const { skill, pushover } = makeSkill({ simPairs: [SIM_PAIRS[0]] })
     await skill.execute()
 
     const call = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]

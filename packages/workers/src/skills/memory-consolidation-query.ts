@@ -1,6 +1,13 @@
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
+import { findSimilarPairs } from '../lib/hnsw-similarity.js'
+
+/**
+ * ADR-0003 rollback hatch: set `SIMILARITY_SCAN_LEGACY=1` to fall back to the old
+ * O(N²) cosine self-join for one weekend cycle while validating the k-NN rewrite.
+ */
+const LEGACY_SCAN = process.env.SIMILARITY_SCAN_LEGACY === '1'
 
 // ============================================================
 // Types
@@ -137,6 +144,37 @@ export interface SimilarityPairRow {
 export async function querySimilarPairs(
   db: Database,
   similarityThreshold: number = DEFAULT_SIMILARITY_THRESHOLD,
+  candidatesSince: Date | null = null,
+): Promise<SimilarityPairRow[]> {
+  if (LEGACY_SCAN) {
+    return querySimilarPairsLegacy(db, similarityThreshold)
+  }
+
+  // PE-H1 / ADR-0003: per-row HNSW k-NN probe instead of the O(N²) self-join.
+  // Consolidation does NOT exclude source='consolidation' (it may re-cluster prior
+  // reflections) — preserved via excludeConsolidationSource:false. `findSimilarPairs`
+  // already logs + returns [] on error, so no extra try/catch here.
+  const pairs = await findSimilarPairs(db, {
+    threshold: similarityThreshold,
+    maxPairs: MAX_PAIRS,
+    excludeConsolidationSource: false,
+    candidatesSince,
+  })
+
+  return pairs.map((p) => ({
+    capture_id_a: p.capture_id_a,
+    capture_id_b: p.capture_id_b,
+    similarity: String(p.similarity),
+  }))
+}
+
+/**
+ * Legacy O(N²) cosine self-join — retained behind `SIMILARITY_SCAN_LEGACY=1` as the
+ * one-weekend rollback hatch for ADR-0003. Do not call directly; routed via {@link querySimilarPairs}.
+ */
+async function querySimilarPairsLegacy(
+  db: Database,
+  similarityThreshold: number,
 ): Promise<SimilarityPairRow[]> {
   try {
     const rows = await db.execute<SimilarityPairRow>(sql`
@@ -159,7 +197,7 @@ export async function querySimilarPairs(
 
     return rows.rows as SimilarityPairRow[]
   } catch (err) {
-    logger.error({ err }, '[memory-consolidation] failed to query similar pairs')
+    logger.error({ err }, '[memory-consolidation] failed to query similar pairs (legacy)')
     return []
   }
 }
@@ -259,20 +297,23 @@ export async function findConsolidationCandidates(
     similarityThreshold?: number
     minClusterSize?: number
     maxClusters?: number
+    /** Incremental scoping: only captures created after this are candidates (null = full scan). */
+    candidatesSince?: Date | null
   } = {},
 ): Promise<ConsolidationQueryResult> {
   const start = Date.now()
   const threshold = options.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD
   const minSize = options.minClusterSize ?? DEFAULT_MIN_CLUSTER_SIZE
   const maxClusters = options.maxClusters ?? DEFAULT_MAX_CLUSTERS
+  const candidatesSince = options.candidatesSince ?? null
 
   logger.info(
-    { threshold, minSize, maxClusters },
+    { threshold, minSize, maxClusters, incremental: candidatesSince !== null },
     '[memory-consolidation] querying consolidation candidates',
   )
 
   // Step 1: Query similar pairs
-  const pairs = await querySimilarPairs(db, threshold)
+  const pairs = await querySimilarPairs(db, threshold, candidatesSince)
   logger.info(
     { pairsFound: pairs.length },
     '[memory-consolidation] similar pairs found',
