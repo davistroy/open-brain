@@ -142,6 +142,7 @@
 | D130 | Replace O(N²) cosine self-joins (consolidation + dedup-sweep) with per-row HNSW k-NN probes via shared `hnsw-similarity.ts` | 2026-06-15 | ACTIVE (merged #225) | ADR-0003, Entry 165/173 | coarse pre-filter buckets (still O(N²)); materialized pairs table (premature); raise MAX_PAIRS (bounds output not compute); Qdrant (scale-gated #73) |
 | D131 | core-api stays on `0.0.0.0:3002` (LAN-reachable) on Unraid — explicit risk-acceptance, NOT the dual-bind. Corrects Entry 172: host Tailscale is kernel-TUN `tailscale1` (bindable), real blocker is a boot race (dockerd starts ~8s before tailscaled). | 2026-06-30 | ACTIVE | ADR-0002 Amendment, Entry 174 | dual-bind loopback+`tailscale1` (boot-race reliability hazard, would flap on reboot); loopback + `tailscale serve --tcp` (boot-safe + closes LAN, but owner declined the extra dependency); re-route OpenClaw (touches 2nd system, deferred) |
 | D132 | Voice-capture exposure = Option 1: Bearer auth now (`VOICE_CAPTURE_SECRET`, fail-closed-when-set), keep `voice-capture:3001` on `0.0.0.0` (LAN); DEFER the SEC-02 loopback bind (8.2). | 2026-06-30 | ACTIVE | Entry 176, Phase 8 | loopback bind + route all voice via tunnel (breaks live iOS Shortcut direct-to-`:3001`, adds CF-tunnel latency+dependency to every home memo, CF-Access path collision — wrong trade for a voice memo); consistent w/ the D131 reliability>purity posture; reversible (one-line compose flip once a voice tunnel exists) |
+| D133 | Phase 1.3 observability re-point: open-brain joins the external `observability` net as a CLIENT (shared Prometheus scrapes `core-api:3000`, workers push `pushgateway:9091`); host postgres/redis **bind reconciliation lives in `docker-compose.override.yml`** (NOT repo `driver_opts`); interim runtime bridge SKIPPED; **config-diff pre-`up` safety gate**. | 2026-07-01 | PROPOSED (plan; deploy pending) | ADR-0004, Entry 181 | `driver_opts` device-path in the public repo (pollutes portable source + still recreates); sed-only working-tree binds (re-apply every deploy, fragile); interim `docker network connect --alias core-api` (owner skipped — decouples alerts but adds runtime state) |
 
 ## Action Items
 
@@ -150,6 +151,7 @@
 |---|--------|---------|--------|----------|
 | A131 | Verify first *scheduled* offsite-backup run (Fri 2026-06-12 03:45) and restore-rehearsal run (Sun 2026-06-14 05:30) in logs — both should PASS with the exact-count manifest | 2026-06-11 | Entry 164 | HIGH |
 | A132 | Arch-review v3 remaining work: H/M/L findings beyond the immediate-action list (SE-2 retry no-op, SE-3 pagination, LAN port hardening SEC-02, coverage gate activation QA-H1/H2, O(N²) consolidation PE-H1, etc.) — needs its own plan | 2026-06-11 | Entry 163 | HIGH |
+| A133 | Phase 1.3 observability re-point — execute CS-B (main PR: `observability` external net + attach core-api/workers + delete 4 GPL services & 3 orphaned volume defs), CS-C (override.yml postgres/redis bind reconciliation + config-diff gate + surgical `--no-deps` recreate + ADR-0004 + CLAUDE.md stale-bind correction), CS-D (verify + `docker rm` 4 Exited GPL containers). Landmine disarm folded into CS-C. | 2026-07-01 | Entry 181 | HIGH |
 | A1 | ~~Deploy Phase 7 consolidated code to homeserver~~ | 2026-03-30 | IMPL_PLAN_PHASE7 | DONE — deployed, verified via test suite |
 | A2 | Verify pg-notify reconnection works under real disconnect | 2026-03-30 | Phase 7 | MEDIUM |
 | A3 | Deferred features: F21 voice transcription history, F22 entity merge UI, F24 multi-user | 2026-03 | PRD | LOW — Could Have / Won't Have |
@@ -12587,6 +12589,39 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 
 **Tags:** [pipeline] [database] [debug]
 **Environment:** ubuntu-vm (dev) — 3 pre-existing bugs surfaced by the post-A132 health review; TDD on the SQL bug, config for the other two. **Duration:** ~30 min. **MERGED #230 → main `1710c54`; workers redeployed 2026-07-01 (pull+recreate, no migration).** Fix PROVEN live: `= ANY(ARRAY[…]::uuid[])` → 105 rows on real `entity_links`; the old `ANY((…)::uuid[])` pattern still errors `cannot cast type record to uuid[]`. 21 scheduler jobs re-registered, 0 errors. skill-execution failed=2 (alert clear). Not A132.
+
+
+
+## Entry 181 — Phase 1.3: re-point open-brain at the shared observability stack — INVESTIGATION + PLAN (deploy PENDING) (2026-07-01)  [deploy] [docker] [observability] [decision] [planning]
+
+**Objective:** Stop open-brain *owning* the GPL stack; join the external `observability` compose network as a **client** so the shared Prometheus scrapes `core-api:3000/metrics` and workers push to `pushgateway:9091`. Clears the firing `WorkersMetricsAbsent` + `open-brain-core-api` target-down alerts. Source: `1.3-open-brain-repoint-handoff.md` (observability-migration orchestrator, homeserver repo). Ran `/ultra-plan` with **full live verification — did NOT trust the handoff blindly.**
+
+**Live-verified findings (homeserver, read-only `docker inspect` / `wget` / git):**
+- 17 containers healthy; standalone `observability-*` stack live; old `open-brain-{grafana,loki,prometheus,pushgateway}` = **Exited(0)**. External `observability` bridge network **EXISTS** (real docker name literally `observability`).
+- core-api + workers are on `open-brain_open-brain` **ONLY**. Live Prometheus target `open-brain-core-api` → `health:down`, `lookup core-api ... no such host` (it scrapes the **service alias** `core-api:3000`). `pushgateway:9091` UP. Only these 2 open-brain targets exist → only core-api (scraped) + workers (pushes) need the 2nd network.
+- **`PUSHGATEWAY_URL` unset in container AND absent from `.env.secrets` → code default `http://pushgateway:9091` (push-metrics.ts:74) — correct once workers joins the net; NO env change.** `LOKI_URL` unset → daemon log-driver `localhost:3100` default → served by `observability-loki`; correct as-is.
+- **🛑 VOLUME-DRIFT LANDMINE confirmed:** postgres & redis run **RAW binds** (`Type=bind` → `/mnt/user/appdata/open-brain/{pgdata,redis-data}`), but appdata **and** main compose declare **NAMED volumes** (`postgres_data:`,`redis_data:`, no `driver_opts`). Any postgres/redis **recreate** (bare `up -d`, or a future full deploy) detaches DB onto empty named volumes (data survives at the bind paths; DB comes up empty). Latent, independent of 1.3. Running mount is a **raw bind**, so the matching reconciliation is a **raw bind path**, NOT the handoff's `driver_opts` named volume.
+- **CI SAFE:** CI uses `docker compose -f docker-compose.test.yml` only (self-contained postgres+redis+sidecar; no main compose, no observability net); no workflow runs `compose config` on main → adding `external:true` to main won't break the required checks (`Integration tests`, `build-and-test`).
+- **Deploy reality:** appdata = frozen git checkout `a1629e4` + `MM docker-compose.yml` (path-checkout of main + sed) + `docker-compose.override.yml` (ports only). **No CD** (`build-images.yml`+`ci.yml`) → "route through CI" = merge a CI-gated PR THEN a **manual** surgical `sudo docker compose up`. Compose-only change ⇒ **no image pull** (recreate reuses current `:latest`).
+
+**Two handoff errors caught + one stale self-note corrected:**
+1. Handoff interim `docker network connect observability open-brain-core-api` **omits `--alias core-api`** → Prometheus would still fail to resolve `core-api`. Correct interim = `docker network connect --alias core-api observability open-brain-core-api`. (Durable compose path is fine — compose auto-adds the service alias on every attached net.)
+2. Handoff puts the bind reconciliation as `driver_opts: {device:/mnt/...}` in the **REPO** compose → **rejected** (hardcodes a host path into the PUBLIC portable repo, and still triggers a bind→volume recreate). → `docker-compose.override.yml` instead (D133 / ADR-0004).
+3. CLAUDE.md's "postgres bind preserved by working-tree `MM` deviations" is **STALE/WRONG** — the appdata compose declares a NAMED volume; the bind survives only because postgres hasn't been recreated. This IS the landmine. → correct CLAUDE.md during CS-C.
+
+**Owner decisions (this session):** (a) **SKIP** the interim runtime bridge — alerts stay firing until the durable deploy. (b) landmine fix lives in **`docker-compose.override.yml`** (host-only, portable-main-preserving) → D133 / ADR-0004.
+
+**Plan (3 change sets):**
+- **CS-B (main PR):** declare `observability: {external:true}`; add `- observability` to core-api + workers `networks:`; delete the 4 `profiles:[observability]` service blocks + `prometheus_data`/`grafana_data`/`loki_data` from top-level `volumes:`. No host paths. CI-safe.
+- **CS-C (homeserver, ADR-0004):** append results to THIS entry + `pg_dump` + compose/override backups → add postgres/redis **raw-bind** reconciliation to `override.yml` → `git checkout origin/main -- docker-compose.yml` + re-apply core-api `3002:3000` via **sed** (Unraid has no python3) → **CONFIG-DIFF GATE: `docker compose config` before-vs-after must show ONLY {core-api+observability, workers+observability, 4 GPL services removed} AND postgres/redis STILL rendering as binds; else STOP with zero runtime impact** → `sudo docker compose up -d --force-recreate --no-deps core-api workers` (NO pull; `--no-deps` keeps postgres/redis untouched so the landmine can't trip even during this deploy) → correct the CLAUDE.md stale-bind note.
+- **CS-D:** verify core-api+workers on both nets; Prometheus `open-brain-core-api` UP; `WorkersMetricsAbsent` resolves (~15-min push cycle); Loki still receiving (`{compose_project="open-brain"}`); `docker rm` the 4 Exited GPL containers. **NEVER `--remove-orphans`** (would kill the profile-gated LIVE observability stack).
+
+**Hypothesis / DoD:** after CS-C — `docker inspect` shows core-api+workers on `open-brain_open-brain` + `observability`; Prometheus target UP; alert clears; Loki intact; **postgres/redis row counts unchanged**. **Rollback:** CS-B = revert PR. CS-C = restore backed-up appdata `docker-compose.yml`+`override.yml` then `up -d --force-recreate --no-deps core-api workers`; postgres/redis are never recreated so data is never at risk; the config-diff gate makes the deploy abortable pre-`up`.
+
+**Status:** INVESTIGATION + PLAN COMPLETE + **formal artifacts generated** — `IMPLEMENTATION_PLAN-observability-repoint.md` (3 phases: CS-B repo / CS-C deploy / CS-D verify) + `docs/adr/ADR-0004-observability-repoint.md` (Proposed). Awaiting go-ahead to execute Phase 1 (the `main` PR). **NO homeserver mutation yet** — all inspection read-only. (Session also `ZREM`'d the 2 residual `monthly-reflection` failed jobs from Entry 180 → `skill-execution:failed` = 0.)
+
+**Tags:** [deploy] [docker] [observability] [decision] [planning]
+**Environment:** ubuntu-vm (planning) + homeserver (read-only inspection). **Duration:** investigation ~45 min; deploy NOT yet executed (results to be appended to this entry).
 
 
 

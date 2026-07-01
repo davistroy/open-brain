@@ -1,6 +1,12 @@
 networks:
   open-brain:
     driver: bridge
+  # Shared fleet observability stack (homeserver/observability compose project).
+  # open-brain joins as a CLIENT: the shared Prometheus scrapes core-api:3000 and
+  # workers push to pushgateway:9091. Must exist at deploy time (it does on the
+  # homeserver); see docs/adr/ADR-0004-observability-repoint.md.
+  observability:
+    external: true
 
 volumes:
   postgres_data:
@@ -9,9 +15,6 @@ volumes:
   financial_ingest_data:
   utility_ingest_data:
   admin_prewipe_backup:
-  prometheus_data:
-  grafana_data:
-  loki_data:
   voice_spool_data:   # INT-M4: durable dead-letter spool for voice transcripts
 
 # Shared Loki logging (PLT-H3 + PE-L5):
@@ -137,6 +140,7 @@ services:
     cpus: '2'
     networks:
       - open-brain
+      - observability        # shared Prometheus scrapes core-api:3000/metrics (ADR-0004)
     restart: unless-stopped
     logging: *default_logging
 
@@ -199,6 +203,7 @@ services:
     cpus: '3'
     networks:
       - open-brain
+      - observability        # workers push metrics to the shared pushgateway:9091 (ADR-0004)
     restart: unless-stopped
     logging: *default_logging
 
@@ -493,115 +498,6 @@ services:
   # Utility batch-ingest sidecar — same image as financial-ingest, different
   # config + inbox. Handles utility-pipeline.py (gas, power, water summaries).
   # Build block is duplicated so either service can rebuild the shared image.
-  # ── Observability stack ──────────────────────────────────────────────────────
-  # Start with: docker compose --profile observability up -d
-  # Prerequisite: Loki Docker log driver plugin installed once on the Docker host:
-  #   docker plugin install grafana/loki-docker-driver:latest --alias loki --grant-all-permissions
-  # See docs/runbooks/observability.md for bring-up, cutover, and data migration steps.
-
-  loki:
-    image: grafana/loki:3.4.3
-    container_name: open-brain-loki
-    volumes:
-      - loki_data:/loki/data
-      - ./config/loki/loki-config.yaml:/etc/loki/local-config.yaml:ro
-    ports:
-      - "127.0.0.1:3100:3100"
-    command: -config.file=/etc/loki/local-config.yaml
-    mem_limit: 512m
-    networks:
-      - open-brain
-    restart: unless-stopped
-    profiles:
-      - observability
-    # No in-container healthcheck: grafana/loki:latest is a scratch-based image
-    # with no shell and no wget — any CMD-SHELL probe fails with "executable not
-    # found" and Docker marks the container unhealthy forever, even when Loki is
-    # responding 200 on /ready. A `loki -version` healthcheck would always pass
-    # (worse — masks real failures). External monitoring: prometheus scrapes
-    # Loki, grafana datasource UI surfaces query problems. See issue #218.
-    # NOTE: No logging driver on loki itself — prevents chicken-and-egg startup failure.
-
-  pushgateway:
-    image: prom/pushgateway:v1.11.0
-    container_name: open-brain-pushgateway
-    ports:
-      - "127.0.0.1:9091:9091"
-    mem_limit: 128m
-    networks:
-      - open-brain
-    restart: unless-stopped
-    profiles:
-      - observability
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9091/-/healthy || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  prometheus:
-    image: prom/prometheus:v3.4.2
-    container_name: open-brain-prometheus
-    volumes:
-      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./config/prometheus/alerts:/etc/prometheus/alerts:ro
-      - prometheus_data:/prometheus
-    ports:
-      - "127.0.0.1:9090:9090"
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.enable-lifecycle'
-    mem_limit: 1g
-    networks:
-      - open-brain
-    restart: unless-stopped
-    profiles:
-      - observability
-    depends_on:
-      pushgateway:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090/-/healthy || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-
-  grafana:
-    image: grafana/grafana:12.0.2
-    container_name: open-brain-grafana
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — see deploy/.env.secrets.template}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_SERVER_HTTP_PORT: "3050"
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./config/grafana/dashboards:/var/lib/grafana/dashboards/open-brain:ro
-    ports:
-      - "3050:3050"
-    mem_limit: 512m
-    networks:
-      - open-brain
-    restart: unless-stopped
-    profiles:
-      - observability
-    depends_on:
-      prometheus:
-        condition: service_healthy
-      loki:
-        # Loki has no in-container healthcheck (scratch-based image, see #218).
-        # service_started is the most we can wait for; restart: unless-stopped
-        # handles crash recovery, prometheus scraping handles ongoing health.
-        condition: service_started
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3050/api/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
   utility-ingest:
     image: ghcr.io/davistroy/open-brain/ingest-sidecar:latest
     build:
