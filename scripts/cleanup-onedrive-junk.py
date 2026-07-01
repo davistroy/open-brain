@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 
 base: str = "/data"
 deleted_files: int = 0
@@ -27,8 +28,8 @@ for root, dirs, files in os.walk(base):
                 freed_bytes += os.path.getsize(path)
                 os.remove(path)
                 deleted_files += 1
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  Warning: could not delete {path}: {e}", file=sys.stderr)
 print(f"  Deleted {deleted_files} .v1_indexcache files", flush=True)
 
 # 2. Delete KiCad community libraries
