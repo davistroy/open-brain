@@ -17,6 +17,7 @@ import { createDailySweepWorker } from './jobs/daily-sweep.js'
 import { createPushoverWorker } from './jobs/pushover.js'
 import { createEmailWorker } from './jobs/email.js'
 import { createAccessStatsWorker, createPruneAssociationsWorker } from './jobs/update-access-stats.js'
+import { createDataRetentionPruneWorker } from './jobs/data-retention-prune.js'
 import { createBudgetCheckWorker } from './jobs/budget-check.js'
 import { createSkillExecutionWorker } from './jobs/skill-execution.js'
 import { createIngestRootWorker } from './jobs/ingest-root.js'
@@ -202,6 +203,7 @@ async function main() {
   workers.push(createEmailWorker(connection))
   workers.push(createAccessStatsWorker(connection, db))
   workers.push(createPruneAssociationsWorker(connection, db))
+  workers.push(createDataRetentionPruneWorker(connection, db))
   // Budget-check uses LLM_SPEND_URL — distinct from the inference
   // OPENAI_BASE_URL since spend tracking may point at a different proxy.
   // Uses LLM_SPEND_API_KEY for auth, falling back to OPENAI_API_KEY.

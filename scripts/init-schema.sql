@@ -811,6 +811,19 @@ CREATE TABLE public.pipeline_events (
 
 
 --
+-- Name: retention_audit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.retention_audit (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    table_name text NOT NULL,
+    deleted_count bigint NOT NULL,
+    cutoff timestamp with time zone NOT NULL,
+    ran_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: session_messages; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1090,6 +1103,14 @@ ALTER TABLE ONLY public.mcp_activity
 
 ALTER TABLE ONLY public.pipeline_events
     ADD CONSTRAINT pipeline_events_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: retention_audit retention_audit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.retention_audit
+    ADD CONSTRAINT retention_audit_pkey PRIMARY KEY (id);
 
 
 --
@@ -1628,6 +1649,13 @@ CREATE INDEX pipeline_events_created_at_idx ON public.pipeline_events USING btre
 --
 
 CREATE INDEX pipeline_events_stage_idx ON public.pipeline_events USING btree (stage);
+
+
+--
+-- Name: retention_audit_ran_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX retention_audit_ran_at_idx ON public.retention_audit USING btree (ran_at DESC);
 
 
 --

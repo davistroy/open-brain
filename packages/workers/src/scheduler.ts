@@ -6,12 +6,14 @@ import { createBudgetCheckQueue } from './jobs/budget-check.js'
 import type { BudgetCheckJobData } from './jobs/budget-check.js'
 import { createSkillExecutionQueue } from './queues/skill-execution.js'
 import type { SkillExecutionJobData } from './queues/skill-execution.js'
+import type { DataRetentionPruneJobData } from './jobs/data-retention-prune.js'
 
 export interface ScheduledQueues {
   dailySweep: Queue<DailySweepJobData>
   budgetCheck: Queue<BudgetCheckJobData>
   skillExecution: Queue<SkillExecutionJobData>
   pruneAssociations: Queue<{ triggeredAt: string }>
+  dataRetentionPrune: Queue<DataRetentionPruneJobData>
 }
 
 /**
@@ -36,6 +38,7 @@ export interface ScheduledQueues {
  * - container-health: every 15 min (cron: 0,15,30,45 * * * *) — /health checks on all containers
  * - storage-audit: 3:15 AM Sundays (cron: 15 3 * * 0) — Postgres, Redis, backup, wiki sizes (shifted from 0 3 to avoid daily-sweep overlap)
  * - prune-associations: 3:30 AM Sundays (cron: 30 3 * * 0) — prunes stale low-weight Hebbian capture_associations (P06)
+ * - data-retention-prune: 2:00 AM Sundays (cron: 0 2 * * 0) — deletes aged rows from event/log tables per retention policy (RC-4)
  * - secret-rotation: 10:00 AM 1st of month (cron: 0 10 1 * *) — checks API key ages via bws CLI, alerts if > 90 days
  * - capture-dedup-sweep: 4:00 AM Saturdays (cron: 0 4 * * 6) — flags near-duplicate captures (cosine > 0.95) for review
  *
@@ -451,5 +454,42 @@ export async function registerScheduledJobs(
 
   logger.info({ cron: pruneAssociationsCron }, '[scheduler] prune-associations repeatable job registered')
 
-  return { dailySweep: dailySweepQueue, budgetCheck: budgetCheckQueue, skillExecution: skillExecutionQueue, pruneAssociations: pruneAssociationsQueue }
+  // --------------------------------------------------------
+  // Data retention prune (2:00 AM Sundays)
+  // 1 hour before storage-audit (15 3 * * 0), 30 min before
+  // prune-associations (30 3 * * 0) — earliest safe Sunday slot,
+  // no collision with any daily or weekly job.
+  // --------------------------------------------------------
+  const dataRetentionPruneCron = '0 2 * * 0'
+
+  const dataRetentionPruneQueue = new Queue<DataRetentionPruneJobData>(
+    'data-retention-prune',
+    {
+      connection,
+      defaultJobOptions: {
+        attempts: 1, // prune failure is logged, not retried — next run is next Sunday
+        removeOnComplete: { count: 10 },
+        removeOnFail: { count: 10 },
+      },
+    },
+  )
+
+  await dataRetentionPruneQueue.add(
+    'data-retention-prune',
+    { triggeredAt: new Date().toISOString() },
+    {
+      repeat: { pattern: dataRetentionPruneCron },
+      jobId: 'data-retention-prune-recurring',
+    },
+  )
+
+  logger.info({ cron: dataRetentionPruneCron }, '[scheduler] data-retention-prune repeatable job registered')
+
+  return {
+    dailySweep: dailySweepQueue,
+    budgetCheck: budgetCheckQueue,
+    skillExecution: skillExecutionQueue,
+    pruneAssociations: pruneAssociationsQueue,
+    dataRetentionPrune: dataRetentionPruneQueue,
+  }
 }
