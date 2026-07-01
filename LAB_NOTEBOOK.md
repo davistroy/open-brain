@@ -12513,5 +12513,32 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [ci] [database] [config] [test] [decision]
 **Environment:** ubuntu-vm (dev) — Sonnet-agent-driven, orchestrator-verified. No homeserver changes (migration 0035 deploys later). **Duration:** ~1 h wall (parallel agents). **7/7 items shipped; migration 0035; PR next.**
 
+---
+
+## Entry 178 — Phase 10 (Wave 4, CS-10): residual Lows + RI closeouts — CLOSES A132 (2026-06-30)  [api] [security] [config] [test] [decision]
+
+**Objective:** Execute IMPLEMENTATION_PLAN.md Phase 10 (the final phase) — opportunistic Low findings + Risk-Investigation closeouts. **Closes the entire arch-review v3 plan (A132).** Branch `feat/phase-10-residual-ri` off main `8b3d0de` (Phase 9 merged as #228). Sonnet agents implement; orchestrator re-verifies + commits.
+
+**Scope (5 items):** 10.1 SEC-04 (`/queues/:name/clear` → add `checkOrigin()` + `admin_audit` row, mirror reset-data), 10.2 SE-11 (brainViews/captureTypes SQL array-literal escaping — special chars no longer 500), 10.3 SA-7 (voice classification model resolved from `ai-routing.yaml`, not hardcoded `gpt-5.4`), 10.4 RI closeouts (RI-1 branch-protection+visibility, R1 urBackup coverage, PLT-RI-1 compose `--remove-orphans`), 10.5 residual GROUP-A doc drift.
+
+**Hypothesis / DoD:** `/queues/:name/clear` returns 403 from a non-allowlisted origin + writes admin_audit; a brain-view name containing `,`/`}`/`"` no longer 500s; CLASSIFICATION_MODEL resolves from ai-routing.yaml (env override preserved); RI items documented with evidence; core-api + voice-capture suites + lints green; required CI green → merge.
+
+**Rollback:** pure code + docs on a feature branch — abandon branch. No migration.
+
+**Results (per-agent, logged live):** 5 items via 3 Sonnet agents (disjoint: core-api / voice-capture / docs), each orchestrator-re-verified then committed.
+- **10.1 (SEC-04)** `565e267` — `POST /queues/:name/clear` now `checkOrigin()`-guarded (403 non-allowlisted, mirrors reset-data) + `admin_audit` rows (`queue_clear_blocked`/`queue_clear_executed`); reuses existing helpers; `AuditEventType` union expanded (no migration — `varchar(32)`). 5 new tests.
+- **10.2 (SE-11)** `565e267` — new `toPgTextArray()` double-quotes+backslash-escapes per PG array-literal spec; brainViews/captureTypes sites use it — a name with `,`/`}`/`"` no longer 500s. 9 new tests. **core-api full suite 1209 green, coverage 85.63%, lint clean.**
+- **10.3 (SA-7)** `73d7c14` — voice classification model config-routed. **⚠️ ORCHESTRATOR CAUGHT A PROD-BREAKING BUG:** the agent resolved via `task_routing.voice_classification → t1_jetson → qwen3.5-4b`, but voice-capture's client hits `OPENAI_BASE_URL` (api.openai.com) → a Jetson model 404s in prod (tests passed only because they mock the client). **Fixed:** resolve from `models.intent` (→ `gpt-5.4`, OpenAI-servable, mirrors slack-bot) — config-driven without changing the working runtime. 5+103 voice-capture tests green.
+- **10.4 (RI closeouts)** `8284abe` — `docs/RISK_INVESTIGATION_CLOSEOUT.md`. RI-1: branch protection matches intended (both required checks, enforce_admins=false); **DRIFT found — repo is `public`** (flagged for owner). R1: urBackup verify procedure + rclone-offsite known state. **PLT-RI-1: observability (loki/prometheus/grafana/pushgateway) is behind `profiles: observability` → deploy must NOT use `--remove-orphans` without `COMPOSE_PROFILES`** (informs the deploy step).
+- **10.5 (doc drift)** `8284abe` — `docs/TDD.md` (14 fixes: brain.k4jda.net→brain.troy-davis.com, Vite/web-ui→Next.js/web-next, MCP tool list, Phase 8b web deletion, network topology) + `docs/ios-shortcut.md`. (2 residual k4jda.net refs left — Phase-4 historical config snapshot + a test checklist; non-CI-gating.)
+
+**Full local gate:** core-api **1209** tests + 85.63% coverage + lint · voice-capture **103** + lint · init-schema unchanged (no migration) · docs markdown clean. **CLAUDE.md drift the 10.4 agent surfaced, fixed by orchestrator:** branch-protection note (build-and-test now required) + repo-visibility note (public, flagged).
+
+**A132 (arch-review v3 remediation) — ALL 10 PHASES COMPLETE.** Waves 1–4 done: Phase 1 CI gates, 2 LAN perimeter, 3 recovery+search, 4 observability, 5 schema fidelity, 6 integration+spend, 7 k-NN, 8 ingest edges+voice auth, 9 convention→CI+governance, 10 residual+RI. Remaining: this PR's CI+merge, then the batched homeserver deploy (Phase 6+7+8+9+10 code + migration 0035).
+
+**Tags:** [api] [security] [config] [test] [decision]
+**Environment:** ubuntu-vm (dev) — 3 Sonnet agents, orchestrator-verified (caught + fixed the 10.3 prod bug). **Duration:** ~30 min wall. **5/5 items shipped; A132 code-complete; PR next.**
+
+
 
 
