@@ -94,6 +94,25 @@ export function applyTemporalDecay(
 }
 
 /**
+ * Build a Postgres text-array literal with each element double-quoted and
+ * properly escaped. Safe for values containing `,`, `}`, `"`, or whitespace.
+ *
+ * SE-11: the bare `{${values.join(',')}}` interpolation was vulnerable — a
+ * value like `'evil,view'` produced `{evil,view}` which Postgres parses as
+ * a TWO-element array, breaking filter semantics and potentially causing a
+ * parse error on values containing `}`. Double-quoting + backslash-escaping
+ * matches the Postgres array literal spec (§8.15.2).
+ *
+ * Exported for unit testing.
+ */
+export function toPgTextArray(values: string[]): string {
+  const quoted = values.map(
+    (v) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`,
+  )
+  return `{${quoted.join(',')}}`
+}
+
+/**
  * SearchService orchestrates hybrid search over captures.
  *
  * Flow:
@@ -189,11 +208,13 @@ export class SearchService {
       searchMode = 'hybrid',
     } = options
 
-    // Build filter params — NULL means "no filter" in the SQL functions
+    // Build filter params — NULL means "no filter" in the SQL functions.
+    // SE-11: use toPgTextArray() to double-quote each element so values with
+    // `,`, `}`, or `"` cannot break the Postgres array literal parse.
     const pgBrainViews = brainViews && brainViews.length > 0
-      ? `{${brainViews.join(',')}}` : null
+      ? toPgTextArray(brainViews) : null
     const pgCaptureTypes = captureTypes && captureTypes.length > 0
-      ? `{${captureTypes.join(',')}}` : null
+      ? toPgTextArray(captureTypes) : null
     const pgDateFrom = dateFrom ? dateFrom.toISOString() : null
     const pgDateTo = dateTo ? dateTo.toISOString() : null
 

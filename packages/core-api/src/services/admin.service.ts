@@ -31,7 +31,12 @@ import type { Redis } from 'ioredis'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type AuditEventType = 'reset_requested' | 'reset_executed' | 'reset_blocked'
+export type AuditEventType =
+  | 'reset_requested'
+  | 'reset_executed'
+  | 'reset_blocked'
+  | 'queue_clear_blocked'
+  | 'queue_clear_executed'
 export type AuditOutcome = 'success' | 'blocked' | 'error'
 
 export interface WriteAuditRowInput {
