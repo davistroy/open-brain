@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { pgUuidArray } from '../lib/pg-uuid-array.js'
 import type { Database } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
@@ -130,7 +131,7 @@ export async function buildEntityCoOccurrence(
       WITH relevant_entities AS (
         SELECT DISTINCT el.entity_id
         FROM entity_links el
-        WHERE el.capture_id = ANY(${captureIds}::uuid[])
+        WHERE el.capture_id = ANY(${pgUuidArray(captureIds)})
       )
       SELECT
         ea.name AS entity_a_name,
