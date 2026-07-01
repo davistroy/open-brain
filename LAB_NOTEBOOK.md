@@ -12586,7 +12586,7 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 - **Verify:** workers **1091** tests (57 files) + `tsc` clean.
 
 **Tags:** [pipeline] [database] [debug]
-**Environment:** ubuntu-vm (dev) — 3 pre-existing bugs surfaced by the post-A132 health review; TDD on the SQL bug, config for the other two. **Duration:** ~30 min. **Not A132; deploy after CI green.**
+**Environment:** ubuntu-vm (dev) — 3 pre-existing bugs surfaced by the post-A132 health review; TDD on the SQL bug, config for the other two. **Duration:** ~30 min. **MERGED #230 → main `1710c54`; workers redeployed 2026-07-01 (pull+recreate, no migration).** Fix PROVEN live: `= ANY(ARRAY[…]::uuid[])` → 105 rows on real `entity_links`; the old `ANY((…)::uuid[])` pattern still errors `cannot cast type record to uuid[]`. 21 scheduler jobs re-registered, 0 errors. skill-execution failed=2 (alert clear). Not A132.
 
 
 
