@@ -1,9 +1,8 @@
 import OpenAI from 'openai'
 import { createLogger, createOpenAIClient } from '@open-brain/shared'
+import { resolveClassificationModel } from '../lib/classification-model.js'
 
 const logger = createLogger('voice-classification')
-
-const CLASSIFICATION_MODEL = process.env.CLASSIFICATION_MODEL || 'gpt-5.4'
 
 export type CaptureType =
   | 'decision'
@@ -93,7 +92,7 @@ export class ClassificationService {
     // spend is to attach `response.usage` to the capture payload and let core-api (which
     // owns the DB + cost config) write the row at ingest. Tracked follow-up: INT-M2-voice.
     const response = await this.client.chat.completions.create({
-      model: CLASSIFICATION_MODEL,
+      model: resolveClassificationModel(),
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
       max_completion_tokens: 512,
