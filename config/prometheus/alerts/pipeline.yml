@@ -9,6 +9,14 @@
 #
 # Related code: packages/workers/src/skills/pipeline-health.ts
 #               packages/workers/src/lib/push-metrics.ts (push path)
+#
+# ALERT DELIVERY MODEL: No Alertmanager is configured in this deployment
+# (prometheus.yml has no alerting: block). These rules surface in the Prometheus
+# Alerts tab and Grafana alert panels for manual observation only — they do NOT
+# automatically dispatch notifications (email, Slack, PagerDuty, etc.).
+# Operational push notifications are sent exclusively by application-layer code
+# in the workers container (PushoverService / push-metrics.ts), at its own
+# thresholds and on its own schedule, independently of these rules.
 
 groups:
   - name: open-brain-pipeline

@@ -95,9 +95,10 @@ export CONFIG_DIR="${BACKUP_FILE}/config"
 mkdir -p "$CONFIG_DIR"
 
 # Extract ONLY the config-copy commands from backup.sh section 2 and run them.
-# Using `sed -n` to pull lines 74–86 (the config-copy block post-redaction).
-# After 1.1 lands, line 80 will be deleted, so this range copies only safe files.
-sed -n '74,86p' "${SCRIPT_DIR}/backup.sh" | bash
+# Using `sed -n` to pull lines 89–101 (the config-copy block).
+# Range updated from 74-86 → 89-101 after PLT-M5 added SCRIPT_DIR + source +
+# Pushover trap above the Setup section (15 new lines).
+sed -n '89,101p' "${SCRIPT_DIR}/backup.sh" | bash
 
 echo "---"
 echo ""

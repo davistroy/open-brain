@@ -13,6 +13,13 @@
 #
 # Related code: packages/shared/src/services/composio-client.ts (quota meter)
 #               packages/core-api/src/routes/metrics.ts (composioMonthlyUsage gauge)
+#
+# ALERT DELIVERY MODEL: No Alertmanager is configured in this deployment
+# (prometheus.yml has no alerting: block). These rules surface in the Prometheus
+# Alerts tab and Grafana alert panels for manual observation only — they do NOT
+# automatically dispatch notifications (email, Slack, PagerDuty, etc.).
+# Operational push notifications are sent by ComposioClient.execute() directly
+# (edge-triggered Pushover call at the 15K crossing), independently of these rules.
 
 groups:
   - name: open-brain-integration
