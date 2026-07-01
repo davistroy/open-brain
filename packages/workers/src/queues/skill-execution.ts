@@ -25,7 +25,11 @@ export function createSkillExecutionQueue(connection: ConnectionOptions) {
         delay: 10_000, // 10s, 20s, 40s
       },
       removeOnComplete: { count: 200 },
-      removeOnFail: { count: 100 },
+      // age bound (14d) so stale failures auto-prune — `count` alone never prunes
+      // below 100, which let 2-month-old zombie failures accumulate and trip the
+      // pipeline-health `>5 failed` alert (Entry 180). Recent failures still stay
+      // visible to the health monitor.
+      removeOnFail: { age: 14 * 24 * 60 * 60, count: 100 },
     },
   })
 }
