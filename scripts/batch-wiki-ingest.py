@@ -205,7 +205,9 @@ def submit_batch(
                 if isinstance(parsed_tags, list):
                     tags = [str(t) for t in parsed_tags]
             except (json.JSONDecodeError, TypeError) as exc:
-                logger.warning("Could not parse tags JSON for file %s: %s", f.get("file_path", "?"), exc)
+                logger.warning(
+                    "Could not parse tags JSON for file %s: %s", f.get("file_path", "?"), exc
+                )
 
         # Add domain as a tag
         if domain not in tags:
