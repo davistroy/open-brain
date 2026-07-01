@@ -1,0 +1,124 @@
+# Prometheus recording rules + SLO breach alerts — p99 latency
+# Metric source: openbrain_http_request_duration_seconds (Histogram)
+#   Scraped from core-api:3000/metrics every 15s.
+#   Labels: method, route (normalized — UUIDs collapsed to :id).
+#   Buckets: 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10 seconds.
+#   Defined in: packages/core-api/src/routes/metrics.ts (httpRequestDuration)
+#
+# SLO targets (full definitions and rationale in docs/SLO.md):
+#   API overall p99  < 2.0 s   (all routes, 5-min rate window)
+#   Search p99       < 3.0 s   (route="/api/v1/search", hybrid RRF + HNSW)
+#   MCP p99          < 5.0 s   (route=~"/mcp.*", LLM-backed tool calls)
+#
+# Deferred (no histogram emitted today):
+#   Ingest pipeline duration — no per-job duration histogram from BullMQ workers.
+#   Use openbrain_captures_per_6h (capture-flow.yml) as a proxy until a job
+#   duration histogram is added (see docs/SLO.md §4 for the instrumentation plan).
+#
+# ALERT DELIVERY MODEL: No Alertmanager is configured in this deployment
+# (prometheus.yml has no alerting: block). These rules surface in the Prometheus
+# Alerts tab and Grafana alert panels for manual observation only — they do NOT
+# automatically dispatch notifications (email, Slack, PagerDuty, etc.).
+# Operational push notifications come from application-layer code in workers.
+
+groups:
+  - name: open-brain-slo
+    interval: 1m
+    rules:
+
+      # ── Recording rules ─────────────────────────────────────────────────────
+      # Computed over a 5-minute rate window. The 5m window smooths scrape jitter
+      # while still reacting to a sustained degradation within one evaluation cycle.
+
+      - record: openbrain_api_p99_latency_seconds
+        # p99 across ALL core-api routes. Basis for the overall API SLO.
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(openbrain_http_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      - record: openbrain_search_p99_latency_seconds
+        # p99 for /api/v1/search (GET + POST). Hybrid RRF path has the highest
+        # expected tail latency due to HNSW traversal + FTS merge + LLM routing.
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(openbrain_http_request_duration_seconds_bucket{route="/api/v1/search"}[5m])) by (le)
+          )
+
+      - record: openbrain_mcp_p99_latency_seconds
+        # p99 for /mcp routes. MCP tool calls may invoke LLM (search_brain,
+        # get_weekly_brief), so the SLO target is higher than the API baseline.
+        expr: >
+          histogram_quantile(0.99,
+            sum(rate(openbrain_http_request_duration_seconds_bucket{route=~"/mcp.*"}[5m])) by (le)
+          )
+
+      # ── SLO breach alerts ────────────────────────────────────────────────────
+      # `for: 5m` requires the condition to persist for a full 5-minute window
+      # before firing, absorbing transient spikes (cold HNSW cache, GC pause).
+
+      - alert: ApiP99LatencySLOBreach
+        # Fires when the overall core-api p99 exceeds the 2.0s SLO target.
+        # At 2.0s the upper bucket (2.5s) is still within range — the recording
+        # rule returns NaN only if no requests arrived; the `> bool` guard below
+        # relies on standard NaN propagation (NaN > 2.0 is false, no spurious fire).
+        expr: openbrain_api_p99_latency_seconds > 2.0
+        for: 5m
+        labels:
+          severity: warning
+          slo: api_p99
+        annotations:
+          summary: "API p99 latency {{ $value | printf \"%.2f\" }}s exceeds 2.0s SLO"
+          description: >
+            The core-api p99 request latency has exceeded 2.0 seconds for 5+ consecutive
+            minutes. This covers all routes (search, captures, MCP, health).
+            Likely causes: slow Postgres query (check pg_stat_activity), HNSW cold cache
+            (first search after idle), or workers saturation spilling into API pool.
+            Inspect: Grafana → Open Brain / API Latency panel; Loki container logs.
+            See docs/SLO.md for full SLO definition and acceptable error budget.
+          runbook: "docs/runbooks/slo-alert.md"
+
+      - alert: SearchP99LatencySLOBreach
+        # Fires when the /api/v1/search p99 exceeds the 3.0s target.
+        # Search uses hybrid RRF (FTS + HNSW) with ef_search SET LOCAL in a txn;
+        # 3.0s allows for the full HNSW traversal + spreading-activation CTE on
+        # an 11K+ capture corpus. Higher than the API baseline by design.
+        expr: openbrain_search_p99_latency_seconds > 3.0
+        for: 5m
+        labels:
+          severity: warning
+          slo: search_p99
+        annotations:
+          summary: "Search p99 latency {{ $value | printf \"%.2f\" }}s exceeds 3.0s SLO"
+          description: >
+            The /api/v1/search p99 latency has exceeded 3.0 seconds for 5+ minutes.
+            The hybrid search path (FTS + HNSW + spreading activation) is the most
+            latency-sensitive query in the system.
+            Investigate: EXPLAIN ANALYZE on hybrid_search(); check hnsw.ef_search
+            (config/pipeline.yaml search.hnsw_ef_search, default 60); confirm
+            captures_content_tsvector_idx (GIN) and HNSW index are not bloated.
+            If corpus has grown significantly, run scripts/benchmark-search.mjs to
+            recalibrate ef_search. See docs/SLO.md §2 for search SLO rationale.
+          runbook: "docs/runbooks/slo-alert.md"
+
+      - alert: McpP99LatencySLOBreach
+        # Fires when /mcp route p99 exceeds the 5.0s target.
+        # MCP tool calls (search_brain, get_weekly_brief) involve an LLM round-trip
+        # via the OpenAI-compatible gateway; 5.0s reflects that constraint.
+        expr: openbrain_mcp_p99_latency_seconds > 5.0
+        for: 5m
+        labels:
+          severity: warning
+          slo: mcp_p99
+        annotations:
+          summary: "MCP p99 latency {{ $value | printf \"%.2f\" }}s exceeds 5.0s SLO"
+          description: >
+            The /mcp p99 latency has exceeded 5.0 seconds for 5+ minutes.
+            MCP tool calls that invoke LLM (search_brain, get_weekly_brief) depend
+            on the OpenAI-compatible endpoint (gpt-5.4 or t1_spark). Check:
+              - LiteLLM gateway health at llm.k4jda.net
+              - DGX Spark vLLM container (if t1_spark is routing target)
+              - OpenAI API status (if fallback tier is active)
+            Non-LLM tools (list_captures, brain_stats, get_capture) should stay
+            well under 500ms; if only those are slow, the issue is DB latency.
+          runbook: "docs/runbooks/slo-alert.md"

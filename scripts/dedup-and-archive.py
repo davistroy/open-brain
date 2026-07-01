@@ -79,8 +79,8 @@ def score_file(row: FileRow) -> float:
             dt = datetime.fromisoformat(modified.replace("Z", "+00:00"))
             days_old = (datetime.now(UTC) - dt).days
             score += max(0, 3650 - days_old)  # up to 3650 points (10 years)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: could not parse modified date {modified!r}: {e}", file=sys.stderr)
     # Prefer files with "final" in name
     lower = filename.lower()
     if "final" in lower:

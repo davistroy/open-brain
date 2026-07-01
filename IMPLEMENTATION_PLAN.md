@@ -24,10 +24,10 @@
 | 6 | Integration & spend hardening | 2 | M (~1d) | 1 | ✅ MERGED #224 (no deploy needed; code-only) |
 | 7 | Similarity-scan rewrite (k-NN) | 2 | L (~1–1.5d) | 5 (init-schema CI), ADR-0003 | ✅ MERGED #225 + DEPLOYED 2026-06-30 (Entry 175, migration 0034 applied) |
 | 8 | Ingest edges + voice auth | 3 | M (~1d) | 2 (SEC-02, **re-scoped per D131**) | 🔶 CODE DONE (8.1/8.3/8.4/8.5/8.6, Entry 176); 8.2 deferred (D132) |
-| 9 | Convention→CI + governance/doc sweep | 3 | M (~1d) | 1, 4 | PENDING |
+| 9 | Convention→CI + governance/doc sweep | 3 | M (~1d) | 1, 4 | ✅ CODE DONE (9.1–9.7, Entry 177) — migration 0035; PR next |
 | 10 | Opportunistic Lows + RI closeouts | 4 | S–M | — | PENDING |
 
-**Migration numbers (claimed in execution order to avoid collision):** ~~0032 (Phase 3)~~ ✅ → ~~0033 (Phase 5)~~ ✅ → ~~0034 (Phase 7, PE-M2)~~ ✅ merged #225 → **0035 (Phase 9, RC-4 retention_audit) — next free number.**
+**Migration numbers (claimed in execution order to avoid collision):** ~~0032 (Phase 3)~~ ✅ → ~~0033 (Phase 5)~~ ✅ → ~~0034 (Phase 7, PE-M2)~~ ✅ merged #225 → ~~0035 (Phase 9, RC-4 retention_audit)~~ ✅ **DONE (Entry 177, init-schema parity green).** Next free number: **0036.**
 
 ---
 

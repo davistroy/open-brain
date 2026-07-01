@@ -118,6 +118,18 @@ During the cutover window (server restarted, clients not yet updated) direct voi
 
 ---
 
+## Recoverability
+
+The voice-capture pipeline has two distinct failure boundaries with different recoverability characteristics:
+
+**Ingest failures are recoverable (INT-M4).**
+After a voice memo is successfully transcribed and classified, `server.ts` calls `spoolTranscript()` (a write-ahead to `voice_spool_data:/data/voice-spool`) *before* posting to core-api. If the core-api ingest call fails — e.g. core-api is restarting or temporarily down — the spool file survives the failure. A `setInterval` sweep (default 30 min, configurable via `VOICE_SPOOL_RETRY_MS`) calls `retrySpooledTranscripts()`, which replays each spooled payload through `ingestService.ingest()` and removes the file on success. Corrupt spool files are discarded (logged as WARN) so the spool cannot loop forever.
+
+**Transcription and classification failures are unrecoverable server-side.**
+The audio bytes are read from the multipart request but never written to disk. If Whisper/OpenAI transcription fails (step 1) or LLM classification fails (step 2), `server.ts` returns a 502 error before `spoolTranscript()` is ever called — nothing is durably stored. The client must retry the full upload. For iOS Shortcut users this means re-running the capture; for the mobile app, an in-app retry prompt is appropriate.
+
+---
+
 ## Related
 
 - **`docs/runbooks/mobile-onboarding.md`** — the `MOBILE_API_KEY` Bearer (separate secret, main-API auth) and its rotation.

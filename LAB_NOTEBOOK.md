@@ -12485,4 +12485,33 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [pipeline] [api] [security] [test] [decision]
 **Environment:** ubuntu-vm (dev) — TDD per item, no homeserver changes. **Duration:** ~2.5 h. **5 of 6 items shipped + 1 deferred; 0034-class migration: none.**
 
+---
+
+## Entry 177 — Phase 9 (Wave 3, CS-9): convention→CI + governance/doc sweep (2026-06-30)  [ci] [database] [config] [test] [decision]
+
+**Objective:** Execute IMPLEMENTATION_PLAN.md Phase 9 — turn drifting conventions into machine-checked CI invariants + governance/doc sweep. Branch `feat/phase-9-convention-ci-governance` off main `28b329e`. **Orchestration: Sonnet sub-agents implement each item; I (orchestrator) spec precisely, review, run verification, and commit.** Goal directive from owner: complete Phases 9+10, everything green on GitHub, everything deployed & running.
+
+**Scope (7 items):** 9.1 type-union drift guards (web-next+mobile), 9.2 cron-slot uniqueness test + fix overlaps (real collision: `wiki-lint 0 5 * * 0` vs `email-classify 0 5 * * *` on Sundays), 9.3 migration **0035** `retention_audit` + weekly `data-retention-prune` job (admin_audit UNTOUCHED — invariant test), 9.4 `docs/PROVIDER_SETTINGS.md`, 9.5 platform/doc batch (deploy.md rewrite, image pins, backup.sh Pushover, whisper cpus, PRD refresh), 9.6 `docs/SLO.md` + prometheus alert honesty, 9.7 runbook notes + `logger.warn` in bare-except Python blocks.
+
+**Hypothesis / DoD:** drift-guard + cron-slot tests red-then-green; `data-retention-prune` dry-run shows expected counts with `admin_audit` untouched; migration 0035 applies on a scratch DB + init-schema regenerated (parity green); `docker compose config` valid with pinned images; all package suites + required CI green.
+
+**Rollback:** pure code + new migration on a feature branch — abandon branch. Migration 0035 additive (retention_audit table + prune job); homeserver deploy is separate + backup-first.
+
+**Results (per-agent, logged live):** All 7 items implemented by Sonnet sub-agents, each independently re-verified by the orchestrator (I re-ran every test/lint/YAML/parity check — never trusted the agent's "green") then committed per-item.
+- **9.1 (SA-1)** `81f4d38` — type-drift guards: web-next (vitest) + mobile (jest) pin local `CaptureSource/CaptureType/PipelineStatus` to canonical via `AssertEqual<Local,Expected>` (TS2322 on drift) + runtime Set-equality. RED-proven (`'iot'`→TS2322). web-next 7 + mobile 6 drift tests green; both tsc clean.
+- **9.2 (SA-8/SE-12)** `64b2732` — `scheduler-slots.test.ts` (6 tests) enforces cron-slot uniqueness. **Caught TWO real Sunday collisions** (daily-sweep `0 3 *` vs storage-audit `0 3 * 0`; wiki-lint `0 5 * 0` vs email-classify `0 5 *`) → shifted storage-audit `15 3`, wiki-lint `30 4` (decl + JSDoc). Accepted-overlap allowlist for `0 */6` vs `0 6`.
+- **9.3 (RC-4)** `4c6b1f5` — migration **0035** `retention_audit` + `data-retention-prune` job (Sun `0 2`, singleton). RETENTION_POLICY: pipeline_events/created_at/90, ai_audit_log/created_at/180, activity_feed/timestamp/30, mcp_activity/created_at/30, skills_log/created_at/60. **admin_audit excluded (invariant tested twice).** init-schema regenerated; **parity guard PASSED** (init-schema ≡ init+migrations). 23 workers tests.
+- **9.4 (RC-5/DA-M4/RC-3)** `64b2732` — `docs/PROVIDER_SETTINGS.md`: vendor table + data-class matrix (lab_results/insurance_policies reach OpenAI/Anthropic only INDIRECTLY via `claude --print` synthesis → capture → embedding; raw tables never embedded) + secret cross-ref + quarterly checklist.
+- **9.5 (PLT-M2/3/5/7/9,PE-M4)** `bf0e4a4` — third-party image pins (postgres **unchanged** pgvector:pg16; redis→7.4-alpine, loki→3.4.3, prometheus→v3.4.2, grafana→12.0.2, pushgateway→v1.11.0, cloudflared→2025.6.1) + cpus caps; backup.sh Pushover+`/var/log` (redaction regression test updated+passing); deploy.md rewrite; PRD §7/§15 refresh (budget→$20/$35); container-health de-staled. `docker compose config` valid.
+- **9.6 (PLT-M1/PE-M6)** `64b2732` — alerting-honesty headers on 6 alert files (no Alertmanager for solo operator); `docs/SLO.md` + `slo.yml` p99 recording+alert rules on the **live** `openbrain_http_request_duration_seconds` histogram; ingest-pipeline p99 documented as deferred (no job histogram yet). All 7 alert YAMLs valid.
+- **9.7 (SE-14/SE-17)** `a579a10` — `logger.warn` added to 3 genuine silent-swallow except blocks (cleanup-onedrive-junk, dedup-and-archive, batch-wiki-ingest); 3 intentional suppressions left (justified). voice-capture-auth.md Recoverability note (spool recovers ingest failures; transcription/classification failures unrecoverable).
+
+**Full local gate (before PR):** workers **1088** tests (56 files) + lint clean; web-next drift + full (125) + lint; mobile drift + full (30) + lint; init-schema parity PASS; `docker compose config` valid; backup redaction PASS; python py_compile clean; prometheus YAML valid.
+
+**Orchestration note:** 5 Sonnet agents ran in parallel on disjoint files (9.1/9.4/9.5/9.6 + running 9.2); 9.3 serialized after 9.2 (shared `scheduler.ts`); 9.7 after 9.5 (shared runbook dir). Agents were barred from CLAUDE.md/plan/notebook/memory (orchestrator-owned) — eliminated the biggest shared-file conflict.
+
+**Tags:** [ci] [database] [config] [test] [decision]
+**Environment:** ubuntu-vm (dev) — Sonnet-agent-driven, orchestrator-verified. No homeserver changes (migration 0035 deploys later). **Duration:** ~1 h wall (parallel agents). **7/7 items shipped; migration 0035; PR next.**
+
+
 

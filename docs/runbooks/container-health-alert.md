@@ -25,7 +25,6 @@
 | `voice-capture` | `http://voice-capture:3001/health` | `{"status":"healthy"}` |
 | `voice-pipecat` | `http://voice-pipecat:8766/health` | `{"status":"healthy"}` |
 | `file-ingestion` | `http://file-ingestion:8080/health` | `{"status":"healthy"}` |
-| `litellm` | `http://litellm:4000/health/liveliness` | 200 OK |
 
 ---
 
@@ -82,7 +81,7 @@ docker logs open-brain-<container-name>-1 --follow
 
 ### Container is OOM-killed
 
-1. **Check memory limits** in `docker-compose.yml` for the container's `deploy.resources.limits.memory` setting.
+1. **Check memory limits** in `docker-compose.yml` for the container's `mem_limit` setting.
 2. **Check application memory usage** — look for memory leaks or unbounded caches in recent code changes.
 3. **Temporary fix:** restart the container (`docker compose restart <container-name>`).
 4. **Permanent fix:** reduce memory usage in application code (bounded buffers, streaming, explicit GC hints).
@@ -111,9 +110,11 @@ A restart loop means the container is starting, failing quickly, restarting. Thi
 
 ## Container-specific notes
 
-- **workers / slack-bot:** No HTTP health endpoints — not monitored by `container-health` skill. Check via `docker ps` and logs.
-- **web (nginx):** Not monitored by `container-health` skill (external check via Cloudflare tunnel).
-- **postgres / redis:** Monitored via `SystemHealthService` (internal `/health` endpoint), not `container-health` skill.
+- **workers / slack-bot:** Docker healthchecks run `node -e 'process.exit(0)'` (liveness only — confirms the node runtime responds). These services have no HTTP endpoints and are **not** monitored by the `container-health` skill. Check via `docker ps` and logs, or the Prometheus `WorkersMetricsAbsent` alert (which detects a wedged event loop that still passes the exec probe).
+- **web-next:** Not monitored by `container-health` skill. Availability is covered by the Cloudflare Tunnel synthetic monitor at `health.troy-davis.com` and by the external `curl https://brain.troy-davis.com` test.
+- **postgres / redis:** Not HTTP-probed by the `container-health` skill directly — their Docker healthchecks (`pg_isready`, `redis-cli ping`) are visible via `docker compose ps`. `SystemHealthService` in core-api surfaces their status through the `/health` endpoint.
+- **faster-whisper:** Has a Docker healthcheck but is not monitored by the `container-health` skill. Check via `docker ps` or `curl http://localhost:10300/health`.
+- **observability services (loki, prometheus, grafana, pushgateway):** Run under `--profile observability`. Monitor with `docker compose --profile observability ps`.
 
 ---
 

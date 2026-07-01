@@ -5,13 +5,18 @@
 # Retention: 14 daily + 4 weekly (Sundays) + 3 monthly (1st of month)
 #
 # Usage: bash /mnt/user/appdata/open-brain/scripts/backup.sh
-# Cron:  0 3 * * * cd /mnt/user/appdata/open-brain && bash scripts/backup.sh >> /tmp/open-brain-backup.log 2>&1
+# Cron:  0 3 * * * cd /mnt/user/appdata/open-brain && bash scripts/backup.sh >> /var/log/open-brain-backup.log 2>&1
+# Log:   /var/log/open-brain-backup.log
+# Notifications: Pushover on success (priority 0) and failure (priority 1)
 
 set -euo pipefail
 
 # --- Configuration ---
 BACKUP_ROOT="${BACKUP_ROOT:-/mnt/user/backup/openbrain}"
 APP_DIR="${APP_DIR:-/mnt/user/appdata/open-brain}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/pushover-notify.sh
+source "${SCRIPT_DIR}/lib/pushover-notify.sh"
 DB_CONTAINER="open-brain-postgres"
 REDIS_CONTAINER="open-brain-redis"
 DB_USER="openbrain"
@@ -36,6 +41,16 @@ mkdir -p "$DAILY_DIR" "$WEEKLY_DIR" "$MONTHLY_DIR"
 
 BACKUP_FILE="${DAILY_DIR}/${DATE}"
 mkdir -p "$BACKUP_FILE"
+
+# --- Notification trap (PLT-M5) ---
+# BACKUP_STATUS starts "failed"; set to "success" just before the summary.
+# On any exit (including set -e early exits), the trap fires; if status is
+# still "failed" it sends a priority-1 Pushover alert.
+BACKUP_STATUS="failed"
+trap '_exit=$?; if [[ "$BACKUP_STATUS" != "success" ]]; then
+  PUSHOVER_TITLE="Open Brain: backup FAILED" \
+    notify_pushover_mismatch "Daily backup failed at $(date +%H:%M) (exit ${_exit}) — check /var/log/open-brain-backup.log" || true
+fi' EXIT
 
 echo "=== Open Brain Backup: ${TIMESTAMP} ==="
 
@@ -246,3 +261,11 @@ echo "  Wiki bundle: ${WIKI_SIZE}"
 echo "  Redis RDB: ${REDIS_SIZE}"
 echo "  Total backup storage: ${TOTAL_SIZE}"
 echo "  Timestamp: ${TIMESTAMP}"
+
+# --- Completion notification (PLT-M5) ---
+# Mark success so the EXIT trap skips the failure alert, then send a
+# priority-0 (normal, no alert sound) confirmation.
+BACKUP_STATUS="success"
+PUSHOVER_TITLE="Open Brain: backup complete" \
+  PUSHOVER_PRIORITY=0 \
+  notify_pushover_mismatch "Daily backup finished — DB ${DB_SIZE}, wiki ${WIKI_SIZE}, Redis ${REDIS_SIZE}, total ${TOTAL_SIZE}" || true

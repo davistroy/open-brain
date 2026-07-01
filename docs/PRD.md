@@ -1529,8 +1529,8 @@ open-brain/
 - Health checks on all containers
 - Pipeline retries with patient exponential backoff (5 attempts per stage: 30s, 2m, 10m, 30m, 2h) + daily auto-retry sweep for failed stages
 - Circuit breaker on external API calls (Anthropic, OpenAI)
-- Monitoring: lean approach — Docker logs + Unraid dashboard + pipeline_events/skills_log tables + Pushover alerts for failures. No dedicated monitoring stack. Dockhand under consideration for future container management.
-- Postgres data backed up via daily pg_dump to Unraid share (7-day local retention) + weekly offsite to cloud storage via rclone (30-day cloud retention)
+- Monitoring: Prometheus + Grafana + Loki observability stack (deployed as `--profile observability`). Prometheus scrapes core-api and pushgateway metrics; Grafana provides dashboards and alert rules; Loki aggregates container logs via the Docker Loki log driver. Pushover alerts for container down, restart loops, budget threshold hits, and pipeline health. Prometheus alert rules in `config/prometheus/alerts/`.
+- Postgres data backed up via daily `pg_dump` to Unraid share (14-day daily retention, 4-week weekly, 3-month monthly) + daily encrypted offsite copy to Google Drive via rclone crypt remote (`scripts/offsite-backup.sh`, 30-day cloud retention). Manifest with exact table row counts written per backup. Automated Sunday restore rehearsal (`scripts/restore-rehearsal.sh`).
 
 ### Security
 - No authentication layer (single user, network-level security)
@@ -1890,9 +1890,9 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Prompt templates | Phase 1: extract_metadata + intent_router. Others deferred. Versioned, hot-reloadable. |
 | Governance sessions | LLM-driven conversation with guardrails (max turns, required topics checklist, 30-min idle auto-pause). Not FSM. |
 | Board role personalities | Defer to Phase 3, designed alongside conversational flow. |
-| Monitoring | Lean: Docker logs + Unraid dashboard + pipeline_events + Pushover alerts. No Prometheus/Grafana. |
+| Monitoring | Prometheus + Grafana + Loki stack (`--profile observability`). Loki Docker log driver for all containers. Pushover alerts for container health, budget, pipeline. |
 | Schema migrations | Drizzle ORM + drizzle-kit. TypeScript-native, schema-as-code. |
-| AI cost management | Monthly budget: soft $30 (Pushover alert), hard $50 (circuit breaker → local only). |
+| AI cost management | Monthly budget: soft $20/month (Pushover alert), hard $35/month (circuit breaker → free tiers only). Configured in `config/ai-routing.yaml` `monthly_budget`. |
 | Synthesis endpoint | Top-20 captures, 50K token budget. Skills handle own context assembly. |
 | Container resources | Memory limits on faster-whisper (8GB), Postgres (8GB) only. No local LLM container on homeserver — inference via external Jetson/Spark GPU, embeddings via OpenAI API. |
 | Capture types | 8 types: decision, idea, observation, task, win, blocker, question, reflection. Extensible via prompt. |
