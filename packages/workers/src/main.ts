@@ -77,7 +77,10 @@ async function main() {
   logger.info({ coreApiUrl }, 'core-api URL resolved (proactive-skill autonomy gating)')
 
   // Anthropic client for Claude SDK routing (used by skill-execution and future agentic workers)
-  const anthropicClient = createAnthropicClient({ maxRetries: 0 }) // BullMQ handles retries
+  // 'extended' (120s) not the default 'standard' (60s): agent-loop skills (e.g.
+  // monthly-reflection, runAgent maxTokens 8192) generate long outputs that
+  // exceed 60s → "Request timed out" (Entry 180). BullMQ handles retries.
+  const anthropicClient = createAnthropicClient({ maxRetries: 0, timeout: 'extended' })
   if (anthropicClient) {
     logger.info('Anthropic client initialized (Claude subscription)')
   } else {

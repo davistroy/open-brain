@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { pgUuidArray } from '../lib/pg-uuid-array.js'
 import type { Database, LLMGatewayService, AutonomyLevel } from '@open-brain/shared'
 import { logger, SafePromptBuilder } from '@open-brain/shared'
 import { LLMSkill } from './llm-skill.js'
@@ -494,7 +495,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
             relationship,
             confidence
           FROM entity_links
-          WHERE capture_id = ANY(${originalIds}::uuid[])
+          WHERE capture_id = ANY(${pgUuidArray(originalIds)})
           ORDER BY entity_id, confidence DESC NULLS LAST
           ON CONFLICT (entity_id, capture_id) DO NOTHING
           RETURNING id

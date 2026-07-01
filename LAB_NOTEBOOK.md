@@ -12563,6 +12563,31 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [deploy] [docker] [database] [security]
 **Environment:** homeserver (Unraid) via Tailscale-SSH; `sudo docker compose` (root) for pull/recreate, pgvector container for migrate. **Duration:** ~20 min. **Migration 0035 applied; 4 app containers recreated; 11,261 captures intact; all healthy.**
 
+---
+
+## Entry 180 — Post-A132 ops cleanup: daily-connections array bug + skill-execution retention + monthly-reflection timeout (2026-07-01)  [pipeline] [database] [debug]
+
+**Objective:** Fix 3 pre-existing bugs surfaced by the post-deploy log/CI health review (triggered by a Pushover "skill-execution=12 failed jobs" alert). Branch `fix/post-a132-ops-cleanup` off main `fe1f12f`. NOT A132 — independent cleanup.
+
+**Alert triage:** the 12 failed `skill-execution` jobs = **10 stale zombies from May 10–11** (`unknown skill: undefined`, a bug with zero recurrences since; never pruned) + **2 `monthly-reflection` timeouts** (June 1 + July 1). Cleared the 10 zombies from Redis (`ZREM`+`DEL` on reason=`unknown skill`) → count 2 (< the `>5` threshold) → alert silenced. Then found the 3 root fixes below.
+
+**Fixes:**
+1. **daily-connections + memory-consolidation array-cast bug** — `= ANY(${jsArray}::uuid[])` makes drizzle interpolate the JS array as a ROW `($1,…,$n)`, so `(row)::uuid[]` → `cannot cast type record to uuid[]` (the query fails; daily-connections silently returns empty). Fix: new `pgUuidArray()` helper builds a proper `ARRAY[$1,$2,…]::uuid[]` via `sql.join`; used at `daily-connections-query.ts:133` + `memory-consolidation.ts:497`. TDD via `PgDialect.sqlToQuery()` SQL render.
+2. **skill-execution retention** — the queue already had `removeOnFail: { count: 100 }`, but `count` alone never prunes below 100 so 2-month-old zombies lingered and tripped the `>5` health alert. Add an `age` bound (`{ age: 14d, count: 100 }`) so stale failures auto-clear while recent ones stay visible to pipeline-health. (config)
+3. **monthly-reflection LLM timeout** — worker Anthropic client (`main.ts:80`) used the default `'standard'` (60 s) tier, too short for `runAgent` generating up to 8192 tokens (~100–160 s) → "Request timed out." each 1st-of-month. Bump the worker client to `'extended'` (120 s) — benefits all worker agent-loop skills. (config; note line 538's 15 s is the core-api capture-save fetch, unrelated.)
+
+**Hypothesis/DoD:** rendered array SQL uses `ARRAY[...]::uuid[]` (not a row); workers suite + lint green; queue config compiles; deploy → daily-connections co-occurrence returns rows, no more monthly-reflection timeouts. **Rollback:** feature branch; no migration.
+
+**Results (live):**
+- **Alert cleared:** removed 10 zombie `unknown skill` failures from Redis → `skill-execution:failed` = 2 (< threshold). pipeline-health won't re-fire.
+- **Fix 1 (TDD):** `pgUuidArray()` helper (`workers/src/lib/pg-uuid-array.ts`) + 3 tests (RED→GREEN via `PgDialect.sqlToQuery`); renders `ARRAY[$1,…]::uuid[]`. Wired into `daily-connections-query.ts:133` + `memory-consolidation.ts:497`. CLAUDE.md rule added.
+- **Fix 2 (config):** `skill-execution` `removeOnFail` → `{ age: 14d, count: 100 }`.
+- **Fix 3 (config):** worker Anthropic client → `timeout: 'extended'` (120s).
+- **Verify:** workers **1091** tests (57 files) + `tsc` clean.
+
+**Tags:** [pipeline] [database] [debug]
+**Environment:** ubuntu-vm (dev) — 3 pre-existing bugs surfaced by the post-A132 health review; TDD on the SQL bug, config for the other two. **Duration:** ~30 min. **Not A132; deploy after CI green.**
+
 
 
 
