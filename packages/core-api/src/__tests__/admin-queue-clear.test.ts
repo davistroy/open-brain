@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { Hono } from 'hono'
 
 // Mock bullmq Queue — must be before importing the admin router
@@ -197,5 +197,141 @@ describe('POST /queues/:name/clear — no Redis', () => {
     const body = await res.json()
     expect(body.error).toBe('Service unavailable')
     expect(body.message).toContain('Redis')
+  })
+})
+
+// ── SEC-04 — origin guard ────────────────────────────────────────────────────
+//
+// /queues/:name/clear must be protected by the same origin allowlist as
+// /admin/reset-data (arch-review v3 finding SEC-04).
+//
+// checkOrigin() bypasses the allowlist when NODE_ENV==='test' (fail-closed
+// production default). We test origin guarding by temporarily flipping to
+// production mode and rebuilding the app after each env change.
+describe('POST /queues/:name/clear — SEC-04 origin guard', () => {
+  const savedNodeEnv = process.env.NODE_ENV
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockClean.mockResolvedValue(['job-1', 'job-2'])
+  })
+
+  afterEach(() => {
+    process.env.NODE_ENV = savedNodeEnv
+  })
+
+  async function buildQueueApp(mockAdminService?: unknown) {
+    // vi.resetModules() ensures the re-imported admin.ts picks up the current env var
+    vi.resetModules()
+    const { createAdminRouter } = await import('../routes/admin.js')
+    const a = new Hono()
+    const opts: Parameters<typeof createAdminRouter>[0] = {
+      configService: mockConfigService,
+      redisConnection: { host: 'localhost', port: 6379 },
+    }
+    if (mockAdminService) {
+      opts.adminService = mockAdminService as import('../services/admin.service.js').AdminService
+    }
+    a.route('/api/v1/admin', createAdminRouter(opts))
+    return a
+  }
+
+  it('blocks non-allowlisted origin in production (403, queue not cleared, audit row written)', async () => {
+    process.env.NODE_ENV = 'production'
+    const mockWriteAuditRow = vi.fn().mockResolvedValue('audit-blocked-id')
+    const a = await buildQueueApp({ writeAuditRow: mockWriteAuditRow })
+
+    const res = await a.request('/api/v1/admin/queues/capture-pipeline/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://evil.example.com' },
+      body: JSON.stringify({ state: 'failed' }),
+    })
+
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error).toBe('Forbidden')
+    // Queue must NOT be cleared
+    expect(mockClean).not.toHaveBeenCalled()
+    // Audit row must be written even when blocked
+    expect(mockWriteAuditRow).toHaveBeenCalledOnce()
+    expect(mockWriteAuditRow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_type: 'queue_clear_blocked',
+        outcome: 'blocked',
+        error_detail: 'origin_check_failed',
+      }),
+    )
+  })
+
+  it('blocks request with no origin header in production (403, queue not cleared)', async () => {
+    process.env.NODE_ENV = 'production'
+    const mockWriteAuditRow = vi.fn().mockResolvedValue('audit-blocked-id')
+    const a = await buildQueueApp({ writeAuditRow: mockWriteAuditRow })
+
+    const res = await a.request('/api/v1/admin/queues/capture-pipeline/clear', {
+      method: 'POST',
+      // no Origin or Referer header
+    })
+
+    expect(res.status).toBe(403)
+    expect(mockClean).not.toHaveBeenCalled()
+    expect(mockWriteAuditRow).toHaveBeenCalledOnce()
+    expect(mockWriteAuditRow).toHaveBeenCalledWith(
+      expect.objectContaining({ event_type: 'queue_clear_blocked', outcome: 'blocked' }),
+    )
+  })
+
+  it('allows brain.troy-davis.com in production (200, cleared, audit row queue_clear_executed)', async () => {
+    process.env.NODE_ENV = 'production'
+    mockClean.mockResolvedValue(['job-a', 'job-b'])
+    const mockWriteAuditRow = vi.fn().mockResolvedValue('audit-exec-id')
+    const a = await buildQueueApp({ writeAuditRow: mockWriteAuditRow })
+
+    const res = await a.request('/api/v1/admin/queues/capture-pipeline/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://brain.troy-davis.com' },
+      body: JSON.stringify({ state: 'failed' }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.cleared_count).toBe(2)
+    expect(mockClean).toHaveBeenCalledOnce()
+    // Audit row written on successful clear
+    expect(mockWriteAuditRow).toHaveBeenCalledOnce()
+    expect(mockWriteAuditRow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_type: 'queue_clear_executed',
+        outcome: 'success',
+      }),
+    )
+  })
+
+  it('returns 403 BEFORE clearing even for a valid queue name + invalid origin', async () => {
+    process.env.NODE_ENV = 'production'
+    const a = await buildQueueApp()
+
+    // Use a queue name that exists but with an evil origin — 403, not 200
+    const res = await a.request('/api/v1/admin/queues/skill-execution/clear', {
+      method: 'POST',
+      headers: { 'Origin': 'https://attacker.net' },
+    })
+
+    expect(res.status).toBe(403)
+    expect(mockClean).not.toHaveBeenCalled()
+  })
+
+  it('skips audit row silently when adminService is absent but still returns 403', async () => {
+    process.env.NODE_ENV = 'production'
+    // No adminService injected — should still block, just no audit row
+    const a = await buildQueueApp() // no adminService
+
+    const res = await a.request('/api/v1/admin/queues/capture-pipeline/clear', {
+      method: 'POST',
+      headers: { 'Origin': 'https://evil.example.com' },
+    })
+
+    expect(res.status).toBe(403)
+    expect(mockClean).not.toHaveBeenCalled()
   })
 })
