@@ -69,9 +69,9 @@ The system runs entirely on an Unraid home server, ingests captures from Slack, 
 | Embeddings | OpenAI `text-embedding-3-large` with `dimensions: 768` | Direct API call. Trained MRL — `dimensions` parameter gives high-quality 768d vectors. No fallback — queue and retry. Schema: `vector(768)` |
 | Search | Hybrid (FTS + vector + RRF) + ACT-R temporal decay | Best-of-both retrieval with recency/frequency-weighted ranking |
 | Transcription | faster-whisper (large-v3, CPU int8) | Local, accurate, no API cost |
-| Web UI | Vite + React + Tailwind + shadcn/ui | Lightweight SPA, no SSR needed |
+| Web UI | Next.js 16 + React 19 + Cloudscape + TanStack Query (`packages/web-next`) | SSR + streaming; `packages/web` (Vite) deleted in Phase 8b — see ADR-0001 |
 | Container orchestration | Docker Compose on Unraid | Simple, fits single-server deployment |
-| External access | Cloudflare Tunnel (free) for brain.k4jda.net | Existing Tailscale/SWAG unchanged |
+| External access | Cloudflare Tunnel (free) for brain.troy-davis.com | Existing Tailscale/SWAG unchanged |
 
 ### 1.4 Phased Implementation
 
@@ -133,7 +133,7 @@ Phase 5B: URL Capture
 | Jetson GPU (external) | llama.cpp | `t1_jetson` — `qwen3.5-4b`, 7 classification tasks, free. Static IP `192.168.10.58:8080/v1`. | Optional cost-saving tier |
 | DGX Spark (external) | vLLM | `t1_spark` — `qwen3.5-35b`, entity extraction + synthesis, free. `spark.k4jda.net:8000/v1`. | Optional cost-saving tier |
 | faster-whisper | latest | Local speech-to-text | Required (Phase 2) |
-| Cloudflare Tunnel | latest | External access for brain.k4jda.net | Required (for MCP/slash commands) |
+| Cloudflare Tunnel | latest | External access for brain.troy-davis.com | Required (for MCP/slash commands) |
 | Tailscale | existing | Remote access to Unraid services | Required (existing) |
 
 > **Note on inference tiers.** The core system runs on the OpenAI API alone — every capture path, search query, skill, and MCP tool can complete with `t2_quality` / `t1_fast` / `t3_realtime` OpenAI tiers. `t1_jetson` (Jetson Orin NX) and `t1_spark` (DGX Spark) are listed in `config/ai-routing.yaml` with explicit `cost_per_1k_input: 0` / `cost_per_1k_output: 0` and exist purely to shift routine classification + synthesis traffic off paid endpoints. If either device is unreachable, the configured fallback chain (`t1_jetson → t1_spark → t1_fast` and `t1_spark → t1_fast`) routes the call through OpenAI; no skill is gated on local GPU availability. Neither device is required to deploy or operate the system.
@@ -178,7 +178,7 @@ Phase 5B: URL Capture
 
 ```
 Base URL: http://open-brain-api:3000 (internal)
-           https://brain.k4jda.net/api (external via Cloudflare Tunnel)
+           https://brain.troy-davis.com/api (external via Cloudflare Tunnel → web-next → core-api)
 Authentication: None (single-user, network-secured)
 Content-Type: application/json
 Versioning: URL path prefix /api/v1
@@ -2502,7 +2502,7 @@ Open Brain is a single-user system. There is no authentication or authorization 
 The MCP server is the only endpoint exposed externally via Cloudflare Tunnel. It requires an API key:
 
 ```
-Connection URL: https://brain.k4jda.net/mcp
+Connection URL: https://llm.troy-davis.com/mcp
 Authentication: Authorization: Bearer <access_key>
 ```
 
@@ -2748,7 +2748,7 @@ await db.insert(aiAuditLog).values({
 
 **Protocol**: Model Context Protocol via `@modelcontextprotocol/sdk`
 
-**Transport**: Streamable HTTP (spec-recommended, future-proof). Exposed via Cloudflare Tunnel at `brain.k4jda.net/mcp`. Claude Desktop and Claude Code connect via HTTP (Tunnel or Tailscale IP). No stdio, no SSE.
+**Transport**: Streamable HTTP (spec-recommended, future-proof). Accessed via LiteLLM gateway at `llm.troy-davis.com/mcp` (proxies to core-api `/mcp`). Claude Desktop and Claude Code connect via HTTP (LiteLLM gateway or direct Tailscale IP). No stdio, no SSE.
 
 **Tools**:
 
@@ -2819,6 +2819,19 @@ const tools = [
       },
     },
   },
+  {
+    name: 'get_capture',
+    description: 'Get full content of a specific capture by ID — use after search_brain or list_captures to read beyond the truncated preview',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'Capture UUID' },
+      },
+      required: ['id'],
+    },
+  },
+  // + 4 wiki tools (search_wiki, read_wiki_page, write_wiki_page, list_wiki_pages) — registered when WikiService is configured
+  // + 3 email tools (draft_email, send_email, search_email_captures) — registered when EmailDraftService is configured
 ];
 ```
 
@@ -3495,7 +3508,7 @@ This is used for:
 
 ## 14. Web Dashboard (Phase 4)
 
-> **Note (2026-05-05):** `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is now the canonical production ingress at brain.troy-davis.com. `packages/web` (Vite stack documented in this section) is sunsetting in Phase 8b. All new UI work goes to web-next. See ADR-0001 and §24 (Web Stack Consolidation 2026-05).
+> **Note (2026-05-05, updated 2026-06-30):** `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is the canonical production ingress at brain.troy-davis.com. `packages/web` (Vite stack documented in this section) was deleted in Phase 8b (2026-05, complete). All new UI work goes to web-next. See ADR-0001 and §24 (Web Stack Consolidation 2026-05).
 
 ### 14.1 Architecture
 
@@ -3736,8 +3749,10 @@ describe('Captures API Integration', () => {
 
 ### 16.1 Docker Compose
 
+> **Note (updated 2026-06-30):** The snippet below is the Phase 2–4 representative structure (early architecture, web-ui service, no observability profile). The authoritative current `docker-compose.yml` is in the repo root — it includes 13 core services + 4 observability-profile services (`loki`, `pushgateway`, `prometheus`, `grafana`) and `web-next` instead of `web-ui`. See §16.2 for current topology.
+
 ```yaml
-# docker-compose.yml
+# docker-compose.yml (Phase 2–4 representative — see repo root for current)
 
 networks:
   open-brain:
@@ -3951,19 +3966,22 @@ services:
 
 ```
 open-brain (single network)
-┌──────────────────────────────────────────────────────────┐
-│                                                          │
-│  postgres     redis       faster-whisper                 │
-│  core-api     slack-bot   workers                        │
-│  voice-capture web-ui     cloudflared                    │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│  postgres      redis          faster-whisper   voice-pipecat     │
+│  core-api      slack-bot      workers          voice-capture     │
+│  web-next      file-ingestion financial-ingest utility-ingest    │
+│  cloudflared                                                     │
+│  [profile:observability] loki  pushgateway  prometheus  grafana  │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 - Single `open-brain` network — no Supabase, no multi-network complexity
-- Only `core-api` (:3002) and `web-ui` (:5173) expose host ports — AI services (Jetson, Spark, OpenAI, Anthropic) are external over LAN/internet
-- MCP embedded in core-api at `/mcp` — no separate container
-- `cloudflared` routes external traffic from `brain.k4jda.net` to `core-api` (path-based: `/mcp` for MCP, `/` for Web UI in Phase 4)
+- Host-exposed ports: `core-api` (:3002, dual-bound loopback + Tailscale), `web-next` (:3003), `voice-pipecat` (:8765/:8766), `grafana` (:3050); `postgres`/`redis`/`loki`/`pushgateway`/`prometheus` bind loopback-only
+- MCP embedded in core-api at `/mcp` — no separate container; external access via LiteLLM gateway at `llm.troy-davis.com/mcp`
+- `cloudflared` routes `brain.troy-davis.com` → `web-next:3001` (Next.js proxies `/api/*` to core-api internally)
+- Observability services (loki, pushgateway, prometheus, grafana) require `COMPOSE_PROFILES=observability` — omitting this flag causes `--remove-orphans` to delete running observability containers (PLT-RI-1)
 
 ### 16.3 Environment Configuration
 
@@ -4344,15 +4362,15 @@ Cloudflare Email Worker at `brain@troy-davis.com` → `POST /api/v1/captures` wi
 
 ## 24. Web Stack Consolidation (2026-05)
 
-`packages/web-next` was introduced during the Cloudscape M1 milestone (~2026-04-21) and became the public ingress at brain.troy-davis.com by M3. ADR-0001 was written and ratified on 2026-05-05 to formalise this reality: `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is the canonical UI; `packages/web` (Vite + React 18 + Tailwind + shadcn/ui) is sunsetting. The decision closes Finding F6 from the 2026-05-05 architecture review (R3 + R12). See IMPLEMENTATION_PLAN-ARCH-REVIEW.md and ADR-0001 for full context.
+`packages/web-next` was introduced during the Cloudscape M1 milestone (~2026-04-21) and became the public ingress at brain.troy-davis.com by M3. ADR-0001 was written and ratified on 2026-05-05 to formalise this reality: `packages/web-next` (Next.js 16 + React 19 + Cloudscape + TanStack Query) is the canonical UI. `packages/web` (Vite + React 18 + Tailwind + shadcn/ui) was deleted in Phase 8b (2026-05, complete — tagged `pre-web-sunset-2026-05`). The decision closes Finding F6 from the 2026-05-05 architecture review (R3 + R12). See ADR-0001 for full context.
 
 ### 24.1 Migration Plan
 
-| Phase | Scope |
-|-------|-------|
-| **Phase 7** (this cycle) | Ratify ADR-0001; correct CLAUDE.md and TDD.md; parity audit — verify Voice and System routes exist in web-next; close any gaps. |
-| **Phase 8a** | Split `packages/web/src/lib/api.ts` (1,232 LOC, 21 domains) into ~21 typed domain modules under `packages/web-next/src/lib/api/`. Build the typed API client in web-next from day one with the right shape. |
-| **Phase 8b** | Split remaining god pages in web-next (Wiki, Email, Dashboard, Ingest, Board, Investments) by tab/section into child components; tag last `packages/web`-alive commit (`pre-web-sunset-2026-05`); remove `packages/web/` from the tree; drop `web` service from `docker-compose.yml`; remove rollback comment from `config/cloudflare/tunnel.yaml`; update CI to stop building/testing web. |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **Phase 7** | Ratify ADR-0001; correct CLAUDE.md and TDD.md; parity audit — verify Voice and System routes exist in web-next; close any gaps. | **Done** |
+| **Phase 8a** | Split `packages/web/src/lib/api.ts` (1,232 LOC, 21 domains) into ~21 typed domain modules under `packages/web-next/src/lib/api/`. Build the typed API client in web-next from day one with the right shape. | **Done** |
+| **Phase 8b** | Split remaining god pages in web-next (Wiki, Email, Dashboard, Ingest, Board, Investments) by tab/section; tag last `packages/web`-alive commit (`pre-web-sunset-2026-05`); remove `packages/web/` from the tree; drop `web` service from compose; update CI. | **Done (2026-05)** |
 
 The `pre-web-sunset-2026-05` git tag preserves the rollback option indefinitely. Recovery steps are documented in `docs/runbooks/web-rollback.md`.
 
@@ -4495,7 +4513,7 @@ Common failure scenarios and resolution steps.
 1. Generate new key: `bws secret edit dev/open-brain/mcp-api-key --value "new-key-here"`
 2. Regenerate .env.secrets: run the bws extraction script (Section 16.4, step 1)
 3. Restart core-api: `docker compose restart core-api`
-4. Verify: `curl -H "Authorization: Bearer <new-key>" https://brain.k4jda.net/mcp` (should not return 401)
+4. Verify: `curl -H "Authorization: Bearer <new-key>" https://llm.troy-davis.com/mcp` (should not return 401)
 5. Update MCP clients:
    - Claude Desktop: Settings → MCP Servers → brain → update key
    - Claude Code: Update MCP config in settings
