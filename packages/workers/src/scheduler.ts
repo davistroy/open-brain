@@ -31,10 +31,10 @@ export interface ScheduledQueues {
  * - capture-reminder-evening: 9:00 PM daily (cron: 0 21 * * *) — evening Pushover nudge with capture count
  * - memory-consolidation: 4:00 AM Sundays (cron: 0 4 * * 0) — LLM near-duplicate merging
  * - monthly-reflection: 9:00 AM 1st of month (cron: 0 9 1 * *) — LLM-powered monthly synthesis via runAgent()
- * - wiki-lint: 5:00 AM Sundays (cron: 0 5 * * 0) — scans wiki pages for quality issues
+ * - wiki-lint: 4:30 AM Sundays (cron: 30 4 * * 0) — scans wiki pages for quality issues (shifted from 0 5 to avoid email-classify overlap)
  * - wiki-synthesis: 6:00 AM daily (cron: 0 6 * * *) — queues unintegrated captures for wiki-ingest
  * - container-health: every 15 min (cron: 0,15,30,45 * * * *) — /health checks on all containers
- * - storage-audit: 3:00 AM Sundays (cron: 0 3 * * 0) — Postgres, Redis, backup, wiki sizes
+ * - storage-audit: 3:15 AM Sundays (cron: 15 3 * * 0) — Postgres, Redis, backup, wiki sizes (shifted from 0 3 to avoid daily-sweep overlap)
  * - prune-associations: 3:30 AM Sundays (cron: 30 3 * * 0) — prunes stale low-weight Hebbian capture_associations (P06)
  * - secret-rotation: 10:00 AM 1st of month (cron: 0 10 1 * *) — checks API key ages via bws CLI, alerts if > 90 days
  * - capture-dedup-sweep: 4:00 AM Saturdays (cron: 0 4 * * 6) — flags near-duplicate captures (cosine > 0.95) for review
@@ -253,7 +253,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Wiki lint (5:00 AM Sundays)
   // --------------------------------------------------------
-  const wikiLintCron = '0 5 * * 0'
+  const wikiLintCron = '30 4 * * 0'
 
   await skillExecutionQueue.add(
     'wiki-lint',
@@ -348,7 +348,7 @@ export async function registerScheduledJobs(
   // --------------------------------------------------------
   // Storage audit (3:00 AM Sundays)
   // --------------------------------------------------------
-  const storageAuditCron = '0 3 * * 0'
+  const storageAuditCron = '15 3 * * 0'
 
   await skillExecutionQueue.add(
     'storage-audit',
@@ -423,7 +423,7 @@ export async function registerScheduledJobs(
 
   // --------------------------------------------------------
   // Prune associations (3:30 AM Sundays)
-  // Staggered 30 min after storage-audit (0 3 * * 0) and 30 min before
+  // 15 min after storage-audit (15 3 * * 0) and 30 min before
   // memory-consolidation (0 4 * * 0) — safe slot, no Sunday cron collision.
   // --------------------------------------------------------
   const pruneAssociationsCron = '30 3 * * 0'

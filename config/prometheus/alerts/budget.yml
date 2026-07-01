@@ -10,6 +10,14 @@
 # $24 = 80% of $30 soft limit (warning); $50 = hard cap (critical).
 # Related code: packages/core-api/src/routes/metrics.ts (budgetSpentUsd gauge)
 #               packages/workers/src/skills/budget-check.ts (application alerting)
+#
+# ALERT DELIVERY MODEL: No Alertmanager is configured in this deployment
+# (prometheus.yml has no alerting: block). These rules surface in the Prometheus
+# Alerts tab and Grafana alert panels for manual observation only — they do NOT
+# automatically dispatch notifications (email, Slack, PagerDuty, etc.).
+# Operational push notifications are sent exclusively by application-layer code
+# in the workers container (PushoverService / budget-check.ts skill), at its own
+# thresholds and on its own schedule, independently of these rules.
 
 groups:
   - name: open-brain-budget
