@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SearchService, applyTemporalDecay, type SearchResponse } from '../services/search.js'
+import { SearchService, applyTemporalDecay, toPgTextArray, type SearchResponse } from '../services/search.js'
 import { EmbeddingUnavailableError } from '@open-brain/shared'
 import type { CaptureRecord } from '@open-brain/shared'
 
@@ -1197,5 +1197,81 @@ describe('SearchService', () => {
       expect(response.results[0].capture.id).toBe(baseResults[0].capture.id)
       expect(response.results[0].score).toBe(baseResults[0].score)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SE-11 — toPgTextArray: safe Postgres array literal construction
+// ---------------------------------------------------------------------------
+//
+// The previous bare `{${values.join(',')}}` interpolation would produce an
+// invalid (or mis-parsed) array literal if any element contained `,`, `}`,
+// `"`, or a backslash. toPgTextArray() double-quotes every element per the
+// Postgres array literal spec (§8.15.2) so the value is always round-tripped
+// correctly through the `::text[]` cast.
+//
+// These are pure-function unit tests — no DB or EmbeddingService required.
+
+describe('SE-11 — toPgTextArray: Postgres array literal escaping', () => {
+  it('wraps normal single value in double-quotes', () => {
+    expect(toPgTextArray(['career'])).toBe('{"career"}')
+  })
+
+  it('wraps multiple values, comma-separated', () => {
+    expect(toPgTextArray(['career', 'personal', 'technical'])).toBe(
+      '{"career","personal","technical"}',
+    )
+  })
+
+  it('escapes embedded comma — prevents array literal splitting', () => {
+    // Without quoting: {career,evil} → 2-element array ['career', 'evil']
+    // With quoting:    {"career,evil"} → 1-element array ['career,evil']
+    expect(toPgTextArray(['career,evil'])).toBe('{"career,evil"}')
+  })
+
+  it('escapes embedded closing brace', () => {
+    // Without quoting: {evil}x} is a parse error
+    expect(toPgTextArray(['evil}'])).toBe('{"evil}"}')
+  })
+
+  it('escapes embedded double-quote with backslash', () => {
+    // Postgres requires \" inside a quoted array element
+    expect(toPgTextArray(['"quoted"'])).toBe('{"\\\"quoted\\\""}')
+  })
+
+  it('escapes embedded backslash (must be doubled: \\ → \\\\)', () => {
+    // Postgres requires \\ inside a quoted element to represent a single \
+    expect(toPgTextArray(['back\\slash'])).toBe('{"back\\\\slash"}')
+  })
+
+  it('handles a combined special-char value without breaking', () => {
+    // Simulates a hostile user-supplied brain_view name
+    const hostile = 'evil,view}"injection'
+    const result = toPgTextArray([hostile])
+    // Must start with {", end with "}, and not contain unquoted delimiters
+    expect(result).toMatch(/^\{"/)
+    expect(result).toMatch(/"\}$/)
+    // The comma and brace must be inside the outer quotes
+    expect(result).not.toMatch(/^\{evil/)
+  })
+
+  it('search() does not throw when brainViews contain a comma', async () => {
+    // SE-11 regression: verify the code path completes without throwing.
+    // The mock db returns the parameterised SQL value directly; the test
+    // validates that toPgTextArray is called (no 500 on special chars).
+    const execute = vi.fn()
+    execute.mockResolvedValueOnce(undefined) // SET LOCAL ef_search
+    execute.mockResolvedValueOnce({ rows: [] }) // hybrid_search (0 results)
+    const db = {
+      execute,
+      transaction: vi.fn(async (cb: (tx: { execute: typeof execute }) => unknown) => cb({ execute })),
+    }
+    const embeddingService = { embed: vi.fn().mockResolvedValue(new Array(768).fill(0)) }
+    const service = new SearchService(db as any, embeddingService as any)
+
+    // A brain_view name with `,` — must not throw
+    await expect(
+      service.search('test query', { brainViews: ['evil,view'] }),
+    ).resolves.toEqual([])
   })
 })

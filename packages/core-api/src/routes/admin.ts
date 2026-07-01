@@ -312,8 +312,9 @@ export function createAdminRouter({ configService, redisConnection, db, adminSer
     const bullBoardApp = serverAdapter.registerPlugin()
 
     // POST /queues/:name/clear — clear jobs from a named BullMQ queue
-    // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method
-    // and queue name validation against the QUEUE_NAMES whitelist.
+    // No adminAuth — web UI cannot send Bearer tokens. Protected by POST method,
+    // queue name validation against the QUEUE_NAMES whitelist, and the same
+    // origin allowlist used by /admin/reset-data (SEC-04).
     // Registered BEFORE the Bull Board wildcard middleware so it's handled directly.
     router.post('/queues/:name/clear', async (c) => {
       const queueName = c.req.param('name')
@@ -324,6 +325,22 @@ export function createAdminRouter({ configService, redisConnection, db, adminSer
           error: 'Not found',
           message: `Unknown queue "${queueName}". Valid queues: ${QUEUE_NAMES.join(', ')}`,
         }, 404)
+      }
+
+      // SEC-04: apply the same origin allowlist as /admin/reset-data.
+      // Queue clears are destructive; block non-allowlisted origins in production.
+      if (!checkOrigin(c)) {
+        if (adminService) {
+          await adminService.writeAuditRow({
+            event_type: 'queue_clear_blocked',
+            actor: getActor(c),
+            outcome: 'blocked',
+            error_detail: 'origin_check_failed',
+            origin: c.req.header('origin') ?? c.req.header('referer') ?? undefined,
+            ip_address: getClientIp(c),
+          })
+        }
+        return c.json({ error: 'Forbidden', message: 'Origin not allowed' }, 403)
       }
 
       // Parse optional body for state and grace_period_ms
@@ -365,6 +382,18 @@ export function createAdminRouter({ configService, redisConnection, db, adminSer
         { queue: queueName, state, cleared_count: removedIds.length },
         '[admin] Queue clear complete',
       )
+
+      // SEC-04: audit trail — mirrors the reset-data pattern
+      if (adminService) {
+        await adminService.writeAuditRow({
+          event_type: 'queue_clear_executed',
+          actor: getActor(c),
+          outcome: 'success',
+          origin: c.req.header('origin') ?? c.req.header('referer') ?? undefined,
+          ip_address: getClientIp(c),
+          error_detail: `queue=${queueName} state=${state} cleared=${removedIds.length}`,
+        })
+      }
 
       return c.json({
         queue: queueName,

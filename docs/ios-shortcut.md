@@ -4,7 +4,7 @@ This document explains how to configure an iOS Shortcut to record audio on iPhon
 
 ## Access Pattern
 
-The voice-capture service runs on port 3001 and is accessed **directly via Tailscale IP** from iOS devices. It is NOT behind the Cloudflare Tunnel (brain.k4jda.net routes only to core-api on port 3000).
+The voice-capture service runs on port 3001 and is accessed **directly via Tailscale IP** from iOS devices. It is NOT behind the Cloudflare Tunnel (brain.troy-davis.com routes to web-next, not directly to voice-capture).
 
 **Primary**: `http://<homeserver-tailscale-ip>:3001`
 **Secondary**: If you know the LAN IP and are on the same network, `http://<homeserver-lan-ip>:3001`
