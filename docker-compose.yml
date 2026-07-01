@@ -60,13 +60,14 @@ services:
       timeout: 5s
       retries: 5
     mem_limit: 8g
+    cpus: '4'
     networks:
       - open-brain
     restart: unless-stopped
     logging: *default_logging
 
   redis:
-    image: redis:7-alpine
+    image: redis:7.4-alpine
     container_name: open-brain-redis
     ports:
       - "127.0.0.1:6380:6379"
@@ -133,6 +134,7 @@ services:
       retries: 3
       start_period: 15s
     mem_limit: 1500m
+    cpus: '2'
     networks:
       - open-brain
     restart: unless-stopped
@@ -194,6 +196,7 @@ services:
       timeout: 5s
       retries: 3
     mem_limit: 1500m
+    cpus: '3'
     networks:
       - open-brain
     restart: unless-stopped
@@ -334,6 +337,7 @@ services:
       retries: 5
       start_period: 120s
     mem_limit: 8g
+    cpus: '4'
     networks:
       - open-brain
     restart: unless-stopped
@@ -423,7 +427,7 @@ services:
     logging: *default_logging
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2025.6.1
     container_name: open-brain-cloudflared
     # --metrics exposes /ready + /metrics (PLT-H2/M6). No CMD healthcheck: the
     # cloudflared image is distroless (no shell for CMD-SHELL); tunnel liveness is
@@ -496,7 +500,7 @@ services:
   # See docs/runbooks/observability.md for bring-up, cutover, and data migration steps.
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.4.3
     container_name: open-brain-loki
     volumes:
       - loki_data:/loki/data
@@ -519,7 +523,7 @@ services:
     # NOTE: No logging driver on loki itself — prevents chicken-and-egg startup failure.
 
   pushgateway:
-    image: prom/pushgateway:latest
+    image: prom/pushgateway:v1.11.0
     container_name: open-brain-pushgateway
     ports:
       - "127.0.0.1:9091:9091"
@@ -536,7 +540,7 @@ services:
       retries: 3
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.4.2
     container_name: open-brain-prometheus
     volumes:
       - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -565,7 +569,7 @@ services:
       start_period: 15s
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.0.2
     container_name: open-brain-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set — see deploy/.env.secrets.template}
