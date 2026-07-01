@@ -12539,6 +12539,30 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [api] [security] [config] [test] [decision]
 **Environment:** ubuntu-vm (dev) — 3 Sonnet agents, orchestrator-verified (caught + fixed the 10.3 prod bug). **Duration:** ~30 min wall. **5/5 items shipped; A132 code-complete; PR next.**
 
+---
+
+## Entry 179 — Production deploy: Phases 8+9+10 + migration 0035 to homeserver — A132 FULLY DEPLOYED (2026-06-30)  [deploy] [docker] [database] [security]
+
+**Objective:** Deploy the final batch (Phase 8 voice auth/spool/validation, Phase 9 retention+guards, Phase 10 hardening) + migration **0035** to the homeserver, completing the arch-review v3 goal "everything deployed and running." Backup-first. Homeserver was on Phase 7 code + 0034 + 3 compose deviations (Entry 175).
+
+**Approach (compose reconcile, minimal blast radius):** adopt main's compose but re-apply ONLY the core-api `0.0.0.0` deviation (D131) — the redis/observability deviations don't matter because I recreate ONLY app services; the Phase 9 third-party image pins + resource caps are declared-but-not-applied (deferred, no risky postgres/grafana/redis version bumps). Observability is `profiles:`-gated (PLT-RI-1) → used targeted `--force-recreate --no-deps`, **never `--remove-orphans`.**
+
+**Steps + results:**
+1. **Backup:** `pg_dump` → `backups/pre-deploy-phase8-9-10-20260630T215014.sql.gz` (117 MB, gzip OK). Rollback image IDs captured.
+2. **Compose:** `cp` backup → `git fetch` → `git checkout origin/main -- docker-compose.yml packages/shared/drizzle/0035_retention_audit.sql` → **sed** re-apply core-api `0.0.0.0` (Unraid has **no python3** — used sed, not python). `sudo docker compose config -q` VALID.
+3. **Migration 0035:** applied via pgvector container + `migrate-manual.sh` (PGOPTIONS parallel-off, harmless for the empty table). Ledger → `0035_retention_audit`; `retention_audit` table present; captures 11,261 intact.
+4. **Images:** waited for the 9e3fb3d (Phase 10) build to finish, then `sudo docker compose pull` core-api/workers/slack-bot/voice-capture → core-api+voice-capture = Phase 10 build (01:48Z), workers = Phase 9 (unchanged in P10), slack-bot = Phase 8 (unchanged).
+5. **Recreate:** `up -d --force-recreate --no-deps core-api workers slack-bot voice-capture` → all 4 Recreated+Started+healthy.
+
+**Verified:** 17/17 containers healthy (13 untouched services undisturbed, 22–26h uptime); MCP 200; core-api `0.0.0.0:3002` (deviation preserved); live hybrid search round-trips; **voice-capture new mounts live** (`config→/app/config` for brain_view validation + `voice_spool_data→/data/voice-spool` durable dead-letter); **retention job registered** (`[scheduler] data-retention-prune repeatable job registered`, cron `0 2 * * 0`); zero error-level lines. Homeserver now on current main `9e3fb3d` code + migration 0035.
+
+**Deferred (documented, NOT this deploy):** third-party image pins + resource caps for postgres/grafana/redis/etc. (declared in compose, applied only when those services are next recreated — batch with the observability-loopback daemon-restart window); voice Bearer enforcement (two-phase operator rollout, `VOICE_CAPTURE_SECRET` still unset → warn-allow). 3 compose deviations narrowed to just core-api `0.0.0.0` (the only one that matters for app-service recreation).
+
+**A132 (arch-review v3, 10 phases / 4 waves) — COMPLETE AND FULLY DEPLOYED.**
+
+**Tags:** [deploy] [docker] [database] [security]
+**Environment:** homeserver (Unraid) via Tailscale-SSH; `sudo docker compose` (root) for pull/recreate, pgvector container for migrate. **Duration:** ~20 min. **Migration 0035 applied; 4 app containers recreated; 11,261 captures intact; all healthy.**
+
 
 
 
