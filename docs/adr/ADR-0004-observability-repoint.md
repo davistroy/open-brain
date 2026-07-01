@@ -1,6 +1,6 @@
 # ADR-0004: Re-point open-brain at the Shared Observability Stack (client-joins-external-network)
 
-**Status:** Proposed
+**Status:** Accepted — implemented + deployed 2026-07-01 (PR #231 → main `c4a7922`; both config-diff gates passed; `WorkersMetricsAbsent` cleared; postgres/redis data intact). See LAB_NOTEBOOK Entry 181.
 **Date:** 2026-07-01
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` of the Phase 1.3 hand-off (`1.3-open-brain-repoint-handoff.md`, observability-migration orchestrator) — LAB_NOTEBOOK Entry 181
