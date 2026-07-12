@@ -32,7 +32,7 @@ jobs:
 
       # ── core-api ────────────────────────────────────────────────────────────
       - name: Build and push core-api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: core-api
@@ -45,7 +45,7 @@ jobs:
 
       # ── workers ─────────────────────────────────────────────────────────────
       - name: Build and push workers
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: workers
@@ -58,7 +58,7 @@ jobs:
 
       # ── slack-bot ────────────────────────────────────────────────────────────
       - name: Build and push slack-bot
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: slack-bot
@@ -71,7 +71,7 @@ jobs:
 
       # ── voice-capture ────────────────────────────────────────────────────────
       - name: Build and push voice-capture
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: voice-capture
@@ -84,7 +84,7 @@ jobs:
 
       # ── voice-pipecat ────────────────────────────────────────────────────────
       - name: Build and push voice-pipecat
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: packages/voice-pipecat
           file: packages/voice-pipecat/Dockerfile
@@ -97,7 +97,7 @@ jobs:
 
       # ── file-ingestion ───────────────────────────────────────────────────────
       - name: Build and push file-ingestion
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: packages/file-ingestion
           file: packages/file-ingestion/Dockerfile
@@ -112,7 +112,7 @@ jobs:
       # Build context is repo root — Dockerfile COPYs from scripts/ and config/
       # which are relative to the repo root, not to docker/ingest-sidecar/.
       - name: Build and push ingest-sidecar
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/ingest-sidecar/Dockerfile
@@ -127,7 +127,7 @@ jobs:
       # Build context is repo root — Next.js monorepo build requires pnpm workspace
       # root. API_URL is baked at build time for server-side next.config.ts rewrites.
       - name: Build and push web-next
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: packages/web-next/Dockerfile
