@@ -1,0 +1,75 @@
+# .github/dependabot.yml — GitHub remediation plan Phase 6, item 6.6
+# Enables automated security fixes and grouped Dependabot updates to prevent
+# alert recurrence after the 119-alert Phase 6 remediation. Grouped minor/patch
+# updates land as single PRs; majors surface individually for isolated review.
+# Weekly cadence balances CVE response time against noise on strict CI gates.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps(npm)"
+    labels:
+      - dependencies
+
+  - package-ecosystem: npm
+    directory: /cloudflare/email-worker
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      email-worker-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps(email-worker)"
+    labels:
+      - dependencies
+
+  - package-ecosystem: npm
+    directory: /cloudflare/synthetic-monitor
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      synthetic-monitor-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps(synthetic-monitor)"
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      github-actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
