@@ -1,170 +1,121 @@
 # Solutions Architect Findings
 
 **Reviewer:** Solutions Architect
-**Date:** 2026-06-10
-**Target:** /home/davistroy/dev/personal/open-brain (main @ ac42938, v1.6.0)
-**Confidence:** High — documentation is extensive and current (PRD v0.7, TDD v0.7, ADR-0001, 10 runbooks, 162-entry lab notebook), and all structural claims below were verified directly against source, compose files, migrations, and configs. The only unverifiable items are live homeserver runtime state (out of scope).
+**Date:** 2026-07-12
+**Target:** /home/davistroy/dev/personal/open-brain
+**Confidence:** High — full source access, exceptional documentation, and a narrow verified delta since v4 (only Dependabot PRs #232–#234 + Dependabot config `cd14c1f` merged). Three findings remain Requires Investigation (live host / shared observability stack out of scope).
 
-> Supersedes the 2026-04-18 solutions-architect findings. Items remediated via PRs #180–#189 and the 2026-05 cohesive remediation (parallel web stacks, god-module API client, caller-header trust, doc/container-count drift) were re-verified as closed and are not re-reported.
+> **v5 — supersedes the 2026-07-09 v4 findings.** Per review protocol, every v4 finding was adjudicated against current code before net-new hunting. Verified delta since v4: `git log` shows 12 commits, all Dependabot remediation (Waves 1–3: transitive lockfile refresh, nodemailer 8→9, vitest 2→3 + coverage-v8 lockstep, core-api dead-code removal + coverage backfill) plus `.github/dependabot.yml` (grouped weekly updates + auto security fixes). No compose, config, docs, or architecture code changed — so all 13 v4 findings were re-verified rather than assumed.
+
+---
+
+## Prior-Review Adjudication (v4 → v5)
+
+| v4 ID | v4 Sev | Verdict | Evidence (verified 2026-07-12) |
+|-------|--------|---------|-------------------------------|
+| SA-1 dual-bind repo↔prod drift | Medium | **STILL OPEN** | `docker-compose.yml:120-124` still encodes `127.0.0.1:3002` + `${TAILSCALE_IP}:3002` dual-bind with the "NOT 0.0.0.0" comment; production runs `0.0.0.0:3002` (D131) via manual sed. **Interlock worsened by PLT-C1/A134 (platform domain, CRITICAL, still open):** `docs/runbooks/deploy.md` rollback procedure `cat >`-overwrites then `rm`-deletes the production `docker-compose.override.yml` that pins the postgres/redis raw binds — the same override-file coupling class. |
+| SA-2 alert-rule/dashboard ownership seam | Medium (RI) | **STILL OPEN** | `config/prometheus/alerts/` + `config/grafana/dashboards/` unchanged since v4 (no commits touched `config/`); ADR-0004 still assigns no owner or sync mechanism. Remains Requires Investigation (shared stack repo out of scope). |
+| SA-3 Ollama/Gitea out-of-band network joins | Medium | **STILL OPEN** | `scripts/post-compose-up.sh` unchanged; header lines 10–13 still instruct the retired `docker compose --profile observability up -d` (stale since ADR-0004). Script still required after every `up`. |
+| SA-4 dual voice stacks + voice-pipecat outside exposure model | Medium (RI) | **STILL OPEN — escalated cross-domain** | `docker-compose.yml:259-260` still publishes `"8765:8765"` / `"8766:8766"` (0.0.0.0); grep of `packages/voice-pipecat/src/` finds no bearer/auth/secret beyond provider API keys; issues #54/#57 still open. Now also a Go-condition as SEC-A1/A136 (security domain High). Architectural finding (dual stack + ADR-0002 omission) kept Medium here to avoid double-count. |
+| SA-5 fallback crosses constraint/cost boundary | Medium | **STILL OPEN** | `config/ai-routing.yaml:119` still `t1_spark.fallback: t1_fast` (free openai_compat JSON-mode → paid Anthropic without `response_format`); `loader.ts` `validateTaskRouting()` still non-fatal and still called only from `reload()` (line 115), not `load()`. |
+| SA-6 doc drift incl. dangerous TDD §16 sentence | Medium | **STILL OPEN — nothing fixed** | `docs/TDD.md:4035` still says "Migrations run automatically via core-api entrypoint script (no manual step needed)" — verbatim, still the exact opposite of the ledger model. README:9 still "Waves 3–4 … remain"; README:222 still "all 17 containers … plus the 4-service observability stack"; `docs/PRD.md:1532,1893` still `--profile observability`; ADR-0003 status still "Proposed"; OPEN_ITEMS.md still "Last reconciled: 2026-06-30". |
+| SA-7 web-next healthcheck probes `/dashboard` | Low | **STILL OPEN** | `docker-compose.yml:420-421` unchanged: `wget -qO- http://127.0.0.1:3001/dashboard` every 30 s. |
+| SA-8 local-dev portability (external net + hard-coded inboxes) | Low | **STILL OPEN** | `docker-compose.yml:8-9` `observability: { external: true }` with no dev-setup doc; lines 484/519 still hard-code `/mnt/user/appdata/open-brain/{financial,utility}-inbox`. |
+| SA-9 workers coverage gate dormant on the orchestration spine | Medium | **STILL OPEN — CHANGED (slightly worse)** | `packages/workers/package.json:17` `test` script still omits `--coverage` (core-api's has it). Vitest 2→3 (PR #234, `^3.2.6`) re-baselined coverage measurement: core-api got dead-code removal + test backfill for unmasked files (`8d3b426`, `b828fb5`); **workers got no equivalent backfill** — live baseline now 73.72% vs the 78 floor (was 74.02% at v4). The gap between constitution and enforcement widened. |
+| SA-10 runAgent lacks accumulated-context cap (#204) | Medium | **STILL OPEN** | `packages/shared/src/services/run-agent.ts` has `maxIterations` (default 10) and per-turn token *accounting* (`AgentTokenUsage` accumulator) but no accumulated-context *ceiling*; issue #204 open. |
+| SA-11 `NEXT_PUBLIC_API_URL` comment/value contradiction | Low | **STILL OPEN** | `docker-compose.yml:412-414` verbatim: comment "intentionally empty in Docker" above `NEXT_PUBLIC_API_URL: http://core-api:3000`. |
+| SA-12 PRD claims a circuit breaker that doesn't exist | Low | **STILL OPEN** | `docs/PRD.md:1531` verbatim: "Circuit breaker on external API calls (Anthropic, OpenAI)". Actual mechanisms unchanged (budget hard-stop + fallback chains + `maxRetries: 0`). |
+| SA-13 scheduled offsite/rehearsal runs never verified | Medium (RI) | **STILL OPEN** | No repo evidence of verification since v4 (only Dependabot commits landed); live host out of scope. Remains Requires Investigation. |
+
+**Adjudication summary: 13/13 v4 findings STILL OPEN; 0 FIXED; 1 CHANGED (SA-9, marginally worse).** The Dependabot remediation was real and valuable (119→20 alerts, 0 critical) but touched none of the architectural findings. Notably, the four v4 Go-conditions (PLT-C1, DA-1, SEC-A1, RC-10 — owned by other domains) are also all still open, and DA-1's fix deadline (Sunday 2026-07-12 02:00) **passed unmet this morning** — see net-new SA-14 for the structural angle this review owns.
 
 ---
 
 ## Architecture Summary
 
-Open Brain is a single-user, self-hosted knowledge infrastructure built as a pnpm monorepo (9 packages) deployed as 17 Docker Compose containers on one Unraid host. The primary pattern is a **modular monolith API (Hono core-api) with satellite single-purpose services** (workers, slack-bot, voice-capture, voice-pipecat, file-ingestion sidecar, web-next) communicating through a shared Postgres 16 + pgvector database and BullMQ/Redis queues, with an event-driven staged ingestion pipeline (classify → embed → extract → link → triggers → notify) and config-driven behavior (YAML for routing, pipeline, skills, views). Perimeter access flows through Cloudflare Tunnel/Workers; all AI runs through OpenAI (gpt-5.4 + text-embedding-3-large @768d) behind a cost circuit breaker.
-
----
+Open Brain is a single-user, self-hosted knowledge system built as a **pnpm monorepo with coarse-grained service decomposition by runtime concern**: one Hono API (`core-api`, embedding the MCP endpoint), one BullMQ worker container (jobs + skills + scheduler), and thin edge adapters (slack-bot, voice-capture, voice-pipecat, file-ingestion, Python sidecars, Cloudflare email worker), all sharing one Postgres 16 + pgvector store and one Redis queue, deployed as 13 Compose containers on a single Unraid host, with observability delegated to an external shared stack (ADR-0004). The architecture is unchanged since v4; the only movement is dependency currency (Dependabot waves + automation config).
 
 ## Requirements Fidelity Matrix
 
-| Requirement (PRD §7 / CLAUDE.md) | Architectural Coverage | Gap? |
-|-------------|----------------------|------|
-| Text capture ingest < 500ms | Hono route persists + enqueues async pipeline; returns minimal `{id, pipeline_status}` envelope | No |
-| Pipeline processing < 30s w/ retries (5 attempts, 30s→2h backoff) | `config/pipeline.yaml` stages + retry array; BullMQ per-stage queues; daily sweep re-queuer (`daily-sweep`, 3am) | No |
-| Hybrid search < 5s | `hybrid_search()` SQL function (RRF) with `LIMIT match_count*4` push-down (mig 0027), per-query `SET LOCAL hnsw.ef_search` from config, ACT-R decay + Hebbian boost | No |
-| Monthly AI budget — soft alert / hard circuit breaker | `config/ai-routing.yaml` `hard_limit_usd: 35`; budget-check cron; per-tier mandatory cost fields; `estimateTierCostUsd()` | **Partial** — config says $35 hard; PRD/CLAUDE.md say $50 hard / $30 soft (doc–config drift, SA-6) |
-| Health checks on all containers | 15 of 17 services declare compose healthchecks | **Partial** — cloudflared, prometheus, grafana, financial-ingest, utility-ingest lack healthchecks (SA-5) |
-| Daily DB backup + offsite, soft-delete only | `scripts/backup.sh` (pg_dump custom format, 14d/4w/3m retention, wiki + Redis RDB, secrets-redaction regression guard); restore runbook + rehearsal cron file | No (runtime install of rehearsal cron unverified — SA-10) |
-| Single-user, no in-boundary auth; perimeter via CF Tunnel + caller identity | `proxy.ts` overwrites `X-Open-Brain-Caller` at public boundary; `rate-limit.ts` `isInternalIp()` defense-in-depth; mobile Bearer tier; MCP Bearer | No |
-| Reliability monitoring | Prometheus + prom-client metrics, Loki log driver, Grafana provisioned dashboards, Pushover alerts, `pipeline_events`/`skills_log` audit tables | **Partial** — PRD §7 still states "No dedicated monitoring stack" (stale, SA-6); Loki driver drops logs when Loki is down (SA-3) |
-| Pipeline idempotency + dedup | Source-level dedup (slack_ts, filename, content hash + 60s window); `ON CONFLICT` upserts; idempotent DDL conventions | No |
-| Cost-tiered processing T0→T3 (mandatory convention) | Tier config in `ai-routing.yaml`; Track A/B split documented; batch pipelines use Python (T0) + CLI synthesis (T2) | **Partial by design** — production routes all real-time AI to OpenAI; Jetson/Spark demoted to optional tiers in TDD §2.1 (see Decision 8) |
-| Memory ceiling 1.5 GB RSS/process | compose `mem_limit` on every service (1500m/1536m app containers, 8g Postgres/whisper, 512m Redis) | No |
+Unchanged from v4 — no functional or NFR-relevant code merged since. Re-affirmed rows with open gaps:
 
----
+| Requirement | Architectural Coverage | Gap? |
+|-------------|----------------------|------|
+| F01–F23, F28, F36–F47 (capture/pipeline/search/skills/entities/web/MCP) | As v4 — verified landed, no regression | No |
+| F09–F10, F47 voice | Two parallel stacks still both in production; decision #57 still blocked on soak #54 | Partial (SA-4) |
+| F24 URL/bookmark capture | None — still "Planned" | Yes (acknowledged) |
+| PRD §7 performance targets | SLO recording rules' runtime home still unverified post-ADR-0004 | Partial (SA-2) |
+| PRD §7 "Circuit breaker on external API calls" | Budget hard-stop + fallback chains only; no trip-state breaker | Partial (SA-12) |
+| PRD §7 backup/DR | Designed, still not demonstrated via verified scheduled run | Partial (SA-13) |
+| PRD §7 security posture | voice-pipecat 8765/8766 still outside ADR-0002 exposure model | Partial (SA-4) |
+| CLAUDE.md retention requirement (RC-4) | `data-retention-prune` exists but is **actively failing** — FK block + no fault isolation | **Yes** (SA-14 / DA-1) |
 
 ## Design Decision Log
 
-### Decision 1: Modular monolith API + satellite services on a shared database
-- **What it solves:** Single-user system needs many ingestion surfaces (voice, Slack, email, files, mobile, MCP) without microservice operational tax.
-- **What was chosen:** One Hono core-api owning all HTTP/MCP surface and DB writes for interactive paths; separate worker container for async pipeline/skills; thin protocol adapters (slack-bot, voice-capture) that call core-api over HTTP with caller identity headers; one Postgres for relational + FTS + vector.
-- **Likely rejected alternatives:** Full microservices (per-domain DBs); pure monolith (one container).
+The nine v4 decision assessments stand unchanged (coarse decomposition: Sound; pgvector single-store: Sound; queue-name decoupling: Sound; cost-tiered routing: Sound-with-SA-5-edge; init-schema ledger machine: Sound; ADR-0004: Sound-in-topology/incomplete-in-ownership; ADR-0002+D131: settled acceptance with Problematic implementation (SA-1); frontend type-mirror decoupling: Sound; D31 out-of-band Ollama/Gitea: Questionable). One net-new decision to log:
+
+### Decision: Dependabot grouped weekly updates + automated security fixes (`cd14c1f`, 2026-07-11)
+- **What it solves:** Recurrence of the 119-alert backlog class; isolates majors for individual review while batching minor/patch noise into single weekly PRs across root npm + both Cloudflare worker dirs.
+- **What was chosen:** `version: 2` config, weekly Monday cadence, `groups:` minor/patch, per-ecosystem commit prefixes.
+- **Likely rejected alternatives:** Daily cadence (noise vs. strict `--frozen-lockfile` CI); no automation (proven to decay — 119 alerts).
 - **Assessment:** Sound
-- **Rationale:** Containers map to failure domains and resource limits (whisper 8 GB isolated from API), not to organizational boundaries that don't exist. Shared DB is correct at this scale; hub-and-spoke dependency graph is clean — all four TS service packages depend only on `@open-brain/shared`, no lateral package imports.
-
-### Decision 2: MCP embedded in core-api at `/mcp` (no separate container)
-- **What it solves:** Agent access (Claude/ChatGPT) to the brain without another service to deploy, secure, and keep in sync with the API layer.
-- **What was chosen:** Streamable HTTP MCP server mounted inside core-api, Bearer auth, 8 tools + 1 resource reusing the same service layer as REST routes.
-- **Likely rejected alternatives:** Standalone MCP container; MCP-over-LiteLLM only.
-- **Assessment:** Sound
-- **Rationale:** Tools and REST share `SearchService`/`CaptureService` — one behavior surface, zero contract drift between MCP and API. Coupling MCP availability to core-api availability is irrelevant when they'd fail together anyway (same DB, same host).
-
-### Decision 3: OpenAI-only AI with 768d MRL embeddings and no embedding fallback
-- **What it solves:** Embedding-space consistency — mixed-provider embeddings silently corrupt vector search.
-- **What was chosen:** `text-embedding-3-large` with API `dimensions: 768` (trained Matryoshka, not naive truncation); `vector(768)` schema; queue-and-retry on outage rather than fall back to a local model.
-- **Likely rejected alternatives:** Local embedding model (no GPU on target host); 1536d (2× storage/HNSW cost); fallback chain (vector-space pollution).
-- **Assessment:** Sound
-- **Rationale:** "No fallback" is the architecturally literate choice — the patient retry ladder (30s→2h) plus daily sweep converts an availability problem into a latency problem, which is acceptable for ingestion. The single-provider dependency is a deliberate, documented tradeoff with a budget circuit breaker bounding the cost exposure.
-
-### Decision 4: BullMQ staged pipeline with per-stage queues and patient backoff
-- **What it solves:** Multi-stage enrichment (classify/embed/extract/link/trigger/notify) with independent failure/retry per stage and full audit (`pipeline_events`).
-- **What was chosen:** Queue-per-stage in `packages/workers/src/queues/`, config-driven stage enable/timeout (`pipeline.yaml`), concurrency discipline (default 2, documented singletons at 1), cron slot registry to prevent schedule collisions.
-- **Likely rejected alternatives:** Postgres-based job table (SKIP LOCKED); Temporal (operational overkill); synchronous pipeline.
-- **Assessment:** Sound
-- **Rationale:** Redis AOF persistence covers queue durability; `pipeline_status` on captures + daily sweep covers the residual loss window. The DB-level CHECK constraints on `pipeline_events.stage/status` (migration 0025) keep the audit trail honest.
-
-### Decision 5: Web consolidation on web-next (ADR-0001)
-- **What it solves:** Two parallel UI stacks (Vite `web` + Next.js `web-next`) with drift and double maintenance.
-- **What was chosen:** Sunset `packages/web`, canonical web-next with split-by-domain typed API client (`lib/api/`, ~24 modules), `pre-web-sunset-2026-05` rollback tag + runbook.
-- **Likely rejected alternatives:** Keep both (documented and rejected in the ADR); consolidate on Vite.
-- **Assessment:** Sound
-- **Rationale:** The ADR is a model of the genre — alternatives, costs, rollback path, and execution phases. Verified executed: `packages/web` gone, compose `web` service removed, the `depends_on` straggler fixed (d479c04). One residue: the type-drift guard that protected web↔shared died with `packages/web` and was not rebuilt for web-next/mobile (SA-1).
-
-### Decision 6: Caller-identity trust model (header + IP defense-in-depth)
-- **What it solves:** Differential rate limiting between internal services, public web, and mobile without per-service auth inside a single-user trust boundary.
-- **What was chosen:** `X-Open-Brain-Caller` header set by each internal service; Next.js `proxy.ts` overwrites it to `web-next-public` at the public boundary; `rate-limit.ts` ignores the header for non-internal source IPs (`isInternalIp()`); mobile gets Bearer + its own tier.
-- **Likely rejected alternatives:** mTLS between containers (overkill); full auth layer (explicitly out of scope per PRD).
-- **Assessment:** Sound (post-remediation)
-- **Rationale:** The original header-only design was spoofable; the 2026-05 Phase 2.3 IP check closes that. Remaining fragility is procedural — 17 bypass entries maintained by convention in a Set — but the failure mode is now just 429s (fail-closed), not privilege escalation.
-
-### Decision 7: In-database hybrid search (SQL `hybrid_search()` + pgvector HNSW) vs. external vector store
-- **What it solves:** Hybrid FTS+vector retrieval with RRF fusion, temporal decay, and spreading activation over one consistent dataset.
-- **What was chosen:** Postgres function with CTE LIMIT push-down (`match_count*4`, mig 0027), expression-based GIN FTS index, per-query `SET LOCAL hnsw.ef_search` sourced from config, benchmark harness (`scripts/benchmark-search.mjs`).
-- **Likely rejected alternatives:** Qdrant/Weaviate sidecar (another stateful service, sync problem); Elasticsearch.
-- **Assessment:** Sound
-- **Rationale:** At ~11K–100K captures this is the right call; the LIMIT push-down work shows the scaling cliff was found and engineered around rather than papered over. The cognitive-memory layers (ACT-R, Hebbian, spreading activation) compose on top without a second store.
-
-### Decision 8: Cost-tiered processing (T0→T3) as governing convention, all-OpenAI in the hot path
-- **What it solves:** Bounding variable AI spend ($100+ incident, 2026-04-15) while keeping real-time UX.
-- **What was chosen:** Mandatory tiering convention; batch pipelines (email, financial, files) do Python extraction + aggregated synthesis; production real-time routes to OpenAI; Jetson/Spark demoted to optional tiers; circuit breaker + mandatory per-tier cost fields enforce visibility.
-- **Likely rejected alternatives:** Local-first inference (no GPU on homeserver; Jetson/Spark are network dependencies with their own availability problems).
-- **Assessment:** Sound
-- **Rationale:** The principle is enforced where it matters (batch aggregation, cost-field fail-fast validation, budget breaker) rather than dogmatically (real-time tiers stay on the reliable paid provider). The convention-vs-deployment gap is documented in TDD §2.1, so it is a decision, not drift.
-
-### Decision 9: Cross-package BullMQ queues bound by name string with inlined payload types
-- **What it solves:** core-api producing jobs (e.g., `access-stats`) consumed by workers without importing `@open-brain/workers`.
-- **What was chosen:** core-api instantiates `new Queue<InlineType>('access-stats')`; payload shape duplicated inline; Redis routes by name.
-- **Likely rejected alternatives:** Shared queue-contract module in `@open-brain/shared`.
-- **Assessment:** Questionable
-- **Rationale:** Preserves the clean dependency direction, but the producer/consumer payload contract is compiler-invisible — a field rename in workers compiles green in core-api and fails at job-processing time. Acceptable at 1–2 shared queues; the moment a third appears, the contract belongs in `@open-brain/shared` (see SA-4).
-
-### Decision 10: No auto-migration on startup; manual `init-schema.sql` + sequential migration application
-- **What it solves:** Avoids accidental destructive DDL on container restart against the only copy of the data.
-- **What was chosen:** Operator manually applies `scripts/init-schema.sql` plus all `packages/shared/drizzle/0*.sql` after volume recreation; `scripts/migrate.sh` (drizzle-kit) exists but the documented homeserver procedure is manual psql.
-- **Likely rejected alternatives:** drizzle-kit migrate on container start; migration job container.
-- **Assessment:** Questionable
-- **Rationale:** Caution about auto-DDL is legitimate, but the implementation created **two overlapping schema sources with no machine-checked equivalence**, and drift has already occurred (SA-2). The conservatism is right; the dual-source mechanism is not.
-
----
+- **Rationale:** Correct cadence/grouping trade-off for a solo maintainer with two required CI checks. Watch item: 9 Dependabot PRs (#235–#243) were already open at review time — the automation only pays off if the weekly merge discipline is sustained; an unmerged Dependabot queue is the same decay in a new costume.
 
 ## NFR Coverage Scorecard
 
 | NFR | Score (1–5) | Evidence | Gap |
 |-----|-------------|----------|-----|
-| Availability | 3 | `restart: unless-stopped` everywhere; 15/17 healthchecks; `depends_on: service_healthy` ordering; patient retry converts dependency outages to latency; synthetic monitor (health.troy-davis.com) | Single host, single Postgres/Redis — no redundancy (accepted for single-user); 5 services without healthchecks (SA-5); a wedged cloudflared tunnel is invisible to compose health |
-| Scalability | 4 | HNSW LIMIT push-down (mig 0027); configurable `ef_search` w/ benchmark harness; BullMQ concurrency discipline; capacity planning TDD §18.5; per-container mem_limits | Vertical-only by design; first real ceiling is Postgres 8 GB limit vs. HNSW working-set growth — adequate runway at single-user volume (see Evolution) |
-| Maintainability | 4 | Clean hub-and-spoke package graph; no god modules (largest source file 607 LOC); config-driven everything; canonical type unions with DB CHECK parity; exceptional docs (PRD/TDD/ADR/runbooks/lab notebook); 2,000+ tests, coverage gates | Type unions hand-mirrored into web-next + mobile with no drift guard (SA-1); dual schema sources (SA-2); lockstep rules enforced by convention/grep, not CI assertions (SA-8) |
-| Observability | 4 | prom-client business + runtime metrics in core-api; Loki log driver on all 13 logged services; provisioned Grafana dashboards; Pushover alert runbooks; `pipeline_events`/`skills_log`/`ai_audit_log`/`admin_audit` DB audit trails | Loki driver silently drops logs when Loki unreachable (SA-3); no request/job correlation IDs — capture_id serves the pipeline but HTTP-layer log correlation is manual (SA-9) |
-| Portability | 3 | Fully containerized, single network, all config via env + mounted YAML; secrets externalized to Bitwarden with rebuild scripts; images published to GHCR | Unraid-specific paths and cron persistence; Cloudflare-specific ingress + email path; loki Docker plugin is an undeclared host prerequisite (one-time pre-install required or all logging config fails); migration to another host is a runbook exercise, not turnkey |
-| Recoverability | 4 | Daily pg_dump (custom format) w/ 14d/4w/3m retention + offsite rclone; Redis AOF; wiki repo mirrored; secrets round-trip (load/verify/test scripts, SHA sidecar, Pushover on drift); pre-wipe pg_dump on admin reset; restore runbook + rehearsal cron design | Schema bootstrap drift means a from-scratch restore depends on the operator correctly applying 33 sequential migrations over a stale snapshot (SA-2); rehearsal cron install status unverified (SA-10); no stated RTO/RPO numbers — implied RPO 24h via daily dump |
-
----
+| Availability | 3 | Unchanged from v4 (restart policies, healthchecks, ordered deps, patient retries) | Single host by design; web-next healthcheck conflation (SA-7); SLO rule runtime home unverified (SA-2) |
+| Scalability | 4 | Unchanged (HNSW push-down, stored tsvector, Qdrant pre-gated at ≥50K) | Agent-loop context still uncapped (SA-10/#204) |
+| Maintainability | 4 | v4 evidence **plus** Dependabot automation (`cd14c1f`) and alert burn-down 119→20/0-critical — dependency currency is now a process, not an event | Workers coverage gate still dormant, baseline slid to 73.72% post-vitest-3 (SA-9); doc-drift cluster untouched including the dangerous TDD §16 sentence (SA-6); 9 Dependabot PRs queued |
+| Observability | 3 | Unchanged (histograms, SLO.md, Loki driver, Pushover, ai_audit_log) | Rule/dashboard ownership seam (SA-2); pipecat spend visibility unconfirmed (SA-4); **retention-job failure mode is silent-by-abort** (SA-14) |
+| Portability | 3 | Unchanged (containerized, YAML config, BWS secrets, GHCR) | External-network + hard-coded inbox paths (SA-8); Ollama/Gitea out-of-band (SA-3) |
+| Recoverability | 4 | Unchanged (exact-count manifests, offsite crypt copy-not-sync, rehearsal script) | Scheduled runs still unverified (SA-13); rollback runbook actively re-arms the volume landmine (PLT-C1, platform domain) |
 
 ## Architecture Pattern Assessment
 
-- **Pattern identified:** Modular monolith API + single-purpose satellite containers, event-driven staged pipeline over BullMQ/Redis, shared Postgres as the single source of truth, config-as-contract (YAML), perimeter-security trust model.
+- **Pattern identified:** Modular monorepo deployed as coarse-grained cooperating services ("distributed monolith done on purpose") — unchanged.
 - **Fit score:** 5
-- **Rationale:** For a single-operator, single-host, multi-ingestion-surface knowledge system, this is close to the canonical right answer. It avoids both failure modes available to it: the distributed-systems tax of real microservices (no per-service DBs, no service mesh, no cross-service sagas) and the resource-coupling of a true monolith (whisper's 8 GB and pipeline LLM latency are isolated from the interactive API). The dependency graph is enforced in the right direction (everything → shared, nothing lateral). Patterns are applied with evidence (benchmarked ef_search, measured coverage floors, documented cron slot registry) rather than by fashion.
-- **Specific concerns:** (1) The architecture's correctness increasingly depends on *conventions documented in CLAUDE.md* (lockstep enum updates across 4–6 surfaces, cron slot grep discipline, dual bypass-caller registration) rather than CI-enforced invariants — fine while one disciplined operator+agent maintains it, fragile to any second contributor. (2) The two overlapping schema sources (Decision 10). (3) Documentation drift is reappearing post-remediation in PRD §7 (SA-6) — the same class of rot ADR-0001 was written to kill.
-
----
+- **Rationale:** As v4 — the pattern has empirically absorbed two years of feature classes without a rewrite; failure domains that matter are isolated; everything wasteful to distribute is shared.
+- **Specific concerns:** (1) The *out-of-band coupling* class (SA-1/SA-2/SA-3 + platform's PLT-C1) is now the dominant open-risk theme for the second consecutive review — zero of its instances moved between v4 and v5. (2) A second theme is emerging: **"designed-but-not-demonstrated / configured-but-not-enforced"** — coverage gate dormant (SA-9), retention job failing its charter (SA-14), DR unverified (SA-13), doc-sync observe-only (SA-6 root cause). The architecture's control surfaces exist; several are not armed.
 
 ## Structural Risk Register
 
+Carried-forward items retain their v4 IDs; full evidence is in the adjudication table above. Recommendations restated only where they changed.
+
 | ID | Finding | Severity | Component | Recommendation |
 |----|---------|----------|-----------|----------------|
-| SA-1 | Canonical type unions (`CaptureType`, `CaptureSource`, `PipelineStatus`, etc.) are hand-mirrored in `packages/web-next/lib/types.ts` and `packages/mobile/src/lib/types.ts` with no automated parity check. The drift-guard test that protected this contract died with `packages/web` (Phase 8b) and was never rebuilt. CLAUDE.md's "update all four surfaces in lockstep" rule omits these two mirrors — there are six surfaces in reality. **Failure mode:** adding a 10th `source` or 9th `capture_type` passes shared/Zod/DB checks but renders as unknown values or breaks filter UIs in web-next/mobile silently, discovered only in manual testing. | Medium | `packages/web-next/lib/types.ts`, `packages/mobile/src/lib/types.ts` | Add a small vitest drift-guard in each package asserting the local union arrays deep-equal the exported `CAPTURE_SOURCES`/`CAPTURE_TYPES`/`PIPELINE_STATUSES` constants from `@open-brain/shared` (dev-dependency only — runtime decoupling preserved). Update the CLAUDE.md lockstep rules from four surfaces to six. |
-| SA-2 | Dual-source schema bootstrap with confirmed drift: `scripts/init-schema.sql` (the documented restore starting point) includes migration 0031 (`commitments`) and 0029 (`insurance_policies`) but is missing `app_settings` (0010), `spreading_activation` (0012), `lab_results` (0028), and `briefs` (0030). The snapshot and the 33-migration sequence overlap with no machine-checked equivalence, and the homeserver procedure is manual psql (drizzle `migrate.sh` exists but is not the deployed path; no migration-tracking table in the manual flow). **Failure mode:** a disaster-recovery rebuild under stress applies init-schema plus a partial migration set → services start, then 500 on briefs/settings/`include_related` search, with nothing recording which migrations were applied. This compounds the system's weakest moment (full restore). | High | `scripts/init-schema.sql`, `packages/shared/drizzle/`, restore runbook | Make one source authoritative: either (a) generate `init-schema.sql` from `pg_dump --schema-only` of a fully-migrated DB in CI and diff against the committed file (drift fails the build), or (b) delete the snapshot and make `migrate.sh` (drizzle-kit, which tracks applied migrations) the only bootstrap path, referenced by the restore runbook. Option (b) is structurally better. |
-| SA-3 | Loki Docker log driver fails open to `none`: if Loki is unreachable when a container starts, Docker silently drops all log lines (not buffered, no local fallback), and the loki plugin is an undeclared host prerequisite outside compose. **Failure mode:** during a network partition or Loki outage — exactly when debugging is needed — affected containers produce zero retrievable logs for the entire incident window; on a rebuilt host, forgetting the one-time plugin install breaks every service start. | Medium | `docker-compose.yml` `logging:` blocks (13 services), Docker host | Replace the driver-per-container approach with default `json-file` logging (bounded `max-size`/`max-file`) plus a Grafana Alloy/Promtail container in the stack scraping container logs and shipping to Loki. Logs survive Loki outages locally, `docker logs` works again, and the host-plugin prerequisite disappears. |
-| SA-4 | Cross-package BullMQ queue contracts exist only as name strings + duplicated inline payload types (`access-stats` produced in `core-api/src/routes/search.ts` and `mcp/tools/search-brain.ts`, consumed in `workers/src/jobs/update-access-stats.ts`). Payload drift compiles clean and fails at job-processing time. Documented as intentional; acceptable at current count. | Low | core-api search routes, workers `update-access-stats` | Tolerable now. Trigger condition for fixing: a third cross-package queue, or any payload field change — at that point move queue name + payload type to `@open-brain/shared` (types only, no BullMQ import). |
-| SA-5 | PRD §7 states "Health checks on all containers" but cloudflared, prometheus, grafana, financial-ingest, and utility-ingest declare none. The ingress (cloudflared) is the most consequential: a wedged tunnel process keeps `restart: unless-stopped` satisfied while all external access is down — only the synthetic monitor catches it. | Low | `docker-compose.yml` | Add healthchecks: cloudflared (metrics endpoint or `pgrep`), prometheus (`/-/healthy`), grafana (`/api/health`). For the two ingest one-shots, scope the PRD requirement to long-running services instead. |
-| SA-6 | Post-remediation documentation drift recurring in PRD §7: (a) "Monitoring: lean approach … No dedicated monitoring stack" contradicts the deployed Loki/Prometheus/Grafana/Pushgateway stack (P11/P12); (b) budget limits — PRD/CLAUDE.md say soft $30 / hard $50 while `config/ai-routing.yaml` enforces `hard_limit_usd: 35`. Config is authoritative and more conservative, so no cost exposure, but the stated NFR and the enforced NFR disagree. | Low | `docs/PRD.md` §7, `CLAUDE.md`, `config/ai-routing.yaml` | One-pass PRD §7 refresh; pick the canonical budget number and align all three artifacts. Add a docs-drift item to the release checklist — this is the second occurrence of this rot class (first was the "NOT Next.js" episode resolved by ADR-0001). |
-| SA-7 | voice-capture classification model is hardcoded (`gpt-5.4` in `classification.ts`, env-overridable via `CLASSIFICATION_MODEL`) instead of resolving through `ai-routing.yaml` task routing like every other LLM call site. A model migration (e.g., gpt-5.4 retirement) requires remembering this one out-of-band site. | Low | `packages/voice-capture/src/classification.ts` | Add a `voice_classification` task_routing entry and resolve via the shared model-resolver; keep the env override as escape hatch. |
-| SA-8 | Scheduler correctness (no two repeatable jobs on the same cron minute; JSDoc/const parity) is enforced by grep discipline and a CLAUDE.md slot registry, not by code. A reviewer already caught one drift instance (`costAnalysisCron` JSDoc/const divergence in P07 cycle 1). | Low | `packages/workers/src/scheduler.ts` | Add a unit test that imports the registered cron expressions and asserts pairwise minute-slot uniqueness — converts the convention into a CI invariant for ~20 lines of test. |
-| SA-9 | No correlation ID propagation: HTTP requests lack request IDs in structured logs; pipeline stages correlate only via `capture_id` in `pipeline_events`. Adequate for pipeline debugging, weak for tracing a single web/MCP request across core-api → queue → worker → notification. | Low | `@open-brain/shared` logger, core-api middleware | Attach a per-request id (Hono middleware) to the pino child logger and pass it through job payloads as `meta.request_id`. Low effort; no tracing infrastructure needed. |
-| SA-10 | Restore-rehearsal cron (`deploy/cron/unraid-restore-rehearsal.cron`, P16) was designed and documented but its install on the homeserver was still listed as pending ops in the last recorded session notes. If never installed, the recoverability NFR rests on an unrehearsed backup. **Requires Investigation** — live host state is out of review scope. | Requires Investigation | Unraid host crontab | Verify `/boot/config/plugins/dynamix/custom.cron` contains the rehearsal entry; if absent, run the documented install steps. Check the `backup_log` table for rehearsal records. |
-
----
+| SA-1 | Repo compose contradicts accepted ADR-0002 amendment (dual-bind vs. production `0.0.0.0:3002` via sed); now compounded by the rollback runbook deleting the production override (PLT-C1 interlock). Failure modes unchanged: boot-race bind failure from repo-as-written; missed sed silently breaks OpenClaw MCP. | Medium | docker-compose.yml:120-124, docs/runbooks/deploy.md | Parameterize: `"${CORE_API_BIND_IP:-127.0.0.1}:3002:3000"`, homeserver `.env` sets `0.0.0.0`; delete the sed step; fix the rollback procedure jointly with PLT-C1 (append-to-override, never overwrite/delete). |
+| SA-2 | Alert rules (7 files incl. `slo.yml`) + 3 Grafana dashboards remain repo-resident with no in-compose consumer and no ADR-0004 ownership/sync definition. Failure mode: SLO alerting silently drifts or goes dark. | Medium — **Requires Investigation** | config/prometheus/alerts/, config/grafana/dashboards/, ADR-0004 | Unchanged: verify which copy is live in the observability project; assign exactly one owner. |
+| SA-3 | Ollama (`t0_local`) and Gitea (wiki git remote) re-joined by `post-compose-up.sh` after every `up`; skipping it silently degrades the t0 tier (masked by fallback) and breaks wiki git ops. Header still cites the retired observability profile. | Medium | scripts/post-compose-up.sh, docker-compose.yml | Unchanged: apply the ADR-0004 external-network pattern declaratively; at minimum add a resolve-check to the config-diff gate and fix the stale header. |
+| SA-4 | Dual voice stacks in production indefinitely; voice-pipecat publishes `0.0.0.0:8765/8766` with no auth found, holds Deepgram+Anthropic keys, absent from ADR-0002/SECURITY.md; #57 blocked on #54 since ~April. Security domain now carries this as Go-condition SEC-A1/A136 (High). Failure mode: any LAN host can burn paid Deepgram/Anthropic spend, possibly outside `ai_audit_log` budget visibility; ~12.5 GB reserved memory + duplicated ingest path. | Medium — **Requires Investigation** (session gating; budget visibility of pipecat spend) | voice-pipecat compose ports 259-260, ADR-0002, issues #54/#57 | Unchanged: extend the exposure model to 8765/8766 (loopback/Tailscale bind or Bearer mirroring D132); time-box #54 and retire the losing stack. |
+| SA-5 | `t1_spark.fallback: t1_fast` silently crosses free→paid and openai_compat→anthropic for JSON-mode extraction tasks; `validateTaskRouting()` non-fatal and reload-only. Failure mode: Spark outage during bulk ingest converts a free JSON-mode path into paid Anthropic without the JSON contract — the $100-incident class. | Medium | config/ai-routing.yaml:119, packages/shared/src/config/loader.ts:60,115 | Unchanged: machine-check constraint classes (tier capability tags; fallback hop skips incompatible tiers); run validation in `load()`; consider `fallback: null` for JSON-mode extraction (queue-and-retry, matching the embeddings stance). |
+| SA-6 | Doc-drift cluster with one actively dangerous item: TDD:4035 still instructs auto-migration (opposite of the ledger model — an operator following it deploys against a stale schema). README 17-containers/Waves-remain, PRD `--profile`, ADR-0003 "Proposed", OPEN_ITEMS stale — all unmoved since v4. Root cause unchanged: doc-sync CI observe-only. | Medium | docs/TDD.md:4035, README.md:9,222, docs/PRD.md:1532,1893, docs/adr/ADR-0003, OPEN_ITEMS.md | Fix TDD:4035 immediately (safety). Second consecutive review flagging the identical lines — promote doc-sync to enforcing for container-count/version/migration-model assertions; flip ADR-0003 to Accepted. |
+| SA-7 | web-next healthcheck probes full-SSR `/dashboard` every 30 s — conflates liveness with core-api health; degraded upstream can restart-loop a healthy web-next. | Low | docker-compose.yml:420-421 | Unchanged: probe a static asset or trivial `/api/healthz`. |
+| SA-8 | Bare `docker compose up` fails without the external `observability` network (undocumented for dev); financial/utility inbox host paths hard-coded to Unraid layout. | Low | docker-compose.yml:8-9,484,519, README | Unchanged: document `docker network create observability`; parameterize the two inbox paths. |
+| SA-9 | Workers coverage gate configured (78/81) but `test` script omits `--coverage`; orchestration spine (`skill-execution.ts`, `scheduler.ts`, `ingest-process.ts`) at 0%. **v5 delta:** vitest 3 re-baselined measurement to 73.72% and core-api received an unmasked-file backfill while workers did not — the enforcement gap widened. | Medium (primary owner: QA domain) | packages/workers/package.json:17, vitest.config.ts | Execute the test catch-up sized against the *vitest-3* baseline (the ~447-line estimate is now stale), then arm `--coverage` atomically. Never lower the threshold. |
+| SA-10 | `runAgent` bounds iterations and *accounts* tokens but never *caps* accumulated context — the #204 6.5M-token blowup class is inherited by every agent skill. | Medium | packages/shared/src/services/run-agent.ts, #204 | Add a running token-estimate ceiling to the loop (fail or summarize-and-continue) — the accumulator already exists (`AgentTokenUsage`), so the ceiling is a small delta on present code. |
+| SA-11 | `NEXT_PUBLIC_API_URL: http://core-api:3000` under a comment saying "intentionally empty in Docker"; browser-prefixed var carrying an internal Docker hostname is a future-client-component footgun. | Low | docker-compose.yml:412-414 | Unchanged: delete the var (server code prefers `API_URL`) or rename non-public; fix the comment. |
+| SA-12 | PRD:1531 claims a circuit breaker on external API calls that does not exist as a mechanism. | Low | docs/PRD.md:1531 | Unchanged: reword to name actual mechanisms, or implement a trip-after-N-failures guard. |
+| SA-13 | Recoverability designed but not demonstrated: first scheduled offsite + rehearsal runs still unverified; Unraid cron persistence is exactly the silent-failure class the design warns about. | Medium — **Requires Investigation** | scripts/offsite-backup.sh, scripts/restore-rehearsal.sh, Unraid cron | Unchanged: one-time verification of cron/Pushover receipts; add a "rehearsal ran within 8 days" freshness check so silence itself alerts. |
+| SA-14 | **NET NEW.** `pruneRetentionData()` (`packages/workers/src/jobs/data-retention-prune.ts:74-120`) executes the 5-table `RETENTION_POLICY` in a single sequential loop with **no per-entry error isolation** — any table's failure aborts every subsequent entry and fails the whole job. Combined with the `briefs.source_skill_log_id → skills_log` FK (init-schema.sql:1816, no `ON DELETE`), the `skills_log` DELETE throws every Sunday; the DA-1 fix deadline (2026-07-12 02:00) **passed unmet this morning**, so the job has now failed at least twice and no migration 0036 exists (latest is 0035). Today the blocked table is last in the policy (lines 29-35), so the first four tables do prune — but that is ordering luck, not design: any FK/lock error on an earlier entry would silently skip all downstream retention, surfacing only as a BullMQ failed job with no `retention_audit` row for skipped tables. This is a fault-isolation design gap in a destructive scheduled job, distinct from (and outlasting) the specific FK fix DA-1 owns. **Failure mode:** partial or total retention stops silently; event tables (`pipeline_events`, `ai_audit_log`, …) grow unbounded until noticed via disk/DB bloat. | Medium (the operational FK failure itself is DA-1, High, data domain) | packages/workers/src/jobs/data-retention-prune.ts:80-120 | Wrap each policy entry in try/catch: record per-table success/failure in `retention_audit`, continue to the next entry, and fail the job at the end only if any entry failed (preserving alerting). Land alongside the DA-1 FK migration (0036) — the FK fix alone leaves the pattern fragile. |
 
 ## Evolution Assessment
 
-The architecture has comfortable runway — roughly two-plus years of plausible requirements absorb cleanly:
+The two-year runway assessment stands — the pattern itself is not the constraint. What changed between v4 and v5 is *velocity signal*: the only work merged was dependency hygiene (well-executed), while all 13 architectural findings, all 4 cross-domain Go-conditions, and one hard deadline (DA-1, this morning) sat untouched. The constraint ordering from v4 holds, with one amendment:
 
-- **New ingestion sources** are the most likely growth axis and the best-supported one: the pattern (adapter container or Python puller → `POST /api/v1/captures` with caller header → pipeline) has been exercised eight times already (slack, voice, email, files, financial, utility, mobile, mcp). Marginal cost of source #9 is low.
-- **New skills/crons** slot into the BaseSkill + scheduler framework, constrained mainly by the convention-based slot registry (SA-8).
-- **Search scale:** at single-user capture rates (~5–50/day on a ~11K base), pgvector HNSW with the LIMIT push-down holds for years. The first quantitative ceiling is the Postgres 8 GB `mem_limit` versus HNSW index working set, somewhere in the mid-hundreds-of-thousands of embedded rows — distant, and TDD §18.5 already plans for it.
-
-**The first design element that becomes a constraint is not a component — it is the convention-enforcement model.** Correct evolution currently requires an operator (or agent) who reads and obeys ~40 CLAUDE.md lockstep rules: enum changes across six surfaces, dual bypass-caller registration, cron slot greps, init-schema parity, doc refresh. Every Medium/High finding above (SA-1, SA-2, SA-3, SA-5, SA-6, SA-8) is an instance of a convention that drifted despite exceptional discipline. The highest-leverage architectural investment is converting the top five conventions into CI-enforced invariants (drift-guard tests, schema-snapshot diff, cron-slot test) — after which the structure itself imposes no rewrite-class constraint within the planning horizon. Secondarily, a second concurrent human contributor or a second deployment host would stress the single-host, convention-heavy posture before any code structure does.
-
----
+1. **Out-of-band coupling class (SA-1/SA-2/SA-3 + PLT-C1)** — still first; now a two-review-old fragility tax. The rollback-runbook interaction (PLT-C1) makes SA-1's fix genuinely urgent rather than merely cheap.
+2. **The "configured-but-not-armed" control-surface class (SA-9, SA-13, SA-14, doc-sync)** — newly promoted to second place: the system's governance machinery (coverage gates, retention, DR verification, doc-sync) is increasingly *present but disengaged*, and SA-14 is the first instance where a disengaged control is actively failing its charter in production.
+3. **Dual voice stack (SA-4)** — subtraction candidate; each month adds divergence and ~12.5 GB reserved memory.
+4. **Four-surface enum lockstep / `@open-brain/shared` cohesion / workers-as-inner-monolith** — unchanged from v4, longer-horizon.
 
 ## Findings Summary
 
 | Severity | Count |
 |----------|-------|
 | Critical | 0 |
-| High | 1 |
-| Medium | 2 |
-| Low | 6 |
-| Requires Investigation | 1 |
-| **Total** | **10** |
+| High | 0 |
+| Medium | 10 |
+| Low | 4 |
+
+Total 14 (13 carried forward STILL OPEN + 1 net-new SA-14). Three findings (SA-2, SA-4, SA-13) are additionally marked **Requires Investigation** — they depend on live-host or shared-stack state outside this read-only review's reach.

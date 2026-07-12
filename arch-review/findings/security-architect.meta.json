@@ -1,0 +1,29 @@
+{
+  "security-architect": {
+    "agent": "security-architect",
+    "role": "Security Architect",
+    "started_at": "2026-07-12T21:48:23Z",
+    "completed_at": "2026-07-12T21:55:56Z",
+    "runtime_seconds": 453,
+    "confidence": "Medium",
+    "confidence_rationale": "Adjudication of the narrow post-v4 delta (dependency-only PRs #232-#234) was fully evidence-verified, but no SAST/scanner tooling was available (manual review + pnpm audit only) and deployed-state controls (VOICE_CAPTURE_SECRET presence) could not be confirmed live.",
+    "tools": {
+      "semgrep":       { "available": false, "findings_count": null },
+      "bandit":        { "available": false, "findings_count": null },
+      "eslint":        { "available": false, "findings_count": null },
+      "pip-audit":     { "available": false, "findings_count": null },
+      "safety":        { "available": false, "findings_count": null },
+      "trivy":         { "available": false, "findings_count": null },
+      "govulncheck":   { "available": false, "findings_count": null }
+    },
+    "findings_count": {
+      "critical": 0,
+      "high": 1,
+      "medium": 3,
+      "low": 4,
+      "requires_investigation": 1,
+      "total": 8
+    },
+    "coverage_notes": "No SAST or dependency-scanner binaries available (pnpm audit used as substitute: 0C/2H/24M/3L across 1841 deps). Live homeserver state out of scope, so SEC-A3's deployed secret state is taken from intake, not verified. Standalone observability project and LiteLLM proxy internals out of scope per intake."
+  }
+}

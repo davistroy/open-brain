@@ -1,0 +1,26 @@
+{
+  "integration-architect": {
+    "agent": "integration-architect",
+    "role": "Integration Architect",
+    "started_at": "2026-07-12T21:47:09Z",
+    "completed_at": "2026-07-12T21:51:45Z",
+    "runtime_seconds": 276,
+    "confidence": "High",
+    "confidence_rationale": "Verification pass over v4 with full source access; git history confirms only Dependabot PRs #232-#234 merged since v4, and every finding site plus the nodemailer-touched email path was re-inspected directly.",
+    "tools": [
+      { "key": "curl", "available": true, "findings_count": null },
+      { "key": "jq", "available": true, "findings_count": null },
+      { "key": "openapi-generator", "available": false, "findings_count": null },
+      { "key": "spectral", "available": false, "findings_count": null }
+    ],
+    "findings_count": {
+      "critical": 0,
+      "high": 0,
+      "medium": 6,
+      "low": 6,
+      "requires_investigation": 0,
+      "total": 12
+    },
+    "coverage_notes": "Read-only code review; live homeserver state not probed (notably whether VOICE_CAPTURE_SECRET is now set in prod for IA-M2), and the external observability compose project and shared LiteLLM proxy internals are out of scope."
+  }
+}

@@ -1,11 +1,10 @@
 # Architecture Review — Executive Summary
 
-**System:** Open Brain — self-hosted personal AI knowledge infrastructure (v1.6.0, main @ ac42938)
-**Review Date:** 2026-06-10
+**System:** Open Brain — self-hosted personal AI knowledge platform (v1.6.0)
+**Review Date:** 2026-07-12
 **Review Lead:** Architecture Review Team (9 agents)
-**Scope:** Full monorepo (9 packages), Docker/compose infra, config YAMLs, scripts (backup/DR/secrets), CI workflows, migrations/schema, MCP surface, Cloudflare workers, observability config, docs. Out of scope: live homeserver runtime (except one read-only crontab check by Risk & Compliance), external vendors' internals, the standalone LiteLLM proxy, OpenClaw.
-
-> Supersedes the 2026-04-18 review. All nine agents verified prior-review remediations (PRs #180–#189 + 2026-05-09 cohesive remediation) as genuinely closed before raising new findings: web consolidation, caller-trust model with `isInternalIp()`, BYPASS_CALLERS hoist, ingest N+1, hybrid_search LIMIT push-down, batch-UPSERT invariant, autonomy gates, admin_audit, secrets-free backups, cost-field fail-fast, Composio metering — all confirmed present and correct.
+**Review generation:** v5 — supersedes 2026-07-09 v4 (v4 artifacts preserved at `~/dev/personal/open-brain-backups/arch-review-v4-20260709/`)
+**Scope:** Entire repository (all packages, scripts, config, compose, CI/CD, runbooks, Cloudflare workers, schema machinery) + adjudication of every v4 finding. Out of scope: live homeserver state (read-only, no SSH), load-test execution, the standalone observability compose project, LiteLLM proxy internals.
 
 ---
 
@@ -13,111 +12,109 @@
 
 | Domain | Confidence | Runtime | Tools Available | Tools Missing | Findings |
 |--------|-----------|---------|----------------|---------------|----------|
-| Solutions Architect | High | 500s | — | cloc, tokei, plantuml | C:0 H:1 M:2 L:6 RI:1 (10) |
-| Data Architect | High | 541s | — | psql, redis-cli (static only) | C:0 H:2 M:4 L:6 RI:1 (13) |
-| Integration Architect | High | 427s | curl, jq | spectral, openapi-generator | C:0 H:1 M:6 L:2 (9) |
-| Software Engineer | High | 605s | — | cloc, eslint, pylint, radon, lizard | C:1 H:2 M:5 L:9 RI:1 (18) |
-| Performance Engineer | Medium | 572s | — | k6, ab, wrk, hey, vegeta | C:0 H:1 M:6 L:5 (12, 1 RI within M) |
-| QA Architect | High | 500s | — | jest/pytest/vitest CLIs (not on PATH) | C:0 H:2 M:6 L:5 (13) |
-| Security Architect | Medium | 680s | pnpm audit | semgrep, bandit, trivy, pip-audit, safety | C:0 H:3 M:4 L:5 (12, 2 RI within) |
-| Platform Engineer | High | 501s | docker | terraform, helm, kubectl | C:0 H:4 M:10 L:5 RI:2 (21) |
-| Risk & Compliance | High | 484s | git, jq, ssh (1 live crontab check) | gh (unauthenticated) | C:0 H:2 M:4 L:3 RI:2 (11) |
-| **Totals** | | | | | **C:1 H:18 M:47 L:46 RI:7 (119)** |
+| Solutions Architect | High | 341s | git, grep | cloc, tokei, plantuml | C:0 H:0 M:10 L:4 (RI:3) |
+| Data Architect | High | 220s | psql (no target DB) | mysql, redis-cli | C:0 H:1 M:5 L:5 (RI:2) |
+| Integration Architect | High | 276s | curl, jq | openapi-generator, spectral | C:0 H:0 M:6 L:6 |
+| Software Engineer | High | 438s | grep, wc, vitest-coverage | cloc, eslint, radon, lizard | C:0 H:3 M:5 L:14 (RI:2) |
+| Performance Engineer | High | 198s | — (code-level only) | k6, ab, wrk, hey, vegeta | C:0 H:1 M:3 L:7 (RI:1) |
+| QA Architect | High | 320s | vitest via pnpm exec, gh api | global test binaries | C:0 H:3 M:4 L:8 (RI:1) |
+| Security Architect | **Medium** | 453s | pnpm audit | semgrep, bandit, trivy, pip-audit, safety | C:0 H:1 M:3 L:4 (RI:1) |
+| Platform Engineer | High | 343s | docker | terraform, helm, kubectl (n/a) | C:1 H:4 M:9 L:5 (RI:3) |
+| Risk & Compliance | High | 352s | git, jq, gh | vendor dashboards | C:0 H:2 M:3 L:5 (RI:1) |
+| **Totals (raw, pre-dedup)** | | ~25 min wall | | | **C:1 H:15 M:48 L:58 — 129 findings, 14 requires-investigation** |
+| **Totals (deduplicated)** | | | | | **C:1 + 12 unique High** (3 High duplicates fold into the DA-1 and QA-1 clusters) |
 
-**Coverage notes:**
-- No SAST binaries anywhere (semgrep/bandit/trivy etc.) — security analysis was grep-based plus a successful offline `pnpm audit`. This is the second consecutive review with this gap (QA Medium-8).
-- No load-test tooling and no live DB access — Performance Engineer's quadratic-job and spreading-activation findings are structural estimates pending the 6 recommended validation scenarios in its report.
-- Cloudflare Access enforcement (the system's outermost confidentiality control) is configured in the CF dashboard and **cannot be verified from the repository** — flagged requires-investigation (SEC-01).
-- Risk & Compliance performed one read-only live check: `crontab -l` on the homeserver, which **confirmed** the restore-rehearsal cron is NOT installed — resolving what three other agents could only flag as requires-investigation.
+**Coverage notes (surfaced from metas):**
+- Security is the only Medium-confidence domain: no SAST/scanner binaries (semgrep/bandit/trivy absent); manual review + `pnpm audit` substitute. Deployed secret state (`VOICE_CAPTURE_SECRET`) taken from intake, not verified live.
+- All domains: live homeserver state unverifiable — specifically whether the Sun 2026-07-12 02:00 `data-retention-prune` run FK-failed (DA-1/RI-A), scheduled offsite/rehearsal cron executions (A131), shared-stack Alertmanager delivery (PLT-H2), and litellm network attachment.
+- QA executed a live vitest-3 workers coverage run (1091/1091 pass, 73.72% lines) and live `gh api` branch-protection/CodeQL checks — coverage numbers in this report are re-measured, not carried forward.
+- Adjudication basis: git history confirms the only post-v4 merges are Dependabot PRs #232–#234 + `cd14c1f` (dependabot.yml) — every v4 finding site was re-verified at HEAD rather than assumed.
+
+**v4 → v5 adjudication outcome:** of ~117 v4 findings, **2 genuinely improved** (dependency backlog: 112 vulns/4 critical → 29/0, downgraded to Low; security scanning: CodeQL default setup + Dependabot automation landed 2026-07-12, QA-6 downgraded), **1 corrected in scope** (perf PE-M2: `embedBatch()` exists but has zero callers — fix smaller than v4 stated), **everything else STILL OPEN**, including all four v4 go-conditions. One v4 High materialized into an active production failure (DA-1). The Dependabot remediation itself was verified regression-free (nodemailer 9's breaking change doesn't apply to the SMTP-only usage; vitest 3 needed no config change; the `sse.ts` dead-code removal left zero dangling references) and was executed with exemplary discipline (digest-verified rollback anchors, isolated waves, constitution-correct coverage fix).
 
 ---
 
 ## Go / No-Go Recommendation
 
-**Recommendation: CONDITIONAL GO** (system is in production; continue operating with immediate remediation)
+**Recommendation: CONDITIONAL GO** — the system is in production and architecturally sound (pattern fit remains 5/5), but the same four conditions from v4 carry forward unmet, and one has transitioned from "will fail" to "presumed failing in production."
 
-**Rationale:** The architecture is fundamentally sound — fit score 5/5, prior-review remediation verified durable, idempotency/secrets/runbook discipline genuinely strong. But the review found one Critical correctness bug that silently disables the system's entire capture-recovery architecture, and a cluster of "designed but never switched on" controls (restore rehearsal, offsite backup, coverage gates, CI image for the production UI) that collectively mean the safety net the operator believes exists largely does not.
+**Rationale:** Three days elapsed since v4; the only work shipped was the (well-executed, but discretionary) Dependabot remediation, while all four dated go-conditions sat unactioned — including one whose hard deadline lapsed the morning of this review. The codebase is healthy; the risk is concentrated in operator follow-through on known, small, fully-specified fixes. This is now a **third-cycle pattern**: each condition costs ~1 hour to half a day; carrying them costs a booby-trapped recovery path, a silently failing retention control, and an unmetered paid-API attack surface.
 
-**Conditions (resolve within ~1 week):**
-1. **SE-1** — Fix the stuck-capture sweep status filter (`'received'` → `'pending','processing','extracted'`) in `daily-sweep.ts` + `stale-captures.ts`, with a test pinning the filter to `PIPELINE_STATUSES`. ~2 hours; restores the recovery architecture.
-2. **RC-2** — Install the restore-rehearsal cron on the homeserver (verified live as absent; ~7 weeks of backups never restore-validated). Minutes of work; the control is already built.
-3. **SEC-03** — Bump `next` to ≥ 16.2.5 (App Router proxy-bypass advisory; `proxy.ts` is the load-bearing caller-identity control on the public path). One-line change.
-4. **RC-1 / DA-H2 / PLT-H4** — Stand up the offsite backup the TDD already documents (rclone-crypt weekly, key in BWS). Today primaries + all 21 retained backups share one chassis. Half a day.
+**Conditions (priority order):**
+1. **TODAY — DA-1/A135:** Ship migration 0036 (`briefs.source_skill_log_id` → `ON DELETE SET NULL`) + per-table try/catch in `pruneRetentionData()` + init-schema regen; then check prod `retention_audit`/worker logs for the 2026-07-05 and 2026-07-12 02:00 runs and clear failed jobs. The job is presumed to have failed twice in production.
+2. **Before next deploy or incident — PLT-C1/A134:** Rewrite `docs/runbooks/deploy.md` §5/§8 (restore-from-backup semantics, config-diff gate, `--remove-orphans` prohibition, correct volume claims). ~1 hour. Entry 183's deploy explicitly routed around this runbook — institutionalize the safe procedure it used.
+3. **This week — SEC-A1/A136:** Stop voice-pipecat or bind `127.0.0.1:8765` pending #54/#57; add it to ADR-0002's port table + SECURITY.md.
+4. **Owner decision — RC-10:** Flip repo private (or document explicit acceptance in the Risk Acceptance Register). Entry 183 added deployed image digests to the public record.
+5. **New this cycle — RC-19 (the root cause of 1–4):** Institute a dated operator-actions checklist reviewed on the monthly-audit cadence, with heartbeat (not failure-only) alerts. Without a forcing function, conditions 1–4 will still be open at v6.
 
 ---
 
-## Critical and High Findings Summary
+## Critical and High Findings Summary (deduplicated)
 
-| ID | Domain | Severity | Finding | Business Impact | Effort |
-|----|--------|----------|---------|----------------|--------|
-| SE-1 | Software Eng | **Critical** | Both stuck-capture sweepers filter on `pipeline_status IN ('received','processing')` — `'received'` is not a valid status. Captures stranded in `'pending'` (failed enqueue) or `'extracted'` (embed retry exhaustion — the exact case the "no embedding fallback, queue and retry" design depends on the sweep to recover) are never re-enqueued. | An OpenAI outage > 2h strands captures permanently un-embedded (FTS-only, silent quality loss). The designated recovery safety net recovers almost nothing. | 2h |
-| RC-1 / DA-H2 / PLT-H4 | Risk, Data, Platform | High | No offsite backup. Primaries, all ~21 retained backups, and pre-wipe dumps share one Unraid chassis. TDD documents a weekly rclone-crypt offsite sync that does not exist (repo + live crontab checked). | Fire/theft/ransomware/multi-disk failure destroys 11K+ irreplaceable captures incl. health, insurance, financial records and every backup simultaneously. | 0.5d |
-| RC-2 (+SA-10, PLT-RI-1) | Risk (live-verified) | High | Restore-rehearsal cron (P16) designed, documented, never installed — confirmed via live `crontab -l`. Only the 03:00 backup runs. | Backups have never been machine-validated as restorable; the "tested weekly" DR claim is void. | minutes |
-| DA-H1 / SA-2 | Data, Solutions | High | `init-schema.sql` drift is worse than tracked: missing `app_settings` (0010) in addition to known 0012/0028/0030, while including 0029/0031. Both integration-test suites bootstrap **exclusively** from this drifted file (the "source of truth through 0031" comment in workers test setup is false). No machine-checked equivalence between the snapshot and the 33-migration chain. | CI integration tests run against a schema that diverges from production; a disaster-recovery rebuild under stress produces a half-schema'd system (no settings store = no email allowlist, no autonomy level). Compounds at the system's weakest moment. | 0.5–1d |
-| SEC-02 | Security | High | Compose publishes core-api :3002, Postgres :5432 (with `openbrain_dev` default-password fallback), password-less Redis :6380, Pushgateway :9091 etc. to `0.0.0.0` on the LAN. core-api has no in-boundary auth and `isInternalIp()` *trusts* RFC1918 sources. | Any LAN host (compromised IoT, guest device) can read/write all personal data, claim `internal:*` caller identity, read admin reset tokens from Redis. | M |
-| SEC-03 | Security | High | `next ^16.2.4` < 16.2.5 fix for App Router middleware/proxy bypass (+SSRF/DoS advisories). `proxy.ts` is the single control overwriting `X-Open-Brain-Caller` on the tunnel path. | Proxy bypass defeats the only caller-identity guard on the production ingress path. | S |
-| SEC-01 | Security | High (RI) | Cloudflare Access enforcement is unverifiable from the repo — the entire confidentiality model rests on it. | If misconfigured/absent, full dashboard + API + MCP is internet-exposed unauthenticated. | Verify: minutes |
-| PLT-H1 | Platform | High | `web-next` (the production UI) is missing from `build-images.yml` — only 7 of 8 images built by CI. Deploy runbook's "every merge pushes fresh images" claim is false for the UI. | Every `docker compose pull` deploy ships a stale UI or fails; silent drift between main and production ingress. | S |
-| PLT-H2 | Platform | High | Workers container is a single point of alerting failure: all container-health/queue gauges are pushed *from workers* to Pushgateway, which retains stale values forever. No `absent()`/staleness rules; workers has no Docker healthcheck. | Workers dies → every alert freezes at "healthy", all Pushover-sending skills stop, queues back up silently overnight. The synthetic monitor watches core-api, not workers. | S–M |
-| PLT-H3 / SA-3 | Platform, Solutions | High | Loki log-driver default URL (`loki:3100`) is unresolvable from the daemon-level driver, and observability.md Step 6 instructs the operator to switch to exactly that broken value. Driver drops (not buffers) lines when Loki is unreachable. | Following the runbook silently destroys all container logs — precisely during incidents, when they're needed. | S (doc+env fix) / M (json-file+Alloy redesign) |
-| QA-H1 | QA | High | Coverage gates are dormant: thresholds configured in workers (78/81 + four per-file 100% locks) and core-api (80/80), but no test script or CI step ever passes `--coverage` — verified via git history. CLAUDE.md documents the gate as "enforcing"; it has never gated a run. | Coverage (incl. 100%-locked files like `base-skill.ts`, `spend-tracker.ts`) can erode silently while documentation claims otherwise. | S |
-| QA-H2 / PLT-M8 | QA, Platform | High | `build-and-test` was never promoted to a required status check despite CLAUDE.md recording the blocker (A126) as resolved. Only the integration suite gates merge. | Failing unit tests, typecheck, or builds across all 7 TS packages can merge to main; slack-bot (492 tests), web-next, mobile have zero blocking automation. | One API call |
-| SE-2 | Software Eng | High | `POST /captures/:id/retry` is a silent 200-no-op for `'failed'` captures — `ingestion-worker.ts:100` treats failed as terminal. | The manual recovery path for failed document captures doesn't work, compounding SE-1. | S |
-| SE-3 / PE-L3 | Software Eng, Perf | High | POST-search pagination structurally broken: route slices `[offset, offset+limit]` from a result already capped at `limit` — page 2+ is always empty. | Any paginating client (mobile, agents) silently sees only page 1. | S |
-| INT-H1 | Integration | High | slack-bot `CoreApiClient.request()` (~35 methods) has no timeout and no retry — the only unhardened internal boundary, despite being the documented single choke point. | Wedged core-api connection hangs Bolt handlers past Slack's ack window; user-visible silent failures. | S |
-| PE-H1 | Performance | High | `memory-consolidation-query.ts` + `capture-dedup-sweep.ts` each run a weekly O(N²) cosine self-join (HNSW cannot serve a join predicate; LIMIT applies after full evaluation). ~60M distance computations at 11K captures; quadruples per corpus doubling; infeasible ~50–100K. | The fastest-growing cost in the system; weekly batch window blowout, then outright failure, well before any search-path limit. | M (per-row HNSW k-NN rewrite) |
+| ID | Domain(s) | Severity | Finding | Business Impact | Remediation Effort |
+|----|-----------|----------|---------|-----------------|-------------------|
+| PLT-C1 (A134) | Platform (file label PE-C1) | **Critical** | deploy.md §5 rollback `cat >`-truncates then `rm`s the production `docker-compose.override.yml` — the only file pinning postgres/redis raw binds; §8 falsely claims `postgres_data` named volume holds the live DB. The safe procedure exists only in LAB_NOTEBOOK Entry 183. | Following the documented rollback during an incident detaches the production DB onto empty volumes. The recovery path is booby-trapped precisely when it's needed. | ~1 hour (docs) |
+| DA-1 (A135) | Data + Software (SW5-H3) + Risk (RC-19 facet) + Solutions (SA-14) | **High — actively failing** | `data-retention-prune` skills_log DELETE FK-blocked by `briefs.source_skill_log_id` (no ON DELETE, init-schema.sql:1816); no per-table isolation (data-retention-prune.ts:80-118); no migration 0036. Hard deadline (Sun 2026-07-12 02:00) passed unmet — presumed second consecutive production failure. The other 4 tables prune only by array-ordering luck. | Retention control (RC-4) silently broken weekly; skills_log grows unbounded; retention_audit incomplete. | Half a day (migration + try/catch + test + init-schema regen) |
+| SEC-A1 (A136) | Security | **High** | voice-pipecat `ws://0.0.0.0:8765` zero-auth (compose:259; config.py:44 defaults 0.0.0.0); absent from ADR-0002 exposure model and SECURITY.md. Zero remediation motion across two cycles. | Any LAN socket drives paid Deepgram+Anthropic (outside the OpenAI-only budget breaker) and can inject captures. | One line (bind/stop) + doc updates |
+| RC-10 | Risk | **High** | Repo live-verified PUBLIC (`gh repo view`) with 250+ LAN/topology references; Entry 183 added deployed image digests to the public record. | Public blueprint of home-network attack surface + an inventory of currently-inert controls. | Owner decision (minutes) |
+| QA-1 / SW5-H1 | QA + Software | **High — third cycle** | Workers coverage gate dormant (`test` script lacks `--coverage`); re-measured live under vitest 3: **73.72% vs 78 floor** (a true, never-inflated number). The untested spine is growing: `scheduler.ts` 0% (307→495 lines since v4-era measurement), `skill-execution.ts` 0.41%, `ingest-process.ts` 0%, consolidation query layer 4.7%. Both Entry-180 production incidents lived in this band. Functions 81.75% is only 0.75pp above its own threshold. | The code that runs every scheduled job has zero CI verification; regressions ship undetected. | ~493-line test catch-up, then one-word script change |
+| QA-2 | QA | **High** | Full-stack ingest e2e permanently disabled in CI (ci.yml:212 deferral comment). | The bug classes it defends were all historically deploy-discovered. | Medium (full-stack test compose) |
+| QA-3 | QA | **High** | Web UI (270 src files) has zero component tests; one Playwright smoke that no workflow invokes and which self-skips without a live stack. | The sole UI ships on manual testing only. | Medium (wire smoke into CI + top-page component tests) |
+| SW5-H2 / perf PE-H1 | Software + Performance | **High** | `runAgent()` has no context/token budget; monthly-reflection.ts:164 interpolates full untruncated capture content (×200 captures ×5 tools ×10 iterations) — root cause of #204's 6.5M-token blowup. Entry 180's 120s timeout bump was a symptom patch. | Monthly skill fails or burns budget; every agent-loop skill inherits the defect. | Small–medium (budget at the runAgent layer) |
+| PLT-H1 | Platform | **High** | deploy.md/observability.md contradict post-ADR-0004 reality: §7 still documents the 4 GPL containers deleted 2026-07-01; §4's migration step is non-executable on Unraid (no psql); the config-diff gate + `--remove-orphans` prohibition live only in CLAUDE.md/LAB_NOTEBOOK. | A non-builder operator following the runbooks fails or causes harm mid-incident. | 2–4 hours (docs) |
+| PLT-H2 | Platform | **High (RI)** | Alert-rule/dashboard ownership ambiguous post-ADR-0004: the 7 in-repo rule files + dashboards are mounted by nothing; sync with the shared stack is undeclared; `WorkersMetricsAbsent`/`PushgatewayStale` delivery is unproven. | Workers is the Pushover engine; if it dies, the only watchers are rules whose delivery path is unverified → total alerting darkness. | Small (verify once + ownership note) — needs live host |
+| PLT-H3 | Platform | **High** | 3 SLO alerts annotate `docs/runbooks/slo-alert.md`, which does not exist (slo.yml:79/102/124). | An SLO breach fires with a dead runbook link mid-incident. | ~1 hour |
+| PLT-H4 (A131) | Platform + Risk (RC-12) + QA (RI-1) | **High (RI)** | No dead-man's switch on the backup chain; all alerting is push-on-failure from the scripts themselves; A131 (verify the first scheduled offsite/rehearsal runs) open since 2026-06-11 — ~1 month of unverified runs. Lost Unraid cron entries or an unreadable `.env.secrets` in cron context (`. ./.env.secrets 2>/dev/null` swallows the error) = silent backup death. | DR is believed-working but unproven; the silent failure mode is undetectable. | Verify logs once + freshness gauge (half a day) |
+| RC-19 | Risk | **High — NEW** | Dated operator actions have no forcing function: A135's hard deadline passed while discretionary work shipped in the same window; A134 sat through a real deploy that explicitly routed around it; the voice secret has been unset ~6 weeks; A131 ~1 month. The gap is prioritization visibility, not discipline (Entry 183 shows excellent change management when work is scheduled). | Without a forcing function, the same four go-conditions will still be open at v6. | Small (dated checklist on monthly-audit cadence + heartbeat alerts) |
 
 ---
 
 ## Cross-Domain Risk Map
 
-**1. The disaster-recovery moment is the system's compounding weak point.** Four independent findings converge on the same scenario: no offsite backup (RC-1/DA-H2/PLT-H4) means a chassis event destroys everything; the rehearsal cron was never installed (RC-2) so restorability is unproven; init-schema drift (DA-H1/SA-2) means even a successful restore-from-scratch produces a broken schema (no `app_settings` → no email allowlist, no autonomy levels); and no migration ledger (DA-M1 — drizzle `meta/` is empty, so `scripts/migrate.sh` cannot work) means nobody can tell which migrations a rebuilt DB received. Each is cheap to fix; together they mean the current DR posture is substantially weaker than the (excellent) backup tooling suggests.
+1. **"Configured but not armed" (Solutions theme — now with a live casualty).** Dormant workers coverage gate (QA-1) + warn-allow voice Bearer with the secret unset ~6 weeks (SEC-A3/IA-M2/RC-11 — D132's risk acceptance rests on an INACTIVE control) + observe-only doc-sync (PE-M7/QA-10) + unverified DR (PLT-H4/A131) + a retention job failing its charter (DA-1). DA-1 is the first instance where this class produced an actual production failure; the others are the same failure mode waiting for a trigger.
+2. **Runbook drift × landmine architecture.** PLT-C1 compounds with ADR-0004's decision to keep the bind reconciliation in a gitignored, host-only override: the single file that keeps production data attached is exactly what the documented rollback destroys. doc-sync (observe mode, version-strings only) is structurally blind to this drift class — the control that should catch PLT-C1 cannot.
+3. **Automation added faster than gates.** Dependabot now auto-bumps weekly into: (a) Cloudflare workers with zero CI compile/test — open PRs include the mail parser (postal-mime) and a workers-types 4→5 major (QA-7, aggravated); (b) `build-images.yml`, which has no PR-time execution and no publish-failure alert — a broken GH Actions major (#242 touches all 11 build steps) fails silently post-merge and the next `docker compose pull` redeploys stale `:latest` with no signal (platform PE-M9, escalated Low→Medium); (c) dependabot.yml omits the `pip` and `docker` ecosystems, so the Python sidecars and Phase-9.5 image pins age invisibly (platform PE-L6).
+4. **Alerting single-point-of-failure chain.** Workers container = the app-layer Pushover engine → its external watchers are Prometheus rules whose post-ADR-0004 delivery is unproven (PLT-H2) → the backup chain has no heartbeat (PLT-H4) → a dead workers container plus a quietly dead cron = data-loss exposure with zero signal at every layer.
+5. **Coverage truth vs. coverage theater (QA-15, NEW).** vitest 3 revealed core-api's gate had passed on inflated measurement since Phase 1 (test files counted as covered source; true coverage 76.48% vs the 80 gate). Remediation was constitution-correct (backfill + dead-code removal, no threshold cut, landed same-day) → honest **81.52%**, a real margin of only 1.52 pts. Stale "85.57%" figures in earlier reports must not be trusted. Workers' 73.72% was never inflated — a true, unmoved deficit. Lesson generalizes: when arming gates for other packages (QA-14), exclude test globs explicitly.
 
-**2. The capture-recovery architecture is broken end-to-end, and its failure would be invisible.** SE-1 (sweep filters on an invalid status) disables automated recovery; SE-2 (retry endpoint no-op) disables manual recovery; SE-4 (dedup classifies a capture's own retry as duplicate) neuters BullMQ's own retries within the 5-min TTL; SE-5 (`DelayedError` thrown without `moveToDelayed`) makes the budget hard-stop burn retry attempts and dead-letter jobs into the unrecoverable `'extracted'` state. Compounding: PLT-H2 means that if the workers container itself dies, all alerting freezes at "healthy" — the failure would also be silent. Fixing SE-1 (2h) plus the Pushgateway staleness rules (S) breaks the compounding chain.
-
-**3. LAN is an unguarded second perimeter.** SEC-02 (0.0.0.0 port publishing) + SEC-08 (password-less Redis) + SEC-11/PLT-L1 (default-password fallbacks) + INT-M5 (mobile voice uploads going direct to unauthenticated plaintext `:3001`, bypassing the existing core-api proxy) + PLT-L3 (unauthenticated Pushgateway accepting spoofed health metrics). The trust model was hardened against the *internet* path (CF Access, proxy.ts, isInternalIp) — but `isInternalIp()` *trusting* RFC1918 sources makes the LAN the easier attack path. One compose edit (bind 127.0.0.1 / unpublish + requirepass) collapses most of this.
-
-**4. The budget circuit breaker has blind spots exactly where the April incident happened.** INT-M2: `checkBudget()` covers only gateway-routed calls — `EmbeddingService` and voice-capture's direct OpenAI client bypass it entirely; bulk paths are precisely where the prior $100 runaway occurred. SE-5 means even the covered path's hard-stop misbehaves. RC-3 raises the stakes: health and insurance data now ride these same vendor channels without documented provider retention/training posture (RC-5).
-
-**5. Convention-enforced invariants keep drifting despite exceptional discipline — the meta-finding.** The Solutions Architect's evolution assessment names this as the first real constraint: correctness depends on ~40 CLAUDE.md rules followed by one careful operator. This review found the predictable drift instances: dormant coverage gates documented as "enforcing" (QA-H1), unpromoted required check documented as promotable (QA-H2), TDD documenting an offsite backup that doesn't exist (RC-1), CLAUDE.md documenting "SET LOCAL" while code session-SETs on a pooled connection (PE-M1/DA-L1), six type-mirror surfaces where the lockstep rule says four (SA-1), deploy.md describing deleted services (PLT-M2), init-schema "source of truth" comments that are false (DA-H1). **Resolution direction: convert the top conventions into CI-enforced invariants** — schema-snapshot diff, drift-guard tests for web-next/mobile unions, cron-slot uniqueness test (SA-8/QA), coverage activation, doc-drift checks.
-
-**Conflict resolved during synthesis:** QA's environment-fidelity section credits `validate-init-schema.sh` with cross-validating init-schema against migrations, while the Data Architect proved 4 migrations absent from the file. Both are factually right: the validator exists but runs conditionally (only when schema paths change — QA Low-11) and validates CHECK-constraint parity, not table-set completeness. Data Architect's finding stands; the validator needs a completeness check and unconditional execution. Severity tiebreak by business impact: High (it gates both CI fidelity and DR).
-
-**Requires-investigation resolutions during synthesis:** RC's live crontab check resolves SA-10 and PLT-RI-1 (rehearsal cron: confirmed NOT installed → RC-2 is a confirmed High, not RI). DA's R1 (host-level replication possibly covering backups) remains open but RC's live check found no offsite cron — treat RC-1 as confirmed pending only the urBackup question.
+**Conflict log:** No inter-domain contradictions this cycle. Resolved tensions: SA-14 (Medium, per-table isolation) vs DA-1 (High) — same fix, resolved to High under Data ownership (active production failure, business impact tiebreaker). Platform's "~13 months since install" for A131 corrected to ~1 month (installed 2026-06-11). v4's "85.57%" core-api coverage figure superseded by QA-15's measured 81.52%. v4's perf PE-M2 claim ("no batch embedding support") corrected — `embedBatch()` exists, merely unwired.
 
 ---
 
 ## Remediation Roadmap
 
-### Immediate (Critical — this week)
-1. **SE-1** — Fix sweep status filters in `workers/src/jobs/daily-sweep.ts:39` + `workers/src/skills/stale-captures.ts:165`; pin to `PIPELINE_STATUSES` with a test. *(Software Eng, 2h)*
-2. **RC-2** — SSH to homeserver, install `deploy/cron/unraid-restore-rehearsal.cron` per its own instructions; confirm first Sunday Pushover. *(Ops, minutes)*
-3. **SEC-03** — Bump `next` ≥ 16.2.5, commit lockfile. *(S)*
-4. **SEC-01** — Verify CF Access policy covers brain.troy-davis.com; document in `deploy/`; consider a startup assertion on the CF Access email header. *(Ops, minutes–M)*
+### Immediate (Critical / actively failing — this weekend)
+1. **DA-1/A135** — migration 0036 + per-table try/catch + init-schema regen + prod `retention_audit` verification (Data; half-day). *The only finding failing in production right now.*
+2. **PLT-C1/A134** — deploy.md §5/§8 rewrite using Entry 183's proven sha-tag re-pull procedure (Platform; ~1h).
+3. **SEC-A1/A136** — voice-pipecat: bind loopback or stop the container; add to ADR-0002 port table + SECURITY.md (Security; ~1h).
+4. **RC-10** — repo visibility owner decision (Risk; minutes).
 
-### Short-term (High — 30 days)
-5. **RC-1/DA-H2/PLT-H4** — Offsite backup: rclone-crypt weekly push of `$BACKUP_ROOT/latest` to B2/Drive (key in BWS, not on host); add Pushover-on-failure to backup.sh and move its log off RAM-backed /tmp (PLT-M9). *(0.5d)*
-6. **DA-H1/SA-2** — Regenerate `init-schema.sql` from `pg_dump --schema-only` of a fully-migrated DB; add CI parity check (two scratch DBs, diff schema dumps); fix the false "source of truth" comments; make `validate-schema` unconditional (QA-L11). Longer-term: adopt a migration ledger (DA-M1). *(0.5–1d)*
-7. **SEC-02 (+SEC-08, SEC-11, PLT-L1, PLT-L3)** — Bind published ports to 127.0.0.1 or unpublish postgres/redis/pushgateway; `--requirepass` on Redis; remove `openbrain_dev` and Grafana `admin` default fallbacks (fail closed). *(M)*
-8. **PLT-H1** — Add web-next to `build-images.yml`; verify GHCR tag exists (PLT-RI-2). *(S)*
-9. **PLT-H2** — Add `absent()`/`push_time_seconds` staleness rules for workers-pushed metrics; add a workers Docker healthcheck (+ slack-bot, cloudflared — PLT-M6). *(S–M)*
-10. **PLT-H3/SA-3** — Fix compose Loki default URL + observability.md Step 6 now (S); evaluate json-file + Alloy/Promtail redesign to eliminate the silent-drop class (M).
-11. **QA-H1 + QA-H2** — Add `--coverage` to workers/core-api test scripts (or CI step); promote `build-and-test` to required check; correct CLAUDE.md. *(S)*
-12. **SE-2, SE-3** — Retry-endpoint no-op fix (share semantics with SE-4); POST-search pagination fix. *(S each)*
-13. **INT-H1** — `AbortSignal.timeout(15_000)` in slack-bot `CoreApiClient.request()`; treat 409 as success on captures_create if retries added. *(S)*
-14. **PE-H1** — Rewrite both weekly similarity scans as per-row HNSW k-NN probes (shared implementation, incremental-friendly). *(M)*
+### Short-term (High — within 30 days)
+1. **RC-19** — dated operator-actions checklist on the monthly-audit cadence + heartbeat alerts (Risk; small). *Do this first — it is the forcing function for everything else on this list.*
+2. **QA-1/SW5-H1** — workers test catch-up (~493 lines: scheduler.ts, skill-execution.ts, ingest-process.ts, memory-consolidation-query.ts), then add `--coverage` to the workers test script (QA/SW; 2–3 days).
+3. **SW5-H2/perf PE-H1** — context/token budget in `runAgent()` + truncated tool returns in monthly-reflection — fixes #204 class-wide (SW; 1 day).
+4. **PLT-H1/H3** — runbook reconciliation sweep: deploy.md §4/§7, observability.md, create slo-alert.md (Platform; half-day).
+5. **PLT-H2/H4 + A131** — one live-host session: alert-delivery test, offsite/rehearsal cron-log check, then add a backup freshness gauge + rule (Platform; half-day on-host).
+6. **Voice Bearer phase 2** — set `VOICE_CAPTURE_SECRET` in prod (makes D132's acceptance real; closes IA-M2/SEC-A3/RC-11) (minutes on-host + iOS Shortcut header).
+7. **SEC-B1 (NEW)** — bump `@hono/node-server` ≥ 1.19.13 (GHSA-92pp-h63x-v22m serveStatic bypass; live runtime path via Bull Board static assets, LAN-only) (one line).
+8. **QA-7** — email-worker `tsc --noEmit` CI step + ~10-case vitest suite BEFORE merging the open workers-types 4→5 / postal-mime Dependabot PRs (small).
+9. **Platform PE-M9** — watch one post-merge build-images run when merging #239–#242 GH Actions majors; add publish-failure alerting or a digest check to the deploy procedure (small).
 
-### Medium-term (Medium — 90 days)
-- **Budget-breaker coverage** (INT-M2 + SE-5): route embeddings + voice classification spend through `checkBudget()`; fix `DelayedError`/`moveToDelayed` usage and the dead `PAUSE_DELAY_MS`.
-- **Soft-delete leak** (SE-6 = DA-M2): add `deleted_at` filter to `spreading_activation()` (new migration) + `findRelatedCaptures()` hydration — MCP agents currently receive consolidated-away content by default.
-- **Prompt-injection ingest side** (SEC-05/S-2/S-3): wrap `{{content}}` via SafePromptBuilder in `extract-entities.ts` + `extract-commitments.ts` (P14b covered read side only).
-- **Ingestion edge cases**: SE-4 (dedup key should include captureId), INT-M3 (email worker `setReject` → forward/queue on transient failure), INT-M4 (voice transcript dead-letter), INT-M5 (route mobile voice through the existing core-api proxy).
-- **Contract hardening**: SA-1 drift-guard tests for web-next/mobile type mirrors; INT-M6 generate OpenAPI from Zod (`@hono/zod-openapi`); SA-8/QA cron-slot uniqueness test; SE-12 fix the two Sunday cron collisions.
-- **Data layer**: DA-M3 (access-stats producer `defaultJobOptions` — unbounded Redis leak per search), PE-M1/DA-L1 (ef_search + hybrid_search in one transaction), PE-M2 (stored tsvector column), PE-M3 (Redis `--maxmemory 400mb noeviction`), PE-M4 (CPU limits, esp. faster-whisper), DA-M4/RC-3/RC-5 (data-classification + provider-settings doc; encryption-at-rest decision).
-- **Ops/QA**: PLT-M1 (Alertmanager or correct the safety-net claims), PLT-M2/M3 (deploy.md refresh + post-compose-up.sh step), PLT-M5 (single deploy script + smoke test), PLT-M7 (pin third-party images), QA-M3 (enable INGEST_E2E in CI), QA-M4 (CI-run the secrets regression guards), QA-M5 (proxy.ts test + Playwright smoke in CI), QA-M7 (workers suite in local runner), QA-M8 (CodeQL default setup), PE-M5 (spreading-activation degree cap — investigate first), PE-M6 (SLO targets + alert rules), INT-M7 (outbound-dependency histogram), RC-4 (event-table retention), RC-6 (mobile token rotation procedure), SEC-04 (adminAuth + audit row on `/queues/:name/clear`), SEC-06/SEC-07 (drizzle-orm + simple-git advisory bumps).
+### Medium-term (Medium — within 90 days)
+1. **QA-2** — full-stack ingest e2e compose in CI (unblocks QA-3's Playwright wiring and QA-11 a11y).
+2. **QA-3** — web-next component tests for top pages + wire the Playwright smoke into CI.
+3. **QA-4** — promote `validate-schema` + `python-lint` to required checks; promote CodeQL once its signal stabilizes (QA-6r).
+4. **SEC-A2 (RI)** — owner decision on mobile ingress: route mobile around proxy.ts's caller overwrite so Bearer auth is reachable, or document CF Access as the sole mobile control and remove the dead code path.
+5. **IA-M1** voice-spool 409 poison-pill (dead-letter after N attempts); **IA-M3** minimal OpenAPI or shared client types for the slack-bot drift shims; **IA-M4** outbound-dependency metrics per the ADR-0004 telemetry contract.
+6. **Perf PE-M1** `.max()` cap on search offset; **perf PE-M2** wire the existing `embedBatch()` into the chunk-embed path; **perf PE-M3/IA-M5/#217** BullMQ repeatable-job reconciliation on startup.
+7. **SA-5** t1_spark fallback chain + fail-fast `validateTaskRouting()` in `load()`; **SA-6** TDD/README architecture-claims sweep (the "migrations run automatically" sentence at TDD.md:4035, container counts, ADR-0003 status).
+8. **Platform PE-L6** add `pip` + `docker` ecosystems to dependabot.yml; **RC-13** document `BWS_ACCESS_TOKEN` in the secrets template/map.
+9. **doc-sync** — promote from observe mode or delete it (PE-M7/QA-10); the current state is worse than either.
 
 ### Opportunistic (Low)
-46 Low findings across domains — see domain reports. Highest-leverage clusters: doc-drift one-pass (SA-6, TD-3, SE-9, QA-L10, PLT-L5), healthcheck completion (SA-5, PLT-L4), MCP tool contract honesty (SE-8 `tag_filter`, SE-10 `vector` mode), partial unique index on `content_hash` (DA-L3), `email_classifications` uniqueness (DA-L5), voice upload size cap (PE-L4), embedding column over-fetch (PE-L2).
+- The two `durationMs > 0` → `>= 0` flake one-liners (QA-9 — third cycle; correct pattern already exists at weekly-brief.test.ts:634).
+- `._*` in .gitignore; close #226; CHANGELOG/OPEN_ITEMS/README-version refresh; correct stale coverage figures in docs to 81.52%.
+- IA-L6 SMTP timeouts (nodemailer defaults allow ~10-min stalls vs the 15s convention); SW5-L12 core-api MCP-server coverage headroom (1.52 pts); `.npmrc` with `legacy-peer-deps` in both cloudflare dirs; pnpm.overrides expiry annotations; container USER directives (SEC-A6); ESLint expansion + `--max-warnings` ratchet (QA-12); real-sleep test sites (QA-13); shared-package coverage visibility (QA-14); remaining perf PE-L items per the performance findings file.
 
 ---
 
@@ -125,29 +122,28 @@
 
 | Finding | Domain | Severity | Acceptance Rationale | Owner |
 |---------|--------|----------|---------------------|-------|
-| No in-boundary auth; perimeter-only trust model | Security | — | Documented single-user design (PRD); compensating controls verified. Becomes unacceptable the moment a second user or host appears. | Troy |
-| `POST /admin/reset-data` without Bearer auth | Security | — | Accepted pre-existing posture; two-step token + phrase + origin + audit verified intact. (Contrast: `/queues/:name/clear` — SEC-04 — has none of these and is NOT accepted; fix it.) | Troy |
-| Single host, no HA, bus factor 1 | Platform/Risk | — | Inherent to a personal homelab; P08 runbooks make recovery mechanical. Offsite backup (RC-1) is the non-negotiable complement. | Troy |
-| 24h RPO (daily dump, no WAL archiving) | Data | — | Sources (Slack/email/voice) are independently retainable; conscious trade. State it explicitly in docs (PLT-M10). | Troy |
-| No encryption at rest | Data/Risk | Medium | TDD acknowledges; physical+network security posture. Revisit given health/insurance data now stored (RC-3) — at minimum encrypt the offsite copy (rclone-crypt does this). | Troy |
-| Vendor ToS-tier relationships (no DPAs) | Risk | — | Consumer/API tiers are the only option for a personal system; document provider settings (RC-5) instead. | Troy |
-| In-memory rate limiter (per-process) | Security/Perf | Low | Correct for one replica; precondition flag for any horizontal scale (P33 is scale-gated anyway). | Troy |
-| Cost-tiering convention vs all-OpenAI hot path | Solutions | — | Documented decision (TDD §2.1); enforced where it matters (batch aggregation, budget breaker). | Troy |
+| core-api `0.0.0.0:3002` LAN exposure | Security | Medium | D131 (ADR-0002 amendment): reliability over purity — dual-bind has a dockerd/tailscaled boot race; OpenClaw depends on LAN reach. Trusted-LAN + Bearer-on-MCP mitigations. | Troy (accepted 2026-06-30) |
+| voice-capture `0.0.0.0:3001` with Bearer | Security | Medium | D132: Bearer is the control, LAN bind stays for iOS Shortcut latency. **⚠ Acceptance currently INVALID — predicated on `VOICE_CAPTURE_SECRET` being set, which it is not (~6 weeks). Becomes valid the moment the secret is set.** | Troy (conditional) |
+| Prompt-injection residual in agent skills | Security | Low | SEC-A4: SafePromptBuilder at 12+ call sites; single-user system over own data; full mitigation impossible with current LLM tooling. | Troy (accepted v4) |
+| Loki drop-on-unreachable log mode | Platform | Low | Docker loki driver falls back to `none`; accepted for a single-node home lab vs. buffering complexity. | Troy (accepted P11a) |
+| Single-user no-auth core design | Solutions | — | By design (PRD); perimeter controls (CF Access, tunnel, LAN) substitute for app-layer auth. Revisit only if user count changes. | Troy (design) |
+| `temporal_weight` 0.0 cold start | Data | Low | Deliberate cold-start default pending usage data. | Troy |
+| Repo PUBLIC (RC-10) | Risk | High | **NOT accepted — pending owner decision since Phase 10.4. Must be either flipped private or explicitly accepted here by v6.** | Troy (decision due) |
 
 ---
 
 ## Domain Report Index
 
-| Domain | File | Findings |
-|--------|------|----------|
-| Solutions Architect | `arch-review/findings/solutions-architect.md` | 10 |
-| Data Architect | `arch-review/findings/data-architect.md` | 13 |
-| Integration Architect | `arch-review/findings/integration-architect.md` | 9 |
-| Software Engineer | `arch-review/findings/software-engineer.md` | 18 |
-| Performance Engineer | `arch-review/findings/performance-engineer.md` | 12 |
-| QA Architect | `arch-review/findings/qa-architect.md` | 13 |
-| Security Architect | `arch-review/findings/security-architect.md` | 12 |
-| Platform Engineer | `arch-review/findings/platform-engineer.md` | 21 |
-| Risk & Compliance | `arch-review/findings/risk-compliance.md` | 11 |
+| Domain | File | Finding Count |
+|--------|------|--------------|
+| Solutions Architect | `arch-review/findings/solutions-architect.md` | 14 (M:10 L:4, RI:3) |
+| Data Architect | `arch-review/findings/data-architect.md` | 13 (H:1 M:5 L:5, RI:2) |
+| Integration Architect | `arch-review/findings/integration-architect.md` | 12 (M:6 L:6) |
+| Software Engineer | `arch-review/findings/software-engineer.md` | 24 (H:3 M:5 L:14, RI:2) |
+| Performance Engineer | `arch-review/findings/performance-engineer.md` | 12 (H:1 M:3 L:7, RI:1) |
+| QA Architect | `arch-review/findings/qa-architect.md` | 16 (H:3 M:4 L:8, RI:1) |
+| Security Architect | `arch-review/findings/security-architect.md` | 8 (H:1 M:3 L:4, RI:1) |
+| Platform Engineer | `arch-review/findings/platform-engineer.md` | 19 (C:1 H:4 M:9 L:5, RI:3) |
+| Risk & Compliance | `arch-review/findings/risk-compliance.md` | 11 (H:2 M:3 L:5, RI:1) |
 
-Coverage metadata: `arch-review/findings/.meta.json` · Intake: `arch-review/intake.md`
+**What is working well (credit where due):** pattern fit 5/5 — the monorepo + config-as-data + BullMQ-skills architecture remains right for this scale; the D134 three-wave Dependabot remediation is the strongest change-management evidence any cycle has produced (digest-verified rollback anchors, isolated waves, constitution-correct coverage fix); injection posture verified clean (Drizzle parameterization, `toPgTextArray`/`pgUuidArray`, timing-safe validators); secrets discipline holds (zero hardcoded secrets, redaction guards green); CodeQL + grouped Dependabot automation landed since v4; the schema-fidelity machine (generated init-schema + parity CI + ledger) continues to hold the DA-H1 drift class at zero.
