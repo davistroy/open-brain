@@ -127,22 +127,6 @@ $$;
 
 
 --
--- Name: fts_search(text, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.fts_search(query_text text, match_limit integer DEFAULT 20) RETURNS TABLE(id uuid, content text, capture_type text, brain_view text, source text, tags text[], created_at timestamp with time zone, captured_at timestamp with time zone, rank real)
-    LANGUAGE sql STABLE
-    AS $$
-  SELECT c.id, c.content, c.capture_type, c.brain_view, c.source, c.tags, c.created_at, c.captured_at,
-    ts_rank(to_tsvector('english', c.content), plainto_tsquery('english', query_text))::real AS rank
-  FROM captures c
-  WHERE to_tsvector('english', c.content) @@ plainto_tsquery('english', query_text) AND c.deleted_at IS NULL
-  ORDER BY rank DESC
-  LIMIT match_limit;
-$$;
-
-
---
 -- Name: hybrid_search(text, public.vector, integer, double precision, double precision, text[], text[], timestamp with time zone, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1813,7 +1797,7 @@ ALTER TABLE ONLY public.briefs
 --
 
 ALTER TABLE ONLY public.briefs
-    ADD CONSTRAINT briefs_source_skill_log_id_fkey FOREIGN KEY (source_skill_log_id) REFERENCES public.skills_log(id);
+    ADD CONSTRAINT briefs_source_skill_log_id_fkey FOREIGN KEY (source_skill_log_id) REFERENCES public.skills_log(id) ON DELETE SET NULL;
 
 
 --
