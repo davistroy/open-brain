@@ -459,8 +459,8 @@ importers:
         specifier: ^1.11.0
         version: 1.11.0
       nodemailer:
-        specifier: ^8.0.1
-        version: 8.0.1
+        specifier: ^9.0.1
+        version: 9.0.3
       openai:
         specifier: ^4.98.0
         version: 4.104.0(ws@8.21.0)(zod@3.25.76)
@@ -6778,8 +6778,8 @@ packages:
   node-releases@2.0.36:
     resolution: {integrity: sha512-TdC8FSgHz8Mwtw9g5L4gR/Sh9XhSP/0DEkQxfEFXOpiul5IiHgHan2VhYYb6agDSfp4KuvltmGApc8HMgUrIkA==}
 
-  nodemailer@8.0.1:
-    resolution: {integrity: sha512-5kcldIXmaEjZcHR6F28IKGSgpmZHaF1IXLWFTG+Xh3S+Cce4MiakLtWY+PlBU69fLbRa8HlaGIrC/QolUpHkhg==}
+  nodemailer@9.0.3:
+    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
     engines: {node: '>=6.0.0'}
 
   normalize-path@3.0.0:
@@ -16463,7 +16463,7 @@ snapshots:
 
   node-releases@2.0.36: {}
 
-  nodemailer@8.0.1: {}
+  nodemailer@9.0.3: {}
 
   normalize-path@3.0.0: {}
 
