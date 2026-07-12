@@ -98,8 +98,8 @@ The FK `briefs_source_skill_log_id_fkey` (init-schema.sql:1816, origin 0030_brie
 **Notes:**
 Migration is auto-discovered by glob (migrate-manual.sh:60,109-116) — dropping the file is sufficient, no registration. Simple ALTER — no PGOPTIONS/shm workaround needed (not a parallel index build).
 
-#### 1.2 Per-table fault isolation in pruneRetentionData
-**Status: PENDING**
+#### 1.2 Per-table fault isolation in pruneRetentionData ✅ Completed 2026-07-12
+**Status:** COMPLETE 2026-07-12
 **Model Tier: sonnet**
 **Requirement Refs:** DA-1, SW5-H3, SA-14
 **Depends On:** 1.1
@@ -1274,7 +1274,7 @@ Sequencing constraints (NOT parallel): Phase 6.3 (arm gate) after 6.2 (tests); P
 |------|------------|--------|---------------------|--------|
 | Arming coverage gate before tests bricks all PRs | High | High | Hard barrier: 6.3 depends on 6.2's local `--coverage` run being green; never lower the threshold | Open |
 | 0036 uses CASCADE instead of SET NULL → brief data loss | Low | High | Acceptance criterion pins SET NULL; regression test verifies brief survives with NULL | Mitigated 2026-07-12 (1.1: `pg_get_constraintdef` + live insert/delete against regenerated init-schema.sql confirm `ON DELETE SET NULL`, brief row survives with NULL) |
-| try/catch swallows retention errors → hides failures | Med | Med | Design records per-table failure + throws aggregate at end; alert semantics preserved | Open |
+| try/catch swallows retention errors → hides failures | Med | Med | Design records per-table failure + throws aggregate at end; alert semantics preserved | Mitigated 2026-07-12 (1.2: per-table try/catch continues the loop on failure, logs at error level, and throws one aggregate error after all entries run — rejects the BullMQ job so pipeline-health's failed-job alerting still fires; regression tests prove isolation + surfacing) |
 | Voice secret set on server before clients updated → all captures 401 | Med | Med | Operator runbook order (clients first); this plan documents it, doesn't set the secret | Open |
 | runAgent cap too tight → degraded reflections/wiki | Med | Med | Per-call options with generous defaults (12KB/150K); truncation marker preserves signal | Open |
 | BullMQ reconciliation deletes a live schedule | Low | High | Match by exact freshly-registered key, reconcile AFTER registration | Open |

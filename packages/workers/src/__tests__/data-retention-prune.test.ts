@@ -237,10 +237,110 @@ describe('pruneRetentionData — behaviour', () => {
     }
   })
 
-  it('propagates a database error from the DELETE CTE', async () => {
+  it('isolates a first-table DELETE failure — continues pruning the rest, then throws an aggregate error', async () => {
     const db = makeMockDb()
+    // Rejects only the very first execute() call — pipeline_events' DELETE
+    // CTE (the first policy entry). Every subsequent call uses the default
+    // successful mock implementation.
     db._execute.mockRejectedValueOnce(new Error('DB connection lost'))
 
     await expect(pruneRetentionData(db as any)).rejects.toThrow('DB connection lost')
+
+    // pipeline_events' DELETE failed before its audit INSERT ever ran (1
+    // call); the remaining 4 tables still got DELETE + INSERT (2 calls
+    // apiece) — per-table fault isolation, not an abort-on-first-error.
+    expect(db._execute).toHaveBeenCalledTimes(1 + (RETENTION_POLICY.length - 1) * 2)
+  })
+})
+
+// ============================================================
+// PER-TABLE FAULT ISOLATION (Phase 1 / CS-A)
+//
+// A single table's DELETE failing (e.g. an FK constraint, matching the
+// skills_log/briefs incident that motivated this refactor) must not abort
+// the loop. The other tables must still prune + audit, and the failure
+// must be surfaced via an aggregate throw at the end — never swallowed.
+// ============================================================
+
+describe('pruneRetentionData — per-table fault isolation (Phase 1 / CS-A)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * Mock Database whose execute() rejects ONLY the DELETE CTE call for
+   * `failingTable` (identified by inspecting the rendered SQL, cf. the
+   * table-detection pattern used above at ~test:137,152) and resolves
+   * normally for every other call — including every other table's DELETE
+   * + audit INSERT, and (implicitly) `failingTable`'s own audit INSERT,
+   * which never runs because its DELETE throws first.
+   */
+  function makeMockDbWithTableFailure(failingTable: string, deletedCountPerCall = 5) {
+    const execute = vi.fn().mockImplementation((arg: unknown) => {
+      const { sql: renderedSql } = renderSql(arg)
+      if (renderedSql.includes('DELETE FROM') && renderedSql.includes(failingTable)) {
+        return Promise.reject(new Error(`simulated ${failingTable} failure`))
+      }
+      return Promise.resolve({ rows: [{ deleted_count: deletedCountPerCall }] })
+    })
+    return { execute, _execute: execute }
+  }
+
+  it('a skills_log DELETE failure does not abort the other 4 tables', async () => {
+    const db = makeMockDbWithTableFailure('skills_log')
+
+    await expect(pruneRetentionData(db as any)).rejects.toThrow()
+
+    const allCalls = db._execute.mock.calls as unknown[][]
+
+    // Every table (including skills_log) still gets its DELETE attempted —
+    // the table name appears raw only in the DELETE CTE, never in the
+    // (parameterised) retention_audit INSERT, so `includes(table)` isolates
+    // the DELETE call.
+    for (const entry of RETENTION_POLICY) {
+      const deleteCalls = allCalls.filter(([arg]) => renderSql(arg).sql.includes(entry.table))
+      expect(deleteCalls).toHaveLength(1)
+    }
+
+    // retention_audit INSERTs — table_name is parameterised ($1), so identify
+    // which table each INSERT belongs to via the bound param, mirroring the
+    // pattern at ~test:176-196.
+    const auditInserts = allCalls.filter(([arg]) => renderSql(arg).sql.includes('retention_audit'))
+    const auditedTables = auditInserts.map(([arg]) => renderSql(arg).params[0])
+
+    // The 4 succeeding tables were each audited exactly once; skills_log —
+    // whose DELETE failed — was never audited (its INSERT never ran).
+    const otherTables = RETENTION_POLICY.filter(e => e.table !== 'skills_log')
+    expect(auditedTables).toHaveLength(otherTables.length)
+    for (const entry of otherTables) {
+      expect(auditedTables).toContain(entry.table)
+    }
+    expect(auditedTables).not.toContain('skills_log')
+  })
+
+  it('surfaces the skills_log failure as an aggregate error naming the table — never swallowed', async () => {
+    const db = makeMockDbWithTableFailure('skills_log')
+
+    await expect(pruneRetentionData(db as any)).rejects.toThrow(
+      /1\/5 table\(s\) failed to prune:.*skills_log/,
+    )
+  })
+
+  it('all 5 tables failing produces one aggregate error naming every table', async () => {
+    const execute = vi.fn().mockImplementation((arg: unknown) => {
+      const { sql: renderedSql } = renderSql(arg)
+      if (renderedSql.includes('DELETE FROM')) {
+        return Promise.reject(new Error('simulated failure'))
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    const db = { execute, _execute: execute }
+
+    await expect(pruneRetentionData(db as any)).rejects.toThrow(/5\/5 table\(s\) failed to prune/)
+
+    // No retention_audit INSERTs at all — every table's DELETE failed first.
+    const allCalls = db._execute.mock.calls as unknown[][]
+    const auditInserts = allCalls.filter(([arg]) => renderSql(arg).sql.includes('retention_audit'))
+    expect(auditInserts).toHaveLength(0)
   })
 })

@@ -54,6 +54,13 @@ export interface RetentionPruneResult {
   durationMs: number
 }
 
+/** A single table's DELETE (or audit INSERT) failing during a prune run. */
+export interface RetentionPruneFailure {
+  table: string
+  error: string
+  durationMs: number
+}
+
 // ============================================================
 // Core prune logic
 // ============================================================
@@ -68,6 +75,18 @@ export interface RetentionPruneResult {
  * integer from the same config), not parameterised, because PostgreSQL does
  * not accept `$1 days` inside an INTERVAL expression.
  *
+ * Per-table fault isolation (Phase 1 / CS-A): each entry's DELETE + audit
+ * INSERT runs in its own try/catch. A failure on one table (e.g. an FK
+ * constraint blocking a DELETE) is logged and the loop CONTINUES to the
+ * remaining tables — one table's failure must never silently skip the
+ * others. `retention_audit` has no status/error column (it's a DB-internal
+ * housekeeping table, migration 0035, written only by this job), so a
+ * failed table gets no audit row, only a structured error log. Failures are
+ * accumulated and, once the loop completes, surfaced by throwing an
+ * aggregate error — this rejects the BullMQ job (see
+ * `createDataRetentionPruneWorker`'s `'failed'` handler) so pipeline-health's
+ * failed-job alerting still fires. Failures are NEVER silently swallowed.
+ *
  * @param db       Drizzle database instance
  * @param policy   Retention policy to execute (defaults to RETENTION_POLICY)
  */
@@ -76,43 +95,63 @@ export async function pruneRetentionData(
   policy: readonly RetentionPolicyEntry[] = RETENTION_POLICY,
 ): Promise<RetentionPruneResult[]> {
   const results: RetentionPruneResult[] = []
+  const failures: RetentionPruneFailure[] = []
 
   for (const entry of policy) {
     const entryStart = Date.now()
 
-    // 1. DELETE aged rows and count them via a CTE.
-    //    table/column/days are static config values injected as sql.raw()
-    //    so they appear inline in the rendered SQL (no parameterisation
-    //    needed; table identifiers are not accepted as $1 by PG anyway).
-    const deleteResult = await db.execute(sql`
-      WITH deleted AS (
-        DELETE FROM ${sql.raw(entry.table)}
-        WHERE ${sql.raw(entry.column)} < NOW() - INTERVAL '${sql.raw(String(entry.days))} days'
-        RETURNING 1
+    try {
+      // 1. DELETE aged rows and count them via a CTE.
+      //    table/column/days are static config values injected as sql.raw()
+      //    so they appear inline in the rendered SQL (no parameterisation
+      //    needed; table identifiers are not accepted as $1 by PG anyway).
+      const deleteResult = await db.execute(sql`
+        WITH deleted AS (
+          DELETE FROM ${sql.raw(entry.table)}
+          WHERE ${sql.raw(entry.column)} < NOW() - INTERVAL '${sql.raw(String(entry.days))} days'
+          RETURNING 1
+        )
+        SELECT COUNT(*)::bigint AS deleted_count FROM deleted
+      `)
+
+      const deletedCount = Number(deleteResult.rows[0]?.deleted_count ?? 0)
+      const cutoff = new Date(Date.now() - entry.days * 24 * 60 * 60 * 1000)
+
+      // 2. Record the prune run in retention_audit.
+      //    table_name and deletedCount are parameterised ($1/$2) — safe values
+      //    from our own config, but we follow the parameterisation convention
+      //    for data (vs. identifiers above).
+      await db.execute(sql`
+        INSERT INTO retention_audit (table_name, deleted_count, cutoff, ran_at)
+        VALUES (${entry.table}, ${deletedCount}, ${cutoff}, NOW())
+      `)
+
+      const durationMs = Date.now() - entryStart
+
+      logger.info(
+        { table: entry.table, column: entry.column, days: entry.days, deletedCount, durationMs },
+        '[data-retention-prune] table pruned',
       )
-      SELECT COUNT(*)::bigint AS deleted_count FROM deleted
-    `)
 
-    const deletedCount = Number(deleteResult.rows[0]?.deleted_count ?? 0)
-    const cutoff = new Date(Date.now() - entry.days * 24 * 60 * 60 * 1000)
+      results.push({ table: entry.table, deletedCount, durationMs })
+    } catch (err) {
+      const durationMs = Date.now() - entryStart
+      const message = err instanceof Error ? err.message : String(err)
 
-    // 2. Record the prune run in retention_audit.
-    //    table_name and deletedCount are parameterised ($1/$2) — safe values
-    //    from our own config, but we follow the parameterisation convention
-    //    for data (vs. identifiers above).
-    await db.execute(sql`
-      INSERT INTO retention_audit (table_name, deleted_count, cutoff, ran_at)
-      VALUES (${entry.table}, ${deletedCount}, ${cutoff}, NOW())
-    `)
+      logger.error(
+        { table: entry.table, column: entry.column, days: entry.days, durationMs, err: message },
+        '[data-retention-prune] table prune FAILED — continuing to remaining tables',
+      )
 
-    const durationMs = Date.now() - entryStart
+      failures.push({ table: entry.table, error: message, durationMs })
+    }
+  }
 
-    logger.info(
-      { table: entry.table, column: entry.column, days: entry.days, deletedCount, durationMs },
-      '[data-retention-prune] table pruned',
+  if (failures.length > 0) {
+    const summary = failures.map(f => `${f.table}: ${f.error}`).join('; ')
+    throw new Error(
+      `[data-retention-prune] ${failures.length}/${policy.length} table(s) failed to prune: ${summary}`,
     )
-
-    results.push({ table: entry.table, deletedCount, durationMs })
   }
 
   return results
