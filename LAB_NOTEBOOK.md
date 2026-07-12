@@ -143,12 +143,14 @@
 | D131 | core-api stays on `0.0.0.0:3002` (LAN-reachable) on Unraid — explicit risk-acceptance, NOT the dual-bind. Corrects Entry 172: host Tailscale is kernel-TUN `tailscale1` (bindable), real blocker is a boot race (dockerd starts ~8s before tailscaled). | 2026-06-30 | ACTIVE | ADR-0002 Amendment, Entry 174 | dual-bind loopback+`tailscale1` (boot-race reliability hazard, would flap on reboot); loopback + `tailscale serve --tcp` (boot-safe + closes LAN, but owner declined the extra dependency); re-route OpenClaw (touches 2nd system, deferred) |
 | D132 | Voice-capture exposure = Option 1: Bearer auth now (`VOICE_CAPTURE_SECRET`, fail-closed-when-set), keep `voice-capture:3001` on `0.0.0.0` (LAN); DEFER the SEC-02 loopback bind (8.2). | 2026-06-30 | ACTIVE | Entry 176, Phase 8 | loopback bind + route all voice via tunnel (breaks live iOS Shortcut direct-to-`:3001`, adds CF-tunnel latency+dependency to every home memo, CF-Access path collision — wrong trade for a voice memo); consistent w/ the D131 reliability>purity posture; reversible (one-line compose flip once a voice tunnel exists) |
 | D133 | Phase 1.3 observability re-point: open-brain joins the external `observability` net as a CLIENT (shared Prometheus scrapes `core-api:3000`, workers push `pushgateway:9091`); host postgres/redis **bind reconciliation lives in `docker-compose.override.yml`** (NOT repo `driver_opts`); interim runtime bridge SKIPPED; **config-diff pre-`up` safety gate**. | 2026-07-01 | ✅ ACTIVE (deployed #231 → `c4a7922`, Entry 181; both config-diff gates passed, WorkersMetricsAbsent cleared) | ADR-0004, Entry 181 | `driver_opts` device-path in the public repo (pollutes portable source + still recreates); sed-only working-tree binds (re-apply every deploy, fragile); interim `docker network connect --alias core-api` (owner skipped — decouples alerts but adds runtime state) |
+| D134 | Dependabot remediation (119 alerts) executed as **three isolated dependency waves** rather than one combined bump: wave 1 transitive lockfile refresh (patches only), wave 2 nodemailer 8→9 (runtime major, workers), wave 3 vitest 2→3 + coverage-v8 lockstep (dev major) — each its own branch/PR so a regression is independently bisectable/revertible. Majors accepted (no minor/patch fix exists for the underlying CVEs). | 2026-07-12 | PROPOSED | Entry 183 | Single combined PR (rejected — blast radius, harder bisection, couples unrelated risk profiles); leave majors unpatched (rejected — 8 of 9 criticals are the vitest bump, dev-scope but CI-blocking); pin to last-patched pre-major version (doesn't exist for these CVEs) |
 
 ## Action Items
 
 ### Open
 | # | Action | Created | Source | Priority |
 |---|--------|---------|--------|----------|
+| A138 | Dependabot remediation (119 alerts: 9C/36H/60M/14L): wave 1 transitive lockfile refresh, wave 2 nodemailer 8→9, wave 3 vitest 2→3 + coverage-v8, then 5-service homeserver deploy (core-api/workers/slack-bot/voice-capture/web-next) — see Entry 183 for wave status, DoD, and rollback anchor | 2026-07-12 | Entry 183 | HIGH — blocks 0 open critical/high alert goal |
 | A131 | Verify first *scheduled* offsite-backup run (Fri 2026-06-12 03:45) and restore-rehearsal run (Sun 2026-06-14 05:30) in logs — both should PASS with the exact-count manifest | 2026-06-11 | Entry 164 | HIGH |
 | A132 | Arch-review v3 remaining work: H/M/L findings beyond the immediate-action list (SE-2 retry no-op, SE-3 pagination, LAN port hardening SEC-02, coverage gate activation QA-H1/H2, O(N²) consolidation PE-H1, etc.) — needs its own plan | 2026-06-11 | Entry 163 | HIGH |
 | A133 | ~~Phase 1.3 observability re-point — CS-B PR / CS-C override+config-diff-gate+deploy / CS-D verify+retire~~ **✅ DONE 2026-07-01** — PR #231 → `c4a7922`; deployed (both config-diff gates passed, postgres/redis untouched, row invariant exact); core-api target UP + `WorkersMetricsAbsent` cleared; 4 GPL containers retired (17→13). Landmine disarmed in override. | 2026-07-01 | Entry 181 | HIGH |
@@ -12634,6 +12636,31 @@ No need to duplicate; this entry just establishes the meta-state pointer.
 **Tags:** [deploy] [docker] [observability] [decision] [database]
 **Environment:** ubuntu-vm (PR authoring) + homeserver (deploy). **Duration:** investigation ~45 min + ship/deploy ~50 min. **SHIPPED: PR #231 → main `c4a7922`; deployed 2026-07-01 with the two-gate config-diff safety model; alerts cleared; data intact.**
 
+
+
+## Entry 183 — Dependabot remediation: 119 alerts in three waves (2026-07-12)  [security] [ci] [test] [deploy]
+
+**Objective:** Drive open-brain's live Dependabot count (2026-07-12: 119 open — 9C/36H/60M/14L, all 9 criticals dev/mobile scope) to **0 open critical/high alerts** without a single combined dependency bump, by isolating risk into three sequential, independently revertible waves, then deploying the result to the homeserver:
+- **Wave 1 (6.2):** transitive lockfile refresh — runtime highs/criticals' patches only (axios, hono, @xmldom/xmldom, form-data, lodash, path-to-regexp, fast-uri, picomatch, ws, shell-quote, undici), via targeted `pnpm update -r`/overrides + `npm audit fix` (no `--force`) in both Cloudflare worker dirs. No direct-dependency version changes outside overrides.
+- **Wave 2 (6.3):** `nodemailer` `^8.0.1`→`^9.0.1` in `packages/workers` — the only runtime-container major, carries the CVE fix itself (transport construction / `raw` option guards). Depends on Wave 1.
+- **Wave 3 (6.4):** `vitest` 2→3 + `@vitest/coverage-v8` ^2→^3 in lockstep across root + every workspace that pins them (clears the 8 critical vitest alerts); vite follows 5→6 transitively. Depends on Wave 1, runs independently of Wave 2.
+- **Deploy (6.5):** after all three waves merge to main, `build-images.yml` pushes fresh `:latest` + `sha-` tagged images to GHCR; pull + `up -d --force-recreate --no-deps` the 5 app services (`core-api`, `workers`, `slack-bot`, `voice-capture`, `web-next`) on the homeserver, then close this entry.
+
+Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{email-worker,synthetic-monitor}/package-lock.json` — no doc churn, no `._*` files. This entry is written and committed BEFORE the Wave 1 commit lands, per the house lab-notebook precondition.
+
+**Hypothesis (measurable success criteria):**
+- Both required status checks (`build-and-test`, `Integration tests (core-api + real DB)`) green on each wave's PR independently.
+- WHEN all three waves are merged AND a fresh Dependabot rescan runs THEN 0 open critical alerts and 0 open high alerts remain in runtime scope (dev-only lows/mediums may remain, tracked separately).
+- core-api's active coverage gate (currently ~85.57% lines / 85.66% functions) does not regress by >1pt after the Wave 3 vitest/coverage-v8 bump; workers' dormant 78%-floor gate (currently ~73.7%, known-below) is explicitly NOT "fixed" as part of this work — no threshold changes either direction outside what each wave's Acceptance Criteria calls for.
+- Wave 1's hono patch: core-api CORS + proxy-header behavior unchanged (smoke-tested). Wave 2's nodemailer bump: workers' email-send path constructs/sends messages identically to pre-bump behavior under test. Wave 3: `pool:'forks'`+`minForks`/`maxForks` still valid, hook/test timeouts honored, per-file coverage locks intact.
+- WHEN the 5 services are recreated on the homeserver THEN postgres/redis/observability remain untouched (uptime unchanged, `--no-deps` scoped) and all 5 report healthy; a functional smoke (capture→search round trip or `/health` endpoints) matches pre-deploy behavior.
+
+**Rollback plan:**
+- **Waves 1–3 (pre-deploy):** each wave is its own branch/PR against main — `git revert` the merge commit; no migration, no runtime impact until 6.5's deploy actually pulls images. Clean, independent revert per wave (Wave 3 in particular: "clean revert = this single PR" per its own risk note — highest-risk item in the plan).
+- **Deploy (6.5, post-merge):** record the currently-running `sha-` image tag for each of the 5 services BEFORE pulling (rollback anchor) → if the smoke test or the 10-minute crash-loop watch fails, re-pull the **prior** `sha-` tag and re-run the identical `docker compose up -d --force-recreate --no-deps core-api workers slack-bot voice-capture web-next`. Mirrors the Entry 179/181 surgical-deploy procedure (`--no-deps` guarantees postgres/redis/observability are never recreated).
+- **PROHIBITED** during rollback or deploy: bare `up -d` (no service list), `--remove-orphans` (kills the `profiles:observability`-gated stack, PLT-RI-1), and `docs/runbooks/deploy.md` §5's rollback procedure verbatim — Entry 182 (PLT-C1, CRITICAL, still open as A134) found it deletes the production `docker-compose.override.yml` and re-arms the ADR-0004 empty-DB landmine. Any rollback here uses the sha-tag re-pull + force-recreate path only, never the runbook's documented §5 steps until PLT-C1 is fixed.
+
+**Status:** OPEN. Wave 1 (6.2), Wave 2 (6.3), Wave 3 (6.4) and the deploy (6.5) are pending, in that dependency order (6.3 and 6.4 both depend only on 6.2 and are otherwise independent of each other). Results, Tags, Environment, and Duration are appended when 6.5 closes this entry post-deploy.
 
 
 
