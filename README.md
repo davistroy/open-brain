@@ -32,8 +32,9 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-voice-pipecat` | build: packages/voice-pipecat | Pipecat realtime voice pipeline (VAD → Deepgram → Claude → TTS) |
 | `open-brain-file-ingestion` | build: packages/file-ingestion | FastAPI sidecar — extracts text from PDF/DOCX/XLSX/PPTX/etc. for the document pipeline |
 | `open-brain-financial-ingest` / `utility-ingest` | image: alpine + cron | Hourly Python pullers for financial + utility data; results POST'd to `/api/v1/captures` |
-| `open-brain-loki` / `prometheus` / `pushgateway` / `grafana` | grafana images | Observability stack — Loki log aggregation (P11a), Prometheus + pushgateway metrics, Grafana dashboards |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
+
+**Observability (external, ADR-0004):** Loki, Prometheus, Pushgateway, and Grafana are NOT part of this compose project. They run as a standalone `observability` Docker Compose project that open-brain joins as a client over a shared external network: the shared Prometheus scrapes `core-api:3000/metrics`, and `workers` push to `pushgateway:9091`. Deploying/operating that stack is out of scope for this repo.
 
 **External dependency**: OpenAI API (`https://api.openai.com/v1`) handles ALL AI — embeddings via `text-embedding-3-large` (768d via `dimensions` parameter) and LLM inference via `gpt-5.4` (aliases: `fast`, `synthesis`, `governance`, `intent`). Configured in `config/ai-routing.yaml`. API key in Bitwarden.
 
@@ -66,8 +67,8 @@ scripts/
   regression-test.mjs     # Comprehensive regression suite (91 tests)
   monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
 docs/
-  PRD.md           # Product requirements (v0.6)
-  TDD.md           # Technical design (v0.6)
+  PRD.md           # Product requirements (v0.7)
+  TDD.md           # Technical design (v0.7)
   ios-shortcut.md  # iOS Shortcut setup guide for voice capture
 ```
 
@@ -219,7 +220,7 @@ source ./scripts/load-secrets.sh
 docker compose up -d
 ```
 
-This starts all 17 containers — 13 application/data services (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest) plus the 4-service observability stack (loki, prometheus, pushgateway, grafana). First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+This starts all 13 containers (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — it is not started by `docker compose up -d` here. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
 
 ### 5. Verify
 

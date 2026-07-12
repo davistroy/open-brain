@@ -407,11 +407,14 @@ services:
       # TZ: ensures getHours() in RSC server code matches the user's timezone,
       # preventing SSR/CSR hydration mismatches (e.g. greeting, date headers).
       TZ: America/New_York
-      # API_URL: used by next.config.ts rewrites (server-side, not browser-exposed)
+      # API_URL: server-side base URL for the core-api origin. Used by
+      # next.config.ts rewrites AND as the primary fallback in getApiBase()
+      # (lib/api/core.ts) for RSC/server code. Browser code never reads an
+      # env var for this — it always calls the relative `/api/v1` path,
+      # proxied server-side — so NEXT_PUBLIC_API_URL is deliberately not set
+      # here (it would be dead config: API_URL always wins in the fallback
+      # chain, and it is not passed as a build ARG to the client bundle).
       API_URL: http://core-api:3000
-      # NEXT_PUBLIC_API_URL: browser-visible URL — intentionally empty in Docker;
-      # all /api calls are proxied server-side via next.config.ts rewrites
-      NEXT_PUBLIC_API_URL: http://core-api:3000
     ports:
       - "3003:3001"
     depends_on:

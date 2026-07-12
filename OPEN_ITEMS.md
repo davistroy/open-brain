@@ -4,21 +4,21 @@
 
 GitHub issues are the single source of truth for all pending work. This file is a quick-reference summary only — close issues there, not here.
 
-Last reconciled: 2026-06-30.
+Last reconciled: 2026-07-12.
 
 ---
 
-## Architecture Review v3 remediation (plan A132 — not in GitHub issues)
+## Architecture Review v3 remediation (plan A132 — FULLY DEPLOYED)
 
-Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), not GitHub issues. **Waves 1–2 COMPLETE** (Phases 1–7 merged to `main`); **Waves 3–4 + a batched production-deploy window remain.**
+**Status: COMPLETE 2026-06-30 (Entry 179).** All 10 phases / 4 waves merged and deployed. Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for reference.
 
-| Remaining | Where |
-|-----------|-------|
-| Phase 8 (ingest edges + voice Bearer auth) | IMPLEMENTATION_PLAN.md Wave 3 |
-| Phase 9 (convention→CI + governance/doc sweep, incl. PRD/TDD content) | Wave 3 |
-| Phase 10 (residual lows + RI closeouts) | Wave 4 |
-| **Deploy & Ops Backlog** (deploy Phases 6+7 + migration 0034; observability loopback via `systemctl restart docker`; upstream compose deviations) | IMPLEMENTATION_PLAN.md "Deployment & Ops Backlog" |
-| Deferred: workers coverage Part B (74%<78), QA-M3 INGEST_E2E, INT-M2-voice | same |
+---
+
+## Architecture Review v4 remediation (plan A134–A137 — in progress)
+
+Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) **Phase 0–4 in progress** (repo-hygiene batch Phase 2.4, retention hotfix Phase 1, runbook rewrite Phase 2). **Critical path:** Phase 1 → Phase 2 (rollback safety) → Phase 3 (forcing function + operator actions).
+
+See [`OPERATOR_ACTIONS.md`](OPERATOR_ACTIONS.md) (forthcoming Phase 3.2) for dated operator actions, deferred windows, and rolling deadlines.
 
 ---
 
