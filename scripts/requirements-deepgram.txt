@@ -1,2 +1,2 @@
-deepgram-sdk>=3.7,<4
+deepgram-sdk>=7.4.0,<8
 numpy>=1.26
