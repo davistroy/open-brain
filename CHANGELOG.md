@@ -8,9 +8,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Architecture Review v3 & v4 Remediation (2026-06 & 2026-07 — plan A132 / A134–A137 / `IMPLEMENTATION_PLAN.md`)
+### Architecture Review v3 (deployed) & v5 Remediation (2026-06 – 2026-07 — plan A132 / `IMPLEMENTATION_PLAN.md`, PR #244)
 
-Post-1.6.0 hardening from two architecture reviews (119 findings in v3 CONDITIONAL GO; 111 findings in v4 CONDITIONAL GO with tighter Go-conditions). **v3: Waves 1–4 complete, fully deployed by 2026-06-30 (Phases 1–7, Entry 179); v4: Phase 0–2 in progress (repo-hygiene cleanup batch 2.4, retention hotfix Phase 1, runbook rewrite Phase 2).**
+Post-1.6.0 hardening from three architecture reviews. **v3 (119 findings, CONDITIONAL GO): Waves 1–4 complete, fully deployed by 2026-06-30 (Phases 1–7, Entry 179).** **v4 (2026-07-09, 111 findings, CONDITIONAL GO) was superseded on 2026-07-12 before full remediation by v5** (fresh 9-agent review of the post-Dependabot-wave system; 129 raw findings, C:1 H:12 unique, CONDITIONAL GO — the same four Go-conditions carried forward unresolved from v4, plus new finding RC-19). **v5 remediation is implemented on branch `feat/arch-review-v5-remediation` / PR #244 (2026-07-12/13, Entry 186), pending merge + deploy** — 31 of 35 planned items complete, 4 deferred to the operator (see below).
 
 **Immediate actions (2026-07-12):** A132 arch-review v3 FULLY DEPLOYED (Entries 166–179); Dependabot Waves 1–3 grouped-updates config deployed (PRs #232–234, sha-31bc56c); ADR-0004 observability repoint live (PR #231, c4a7922, Entry 181); PR #230 (1710c54) uuid-array cast fix (daily-connections-query + memory-consolidation silent-empty bug, proven live Entry 180); no stale governance deferral.
 
@@ -28,7 +28,21 @@ Post-1.6.0 hardening from two architecture reviews (119 findings in v3 CONDITION
 - **PR #230 (Entry 180):** Fixes `pgUuidArray()` drizzle ROW-cast bug (daily-connections + memory-consolidation silently empty for weeks); skill-execution removeOnFail += age:14d; worker Anthropic client → timeout:'extended'.
 - **Dependabot Waves 1–3 (PRs #232–234, cd14c1f grouped-updates):** Transitive dependency refresh, nodemailer 8→9, vitest 2→3 + coverage-v8 (119→20 alerts).
 
-**Decisions:** ADR-0002 (LAN exposure; core-api `0.0.0.0` risk-accepted on Unraid — boot-order race, not userspace Tailscale; 2026-06-30), ADR-0003 (similarity-scan k-NN rewrite), ADR-0004 (observability external separation).
+**Architecture Review v5 Remediation (implemented on branch `feat/arch-review-v5-remediation` / PR #244, 2026-07-12/13, Entry 186 — pending merge + deploy):**
+
+8 phases, 31/35 planned items complete (all per-phase DoDs green; shared/slack-bot/web-next/workers/core-api test suites all pass, `tsc --noEmit` clean across the workspace):
+- **P1 — retention hotfix:** migration 0036 (`briefs.source_skill_log_id` FK → `ON DELETE SET NULL`; dead `fts_search()` dropped; init-schema regenerated) plus per-table fault isolation in `data-retention-prune`. **Fixes DA-1** — the prod FK failure that had blocked the Sunday retention prune for two consecutive weeks.
+- **P2 — deploy.md rollback-landmine removed:** rewrote the rollback procedure so it no longer deletes the prod override file and re-arms the volume-drift landmine (clears the sole Critical, PLT-C1/A134); doc-truth sweep across `deploy.md`, `observability.md`, `slo-alert.md`, README, ADR-0003 (status → Accepted), and the ADR-0002 amendment.
+- **P3 — RC-19 operator forcing function:** `OPERATOR_ACTIONS.md` dated action register; `secret-rotation` skill parses it and Pushover-alerts overdue/approaching items; monthly-audit workflow surfaces it in its summary and Slack post.
+- **P4 — voice hardening:** spool treats HTTP 409 as terminal success and dead-letters stale files; voice proxy gets an `AbortSignal.timeout(150s)`; `@hono/node-server` bumped to 1.19.14 (closes a GHSA); **D135** — voice-pipecat `:8765` zero-auth recorded as an explicit risk acceptance in the ADR-0002 amendment + `SECURITY.md` §4.
+- **P5 — runtime robustness:** `runAgent` per-tool-result 12KB cap + 150K-token cumulative early-stop, **fixing #204 class-wide**; **#217** BullMQ orphaned-repeatable-job reconciliation on startup; search `offset` capped `.max(450)`; SMTP 15s timeouts; `ConfigService.reload()` now runs `validateAiRoutingConfig` non-fatally (rejects and keeps the previous config); `embedBatch` per-chunk adaptive fallback.
+- **P6 — workers coverage gate armed:** 4 new spine test files raised workers coverage **73.72% → 83.96% lines / 84.77% functions** (floor 78/81, both now passing), then the `--coverage` flag was switched on in the workers `test` script; flake fixes + a deterministic 768-d fake-embedding fixture; new email-worker CI job (tsc + vitest) that surfaced and fixed a real postal-mime `.byteLength`-on-string bug.
+- **P7 — ops/observability:** `build-images` CI job gets a Slack failure notification; new `validate-alert-rules` CI job; Dependabot config extended to the pip and Docker ecosystems; container-health skill drops the dead `litellm:4000` probe and adds `faster-whisper:8000/health`; **backup dead-man's switch** — pipeline-health emits an `openbrain_backup_age_seconds` gauge and fires an independent Pushover alert when backups exceed 26h, backed by a new `backup.yml` Prometheus alert rule and runbook.
+- **P8 — contracts, metrics, hardening:** shared response-type contracts (`packages/shared/src/types/api-responses.ts`) make slack-bot's typecheck fail on server field renames; new `openbrain_outbound_request_duration_seconds` histogram at the LLM-gateway and embedding call sites (core-api scrape registry + workers pushgateway payload); settings `GET` now rejects the 3 OAuth token keys (`ms_token_cache_node`, `gmail_token_cache`, `gmail_credentials`); retention policy expanded to 8 tables; non-root `USER node` on core-api, slack-bot, voice-capture, and web-next; `parseUUIDParam` rolled out to 6 core-api route files (surfaced and fixed a pre-existing Hono wildcard `:id` param-binding bug); new non-required full-stack e2e CI job (required integration gate unchanged).
+
+**Deferred — operator-gated (tracked in `OPERATOR_ACTIONS.md`):** **OA-1** prod migration 0036 deploy + verify; **OA-7** mobile ingress (blocked on U3 Cloudflare Access verification); **OA-8** promotion of the new CI jobs to required status checks; **OA-9** live-host session for the batched daemon-restart-window items (observability loopback bind, Postgres `shm_size`, image pins, voice loopback bind).
+
+**Decisions:** ADR-0002 (LAN exposure; core-api `0.0.0.0` risk-accepted on Unraid — boot-order race, not userspace Tailscale; 2026-06-30; amended 2026-07-12 with D135), ADR-0003 (similarity-scan k-NN rewrite, status Accepted), ADR-0004 (observability external separation), D135 (voice-pipecat `:8765` zero-auth — explicit owner risk acceptance, 2026-07-12).
 
 ---
 

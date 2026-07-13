@@ -119,6 +119,13 @@ Until that histogram exists, the ingest SLO is monitored via:
 - `openbrain_captures_per_6h` (capture-flow.yml)
 - Manual periodic query: `SELECT pipeline_status, COUNT(*) FROM captures GROUP BY 1`
 
+**Adjacent instrumentation (implemented on branch `feat/arch-review-v5-remediation` /
+PR #244, IA-M4):** `openbrain_outbound_request_duration_seconds{provider,operation,status_class}`
+now measures LLM-gateway and embedding call latency at the source (core-api scrape
+registry + workers Pushgateway payload). This covers the outbound-call leg only, not
+full job duration — it narrows but does not close the gap to the per-job histogram
+described above.
+
 ---
 
 ## 5. Availability SLO
@@ -138,6 +145,16 @@ and Pushover from the container-health skill (every 15 minutes). Formal availabi
 tracking requires exporting `openbrain_container_healthy` to a long-term store; that
 is not implemented today. Availability is currently assessed by reviewing Grafana's
 `openbrain_container_healthy` time-series panel after each incident.
+
+**Backup freshness (dead-man's switch, implemented on branch `feat/arch-review-v5-remediation`
+/ PR #244, pending merge+deploy):** `BackupStale` (critical) fires on
+`openbrain_backup_age_seconds{job="open-brain"} > 93600` (26h), pushed by the
+`pipeline-health` skill every 6h. This is an availability-adjacent signal, not a
+latency SLO — see `config/prometheus/alerts/backup.yml` and
+`docs/runbooks/backup-alert.md` for delivery paths and diagnosis. The workers
+container's `/backup-latest` ro-mount this depends on is one of the deferred
+batched-restart items (OA-9 in OPERATOR_ACTIONS.md) — the metric is absent, not
+alerting, until that mount is deployed.
 
 ---
 
@@ -163,3 +180,4 @@ formal error budget burn-rate alerting is implemented.
 | Date | Change |
 |------|--------|
 | 2026-06-30 | Initial SLOs defined (arch-review v3, PLT-M1 + PE-M6 / INT-M7) |
+| 2026-07-12/13 | Noted backup dead-man's switch (`BackupStale`) under Availability and the new `openbrain_outbound_request_duration_seconds` histogram under the Ingest Pipeline SLO's deferred-instrumentation section (arch-review v5, branch `feat/arch-review-v5-remediation` / PR #244, pending merge+deploy) |

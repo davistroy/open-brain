@@ -27,10 +27,12 @@ All scheduled skills run via the `skill-execution` BullMQ queue. The worker uses
 | `drift-monitor` | `packages/workers/src/skills/drift-monitor.ts` | `15 7 * * *` (7:15 AM daily) | N | 1 | `observe` |
 | `email-classify` | `packages/workers/src/skills/email-classify.ts` | `0 5 * * *` (5 AM daily) | N | 1 | — |
 | `email-compose` | `packages/workers/src/skills/email-compose.ts` | on-demand | N | 1 | `advise` |
+| `entity-brief` | `packages/workers/src/skills/entity-brief.ts` | on-demand (`POST /api/v1/entities/:id/brief`) | **Y** | 1 | `observe` |
 | `memory-consolidation` | `packages/workers/src/skills/memory-consolidation.ts` | `0 4 * * 0` (4 AM Sundays) | N | 1 (documented singleton — destructive) | `assist` |
 | `monthly-reflection` | `packages/workers/src/skills/monthly-reflection.ts` | `0 9 1 * *` (9 AM 1st of month) | **Y** | 1 | `assist` |
 | `morning-brief` | `packages/workers/src/skills/morning-brief.ts` | `30 6 * * 1-5` (6:30 AM weekdays) | **Y** | 1 | `observe` |
 | `pipeline-health` | `packages/workers/src/skills/pipeline-health.ts` | `0 */6 * * *` (every 6 hours) | N | 1 | — |
+| `refine-brief` | `packages/workers/src/skills/refine-brief.ts` | on-demand (`POST /api/v1/briefs/:id/refine`) | **Y** | 1 | — (reactive, user-initiated) |
 | `secret-rotation` | `packages/workers/src/skills/secret-rotation.ts` | `0 10 1 * *` (10 AM 1st of month) | N | 1 | — |
 | `stale-captures` | `packages/workers/src/skills/stale-captures.ts` | on-demand | N | 2 (default) | — |
 | `storage-audit` | `packages/workers/src/skills/storage-audit.ts` | `0 3 * * 0` (3 AM Sundays) | N | 1 | — |
@@ -38,6 +40,10 @@ All scheduled skills run via the `skill-execution` BullMQ queue. The worker uses
 | `wiki-ingest` | `packages/workers/src/skills/wiki-ingest.ts` | on-demand (queued by wiki-synthesis) | N | 1 (documented singleton — git serialization) | — |
 | `wiki-lint` | `packages/workers/src/skills/wiki-lint.ts` | `0 5 * * 0` (5 AM Sundays) | N | 1 | — |
 | `wiki-synthesis` | `packages/workers/src/skills/wiki-synthesis.ts` | `0 6 * * *` (6 AM daily) | N | 1 | — |
+
+23 rows above = all `BaseSkill`/`LLMSkill` subclasses in the package. Of these, **22 are dispatched via the named `switch` in `packages/workers/src/jobs/skill-execution.ts`** (that file's own header comment: "all 22 dispatchable skills"); `stale-captures` is the one exception — it runs through its own `SkillExecutor` route (`POST /api/v1/skills/stale-captures/trigger`), not the `skill-execution.ts` switch. `capture-reminder-morning` / `capture-reminder-evening` are two named dispatch targets backed by one shared `CaptureReminderSkill` class.
+
+**`secret-rotation` (arch-review v5 / PR #244, RC-19):** in addition to its original BWS secret-staleness check, this skill now also parses `OPERATOR_ACTIONS.md`'s dated register and Pushover-alerts any overdue or approaching-deadline operator actions. The monthly-audit workflow separately renders the same register into its summary + Slack post.
 
 ---
 
@@ -51,6 +57,8 @@ These 4 skills will be extended in Phase 6 to write structured output to the `br
 | `daily-sweep-skill` | `daily` | Evening LLM summary; extends to write `briefs` row |
 | `morning-brief` | `morning` | Structured morning briefing; extends to write `briefs` row |
 | `monthly-reflection` | `monthly` | Long-form agent synthesis; extends to write `briefs` row |
+
+This was the original Phase 6 target list. `entity-brief` (`briefs.kind = 'DOSSIER'`) and `refine-brief` (writes a new refined `briefs` row via `refined_from_id`) shipped later as on-demand, already-implemented brief-producing skills — they are additional to, not part of, this 4-skill cohort.
 
 ---
 

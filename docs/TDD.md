@@ -3749,7 +3749,7 @@ describe('Captures API Integration', () => {
 
 ### 16.1 Docker Compose
 
-> **Note (updated 2026-06-30):** The snippet below is the Phase 2–4 representative structure (early architecture, web-ui service, no observability profile). The authoritative current `docker-compose.yml` is in the repo root — it includes 13 core services + 4 observability-profile services (`loki`, `pushgateway`, `prometheus`, `grafana`) and `web-next` instead of `web-ui`. See §16.2 for current topology.
+> **Note (updated 2026-07-01, ADR-0004):** The snippet below is the Phase 2–4 representative structure (early architecture, web-ui service, local observability profile — both since retired). The authoritative current `docker-compose.yml` is in the repo root — it includes 13 core services and `web-next` instead of `web-ui`. Observability (`loki`, `pushgateway`, `prometheus`, `grafana`) is no longer part of this file at all — it is a separate, external `observability` Docker Compose project that open-brain joins as a client (see §16.2). See §16.2 for current topology.
 
 ```yaml
 # docker-compose.yml (Phase 2–4 representative — see repo root for current)
