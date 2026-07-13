@@ -145,6 +145,7 @@
 | D133 | Phase 1.3 observability re-point: open-brain joins the external `observability` net as a CLIENT (shared Prometheus scrapes `core-api:3000`, workers push `pushgateway:9091`); host postgres/redis **bind reconciliation lives in `docker-compose.override.yml`** (NOT repo `driver_opts`); interim runtime bridge SKIPPED; **config-diff pre-`up` safety gate**. | 2026-07-01 | ✅ ACTIVE (deployed #231 → `c4a7922`, Entry 181; both config-diff gates passed, WorkersMetricsAbsent cleared) | ADR-0004, Entry 181 | `driver_opts` device-path in the public repo (pollutes portable source + still recreates); sed-only working-tree binds (re-apply every deploy, fragile); interim `docker network connect --alias core-api` (owner skipped — decouples alerts but adds runtime state) |
 | D134 | Dependabot remediation (119 alerts) executed as **three isolated dependency waves** rather than one combined bump: wave 1 transitive lockfile refresh (patches only), wave 2 nodemailer 8→9 (runtime major, workers), wave 3 vitest 2→3 + coverage-v8 lockstep (dev major) — each its own branch/PR so a regression is independently bisectable/revertible. Majors accepted (no minor/patch fix exists for the underlying CVEs). | 2026-07-12 | ✅ DONE 2026-07-12 (PRs #232/#233/#234 merged, deployed `sha-31bc56c`; 119→20 open, 0 critical) | Entry 183 | Single combined PR (rejected — blast radius, harder bisection, couples unrelated risk profiles); leave majors unpatched (rejected — 8 of 9 criticals are the vitest bump, dev-scope but CI-blocking); pin to last-patched pre-major version (doesn't exist for these CVEs) |
 | D135 | **voice-pipecat `0.0.0.0:8765` stays as-is — explicit owner risk-acceptance (SEC-A1/A136 resolved by decision, not code).** Nothing connects to the port in production (iOS Shortcut is HTTP→:3001, mobile is batch upload, streaming integration A81 never built, soak test P24 never run); trusted-LAN posture consistent with D131/D132. Must be RECORDED in ADR-0002 port table + SECURITY.md + arch-review risk-acceptance register so future reviews see a decided acceptance. | 2026-07-12 | ACTIVE (owner decision, ultra-plan session) | Entry 185 | Profile-gate `profiles:[voice-streaming]` (recommended by review — declined); loopback bind 127.0.0.1 (declined); token handshake in WS handler (most effort, port still exposed — declined) |
+| D136 | Delete the orphaned `config/wiki/` seed layer (`WIKI_SCHEMA.md` + `bootstrap/` entities+domains, 12 files) — dead scaffolding with zero runtime references. The live wiki is the Gitea-backed `open-brain-wiki` repo, configured by `config/wiki.yaml` + `scripts/setup-wiki-repo.sh` (both KEPT); the seed was never wired into `packages/` or `scripts/`. Git-recoverable. | 2026-07-13 | ✅ DONE 2026-07-13 (Entry 187) | Entry 187 | Keep as reference (rejected — a 3rd conflicting schema source that invites drift); re-point runtime at it (rejected — the Gitea system is already canonical) |
 
 ## Action Items
 
@@ -12788,3 +12789,23 @@ Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{
 
 **Tags:** [decision] [test] [ci] [database] [security] [deploy]
 **Environment:** ubuntu-vm (feature branch; ~20 subagents across 8 phases + inline). **Duration:** ~4h wall-clock.
+
+---
+
+## Entry 187 — Removed orphaned `config/wiki/` wiki-seed layer (improvement-plan item 12 / work-item 6.2) (2026-07-13)  [decision] [config] [cleanup]
+
+**Objective:** Execute the open-brain half of improvement-plan item 12, redesigned during ultra-plan. The original item was "/create-wiki for open-brain"; investigation found a live ~1,500-LOC Gitea-backed in-app wiki already exists, so /create-wiki would have stood up a *third* conflicting wiki system. The item was therefore reduced to removing the dead `config/wiki/` seed scaffolding **without touching the live system**.
+
+**Verified before deletion (fresh session, independent re-check of the handoff's "pre-verified safe" claim):**
+- `rg 'config/wiki/'` across the whole repo (excluding `.git` and the dir itself) → **zero references**.
+- Every `WIKI_SCHEMA` / `bootstrap/` name-hit resolves elsewhere: the runtime prompt `config/prompts/wiki-ingest/system.txt` refers to `wiki/WIKI_SCHEMA.md` (the *cloned live-wiki* path, not `config/wiki/`); the `docs/**` PRDs explicitly say "in wiki repo root, **not** Open Brain repo"; `scripts/setup-wiki-repo.sh` **generates** its own `WIKI_SCHEMA.md` via heredoc. None read the seed.
+- KEEP items (`config/wiki.yaml`, `scripts/setup-wiki-repo.sh`) contain no reference into the seed.
+
+**Action:** `git rm -r config/wiki/` — 12 files (`WIKI_SCHEMA.md` + `bootstrap/{entities×3, domains×9}`). Working tree clean before and after; `config/wiki.yaml` and `scripts/setup-wiki-repo.sh` untouched.
+
+**Follow-up flagged (OUT OF SCOPE — corresponds to Unknown U7):** two divergent wiki-schema definitions still remain and should be reconciled to a single canonical source — (1) the inline 9-directory / 8-page version generated by `scripts/setup-wiki-repo.sh`, and (2) the actual `WIKI_SCHEMA.md` living in the live `open-brain-wiki` Gitea repo. The seed deleted here was a third, now removed. Not blocking; also recorded in `~/dev/IMPROVEMENT_PLAN_IMPLEMENTATION.md` item-12 (6.2) status block.
+
+**Status:** COMPLETE. **Rollback:** git-recoverable — `git revert` of this commit restores the seed. Decision **D136**.
+
+**Tags:** [decision] [config] [cleanup]
+**Environment:** ubuntu-vm, open-brain `main`. Executed by Claude (Opus 4.8) resuming the improvement-plan parked items.
