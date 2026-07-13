@@ -468,8 +468,8 @@ Verify via `workflow_dispatch` after merge.
 
 ### Work Items
 
-#### 4.1 Voice spool 409-as-terminal-success
-**Status: PENDING**
+#### 4.1 Voice spool 409-as-terminal-success — COMPLETE 2026-07-12
+**Status:** COMPLETE 2026-07-12
 **Model Tier: sonnet**
 **Requirement Refs:** IA-M1
 **Files Affected:**
@@ -493,8 +493,8 @@ ingest.ts:79-83 throws on all 4xx including 409 (core-api's content-hash dedup r
 **Notes:**
 Do not treat all 4xx as success — only 409 (would silently drop malformed 400/422 payloads).
 
-#### 4.2 Voice proxy AbortSignal + hono bump
-**Status: PENDING**
+#### 4.2 Voice proxy AbortSignal + hono bump ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: haiku**
 **Requirement Refs:** IA-L1, SEC-B1
 **Files Affected:**
@@ -519,8 +519,8 @@ Add `signal: AbortSignal.timeout(150_000)` to the voice proxy upstream fetch (cu
 **Notes:**
 150s (not the 15s convention) because voice transcription is legitimately slow; matches VOICE_MAX_UPLOAD sizing.
 
-#### 4.3 SEC-A1 risk-acceptance documentation (D135)
-**Status: PENDING**
+#### 4.3 SEC-A1 risk-acceptance documentation (D135) ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** SEC-A1, SA-4; A136; D135
 **Files Affected:**

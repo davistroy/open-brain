@@ -32,14 +32,18 @@ export interface IngestPayload {
 
 export interface IngestResult {
   id: string
+  /** True when this result came from a 409 dedup conflict, not a fresh create. */
+  duplicate?: boolean
   [key: string]: unknown
 }
 
 /**
  * IngestService posts a capture to Core API /api/v1/captures with retry.
  * Retries up to 3 times with exponential backoff (1s, 2s, 4s) on 5xx or
- * network errors. 4xx errors are not retried — they indicate a bad payload.
- * Throws if all attempts fail.
+ * network errors. 4xx errors are not retried — they indicate a bad payload,
+ * EXCEPT 409 (content-hash dedup conflict), which is treated as terminal
+ * success since the transcript is already captured (mirrors slack-bot's
+ * CoreApiClient `okStatuses:[409]` pattern). Throws if all attempts fail.
  */
 export class IngestService {
   private coreApiUrl: string
@@ -75,6 +79,27 @@ export class IngestService {
 
         const errorBody = await res.text().catch(() => '')
         lastError = `Core API returned HTTP ${res.status}: ${errorBody}`
+
+        // 409 = ConflictError from core-api content-hash dedup. The transcript is
+        // already captured, so this is terminal SUCCESS, not a payload error — the
+        // caller must delete the spool file. The "within 60 seconds" conflict path
+        // embeds the existing id in the message (`... (id: <uuid>)`); the DB-constraint
+        // path does not — tolerate a missing id with a stable sentinel.
+        if (res.status === 409) {
+          let parsedError: { error?: string; code?: string } = {}
+          try {
+            parsedError = JSON.parse(errorBody) as { error?: string; code?: string }
+          } catch {
+            // Non-JSON body — tolerate, fall through to the duplicate sentinel.
+          }
+          const idMatch = (parsedError.error ?? '').match(/id:\s*([0-9a-fA-F-]{8,})/)
+          const duplicateId = idMatch?.[1] ?? 'duplicate'
+          logger.info(
+            { status: res.status, duplicateId, attempt },
+            'Core API returned 409 (duplicate) — treating as terminal success',
+          )
+          return { id: duplicateId, duplicate: true }
+        }
 
         // 4xx — bad payload, not a transient error; do not retry
         if (res.status >= 400 && res.status < 500) {
