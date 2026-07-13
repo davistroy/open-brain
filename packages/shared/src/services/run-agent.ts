@@ -1,9 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type OpenAI from 'openai'
 import { createLogger } from '../lib/logger.js'
+import { estimateTokens } from '../utils/tokens.js'
 import type { AgentClientResolution } from './llm-gateway.js'
 
 const logger = createLogger('run-agent')
+
+/** Default per-tool-result character cap (context budget). */
+const DEFAULT_MAX_TOOL_RESULT_CHARS = 12_000
+/** Default cumulative input-token budget across the agent loop (context budget). */
+const DEFAULT_MAX_CONTEXT_TOKENS = 150_000
+/** Synthetic user turn injected when the cumulative token budget is crossed. */
+const CONTEXT_BUDGET_MESSAGE =
+  'Context budget reached — produce your final answer now from what you already have. Do not request any more tools.'
 
 /**
  * Detect transient API errors worth a one-shot fallback swap in the agent loop.
@@ -113,6 +122,22 @@ export interface RunAgentOptions {
   maxIterations?: number
   /** Max tokens for each API call. Default: 4096. */
   maxTokens?: number
+  /**
+   * Per-tool-result character cap (context budget). Each tool result is clamped
+   * to this many characters before being appended as a tool_result block, with a
+   * visible truncation marker. Bounds the context contributed by any single tool
+   * call. Default: 12000. Tools that already return small results are unaffected.
+   */
+  maxToolResultChars?: number
+  /**
+   * Cumulative input-token budget for the whole loop (context budget). After each
+   * turn's usage is accumulated, if the running input-token total crosses this
+   * value, `runAgent` injects a synthetic "summarize now" user turn and stops at
+   * the next iteration boundary (never truncating mid-toolResults assembly).
+   * Prevents unbounded token blowups from tools that return large payloads.
+   * Default: 150000.
+   */
+  maxContextTokens?: number
   /** Temperature for generation. Default: undefined (API default). */
   temperature?: number
   /** Abort signal for cancellation. */
@@ -153,6 +178,18 @@ function isAnthropicLike(client: Anthropic | OpenAI): client is Anthropic {
     'messages' in client &&
     typeof (client as { messages?: { create?: unknown } }).messages?.create === 'function'
   )
+}
+
+/**
+ * Clamp a tool result to a maximum character count, appending a visible
+ * truncation marker when truncation occurs. Under-cap results are returned
+ * unchanged. Prevents any single tool call from flooding the context window
+ * (root cause of GitHub #204's 6.5M-token blowup).
+ */
+function clampToolResult(result: string, maxChars: number): string {
+  if (result.length <= maxChars) return result
+  const removed = result.length - maxChars
+  return `${result.slice(0, maxChars)}\n\n[...truncated ${removed} chars — context budget]`
 }
 
 /** Convert AgentTool[] to the Anthropic SDK tool format. */
@@ -231,6 +268,8 @@ export async function runAgent(
   let model: string = resolution ? resolution.model : (options?.model ?? 'claude-sonnet-4-5-20250929')
   const maxIterations = options?.maxIterations ?? 10
   const maxTokens = options?.maxTokens ?? 4096
+  const maxToolResultChars = options?.maxToolResultChars ?? DEFAULT_MAX_TOOL_RESULT_CHARS
+  const maxContextTokens = options?.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS
 
   // Runtime assertion: when a clientResolver is supplied the primary resolution
   // must give us an Anthropic client. Cross-provider agent fallback is out of scope
@@ -266,6 +305,11 @@ export async function runAgent(
   let lastStopReason = 'end_turn'
   let finalText = ''
   let currentTierKey: string | undefined = resolution?.tierKey
+  // Context budget state. `budgetReached` = the cumulative token budget has been
+  // crossed (decision). `budgetStopInjected` = we have appended the synthetic
+  // "summarize now" turn (executed) — the next turn withholds tools and is final.
+  let budgetReached = false
+  let budgetStopInjected = false
 
   while (iteration < maxIterations) {
     iteration++
@@ -277,12 +321,14 @@ export async function runAgent(
 
     // Make the API call. When a clientResolver is active, a single transient
     // error (429/503/timeout) triggers one fallback-swap-and-retry per iteration.
+    // Once the budget-stop turn is injected, tools are withheld so the model
+    // must produce its final answer in text (it cannot request more context).
     const buildParams = (): Anthropic.MessageCreateParamsNonStreaming => ({
       model,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages,
-      ...(anthropicTools.length > 0 ? { tools: anthropicTools } : {}),
+      ...(anthropicTools.length > 0 && !budgetStopInjected ? { tools: anthropicTools } : {}),
       ...(options?.temperature !== undefined ? { temperature: options.temperature } : {}),
     })
 
@@ -356,6 +402,26 @@ export async function runAgent(
       finalText = responseText
     }
 
+    // If the previous iteration crossed the token budget, it appended a
+    // synthetic "summarize now" turn (with tools withheld). This response IS
+    // that final answer — stop unconditionally so the agent cannot request
+    // more context, regardless of the reported stop_reason.
+    if (budgetStopInjected) {
+      logger.warn(
+        { iteration, cumulativeInputTokens: tokenUsage.inputTokens, maxContextTokens },
+        'agent loop stopped after context-budget summarize turn',
+      )
+      break
+    }
+
+    // Context budget (cumulative input tokens). Once crossed, the current tool
+    // round becomes the last: we append the tool results (required by the API
+    // for the pending tool_use blocks) plus a synthetic summarize turn, never
+    // truncating mid-toolResults assembly.
+    if (tokenUsage.inputTokens >= maxContextTokens) {
+      budgetReached = true
+    }
+
     // If Claude didn't request tool use, we're done
     if (lastStopReason !== 'tool_use') {
       break
@@ -403,10 +469,15 @@ export async function runAgent(
         }
       }
 
+      // Clamp the result to the per-tool-result char cap before it enters the
+      // conversation (and the returned toolCalls record). Bounds the context
+      // any single tool call can contribute.
+      const cappedResult = clampToolResult(result, maxToolResultChars)
+
       allToolCalls.push({
         name: toolUse.name,
         input,
-        result,
+        result: cappedResult,
         isError,
         iteration,
       })
@@ -414,13 +485,43 @@ export async function runAgent(
       toolResults.push({
         type: 'tool_result',
         tool_use_id: toolUse.id,
-        content: result,
+        content: cappedResult,
         is_error: isError,
       })
     }
 
-    // Append tool results as a user message
-    messages.push({ role: 'user', content: toolResults })
+    // Proactive budget check: estimate the tokens the pending tool results will
+    // add. This catches a single large payload on the iteration it is produced,
+    // before it is re-sent and compounds across further iterations.
+    if (!budgetReached) {
+      const pendingResultTokens = estimateTokens(
+        toolResults.map((tr) => (typeof tr.content === 'string' ? tr.content : '')).join(''),
+      )
+      if (tokenUsage.inputTokens + pendingResultTokens >= maxContextTokens) {
+        budgetReached = true
+      }
+    }
+
+    if (budgetReached) {
+      // Append the required tool_result blocks plus a synthetic user turn asking
+      // the agent to summarize now. Never truncate mid-toolResults assembly —
+      // the stop happens on the next iteration boundary.
+      logger.warn(
+        { iteration, cumulativeInputTokens: tokenUsage.inputTokens, maxContextTokens },
+        'context token budget crossed — injecting summarize turn',
+      )
+      messages.push({
+        role: 'user',
+        content: [
+          ...toolResults,
+          { type: 'text', text: CONTEXT_BUDGET_MESSAGE },
+        ],
+      })
+      budgetStopInjected = true
+    } else {
+      // Append tool results as a user message
+      messages.push({ role: 'user', content: toolResults })
+    }
   }
 
   // If we exhausted iterations without end_turn, log a warning

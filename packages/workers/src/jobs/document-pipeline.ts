@@ -12,6 +12,13 @@ import type { DocumentPipelineJobData } from '../queues/document-pipeline.js'
 import type { EmbedCaptureQueue } from '../queues/embed-capture.js'
 
 /**
+ * Conservative batch size for the inline (no-Redis) embedBatch() path — see
+ * work item 5.5. Bounds request payload size and blast radius on failure;
+ * not tied to any hard API limit.
+ */
+const INLINE_EMBED_BATCH_SIZE = 50
+
+/**
  * Custom BullMQ backoff strategy for document pipeline retry delays.
  * BullMQ calls this with attemptsMade (1-based after first failure).
  * Returns delay in milliseconds for the next attempt.
@@ -214,6 +221,16 @@ export async function processDocumentPipelineJob(
   let embeddedCount = 0
   let skippedCount = 0
 
+  // Inline path (no embedCaptureQueue) defers embedding until after all chunk
+  // captures are inserted, so it can batch via embedBatch (PE-M2 / 5.5)
+  // instead of one API call per chunk. The production queue-fan-out path
+  // (:below, embedCaptureQueue branch) is unchanged — out of scope for 5.5.
+  const pendingInlineEmbeds: Array<{
+    chunkCaptureId: string
+    chunkContent: string
+    chunkIndex: number
+  }> = []
+
   for (const chunk of chunks) {
     const chunkContent = chunk.text.trim()
     if (!chunkContent) {
@@ -298,27 +315,55 @@ export async function processDocumentPipelineJob(
         // Non-fatal: daily sweep picks up pending chunks
       }
     } else {
-      // Inline embedding path (integration tests / simple deploys without Redis)
+      // Inline embedding path (integration tests / simple deploys without Redis):
+      // defer to a batched embedBatch() call after all chunks are inserted.
+      pendingInlineEmbeds.push({ chunkCaptureId, chunkContent, chunkIndex: chunk.index })
+    }
+  }
+
+  // ── Inline batch embedding (no embedCaptureQueue) ──────────────────────────
+  // Chunked into conservative batches (INLINE_EMBED_BATCH_SIZE) rather than one
+  // giant embedBatch() call — bounds a single OpenAI request's payload size and
+  // limits blast radius if a batch-level failure (embedBatch's non-token-overflow
+  // all-or-nothing path) leaves chunks pending for the daily sweep to retry.
+  if (!embedCaptureQueue && pendingInlineEmbeds.length > 0) {
+    const { sql } = await import('drizzle-orm')
+
+    for (let i = 0; i < pendingInlineEmbeds.length; i += INLINE_EMBED_BATCH_SIZE) {
+      const batch = pendingInlineEmbeds.slice(i, i + INLINE_EMBED_BATCH_SIZE)
+
+      let embeddings: number[][]
       try {
-        const { sql } = await import('drizzle-orm')
-        const embedding = await embeddingService.embed(chunkContent)
-
-        await db.execute(
-          sql`SELECT update_capture_embedding(${chunkCaptureId}::uuid, ${`[${embedding.join(',')}]`}::vector(768))`,
-        )
-
-        embeddedCount++
-        logger.debug(
-          { captureId, chunkCaptureId, chunkIndex: chunk.index },
-          '[document-pipeline] chunk embedded inline',
-        )
+        embeddings = await embeddingService.embedBatch(batch.map(b => b.chunkContent))
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err)
         logger.warn(
-          { captureId, chunkCaptureId, chunkIndex: chunk.index, err: errMsg },
-          '[document-pipeline] inline embed failed — chunk remains pending',
+          { captureId, batchSize: batch.length, err: errMsg },
+          '[document-pipeline] inline batch embed failed — chunks remain pending',
         )
-        // Non-fatal: chunk stays pending, daily sweep will retry
+        // Non-fatal: chunks stay pending, daily sweep will retry
+        continue
+      }
+
+      for (let j = 0; j < batch.length; j++) {
+        const { chunkCaptureId, chunkIndex } = batch[j]
+        try {
+          await db.execute(
+            sql`SELECT update_capture_embedding(${chunkCaptureId}::uuid, ${`[${embeddings[j].join(',')}]`}::vector(768))`,
+          )
+          embeddedCount++
+          logger.debug(
+            { captureId, chunkCaptureId, chunkIndex },
+            '[document-pipeline] chunk embedded inline',
+          )
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          logger.warn(
+            { captureId, chunkCaptureId, chunkIndex, err: errMsg },
+            '[document-pipeline] inline embed persist failed — chunk remains pending',
+          )
+          // Non-fatal: chunk stays pending, daily sweep will retry
+        }
       }
     }
   }

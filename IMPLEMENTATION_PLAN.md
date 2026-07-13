@@ -581,8 +581,8 @@ Owner chose "leave as-is" over profile-gate/loopback/handshake. This item makes 
 
 ### Work Items
 
-#### 5.1 runAgent context budget (#204 root cause)
-**Status: PENDING**
+#### 5.1 runAgent context budget (#204 root cause) ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: opus**
 **Requirement Refs:** SW5-H2, PE-H1, SA-10; GitHub #204
 **Files Affected:**
@@ -594,22 +594,22 @@ Owner chose "leave as-is" over profile-gate/loopback/handshake. This item makes 
 runAgent has no context budget — the only bound is `maxIterations` (default 10). Tool results append fully untruncated (:414-423). monthly-reflection returns up to 200 full captures/call across 5 views → the 6.5M-token blowup. Add: (1) a per-tool-result char cap (default 12KB, configurable per-call) with a truncation marker, applied at :395-419 — all 5 agent skills inherit it, protecting the two unbounded ones (monthly-reflection, wiki-ingest); (2) a cumulative input-token budget (default ~150K, per-call override) checked after accumulateUsage (:339), triggering an early stop ON AN ITERATION BOUNDARY (:270) with a synthetic "context budget exhausted — summarize now" turn — never mid-toolResults assembly; (3) skill-level defense: truncate monthly-reflection's per-capture content to 400 chars at :164 (email-compose precedent is 300). Entry 180's 120s timeout bump was the symptom patch — this is the cause.
 
 **Tasks:**
-1. [ ] Add per-tool-result char cap + truncation marker (per-call option, default 12KB)
-2. [ ] Add cumulative token budget + iteration-boundary early stop with synthetic summarize turn
-3. [ ] Truncate monthly-reflection per-capture content to 400 chars
-4. [ ] Tests: cap truncates + marks; budget triggers early stop; existing 30 cases stay green
+1. [x] Add per-tool-result char cap + truncation marker (per-call option `maxToolResultChars`, default 12000) — `clampToolResult()` in run-agent.ts; marker `\n\n[...truncated N chars — context budget]`; applied to both the tool_result block and the returned `toolCalls` record
+2. [x] Add cumulative token budget + iteration-boundary early stop (per-call option `maxContextTokens`, default 150000) — checked after `accumulateUsage` on actual cumulative `tokenUsage.inputTokens` PLUS a proactive `estimateTokens()` estimate of pending tool results; injects synthetic `CONTEXT_BUDGET_MESSAGE` user turn, withholds tools on the final turn, stops on the next iteration boundary (never mid-toolResults assembly)
+3. [x] Truncate monthly-reflection per-capture content to 400 chars (`MAX_CAPTURE_CONTENT_CHARS`)
+4. [x] Tests: 5 new cases added (explicit-cap truncation, default-cap truncation, under-cap unchanged, budget early-stop with summarize turn, no-early-stop under default budget); all 29 existing cases stay green (34 total in file, full shared suite 351 passed)
 
 **Acceptance Criteria:**
-- [ ] WHEN a tool returns content exceeding the per-result cap THEN runAgent SHALL truncate it and append a truncation marker
-- [ ] WHEN cumulative input tokens exceed the budget THEN runAgent SHALL stop at the next iteration boundary with a summarize prompt, never mid-tool-result
-- [ ] WHEN monthly-reflection runs against 200+ captures THEN total context SHALL stay bounded (no 6.5M-token blowup)
-- [ ] The Anthropic-only client assertion (:238) and all 30 existing run-agent tests remain green
+- [x] WHEN a tool returns content exceeding the per-result cap THEN runAgent SHALL truncate it and append a truncation marker
+- [x] WHEN cumulative input tokens exceed the budget THEN runAgent SHALL stop at the next iteration boundary with a summarize prompt, never mid-tool-result
+- [x] WHEN monthly-reflection runs against 200+ captures THEN total context SHALL stay bounded (no 6.5M-token blowup) — per-capture 400-char + per-result 12KB + 150K cumulative budget
+- [x] The Anthropic-only client assertion (:238) and all existing run-agent tests remain green
 
 **Notes:**
-Both knobs are per-call options with defaults — wiki-lint/email-compose (already ≤300-char items) are unaffected. Too-tight a cap degrades reflections/wiki edits; 12KB/150K are generous defaults.
+Both knobs are per-call options with defaults — wiki-lint/email-compose (already ≤300-char items) are unaffected. Too-tight a cap degrades reflections/wiki edits; 12KB/150K are generous defaults. Verified: `pnpm --filter @open-brain/shared build` ✓, `pnpm --filter @open-brain/shared test` ✓ (351 passed), `pnpm --filter @open-brain/workers exec tsc --noEmit` ✓ (exit 0).
 
-#### 5.2 Search offset cap
-**Status: PENDING**
+#### 5.2 Search offset cap ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: haiku**
 **Requirement Refs:** PE-M1
 **Files Affected:**
@@ -630,8 +630,8 @@ Both knobs are per-call options with defaults — wiki-lint/email-compose (alrea
 **Notes:**
 450 not 490 — 490+50 (max limit) would exceed the 500 bound.
 
-#### 5.3 BullMQ repeatable-job reconciliation (#217)
-**Status: PENDING**
+#### 5.3 BullMQ repeatable-job reconciliation (#217) — COMPLETE 2026-07-12
+**Status:** COMPLETE 2026-07-12
 **Model Tier: opus**
 **Requirement Refs:** PE-M3, IA-M5; GitHub #217
 **Files Affected:**
@@ -654,8 +654,10 @@ Cron schedule changes leave orphaned repeatable jobs firing forever (no reconcil
 **Notes:**
 Off-by-one in key matching could delete live schedules — match by exact freshly-registered key, reconcile after registration.
 
-#### 5.4 SMTP timeouts + SA-5 reload validation + SW5 small fixes
-**Status: PENDING**
+**Completion (2026-07-12):** All 21 registrations across the 5 queues now flow through a drift-proof local `register()` helper that both calls `.add({repeat})` AND records the `(name, jobId, pattern)` identity into a per-queue `Map` — the recorded identity can never disagree with what was registered. Exported `reconcileRepeatableJobs(queue, registered)` runs AFTER all registrations (loop over the registry Map): pass 1 collects the exact keys of entries matching a registration (by name + jobId + pattern, requiring `tz`/`every` unset — none of ours use them), pass 2 removes any repeatable whose key is NOT in that live-key set, logging each removal. Uses the LEGACY `getRepeatableJobs()`/`removeRepeatableByKey()` API (no JobScheduler mixing). Best-effort: a `getRepeatableJobs()` failure logs+returns rather than blocking worker startup. All 15 `const *Cron = '...'` literals preserved (scheduler-slots regex needs ≥15). New test `packages/workers/src/__tests__/scheduler-reconcile.test.ts` (5 cases): orphan-only removal, no-op when all match, unknown-name orphan, tz-bearing orphan, and the best-effort failure path. Verified: `vitest run src/__tests__/scheduler` → 13 passed (3 files); `tsc --noEmit` → clean.
+
+#### 5.4 SMTP timeouts + SA-5 reload validation + SW5 small fixes ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** IA-L6, SA-5, SW5-L1, SW5-L2, SW5-L4, SW5-L5, SW5-L6
 **Files Affected:**
@@ -681,8 +683,8 @@ Batch of small correctness fixes. (a) IA-L6: add connectionTimeout/greetingTimeo
 **Notes:**
 Availability over strictness for reload() and the Slack channel — degrade gracefully, don't throw/hardcode.
 
-#### 5.5 embedBatch safety (prerequisite for wiring)
-**Status: PENDING**
+#### 5.5 embedBatch safety (prerequisite for wiring) ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** PE-M2
 **Files Affected:**
@@ -1277,8 +1279,8 @@ Sequencing constraints (NOT parallel): Phase 6.3 (arm gate) after 6.2 (tests); P
 | 0036 uses CASCADE instead of SET NULL → brief data loss | Low | High | Acceptance criterion pins SET NULL; regression test verifies brief survives with NULL | Mitigated 2026-07-12 (1.1: `pg_get_constraintdef` + live insert/delete against regenerated init-schema.sql confirm `ON DELETE SET NULL`, brief row survives with NULL) |
 | try/catch swallows retention errors → hides failures | Med | Med | Design records per-table failure + throws aggregate at end; alert semantics preserved | Mitigated 2026-07-12 (1.2: per-table try/catch continues the loop on failure, logs at error level, and throws one aggregate error after all entries run — rejects the BullMQ job so pipeline-health's failed-job alerting still fires; regression tests prove isolation + surfacing) |
 | Voice secret set on server before clients updated → all captures 401 | Med | Med | Operator runbook order (clients first); this plan documents it, doesn't set the secret | Open |
-| runAgent cap too tight → degraded reflections/wiki | Med | Med | Per-call options with generous defaults (12KB/150K); truncation marker preserves signal | Open |
-| BullMQ reconciliation deletes a live schedule | Low | High | Match by exact freshly-registered key, reconcile AFTER registration | Open |
+| runAgent cap too tight → degraded reflections/wiki | Med | Med | Per-call options with generous defaults (12KB/150K); truncation marker preserves signal | Mitigated (5.1 shipped with 12KB/150K defaults, 2026-07-12) |
+| BullMQ reconciliation deletes a live schedule | Low | High | Match by exact freshly-registered key, reconcile AFTER registration | Mitigated 2026-07-12 (5.3: design matches by exact freshly-registered `(name, jobId, pattern)` identity sourced from the same `register()` args as `.add()` — drift-proof; two-pass — collect live keys, then remove only non-live keys; reconciles AFTER all registrations so live schedules are guaranteed present; unit test asserts an orphan is removed while the registered key never is) |
 | Container USER breaks writable volume/bind silently | Med | Med | Stage: safe trio → voice-capture+chown → ingest-sidecar+host-UID last | Open |
 | workflow_run gate on build-images misconfigured → stops all publishes | Low | Med | Add failure-alert job first; workflow_run gate optional/second | Open |
 | Compose changes trip the ADR-0004 empty-DB landmine | Low | High | Two-gate config-diff procedure; `--no-deps`; postgres/redis never recreated (CLAUDE.md) | Open |
