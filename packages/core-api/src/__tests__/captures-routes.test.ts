@@ -30,7 +30,7 @@ vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200 }))
 
 function makeCaptureRecord(overrides: Partial<CaptureRecord> = {}): CaptureRecord {
   return {
-    id: 'cap-abc-123',
+    id: '44444444-4444-4444-4444-444444444444',
     content: 'Interesting idea about distributed systems',
     content_hash: 'hash123',
     capture_type: 'idea',
@@ -107,7 +107,7 @@ describe('POST /api/v1/captures', () => {
 
     expect(res.status).toBe(201)
     const body = await res.json()
-    expect(body.id).toBe('cap-abc-123')
+    expect(body.id).toBe('44444444-4444-4444-4444-444444444444')
     expect(body.pipeline_status).toBe('pending')
     expect(body.created_at).toBeTruthy()
   })
@@ -338,22 +338,33 @@ describe('GET /api/v1/captures/:id', () => {
     captureService.getById.mockResolvedValueOnce(record)
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/cap-abc-123')
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444')
 
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.id).toBe('cap-abc-123')
+    expect(body.id).toBe('44444444-4444-4444-4444-444444444444')
   })
 
   it('returns 404 when capture does not exist', async () => {
-    captureService.getById.mockRejectedValueOnce(new NotFoundError('Capture not found: missing-id'))
+    captureService.getById.mockRejectedValueOnce(new NotFoundError('Capture not found: 99999999-9999-9999-9999-999999999999'))
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/missing-id')
+    const res = await app.request('/api/v1/captures/99999999-9999-9999-9999-999999999999')
 
     expect(res.status).toBe(404)
     const body = await res.json()
     expect(body.code).toBe('NOT_FOUND')
+  })
+
+  it('rejects a malformed :id with 400 VALIDATION_ERROR (SW5-M2 — never reaches the service)', async () => {
+    const app = createApp({ captureService: captureService as any, configService: configService as any })
+    const res = await app.request('/api/v1/captures/not-a-uuid')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('must be a valid UUID')
+    expect(captureService.getById).not.toHaveBeenCalled()
   })
 })
 
@@ -376,7 +387,7 @@ describe('PATCH /api/v1/captures/:id', () => {
     captureService.update.mockResolvedValueOnce(updated)
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/cap-abc-123', {
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tags: ['updated'], brain_view: 'career' }),
@@ -388,10 +399,10 @@ describe('PATCH /api/v1/captures/:id', () => {
   })
 
   it('returns 404 when capture does not exist', async () => {
-    captureService.update.mockRejectedValueOnce(new NotFoundError('Capture not found: missing-id'))
+    captureService.update.mockRejectedValueOnce(new NotFoundError('Capture not found: 99999999-9999-9999-9999-999999999999'))
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/missing-id', {
+    const res = await app.request('/api/v1/captures/99999999-9999-9999-9999-999999999999', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tags: ['test'] }),
@@ -404,7 +415,7 @@ describe('PATCH /api/v1/captures/:id', () => {
 
   it('returns 400 when brain_view is not in configured views', async () => {
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/cap-abc-123', {
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ brain_view: 'not-valid-view' }),
@@ -420,7 +431,7 @@ describe('PATCH /api/v1/captures/:id', () => {
     captureService.update.mockResolvedValueOnce(updated)
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/cap-abc-123', {
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tags: [] }),
@@ -434,14 +445,14 @@ describe('PATCH /api/v1/captures/:id', () => {
     captureService.update.mockResolvedValueOnce(updated)
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    await app.request('/api/v1/captures/cap-abc-123', {
+    await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ metadata_overrides: { custom_field: 'value' } }),
     })
 
     expect(captureService.update).toHaveBeenCalledWith(
-      'cap-abc-123',
+      '44444444-4444-4444-4444-444444444444',
       expect.objectContaining({ metadata_overrides: { custom_field: 'value' } }),
     )
   })
@@ -465,17 +476,17 @@ describe('DELETE /api/v1/captures/:id', () => {
     captureService.softDelete.mockResolvedValueOnce(undefined)
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/cap-abc-123', { method: 'DELETE' })
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444', { method: 'DELETE' })
 
     expect(res.status).toBe(204)
-    expect(captureService.softDelete).toHaveBeenCalledWith('cap-abc-123')
+    expect(captureService.softDelete).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444')
   })
 
   it('returns 404 when capture does not exist', async () => {
-    captureService.softDelete.mockRejectedValueOnce(new NotFoundError('Capture not found: missing-id'))
+    captureService.softDelete.mockRejectedValueOnce(new NotFoundError('Capture not found: 99999999-9999-9999-9999-999999999999'))
 
     const app = createApp({ captureService: captureService as any, configService: configService as any })
-    const res = await app.request('/api/v1/captures/missing-id', { method: 'DELETE' })
+    const res = await app.request('/api/v1/captures/99999999-9999-9999-9999-999999999999', { method: 'DELETE' })
 
     expect(res.status).toBe(404)
     const body = await res.json()

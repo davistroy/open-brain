@@ -436,7 +436,10 @@ services:
       core-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/dashboard || exit 1"]
+      # SA-7: static/lightweight route — NOT the SSR /dashboard, which fetches
+      # from core-api and would fail this healthcheck on a core-api hiccup
+      # even though the Next.js process itself is fine. See app/api/healthz/route.ts.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

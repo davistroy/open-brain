@@ -40,6 +40,16 @@
       "ws@^8.0.0": "8.21.0",
       "shell-quote": "1.8.4",
       "undici": "6.27.0"
+    },
+    "_overridesNotes": {
+      "_general": "Added 2026-07-12 (commit b98585b, LAB_NOTEBOOK Entry 183, D134) — Dependabot Wave 1 transitive-dependency lockfile refresh. None of these are direct dependencies; each was pinned to its patched version to close a Dependabot security alert reachable only via a transitive path. `path-to-regexp`, `picomatch`, and `ws` use major-version-scoped selectors (e.g. `ws@^7.0.0`) deliberately, so an unrelated consumer pinned to a different major is left untouched. This field is documentation only (a JSON-comment convention — pnpm ignores unrecognized keys under `pnpm.*`); it is NOT consulted by pnpm's override resolution. SW5-L14 (Entry 8.5): the 5 UNSCOPED exact-version entries below (bare package name, no `@<range>` selector) apply globally to every version of that package in the graph, which is broader-blast-radius than the 3 scoped ones above — reassess/narrow if a future consumer needs a genuinely different major.",
+      "axios": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert.",
+      "@xmldom/xmldom": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert.",
+      "form-data": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert.",
+      "lodash": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert.",
+      "fast-uri": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert.",
+      "shell-quote": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert.",
+      "undici": "CVE fix via transitive path — see Entry 183 for the originating Dependabot alert."
     }
   },
   "devDependencies": {

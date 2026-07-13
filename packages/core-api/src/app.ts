@@ -142,9 +142,16 @@ export function createApp(deps: AppDependencies = {}): Hono {
   app.use('/api/v1/briefs/*/audio', rateLimit(strictLimiter, mobileLimiter))
   // Entity ask triggers LLM synthesis — strict rate-limit BEFORE default /api/v1/* mount
   // (Hono first-match wins; must precede the default-tier wildcard below)
-  app.use('/api/v1/entities/*/ask', rateLimit(strictLimiter, mobileLimiter))
+  // SW5-M2 (Entry 8.5): named ':id' — NOT '*' — for this segment. Hono's router merges
+  // a wildcard node and a later-registered ':id' node at the same tree position, and the
+  // merged node drops the 'id' param name — so c.req.param('id') silently returns undefined
+  // for EVERY sibling route under /api/v1/entities/:id/* (e.g. commitments.ts's
+  // /api/v1/entities/:id/commitments), not just /ask itself. Confirmed via isolated repro
+  // against hono@4.12.25. Using ':id' here matches the exact same requests (any single
+  // path segment) with no behavior change, and keeps param binding intact for all siblings.
+  app.use('/api/v1/entities/:id/ask', rateLimit(strictLimiter, mobileLimiter))
   // Entity brief enqueues an LLM skill — strict rate-limit BEFORE default /api/v1/* mount
-  app.use('/api/v1/entities/*/brief', rateLimit(strictLimiter, mobileLimiter))
+  app.use('/api/v1/entities/:id/brief', rateLimit(strictLimiter, mobileLimiter))
 
   // Admin tier: destructive/config endpoints
   app.use('/api/v1/admin/*', rateLimit(adminLimiter, mobileLimiter))

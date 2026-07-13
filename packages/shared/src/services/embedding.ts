@@ -5,6 +5,7 @@ import type { Database } from '../db/index.js'
 import { resolveModelName, getModelEntry } from '../types/config.js'
 import { logger } from '../lib/logger.js'
 import { recordSpend } from './spend-recorder.js'
+import { timeOutboundCall } from './metrics-outbound.js'
 
 /**
  * Thrown when the embedding API is unreachable or returns a non-200 response.
@@ -147,11 +148,14 @@ export class EmbeddingService {
 
     while (true) {
       try {
-        const response = await this.client.embeddings.create({
-          model,
-          input,
-          dimensions: EMBEDDING_DIMENSIONS,
-        })
+        // IA-M4: time the outbound embedding call (embeddings bypass the LLM gateway).
+        const response = await timeOutboundCall('openai', 'embedding', () =>
+          this.client.embeddings.create({
+            model,
+            input,
+            dimensions: EMBEDDING_DIMENSIONS,
+          }),
+        )
 
         const raw = response.data[0]?.embedding
         if (!raw || raw.length !== EMBEDDING_DIMENSIONS) {
@@ -213,11 +217,14 @@ export class EmbeddingService {
     const startedAt = Date.now()
 
     try {
-      const response = await this.client.embeddings.create({
-        model,
-        input: truncatedTexts,
-        dimensions: EMBEDDING_DIMENSIONS,
-      })
+      // IA-M4: time the outbound batch embedding call.
+      const response = await timeOutboundCall('openai', 'embedding_batch', () =>
+        this.client.embeddings.create({
+          model,
+          input: truncatedTexts,
+          dimensions: EMBEDDING_DIMENSIONS,
+        }),
+      )
 
       const sorted = response.data.sort((a, b) => a.index - b.index)
 

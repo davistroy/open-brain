@@ -33,6 +33,8 @@
 | OA-13 | Merge Dependabot PRs #235/#237/#238 (cloudflare/email-worker: postal-mime, @cloudflare/workers-types 4→5) now that `email-worker-test` CI job (npm ci + tsc --noEmit + vitest, verified green locally 16/16) gates the package. Confirm the new job is green on each PR before merging | 2026-07-19 | Troy | Plan 6.5 / QA-7 / SW5-L13 | OPEN |
 | OA-14 | Merge the 5 GitHub-Actions major Dependabot PRs (#242 docker/build-push-action 6→7, #241 actions/cache 5→6, #240 setup-python 5→6, #239 pnpm/action-setup 4→6, #236 setup-node 5→6) **one at a time**, watching one post-merge `build-images.yml` run after each. The new `notify-failure` job (Plan 7.1) now Slack-alerts a broken build so a bad major merge can't silently stale `:latest`. #242 touches all 8 build steps — merge it last/most carefully | 2026-07-26 | Troy | Plan 7.1 / PE-M9 | OPEN |
 
+| OA-15 | When deploying the Phase-8 non-root container images (core-api, slack-bot, voice-capture, web-next now run `USER node`/1000): the pre-existing **root-owned named volumes** must be chowned once or writes fail — `docker run --rm -v open-brain_admin_prewipe_backup:/v alpine chown -R 1000:1000 /v` (admin pre-wipe pg_dump) and `docker run --rm -v open-brain_voice_spool_data:/v alpine chown -R 1000:1000 /v` (voice dead-letter spool). Do this in the OA-9 compose window before recreating those services | 2026-08-09 | Troy | Plan 8.5 / SEC-A6 | OPEN |
+
 ## Completed Actions
 
 | ID | Action | Completed | Source |

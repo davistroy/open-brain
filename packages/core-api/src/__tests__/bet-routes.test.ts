@@ -7,7 +7,7 @@ import type { BetService } from '../services/bet.js'
 // ---------------------------------------------------------------------------
 
 const SAMPLE_BET = {
-  id: 'bet-uuid-1',
+  id: '11111111-1111-1111-1111-111111111111',
   statement: 'LLM inference costs will drop 80% by end of 2026',
   confidence: 0.75,
   domain: 'technical',
@@ -51,7 +51,7 @@ describe('GET /api/v1/bets', () => {
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.items).toHaveLength(1)
-    expect(body.items[0].id).toBe('bet-uuid-1')
+    expect(body.items[0].id).toBe('11111111-1111-1111-1111-111111111111')
     expect(body.total).toBe(1)
     expect(body.limit).toBe(20)
     expect(body.offset).toBe(0)
@@ -103,7 +103,7 @@ describe('POST /api/v1/bets', () => {
 
     expect(res.status).toBe(201)
     const body = await res.json() as any
-    expect(body.id).toBe('bet-uuid-1')
+    expect(body.id).toBe('11111111-1111-1111-1111-111111111111')
     expect(betService.create).toHaveBeenCalledWith({
       statement: 'LLM costs drop 80% by end of 2026',
       confidence: 0.75,
@@ -198,23 +198,36 @@ describe('GET /api/v1/bets/:id', () => {
     const betService = makeMockBetService()
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1')
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.id).toBe('bet-uuid-1')
-    expect(betService.getById).toHaveBeenCalledWith('bet-uuid-1')
+    expect(body.id).toBe('11111111-1111-1111-1111-111111111111')
+    expect(betService.getById).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111')
   })
 
   it('returns 404 when bet not found (NotFoundError propagated)', async () => {
     const { NotFoundError } = await import('@open-brain/shared')
     const betService = makeMockBetService({
-      getById: vi.fn().mockRejectedValue(new NotFoundError('Bet not found: missing-id')),
+      getById: vi.fn().mockRejectedValue(new NotFoundError('Bet not found: 99999999-9999-9999-9999-999999999999')),
     })
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/missing-id')
+    const res = await app.request('/api/v1/bets/99999999-9999-9999-9999-999999999999')
     expect(res.status).toBe(404)
+  })
+
+  it('rejects a malformed :id with 400 VALIDATION_ERROR (SW5-M2 — never reaches the service)', async () => {
+    const betService = makeMockBetService()
+    const app = createApp({ betService })
+
+    const res = await app.request('/api/v1/bets/not-a-uuid')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('must be a valid UUID')
+    expect(betService.getById).not.toHaveBeenCalled()
   })
 })
 
@@ -268,7 +281,7 @@ describe('PATCH /api/v1/bets/:id', () => {
     const betService = makeMockBetService()
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1', {
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution: 'correct', evidence: 'Confirmed by pricing data' }),
@@ -277,7 +290,7 @@ describe('PATCH /api/v1/bets/:id', () => {
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.resolution).toBe('correct')
-    expect(betService.resolve).toHaveBeenCalledWith('bet-uuid-1', {
+    expect(betService.resolve).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111', {
       resolution: 'correct',
       evidence: 'Confirmed by pricing data',
     })
@@ -289,14 +302,14 @@ describe('PATCH /api/v1/bets/:id', () => {
     })
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1', {
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution: 'incorrect' }),
     })
 
     expect(res.status).toBe(200)
-    expect(betService.resolve).toHaveBeenCalledWith('bet-uuid-1', {
+    expect(betService.resolve).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111', {
       resolution: 'incorrect',
       evidence: undefined,
     })
@@ -308,7 +321,7 @@ describe('PATCH /api/v1/bets/:id', () => {
     })
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1', {
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution: 'ambiguous' }),
@@ -321,7 +334,7 @@ describe('PATCH /api/v1/bets/:id', () => {
     const betService = makeMockBetService()
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1', {
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ evidence: 'Some note' }),
@@ -337,7 +350,7 @@ describe('PATCH /api/v1/bets/:id', () => {
     const betService = makeMockBetService()
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1', {
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution: 'won' }),
@@ -352,7 +365,7 @@ describe('PATCH /api/v1/bets/:id', () => {
     const betService = makeMockBetService()
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/bet-uuid-1', {
+    const res = await app.request('/api/v1/bets/11111111-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: 'not-json',
@@ -366,11 +379,11 @@ describe('PATCH /api/v1/bets/:id', () => {
   it('returns 404 when bet not found', async () => {
     const { NotFoundError } = await import('@open-brain/shared')
     const betService = makeMockBetService({
-      resolve: vi.fn().mockRejectedValue(new NotFoundError('Bet not found: missing')),
+      resolve: vi.fn().mockRejectedValue(new NotFoundError('Bet not found: 88888888-8888-8888-8888-888888888888')),
     })
     const app = createApp({ betService })
 
-    const res = await app.request('/api/v1/bets/missing', {
+    const res = await app.request('/api/v1/bets/88888888-8888-8888-8888-888888888888', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolution: 'correct' }),

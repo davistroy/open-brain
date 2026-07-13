@@ -7,7 +7,10 @@
  *
  * Per CLAUDE.md, `app_settings` is a generic key/value store. The route
  * enforces:
- *   - VALID_SETTINGS_KEYS whitelist on PUT (200+null payload on GET when row missing — Phase C)
+ *   - WRITABLE_KEYS whitelist on PUT (200+null payload on GET when row missing — Phase C)
+ *   - READABLE_KEYS whitelist on GET (DA-2: WRITABLE_KEYS minus the 3 OAuth
+ *     token keys — `GET` on a token key is rejected with the same shape as
+ *     an unknown key; workers still read tokens via direct Drizzle access)
  *   - Type-specific validators (autonomy_level, auto_response_threshold,
  *     auto_response_staleness_days, monitored_channels)
  *   - JSONB roundtrip preservation (value passed through to upsert as-is)
@@ -144,6 +147,28 @@ describe('GET /api/v1/settings/:key', () => {
 
     expect(status).toBe(200)
     expect(body).toEqual({ key: 'user_profile', value: null, updated_at: null })
+  })
+
+  // -------------------------------------------------------------------------
+  // DA-2: OAuth token keys are writable but never readable via HTTP
+  // -------------------------------------------------------------------------
+  describe('DA-2 — OAuth token keys rejected on GET', () => {
+    for (const tokenKey of ['ms_token_cache_node', 'gmail_token_cache', 'gmail_credentials']) {
+      it(`returns 400 ValidationError for GET ${tokenKey} — same shape as an unknown key`, async () => {
+        const { app, select } = buildApp({
+          selectRows: [{ key: tokenKey, value: { secret: 'plaintext-token' }, updated_at: new Date() }],
+        })
+
+        const { status, body } = await testJson(app, `/api/v1/settings/${tokenKey}`)
+
+        expect(status).toBe(400)
+        expect((body as { code?: string }).code).toBe('VALIDATION_ERROR')
+        expect((body as { error?: string }).error).toMatch(/Unknown settings key/i)
+        // Whitelist check fires before any DB query — plaintext token value
+        // must never be reachable, even if a row exists.
+        expect(select).not.toHaveBeenCalled()
+      })
+    }
   })
 })
 

@@ -158,15 +158,16 @@ describe('GET /api/v1/entities — edge cases', () => {
 // ---------------------------------------------------------------------------
 
 describe('GET /api/v1/entities/:id — edge cases', () => {
-  it('passes arbitrary string id to service (no format enforcement at route layer)', async () => {
+  it('rejects a non-UUID id with 400 VALIDATION_ERROR (SW5-M2 — malformed :id never reaches the service)', async () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status } = await testJson(app, '/api/v1/entities/plainstring-id')
+    const { status, body } = await testJson(app, '/api/v1/entities/plainstring-id')
 
-    // Route does not guard format — 200 if service resolves
-    expect(status).toBe(200)
-    expect(entityService.getById).toHaveBeenCalledWith('plainstring-id')
+    expect(status).toBe(400)
+    expect((body as { code: string }).code).toBe('VALIDATION_ERROR')
+    expect((body as { error: string }).error).toContain('must be a valid UUID')
+    expect(entityService.getById).not.toHaveBeenCalled()
   })
 })
 
@@ -206,20 +207,20 @@ describe('POST /api/v1/entities/:id/merge — whitespace handling', () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status } = await testJson(app, '/api/v1/entities/source-id/merge', {
+    const { status } = await testJson(app, '/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       body: JSON.stringify({ target_id: '  target-uuid-9999  ' }),
     })
 
     expect(status).toBe(200)
-    expect(entityService.merge).toHaveBeenCalledWith('source-id', 'target-uuid-9999')
+    expect(entityService.merge).toHaveBeenCalledWith('77777777-7777-7777-7777-777777777777', 'target-uuid-9999')
   })
 
   it('returns 400 for whitespace-only target_id', async () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status, body } = await testJson(app, '/api/v1/entities/source-id/merge', {
+    const { status, body } = await testJson(app, '/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       body: JSON.stringify({ target_id: '   ' }),
     })
@@ -232,7 +233,7 @@ describe('POST /api/v1/entities/:id/merge — whitespace handling', () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status, body } = await testJson(app, '/api/v1/entities/source-id/merge', {
+    const { status, body } = await testJson(app, '/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       body: JSON.stringify({ target_id: null }),
     })
@@ -245,7 +246,7 @@ describe('POST /api/v1/entities/:id/merge — whitespace handling', () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status, body } = await testJson(app, '/api/v1/entities/source-id/merge', {
+    const { status, body } = await testJson(app, '/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       body: JSON.stringify({ target_id: 42 }),
     })
@@ -264,20 +265,20 @@ describe('POST /api/v1/entities/:id/split — whitespace handling', () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status } = await testJson(app, '/api/v1/entities/entity-uuid-1/split', {
+    const { status } = await testJson(app, '/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       body: JSON.stringify({ alias: '  Trimmed Alias  ' }),
     })
 
     expect(status).toBe(201)
-    expect(entityService.split).toHaveBeenCalledWith('entity-uuid-1', 'Trimmed Alias')
+    expect(entityService.split).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222', 'Trimmed Alias')
   })
 
   it('returns 400 for whitespace-only alias', async () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status, body } = await testJson(app, '/api/v1/entities/entity-uuid-1/split', {
+    const { status, body } = await testJson(app, '/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       body: JSON.stringify({ alias: '   ' }),
     })
@@ -290,7 +291,7 @@ describe('POST /api/v1/entities/:id/split — whitespace handling', () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status, body } = await testJson(app, '/api/v1/entities/entity-uuid-1/split', {
+    const { status, body } = await testJson(app, '/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       body: JSON.stringify({ alias: null }),
     })
@@ -303,14 +304,14 @@ describe('POST /api/v1/entities/:id/split — whitespace handling', () => {
     const entityService = makeEntityService()
     const app = buildApp(entityService)
 
-    const { status, body } = await testJson(app, '/api/v1/entities/entity-uuid-1/split', {
+    const { status, body } = await testJson(app, '/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       body: JSON.stringify({ alias: 'Jane' }),
     })
 
     expect(status).toBe(201)
     const b = body as any
-    expect(b.source_entity_id).toBe('entity-uuid-1')
+    expect(b.source_entity_id).toBe('22222222-2222-2222-2222-222222222222')
     expect(b.new_entity_id).toBe('split-new-uuid')
     expect(b.alias).toBe('Jane')
     expect(b.message).toContain('Jane')

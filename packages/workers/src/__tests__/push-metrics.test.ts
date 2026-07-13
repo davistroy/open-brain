@@ -1,6 +1,13 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildExposition, pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
+import { recordOutbound, resetOutboundMetrics, OUTBOUND_TOTAL_METRIC } from '@open-brain/shared'
+
+// Keep the process-wide outbound registry clean between tests so recorded
+// observations don't leak across cases (the metrics module is a singleton).
+beforeEach(() => {
+  resetOutboundMetrics()
+})
 
 // ============================================================
 // buildExposition
@@ -119,5 +126,57 @@ describe('pushMetrics', () => {
     )
 
     expect(mockFetch).toHaveBeenCalledOnce()
+  })
+
+  // ----------------------------------------------------------------------
+  // IA-M4: outbound-dependency metrics are appended to the push payload
+  // ----------------------------------------------------------------------
+
+  it('appends recorded outbound metrics to the payload by default', async () => {
+    recordOutbound('openai', 'chat', '2xx', 1.2)
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('') })
+    await pushMetrics(
+      [{ name: 'test_metric', value: 1 }],
+      { url: 'http://localhost:9091/metrics/job/test', fetchFn: mockFetch as unknown as typeof globalThis.fetch },
+    )
+
+    const [, opts] = mockFetch.mock.calls[0]
+    // Caller-supplied metric is still present…
+    expect(opts.body).toContain('test_metric 1')
+    // …and the outbound dependency metric is appended.
+    expect(opts.body).toContain(OUTBOUND_TOTAL_METRIC)
+    expect(opts.body).toContain('provider="openai"')
+    expect(opts.body).toContain('status_class="2xx"')
+  })
+
+  it('omits outbound metrics when includeOutbound is false', async () => {
+    recordOutbound('openai', 'chat', '2xx', 1.2)
+
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('') })
+    await pushMetrics(
+      [{ name: 'test_metric', value: 1 }],
+      {
+        url: 'http://localhost:9091/metrics/job/test',
+        fetchFn: mockFetch as unknown as typeof globalThis.fetch,
+        includeOutbound: false,
+      },
+    )
+
+    const [, opts] = mockFetch.mock.calls[0]
+    expect(opts.body).toContain('test_metric 1')
+    expect(opts.body).not.toContain(OUTBOUND_TOTAL_METRIC)
+  })
+
+  it('pushes only caller metrics when no outbound calls were recorded', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: vi.fn().mockResolvedValue('') })
+    await pushMetrics(
+      [{ name: 'test_metric', value: 1 }],
+      { url: 'http://localhost:9091/metrics/job/test', fetchFn: mockFetch as unknown as typeof globalThis.fetch },
+    )
+
+    const [, opts] = mockFetch.mock.calls[0]
+    expect(opts.body).toContain('test_metric 1')
+    expect(opts.body).not.toContain(OUTBOUND_TOTAL_METRIC)
   })
 })
