@@ -54,6 +54,36 @@ jobs:
       - name: Secrets round-trip guard
         run: bash scripts/test-secrets-roundtrip.sh
 
+  email-worker-test:
+    name: email-worker tests (Cloudflare Worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # QA-7 / SW5-L13: cloudflare/email-worker is a standalone npm project
+    # (its own package-lock.json) outside the pnpm workspace — Dependabot bumps
+    # it (postal-mime, @cloudflare/workers-types) but nothing ever compiled or
+    # tested it. This job closes that gap so those bumps become safe to merge.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: cloudflare/email-worker
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: cloudflare/email-worker
+
+      - name: Run tests
+        run: npx vitest run
+        working-directory: cloudflare/email-worker
+
   sidecar-test:
     name: Sidecar tests (Python)
     runs-on: ubuntu-latest
@@ -143,6 +173,23 @@ jobs:
         # Fix on failure: `bash scripts/regenerate-init-schema.sh` and commit the result.
         run: bash scripts/validate-init-schema.sh
 
+  validate-alert-rules:
+    name: Validate Prometheus alert rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # PE-M8/QA-10: scripts/validate-alert-rules.sh existed but was wired into no
+    # workflow — a malformed rule file (config/prometheus/alerts/*.yml) produced
+    # zero CI signal, only discoverable via a failed shared-Prometheus reload
+    # post-deploy. Cheap + no external deps (falls back to python3 yaml.safe_load
+    # when promtool isn't on PATH, which is the case on ubuntu-latest).
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run alert rules validator
+        run: bash scripts/validate-alert-rules.sh
+
   python-lint:
     name: Python lint & typecheck
     runs-on: ubuntu-latest
@@ -209,11 +256,12 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql://openbrain_test:test_password@localhost:5433/openbrain_test
           TEST_REDIS_URL: redis://localhost:6381
-          # QA-M3 (INGEST_E2E) intentionally NOT enabled here: the e2e suite's
-          # docstring requires a full stack (core-api + workers + sidecar), but
-          # docker-compose.test.yml only runs postgres + redis + sidecar. Enabling
-          # the flag without standing up core-api/workers fails (no :3002). Tracked
-          # as a follow-up — needs the full-stack test compose, not a one-liner.
+          # QA-M3 (INGEST_E2E) is intentionally NOT enabled in THIS required job:
+          # the e2e needs a full stack (core-api + workers + sidecar), and this
+          # required gate stays lean. INGEST_E2E now runs in the dedicated
+          # `full-stack-e2e` job below (item 8.1) which activates the compose
+          # `fullstack` profile (test-core-api + test-workers). That job is NOT a
+          # required check while the happy-path fixture proves out (see its notes).
           NODE_ENV: test
 
       - name: Dump service logs on failure
@@ -227,12 +275,18 @@ jobs:
   doc-sync:
     name: Doc version sync check
     runs-on: ubuntu-latest
-    # OBSERVE MODE — promotion checklist (same pattern as integration-test):
-    # 1. Verify 2 consecutive PRs show this job green in GitHub Actions
-    # 2. Remove the `continue-on-error: true` line below
-    # 3. Add "Doc version sync check" to branch protection required status checks
-    # 4. Update this comment to: "REQUIRED: promoted YYYY-MM-DD PR #NNN"
-    continue-on-error: true
+    # BLOCKING as of 2026-07-12 (item 7.3) — sync-docs.sh has been green across
+    # the observe-mode window; `continue-on-error` removed.
+    #
+    # Scope note (PE-M7): this check is version-STRING-only — it diffs version
+    # numbers embedded across docs/config, nothing more. It cannot catch
+    # procedure or prose drift (the PLT-C1 class: a runbook step that's
+    # syntactically fine but describes a stale/wrong procedure). Do not treat a
+    # green run here as validation of runbook or doc CONTENT correctness — it
+    # only proves version strings agree.
+    #
+    # Adding to branch-protection required status checks is a separate
+    # operator `gh api` step (OA-8), not part of this workflow file.
 
     steps:
       - name: Checkout
@@ -246,3 +300,111 @@ jobs:
 
       - name: Check version strings agree
         run: bash scripts/sync-docs.sh
+
+  full-stack-e2e:
+    name: Full-stack e2e (ingest + web smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Heavy (builds core-api + workers images): run on PRs and main pushes only,
+    # not every feature-branch push. Keeps CI minutes sane for a non-required job.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    # NOT a required status check (item 8.1). Stands up REAL core-api + workers
+    # (compose `fullstack` profile) against the ephemeral test DB/Redis and runs
+    # the gated INGEST_E2E suite + the Playwright web smoke.
+    #
+    # The e2e + smoke STEPS are `continue-on-error` while the happy-path fixture
+    # proves out in CI: the ingest e2e's positive test drives a real capture only
+    # if the pre-seeded AMEX inbox parses end-to-end through the financial
+    # pipeline; its negative test (reject upload with no file) exercises real
+    # core-api unconditionally. Infra steps (build / schema / up) are NOT
+    # continue-on-error, so a genuinely broken stack still surfaces red here.
+    # Promote to a required check once the job is reliably green.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Restore pnpm store cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @open-brain/shared build
+
+      - name: Start test Postgres + Redis
+        run: docker compose -f docker-compose.test.yml up -d --wait test-postgres test-redis
+
+      - name: Apply schema to test Postgres (ledger model — no auto-migrate)
+        run: |
+          docker compose -f docker-compose.test.yml exec -T test-postgres \
+            psql -U openbrain_test -d openbrain_test -v ON_ERROR_STOP=1 \
+            < scripts/init-schema.sql
+
+      - name: Build + start full stack (core-api + workers + sidecar)
+        run: docker compose -f docker-compose.test.yml --profile fullstack up -d --wait --build
+
+      - name: Pre-seed a valid AMEX inbox file for the ingest pipeline
+        # The e2e upload lands as <uuid>-activity.csv (won't match the exact
+        # `activity.csv` bank-router rule, and its ISO date won't parse). This
+        # seed gives the financial pipeline one genuinely parseable file so the
+        # /process run posts >=1 capture — proving the upload -> worker ->
+        # sidecar -> file_uploads='parsed' path end to end.
+        run: |
+          docker compose -f docker-compose.test.yml exec -T test-sidecar \
+            sh -c 'mkdir -p /inbox-root/financial && cat > /inbox-root/financial/activity.csv' <<'CSV'
+          Date,Description,Amount
+          04/17/2026,COFFEE SHOP DOWNTOWN,12.34
+          04/16/2026,GROCERY MART,56.78
+          04/15/2026,STATEMENT PAYMENT,-100.00
+          CSV
+
+      - name: Run ingest e2e (INGEST_E2E=1) against real core-api + workers
+        continue-on-error: true
+        env:
+          INGEST_E2E: '1'
+          CORE_API_URL: http://localhost:3002
+          INGEST_SOURCE: financial
+          INGEST_TRIGGER_SECRET: test-secret-do-not-use-in-prod
+          NODE_ENV: test
+        run: >-
+          pnpm --filter @open-brain/workers exec vitest run
+          --config vitest.config.integration.ts
+          src/__tests__/integration/ingest-e2e.test.ts
+
+      - name: Install Playwright chromium
+        continue-on-error: true
+        run: pnpm --filter @open-brain/web-next exec playwright install --with-deps chromium
+
+      - name: Run web smoke (Playwright, self-skips without live stack)
+        continue-on-error: true
+        env:
+          # Next dev server rewrites /api -> API_URL; point it at the published
+          # test core-api. The smoke self-skips gracefully if it's unreachable.
+          API_URL: http://localhost:3002
+          CI: 'true'
+        run: pnpm --filter @open-brain/web-next test:e2e
+
+      - name: Dump full-stack logs on failure
+        if: always()
+        run: docker compose -f docker-compose.test.yml --profile fullstack logs --no-color
+
+      - name: Tear down full stack
+        if: always()
+        run: docker compose -f docker-compose.test.yml --profile fullstack down -v

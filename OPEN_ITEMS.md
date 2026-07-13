@@ -4,25 +4,25 @@
 
 GitHub issues are the single source of truth for all pending work. This file is a quick-reference summary only — close issues there, not here.
 
-Last reconciled: 2026-06-30.
+Last reconciled: 2026-07-13.
 
 ---
 
-## Architecture Review v3 remediation (plan A132 — not in GitHub issues)
+## Architecture Review v3 remediation (plan A132 — FULLY DEPLOYED)
 
-Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), not GitHub issues. **Waves 1–2 COMPLETE** (Phases 1–7 merged to `main`); **Waves 3–4 + a batched production-deploy window remain.**
-
-| Remaining | Where |
-|-----------|-------|
-| Phase 8 (ingest edges + voice Bearer auth) | IMPLEMENTATION_PLAN.md Wave 3 |
-| Phase 9 (convention→CI + governance/doc sweep, incl. PRD/TDD content) | Wave 3 |
-| Phase 10 (residual lows + RI closeouts) | Wave 4 |
-| **Deploy & Ops Backlog** (deploy Phases 6+7 + migration 0034; observability loopback via `systemctl restart docker`; upstream compose deviations) | IMPLEMENTATION_PLAN.md "Deployment & Ops Backlog" |
-| Deferred: workers coverage Part B (74%<78), QA-M3 INGEST_E2E, INT-M2-voice | same |
+**Status: COMPLETE 2026-06-30 (Entry 179).** All 10 phases / 4 waves merged and deployed. Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for reference.
 
 ---
 
-## Open issues (10)
+## Architecture Review v4 remediation (plan A134–A137 — implemented on branch, pending merge/deploy)
+
+**Status: 31/35 items implemented on branch `feat/arch-review-v5-remediation` (PR #244, NOT yet merged or deployed).** All 8 phases (CS-A–CS-H) complete — see `LAB_NOTEBOOK.md` Entry 186. Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for reference.
+
+The remaining 4 work items are operator-gated deferrals (live-host deploys, external verifications, repo-settings changes) that code alone can't complete. **See [`OPERATOR_ACTIONS.md`](OPERATOR_ACTIONS.md) for the dated register** — highlights: OA-1 (deploy migration 0036 + verify), OA-7 (mobile ingress, blocked on U3 CF-Access verification), OA-8 (promote required branch-protection checks), OA-9 (live-host verification session).
+
+---
+
+## Open issues (11)
 
 | # | Title | Gate / urgency |
 |---|-------|---------------|
@@ -33,9 +33,10 @@ Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), not GitHub issues
 | [#73](https://github.com/davistroy/open-brain/issues/73)  | P33: Qdrant vector-search evaluation | Scale-gated — fires at ≥50K embeddings |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile app deferred scope (PRs #172/#174) | When mobile becomes a priority |
 | [#200](https://github.com/davistroy/open-brain/issues/200) | Investigate large number of failures reported in the Dashboard | Awaiting user dashboard verification post-fixes |
-| [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection skill: 6.5M-token context blowup | Low — fires monthly, fails fast |
+| [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection skill: 6.5M-token context blowup | **Fixed on branch** `feat/arch-review-v5-remediation` (PR #244) — `runAgent` context budget (per-tool-result 12KB cap + 150K-token cumulative early-stop); pending merge/deploy |
 | [#207](https://github.com/davistroy/open-brain/issues/207) | A83: 17 client-render `new Date()` hydration risks (cosmetic) | Cosmetic — TZ alignment neutralized blast radius |
-| [#217](https://github.com/davistroy/open-brain/issues/217) | BullMQ scheduler: orphan repeat-jobs accumulate on cron schedule changes | Low — manual cleanup performed 2026-05-09; structural fix proposed |
+| [#217](https://github.com/davistroy/open-brain/issues/217) | BullMQ scheduler: orphan repeat-jobs accumulate on cron schedule changes | **Fixed on branch** `feat/arch-review-v5-remediation` (PR #244) — startup reconciliation removes orphaned repeatable jobs; pending merge/deploy |
+| [#226](https://github.com/davistroy/open-brain/issues/226) | core-api: daily spreading-activation query errors "cannot cast type record to uuid[]" | **Fixed already (PR #230 / `1710c54`, `pgUuidArray()`), open only pending closure** — evidence + `gh issue close` command prepared in `docs/pending-issue-closures.md` (operator action OA-3) |
 
 ---
 

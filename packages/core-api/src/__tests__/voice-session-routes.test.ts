@@ -7,7 +7,7 @@ import type { VoiceSessionService } from '../services/voice-session.js'
 // ---------------------------------------------------------------------------
 
 const SAMPLE_SESSION = {
-  id: 'vs-uuid-1',
+  id: '55555555-5555-5555-5555-555555555555',
   session_key: 'pipecat-abc123',
   started_at: new Date('2026-04-11T09:00:00Z'),
   ended_at: null,
@@ -64,7 +64,7 @@ describe('GET /api/v1/voice/sessions', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
     expect(body.items).toHaveLength(1)
-    expect(body.items[0].id).toBe('vs-uuid-1')
+    expect(body.items[0].id).toBe('55555555-5555-5555-5555-555555555555')
     expect(body.total).toBe(1)
     expect(body.limit).toBe(50)
     expect(body.offset).toBe(0)
@@ -131,12 +131,25 @@ describe('GET /api/v1/voice/sessions/:id', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1')
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555')
 
     expect(res.status).toBe(200)
     const body = (await res.json()) as any
-    expect(body.id).toBe('vs-uuid-1')
-    expect(voiceSessionService.get).toHaveBeenCalledWith('vs-uuid-1')
+    expect(body.id).toBe('55555555-5555-5555-5555-555555555555')
+    expect(voiceSessionService.get).toHaveBeenCalledWith('55555555-5555-5555-5555-555555555555')
+  })
+
+  it('rejects a malformed :id with 400 VALIDATION_ERROR (SW5-M2 — never reaches the service)', async () => {
+    const voiceSessionService = makeMockService()
+    const app = createApp({ voiceSessionService })
+
+    const res = await app.request('/api/v1/voice/sessions/not-a-uuid')
+
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('must be a valid UUID')
+    expect(voiceSessionService.get).not.toHaveBeenCalled()
   })
 })
 
@@ -157,7 +170,7 @@ describe('POST /api/v1/voice/sessions', () => {
 
     expect(res.status).toBe(201)
     const body = (await res.json()) as any
-    expect(body.id).toBe('vs-uuid-1')
+    expect(body.id).toBe('55555555-5555-5555-5555-555555555555')
     expect(body.session_key).toBe('pipecat-abc123')
     expect(voiceSessionService.create).toHaveBeenCalledWith({
       sessionKey: 'pipecat-abc123',
@@ -222,14 +235,14 @@ describe('PATCH /api/v1/voice/sessions/:id', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turn_count: 3, summary: 'Updated summary' }),
     })
 
     expect(res.status).toBe(200)
-    expect(voiceSessionService.update).toHaveBeenCalledWith('vs-uuid-1', {
+    expect(voiceSessionService.update).toHaveBeenCalledWith('55555555-5555-5555-5555-555555555555', {
       turn_count: 3,
       summary: 'Updated summary',
     })
@@ -239,7 +252,7 @@ describe('PATCH /api/v1/voice/sessions/:id', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ turn_count: 'not-a-number' }),
@@ -254,7 +267,7 @@ describe('PATCH /api/v1/voice/sessions/:id', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transcript: 'not-an-array' }),
@@ -267,7 +280,7 @@ describe('PATCH /api/v1/voice/sessions/:id', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ metadata: 'string-not-object' }),
@@ -280,7 +293,7 @@ describe('PATCH /api/v1/voice/sessions/:id', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: 'broken',
@@ -299,7 +312,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1/complete', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -314,7 +327,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
 
     expect(res.status).toBe(200)
     expect(voiceSessionService.complete).toHaveBeenCalledWith(
-      'vs-uuid-1',
+      '55555555-5555-5555-5555-555555555555',
       [
         { role: 'user', content: 'Hello' },
         { role: 'assistant', content: 'Hi' },
@@ -328,7 +341,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    await app.request('/api/v1/voice/sessions/vs-uuid-1/complete', {
+    await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -338,7 +351,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
     })
 
     expect(voiceSessionService.complete).toHaveBeenCalledWith(
-      'vs-uuid-1',
+      '55555555-5555-5555-5555-555555555555',
       [],
       'Empty conversation',
       [],
@@ -349,7 +362,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1/complete', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ summary: 'No transcript' }),
@@ -362,7 +375,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1/complete', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transcript: [] }),
@@ -375,7 +388,7 @@ describe('POST /api/v1/voice/sessions/:id/complete', () => {
     const voiceSessionService = makeMockService()
     const app = createApp({ voiceSessionService })
 
-    const res = await app.request('/api/v1/voice/sessions/vs-uuid-1/complete', {
+    const res = await app.request('/api/v1/voice/sessions/55555555-5555-5555-5555-555555555555/complete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transcript: [], summary: '  ' }),

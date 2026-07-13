@@ -6,11 +6,12 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 
 **v1.6.0** — Phase 8b web consolidation, architecture review remediation, mobile app, ops hardening, GitHub issues migration shipped 2026-05-09. See [CHANGELOG](CHANGELOG.md) for the full v1.6.0 entry.
 
-**In progress (post-1.6.0):** Architecture Review v3 remediation (plan A132, [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md)) — **Waves 1–2 complete** (Phases 1–7 merged: CI gates, LAN perimeter, recovery/search fixes, observability, schema fidelity machine, integration/spend hardening, and the O(N²)→HNSW k-NN similarity rewrite). Waves 3–4 + the batched production deploy remain. See the [Unreleased CHANGELOG](CHANGELOG.md#unreleased) section. Other pending work tracked in [GitHub issues](https://github.com/davistroy/open-brain/issues) (quick summary in [OPEN_ITEMS.md](OPEN_ITEMS.md)). Four "Could Have" / "Won't Have" features (F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
+**In progress (post-1.6.0):** Architecture Review v3 remediation (plan A132) is **fully deployed** (2026-06-30) — CI gates, LAN perimeter, recovery/search fixes, external observability, schema fidelity machine, integration/spend hardening, and the O(N²)→HNSW k-NN similarity rewrite. Architecture reviews v4 (2026-07-09) and v5 (2026-07-12) followed; the v5 remediation plan ([`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — 31/35 items across 8 phases: migration 0036 FK fix, deploy.md rollback-landmine removal, OPERATOR_ACTIONS.md forcing function, voice/edge hardening, runAgent context budget, workers coverage gate armed at ~84%, alerting/backup dead-man's switch, non-root containers) is **implemented on branch `feat/arch-review-v5-remediation` (PR #244), pending merge and deploy**. 4 items are operator-gated deferrals tracked in [OPERATOR_ACTIONS.md](OPERATOR_ACTIONS.md), including the production deploy of migration 0036. See the [Unreleased CHANGELOG](CHANGELOG.md#unreleased) section. Other pending work tracked in [GitHub issues](https://github.com/davistroy/open-brain/issues) (quick summary in [OPEN_ITEMS.md](OPEN_ITEMS.md)). Four "Could Have" / "Won't Have" features (F24, F25, F26, F27) remain deferred — see [Roadmap](#roadmap) below.
 
 ## Plans
 
 - **GitHub issues** — single source of truth for all open work. See [OPEN_ITEMS.md](OPEN_ITEMS.md) for a one-page summary.
+- **[OPERATOR_ACTIONS.md](OPERATOR_ACTIONS.md)** — dated register of post-merge operator/ops actions (deploys, repo-settings, secret provisioning, owner decisions) that code alone can't complete; surfaced monthly via the secret-rotation skill + monthly-audit workflow.
 - **`docs/archived/`** — completed implementation plans (Phases 1–22 + tech-debt waves through 2026-04-19; Cloudscape M1–M4; arch-review; post-remediation; 2026-05-09 cohesive remediation).
 
 ---
@@ -32,8 +33,9 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-voice-pipecat` | build: packages/voice-pipecat | Pipecat realtime voice pipeline (VAD → Deepgram → Claude → TTS) |
 | `open-brain-file-ingestion` | build: packages/file-ingestion | FastAPI sidecar — extracts text from PDF/DOCX/XLSX/PPTX/etc. for the document pipeline |
 | `open-brain-financial-ingest` / `utility-ingest` | image: alpine + cron | Hourly Python pullers for financial + utility data; results POST'd to `/api/v1/captures` |
-| `open-brain-loki` / `prometheus` / `pushgateway` / `grafana` | grafana images | Observability stack — Loki log aggregation (P11a), Prometheus + pushgateway metrics, Grafana dashboards |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
+
+**Observability (external, ADR-0004):** Loki, Prometheus, Pushgateway, and Grafana are NOT part of this compose project. They run as a standalone `observability` Docker Compose project that open-brain joins as a client over a shared external network: the shared Prometheus scrapes `core-api:3000/metrics`, and `workers` push to `pushgateway:9091`. Deploying/operating that stack is out of scope for this repo.
 
 **External dependency**: OpenAI API (`https://api.openai.com/v1`) handles ALL AI — embeddings via `text-embedding-3-large` (768d via `dimensions` parameter) and LLM inference via `gpt-5.4` (aliases: `fast`, `synthesis`, `governance`, `intent`). Configured in `config/ai-routing.yaml`. API key in Bitwarden.
 
@@ -66,8 +68,8 @@ scripts/
   regression-test.mjs     # Comprehensive regression suite (91 tests)
   monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
 docs/
-  PRD.md           # Product requirements (v0.6)
-  TDD.md           # Technical design (v0.6)
+  PRD.md           # Product requirements (v0.7)
+  TDD.md           # Technical design (v0.7)
   ios-shortcut.md  # iOS Shortcut setup guide for voice capture
 ```
 
@@ -219,7 +221,7 @@ source ./scripts/load-secrets.sh
 docker compose up -d
 ```
 
-This starts all 17 containers — 13 application/data services (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest) plus the 4-service observability stack (loki, prometheus, pushgateway, grafana). First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+This starts all 13 containers (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — it is not started by `docker compose up -d` here. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
 
 ### 5. Verify
 
@@ -266,6 +268,7 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 |------|---------|
 | `CHANGELOG.md` | Version history and recent changes |
 | `OPEN_ITEMS.md` | One-page summary of open GitHub issues |
+| `OPERATOR_ACTIONS.md` | Dated register of post-merge operator/ops actions (RC-19) |
 | `LAB_NOTEBOOK.md` | Experiment + decision log (append-only) |
 | `USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/PRD.md` | Product requirements (v0.7) |

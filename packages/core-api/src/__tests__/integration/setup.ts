@@ -16,6 +16,7 @@ import { Pool } from 'pg'
 import type { Hono } from 'hono'
 import { createDb, type Database, type DbConnection, ConfigService } from '@open-brain/shared'
 import { createApp } from '../../app.js'
+import { fakeEmbed } from './fixtures/fake-embed.js'
 import { CaptureService } from '../../services/capture.js'
 import { SearchService } from '../../services/search.js'
 import { EntityService } from '../../services/entity.js'
@@ -148,8 +149,16 @@ export interface TestAppContext {
 /**
  * Create a fully wired Hono app backed by the real test database.
  *
- * Embedding-dependent features use a stub EmbeddingService that returns
- * zero vectors (LiteLLM won't be available in test/CI).
+ * Embedding-dependent features use a stub EmbeddingService — no OpenAI API key
+ * is available in test/CI, so it cannot call the real `text-embedding-3-large`
+ * embedder. It returns `fakeEmbed(text)` (see ./fixtures/fake-embed.ts): a
+ * deterministic, content-derived, L2-normalized 768-d pseudo-embedding. This
+ * replaces the old all-zero-vector stub, which made cosine distance NaN/tied
+ * for every row (pgvector's `<=>` is undefined for a zero-norm vector) and
+ * left the vector/HNSW/RRF half of hybrid search with no behavioral coverage.
+ * fakeEmbed is safe for *ranking-mechanics* assertions (HNSW returns
+ * candidates, RRF fuses FTS+vector) — NOT for *semantic-similarity*
+ * assertions, which require the live embedder. See fixtures/fake-embed.ts.
  *
  * ConfigService loads from the real config/ directory.
  */
@@ -161,11 +170,10 @@ export function getTestApp(): TestAppContext {
   const configService = new ConfigService(configDir)
   configService.load()
 
-  // Stub embedding service — returns zero vectors for integration tests
+  // Stub embedding service — deterministic pseudo-embeddings, no API key needed
   const stubEmbeddingService = {
-    embed: async (_text: string): Promise<number[]> => new Array(768).fill(0),
-    embedBatch: async (texts: string[]): Promise<number[][]> =>
-      texts.map(() => new Array(768).fill(0)),
+    embed: async (text: string): Promise<number[]> => fakeEmbed(text),
+    embedBatch: async (texts: string[]): Promise<number[][]> => texts.map((t) => fakeEmbed(t)),
   }
 
   // Wire services with real DB

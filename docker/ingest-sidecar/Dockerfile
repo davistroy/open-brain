@@ -80,6 +80,20 @@ RUN mkdir -p /inbox /inbox/processed /data
 # Trigger server listens on :8080; compose networks expose it to core-api.
 EXPOSE 8080
 
-# Long-lived: runs the HTTP trigger server. Host cron still exec's into the
-# container for scheduled runs — those bypass the HTTP path and go direct.
+# SEC-A6 (Entry 8.5): DEFERRED — stays root. Unlike the other targets in this
+# repo, /inbox is a raw HOST BIND MOUNT on Unraid
+# (/mnt/user/appdata/open-brain/{financial,utility}-inbox:/inbox), not a
+# Docker-managed named volume — its ownership is whatever the Unraid host
+# filesystem assigns (root or an Unraid-specific UID unrelated to any
+# in-container UID), and Docker does NOT auto-chown bind-mount content the way
+# it seeds a brand-new named volume. Also: host cron `docker exec`'s directly
+# into this container (see header comment) to run financial-pipeline.py /
+# utility-pipeline.py, and file ownership must line up for BOTH the trigger
+# server's writes (/inbox/processed, /data) AND those exec'd cron invocations.
+# Pinning a non-root UID here without first coordinating a matching host-side
+# UID (or a Docker `user:` override sourced from the host's UID at deploy
+# time) risks breaking the host cron -> container write path silently. Needs
+# a dedicated host-UID-coordination pass — tracked as a follow-up, not done in
+# this hardening pass. Root is an accepted, documented exception for this
+# target only.
 CMD ["python", "/app/trigger_server.py"]

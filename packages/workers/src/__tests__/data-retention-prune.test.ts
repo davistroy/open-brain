@@ -3,6 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import {
   RETENTION_POLICY,
   pruneRetentionData,
+  pruneSoftDeletedCaptures,
 } from '../jobs/data-retention-prune.js'
 import type { RetentionPolicyEntry } from '../jobs/data-retention-prune.js'
 
@@ -18,11 +19,14 @@ function renderSql(arg: unknown): { sql: string; params: unknown[] } {
 // ============================================================
 
 const EXPECTED_POLICY: RetentionPolicyEntry[] = [
-  { table: 'pipeline_events', column: 'created_at', days: 90 },
-  { table: 'ai_audit_log',    column: 'created_at', days: 180 },
-  { table: 'activity_feed',   column: 'timestamp',  days: 30 },
-  { table: 'mcp_activity',    column: 'created_at', days: 30 },
-  { table: 'skills_log',      column: 'created_at', days: 60 },
+  { table: 'pipeline_events',       column: 'created_at',   days: 90  },
+  { table: 'ai_audit_log',          column: 'created_at',   days: 180 },
+  { table: 'activity_feed',         column: 'timestamp',    days: 30  },
+  { table: 'mcp_activity',          column: 'created_at',   days: 30  },
+  { table: 'skills_log',            column: 'created_at',   days: 60  },
+  { table: 'container_health',      column: 'created_at',   days: 30  },
+  { table: 'email_classifications', column: 'processed_at', days: 60  },
+  { table: 'voice_sessions',        column: 'created_at',   days: 90  },
 ]
 
 // ============================================================
@@ -70,8 +74,8 @@ describe('RETENTION_POLICY — admin_audit invariant (RC-4)', () => {
 // ============================================================
 
 describe('RETENTION_POLICY — content contract (RC-4)', () => {
-  it('contains exactly 5 entries', () => {
-    expect(RETENTION_POLICY).toHaveLength(5)
+  it('contains exactly 8 entries', () => {
+    expect(RETENTION_POLICY).toHaveLength(8)
   })
 
   it('includes pipeline_events with created_at and 90-day retention', () => {
@@ -107,6 +111,28 @@ describe('RETENTION_POLICY — content contract (RC-4)', () => {
     expect(entry).toBeDefined()
     expect(entry?.column).toBe('created_at')
     expect(entry?.days).toBe(60)
+  })
+
+  // DA-3/RC-15 (Phase 8.4) — previously-unbounded event tables.
+  it('includes container_health with created_at and 30-day retention', () => {
+    const entry = RETENTION_POLICY.find(e => e.table === 'container_health')
+    expect(entry).toBeDefined()
+    expect(entry?.column).toBe('created_at')
+    expect(entry?.days).toBe(30)
+  })
+
+  it('includes email_classifications with processed_at and 60-day retention', () => {
+    const entry = RETENTION_POLICY.find(e => e.table === 'email_classifications')
+    expect(entry).toBeDefined()
+    expect(entry?.column).toBe('processed_at')
+    expect(entry?.days).toBe(60)
+  })
+
+  it('includes voice_sessions with created_at and 90-day retention', () => {
+    const entry = RETENTION_POLICY.find(e => e.table === 'voice_sessions')
+    expect(entry).toBeDefined()
+    expect(entry?.column).toBe('created_at')
+    expect(entry?.days).toBe(90)
   })
 
   it('matches the full expected policy exactly (table/column/days)', () => {
@@ -237,10 +263,152 @@ describe('pruneRetentionData — behaviour', () => {
     }
   })
 
-  it('propagates a database error from the DELETE CTE', async () => {
+  it('isolates a first-table DELETE failure — continues pruning the rest, then throws an aggregate error', async () => {
     const db = makeMockDb()
+    // Rejects only the very first execute() call — pipeline_events' DELETE
+    // CTE (the first policy entry). Every subsequent call uses the default
+    // successful mock implementation.
     db._execute.mockRejectedValueOnce(new Error('DB connection lost'))
 
     await expect(pruneRetentionData(db as any)).rejects.toThrow('DB connection lost')
+
+    // pipeline_events' DELETE failed before its audit INSERT ever ran (1
+    // call); the remaining tables still got DELETE + INSERT (2 calls
+    // apiece) — per-table fault isolation, not an abort-on-first-error.
+    expect(db._execute).toHaveBeenCalledTimes(1 + (RETENTION_POLICY.length - 1) * 2)
+  })
+})
+
+// ============================================================
+// PER-TABLE FAULT ISOLATION (Phase 1 / CS-A)
+//
+// A single table's DELETE failing (e.g. an FK constraint, matching the
+// skills_log/briefs incident that motivated this refactor) must not abort
+// the loop. The other tables must still prune + audit, and the failure
+// must be surfaced via an aggregate throw at the end — never swallowed.
+// ============================================================
+
+describe('pruneRetentionData — per-table fault isolation (Phase 1 / CS-A)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * Mock Database whose execute() rejects ONLY the DELETE CTE call for
+   * `failingTable` (identified by inspecting the rendered SQL, cf. the
+   * table-detection pattern used above at ~test:137,152) and resolves
+   * normally for every other call — including every other table's DELETE
+   * + audit INSERT, and (implicitly) `failingTable`'s own audit INSERT,
+   * which never runs because its DELETE throws first.
+   */
+  function makeMockDbWithTableFailure(failingTable: string, deletedCountPerCall = 5) {
+    const execute = vi.fn().mockImplementation((arg: unknown) => {
+      const { sql: renderedSql } = renderSql(arg)
+      if (renderedSql.includes('DELETE FROM') && renderedSql.includes(failingTable)) {
+        return Promise.reject(new Error(`simulated ${failingTable} failure`))
+      }
+      return Promise.resolve({ rows: [{ deleted_count: deletedCountPerCall }] })
+    })
+    return { execute, _execute: execute }
+  }
+
+  it('a skills_log DELETE failure does not abort the other tables', async () => {
+    const db = makeMockDbWithTableFailure('skills_log')
+
+    await expect(pruneRetentionData(db as any)).rejects.toThrow()
+
+    const allCalls = db._execute.mock.calls as unknown[][]
+
+    // Every table (including skills_log) still gets its DELETE attempted —
+    // the table name appears raw only in the DELETE CTE, never in the
+    // (parameterised) retention_audit INSERT, so `includes(table)` isolates
+    // the DELETE call.
+    for (const entry of RETENTION_POLICY) {
+      const deleteCalls = allCalls.filter(([arg]) => renderSql(arg).sql.includes(entry.table))
+      expect(deleteCalls).toHaveLength(1)
+    }
+
+    // retention_audit INSERTs — table_name is parameterised ($1), so identify
+    // which table each INSERT belongs to via the bound param, mirroring the
+    // pattern at ~test:176-196.
+    const auditInserts = allCalls.filter(([arg]) => renderSql(arg).sql.includes('retention_audit'))
+    const auditedTables = auditInserts.map(([arg]) => renderSql(arg).params[0])
+
+    // The succeeding tables were each audited exactly once; skills_log —
+    // whose DELETE failed — was never audited (its INSERT never ran).
+    const otherTables = RETENTION_POLICY.filter(e => e.table !== 'skills_log')
+    expect(auditedTables).toHaveLength(otherTables.length)
+    for (const entry of otherTables) {
+      expect(auditedTables).toContain(entry.table)
+    }
+    expect(auditedTables).not.toContain('skills_log')
+  })
+
+  it('surfaces the skills_log failure as an aggregate error naming the table — never swallowed', async () => {
+    const db = makeMockDbWithTableFailure('skills_log')
+
+    await expect(pruneRetentionData(db as any)).rejects.toThrow(
+      new RegExp(`1/${RETENTION_POLICY.length} table\\(s\\) failed to prune:.*skills_log`),
+    )
+  })
+
+  it('all tables failing produces one aggregate error naming every table', async () => {
+    const execute = vi.fn().mockImplementation((arg: unknown) => {
+      const { sql: renderedSql } = renderSql(arg)
+      if (renderedSql.includes('DELETE FROM')) {
+        return Promise.reject(new Error('simulated failure'))
+      }
+      return Promise.resolve({ rows: [] })
+    })
+    const db = { execute, _execute: execute }
+
+    await expect(pruneRetentionData(db as any)).rejects.toThrow(
+      new RegExp(`${RETENTION_POLICY.length}/${RETENTION_POLICY.length} table\\(s\\) failed to prune`),
+    )
+
+    // No retention_audit INSERTs at all — every table's DELETE failed first.
+    const allCalls = db._execute.mock.calls as unknown[][]
+    const auditInserts = allCalls.filter(([arg]) => renderSql(arg).sql.includes('retention_audit'))
+    expect(auditInserts).toHaveLength(0)
+  })
+})
+
+// ============================================================
+// pruneSoftDeletedCaptures — DEFERRED (DA-5/RC-15, Phase 8.4)
+//
+// This function must NEVER delete rows until a real backup-freshness
+// precondition exists (see its JSDoc). These tests pin the fail-closed
+// contract: it always reports attempted:false and never touches the db.
+// ============================================================
+
+describe('pruneSoftDeletedCaptures — disabled pending backup-freshness signal (DA-5/RC-15)', () => {
+  it('returns attempted:false with a reason and deletes nothing (default days)', async () => {
+    const execute = vi.fn()
+    const db = { execute } as any
+
+    const result = await pruneSoftDeletedCaptures(db)
+
+    expect(result).toEqual({
+      attempted: false,
+      deletedCount: 0,
+      reason: expect.stringContaining('DA-5/RC-15'),
+    })
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('never touches the db even when a custom days value is passed', async () => {
+    const execute = vi.fn()
+    const db = { execute } as any
+
+    const result = await pruneSoftDeletedCaptures(db, 180)
+
+    expect(result.attempted).toBe(false)
+    expect(result.deletedCount).toBe(0)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('is NOT part of RETENTION_POLICY — captures is excluded from the automatic loop', () => {
+    const tables = RETENTION_POLICY.map(e => e.table)
+    expect(tables).not.toContain('captures')
   })
 })

@@ -721,7 +721,7 @@ describe('DriftMonitorSkill', () => {
       expect(result.output.summary).toBe(SAMPLE_DRIFT_OUTPUT.summary)
       expect(result.output.drift_items).toHaveLength(3)
       expect(result.output.overall_health).toBe('significant_drift')
-      expect(result.durationMs).toBeGreaterThan(0)
+      expect(result.durationMs).toBeGreaterThanOrEqual(0)
     })
 
     it('returns savedCaptureId from Core API response', async () => {

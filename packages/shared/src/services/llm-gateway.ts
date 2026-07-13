@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import { ServiceUnavailableError } from '../utils/errors.js'
 import { logger } from '../lib/logger.js'
 import { recordSpend } from './spend-recorder.js'
+import { timeOutboundCall } from './metrics-outbound.js'
 import { ModelResolverError } from './model-resolver.js'
 import { PAID_PROVIDERS } from './ai-config-schema.js'
 import type { ConfigService } from '../config/loader.js'
@@ -484,16 +485,21 @@ export class LLMGatewayService {
       provider === 'openai_compat'
         ? ({ chat_template_kwargs: { enable_thinking: false } } as Record<string, unknown>)
         : {}
-    const response = await client.chat.completions.create(
-      {
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: options.temperature ?? 0.2,
-        max_completion_tokens: options.maxTokens ?? 2048,
-        ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
-        ...vllmExtension,
-      },
-      requestOptions,
+    // IA-M4: time the outbound LLM call. This single OpenAI-SDK site serves every
+    // OpenAI-compatible provider (openai / openai_compat / ollama / litellm /
+    // deepseek); the `provider` label distinguishes them at query time.
+    const response = await timeOutboundCall(provider ?? 'openai', 'chat', () =>
+      client.chat.completions.create(
+        {
+          model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: options.temperature ?? 0.2,
+          max_completion_tokens: options.maxTokens ?? 2048,
+          ...(options.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+          ...vllmExtension,
+        },
+        requestOptions,
+      ),
     )
 
     const usage = response.usage
@@ -706,12 +712,18 @@ export class LLMGatewayService {
       throw new LLMGatewayError('Anthropic client not available')
     }
 
-    const response = await this.anthropicClient.messages.create({
-      model,
-      max_tokens: options.maxTokens ?? 2048,
-      messages: [{ role: 'user', content: prompt }],
-      ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-    })
+    // Local const so the closure sees a non-null client (narrowing does not
+    // flow into the callback otherwise).
+    const anthropic = this.anthropicClient
+    // IA-M4: time the outbound Anthropic Messages call.
+    const response = await timeOutboundCall('anthropic', 'chat', () =>
+      anthropic.messages.create({
+        model,
+        max_tokens: options.maxTokens ?? 2048,
+        messages: [{ role: 'user', content: prompt }],
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+      }),
+    )
 
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')

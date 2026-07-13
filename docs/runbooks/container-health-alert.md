@@ -25,6 +25,9 @@
 | `voice-capture` | `http://voice-capture:3001/health` | `{"status":"healthy"}` |
 | `voice-pipecat` | `http://voice-pipecat:8766/health` | `{"status":"healthy"}` |
 | `file-ingestion` | `http://file-ingestion:8080/health` | `{"status":"healthy"}` |
+| `faster-whisper` | `http://faster-whisper:8000/health` | `{"status":"healthy"}` |
+
+**Note (v5 remediation, branch `feat/arch-review-v5-remediation` / PR #244, pending merge+deploy):** the `container-health` skill dropped a dead `litellm:4000` probe (litellm is a standalone shared proxy outside this stack; the endpoint always resolved unhealthy) and added `faster-whisper:8000/health` in its place.
 
 ---
 
@@ -113,7 +116,7 @@ A restart loop means the container is starting, failing quickly, restarting. Thi
 - **workers / slack-bot:** Docker healthchecks run `node -e 'process.exit(0)'` (liveness only — confirms the node runtime responds). These services have no HTTP endpoints and are **not** monitored by the `container-health` skill. Check via `docker ps` and logs, or the Prometheus `WorkersMetricsAbsent` alert (which detects a wedged event loop that still passes the exec probe).
 - **web-next:** Not monitored by `container-health` skill. Availability is covered by the Cloudflare Tunnel synthetic monitor at `health.troy-davis.com` and by the external `curl https://brain.troy-davis.com` test.
 - **postgres / redis:** Not HTTP-probed by the `container-health` skill directly — their Docker healthchecks (`pg_isready`, `redis-cli ping`) are visible via `docker compose ps`. `SystemHealthService` in core-api surfaces their status through the `/health` endpoint.
-- **faster-whisper:** Has a Docker healthcheck but is not monitored by the `container-health` skill. Check via `docker ps` or `curl http://localhost:10300/health`.
+- **faster-whisper:** Monitored by the `container-health` skill (`http://faster-whisper:8000/health`, added in the v5 remediation) in addition to its own Docker healthcheck. Check via `docker ps` or `curl http://localhost:10300/health` for the host-mapped port.
 - **observability services (loki, prometheus, grafana, pushgateway):** Run under `--profile observability`. Monitor with `docker compose --profile observability ps`.
 
 ---

@@ -53,12 +53,109 @@ services:
       INGEST_SOURCE: financial  # matches e2e test fixture source_type
       CAPTURE_API_URL: http://test-core-api:3000/api/v1/captures
       CAPTURE_API_CALLER: integration-test
+      # Full-stack e2e (fullstack profile): the sidecar scans this dir, which is
+      # the SAME shared volume core-api writes uploads into (INGEST_VOLUME_ROOT
+      # =/inbox-root; uploads land under /inbox-root/financial). Harmless for the
+      # default integration pass — the dir is simply empty and never triggered.
+      FINANCIAL_INBOX_DIR: /inbox-root/financial
       TZ: America/New_York
     ports:
       - "8099:8080"
+    volumes:
+      - test_ingest_inbox:/inbox-root
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
       interval: 5s
       timeout: 3s
       retries: 5
       start_period: 5s
+
+  # ==========================================================================
+  # Full-stack e2e services (profile: fullstack) — QA-2/QA-3/QA-11, item 8.1.
+  #
+  # Gated behind the `fullstack` compose profile so the DEFAULT integration
+  # pass (`docker compose -f docker-compose.test.yml up -d --wait`) is 100%
+  # unchanged — these build the app images (slow) and only the full-stack e2e
+  # job activates them via `--profile fullstack`.
+  #
+  # They stand up REAL core-api + workers against the ephemeral test-postgres /
+  # test-redis so the gated INGEST_E2E suite
+  # (packages/workers/src/__tests__/integration/ingest-e2e.test.ts) can exercise
+  # the upload → BullMQ ingest-process → sidecar → file_uploads='parsed' path.
+  #
+  # Schema is applied to test-postgres by the CI job BEFORE these start
+  # (core-api does NOT auto-migrate — CLAUDE.md ledger model).
+  # ==========================================================================
+  test-core-api:
+    profiles: ["fullstack"]
+    build:
+      context: .
+      target: core-api
+    image: open-brain-core-api:test
+    container_name: open-brain-test-core-api
+    environment:
+      NODE_ENV: test
+      PORT: "3000"
+      POSTGRES_URL: postgresql://openbrain_test:test_password@test-postgres:5432/openbrain_test
+      REDIS_URL: redis://test-redis:6379
+      OPENAI_BASE_URL: https://api.openai.com/v1
+      # OPENAI_API_KEY intentionally unset → LLM features self-disable. The
+      # ingest e2e never needs a real key (POST /captures enqueues async work;
+      # the assertions only check file_uploads status + capture_ids).
+      INGEST_VOLUME_ROOT: /inbox-root  # uploads → /inbox-root/<source>/ (shared with sidecar)
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./config:/app/config:ro
+      - test_ingest_inbox:/inbox-root
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  test-workers:
+    profiles: ["fullstack"]
+    build:
+      context: .
+      target: workers
+    image: open-brain-workers:test
+    container_name: open-brain-test-workers
+    environment:
+      NODE_ENV: test
+      POSTGRES_URL: postgresql://openbrain_test:test_password@test-postgres:5432/openbrain_test
+      REDIS_URL: redis://test-redis:6379
+      CORE_API_URL: http://test-core-api:3000
+      OPEN_BRAIN_API_URL: http://test-core-api:3000
+      # Must match test-sidecar's INGEST_TRIGGER_SECRET (Bearer to /process).
+      INGEST_TRIGGER_SECRET: test-secret-do-not-use-in-prod
+      # Override the compose-default `{source}-ingest:8080` → the test sidecar.
+      INGEST_SIDECAR_URL_FINANCIAL: http://test-sidecar:8080
+      INGEST_TIMEOUT_MS: "60000"
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+      test-core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'process.exit(0)'"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+# Shared inbox volume for the full-stack e2e (fullstack profile): core-api
+# writes uploads under /inbox-root/<source>/ and the sidecar scans the same
+# path (FINANCIAL_INBOX_DIR=/inbox-root/financial). Created but unused (empty)
+# during the default integration pass.
+volumes:
+  test_ingest_inbox:

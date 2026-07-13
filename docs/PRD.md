@@ -1528,8 +1528,8 @@ open-brain/
 - All containers configured with `restart: unless-stopped`
 - Health checks on all containers
 - Pipeline retries with patient exponential backoff (5 attempts per stage: 30s, 2m, 10m, 30m, 2h) + daily auto-retry sweep for failed stages
-- Circuit breaker on external API calls (Anthropic, OpenAI)
-- Monitoring: Prometheus + Grafana + Loki observability stack (deployed as `--profile observability`). Prometheus scrapes core-api and pushgateway metrics; Grafana provides dashboards and alert rules; Loki aggregates container logs via the Docker Loki log driver. Pushover alerts for container down, restart loops, budget threshold hits, and pipeline health. Prometheus alert rules in `config/prometheus/alerts/`.
+- Budget hard-stop circuit breaker on paid-tier spend ($20/month soft Pushover alert, $35/month hard limit, tracked via `ai_audit_log`) — not a per-call circuit breaker on individual Anthropic/OpenAI requests. Per-call resilience instead comes from task-routing tier fallback chains (e.g. `t1_jetson → t1_fast → t2_quality`) and `maxRetries: 0` on the LLM clients, so failures surface immediately to BullMQ's own retry/backoff.
+- Monitoring: Prometheus + Grafana + Loki observability stack — deployed as a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client (not a local `--profile observability` flag). Prometheus scrapes core-api and pushgateway metrics; Grafana provides dashboards and alert rules; Loki aggregates container logs via the Docker Loki log driver. Pushover alerts for container down, restart loops, budget threshold hits, and pipeline health. Prometheus alert rules in `config/prometheus/alerts/`.
 - Postgres data backed up via daily `pg_dump` to Unraid share (14-day daily retention, 4-week weekly, 3-month monthly) + daily encrypted offsite copy to Google Drive via rclone crypt remote (`scripts/offsite-backup.sh`, 30-day cloud retention). Manifest with exact table row counts written per backup. Automated Sunday restore rehearsal (`scripts/restore-rehearsal.sh`).
 
 ### Security
@@ -1890,7 +1890,7 @@ All open questions from the initial draft have been resolved. Decisions are capt
 | Prompt templates | Phase 1: extract_metadata + intent_router. Others deferred. Versioned, hot-reloadable. |
 | Governance sessions | LLM-driven conversation with guardrails (max turns, required topics checklist, 30-min idle auto-pause). Not FSM. |
 | Board role personalities | Defer to Phase 3, designed alongside conversational flow. |
-| Monitoring | Prometheus + Grafana + Loki stack (`--profile observability`). Loki Docker log driver for all containers. Pushover alerts for container health, budget, pipeline. |
+| Monitoring | Prometheus + Grafana + Loki stack — external `observability` Docker Compose project (ADR-0004), joined via a shared Docker network, not a local `--profile observability` flag. Loki Docker log driver for all containers. Pushover alerts for container health, budget, pipeline. |
 | Schema migrations | Drizzle ORM + drizzle-kit. TypeScript-native, schema-as-code. |
 | AI cost management | Monthly budget: soft $20/month (Pushover alert), hard $35/month (circuit breaker → free tiers only). Configured in `config/ai-routing.yaml` `monthly_budget`. |
 | Synthesis endpoint | Top-20 captures, 50K token budget. Skills handle own context assembly. |
