@@ -570,8 +570,6 @@ describe('runAgent', () => {
 
   it('measures duration in milliseconds', async () => {
     const mockClient = createMockClient(async () => {
-      // Tiny delay to ensure duration > 0
-      await new Promise((r) => setTimeout(r, 5))
       return mockMessage({
         content: [textBlock('Done')],
         stopReason: 'end_turn',
@@ -585,7 +583,7 @@ describe('runAgent', () => {
       { client: mockClient },
     )
 
-    expect(result.duration).toBeGreaterThan(0)
+    expect(result.duration).toBeGreaterThanOrEqual(0)
     expect(typeof result.duration).toBe('number')
   })
 

@@ -7,11 +7,23 @@
  *
  * Search modes tested:
  *   - FTS-only mode (no embedding needed — works with stub embedding service)
- *   - Hybrid mode (uses stub zero-vector embeddings)
+ *   - Hybrid mode (fuses FTS + vector via RRF)
+ *   - Vector-ranking mechanics (QA-5 / plan 6.4, see below)
  *
- * The test database uses a stub EmbeddingService that returns zero vectors,
- * so vector similarity scores will be zero. FTS scoring is the meaningful
- * signal in these tests.
+ * The test database's stub EmbeddingService derives a deterministic,
+ * content-based pseudo-embedding via `fakeEmbed()` (setup.ts, backed by
+ * ./fixtures/fake-embed.ts) — no OpenAI API key is available in test/CI.
+ * Most tests below use `createSearchableCapture()`, which — like the rest of
+ * this repo's test fixtures (helpers.ts `createTestCapture`) — defaults new
+ * captures to an explicit ALL-ZERO embedding so they satisfy hybrid_search()'s
+ * `embedding IS NOT NULL` filter without asserting anything about vector
+ * ranking; cosine distance against a zero vector is undefined (pgvector
+ * returns NaN), so those captures tie on the vector side and FTS scoring is
+ * the only meaningful signal for them. The "Vector ranking mechanics" describe
+ * block below is the exception: it explicitly overrides `embedding` with
+ * `fakeEmbed(content)` per capture to exercise real, non-degenerate vector
+ * ordering and hybrid FTS+vector fusion — see that block's comments for what
+ * these assertions do (and do not) prove.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
@@ -27,6 +39,7 @@ import {
   testGet,
   testPost,
 } from './helpers.js'
+import { fakeEmbed } from './fixtures/fake-embed.js'
 
 // ---------------------------------------------------------------------------
 // Suite setup / teardown
@@ -331,6 +344,100 @@ describe('Hybrid search mode', () => {
       '/api/v1/search?q=hybrid+approach&limit=10',
     )
     expect(res.status).toBe(200)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Vector ranking mechanics (QA-5 / plan 6.4)
+//
+// These tests use `fakeEmbed()` directly to store REAL, non-zero, distinct
+// embeddings on specific captures (overriding the all-zero default). Because
+// the stub embedding service embeds a search query with the SAME `fakeEmbed`
+// function, a capture whose `embedding` was set to `fakeEmbed(<exact text>)`
+// is guaranteed to be at cosine distance ~0 from a query of that exact text —
+// the one deterministic "exact match" the fixture supports (see
+// fixtures/fake-embed.ts for the full rationale and its limits).
+//
+// What these assertions prove: HNSW candidate retrieval and RRF fusion are
+// wired correctly and produce a non-degenerate, meaningful order — NOT that
+// the ranking reflects real-world semantic similarity (fakeEmbed carries no
+// meaning; that requires the live OpenAI embedder).
+// ---------------------------------------------------------------------------
+
+describe('Vector ranking mechanics (fakeEmbed fixture)', () => {
+  it('search_mode=vector ranks the capture whose embedding matches the query first, with a non-degenerate score spread', async () => {
+    const targetContent = 'Giraffe migration patterns across the savanna'
+    const other1 = 'Completely unrelated notes about tax season paperwork'
+    const other2 = 'A recipe for sourdough bread with a long fermentation'
+
+    const target = await createTestCapture({
+      content: targetContent,
+      embedding: fakeEmbed(targetContent),
+    })
+    await createTestCapture({ content: other1, embedding: fakeEmbed(other1) })
+    await createTestCapture({ content: other2, embedding: fakeEmbed(other2) })
+
+    const res = await testGet(
+      ctx.app,
+      `/api/v1/search?q=${encodeURIComponent(targetContent)}&search_mode=vector&limit=10`,
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body.results.length).toBeGreaterThanOrEqual(3)
+
+    // The capture whose stored vector matches the query vector ranks first,
+    // with a vectorScore near 1 (cosine distance ~0).
+    expect(body.results[0].capture.id).toBe(target.id)
+    expect(body.results[0].vectorScore).toBeCloseTo(1, 3)
+
+    // Non-degenerate: vector scores are NOT all tied (the old all-zero stub
+    // produced an identical NaN/zero distance for every row).
+    const vectorScores = body.results.map((r: any) => r.vectorScore)
+    const distinctScores = new Set(vectorScores.map((s: number) => s.toFixed(4)))
+    expect(distinctScores.size).toBeGreaterThan(1)
+  })
+
+  it('hybrid mode fuses an FTS-only match and a vector-only match — both surface', async () => {
+    const queryText = 'giraffe migration patterns'
+
+    // Matches on FTS (shares lexemes with queryText) but its embedding points
+    // nowhere near the query vector.
+    const ftsOnlyContent = 'The giraffe migration patterns study was completed last week'
+    const ftsOnlyCapture = await createTestCapture({
+      content: ftsOnlyContent,
+      embedding: fakeEmbed('unrelated filler text about quarterly tax paperwork'),
+    })
+
+    // Matches on vector (its embedding IS fakeEmbed(queryText), so cosine
+    // distance to the query vector is ~0) but shares no lexemes with queryText.
+    const vectorOnlyContent = 'Sailing routes across the equator require careful navigation'
+    const vectorOnlyCapture = await createTestCapture({
+      content: vectorOnlyContent,
+      embedding: fakeEmbed(queryText),
+    })
+
+    const res = await testGet(
+      ctx.app,
+      `/api/v1/search?q=${encodeURIComponent(queryText)}&search_mode=hybrid&limit=10`,
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    const resultIds = body.results.map((r: any) => r.capture.id)
+    expect(resultIds).toContain(ftsOnlyCapture.id)
+    expect(resultIds).toContain(vectorOnlyCapture.id)
+
+    const ftsOnlyResult = body.results.find((r: any) => r.capture.id === ftsOnlyCapture.id)
+    const vectorOnlyResult = body.results.find((r: any) => r.capture.id === vectorOnlyCapture.id)
+
+    // FTS-only capture: real FTS score, ~zero vector contribution.
+    expect(ftsOnlyResult.ftsScore).toBeGreaterThan(0)
+    expect(vectorOnlyResult.ftsScore).toBe(0)
+
+    // Vector-only capture: near-1 vector score, ~zero FTS contribution.
+    expect(vectorOnlyResult.vectorScore).toBeCloseTo(1, 3)
+    expect(ftsOnlyResult.vectorScore).toBeLessThan(0.5)
   })
 })
 

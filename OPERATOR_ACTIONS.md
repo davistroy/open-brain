@@ -30,6 +30,7 @@
 | OA-10 | Add `shm_size: "512mb"` to the postgres compose service during the next daemon-restart window (needs a postgres recreate — batch it; prevents the `/dev/shm` 64 MB wall on future parallel-index migrations) | next restart window | Troy | DA-11 / CLAUDE.md deferral | OPEN |
 | OA-11 | Quarterly vendor-terms verification: confirm OpenAI "no training on API data" and Deepgram "0-day retention" under the CURRENT plan/terms (see docs/PROVIDER_SETTINGS.md placeholders) | 2026-09-30 | Troy | RI-3 / RC | OPEN |
 | OA-12 | Gmail OAuth re-consent (token refresh window) for the email-classify pipeline | 2026-07-26 | Troy | operational-followups / RC-13 | OPEN |
+| OA-13 | Merge Dependabot PRs #235/#237/#238 (cloudflare/email-worker: postal-mime, @cloudflare/workers-types 4→5) now that `email-worker-test` CI job (npm ci + tsc --noEmit + vitest, verified green locally 16/16) gates the package. Confirm the new job is green on each PR before merging | 2026-07-19 | Troy | Plan 6.5 / QA-7 / SW5-L13 | OPEN |
 
 ## Completed Actions
 

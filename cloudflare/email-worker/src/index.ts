@@ -26,8 +26,18 @@ interface Env {
  * Network errors (fetch throws) are inherently transient — let them propagate
  * out of the handler, which Cloudflare also treats as a retryable failure.
  */
-function isTransientStatus(status: number): boolean {
+export function isTransientStatus(status: number): boolean {
   return status >= 500
+}
+
+/** Derive the allowlist settings endpoint from the captures POST URL. */
+export function buildAllowlistUrl(capturesUrl: string): string {
+  return capturesUrl.replace(/\/captures\/?$/, '') + '/settings/email_allowlist'
+}
+
+/** Extract the allowlist entries from the settings API response body. */
+export function parseAllowlistEntries(data: { value?: string[] }): string[] {
+  return data.value ?? []
 }
 
 /** Common email signature delimiters — strip everything after the first match */
@@ -42,7 +52,7 @@ const SIGNATURE_PATTERNS = [
   /^From: .+$/m,                       // forwarded email header block
 ]
 
-function stripSignature(text: string): string {
+export function stripSignature(text: string): string {
   let earliest = text.length
   for (const pattern of SIGNATURE_PATTERNS) {
     const match = pattern.exec(text)
@@ -54,7 +64,7 @@ function stripSignature(text: string): string {
 }
 
 /** Collapse excessive whitespace/newlines but preserve paragraph breaks */
-function normalizeWhitespace(text: string): string {
+export function normalizeWhitespace(text: string): string {
   return text
     .replace(/\r\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -63,7 +73,7 @@ function normalizeWhitespace(text: string): string {
 }
 
 /** Build capture content from email fields */
-function buildCaptureContent(subject: string, body: string): string {
+export function buildCaptureContent(subject: string, body: string): string {
   const parts: string[] = []
   if (subject) {
     parts.push(`Subject: ${subject}`)
@@ -76,7 +86,7 @@ function buildCaptureContent(subject: string, body: string): string {
 /**
  * Check sender against allowlist. Supports exact email match and @domain match.
  */
-function isSenderAllowed(sender: string, allowlist: string[]): boolean {
+export function isSenderAllowed(sender: string, allowlist: string[]): boolean {
   const senderLower = sender.toLowerCase()
   const atIdx = senderLower.indexOf('@')
   const senderDomain = atIdx >= 0 ? senderLower.slice(atIdx) : ''
@@ -96,14 +106,14 @@ export default {
     console.log(`Email received: from=${from} to=${to} subject="${subject}"`)
 
     // ── Allowlist check (fail fast) ──────────────────────────────────────────
-    const allowlistUrl = env.CAPTURES_URL.replace(/\/captures\/?$/, '') + '/settings/email_allowlist'
+    const allowlistUrl = buildAllowlistUrl(env.CAPTURES_URL)
     try {
       const alRes = await fetch(allowlistUrl, {
         headers: { 'X-Open-Brain-Caller': 'email-worker' },
       })
       if (alRes.ok) {
-        const alData = await alRes.json() as { value: string[] }
-        const entries: string[] = alData.value ?? []
+        const alData = await alRes.json() as { value?: string[] }
+        const entries = parseAllowlistEntries(alData)
         if (!isSenderAllowed(from, entries)) {
           console.log(`Sender ${from} not in allowlist — rejecting`)
           message.setReject(`Sender ${from} not authorized`)
@@ -160,10 +170,13 @@ export default {
     const trimmedContent = content.length > 49_000 ? content.slice(0, 49_000) + '\n\n[truncated]' : content
 
     // Collect attachment info as metadata (don't upload the binary data)
+    // postal-mime's Attachment.content is ArrayBuffer | Uint8Array | string
+    // (string only when an explicit attachmentEncoding option is set, which we
+    // don't set — but tsc requires the union to be narrowed regardless).
     const attachments = (parsed.attachments ?? []).map(att => ({
       filename: att.filename ?? 'unnamed',
       mimeType: att.mimeType,
-      size: att.content.byteLength,
+      size: typeof att.content === 'string' ? att.content.length : att.content.byteLength,
     }))
 
     // ── Create capture ───────────────────────────────────────────────────────

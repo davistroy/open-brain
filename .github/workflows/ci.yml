@@ -54,6 +54,36 @@ jobs:
       - name: Secrets round-trip guard
         run: bash scripts/test-secrets-roundtrip.sh
 
+  email-worker-test:
+    name: email-worker tests (Cloudflare Worker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # QA-7 / SW5-L13: cloudflare/email-worker is a standalone npm project
+    # (its own package-lock.json) outside the pnpm workspace — Dependabot bumps
+    # it (postal-mime, @cloudflare/workers-types) but nothing ever compiled or
+    # tested it. This job closes that gap so those bumps become safe to merge.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: cloudflare/email-worker
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: cloudflare/email-worker
+
+      - name: Run tests
+        run: npx vitest run
+        working-directory: cloudflare/email-worker
+
   sidecar-test:
     name: Sidecar tests (Python)
     runs-on: ubuntu-latest
