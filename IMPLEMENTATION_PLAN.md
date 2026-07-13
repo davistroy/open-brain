@@ -1,6 +1,7 @@
 # Implementation Plan
 
 **Generated:** 2026-07-12 18:55:00
+**Completed:** 2026-07-13 — 31/35 items merged to branch `feat/arch-review-v5-remediation`; 4 operator-gated items deferred (1.3, 6.6, 7.5, 8.2 → OPERATOR_ACTIONS.md). See LAB_NOTEBOOK Entry 186.
 **Based On:** arch-review/reports/remediation-analysis-2026-07-12.md (ultra-plan Phase 0–4), arch-review/reports/executive-summary.md (v5), arch-review/findings/*.md (9 domains), LAB_NOTEBOOK Entry 184/185
 **Total Phases:** 8
 **Estimated Total Effort:** ~4,500 LOC across ~120 files (test-heavy; ~40% is CS-F workers test catch-up)

@@ -12757,3 +12757,34 @@ Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{
 
 **Tags:** [decision] [planning] [meta]
 **Environment:** ubuntu-vm (6 Explore sub-agents, ~4.5-10.5 min each, parallel). **Status:** COMPLETE — fresh `IMPLEMENTATION_PLAN.md` generated (8 phases = CS-A..CS-H, 35 work items, per-item model tiers 7 haiku/23 sonnet/5 opus, DoD blocks per phase, 6 unknowns incl. U1 prod-retention-failure + U3 CF-Access-gates-SEC-A2, full requirement→phase→item traceability). Old A132 plan `git mv`'d to `docs/archived/IMPLEMENTATION_PLAN-2026-06-arch-review-v3-A132.md`. Milestones: phases 1-4 clear all four v5 Go-conditions; 1-7 armed+gated; 1-8 complete. Ready for `/implement-plan` (start Phase 1 — the retention hotfix is failing in prod weekly). **Duration:** investigation ~11 min + synthesis/plan ~15 min.
+
+
+
+--- New session: 2026-07-12/13 — /implement-plan execution of arch-review v5 remediation ---
+
+## Entry 186 — Implemented arch-review v5 remediation plan: 31/35 items, 8 phases, 1 PR (2026-07-12/13)  [decision] [test] [ci] [database] [security] [deploy]
+
+**Objective:** Execute IMPLEMENTATION_PLAN.md (Entry 185) via `/implement-plan` — orchestrated subagents + inline work, per-phase commit + push, one PR. Branch `feat/arch-review-v5-remediation` off main `cd14c1f`. Retroactive lab-notebook entry (execution ran ahead of this record; commits d1729ee..c31d753).
+
+**Result: 31/35 work items COMPLETE + committed + pushed; 4 DEFERRED (all operator-gated).** All per-phase DoDs green. Total: shared 368 / slack-bot 504 / web-next 134 / workers 1206 (83.96% cov) / core-api 1270 (81.49% cov) tests; all-package `tsc --noEmit` clean; frozen-lockfile OK.
+
+**Per-phase (each its own commit):**
+- **P1 (CS-A, d1729ee/7b6a265):** migration 0036 (briefs FK `ON DELETE SET NULL` + drop dead `fts_search`; init-schema regenerated + parity gate) + per-table fault isolation in `pruneRetentionData` (aggregate-throw, admin_audit invariant preserved). **Fixes DA-1** — the retention prune that was FK-failing in prod every Sunday.
+- **P2 (CS-B, 2bc6b7a):** deploy.md rewrite **removes the `cat>`/`rm` override landmine** (CRITICAL PLT-C1 cleared) + Entry-183 digest-rollback; observability.md/slo-alert.md/web-rollback cleanup; SA-6 doc-truth sweep (TDD auto-migration lie → ledger, README 13-containers/v0.7, ADR-0003 Accepted, CLAUDE.md 81.52%); .gitignore `._*`, CHANGELOG/OPEN_ITEMS refresh, #226 evidence.
+- **P3 (CS-D, 48b1000):** **RC-19 forcing function** — `OPERATOR_ACTIONS.md` dated register + `secret-rotation` skill parses it & Pushover-alerts overdue/approaching (30 tests) + monthly-audit workflow surfaces it; BWS_ACCESS_TOKEN wired (bootstrap exception, template + compose comment, NOT secrets-map).
+- **P4 (CS-C, 1d836b2):** voice spool **409=terminal-success** + max-age dead-letter (112 tests); voice proxy `AbortSignal.timeout(150s)`; `@hono/node-server`→1.19.14 (closes GHSA); **D135** voice-pipecat risk-acceptance docs (ADR-0002 amendment + SECURITY.md §4 + register).
+- **P5 (CS-E, 4e9daa1):** **runAgent context budget** (per-tool-result cap 12KB + cumulative 150K-token early-stop) → **fixes #204 class-wide**; search offset `.max(450)`; **#217** BullMQ orphan-repeatable reconciliation; SMTP 15s timeouts; SA-5 reload runs `validateAiRoutingConfig` non-fatally; embedBatch per-chunk fallback; SW5 smalls (redis error listeners, no baked Slack DM, Pushover env unify, hotmail logger).
+- **P6 (CS-F, 64d6cf2):** **workers coverage 73.72%→83.96%** — 4 spine test files (scheduler 98%, skill-execution 100%, ingest-process 99.5%, mem-consolidation-query 97.6%) then **armed the `--coverage` gate** (hard barrier honored: tests-first). QA-9 2 flake fixes + 7 sleep→`vi.waitFor` conversions; QA-5 deterministic 768-d fake-embed fixture (141/141 real-DB integration); email-worker CI (vitest+tsc job, .npmrc both CF dirs) which **surfaced+fixed a real postal-mime `.byteLength`-on-string bug**.
+- **P7 (CS-G, 4125d93):** build-images `notify-failure` Slack job (PE-M9); dependabot pip+docker ecosystems; validate-alert-rules CI job; container-health drop dead litellm + add faster-whisper:8000/health; doc-sync `continue-on-error` removed; **backup dead-man's switch** (pipeline-health emits `openbrain_backup_age_seconds` + independent Pushover, new `backup.yml` rule + runbook).
+- **P8 (CS-H, c31d753):** full-stack e2e (non-required `fullstack`-profile job, required gate unchanged) + 9 web-next component tests; **response-type contracts** (slack-bot typecheck-breaks on server field renames) + `openbrain_outbound_request_duration_seconds` histogram (gateway+embedding, core-api registry + workers pushgateway); settings GET rejects 3 OAuth token keys; retention→8 tables (captures purge left safe/inert); removeOnFail age×10 queues; **non-root USER** on core-api/slack-bot/voice-capture/web-next (chown-before-USER) + parseUUIDParam×6 route files (**fixed a pre-existing Hono wildcard `:id` param-binding bug**) + XFF/IPv6/TTS-guard/`/api/healthz`.
+
+**4 DEFERRED (operator-gated, in OPERATOR_ACTIONS.md):** 1.3 prod 0036 deploy+verify (OA-1); 6.6 required-checks promotion (OA-8); 7.5 live-host session — A131/PLT-H2/compose window (OA-9); 8.2 mobile ingress — **BLOCKED on U3** CF-Access verification (OA-7). Register also carries OA-13 (CF-worker Dependabot merges), OA-14 (GH-Actions major merges), OA-15 (chown named volumes for the non-root images).
+
+**Bugs found+fixed by the work itself (not in the plan):** postal-mime `.byteLength` on `string` (email-worker, surfaced by first-ever tsc); Hono wildcard-middleware `:id` param corruption (app.ts, surfaced by parseUUIDParam rollout). Both genuine latent defects.
+
+**Method notes:** hybrid orchestration — parallel subagents (3-cap) for code+test items, inline for small config/doc + all state/plan bookkeeping. Survived a mid-run session rate-limit (10pm ET reset) by shifting small items inline. Every "green" re-verified at the merged phase boundary (subagents verified their slice; I re-ran the combined DoD). Coverage-gate barrier (6.3) strictly gated on 6.2's local ≥78% before arming.
+
+**Status:** COMPLETE — PR opened (PR-only, no auto-merge). **Rollback:** feature branch; `git revert` per phase-commit; migration 0036 reverse re-adds bare FK; no prod mutation performed (1.3 deferred).
+
+**Tags:** [decision] [test] [ci] [database] [security] [deploy]
+**Environment:** ubuntu-vm (feature branch; ~20 subagents across 8 phases + inline). **Duration:** ~4h wall-clock.
