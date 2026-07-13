@@ -148,8 +148,8 @@ describe('VoiceSessionService', () => {
 
       await service.create({ sessionKey: 'pipecat-abc123' })
 
-      // Give fire-and-forget a tick to resolve
-      await new Promise((r) => setTimeout(r, 10))
+      // Wait for the fire-and-forget activity-feed write (deterministic, not a fixed sleep)
+      await vi.waitFor(() => expect(activityFeed.insert).toHaveBeenCalled())
 
       expect(activityFeed.insert).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -247,7 +247,8 @@ describe('VoiceSessionService', () => {
         [],
       )
 
-      await new Promise((r) => setTimeout(r, 10))
+      // Wait for the fire-and-forget activity-feed write (deterministic, not a fixed sleep)
+      await vi.waitFor(() => expect(activityFeed.insert).toHaveBeenCalled())
 
       expect(activityFeed.insert).toHaveBeenCalledWith(
         expect.objectContaining({

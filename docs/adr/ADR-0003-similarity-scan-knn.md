@@ -1,6 +1,6 @@
 # ADR-0003: Replace Pairwise O(N²) Cosine Self-Joins with Per-Row HNSW k-NN Probes
 
-**Status:** Proposed
+**Status:** Accepted (deployed Phase 7)
 **Date:** 2026-06-15
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` remediation of arch-review v3 — finding PE-H1 (change set CS-7)

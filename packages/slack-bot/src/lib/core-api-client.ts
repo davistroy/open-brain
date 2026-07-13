@@ -6,6 +6,15 @@
 // Re-export all types for backward compatibility
 export * from './core-api-types.js'
 
+// Canonical wire-response contracts (IA-M3). Importing these makes the raw
+// response shapes below the single source of truth — a server-side field rename
+// in @open-brain/shared breaks this file's typecheck instead of drifting silently.
+import type {
+  CaptureListResponse,
+  EntityListResponse,
+  EntityByNameResponse,
+} from '@open-brain/shared'
+
 import type {
   CreateCapturePayload,
   CaptureResult,
@@ -170,8 +179,10 @@ export class CoreApiClient {
     if (params?.source) query.set('source', params.source)
     if (params?.capture_type) query.set('capture_type', params.capture_type)
     const qs = query.toString()
-    // API returns { items, total, limit, offset } — map items → captures
-    const raw = await this.request<{ total: number; items: RecentCapture[] }>(`/api/v1/captures${qs ? `?${qs}` : ''}`)
+    // API returns the canonical { items, total, limit, offset } envelope
+    // (CaptureListResponse) — map items → captures. Typing the raw response
+    // against the shared contract catches an `items`/row-field rename at compile time.
+    const raw = await this.request<CaptureListResponse>(`/api/v1/captures${qs ? `?${qs}` : ''}`)
     return { total: raw.total, captures: raw.items ?? [] }
   }
 
@@ -272,20 +283,22 @@ export class CoreApiClient {
 
   async entities_list(params?: { limit?: number }): Promise<{ total: number; entities: EntityRecord[] }> {
     const query = params?.limit ? `?limit=${params.limit}` : ''
-    // API returns { items, total, limit, offset } — map items → entities
-    // API uses mention_count (not capture_count) and entity_type (not type)
-    type RawEntity = Omit<EntityRecord, 'capture_count' | 'type'> & { mention_count: number; entity_type: string }
-    const raw = await this.request<{ total: number; items: RawEntity[] }>(`/api/v1/entities${query}`)
+    // API returns the canonical EntityListResponse envelope. It uses server field
+    // names — mention_count (not capture_count) and entity_type (not type) — which
+    // this method re-maps to the slack-bot internal EntityRecord. Sourcing the raw
+    // row shape from @open-brain/shared makes those renames type-checked: rename a
+    // field on EntityListItem and `e.mention_count`/`e.entity_type` below fail tsc.
+    const raw = await this.request<EntityListResponse>(`/api/v1/entities${query}`)
     const entities = (raw.items ?? []).map(e => ({ ...e, capture_count: e.mention_count, type: e.entity_type }))
     return { total: raw.total, entities }
   }
 
   async entities_search(name: string): Promise<{ total: number; entities: EntityRecord[] }> {
-    // API uses ?name= param; returns { entity } (single) or 404
-    // API uses mention_count (not capture_count) and entity_type (not type)
+    // API uses ?name= param; returns { entity } (single, EntityByNameResponse) or 404.
+    // Server field names (mention_count / entity_type) are re-mapped to the internal
+    // EntityRecord; the shared contract makes the remap drift-safe at compile time.
     try {
-      type RawEntity = Omit<EntityRecord, 'capture_count' | 'type'> & { mention_count: number; entity_type: string }
-      const raw = await this.request<{ entity: RawEntity }>(`/api/v1/entities?name=${encodeURIComponent(name)}`)
+      const raw = await this.request<EntityByNameResponse>(`/api/v1/entities?name=${encodeURIComponent(name)}`)
       const entity = { ...raw.entity, capture_count: raw.entity.mention_count, type: raw.entity.entity_type }
       return { total: 1, entities: [entity] }
     } catch (err) {

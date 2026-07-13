@@ -5,6 +5,7 @@ import type { Database } from '../db/index.js'
 import { resolveModelName, getModelEntry } from '../types/config.js'
 import { logger } from '../lib/logger.js'
 import { recordSpend } from './spend-recorder.js'
+import { timeOutboundCall } from './metrics-outbound.js'
 
 /**
  * Thrown when the embedding API is unreachable or returns a non-200 response.
@@ -147,11 +148,14 @@ export class EmbeddingService {
 
     while (true) {
       try {
-        const response = await this.client.embeddings.create({
-          model,
-          input,
-          dimensions: EMBEDDING_DIMENSIONS,
-        })
+        // IA-M4: time the outbound embedding call (embeddings bypass the LLM gateway).
+        const response = await timeOutboundCall('openai', 'embedding', () =>
+          this.client.embeddings.create({
+            model,
+            input,
+            dimensions: EMBEDDING_DIMENSIONS,
+          }),
+        )
 
         const raw = response.data[0]?.embedding
         if (!raw || raw.length !== EMBEDDING_DIMENSIONS) {
@@ -191,7 +195,19 @@ export class EmbeddingService {
 
   /**
    * Embeds multiple texts in a single API request and returns normalized vectors.
-   * Throws EmbeddingUnavailableError on any failure — no partial results.
+   *
+   * PE-M2 hardening: `embedBatch` uses fixed (non-adaptive) truncation to
+   * MAX_EMBEDDING_CHARS for every item. If the batch as a whole is rejected
+   * for token overflow (one or more chunks still too large after the fixed
+   * truncation), the batch is NOT failed outright — it falls back to
+   * per-chunk `embed()` calls, which DO have adaptive truncation. This
+   * isolates and rescues the oversized chunk(s) instead of failing chunks
+   * that were perfectly embeddable. See `embedBatchPerChunkFallback`.
+   *
+   * Any other failure (network, auth, API contract violation such as a
+   * result-count or dimension mismatch) remains all-or-nothing and throws
+   * EmbeddingUnavailableError — those aren't per-chunk problems a fallback
+   * could isolate.
    */
   async embedBatch(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return []
@@ -201,11 +217,14 @@ export class EmbeddingService {
     const startedAt = Date.now()
 
     try {
-      const response = await this.client.embeddings.create({
-        model,
-        input: truncatedTexts,
-        dimensions: EMBEDDING_DIMENSIONS,
-      })
+      // IA-M4: time the outbound batch embedding call.
+      const response = await timeOutboundCall('openai', 'embedding_batch', () =>
+        this.client.embeddings.create({
+          model,
+          input: truncatedTexts,
+          dimensions: EMBEDDING_DIMENSIONS,
+        }),
+      )
 
       const sorted = response.data.sort((a, b) => a.index - b.index)
 
@@ -226,10 +245,45 @@ export class EmbeddingService {
       await this.recordEmbeddingSpend(response.usage?.total_tokens ?? 0, Date.now() - startedAt)
       return vectors
     } catch (err) {
+      // Batch-level token overflow: fall back to per-chunk embed() (adaptive
+      // truncation) so a single oversized chunk can't fail chunks that would
+      // otherwise embed fine. API-contract errors (count/dimension mismatch)
+      // are already wrapped as EmbeddingUnavailableError above and are NOT
+      // token-overflow errors, so they skip this branch and stay fatal.
+      if (!(err instanceof EmbeddingUnavailableError) && isTokenOverflowError(err)) {
+        logger.warn(
+          { batchSize: texts.length },
+          'Batch embedding rejected for token overflow — falling back to per-chunk embed',
+        )
+        return this.embedBatchPerChunkFallback(texts, model)
+      }
+
       if (err instanceof EmbeddingUnavailableError) throw err
       const message = err instanceof Error ? err.message : String(err)
       throw new EmbeddingUnavailableError(`Batch embedding request failed: ${message}`)
     }
+  }
+
+  /**
+   * Per-chunk fallback for `embedBatch` when the batch request is rejected
+   * for token overflow. Each text is embedded individually via the adaptive
+   * `embedWithAdaptiveTruncation` path (same as `embed()`), preserving input
+   * order 1:1 with the batch. Still all-or-nothing: if an individual chunk
+   * fails for a non-recoverable reason, the fallback (and therefore the
+   * batch) throws — callers already treat batch failures as non-fatal and
+   * retry later (e.g. daily sweep).
+   *
+   * Spend-recording trade-off: the batch path records ONE `ai_audit_log` row
+   * per call. This fallback records one row PER CHUNK (each `embed()` call
+   * records its own spend) — acceptable because it only fires on the rare
+   * token-overflow path, not on normal batch traffic.
+   */
+  private async embedBatchPerChunkFallback(texts: string[], model: string): Promise<number[][]> {
+    const vectors: number[][] = []
+    for (const text of texts) {
+      vectors.push(await this.embedWithAdaptiveTruncation(text, model))
+    }
+    return vectors
   }
 
   /**

@@ -4,6 +4,8 @@
 **Auth mechanism:** `Authorization: Bearer <token>` — introduced in Phase 6 (R8)  
 **Relevant action item:** A119 (create `dev/open-brain/mobile-api-key` in Bitwarden)
 
+> **UNDER REVIEW — SEC-A2 (arch-review v4/v5, OPERATOR_ACTIONS.md OA-7, still OPEN).** In the current production topology, mobile requests to `brain.troy-davis.com` go through the Cloudflare Tunnel to **web-next**, and `packages/web-next/proxy.ts` unconditionally overwrites `X-Open-Brain-Caller` to `web-next-public` on every proxied `/api/*` request. core-api's `mobile-auth` middleware only fires when `caller === 'mobile-app'`, so on this path the `MOBILE_API_KEY` Bearer is **never actually validated** — it is architecturally unreachable in prod today. The only confirmed control on that path is whatever Cloudflare Access enforces, and whether CF Access is actually enforced for the native app (without a service token) is itself unverified (**U3**). Do not treat the procedure below as a confirmed-working production auth boundary until OA-7 resolves the CF Access question and the SEC-A2 decision (Option 1: dedicated API hostname bypassing the proxy rewrite, or Option 2: delete the dead mobile-auth path) is executed. It remains accurate for **local/direct core-api access** (bypassing the web-next proxy) and is the target state pending that decision.
+
 ---
 
 ## Purpose

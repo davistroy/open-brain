@@ -10,7 +10,7 @@ import type { WikiGitService } from '@open-brain/shared'
 import type { BaseResult } from '../skills/types.js'
 import type { BaseSkill } from '../skills/base-skill.js'
 
-// Skill class imports — all 24 dispatchable skills
+// Skill class imports — all 22 dispatchable skills
 import { CaptureReminderSkill } from '../skills/capture-reminder.js'
 import { DailyConnectionsSkill } from '../skills/daily-connections.js'
 import { WikiIngestSkill } from '../skills/wiki-ingest.js'
@@ -38,7 +38,7 @@ import path from 'node:path'
 /**
  * Instantiate a BaseSkill subclass and execute it.
  *
- * All 23 dispatchable skills use this helper. Each skill class takes
+ * All 22 dispatchable skills use this helper. Each skill class takes
  * a typed opts object in its constructor, and the input is passed
  * to `execute()`.
  *
@@ -258,7 +258,10 @@ export function createSkillExecutionWorker(
         case 'morning-brief': {
           const result = await runSkill(MorningBriefSkill, {
             db,
-            slackChannelId: process.env.MORNING_BRIEF_SLACK_CHANNEL ?? 'D0AR39RNG4E',
+            // SW5-L2: no baked-in DM id. Unset env -> undefined -> the skill
+            // resolves '' and skips Slack with a warning (availability over a
+            // hardcoded destination). Set MORNING_BRIEF_SLACK_CHANNEL to enable.
+            slackChannelId: process.env.MORNING_BRIEF_SLACK_CHANNEL,
             composioRedis: opts.composioMeterRedis,
             composioPushover: opts.pushover,
           }, {})

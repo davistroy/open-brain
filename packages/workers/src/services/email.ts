@@ -68,6 +68,13 @@ export class EmailService {
         user: this.user,
         pass: this.pass,
       },
+      // IA-L6: bound the SMTP handshake/socket so a hung relay can't stall the
+      // weekly-brief singleton for the nodemailer defaults (2 min connect /
+      // 10 min socket). 15s matches the repo-wide outbound convention; the
+      // BullMQ 3x/30s retry absorbs a transient timeout.
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 15_000,
     })
 
     logger.debug({ to: opts.to, subject: opts.subject }, '[email] sending email')

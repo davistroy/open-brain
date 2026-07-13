@@ -1,218 +1,169 @@
 # Security Architect Findings
 
 **Reviewer:** Security Architect
-**Date:** 2026-06-10
+**Date:** 2026-07-12
 **Target:** /home/davistroy/dev/personal/open-brain
+**Review generation:** v5 (supersedes 2026-07-09 v4; adjudication-first pass)
 **Confidence:** Medium
 
----
+> **Tooling caveat:** As in v4, no SAST or dependency scanner was available
+> (`semgrep`, `bandit`, `eslint`, `pip-audit`, `safety`, `trivy`, `govulncheck` all
+> `not_available`). Evidence base is manual code review + fresh `pnpm audit` + git-history
+> verification. This remains the largest coverage gap.
 
-## Methodology & Coverage Notes
-
-All SAST tooling (semgrep, bandit, eslint, pip-audit, safety, trivy, govulncheck) was
-**unavailable** in this environment. Static analysis degraded to grep-based source review of
-authn/authz middleware, route handlers, SQL sinks, command-exec sinks, prompt construction,
-secret handling, and Docker/network configuration. Dependency analysis used `pnpm audit`
-(lockfile-based; ran successfully offline against the advisory DB).
-
-**Significant coverage gap:** The system's entire confidentiality model rests on **Cloudflare
-Access** sitting in front of `brain.troy-davis.com`. CF Access policies are configured in the
-Cloudflare dashboard, **not in this repository** — they cannot be verified from code. Finding
-SEC-01 is therefore flagged requires-investigation. The runtime container's exact published-port
-binding on the Unraid host (interface scope) likewise cannot be confirmed from compose alone.
-
-Prior remediation (PRs #180–#189) was spot-verified as present (proxy.ts header overwrite,
-`isInternalIp()` defense-in-depth, fail-closed `checkOrigin()`, two-step reset-data, secret
-redaction in backups, SafePromptBuilder). These are **not** re-reported.
+> **Scope note:** the only code merged since v4 is the Dependabot dependency remediation
+> (PRs #232–#234 + `cd14c1f` dependabot.yml, Entry 183) plus test backfill and dead-code
+> removal (`core-api/src/services/sse.ts` deleted — security-neutral). Verified via
+> `git log/diff` — no application-logic, auth, or network-exposure changes. This pass
+> therefore adjudicates every v4 finding with fresh evidence, then reports one net-new
+> dependency-surface finding (SEC-B1). ADR-0002/D131/D132 owner risk-acceptances are
+> respected, not re-litigated.
 
 ---
 
-## Threat Model Summary (STRIDE)
+## v4 Adjudication Summary
+
+| v4 ID | v4 Severity | Verdict | Evidence (this pass, 2026-07-12) |
+|-------|-------------|---------|----------------------------------|
+| SEC-A1 voice-pipecat `ws://0.0.0.0:8765` zero-auth | High | **STILL OPEN** | `docker-compose.yml:259-260` still publishes `"8765:8765"`/`"8766:8766"` (no loopback prefix); `packages/voice-pipecat/src/config.py:44` default `host = "0.0.0.0"`; `src/main.py:59-105` `handle_websocket_connection` → `websockets.serve(handler, …)` with **no token/Bearer/secret check anywhere in the package** (grep for auth/bearer/secret/token returns only LLM API-key config); still **zero mentions** of pipecat/8765 in `docs/adr/ADR-0002-lan-exposure-model.md` and `docs/SECURITY.md` |
+| SEC-A2 mobile Bearer unreachable in prod topology | Medium (RI) | **STILL OPEN** | `packages/web-next/proxy.ts:21` still unconditionally sets `X-Open-Brain-Caller: web-next-public`; `core-api/src/middleware/mobile-auth.ts:105` still fires only on `caller === 'mobile-app'` → `MOBILE_API_KEY` never validated via the CF-tunnel path. Still requires owner confirmation of intended mobile ingress |
+| SEC-A3 voice-capture `:3001` on `0.0.0.0`, secret unset in prod (warn-allow) | Medium | **STILL OPEN** | `docker-compose.yml:373` still `"3001:3001"`; `voice-capture/src/server.ts:19-21` still logs "UNAUTHENTICATED (pre-rollout warn-and-allow)" when `VOICE_CAPTURE_SECRET` unset; intake confirms secret still NOT SET in prod. Fail-closed-when-set + timingSafeEqual code is correct and unchanged — the control is scaffolded but inactive |
+| SEC-A4 LLM prompt-injection residual | Medium | **STILL OPEN (accepted)** | `shared/src/lib/prompt-builder.ts` present; `SafePromptBuilder` used across 12+ non-test call sites (entity.ts, synthesize.ts, MCP search-brain/list-captures, 6 worker skills). SECURITY.md §3 future work (output-schema validation, Loki redaction alert) still pending |
+| SEC-A5 dependency backlog (4C/35H/65M/8L) | Medium | **CHANGED — substantially remediated; downgraded to Low** | Fresh `pnpm audit`: **0 critical / 2 high / 24 moderate / 3 low** (was 4/35/65/8). Both v4 runtime advisories fixed: `hono@^4.12.25` (core-api + voice-capture package.json; lockfile 4.12.25) and `nodemailer@^9.0.1` (workers). vitest 2→3 killed the critical GHSA-5xrq-8626-4rwp; shell-quote critical gone. Remaining 2 highs are `vite <=6.4.2` dev-scope; moderates are transitive/dev except SEC-B1 below and a not-exploitable js-yaml (local trusted config only). `.github/dependabot.yml` now enables weekly grouped updates + auto security fixes — recurrence control in place |
+| SEC-A6 app containers run as root | Low | **STILL OPEN** | Only `packages/voice-pipecat/Dockerfile:29` sets `USER pipecat`; main `Dockerfile`, `web-next/Dockerfile`, `docker/ingest-sidecar/Dockerfile` still have no `USER` directive |
+| SEC-A7 `._*` AppleDouble junk not gitignored | Low | **STILL OPEN** | `.gitignore:55` has only `.DS_Store`; `._.DS_Store`, `packages/._.DS_Store`, `packages/web-next/._.DS_Store` still untracked per git status |
+
+**Re-verified clean (no regression since v4):** secret grep (only test fixtures `test-secret` in ingest-sidecar tests), no PEM blocks, no committed `.env`/`.env.secrets` files, no `eval`/shell-exec, no `verify=False`/`rejectUnauthorized:false`, all three Bearer validators (`mcp/auth.ts`, `mobile-auth.ts`, `admin-auth.ts`) unchanged (timing-safe, fail-closed, hash-only logging), admin two-step reset + queue-clear origin guard + audit rows unchanged, `proxy.ts` public-boundary overwrite intact, `isInternalIp()` defense-in-depth intact.
+
+---
+
+## Threat Model Summary
+
+Unchanged from v4 — the trust boundaries did not move (dependency-only delta). Register carried forward with updated residuals:
 
 | Threat ID | Category | Description | Likelihood | Impact | Control Exists? | Residual Risk |
 |-----------|----------|-------------|------------|--------|-----------------|---------------|
-| T-01 | Spoofing | Public client forges `X-Open-Brain-Caller: internal:*` to gain rate-limit bypass / internal trust | Med | Med | Partial — proxy.ts overwrites header; `isInternalIp()` rejects public source IPs | **Med** — depends on Next.js proxy integrity (SEC-03) and on source IP not being internal (cloudflared/web-next IP *is* internal, so isInternalIp does not guard the tunnel path) |
-| T-02 | Spoofing | Attacker reaches core-api:3002 / postgres:5432 / redis:6380 directly on the LAN, bypassing CF perimeter | Med | High | None at app layer (single-user, no in-boundary auth) | **High** (SEC-02) |
-| T-03 | Spoofing | CF Access misconfigured/absent → entire dashboard + API public | Low–Unknown | Critical | CF Access (not in repo) | **High / unverifiable** (SEC-01) |
-| T-04 | Spoofing | Forged email `From` injects a capture via the email worker | Low | Low | Sender allowlist (enforced at CF Email Worker only) | Low — but allowlist is perimeter-only, not enforced at core-api (SEC-12) |
-| T-05 | Tampering | Prompt injection in untrusted email/document/voice content steers an LLM | Med | Med | SafePromptBuilder on read/synthesis paths; **NOT on extract-entities / extract-commitments** | **Med** (SEC-05) |
-| T-06 | Tampering | Unauthenticated BullMQ queue clear hides/drops pipeline jobs | Med | Med | Queue-name whitelist only; no auth, no origin check | **Med** (SEC-04) |
-| T-07 | Tampering | SQL injection via Drizzle / raw SQL | Low | High | Parameterized tagged templates; advisory on drizzle-orm 0.45.1 | Med (SEC-06) |
-| T-08 | Repudiation | Admin destructive action without attribution | Low | Med | `admin_audit` table on every reset attempt; CF Access email as actor | Low — strong for reset-data; weak for queue-clear (no audit row, no actor) |
-| T-09 | Info Disclosure | Secrets in repo / logs / backups | Low | High | Bitwarden-only; `.gitignore` covers `.env*`; token-hash-only logging; backup redaction guard | Low — controls verified present |
-| T-10 | Info Disclosure | Redis (no password) holds reset tokens + rate-limit state | Med | Med | Network isolation only | **Med/Low** (SEC-08) |
-| T-11 | DoS | Public ingress overwhelmed | Med | Med | In-memory sliding-window rate limiter (per-IP/caller); CF in front | Low–Med — limiter state is per-process, lost on restart; multiple replicas would not share |
-| T-12 | DoS | Vulnerable deps (Next.js SSRF/DoS, ReDoS in picomatch/path-to-regexp) | Med | Med | None until bumped | Med (SEC-03) |
-| T-13 | Elevation of Privilege | LAN/internal caller claims `internal:` identity to bypass mobile-auth + rate limit | Med | High | mobile-auth only triggers on `mobile-app` caller; everything else passes through unauthenticated by design | **High** (SEC-02) — combines with T-02 |
-| T-14 | Elevation of Privilege | Command injection via pg_dump / sidecar subprocess | Low | High | Array-arg spawn, no shell; constant-time sidecar auth | Low — controls verified adequate |
+| S-1 | Spoofing | LAN host claims `X-Open-Brain-Caller: internal:*` to core-api | Med | High | Partial — `isInternalIp()` blocks public IPs only; LAN trusted by design | **Accepted** (ADR-0002/D131) |
+| S-2 | Spoofing | Mobile Bearer bypassed — `proxy.ts` rewrites caller before `requireMobileAuthIfMobileCaller` fires | Med | Med | Dead in prod topology; CF Access is the only real control | SEC-A2 (RI) |
+| S-3 | Spoofing | Unauthenticated WebSocket to voice-pipecat | Med (LAN) | Med-High | **None** | SEC-A1 |
+| T-1 | Tampering | Prompt injection via capture content | Med | Med | `SafePromptBuilder` (pattern strip + nonce fencing) | SEC-A4 (probabilistic) |
+| T-2 | Tampering | LAN host injects captures via unauth voice paths | Med | Med | Bearer scaffolded but inactive (voice-capture); none (pipecat) | SEC-A1/A3 |
+| R-1 | Repudiation | Destructive admin action denied | Low | Med | `admin_audit` (TRUNCATE- and prune-excluded, invariant-tested) | Adequate |
+| I-1 | Info Disclosure | Secrets in logs/repo | Low | High | Bitwarden-only; SHA-256-prefix token logging; redaction CI guards | Adequate — re-verified clean |
+| I-2 | Info Disclosure | Postgres/Redis LAN-reachable | Low | High | Loopback binds + requirepass (ADR-0002 deployed) | Adequate |
+| I-3 | Info Disclosure | Unauth fetch of Bull Board static assets via serveStatic slash bypass | Low | Very Low (public npm UI assets only) | adminAuth on `/queues/*`; vulnerable `@hono/node-server@1.19.11` | SEC-B1 (new) |
+| D-1 | DoS/cost-drain | Unauth paid-API endpoints (Deepgram/Anthropic via pipecat; Whisper via voice-capture) | Med | Med (budget) | None on pipecat; budget breaker meters OpenAI only | SEC-A1/A3 |
+| D-2 | DoS | Transitive-dep ReDoS/resource exhaustion | Low | Low | Backlog cut 112→29 paths; Dependabot automation live | SEC-A5 (now Low) |
+| E-1 | EoP | Container escape lands as root | Low | Med | Non-root only on voice-pipecat | SEC-A6 |
 
 ---
 
 ## Authentication & Authorization Assessment
 
-The system is explicitly single-user with **no in-boundary authentication** — a deliberate,
-documented design choice. Confidentiality depends entirely on the perimeter (Cloudflare Tunnel +
-Cloudflare Access). The code-level auth controls are:
+Unchanged since v4 (verified byte-for-byte on the relevant middleware — no auth code in the merged delta). Strengths re-confirmed: timing-safe fail-closed Bearer validators with hash-only logging; admin destructive-op chain (origin allowlist fail-closed on unknown `NODE_ENV`, two-step single-use Redis token, confirmation phrase, audit rows); rate-limit defense-in-depth (`isInternalIp` + `proxy.ts` overwrite); Bull Board UI behind `adminAuth()` (`routes/admin.ts:407`).
 
-- **MCP Bearer (`mcp/auth.ts`)** — `timingSafeEqual` with length pre-check, fail-closed when
-  `MCP_BEARER_TOKEN`/`MCP_API_KEY` unset, token logged as SHA-256 prefix only. **Sound.**
-- **Mobile Bearer (`middleware/mobile-auth.ts`)** — same hardened pattern; fail-closed (503) when
-  `MOBILE_API_KEY` unset; **but only runs when `X-Open-Brain-Caller: mobile-app` is present**
-  (`requireMobileAuthIfMobileCaller`). Any caller that omits or alters that header skips Bearer
-  validation entirely. This is intentional (web/internal callers are unauthenticated by design),
-  but it means mobile-auth is **not** a confidentiality boundary — it only gates the mobile rate
-  tier. An attacker who reaches core-api directly simply omits the header.
-- **Admin Bearer (`middleware/admin-auth.ts`)** — hardened, fail-closed. Applied to
-  `/config/reload` and the Bull Board **GET** UI. **Not** applied to `/reset-data` (by design —
-  compensated by origin + two-step token + phrase) **nor to `/queues/:name/clear`** (SEC-04 — a
-  real gap, no compensating origin check).
-- **Caller-identity / rate-limit scheme (`rate-limit.ts`)** — the `isInternalIp()`
-  defense-in-depth correctly rejects a *public* source IP claiming `internal:` identity. **But on
-  the production tunnel path the source IP core-api observes is the cloudflared/web-next container
-  IP, which is RFC1918/internal** — so `isInternalIp()` returns `true` and the *only* thing
-  preventing a forged caller header on that path is `proxy.ts` overwriting it to
-  `web-next-public`. That makes Next.js proxy integrity (SEC-03) load-bearing for T-01.
+Open weaknesses remain SEC-A1 (no auth at all on pipecat WS) and SEC-A2 (mobile Bearer architecturally unreachable).
 
-**Net:** authn primitives are individually well-built (timing-safe, fail-closed, hash-only
-logging). The weakness is architectural: too much rests on the unverifiable CF Access layer
-(SEC-01) and on host-port isolation (SEC-02), and the caller-identity defense has a blind spot on
-the legitimate tunnel path.
+---
 
 ## SAST Findings (Triaged)
 
-Grep-based (no SAST binaries available). False positives removed; ranked by exploitability.
+No automated SAST available; manual triage re-confirmed the v4 table with no new dynamic-SQL/exec sites introduced (the only source change was dead-code *removal*).
 
-| ID | File | Line | Vulnerability | Severity | Exploitability | Remediation |
-|----|------|------|---------------|----------|----------------|-------------|
-| S-1 | `routes/admin.ts` | 318 | `POST /queues/:name/clear` registered with **no `adminAuth()` and no `checkOrigin()`** | Medium | Reachable through public `/api/*` proxy; only CF Access + queue-name whitelist gate it | Add `adminAuth()` or `checkOrigin()` + `admin_audit` row |
-| S-2 | `workers/jobs/extract-entities.ts` | 120 | Raw `{{content}}` of untrusted capture body into LLM prompt, no SafePromptBuilder | Medium | Any ingested email/doc/voice content; poisons entity graph | Wrap content via `SafePromptBuilder.wrapContent()` |
-| S-3 | `workers/jobs/extract-commitments.ts` | 174 | Same raw `{{content}}` injection into LLM prompt | Medium | Same as S-2; commitments feed proactive skills | Same as S-2 |
-| S-4 | `services/search.ts` | 225 | `sql.raw(String(this.hnswEfSearch))` | Low (FP-ish) | `hnswEfSearch` is zod-validated int 1–1000 from config, not user input | Safe; keep the guard comment |
-| S-5 | `jobs/update-access-stats.ts` | 194 | `sql.raw(String(staleDays))` interpolated into INTERVAL | Low | `staleDays` is an internal numeric job param, not user input | Safe; assert `Number.isInteger` for defense-in-depth |
-| S-6 | `mcp/auth.ts`, `mobile-auth.ts` | 47/73 | Length pre-check before `timingSafeEqual` leaks token length | Low | Token length is not secret (RFC 6750); documented accepted trade-off | No action |
+| ID | File | Line | Vulnerability class | Severity | Exploitability | Remediation |
+|----|------|------|---------------------|----------|----------------|-------------|
+| M-1 | `core-api/src/services/search.ts` | ~255 | `sql.raw()` in `SET LOCAL hnsw.ef_search` | Info | Not exploitable — zod-validated int (1–1000) from config | None |
+| M-2 | `core-api/src/mcp/tools/list-entities.ts` | 59-72 | `ORDER BY` fragment interpolation | Info | Not exploitable — whitelisted 3-way switch; filters are bound params | None |
+| M-3 | `admin.service.ts` / `himalaya.ts` | — | `spawn`/`execFile` | Info | Not exploitable — array-arg, no shell | None |
+| M-4 | `docker/ingest-sidecar/trigger_server.py` | 228 | Trigger secret check | Info | Correct — `hmac.compare_digest`, loopback-bound | None |
 
-No hardcoded credentials, no `-----BEGIN PRIVATE KEY-----` blocks, no committed `.env*` files, no
-`verify=False`/`rejectUnauthorized:false` found. `pg_dump` and the Python sidecar use array-arg
-`spawn`/`subprocess.run` with no shell — **no command injection.** Drizzle uses parameterized
-tagged templates throughout — **no first-party SQL injection found.**
+Injection posture remains clean: Drizzle parameterization throughout, `toPgTextArray`/`pgUuidArray` helpers in use, no string-concatenated SQL, no `eval`, no shell injection, no TLS-verification bypass.
+
+---
 
 ## Dependency Vulnerabilities
 
-`pnpm audit`: **102 advisories (4 critical / 36 high / 56 moderate / 6 low).** Triaged to those
-reachable in the production runtime (most criticals are dev-only tooling).
+Fresh `pnpm audit` (2026-07-12): **0 critical / 2 high / 24 moderate / 3 low** across 1,841 dependencies — down from 4/35/65/8 at v4. Matches the intake's Entry 183 outcome (119→20 GitHub alerts). Triage of everything with any runtime relevance:
 
-| Package | Version | Advisory | Severity | Exploitability (this system) | Fix |
-|---------|---------|----------|----------|------------------------------|-----|
-| next | ^16.2.4 | App Router Middleware/Proxy bypass; SSRF; DoS (GHSA-vfv6-92ff-j949 et al.; fixed 16.2.5) | **High** | `proxy.ts` is the security boundary that overwrites the caller header — a proxy bypass defeats T-01's only guard on the tunnel path. Public ingress. | Bump `next` ≥ 16.2.5 (one-line; trivial) |
-| drizzle-orm | ^0.45.1 | SQL injection via improperly escaped input (high) | **Medium** | Production ORM. Codebase uses parameterized templates; exploitability depends on whether the vulnerable function/pattern is reached — **could not confirm from grep**. Flagged requires-investigation. | Verify affected range vs 0.45.1; bump to patched |
-| simple-git | ^3.27.0 | Remote Code Execution (high) | **Medium** | Used by `shared/services/wiki-git.ts` (wiki ingest). Repo URL is config-controlled (`WIKI_REPO_URL`), not user input — low real-world reach. | Bump to patched simple-git |
-| hono | ^4.12.5 | JWT NumericDate validation (low, GHSA-hm8q-7f3q-5f36) | Low | Open Brain does **not** use Hono's JWT `verify()` — auth is custom `timingSafeEqual`. Not exploitable. | Bump opportunistically |
-| vitest / shell-quote / @tootallnate/once | dev | "arbitrary file read", "newline escape" (critical/low) | Low | Dev/test tooling — **not in the production container image**. | Bump in dev deps |
-| axios / lodash / @xmldom/xmldom / picomatch / path-to-regexp | transitive | prototype pollution, ReDoS, code-injection, XML injection | Low–Med | Transitive; no confirmed first-party call path. picomatch/path-to-regexp ReDoS would need attacker-controlled glob/route patterns (none found). | `pnpm dedupe` + bump roots; re-audit |
+| Package | Installed | Advisory | Severity | Exploitability in THIS system | Fix |
+|---------|-----------|----------|----------|-------------------------------|-----|
+| @hono/node-server | 1.19.11 | GHSA-92pp-h63x-v22m serveStatic middleware bypass via repeated slashes (<1.19.13) | Moderate | **Marginal — see SEC-B1.** core-api DOES use `serveStatic` (`routes/admin.ts:2,301`, Bull Board `HonoAdapter`) on a path guarded by `adminAuth()`. A successful bypass would serve only Bull Board's public static UI assets (queue-data APIs are Hono routes, not serveStatic); service is LAN-only + admin rate-limit tier. Patch regardless — it is the sole remaining runtime-code-path advisory. | `@hono/node-server@^1.19.13` |
+| js-yaml | 4.1.x | GHSA-h67p-54hq-rp68 quadratic DoS via merge-key aliases (CVE-2026-53550) | Moderate | **Not exploitable** — runtime use (slack-bot/voice-capture lightweight config load, ConfigService) parses only local, operator-authored YAML mounted read-only; no attacker-controlled YAML path exists | js-yaml ≥4.2.0 via next Dependabot wave |
+| vite | ≤6.4.2 | GHSA-fx2h-pf6j-xcff `server.fs.deny` bypass (+1 more high path) | High ×2 | **Dev-only** — vite dev server never runs in prod containers or CI-exposed | Dependabot PRs #235–#243 in flight |
+| brace-expansion, esbuild, ip-address, postcss, qs, tar, uuid, yaml, @babel/core, @tootallnate/once | transitive | DoS/XSS/file-read (dev-server class) | Mod/Low | **Transitive, dev/build/mobile-weighted** — none on the Hono request path | grouped Dependabot updates (now automated weekly) |
 
-**Honest uncertainty:** I did not fabricate CVSS numbers. The advisory titles above are verbatim
-from `pnpm audit`; exploitability assessments are mine and conservative. The Next.js bump is the
-single highest-value, lowest-effort dependency action.
+**v4 runtime items confirmed FIXED:** `hono@4.12.25` (CORS advisory patched), `nodemailer@9.0.1`, vitest 3 (critical UI-server advisory), shell-quote critical gone. **New recurrence control:** `.github/dependabot.yml` (weekly grouped minor/patch, isolated majors, root + email-worker + synthetic-monitor ecosystems).
+
+---
 
 ## Secret Management Audit
 
-| Location | Handling | Finding |
-|----------|----------|---------|
-| `.gitignore` | covers `.env`, `.env.local`, `.env.*.local`, `.env.secrets*`, `deploy/.env.secrets*` (template allowlisted) | **Compliant** |
-| `git ls-files` | only `*secret*` matches are scripts/tests (`secrets-map.sh`, `load-secrets.sh`, redaction-guard tests) — no secret values | **Compliant** |
-| `mcp/auth.ts`, `mobile-auth.ts`, `admin-auth.ts` | tokens compared timing-safe; logged only as SHA-256 16-char prefix | **Compliant** |
-| `admin.service.ts` pg_dump | `PGPASSWORD` passed via child env, not argv (not visible in process list) | **Compliant** |
-| `docker-compose.yml` `POSTGRES_PASSWORD` | `${POSTGRES_PASSWORD:-openbrain_dev}` — **dev default fallback** | **Low risk** — if `.env.secrets` is not loaded, Postgres comes up with the well-known password `openbrain_dev`. Combined with SEC-02 (5432 exposed) this is exploitable. Recommend removing the default and failing closed. |
-| `redis` service | `redis-server --appendonly yes` — **no `--requirepass`** | **SEC-08** — Redis has no auth at all. |
-| Bitwarden round-trip | backup redaction guard (`test-backup-secrets-redaction.sh`), 3-step lockstep, SHA256 sidecar | **Strong** — verified present |
+Re-verified — still **excellent**, no regression:
+- Hardcoded-credential grep: only `test-secret` fixtures in `docker/ingest-sidecar/tests/` (test-scoped, correct).
+- No PEM blocks, no committed `.env`/`.env.secrets` anywhere (find returned zero non-template env files).
+- `.gitignore` still covers `.env.secrets*`; Bitwarden 3-step lockstep + load/verify/roundtrip scripts + backup redaction CI guard unchanged.
+- Token logging remains SHA-256-prefix-only across all auth paths.
+- Housekeeping residue: SEC-A7 (`._*` not gitignored) still open.
+
+---
 
 ## Injection Risk Assessment
 
-- **SQL:** Drizzle parameterized tagged templates everywhere; the two `sql.raw()` sites (S-4, S-5)
-  interpolate only internal validated numerics. No first-party SQLi. (drizzle-orm advisory tracked
-  as a dependency item, SEC-06.)
-- **Command:** `pg_dump` (array args, no shell) and sidecar `subprocess.run([...], shell omitted)`
-  with constant-time Bearer auth and fail-closed empty-secret handling. No command injection.
-- **Prompt injection:** `SafePromptBuilder` (random fenced delimiters + `[REDACTED]` denylist) is
-  adopted on synthesize, MCP tools (search/list/get), entity briefs, and proactive worker skills
-  (email-compose, weekly-brief, daily-sweep, daily-connections, memory-consolidation, refine-brief).
-  **Gap (SEC-05):** the two *ingest* extraction stages — `extract-entities.ts` and
-  `extract-commitments.ts` — feed raw `{{content}}` (the highest-volume untrusted path: every
-  email, document, and voice transcript) into the LLM with no wrapping or sanitization. The P14b
-  call-site migration covered the read side but missed the write/extraction side. Note: the
-  `SafePromptBuilder` denylist is inherently bypassable (paraphrase, non-English, encoding) — the
-  fenced-delimiter randomization is the stronger control, and the system's autonomy-gating means
-  injected text cannot directly trigger high-impact actions. Realistic impact here is **entity/
-  commitment-graph poisoning**, not action execution.
-- **SSRF:** All worker `fetch()` calls target `${coreApiUrl}` or config-pinned spend/cost URLs —
-  no user-controlled URL fetch found. Next.js SSRF advisory (SEC-03) is the only SSRF exposure and
-  is a framework bug, not application code.
+- **SQL:** clean (SAST table above). No new sites since v4.
+- **Command:** clean — array-arg `spawn`/`execFile` only.
+- **Prompt:** `SafePromptBuilder` coverage intact (12+ call sites); residual is inherent/accepted (SEC-A4). Loki alert for repeated redactions still TBD.
+- **PG array literals:** `toPgTextArray` (core-api search) + `pgUuidArray` (workers) patterns in place per Phase-10/Entry-180 hardening.
+
+---
 
 ## Network Security Assessment
 
-- **TLS:** terminates at Cloudflare; tunnel carries plaintext HTTP internally — acceptable for a
-  Docker-network hop. No disabled cert validation anywhere in the codebase.
-- **CORS:** restricted allowlist (`brain.k4jda.net`, `brain.troy-davis.com`, localhost dev) —
-  good.
-- **SEC-02 — host port exposure (High):** `docker-compose.yml` publishes `postgres 5432:5432`,
-  `redis 6380:6379`, `core-api 3002:3000`, plus voice/whisper/loki/prometheus, with **no
-  `127.0.0.1` bind prefix** — i.e. bound to `0.0.0.0` on the Unraid host. On the home LAN this
-  makes the **entire unauthenticated core-api**, the Postgres instance (default-password fallback),
-  and the **password-less Redis** reachable by any LAN host. core-api on the LAN sees an internal
-  source IP, so `isInternalIp()` *trusts* it — a LAN client can claim `X-Open-Brain-Caller:
-  internal:workers`, bypass rate limiting, and (since there is no in-boundary auth) read/write all
-  captures, settings, briefs, and trigger admin endpoints subject only to origin/phrase checks.
-- **Egress:** no egress controls (no finding raised — out of scope for a single-user homelab, but
-  noted: a compromised worker can reach arbitrary hosts).
+Unchanged from v4 — verified in current `docker-compose.yml`:
+- Loopback-bound (correct): postgres `127.0.0.1:5432`, redis `127.0.0.1:6380`+requirepass, file-ingestion `127.0.0.1:8080`, faster-whisper `127.0.0.1:10300`.
+- `0.0.0.0` accepted by ADR-0002: web-next `:3003`, core-api `:3002` (D131).
+- `0.0.0.0` **NOT in the exposure model**: voice-pipecat `:8765/:8766` (SEC-A1); voice-capture `:3001` whose D132 Bearer control is inactive in prod (SEC-A3).
+- TLS terminates at Cloudflare; no in-code TLS bypass anywhere.
+
+---
 
 ## Security Logging & Audit Trail
 
-- `admin_audit` (migration 0023) records every reset-data attempt
-  (requested/executed/blocked/error) with actor (CF Access email), origin, IP — **excluded from
-  the TRUNCATE list** with a code-level invariant test. Strong.
-- `ai_audit_log` records LLM cost/usage per call. Good for budget + abuse detection.
-- Auth events logged at warn/error with token **hash only** — no secret leakage.
-- **Gaps:** (1) `/queues/:name/clear` writes **no audit row and captures no actor** (SEC-04). (2)
-  No security event log for repeated 401s / rate-limit-exceeded beyond a `logger.warn` — no
-  alerting path. (3) PII-in-logs: the prompt-builder logs a 120-char `preview` of stripped content
-  at debug level — at debug verbosity this could surface fragments of personal capture content into
-  Loki. Low, but recommend gating preview behind an explicit flag.
+- `admin_audit` coverage (reset-data + queue-clear, all outcomes, actor/IP/origin) unchanged; TRUNCATE- and retention-prune-exclusion invariant tests still present.
+- Auth failures log at warn with token hash + path.
+- **Gap (carried):** no security event on unauthenticated ingest acceptance (pipecat connection open; voice-capture warn-allow logs once at boot, not per-request); SafePromptBuilder redaction Grafana alert still TBD (SECURITY.md §1.5).
+
+---
 
 ## Compliance Control Gaps
 
-No regulatory framework is declared for this system, and as a single-user personal knowledge base
-it is **out of scope for GDPR/HIPAA/SOC2 in the formal sense**. Against a generic CIS/OWASP-ASVS
-baseline the notable gaps are: (a) data-store authentication (Redis no-auth, Postgres
-default-password fallback — ASVS V1.2/V2), (b) network segmentation of admin/data ports
-(ASVS V1.14), (c) dependency currency (ASVS V14.2 — 36 high advisories). **Applicable framework:
-Unknown / self-imposed.**
+**Framework: Unknown / N/A** (single-user personal system, no regulatory scope). Carried note: schema holds health/financial/insurance data — any move to multi-user or hosted service triggers a formal control-mapping requirement. RC-10 (repo PUBLIC with LAN topology detail) remains an owner decision pending outside this domain's severity ledger (tracked by risk-compliance).
+
+---
 
 ## Security Debt Register
 
 | Finding | Severity | Exploitation Scenario | Remediation | Effort |
 |---------|----------|----------------------|-------------|--------|
-| SEC-01 CF Access unverifiable | High (req-inv) | If CF Access is not enforced on `brain.troy-davis.com`, the full dashboard + API + MCP is internet-exposed with zero authentication — anyone reads every personal/financial/career capture and can POST to admin endpoints from the allowed origin. | Confirm CF Access policy covers the hostname; document the policy in-repo (e.g. `deploy/cf-access.md`); add a startup assertion that requests carry `cf-access-authenticated-user-email`. | M |
-| SEC-02 Host ports on 0.0.0.0 | High | A LAN host (compromised IoT device, guest on flat network) connects to `unraid-ip:3002` and reads/writes all data unauthenticated; or to `:6380` (Redis, no password) to read admin reset tokens and rate-limit state; or `:5432` with `openbrain_dev`. isInternalIp() *trusts* the LAN source. | Bind published ports to `127.0.0.1:` on the host (or remove publishing for postgres/redis entirely — only core-api/web-next need host exposure, and even those only via cloudflared). Set Redis `--requirepass`. Remove the `openbrain_dev` default. | M |
-| SEC-03 Next.js 16.2.4 proxy bypass | High | Crafted request bypasses `proxy.ts`, so a client-supplied `X-Open-Brain-Caller: internal:*` reaches core-api; since the tunnel/web-next source IP is internal, isInternalIp() honors it → rate-limit bypass and internal-trust spoofing. Plus framework SSRF/DoS. | Bump `next` to ≥ 16.2.5. One-line lockfile change. | S |
-| SEC-04 Queue-clear unauthenticated | Medium | Attacker (via public `/api/*` proxy, behind CF Access) POSTs `/api/v1/admin/queues/capture-pipeline/clear` to drop `delayed` (scheduled) or `failed` jobs — silently halting scheduled skills and erasing evidence of pipeline failures. No audit row written. | Add `adminAuth()` (or at minimum `checkOrigin()` + `admin_audit`) to the clear route. | S |
-| SEC-05 Prompt-injection in extraction | Medium | A crafted email/document body containing injection text is processed by `extract-entities`/`extract-commitments`; the LLM emits attacker-chosen entities/commitments, poisoning the knowledge graph and downstream proactive skills. | Route `capture.content` through `SafePromptBuilder.wrapContent()` in both jobs before `templates.render()`. | S |
-| SEC-06 drizzle-orm advisory | Medium | SQL injection advisory on the production ORM; reachability unconfirmed. | Verify advisory affected range vs 0.45.1; bump to patched. | S |
-| SEC-07 simple-git RCE | Medium | RCE advisory in wiki-ingest's git client; repo URL is config-pinned so low reach. | Bump simple-git to patched. | S |
-| SEC-08 Redis no password | Low | Any container on the `open-brain` network (or LAN via SEC-02) has unauthenticated full Redis access: admin reset tokens, rate-limit windows, banners, BullMQ jobs. | Set `--requirepass` from `.env.secrets`; update `REDIS_URL`. | S |
-| SEC-09 Rate-limiter state non-shared/volatile | Low | Per-process in-memory window; lost on restart and not shared across replicas — a restart-loop or future scale-out weakens DoS protection. | Acceptable for single-process; note for any multi-replica future (move to Redis-backed). | M |
-| SEC-10 Debug preview of stripped content | Low | At debug log level, 120 chars of personal capture content reaches Loki. | Gate `preview` behind an explicit env flag; default off. | S |
-| SEC-11 Postgres default password | Low | `${POSTGRES_PASSWORD:-openbrain_dev}` brings DB up with a known password if secrets aren't loaded; exploitable with SEC-02. | Remove the default; fail closed if unset. | S |
-| SEC-12 Email allowlist perimeter-only | Low | Sender allowlist runs in the CF Email Worker, not core-api; a direct `POST /api/v1/captures` (SEC-02 path) injects a capture from any claimed source. | Acceptable by single-user design; note that captures POST is unauthenticated by intent. | — |
+| **SEC-A1** voice-pipecat `ws://0.0.0.0:8765` zero-auth, absent from ADR-0002 exposure model *(v4 carry, unchanged)* | **High** | Compromised IoT/guest device on the home LAN connects to `ws://homeserver:8765`; `handle_websocket_connection` accepts any socket → full Pipecat pipeline (Deepgram STT → Anthropic LLM → TTS) → (a) drains paid Deepgram+Anthropic spend that the OpenAI-metered $50 breaker plausibly does not cover, (b) injects arbitrary captures into the KB. No rate limit on the port. | Bearer/shared-secret check in the WS handler (mirror `VOICE_CAPTURE_SECRET` fail-closed-when-set pattern); loopback-bind 8765/8766 (no LAN consumer identified); add pipecat spend to the budget breaker; add to ADR-0002 table. Flagged as go-condition A136 in v4 — **no motion since**. | M |
+| **SEC-A2** mobile Bearer (`MOBILE_API_KEY`) architecturally unreachable *(v4 carry, unchanged; requires investigation)* | **Medium** | Mobile → CF tunnel → web-next `proxy.ts:21` rewrites caller to `web-next-public` before core-api's `requireMobileAuthIfMobileCaller` (fires only on `mobile-app`) → Bearer never validated; CF Access is the sole mobile control. | Confirm intended mobile ingress; either validate Bearer at/before the rewrite, exempt a dedicated route, or document CF-Access-only and delete the dead middleware. | S-M |
+| **SEC-A3** voice-capture `:3001` on `0.0.0.0` with `VOICE_CAPTURE_SECRET` unset in prod (warn-allow phase 1) *(v4 carry, unchanged)* | **Medium** | D132's stated control is inactive: any LAN host POSTs audio → paid Whisper transcription + injected capture, unauthenticated. | Complete phase 2: set the secret (BWS item scaffolded) → fail-closed; then the deferred 8.2 loopback bind. | S |
+| **SEC-A4** LLM prompt-injection residual *(v4 carry, accepted)* | **Medium** | Adversarial capture content evades the static 14-pattern strip (novel/Unicode/non-English payloads); blast radius bounded by autonomy gates + offline workers. | SECURITY.md §3 backlog: output-schema validation, Loki redaction alert, content-is-data system framing. | M |
+| **SEC-A5** dependency vuln backlog *(v4 Medium → **downgraded to Low**: 112→29 paths, 0 critical, both runtime advisories patched, Dependabot automation live)* | **Low** | Remaining highs are vite dev-scope; moderates transitive/dev except SEC-B1 and a not-exploitable js-yaml (trusted local config only). Residual risk is hygiene drift, now automated against. | Merge in-flight Dependabot PRs #235–#243; monitor weekly grouped updates. | S |
+| **SEC-B1** *(NEW)* `@hono/node-server@1.19.11` < 1.19.13 — serveStatic middleware bypass (GHSA-92pp-h63x-v22m) on an actually-used runtime path | **Low** | core-api's Bull Board (`routes/admin.ts:301`) serves static UI assets via the vulnerable `serveStatic` behind `adminAuth()` on `/queues/*`. A repeated-slash bypass could serve those assets unauthenticated — impact is minimal (public npm UI assets; queue-data APIs are Hono routes outside serveStatic), and the service is LAN-only. It is, however, the only remaining advisory touching live runtime code. | Bump `@hono/node-server@^1.19.13` in core-api + voice-capture (next Dependabot wave or direct). | XS |
+| **SEC-A6** app containers run as root (only voice-pipecat sets `USER`) *(v4 carry, unchanged)* | **Low** | Container escape/RCE in core-api/workers/slack-bot/voice-capture/web-next/ingest-sidecar lands as UID 0 in-container. | Add non-root `USER` to each prod stage. | S |
+| **SEC-A7** `._*` AppleDouble junk untracked, not gitignored *(v4 carry, unchanged)* | **Low** | Hygiene only — risk of accidental future commit. | Add `._*` to `.gitignore`; clean untracked files. | XS |
+
+---
 
 ## Findings Summary
 
 | Severity | Count |
 |----------|-------|
 | Critical | 0 |
-| High | 3 |
-| Medium | 4 |
-| Low | 5 |
+| High | 1 |
+| Medium | 3 |
+| Low | 4 |
 
-(The 4 `pnpm audit` "critical" advisories are dev-only tooling not present in the production image
-and are triaged to Low. SEC-01 and SEC-06 are additionally flagged **requires-investigation** —
-CF Access enforcement and drizzle-orm reachability cannot be confirmed from the repository.)
+*SEC-A2 is additionally flagged **requires_investigation** (exploitability depends on the mobile ingress path + CF Access native-app behavior, unverifiable from code alone).*
+
+**Net movement since v4:** dependency posture materially improved (SEC-A5 Medium→Low; 0 criticals; recurrence automation added); one new Low (SEC-B1); every other v4 finding is unchanged — in particular the v4 High (SEC-A1, also exec-summary go-condition A136) has had **no remediation motion**.

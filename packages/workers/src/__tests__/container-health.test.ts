@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PushoverService } from '@open-brain/shared'
-import { ContainerHealthSkill } from '../skills/container-health.js'
+import { ContainerHealthSkill, DEFAULT_ENDPOINTS } from '../skills/container-health.js'
 import type { ContainerEndpoint } from '../skills/container-health.js'
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
@@ -275,5 +275,16 @@ describe('ContainerHealthSkill', () => {
       const insertCalls = db.insert.mock.calls
       expect(insertCalls.length).toBeGreaterThan(0)
     })
+  })
+})
+
+describe('DEFAULT_ENDPOINTS', () => {
+  it('does not probe the dead litellm endpoint', () => {
+    expect(DEFAULT_ENDPOINTS.some(ep => ep.name === 'litellm')).toBe(false)
+  })
+
+  it('probes faster-whisper on its real health path', () => {
+    const faster = DEFAULT_ENDPOINTS.find(ep => ep.name === 'faster-whisper')
+    expect(faster).toEqual({ name: 'faster-whisper', url: 'http://faster-whisper:8000/health' })
   })
 })

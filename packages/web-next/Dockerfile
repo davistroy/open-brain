@@ -66,11 +66,23 @@ ENV HOSTNAME=0.0.0.0
 
 EXPOSE 3001
 
+# SEC-A6: no writable volumes for this service (docker-compose.yml declares
+# none) — safe to run as the non-root `node` user (UID 1000) that ships in
+# node:22-alpine. chown is required because the COPY --from=builder steps
+# above ran as root.
+RUN chown -R node:node /app
+USER node
+
 # Next.js standalone entrypoint is generated at the root of standalone/
 # The server.js is placed at packages/web-next/server.js relative to standalone root
 CMD ["node", "packages/web-next/server.js"]
 
 # Healthcheck — use 127.0.0.1 not localhost (Alpine resolves localhost to IPv6
-# ::1 which fails wget; 127.0.0.1 is always IPv4)
+# ::1 which fails wget; 127.0.0.1 is always IPv4).
+# SA-7: /api/healthz (app/api/healthz/route.ts) is a static, dependency-free
+# route — NOT the SSR /dashboard, which fetches from core-api and would fail
+# this healthcheck on a core-api hiccup even though the Next.js process itself
+# is fine. docker-compose.yml's healthcheck: block overrides this when running
+# under compose; this is the fallback for a bare `docker run`.
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=15s \
-  CMD wget -qO- http://127.0.0.1:3001/dashboard || exit 1
+  CMD wget -qO- http://127.0.0.1:3001/api/healthz || exit 1

@@ -34,8 +34,11 @@ export class NotificationService {
 
   constructor(token?: string, user?: string) {
     this.pushover = new PushoverService({
-      appToken: token ?? process.env.PUSHOVER_TOKEN,
-      userKey: user ?? process.env.PUSHOVER_USER,
+      // SW5-L5: prefer the canonical PUSHOVER_APP_TOKEN/USER_KEY (used by the
+      // rest of the stack); fall back to the legacy PUSHOVER_TOKEN/USER for one
+      // release so an unmigrated .env.secrets keeps working.
+      appToken: token ?? process.env.PUSHOVER_APP_TOKEN ?? process.env.PUSHOVER_TOKEN,
+      userKey: user ?? process.env.PUSHOVER_USER_KEY ?? process.env.PUSHOVER_USER,
       onError: 'swallow',
     })
   }

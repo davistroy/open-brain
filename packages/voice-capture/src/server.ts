@@ -305,6 +305,7 @@ if (process.env.NODE_ENV !== 'test') {
     retrySpooledTranscripts((p) => ingestService.ingest(p as Parameters<typeof ingestService.ingest>[0]))
       .then((r) => {
         if (r.retried > 0) log.info(r, 'Dead-letter spool retry sweep complete')
+        if (r.deadLettered > 0) log.warn(r, 'Dead-letter spool sweep discarded stuck transcript(s)')
       })
       .catch((err) => log.warn({ err }, 'Dead-letter spool retry sweep failed'))
   }, retryMs)

@@ -19,9 +19,9 @@ import { createApp } from '../app.js'
 // ---------------------------------------------------------------------------
 
 const SAMPLE_COMMITMENT = {
-  id: 'comm-uuid-1',
+  id: 'aaaaaaaa-1111-1111-1111-111111111111',
   capture_id: 'cap-uuid-1',
-  entity_id: 'entity-uuid-1',
+  entity_id: '22222222-2222-2222-2222-222222222222',
   text: 'Send the report to Sarah by Friday',
   due_date: '2026-04-25',
   status: 'owed_by_user',
@@ -31,7 +31,7 @@ const SAMPLE_COMMITMENT = {
 
 const RESOLVED_COMMITMENT = {
   ...SAMPLE_COMMITMENT,
-  id: 'comm-uuid-2',
+  id: 'aaaaaaaa-2222-2222-2222-222222222222',
   status: 'resolved',
   resolved_at: new Date('2026-04-22T09:00:00Z'),
 }
@@ -190,7 +190,7 @@ describe('GET /api/v1/entities/:id/commitments', () => {
     const db = makeMockDb({ selectRows: [SAMPLE_COMMITMENT], countRows: [SAMPLE_COMMITMENT] })
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/commitments')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/commitments')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
@@ -206,7 +206,7 @@ describe('GET /api/v1/entities/:id/commitments', () => {
     })
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/commitments?include_resolved=true')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/commitments?include_resolved=true')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
@@ -217,12 +217,25 @@ describe('GET /api/v1/entities/:id/commitments', () => {
     const db = makeMockDb()
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/commitments?limit=5&offset=10')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/commitments?limit=5&offset=10')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.limit).toBe(5)
     expect(body.offset).toBe(10)
+  })
+
+  it('rejects a malformed :id with 400 VALIDATION_ERROR (SW5-M2 — never reaches the DB)', async () => {
+    const db = makeMockDb()
+    const app = createApp({ db: db as any })
+
+    const res = await app.request('/api/v1/entities/not-a-uuid/commitments')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('must be a valid UUID')
+    expect(db.select).not.toHaveBeenCalled()
   })
 })
 
@@ -239,7 +252,7 @@ describe('PATCH /api/v1/commitments/:id', () => {
     })
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/commitments/comm-uuid-1', {
+    const res = await app.request('/api/v1/commitments/aaaaaaaa-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolved: true }),
@@ -259,7 +272,7 @@ describe('PATCH /api/v1/commitments/:id', () => {
     })
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/commitments/comm-uuid-2', {
+    const res = await app.request('/api/v1/commitments/aaaaaaaa-2222-2222-2222-222222222222', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolved: false }),
@@ -275,7 +288,7 @@ describe('PATCH /api/v1/commitments/:id', () => {
     const db = makeMockDb({ existsRows: [] })
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/commitments/nonexistent-id', {
+    const res = await app.request('/api/v1/commitments/99999999-9999-9999-9999-999999999999', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolved: true }),
@@ -290,7 +303,7 @@ describe('PATCH /api/v1/commitments/:id', () => {
     const db = makeMockDb()
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/commitments/comm-uuid-1', {
+    const res = await app.request('/api/v1/commitments/aaaaaaaa-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ other_field: 'value' }),
@@ -305,7 +318,7 @@ describe('PATCH /api/v1/commitments/:id', () => {
     const db = makeMockDb()
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/commitments/comm-uuid-1', {
+    const res = await app.request('/api/v1/commitments/aaaaaaaa-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolved: 'yes' }),
@@ -320,7 +333,7 @@ describe('PATCH /api/v1/commitments/:id', () => {
     const db = makeMockDb()
     const app = createApp({ db: db as any })
 
-    const res = await app.request('/api/v1/commitments/comm-uuid-1', {
+    const res = await app.request('/api/v1/commitments/aaaaaaaa-1111-1111-1111-111111111111', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: 'not-json',
@@ -329,6 +342,23 @@ describe('PATCH /api/v1/commitments/:id', () => {
     expect(res.status).toBe(400)
     const body = await res.json() as any
     expect(body.code).toBe('VALIDATION_ERROR')
+  })
+
+  it('rejects a malformed :id with 400 VALIDATION_ERROR (SW5-M2 — never reaches the DB)', async () => {
+    const db = makeMockDb()
+    const app = createApp({ db: db as any })
+
+    const res = await app.request('/api/v1/commitments/not-a-uuid', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved: true }),
+    })
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('must be a valid UUID')
+    expect(db.select).not.toHaveBeenCalled()
   })
 })
 
@@ -353,11 +383,11 @@ describe('POST /api/v1/commitments', () => {
     expect(res.status).toBe(201)
     const body = await res.json() as any
     expect(body.commitment).toBeDefined()
-    expect(body.commitment.id).toBe('comm-uuid-1')
+    expect(body.commitment.id).toBe('aaaaaaaa-1111-1111-1111-111111111111')
   })
 
   it('creates a commitment with all optional fields', async () => {
-    const fullRow = { ...SAMPLE_COMMITMENT, entity_id: 'entity-uuid-1', due_date: '2026-04-30', status: 'waiting_on' }
+    const fullRow = { ...SAMPLE_COMMITMENT, entity_id: '22222222-2222-2222-2222-222222222222', due_date: '2026-04-30', status: 'waiting_on' }
     const db = makeMockDb({ insertResult: [fullRow] })
     const app = createApp({ db: db as any })
 
@@ -367,7 +397,7 @@ describe('POST /api/v1/commitments', () => {
       body: JSON.stringify({
         text: 'Ravi owes us the pricing memo',
         capture_id: 'cap-uuid-1',
-        entity_id: 'entity-uuid-1',
+        entity_id: '22222222-2222-2222-2222-222222222222',
         due_date: '2026-04-30',
         status: 'waiting_on',
       }),

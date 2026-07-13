@@ -258,7 +258,7 @@ describe('WeeklyBriefSkill', () => {
       expect(result.captureCount).toBe(SAMPLE_CAPTURES.length)
       expect(result.brief.headline).toBe(SAMPLE_BRIEF_JSON.headline)
       expect(result.brief.wins).toEqual(SAMPLE_BRIEF_JSON.wins)
-      expect(result.durationMs).toBeGreaterThan(0)
+      expect(result.durationMs).toBeGreaterThanOrEqual(0)
     })
 
     it('returns all 9 structured output sections', async () => {

@@ -17,7 +17,9 @@ export function createAccessStatsQueue(connection: ConnectionOptions) {
       priority: 1,      // low priority — best-effort background work
       attempts: 1,      // one attempt only — avoid retry storms on transient failures
       removeOnComplete: { count: 100 },
-      removeOnFail: { count: 50 },
+      // age bound (14d, DA-9) so stale failures auto-prune — `count` alone
+      // never prunes below 50, letting old failures accumulate indefinitely.
+      removeOnFail: { age: 14 * 24 * 60 * 60, count: 50 },
     },
   })
 }

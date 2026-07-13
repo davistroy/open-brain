@@ -183,12 +183,19 @@ export function isInternalIp(ip: string): boolean {
   if (cleaned === '::1') return true
 
   // IPv6 link-local (fe80::/10 — first 10 bits = 1111111010)
-  // Practical match: starts with "fe8", "fe9", "fea", or "feb"
-  if (/^fe[89ab]/.test(cleaned)) return true
+  // Practical match: first hextet is "fe8x"/"fe9x"/"feax"/"febx", followed by the
+  // ':' group separator. SW5-M1: the previous `/^fe[89ab]/` matched on PREFIX
+  // CHARACTERS ONLY with no requirement that the rest of the string look like an
+  // IPv6 literal — a non-IP string such as "fe8bogus" (no colon) would falsely
+  // match. Requiring the trailing ':' anchors the match to an actual hextet
+  // boundary and rejects malformed/spoofed lookalikes.
+  if (/^fe[89ab][0-9a-f]{0,2}:/.test(cleaned)) return true
 
   // IPv6 unique local (fc00::/7 — first 7 bits = 1111110)
-  // Practical match: starts with "fc" or "fd"
-  if (/^f[cd]/.test(cleaned)) return true
+  // Practical match: first hextet is "fcxx"/"fdxx", followed by ':'. Same
+  // SW5-M1 tightening as above — the previous `/^f[cd]/` matched on the first
+  // 2 characters alone with no structural validation.
+  if (/^f[cd][0-9a-f]{0,2}:/.test(cleaned)) return true
 
   // IPv4-mapped IPv6 (e.g., "::ffff:10.0.0.1") — extract embedded v4
   const v4MappedMatch = cleaned.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)
@@ -233,17 +240,33 @@ export function isInternalIp(ip: string): boolean {
  * 2. X-Open-Brain-Caller (non-mobile) — set by internal Docker services (slack-bot,
  *    workers) to get their own rate-limit bucket instead of sharing 'default-client'.
  *    **Defense-in-depth (Phase 2.3):** the caller header is honored ONLY when the
- *    source IP (first entry of `X-Forwarded-For`) is internal per `isInternalIp()`,
- *    OR when no `X-Forwarded-For` is present (meaning the request came directly to
- *    core-api — only reachable from the Docker network in production). A public XFF
- *    IP forces fall-through to IP keying regardless of any client-supplied caller header.
- * 3. X-Forwarded-For (first hop) — set by reverse proxies / Cloudflare Tunnel.
+ *    source IP (rightmost trusted hop of `X-Forwarded-For`) is internal per
+ *    `isInternalIp()`, OR when no `X-Forwarded-For` is present (meaning the request
+ *    came directly to core-api — only reachable from the Docker network in
+ *    production). A public XFF IP forces fall-through to IP keying regardless of
+ *    any client-supplied caller header.
+ * 3. X-Forwarded-For (rightmost hop) — set by reverse proxies / Cloudflare Tunnel.
  * 4. 'default-client' — fallback when neither header is present.
+ *
+ * **SW5-M1 (Entry 8.5): rightmost hop, not first/leftmost.** `X-Forwarded-For` is a
+ * client-suppliable header — anything left of the trusted reverse proxy's own hop is
+ * attacker-controlled. Standard proxies (Cloudflare Tunnel, nginx) APPEND the peer IP
+ * they observe to the end of the chain rather than replacing it, so the RIGHTMOST
+ * entry is the one added by our own trusted infrastructure and cannot be forged by
+ * the client. The previous `.split(',')[0]` (leftmost) let an attacker send
+ * `X-Forwarded-For: 127.0.0.1` directly, which — combined with a spoofed
+ * `X-Open-Brain-Caller` header — made `isInternalIp()` return true and fully bypass
+ * rate limiting (see BYPASS_CALLERS path below). Reading the last comma-separated
+ * entry instead reflects only what the immediate trusted hop actually observed.
+ * Single-proxy deployments (the only topology in front of core-api) see no behavior
+ * change for legitimate traffic — first and last hop are identical when nothing
+ * upstream has forged extra entries.
  */
 export function getClientKey(headers: Headers): { key: string; tier?: keyof typeof RATE_LIMIT_TIERS } {
   const caller = headers.get('x-open-brain-caller')
   const forwarded = headers.get('x-forwarded-for')
-  const sourceIp = forwarded ? forwarded.split(',')[0]!.trim() : ''
+  const forwardedHops = forwarded ? forwarded.split(',') : []
+  const sourceIp = forwardedHops.length > 0 ? forwardedHops[forwardedHops.length - 1]!.trim() : ''
 
   // Mobile callers from a public IP get their own rate-limit tier keyed on token hash.
   // Defense-in-depth: internal source IP + mobile-app is treated as an internal caller

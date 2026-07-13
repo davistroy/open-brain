@@ -27,7 +27,9 @@ export function createWikiIngestQueue(connection: ConnectionOptions) {
         delay: 15_000, // 15s, 30s, 60s
       },
       removeOnComplete: { count: 200 },
-      removeOnFail: { count: 100 },
+      // age bound (14d, DA-9) so stale failures auto-prune — `count` alone
+      // never prunes below 100, letting old failures accumulate indefinitely.
+      removeOnFail: { age: 14 * 24 * 60 * 60, count: 100 },
     },
   })
 }

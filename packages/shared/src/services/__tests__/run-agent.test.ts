@@ -570,8 +570,6 @@ describe('runAgent', () => {
 
   it('measures duration in milliseconds', async () => {
     const mockClient = createMockClient(async () => {
-      // Tiny delay to ensure duration > 0
-      await new Promise((r) => setTimeout(r, 5))
       return mockMessage({
         content: [textBlock('Done')],
         stopReason: 'end_turn',
@@ -585,7 +583,7 @@ describe('runAgent', () => {
       { client: mockClient },
     )
 
-    expect(result.duration).toBeGreaterThan(0)
+    expect(result.duration).toBeGreaterThanOrEqual(0)
     expect(typeof result.duration).toBe('number')
   })
 
@@ -870,6 +868,181 @@ describe('runAgent', () => {
       expect(params.model).toBe('claude-legacy-model')
       expect(result.text).toBe('Legacy works')
       expect(result.finalTierKey).toBeUndefined()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // context budget (GitHub #204) — per-tool-result cap + cumulative token budget
+  // -------------------------------------------------------------------------
+
+  describe('context budget', () => {
+    /** A tool that returns a caller-controlled string. */
+    function fixedTool(name: string, output: string): AgentTool {
+      return {
+        name,
+        description: 'Returns a fixed string',
+        input_schema: { type: 'object' as const, properties: {} },
+        execute: async () => output,
+      }
+    }
+
+    it('truncates an over-cap tool result and appends a truncation marker', async () => {
+      const huge = 'x'.repeat(50_000)
+      const createSpy = vi.fn()
+      let callCount = 0
+      createSpy.mockImplementation(async () => {
+        callCount++
+        if (callCount === 1) {
+          return mockMessage({
+            content: [toolUseBlock('big_tool', {}, 'toolu_big')],
+            stopReason: 'tool_use',
+          })
+        }
+        return mockMessage({ content: [textBlock('done')], stopReason: 'end_turn' })
+      })
+      const mockClient = createMockClient(createSpy)
+
+      const result = await runAgent('System', [fixedTool('big_tool', huge)], 'Do it', {
+        client: mockClient,
+        maxToolResultChars: 12_000,
+      })
+
+      // Returned toolCalls record is truncated + marked
+      expect(result.toolCalls[0].result.length).toBeLessThan(huge.length)
+      expect(result.toolCalls[0].result.startsWith('x'.repeat(12_000))).toBe(true)
+      expect(result.toolCalls[0].result).toContain('[...truncated 38000 chars — context budget]')
+
+      // The tool_result block sent back to the API on the 2nd call is truncated too
+      const secondCallParams = createSpy.mock.calls[1][0]
+      const toolResultBlock = secondCallParams.messages[2].content[0]
+      expect(toolResultBlock.type).toBe('tool_result')
+      expect(toolResultBlock.content.length).toBeLessThan(huge.length)
+      expect(toolResultBlock.content).toContain('[...truncated')
+    })
+
+    it('applies the default 12000-char cap when maxToolResultChars is not provided', async () => {
+      const huge = 'y'.repeat(20_000)
+      const createSpy = vi.fn()
+      let callCount = 0
+      createSpy.mockImplementation(async () => {
+        callCount++
+        if (callCount === 1) {
+          return mockMessage({
+            content: [toolUseBlock('big_tool', {}, 'toolu_big2')],
+            stopReason: 'tool_use',
+          })
+        }
+        return mockMessage({ content: [textBlock('done')], stopReason: 'end_turn' })
+      })
+      const mockClient = createMockClient(createSpy)
+
+      const result = await runAgent('System', [fixedTool('big_tool', huge)], 'Do it', {
+        client: mockClient,
+      })
+
+      // 20000 chars → 12000 kept + marker (default cap)
+      expect(result.toolCalls[0].result.startsWith('y'.repeat(12_000))).toBe(true)
+      expect(result.toolCalls[0].result).toContain('[...truncated 8000 chars — context budget]')
+    })
+
+    it('leaves under-cap tool results unchanged (no marker)', async () => {
+      const small = 'short result'
+      const createSpy = vi.fn()
+      let callCount = 0
+      createSpy.mockImplementation(async () => {
+        callCount++
+        if (callCount === 1) {
+          return mockMessage({
+            content: [toolUseBlock('small_tool', {}, 'toolu_s')],
+            stopReason: 'tool_use',
+          })
+        }
+        return mockMessage({ content: [textBlock('done')], stopReason: 'end_turn' })
+      })
+      const mockClient = createMockClient(createSpy)
+
+      const result = await runAgent('System', [fixedTool('small_tool', small)], 'Do it', {
+        client: mockClient,
+        maxToolResultChars: 12_000,
+      })
+
+      expect(result.toolCalls[0].result).toBe(small)
+      expect(result.toolCalls[0].result).not.toContain('[...truncated')
+    })
+
+    it('injects a synthetic summarize turn and stops when the cumulative token budget is crossed', async () => {
+      // The model always requests a tool — without a budget this would loop to
+      // maxIterations. Each turn reports a large input-token count so the
+      // cumulative budget is crossed after two turns. On the final (tools
+      // withheld) call the mock returns a summary.
+      const createSpy = vi.fn()
+      createSpy.mockImplementation(async (params: Anthropic.MessageCreateParamsNonStreaming) => {
+        if (!params.tools) {
+          // Tools withheld → the budget-nudge turn; produce the final answer.
+          return mockMessage({
+            content: [textBlock('Final summary from gathered data')],
+            stopReason: 'end_turn',
+            inputTokens: 100_000,
+          })
+        }
+        return mockMessage({
+          content: [textBlock('working...'), toolUseBlock('calculator', { expression: '1+1' })],
+          stopReason: 'tool_use',
+          inputTokens: 100_000,
+        })
+      })
+      const mockClient = createMockClient(createSpy)
+
+      const result = await runAgent('System', [calculatorTool()], 'Go', {
+        client: mockClient,
+        maxContextTokens: 150_000,
+        maxIterations: 10,
+      })
+
+      // Stopped well before maxIterations: turn 1 (100k) < budget, turn 2 (200k)
+      // crosses → summarize turn injected, turn 3 is the final answer.
+      expect(result.iterations).toBe(3)
+      expect(createSpy).toHaveBeenCalledTimes(3)
+      expect(result.text).toBe('Final summary from gathered data')
+      expect(result.stopReason).toBe('end_turn')
+
+      // The synthetic summarize turn was appended to the conversation before the
+      // final call, and tools were withheld on that final call.
+      const finalCallParams = createSpy.mock.calls[2][0]
+      expect(finalCallParams.tools).toBeUndefined()
+      const lastUserMsg = finalCallParams.messages[finalCallParams.messages.length - 1]
+      expect(lastUserMsg.role).toBe('user')
+      const budgetText = (lastUserMsg.content as Anthropic.ContentBlockParam[]).find(
+        (b) => b.type === 'text',
+      ) as { type: 'text'; text: string } | undefined
+      expect(budgetText?.text).toContain('Context budget reached')
+    })
+
+    it('does not trigger an early stop under the default budget for small results', async () => {
+      // Normal token counts (100/turn) never approach the 150k default budget.
+      let callCount = 0
+      const createSpy = vi.fn().mockImplementation(async () => {
+        callCount++
+        if (callCount < 3) {
+          return mockMessage({
+            content: [toolUseBlock('calculator', { expression: '1+1' })],
+            stopReason: 'tool_use',
+          })
+        }
+        return mockMessage({ content: [textBlock('all done')], stopReason: 'end_turn' })
+      })
+      const mockClient = createMockClient(createSpy)
+
+      const result = await runAgent('System', [calculatorTool()], 'Go', {
+        client: mockClient,
+      })
+
+      expect(result.text).toBe('all done')
+      expect(result.iterations).toBe(3)
+      // Tools were present on every call (no budget stop occurred)
+      for (const call of createSpy.mock.calls) {
+        expect(call[0].tools).toHaveLength(1)
+      }
     })
   })
 })

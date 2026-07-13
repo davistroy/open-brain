@@ -48,9 +48,13 @@ export function registerVoiceCaptureRoutes(app: Hono): void {
         method: 'POST',
         headers: upstreamHeaders,
         body: upstreamForm,
+        // IA-L1: bound the upstream call so a hung voice-capture never stalls the
+        // request indefinitely. 150s (not the 15s convention) because transcription
+        // is legitimately slow; a timeout surfaces as the 502 below (AbortError).
+        signal: AbortSignal.timeout(150_000),
       })
     } catch (err) {
-      logger.error({ err, url: VOICE_CAPTURE_URL }, '[voice-captures] upstream unreachable')
+      logger.error({ err, url: VOICE_CAPTURE_URL }, '[voice-captures] upstream unreachable or timed out')
       return c.json({ error: 'voice-capture service unreachable', code: 'BAD_GATEWAY' }, 502)
     }
 

@@ -92,6 +92,18 @@ function htmlToPlainText(html: string): string {
 /** Cost per 1K characters for OpenAI TTS tts-1 model */
 const TTS_COST_PER_1K_CHARS = 0.015
 
+/**
+ * DA-4: max audio buffer size (bytes) we'll write to the Redis TTS cache.
+ * A single Redis instance also serves BullMQ + other app caches; an unbounded
+ * `setex` of an oversized MP3 blob (e.g. a very long brief) could pressure
+ * Redis memory with no eviction path other than the 24h TTL. 3 MB comfortably
+ * covers tts-1's typical output for the longest realistic brief body while
+ * bounding worst case. Cache is purely an optimization — skipping it on an
+ * oversized blob just means the next request regenerates via a live OpenAI
+ * TTS call (still returned to the caller; only the cache write is skipped).
+ */
+const TTS_CACHE_MAX_BYTES = 3 * 1024 * 1024
+
 // ---------------------------------------------------------------------------
 
 /**
@@ -253,12 +265,21 @@ export function registerBriefRoutes(app: Hono, briefsService: BriefsService, tts
     const durationMs = Date.now() - startMs
 
     // Step 5: store in Redis cache (TTL 24h = 86400s)
-    try {
-      await redis.setex(cacheKey, 86400, audioBuffer)
-      logger.debug({ briefId: id, voice, bytes: audioBuffer.length }, '[tts] cached audio in Redis')
-    } catch (err) {
-      // Cache write failure is non-fatal — audio still returned to client
-      logger.warn({ err, briefId: id }, '[tts] Redis cache write failed (non-fatal)')
+    // DA-4: skip caching oversized blobs — Redis is shared with BullMQ + other
+    // app caches, and this cache has no eviction path besides the 24h TTL.
+    if (audioBuffer.length > TTS_CACHE_MAX_BYTES) {
+      logger.warn(
+        { briefId: id, voice, bytes: audioBuffer.length, maxBytes: TTS_CACHE_MAX_BYTES },
+        '[tts] audio exceeds cache size guard — skipping Redis cache write',
+      )
+    } else {
+      try {
+        await redis.setex(cacheKey, 86400, audioBuffer)
+        logger.debug({ briefId: id, voice, bytes: audioBuffer.length }, '[tts] cached audio in Redis')
+      } catch (err) {
+        // Cache write failure is non-fatal — audio still returned to client
+        logger.warn({ err, briefId: id }, '[tts] Redis cache write failed (non-fatal)')
+      }
     }
 
     // Step 6: record cost in ai_audit_log

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PushoverService } from '@open-brain/shared'
-import { SecretRotationSkill } from '../skills/secret-rotation.js'
+import { SecretRotationSkill, parseOperatorActions } from '../skills/secret-rotation.js'
 import type { BwsSecret } from '../skills/secret-rotation.js'
 
 // ============================================================
@@ -80,18 +80,44 @@ function makeSkill(opts: {
   secrets?: BwsSecret[]
   execFn?: ReturnType<typeof vi.fn>
   pushoverConfigured?: boolean
+  readFileFn?: ReturnType<typeof vi.fn>
 } = {}) {
   const db = makeMockDb()
   const pushover = makePushover(opts.pushoverConfigured ?? true)
   const execFn = opts.execFn ?? makeMockExec(opts.secrets ?? [])
+  // Default: OPERATOR_ACTIONS.md absent (ENOENT) so the RC-19 check skips
+  // deterministically and never depends on the ambient filesystem.
+  const readFileFn = opts.readFileFn ?? vi.fn().mockRejectedValue(new Error('ENOENT: no such file'))
 
   const skill = new SecretRotationSkill({
     db: db as unknown as import('@open-brain/shared').Database,
     pushover,
     execFn: execFn as any,
+    readFileFn: readFileFn as any,
   })
 
-  return { skill, db, pushover, execFn }
+  return { skill, db, pushover, execFn, readFileFn }
+}
+
+/** Build an OPERATOR_ACTIONS.md fixture with the given Open-Actions rows. */
+function makeRegister(rows: Array<{ id: string; action: string; due: string; status: string }>): string {
+  const body = rows
+    .map((r) => `| ${r.id} | ${r.action} | ${r.due} | Troy | Plan | ${r.status} |`)
+    .join('\n')
+  return `# Operator Actions — Dated Register
+
+## Open Actions
+
+| ID | Action | Due | Owner | Source | Status |
+|----|--------|-----|-------|--------|--------|
+${body}
+
+## Completed Actions
+
+| ID | Action | Completed | Source |
+|----|--------|-----------|--------|
+| OA-DONE | already done thing | 2020-01-01 | Plan |
+`
 }
 
 // ============================================================
@@ -348,6 +374,141 @@ describe('SecretRotationSkill', () => {
 
       expect(result.staleSecrets).toHaveLength(1)
       expect(result.staleSecrets[0].key).toBe('open-brain-openai-api-key')
+    })
+  })
+
+  // ============================================================
+  // RC-19: operator-action reminders
+  // ============================================================
+
+  describe('operator actions (RC-19)', () => {
+    it('flags an overdue action and sends a priority-1 Pushover', async () => {
+      const readFileFn = vi.fn().mockResolvedValue(
+        makeRegister([{ id: 'OA-1', action: 'Deploy migration 0036', due: '2026-03-01', status: 'OPEN' }]),
+      )
+      const { skill, pushover } = makeSkill({ secrets: [FRESH_SECRET], readFileFn })
+
+      const result = await skill.execute({ now: NOW }) // NOW = 2026-04-01, so 2026-03-01 is overdue
+
+      expect(result.operatorActions.checked).toBe(true)
+      expect(result.operatorActions.overdue.map((a) => a.id)).toEqual(['OA-1'])
+      expect(result.operatorActions.alertSent).toBe(true)
+      expect(pushover.send).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Open Brain: Operator Actions Due', priority: 1 }),
+      )
+      const call = (pushover.send as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c) => c[0].title === 'Open Brain: Operator Actions Due',
+      )!
+      expect(call[0].message).toContain('OVERDUE')
+      expect(call[0].message).toContain('OA-1')
+    })
+
+    it('flags an approaching (within 7 days) action at priority 0', async () => {
+      const readFileFn = vi.fn().mockResolvedValue(
+        makeRegister([{ id: 'OA-2', action: 'Flip repo private', due: '2026-04-05', status: 'OPEN' }]),
+      )
+      const { skill, pushover } = makeSkill({ secrets: [], readFileFn })
+
+      const result = await skill.execute({ now: NOW, approachingDays: 7 }) // 2026-04-05 is 4 days out
+
+      expect(result.operatorActions.approaching.map((a) => a.id)).toEqual(['OA-2'])
+      expect(result.operatorActions.overdue).toHaveLength(0)
+      expect(pushover.send).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Open Brain: Operator Actions Due', priority: 0 }),
+      )
+    })
+
+    it('does not flag a far-future action', async () => {
+      const readFileFn = vi.fn().mockResolvedValue(
+        makeRegister([{ id: 'OA-3', action: 'Quarterly review', due: '2026-09-30', status: 'OPEN' }]),
+      )
+      const { skill, pushover } = makeSkill({ secrets: [], readFileFn })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.operatorActions.overdue).toHaveLength(0)
+      expect(result.operatorActions.approaching).toHaveLength(0)
+      expect(result.operatorActions.alertSent).toBe(false)
+      expect(pushover.send).not.toHaveBeenCalled()
+    })
+
+    it('skips DONE and BLOCKED rows even if their Due is overdue', async () => {
+      const readFileFn = vi.fn().mockResolvedValue(
+        makeRegister([
+          { id: 'OA-4', action: 'done thing', due: '2026-01-01', status: 'DONE 2026-01-02' },
+          { id: 'OA-5', action: 'blocked thing', due: '2026-01-01', status: 'BLOCKED (waiting on vendor)' },
+        ]),
+      )
+      const { skill, pushover } = makeSkill({ secrets: [], readFileFn })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.operatorActions.overdue).toHaveLength(0)
+      expect(pushover.send).not.toHaveBeenCalled()
+    })
+
+    it('never flags an undated ("next restart window") Due', async () => {
+      const readFileFn = vi.fn().mockResolvedValue(
+        makeRegister([{ id: 'OA-6', action: 'add shm_size', due: 'next restart window', status: 'OPEN' }]),
+      )
+      const { skill } = makeSkill({ secrets: [], readFileFn })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.operatorActions.overdue).toHaveLength(0)
+      expect(result.operatorActions.approaching).toHaveLength(0)
+    })
+
+    it('completes gracefully when OPERATOR_ACTIONS.md is absent', async () => {
+      const readFileFn = vi.fn().mockRejectedValue(new Error('ENOENT: no such file'))
+      const { skill, pushover } = makeSkill({ secrets: [FRESH_SECRET], readFileFn })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.operatorActions.checked).toBe(false)
+      expect(result.operatorActions.alertSent).toBe(false)
+      expect(result.totalSecrets).toBe(1) // secret check still ran
+      expect(result.error).toBeUndefined()
+      expect(pushover.send).not.toHaveBeenCalled()
+    })
+
+    it('checks operator actions even when the bws query fails', async () => {
+      const readFileFn = vi.fn().mockResolvedValue(
+        makeRegister([{ id: 'OA-7', action: 'overdue thing', due: '2026-03-01', status: 'OPEN' }]),
+      )
+      const execFn = makeFailingExec('bws: command not found')
+      const { skill, pushover } = makeSkill({ execFn, readFileFn })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.error).toContain('bws: command not found')
+      expect(result.operatorActions.overdue.map((a) => a.id)).toEqual(['OA-7'])
+      expect(pushover.send).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Open Brain: Operator Actions Due' }),
+      )
+    })
+
+    describe('parseOperatorActions', () => {
+      it('parses Open-Actions rows and ignores the Completed table', () => {
+        const md = makeRegister([
+          { id: 'OA-1', action: 'first', due: '2026-05-01', status: 'OPEN' },
+          { id: 'OA-2', action: 'second', due: '2026-06-01', status: 'IN PROGRESS' },
+        ])
+        const rows = parseOperatorActions(md)
+
+        expect(rows.map((r) => r.id)).toEqual(['OA-1', 'OA-2'])
+        expect(rows[0].dueDate?.toISOString()).toBe('2026-05-01T00:00:00.000Z')
+        expect(rows.every((r) => r.owner === 'Troy')).toBe(true)
+      })
+
+      it('returns [] when there is no Open Actions section', () => {
+        expect(parseOperatorActions('# Nothing here\n\nsome prose')).toEqual([])
+      })
+
+      it('sets dueDate null for non-date Due cells', () => {
+        const md = makeRegister([{ id: 'OA-X', action: 'x', due: 'next restart window', status: 'OPEN' }])
+        expect(parseOperatorActions(md)[0].dueDate).toBeNull()
+      })
     })
   })
 })

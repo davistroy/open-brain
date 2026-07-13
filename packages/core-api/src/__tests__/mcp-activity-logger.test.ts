@@ -208,8 +208,8 @@ describe('McpActivityLogger', () => {
 
       await wrapped({ query: 'hello' })
 
-      // Wait for fire-and-forget log
-      await new Promise((r) => setTimeout(r, 10))
+      // Wait for the fire-and-forget log to land (deterministic, not a fixed sleep)
+      await vi.waitFor(() => expect(mockDb.insert).toHaveBeenCalled())
 
       expect(mockDb.insert).toHaveBeenCalledOnce()
       const insertChain = mockDb.insert.mock.results[0].value
@@ -229,8 +229,8 @@ describe('McpActivityLogger', () => {
 
       await expect(wrapped({ query: 'test' })).rejects.toThrow('Database connection failed')
 
-      // Wait for fire-and-forget log
-      await new Promise((r) => setTimeout(r, 10))
+      // Wait for the fire-and-forget log to land (deterministic, not a fixed sleep)
+      await vi.waitFor(() => expect(mockDb.insert).toHaveBeenCalled())
 
       expect(mockDb.insert).toHaveBeenCalledOnce()
       const insertChain = mockDb.insert.mock.results[0].value
@@ -249,8 +249,8 @@ describe('McpActivityLogger', () => {
 
       await wrapped({ content: 'idea', token: 'secret-123' })
 
-      // Wait for fire-and-forget log
-      await new Promise((r) => setTimeout(r, 10))
+      // Wait for the fire-and-forget log to land (deterministic, not a fixed sleep)
+      await vi.waitFor(() => expect(mockDb.insert).toHaveBeenCalled())
 
       const insertChain = mockDb.insert.mock.results[0].value
       const call = insertChain.values.mock.calls[0][0]
@@ -267,8 +267,8 @@ describe('McpActivityLogger', () => {
 
       await wrapped({})
 
-      // Wait for fire-and-forget log
-      await new Promise((r) => setTimeout(r, 10))
+      // Wait for the fire-and-forget log to land (deterministic, not a fixed sleep)
+      await vi.waitFor(() => expect(mockDb.insert).toHaveBeenCalled())
 
       const insertChain = mockDb.insert.mock.results[0].value
       const call = insertChain.values.mock.calls[0][0]

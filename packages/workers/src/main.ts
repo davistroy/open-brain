@@ -166,6 +166,9 @@ async function main() {
     maxRetriesPerRequest: 3,
     lazyConnect: true,
   })
+  // SW5-L1: attach an error listener so a mid-operation ioredis error emits a
+  // handled 'error' event instead of crashing the worker with an unhandled one.
+  dedupRedis.on('error', (err) => logger.warn({ err }, '[redis:dedup] connection error'))
   await dedupRedis.connect()
   const ingestDedup = new IngestDedup(dedupRedis)
   logger.info('IngestDedup initialized (5-min TTL content hash dedup)')
@@ -179,6 +182,7 @@ async function main() {
     maxRetriesPerRequest: 3,
     lazyConnect: true,
   })
+  composioMeterRedis.on('error', (err) => logger.warn({ err }, '[redis:composio-meter] connection error'))
   await composioMeterRedis.connect()
   logger.info('Composio quota meter Redis initialized')
 

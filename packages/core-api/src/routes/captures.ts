@@ -8,6 +8,7 @@ import {
   listCapturesSchema,
 } from '../schemas/capture.js'
 import type { PipelineService } from '../services/pipeline.js'
+import { parseUUIDParam } from '../lib/validation.js'
 
 export function registerCaptureRoutes(
   app: Hono,
@@ -67,14 +68,14 @@ export function registerCaptureRoutes(
 
   // GET /api/v1/captures/:id — get capture by id
   app.get('/api/v1/captures/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const capture = await captureService.getById(id)
     return c.json(capture)
   })
 
   // PATCH /api/v1/captures/:id — update tags/brain_view/metadata
   app.patch('/api/v1/captures/:id', zValidator('json', updateCaptureSchema), async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const body = c.req.valid('json')
 
     // Validate brain_view if provided
@@ -96,14 +97,14 @@ export function registerCaptureRoutes(
 
   // DELETE /api/v1/captures/:id — soft delete
   app.delete('/api/v1/captures/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     await captureService.softDelete(id)
     return new Response(null, { status: 204 })
   })
 
   // POST /api/v1/captures/:id/retry — retry failed pipeline stages
   app.post('/api/v1/captures/:id/retry', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     // Verify the capture exists (throws NotFoundError → 404 if missing)
     const capture = await captureService.getById(id)

@@ -1915,7 +1915,7 @@ npx drizzle-kit migrate
 npx drizzle-kit push
 ```
 
-Migrations stored in `drizzle/` directory, version-controlled, applied automatically on container startup via entrypoint script.
+Migrations are raw SQL files (`0*.sql` in the repo root), version-controlled; `drizzle-kit generate`/`push` are used only to diff the TypeScript schema — the `drizzle/meta/` journal is intentionally unused. **No auto-migration on startup (P5/DA-M1 ledger model).** After a Postgres volume recreation: (1) apply `scripts/init-schema.sql` (a generated complete snapshot, chained through the latest migration) via `psql`, (2) `bash scripts/migrate-manual.sh --baseline <latest NNNN>` to record those migrations in the `schema_migrations` ledger without re-running them, (3) `bash scripts/migrate-manual.sh` to apply any newer `0*.sql` files and record them. Thereafter every deploy is just step 3; `migrate-manual.sh --status` lists applied vs pending migrations.
 
 **Custom Migrations**:
 
@@ -3749,7 +3749,7 @@ describe('Captures API Integration', () => {
 
 ### 16.1 Docker Compose
 
-> **Note (updated 2026-06-30):** The snippet below is the Phase 2–4 representative structure (early architecture, web-ui service, no observability profile). The authoritative current `docker-compose.yml` is in the repo root — it includes 13 core services + 4 observability-profile services (`loki`, `pushgateway`, `prometheus`, `grafana`) and `web-next` instead of `web-ui`. See §16.2 for current topology.
+> **Note (updated 2026-07-01, ADR-0004):** The snippet below is the Phase 2–4 representative structure (early architecture, web-ui service, local observability profile — both since retired). The authoritative current `docker-compose.yml` is in the repo root — it includes 13 core services and `web-next` instead of `web-ui`. Observability (`loki`, `pushgateway`, `prometheus`, `grafana`) is no longer part of this file at all — it is a separate, external `observability` Docker Compose project that open-brain joins as a client (see §16.2). See §16.2 for current topology.
 
 ```yaml
 # docker-compose.yml (Phase 2–4 representative — see repo root for current)
@@ -3834,8 +3834,9 @@ services:
       context: .
       dockerfile: Dockerfile
       target: core-api
-    # Entrypoint runs: npx drizzle-kit migrate && node dist/server.mjs
-    # Migrations are automatic on container start — no manual step needed.
+    # No auto-migration on startup (P5/DA-M1 ledger model) — entrypoint runs
+    # only `node dist/server.mjs`. Apply pending migrations before deploy via
+    # `bash scripts/migrate-manual.sh` (see Section 16.4 / CLAUDE.md).
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -3972,16 +3973,17 @@ open-brain (single network)
 │  core-api      slack-bot      workers          voice-capture     │
 │  web-next      file-ingestion financial-ingest utility-ingest    │
 │  cloudflared                                                     │
-│  [profile:observability] loki  pushgateway  prometheus  grafana  │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+Observability (Loki, Prometheus, Pushgateway, Grafana) is NOT on this network — it is a separate, standalone `observability` Docker Compose project (ADR-0004) that open-brain joins as a client over a shared external network; `core-api` is scraped at `core-api:3000/metrics` and `workers` push to `pushgateway:9091`.
+
 - Single `open-brain` network — no Supabase, no multi-network complexity
-- Host-exposed ports: `core-api` (:3002, dual-bound loopback + Tailscale), `web-next` (:3003), `voice-pipecat` (:8765/:8766), `grafana` (:3050); `postgres`/`redis`/`loki`/`pushgateway`/`prometheus` bind loopback-only
+- Host-exposed ports: `core-api` (:3002, dual-bound loopback + Tailscale), `web-next` (:3003), `voice-pipecat` (:8765/:8766); `postgres`/`redis` bind loopback-only. Observability ports (Loki/Prometheus/Pushgateway/Grafana) are owned by the external `observability` project, not this stack.
 - MCP embedded in core-api at `/mcp` — no separate container; external access via LiteLLM gateway at `llm.troy-davis.com/mcp`
 - `cloudflared` routes `brain.troy-davis.com` → `web-next:3001` (Next.js proxies `/api/*` to core-api internally)
-- Observability services (loki, pushgateway, prometheus, grafana) require `COMPOSE_PROFILES=observability` — omitting this flag causes `--remove-orphans` to delete running observability containers (PLT-RI-1)
+- Observability (Loki, Prometheus, Pushgateway, Grafana) is a standalone `observability` Docker Compose project (ADR-0004), not a profile of this stack — it is never started, stopped, or affected by `docker compose` commands run against this repo, and `--remove-orphans` here cannot touch containers outside this project.
 
 ### 16.3 Environment Configuration
 
@@ -4032,7 +4034,9 @@ docker compose up -d postgres redis
 # 3. Wait for healthy
 docker compose exec postgres pg_isready
 
-# 4. Migrations run automatically via core-api entrypoint script (no manual step needed)
+# 4. No auto-migration on startup — apply pending migrations via the manual ledger:
+bash scripts/migrate-manual.sh            # applies newer 0*.sql files, records to schema_migrations
+bash scripts/migrate-manual.sh --status   # lists applied vs pending migrations
 
 # 5. Verify external AI services are reachable
 curl http://192.168.10.58:8080/v1/models  # Jetson t1_jetson tier

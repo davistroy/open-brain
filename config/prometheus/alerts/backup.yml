@@ -1,0 +1,55 @@
+# Prometheus alert rules — backup dead-man's switch
+# Metric source: Pushgateway (job=open-brain, instance=workers)
+# Metric pushed by pipeline-health skill (every 6h): openbrain_backup_age_seconds
+# — seconds since the latest backup manifest was last written, computed from
+# the mtime of the read-only bind mount at /backup-latest/manifest.json
+# (docker-compose.yml workers volumes → host ${BACKUP_ROOT}/latest/manifest.json,
+# written by scripts/backup.sh at the end of a successful daily run, 03:00).
+#
+# Why a dead-man's switch: all backup alerting up to 7.4 was push-on-failure
+# from the scripts themselves — a dead cron, an unreadable .env.secrets in
+# cron context, or a wedged host produces ZERO signal on its own (PLT-H4).
+# This rule (and the independent pipeline-health Pushover alert — see below)
+# instead watches for the ABSENCE of a fresh backup, which catches every one
+# of those silent-failure modes.
+#
+# ALERT DELIVERY MODEL: No Alertmanager is configured in this deployment
+# (prometheus.yml has no alerting: block). This rule surfaces in the Prometheus
+# Alerts tab and Grafana alert panels for manual observation only — it does NOT
+# automatically dispatch notifications (email, Slack, PagerDuty, etc.).
+# Operational push notifications for a stale backup are sent independently and
+# redundantly by application-layer code in pipeline-health.ts
+# (sendBackupStaleAlert), because this rule's delivery via the shared
+# observability stack is unproven (PLT-H2) — do not rely on this rule alone.
+#
+# Related code: packages/workers/src/skills/pipeline-health.ts (checkBackupAge)
+#               packages/workers/src/lib/push-metrics.ts (push path)
+#               scripts/backup.sh, scripts/offsite-backup.sh, scripts/restore-rehearsal.sh
+
+groups:
+  - name: open-brain-backup
+    interval: 5m
+    rules:
+      - alert: BackupStale
+        # Fires when the latest backup manifest has not been refreshed in
+        # over 26 hours. backup.sh runs daily at 03:00; 26h gives one full
+        # day plus a 2h grace margin for a delayed/retried cron run before
+        # this fires. `for: 10m` absorbs a transient stat/push hiccup rather
+        # than firing on a single bad sample.
+        expr: openbrain_backup_age_seconds{job="open-brain"} > 93600
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup manifest is {{ $value | printf \"%.0f\" }}s old (>26h) — dead man's switch tripped"
+          description: >
+            The latest backup manifest (${BACKUP_ROOT}/latest/manifest.json on the
+            homeserver, mounted read-only into the workers container) has not been
+            updated in over 26 hours. A dead cron, an unreadable .env.secrets in
+            cron context, or a failing backup.sh run all produce zero signal on
+            their own — this is the dead-man's-switch backstop (PE-H4/RC-12/SA-13/A131).
+            The pipeline-health skill also fires an independent Pushover alert for
+            this same condition on its own 6h schedule; if you see this Prometheus
+            alert but did NOT get a Pushover notification, the app-layer alert path
+            itself may be broken (check workers container logs).
+          runbook: "docs/runbooks/backup-alert.md"

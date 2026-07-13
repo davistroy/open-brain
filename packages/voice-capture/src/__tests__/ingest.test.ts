@@ -192,4 +192,53 @@ describe('IngestService', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1)
     })
   })
+
+  describe('ingest — 409 (duplicate) is terminal success', () => {
+    it('returns success without retrying when core-api returns 409 with an embedded id', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () =>
+          JSON.stringify({
+            error: 'Duplicate capture detected within the last 60 seconds (id: a1b2c3d4-e5f6-4890-8abc-1234567890ab)',
+            code: 'CONFLICT',
+          }),
+      })
+
+      const result = await service.ingest(SAMPLE_PAYLOAD)
+
+      expect(result.id).toBe('a1b2c3d4-e5f6-4890-8abc-1234567890ab')
+      expect(result.duplicate).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('falls back to a duplicate sentinel id when the 409 body has no embedded id (DB-constraint path)', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () =>
+          JSON.stringify({ error: 'Duplicate capture: content already exists', code: 'CONFLICT' }),
+      })
+
+      const result = await service.ingest(SAMPLE_PAYLOAD)
+
+      expect(result.id).toBe('duplicate')
+      expect(result.duplicate).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it('tolerates a non-JSON 409 body without throwing', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () => 'not json at all',
+      })
+
+      const result = await service.ingest(SAMPLE_PAYLOAD)
+
+      expect(result.id).toBe('duplicate')
+      expect(result.duplicate).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+  })
 })

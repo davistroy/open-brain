@@ -171,20 +171,35 @@ services:
       GIT_COMMITTER_NAME: "Open Brain Bot"
       GIT_COMMITTER_EMAIL: "bot@brain.troy-davis.com"
       PIPELINE_USE_FLOWS: "true"  # DAG pipeline is now the only code path; kept for documentation
+      OPERATOR_ACTIONS_PATH: /app/OPERATOR_ACTIONS.md  # RC-19 register (mounted below); secret-rotation skill reads it
       # Outbound email primary path — himalaya CLI with TOML config (gitignored;
       # credentials sourced from Bitwarden BOND_EMAIL_PASSWORD). Weekly brief and
       # email-compose skill call HimalayaService.send().
       HIMALAYA_CONFIG: /app/config/himalaya/config.toml
       # COMPOSIO_API_KEY: set in .env.secrets (Composio MCP — calendar, email integrations)
       # OPENAI_API_KEY: set in .env.secrets
+      # BWS_ACCESS_TOKEN: set in .env.secrets (RC-13) — bootstrap token the monthly
+      #   secret-rotation skill uses for `bws secret list` staleness checks. Arrives
+      #   via env_file above; NOT in secrets-map.sh (it authenticates to Bitwarden, so
+      #   it cannot be fetched from Bitwarden). Unset = staleness check skipped.
       # LLM_SPEND_URL: set in .env.secrets (optional — spend proxy for budget-check)
       # PUSHOVER_APP_TOKEN: set in .env.secrets
       # PUSHOVER_USER_KEY: set in .env.secrets
       # Optional nodemailer fallback for weekly-brief (Himalaya -> nodemailer -> Pushover chain).
       # Currently unset — delivery cascades directly from Himalaya to Pushover.
       # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM: set in .env.secrets to enable
+      # Backup dead-man's switch (7.4/PE-H4/RC-12/SA-13/A131) — pipeline-health
+      # stats this path's mtime every 6h and pushes openbrain_backup_age_seconds.
+      # Deferred to the next workers recreate (batched compose window, OA-9) —
+      # inert until then; pipeline-health gracefully skips when the mount is absent.
+      BACKUP_LATEST_PATH: /backup-latest/manifest.json
     volumes:
       - ./config:/app/config:ro
+      - ./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro  # RC-19 dated register for secret-rotation reminders
+      # ro-mount of the host backup 'latest' symlink target — see BACKUP_LATEST_PATH above.
+      # Host path is Unraid-specific (scripts/backup.sh BACKUP_ROOT default); absent in
+      # local dev/CI, which is fine — pipeline-health treats a missing mount as "skip".
+      - /mnt/user/backup/openbrain/latest:/backup-latest:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -407,18 +422,24 @@ services:
       # TZ: ensures getHours() in RSC server code matches the user's timezone,
       # preventing SSR/CSR hydration mismatches (e.g. greeting, date headers).
       TZ: America/New_York
-      # API_URL: used by next.config.ts rewrites (server-side, not browser-exposed)
+      # API_URL: server-side base URL for the core-api origin. Used by
+      # next.config.ts rewrites AND as the primary fallback in getApiBase()
+      # (lib/api/core.ts) for RSC/server code. Browser code never reads an
+      # env var for this — it always calls the relative `/api/v1` path,
+      # proxied server-side — so NEXT_PUBLIC_API_URL is deliberately not set
+      # here (it would be dead config: API_URL always wins in the fallback
+      # chain, and it is not passed as a build ARG to the client bundle).
       API_URL: http://core-api:3000
-      # NEXT_PUBLIC_API_URL: browser-visible URL — intentionally empty in Docker;
-      # all /api calls are proxied server-side via next.config.ts rewrites
-      NEXT_PUBLIC_API_URL: http://core-api:3000
     ports:
       - "3003:3001"
     depends_on:
       core-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/dashboard || exit 1"]
+      # SA-7: static/lightweight route — NOT the SSR /dashboard, which fetches
+      # from core-api and would fail this healthcheck on a core-api hiccup
+      # even though the Next.js process itself is fine. See app/api/healthz/route.ts.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/api/healthz || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

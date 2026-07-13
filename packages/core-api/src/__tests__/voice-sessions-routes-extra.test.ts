@@ -30,7 +30,7 @@ import { makeTestApp, makeMockService, testJson } from './helpers.js'
 // ---------------------------------------------------------------------------
 
 const BASE_SESSION = {
-  id: 'vs-extra-1',
+  id: '66666666-6666-6666-6666-666666666666',
   session_key: 'pipecat-extra',
   started_at: new Date('2026-04-20T08:00:00Z'),
   ended_at: null,
@@ -114,11 +114,11 @@ describe('GET /api/v1/voice/sessions/:id — 404 propagation', () => {
   it('returns 404 when service throws NotFoundError', async () => {
     const { app } = buildApp({
       get: async () => {
-        throw new NotFoundError('Voice session not found: vs-missing')
+        throw new NotFoundError('Voice session not found: 99999999-9999-9999-9999-999999999999')
       },
     })
 
-    const { status, body } = await testJson(app, '/api/v1/voice/sessions/vs-missing')
+    const { status, body } = await testJson(app, '/api/v1/voice/sessions/99999999-9999-9999-9999-999999999999')
     const b = body as { code?: string }
 
     expect(status).toBe(404)
@@ -134,7 +134,7 @@ describe('PATCH /api/v1/voice/sessions/:id — additional validation', () => {
   it('validates ended_at must be a valid ISO date', async () => {
     const { app } = buildApp()
 
-    const { status, body } = await testJson(app, '/api/v1/voice/sessions/vs-extra-1', {
+    const { status, body } = await testJson(app, '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666', {
       method: 'PATCH',
       body: JSON.stringify({ ended_at: 'not-a-date' }),
     })
@@ -147,14 +147,14 @@ describe('PATCH /api/v1/voice/sessions/:id — additional validation', () => {
   it('accepts a valid ISO ended_at', async () => {
     const { app, svc } = buildApp()
 
-    const { status } = await testJson(app, '/api/v1/voice/sessions/vs-extra-1', {
+    const { status } = await testJson(app, '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666', {
       method: 'PATCH',
       body: JSON.stringify({ ended_at: '2026-04-20T09:00:00Z' }),
     })
 
     expect(status).toBe(200)
     expect(svc.update).toHaveBeenCalledWith(
-      'vs-extra-1',
+      '66666666-6666-6666-6666-666666666666',
       expect.objectContaining({ ended_at: expect.any(Date) }),
     )
   })
@@ -162,7 +162,7 @@ describe('PATCH /api/v1/voice/sessions/:id — additional validation', () => {
   it('validates duration_seconds must be an integer', async () => {
     const { app } = buildApp()
 
-    const { status, body } = await testJson(app, '/api/v1/voice/sessions/vs-extra-1', {
+    const { status, body } = await testJson(app, '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666', {
       method: 'PATCH',
       body: JSON.stringify({ duration_seconds: 3.14 }),
     })
@@ -175,7 +175,7 @@ describe('PATCH /api/v1/voice/sessions/:id — additional validation', () => {
   it('validates captures_created must be an array', async () => {
     const { app } = buildApp()
 
-    const { status, body } = await testJson(app, '/api/v1/voice/sessions/vs-extra-1', {
+    const { status, body } = await testJson(app, '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666', {
       method: 'PATCH',
       body: JSON.stringify({ captures_created: 'not-an-array' }),
     })
@@ -188,14 +188,14 @@ describe('PATCH /api/v1/voice/sessions/:id — additional validation', () => {
   it('accepts captures_created as an array', async () => {
     const { app, svc } = buildApp()
 
-    const { status } = await testJson(app, '/api/v1/voice/sessions/vs-extra-1', {
+    const { status } = await testJson(app, '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666', {
       method: 'PATCH',
       body: JSON.stringify({ captures_created: ['cap-1', 'cap-2'] }),
     })
 
     expect(status).toBe(200)
     expect(svc.update).toHaveBeenCalledWith(
-      'vs-extra-1',
+      '66666666-6666-6666-6666-666666666666',
       expect.objectContaining({ captures_created: ['cap-1', 'cap-2'] }),
     )
   })
@@ -211,7 +211,7 @@ describe('POST /api/v1/voice/sessions/:id/complete — edge cases', () => {
 
     const { status, body } = await testJson(
       app,
-      '/api/v1/voice/sessions/vs-extra-1/complete',
+      '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666/complete',
       {
         method: 'POST',
         body: JSON.stringify({
@@ -230,7 +230,7 @@ describe('POST /api/v1/voice/sessions/:id/complete — edge cases', () => {
   it('rejects whitespace-only summary', async () => {
     const { app } = buildApp()
 
-    const { status } = await testJson(app, '/api/v1/voice/sessions/vs-extra-1/complete', {
+    const { status } = await testJson(app, '/api/v1/voice/sessions/66666666-6666-6666-6666-666666666666/complete', {
       method: 'POST',
       body: JSON.stringify({
         transcript: [{ role: 'user', content: 'Hi' }],
