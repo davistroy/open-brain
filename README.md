@@ -11,6 +11,7 @@ Self-hosted personal AI knowledge infrastructure running on an Unraid home serve
 ## Plans
 
 - **GitHub issues** — single source of truth for all open work. See [OPEN_ITEMS.md](OPEN_ITEMS.md) for a one-page summary.
+- **[OPERATOR_ACTIONS.md](OPERATOR_ACTIONS.md)** — dated register of post-merge operator/ops actions (deploys, repo-settings, secret provisioning, owner decisions) that code alone can't complete; surfaced monthly via the secret-rotation skill + monthly-audit workflow.
 - **`docs/archived/`** — completed implementation plans (Phases 1–22 + tech-debt waves through 2026-04-19; Cloudscape M1–M4; arch-review; post-remediation; 2026-05-09 cohesive remediation).
 
 ---
@@ -267,6 +268,7 @@ Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, t
 |------|---------|
 | `CHANGELOG.md` | Version history and recent changes |
 | `OPEN_ITEMS.md` | One-page summary of open GitHub issues |
+| `OPERATOR_ACTIONS.md` | Dated register of post-merge operator/ops actions (RC-19) |
 | `LAB_NOTEBOOK.md` | Experiment + decision log (append-only) |
 | `USER_TEST_PLAN.md` | End-to-end test plan for all phases |
 | `docs/PRD.md` | Product requirements (v0.7) |

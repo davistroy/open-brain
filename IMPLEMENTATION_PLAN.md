@@ -337,8 +337,8 @@ No `git rm --cached` needed (no files tracked). Operator will close #226 manuall
 
 ### Work Items
 
-#### 3.1 BWS_ACCESS_TOKEN wiring (bootstrap exception)
-**Status: PENDING**
+#### 3.1 BWS_ACCESS_TOKEN wiring (bootstrap exception) ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** RC-13
 **Files Affected:**
@@ -361,8 +361,8 @@ No `git rm --cached` needed (no files tracked). Operator will close #226 manuall
 **Notes:**
 Precondition for both the secret-rotation staleness alert AND the 3.3 reminder host.
 
-#### 3.2 OPERATOR_ACTIONS.md register
-**Status: PENDING**
+#### 3.2 OPERATOR_ACTIONS.md register ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** RC-19
 **Files Affected:**
@@ -383,8 +383,8 @@ Create a machine-readable, dated register (columns: ID | Action | Due | Owner | 
 **Notes:**
 Must be surfaced automatically (3.3/3.4) or it rots exactly like OPEN_ITEMS.md.
 
-#### 3.3 secret-rotation reminder extension
-**Status: PENDING**
+#### 3.3 secret-rotation reminder extension ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** RC-19
 **Depends On:** 3.1, 3.2
@@ -409,8 +409,8 @@ Extend the monthly secret-rotation skill (already runs on the monthly cadence, a
 **Notes:**
 Do NOT create a new skill or cron slot — reuse the existing monthly skill (no scheduler-slots.test.ts change).
 
-#### 3.4 monthly-audit register surfacing
-**Status: PENDING**
+#### 3.4 monthly-audit register surfacing ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12**
 **Model Tier: haiku**
 **Requirement Refs:** RC-19
 **Depends On:** 3.2
