@@ -6,7 +6,7 @@
 # ============================================================
 # Builder stage — install deps and build standalone output
 # ============================================================
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
@@ -43,7 +43,7 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" \
 # ============================================================
 # Runtime stage — minimal Node image, standalone output only
 # ============================================================
-FROM node:22-alpine AS runtime
+FROM node:26-alpine AS runtime
 
 WORKDIR /app
 
