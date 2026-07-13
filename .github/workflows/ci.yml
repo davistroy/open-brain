@@ -173,6 +173,23 @@ jobs:
         # Fix on failure: `bash scripts/regenerate-init-schema.sh` and commit the result.
         run: bash scripts/validate-init-schema.sh
 
+  validate-alert-rules:
+    name: Validate Prometheus alert rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # PE-M8/QA-10: scripts/validate-alert-rules.sh existed but was wired into no
+    # workflow — a malformed rule file (config/prometheus/alerts/*.yml) produced
+    # zero CI signal, only discoverable via a failed shared-Prometheus reload
+    # post-deploy. Cheap + no external deps (falls back to python3 yaml.safe_load
+    # when promtool isn't on PATH, which is the case on ubuntu-latest).
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Run alert rules validator
+        run: bash scripts/validate-alert-rules.sh
+
   python-lint:
     name: Python lint & typecheck
     runs-on: ubuntu-latest
@@ -257,12 +274,18 @@ jobs:
   doc-sync:
     name: Doc version sync check
     runs-on: ubuntu-latest
-    # OBSERVE MODE — promotion checklist (same pattern as integration-test):
-    # 1. Verify 2 consecutive PRs show this job green in GitHub Actions
-    # 2. Remove the `continue-on-error: true` line below
-    # 3. Add "Doc version sync check" to branch protection required status checks
-    # 4. Update this comment to: "REQUIRED: promoted YYYY-MM-DD PR #NNN"
-    continue-on-error: true
+    # BLOCKING as of 2026-07-12 (item 7.3) — sync-docs.sh has been green across
+    # the observe-mode window; `continue-on-error` removed.
+    #
+    # Scope note (PE-M7): this check is version-STRING-only — it diffs version
+    # numbers embedded across docs/config, nothing more. It cannot catch
+    # procedure or prose drift (the PLT-C1 class: a runbook step that's
+    # syntactically fine but describes a stale/wrong procedure). Do not treat a
+    # green run here as validation of runbook or doc CONTENT correctness — it
+    # only proves version strings agree.
+    #
+    # Adding to branch-protection required status checks is a separate
+    # operator `gh api` step (OA-8), not part of this workflow file.
 
     steps:
       - name: Checkout

@@ -188,9 +188,18 @@ services:
       # Optional nodemailer fallback for weekly-brief (Himalaya -> nodemailer -> Pushover chain).
       # Currently unset — delivery cascades directly from Himalaya to Pushover.
       # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM: set in .env.secrets to enable
+      # Backup dead-man's switch (7.4/PE-H4/RC-12/SA-13/A131) — pipeline-health
+      # stats this path's mtime every 6h and pushes openbrain_backup_age_seconds.
+      # Deferred to the next workers recreate (batched compose window, OA-9) —
+      # inert until then; pipeline-health gracefully skips when the mount is absent.
+      BACKUP_LATEST_PATH: /backup-latest/manifest.json
     volumes:
       - ./config:/app/config:ro
       - ./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro  # RC-19 dated register for secret-rotation reminders
+      # ro-mount of the host backup 'latest' symlink target — see BACKUP_LATEST_PATH above.
+      # Host path is Unraid-specific (scripts/backup.sh BACKUP_ROOT default); absent in
+      # local dev/CI, which is fine — pipeline-health treats a missing mount as "skip".
+      - /mnt/user/backup/openbrain/latest:/backup-latest:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -31,6 +31,7 @@
 | OA-11 | Quarterly vendor-terms verification: confirm OpenAI "no training on API data" and Deepgram "0-day retention" under the CURRENT plan/terms (see docs/PROVIDER_SETTINGS.md placeholders) | 2026-09-30 | Troy | RI-3 / RC | OPEN |
 | OA-12 | Gmail OAuth re-consent (token refresh window) for the email-classify pipeline | 2026-07-26 | Troy | operational-followups / RC-13 | OPEN |
 | OA-13 | Merge Dependabot PRs #235/#237/#238 (cloudflare/email-worker: postal-mime, @cloudflare/workers-types 4→5) now that `email-worker-test` CI job (npm ci + tsc --noEmit + vitest, verified green locally 16/16) gates the package. Confirm the new job is green on each PR before merging | 2026-07-19 | Troy | Plan 6.5 / QA-7 / SW5-L13 | OPEN |
+| OA-14 | Merge the 5 GitHub-Actions major Dependabot PRs (#242 docker/build-push-action 6→7, #241 actions/cache 5→6, #240 setup-python 5→6, #239 pnpm/action-setup 4→6, #236 setup-node 5→6) **one at a time**, watching one post-merge `build-images.yml` run after each. The new `notify-failure` job (Plan 7.1) now Slack-alerts a broken build so a bad major merge can't silently stale `:latest`. #242 touches all 8 build steps — merge it last/most carefully | 2026-07-26 | Troy | Plan 7.1 / PE-M9 | OPEN |
 
 ## Completed Actions
 

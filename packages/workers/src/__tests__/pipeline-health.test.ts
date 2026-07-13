@@ -1,12 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { Mock } from 'vitest'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
 import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
 import { PushoverService } from '../services/pushover.js'
+import { pushMetrics } from '../lib/push-metrics.js'
+import type { MetricLine } from '../lib/push-metrics.js'
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
 vi.mock('../lib/push-metrics.js', () => ({
   pushMetrics: vi.fn().mockResolvedValue(undefined),
   buildExposition: vi.fn().mockReturnValue(''),
+}))
+
+// Mock node:fs/promises `stat` for the backup dead-man's-switch check
+// (packages/workers/src/skills/pipeline-health.ts `checkBackupAge`).
+// Default: always reject (ENOENT) — mirrors "mount not deployed yet" (7.4/OA-9),
+// which is the safe default for the ~30 pre-existing tests below that don't
+// configure this mock at all. Individual tests override with
+// mockResolvedValueOnce/mockRejectedValueOnce.
+const mockStat = vi.fn().mockRejectedValue(new Error('ENOENT: no such file or directory'))
+vi.mock('node:fs/promises', () => ({
+  stat: (...args: unknown[]) => mockStat(...args),
 }))
 
 // ============================================================
@@ -487,6 +501,116 @@ describe('PipelineHealthSkill', () => {
       const sendCall = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]
       // Alert should mention failed queues, backlogged queues, stalled, and recent failures
       expect(sendCall.message).toContain('capture-pipeline')
+    })
+  })
+
+  // ----------------------------------------------------------
+  // Backup dead-man's switch (7.4 / PE-H4 / RC-12 / SA-13 / A131)
+  // ----------------------------------------------------------
+
+  describe('execute — backup dead-man\'s switch', () => {
+    beforeEach(() => {
+      // pushMetrics' vi.fn() (from the module factory mock) is NOT reset by the
+      // outer beforeEach's vi.restoreAllMocks() (that only restores vi.spyOn
+      // spies) — clear its call history here so each test's assertions only
+      // see calls made during that test's own skill.execute().
+      ;(pushMetrics as unknown as Mock).mockClear()
+    })
+
+    /** Finds the pushMetrics() call that pushed the backup-age gauge, if any. */
+    function findBackupMetricCall(): MetricLine[] | undefined {
+      const calls = (pushMetrics as unknown as Mock).mock.calls as [MetricLine[]][]
+      const match = calls.find(([metrics]) => metrics.some(m => m.name === 'openbrain_backup_age_seconds'))
+      return match?.[0]
+    }
+
+    it('fresh manifest: pushes the gauge with a low age and does NOT send Pushover', async () => {
+      mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - 5_000) } as never) // 5s old
+
+      const { skill, pushover } = makeSkill({ failures: [] })
+      const result = await skill.execute()
+
+      const backupMetrics = findBackupMetricCall()
+      expect(backupMetrics).toBeDefined()
+      const gauge = backupMetrics?.find(m => m.name === 'openbrain_backup_age_seconds')
+      expect(gauge?.value).toBeGreaterThanOrEqual(0)
+      expect(gauge?.value).toBeLessThan(60)
+
+      expect(result.backupStale).toBe(false)
+      expect(result.backupAgeSeconds).toBeGreaterThanOrEqual(0)
+      expect(result.backupAgeSeconds).toBeLessThan(60)
+      expect(result.healthy).toBe(true)
+      expect(pushover.send).not.toHaveBeenCalled()
+    })
+
+    it('stale manifest (>26h old): pushes the gauge AND sends a Pushover alert', async () => {
+      const THIRTY_HOURS_MS = 30 * 60 * 60 * 1000
+      mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - THIRTY_HOURS_MS) } as never)
+
+      const { skill, pushover } = makeSkill({ failures: [] })
+      const result = await skill.execute()
+
+      const backupMetrics = findBackupMetricCall()
+      const gauge = backupMetrics?.find(m => m.name === 'openbrain_backup_age_seconds')
+      expect(gauge?.value).toBeGreaterThan(93600)
+
+      expect(result.backupStale).toBe(true)
+      expect(result.healthy).toBe(false)
+      expect(result.alertSent).toBe(true)
+
+      expect(pushover.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Open Brain: Backup Stale',
+          priority: 1,
+        }),
+      )
+      const sendCall = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]
+      expect(sendCall.message).toContain('backup-alert.md')
+    })
+
+    it('absent manifest: completes without throwing, no gauge pushed, no Pushover', async () => {
+      mockStat.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'))
+
+      const { skill, pushover } = makeSkill({ failures: [] })
+      const result = await skill.execute()
+
+      expect(result.backupStale).toBe(false)
+      expect(result.backupAgeSeconds).toBeNull()
+      expect(result.healthy).toBe(true)
+      expect(pushover.send).not.toHaveBeenCalled()
+
+      const backupMetrics = findBackupMetricCall()
+      expect(backupMetrics).toBeUndefined()
+    })
+
+    it('respects BACKUP_MAX_AGE_SECONDS override', async () => {
+      const previous = process.env.BACKUP_MAX_AGE_SECONDS
+      process.env.BACKUP_MAX_AGE_SECONDS = '60' // 1 minute — trivially exceeded
+
+      try {
+        mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - 5 * 60 * 1000) } as never) // 5 min old
+
+        const { skill, pushover } = makeSkill({ failures: [] })
+        const result = await skill.execute()
+
+        expect(result.backupStale).toBe(true)
+        expect(pushover.send).toHaveBeenCalled()
+      } finally {
+        if (previous === undefined) delete process.env.BACKUP_MAX_AGE_SECONDS
+        else process.env.BACKUP_MAX_AGE_SECONDS = previous
+      }
+    })
+
+    it('does not send a backup-stale Pushover when Pushover is not configured', async () => {
+      const THIRTY_HOURS_MS = 30 * 60 * 60 * 1000
+      mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - THIRTY_HOURS_MS) } as never)
+
+      const { skill, pushover } = makeSkill({ failures: [], pushoverConfigured: false })
+      const result = await skill.execute()
+
+      expect(result.backupStale).toBe(true)
+      expect(result.alertSent).toBe(false)
+      expect(pushover.send).not.toHaveBeenCalled()
     })
   })
 })

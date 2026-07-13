@@ -49,15 +49,21 @@ const DEFAULT_CONSECUTIVE_FAILURE_THRESHOLD = 3
  * Default container health endpoints.
  * /health is Docker-internal only (not proxied by nginx).
  * Uses container names as Docker DNS names on the open-brain network.
+ *
+ * litellm is deliberately NOT probed here — it is a standalone shared proxy
+ * (llm.k4jda.net), not a container in this compose stack; the old
+ * `litellm:4000` entry resolved nothing and always reported unhealthy.
+ * faster-whisper's `/health` path matches its own Docker healthcheck
+ * (docker-compose.yml `faster-whisper` service, internal port 8000).
  */
-const DEFAULT_ENDPOINTS: ContainerEndpoint[] = [
+export const DEFAULT_ENDPOINTS: ContainerEndpoint[] = [
   { name: 'core-api', url: 'http://core-api:3000/health' },
   { name: 'voice-capture', url: 'http://voice-capture:3001/health' },
   { name: 'voice-pipecat', url: 'http://voice-pipecat:8766/health' },
   { name: 'file-ingestion', url: 'http://file-ingestion:8080/health' },
-  { name: 'litellm', url: 'http://litellm:4000/health/liveliness' },
+  { name: 'faster-whisper', url: 'http://faster-whisper:8000/health' },
   // workers (BullMQ) and slack-bot (Socket Mode) have no HTTP health endpoints
-  // web (Vite static) health checked via external Cloudflare tunnel instead
+  // web-next (Next.js) health checked via external Cloudflare tunnel instead
 ]
 
 /**

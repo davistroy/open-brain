@@ -954,8 +954,9 @@ Verify the exact check-name strings match the `name:` values before adding (a mi
 
 ### Work Items
 
-#### 7.1 build-images alerting + Dependabot actions majors
-**Status: PENDING**
+#### 7.1 build-images alerting + Dependabot actions majors ✅ Completed 2026-07-12 (merges deferred → OA-14)
+**Status: COMPLETE 2026-07-12 — notify-failure job added; the 5 GH-Actions-major PR merges are operator-gated (OA-14).**
+
 **Model Tier: sonnet**
 **Requirement Refs:** PE-M9 (platform); GitHub #239, #240, #241, #242, #236
 **Files Affected:**
@@ -976,8 +977,10 @@ build-images.yml has no CI gate and no failure alert — a broken merge silently
 **Notes:**
 A misconfigured workflow_run gate can silently stop all publishes — add the alert job first, gate second (optional).
 
-#### 7.2 Dependabot pip + docker ecosystems
-**Status: PENDING**
+#### 7.2 Dependabot pip + docker ecosystems ✅ Completed 2026-07-12
+**Status: COMPLETE 2026-07-12** <!-- pip: 7 dirs; docker: 5 Dockerfile dirs; compose third-party pins noted as manual-review (Dependabot can't parse them). -->
+
+
 **Model Tier: haiku**
 **Requirement Refs:** PE-L6 (platform)
 **Files Affected:**
@@ -999,7 +1002,7 @@ dependabot.yml covers only npm×3 + github-actions. Add `pip` (8 dirs: /, packag
 Confirm Dependabot per-directory vs `directories:` list syntax (U6).
 
 #### 7.3 alert-rules CI + container-health + doc-sync promotion
-**Status: PENDING**
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** PE-M8, PE-M3 (platform), PE-M7, QA-10
 **Files Affected:**
@@ -1010,47 +1013,53 @@ Confirm Dependabot per-directory vs `directories:` list syntax (U6).
 Add a CI job invoking `scripts/validate-alert-rules.sh` (exists, wired to nothing). Fix container-health.ts: drop the dead `litellm:4000` probe, add faster-whisper with its real health path, fix the stale web comment. Promote doc-sync per its embedded checklist (2 green runs → remove continue-on-error → add to required checks) AND note in the job comment that it is version-string-only and structurally can't catch procedure drift (the PLT-C1 class).
 
 **Tasks:**
-1. [ ] Add alert-rules validation CI job
-2. [ ] Fix container-health endpoint list (drop litellm, add faster-whisper, fix comment)
-3. [ ] Promote doc-sync (remove continue-on-error, add to required checks) + scope note
+1. [x] Add alert-rules validation CI job
+2. [x] Fix container-health endpoint list (drop litellm, add faster-whisper, fix comment)
+3. [x] Promote doc-sync (remove continue-on-error) + scope note — branch-protection required-checks update is a separate operator `gh api` step (OA-8), NOT done here
 
 **Acceptance Criteria:**
-- [ ] WHEN a Prometheus alert-rule file is malformed THEN CI SHALL fail
-- [ ] container-health probes faster-whisper and no longer probes the dead litellm endpoint
-- [ ] doc-sync is a required check with a comment documenting its version-only scope
+- [x] WHEN a Prometheus alert-rule file is malformed THEN CI SHALL fail (new `validate-alert-rules` job runs `scripts/validate-alert-rules.sh`)
+- [x] container-health probes faster-whisper (`http://faster-whisper:8000/health`, matches its own Docker healthcheck) and no longer probes the dead litellm endpoint
+- [x] doc-sync `continue-on-error: true` removed, with a comment documenting its version-string-only scope; adding it to branch-protection required checks is deferred to OA-8 (operator `gh api` action, out of scope for this workflow-file-only task)
 
 **Notes:**
 doc-sync promotion is what stops CS-B's corrections from silently re-drifting — but it only catches version skew, so the note matters.
 
+**Completion (2026-07-12):** Modified `.github/workflows/ci.yml` (new `validate-alert-rules` job; doc-sync `continue-on-error` removed + scope-note comment), `packages/workers/src/skills/container-health.ts` (DEFAULT_ENDPOINTS: dropped dead `litellm:4000`, added `faster-whisper:8000/health`, fixed stale Vite-`web` comment → `web-next`, exported the constant), `packages/workers/src/__tests__/container-health.test.ts` (2 new tests pinning DEFAULT_ENDPOINTS content). Verified: `ci.yml` YAML-valid; `bash scripts/validate-alert-rules.sh` passes (7/7 rule files, python3 fallback); `pnpm --filter @open-brain/workers test` green (62 files / 1192 tests, coverage 83.88% lines / 84.66% functions — above the 78/81 floor); `pnpm --filter @open-brain/workers exec tsc --noEmit` clean.
+
 #### 7.4 Backup dead-man's switch
-**Status: PENDING**
+**Status: COMPLETE 2026-07-12**
 **Model Tier: sonnet**
 **Requirement Refs:** PE-H4, RC-12, SA-13; A131
 **Files Affected:**
-- `docker-compose.yml` (modify — workers ro-mount)
-- `packages/workers/src/skills/pipeline-health.ts` (modify)
-- `config/prometheus/alerts/backup.yml` (create)
-- `docs/runbooks/backup-alert.md` (create)
+- `docker-compose.yml` (modified — workers ro-mount + `BACKUP_LATEST_PATH` env)
+- `packages/workers/src/skills/pipeline-health.ts` (modified)
+- `packages/workers/src/__tests__/pipeline-health.test.ts` (modified — 6 new cases)
+- `config/prometheus/alerts/backup.yml` (created)
+- `docs/runbooks/backup-alert.md` (created)
 
 **Description:**
-All backup alerting is push-on-failure from the scripts — a dead cron or unreadable `.env.secrets` in cron context produces zero signal. Add: (1) workers ro-mount `/mnt/user/backup/openbrain/latest:/backup-latest:ro`; (2) in pipeline-health, stat `/backup-latest/manifest.json`, compute age, emit `openbrain_backup_age_seconds` via the existing push-metrics (reaches pushgateway:9091 on the shared net); (3) Prometheus rule >93600s (26h) in a new backup.yml + runbook; (4) a Pushover branch in sendAlert for `backupStale` (independent of PLT-H2's unproven Prometheus delivery).
+All backup alerting is push-on-failure from the scripts — a dead cron or unreadable `.env.secrets` in cron context produces zero signal. Added: (1) workers ro-mount `/mnt/user/backup/openbrain/latest:/backup-latest:ro`; (2) in pipeline-health, stat `/backup-latest/manifest.json` (path from `BACKUP_LATEST_PATH`, default same), compute age, emit `openbrain_backup_age_seconds` via the existing push-metrics (reaches pushgateway:9091 on the shared net); (3) Prometheus rule >93600s (26h, `for: 10m`) in a new `backup.yml` + runbook; (4) a dedicated `sendBackupStaleAlert()` Pushover path (independent of `sendAlert()`'s queue/capture-flow message and of PLT-H2's unproven Prometheus delivery).
 
 **Tasks:**
-1. [ ] Add workers ro-mount (batch into the Phase 7 compose window)
-2. [ ] pipeline-health: stat manifest + emit backup-age gauge
-3. [ ] backup.yml rule + backup-alert.md runbook
-4. [ ] Pushover branch for backupStale
+1. [x] Add workers ro-mount (batched into the Phase 7 compose window — see Notes, deferred to OA-9)
+2. [x] pipeline-health: `checkBackupAge()` stats manifest + emits `openbrain_backup_age_seconds` gauge (graceful no-op on ENOENT/unreadable — logs debug, never throws)
+3. [x] `backup.yml` rule (`BackupStale`, severity critical, `job="open-brain"`, `for: 10m`) + `backup-alert.md` runbook (diagnosis: cron install, `.env.secrets` readability, manifest mtime, offsite/rehearsal logs, raw metric query; mitigation per failure mode)
+4. [x] `sendBackupStaleAlert()` — independent Pushover branch, fires when `ageSeconds > BACKUP_MAX_AGE_SECONDS` (default 93600); ORs into `result.alertSent`; `result.backupStale`/`backupAgeSeconds` added to `PipelineHealthResult` and folded into `healthy`
 
 **Acceptance Criteria:**
-- [ ] WHEN the latest backup manifest is older than 26h THEN a Pushover alert SHALL fire (via the app-layer path, independent of Prometheus)
-- [ ] `openbrain_backup_age_seconds` appears in the pushgateway payload
-- [ ] The gauge push failure never breaks the pipeline-health skill (errors swallowed, per push-metrics convention)
+- [x] WHEN the latest backup manifest is older than 26h THEN a Pushover alert SHALL fire (via the app-layer path, independent of Prometheus) — verified by test "stale manifest (>26h old): pushes the gauge AND sends a Pushover alert"
+- [x] `openbrain_backup_age_seconds` appears in the pushgateway payload — verified by test assertions on the mocked `pushMetrics()` call
+- [x] The gauge push failure never breaks the pipeline-health skill (errors swallowed, per push-metrics convention) — verified by "absent manifest: completes without throwing" test; `checkBackupAge()` catches `stat()` failures and `pushMetrics()` already swallows internally
+
+**Verification:** `pnpm --filter @open-brain/workers test` — 62 test files / 1197 tests passed, coverage 83.95% lines / 84.73% functions (well above the 78/81 floor; `pipeline-health.ts` not one of the 4 locked-100% files). `pnpm --filter @open-brain/workers exec tsc --noEmit` clean. `python3 -c "import yaml; yaml.safe_load(...)"` on `backup.yml` valid. `bash scripts/validate-alert-rules.sh` — 8/8 rule files valid (backup.yml picked up automatically via glob).
 
 **Notes:**
-The Pushover branch is deliberate redundancy — PLT-H2's Prometheus delivery is unverified, so don't depend solely on the rule.
+The Pushover branch is deliberate redundancy — PLT-H2's Prometheus delivery is unverified, so don't depend solely on the rule. **The `docker-compose.yml` workers ro-mount is inert until the next workers container recreate** — it takes effect only when the batched compose window (item 7.5 / OA-9, operator-gated live-host session) is deployed. Until then, `checkBackupAge()` gracefully no-ops in production too (mount absent → `stat()` ENOENT → debug log, skip), which is safe and expected — this is the same graceful-skip path exercised by the "absent manifest" test.
 
-#### 7.5 Live-host verification session (operator)
-**Status: PENDING**
+#### 7.5 Live-host verification session (operator) ⏸ DEFERRED (operator — OA-9)
+**Status: DEFERRED — operator-gated (live homeserver SSH: A131 backup verification, PLT-H2 alert-delivery test, batched compose-window deploy). Tracked as OA-9.**
+
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-H2, PLT-H4, RC-12; A131; RI-A/U4
 **Files Affected:**
