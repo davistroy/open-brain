@@ -322,21 +322,12 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
     """
     gas_cfg = cfg.get("gas", {})
     login_url = gas_cfg.get("login_url", "https://manage.gassouth.com")
-    bw_key = gas_cfg.get("bitwarden_key", "dev/open-brain/gas-south")
 
-    # Retrieve credentials from Bitwarden
-    creds_raw = get_bws_secret(bw_key)
-    try:
-        creds = json.loads(creds_raw)
-        username = creds.get("username", "")
-        password = creds.get("password", "")
-    except json.JSONDecodeError:
-        # If the secret is not JSON, try key=value format or single value
-        log.error(
-            "Gas South credentials secret is not valid JSON. "
-            'Expected: {"username": "...", "password": "..."}'
-        )
-        return None
+    # Credentials live as two SEPARATE Bitwarden secrets (the canonical scheme),
+    # not a single JSON blob. Config keys override the defaults. get_bws_secret()
+    # sys.exit(1)s if a key is absent, so both are guaranteed non-empty here.
+    username = get_bws_secret(gas_cfg.get("bitwarden_username_key", "GAS_SOUTH_USERNAME"))
+    password = get_bws_secret(gas_cfg.get("bitwarden_password_key", "GAS_SOUTH_PASSWORD"))
 
     if not username or not password:
         log.error("Gas South credentials missing username or password")

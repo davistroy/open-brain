@@ -25,7 +25,9 @@ gas:
   provider: gas_south
   api_url: https://manage-api.gassouth.com/oas/api
   account_number: "<GAS_ACCOUNT_NUMBER>"
-  bitwarden_key: dev/open-brain/gas-south   # Gas South portal username + password
+  # Two SEPARATE Bitwarden secrets (canonical), not a single JSON blob.
+  bitwarden_username_key: GAS_SOUTH_USERNAME
+  bitwarden_password_key: GAS_SOUTH_PASSWORD
   login_url: https://manage.gassouth.com
   lookback_months: 3                        # how many months of billing history to fetch
   cron: "0 5 2 * *"                         # 2nd of month, 5 AM (same as water)
