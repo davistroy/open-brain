@@ -21,6 +21,7 @@
 import { useState } from 'react';
 import { DollarSign, Inbox } from 'lucide-react';
 import { EmptyState } from '@/components/design-system/EmptyState';
+import { useClientNow } from '@/hooks/useClientNow';
 import type { Capture } from '@/lib/types';
 import type { ProviderId } from '@/app/(shell)/financial/page';
 
@@ -77,9 +78,10 @@ function estimateAmount(capture: Capture): string | null {
 // Relative time formatter
 // ---------------------------------------------------------------------------
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, now: number | null): string {
   const date = new Date(iso);
-  const now = Date.now();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
@@ -95,6 +97,7 @@ function formatRelative(iso: string): string {
 // ---------------------------------------------------------------------------
 
 function CaptureCard({ capture }: { capture: Capture }) {
+  const now = useClientNow();
   const amount = estimateAmount(capture);
   const preview = capture.content.length > 120
     ? `${capture.content.slice(0, 120).trimEnd()}…`
@@ -132,7 +135,7 @@ function CaptureCard({ capture }: { capture: Capture }) {
           <span className="text-cloud-dark opacity-40 text-[10px]">·</span>
           {/* Relative time */}
           <span className="font-mono text-[10px] tracking-[0.05em] uppercase text-text-body-secondary">
-            {formatRelative(capture.created_at)}
+            {formatRelative(capture.created_at, now)}
           </span>
           {/* Pipeline status indicator — only show non-complete states */}
           {capture.pipeline_status !== 'complete' && (
