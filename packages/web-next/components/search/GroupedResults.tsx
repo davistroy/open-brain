@@ -19,6 +19,7 @@
 import Link from 'next/link';
 import type { SearchResult, CaptureSource } from '@/lib/types';
 import { Pill } from '@/components/design-system/Pill';
+import { useClientNow } from '@/hooks/useClientNow';
 
 // ---------------------------------------------------------------------------
 // Source group definitions
@@ -80,10 +81,11 @@ function scoreTone(score: number): 'success' | 'accent' | 'neutral' {
 }
 
 /** Format ISO date to relative string. */
-function relativeDate(iso: string): string {
+function relativeDate(iso: string, now: number | null): string {
   const date = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
   if (diffDays === 0) return 'Today';
@@ -106,6 +108,7 @@ function truncate(text: string, maxLength: number): string {
  */
 export function ResultCard({ result }: { result: SearchResult }) {
   const { capture, score } = result;
+  const now = useClientNow();
   const preview = truncate(capture.content, 180);
   const sourceLabel = SOURCE_LABELS[capture.source] ?? capture.source;
 
@@ -155,7 +158,7 @@ export function ResultCard({ result }: { result: SearchResult }) {
           ))}
         </div>
         <span className="font-mono text-[10.5px] tracking-[0.04em] text-text-body-secondary shrink-0">
-          {relativeDate(capture.created_at)}
+          {relativeDate(capture.created_at, now)}
         </span>
       </div>
     </Link>
