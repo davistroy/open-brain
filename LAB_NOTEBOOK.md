@@ -12942,3 +12942,20 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 **Status:** code fixes done + locally validated → PR. financial functional recovery gated on Plaid provisioning.
 **Tags:** [pipeline] [config] [security] [test]
 **Environment:** ubuntu-vm. open-brain `main`. Executed by Claude (Opus 4.8) under ultracode, user-directed.
+
+## Entry 194 — Autonomous cluster completion + THREE regressions traced to the OA-2 private-flip (2026-07-14)  [ci] [security] [deploy] [decision]
+
+**Autonomous cluster done (PR #268 merged `93e963e`):** financial Pushover key-name fix + plaid-config canonical names; `load-secrets.sh` bootstrap-token preservation (OA-4b, roundtrip 7/7); **28 stale `ingest-root` failed jobs cleared** (redis, full clean incl. orphaned hashes → dashboard failed-count 0, the #200 residual); Dependabot `@dependabot rebase` triggered on the 2 email-worker PRs (#235/#237) to revalidate against the fixed CI.
+
+**THREE regressions all trace to OA-2 (repo → private, RC-10). My OA-2 verification checked image-pulls + CI-runs but NOT these — a gap:**
+1. **`gh pr checks` broken** (fine-grained PAT can't read GraphQL `statusCheckRollup` on a private repo). Workaround: Actions API (`gh run list`). Fix: PAT `checks:read`+`statuses:read`.
+2. **Homeserver `git fetch` broken** (unauthenticated HTTPS `origin`). Blocks the `git checkout origin/main -- <file>` deploy pattern → **OA-17**. No github SSH key on the box (only `unraidbackup_id_ed25519` pinned to backup.unraid.net) → needs Troy to add a deploy key.
+3. **Branch protection DISABLED (the serious one)** → **OA-8 BLOCKED**. GitHub free tier does not support protected branches on PRIVATE repos (`GET/PUT .../protection` → 403 "Upgrade to Pro or make public"). So `main` is now UNPROTECTED — even the prior required checks (`Integration tests`, `build-and-test`) no longer gate merges. The 2 OA-8 candidate checks (`Validate init-schema.sql`, `Python lint & typecheck`) are green on the last 3 runs, ready IF protection returns.
+
+**This reframes OA-2:** private buys RC-10's goal but costs branch protection + adds two auth frictions. **Decision for Troy:** (a) accept [solo repo]; (b) GitHub Pro/Team (~$4/mo) → protection on private; or (c) revert to public (`gh repo edit --visibility public`) — no in-repo secrets, and all three regressions vanish. During this session I merged 7 PRs relying on green CI *by choice*, not enforcement — fine for a careful solo operator, but the safety net is off until this is decided.
+
+**Could NOT complete autonomously (blocked, not skipped):** OA-8 (needs a protection decision); financial functional recovery (needs Plaid secrets — Troy); OA-14 GHA-major Dependabot merges (deliberate one-at-a-time per their own definition; branches also need the rebase now propagating); OA-17 (needs a deploy key).
+
+**Status:** autonomous cluster COMPLETE to its blocking boundaries. Decisions + provisioning handed to Troy.
+**Tags:** [ci] [security] [deploy] [decision]
+**Environment:** ubuntu-vm + homeserver (root SSH, redis). open-brain `main`/prod. Executed by Claude (Opus 4.8) under ultracode.
