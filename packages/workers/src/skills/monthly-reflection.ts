@@ -84,6 +84,12 @@ export interface MonthlyReflectionOptions {
 
 const BRAIN_VIEWS = ['career', 'personal', 'technical', 'work-internal', 'client']
 const MAX_CAPTURES_PER_VIEW = 200
+/**
+ * Skill-level defense (GitHub #204): truncate each capture's content before it
+ * enters the agent tool result, so the tool never emits a pathological payload
+ * even before runAgent's per-result cap kicks in. email-compose precedent: 300.
+ */
+const MAX_CAPTURE_CONTENT_CHARS = 400
 
 // ============================================================
 // Agent tools
@@ -161,7 +167,11 @@ export function buildReflectionTools(db: Database, windowStart: Date, windowEnd:
         const lines = result.rows.map((r) => {
           const date = typeof r.created_at === 'string' ? r.created_at.split('T')[0] : ''
           const tags = r.tags?.length ? ` [${r.tags.join(', ')}]` : ''
-          return `[${date}] [${r.capture_type}]${tags} ${r.content}`
+          const content =
+            r.content.length > MAX_CAPTURE_CONTENT_CHARS
+              ? `${r.content.slice(0, MAX_CAPTURE_CONTENT_CHARS)}…`
+              : r.content
+          return `[${date}] [${r.capture_type}]${tags} ${content}`
         })
 
         return `${result.rows.length} captures for "${view}":\n\n${lines.join('\n')}`

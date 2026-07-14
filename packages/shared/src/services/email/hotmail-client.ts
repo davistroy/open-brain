@@ -157,8 +157,10 @@ export class HotmailClient implements EmailProvider {
       const result = await this.app.acquireTokenByDeviceCode({
         scopes: MS_SCOPES,
         deviceCodeCallback: (response) => {
-          log.info({ message: response.message }, 'Hotmail: device code auth required')
-          console.log(`\n${'='.repeat(60)}\nMICROSOFT AUTHENTICATION\n${'='.repeat(60)}\n${response.message}\n${'='.repeat(60)}\n`)
+          // SW5-L6: route the interactive device-code prompt through the logger
+          // (was console.log). warn level + the full message keeps the sign-in
+          // instructions visible during the rare operator-run interactive auth.
+          log.warn({ message: response.message }, 'Hotmail: MICROSOFT AUTHENTICATION required — follow the message to sign in')
         },
       })
       if (result?.accessToken) {

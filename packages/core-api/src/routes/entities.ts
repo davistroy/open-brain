@@ -7,6 +7,7 @@ import type { Queue } from 'bullmq'
 import type { EntityService } from '../services/entity.js'
 import type { SearchService } from '../services/search.js'
 import { logger } from '@open-brain/shared'
+import { parseUUIDParam } from '../lib/validation.js'
 
 /** Job data shape for skill-execution queue */
 interface SkillExecutionJobData {
@@ -84,7 +85,7 @@ export function registerEntityRoutes(
   // Returns entity detail with up to 20 most recent linked captures.
   // -------------------------------------------------------------------------
   app.get('/api/v1/entities/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const detail = await entityService.getById(id)
     return c.json(detail)
   })
@@ -138,7 +139,7 @@ export function registerEntityRoutes(
     )
 
   app.get('/api/v1/entities/:id/mentions-timeline', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     // Parse and validate query params
     const rawWindow = c.req.query('window') ?? '30d'
@@ -170,7 +171,7 @@ export function registerEntityRoutes(
   // All entity_links from source are moved to target; source entity deleted.
   // -------------------------------------------------------------------------
   app.post('/api/v1/entities/:id/merge', async (c) => {
-    const sourceId = c.req.param('id')
+    const sourceId = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {
@@ -204,7 +205,7 @@ export function registerEntityRoutes(
   // Body: { alias: string }
   // -------------------------------------------------------------------------
   app.post('/api/v1/entities/:id/split', async (c) => {
-    const entityId = c.req.param('id')
+    const entityId = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {
@@ -257,7 +258,7 @@ export function registerEntityRoutes(
       throw new ServiceUnavailableError('Ask feature is not available (LLM or search not configured)')
     }
 
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const { question } = c.req.valid('json')
 
     logger.info({ entityId: id, questionLen: question.length }, '[entities-api] ask request received')
@@ -287,7 +288,7 @@ export function registerEntityRoutes(
       throw new ServiceUnavailableError('Brief generation is not available (skill queue not configured)')
     }
 
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     logger.info({ entityId: id }, '[entities-api] entity-brief generation requested')
 

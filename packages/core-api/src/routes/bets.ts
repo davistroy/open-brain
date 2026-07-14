@@ -2,6 +2,7 @@ import type { Hono } from 'hono'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import type { BetService } from '../services/bet.js'
 import { logger } from '@open-brain/shared'
+import { parseUUIDParam } from '../lib/validation.js'
 
 /**
  * Register bet tracking API routes.
@@ -121,7 +122,7 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
   // GET /api/v1/bets/:id
   // -------------------------------------------------------------------------
   app.get('/api/v1/bets/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const bet = await betService.getById(id)
     return c.json(bet)
   })
@@ -132,7 +133,7 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
   // Auto-captures resolution outcome as a brain 'reflection' entry.
   // -------------------------------------------------------------------------
   app.patch('/api/v1/bets/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {
@@ -170,7 +171,7 @@ export function registerBetRoutes(app: Hono, betService: BetService): void {
   // Hard-delete a bet (used for regression test cleanup).
   // -------------------------------------------------------------------------
   app.delete('/api/v1/bets/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     await betService.delete(id)
     return c.body(null, 204)
   })

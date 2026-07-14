@@ -5,6 +5,7 @@ import { commitments } from '@open-brain/shared'
 import { CommitmentStatusSchema } from '@open-brain/shared'
 import { NotFoundError, ValidationError } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
+import { parseUUIDParam } from '../lib/validation.js'
 
 /**
  * Register commitments API routes.
@@ -84,7 +85,7 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
   // Returns: { commitments: Commitment[], total: number, limit: number, offset: number }
   // -------------------------------------------------------------------------
   app.get('/api/v1/entities/:id/commitments', async (c) => {
-    const entityId = c.req.param('id')
+    const entityId = parseUUIDParam(c.req.param('id'))
     const rawIncludeResolved = c.req.query('include_resolved')
     const rawLimit = c.req.query('limit')
     const rawOffset = c.req.query('offset')
@@ -129,7 +130,7 @@ export function registerCommitmentRoutes(app: Hono, db: Database): void {
   // Returns: { commitment } (updated row)
   // -------------------------------------------------------------------------
   app.patch('/api/v1/commitments/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {

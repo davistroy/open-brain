@@ -1,6 +1,6 @@
 # ADR-0002: LAN Exposure Model — Bind Data Stores to Loopback, Dual-Bind core-api for Tailscale MCP
 
-**Status:** Accepted — **core-api exposure AMENDED 2026-06-30** (see [Amendment](#amendment-2026-06-30--core-api-exposure-on-unraid-supersedes-the-core-api-row); data-store binds + fail-closed creds + Redis auth stand as written and are deployed)
+**Status:** Accepted — **core-api exposure AMENDED 2026-06-30**; **voice-pipecat `:8765` risk-accepted 2026-07-12 (D135)** (see Amendments below; data-store binds + fail-closed creds + Redis auth stand as written and are deployed)
 **Date:** 2026-06-15 (amended 2026-06-30)
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` remediation of arch-review v3 — findings SEC-02, SEC-08, SEC-11, PLT-L1, PLT-L3 (LAN-perimeter cluster, change set CS-1)
@@ -37,6 +37,7 @@ Concretely, in `docker-compose.yml`:
 | **core-api** | 3002 | `0.0.0.0` | ~~`127.0.0.1` **+ `${TAILSCALE_IP}`**~~ → **`0.0.0.0` (see Amendment 2026-06-30)** | OpenClaw MCP over Tailscale must survive; dual-bind superseded by a risk-acceptance |
 | web-next | 3003 | `0.0.0.0` | `0.0.0.0` (keep) | Troy's LAN browser access to the dashboard |
 | grafana | 3050 | `0.0.0.0` | `0.0.0.0` (keep) | Troy's LAN browser access to dashboards |
+| voice-pipecat | 8765 (ws) / 8766 (health) | `0.0.0.0` | `0.0.0.0` (keep — **risk-accepted, see Amendment 2026-07-12 / D135**) | WebSocket realtime-voice pipeline; zero auth. No production client connects to it (iOS Shortcut is HTTP→`:3001`, mobile is batch upload, streaming A81 never built, soak test P24 never run). Accepted, not remediated. |
 
 Credentials fail closed: `POSTGRES_PASSWORD:?must be set` and `GRAFANA_ADMIN_PASSWORD:?must be set` (remove `:-openbrain_dev` / `:-admin` fallbacks). New `REDIS_PASSWORD` secret follows the P08 3-step lockstep (BWS → `.env.secrets.template` + `secrets-map.sh` → `REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379` consumers).
 
@@ -86,3 +87,16 @@ Rationale:
 3. core-api gains a general-API authentication mechanism (then loopback-only + `tailscale serve` becomes free of the OpenClaw-break concern).
 
 **Net (Unraid):** data stores closed to the LAN; core-api LAN-reachable with sensitive endpoints auth-gated and the general API accepted-open under the single-user posture. The separate observability ports (loki/prometheus/pushgateway) remaining on `0.0.0.0` are a *deferred* item (the docker port-wedge needs a `systemctl restart docker` window), not part of this decision.
+
+## Amendment (2026-07-12) — voice-pipecat `:8765`/`:8766` risk-accepted (D135, closes SEC-A1/A136)
+
+The 2026-07-09 architecture review (SEC-A1) flagged that `voice-pipecat` publishes `ws://0.0.0.0:8765` (+ `:8766` health) with **zero authentication** — any LAN socket could drive the paid Deepgram STT + Anthropic LLM pipeline (outside the OpenAI-only budget breaker) and inject captures. It was absent from the original exposure model above.
+
+**Decision (owner, 2026-07-12): accept the risk as-is; make no code/compose change.** Rationale:
+- **No production client connects to `:8765`.** An exhaustive repo/mobile/web grep found zero clients. The decision log settles the ambiguity: the iOS Shortcut posts HTTP to `voice-capture:3001` (D50/D51), the mobile app uses batch upload to `:3001` (D121), the streaming-transcript integration over this WebSocket is a never-built deferred item (A81), and the only intended consumer is a manual 2-week soak test that was never run (P24).
+- The trusted-LAN posture is consistent with D131 (core-api) and D132 (voice-capture) — the home LAN is the trust boundary, and adding untrusted devices is already an explicit re-open trigger for this ADR.
+- The options the review offered (compose `profiles:[voice-streaming]` gate, `127.0.0.1` bind, or a WebSocket token handshake) all defend against a threat with no present exposure path; the owner elected not to spend the change/complexity budget on a clientless service.
+
+**Re-open triggers (specific to this port):** any real client is wired to `:8765` (e.g. the A81 mobile streaming work, or scheduling the P24 soak test) → at that point add a shared-secret handshake in the pipecat WebSocket handler AND bind loopback/tailnet, since the port would then carry live paid-API traffic. Also re-opened by the general triggers above (second user, untrusted LAN devices).
+
+Recorded as **D135** in the LAB_NOTEBOOK Decision Log and the arch-review risk-acceptance register.

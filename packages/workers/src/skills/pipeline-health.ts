@@ -1,5 +1,6 @@
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
+import { stat } from 'node:fs/promises'
 import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
@@ -43,6 +44,18 @@ export interface PipelineHealthResult extends BaseResult {
   recentFailures: RecentFailure[]
   stalledByQueue: StalledStats[]
   captureFlowStale: boolean
+  /**
+   * True when the latest backup manifest (mtime of BACKUP_LATEST_PATH) is
+   * older than the configured max age — the backup dead-man's switch (7.4).
+   * Always false when the manifest is absent/unreadable (graceful skip).
+   */
+  backupStale: boolean
+  /**
+   * Seconds since the latest backup manifest was written, or null when the
+   * manifest could not be stat'd (mount absent in dev/CI, or not yet deployed
+   * — see IMPLEMENTATION_PLAN.md 7.4/OA-9).
+   */
+  backupAgeSeconds: number | null
   alertSent: boolean
 }
 
@@ -107,6 +120,16 @@ export const ALL_QUEUE_NAMES = [
 const DEFAULT_FAILURE_LOOKBACK_MINUTES = 60
 const DEFAULT_FAILED_THRESHOLD = 5
 const DEFAULT_WAITING_THRESHOLD = 100
+
+/**
+ * Backup dead-man's switch (7.4 / PE-H4 / RC-12 / SA-13 / A131).
+ * Default path matches the docker-compose.yml workers ro-mount of the host
+ * `${BACKUP_ROOT}/latest` symlink target at /backup-latest.
+ * Default max age (93600s = 26h) mirrors config/prometheus/alerts/backup.yml
+ * (backup.sh runs daily; 26h = one full day + a 2h grace margin).
+ */
+const DEFAULT_BACKUP_MANIFEST_PATH = '/backup-latest/manifest.json'
+const DEFAULT_BACKUP_MAX_AGE_SECONDS = 93600
 
 // ============================================================
 // Production queue factory
@@ -229,6 +252,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // Step 3.6: Push queue metrics to Pushgateway
     await this.pushQueueMetrics(queues)
 
+    // Step 3.7: Backup dead-man's switch — stat manifest, emit age gauge,
+    // and (independently) alert if stale (7.4 / PE-H4 / RC-12 / SA-13 / A131).
+    const backupCheck = await this.checkBackupAge()
+
     // Step 4: Evaluate thresholds
     const failedQueues = queues.filter(q => q.failed >= failedThreshold)
     const backloggedQueues = queues.filter(q => q.waiting >= waitingThreshold)
@@ -236,7 +263,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
 
     const shouldAlert = failedQueues.length > 0 || backloggedQueues.length > 0 || stalledQueues.length > 0 || captureFlowStale
 
-    const healthy = !shouldAlert && recentFailures.length === 0
+    const healthy = !shouldAlert && recentFailures.length === 0 && !backupCheck.stale
 
     let alertSent = false
     if (shouldAlert) {
@@ -251,6 +278,15 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       })
     }
 
+    // Backup-stale alert is deliberately independent of sendAlert() above —
+    // it fires on its own condition and must not be folded into the generic
+    // queue/capture-flow message (this is the PLT-H2 redundancy path; the
+    // Prometheus BackupStale rule's delivery via the shared stack is unproven).
+    if (backupCheck.stale && backupCheck.ageSeconds !== null) {
+      const backupAlertSent = await this.sendBackupStaleAlert(backupCheck.ageSeconds, backupCheck.maxAgeSeconds)
+      alertSent = alertSent || backupAlertSent
+    }
+
     const durationMs = Date.now() - startMs
 
     // Step 5: Build result and log to skills_log
@@ -260,6 +296,8 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       recentFailures,
       stalledByQueue,
       captureFlowStale,
+      backupStale: backupCheck.stale,
+      backupAgeSeconds: backupCheck.ageSeconds,
       alertSent,
       durationMs,
     }
@@ -389,6 +427,57 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   }
 
   // ----------------------------------------------------------
+  // Private: backup dead-man's switch
+  // ----------------------------------------------------------
+
+  /**
+   * Stat the latest backup manifest (read-only bind mount from the host
+   * `${BACKUP_ROOT}/latest` symlink — docker-compose.yml workers volumes,
+   * batched into the deferred compose window, OA-9) and emit an
+   * `openbrain_backup_age_seconds` gauge to Pushgateway.
+   *
+   * GRACEFUL: if the manifest is absent or unreadable (mount not deployed
+   * yet, local dev, CI), this logs at debug and returns a no-op result —
+   * never throws. The gauge push itself also never throws (push-metrics
+   * swallows its own errors).
+   */
+  private async checkBackupAge(): Promise<{ ageSeconds: number | null; stale: boolean; maxAgeSeconds: number }> {
+    const manifestPath = process.env.BACKUP_LATEST_PATH ?? DEFAULT_BACKUP_MANIFEST_PATH
+    const envMaxAge = process.env.BACKUP_MAX_AGE_SECONDS ? Number(process.env.BACKUP_MAX_AGE_SECONDS) : NaN
+    const maxAgeSeconds = Number.isFinite(envMaxAge) && envMaxAge > 0 ? envMaxAge : DEFAULT_BACKUP_MAX_AGE_SECONDS
+
+    let mtimeMs: number
+    try {
+      const stats = await stat(manifestPath)
+      mtimeMs = stats.mtime.getTime()
+    } catch (err) {
+      logger.debug({ err, manifestPath }, '[pipeline-health] backup manifest unavailable — skipping backup-age check')
+      return { ageSeconds: null, stale: false, maxAgeSeconds }
+    }
+
+    const ageSeconds = Math.max(0, Math.floor((Date.now() - mtimeMs) / 1000))
+
+    await pushMetrics([
+      {
+        name: 'openbrain_backup_age_seconds',
+        value: ageSeconds,
+        help: "Seconds since the latest backup manifest (scripts/backup.sh) was last written",
+        type: 'gauge',
+      },
+    ])
+
+    const stale = ageSeconds > maxAgeSeconds
+    if (stale) {
+      logger.warn(
+        { ageSeconds, maxAgeSeconds, manifestPath },
+        "[pipeline-health] backup manifest stale — dead man's switch triggered",
+      )
+    }
+
+    return { ageSeconds, stale, maxAgeSeconds }
+  }
+
+  // ----------------------------------------------------------
   // Private: capture flow check (delegated to query file)
   // ----------------------------------------------------------
 
@@ -483,6 +572,41 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     }
   }
 
+  /**
+   * Send a Pushover alert for a stale backup manifest — the dead-man's-switch
+   * redundancy path (7.4). Independent of the Prometheus `BackupStale` rule
+   * (PLT-H2: shared-stack alert delivery is unproven) — this fires directly
+   * from the app layer, same pattern/priority as sendAlert() above.
+   *
+   * Returns true if sent successfully, false if Pushover not configured or send failed.
+   */
+  private async sendBackupStaleAlert(ageSeconds: number, maxAgeSeconds: number): Promise<boolean> {
+    if (!this.pushover.isConfigured) {
+      logger.debug("[pipeline-health] Pushover not configured — skipping backup-stale alert")
+      return false
+    }
+
+    const ageHours = (ageSeconds / 3600).toFixed(1)
+    const maxAgeHours = (maxAgeSeconds / 3600).toFixed(1)
+    const message =
+      `Backup manifest is ${ageHours}h old (threshold: ${maxAgeHours}h).\n` +
+      'Check the offsite-backup/restore-rehearsal cron logs and .env.secrets ' +
+      'readability in cron context. See docs/runbooks/backup-alert.md.'
+
+    try {
+      await this.pushover.send({
+        title: 'Open Brain: Backup Stale',
+        message,
+        priority: 1,
+      })
+      logger.info({ ageSeconds, maxAgeSeconds }, '[pipeline-health] backup-stale Pushover alert sent')
+      return true
+    } catch (err) {
+      logger.warn({ err }, '[pipeline-health] backup-stale Pushover alert failed — continuing')
+      return false
+    }
+  }
+
   // ----------------------------------------------------------
   // Private: skills_log
   // ----------------------------------------------------------
@@ -501,6 +625,8 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       `stalled:${totalStalled}`,
       `recentFailures:${result.recentFailures.length}`,
       `captureFlowStale:${result.captureFlowStale}`,
+      `backupStale:${result.backupStale}`,
+      `backupAgeSeconds:${result.backupAgeSeconds ?? 'n/a'}`,
       `alert:${result.alertSent}`,
     ].join(' | ')
 

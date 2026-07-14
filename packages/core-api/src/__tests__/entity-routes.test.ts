@@ -10,7 +10,7 @@ import type { Queue } from 'bullmq'
 // ---------------------------------------------------------------------------
 
 const SAMPLE_ENTITY = {
-  id: 'entity-uuid-1',
+  id: '22222222-2222-2222-2222-222222222222',
   name: 'Tom Smith',
   entity_type: 'person',
   canonical_name: 'tom smith',
@@ -72,7 +72,7 @@ function makeMockEntityService(overrides: Partial<EntityService> = {}): EntitySe
     ask: vi.fn().mockResolvedValue({
       response: 'Tom Smith leads the QSR project and is a key stakeholder.',
       capture_count: 3,
-      entity: { id: 'entity-uuid-1', name: 'Tom Smith', type: 'person' },
+      entity: { id: '22222222-2222-2222-2222-222222222222', name: 'Tom Smith', type: 'person' },
     }),
     ...overrides,
   } as unknown as EntityService
@@ -194,14 +194,14 @@ describe('GET /api/v1/entities/:id', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.name).toBe('Tom Smith')
     expect(body.linked_captures).toHaveLength(1)
     expect(body.linked_captures[0].content).toContain('Tom Smith')
-    expect(entityService.getById).toHaveBeenCalledWith('entity-uuid-1')
+    expect(entityService.getById).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222')
   })
 
   it('returns 404 when entity not found', async () => {
@@ -211,7 +211,7 @@ describe('GET /api/v1/entities/:id', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/nonexistent-uuid')
+    const res = await app.request('/api/v1/entities/99999999-9999-9999-9999-999999999999')
 
     expect(res.status).toBe(404)
   })
@@ -226,7 +226,7 @@ describe('POST /api/v1/entities/:id/merge', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/source-id/merge', {
+    const res = await app.request('/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_id: 'target-id' }),
@@ -240,7 +240,7 @@ describe('POST /api/v1/entities/:id/merge', () => {
     expect(body.entity_type).toBe('person')
     // Source name should appear in target aliases after merge
     expect(body.aliases).toContain('Source Entity')
-    expect(entityService.merge).toHaveBeenCalledWith('source-id', 'target-id')
+    expect(entityService.merge).toHaveBeenCalledWith('77777777-7777-7777-7777-777777777777', 'target-id')
   })
 
   it('handles duplicate entity_links gracefully (ON CONFLICT DO NOTHING)', async () => {
@@ -256,7 +256,7 @@ describe('POST /api/v1/entities/:id/merge', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/source-id/merge', {
+    const res = await app.request('/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_id: 'target-id' }),
@@ -266,14 +266,14 @@ describe('POST /api/v1/entities/:id/merge', () => {
     const body = await res.json() as any
     expect(body.id).toBe('target-id')
     // merge was called — duplicate handling is internal to the service
-    expect(entityService.merge).toHaveBeenCalledWith('source-id', 'target-id')
+    expect(entityService.merge).toHaveBeenCalledWith('77777777-7777-7777-7777-777777777777', 'target-id')
   })
 
   it('returns 400 when target_id is missing', async () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/source-id/merge', {
+    const res = await app.request('/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -288,10 +288,10 @@ describe('POST /api/v1/entities/:id/merge', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/same-id/merge', {
+    const res = await app.request('/api/v1/entities/88888888-8888-8888-8888-888888888888/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_id: 'same-id' }),
+      body: JSON.stringify({ target_id: '88888888-8888-8888-8888-888888888888' }),
     })
 
     expect(res.status).toBe(400)
@@ -303,7 +303,7 @@ describe('POST /api/v1/entities/:id/merge', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/source-id/merge', {
+    const res = await app.request('/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: 'not-json',
@@ -315,11 +315,11 @@ describe('POST /api/v1/entities/:id/merge', () => {
   it('returns 404 when source entity not found', async () => {
     const { NotFoundError } = await import('@open-brain/shared')
     const entityService = makeMockEntityService({
-      merge: vi.fn().mockRejectedValue(new NotFoundError('Source entity not found: bad-id')),
+      merge: vi.fn().mockRejectedValue(new NotFoundError('Source entity not found: 66666666-6666-6666-6666-666666666666')),
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/bad-id/merge', {
+    const res = await app.request('/api/v1/entities/66666666-6666-6666-6666-666666666666/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_id: 'target-id' }),
@@ -335,7 +335,7 @@ describe('POST /api/v1/entities/:id/merge', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/source-id/merge', {
+    const res = await app.request('/api/v1/entities/77777777-7777-7777-7777-777777777777/merge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target_id: 'missing-target' }),
@@ -354,7 +354,7 @@ describe('POST /api/v1/entities/:id/split', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/split', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ alias: 'Tommy' }),
@@ -363,16 +363,16 @@ describe('POST /api/v1/entities/:id/split', () => {
     expect(res.status).toBe(201)
     const body = await res.json() as any
     expect(body.new_entity_id).toBe('new-entity-uuid')
-    expect(body.source_entity_id).toBe('entity-uuid-1')
+    expect(body.source_entity_id).toBe('22222222-2222-2222-2222-222222222222')
     expect(body.alias).toBe('Tommy')
-    expect(entityService.split).toHaveBeenCalledWith('entity-uuid-1', 'Tommy')
+    expect(entityService.split).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222', 'Tommy')
   })
 
   it('returns 400 when alias is missing', async () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/split', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -387,7 +387,7 @@ describe('POST /api/v1/entities/:id/split', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/split', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: 'bad-json',
@@ -399,11 +399,11 @@ describe('POST /api/v1/entities/:id/split', () => {
   it('returns 404 when entity not found', async () => {
     const { NotFoundError } = await import('@open-brain/shared')
     const entityService = makeMockEntityService({
-      split: vi.fn().mockRejectedValue(new NotFoundError('Entity not found: bad-id')),
+      split: vi.fn().mockRejectedValue(new NotFoundError('Entity not found: 66666666-6666-6666-6666-666666666666')),
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/bad-id/split', {
+    const res = await app.request('/api/v1/entities/66666666-6666-6666-6666-666666666666/split', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ alias: 'Tommy' }),
@@ -501,7 +501,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
@@ -509,7 +509,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     expect(body.buckets[0]).toEqual({ period: '2026-01-01', count: 3 })
     expect(body.window).toBe('30d')
     expect(body.bucket).toBe('week')
-    expect(entityService.getMentionsTimeline).toHaveBeenCalledWith('entity-uuid-1', '30d', 'week')
+    expect(entityService.getMentionsTimeline).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222', '30d', 'week')
   })
 
   it('passes window and bucket query params to service', async () => {
@@ -518,20 +518,20 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=90d&bucket=month')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?window=90d&bucket=month')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.window).toBe('90d')
     expect(body.bucket).toBe('month')
-    expect(entityService.getMentionsTimeline).toHaveBeenCalledWith('entity-uuid-1', '90d', 'month')
+    expect(entityService.getMentionsTimeline).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222', '90d', 'month')
   })
 
   it('returns 400 for invalid window value', async () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=60d')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?window=60d')
 
     expect(res.status).toBe(400)
     const body = await res.json() as any
@@ -542,7 +542,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?bucket=hour')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?bucket=hour')
 
     expect(res.status).toBe(400)
     const body = await res.json() as any
@@ -553,7 +553,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     const entityService = makeMockEntityService()
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=365d&bucket=day')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?window=365d&bucket=day')
 
     expect(res.status).toBe(400)
     const body = await res.json() as any
@@ -567,7 +567,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/nonexistent-uuid/mentions-timeline')
+    const res = await app.request('/api/v1/entities/99999999-9999-9999-9999-999999999999/mentions-timeline')
 
     expect(res.status).toBe(404)
     const body = await res.json() as any
@@ -580,7 +580,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    await app.request('/api/v1/entities/nonexistent-uuid/mentions-timeline')
+    await app.request('/api/v1/entities/99999999-9999-9999-9999-999999999999/mentions-timeline')
 
     expect(entityService.getMentionsTimeline).not.toHaveBeenCalled()
   })
@@ -591,7 +591,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=7d&bucket=day')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?window=7d&bucket=day')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
@@ -606,7 +606,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=7d&bucket=day')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?window=7d&bucket=day')
 
     expect(res.status).toBe(200)
   })
@@ -617,7 +617,7 @@ describe('GET /api/v1/entities/:id/mentions-timeline', () => {
     })
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/mentions-timeline?window=365d&bucket=week')
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/mentions-timeline?window=365d&bucket=week')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
@@ -637,7 +637,7 @@ describe('POST /api/v1/entities/:id/ask', () => {
     const llmGateway = makeMockLLMGateway()
     const app = createApp({ entityService, searchService, llmGateway })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
@@ -647,12 +647,12 @@ describe('POST /api/v1/entities/:id/ask', () => {
     const body = await res.json() as any
     expect(body.response).toBe('Tom Smith leads the QSR project and is a key stakeholder.')
     expect(body.capture_count).toBe(3)
-    expect(body.entity.id).toBe('entity-uuid-1')
+    expect(body.entity.id).toBe('22222222-2222-2222-2222-222222222222')
     expect(body.entity.name).toBe('Tom Smith')
     expect(body.entity.type).toBe('person')
-    expect(entityService.entityExists).toHaveBeenCalledWith('entity-uuid-1')
+    expect(entityService.entityExists).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222')
     expect(entityService.ask).toHaveBeenCalledWith(
-      'entity-uuid-1',
+      '22222222-2222-2222-2222-222222222222',
       'What does Tom Smith work on?',
       searchService,
       llmGateway,
@@ -667,7 +667,7 @@ describe('POST /api/v1/entities/:id/ask', () => {
     const llmGateway = makeMockLLMGateway()
     const app = createApp({ entityService, searchService, llmGateway })
 
-    const res = await app.request('/api/v1/entities/nonexistent-uuid/ask', {
+    const res = await app.request('/api/v1/entities/99999999-9999-9999-9999-999999999999/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does this entity do?' }),
@@ -685,7 +685,7 @@ describe('POST /api/v1/entities/:id/ask', () => {
     const llmGateway = makeMockLLMGateway()
     const app = createApp({ entityService, searchService, llmGateway })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -702,7 +702,7 @@ describe('POST /api/v1/entities/:id/ask', () => {
     const llmGateway = makeMockLLMGateway()
     const app = createApp({ entityService, searchService, llmGateway })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'x'.repeat(2001) }),
@@ -718,7 +718,7 @@ describe('POST /api/v1/entities/:id/ask', () => {
     // omit searchService — endpoint should return 503
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
@@ -735,7 +735,7 @@ describe('POST /api/v1/entities/:id/ask', () => {
     // omit llmGateway — endpoint should return 503
     const app = createApp({ entityService, searchService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
@@ -751,14 +751,14 @@ describe('POST /api/v1/entities/:id/ask', () => {
       ask: vi.fn().mockResolvedValue({
         response: "I couldn't find any captures in your brain that are relevant to this query. Try capturing more notes first.",
         capture_count: 0,
-        entity: { id: 'entity-uuid-1', name: 'Tom Smith', type: 'person' },
+        entity: { id: '22222222-2222-2222-2222-222222222222', name: 'Tom Smith', type: 'person' },
       }),
     })
     const searchService = makeMockSearchService()
     const llmGateway = makeMockLLMGateway()
     const app = createApp({ entityService, searchService, llmGateway })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/ask', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/ask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does Tom Smith work on?' }),
@@ -781,21 +781,21 @@ describe('POST /api/v1/entities/:id/brief', () => {
     const skillQueue = makeMockSkillQueue('job-abc-123')
     const app = createApp({ entityService, skillQueue })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/brief', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/brief', {
       method: 'POST',
     })
 
     expect(res.status).toBe(202)
     const body = await res.json() as any
     expect(body.job_id).toBe('job-abc-123')
-    expect(entityService.entityExists).toHaveBeenCalledWith('entity-uuid-1')
-    expect(entityService.getById).toHaveBeenCalledWith('entity-uuid-1')
+    expect(entityService.entityExists).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222')
+    expect(entityService.getById).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222')
     expect(skillQueue.add).toHaveBeenCalledWith(
       'entity-brief',
       expect.objectContaining({
         skillName: 'entity-brief',
         input: expect.objectContaining({
-          entityId: 'entity-uuid-1',
+          entityId: '22222222-2222-2222-2222-222222222222',
           entityName: 'Tom Smith',
           entityType: 'person',
         }),
@@ -811,7 +811,7 @@ describe('POST /api/v1/entities/:id/brief', () => {
     const skillQueue = makeMockSkillQueue()
     const app = createApp({ entityService, skillQueue })
 
-    const res = await app.request('/api/v1/entities/nonexistent-uuid/brief', {
+    const res = await app.request('/api/v1/entities/99999999-9999-9999-9999-999999999999/brief', {
       method: 'POST',
     })
 
@@ -826,7 +826,7 @@ describe('POST /api/v1/entities/:id/brief', () => {
     // omit skillQueue — endpoint should return 503
     const app = createApp({ entityService })
 
-    const res = await app.request('/api/v1/entities/entity-uuid-1/brief', {
+    const res = await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/brief', {
       method: 'POST',
     })
 
@@ -840,12 +840,12 @@ describe('POST /api/v1/entities/:id/brief', () => {
     const skillQueue = makeMockSkillQueue('job-xyz-999')
     const app = createApp({ entityService, skillQueue })
 
-    await app.request('/api/v1/entities/entity-uuid-1/brief', {
+    await app.request('/api/v1/entities/22222222-2222-2222-2222-222222222222/brief', {
       method: 'POST',
     })
 
     const addCall = (skillQueue.add as ReturnType<typeof vi.fn>).mock.calls[0]
     const jobOptions = addCall[2] as { jobId: string }
-    expect(jobOptions.jobId).toMatch(/^entity_brief_entity-uuid-1_\d+$/)
+    expect(jobOptions.jobId).toMatch(/^entity_brief_22222222-2222-2222-2222-222222222222_\d+$/)
   })
 })

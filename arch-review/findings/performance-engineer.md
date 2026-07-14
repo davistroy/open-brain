@@ -1,104 +1,150 @@
 # Performance Engineer Findings
 
 **Reviewer:** Performance Engineer
-**Date:** 2026-06-10
-**Target:** /home/davistroy/dev/personal/open-brain (v1.6.0, main)
-**Confidence:** Medium — code review only, no live environment access. No load-test tooling available on this host (k6/ab/wrk/hey/vegeta all absent); no access to production `pg_stat_statements`, Grafana dashboards, or `docker stats`.
+**Date:** 2026-07-12
+**Target:** /home/davistroy/dev/personal/open-brain
+**Confidence:** High — code review only, no live environment access; but v5 scope is narrow (only Dependabot PRs #232–#234 merged since v4) and every v4 finding was re-verified line-by-line in current code rather than carried forward on trust. Latency figures cited are from the project's own documented benchmarks (LAB_NOTEBOOK Entry 108/173), not independently measured.
 
 > Note: This review is based on code and configuration analysis. Load testing requires a
 > production-equivalent environment and is not part of a code-based architecture review.
 > Structural risks identified here should be validated with actual load tests.
+> No load-test tooling (k6/ab/wrk/hey/vegeta) is available in the review environment.
+> **v5 — supersedes the 2026-07-09 v4 findings.** Since v4, the only merged code is the
+> Dependabot dependency remediation (PRs #232–#234): vitest 2→3 + coverage-v8 (dev-only),
+> nodemailer 8→9 (workers), hono 4.12.5→4.12.25, transitive security overrides
+> (axios/undici/ws/lodash/form-data/etc.), plus test backfill and dead-code removal in
+> core-api (`services/sse.ts`, unused exports). **None of these changes is
+> performance-relevant to production paths**, and none touches any v4 finding location.
 
-> **Prior-review closure (2026-04-18 review, remediated via PRs #180–#189):** verified closed,
-> not re-reported — per-container `mem_limit` now set on all 17 services with `NODE_OPTIONS
-> --max-old-space-size=1200` inside 1500m limits; `BYPASS_CALLERS` hoisted to module scope;
-> ingest N+1 fixed; `hybrid_search()` LIMIT push-down landed (migration 0027); batch-UPSERT
-> invariant in `update-access-stats.ts` holds (single multi-VALUES statement); BullMQ
-> concurrency discipline (default 2, documented singletons at 1) matches the documented policy;
-> email-classify is rule-based per item with one aggregated LLM digest call (cost-tiering
-> aggregation rule honored).
+---
+
+## v4 Finding Adjudication
+
+Every v4 finding was re-verified against current HEAD (`cd14c1f`). Diff scope since v4 confirmed via `git diff --stat`: dependency manifests/lockfiles, two new test files, dead-code removal, LAB_NOTEBOOK, dependabot.yml only.
+
+| v4 ID | Verdict | Evidence (current code) |
+|-------|---------|------------------------|
+| PE-H1 (High) — unbounded agent-loop context in monthly-reflection / runAgent | **STILL OPEN** | `monthly-reflection.ts:164` still interpolates full `r.content` untruncated into tool results; `run-agent.ts` grep for budget/truncate/slice = zero hits — only `maxIterations` (default 10) bounds the loop. Issue #204 unaddressed. |
+| PE-M1 (Med) — unbounded search `offset` defeats LIMIT push-down | **STILL OPEN** | `schemas/search.ts:12` `offset: z.number().int().min(0).default(0)` — no `.max()`; `routes/search.ts:97` `fetchLimit = body.offset + body.limit` still flows into `hybrid_search(match_count)` → `LIMIT match_count * 4` CTE scans. |
+| PE-M2 (Med) — per-chunk single-text embedding calls | **STILL OPEN (wording corrected)** | Correction to v4 text: `EmbeddingService.embedBatch(texts[])` DOES exist (`embedding.ts:196`, added in Phase 6 PR #224, i.e., it already existed at v4 — v4 overstated "only supports single-input"). However it has **zero production callers**: `embed-capture.ts:128` and `document-pipeline.ts:304` still call `.embed()` per capture/per chunk. The finding stands with a smaller fix: wire the existing batch primitive into the chunk-embed path; no new service code needed. |
+| PE-M3 (Med) — BullMQ orphan repeatable jobs on cron changes (#217) | **STILL OPEN** | `getRepeatableJobs`/`removeRepeatable` grep across `scheduler.ts` + `main.ts` = zero hits; no startup reconciliation sweep exists. |
+| PE-L1 (Low) — per-connection SSE polling of expensive snapshot | **STILL OPEN** | `routes/system-health.ts:61` per-connection `setInterval` calling `service.snapshot()` unchanged. (Note: the deleted `services/sse.ts` was unrelated dead code — this route builds its own stream.) |
+| PE-L2 (Low) — `ILIKE '%q%'` seq scans in agent tools | **STILL OPEN** | `email-compose.ts:87,127–128`; `email-compose-assist.ts:218,258–259` — all four leading-wildcard sites unchanged. |
+| PE-L3 (Low) — pool headroom one consumer from exhaustion | **STILL OPEN** | `shared/src/db/client.ts:15` `max: 20` still hardcoded, not env-tunable; `max_connections = 50` unchanged. |
+| PE-L4 (Low) — no ingest-pipeline latency histogram | **STILL OPEN** | `docs/SLO.md` §4 still titled "proxy metric — no histogram today"; `openbrain_job_duration_seconds` exists only as the deferred design sketch (SLO.md:109–111), zero hits in workers src/config. |
+| PE-L5 (Low) — voice proxy buffers full multipart body | **STILL OPEN (accepted decision D126)** | `routes/voice-captures.ts:11` `await c.req.formData()` buffer-and-rebuild unchanged; 50 MB guard at line 23. Accept as-is per v4. |
+| PE-L6 (Low) — spend-throttle sleep occupies a worker slot | **STILL OPEN (intended semantics)** | `embed-capture.ts:39,79` — 30 s in-handler sleep at concurrency 2 unchanged. Real fix remains PE-M2 batching. |
+| PE-L7 (Low) — slack capture poll inert on stale `'received'` literal | **STILL OPEN** | `slack-bot/src/handlers/capture.ts:45` still checks `'received' \|\| 'processing'`; fresh captures are `'pending'` → loop exits on first poll. (Cross-domain: correctness/QA, SE-1 bug class.) |
+| PE-RI1 (RI) — HNSW ~50K ceiling needs scheduled re-benchmark (#73) | **STILL OPEN** | No corpus-size watermark/benchmark-reminder in `storage-audit.ts` (grep = zero hits); `scripts/benchmark-search.mjs` exists but nothing triggers it as corpus grows. |
+
+**Net-new findings this pass: none.** The Dependabot waves were audited for production-runtime perf impact: hono 4.12.5→4.12.25 is a patch-line bump on the HTTP framework (no perf-behavioral changes flagged in that range); nodemailer 8→9 affects the low-volume email-outbound path only; all other bumps are dev-only (vitest 3) or transitive security pins. The core-api dead-code removal (`services/sse.ts`, unused schema/service exports) is perf-neutral-to-positive (smaller bundle). No regression risk identified.
 
 ---
 
 ## SLO Baseline
 
+Unchanged from v4 — re-verified `docs/SLO.md` present and consistent with recording rules.
+
 | SLO | Stated Target | Instrumented? | Finding |
 |-----|--------------|--------------|---------|
-| HTTP request latency | **None stated** | Yes — `openbrain_http_request_duration_seconds` histogram (`packages/core-api/src/routes/metrics.ts`), Prometheus + Grafana deployed | Instrumentation exists but no p95/p99 targets or alert rules defined anywhere in `config/prometheus/` or docs. See M6. |
-| Search latency | None (calibration data exists: LAB_NOTEBOOK Entry 108, `scripts/benchmark-search.mjs`) | Partial — benchmark script with ef_search sweep 40–100, p50/p95 output | Good calibration discipline, but point-in-time and manual; no recurring regression check as the corpus grows. |
-| Memory per process | 1.5 GB RSS/process (CLAUDE.md) | Yes — enforced via `mem_limit` + `--max-old-space-size=1200` on all Node services | Closed since prior review. Compliant. |
-| Capacity | TDD §4199: ~4KB/capture, 250K captures ≈ 1GB Postgres | No live tracking against the model | `storage-audit` (Sun 3 AM) reports sizes; no threshold alerting tied to the capacity model. |
-| AI spend | $30 soft / $50 hard monthly | Yes — `budget-check` daily + `ai_audit_log` cost fields (P03) | Adequate for the stated budget. |
+| API p99 latency (all routes) | < 2.0 s / 5-min window | Yes — `openbrain_api_p99_latency_seconds` recording rule + `ApiP99LatencySLOBreach` alert | Sound. Histogram buckets (5 ms–10 s) resolve p99 without interpolation error. |
+| Search p99 (`/api/v1/search`) | < 3.0 s | Yes — recording rule + alert | Sound; ~3.75× headroom over measured p99 ~800 ms at ef_search=60 on 11K corpus. Doc flags re-benchmark trigger at 50K captures or ef_search > 80. |
+| MCP p99 (`/mcp.*`) | < 5.0 s | Yes — recording rule + alert | Sound; correctly bifurcates LLM-backed vs DB-only tools. |
+| Ingest pipeline latency | ≥1 capture/6h proxy + 95% success (manual) | **Partial** — no per-job duration histogram; `CaptureFlowStale` is an availability proxy only | Gap acknowledged in SLO.md §4 with deferred design (BullMQ job-duration histogram via Pushgateway). See PE-L4. |
+| Availability | 99% monthly | Partial — `ContainerDown` alert + manual Grafana review | Acceptable for single-node; formal tracking explicitly deferred. |
+
+Overall: SLO discipline remains unusually good for a single-operator system.
+
+---
 
 ## Structural Performance Risk Register
 
+All carried forward from v4 (re-verified, no code changed at these sites). Severities unchanged.
+
 | ID | Risk | Location | Severity | Load Scenario | Recommendation |
 |----|------|----------|----------|--------------|----------------|
-| H1 | **O(N²) pairwise cosine self-join** — `JOIN captures b ON a.id < b.id` with `(1 - (a.embedding <=> b.embedding)) > threshold` computes a 768-dim distance for every pair of complete embedded captures. The HNSW index cannot serve a join predicate; `LIMIT 5000` applies only **after** the `ORDER BY similarity DESC` forces full evaluation of all pairs. At the current ~11K embedded captures this is ~60M distance computations (minutes of single-backend CPU); at 50K captures ~1.25B (hours); at the TDD's 250K design point ~31B — structurally infeasible. Two independent copies of the pattern run weekly: memory-consolidation (Sun 4 AM) and capture-dedup-sweep (Sat 4 AM). | `packages/workers/src/skills/memory-consolidation-query.ts:142-158`; `packages/workers/src/skills/capture-dedup-sweep.ts:164-186` | **High** | Weekly batch; quadratic growth with corpus size. Daily email/financial/voice ingestion makes this the fastest-growing cost in the system. | Replace the self-join with a per-row HNSW k-NN probe: for each capture (or only captures newer than the last sweep), `SELECT id FROM captures ORDER BY embedding <=> $row LIMIT k` with `SET hnsw.ef_search`, filter by threshold — O(N·log N) and incremental-friendly. Extract one shared implementation for both skills. |
-| M4 | **No CPU limits anywhere; faster-whisper `large-v3` on CPU** (`WHISPER__DEVICE: cpu`, int8). A multi-minute voice memo saturates most of the 8C/8T host for roughly real-time duration, contending with Postgres, core-api, and any concurrently running batch job. No `cpus:`/`cpuset:` on any of the 17 services. | `docker-compose.yml:382-399` (faster-whisper); whole file (no `cpus` keys) | Medium | Voice memo upload during a search session, or coinciding with the Sat/Sun 3–5 AM batch window. | Add `cpus: 4` (or cpuset pinning) to faster-whisper; consider `distil-large-v3`/`medium` — int8 large-v3 on a 2019-era 8-core is the slowest sensible choice. Optionally cap file-ingestion and voice-pipecat too. |
-| M5 | **Spreading activation cost scales with entity degree, uncapped.** `spreading_activation()` hop-2 uses an OR-join over `entity_relationships` plus a `NOT IN` subquery and `GROUP BY el.capture_id`. A hub entity (a person/project linked to thousands of captures) makes hop-1/hop-2 candidate sets explode; no per-entity degree cap or candidate LIMIT before the final top-N. Runs on **every MCP search** (`include_related` defaults true for MCP) with top-5 seeds. | `packages/shared/drizzle/0012_spreading_activation.sql`; `packages/core-api/src/services/search.ts:386-405` | Medium (**requires investigation**) | Agent-driven MCP usage (OpenClaw) issuing frequent searches as entity-graph density grows. | Add a degree cap in `seed_entities` (exclude or truncate entities with > X links); record `EXPLAIN ANALYZE` at current scale as a baseline. Actual cost depends on entity degree distribution — not measurable from code. |
-| L4 | Voice upload **buffer-and-rebuild** (`c.req.formData()` then rebuilt `FormData`) holds the entire audio file in core-api memory before proxying to voice-capture. Documented decision (D126) and bounded by the strict rate tier, but no explicit file-size cap is enforced in the proxy route — a 100 MB recording would be fully buffered inside the 1.2 GB heap. | `packages/core-api/src/routes/voice-captures.ts` | Low | Concurrent large uploads (unlikely single-user; possible via client retry loops). | Reject with 413 on a `Content-Length`/file-size cap (e.g., 50 MB) before buffering. |
-| L5 | **Loki log driver runs in default blocking mode** — no `mode: non-blocking` in any `logging:` block. Timeouts are short (2s, 3 retries, 800ms backoff), but a slow-but-reachable Loki can backpressure container stdout writes on every service simultaneously (single shared Loki). | `docker-compose.yml` (all 17 `logging:` blocks) | Low | Loki degradation on homeserver during heavy log volume. | Add `mode: non-blocking` + `max-buffer-size: 4m` to the shared logging options; accept the already-documented log-loss trade-off. |
+| PE-H1 | **Unbounded agent-loop context growth in monthly-reflection (#204).** `query_captures_by_view` returns full untruncated capture content for up to 200 captures/call (`monthly-reflection.ts:164`) across 5 brain views; `runAgent()` bounds iterations (10) but has no per-tool-result size cap and no cumulative context/token budget — structural cause of the observed 6.5M-token blowup; also a material fraction of the $50/month hard cap per run. | `monthly-reflection.ts:118–167`, `run-agent.ts` | High | High-capture-volume month in any single brain view (bulk file/email ingest) | (1) Truncate `r.content` per capture (400–500 chars; email-compose precedent = 300); (2) cumulative context budget in `runAgent`; (3) per-tool-result size cap at the runAgent layer so all agent skills inherit it. |
+| PE-M1 | **POST /api/v1/search `offset` unbounded, defeats P13 LIMIT push-down.** `fetchLimit = offset + limit` → `match_count`; CTEs scan `LIMIT match_count * 4`. `offset=100000` → 400K-row FTS/HNSW candidate materialization — the exact O(N) cliff migration 0027 removed. Each page also re-embeds the query (one OpenAI call/page). 17 internal bypass callers hit this unthrottled. | `schemas/search.ts:12`, `routes/search.ts:91–147` | Medium | Deep pagination by web UI, agent loop, or buggy client | Cap offset (e.g., `.max(490)` so offset+limit ≤ 500) or keyset pagination. `total` reflects fetched pool, not true match count — misleading to paginating clients. |
+| PE-M2 | **Per-chunk single-text embedding calls in the document pipeline — batch primitive exists but is unwired.** `EmbeddingService.embedBatch()` (`embedding.ts:196`) has zero production callers; `document-pipeline.ts:304` and `embed-capture.ts:128` embed one text per HTTP round-trip at concurrency 2. A 3,230-file bulk ingest = thousands of sequential calls; the 30 s spend-throttle (PE-L6) multiplies wall time when above soft budget. | `embedding.ts:196`, `jobs/document-pipeline.ts:304`, `jobs/embed-capture.ts:128` | Medium | Bulk document/backfill ingest; forced re-embed on model change (#73 migration) | Wire the existing `embedBatch` into a batch-aware chunk-embed job (per-element adaptive truncation). Keep single-item path for the real-time track. Smaller fix than v4 assumed — the service method already exists. |
+| PE-M3 | **BullMQ orphan repeatable jobs on cron changes (#217).** BullMQ keys repeatables by (name, pattern); editing a `const *Cron` string leaves the old repeatable firing forever. No `getRepeatableJobs()` reconciliation at startup (grep: zero hits). Phase 9 moved two Sunday slots — potential live duplicates; duplicated LLM spend + contention with singleton-concurrency jobs. | `packages/workers/src/scheduler.ts` | Medium | Any cron-schedule change deployed without manual Redis cleanup | Startup reconciliation sweep: enumerate repeatables per queue, remove any (name, pattern) not in the current registration set (~30 lines). |
+| PE-L1 | **Per-connection SSE polling of an expensive snapshot.** `/system-health` SSE spawns a per-connection 10 s `setInterval` → `service.snapshot()` (~8 parallel queries: queue stats, Redis INFO, 180-day spend aggregation, skill last-runs, wiki/container/backup status). N tabs = N× load; nothing shared. | `routes/system-health.ts:61`, `services/system-health.ts` | Low | Several dashboard tabs open (realistic: 2–5) | Single module-level poller broadcasting to all subscribers, or memoize `snapshot()` with 5–10 s TTL. |
+| PE-L2 | **`ILIKE '%q%'` sequential scans in agent search tools** — unindexable leading-wildcard scans over `captures.content` and `entities`, inside interactive agent loops. Trivial at 11K rows; linear degradation with growth. | `email-compose.ts:87,127–128`, `email-compose-assist.ts:218,258–259` | Low | Corpus at 100K+ captures | Route through existing `fts_only_search()`/tsquery (GIN index from 0034 already exists); `pg_trgm` GIN on `lower(name)` for entities if ILIKE must stay. |
+| PE-L3 | **Connection-pool headroom one consumer from exhaustion.** `createDb()` hardcodes `max: 20`; core-api + workers = 40 + pg-notify client + health pool + ad-hoc migrate containers vs `max_connections = 50`. Not configurable. | `shared/src/db/client.ts:15`, `config/postgres/postgresql.conf` | Low | Third `createDb` consumer; migration container during load | Env-tunable pool `max`; document the 50-connection budget beside `max_connections`. |
+| PE-L4 | **No ingest-pipeline latency histogram** — classify→extract→embed→complete has no duration SLO measurement; only the 6h `CaptureFlowStale` proxy. Consciously deferred in SLO.md §4 with correct design sketch. | `docs/SLO.md` §4 | Low | Silent pipeline latency regression that never trips the staleness proxy | Implement deferred `openbrain_job_duration_seconds` via existing Pushgateway path; `pipeline_events.duration_ms` already has per-stage data — a periodic export closes most of the gap. |
+| PE-L5 | **Voice upload proxy buffers entire multipart body in memory** (settled decision D126) — up to 50 MB per in-flight upload inside core-api (1200 MB heap). Bounded by 413 guard both sides; safe at single-user concurrency. | `routes/voice-captures.ts:11,23` | Low | Batch tooling pushing many memos concurrently | Accept as-is; revisit with streaming proxy only if batch voice upload is added. |
+| PE-L6 | **Spend-throttle sleep occupies a worker slot** — 30 s in-handler sleep at concurrency 2 → ~4 embeds/min when between soft/hard budget limits. Intended semantics; combined with PE-M2, throttled bulk ingests take days. | `jobs/embed-capture.ts:39,79` | Low | Bulk ingest while above soft budget | No isolated change; PE-M2 batching is the real fix (one batched call embeds ~100 chunks per 30 s toll). |
+| PE-L7 | **Slack capture poll loop inert — stale `'received'` status literal (SE-1 class; cross-domain flag).** Poll continues only while status is `'received'`/`'processing'`, but fresh captures are `'pending'` → loop exits on first check and never polls. Performance-neutral (reduces load); flagged for correctness/QA domain. | `slack-bot/src/handlers/capture.ts:45` | Low | n/a (functional, not load) | Use `'pending' \|\| 'processing'` or import from a shared status module (sweepable-statuses pattern); add literal-pinning regression test. |
+| PE-RI1 | **pgvector HNSW capacity ceiling (~50K embeddings) — #73; needs scheduled re-benchmark, not a rewrite.** Corpus ~11.3K, growing via batch pipelines. At 50K: HNSW maintenance memory, weekly k-NN consolidation scan (~5× today), and ef_search recall/latency trade-off all shift. `benchmark-search.mjs` exists; nothing triggers it. | ADR-0003, `workers/src/lib/hnsw-similarity.ts`, #73 | Requires investigation | Corpus at 25K–50K captures | Corpus-size watermark in storage-audit firing a Pushover reminder to re-run `benchmark-search.mjs` at 25K and 40K, ahead of the #73 Qdrant decision point. |
+
+### Confirmed-fixed prior findings (re-verified in v4, unchanged since — not re-reported)
+
+- P13/0027 `LIMIT match_count * 4` push-down in `hybrid_search`/`fts_only_search`.
+- `SET LOCAL hnsw.ef_search` in `db.transaction()` (SearchService + hnsw-similarity); value from `pipeline.yaml`.
+- Migration 0034 stored `content_tsvector` + GIN; SQL functions read the column.
+- Search SELECTs exclude the 3 KB `embedding` vector.
+- ADR-0003 scalar-subquery HNSW k-NN probes replacing O(N²) self-joins; incremental watermark scoping.
+- P06 single-statement batch UPSERT in `upsertCoAccessAssociations`.
+- Redis 400 MB `noeviction`; bounded `removeOnComplete/removeOnFail` (+`age:14d` on skill-execution).
+- Entry 180 `pgUuidArray()` fix in daily-connections/memory-consolidation (proven live, 105 rows).
+- `spreading_activation` bounded to 2 hops + `LIMIT max_related`, soft-delete filter.
+
+---
 
 ## Database Performance Assessment
 
+Unchanged from v4 (no schema/config changes since):
+
 | Finding | Location | Risk | Recommendation |
 |---------|----------|------|----------------|
-| **M1 — `SET hnsw.ef_search` executes on an arbitrary pooled connection.** `SearchService` issues `SET` (session-scoped, deliberately not `SET LOCAL` because Drizzle auto-commits) via `this.db.execute()`, then calls `hybrid_search()` in a **separate** `db.execute()`. With `pg.Pool` (max 20), the two statements can check out different connections — the search may run on a session still at pgvector's default `ef_search=40`, not the calibrated 60. It converges over time (every search re-issues SET on some connection) but is nondeterministic per query, silently degrades recall after restarts, and a `hnsw_ef_search` config change propagates unevenly across the pool. | `packages/core-api/src/services/search.ts:221-241`; `packages/shared/src/db/client.ts` | Medium | Run SET + hybrid_search on one client: `db.transaction(async tx => { SET LOCAL ...; SELECT ... FROM hybrid_search(...) })`, or check out a dedicated `pool.connect()` client for both statements. |
-| **M2 — `ts_rank_cd` recomputes `to_tsvector('english', content)` per candidate row.** The GIN expression index serves only the `@@` predicate; ranking re-parses the full `content` of every matching row before the `LIMIT match_count*4` (ORDER BY rank requires full evaluation of all `@@` matches). For common query terms matching thousands of rows — including long document captures — FTS rank cost is O(matches × content length). Same pattern in `fts_only_search`. | `packages/shared/drizzle/0027_search_hnsw_ef_search.sql` (`fts_ranked` CTE); migration 0006 | Medium | Add a `GENERATED ALWAYS AS (to_tsvector('english', content)) STORED` column with a plain GIN index; rank against the stored column. Eliminates per-row re-parse at ~1KB/row storage cost (non-issue per the TDD capacity table). |
-| **L1 — Connection budget is thin.** `max_connections = 50`; core-api pool (max 20) + workers pool (max 20) = 40 ceiling, leaving ~7 effective slots (minus superuser reserve) for psql, `pg_dump` (P04a pre-wipe + backups), `benchmark-search.mjs`, and any future service calling `createDb()`. A third DB-consuming service at the default pool size would exhaust connections under burst. | `config/postgres/postgresql.conf:6`; `packages/shared/src/db/client.ts:15` | Low | Document the budget; lower per-service `max` to 10 (ample for single-user, worker concurrency ≤2) or raise `max_connections` to 80. `work_mem = 64MB` is sized for current low concurrency — revisit if pools grow. |
-| **L2 — Search hydration and capture list fetch the `embedding` column unnecessarily.** `SELECT * FROM captures WHERE id = ANY(...)` (search, twice — primary + related) and `.select()` in `CaptureService.list()` (limit ≤ 100) serialize the 768-dim vector (~6–9KB as text) per row that no consumer uses — up to ~1MB wasted per max-size list call. | `packages/core-api/src/services/search.ts:254, 350`; `packages/core-api/src/services/capture.ts:135` | Low | Enumerate columns excluding `embedding` in both hydration queries. |
-| **Verified good:** `hybrid_search()` LIMIT push-down with overquery factor 4 (0027) bounds both HNSW traversal and FTS scan; HNSW `m=16, ef_construction=64` appropriate for 768-dim at this corpus size; partial index on `deleted_at IS NULL`; hot FK tables (`entity_links`, `capture_associations`, `pipeline_events`) have covering indexes; `postgresql.conf` sensibly tuned for the 8 GB container (shared_buffers 2GB, effective_cache_size 6GB, random_page_cost 1.1, `log_min_duration_statement = 1000` gives slow-query visibility). | — | — | — |
+| Index coverage comprehensive: 137 indexes in generated snapshot; all spot-checked filtered/FK columns covered; HNSW (m=16, ef_construction=64) + GIN tsvector. | `scripts/init-schema.sql` | None | No action. |
+| `postgresql.conf` sensibly tuned for 8 GB container (shared_buffers 2 GB, effective_cache_size 6 GB, random_page_cost 1.1, slow-query log 1 s). `work_mem = 64MB` aggressive at max_connections 50 but actual concurrency single-digit. | `config/postgres/postgresql.conf` | Low | Leave as-is. |
+| /dev/shm 64 MB vs maintenance_work_mem 512 MB breaks parallel index builds during migrations; `shm_size: "512mb"` deferred to batched daemon-restart window; PGOPTIONS workaround documented. | compose `postgres` service | Low (migration-time, mitigated) | Confirm `shm_size` lands in next restart window. |
+| Event-table growth bounded by `data-retention-prune` (migration 0035). Note: A135 (v4 exec summary) flagged the skills_log prune as FK-blocked by `briefs.source_skill_log_id` — that is a correctness finding owned by the data domain; perf implication (skills_log unbounded growth feeding pipeline-health LIKE scans) is minor at current volume. | `workers/src/jobs/data-retention-prune.ts` | Low | Track via A135 remediation. |
+| Unbounded `offset` → `match_count` in POST search (PE-M1). | `routes/search.ts` | Medium | Cap offset. |
+| ILIKE leading-wildcard scans in agent tools (PE-L2). | email-compose(-assist) | Low | Route via existing FTS. |
+| Only core-api + workers open DB pools (2 × 20); slack-bot/voice-capture/sidecars go through HTTP — clean topology; see PE-L3 headroom math. | `shared/src/db/client.ts` | Low | Env-tunable pool size. |
 
 ## Caching Effectiveness Assessment
 
-- **Cache strategy identified:** Partial (deliberate — single-user, read-your-own-writes; no Redis response cache, which is reasonable)
-- **TTL discipline:** Consistent where caches exist — autonomy level 5-min module caches (slack-bot `server.ts`, workers `base-skill.ts`) with fail-safe default `observe`; `TemplateCache` is unbounded-lifetime but correct (templates are static files, eagerly preloaded for fail-fast)
-- **Invalidation correctness risk:** Low — autonomy changes propagate within ≤5 min (documented, acceptable); template cache has explicit `clear()` for dev
-- **Thundering herd exposure:** No — single instance per service, in-memory caches, no shared cache to stampede; rate limiter is an in-memory sliding window (correct for one core-api replica; would need a Redis-backed limiter only if core-api ever scales horizontally)
-- **Specific findings:** No caching of query embeddings — every hybrid/vector search pays an OpenAI embedding round-trip (~50–200 ms + T3 cost), and agent/MCP usage repeats queries. A small LRU keyed on query text (TTL ~1h) would cut both latency and spend. Noted as an optimization opportunity, not counted as a risk finding.
+- **Cache strategy identified:** Yes — deliberately minimal, appropriate for single-user / low-QPS.
+- **TTL discipline:** Consistent. Autonomy caches 5 min; trigger cache with `invalidateTriggerCache()` on mutation; TemplateCache; Redis TTS cache 24 h; ingest dedup 5 min; admin reset tokens 5 min GETDEL; TanStack Query `staleTime` 30–120 s with bounded refetch.
+- **Invalidation correctness risk:** Low — single-process module caches, no cross-instance coherence problem by design.
+- **Thundering herd exposure:** No — single user. Only fan-in point is per-tab SSE snapshot polling (PE-L1), a fan-out inefficiency, not a stampede.
+- **Specific findings:** No search-result caching, and none warranted (personalized queries, low rate, continuously mutating corpus). Redis is a job store + small KV; `noeviction` is the correct policy.
 
 ## Concurrency and Async Assessment
 
-- **BullMQ discipline holds:** 16 workers audited; default concurrency 2 everywhere, documented singletons at 1 (`budget-check`, `daily-sweep`, `skill-execution`, `wiki-ingest`, `prune-associations`, access-stats trigger). `removeOnComplete`/`removeOnFail` bounds set on all queues (counts 10–500) — Redis job-history growth is bounded.
-- **Scheduler cron slots:** verified staggered per the slot registry; no two repeatables share a minute. Sat 4 AM `capture-dedup-sweep` and Sun 4 AM `memory-consolidation` are on different days — relevant since both run the H1 quadratic query.
-- **Fire-and-forget patterns are correctly non-blocking:** access-stats enqueue (5 sites, `.catch` to debug log), Hebbian co-access try/catch, Slack auto-response `.then()/.catch()`. None block the response path.
-- **Event-loop blocking:** low risk. Embedding truncation (16K chars adaptive) bounds string ops; document parsing is delegated to the Python sidecar (serialized via `/tmp/process.lock` under a concurrency-2 worker — occasional wasted worker slot, benign). The ~10KB vector literal built per search is negligible.
-- **Shared mutable state:** rate limiter Maps and autonomy caches are module-scoped per process — safe in Node's single-threaded model; no worker_threads in use.
-- **M3 — Redis has no `--maxmemory` / `--maxmemory-policy`:** `redis-server --appendonly yes` inside a 512m `mem_limit` container. If memory grows (queue backlog during an OpenAI outage with 5-attempt/2h-backoff retries + AOF buffers), the failure mode is a cgroup OOM-kill of the whole Redis container (all queues, scheduler state, Composio meter, admin reset tokens) rather than a controlled error. For BullMQ the correct policy is `noeviction` with maxmemory under the cgroup limit so writes fail loudly first: `--maxmemory 400mb --maxmemory-policy noeviction`. (Medium)
+- BullMQ default concurrency 2; documented singletons at 1; cron-slot uniqueness CI-enforced (`scheduler-slots.test.ts`). Gap: repeatable orphaning on pattern change (PE-M3).
+- No blocking on hot paths; all `setTimeout`s legitimate (backoff, abort timers, throttle sleep in async handler). Auto-response and access-stats enqueues fire-and-forget with `.catch`.
+- Module-level mutable caches safe under Node single-threaded model; rate limiter prunes per-request + 5-min `unref()` cleanup.
+- pg LISTEN/NOTIFY on a dedicated client with backoff reconnect + channel re-registration — does not starve the pool.
+- Event-loop CPU work trivial (≤50 results in-memory; 768-dim dot products on cached triggers).
+- Graceful shutdown: pool `.end()` + worker `.close()`; voice-spool interval `unref()`'d and test-gated.
 
 ## Capacity Model (Qualitative)
 
-Binding constraints, in the order they bind:
+Binding-constraint ordering (single user, ~11.3K captures, growth via batch pipelines) — unchanged from v4:
 
-1. **CPU (8C/8T, no GPU) is the first wall.** Two dominant consumers: faster-whisper large-v3 CPU transcription (real-time-ish bursts, uncapped — M4) and the weekly O(N²) similarity scans (H1). Interactive load is trivial (single user, ≤ a few req/s), so CPU pain manifests first as latency interference during bursts, then as batch-window overrun as the quadratic jobs grow.
-2. **The quadratic similarity jobs are the first thing that breaks outright.** At current ingestion rates (daily email digests, financial captures, voice, files), every corpus doubling quadruples the Sat/Sun scan cost. Estimated infeasibility threshold ~50–100K captures (hours of single-backend CPU inside the 3–5 AM window, colliding with the next cron slot). This precedes any search-path problem.
-3. **Interactive search scales fine to the design point.** With LIMIT push-down + HNSW, hybrid search is ~O(log N); 250K captures ≈ 1GB table + low-hundreds-MB HNSW index, comfortably inside 2GB shared_buffers / the 8GB container. Spreading activation (M5) is the wildcard — its cost tracks entity-graph density, not capture count.
-4. **Memory is not a near-term constraint:** ~34 GB of container limits against 128 GB host RAM. Disk (32 TB) is a non-issue.
-5. **External APIs (OpenAI embeddings) govern ingestion throughput**, already mitigated by queue-and-retry; the budget circuit breaker bounds the blast radius.
+1. **pgvector/HNSW corpus size (~50K embeddings)** — first structural ceiling; search p99 (~800 ms measured at 11K/ef_search 60 vs 3 s SLO) and weekly k-NN consolidation both degrade with N; #73 gates the Qdrant decision. Instrument this (PE-RI1), not CPU/RAM.
+2. **OpenAI API spend** throttles ingest throughput first by design ($30 soft → ~4 embeds/min; $50 hard → pause). Bulk ingest under throttle is the worst realistic latency scenario (PE-M2 × PE-L6).
+3. **core-api Node process** (2 CPU, 1200 MB heap) — saturates only under pathological deep-pagination or agent-loop bursts (PE-M1, PE-H1); ceiling orders of magnitude above actual load.
+4. **Postgres (8 GB / 4 CPU)** — comfortable to 100K+ captures; HNSW build memory during reindex (and /dev/shm until fixed) is the only pressure point.
+5. **faster-whisper (8 GB / 4 CPU, no GPU)** — serial transcription; fine at personal cadence (#54/#57 track).
+6. **Redis 400 MB noeviction** — extended OpenAI outage during bulk ingest could hit the ceiling; enqueues then fail loudly and daily-sweep recovers — designed failure mode, acceptable.
 
 ## Scaling Configuration Review
 
-- **Memory limits:** all 17 services capped; Node heaps (`--max-old-space-size=1200`) sit correctly under 1500m container limits with ~300m headroom for non-heap RSS. Compliant with the 1.5 GB rule.
-- **CPU limits:** none (M4) — the one real gap in resource governance.
-- **Replicas/autoscaling:** N/A by design (single host, single user). In-memory rate limiter and module caches correctly assume one instance; flagged as a horizontal-scaling precondition only (P33 is explicitly scale-gated).
-- **Rate-limit tiers** (default 100, strict 20, admin 5, mobile 200 per token hash/min) are sensible for the threat model; internal-IP defense-in-depth on bypass claims is in place.
-- **Postgres 8 GB limit vs config:** internally consistent (2GB shared_buffers, 6GB effective_cache_size).
+No autoscaling/replicas — correct for single-host Unraid; horizontal scaling explicitly out of scope. What exists is sensible: every service has `mem_limit`; four Node services pair `mem_limit: 1500m` with `--max-old-space-size=1200` (correct heap-to-cgroup margin); CPU caps oversubscribe 8 cores acceptably (anti-correlated load); Redis fail-loud back-pressure; rate-limit tiers + 17 bypass callers + mobile Bearer tier form admission control — internal callers unthrottled by design, which is why PE-M1's bound matters (bypass ≠ bounded work).
 
 ## Load Testing Requirements
 
-Cannot be performed in this review (no tooling on host, no live access). Recommended scenarios, in priority order:
+Cannot be performed in this review (no tooling, no environment access). Priority order:
 
-1. **Quadratic-job rehearsal at synthetic scale:** clone the DB, synthesize 50K/100K embedded captures, time `querySimilarPairs` / `queryDuplicatePairs` with `EXPLAIN (ANALYZE, BUFFERS)` — validates or refutes H1's growth estimate before it bites.
-2. **Search latency under whisper interference:** run `scripts/benchmark-search.mjs` while a 3-minute audio file transcribes; measure p95 delta (validates M4).
-3. **ef_search application check:** restart core-api, run 20 searches, confirm via `pg_stat_activity` sampling or recall comparison that the configured ef_search actually applies (validates M1).
-4. **Redis backlog soak:** block egress to api.openai.com for 2h, ingest 500 captures, watch Redis RSS vs the 512m limit through the 5-attempt backoff cycle (validates M3).
-5. **MCP burst:** 200 `search_brain` calls (`include_related=true`) over 60s — exercises spreading activation + access-stats enqueue + strict-tier behavior (validates M5).
-6. **Recurring search-latency regression check:** wire `benchmark-search.mjs` into the monthly maintenance cron, appending results to LAB_NOTEBOOK, so HNSW recall/latency drift is caught as the corpus grows (addresses M6's measurement half).
-
-## Cross-Domain Note (for functional reviewers)
-
-**L3 —** `POST /api/v1/search` pagination is structurally broken: `searchService.search()` is called with `limit: body.limit`, then the route slices `results.slice(body.offset, body.offset + body.limit)` — any `offset >= limit` always returns an empty page (`packages/core-api/src/routes/search.ts:95-128`). Counted as Low here because the performance consequence is that clients compensate by inflating `limit` (max 50); it is primarily a correctness bug.
+1. **Search scaling benchmark** — `scripts/benchmark-search.mjs` against synthetic 25K/50K corpora, ef_search sweep 40–100, p50/p99 → feeds #73 (PE-RI1).
+2. **Bulk-ingest burst** — 500 multi-chunk documents at once: Redis headroom, embed-queue drain time with/without throttle, quantify PE-M2 batching win.
+3. **Deep-pagination probe** — POST /search offset ∈ {0, 100, 1000, 10000} before/after PE-M1 cap; EXPLAIN ANALYZE on `hybrid_search`.
+4. **Monthly-reflection dry run** on a high-volume synthetic month with per-iteration context-size logging — validates PE-H1 fix (context should plateau).
+5. **SSE fan-out** — 10 concurrent `/system-health` SSE connections × 10 min; measure query rate before/after shared poller (PE-L1).
 
 ## Findings Summary
 
@@ -106,11 +152,9 @@ Cannot be performed in this review (no tooling on host, no live access). Recomme
 |----------|-------|
 | Critical | 0 |
 | High | 1 |
-| Medium | 6 |
-| Low | 5 |
-| Requires investigation | 1 (M5 — counted within Medium) |
+| Medium | 3 |
+| Low | 7 |
+| Requires investigation | 1 |
 | **Total** | **12** |
 
-**High:** H1 (O(N²) similarity self-joins ×2 weekly).
-**Medium:** M1 (ef_search pool-connection mismatch), M2 (ts_rank tsvector recompute), M3 (Redis no maxmemory policy), M4 (no CPU limits / whisper large-v3 CPU), M5 (spreading activation degree explosion — requires investigation), M6 (no SLO targets/alerts despite full histogram instrumentation).
-**Low:** L1 (connection budget headroom), L2 (embedding column over-fetch), L3 (search offset pagination, perf-adjacent), L4 (voice upload buffering without size cap), L5 (Loki blocking log-driver mode).
+All 12 findings are carried forward from v4 as STILL OPEN (PE-M2 with a wording correction — the batch primitive exists but is unwired). Zero net-new performance findings from the Dependabot remediation waves.

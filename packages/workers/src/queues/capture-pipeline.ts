@@ -43,7 +43,9 @@ export function createCapturePipelineQueue(connection: ConnectionOptions) {
         type: 'custom',
       },
       removeOnComplete: { count: 500 },
-      removeOnFail: { count: 100 },
+      // age bound (14d, DA-9) so stale failures auto-prune — `count` alone
+      // never prunes below 100, letting old failures accumulate indefinitely.
+      removeOnFail: { age: 14 * 24 * 60 * 60, count: 100 },
     },
   })
 }

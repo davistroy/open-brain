@@ -11,17 +11,27 @@ import {
 /** Simple email format check — permissive but catches obvious non-emails */
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-/** Valid settings keys — prevents unbounded key creation */
-const VALID_SETTINGS_KEYS = new Set([
+/**
+ * OAuth token / credential keys (DA-2). These MUST remain PUT-able — the
+ * Gmail/MS OAuth flows and manual credential seeding write them via this
+ * route — but they are deliberately EXCLUDED from GET. Workers hydrate
+ * these tokens via DIRECT Drizzle access (`gmail-client.ts` /
+ * `hotmail-client.ts`), never through this HTTP route, so excluding them
+ * from READABLE_KEYS does not affect worker token hydration. Before this
+ * split, `GET /api/v1/settings/gmail_credentials` returned plaintext OAuth
+ * tokens to any caller that could reach core-api.
+ */
+const TOKEN_KEYS = new Set(['ms_token_cache_node', 'gmail_token_cache', 'gmail_credentials'])
+
+/** Settings keys writable via PUT — prevents unbounded key creation. */
+const WRITABLE_KEYS = new Set([
   'email_allowlist',
   'autonomy_level',
   'auto_response_threshold',
   'auto_response_staleness_days',
   'monitored_channels',
   'email_classification',
-  'ms_token_cache_node',
-  'gmail_token_cache',
-  'gmail_credentials',
+  ...TOKEN_KEYS,
   // M3 onboarding + settings page (3.4 / 3.5)
   'user_profile',
   'capture_habit',
@@ -36,6 +46,9 @@ const VALID_SETTINGS_KEYS = new Set([
   'entity_extract_monetary',
   'entity_confidence_threshold',
 ])
+
+/** Settings keys readable via GET (DA-2) — WRITABLE_KEYS minus the OAuth token keys. */
+const READABLE_KEYS = new Set([...WRITABLE_KEYS].filter((key) => !TOKEN_KEYS.has(key)))
 
 /** Type-specific value validators for settings that need them */
 const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
@@ -66,13 +79,14 @@ const SETTINGS_VALIDATORS: Record<string, (value: unknown) => string | null> = {
 /**
  * Register settings API routes.
  *
- * GET  /api/v1/settings/:key — retrieve a setting by key
- * PUT  /api/v1/settings/:key — upsert a setting (key must be in whitelist)
+ * GET  /api/v1/settings/:key — retrieve a setting by key (key must be in READABLE_KEYS;
+ *                              DA-2: OAuth token keys are PUT-only, never readable via HTTP)
+ * PUT  /api/v1/settings/:key — upsert a setting (key must be in WRITABLE_KEYS)
  */
 export function registerSettingsRoutes(app: Hono, db: Database): void {
   app.get('/api/v1/settings/:key', async (c) => {
     const key = c.req.param('key')
-    if (!VALID_SETTINGS_KEYS.has(key)) {
+    if (!READABLE_KEYS.has(key)) {
       throw new ValidationError(`Unknown settings key: ${key}`)
     }
     const rows = await db.select().from(app_settings).where(eq(app_settings.key, key))
@@ -84,7 +98,7 @@ export function registerSettingsRoutes(app: Hono, db: Database): void {
 
   app.put('/api/v1/settings/:key', async (c) => {
     const key = c.req.param('key')
-    if (!VALID_SETTINGS_KEYS.has(key)) {
+    if (!WRITABLE_KEYS.has(key)) {
       throw new ValidationError(`Unknown settings key: ${key}`)
     }
     let body: { value: unknown }

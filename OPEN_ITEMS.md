@@ -4,58 +4,51 @@
 
 GitHub issues are the single source of truth for all pending work. This file is a quick-reference summary only — close issues there, not here.
 
-Last reconciled: 2026-06-30.
+Last reconciled: 2026-07-14.
 
 ---
 
-## Architecture Review v3 remediation (plan A132 — not in GitHub issues)
+## Architecture Review v3 remediation (plan A132 — FULLY DEPLOYED)
 
-Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), not GitHub issues. **Waves 1–2 COMPLETE** (Phases 1–7 merged to `main`); **Waves 3–4 + a batched production-deploy window remain.**
-
-| Remaining | Where |
-|-----------|-------|
-| Phase 8 (ingest edges + voice Bearer auth) | IMPLEMENTATION_PLAN.md Wave 3 |
-| Phase 9 (convention→CI + governance/doc sweep, incl. PRD/TDD content) | Wave 3 |
-| Phase 10 (residual lows + RI closeouts) | Wave 4 |
-| **Deploy & Ops Backlog** (deploy Phases 6+7 + migration 0034; observability loopback via `systemctl restart docker`; upstream compose deviations) | IMPLEMENTATION_PLAN.md "Deployment & Ops Backlog" |
-| Deferred: workers coverage Part B (74%<78), QA-M3 INGEST_E2E, INT-M2-voice | same |
+**Status: COMPLETE 2026-06-30 (Entry 179).** All 10 phases / 4 waves merged and deployed. Tracked in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for reference.
 
 ---
 
-## Open issues (10)
+## Architecture Review v5 remediation (plan A134–A137 — MERGED + largely DEPLOYED)
+
+**Status: MERGED and deploying.** PR #244 (31/35 items, commits `d1729ee..c31d753`) merged to `main` as `cd287d8`; the `config/wiki/` cleanup (Entry 187) landed as `d0cde86`. All 8 phases (CS-A–CS-H) complete — see `LAB_NOTEBOOK.md` Entries 186–192.
+
+The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`](OPERATOR_ACTIONS.md)** (the dated register). Deployed 2026-07-14: **OA-1** (migration 0036 → retention-prune unblocked + workers on the new image; closed #204/#217 on deploy) and **OA-2** (repo → private). Still open there: OA-4 residuals, OA-7 (mobile ingress / U3), OA-8 (promote required checks), OA-9 (live-host session), OA-10/15 (batched restart window), OA-16 (rehearsal Pushover), OA-17 (homeserver git-remote auth — regression from the OA-2 private flip).
+
+---
+
+## Open issues (8)
 
 | # | Title | Gate / urgency |
 |---|-------|---------------|
-| [#54](https://github.com/davistroy/open-brain/issues/54)  | P24: Pipecat voice soak test | Manual — needs 10+ real conversations |
-| [#57](https://github.com/davistroy/open-brain/issues/57)  | P25: Voice architecture decision | Blocked by #54 |
-| [#71](https://github.com/davistroy/open-brain/issues/71)  | P23: Cognitive memory tuning | Data-gated — earliest ~2026-05-17 |
-| [#72](https://github.com/davistroy/open-brain/issues/72)  | P34: NVIDIA RTX PRO 2000 deployment | Hardware purchase decision |
-| [#73](https://github.com/davistroy/open-brain/issues/73)  | P33: Qdrant vector-search evaluation | Scale-gated — fires at ≥50K embeddings |
+| [#265](https://github.com/davistroy/open-brain/issues/265) | utility-pipeline: Gas South login fails — endpoints 405/404 (portal API changed) | **New (2026-07-14).** Deferred — needs a HAR of the live Gas South login + `_gas_south_login` rewrite. Bitwarden auth + secret fetch already fixed (Entry 192). |
+| [#200](https://github.com/davistroy/open-brain/issues/200) | Investigate large number of failures reported in the Dashboard | **Reframed (Entry 188): not a live incident** — the 17,659 count is cumulative April bulk-ingest retry churn (only 2 terminal failures). Ages out now that the retention prune is fixed (OA-1 deployed). Residual = UX (headline terminal count) + clear ~28 stale `ingest-root` queue jobs. |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile app deferred scope (PRs #172/#174) | When mobile becomes a priority |
-| [#200](https://github.com/davistroy/open-brain/issues/200) | Investigate large number of failures reported in the Dashboard | Awaiting user dashboard verification post-fixes |
-| [#204](https://github.com/davistroy/open-brain/issues/204) | monthly-reflection skill: 6.5M-token context blowup | Low — fires monthly, fails fast |
-| [#207](https://github.com/davistroy/open-brain/issues/207) | A83: 17 client-render `new Date()` hydration risks (cosmetic) | Cosmetic — TZ alignment neutralized blast radius |
-| [#217](https://github.com/davistroy/open-brain/issues/217) | BullMQ scheduler: orphan repeat-jobs accumulate on cron schedule changes | Low — manual cleanup performed 2026-05-09; structural fix proposed |
+| [#73](https://github.com/davistroy/open-brain/issues/73)  | P33: Qdrant vector-search evaluation | Scale-gated — fires at ≥50K embeddings |
+| [#72](https://github.com/davistroy/open-brain/issues/72)  | P34: NVIDIA RTX PRO 2000 deployment | Hardware purchase decision |
+| [#71](https://github.com/davistroy/open-brain/issues/71)  | P23: Cognitive memory tuning | Data-gated |
+| [#57](https://github.com/davistroy/open-brain/issues/57)  | P25: Voice architecture decision | Blocked by #54 |
+| [#54](https://github.com/davistroy/open-brain/issues/54)  | P24: Pipecat voice soak test | Manual — needs 10+ real conversations |
 
 ---
 
-## Recently closed (2026-05-09 cohesive remediation, plan complete)
+## Recently closed
 
-[IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md](docs/archived/IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md) — 11-issue remediation, 7 phases (A–G). All shipped.
+**2026-07 session (arch-review v5 deploy + Bucket-A):**
 
-| # | Phase | Closed via |
-|---|-------|-----------|
-| #197 | A/B — greeting fix | PR #201 + #206 |
-| #198 | A/B — dashboard hydration / CORS | PR #206 + CF Access bypass app (2026-05-09) |
-| #199 | A — Slack DM toggle | Manual admin toggle (2026-05-09) |
-| #205 | A.5 follow-up — stale BullMQ orphans | Direct Redis cleanup (2026-05-09) |
-| #191 | E.1 — IMPLEMENTATION_PLAN.md verification |  Audit comment |
-| #192 | F — Vitest 2.x bump | PR #210 |
-| #193 | E.3 — SSE onAbort coverage | Closed (won't-fix) |
-| #194 | E.2 — TS2502 in entity-resolution.test.ts | PR #209 |
-| #195 | G.3 — RTL migration MPill/TabBar | PR #216 |
-| #177 | G.1 — TanStack Query hooks (22 domains) | PRs #211–#214 |
-| #190 | G.2 — ESLint 9 + flat-config migration | PR #215 |
+| # | Closed | Via |
+|---|--------|-----|
+| #204 | 2026-07-13 | monthly-reflection 6.5M-token blowup — `runAgent` context budget (PR #244), deployed via OA-1 |
+| #217 | 2026-07-13 | BullMQ orphan repeat-jobs — startup reconciliation (PR #244), deployed via OA-1 |
+| #226 | 2026-07-14 | spreading-activation `record→uuid[]` — `pgUuidArray()` (PR #230), closed with evidence |
+| #207 | 2026-07-14 | 17 client-render `new Date()` hydration risks — `useClientNow` hook (PR #262) |
+
+**2026-05-09 cohesive remediation (plan complete):** [IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md](docs/archived/IMPLEMENTATION_PLAN-2026-05-09-REMEDIATION.md) — 11-issue remediation, 7 phases (A–G): #197/#198/#199/#205 (greeting/hydration/Slack/orphans), #191–#195 (CI/test fixes), #177 (TanStack Query), #190 (ESLint 9). All shipped.
 
 ---
 

@@ -139,3 +139,28 @@ jobs:
             API_URL=http://core-api:3000
           cache-from: type=gha,scope=web-next
           cache-to: type=gha,mode=max,scope=web-next
+
+  # PE-M9: without this, a broken build (e.g. a bad GitHub-Actions major merge)
+  # fails silently on main — `:latest` goes stale and the next `docker compose pull`
+  # redeploys old code with no signal. Alert so the operator knows NOT to deploy.
+  notify-failure:
+    name: Alert on image build/publish failure
+    needs: build-and-push
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: ${{ vars.SLACK_CHANNEL || 'C0AJ2P8R31C' }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "SLACK_BOT_TOKEN not set — skipping failure alert"
+            exit 0
+          fi
+          TXT=":rotating_light: *Open Brain — image build/publish FAILED on main.* \`:latest\` may be stale; do NOT \`docker compose pull\`/deploy until this is fixed and a clean build runs. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+          curl -sf -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg ch "$SLACK_CHANNEL" --arg txt "$TXT" '{channel: $ch, text: $txt}')" \
+            > /dev/null && echo "failure alert posted" || echo "failure alert post failed"

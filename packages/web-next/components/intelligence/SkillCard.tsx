@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Play, Loader2, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button, Pill } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import type { IntelligenceEntry } from '@/lib/api-client';
 import { intelligenceApi } from '@/lib/api-client';
 
@@ -15,9 +16,11 @@ import { intelligenceApi } from '@/lib/api-client';
  * Format an ISO timestamp as a human-readable relative string.
  * Returns "Just now", "Xm ago", "Xh ago", or "MMM D".
  */
-function formatRelative(isoString: string | Date): string {
+function formatRelative(isoString: string | Date, now: number | null): string {
   const date = typeof isoString === 'string' ? new Date(isoString) : isoString;
-  const diffMs = Date.now() - date.getTime();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diffMs = now - date.getTime();
   const diffMin = Math.floor(diffMs / 60_000);
 
   if (diffMin < 2) return 'Just now';
@@ -66,6 +69,7 @@ interface SkillCardProps {
 export function SkillCard({ skill, lastRun, description }: SkillCardProps) {
   const [triggering, setTriggering] = useState(false);
   const [justQueued, setJustQueued] = useState(false);
+  const now = useClientNow();
 
   async function handleTrigger() {
     setTriggering(true);
@@ -106,7 +110,7 @@ export function SkillCard({ skill, lastRun, description }: SkillCardProps) {
     return (
       <Pill tone="success" size="sm">
         <CheckCircle2 size={10} />
-        {formatRelative(lastRun.created_at)}
+        {formatRelative(lastRun.created_at, now)}
       </Pill>
     );
   }

@@ -360,6 +360,46 @@ monthly_budget:
       expect(routing!['entity_extraction']).toBe('t1_fast')
     })
 
+    // SA-5: reload() must run the SAME throwing semantic validator load() uses,
+    // but non-fatally — a bad hot-reload rejects and keeps the previous config.
+    it('reload rejects a semantically-invalid ai-routing.yaml and keeps the previous config (SA-5)', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+      // sanity: the valid config's t1_fast falls back to t2_quality
+      expect(service.getModelTier('t1_fast')?.fallback).toBe('t2_quality')
+
+      // Schema-VALID but semantically INVALID: t1_fast now falls back to a tier
+      // that does not exist (validateAiRoutingConfig Rule 3). Pre-fix, reload()
+      // only warned and silently accepted this.
+      const brokenAi = validAiWithTiers.replace('fallback: t2_quality', 'fallback: does_not_exist')
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), brokenAi)
+      const results = service.reload()
+
+      const aiResult = results.find(r => r.file === 'ai-routing.yaml')
+      expect(aiResult?.success).toBe(false)
+      expect(aiResult?.error).toMatch(/does_not_exist|fallback/i)
+
+      // Previous valid config retained (NOT the broken one) — and no crash.
+      expect(service.getModelTier('t1_fast')?.fallback).toBe('t2_quality')
+      expect(service.getModelTier('does_not_exist')).toBeUndefined()
+    })
+
+    it('reload accepts a valid ai-routing.yaml change (SA-5 happy path)', () => {
+      writeThreeTierConfigs(tmpDir)
+      const service = new ConfigService(tmpDir)
+      service.load()
+
+      // valid change: bump the budget; leaves tier/fallback graph intact
+      const updated = validAiWithTiers.replace('hard_limit_usd: 35', 'hard_limit_usd: 40')
+      writeFileSync(join(tmpDir, 'ai-routing.yaml'), updated)
+      const results = service.reload()
+
+      const aiResult = results.find(r => r.file === 'ai-routing.yaml')
+      expect(aiResult?.success).toBe(true)
+      expect(service.get('ai').monthly_budget.hard_limit_usd).toBe(40)
+    })
+
     it('getModelTier returns undefined when model_tiers not configured', () => {
       writeValidConfigs(tmpDir)
       const service = new ConfigService(tmpDir)

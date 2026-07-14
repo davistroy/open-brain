@@ -8,9 +8,10 @@
 # must be re-connected each time.
 #
 # NOTE: Loki, Prometheus, Grafana, and Pushgateway are NOT handled here.
-# They are managed via the observability compose profile (P12):
-#   docker compose --profile observability up -d
-# See docs/runbooks/observability.md for the full bring-up procedure.
+# They are owned by a separate, standalone "observability" compose project on
+# the homeserver (ADR-0004) — open-brain only joins its external Docker
+# network (core-api + workers) and does not bring them up/down itself.
+# See docs/runbooks/observability.md for the client-join topology.
 
 set -euo pipefail
 

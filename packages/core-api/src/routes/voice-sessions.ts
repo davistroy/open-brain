@@ -1,6 +1,7 @@
 import type { Hono } from 'hono'
 import { ValidationError, logger } from '@open-brain/shared'
 import type { VoiceSessionService, TranscriptTurn } from '../services/voice-session.js'
+import { parseUUIDParam } from '../lib/validation.js'
 
 /**
  * Register voice session API routes.
@@ -50,7 +51,7 @@ export function registerVoiceSessionRoutes(
   // GET /api/v1/voice/sessions/:id — get single session with transcript
   // -----------------------------------------------------------------------
   app.get('/api/v1/voice/sessions/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const session = await voiceSessionService.get(id)
     return c.json(session)
   })
@@ -102,7 +103,7 @@ export function registerVoiceSessionRoutes(
   // Called by Pipecat service during or after a conversation.
   // -----------------------------------------------------------------------
   app.patch('/api/v1/voice/sessions/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {
@@ -176,7 +177,7 @@ export function registerVoiceSessionRoutes(
   // Convenience endpoint to complete a session in one call.
   // -----------------------------------------------------------------------
   app.post('/api/v1/voice/sessions/:id/complete', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     let body: Record<string, unknown>
     try {

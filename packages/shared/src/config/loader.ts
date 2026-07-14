@@ -87,6 +87,9 @@ export class ConfigService {
    */
   reload(): ReloadResult[] {
     const results: ReloadResult[] = []
+    // SA-5: snapshot the current ai config so a semantically-invalid hot-reload
+    // can be rolled back to the last-known-good instead of taking effect.
+    const prevAi = this.configs?.ai
     const files = [
       { key: 'pipeline' as const, file: 'pipeline.yaml', schema: PipelineConfigSchema },
       { key: 'ai' as const, file: 'ai-routing.yaml', schema: AIConfigSchema },
@@ -110,8 +113,30 @@ export class ConfigService {
       }
     }
 
-    // Re-validate tier references after reload
+    // SA-5: run the SAME throwing validator load() uses (validateAiRoutingConfig),
+    // but NON-fatally — a bad hot-reload must reject and keep the previous config,
+    // never crash the running process. Schema validation happened in the loop
+    // above; this catches semantic errors the weak validateTaskRouting only warned
+    // about (missing tier, non-existent fallback, cost-blind paid tier).
     if (this.configs) {
+      try {
+        validateAiRoutingConfig(this.configs.ai)
+      } catch (err) {
+        if (prevAi) (this.configs as unknown as Record<string, unknown>).ai = prevAi
+        const msg = err instanceof Error ? err.message : String(err)
+        const aiResult = results.find((r) => r.file === 'ai-routing.yaml')
+        if (aiResult) {
+          aiResult.success = false
+          aiResult.error = msg
+        } else {
+          results.push({ file: 'ai-routing.yaml', success: false, error: msg })
+        }
+        logger.error(
+          { err },
+          'ai-routing.yaml reload rejected — kept previous config (semantic validation failed)',
+        )
+      }
+      // Keep the warn-level tier check for finer detail on the (now valid) config.
       this.validateTaskRouting(this.configs.ai)
     }
 

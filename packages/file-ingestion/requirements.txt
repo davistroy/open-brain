@@ -2,23 +2,23 @@
 # Memory ceiling: 1.5GB RSS (streaming extraction, no full-file buffering)
 
 # Web framework
-fastapi==0.115.12
-uvicorn[standard]==0.34.2
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
 
 # Document extraction
-python-docx==1.1.2
-pdfplumber==0.11.6
+python-docx==1.2.0
+pdfplumber==0.11.10
 python-pptx==1.0.2
 openpyxl==3.1.5
 
 # HTML parsing
-beautifulsoup4==4.13.4
+beautifulsoup4==4.15.0
 
 # Hashing
-xxhash==3.5.0
+xxhash==3.8.1
 
 # HTTP client (for health check dependencies)
-requests==2.32.3
+requests==2.34.2
 
 # Testing
 pytest==8.3.5

@@ -73,3 +73,56 @@ updates:
       prefix: "ci"
     labels:
       - dependencies
+
+  # PE-L6: the Python sidecars + ops scripts were previously invisible to
+  # Dependabot (npm-only config). pip covers every pyproject.toml / requirements*.txt.
+  - package-ecosystem: pip
+    directories:
+      - /
+      - /packages/voice-pipecat
+      - /packages/voice-pipecat/tests
+      - /packages/file-ingestion
+      - /docker/ingest-sidecar/tests
+      - /scripts
+      - /scripts/tests
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      pip-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps(python)"
+    labels:
+      - dependencies
+
+  # PE-L6: base-image pins in the Dockerfiles (Phase-9.5 pins age silently otherwise).
+  # NOTE: /scripts/Dockerfile.repair uses a non-standard name Dependabot's docker
+  # ecosystem may not auto-detect; the docker-compose.yml third-party image pins
+  # (redis, cloudflared, pgvector, etc.) are NOT covered by Dependabot and need a
+  # separate periodic manual review (tracked via the monthly-audit cadence).
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /packages/web-next
+      - /packages/voice-pipecat
+      - /packages/file-ingestion
+      - /docker/ingest-sidecar
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/New_York
+    groups:
+      docker-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "deps(docker)"
+    labels:
+      - dependencies

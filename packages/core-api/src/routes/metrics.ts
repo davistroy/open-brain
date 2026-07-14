@@ -2,6 +2,7 @@ import type { Hono, MiddlewareHandler } from 'hono'
 import { Registry, collectDefaultMetrics, Counter, Histogram, Gauge } from 'prom-client'
 import { sql } from 'drizzle-orm'
 import type { Database } from '@open-brain/shared'
+import { registerOutboundMetrics } from '@open-brain/shared'
 
 // --- Minimal Redis subset for metrics refresh ---
 // Duck-typed — any ioredis client satisfies this interface.
@@ -73,6 +74,15 @@ export const composioMonthlyUsage = new Gauge({
   help: 'Composio API calls used this calendar month (from Redis composio:monthly_usage:YYYY-MM)',
   registers: [metricsRegistry],
 })
+
+/**
+ * IA-M4: register the shared outbound-dependency metrics (LLM + embedding request
+ * duration/count, labeled {provider, operation, status_class}) into this scrape
+ * registry so core-api's own outbound calls are exported at /metrics. The shared
+ * module owns the metric instances (module-private registry); this shares them
+ * into the core-api scrape registry. Idempotent — guards double-registration.
+ */
+registerOutboundMetrics(metricsRegistry)
 
 // --- Route pattern normalization ---
 

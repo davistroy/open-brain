@@ -256,6 +256,40 @@ describe('POST /api/v1/briefs/:id/audio — cache miss (live TTS)', () => {
     )
   })
 
+  it('DA-4: skips the Redis cache write for an oversized audio buffer but still returns it', async () => {
+    // 3 MB + 1 byte — over the TTS_CACHE_MAX_BYTES guard in briefs.ts.
+    const oversizedAudio = Buffer.alloc(3 * 1024 * 1024 + 1, 1)
+    mockSuccessfulTtsResponse(oversizedAudio)
+    const redis = makeMockRedis(null)
+    const briefsService = makeMockBriefsService()
+    const ttsDeps = makeTtsDeps({ redis })
+    const app = createApp({ briefsService, ttsDeps })
+
+    const res = await app.request(`/api/v1/briefs/${SAMPLE_BRIEF_ID}/audio`, { method: 'POST' })
+
+    // Audio is still returned to the caller — only the cache write is skipped.
+    expect(res.status).toBe(200)
+    expect(res.headers.get('X-TTS-Cache')).toBe('miss')
+    const buf = Buffer.from(await res.arrayBuffer())
+    expect(buf.length).toBe(oversizedAudio.length)
+
+    expect(redis.setex).not.toHaveBeenCalled()
+  })
+
+  it('caches audio at exactly the size guard boundary', async () => {
+    const boundaryAudio = Buffer.alloc(3 * 1024 * 1024, 1)
+    mockSuccessfulTtsResponse(boundaryAudio)
+    const redis = makeMockRedis(null)
+    const briefsService = makeMockBriefsService()
+    const ttsDeps = makeTtsDeps({ redis })
+    const app = createApp({ briefsService, ttsDeps })
+
+    const res = await app.request(`/api/v1/briefs/${SAMPLE_BRIEF_ID}/audio`, { method: 'POST' })
+
+    expect(res.status).toBe(200)
+    expect(redis.setex).toHaveBeenCalledWith(`tts:${SAMPLE_BRIEF_ID}:alloy`, 86400, expect.any(Buffer))
+  })
+
   it('records cost in ai_audit_log', async () => {
     const fakeAudio = Buffer.from('FAKE_MP3')
     mockSuccessfulTtsResponse(fakeAudio)

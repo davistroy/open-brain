@@ -288,17 +288,17 @@ describe('POST /api/v1/captures/:id/retry', () => {
       configService: configService as any,
     })
 
-    const res = await app.request('/api/v1/captures/cap-pipeline-1/retry', { method: 'POST' })
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444/retry', { method: 'POST' })
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
     expect(body.id).toBe('cap-pipeline-1')
     expect(body.retried_at).toBeDefined()
-    expect(pipelineService.enqueue).toHaveBeenCalledWith('cap-pipeline-1', 'default', true)
+    expect(pipelineService.enqueue).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444', 'default', true)
   })
 
   it('returns 404 when capture does not exist', async () => {
-    const captureService = makeMockCaptureService(undefined, new NotFoundError('Capture not found: missing-id'))
+    const captureService = makeMockCaptureService(undefined, new NotFoundError('Capture not found: 99999999-9999-9999-9999-999999999999'))
     const pipelineService = makeMockPipelineService()
     const configService = makeMockConfigService()
 
@@ -308,7 +308,7 @@ describe('POST /api/v1/captures/:id/retry', () => {
       configService: configService as any,
     })
 
-    const res = await app.request('/api/v1/captures/missing-id/retry', { method: 'POST' })
+    const res = await app.request('/api/v1/captures/99999999-9999-9999-9999-999999999999/retry', { method: 'POST' })
     expect(res.status).toBe(404)
   })
 
@@ -323,7 +323,7 @@ describe('POST /api/v1/captures/:id/retry', () => {
       configService: configService as any,
     })
 
-    const res = await app.request('/api/v1/captures/cap-pipeline-1/retry', { method: 'POST' })
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444/retry', { method: 'POST' })
     expect(res.status).toBe(503)
   })
 
@@ -339,7 +339,7 @@ describe('POST /api/v1/captures/:id/retry', () => {
       configService: configService as any,
     })
 
-    const res = await app.request('/api/v1/captures/cap-pipeline-1/retry?stage=embed', { method: 'POST' })
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444/retry?stage=embed', { method: 'POST' })
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>

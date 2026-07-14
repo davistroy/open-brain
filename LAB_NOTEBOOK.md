@@ -144,6 +144,8 @@
 | D132 | Voice-capture exposure = Option 1: Bearer auth now (`VOICE_CAPTURE_SECRET`, fail-closed-when-set), keep `voice-capture:3001` on `0.0.0.0` (LAN); DEFER the SEC-02 loopback bind (8.2). | 2026-06-30 | ACTIVE | Entry 176, Phase 8 | loopback bind + route all voice via tunnel (breaks live iOS Shortcut direct-to-`:3001`, adds CF-tunnel latency+dependency to every home memo, CF-Access path collision — wrong trade for a voice memo); consistent w/ the D131 reliability>purity posture; reversible (one-line compose flip once a voice tunnel exists) |
 | D133 | Phase 1.3 observability re-point: open-brain joins the external `observability` net as a CLIENT (shared Prometheus scrapes `core-api:3000`, workers push `pushgateway:9091`); host postgres/redis **bind reconciliation lives in `docker-compose.override.yml`** (NOT repo `driver_opts`); interim runtime bridge SKIPPED; **config-diff pre-`up` safety gate**. | 2026-07-01 | ✅ ACTIVE (deployed #231 → `c4a7922`, Entry 181; both config-diff gates passed, WorkersMetricsAbsent cleared) | ADR-0004, Entry 181 | `driver_opts` device-path in the public repo (pollutes portable source + still recreates); sed-only working-tree binds (re-apply every deploy, fragile); interim `docker network connect --alias core-api` (owner skipped — decouples alerts but adds runtime state) |
 | D134 | Dependabot remediation (119 alerts) executed as **three isolated dependency waves** rather than one combined bump: wave 1 transitive lockfile refresh (patches only), wave 2 nodemailer 8→9 (runtime major, workers), wave 3 vitest 2→3 + coverage-v8 lockstep (dev major) — each its own branch/PR so a regression is independently bisectable/revertible. Majors accepted (no minor/patch fix exists for the underlying CVEs). | 2026-07-12 | ✅ DONE 2026-07-12 (PRs #232/#233/#234 merged, deployed `sha-31bc56c`; 119→20 open, 0 critical) | Entry 183 | Single combined PR (rejected — blast radius, harder bisection, couples unrelated risk profiles); leave majors unpatched (rejected — 8 of 9 criticals are the vitest bump, dev-scope but CI-blocking); pin to last-patched pre-major version (doesn't exist for these CVEs) |
+| D135 | **voice-pipecat `0.0.0.0:8765` stays as-is — explicit owner risk-acceptance (SEC-A1/A136 resolved by decision, not code).** Nothing connects to the port in production (iOS Shortcut is HTTP→:3001, mobile is batch upload, streaming integration A81 never built, soak test P24 never run); trusted-LAN posture consistent with D131/D132. Must be RECORDED in ADR-0002 port table + SECURITY.md + arch-review risk-acceptance register so future reviews see a decided acceptance. | 2026-07-12 | ACTIVE (owner decision, ultra-plan session) | Entry 185 | Profile-gate `profiles:[voice-streaming]` (recommended by review — declined); loopback bind 127.0.0.1 (declined); token handshake in WS handler (most effort, port still exposed — declined) |
+| D136 | Delete the orphaned `config/wiki/` seed layer (`WIKI_SCHEMA.md` + `bootstrap/` entities+domains, 12 files) — dead scaffolding with zero runtime references. The live wiki is the Gitea-backed `open-brain-wiki` repo, configured by `config/wiki.yaml` + `scripts/setup-wiki-repo.sh` (both KEPT); the seed was never wired into `packages/` or `scripts/`. Git-recoverable. | 2026-07-13 | ✅ DONE 2026-07-13 (Entry 187) | Entry 187 | Keep as reference (rejected — a 3rd conflicting schema source that invites drift); re-point runtime at it (rejected — the Gitea system is already canonical) |
 
 ## Action Items
 
@@ -153,6 +155,10 @@
 | A139 | `vite` dev-scope HIGH alert (#109, `<=6.4.2` → patched `6.4.3`) survives Wave 3 — transitive via vitest 3→vite 6 in `pnpm-lock.yaml`, not a direct dependency in any workspace. Windows-only `server.fs.deny` bypass; no runtime exposure (Linux deploy, prod images don't ship vite). Bump transitively (`pnpm update -r vite` or wait for vitest's next patch to pull it forward) to close the loop on the "0 open high" goal. | 2026-07-12 | Entry 183 | MEDIUM — dev-only, no runtime exposure, but blocks the literal 0-open-high target |
 | A131 | Verify first *scheduled* offsite-backup run (Fri 2026-06-12 03:45) and restore-rehearsal run (Sun 2026-06-14 05:30) in logs — both should PASS with the exact-count manifest | 2026-06-11 | Entry 164 | HIGH |
 | A138 | ~~Dependabot remediation (119 alerts: 9C/36H/60M/14L): wave 1 transitive lockfile refresh, wave 2 nodemailer 8→9, wave 3 vitest 2→3 + coverage-v8, then 5-service homeserver deploy (core-api/workers/slack-bot/voice-capture/web-next)~~ **✅ DONE 2026-07-12** — PRs #232/#233/#234 merged, all required checks green; deployed to homeserver at `sha-31bc56c` (all 5 services healthy, 0 restarts over 10-min watch, postgres/redis untouched); 119→20 open alerts, **0 open critical**. 1 open high remains (`vite`, dev-scope) — tracked as A139. | 2026-07-12 | Entry 183 | DONE — see A139 for residual dev-scope alert |
+| A134 | **PLT-C1 (CRITICAL):** rewrite `docs/runbooks/deploy.md` §5/§8 — rollback procedure currently deletes the production `docker-compose.override.yml` (re-arms the ADR-0004 landmine); fold in config-diff gate + `--remove-orphans` prohibition | 2026-07-09 | Entry 182 | CRITICAL — before next deploy/incident |
+| A135 | **DA-1 (HIGH):** skills_log retention prune FK-blocked by `briefs.source_skill_log_id` (no ON DELETE) — migration 0036 `ON DELETE SET NULL` + per-table isolation in `pruneRetentionData()` + verify prod `retention_audit` | 2026-07-09 | Entry 182 | HIGH — before Sun 2026-07-12 02:00 |
+| A136 | **SEC-A1 (HIGH):** voice-pipecat `ws://0.0.0.0:8765` zero-auth — stop container or bind loopback/tailnet; add to ADR-0002 port table + SECURITY.md (pending #54/#57) | 2026-07-09 | Entry 182 | HIGH |
+| A137 | Arch-review v4 remaining H/M roadmap (exec-summary §Remediation): coverage catch-up + gate, voice Bearer phase 2, observability contract verify + slo-alert.md, backup dead-man switch, required-checks expansion, settings GET/PUT whitelist split, runAgent context budget, SEC-A2 mobile-ingress investigation | 2026-07-09 | Entry 182 | HIGH — needs its own plan |
 | A132 | Arch-review v3 remaining work: H/M/L findings beyond the immediate-action list (SE-2 retry no-op, SE-3 pagination, LAN port hardening SEC-02, coverage gate activation QA-H1/H2, O(N²) consolidation PE-H1, etc.) — needs its own plan | 2026-06-11 | Entry 163 | HIGH |
 | A133 | ~~Phase 1.3 observability re-point — CS-B PR / CS-C override+config-diff-gate+deploy / CS-D verify+retire~~ **✅ DONE 2026-07-01** — PR #231 → `c4a7922`; deployed (both config-diff gates passed, postgres/redis untouched, row invariant exact); core-api target UP + `WorkersMetricsAbsent` cleared; 4 GPL containers retired (17→13). Landmine disarmed in override. | 2026-07-01 | Entry 181 | HIGH |
 | A1 | ~~Deploy Phase 7 consolidated code to homeserver~~ | 2026-03-30 | IMPL_PLAN_PHASE7 | DONE — deployed, verified via test suite |
@@ -12682,3 +12688,290 @@ Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{
 
 
 
+## Entry 182 — Architecture review v4 (/arch-review, 9-agent team) — supersedes 2026-06-10 v3 artifacts (2026-07-09)  [decision] [security] [database] [deploy] [debug]
+
+**Objective:** Full 9-domain architecture review of the post-A132/post-ADR-0004 system, folding in all recommendations from the 2026-07-08 /prime assessment (each domain agent adjudicated the /prime items rather than rediscovering them). Read-only — no homeserver access, no code changes. **Rollback:** N/A (artifacts regenerated in git-tracked `arch-review/`; v3 versions recoverable via git).
+
+**Method:** Intake (`arch-review/intake.md`) → 9 parallel domain agents (solutions/data/integration/software/performance/qa/security/platform/risk-compliance), each writing `findings/<agent>.md` + `.meta.json` → conflict resolution → `reports/executive-summary.md`. Prior v3 single `.meta.json` left in place (superseded, git history has v3 findings).
+
+**Results: C:1 H:13 M:49 L:49 (117 findings, 13 requires-investigation). CONDITIONAL GO.** A132 held up: every remediation item any agent traced was verified genuinely fixed in code. Pattern fit 5/5 (solutions). Top items:
+
+1. **PLT-C1 (CRITICAL): `docs/runbooks/deploy.md` §5 rollback overwrites-then-DELETES `docker-compose.override.yml`** — the host file pinning postgres/redis raw binds (ADR-0004). Following the runbook verbatim RE-ARMS the empty-DB landmine; §8 also falsely claims data lives in the `postgres_data` named volume. deploy.md last synced Phase 9, pre-ADR-0004. Fix = restore-from-backup semantics + fold in the config-diff gate + `--remove-orphans` prohibition (currently CLAUDE.md-only).
+2. **DA-1 (HIGH, plausibly failing in prod NOW): `data-retention-prune` skills_log DELETE is FK-blocked** — `briefs.source_skill_log_id` (0030) has NO ON DELETE action; briefs reference >60d-old skills_log rows → SQLSTATE 23503 → whole job throws (no per-table isolation). First scheduled run was Sun 2026-07-05; skills_log being LAST in RETENTION_POLICY is the only reason the other 4 tables still prune. **Fix before Sun 2026-07-12 02:00:** migration 0036 `ON DELETE SET NULL` + per-table try/catch + regenerate init-schema + check prod `retention_audit`.
+3. **SEC-A1 (HIGH): voice-pipecat `ws://0.0.0.0:8765` has ZERO auth** — any LAN socket drives paid Deepgram+Anthropic pipelines (outside the OpenAI-only budget breaker) and can inject captures. Absent from ADR-0002's exposure model AND SECURITY.md — D131/D132 never covered it. Interim: stop or bind loopback/tailnet pending #54/#57.
+4. **RC-10 (HIGH, owner): repo live-verified PUBLIC** with 250+ LAN/topology references + a public inventory of currently-inert controls. Pending since Phase 10.4 → flip private.
+5. **QA-1 (HIGH): workers coverage re-measured live at 73.72%** (below 78 floor, eroded from 74.02); scheduler.ts 0%, skill-execution.ts 0.41%, ingest-process.ts 0%, memory-consolidation-query.ts 4.7% — both Entry-180 incidents were in this band. Also QA-4: `validate-schema` parity + all Python CI jobs are NOT required status checks.
+6. **SEC-A2 (RI): mobile Bearer auth architecturally unreachable** — proxy.ts overwrites the caller header to `web-next-public` before `requireMobileAuthIfMobileCaller` can fire; `MOBILE_API_KEY` never validated; CF Access is the only real mobile control. Needs owner confirmation of intended ingress.
+7. **SW-H2/PE-H1 (#204 root cause pinned):** monthly-reflection tool returns full untruncated capture content ×200×5×10 iterations; `runAgent()` has no context budget — Entry 180's 120s timeout was a symptom patch. Fix at runAgent layer (all agent skills inherit).
+8. **Cross-domain themes:** runbooks lag deploys (doc-sync observe-mode can't catch procedures); voice risk-acceptance D132 predicated on a Bearer control that is INACTIVE in prod; post-merge manual operator actions sit unowned for weeks (RC meta-finding — recommend dated operator-actions checklist on monthly-audit cadence + heartbeat alerts, not failure-only); second `durationMs>0` flake found at weekly-brief.test.ts:261.
+
+**Confirmed /prime items:** #226 stale (fixed by #230 — close it), both flakes, `._*` gitignore gap, OPEN_ITEMS/notebook-baseline staleness, dormant workers gate (worse), A131 unverified, dep-vuln profile (112, dev-weighted), voice Bearer phase-1, doc-sync observe-mode.
+
+**Artifacts:** `arch-review/reports/executive-summary.md` (Go/No-Go conditions, dedup'd C/H table, cross-domain risk map, phased roadmap, risk-acceptance register) + 9 domain findings files + 9 per-agent metas. Coverage caveats: no SAST/SCA tooling, no load testing, live homeserver state unverifiable (read-only).
+
+**Tags:** [decision] [security] [database] [deploy] [debug]
+**Environment:** ubuntu-vm (read-only review; 9 subagents). **Duration:** ~25 min wall-clock (agents parallel, 6–14 min each).
+
+
+
+--- New session: 2026-07-12 — /prime + full 9-agent /arch-review (v5) ---
+
+## Entry 184 — Architecture review v5 (/arch-review, 9-agent team) — supersedes 2026-07-09 v4 artifacts (2026-07-12)  [decision] [security] [database] [deploy] [debug]
+
+**Objective:** Full 9-domain architecture review of the post-Entry-183 system (Dependabot waves 1–3 deployed at `sha-31bc56c`, 119→20 alerts), preceded by a fresh /prime assessment whose findings each domain agent adjudicates. Read-only with respect to the running system — no homeserver access, no code changes; regenerates the git-tracked `arch-review/` artifacts.
+
+**Hypothesis:** The four v4 Go-conditions (PLT-C1/A134 deploy.md rollback landmine, DA-1/A135 skills_log FK-blocked prune, SEC-A1/A136 voice-pipecat zero-auth, RC-10 public repo) remain unremediated in the working tree — /prime verified all four still open as of today. Expect CONDITIONAL GO again, with DA-1 escalated: its fix deadline (Sun 2026-07-12 02:00) passed this morning unmet, so the weekly `data-retention-prune` run has now plausibly failed in production. New since v4: vitest 3 coverage-baseline shift, 9 fresh grouped Dependabot PRs (#235–#243), 29 residual pnpm-audit advisories (2 high, dev/transitive).
+
+**Rollback plan:** N/A for the system (read-only review). Artifacts: v4 findings/exec-summary were never committed — backed up in full to `~/dev/personal/open-brain-backups/arch-review-v4-20260709/` before this run; v3 versions remain recoverable via git history.
+
+**Method:** /prime first (4 forked Explore agents + inline git/notebook analysis) → intake (`arch-review/intake.md`) → 9 parallel domain agents, each ADJUDICATING its v4 findings from the backup before hunting net-new (`findings/<agent>.md` + `.meta.json`) → conflict resolution → `reports/executive-summary.md`.
+
+**Results: raw C:1 H:15 M:48 L:58 = 129 findings (14 RI); deduplicated C:1 + 12 unique High. CONDITIONAL GO — same four go-conditions as v4, all STILL OPEN.**
+- **Adjudication headline:** of ~117 v4 findings, only 2 genuinely improved — dependency backlog (112 vulns/4C → 29/0C, downgraded to Low) and security scanning (CodeQL default setup + Dependabot automation, QA-6 downgraded). Everything else carried forward verbatim; the 3-day window contained only the Entry 183 Dependabot work (verified regression-free by SW: nodemailer 9 breaking change doesn't touch the SMTP-only path; `sse.ts` deletion genuinely dead).
+- **DA-1/A135 ESCALATED:** deadline (Sun 2026-07-12 02:00) passed unmet — today's `data-retention-prune` run presumed the SECOND consecutive prod FK failure. Still no migration 0036, no per-table isolation. **RI: check prod `retention_audit` + failed jobs for 2026-07-05 and 2026-07-12.**
+- **PLT-C1/A134 (sole Critical) unchanged 3rd day** — new severity evidence: Entry 183's own deploy explicitly prohibited deploy.md §5, i.e., the safe procedure is institutionalized in the lab notebook while the runbook stays booby-trapped.
+- **New Highs:** RC-19 (dated operator actions lack a forcing function — the meta-cause of all four conditions; fix = dated operator-actions checklist on monthly-audit cadence + heartbeat alerts). New Medium/Low of note: SEC-B1 `@hono/node-server` <1.19.13 serveStatic bypass (one-line bump, Bull Board static path); platform PE-M9 (5 open GH Actions major PRs × unwatched build-images.yml = silent stale-`:latest` risk); platform PE-L6 (dependabot.yml omits pip+docker ecosystems); QA-15 (vitest 3 exposed core-api's gate passed on INFLATED measurement since Phase 1 — true 76.48% → remediated same-day to honest 81.52%, margin now 1.52pts; stale "85.57%" figures in old reports are wrong); IA-L6 (no SMTP timeouts, ~10-min stall possible).
+- **Coverage re-measured live under vitest 3:** workers 73.72% lines vs 78 floor (true deficit, never inflated; scheduler.ts 0% and grew 307→495 lines).
+- **Cross-domain themes:** (1) "configured but not armed" controls — DA-1 is the first live casualty of the class (dormant gate, unset voice secret ~6wks, observe-only doc-sync, unverified DR); (2) runbook drift × ADR-0004 landmine; (3) automation added faster than gates (weekly Dependabot majors into zero-CI CF workers + unwatched build-images.yml); (4) alerting SPOF chain (workers=Pushover engine, watcher delivery unproven, no backup heartbeat).
+- **Artifacts:** `arch-review/reports/executive-summary.md` (dedup C/H table, cross-domain risk map, phased roadmap, risk-acceptance register incl. D132 flagged INVALID-until-secret-set) + 9 findings + 9 metas. v4 artifacts preserved at `~/dev/personal/open-brain-backups/arch-review-v4-20260709/`.
+
+**Action items:** A134/A135/A136/RC-10 unchanged (now overdue); NEW → institute RC-19 operator-actions checklist; SEC-B1 one-line bump; add email-worker typecheck before merging #235–#243; A139 folds into the Dependabot-triage pass.
+
+**Tags:** [decision] [security] [database] [deploy] [debug]
+**Environment:** ubuntu-vm (read-only review; 9 subagents, runtimes 198–453s, parallel). **Duration:** ~40 min wall-clock including the /prime pass.
+
+
+
+## Entry 185 — Ultra-plan for arch-review v5 remediation: investigation + 8 change sets + owner decisions (2026-07-12)  [decision] [planning] [meta]
+
+**Objective:** `/ultra-plan` over all v5 findings — constitution check, 6 parallel investigation sub-agents (~60 items verified at file:line against HEAD `cd14c1f`), interaction mapping, solution design, owner-decision capture, then fresh IMPLEMENTATION_PLAN.md generation (old A132 plan archived to `docs/archived/IMPLEMENTATION_PLAN-2026-06-arch-review-v3-A132.md`).
+
+**Analysis artifact:** `arch-review/reports/remediation-analysis-2026-07-12.md` (Phase 0–4 output; the plan's requirements input).
+
+**Key investigation corrections to the review itself:** SA-5 half-misdiagnosed (real gap is `reload()` lacking the throwing validator — `load()` already fail-fast at loader.ts:82); naive embedBatch wiring would be WORSE than today (non-adaptive truncation + all-or-nothing — safety semantics now a prerequisite); nothing connects to pipecat :8765 in prod; voice Bearer phase-2 is zero-code (operator steps only, clients-first ordering); `operational-followups.md` never existed (real register = LAB_NOTEBOOK:148 table); search offset cap must be `.max(450)` not 490; QA-1's 4th file is `src/skills/memory-consolidation-query.ts`; web-next test infra fully installed but include-glob scoped away from components; #226 closeable citing 1710c54 (attribution nuance: issue says core-api, fix in workers daily-connections).
+
+**8 change sets:** CS-A retention hotfix (0036 FK SET NULL + fts_search drop + per-table isolation — TODAY) · CS-B runbook/docs truth (deploy.md §-map rewrite encoding Entry 183, slo-alert.md, SA-6 sweep, cleanup batch) · CS-C voice/edge (spool 409-as-success, proxy AbortSignal, @hono/node-server ≥1.19.13, D135 acceptance docs, operator Bearer rollout) · CS-D governance forcing function (OPERATOR_ACTIONS.md + secret-rotation reminders + monthly-audit surfacing + BWS_ACCESS_TOKEN wiring — bootstrap exception, NOT secrets-map) · CS-E agent/runtime guardrails (runAgent per-tool-result cap + cumulative token budget closing #204; offset cap; #217 legacy-API reconciliation preserving `const *Cron` literals; SMTP 15s; SA-5 reload validation; embedBatch safety) · CS-F test-the-spine (4-file workers catch-up ~2.5-3.5d → BARRIER → arm `--coverage`; email-worker CI gating Dependabot #235/237/238; required-checks promotion) · CS-G automation/alerting gates (build-images failure alert + #239-242 watch, dependabot pip+docker, alert-rules CI, doc-sync promotion, container-health fix, backup dead-man's switch via workers ro-mount + `openbrain_backup_age_seconds`; ONE live-host session closes A131 + PLT-H2 + RI-A) · CS-H structural 90d (full-stack e2e → web tests; SEC-A2 verify-then-decide + ADR-0005; response-type contracts; outbound metrics; settings GET/PUT split; retention expansion; USER directives staged).
+
+**Owner decisions (this session):** (1) **SEC-A1 → LEAVE AS-IS, explicit risk acceptance = D135** (record in ADR-0002/SECURITY.md/register — no code); (2) **SEC-A2 → verify CF Access enforcement first** (U3), then Option 1 (dedicated api hostname) vs Option 2 (delete dead path) + ADR-0005; (3) **RC-10 → FLIP PRIVATE** (dated operator action); (4) **fresh plan, archive old**.
+
+**Hypothesis/DoD:** create-plan encodes all 8 change sets with no silently dropped items; atomic groups preserved (0036+isolation together; tests-before-coverage-flag barrier explicit; compose changes batched into one gated window). **Rollback:** planning artifacts only — `git checkout` restores; archived plan is a `git mv`.
+
+**Tags:** [decision] [planning] [meta]
+**Environment:** ubuntu-vm (6 Explore sub-agents, ~4.5-10.5 min each, parallel). **Status:** COMPLETE — fresh `IMPLEMENTATION_PLAN.md` generated (8 phases = CS-A..CS-H, 35 work items, per-item model tiers 7 haiku/23 sonnet/5 opus, DoD blocks per phase, 6 unknowns incl. U1 prod-retention-failure + U3 CF-Access-gates-SEC-A2, full requirement→phase→item traceability). Old A132 plan `git mv`'d to `docs/archived/IMPLEMENTATION_PLAN-2026-06-arch-review-v3-A132.md`. Milestones: phases 1-4 clear all four v5 Go-conditions; 1-7 armed+gated; 1-8 complete. Ready for `/implement-plan` (start Phase 1 — the retention hotfix is failing in prod weekly). **Duration:** investigation ~11 min + synthesis/plan ~15 min.
+
+
+
+--- New session: 2026-07-12/13 — /implement-plan execution of arch-review v5 remediation ---
+
+## Entry 186 — Implemented arch-review v5 remediation plan: 31/35 items, 8 phases, 1 PR (2026-07-12/13)  [decision] [test] [ci] [database] [security] [deploy]
+
+**Objective:** Execute IMPLEMENTATION_PLAN.md (Entry 185) via `/implement-plan` — orchestrated subagents + inline work, per-phase commit + push, one PR. Branch `feat/arch-review-v5-remediation` off main `cd14c1f`. Retroactive lab-notebook entry (execution ran ahead of this record; commits d1729ee..c31d753).
+
+**Result: 31/35 work items COMPLETE + committed + pushed; 4 DEFERRED (all operator-gated).** All per-phase DoDs green. Total: shared 368 / slack-bot 504 / web-next 134 / workers 1206 (83.96% cov) / core-api 1270 (81.49% cov) tests; all-package `tsc --noEmit` clean; frozen-lockfile OK.
+
+**Per-phase (each its own commit):**
+- **P1 (CS-A, d1729ee/7b6a265):** migration 0036 (briefs FK `ON DELETE SET NULL` + drop dead `fts_search`; init-schema regenerated + parity gate) + per-table fault isolation in `pruneRetentionData` (aggregate-throw, admin_audit invariant preserved). **Fixes DA-1** — the retention prune that was FK-failing in prod every Sunday.
+- **P2 (CS-B, 2bc6b7a):** deploy.md rewrite **removes the `cat>`/`rm` override landmine** (CRITICAL PLT-C1 cleared) + Entry-183 digest-rollback; observability.md/slo-alert.md/web-rollback cleanup; SA-6 doc-truth sweep (TDD auto-migration lie → ledger, README 13-containers/v0.7, ADR-0003 Accepted, CLAUDE.md 81.52%); .gitignore `._*`, CHANGELOG/OPEN_ITEMS refresh, #226 evidence.
+- **P3 (CS-D, 48b1000):** **RC-19 forcing function** — `OPERATOR_ACTIONS.md` dated register + `secret-rotation` skill parses it & Pushover-alerts overdue/approaching (30 tests) + monthly-audit workflow surfaces it; BWS_ACCESS_TOKEN wired (bootstrap exception, template + compose comment, NOT secrets-map).
+- **P4 (CS-C, 1d836b2):** voice spool **409=terminal-success** + max-age dead-letter (112 tests); voice proxy `AbortSignal.timeout(150s)`; `@hono/node-server`→1.19.14 (closes GHSA); **D135** voice-pipecat risk-acceptance docs (ADR-0002 amendment + SECURITY.md §4 + register).
+- **P5 (CS-E, 4e9daa1):** **runAgent context budget** (per-tool-result cap 12KB + cumulative 150K-token early-stop) → **fixes #204 class-wide**; search offset `.max(450)`; **#217** BullMQ orphan-repeatable reconciliation; SMTP 15s timeouts; SA-5 reload runs `validateAiRoutingConfig` non-fatally; embedBatch per-chunk fallback; SW5 smalls (redis error listeners, no baked Slack DM, Pushover env unify, hotmail logger).
+- **P6 (CS-F, 64d6cf2):** **workers coverage 73.72%→83.96%** — 4 spine test files (scheduler 98%, skill-execution 100%, ingest-process 99.5%, mem-consolidation-query 97.6%) then **armed the `--coverage` gate** (hard barrier honored: tests-first). QA-9 2 flake fixes + 7 sleep→`vi.waitFor` conversions; QA-5 deterministic 768-d fake-embed fixture (141/141 real-DB integration); email-worker CI (vitest+tsc job, .npmrc both CF dirs) which **surfaced+fixed a real postal-mime `.byteLength`-on-string bug**.
+- **P7 (CS-G, 4125d93):** build-images `notify-failure` Slack job (PE-M9); dependabot pip+docker ecosystems; validate-alert-rules CI job; container-health drop dead litellm + add faster-whisper:8000/health; doc-sync `continue-on-error` removed; **backup dead-man's switch** (pipeline-health emits `openbrain_backup_age_seconds` + independent Pushover, new `backup.yml` rule + runbook).
+- **P8 (CS-H, c31d753):** full-stack e2e (non-required `fullstack`-profile job, required gate unchanged) + 9 web-next component tests; **response-type contracts** (slack-bot typecheck-breaks on server field renames) + `openbrain_outbound_request_duration_seconds` histogram (gateway+embedding, core-api registry + workers pushgateway); settings GET rejects 3 OAuth token keys; retention→8 tables (captures purge left safe/inert); removeOnFail age×10 queues; **non-root USER** on core-api/slack-bot/voice-capture/web-next (chown-before-USER) + parseUUIDParam×6 route files (**fixed a pre-existing Hono wildcard `:id` param-binding bug**) + XFF/IPv6/TTS-guard/`/api/healthz`.
+
+**4 DEFERRED (operator-gated, in OPERATOR_ACTIONS.md):** 1.3 prod 0036 deploy+verify (OA-1); 6.6 required-checks promotion (OA-8); 7.5 live-host session — A131/PLT-H2/compose window (OA-9); 8.2 mobile ingress — **BLOCKED on U3** CF-Access verification (OA-7). Register also carries OA-13 (CF-worker Dependabot merges), OA-14 (GH-Actions major merges), OA-15 (chown named volumes for the non-root images).
+
+**Bugs found+fixed by the work itself (not in the plan):** postal-mime `.byteLength` on `string` (email-worker, surfaced by first-ever tsc); Hono wildcard-middleware `:id` param corruption (app.ts, surfaced by parseUUIDParam rollout). Both genuine latent defects.
+
+**Method notes:** hybrid orchestration — parallel subagents (3-cap) for code+test items, inline for small config/doc + all state/plan bookkeeping. Survived a mid-run session rate-limit (10pm ET reset) by shifting small items inline. Every "green" re-verified at the merged phase boundary (subagents verified their slice; I re-ran the combined DoD). Coverage-gate barrier (6.3) strictly gated on 6.2's local ≥78% before arming.
+
+**Status:** COMPLETE — PR opened (PR-only, no auto-merge). **Rollback:** feature branch; `git revert` per phase-commit; migration 0036 reverse re-adds bare FK; no prod mutation performed (1.3 deferred).
+
+**Tags:** [decision] [test] [ci] [database] [security] [deploy]
+**Environment:** ubuntu-vm (feature branch; ~20 subagents across 8 phases + inline). **Duration:** ~4h wall-clock.
+
+---
+
+## Entry 187 — Removed orphaned `config/wiki/` wiki-seed layer (improvement-plan item 12 / work-item 6.2) (2026-07-13)  [decision] [config] [cleanup]
+
+**Objective:** Execute the open-brain half of improvement-plan item 12, redesigned during ultra-plan. The original item was "/create-wiki for open-brain"; investigation found a live ~1,500-LOC Gitea-backed in-app wiki already exists, so /create-wiki would have stood up a *third* conflicting wiki system. The item was therefore reduced to removing the dead `config/wiki/` seed scaffolding **without touching the live system**.
+
+**Verified before deletion (fresh session, independent re-check of the handoff's "pre-verified safe" claim):**
+- `rg 'config/wiki/'` across the whole repo (excluding `.git` and the dir itself) → **zero references**.
+- Every `WIKI_SCHEMA` / `bootstrap/` name-hit resolves elsewhere: the runtime prompt `config/prompts/wiki-ingest/system.txt` refers to `wiki/WIKI_SCHEMA.md` (the *cloned live-wiki* path, not `config/wiki/`); the `docs/**` PRDs explicitly say "in wiki repo root, **not** Open Brain repo"; `scripts/setup-wiki-repo.sh` **generates** its own `WIKI_SCHEMA.md` via heredoc. None read the seed.
+- KEEP items (`config/wiki.yaml`, `scripts/setup-wiki-repo.sh`) contain no reference into the seed.
+
+**Action:** `git rm -r config/wiki/` — 12 files (`WIKI_SCHEMA.md` + `bootstrap/{entities×3, domains×9}`). Working tree clean before and after; `config/wiki.yaml` and `scripts/setup-wiki-repo.sh` untouched.
+
+**Follow-up flagged (OUT OF SCOPE — corresponds to Unknown U7):** two divergent wiki-schema definitions still remain and should be reconciled to a single canonical source — (1) the inline 9-directory / 8-page version generated by `scripts/setup-wiki-repo.sh`, and (2) the actual `WIKI_SCHEMA.md` living in the live `open-brain-wiki` Gitea repo. The seed deleted here was a third, now removed. Not blocking; also recorded in `~/dev/IMPROVEMENT_PLAN_IMPLEMENTATION.md` item-12 (6.2) status block.
+
+**Status:** COMPLETE. **Rollback:** git-recoverable — `git revert` of this commit restores the seed. Decision **D136**.
+
+**Tags:** [decision] [config] [cleanup]
+**Environment:** ubuntu-vm, open-brain `main`. Executed by Claude (Opus 4.8) resuming the improvement-plan parked items.
+
+## Entry 188 — Bucket-A open-item execution: CI red-fix, #226 close, #200 root-cause, Dependabot triage, #207 hydration, OA-5/7/11 verification (2026-07-13)  [ci] [debug] [database] [decision] [web]
+
+**Objective:** Execute the "Bucket A" (fully-autonomous, safe/reversible) subset of the open-item triage the user approved ("go A"). Six read-only investigations were fanned out via a 6-agent workflow (all completed, 0 errors, 456K subagent tokens); this entry covers acting on those findings. Bucket B (prod deploys — OA-1, repo-private OA-2, Dependabot majors OA-13/14) and Bucket C (iOS Shortcut, Gmail OAuth, hardware) are deliberately NOT touched here.
+
+**Findings driving each action (from the investigation fan-out):**
+1. **Red `main` CI = REAL, OURS, one-line fix.** The `email-worker-test` job (ci.yml:57) runs `actions/setup-node@v5` with only `node-version: '22'`. setup-node v5 defaults `package-manager-cache: true`, auto-detects the repo-root `pnpm-lock.yaml`, and shells to `pnpm store path` — but this standalone npm job (cloudflare/email-worker) never installs pnpm → `Unable to locate executable file: pnpm` at the Setup Node.js step, before `npm ci`. The sibling `doc-sync` job (also pnpm-free) already sets `package-manager-cache: false`; email-worker just omitted it. Regression from PR #244 (cd287d8). Not a *required* check, so merges weren't blocked, but CI reports RED and the job never validated the postal-mime/workers-types bumps it exists to gate.
+2. **#200 "large number of failures" = NOT a live incident.** Prod (read-only psql): captures — complete 11287, terminally **failed 2**; pipeline_events — failed 17659 of 114629, ALL dated 2026-04-15..2026-05-09 (zero new failures in ~2 months). These are retried-then-succeeded attempt rows from the April bulk file ingest (dominant: embed stage 400ing on the 8192-token cap because adaptive truncation starts at 16K chars; secondary: extract_entities → t1_spark 404/400/timeout). They don't age out because the 90-day prune is broken (DA-1 / OA-1, migration 0036 undeployed). Current BullMQ failed = 28 (one stale ~2026-06-11 ingest-root burst).
+3. **OA-7:** `packages/mobile` sends NO CF Access credential (grep for CF-Access/service-token = 0 hits) — auth is purely `Authorization: Bearer <ob_api_token>` + `X-Open-Brain-Caller: mobile-app` + mobile-auth middleware + `mobile` rate tier. Favors SEC-A2 **Option 1** (dedicated api.* hostname not behind CF Access; mobile needs only an `EXPO_PUBLIC_API_URL` change, no code). Option 2 (delete mobile-auth) would break the live app. Ingress-side "does brain.troy-davis.com enforce CF Access on /api/*" is unanswerable from the client and stays owner-gated.
+4. **Dependabot (18 open):** 9 safe → MERGE (pip patch/minor #259/#257/#256/#254/#253/#252/#249, npm minor/patch #243, synthetic-monitor workers-types #245); 2 → CLOSE (Node 22→26-alpine #247/#248 violate the LTS pin); 7 → HOLD (numpy 1→2 #258/#251, deepgram-sdk 3→7 #250/#255, python 3.14 base #246 — compat checks; email-worker #235/#237 = OA-13; GHA majors #236/#239/#240/#241/#242 = OA-14).
+5. **OA-5:** BOTH scheduled jobs VERIFIED running from their own logs — offsite-backup clean daily through 2026-07-13 03:45 (rclone crypt `open-brain-offsite:` = 291 objects/4.93 GiB, 07-13 pgdump matches local size), restore-rehearsal 2026-07-12 + 07-05 both `REHEARSAL RESULT: PASS` (21/21 tables ±0%). **NEW GAP surfaced:** restore-rehearsal's success Pushover POST fails `curl exit 22` (HTTP ≥400) on both runs → owner never received the DR confirmation. Logged as new OA-16.
+6. **OA-11:** OpenAI = no-training-on-API-data by default (policy since 2023-03-01), 30-day abuse-log retention, ZDR available on approval. Deepgram self-service hosted API is **auto-enrolled in the Model Improvement Program (audio persisted for training) unless `mip_opt_out=true`** — BUT prod transcription is self-hosted faster-whisper (`faster-whisper:8000`), so the Deepgram-MIP exposure is latent/planned, not a live egress. Account/plan-specific terms need owner login (unchanged, that's the residual OA-11).
+
+**Actions taken (this entry):**
+- **CI fix** (branch `fix/ci-email-worker-setup-node` → PR): add `package-manager-cache: false` to the email-worker-test setup-node step.
+- **#226 CLOSED** with the prepared `docs/pending-issue-closures.md` evidence (fixed by PR #230/1710c54, `pgUuidArray()`). OA-3 → DONE.
+- **#200:** posted the full root-cause comment; reframed from "live failures" to observability/UX + retention-prune backlog (blocked on OA-1). Left open for the UX follow-up.
+- **Dependabot:** merged the 9 safe PRs, closed #247/#248 with the LTS-pin rationale.
+- **#207:** batched web-next hydration refactor (~13 client `new Date()`/`Date.now()` render-scope sites → SSR-safe) in its own PR.
+- **Doc updates:** OPERATOR_ACTIONS OA-3→DONE, OA-5/OA-7/OA-11 annotated with findings, **new OA-16** (restore-rehearsal Pushover broken).
+
+**Hypothesis / success criteria:** CI-fix PR turns the email-worker-test job GREEN (npm ci + tsc + vitest run to completion); main CI goes green post-merge → unblocks OA-8. Safe Dependabot merges keep required checks green. #207 refactor: `pnpm --filter web-next build` succeeds, no new hydration warnings, existing tests pass.
+
+**Rollback plan:** All git-recoverable — `git revert` each PR merge. Closed issue #226 / Dependabot #247/#248 can be reopened. No prod/DB/compose mutations in Bucket A (those are Bucket B, untouched). Investigations were strictly read-only (SSH read-only, no writes).
+
+**Tags:** [ci] [debug] [database] [decision] [web]
+**Environment:** ubuntu-vm + read-only SSH to homeserver (prod counts, backup-log verification). open-brain `main`. Executed by Claude (Opus 4.8) under ultracode.
+
+## Entry 189 — OA-1 deploy: migration 0036 + workers recreate to fix DA-1 retention prune (2026-07-13)  [deploy] [database] [docker] [pipeline]
+
+**Objective:** Execute OA-1 (user-approved "deploy it"). Apply migration **0036** (`briefs_source_skill_log_id_fkey` → `ON DELETE SET NULL` + drop dead `fts_search()`) to the prod DB and recreate the `workers` container on the current `:latest` image (= main HEAD `7a9d87e`, post-#244). This fixes **DA-1**: the weekly `data-retention-prune` job has FK-blocked (SQLSTATE 23503) on `skills_log` deletes every Sunday since 2026-07-05 because briefs referencing >60d skills_log rows blocked those deletes. Also deploys the v5 workers code (#204 runAgent context budget, #217 scheduler orphan reconciliation, per-table retention fault isolation).
+
+**Pre-deploy recon (read-only, verified):**
+- Prod migration ledger = **0035** latest; **0036 NOT applied** (count=0). 0036 is the single pending migration; it's the highest in `packages/shared/drizzle/`. After apply, prod schema = main HEAD.
+- 0036 is trivial/safe: DROP+ADD one FK + DROP one dead function. Idempotent under `ON_ERROR_STOP=1`. No table rewrite / backfill / parallel-index → **no `/dev/shm` (DA-11) concern**, no `PGOPTIONS` needed.
+- Fresh backup present: `/mnt/user/backup/openbrain/daily/2026-07-13` (pgdump 120 MB) + offsite verified (OA-5). Rollback-safe.
+- Deployed compose-repo HEAD = `a1629e4` (#224) but the RUNNING compose is newer (13 containers, ADR-0004 observability already removed) — the documented lag pattern. **Real** working-tree `docker-compose.yml` vs `origin/main` divergence = 34 lines. **Decision: do NOT adopt main's compose.** A surgical `workers`-only image pull + `--force-recreate --no-deps` deploys the new workers code without any compose reconciliation. `workers` stays **root** (not a Phase-8 non-root image), so **OA-15 volume-chown does NOT apply**. postgres/redis untouched (`--no-deps`); override.yml keeps the raw-bind pins.
+- Skipped intentionally (stay in the OA-9 batched window): the P7 workers `/backup-latest` mount (compose change, INERT until recreate — but recreating with CURRENT compose omits it, which is fine), non-root app images (need OA-15 chown first), postgres `shm_size` (OA-10).
+
+**Method:**
+1. `git checkout origin/main -- packages/shared/drizzle/0036_briefs_fk_and_cleanup.sql` on the homeserver (adopt just that file; don't move HEAD or touch compose).
+2. `migrate-manual.sh --dry-run` in a throwaway `pgvector/pgvector:pg16` container (repo bind-mounted `-v /mnt/user/appdata/open-brain:/app -w /app`, `POSTGRES_URL` from `docker exec open-brain-core-api printenv`) → assert it will apply ONLY 0036.
+3. `migrate-manual.sh` (apply) → applies 0036 + records in ledger.
+4. Verify: ledger shows 0036; FK is now SET NULL (`pg_constraint.confdeltype='n'`); a `BEGIN; DELETE FROM skills_log WHERE created_at < now()-interval '60 days'; ROLLBACK;` succeeds (proves no FK block) — non-destructive.
+5. Record current workers image digest (rollback anchor), then `docker compose pull workers` + `docker compose up -d --force-recreate --no-deps workers` (as root). Assert postgres/redis still render as binds first.
+6. Verify workers container healthy; clear the ~2 stuck `data-retention-prune` BullMQ failed jobs.
+
+**Hypothesis / success criteria:** 0036 recorded; skills_log >60d rows deletable in a rolled-back txn; workers healthy on new image; next Sunday's prune (or a manual trigger) writes a `retention_audit` success row instead of failing. #204/#217 close on deploy.
+
+**Rollback plan:** (a) Migration: `ALTER TABLE briefs DROP CONSTRAINT IF EXISTS briefs_source_skill_log_id_fkey; ADD CONSTRAINT … REFERENCES skills_log(id);` (reverse per 0036 header). (b) Workers image: re-pin to the recorded pre-deploy digest and `up -d --force-recreate --no-deps workers`. (c) DB backup daily/2026-07-13 as last resort. All recoverable.
+
+**Status:** ✅ COMPLETE & VERIFIED (2026-07-14 ~03:25 UTC). Results:
+- **0036 applied + recorded** (ledger row `0036_briefs_fk_and_cleanup` @ 03:21:24). FK `briefs_source_skill_log_id_fkey.confdeltype = 'n'` (SET NULL) ✓; dead `fts_search` dropped (0 rows) ✓.
+- **Prune unblocked — proven:** `BEGIN; DELETE FROM skills_log WHERE created_at < now()-interval '60 days'; ROLLBACK;` returned `DELETE 6017` with NO 23503 (rolled back → real Sunday `0 2` prune will now clear those 6017 backlogged rows). DA-1 fixed at the DB layer.
+- **Workers recreated** on new image `sha256:8294087c…` (rollback anchor: prior `sha256:b511d91c…`), **healthy in 5s**, scheduler cleanly re-registered all repeatable jobs (= #217 orphan-reconciliation working). #204/#217 now deployed.
+- **Surgical, zero collateral:** postgres/redis untouched (`--no-deps`), rendered as raw binds through the config gate; no compose adopted; workers stays root (OA-15 N/A). Other 12 containers unaffected.
+- **Residual (minor):** clearing the ~2 stuck `data-retention-prune` BullMQ *failed-set* records hit a redis-cli AUTH quirk from a throwaway container — deferred to the documented Queues-tab "Clear failed" admin action (non-blocking, observability-only).
+**Tags:** [deploy] [database] [docker] [pipeline]
+**Environment:** homeserver (Unraid, root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-approved OA-1.
+
+## Entry 190 — utility-ingest (+financial-ingest) BWS_ACCESS_TOKEN missing from `.env.secrets`; repo→private (2026-07-14)  [debug] [docker] [pipeline] [security] [decision]
+
+**Objective:** (A) Root-cause + fix `open-brain-utility-ingest` silently failing its daily run 3+ days (cron alert). (B) OA-2: flip repo private.
+
+**(A) utility-ingest — ROOT CAUSE (investigated as `claude`, sudo-docker; values redacted throughout):**
+The handoff premise ("financial-ingest is healthy & has the token; diff to find what utility lacks") **did not hold.** Findings:
+- **BOTH** `open-brain-utility-ingest` AND `open-brain-financial-ingest` (same `ingest-sidecar:latest` image) have **`BWS_ACCESS_TOKEN` ABSENT** from `.Config.Env` (runtime `BWS=ABSENT`; `bws` binary present at `/usr/local/bin/bws`).
+- Their compose defs are wired **identically**: `env_file: - .env.secrets`, with the comment "BWS_ACCESS_TOKEN set in .env.secrets — required for bws secret list." So it's **not a per-service compose gap.**
+- `/mnt/user/appdata/open-brain/.env.secrets` contains **ZERO `BWS_ACCESS_TOKEN=` lines** (verified via throwaway `alpine` mount, count-only). All OTHER secrets ARE present (env shows ADMIN_API_KEY, OPENAI_API_KEY, etc. — those come from `.env.secrets`).
+- **Both** pipelines require it: `scripts/utility-pipeline.py:125` and `scripts/financial-pipeline.py:143/151` shell out to `bws` (`"bws timed out — is BWS_ACCESS_TOKEN set?"`). So both are structurally broken; the utility cron is just the alert that fired. (Container `docker logs` are empty because all services use the Loki log driver — failures are in Loki/Grafana, not local json.)
+- **Category = MISSING SECRET, not compose gap, not "expired-in-file."** `BWS_ACCESS_TOKEN` is the Bitwarden **bootstrap machine-account token** that by design is NOT stored in BWS (chicken-and-egg; CLAUDE.md/PROVIDER_SETTINGS) and must be set MANUALLY on the host. Any `.env.secrets` rebuild via `load-secrets.sh` (sources only BWS) **drops it** — the likely "3-days-ago" clobber. This is exactly **OA-4** (never provisioned / lost on reconcile).
+
+**Decision: STOPPED at the token wall per the user's hard constraint** — did NOT reuse the VM-side `BWS_ACCESS_TOKEN` (wrong-scope / boundary risk = "don't guess a value"). No sidecar recreate attempted (would not fix without the token). Handoff checklist given to Troy (OA-4, elevated: it's actively breaking both ingest sidecars). **Structural recommendation (repo-side, no secret — offered, not yet done):** make `load-secrets.sh` PRESERVE an existing `BWS_ACCESS_TOKEN` line when rewriting `.env.secrets`, so a reconcile can't clobber the bootstrap token again.
+
+**(B) OA-2 repo→private:** `gh repo edit --visibility private` (gh 2.45 needs no consequence-flag). Verified: repo=PRIVATE; **fresh `docker pull` of core-api:latest from the homeserver STILL succeeds** (GHCR package visibility is independent of repo visibility → deploy/pull path intact); CI uses `GITHUB_TOKEN` (works private). OA-2 → DONE.
+
+**Rollback:** utility-ingest — nothing changed (investigation only), nothing to roll back. Repo-private — reversible via `gh repo edit --visibility public`.
+**Status:** (A) BLOCKED on Troy (OA-4 token) — root cause fixed-in-diagnosis, fix handed off. (B) COMPLETE. **[SUPERSEDED for part A by Entry 191 — Troy directed use of the VM token; layer 1 then fixed, layer 2 surfaced + fixed.]**
+**Tags:** [debug] [docker] [pipeline] [security] [decision]
+**Environment:** homeserver (Unraid, `claude` sudo-docker for A; root SSH for pull-verify). Executed by Claude (Opus 4.8).
+
+## Entry 191 — utility-ingest RESOLVED: VM token placed (layer 1) + gas-secret naming-drift fix (layer 2) (2026-07-14)  [debug] [pipeline] [config] [deploy] [decision]
+
+**Supersedes Entry 190 part A.** Troy directed "you should know the bws access token — use it." So, contrary to 190's handoff framing, I DID place a token and fixed it in two layers.
+
+**Layer 1 — BWS_ACCESS_TOKEN missing (FIXED):** Verified the VM's `BWS_ACCESS_TOKEN` is valid (not expired) and scoped to the `open-brain-*` secrets (94 secrets across projects `ai-work`/`personal`/`litellm`). Backed up `.env.secrets` (`.env.secrets.bak-oa4-<ts>`), appended `BWS_ACCESS_TOKEN=<value>` via stdin (value never in a command/log), mode 0600. Recreated `utility-ingest` + `financial-ingest` + `workers` (`--force-recreate --no-deps`, no pull, no `--remove-orphans`). Verified `bws secret list` **authenticates** inside all three (`BWS_LIST: OK`). **Caveat (least-privilege):** this token sees 94 secrets across 3 projects — broader than open-brain; a dedicated open-brain-scoped machine token would be tighter (flagged, not blocking).
+
+**Layer 2 — gas-secret naming drift (FIXED, code+config):** Running the ACTUAL daily cron cmd (`deploy/cron/unraid-ingest.cron`: `docker exec open-brain-utility-ingest python /app/utility-pipeline.py --gas --power-summary`) got past auth but died on `Secret 'dev/open-brain/gas-south' not found` (masked until layer 1 — auth failed before the lookup; and the earlier "exit 0" was a measurement artifact — `$?` read the piped `tail`, not python; `get_bws_secret` actually `sys.exit(1)`s). Root cause: `_gas_south_login` (utility-pipeline.py:325) read a single JSON secret `dev/open-brain/gas-south` `{"username","password"}`, but the **canonical** Bitwarden secrets are two separate values `GAS_SOUTH_USERNAME` / `GAS_SOUTH_PASSWORD` (Troy confirmed "separate is canonical"; also `COBB_EMC_*`, `COBB_WATER_*`). **Fix:** utility-pipeline.py now fetches the two keys via `get_bws_secret(gas_cfg.get("bitwarden_username_key","GAS_SOUTH_USERNAME"))` + `..._password_key`, defaults baked in; `config/utility/utility-config.yaml` gas block updated to `bitwarden_username_key`/`bitwarden_password_key`. **Scope:** gas is the ONLY `get_bws_secret` site in utility-pipeline.py (power = external Go tool, water = no-auth). No tests touch it. `py_compile` + `ruff` pass. The script is BAKED into the `ingest-sidecar` image → deploy = commit → CI `build-images` → `pull` + recreate `utility-ingest`.
+
+**Follow-ups flagged (out of scope, not done):**
+1. **financial-pipeline.py may have the SAME drift** — it reads `plaid-client-id`/`plaid-secret`/`plaid-access-tokens`/`pushover-*`; if BW holds `PLAID_*`/`PUSHOVER_*` names, financial is also broken. Check before relying on financial ingest.
+2. **Least-privilege:** mint a dedicated open-brain-scoped BW machine token (vs. the broad VM token placed here).
+3. **Durable:** patch `load-secrets.sh` to PRESERVE an existing `BWS_ACCESS_TOKEN` on rewrite (it's the bootstrap token BWS can't supply — the recurring clobber source).
+4. **Latent:** `trigger_server.py` `/process` hardcodes `--process-inbox`, which `utility-pipeline.py` rejects (its modes are `--gas/--water/--power-summary/...`) → utility's `/process` endpoint always 500s. Harmless today (utility isn't dashboard-upload-driven), but a real inconsistency.
+
+**Rollback:** revert this commit + redeploy the prior `ingest-sidecar` image; token placement reversible via the `.env.secrets` backup.
+**Status:** Code+config fix implemented + locally validated. **Deploy + end-to-end `--gas` verification PENDING** (entry written pre-deploy).
+**Tags:** [debug] [pipeline] [config] [deploy] [decision]
+**Environment:** ubuntu-vm (edit/validate) + homeserver (token placement, recreate, verify). Executed by Claude (Opus 4.8), user-directed.
+
+## Entry 192 — utility-ingest deploy result: layers 1&2 fixed+live; layer 3 (Gas South API stale) → #265; two private-repo regressions (2026-07-14)  [deploy] [pipeline] [debug] [ci]
+
+**Closes the "deploy pending" of Entry 191.** PR #264 merged (`ff95541`) → `Build and Push Images` rebuilt `ingest-sidecar:latest` (~6 min) → deployed to the homeserver.
+
+**Deploy (surgical, verified):** rollback anchor = old image `sha256:b4aac63b…`. `docker compose pull utility-ingest` → new `sha256:0e23f95c…`; `up -d --force-recreate --no-deps utility-ingest` (only that service; no `--remove-orphans`; postgres/redis untouched). **Confirmed the fix actually shipped** — `docker exec … grep /app/utility-pipeline.py` shows line 329 `get_bws_secret(gas_cfg.get("bitwarden_username_key","GAS_SOUTH_USERNAME"))` in the running container (not just "a container restarted").
+
+**End-to-end result (`--gas --json-output`, true exit code 0):** the pipeline now gets PAST bws auth AND the secret lookup (layers 1&2 proven fixed — reaches `=== Gas Readings (Gas South) ===`, fetches creds), then fails at the Gas South PORTAL login. **DEBUG re-run exposed the cause = stale endpoints, NOT bad creds:** `manage.gassouth.com/api/authorize` → **405**, `manage-api.gassouth.com/oas/api/authorize` → **404**, `…/oas/api/account/login` → **404**. Creds never evaluated (no 401). **Layer 3 = Gas South changed their auth API.** Filed as **issue #265** (deferred — needs HAR of the live portal login + `_gas_south_login` rewrite; out of scope for the "silent failure" fix). Net for the reported problem: the container **no longer silently fails** — runs clean, exits 0, emits a specific actionable error instead of dying opaquely. It does NOT yet fetch gas data (honest DoD: infra fixed, provider fetch blocked by #265).
+
+**TWO PRIVATE-REPO REGRESSIONS from the OA-2 flip (RC-10 → private) — both real:**
+1. **`gh pr checks` fails** for the fine-grained PAT on the private repo (GraphQL `statusCheckRollup` → "Resource not accessible by personal access token"). Workaround: read CI via the Actions API (`gh run list --branch <b> --json status,conclusion`) — that still works. Fix: grant the PAT `checks:read` (+ likely `statuses:read`). Low impact.
+2. **Homeserver `git fetch` fails** — `/mnt/user/appdata/open-brain` `origin` is an unauthenticated **HTTPS** URL (`could not read Username for 'https://github.com'`). Worked while the repo was public; a private repo needs auth. **This BLOCKS the documented deploy pattern** `git checkout origin/main -- <compose/migration/config file>` (Entry 179). It didn't bite today only because the utility fix shipped in the IMAGE and the config change was belt-and-suspenders (code defaults). **Must fix before the next compose/migration deploy** → OA-17. Fix options: switch remote to SSH (`git remote set-url origin git@github.com:davistroy/open-brain.git` + a repo deploy key), or an HTTPS credential helper with a PAT.
+
+**Status:** utility-ingest infra FIXED + deployed + verified; gas data-fetch deferred to #265. Two regressions logged (OA-17 + PAT note).
+**Tags:** [deploy] [pipeline] [debug] [ci]
+**Environment:** ubuntu-vm + homeserver (root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-directed.
+
+## Entry 193 — Autonomous cluster: financial-ingest drift fix + load-secrets.sh bootstrap-token preservation (OA-4b) (2026-07-14)  [pipeline] [config] [security] [test]
+
+**Objective:** "Do everything you can autonomously." A 3-agent analysis workflow confirmed findings; this entry is the execution.
+
+**(1) financial-ingest IS broken — same class as utility (confirmed via bws key-name check + code read):**
+- **Pushover drift (FIXED, code):** `financial-pipeline.py:757-758` hardcoded `pushover-user-key`/`pushover-api-token`, but BW has `PUSHOVER_USER_KEY`/`PUSHOVER_API_TOKEN`. Renamed the two literals. (This failure was SILENT — wrapped in `try/except SystemExit` → "Pushover secrets not found — skipping", so alerts were dropped, not hard-failing.)
+- **Plaid ABSENT (operator-gated):** `plaid-client-id`/`plaid-secret`/`plaid-access-tokens` do NOT exist in the BW vault under any name. `config/financial/plaid-config.yaml` `bitwarden_keys` updated to the canonical uppercase names `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ACCESS_TOKENS` (ready-but-inert). **financial `--sync` will keep hard-exiting(1) at `init_plaid()` until Troy PROVISIONS those 3 secrets in BW** (tokens = a JSON blob `{"amex":"access-...","chase":"..."}`). → operator action. Code fix ships in the `ingest-sidecar` image; the final `pull + recreate financial-ingest` is deferred until Plaid is provisioned (no point recreating a still-blocked service).
+
+**(2) load-secrets.sh bootstrap-token preservation (OA-4b, durable fix):** `load-secrets.sh` does a FULL rewrite of `.env.secrets` from `secrets-map.sh`; `BWS_ACCESS_TOKEN` is (by design) not in the map, so every reconcile dropped it — the recurring root cause of the utility/financial outages. Fix: capture any existing `^BWS_ACCESS_TOKEN=` line before the atomic write and re-emit it into the new file (2 insertions, reconcile-path only; `--force`/`--target-dir` covered). Added roundtrip test **case 6.6** (append a sentinel token → `--force` rewrite → assert preserved exactly once). **`scripts/test-secrets-roundtrip.sh` now PASSES 7/7** locally. This closes OA-4b (the durable half).
+
+**Validation:** `py_compile` + `ruff` (financial-pipeline) pass; `bash -n` (load-secrets + test) pass; plaid-config YAML valid; roundtrip 7/7.
+
+**Deferred to Troy:** provision the 3 Plaid secrets in BW as `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ACCESS_TOKENS` → then recreate financial-ingest to finish. (Least-privilege dedicated BW token — OA-4a — still stands.)
+
+**Status:** code fixes done + locally validated → PR. financial functional recovery gated on Plaid provisioning.
+**Tags:** [pipeline] [config] [security] [test]
+**Environment:** ubuntu-vm. open-brain `main`. Executed by Claude (Opus 4.8) under ultracode, user-directed.
+
+## Entry 194 — Autonomous cluster completion + THREE regressions traced to the OA-2 private-flip (2026-07-14)  [ci] [security] [deploy] [decision]
+
+**Autonomous cluster done (PR #268 merged `93e963e`):** financial Pushover key-name fix + plaid-config canonical names; `load-secrets.sh` bootstrap-token preservation (OA-4b, roundtrip 7/7); **28 stale `ingest-root` failed jobs cleared** (redis, full clean incl. orphaned hashes → dashboard failed-count 0, the #200 residual); Dependabot `@dependabot rebase` triggered on the 2 email-worker PRs (#235/#237) to revalidate against the fixed CI.
+
+**THREE regressions all trace to OA-2 (repo → private, RC-10). My OA-2 verification checked image-pulls + CI-runs but NOT these — a gap:**
+1. **`gh pr checks` broken** (fine-grained PAT can't read GraphQL `statusCheckRollup` on a private repo). Workaround: Actions API (`gh run list`). Fix: PAT `checks:read`+`statuses:read`.
+2. **Homeserver `git fetch` broken** (unauthenticated HTTPS `origin`). Blocks the `git checkout origin/main -- <file>` deploy pattern → **OA-17**. No github SSH key on the box (only `unraidbackup_id_ed25519` pinned to backup.unraid.net) → needs Troy to add a deploy key.
+3. **Branch protection DISABLED (the serious one)** → **OA-8 BLOCKED**. GitHub free tier does not support protected branches on PRIVATE repos (`GET/PUT .../protection` → 403 "Upgrade to Pro or make public"). So `main` is now UNPROTECTED — even the prior required checks (`Integration tests`, `build-and-test`) no longer gate merges. The 2 OA-8 candidate checks (`Validate init-schema.sql`, `Python lint & typecheck`) are green on the last 3 runs, ready IF protection returns.
+
+**This reframes OA-2:** private buys RC-10's goal but costs branch protection + adds two auth frictions. **Decision for Troy:** (a) accept [solo repo]; (b) GitHub Pro/Team (~$4/mo) → protection on private; or (c) revert to public (`gh repo edit --visibility public`) — no in-repo secrets, and all three regressions vanish. During this session I merged 7 PRs relying on green CI *by choice*, not enforcement — fine for a careful solo operator, but the safety net is off until this is decided.
+
+**Could NOT complete autonomously (blocked, not skipped):** OA-8 (needs a protection decision); financial functional recovery (needs Plaid secrets — Troy); OA-14 GHA-major Dependabot merges (deliberate one-at-a-time per their own definition; branches also need the rebase now propagating); OA-17 (needs a deploy key).
+
+**Status:** autonomous cluster COMPLETE to its blocking boundaries. Decisions + provisioning handed to Troy.
+**Tags:** [ci] [security] [deploy] [decision]
+**Environment:** ubuntu-vm + homeserver (root SSH, redis). open-brain `main`/prod. Executed by Claude (Opus 4.8) under ultracode.
+
+## Entry 195 — Reverted repo to PUBLIC → all 3 OA-2 regressions fixed + OA-8 & OA-13 completed (2026-07-14)  [ci] [security] [decision]
+
+**Troy's decision:** revert to public (over losing branch protection). `gh repo edit davistroy/open-brain --visibility public`. **RC-10's public-repo concern is now a deliberate risk-acceptance** (no secrets in-repo — all in Bitwarden). Verified each regression cleared:
+1. **`gh pr checks` — FIXED** (works immediately on the public repo).
+2. **homeserver `git fetch` — FIXED** (first retry failed on GitHub propagation lag; `git ls-remote` + `git fetch origin` then succeeded anonymously — no auth config on the box; clean). → **OA-17 OBSOLETE.**
+3. **Branch protection — RESTORED + STRENGTHENED.** It was gone (404 "Branch not protected" — the private flip deleted it; public did NOT auto-restore). Re-created via `gh api PUT .../branches/main/protection` with **4 required checks**: `Integration tests (core-api + real DB)`, `build-and-test` (restored) + `Validate init-schema.sql`, `Python lint & typecheck` (**OA-8 done** — both green on the last 3 runs), `strict=false`, `enforce_admins=false`, no reviews. → **OA-8 DONE.**
+
+**OA-13 also completed:** the `@dependabot rebase` on #235/#237 landed onto the fixed CI → the `email-worker-test` job went GREEN and validated the postal-mime + workers-types bumps (exactly the QA-7 purpose of #260) → both merged.
+
+**Net of the whole autonomous cluster:** financial Pushover fix + load-secrets OA-4b (#268); stale jobs cleared; **repo public + branch protection with 4 required checks; OA-8/OA-13 done; OA-17 obsolete.** Lesson recorded: **flipping a free-tier repo private silently deletes branch protection and breaks anonymous git + PAT check-reads** — verify protection/tooling, not just image-pulls, on any visibility change.
+
+**Still open (handed to Troy, all documented):** provision Plaid secrets (finishes financial-ingest); #265 Gas South HAR; OA-14 GHA-major Dependabot (deliberate one-at-a-time); OA-4a dedicated BW token; OA-6/7/9/10/11/12/15/16; gated issues #196/#72/#73/#71/#54/#57.
+**Status:** revert COMPLETE + verified; OA-2 reversed, OA-8/OA-13 done, OA-17 obsolete.
+**Tags:** [ci] [security] [decision]
+**Environment:** ubuntu-vm + homeserver. open-brain `main` (public). Executed by Claude (Opus 4.8) under ultracode, user-directed.

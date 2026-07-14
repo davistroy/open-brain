@@ -407,6 +407,15 @@ describe('isInternalIp predicate', () => {
     ['not-an-ip', false],
     ['256.0.0.1', false],
     ['2001:4860:4860::8888', false], // Google DNS v6
+    // SW5-M1: tightened IPv6 link-local/unique-local regexes must reject prefix-only
+    // lookalikes that aren't actually structured as an IPv6 literal (no ':' after the
+    // first hextet) — the previous regexes matched on the first 2-3 characters alone.
+    ['fe8bogus', false],
+    ['fe80bogus', false],
+    ['fcbogus', false],
+    ['fdbogus', false],
+    ['fe8', false],
+    ['fc', false],
   ])('isInternalIp(%j) === %s', (ip, expected) => {
     expect(isInternalIp(ip)).toBe(expected)
   })
@@ -575,6 +584,69 @@ describe('rateLimit middleware — defense-in-depth caller header (Phase 2.3)', 
       const res2 = await app.request(
         new Request('http://localhost/api/test', {
           headers: { 'X-Open-Brain-Caller': 'workers' },
+        }),
+      )
+      expect(res2.status).toBe(200)
+    } finally {
+      limiter.dispose()
+    }
+  })
+
+  it('SW5-M1: IGNORES a spoofed leftmost XFF hop of 127.0.0.1 — trusts the rightmost (proxy-appended) hop instead', async () => {
+    const { app, limiter } = createApp(1)
+    try {
+      // Attacker sends X-Forwarded-For: 127.0.0.1 directly. A trusted reverse proxy in
+      // front of core-api would APPEND the real peer IP it observed, producing a chain
+      // like "127.0.0.1, 8.8.8.8" — the rightmost entry (8.8.8.8) is what the proxy
+      // actually saw and is not attacker-controlled. Before the SW5-M1 fix, reading the
+      // FIRST (leftmost, attacker-supplied) hop would have treated this request as
+      // internal and granted a full rate-limit bypass via the 'workers' caller header.
+      const res1 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'workers',
+            'X-Forwarded-For': '127.0.0.1, 8.8.8.8',
+          },
+        }),
+      )
+      expect(res1.status).toBe(200)
+      // Second request from the same forged chain → 429 (bypass NOT granted; caller
+      // header correctly ignored because the rightmost/trusted hop is public).
+      const res2 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'workers',
+            'X-Forwarded-For': '127.0.0.1, 8.8.8.8',
+          },
+        }),
+      )
+      expect(res2.status).toBe(429)
+    } finally {
+      limiter.dispose()
+    }
+  })
+
+  it('SW5-M1: honors the rightmost hop when it IS internal, even with a public leftmost hop', async () => {
+    const { app, limiter } = createApp(1)
+    try {
+      // Legitimate multi-hop case: the client's real IP (public) is leftmost, and the
+      // trusted internal proxy's own observed peer (internal) is rightmost — the
+      // caller header should be honored based on the rightmost, trusted entry.
+      const res1 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'workers',
+            'X-Forwarded-For': '203.0.113.7, 172.20.0.5',
+          },
+        }),
+      )
+      expect(res1.status).toBe(200)
+      const res2 = await app.request(
+        new Request('http://localhost/api/test', {
+          headers: {
+            'X-Open-Brain-Caller': 'workers',
+            'X-Forwarded-For': '203.0.113.7, 172.20.0.5',
+          },
         }),
       )
       expect(res2.status).toBe(200)

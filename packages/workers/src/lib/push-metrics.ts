@@ -1,4 +1,4 @@
-import { logger } from '@open-brain/shared'
+import { logger, getOutboundMetricLines } from '@open-brain/shared'
 
 // ============================================================
 // Prometheus Pushgateway helper
@@ -59,8 +59,13 @@ export function buildExposition(metrics: MetricLine[]): string {
  * Failures are logged but never thrown — metrics push must never break the
  * calling skill's execution.
  *
+ * IA-M4: unless `includeOutbound` is false, the shared outbound-dependency
+ * metrics (LLM + embedding request duration/count) are appended to the payload.
+ * Workers has no scrape registry, so this Pushgateway path is how workers-side
+ * outbound calls reach Prometheus. Rendering never throws (returns [] on error).
+ *
  * @param metrics  Array of metric lines to push
- * @param options  Optional overrides for URL and job/instance labels
+ * @param options  Optional overrides for URL, fetch, and outbound-metric inclusion
  */
 export async function pushMetrics(
   metrics: MetricLine[],
@@ -69,13 +74,17 @@ export async function pushMetrics(
     url?: string
     /** Fetch function — injectable for testing. */
     fetchFn?: typeof globalThis.fetch
+    /** Append shared outbound-dependency metrics to the payload. Default true. */
+    includeOutbound?: boolean
   },
 ): Promise<void> {
   const baseUrl = process.env.PUSHGATEWAY_URL ?? 'http://pushgateway:9091'
   const url = options?.url ?? `${baseUrl}/metrics/job/open-brain/instance/workers`
   const fetchFn = options?.fetchFn ?? globalThis.fetch
 
-  const body = buildExposition(metrics)
+  const outboundLines: MetricLine[] =
+    options?.includeOutbound === false ? [] : await getOutboundMetricLines()
+  const body = buildExposition([...metrics, ...outboundLines])
 
   try {
     const response = await fetchFn(url, {

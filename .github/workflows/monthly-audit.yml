@@ -17,12 +17,12 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: 'pnpm'
@@ -84,6 +84,54 @@ jobs:
           printf 'critical=%s\n' "$CRITICAL" >> "$GITHUB_OUTPUT"
           printf 'high=%s\n' "$HIGH" >> "$GITHUB_OUTPUT"
 
+      - name: Check operator actions (RC-19)
+        id: operator
+        run: |
+          set +e
+          FILE="OPERATOR_ACTIONS.md"
+          OVERDUE=0
+          APPROACHING=0
+          LINES=""
+          if [ -f "$FILE" ]; then
+            NOW=$(date +%s)
+            WINDOW=$((7 * 24 * 3600))
+            # Rows of the "## Open Actions" table only (stop at "## Completed Actions")
+            ROWS=$(awk '/^## Open Actions/{f=1;next} /^## Completed Actions/{f=0} f && /^\|/' "$FILE")
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              ID=$(printf '%s' "$line"     | awk -F'|' '{gsub(/^ +| +$/,"",$2); print $2}')
+              ACTION=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/,"",$3); print $3}')
+              DUE=$(printf '%s' "$line"    | awk -F'|' '{gsub(/^ +| +$/,"",$4); print $4}')
+              STATUS=$(printf '%s' "$line" | awk -F'|' '{gsub(/^ +| +$/,"",$7); print $7}')
+              [ "$ID" = "ID" ] && continue
+              printf '%s' "$ID" | grep -qE '^-+$' && continue
+              printf '%s' "$STATUS" | grep -qiE '^(DONE|BLOCKED)' && continue
+              printf '%s' "$DUE" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' || continue
+              DUE_EPOCH=$(date -d "$DUE" +%s 2>/dev/null) || continue
+              DELTA=$((DUE_EPOCH - NOW))
+              SHORT=$(printf '%s' "$ACTION" | cut -c1-80)
+              if [ "$DELTA" -lt 0 ]; then
+                OVERDUE=$((OVERDUE+1))
+                LINES="${LINES}:warning: [$ID] ${SHORT} (due $DUE)\n"
+              elif [ "$DELTA" -le "$WINDOW" ]; then
+                APPROACHING=$((APPROACHING+1))
+                LINES="${LINES}:bell: [$ID] ${SHORT} (due $DUE)\n"
+              fi
+            done <<< "$ROWS"
+            echo "### Operator Actions (RC-19): $OVERDUE overdue, $APPROACHING approaching" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$LINES" ]; then
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              printf '%b' "$LINES" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          else
+            echo "### Operator Actions (RC-19): OPERATOR_ACTIONS.md not found" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf 'overdue=%s\n' "$OVERDUE" >> "$GITHUB_OUTPUT"
+          printf 'approaching=%s\n' "$APPROACHING" >> "$GITHUB_OUTPUT"
+          printf '%b' "$LINES" > /tmp/operator.txt
+          exit 0
+
       - name: Post to Slack
         if: always()
         env:
@@ -99,14 +147,22 @@ jobs:
           ALERTS="${{ steps.alerts.outputs.total }}"
           CRITICAL="${{ steps.alerts.outputs.critical }}"
           HIGH="${{ steps.alerts.outputs.high }}"
+          OPS_OVERDUE="${{ steps.operator.outputs.overdue }}"
+          OPS_APPROACHING="${{ steps.operator.outputs.approaching }}"
+          OPS_LINES=$(cat /tmp/operator.txt 2>/dev/null || echo "")
 
-          # Build status emoji
-          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+          # Build status emoji (a security issue OR an overdue operator action = action needed)
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ] || [ "${OPS_OVERDUE:-0}" -gt 0 ]; then
             STATUS="⚠️ Action needed"
-          elif [ "$ALERTS" -gt 0 ] || [ "$OUTDATED" -gt 0 ]; then
+          elif [ "$ALERTS" -gt 0 ] || [ "$OUTDATED" -gt 0 ] || [ "${OPS_APPROACHING:-0}" -gt 0 ]; then
             STATUS="ℹ️ Review recommended"
           else
             STATUS="✅ All clear"
+          fi
+
+          OPS_TEXT="📋 *Operator actions (RC-19):* ${OPS_OVERDUE:-0} overdue, ${OPS_APPROACHING:-0} approaching"
+          if [ -n "$OPS_LINES" ]; then
+            OPS_TEXT=$(printf '%s\n%s' "$OPS_TEXT" "$OPS_LINES")
           fi
 
           BLOCKS=$(jq -n \
@@ -114,12 +170,14 @@ jobs:
             --arg status "$STATUS" \
             --arg deps "📦 *Outdated packages:* $OUTDATED" \
             --arg alerts "🔒 *Dependabot alerts:* $ALERTS ($CRITICAL critical, $HIGH high)" \
-            --arg link "<https://github.com/${{ github.repository }}/security/dependabot|View alerts> · <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>" \
+            --arg ops "$OPS_TEXT" \
+            --arg link "<https://github.com/${{ github.repository }}/security/dependabot|View alerts> · <https://github.com/${{ github.repository }}/blob/main/OPERATOR_ACTIONS.md|Operator actions> · <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>" \
             '[
               {"type":"header","text":{"type":"plain_text","text":$title}},
               {"type":"section","text":{"type":"mrkdwn","text":$status}},
               {"type":"divider"},
               {"type":"section","text":{"type":"mrkdwn","text":($deps + "\n" + $alerts)}},
+              {"type":"section","text":{"type":"mrkdwn","text":$ops}},
               {"type":"context","elements":[{"type":"mrkdwn","text":$link}]}
             ]')
 

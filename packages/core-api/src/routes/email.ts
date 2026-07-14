@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { ServiceUnavailableError, ValidationError, logger } from '@open-brain/shared'
 import type { EmailDraftService } from '../services/email-draft.js'
 import type { EmailComposeAssistService } from '../services/email-compose-assist.js'
+import { parseUUIDParam } from '../lib/validation.js'
 
 const VALID_STATUSES = ['draft', 'approved', 'sent', 'rejected', 'failed'] as const
 const VALID_SEND_MODES = ['review-required', 'auto-send'] as const
@@ -88,7 +89,7 @@ export function registerEmailRoutes(
   // GET /api/v1/email/drafts/:id
   // -----------------------------------------------------------------------
   app.get('/api/v1/email/drafts/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
     const draft = await emailDraftService.get(id)
     return c.json(draft)
   })
@@ -165,7 +166,7 @@ export function registerEmailRoutes(
   //    approved, failed, or rejected).
   // -----------------------------------------------------------------------
   app.patch('/api/v1/email/drafts/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     let rawBody: unknown
     try {
@@ -204,7 +205,7 @@ export function registerEmailRoutes(
   // POST /api/v1/email/drafts/:id/send — approve and send
   // -----------------------------------------------------------------------
   app.post('/api/v1/email/drafts/:id/send', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     const draft = await emailDraftService.approveThenSend(id)
 
@@ -221,7 +222,7 @@ export function registerEmailRoutes(
   // DELETE /api/v1/email/drafts/:id — reject/discard
   // -----------------------------------------------------------------------
   app.delete('/api/v1/email/drafts/:id', async (c) => {
-    const id = c.req.param('id')
+    const id = parseUUIDParam(c.req.param('id'))
 
     const draft = await emailDraftService.reject(id)
 

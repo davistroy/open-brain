@@ -8,7 +8,7 @@ import type { EmailDraftService } from '../services/email-draft.js'
 // ---------------------------------------------------------------------------
 
 const SAMPLE_DRAFT = {
-  id: 'draft-uuid-1',
+  id: '33333333-3333-3333-3333-333333333333',
   to_address: 'test@example.com',
   cc_address: null,
   subject: 'Test Subject',
@@ -64,7 +64,7 @@ describe('GET /api/v1/email/drafts', () => {
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.items).toHaveLength(1)
-    expect(body.items[0].id).toBe('draft-uuid-1')
+    expect(body.items[0].id).toBe('33333333-3333-3333-3333-333333333333')
     expect(body.total).toBe(1)
     expect(body.limit).toBe(50)
     expect(body.offset).toBe(0)
@@ -110,12 +110,25 @@ describe('GET /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1')
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333')
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.id).toBe('draft-uuid-1')
-    expect(emailDraftService.get).toHaveBeenCalledWith('draft-uuid-1')
+    expect(body.id).toBe('33333333-3333-3333-3333-333333333333')
+    expect(emailDraftService.get).toHaveBeenCalledWith('33333333-3333-3333-3333-333333333333')
+  })
+
+  it('rejects a malformed :id with 400 VALIDATION_ERROR (SW5-M2 — never reaches the service)', async () => {
+    const emailDraftService = makeMockService()
+    const app = createApp({ emailDraftService })
+
+    const res = await app.request('/api/v1/email/drafts/not-a-uuid')
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(body.code).toBe('VALIDATION_ERROR')
+    expect(body.error).toContain('must be a valid UUID')
+    expect(emailDraftService.get).not.toHaveBeenCalled()
   })
 })
 
@@ -140,7 +153,7 @@ describe('POST /api/v1/email/drafts', () => {
 
     expect(res.status).toBe(201)
     const body = await res.json() as any
-    expect(body.id).toBe('draft-uuid-1')
+    expect(body.id).toBe('33333333-3333-3333-3333-333333333333')
     expect(body.status).toBe('draft')
     expect(emailDraftService.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -259,7 +272,7 @@ describe('POST /api/v1/email/drafts/:id/send', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1/send', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333/send', {
       method: 'POST',
     })
 
@@ -267,7 +280,7 @@ describe('POST /api/v1/email/drafts/:id/send', () => {
     const body = await res.json() as any
     expect(body.status).toBe('sent')
     expect(body.sent_at).toBeDefined()
-    expect(emailDraftService.approveThenSend).toHaveBeenCalledWith('draft-uuid-1')
+    expect(emailDraftService.approveThenSend).toHaveBeenCalledWith('33333333-3333-3333-3333-333333333333')
   })
 })
 
@@ -280,14 +293,14 @@ describe('DELETE /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'DELETE',
     })
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
     expect(body.status).toBe('rejected')
-    expect(emailDraftService.reject).toHaveBeenCalledWith('draft-uuid-1')
+    expect(emailDraftService.reject).toHaveBeenCalledWith('33333333-3333-3333-3333-333333333333')
   })
 })
 
@@ -302,7 +315,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     })
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -313,10 +326,10 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json() as any
-    expect(body.id).toBe('draft-uuid-1')
+    expect(body.id).toBe('33333333-3333-3333-3333-333333333333')
     expect(body.subject).toBe('Updated Subject')
     expect(emailDraftService.update).toHaveBeenCalledWith(
-      'draft-uuid-1',
+      '33333333-3333-3333-3333-333333333333',
       expect.objectContaining({ subject: 'Updated Subject', body: 'Updated body' }),
     )
   })
@@ -325,7 +338,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -338,7 +351,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     })
 
     expect(emailDraftService.update).toHaveBeenCalledWith(
-      'draft-uuid-1',
+      '33333333-3333-3333-3333-333333333333',
       expect.objectContaining({
         to: 'a@example.com, b@example.com',
         cc: 'c@example.com',
@@ -350,7 +363,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -360,7 +373,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     })
 
     expect(emailDraftService.update).toHaveBeenCalledWith(
-      'draft-uuid-1',
+      '33333333-3333-3333-3333-333333333333',
       expect.objectContaining({ cc: null }),
     )
   })
@@ -369,7 +382,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -387,7 +400,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -403,7 +416,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     const emailDraftService = makeMockService()
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -417,11 +430,11 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
 
   it('returns 404 when the draft is missing', async () => {
     const emailDraftService = makeMockService({
-      update: vi.fn().mockRejectedValue(new NotFoundError('Email draft not found: missing-id')),
+      update: vi.fn().mockRejectedValue(new NotFoundError('Email draft not found: 99999999-9999-9999-9999-999999999999')),
     })
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/missing-id', {
+    const res = await app.request('/api/v1/email/drafts/99999999-9999-9999-9999-999999999999', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -443,7 +456,7 @@ describe('PATCH /api/v1/email/drafts/:id', () => {
     })
     const app = createApp({ emailDraftService })
 
-    const res = await app.request('/api/v1/email/drafts/draft-uuid-1', {
+    const res = await app.request('/api/v1/email/drafts/33333333-3333-3333-3333-333333333333', {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
