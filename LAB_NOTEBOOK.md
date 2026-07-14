@@ -12959,3 +12959,19 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 **Status:** autonomous cluster COMPLETE to its blocking boundaries. Decisions + provisioning handed to Troy.
 **Tags:** [ci] [security] [deploy] [decision]
 **Environment:** ubuntu-vm + homeserver (root SSH, redis). open-brain `main`/prod. Executed by Claude (Opus 4.8) under ultracode.
+
+## Entry 195 — Reverted repo to PUBLIC → all 3 OA-2 regressions fixed + OA-8 & OA-13 completed (2026-07-14)  [ci] [security] [decision]
+
+**Troy's decision:** revert to public (over losing branch protection). `gh repo edit davistroy/open-brain --visibility public`. **RC-10's public-repo concern is now a deliberate risk-acceptance** (no secrets in-repo — all in Bitwarden). Verified each regression cleared:
+1. **`gh pr checks` — FIXED** (works immediately on the public repo).
+2. **homeserver `git fetch` — FIXED** (first retry failed on GitHub propagation lag; `git ls-remote` + `git fetch origin` then succeeded anonymously — no auth config on the box; clean). → **OA-17 OBSOLETE.**
+3. **Branch protection — RESTORED + STRENGTHENED.** It was gone (404 "Branch not protected" — the private flip deleted it; public did NOT auto-restore). Re-created via `gh api PUT .../branches/main/protection` with **4 required checks**: `Integration tests (core-api + real DB)`, `build-and-test` (restored) + `Validate init-schema.sql`, `Python lint & typecheck` (**OA-8 done** — both green on the last 3 runs), `strict=false`, `enforce_admins=false`, no reviews. → **OA-8 DONE.**
+
+**OA-13 also completed:** the `@dependabot rebase` on #235/#237 landed onto the fixed CI → the `email-worker-test` job went GREEN and validated the postal-mime + workers-types bumps (exactly the QA-7 purpose of #260) → both merged.
+
+**Net of the whole autonomous cluster:** financial Pushover fix + load-secrets OA-4b (#268); stale jobs cleared; **repo public + branch protection with 4 required checks; OA-8/OA-13 done; OA-17 obsolete.** Lesson recorded: **flipping a free-tier repo private silently deletes branch protection and breaks anonymous git + PAT check-reads** — verify protection/tooling, not just image-pulls, on any visibility change.
+
+**Still open (handed to Troy, all documented):** provision Plaid secrets (finishes financial-ingest); #265 Gas South HAR; OA-14 GHA-major Dependabot (deliberate one-at-a-time); OA-4a dedicated BW token; OA-6/7/9/10/11/12/15/16; gated issues #196/#72/#73/#71/#54/#57.
+**Status:** revert COMPLETE + verified; OA-2 reversed, OA-8/OA-13 done, OA-17 obsolete.
+**Tags:** [ci] [security] [decision]
+**Environment:** ubuntu-vm + homeserver. open-brain `main` (public). Executed by Claude (Opus 4.8) under ultracode, user-directed.
