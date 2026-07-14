@@ -12836,3 +12836,56 @@ Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{
 
 **Tags:** [ci] [debug] [database] [decision] [web]
 **Environment:** ubuntu-vm + read-only SSH to homeserver (prod counts, backup-log verification). open-brain `main`. Executed by Claude (Opus 4.8) under ultracode.
+
+## Entry 189 — OA-1 deploy: migration 0036 + workers recreate to fix DA-1 retention prune (2026-07-13)  [deploy] [database] [docker] [pipeline]
+
+**Objective:** Execute OA-1 (user-approved "deploy it"). Apply migration **0036** (`briefs_source_skill_log_id_fkey` → `ON DELETE SET NULL` + drop dead `fts_search()`) to the prod DB and recreate the `workers` container on the current `:latest` image (= main HEAD `7a9d87e`, post-#244). This fixes **DA-1**: the weekly `data-retention-prune` job has FK-blocked (SQLSTATE 23503) on `skills_log` deletes every Sunday since 2026-07-05 because briefs referencing >60d skills_log rows blocked those deletes. Also deploys the v5 workers code (#204 runAgent context budget, #217 scheduler orphan reconciliation, per-table retention fault isolation).
+
+**Pre-deploy recon (read-only, verified):**
+- Prod migration ledger = **0035** latest; **0036 NOT applied** (count=0). 0036 is the single pending migration; it's the highest in `packages/shared/drizzle/`. After apply, prod schema = main HEAD.
+- 0036 is trivial/safe: DROP+ADD one FK + DROP one dead function. Idempotent under `ON_ERROR_STOP=1`. No table rewrite / backfill / parallel-index → **no `/dev/shm` (DA-11) concern**, no `PGOPTIONS` needed.
+- Fresh backup present: `/mnt/user/backup/openbrain/daily/2026-07-13` (pgdump 120 MB) + offsite verified (OA-5). Rollback-safe.
+- Deployed compose-repo HEAD = `a1629e4` (#224) but the RUNNING compose is newer (13 containers, ADR-0004 observability already removed) — the documented lag pattern. **Real** working-tree `docker-compose.yml` vs `origin/main` divergence = 34 lines. **Decision: do NOT adopt main's compose.** A surgical `workers`-only image pull + `--force-recreate --no-deps` deploys the new workers code without any compose reconciliation. `workers` stays **root** (not a Phase-8 non-root image), so **OA-15 volume-chown does NOT apply**. postgres/redis untouched (`--no-deps`); override.yml keeps the raw-bind pins.
+- Skipped intentionally (stay in the OA-9 batched window): the P7 workers `/backup-latest` mount (compose change, INERT until recreate — but recreating with CURRENT compose omits it, which is fine), non-root app images (need OA-15 chown first), postgres `shm_size` (OA-10).
+
+**Method:**
+1. `git checkout origin/main -- packages/shared/drizzle/0036_briefs_fk_and_cleanup.sql` on the homeserver (adopt just that file; don't move HEAD or touch compose).
+2. `migrate-manual.sh --dry-run` in a throwaway `pgvector/pgvector:pg16` container (repo bind-mounted `-v /mnt/user/appdata/open-brain:/app -w /app`, `POSTGRES_URL` from `docker exec open-brain-core-api printenv`) → assert it will apply ONLY 0036.
+3. `migrate-manual.sh` (apply) → applies 0036 + records in ledger.
+4. Verify: ledger shows 0036; FK is now SET NULL (`pg_constraint.confdeltype='n'`); a `BEGIN; DELETE FROM skills_log WHERE created_at < now()-interval '60 days'; ROLLBACK;` succeeds (proves no FK block) — non-destructive.
+5. Record current workers image digest (rollback anchor), then `docker compose pull workers` + `docker compose up -d --force-recreate --no-deps workers` (as root). Assert postgres/redis still render as binds first.
+6. Verify workers container healthy; clear the ~2 stuck `data-retention-prune` BullMQ failed jobs.
+
+**Hypothesis / success criteria:** 0036 recorded; skills_log >60d rows deletable in a rolled-back txn; workers healthy on new image; next Sunday's prune (or a manual trigger) writes a `retention_audit` success row instead of failing. #204/#217 close on deploy.
+
+**Rollback plan:** (a) Migration: `ALTER TABLE briefs DROP CONSTRAINT IF EXISTS briefs_source_skill_log_id_fkey; ADD CONSTRAINT … REFERENCES skills_log(id);` (reverse per 0036 header). (b) Workers image: re-pin to the recorded pre-deploy digest and `up -d --force-recreate --no-deps workers`. (c) DB backup daily/2026-07-13 as last resort. All recoverable.
+
+**Status:** ✅ COMPLETE & VERIFIED (2026-07-14 ~03:25 UTC). Results:
+- **0036 applied + recorded** (ledger row `0036_briefs_fk_and_cleanup` @ 03:21:24). FK `briefs_source_skill_log_id_fkey.confdeltype = 'n'` (SET NULL) ✓; dead `fts_search` dropped (0 rows) ✓.
+- **Prune unblocked — proven:** `BEGIN; DELETE FROM skills_log WHERE created_at < now()-interval '60 days'; ROLLBACK;` returned `DELETE 6017` with NO 23503 (rolled back → real Sunday `0 2` prune will now clear those 6017 backlogged rows). DA-1 fixed at the DB layer.
+- **Workers recreated** on new image `sha256:8294087c…` (rollback anchor: prior `sha256:b511d91c…`), **healthy in 5s**, scheduler cleanly re-registered all repeatable jobs (= #217 orphan-reconciliation working). #204/#217 now deployed.
+- **Surgical, zero collateral:** postgres/redis untouched (`--no-deps`), rendered as raw binds through the config gate; no compose adopted; workers stays root (OA-15 N/A). Other 12 containers unaffected.
+- **Residual (minor):** clearing the ~2 stuck `data-retention-prune` BullMQ *failed-set* records hit a redis-cli AUTH quirk from a throwaway container — deferred to the documented Queues-tab "Clear failed" admin action (non-blocking, observability-only).
+**Tags:** [deploy] [database] [docker] [pipeline]
+**Environment:** homeserver (Unraid, root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-approved OA-1.
+
+## Entry 190 — utility-ingest (+financial-ingest) BWS_ACCESS_TOKEN missing from `.env.secrets`; repo→private (2026-07-14)  [debug] [docker] [pipeline] [security] [decision]
+
+**Objective:** (A) Root-cause + fix `open-brain-utility-ingest` silently failing its daily run 3+ days (cron alert). (B) OA-2: flip repo private.
+
+**(A) utility-ingest — ROOT CAUSE (investigated as `claude`, sudo-docker; values redacted throughout):**
+The handoff premise ("financial-ingest is healthy & has the token; diff to find what utility lacks") **did not hold.** Findings:
+- **BOTH** `open-brain-utility-ingest` AND `open-brain-financial-ingest` (same `ingest-sidecar:latest` image) have **`BWS_ACCESS_TOKEN` ABSENT** from `.Config.Env` (runtime `BWS=ABSENT`; `bws` binary present at `/usr/local/bin/bws`).
+- Their compose defs are wired **identically**: `env_file: - .env.secrets`, with the comment "BWS_ACCESS_TOKEN set in .env.secrets — required for bws secret list." So it's **not a per-service compose gap.**
+- `/mnt/user/appdata/open-brain/.env.secrets` contains **ZERO `BWS_ACCESS_TOKEN=` lines** (verified via throwaway `alpine` mount, count-only). All OTHER secrets ARE present (env shows ADMIN_API_KEY, OPENAI_API_KEY, etc. — those come from `.env.secrets`).
+- **Both** pipelines require it: `scripts/utility-pipeline.py:125` and `scripts/financial-pipeline.py:143/151` shell out to `bws` (`"bws timed out — is BWS_ACCESS_TOKEN set?"`). So both are structurally broken; the utility cron is just the alert that fired. (Container `docker logs` are empty because all services use the Loki log driver — failures are in Loki/Grafana, not local json.)
+- **Category = MISSING SECRET, not compose gap, not "expired-in-file."** `BWS_ACCESS_TOKEN` is the Bitwarden **bootstrap machine-account token** that by design is NOT stored in BWS (chicken-and-egg; CLAUDE.md/PROVIDER_SETTINGS) and must be set MANUALLY on the host. Any `.env.secrets` rebuild via `load-secrets.sh` (sources only BWS) **drops it** — the likely "3-days-ago" clobber. This is exactly **OA-4** (never provisioned / lost on reconcile).
+
+**Decision: STOPPED at the token wall per the user's hard constraint** — did NOT reuse the VM-side `BWS_ACCESS_TOKEN` (wrong-scope / boundary risk = "don't guess a value"). No sidecar recreate attempted (would not fix without the token). Handoff checklist given to Troy (OA-4, elevated: it's actively breaking both ingest sidecars). **Structural recommendation (repo-side, no secret — offered, not yet done):** make `load-secrets.sh` PRESERVE an existing `BWS_ACCESS_TOKEN` line when rewriting `.env.secrets`, so a reconcile can't clobber the bootstrap token again.
+
+**(B) OA-2 repo→private:** `gh repo edit --visibility private` (gh 2.45 needs no consequence-flag). Verified: repo=PRIVATE; **fresh `docker pull` of core-api:latest from the homeserver STILL succeeds** (GHCR package visibility is independent of repo visibility → deploy/pull path intact); CI uses `GITHUB_TOKEN` (works private). OA-2 → DONE.
+
+**Rollback:** utility-ingest — nothing changed (investigation only), nothing to roll back. Repo-private — reversible via `gh repo edit --visibility public`.
+**Status:** (A) BLOCKED on Troy (OA-4 token) — root cause fixed-in-diagnosis, fix handed off. (B) COMPLETE.
+**Tags:** [debug] [docker] [pipeline] [security] [decision]
+**Environment:** homeserver (Unraid, `claude` sudo-docker for A; root SSH for pull-verify). Executed by Claude (Opus 4.8).
