@@ -71,6 +71,10 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+          # This standalone npm job has no pnpm; setup-node v5 otherwise
+          # auto-detects the repo-root pnpm-lock.yaml and fails on `pnpm store
+          # path`. Mirrors the doc-sync job. (fixes CI red from PR #244)
+          package-manager-cache: false
 
       - name: Install dependencies
         run: npm ci
