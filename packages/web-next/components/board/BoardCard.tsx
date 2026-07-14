@@ -20,6 +20,7 @@
  */
 
 import { Check, Clock } from 'lucide-react';
+import { useClientNow } from '@/hooks/useClientNow';
 import type { BoardCommitment } from '@/lib/types';
 
 /** ISO date string "YYYY-MM-DD" → display like "Apr 30" */
@@ -29,9 +30,12 @@ function formatDueDate(isoDate: string): string {
 }
 
 /** True if isoDate is strictly before today (date-only comparison). */
-function isOverdue(isoDate: string | null): boolean {
+function isOverdue(isoDate: string | null, now: number | null): boolean {
   if (!isoDate) return false;
-  const today = new Date();
+  // Pre-mount (SSR + first client render): treat as not-overdue so the stripe/badge
+  // is stable across hydration; recomputes once the client clock is available.
+  if (now === null) return false;
+  const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const due = new Date(`${isoDate}T00:00:00`);
   return due < today;
@@ -45,9 +49,10 @@ interface BoardCardProps {
 
 export function BoardCard({ commitment, onResolve, resolving = false }: BoardCardProps) {
   const { id, text, due_date, status, entity_name } = commitment;
+  const now = useClientNow();
 
   const resolved = status === 'resolved';
-  const overdue = !resolved && isOverdue(due_date);
+  const overdue = !resolved && isOverdue(due_date, now);
 
   // Left stripe color
   const stripeClass = resolved

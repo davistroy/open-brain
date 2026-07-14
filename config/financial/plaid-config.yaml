@@ -50,9 +50,12 @@ accounts:
 # Bitwarden secret references (retrieved via bws CLI)
 # These are the Bitwarden Secrets Manager secret names, NOT the values
 bitwarden_keys:
-  client_id_key: "plaid-client-id"
-  secret_key: "plaid-secret"
-  tokens_key: "plaid-access-tokens"
+  # Canonical Bitwarden names (UPPERCASE_UNDERSCORE, matching GAS_SOUTH_*/PUSHOVER_*).
+  # NOTE: these 3 secrets must still be PROVISIONED in Bitwarden — they do not exist
+  # under any name yet. tokens is a JSON blob: {"amex":"access-...","chase":"...", ...}
+  client_id_key: "PLAID_CLIENT_ID"
+  secret_key: "PLAID_SECRET"
+  tokens_key: "PLAID_ACCESS_TOKENS"
 
 # Open Brain capture API
 capture_api:

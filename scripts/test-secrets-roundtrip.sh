@@ -412,6 +412,30 @@ else
     ok "6.5: verify-secrets reports DRIFT row + exit 1"
 fi
 
+echo ""
+echo "[6.6] Bootstrap BWS_ACCESS_TOKEN line preserved across --force rewrite (OA-4b)"
+reset_app_dir
+run_capture 6.6a bash "${REPO_ROOT}/scripts/load-secrets.sh" --target-dir "${APP_DIR}"
+if (( RC != 0 )); then
+  fail "6.6a: initial write exited ${RC} (expected 0)"
+fi
+BOOTSTRAP_SENTINEL="bootstrap-preserve-me-0123"
+printf 'BWS_ACCESS_TOKEN=%s\n' "${BOOTSTRAP_SENTINEL}" >> "${APP_DIR}/.env.secrets"
+run_capture 6.6b bash "${REPO_ROOT}/scripts/load-secrets.sh" --force --target-dir "${APP_DIR}"
+if (( RC != 0 )); then
+  fail "6.6b: --force exited ${RC} (expected 0)"
+elif ! grep -q "^BWS_ACCESS_TOKEN=${BOOTSTRAP_SENTINEL}\$" "${APP_DIR}/.env.secrets"; then
+  fail "6.6b: bootstrap BWS_ACCESS_TOKEN line not preserved after --force"
+else
+  n=$(grep -cE '^BWS_ACCESS_TOKEN=' "${APP_DIR}/.env.secrets" || true)
+  if (( n != 1 )); then
+    fail "6.6b: expected exactly 1 BWS_ACCESS_TOKEN line, found ${n}"
+  else
+    assert_no_secret_leak "${OUT_FILE}" "6.6b-stdout" && \
+      ok "6.6: bootstrap token preserved exactly once across --force rewrite"
+  fi
+fi
+
 # -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------

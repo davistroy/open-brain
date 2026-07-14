@@ -10,12 +10,12 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250327.0",
+    "@cloudflare/workers-types": "^5.20260714.1",
     "typescript": "^5.7.0",
     "vitest": "^3.2.6",
     "wrangler": "^4.14.0"
   },
   "dependencies": {
-    "postal-mime": "^2.4.1"
+    "postal-mime": "^2.7.5"
   }
 }

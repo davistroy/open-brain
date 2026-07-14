@@ -19,6 +19,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
+import { useClientNow } from '@/hooks/useClientNow';
 import { TimelineGroup } from './TimelineGroup';
 import { capturesApi } from '@/lib/api-client';
 import type { Capture, BrainView, CaptureSource } from '@/lib/types';
@@ -66,6 +67,8 @@ function groupCaptures(captures: Capture[]): Array<{ dateKey: string; captures: 
  * Filtered + no results → softer "Nothing here for this filter."
  */
 function TimelineEmptyState({ isFiltered }: { isFiltered: boolean }) {
+  const now = useClientNow();
+
   if (isFiltered) {
     return (
       <div className="px-4 py-12 text-center">
@@ -79,7 +82,11 @@ function TimelineEmptyState({ isFiltered }: { isFiltered: boolean }) {
     );
   }
 
-  const weekday = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  // Pre-mount (SSR + first client render): neutral placeholder so the empty-state
+  // copy is hydration-stable; the real weekday fills in once the client clock is set.
+  const weekday = now === null
+    ? 'day'
+    : new Date(now).toLocaleDateString('en-US', { weekday: 'long' });
 
   return (
     <div className="px-4 py-16 text-center">

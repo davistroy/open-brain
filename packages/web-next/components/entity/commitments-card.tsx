@@ -3,6 +3,7 @@
 import { toast } from 'sonner';
 import { CheckSquare, Square, ClipboardList } from 'lucide-react';
 import { Card, EmptyState } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import { useCommitmentsForEntity, useResolveCommitment } from '@/lib/api/commitments.hooks';
 import type { BoardCommitment } from '@/lib/types';
 
@@ -18,8 +19,11 @@ function formatDueDate(isoDate: string): string {
 }
 
 /** Returns true if due_date is in the past (overdue). Compares date-only, not time. */
-function isOverdue(isoDate: string): boolean {
-  const today = new Date();
+function isOverdue(isoDate: string, now: number | null): boolean {
+  // Pre-mount (SSR + first client render): treat as not-overdue so the badge is
+  // stable across hydration; recomputes once the client clock is available.
+  if (now === null) return false;
+  const today = new Date(now);
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   return isoDate < todayStr;
 }
@@ -32,7 +36,8 @@ interface CommitmentRowProps {
 }
 
 function CommitmentRow({ commitment, resolvingId, onResolve }: CommitmentRowProps) {
-  const overdue = commitment.due_date ? isOverdue(commitment.due_date) : false;
+  const now = useClientNow();
+  const overdue = commitment.due_date ? isOverdue(commitment.due_date, now) : false;
   const isResolving = resolvingId === commitment.id;
 
   return (

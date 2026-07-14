@@ -17,6 +17,7 @@
 
 import { RefreshCw, Database, Zap, Server, BookOpen } from 'lucide-react';
 import { Button, StatusDot } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import type {
   SystemHealthSnapshot,
   QueueStats,
@@ -54,9 +55,11 @@ function fmtDuration(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function fmtRelative(iso: string | null): string {
+function fmtRelative(iso: string | null, now: number | null): string {
   if (!iso) return 'Never';
-  const diff = Date.now() - new Date(iso).getTime();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diff = now - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   const h = Math.floor(m / 60);
   const d = Math.floor(h / 24);
@@ -215,6 +218,7 @@ function QueueDepthRow({ queue }: { queue: QueueStats }) {
 }
 
 function SkillLastRunTable({ runs }: { runs: SkillLastRun[] }) {
+  const now = useClientNow();
   if (runs.length === 0) {
     return (
       <div className="py-[24px] text-center text-[13px] text-text-body-secondary font-light">
@@ -240,7 +244,7 @@ function SkillLastRunTable({ runs }: { runs: SkillLastRun[] }) {
             {fmtDuration(run.duration_ms)}
           </span>
           <span className="shrink-0 text-[11px] text-text-body-secondary font-light">
-            {fmtRelative(run.last_run_at)}
+            {fmtRelative(run.last_run_at, now)}
           </span>
         </div>
       ))}
@@ -257,6 +261,8 @@ interface OverviewTabProps {
 }
 
 export function OverviewTab({ snapshot }: OverviewTabProps) {
+  const now = useClientNow();
+
   function handleRefresh() {
     window.location.reload();
   }
@@ -309,7 +315,7 @@ export function OverviewTab({ snapshot }: OverviewTabProps) {
             )}
             {snapshot.wiki.last_commit_date && (
               <span className="ml-auto text-[11px] text-text-body-secondary font-light shrink-0">
-                {fmtRelative(snapshot.wiki.last_commit_date)}
+                {fmtRelative(snapshot.wiki.last_commit_date, now)}
               </span>
             )}
             {snapshot.wiki.error && (
