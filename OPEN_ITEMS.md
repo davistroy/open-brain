@@ -18,7 +18,7 @@ Last reconciled: 2026-07-14.
 
 **Status: MERGED and deploying.** PR #244 (31/35 items, commits `d1729ee..c31d753`) merged to `main` as `cd287d8`; the `config/wiki/` cleanup (Entry 187) landed as `d0cde86`. All 8 phases (CS-A–CS-H) complete — see `LAB_NOTEBOOK.md` Entries 186–192.
 
-The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`](OPERATOR_ACTIONS.md)** (the dated register). Deployed 2026-07-14: **OA-1** (migration 0036 → retention-prune unblocked + workers on the new image; closed #204/#217 on deploy) and **OA-2** (repo → private). Still open there: OA-4 residuals, OA-7 (mobile ingress / U3), OA-8 (promote required checks), OA-9 (live-host session), OA-10/15 (batched restart window), OA-16 (rehearsal Pushover), OA-17 (homeserver git-remote auth — regression from the OA-2 private flip).
+The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`](OPERATOR_ACTIONS.md)** (the dated register). Deployed 2026-07-14: **OA-1** (migration 0036 → retention-prune unblocked + workers on the new image; closed #204/#217 on deploy), **OA-2** (repo → private then **reverted to public**; branch protection re-created), **OA-8**/**OA-13** done, OA-17 obsolete. **Decisions 2026-07-14:** OA-4a **won't-do** (keep broad VM BWS token, D137); **Plaid dropped** (D138 — financial data re-sourcing TBD; "provision Plaid secrets" cancelled). **In progress:** OA-14 (5 GHA-major Dependabot PRs, one-at-a-time). Still open there: OA-6 (voice Bearer), OA-7 (mobile ingress / U3), OA-9 (live-host session), OA-10/15 (batched restart window), OA-11 (vendor terms), OA-12 (Gmail OAuth), OA-16 (rehearsal Pushover).
 
 ---
 
