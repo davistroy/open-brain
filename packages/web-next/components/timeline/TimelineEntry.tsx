@@ -11,11 +11,13 @@
  * Text preview: first ~120 chars of content; truncates with ellipsis.
  * Timestamp: relative (e.g. "3h ago", "14:32"); full ISO on hover via title.
  *
- * The component is a client component because it references browser APIs
- * (Date.now()) for relative formatting — rendered in the timeline feed.
+ * The component is a client component because it needs the client clock for
+ * relative timestamp formatting. It reads the mount-time value via useClientNow()
+ * (null during SSR + first client render) so the timestamp is hydration-stable.
  */
 
 import Link from 'next/link';
+import { useClientNow } from '@/hooks/useClientNow';
 import { SOURCE_ICON_MAP, SOURCE_LABEL_MAP } from '@/lib/source-icons';
 import type { Capture } from '@/lib/types';
 
@@ -49,11 +51,12 @@ const BRAIN_VIEW_LABEL: Record<string, string> = {
  *   - Same week: "Mon 14:32"
  *   - Older:     "Apr 14"
  */
-function formatTimestamp(isoString: string): string {
+function formatTimestamp(isoString: string, now: number | null): string {
   const date = new Date(isoString);
-  const now = new Date();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-  const diffMs = now.getTime() - date.getTime();
+  const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) {
@@ -93,13 +96,14 @@ interface TimelineEntryProps {
 
 export function TimelineEntry({ capture }: TimelineEntryProps) {
   const { source, brain_view, content, created_at, capture_type } = capture;
+  const now = useClientNow();
 
   const Icon = SOURCE_ICON_MAP[source] ?? SOURCE_ICON_MAP.api;
   const sourceLabel = SOURCE_LABEL_MAP[source] ?? source;
   const viewColor = BRAIN_VIEW_COLOR[brain_view] ?? 'bg-cloud-dark';
   const viewLabel = BRAIN_VIEW_LABEL[brain_view] ?? brain_view;
   const preview = buildPreview(content);
-  const timestamp = formatTimestamp(created_at);
+  const timestamp = formatTimestamp(created_at, now);
 
   return (
     <Link

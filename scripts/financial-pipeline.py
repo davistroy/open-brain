@@ -754,8 +754,8 @@ def send_pushover_alert(cfg: dict, title: str, message: str, priority: int = 0) 
     import urllib.request
 
     try:
-        user_key = get_bws_secret("pushover-user-key")
-        api_token = get_bws_secret("pushover-api-token")
+        user_key = get_bws_secret("PUSHOVER_USER_KEY")
+        api_token = get_bws_secret("PUSHOVER_API_TOKEN")
     except SystemExit:
         log.warning("send_pushover_alert: Pushover secrets not found in Bitwarden — skipping")
         return False

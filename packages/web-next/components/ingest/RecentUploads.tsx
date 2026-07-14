@@ -14,6 +14,7 @@
 import { RefreshCw, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Pill, EmptyState } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import { useIngestUploads, useReprocessUpload, INGEST_UPLOADS_QUERY_KEY } from '@/lib/api/ingest.hooks';
 import type { FileUploadStatus, ListUploadsResponse } from '@/lib/api-client';
 import { toast } from 'sonner';
@@ -25,10 +26,11 @@ export { INGEST_UPLOADS_QUERY_KEY };
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, now: number | null): string {
   const d = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diffMs = now - d.getTime();
   const diffMins = Math.floor(diffMs / 60_000);
 
   if (diffMins < 1) return 'just now';
@@ -88,6 +90,7 @@ const REFRESH_INTERVAL_MS = 10_000; // 10s polling while any row is non-terminal
 
 export function RecentUploads({ activeUploadId, limit = 20, initialData }: RecentUploadsProps) {
   const queryClient = useQueryClient();
+  const now = useClientNow();
   const { data, isLoading, isError, error } = useIngestUploads(
     { limit },
     {
@@ -259,7 +262,7 @@ export function RecentUploads({ activeUploadId, limit = 20, initialData }: Recen
 
               {/* Uploaded time */}
               <span className="font-mono text-[10.5px] text-[var(--color-text-body-secondary)]">
-                {formatDate(upload.uploaded_at)}
+                {formatDate(upload.uploaded_at, now)}
               </span>
             </div>
           );

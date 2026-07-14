@@ -21,6 +21,7 @@
 import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight, Mail, Inbox } from 'lucide-react';
 import { EmptyState } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import type { Capture } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -126,9 +127,10 @@ function buildThreads(captures: Capture[]): EmailThread[] {
 // Date formatters
 // ---------------------------------------------------------------------------
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, now: number | null): string {
   const date = new Date(iso);
-  const now = Date.now();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
@@ -165,6 +167,7 @@ interface ThreadAccordionProps {
 
 function ThreadAccordion({ thread }: ThreadAccordionProps) {
   const [expanded, setExpanded] = useState(false);
+  const now = useClientNow();
   const { displaySubject, captures, latestAt } = thread;
 
   return (
@@ -198,7 +201,7 @@ function ThreadAccordion({ thread }: ThreadAccordionProps) {
 
         {/* Latest date */}
         <span className="font-mono text-[10px] text-text-small tracking-[0.04em] shrink-0 ml-2">
-          {formatRelative(latestAt)}
+          {formatRelative(latestAt, now)}
         </span>
       </button>
 
