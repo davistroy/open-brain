@@ -12924,3 +12924,21 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 **Status:** utility-ingest infra FIXED + deployed + verified; gas data-fetch deferred to #265. Two regressions logged (OA-17 + PAT note).
 **Tags:** [deploy] [pipeline] [debug] [ci]
 **Environment:** ubuntu-vm + homeserver (root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-directed.
+
+## Entry 193 — Autonomous cluster: financial-ingest drift fix + load-secrets.sh bootstrap-token preservation (OA-4b) (2026-07-14)  [pipeline] [config] [security] [test]
+
+**Objective:** "Do everything you can autonomously." A 3-agent analysis workflow confirmed findings; this entry is the execution.
+
+**(1) financial-ingest IS broken — same class as utility (confirmed via bws key-name check + code read):**
+- **Pushover drift (FIXED, code):** `financial-pipeline.py:757-758` hardcoded `pushover-user-key`/`pushover-api-token`, but BW has `PUSHOVER_USER_KEY`/`PUSHOVER_API_TOKEN`. Renamed the two literals. (This failure was SILENT — wrapped in `try/except SystemExit` → "Pushover secrets not found — skipping", so alerts were dropped, not hard-failing.)
+- **Plaid ABSENT (operator-gated):** `plaid-client-id`/`plaid-secret`/`plaid-access-tokens` do NOT exist in the BW vault under any name. `config/financial/plaid-config.yaml` `bitwarden_keys` updated to the canonical uppercase names `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ACCESS_TOKENS` (ready-but-inert). **financial `--sync` will keep hard-exiting(1) at `init_plaid()` until Troy PROVISIONS those 3 secrets in BW** (tokens = a JSON blob `{"amex":"access-...","chase":"..."}`). → operator action. Code fix ships in the `ingest-sidecar` image; the final `pull + recreate financial-ingest` is deferred until Plaid is provisioned (no point recreating a still-blocked service).
+
+**(2) load-secrets.sh bootstrap-token preservation (OA-4b, durable fix):** `load-secrets.sh` does a FULL rewrite of `.env.secrets` from `secrets-map.sh`; `BWS_ACCESS_TOKEN` is (by design) not in the map, so every reconcile dropped it — the recurring root cause of the utility/financial outages. Fix: capture any existing `^BWS_ACCESS_TOKEN=` line before the atomic write and re-emit it into the new file (2 insertions, reconcile-path only; `--force`/`--target-dir` covered). Added roundtrip test **case 6.6** (append a sentinel token → `--force` rewrite → assert preserved exactly once). **`scripts/test-secrets-roundtrip.sh` now PASSES 7/7** locally. This closes OA-4b (the durable half).
+
+**Validation:** `py_compile` + `ruff` (financial-pipeline) pass; `bash -n` (load-secrets + test) pass; plaid-config YAML valid; roundtrip 7/7.
+
+**Deferred to Troy:** provision the 3 Plaid secrets in BW as `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ACCESS_TOKENS` → then recreate financial-ingest to finish. (Least-privilege dedicated BW token — OA-4a — still stands.)
+
+**Status:** code fixes done + locally validated → PR. financial functional recovery gated on Plaid provisioning.
+**Tags:** [pipeline] [config] [security] [test]
+**Environment:** ubuntu-vm. open-brain `main`. Executed by Claude (Opus 4.8) under ultracode, user-directed.

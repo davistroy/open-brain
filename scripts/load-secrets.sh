@@ -308,6 +308,14 @@ fi
 # -----------------------------------------------------------------------------
 # Reconcile: write atomically.
 # -----------------------------------------------------------------------------
+# Preserve the Bitwarden BOOTSTRAP token across the rewrite (OA-4b). BWS_ACCESS_TOKEN
+# authenticates the bws CLI itself, so by design it is NOT a BWS secret (absent from
+# secrets-map.sh). A full rewrite would otherwise drop any manually-added
+# `BWS_ACCESS_TOKEN=` line — the recurring utility/financial-ingest outage.
+PRESERVED_BOOTSTRAP_TOKEN=""
+if [[ -f "${ENV_SECRETS_FILE}" ]]; then
+  PRESERVED_BOOTSTRAP_TOKEN="$(grep -m1 '^BWS_ACCESS_TOKEN=' "${ENV_SECRETS_FILE}" 2>/dev/null || true)"
+fi
 TMP_ENV_SECRETS="$(mktemp -p "${TARGET_DIR}" .env.secrets.tmp.XXXXXX)"
 chmod 0600 "${TMP_ENV_SECRETS}"
 
@@ -351,6 +359,12 @@ chmod 0600 "${TMP_ENV_SECRETS}"
     if [[ "$smtp_port_emit" == "yes" ]]; then
       echo "SMTP_PORT=${SMTP_PORT_DEFAULT}"
     fi
+  fi
+
+  if [[ -n "${PRESERVED_BOOTSTRAP_TOKEN}" ]]; then
+    echo ""
+    echo "# --- Bootstrap token (preserved from prior file; NOT in BWS, OA-4b) ---"
+    echo "${PRESERVED_BOOTSTRAP_TOKEN}"
   fi
 } > "${TMP_ENV_SECRETS}"
 
