@@ -12886,6 +12886,25 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 **(B) OA-2 repo→private:** `gh repo edit --visibility private` (gh 2.45 needs no consequence-flag). Verified: repo=PRIVATE; **fresh `docker pull` of core-api:latest from the homeserver STILL succeeds** (GHCR package visibility is independent of repo visibility → deploy/pull path intact); CI uses `GITHUB_TOKEN` (works private). OA-2 → DONE.
 
 **Rollback:** utility-ingest — nothing changed (investigation only), nothing to roll back. Repo-private — reversible via `gh repo edit --visibility public`.
-**Status:** (A) BLOCKED on Troy (OA-4 token) — root cause fixed-in-diagnosis, fix handed off. (B) COMPLETE.
+**Status:** (A) BLOCKED on Troy (OA-4 token) — root cause fixed-in-diagnosis, fix handed off. (B) COMPLETE. **[SUPERSEDED for part A by Entry 191 — Troy directed use of the VM token; layer 1 then fixed, layer 2 surfaced + fixed.]**
 **Tags:** [debug] [docker] [pipeline] [security] [decision]
 **Environment:** homeserver (Unraid, `claude` sudo-docker for A; root SSH for pull-verify). Executed by Claude (Opus 4.8).
+
+## Entry 191 — utility-ingest RESOLVED: VM token placed (layer 1) + gas-secret naming-drift fix (layer 2) (2026-07-14)  [debug] [pipeline] [config] [deploy] [decision]
+
+**Supersedes Entry 190 part A.** Troy directed "you should know the bws access token — use it." So, contrary to 190's handoff framing, I DID place a token and fixed it in two layers.
+
+**Layer 1 — BWS_ACCESS_TOKEN missing (FIXED):** Verified the VM's `BWS_ACCESS_TOKEN` is valid (not expired) and scoped to the `open-brain-*` secrets (94 secrets across projects `ai-work`/`personal`/`litellm`). Backed up `.env.secrets` (`.env.secrets.bak-oa4-<ts>`), appended `BWS_ACCESS_TOKEN=<value>` via stdin (value never in a command/log), mode 0600. Recreated `utility-ingest` + `financial-ingest` + `workers` (`--force-recreate --no-deps`, no pull, no `--remove-orphans`). Verified `bws secret list` **authenticates** inside all three (`BWS_LIST: OK`). **Caveat (least-privilege):** this token sees 94 secrets across 3 projects — broader than open-brain; a dedicated open-brain-scoped machine token would be tighter (flagged, not blocking).
+
+**Layer 2 — gas-secret naming drift (FIXED, code+config):** Running the ACTUAL daily cron cmd (`deploy/cron/unraid-ingest.cron`: `docker exec open-brain-utility-ingest python /app/utility-pipeline.py --gas --power-summary`) got past auth but died on `Secret 'dev/open-brain/gas-south' not found` (masked until layer 1 — auth failed before the lookup; and the earlier "exit 0" was a measurement artifact — `$?` read the piped `tail`, not python; `get_bws_secret` actually `sys.exit(1)`s). Root cause: `_gas_south_login` (utility-pipeline.py:325) read a single JSON secret `dev/open-brain/gas-south` `{"username","password"}`, but the **canonical** Bitwarden secrets are two separate values `GAS_SOUTH_USERNAME` / `GAS_SOUTH_PASSWORD` (Troy confirmed "separate is canonical"; also `COBB_EMC_*`, `COBB_WATER_*`). **Fix:** utility-pipeline.py now fetches the two keys via `get_bws_secret(gas_cfg.get("bitwarden_username_key","GAS_SOUTH_USERNAME"))` + `..._password_key`, defaults baked in; `config/utility/utility-config.yaml` gas block updated to `bitwarden_username_key`/`bitwarden_password_key`. **Scope:** gas is the ONLY `get_bws_secret` site in utility-pipeline.py (power = external Go tool, water = no-auth). No tests touch it. `py_compile` + `ruff` pass. The script is BAKED into the `ingest-sidecar` image → deploy = commit → CI `build-images` → `pull` + recreate `utility-ingest`.
+
+**Follow-ups flagged (out of scope, not done):**
+1. **financial-pipeline.py may have the SAME drift** — it reads `plaid-client-id`/`plaid-secret`/`plaid-access-tokens`/`pushover-*`; if BW holds `PLAID_*`/`PUSHOVER_*` names, financial is also broken. Check before relying on financial ingest.
+2. **Least-privilege:** mint a dedicated open-brain-scoped BW machine token (vs. the broad VM token placed here).
+3. **Durable:** patch `load-secrets.sh` to PRESERVE an existing `BWS_ACCESS_TOKEN` on rewrite (it's the bootstrap token BWS can't supply — the recurring clobber source).
+4. **Latent:** `trigger_server.py` `/process` hardcodes `--process-inbox`, which `utility-pipeline.py` rejects (its modes are `--gas/--water/--power-summary/...`) → utility's `/process` endpoint always 500s. Harmless today (utility isn't dashboard-upload-driven), but a real inconsistency.
+
+**Rollback:** revert this commit + redeploy the prior `ingest-sidecar` image; token placement reversible via the `.env.secrets` backup.
+**Status:** Code+config fix implemented + locally validated. **Deploy + end-to-end `--gas` verification PENDING** (entry written pre-deploy).
+**Tags:** [debug] [pipeline] [config] [deploy] [decision]
+**Environment:** ubuntu-vm (edit/validate) + homeserver (token placement, recreate, verify). Executed by Claude (Opus 4.8), user-directed.
