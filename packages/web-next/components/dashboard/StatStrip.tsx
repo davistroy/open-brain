@@ -95,6 +95,14 @@ export function StatStrip({ stats }: StatStripProps) {
         <div className="font-mono text-[12px] text-text-body-secondary mt-[8px] font-light tracking-[0.03em]">
           {stats.pipeline_active} active · {stats.pipeline_queued} queued
         </div>
+        {stats.pipeline_failed > 0 && (
+          <div
+            className="font-mono text-[12px] mt-[4px] font-light tracking-[0.03em]"
+            style={{ color: 'var(--color-faded-red)' }}
+          >
+            {stats.pipeline_failed} failed
+          </div>
+        )}
       </div>
     </div>
   );

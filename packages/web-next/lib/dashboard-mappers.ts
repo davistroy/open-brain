@@ -9,7 +9,34 @@
  */
 
 import type { StatsResponse, briefsApi } from '@/lib/api-client';
-import type { DashboardStats, OpenQuestion, UpcomingBrief } from '@/lib/types';
+import type { DashboardStats, OpenQuestion, ServiceHealthStatus, UpcomingBrief } from '@/lib/types';
+
+/**
+ * Pipeline health-label thresholds (issue #200).
+ *
+ * The health LABEL reflects the pipeline's live ability to process, decoupled
+ * from the stale all-time terminal-failure count (which is surfaced separately
+ * as `pipeline_failed`). A handful of months-old failed captures must NOT pin
+ * the label to "degraded" forever — recent-failure alerting is owned by the
+ * workers `pipeline-health` skill (Pushover), not the dashboard. A genuine
+ * failure flood or a real queue backlog still degrades/downs the label.
+ *
+ * Tunable in one place; `derivePipelineStatus` is the single source of truth.
+ */
+const PIPELINE_FAILED_UNHEALTHY = 50; // > this many all-time terminal failures ⇒ unhealthy
+const PIPELINE_PENDING_UNHEALTHY = 100; // > this deep a live backlog ⇒ unhealthy
+const PIPELINE_PENDING_DEGRADED = 50; // > this deep a live backlog ⇒ degraded
+
+/**
+ * Derive the pipeline health label from the live backlog and the all-time
+ * terminal-failure count. Pure and exported so the threshold policy is unit-
+ * testable directly (see dashboard-mappers.test.ts).
+ */
+export function derivePipelineStatus(failed: number, pending: number): ServiceHealthStatus {
+  if (failed > PIPELINE_FAILED_UNHEALTHY || pending > PIPELINE_PENDING_UNHEALTHY) return 'unhealthy';
+  if (pending > PIPELINE_PENDING_DEGRADED) return 'degraded';
+  return 'healthy';
+}
 
 /**
  * Map the raw StatsResponse from GET /api/v1/stats into the DashboardStats
@@ -22,8 +49,7 @@ export function mapStatsToDashboard(raw: StatsResponse): DashboardStats {
   const processing = raw.pipeline_health.processing ?? 0;
   const failed = raw.pipeline_health.failed ?? 0;
 
-  const pipeline_status: 'healthy' | 'degraded' | 'unhealthy' =
-    failed > 10 ? 'unhealthy' : failed > 0 || pending > 50 ? 'degraded' : 'healthy';
+  const pipeline_status = derivePipelineStatus(failed, pending);
 
   return {
     captures_7d: raw.total_captures,
@@ -40,6 +66,7 @@ export function mapStatsToDashboard(raw: StatsResponse): DashboardStats {
     pipeline_status,
     pipeline_active: processing,
     pipeline_queued: pending,
+    pipeline_failed: failed,
     llm_spend_usd: 0,
     capture_total: raw.total_captures,
     entity_total: 0,
