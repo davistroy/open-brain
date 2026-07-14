@@ -26,6 +26,7 @@ const stats: DashboardStats = {
   pipeline_status: 'healthy',
   pipeline_active: 3,
   pipeline_queued: 7,
+  pipeline_failed: 2,
   llm_spend_usd: 12.5,
   capture_total: 1842,
   entity_total: 356,
@@ -53,5 +54,15 @@ describe('StatStrip', () => {
     render(<StatStrip stats={stats} />)
     expect(screen.getByText('healthy')).toBeInTheDocument()
     expect(screen.getByText('3 active · 7 queued')).toBeInTheDocument()
+  })
+
+  it('surfaces the terminal-failure count when > 0 (issue #200)', () => {
+    render(<StatStrip stats={stats} />)
+    expect(screen.getByText('2 failed')).toBeInTheDocument()
+  })
+
+  it('hides the failure line when there are no terminal failures', () => {
+    render(<StatStrip stats={{ ...stats, pipeline_failed: 0 }} />)
+    expect(screen.queryByText(/\bfailed\b/)).not.toBeInTheDocument()
   })
 })
