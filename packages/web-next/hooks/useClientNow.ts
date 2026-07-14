@@ -12,6 +12,10 @@ import { useEffect, useState } from 'react';
 export function useClientNow(): number | null {
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    // Intentional one-shot mount-detection set: deferring the clock read to an
+    // effect is exactly how we avoid the SSR/client hydration mismatch. Same
+    // accepted pattern as ThemeToggle's mounted-state set.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNow(Date.now());
   }, []);
   return now;
