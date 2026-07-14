@@ -12809,3 +12809,30 @@ Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{
 
 **Tags:** [decision] [config] [cleanup]
 **Environment:** ubuntu-vm, open-brain `main`. Executed by Claude (Opus 4.8) resuming the improvement-plan parked items.
+
+## Entry 188 — Bucket-A open-item execution: CI red-fix, #226 close, #200 root-cause, Dependabot triage, #207 hydration, OA-5/7/11 verification (2026-07-13)  [ci] [debug] [database] [decision] [web]
+
+**Objective:** Execute the "Bucket A" (fully-autonomous, safe/reversible) subset of the open-item triage the user approved ("go A"). Six read-only investigations were fanned out via a 6-agent workflow (all completed, 0 errors, 456K subagent tokens); this entry covers acting on those findings. Bucket B (prod deploys — OA-1, repo-private OA-2, Dependabot majors OA-13/14) and Bucket C (iOS Shortcut, Gmail OAuth, hardware) are deliberately NOT touched here.
+
+**Findings driving each action (from the investigation fan-out):**
+1. **Red `main` CI = REAL, OURS, one-line fix.** The `email-worker-test` job (ci.yml:57) runs `actions/setup-node@v5` with only `node-version: '22'`. setup-node v5 defaults `package-manager-cache: true`, auto-detects the repo-root `pnpm-lock.yaml`, and shells to `pnpm store path` — but this standalone npm job (cloudflare/email-worker) never installs pnpm → `Unable to locate executable file: pnpm` at the Setup Node.js step, before `npm ci`. The sibling `doc-sync` job (also pnpm-free) already sets `package-manager-cache: false`; email-worker just omitted it. Regression from PR #244 (cd287d8). Not a *required* check, so merges weren't blocked, but CI reports RED and the job never validated the postal-mime/workers-types bumps it exists to gate.
+2. **#200 "large number of failures" = NOT a live incident.** Prod (read-only psql): captures — complete 11287, terminally **failed 2**; pipeline_events — failed 17659 of 114629, ALL dated 2026-04-15..2026-05-09 (zero new failures in ~2 months). These are retried-then-succeeded attempt rows from the April bulk file ingest (dominant: embed stage 400ing on the 8192-token cap because adaptive truncation starts at 16K chars; secondary: extract_entities → t1_spark 404/400/timeout). They don't age out because the 90-day prune is broken (DA-1 / OA-1, migration 0036 undeployed). Current BullMQ failed = 28 (one stale ~2026-06-11 ingest-root burst).
+3. **OA-7:** `packages/mobile` sends NO CF Access credential (grep for CF-Access/service-token = 0 hits) — auth is purely `Authorization: Bearer <ob_api_token>` + `X-Open-Brain-Caller: mobile-app` + mobile-auth middleware + `mobile` rate tier. Favors SEC-A2 **Option 1** (dedicated api.* hostname not behind CF Access; mobile needs only an `EXPO_PUBLIC_API_URL` change, no code). Option 2 (delete mobile-auth) would break the live app. Ingress-side "does brain.troy-davis.com enforce CF Access on /api/*" is unanswerable from the client and stays owner-gated.
+4. **Dependabot (18 open):** 9 safe → MERGE (pip patch/minor #259/#257/#256/#254/#253/#252/#249, npm minor/patch #243, synthetic-monitor workers-types #245); 2 → CLOSE (Node 22→26-alpine #247/#248 violate the LTS pin); 7 → HOLD (numpy 1→2 #258/#251, deepgram-sdk 3→7 #250/#255, python 3.14 base #246 — compat checks; email-worker #235/#237 = OA-13; GHA majors #236/#239/#240/#241/#242 = OA-14).
+5. **OA-5:** BOTH scheduled jobs VERIFIED running from their own logs — offsite-backup clean daily through 2026-07-13 03:45 (rclone crypt `open-brain-offsite:` = 291 objects/4.93 GiB, 07-13 pgdump matches local size), restore-rehearsal 2026-07-12 + 07-05 both `REHEARSAL RESULT: PASS` (21/21 tables ±0%). **NEW GAP surfaced:** restore-rehearsal's success Pushover POST fails `curl exit 22` (HTTP ≥400) on both runs → owner never received the DR confirmation. Logged as new OA-16.
+6. **OA-11:** OpenAI = no-training-on-API-data by default (policy since 2023-03-01), 30-day abuse-log retention, ZDR available on approval. Deepgram self-service hosted API is **auto-enrolled in the Model Improvement Program (audio persisted for training) unless `mip_opt_out=true`** — BUT prod transcription is self-hosted faster-whisper (`faster-whisper:8000`), so the Deepgram-MIP exposure is latent/planned, not a live egress. Account/plan-specific terms need owner login (unchanged, that's the residual OA-11).
+
+**Actions taken (this entry):**
+- **CI fix** (branch `fix/ci-email-worker-setup-node` → PR): add `package-manager-cache: false` to the email-worker-test setup-node step.
+- **#226 CLOSED** with the prepared `docs/pending-issue-closures.md` evidence (fixed by PR #230/1710c54, `pgUuidArray()`). OA-3 → DONE.
+- **#200:** posted the full root-cause comment; reframed from "live failures" to observability/UX + retention-prune backlog (blocked on OA-1). Left open for the UX follow-up.
+- **Dependabot:** merged the 9 safe PRs, closed #247/#248 with the LTS-pin rationale.
+- **#207:** batched web-next hydration refactor (~13 client `new Date()`/`Date.now()` render-scope sites → SSR-safe) in its own PR.
+- **Doc updates:** OPERATOR_ACTIONS OA-3→DONE, OA-5/OA-7/OA-11 annotated with findings, **new OA-16** (restore-rehearsal Pushover broken).
+
+**Hypothesis / success criteria:** CI-fix PR turns the email-worker-test job GREEN (npm ci + tsc + vitest run to completion); main CI goes green post-merge → unblocks OA-8. Safe Dependabot merges keep required checks green. #207 refactor: `pnpm --filter web-next build` succeeds, no new hydration warnings, existing tests pass.
+
+**Rollback plan:** All git-recoverable — `git revert` each PR merge. Closed issue #226 / Dependabot #247/#248 can be reopened. No prod/DB/compose mutations in Bucket A (those are Bucket B, untouched). Investigations were strictly read-only (SSH read-only, no writes).
+
+**Tags:** [ci] [debug] [database] [decision] [web]
+**Environment:** ubuntu-vm + read-only SSH to homeserver (prod counts, backup-log verification). open-brain `main`. Executed by Claude (Opus 4.8) under ultracode.
