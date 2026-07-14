@@ -1,5 +1,6 @@
 'use client'
 
+import { useClientNow } from '@/hooks/useClientNow'
 import type { Capture } from '@/lib/types'
 
 // The API may include a tags array not present in the shared Capture type
@@ -10,8 +11,11 @@ interface MobileResultCardProps {
   score: number
 }
 
-function relativeDate(dateStr: string): string {
-  const diffMs = Date.now() - new Date(dateStr).getTime()
+function relativeDate(dateStr: string, now: number | null): string {
+  const date = new Date(dateStr)
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const diffMs = now - date.getTime()
   const diffSeconds = Math.floor(diffMs / 1000)
   if (diffSeconds < 60) return `${diffSeconds}s ago`
   const diffMinutes = Math.floor(diffSeconds / 60)
@@ -25,6 +29,7 @@ function relativeDate(dateStr: string): string {
 }
 
 export function MobileResultCard({ capture, score }: MobileResultCardProps) {
+  const now = useClientNow()
   const tags = capture.tags ?? []
   const visibleTags = tags.slice(0, 3)
   const extraCount = tags.length - visibleTags.length
@@ -36,7 +41,7 @@ export function MobileResultCard({ capture, score }: MobileResultCardProps) {
       {/* Top row */}
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[10px] font-mono uppercase text-cloud-dark">
-          {capture.source} · {relativeDate(capture.created_at)}
+          {capture.source} · {relativeDate(capture.created_at, now)}
         </span>
         <span className="rounded-full px-2 py-0.5 text-[10px] font-mono uppercase bg-cloud-light text-slate-light">
           {capture.capture_type}

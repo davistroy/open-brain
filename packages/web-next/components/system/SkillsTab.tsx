@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Play, Edit2, Check, X, Clock } from 'lucide-react';
 import { Button } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import { useTriggerSkill, useUpdateSkillSchedule } from '@/lib/api/skills.hooks';
 import type { SkillRecord } from '@/lib/api-client';
 
@@ -25,9 +26,11 @@ import type { SkillRecord } from '@/lib/api-client';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmtRelative(iso: string | null): string {
+function fmtRelative(iso: string | null, now: number | null): string {
   if (!iso) return 'Never';
-  const diff = Date.now() - new Date(iso).getTime();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diff = now - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   const h = Math.floor(m / 60);
   const d = Math.floor(h / 24);
@@ -52,6 +55,7 @@ interface SkillRowProps {
 }
 
 function SkillRow({ skill }: SkillRowProps) {
+  const now = useClientNow();
   const [editingSchedule, setEditingSchedule] = useState(false);
   const [scheduleInput, setScheduleInput] = useState(skill.schedule ?? '');
 
@@ -161,7 +165,7 @@ function SkillRow({ skill }: SkillRowProps) {
           {/* Last run meta */}
           {!editingSchedule && (
             <div className="flex items-center gap-[12px] mt-[4px] text-[11px] text-text-body-secondary font-light">
-              <span>Last run: {fmtRelative(skill.last_run_at)}</span>
+              <span>Last run: {fmtRelative(skill.last_run_at, now)}</span>
               {skill.last_duration_ms !== null && (
                 <span>{fmtDuration(skill.last_duration_ms)}</span>
               )}

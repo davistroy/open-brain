@@ -22,15 +22,17 @@
 
 import { useState } from 'react';
 import { Send, Trash2, Clock, Mail } from 'lucide-react';
+import { useClientNow } from '@/hooks/useClientNow';
 import type { EmailDraft, EmailDraftStatus } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, now: number | null): string {
   const date = new Date(iso);
-  const now = Date.now();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
@@ -91,6 +93,7 @@ export function DraftCard({
   isRejecting = false,
 }: DraftCardProps) {
   const { id, to_address, cc_address, subject, body, status, send_mode, created_at } = draft;
+  const now = useClientNow();
 
   // Two-tap inline confirmation state
   const [sendArmed, setSendArmed] = useState(false);
@@ -172,7 +175,7 @@ export function DraftCard({
           {/* Relative date */}
           <span className="inline-flex items-center gap-[3px] font-mono text-[10px] tracking-[0.04em] text-text-small">
             <Clock size={9} strokeWidth={1.5} />
-            {formatRelative(created_at)}
+            {formatRelative(created_at, now)}
           </span>
         </div>
       </div>
