@@ -293,9 +293,11 @@ export interface DashboardStats {
   open_questions_meta: string;
   briefs_in_progress: number;
   briefs_due_meta: string;
-  pipeline_status: 'healthy' | 'degraded' | 'unhealthy';
+  pipeline_status: ServiceHealthStatus;
   pipeline_active: number;
   pipeline_queued: number;
+  /** Terminally-failed captures (captures.pipeline_status = 'failed'). Surfaced as a number, not just a status label — see issue #200. */
+  pipeline_failed: number;
   llm_spend_usd: number;
   capture_total: number;
   entity_total: number;

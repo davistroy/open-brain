@@ -42,6 +42,7 @@ export const mockStats: DashboardStats = {
   pipeline_status: 'healthy',
   pipeline_active: 3,
   pipeline_queued: 12,
+  pipeline_failed: 0,
   llm_spend_usd: 4.82,
   capture_total: 1847,
   entity_total: 217,
