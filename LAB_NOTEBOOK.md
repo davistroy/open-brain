@@ -12908,3 +12908,19 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 **Status:** Code+config fix implemented + locally validated. **Deploy + end-to-end `--gas` verification PENDING** (entry written pre-deploy).
 **Tags:** [debug] [pipeline] [config] [deploy] [decision]
 **Environment:** ubuntu-vm (edit/validate) + homeserver (token placement, recreate, verify). Executed by Claude (Opus 4.8), user-directed.
+
+## Entry 192 — utility-ingest deploy result: layers 1&2 fixed+live; layer 3 (Gas South API stale) → #265; two private-repo regressions (2026-07-14)  [deploy] [pipeline] [debug] [ci]
+
+**Closes the "deploy pending" of Entry 191.** PR #264 merged (`ff95541`) → `Build and Push Images` rebuilt `ingest-sidecar:latest` (~6 min) → deployed to the homeserver.
+
+**Deploy (surgical, verified):** rollback anchor = old image `sha256:b4aac63b…`. `docker compose pull utility-ingest` → new `sha256:0e23f95c…`; `up -d --force-recreate --no-deps utility-ingest` (only that service; no `--remove-orphans`; postgres/redis untouched). **Confirmed the fix actually shipped** — `docker exec … grep /app/utility-pipeline.py` shows line 329 `get_bws_secret(gas_cfg.get("bitwarden_username_key","GAS_SOUTH_USERNAME"))` in the running container (not just "a container restarted").
+
+**End-to-end result (`--gas --json-output`, true exit code 0):** the pipeline now gets PAST bws auth AND the secret lookup (layers 1&2 proven fixed — reaches `=== Gas Readings (Gas South) ===`, fetches creds), then fails at the Gas South PORTAL login. **DEBUG re-run exposed the cause = stale endpoints, NOT bad creds:** `manage.gassouth.com/api/authorize` → **405**, `manage-api.gassouth.com/oas/api/authorize` → **404**, `…/oas/api/account/login` → **404**. Creds never evaluated (no 401). **Layer 3 = Gas South changed their auth API.** Filed as **issue #265** (deferred — needs HAR of the live portal login + `_gas_south_login` rewrite; out of scope for the "silent failure" fix). Net for the reported problem: the container **no longer silently fails** — runs clean, exits 0, emits a specific actionable error instead of dying opaquely. It does NOT yet fetch gas data (honest DoD: infra fixed, provider fetch blocked by #265).
+
+**TWO PRIVATE-REPO REGRESSIONS from the OA-2 flip (RC-10 → private) — both real:**
+1. **`gh pr checks` fails** for the fine-grained PAT on the private repo (GraphQL `statusCheckRollup` → "Resource not accessible by personal access token"). Workaround: read CI via the Actions API (`gh run list --branch <b> --json status,conclusion`) — that still works. Fix: grant the PAT `checks:read` (+ likely `statuses:read`). Low impact.
+2. **Homeserver `git fetch` fails** — `/mnt/user/appdata/open-brain` `origin` is an unauthenticated **HTTPS** URL (`could not read Username for 'https://github.com'`). Worked while the repo was public; a private repo needs auth. **This BLOCKS the documented deploy pattern** `git checkout origin/main -- <compose/migration/config file>` (Entry 179). It didn't bite today only because the utility fix shipped in the IMAGE and the config change was belt-and-suspenders (code defaults). **Must fix before the next compose/migration deploy** → OA-17. Fix options: switch remote to SSH (`git remote set-url origin git@github.com:davistroy/open-brain.git` + a repo deploy key), or an HTTPS credential helper with a PAT.
+
+**Status:** utility-ingest infra FIXED + deployed + verified; gas data-fetch deferred to #265. Two regressions logged (OA-17 + PAT note).
+**Tags:** [deploy] [pipeline] [debug] [ci]
+**Environment:** ubuntu-vm + homeserver (root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-directed.
