@@ -11,14 +11,17 @@
  */
 
 import { CheckCircle, XCircle, Clock, AlertCircle } from 'lucide-react';
+import { useClientNow } from '@/hooks/useClientNow';
 import type { PipelineFlowEntry } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function fmtRelative(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+function fmtRelative(iso: string, now: number | null): string {
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diff = now - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   const h = Math.floor(m / 60);
   const d = Math.floor(h / 24);
@@ -66,6 +69,7 @@ interface FlowRowProps {
 }
 
 function FlowRow({ flow }: FlowRowProps) {
+  const now = useClientNow();
   return (
     <div className="py-[12px] border-b border-cloud-light last:border-0">
       {/* Header row */}
@@ -87,7 +91,7 @@ function FlowRow({ flow }: FlowRowProps) {
 
         {/* Relative time */}
         <span className="text-[11px] text-text-body-secondary font-light shrink-0">
-          {fmtRelative(flow.created_at)}
+          {fmtRelative(flow.created_at, now)}
         </span>
       </div>
 

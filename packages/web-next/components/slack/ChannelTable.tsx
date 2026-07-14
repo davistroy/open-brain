@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { Card, Button, EmptyState } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import { useArchiveSlackChannel } from '@/lib/api/admin.hooks';
 import type { SlackChannel } from '@/lib/api-client';
 
@@ -56,10 +57,11 @@ interface ChannelTableProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatLastActivity(iso: string | null): string {
+function formatLastActivity(iso: string | null, now: number | null): string {
   if (!iso) return 'Never';
   const date = new Date(iso);
-  const now = Date.now();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
@@ -524,6 +526,7 @@ interface ChannelRowProps {
 }
 
 function ChannelRow({ channel, threshold, isLast, onArchive }: ChannelRowProps) {
+  const now = useClientNow();
   const inactiveColor = daysInactiveColor(channel.days_inactive, threshold);
   const isHighRisk = channel.days_inactive >= threshold;
 
@@ -562,7 +565,7 @@ function ChannelRow({ channel, threshold, isLast, onArchive }: ChannelRowProps) 
       <div className="flex items-center gap-[5px] text-text-body-secondary">
         <Clock size={11} strokeWidth={1.5} className="shrink-0" />
         <span className="text-[12px] font-light">
-          {formatLastActivity(channel.last_activity)}
+          {formatLastActivity(channel.last_activity, now)}
         </span>
       </div>
 

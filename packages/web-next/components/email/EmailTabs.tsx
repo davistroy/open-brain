@@ -32,6 +32,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { EmptyState, Input } from '@/components/design-system';
+import { useClientNow } from '@/hooks/useClientNow';
 import { DraftCard } from './DraftCard';
 import { ThreadView } from './ThreadView';
 import { useSendEmailDraft, useRejectEmailDraft } from '@/lib/api/email.hooks';
@@ -59,9 +60,10 @@ interface EmailTabsProps {
 // Date formatters + helpers
 // ---------------------------------------------------------------------------
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, now: number | null): string {
   const date = new Date(iso);
-  const now = Date.now();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const diffMs = now - date.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
@@ -97,6 +99,7 @@ function extractFrom(capture: Capture): string {
 // ---------------------------------------------------------------------------
 
 function InboundCapture({ capture }: { capture: Capture }) {
+  const now = useClientNow();
   const preview = capture.content.length > 200
     ? `${capture.content.slice(0, 200).trimEnd()}…`
     : capture.content;
@@ -125,7 +128,7 @@ function InboundCapture({ capture }: { capture: Capture }) {
           </span>
           <span className="text-cloud-dark opacity-40 text-[10px]">·</span>
           <span className="font-mono text-[10px] tracking-[0.05em] text-text-body-secondary">
-            {formatRelative(capture.created_at)}
+            {formatRelative(capture.created_at, now)}
           </span>
           {capture.brain_view && (
             <>

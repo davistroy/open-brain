@@ -19,6 +19,7 @@
  */
 
 import { Mic, MicOff, Radio } from 'lucide-react';
+import { useClientNow } from '@/hooks/useClientNow';
 import { useVoiceSessions, useActiveVoiceSessions } from '@/lib/api/voice.hooks';
 import type { VoiceSession } from '@/lib/api-client';
 
@@ -27,10 +28,11 @@ import type { VoiceSession } from '@/lib/api-client';
 // ---------------------------------------------------------------------------
 
 /** Format a session started_at into a compact human-readable string. */
-function formatDate(isoString: string): string {
+function formatDate(isoString: string, now: number | null): string {
   const d = new Date(isoString);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
+  // Pre-mount (SSR + first client render): stable absolute date, no `now` dependency.
+  if (now === null) return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const diffMs = now - d.getTime();
   const diffDays = Math.floor(diffMs / 86_400_000);
 
   if (diffDays === 0) {
@@ -76,8 +78,9 @@ interface SessionRowProps {
 }
 
 function SessionRow({ session, isActive, isSelected, onClick }: SessionRowProps) {
+  const now = useClientNow();
   const title = sessionTitle(session);
-  const date = formatDate(session.started_at);
+  const date = formatDate(session.started_at, now);
   const duration = formatDuration(session.duration_seconds);
   const turns = session.turn_count ?? 0;
   const captureCount = session.captures_created?.length ?? 0;

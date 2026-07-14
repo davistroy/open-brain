@@ -12836,3 +12836,142 @@ Commits/PRs touch ONLY `package.json` files, `pnpm-lock.yaml`, and `cloudflare/{
 
 **Tags:** [ci] [debug] [database] [decision] [web]
 **Environment:** ubuntu-vm + read-only SSH to homeserver (prod counts, backup-log verification). open-brain `main`. Executed by Claude (Opus 4.8) under ultracode.
+
+## Entry 189 — OA-1 deploy: migration 0036 + workers recreate to fix DA-1 retention prune (2026-07-13)  [deploy] [database] [docker] [pipeline]
+
+**Objective:** Execute OA-1 (user-approved "deploy it"). Apply migration **0036** (`briefs_source_skill_log_id_fkey` → `ON DELETE SET NULL` + drop dead `fts_search()`) to the prod DB and recreate the `workers` container on the current `:latest` image (= main HEAD `7a9d87e`, post-#244). This fixes **DA-1**: the weekly `data-retention-prune` job has FK-blocked (SQLSTATE 23503) on `skills_log` deletes every Sunday since 2026-07-05 because briefs referencing >60d skills_log rows blocked those deletes. Also deploys the v5 workers code (#204 runAgent context budget, #217 scheduler orphan reconciliation, per-table retention fault isolation).
+
+**Pre-deploy recon (read-only, verified):**
+- Prod migration ledger = **0035** latest; **0036 NOT applied** (count=0). 0036 is the single pending migration; it's the highest in `packages/shared/drizzle/`. After apply, prod schema = main HEAD.
+- 0036 is trivial/safe: DROP+ADD one FK + DROP one dead function. Idempotent under `ON_ERROR_STOP=1`. No table rewrite / backfill / parallel-index → **no `/dev/shm` (DA-11) concern**, no `PGOPTIONS` needed.
+- Fresh backup present: `/mnt/user/backup/openbrain/daily/2026-07-13` (pgdump 120 MB) + offsite verified (OA-5). Rollback-safe.
+- Deployed compose-repo HEAD = `a1629e4` (#224) but the RUNNING compose is newer (13 containers, ADR-0004 observability already removed) — the documented lag pattern. **Real** working-tree `docker-compose.yml` vs `origin/main` divergence = 34 lines. **Decision: do NOT adopt main's compose.** A surgical `workers`-only image pull + `--force-recreate --no-deps` deploys the new workers code without any compose reconciliation. `workers` stays **root** (not a Phase-8 non-root image), so **OA-15 volume-chown does NOT apply**. postgres/redis untouched (`--no-deps`); override.yml keeps the raw-bind pins.
+- Skipped intentionally (stay in the OA-9 batched window): the P7 workers `/backup-latest` mount (compose change, INERT until recreate — but recreating with CURRENT compose omits it, which is fine), non-root app images (need OA-15 chown first), postgres `shm_size` (OA-10).
+
+**Method:**
+1. `git checkout origin/main -- packages/shared/drizzle/0036_briefs_fk_and_cleanup.sql` on the homeserver (adopt just that file; don't move HEAD or touch compose).
+2. `migrate-manual.sh --dry-run` in a throwaway `pgvector/pgvector:pg16` container (repo bind-mounted `-v /mnt/user/appdata/open-brain:/app -w /app`, `POSTGRES_URL` from `docker exec open-brain-core-api printenv`) → assert it will apply ONLY 0036.
+3. `migrate-manual.sh` (apply) → applies 0036 + records in ledger.
+4. Verify: ledger shows 0036; FK is now SET NULL (`pg_constraint.confdeltype='n'`); a `BEGIN; DELETE FROM skills_log WHERE created_at < now()-interval '60 days'; ROLLBACK;` succeeds (proves no FK block) — non-destructive.
+5. Record current workers image digest (rollback anchor), then `docker compose pull workers` + `docker compose up -d --force-recreate --no-deps workers` (as root). Assert postgres/redis still render as binds first.
+6. Verify workers container healthy; clear the ~2 stuck `data-retention-prune` BullMQ failed jobs.
+
+**Hypothesis / success criteria:** 0036 recorded; skills_log >60d rows deletable in a rolled-back txn; workers healthy on new image; next Sunday's prune (or a manual trigger) writes a `retention_audit` success row instead of failing. #204/#217 close on deploy.
+
+**Rollback plan:** (a) Migration: `ALTER TABLE briefs DROP CONSTRAINT IF EXISTS briefs_source_skill_log_id_fkey; ADD CONSTRAINT … REFERENCES skills_log(id);` (reverse per 0036 header). (b) Workers image: re-pin to the recorded pre-deploy digest and `up -d --force-recreate --no-deps workers`. (c) DB backup daily/2026-07-13 as last resort. All recoverable.
+
+**Status:** ✅ COMPLETE & VERIFIED (2026-07-14 ~03:25 UTC). Results:
+- **0036 applied + recorded** (ledger row `0036_briefs_fk_and_cleanup` @ 03:21:24). FK `briefs_source_skill_log_id_fkey.confdeltype = 'n'` (SET NULL) ✓; dead `fts_search` dropped (0 rows) ✓.
+- **Prune unblocked — proven:** `BEGIN; DELETE FROM skills_log WHERE created_at < now()-interval '60 days'; ROLLBACK;` returned `DELETE 6017` with NO 23503 (rolled back → real Sunday `0 2` prune will now clear those 6017 backlogged rows). DA-1 fixed at the DB layer.
+- **Workers recreated** on new image `sha256:8294087c…` (rollback anchor: prior `sha256:b511d91c…`), **healthy in 5s**, scheduler cleanly re-registered all repeatable jobs (= #217 orphan-reconciliation working). #204/#217 now deployed.
+- **Surgical, zero collateral:** postgres/redis untouched (`--no-deps`), rendered as raw binds through the config gate; no compose adopted; workers stays root (OA-15 N/A). Other 12 containers unaffected.
+- **Residual (minor):** clearing the ~2 stuck `data-retention-prune` BullMQ *failed-set* records hit a redis-cli AUTH quirk from a throwaway container — deferred to the documented Queues-tab "Clear failed" admin action (non-blocking, observability-only).
+**Tags:** [deploy] [database] [docker] [pipeline]
+**Environment:** homeserver (Unraid, root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-approved OA-1.
+
+## Entry 190 — utility-ingest (+financial-ingest) BWS_ACCESS_TOKEN missing from `.env.secrets`; repo→private (2026-07-14)  [debug] [docker] [pipeline] [security] [decision]
+
+**Objective:** (A) Root-cause + fix `open-brain-utility-ingest` silently failing its daily run 3+ days (cron alert). (B) OA-2: flip repo private.
+
+**(A) utility-ingest — ROOT CAUSE (investigated as `claude`, sudo-docker; values redacted throughout):**
+The handoff premise ("financial-ingest is healthy & has the token; diff to find what utility lacks") **did not hold.** Findings:
+- **BOTH** `open-brain-utility-ingest` AND `open-brain-financial-ingest` (same `ingest-sidecar:latest` image) have **`BWS_ACCESS_TOKEN` ABSENT** from `.Config.Env` (runtime `BWS=ABSENT`; `bws` binary present at `/usr/local/bin/bws`).
+- Their compose defs are wired **identically**: `env_file: - .env.secrets`, with the comment "BWS_ACCESS_TOKEN set in .env.secrets — required for bws secret list." So it's **not a per-service compose gap.**
+- `/mnt/user/appdata/open-brain/.env.secrets` contains **ZERO `BWS_ACCESS_TOKEN=` lines** (verified via throwaway `alpine` mount, count-only). All OTHER secrets ARE present (env shows ADMIN_API_KEY, OPENAI_API_KEY, etc. — those come from `.env.secrets`).
+- **Both** pipelines require it: `scripts/utility-pipeline.py:125` and `scripts/financial-pipeline.py:143/151` shell out to `bws` (`"bws timed out — is BWS_ACCESS_TOKEN set?"`). So both are structurally broken; the utility cron is just the alert that fired. (Container `docker logs` are empty because all services use the Loki log driver — failures are in Loki/Grafana, not local json.)
+- **Category = MISSING SECRET, not compose gap, not "expired-in-file."** `BWS_ACCESS_TOKEN` is the Bitwarden **bootstrap machine-account token** that by design is NOT stored in BWS (chicken-and-egg; CLAUDE.md/PROVIDER_SETTINGS) and must be set MANUALLY on the host. Any `.env.secrets` rebuild via `load-secrets.sh` (sources only BWS) **drops it** — the likely "3-days-ago" clobber. This is exactly **OA-4** (never provisioned / lost on reconcile).
+
+**Decision: STOPPED at the token wall per the user's hard constraint** — did NOT reuse the VM-side `BWS_ACCESS_TOKEN` (wrong-scope / boundary risk = "don't guess a value"). No sidecar recreate attempted (would not fix without the token). Handoff checklist given to Troy (OA-4, elevated: it's actively breaking both ingest sidecars). **Structural recommendation (repo-side, no secret — offered, not yet done):** make `load-secrets.sh` PRESERVE an existing `BWS_ACCESS_TOKEN` line when rewriting `.env.secrets`, so a reconcile can't clobber the bootstrap token again.
+
+**(B) OA-2 repo→private:** `gh repo edit --visibility private` (gh 2.45 needs no consequence-flag). Verified: repo=PRIVATE; **fresh `docker pull` of core-api:latest from the homeserver STILL succeeds** (GHCR package visibility is independent of repo visibility → deploy/pull path intact); CI uses `GITHUB_TOKEN` (works private). OA-2 → DONE.
+
+**Rollback:** utility-ingest — nothing changed (investigation only), nothing to roll back. Repo-private — reversible via `gh repo edit --visibility public`.
+**Status:** (A) BLOCKED on Troy (OA-4 token) — root cause fixed-in-diagnosis, fix handed off. (B) COMPLETE. **[SUPERSEDED for part A by Entry 191 — Troy directed use of the VM token; layer 1 then fixed, layer 2 surfaced + fixed.]**
+**Tags:** [debug] [docker] [pipeline] [security] [decision]
+**Environment:** homeserver (Unraid, `claude` sudo-docker for A; root SSH for pull-verify). Executed by Claude (Opus 4.8).
+
+## Entry 191 — utility-ingest RESOLVED: VM token placed (layer 1) + gas-secret naming-drift fix (layer 2) (2026-07-14)  [debug] [pipeline] [config] [deploy] [decision]
+
+**Supersedes Entry 190 part A.** Troy directed "you should know the bws access token — use it." So, contrary to 190's handoff framing, I DID place a token and fixed it in two layers.
+
+**Layer 1 — BWS_ACCESS_TOKEN missing (FIXED):** Verified the VM's `BWS_ACCESS_TOKEN` is valid (not expired) and scoped to the `open-brain-*` secrets (94 secrets across projects `ai-work`/`personal`/`litellm`). Backed up `.env.secrets` (`.env.secrets.bak-oa4-<ts>`), appended `BWS_ACCESS_TOKEN=<value>` via stdin (value never in a command/log), mode 0600. Recreated `utility-ingest` + `financial-ingest` + `workers` (`--force-recreate --no-deps`, no pull, no `--remove-orphans`). Verified `bws secret list` **authenticates** inside all three (`BWS_LIST: OK`). **Caveat (least-privilege):** this token sees 94 secrets across 3 projects — broader than open-brain; a dedicated open-brain-scoped machine token would be tighter (flagged, not blocking).
+
+**Layer 2 — gas-secret naming drift (FIXED, code+config):** Running the ACTUAL daily cron cmd (`deploy/cron/unraid-ingest.cron`: `docker exec open-brain-utility-ingest python /app/utility-pipeline.py --gas --power-summary`) got past auth but died on `Secret 'dev/open-brain/gas-south' not found` (masked until layer 1 — auth failed before the lookup; and the earlier "exit 0" was a measurement artifact — `$?` read the piped `tail`, not python; `get_bws_secret` actually `sys.exit(1)`s). Root cause: `_gas_south_login` (utility-pipeline.py:325) read a single JSON secret `dev/open-brain/gas-south` `{"username","password"}`, but the **canonical** Bitwarden secrets are two separate values `GAS_SOUTH_USERNAME` / `GAS_SOUTH_PASSWORD` (Troy confirmed "separate is canonical"; also `COBB_EMC_*`, `COBB_WATER_*`). **Fix:** utility-pipeline.py now fetches the two keys via `get_bws_secret(gas_cfg.get("bitwarden_username_key","GAS_SOUTH_USERNAME"))` + `..._password_key`, defaults baked in; `config/utility/utility-config.yaml` gas block updated to `bitwarden_username_key`/`bitwarden_password_key`. **Scope:** gas is the ONLY `get_bws_secret` site in utility-pipeline.py (power = external Go tool, water = no-auth). No tests touch it. `py_compile` + `ruff` pass. The script is BAKED into the `ingest-sidecar` image → deploy = commit → CI `build-images` → `pull` + recreate `utility-ingest`.
+
+**Follow-ups flagged (out of scope, not done):**
+1. **financial-pipeline.py may have the SAME drift** — it reads `plaid-client-id`/`plaid-secret`/`plaid-access-tokens`/`pushover-*`; if BW holds `PLAID_*`/`PUSHOVER_*` names, financial is also broken. Check before relying on financial ingest.
+2. **Least-privilege:** mint a dedicated open-brain-scoped BW machine token (vs. the broad VM token placed here).
+3. **Durable:** patch `load-secrets.sh` to PRESERVE an existing `BWS_ACCESS_TOKEN` on rewrite (it's the bootstrap token BWS can't supply — the recurring clobber source).
+4. **Latent:** `trigger_server.py` `/process` hardcodes `--process-inbox`, which `utility-pipeline.py` rejects (its modes are `--gas/--water/--power-summary/...`) → utility's `/process` endpoint always 500s. Harmless today (utility isn't dashboard-upload-driven), but a real inconsistency.
+
+**Rollback:** revert this commit + redeploy the prior `ingest-sidecar` image; token placement reversible via the `.env.secrets` backup.
+**Status:** Code+config fix implemented + locally validated. **Deploy + end-to-end `--gas` verification PENDING** (entry written pre-deploy).
+**Tags:** [debug] [pipeline] [config] [deploy] [decision]
+**Environment:** ubuntu-vm (edit/validate) + homeserver (token placement, recreate, verify). Executed by Claude (Opus 4.8), user-directed.
+
+## Entry 192 — utility-ingest deploy result: layers 1&2 fixed+live; layer 3 (Gas South API stale) → #265; two private-repo regressions (2026-07-14)  [deploy] [pipeline] [debug] [ci]
+
+**Closes the "deploy pending" of Entry 191.** PR #264 merged (`ff95541`) → `Build and Push Images` rebuilt `ingest-sidecar:latest` (~6 min) → deployed to the homeserver.
+
+**Deploy (surgical, verified):** rollback anchor = old image `sha256:b4aac63b…`. `docker compose pull utility-ingest` → new `sha256:0e23f95c…`; `up -d --force-recreate --no-deps utility-ingest` (only that service; no `--remove-orphans`; postgres/redis untouched). **Confirmed the fix actually shipped** — `docker exec … grep /app/utility-pipeline.py` shows line 329 `get_bws_secret(gas_cfg.get("bitwarden_username_key","GAS_SOUTH_USERNAME"))` in the running container (not just "a container restarted").
+
+**End-to-end result (`--gas --json-output`, true exit code 0):** the pipeline now gets PAST bws auth AND the secret lookup (layers 1&2 proven fixed — reaches `=== Gas Readings (Gas South) ===`, fetches creds), then fails at the Gas South PORTAL login. **DEBUG re-run exposed the cause = stale endpoints, NOT bad creds:** `manage.gassouth.com/api/authorize` → **405**, `manage-api.gassouth.com/oas/api/authorize` → **404**, `…/oas/api/account/login` → **404**. Creds never evaluated (no 401). **Layer 3 = Gas South changed their auth API.** Filed as **issue #265** (deferred — needs HAR of the live portal login + `_gas_south_login` rewrite; out of scope for the "silent failure" fix). Net for the reported problem: the container **no longer silently fails** — runs clean, exits 0, emits a specific actionable error instead of dying opaquely. It does NOT yet fetch gas data (honest DoD: infra fixed, provider fetch blocked by #265).
+
+**TWO PRIVATE-REPO REGRESSIONS from the OA-2 flip (RC-10 → private) — both real:**
+1. **`gh pr checks` fails** for the fine-grained PAT on the private repo (GraphQL `statusCheckRollup` → "Resource not accessible by personal access token"). Workaround: read CI via the Actions API (`gh run list --branch <b> --json status,conclusion`) — that still works. Fix: grant the PAT `checks:read` (+ likely `statuses:read`). Low impact.
+2. **Homeserver `git fetch` fails** — `/mnt/user/appdata/open-brain` `origin` is an unauthenticated **HTTPS** URL (`could not read Username for 'https://github.com'`). Worked while the repo was public; a private repo needs auth. **This BLOCKS the documented deploy pattern** `git checkout origin/main -- <compose/migration/config file>` (Entry 179). It didn't bite today only because the utility fix shipped in the IMAGE and the config change was belt-and-suspenders (code defaults). **Must fix before the next compose/migration deploy** → OA-17. Fix options: switch remote to SSH (`git remote set-url origin git@github.com:davistroy/open-brain.git` + a repo deploy key), or an HTTPS credential helper with a PAT.
+
+**Status:** utility-ingest infra FIXED + deployed + verified; gas data-fetch deferred to #265. Two regressions logged (OA-17 + PAT note).
+**Tags:** [deploy] [pipeline] [debug] [ci]
+**Environment:** ubuntu-vm + homeserver (root SSH). open-brain prod. Executed by Claude (Opus 4.8), user-directed.
+
+## Entry 193 — Autonomous cluster: financial-ingest drift fix + load-secrets.sh bootstrap-token preservation (OA-4b) (2026-07-14)  [pipeline] [config] [security] [test]
+
+**Objective:** "Do everything you can autonomously." A 3-agent analysis workflow confirmed findings; this entry is the execution.
+
+**(1) financial-ingest IS broken — same class as utility (confirmed via bws key-name check + code read):**
+- **Pushover drift (FIXED, code):** `financial-pipeline.py:757-758` hardcoded `pushover-user-key`/`pushover-api-token`, but BW has `PUSHOVER_USER_KEY`/`PUSHOVER_API_TOKEN`. Renamed the two literals. (This failure was SILENT — wrapped in `try/except SystemExit` → "Pushover secrets not found — skipping", so alerts were dropped, not hard-failing.)
+- **Plaid ABSENT (operator-gated):** `plaid-client-id`/`plaid-secret`/`plaid-access-tokens` do NOT exist in the BW vault under any name. `config/financial/plaid-config.yaml` `bitwarden_keys` updated to the canonical uppercase names `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ACCESS_TOKENS` (ready-but-inert). **financial `--sync` will keep hard-exiting(1) at `init_plaid()` until Troy PROVISIONS those 3 secrets in BW** (tokens = a JSON blob `{"amex":"access-...","chase":"..."}`). → operator action. Code fix ships in the `ingest-sidecar` image; the final `pull + recreate financial-ingest` is deferred until Plaid is provisioned (no point recreating a still-blocked service).
+
+**(2) load-secrets.sh bootstrap-token preservation (OA-4b, durable fix):** `load-secrets.sh` does a FULL rewrite of `.env.secrets` from `secrets-map.sh`; `BWS_ACCESS_TOKEN` is (by design) not in the map, so every reconcile dropped it — the recurring root cause of the utility/financial outages. Fix: capture any existing `^BWS_ACCESS_TOKEN=` line before the atomic write and re-emit it into the new file (2 insertions, reconcile-path only; `--force`/`--target-dir` covered). Added roundtrip test **case 6.6** (append a sentinel token → `--force` rewrite → assert preserved exactly once). **`scripts/test-secrets-roundtrip.sh` now PASSES 7/7** locally. This closes OA-4b (the durable half).
+
+**Validation:** `py_compile` + `ruff` (financial-pipeline) pass; `bash -n` (load-secrets + test) pass; plaid-config YAML valid; roundtrip 7/7.
+
+**Deferred to Troy:** provision the 3 Plaid secrets in BW as `PLAID_CLIENT_ID`/`PLAID_SECRET`/`PLAID_ACCESS_TOKENS` → then recreate financial-ingest to finish. (Least-privilege dedicated BW token — OA-4a — still stands.)
+
+**Status:** code fixes done + locally validated → PR. financial functional recovery gated on Plaid provisioning.
+**Tags:** [pipeline] [config] [security] [test]
+**Environment:** ubuntu-vm. open-brain `main`. Executed by Claude (Opus 4.8) under ultracode, user-directed.
+
+## Entry 194 — Autonomous cluster completion + THREE regressions traced to the OA-2 private-flip (2026-07-14)  [ci] [security] [deploy] [decision]
+
+**Autonomous cluster done (PR #268 merged `93e963e`):** financial Pushover key-name fix + plaid-config canonical names; `load-secrets.sh` bootstrap-token preservation (OA-4b, roundtrip 7/7); **28 stale `ingest-root` failed jobs cleared** (redis, full clean incl. orphaned hashes → dashboard failed-count 0, the #200 residual); Dependabot `@dependabot rebase` triggered on the 2 email-worker PRs (#235/#237) to revalidate against the fixed CI.
+
+**THREE regressions all trace to OA-2 (repo → private, RC-10). My OA-2 verification checked image-pulls + CI-runs but NOT these — a gap:**
+1. **`gh pr checks` broken** (fine-grained PAT can't read GraphQL `statusCheckRollup` on a private repo). Workaround: Actions API (`gh run list`). Fix: PAT `checks:read`+`statuses:read`.
+2. **Homeserver `git fetch` broken** (unauthenticated HTTPS `origin`). Blocks the `git checkout origin/main -- <file>` deploy pattern → **OA-17**. No github SSH key on the box (only `unraidbackup_id_ed25519` pinned to backup.unraid.net) → needs Troy to add a deploy key.
+3. **Branch protection DISABLED (the serious one)** → **OA-8 BLOCKED**. GitHub free tier does not support protected branches on PRIVATE repos (`GET/PUT .../protection` → 403 "Upgrade to Pro or make public"). So `main` is now UNPROTECTED — even the prior required checks (`Integration tests`, `build-and-test`) no longer gate merges. The 2 OA-8 candidate checks (`Validate init-schema.sql`, `Python lint & typecheck`) are green on the last 3 runs, ready IF protection returns.
+
+**This reframes OA-2:** private buys RC-10's goal but costs branch protection + adds two auth frictions. **Decision for Troy:** (a) accept [solo repo]; (b) GitHub Pro/Team (~$4/mo) → protection on private; or (c) revert to public (`gh repo edit --visibility public`) — no in-repo secrets, and all three regressions vanish. During this session I merged 7 PRs relying on green CI *by choice*, not enforcement — fine for a careful solo operator, but the safety net is off until this is decided.
+
+**Could NOT complete autonomously (blocked, not skipped):** OA-8 (needs a protection decision); financial functional recovery (needs Plaid secrets — Troy); OA-14 GHA-major Dependabot merges (deliberate one-at-a-time per their own definition; branches also need the rebase now propagating); OA-17 (needs a deploy key).
+
+**Status:** autonomous cluster COMPLETE to its blocking boundaries. Decisions + provisioning handed to Troy.
+**Tags:** [ci] [security] [deploy] [decision]
+**Environment:** ubuntu-vm + homeserver (root SSH, redis). open-brain `main`/prod. Executed by Claude (Opus 4.8) under ultracode.
+
+## Entry 195 — Reverted repo to PUBLIC → all 3 OA-2 regressions fixed + OA-8 & OA-13 completed (2026-07-14)  [ci] [security] [decision]
+
+**Troy's decision:** revert to public (over losing branch protection). `gh repo edit davistroy/open-brain --visibility public`. **RC-10's public-repo concern is now a deliberate risk-acceptance** (no secrets in-repo — all in Bitwarden). Verified each regression cleared:
+1. **`gh pr checks` — FIXED** (works immediately on the public repo).
+2. **homeserver `git fetch` — FIXED** (first retry failed on GitHub propagation lag; `git ls-remote` + `git fetch origin` then succeeded anonymously — no auth config on the box; clean). → **OA-17 OBSOLETE.**
+3. **Branch protection — RESTORED + STRENGTHENED.** It was gone (404 "Branch not protected" — the private flip deleted it; public did NOT auto-restore). Re-created via `gh api PUT .../branches/main/protection` with **4 required checks**: `Integration tests (core-api + real DB)`, `build-and-test` (restored) + `Validate init-schema.sql`, `Python lint & typecheck` (**OA-8 done** — both green on the last 3 runs), `strict=false`, `enforce_admins=false`, no reviews. → **OA-8 DONE.**
+
+**OA-13 also completed:** the `@dependabot rebase` on #235/#237 landed onto the fixed CI → the `email-worker-test` job went GREEN and validated the postal-mime + workers-types bumps (exactly the QA-7 purpose of #260) → both merged.
+
+**Net of the whole autonomous cluster:** financial Pushover fix + load-secrets OA-4b (#268); stale jobs cleared; **repo public + branch protection with 4 required checks; OA-8/OA-13 done; OA-17 obsolete.** Lesson recorded: **flipping a free-tier repo private silently deletes branch protection and breaks anonymous git + PAT check-reads** — verify protection/tooling, not just image-pulls, on any visibility change.
+
+**Still open (handed to Troy, all documented):** provision Plaid secrets (finishes financial-ingest); #265 Gas South HAR; OA-14 GHA-major Dependabot (deliberate one-at-a-time); OA-4a dedicated BW token; OA-6/7/9/10/11/12/15/16; gated issues #196/#72/#73/#71/#54/#57.
+**Status:** revert COMPLETE + verified; OA-2 reversed, OA-8/OA-13 done, OA-17 obsolete.
+**Tags:** [ci] [security] [decision]
+**Environment:** ubuntu-vm + homeserver. open-brain `main` (public). Executed by Claude (Opus 4.8) under ultracode, user-directed.
