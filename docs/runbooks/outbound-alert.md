@@ -4,7 +4,8 @@
 **Metric:** `openbrain_outbound_requests_total{provider, operation, status_class}`
 **Rule file:** `config/prometheus/alerts/outbound.yml`
 **Recorded by:** `timeOutboundCall()` at 4 sites — `llm-gateway.ts` (openai-compatible `chat`, anthropic `chat`) and `embedding.ts` (`embedding`, `embedding_batch`)
-**Delivery:** Prometheus Alerts tab / Grafana only — **no Alertmanager** in this deployment. There is currently **no Pushover path** for this alert (see Gaps).
+**Delivery:** Alertmanager → **Pushover** (critical = priority 1/repeat 1h, warning = priority 0/repeat 4h). These rules **do page**.
+**Deployed from:** `/mnt/user/appdata/observability/config/prometheus/alerts/` — **NOT** from this repo (see Gaps).
 
 ---
 
@@ -81,6 +82,12 @@
 
 ## Gaps (known)
 
-- **No Pushover path.** These rules are Grafana-visible only. Every other operational alert that reaches a phone does so from a workers skill (`PushoverService`). If this class of outage should page, add a check to `pipeline-health` (which already owns the backup dead-man's switch) rather than wiring Alertmanager.
+- **This repo is not the deployment source (#292).** The running Prometheus reads
+  `/mnt/user/appdata/observability/config/prometheus/alerts/` — the standalone
+  observability project's own, non-git-managed directory (ADR-0004). A rule added
+  to `config/prometheus/alerts/` here does **nothing** until it is copied there and
+  Prometheus is reloaded (`wget --post-data='' http://127.0.0.1:9090/-/reload`).
+  These two rules were installed there manually on 2026-07-15 and are confirmed
+  loaded via `/api/v1/rules`.
 - **Workers' outbound metrics piggyback** on `container-health` (15m) / `pipeline-health` (6h) pushes — they are not exported on their own schedule. If both skills stop running, this metric goes stale silently; `workers-staleness.yml` is the backstop for that.
 - **The metric is in-process.** A workers restart resets the histogram, so a short post-restart window can under-report.
