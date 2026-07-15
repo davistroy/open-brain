@@ -29,7 +29,7 @@ fi
 unset _bash_major
 
 # -----------------------------------------------------------------------------
-# REQUIRED secrets (11) — must be present in BWS or reconcile fails.
+# REQUIRED secrets (12) — must be present in BWS or reconcile fails.
 # Map: BWS_SECRET_NAME -> ENV_VAR_NAME
 #
 # The BWS-name column is NOT a convention — it is whatever the secret is
@@ -56,6 +56,10 @@ declare -A REQUIRED_SECRETS=(
   ["PUSHOVER_USER_KEY"]="PUSHOVER_USER_KEY"
   ["GITEA_TOKEN"]="GITEA_TOKEN"
   ["open-brain-cloudflare-tunnel-token"]="CLOUDFLARE_TUNNEL_TOKEN"
+  # REQUIRED, not optional: the secret exists in BWS, and its absence silently
+  # kills the whole T1 tier (#283 — 401 on 100% of calls for two weeks, unnoticed
+  # because a totally-failing FREE tier looks identical to an idle one).
+  ["dev/jetson/llm-api-key"]="JETSON_API_KEY"
 )
 
 # -----------------------------------------------------------------------------

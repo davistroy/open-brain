@@ -17,6 +17,7 @@ function mkTier(overrides: Partial<ModelTierEntry> & { model: string; provider: 
     provider: overrides.provider,
     model: overrides.model,
     base_url: overrides.base_url,
+    api_key_env: overrides.api_key_env,
     max_completion_tokens: overrides.max_completion_tokens ?? 4096,
     timeout_ms: overrides.timeout_ms ?? 60_000,
     fallback: overrides.fallback ?? null,
@@ -112,6 +113,71 @@ describe('LLMGatewayService.resolveAgentClient', () => {
     )
 
     expect(() => gateway.resolveAgentClient('unknown_task')).toThrow(ModelResolverError)
+  })
+
+  // -------------------------------------------------------------------------
+  // #283 — openai_compat tier auth.
+  //
+  // The Jetson added a bearer requirement on /chat/completions and the gateway
+  // kept sending a hardcoded apiKey:'local' ("local endpoints ignore the key").
+  // Result: 401 on 100% of T1 calls for two weeks, invisible because a totally
+  // failing FREE tier looks exactly like an idle one (cost stays $0, and
+  // /v1/models still answers 200 unauthenticated).
+  //
+  // getClientForTier is private; reached via bracket access because the apiKey it
+  // puts on the client IS the behaviour under test.
+  // -------------------------------------------------------------------------
+  function clientFor(tier: ModelTierEntry, tierKey: string): { apiKey: string } {
+    const gateway = new LLMGatewayService(
+      makeConfigService({ [tierKey]: tier }, {}),
+      makeDb().db,
+      makeTemplateCache(),
+      makeAnthropicClient(),
+      null,
+      null,
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (gateway as any).getClientForTier(tier, tierKey, 'openai') as { apiKey: string }
+  }
+
+  it('sends the tier api_key_env value as the bearer key (#283)', () => {
+    process.env.TEST_JETSON_KEY_283 = 'sk-jetson-secret'
+    const tier = mkTier({
+      model: 'qwen3.5-4b',
+      provider: 'openai_compat',
+      base_url: 'http://jetson:8080/v1',
+      api_key_env: 'TEST_JETSON_KEY_283',
+    })
+
+    expect(clientFor(tier, 't1_jetson_withkey').apiKey).toBe('sk-jetson-secret')
+    delete process.env.TEST_JETSON_KEY_283
+  })
+
+  it("falls back to 'local' when a tier declares api_key_env but it is unset (#283)", () => {
+    delete process.env.TEST_MISSING_KEY_283
+    const tier = mkTier({
+      model: 'qwen3.5-4b',
+      provider: 'openai_compat',
+      base_url: 'http://jetson:8080/v1',
+      api_key_env: 'TEST_MISSING_KEY_283',
+    })
+
+    // Still constructs (the SDK requires a non-empty key) — the gateway warns
+    // rather than throwing, so an unset key degrades exactly like before instead
+    // of taking the process down.
+    expect(clientFor(tier, 't1_jetson_nokey').apiKey).toBe('local')
+  })
+
+  it("keeps 'local' for keyless openai_compat tiers that declare no api_key_env (#283)", () => {
+    // Spark is genuinely keyless today (0 errors in ai_audit_log) — this pins
+    // that the fix's blast radius is only tiers that opt in.
+    const tier = mkTier({
+      model: 'qwen-35b',
+      provider: 'openai_compat',
+      base_url: 'http://spark:8000',
+    })
+
+    expect(clientFor(tier, 't1_spark_keyless').apiKey).toBe('local')
   })
 
   it('excludes cross-provider tiers from the fallback chain', () => {

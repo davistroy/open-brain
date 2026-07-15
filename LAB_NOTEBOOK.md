@@ -13309,3 +13309,26 @@ AFTER:  DRIFT:  1 of 11                              -> 10/11 OK
 **Lesson:** the previous entry's lesson (a mock fixture agreeing with the code proves nothing) has a sibling here — **`verify-secrets.sh` only ever audited `.env.secrets`, so the `.env` half of the secret surface was never audited by anything at all.** A checker that inspects one of two files reports "1 drift" when the truth is "the stack won't boot."
 **Tags:** [security] [deploy] [decision]
 **Environment:** BWS writes = 4 additive secret creations (ai-work), performed in-container so values never egressed. Map tested against live BWS then reverted on the host. No prod restart, no service touched. Executed by Claude (Opus 4.8), user-directed ("tackle #278").
+
+---
+
+## Entry 205 — #283 fix: Jetson T1 auth — tier-scoped `api_key_env` + email-pipeline header (2026-07-15)  [config] [pipeline] [security] [decision]
+
+**Objective:** Close #283 — the Jetson (T1) tier has 401'd on **100% of calls since ~2026-07-01** (461 × `401 Invalid API Key` in `ai_audit_log`; `calls == errors` every day). The Jetson added API-key auth; **two independent callers never learned.** Troy: "Take 283 and fix it."
+
+**Root cause (already proven, Entry 204):** `llm-gateway.ts:276` hardcodes `apiKey: 'local'` behind the comment *"Local endpoints ignore the key but SDK requires non-empty"* — **true when written, false since the Jetson added auth**; and `email-pipeline.py::classify_by_jetson` sends **no `Authorization` header at all**. Live-proved both directions from a container: **no key → 401; BWS `dev/jetson/llm-api-key` → 200 `"OK"`.**
+
+**Design decisions:**
+- **`api_key_env` (a VAR NAME), not `api_key` (a value), in `ai-routing.yaml`.** `config/` is committed to a PUBLIC repo — a key must never live there (CLAUDE.md: all secrets in Bitwarden). The tier declares which env var holds its key; the gateway resolves it at call time. Keeps the tier self-describing without the config knowing any secret.
+- **Tier-scoped, not global.** A single `JETSON_API_KEY` read inside the gateway would break the moment a second `openai_compat` endpoint needs a *different* key (Spark already exists as one). Resolving per-tier is the same cost and doesn't have that cliff.
+- **`'local'` stays as the fallback, not the default.** Genuinely keyless endpoints (ollama, and Spark today — `spark-llm` shows **0 errors**, so it needs no key) still work untouched. Only tiers that *declare* `api_key_env` change behaviour → blast radius is exactly t1_jetson.
+- **REQUIRED, not OPTIONAL, in `secrets-map.sh`.** The secret exists in BWS, and its absence **silently kills T1** — which is the entire bug. OPTIONAL ("written if present, silently skipped if not") would re-create the failure mode this fix exists to remove. Cost: `.env.secrets` must carry it or `verify-secrets` drift goes 1→2 — acceptable, since deploying it is part of this change.
+- **email-pipeline reads `JETSON_API_KEY` from the env, NOT bws.** The VM has **no `bws` CLI and no `.env`** (verified — its only credentials are the MSAL/Gmail token-cache files). Adding bws + a machine token to the VM is real operator surface for one key; an env var the cron provides is smaller and reversible.
+
+**Hypothesis / success criteria:** after deploy, `ai_audit_log` shows `qwen3.5-4b` calls with **`errors = 0`** (today: 100%), and the next email run logs a non-zero `llm=` classification count instead of `Jetson 401` + `llm=0, unclass=10`. **Falsifiable:** if 401s persist, the key is wrong/rotated, not the wiring.
+
+**Explicitly NOT in scope:** why the documented `t1_jetson → t1_fast → t2_quality` fallback never fired. It *should* have sent these to paid Claude — and did not (`cost_usd` 0, no paid chat model in 30d). That is lucky (no $100-incident repeat) but it means the fallback chain is **also** broken, and a working T1 will now mask it again. Filed as a separate follow-up; fixing both at once would confound the verification.
+
+**Rollback:** `git revert`; the gateway falls back to `'local'` when `api_key_env` is absent/unset, so reverting the config alone restores exact prior behaviour. No migration, no data. Prod impact limited to workers/core-api recreate.
+
+**Status:** IN PROGRESS — see result below.
