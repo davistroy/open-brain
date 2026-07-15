@@ -101,3 +101,6 @@ temp_*.md
 working-docs/
 __pycache__/
 config/himalaya/config.toml
+
+# Instance-specific Actual Budget dev guide — contains personal financial data; keep local only
+docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md
