@@ -44,6 +44,10 @@ import yaml
 # local invocations.
 from lib.capture_api import post_capture as _post_capture_unwrapped  # noqa: E402
 
+# Gas bill text -> usage numbers. Pure/stdlib-only and unit-tested separately
+# (docker/ingest-sidecar/tests/test_gas_bill_parse.py) — see #275.
+from lib.gas_bill_parse import parse_gas_bill_text  # noqa: E402
+
 # CS3.9 --json-output support: wrap post_capture so the ingest sidecar
 # (docker/ingest-sidecar/trigger_server.py) can read a JSON summary as the
 # final stdout line. Passthrough when --json-output is not set.
@@ -419,19 +423,25 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
 
 
 def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
-    """Extract CCFs, therm factor, and therms from a Gas South bill PDF.
+    """Extract CCFs, therm factor, therms, and rate from a Gas South bill PDF.
 
     Returns dict with keys: ccfs, therm_factor, therms, rate_per_therm.
-    Missing values are None.
+    Missing values are None — callers must treat that as a failure, not a zero.
+
+    This function owns only PDF -> text; the text -> numbers step lives in
+    ``lib.gas_bill_parse`` so it can be unit-tested without a PDF library. See
+    that module for why the original label-adjacency regexes never matched (#275).
     """
-    result = {"ccfs": None, "therm_factor": None, "therms": None, "rate_per_therm": None}
+    result = dict(parse_gas_bill_text(""))  # canonical empty shape
 
     try:
         import fitz  # PyMuPDF
     except ImportError:
-        log.warning(
+        # PyMuPDF is a hard dependency of the image (ingest-sidecar Dockerfile).
+        # If it is missing, the environment is broken — not a soft "no data" case.
+        log.error(
             "PyMuPDF (fitz) not installed — cannot parse gas bill PDFs. "
-            "Install with: pip install PyMuPDF"
+            "It is expected in the ingest-sidecar image; rebuild it. (#275)"
         )
         return result
 
@@ -453,42 +463,18 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
                 os.unlink(tmp_path)  # type: ignore[possibly-unbound]
         return result
 
-    # Extract CCFs: look for patterns like "66 CCFs" or "66 CCF"
-    ccf_match = re.search(r"(\d+)\s*CCFs?\b", full_text, re.IGNORECASE)
-    if ccf_match:
-        result["ccfs"] = float(ccf_match.group(1))  # type: ignore[typeddict-item]
+    result = parse_gas_bill_text(full_text)
 
-    # Extract therm factor: "1.034" near "therm factor" or "conversion"
-    factor_match = re.search(
-        r"(?:therm\s*factor|conversion\s*factor)[:\s]*(\d+\.?\d*)",
-        full_text,
-        re.IGNORECASE,
-    )
-    if factor_match:
-        result["therm_factor"] = float(factor_match.group(1))  # type: ignore[typeddict-item]
-
-    # Extract therms: "68.24 therms" or total therms line
-    therms_match = re.search(r"(\d+\.?\d*)\s*therms?\b", full_text, re.IGNORECASE)
-    if therms_match:
-        result["therms"] = float(therms_match.group(1))  # type: ignore[typeddict-item]
-
-    # Extract rate per therm: "$0.65/therm" or "0.65 per therm"
-    rate_match = re.search(
-        r"\$?(\d+\.?\d*)\s*(?:/\s*therm|per\s*therm)",
-        full_text,
-        re.IGNORECASE,
-    )
-    if rate_match:
-        result["rate_per_therm"] = float(rate_match.group(1))  # type: ignore[typeddict-item]
-
-    # If we have CCFs and factor but no therms, calculate
-    if result["ccfs"] and result["therm_factor"] and not result["therms"]:
-        result["therms"] = round(result["ccfs"] * result["therm_factor"], 2)  # type: ignore[typeddict-item,arg-type,operator]
-
-    log.info(
-        f"  PDF parsed: CCFs={result['ccfs']}, factor={result['therm_factor']}, "
-        f"therms={result['therms']}, rate={result['rate_per_therm']}"
-    )
+    if result["therms"] is None:
+        log.warning(
+            "  PDF yielded no usable usage row — bill stored WITHOUT therms. "
+            "The bill layout may have changed (#275)."
+        )
+    else:
+        log.info(
+            f"  PDF parsed: CCFs={result['ccfs']}, factor={result['therm_factor']}, "
+            f"therms={result['therms']}, rate={result['rate_per_therm']}"
+        )
     return result
 
 
@@ -557,13 +543,17 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
 
     new_count = 0
     skip_count = 0
+    no_usage_count = 0
 
     for activity in activities:
         activity_type = activity.get("ActivityType") or activity.get("activityType") or ""
         activity_date = activity.get("ActivityDate") or activity.get("activityDate") or ""
         activity_amount = activity.get("ActivityAmount") or activity.get("activityAmount") or 0
         bill_url = activity.get("Url") or activity.get("url") or ""
-        activity.get("BillSegmentInfo") or activity.get("billSegmentInfo")
+        # NB: the API's BillSegmentInfo carries only segment dates + dollar
+        # amounts — no CCFs/therms — so usage must come from the bill PDF.
+        # (Checked against the live API while fixing #275; a discarded
+        # `activity.get("BillSegmentInfo")` used to sit here implying otherwise.)
 
         # Only process bill records (skip payments, adjustments)
         if "bill" not in activity_type.lower() and "statement" not in activity_type.lower():
@@ -631,8 +621,21 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         therms_str = f", {therms_val:.1f} therms" if therms_val else ", therms N/A"
         log.info(f"  {activity_date}: ${bill_amount:.2f}{therms_str}")
 
+        # Usage is the point of this pipeline — a reading with only a dollar
+        # amount is a failure, not a success. Surfacing it in the JSON summary
+        # flips `status` to "error" so the sidecar/cron cannot report a clean run
+        # while silently storing NULL therms, which is exactly how #275 hid.
+        if therms_val is None:
+            no_usage_count += 1
+            _JSON_ERRORS.append(f"gas bill {activity_date}: no usage parsed from PDF")
+
     conn.commit()
     log.info(f"Gas: {new_count} new readings stored, {skip_count} already existed")
+    if no_usage_count:
+        log.error(
+            f"Gas: {no_usage_count} of {new_count} new readings have NO usage data "
+            "— bill amounts stored but therms are NULL (#275)"
+        )
 
 
 # ── Power (Cobb EMC — stub) ─────────────────────────────────────────────────

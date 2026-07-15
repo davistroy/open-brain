@@ -13128,3 +13128,23 @@ RETURNED: None
 **Layer tally for this saga (Entries 190→199):** 1 BWS token missing → 2 secret-naming drift → 3 auth API changed (#265) → **4 PDF dep missing**. Each fix exposed the next. The generalizable lesson: **an integration blocked at step 1 hides every later step's bugs** — "fixed the blocker" is never the same as "the feature works," and only an end-to-end credentialed run can tell you which layer you're actually on. Estimating remaining work from the current error message systematically under-counts.
 **Tags:** [deploy] [pipeline] [debug] [api]
 **Environment:** homeserver (Unraid), `open-brain-utility-ingest` only (image `0e23f95c`→`282bec2e`). No prod Postgres writes (cmd_gas is SQLite-only). postgres/redis/core-api/workers untouched. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 200 — #275: gas therms parse — add PyMuPDF + validate the never-run regexes against a real bill (2026-07-15)  [pipeline] [debug] [docker] [config]
+
+**Objective:** Close #275 — make `--gas` populate `therms`/`ccfs`/`therm_factor`/`rate_per_therm` instead of NULL. Troy authorized **PyMuPDF (AGPL-3.0 accepted — self-hosted single-user)**, i.e. option 1 in #275 (add the dep; `ingest-repair.py` already imports `fitz`, so it's the established choice) over option 2 (rewrite on pdfplumber).
+
+**Hypothesis (deliberately pessimistic):** adding the dependency is necessary but **NOT sufficient**. `_parse_gas_bill_pdf`'s regexes have **never executed against a real bill** — they were written blind and the gas path has been unreachable its whole life (Entries 190–199 layers 1–4). Reading them, at least one looks wrong by construction:
+- `r"(\d+\.?\d*)\s*therms?\b"` takes the **FIRST** `therms` match anywhere in the document. A real bill mentions "therms" in rate tables, prior-period comparisons, and marketing copy — first-match is very unlikely to be the billed usage.
+- `r"(\d+)\s*CCFs?\b"` is integer-only (`\d+`, no decimal) and also first-match.
+- `therm_factor` expects the literal `therm factor`/`conversion factor` label; Gas South may print something else entirely.
+**Predicted outcome:** dep lands, parse still returns wrong/None values → the regexes need rewriting against the real text. **Success = therms match the number a human reads off the bill**, not merely "not None".
+
+**Method:** (1) obtain the REAL text of a real bill — the only way to settle this. `docker exec` the running `open-brain-utility-ingest`, ad-hoc `pip install PyMuPDF` (**ephemeral container-layer only, wiped by the next recreate — the real dep goes in the Dockerfile**), re-use the script's own `_gas_south_login`/download path to pull one bill, dump the text, and inspect ONLY the CCF/therm/rate-bearing lines. (2) Rewrite the regexes to anchor on the bill's actual labels. (3) `docker/ingest-sidecar/Dockerfile:56` += `PyMuPDF`. (4) PR → merge → rebuild → pull + `up -d --force-recreate --no-deps utility-ingest`. (5) Re-run `--gas` and check the values against the bill by eye. (6) Backfill the 4 rows already stored ( `--gas` skips existing dates → needs a delete or explicit re-parse).
+
+**Data-handling note:** a gas bill is **personal financial data** (account number, service address, amounts). It stays on the homeserver / in local scratch — **never** pasted into a GitHub issue/PR/commit, and only the minimal label-bearing excerpts are surfaced.
+
+**Rollback:** ad-hoc pip install is erased by any recreate (or `docker compose up -d --force-recreate --no-deps utility-ingest` on the current image `282bec2e`). Code = `git revert`. Parse changes are pure-function + SQLite-only (`cmd_gas` posts NO captures, writes no prod Postgres) → blast radius is the `gas_readings` table in the `utility_ingest_data` volume; wrong values are deletable + re-fetchable.
+
+**Status:** IN PROGRESS — see result below.
