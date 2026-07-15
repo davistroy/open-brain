@@ -13027,3 +13027,56 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 - **Net:** production now fully on `a330c3d` `:latest` for all app services (all of PR #244 v5 hardening + the non-root images + #200 are LIVE). **Closes OA-9 (deploy portion) + OA-15.** Local `main` = GitHub `main` = `a330c3d`; production = same images → **local/github/prod in sync.** Deferred-as-planned: OA-10 postgres `shm_size` (no postgres recreate), financial-ingest (idle/Plaid-dropped), OA-9's remaining live-host verifications (WorkersMetricsAbsent alert test, backup/rehearsal spot-checks).
 **Tags:** [deploy] [docker] [security]
 **Environment:** homeserver (Unraid, root SSH) + ubuntu-vm. open-brain prod. Executed by Claude (Opus 4.8), user-directed "full fleet to latest."
+
+---
+
+## Entry 198 — #265 Gas South auth rewrite: session-crash recovery + the missing `ClientId` header that would have kept it broken (2026-07-15)  [debug] [pipeline] [config] [api]
+
+**Context — crash recovery.** The prior session (2026-07-14 ~21:00) terminal-crashed mid-work on **#265**. Recovered state: branch `fix/265-gassouth-auth-endpoint` at main `a2c769d` with **zero commits**; uncommitted rewrite of `_gas_south_login` + `auth_url` in `utility-config.yaml`; **no notebook entry**; issue DoD step 3 (confirm a token is returned) never run. A second, unrelated thread (Actual Budget docs, mtime 20:24–20:29) was already finished — split to its own branch, not this one.
+
+**Objective:** Verify the crashed session's reverse-engineering against the LIVE Gas South portal before trusting it, fix whatever it got wrong, and land #265 to the honest boundary (contract proven; real-credential run left to the operator).
+
+**Hypothesis:** The uncommitted rewrite is correct and only needs a notebook entry + commit. **REJECTED — it would have failed 100% of the time.**
+
+**Method — independent verification against the live bundle** (`curl https://manage.gassouth.com/` → `main-V3IXHCYX.js`, 2.2 MB, grep the Angular env object `ie`):
+```
+ie = { baseUrl:"https://manage-api.gassouth.com/oas",
+       authUrl:"https://oas-1-auth-dehgctgqg2e9c8ee.eastus-01.azurewebsites.net",
+       ClientId:"GS-5E027899-FB73-47B2-8E23-AA0985EF4B82", ... }
+AuthUrl(){return this.authUrl+"/api"}   OASUrl(){return this.baseUrl+"/api"}
+getAUP(e,i,r="1",o="30"){ let a=ie.AuthUrl()+"/authenticate/aup",
+  s={UserName:e,Password:i,startIdx:r,endIdx:o},
+  l={headers:new Ui({"Content-Type":"application/json", ClientId:ie.ClientId})}; ... }
+```
+**What the crashed session got RIGHT (all independently confirmed):** `auth_url` matches `authUrl` exactly; `AuthUrl()` appends `/api` so `{auth_url}/api/authenticate/aup` is the correct path; payload `{UserName,Password,startIdx,endIdx}` matches `getAUP()` field-for-field incl. PascalCase; and `cmd_gas`'s existing `authtoken` header is right — the Angular interceptor sets **only** `headers.set("authtoken", g)` for `OASUrl()` URLs (`&& !url.includes("unauth")`), no ClientId on data calls.
+
+**ROOT CAUSE — what it got WRONG:** `getAUP()` sends a **`ClientId` request header** that the rewrite **omitted**. Proven with a live probe using a deliberately bogus username (`…@example.invalid` — no lockout risk to the real account):
+
+| Request | Result |
+|---|---|
+| **without** `ClientId` (what the uncommitted code sent) | `HTTP 400` generic RFC-9110 `"Bad Request"`, no ErrorCode — **rejected before credentials are read** |
+| **with** `ClientId: GS-5E027899-…` | `HTTP 400` `{"ErrorStatus":"F","ErrorCode":"30011","ErrorMessage":"UserName or EmailId or Password is Invalid!!!"}` — **credentials evaluated** |
+
+So the endpoint + payload were right but the call was rejected at the framework layer regardless of credentials. Committing as-was would have traded one opaque failure (404 on dead endpoints) for another (generic 400), and #265 would have re-opened after deploy looking like a credentials problem.
+
+**Second finding:** Gas South returns rejections as **HTTP 400 with `{ErrorStatus,ErrorCode,ErrorMessage}` — NOT 401, and NOT a 200 carrying an error body.** The crashed session's `200-but-no-token → data.get("Error")` branch was therefore dead code guarding a failure mode that does not exist.
+
+**Fix (this entry):**
+1. `config/utility/utility-config.yaml` — new `gas.client_id` (public constant from the bundle, **not a secret**: it identifies the web client, not the user; sits next to `auth_url` so both are re-captured together when the portal changes).
+2. `scripts/utility-pipeline.py::_gas_south_login` — send `ClientId` header; parse the body **before** the status check; on non-200 surface `ErrorCode — ErrorMessage`, and when there is **no** ErrorCode say so explicitly ("rejected before credentials were checked → re-verify client_id/auth_url") — i.e. the two failure classes are now distinguishable **in the log**, which is exactly what cost this issue a whole extra session.
+
+**Verification (evidence, local):** `ruff check` clean + `ruff format --check` clean (HEAD was already formatted → the drift was working-tree, incl. the crashed session's; now fixed) + `py_compile` OK. **Real code path exercised end-to-end** against the live endpoint with `get_bws_secret` stubbed to bogus creds:
+```
+INFO   Gas South auth: POST https://oas-1-auth-…azurewebsites.net/api/authenticate/aup
+ERROR  Gas South auth rejected: 30011 — UserName or EmailId or Password is Invalid!!!
+RETURNED: None
+```
+→ endpoint reached, **credentials evaluated** (proves the ClientId header is actually going out), error surfaced cleanly, graceful `None`. Two pre-existing Pyright warnings in `cmd_gas`/`cmd_power_summary` confirmed present at HEAD — untouched, not regressions.
+
+**Honest DoD / what is NOT proven:** that *Troy's real credentials* authenticate and that billing actually parses. That needs `BWS_ACCESS_TOKEN` + a run of `utility-pipeline.py --gas --json-output` inside `open-brain-utility-ingest` on the homeserver — **operator step, deliberately not run here** (issue #265 step 3). #265 stays OPEN until then.
+
+**Rollback:** N/A for the running system — nothing deployed. Code-level: `git revert` the commit; the utility-ingest container keeps running the current (already-graceful, exits 0) image until an operator deploys.
+
+**Lesson (generalizable):** reverse-engineering an SPA's API from a bundle must capture the **interceptor/header layer**, not just the URL + payload of the call site. The call site (`getAUP`) and the transport config (`headers:{ClientId}`) are adjacent in the source but easy to read past — and a missing required header presents as a *generic 400*, which reads like bad input rather than a missing header. Grep the call site's `headers`/`setHeaders`/interceptor **every time**, and prove it with a bogus-credential probe: "credentials were evaluated" (a real ErrorCode) is the signal that the contract is right, and it needs no real secret to obtain.
+**Tags:** [debug] [pipeline] [config] [api]
+**Environment:** ubuntu-vm, local working tree only. No deploy, no prod change. Live third-party probes were read-only/bogus-credential. Executed by Claude (Opus 4.8), recovering a crashed session.
