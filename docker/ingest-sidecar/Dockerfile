@@ -51,11 +51,17 @@ RUN ARCH="$(uname -m)" && case "$ARCH" in \
     chmod +x /usr/local/bin/electric-usage-downloader && \
     rm -rf /tmp/eud.tar.gz /tmp/LICENSE /tmp/README.md 2>/dev/null || true
 
-# Pipeline dependencies. Kept minimal — pdfplumber etc. deliberately excluded
-# until a script actually needs them. Adding a package here is cheap.
+# Pipeline dependencies. Kept minimal — a package earns its place by being
+# imported by a script that actually runs. Adding one here is cheap.
+#
+# PyMuPDF: utility-pipeline.py parses Gas South bill PDFs for therms. It was
+# missing for the entire life of the gas path — unnoticed because auth was
+# broken upstream, so the parse never ran and therms silently stored as NULL
+# (#275). AGPL-3.0, accepted for this self-hosted single-user deployment.
 RUN pip install --no-cache-dir \
       requests==2.32.3 \
-      PyYAML==6.0.2
+      PyYAML==6.0.2 \
+      PyMuPDF==1.28.0
 
 # Defaults for in-container paths. Overrideable via compose environment.
 ENV PYTHONUNBUFFERED=1 \
