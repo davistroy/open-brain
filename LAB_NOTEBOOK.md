@@ -13147,4 +13147,41 @@ RETURNED: None
 
 **Rollback:** ad-hoc pip install is erased by any recreate (or `docker compose up -d --force-recreate --no-deps utility-ingest` on the current image `282bec2e`). Code = `git revert`. Parse changes are pure-function + SQLite-only (`cmd_gas` posts NO captures, writes no prod Postgres) → blast radius is the `gas_readings` table in the `utility_ingest_data` volume; wrong values are deletable + re-fetchable.
 
-**Status:** IN PROGRESS — see result below.
+**Status:** ✅ **COMPLETE, DEPLOYED & VERIFIED IN PROD — #275 CLOSED. Gas usage now lands.**
+
+**The pessimistic hypothesis was RIGHT, and that is the whole story of this entry.** Adding PyMuPDF alone would NOT have fixed it: with `fitz` present, **all four regexes still returned `None` on all four real bills** (measured, not reasoned). Shipping "just add the dep" would have left therms NULL and brought us back here a third time.
+
+**Root cause (settled by dumping the REAL extracted text):** the "How We Calculated Your Gas Charges" section is a **TABLE**, and PyMuPDF's `get_text()` emits it as a flat run of standalone lines — every column header first, then every value — so **a label is NEVER adjacent to its number** (`CCFs` on line 81, its value `20` on line 97). `(\d+)\s*CCFs?` cannot match that, ever. **Smoking gun:** the old docstring's examples (`66 CCFs`, `68.24 therms`) are **exactly the 2026-04-03 bill** — the regexes were written by reading the **web PORTAL** (where the label IS beside the number) and never once executed against a PDF. Both the miss AND its invisibility were by construction: the failure degraded to a WARNING and the run still reported `status: ok`.
+
+**Also disproved (a live-API check, not a guess):** the discarded `activity.get("BillSegmentInfo")` (the long-standing Pyright "unused expression") looked like it might carry usage and make PDF-scraping unnecessary. It does NOT — only `BillSegmentStartDate/EndDate/Amount/ClosingBillSegment`. **The PDF is the only therms source.** Dead line removed, replaced with a comment recording the finding so nobody re-investigates it.
+
+**The fix — anchor on the row's own arithmetic, not on label text:**
+```
+Ending - Beginning = CCFs x ThermFactor = Therms x Rate = GasCharges
+          63 - 43  =  20  x   1.033     = 20.66  x 0.65 =   13.43
+```
+Self-validating: each row is re-checked against that arithmetic and **dropped if it doesn't reconcile** — a future column remap now fails LOUDLY instead of silently storing wrong usage (wrong numbers being worse than none). Multi-row bills (mid-cycle rate change) sum usage + derive effective factor/rate. Parsing extracted to **`scripts/lib/gas_bill_parse.py` — pure stdlib**, so the exact logic that shipped broken is now unit-testable with **no PDF library and no network** (10 tests). `PyMuPDF==1.28.0` pinned to **the version actually verified**, not the 1.24.10 I first guessed. Unparseable bills now append to `_JSON_ERRORS` → `status:"error"`, killing the false-clean-run signal.
+
+**Verification ladder (each rung independent):** 10 new unit tests + **23/23 sidecar suite** green in a clean `python:3.12` container (mirrors CI) · ruff check+format clean · py_compile OK · CI `Sidecar tests (Python)` + `Python lint & typecheck` green on PR #276 (22 pass, CLEAN) · **the real `_parse_gas_bill_pdf` run against all 4 real PDFs pre-merge: 4/4** · then **in PROD post-deploy: 4/4**.
+
+**Deploy:** merged `d620fd6`; build-images green; config gate re-confirmed **postgres/redis still raw binds**; `pull` + `up -d --force-recreate --no-deps utility-ingest` → image **`sha256:70fa72e6ae81`** (from `282bec2e`; anchor `0e23f95c`), Up, **0 restarts**. **Provenance proof:** `/app/lib/gas_bill_parse.py` is `root:root` in the new container — i.e. it came from the IMAGE BUILD, not the ad-hoc `docker cp` (uid 1002) used during investigation. PyMuPDF 1.28.0 resolves from the image. Nothing else recreated.
+
+**Backfill:** `utility.db` backed up first (`/data/utility.db.bak-20260715T132633`) — it also holds `water_readings`, so the delete was scoped `WHERE therms IS NULL` and water row-count asserted unchanged (never a bare `DELETE FROM`). 4 NULL rows dropped (fully re-fetchable — proven) → `--gas` re-fetched + re-parsed.
+
+**PROD RESULT — the actual point of the pipeline, finally true:**
+```
+date            bill   ccfs  factor  therms  rate
+2026-07-06     73.03   20.0   1.033   20.66  0.65
+2026-06-04     80.65   31.0   1.023   31.71  0.65
+2026-05-05     84.95   32.0   1.031   32.99  0.65
+2026-04-03     119.5   66.0   1.034   68.24  0.65
+rows=4 with_therms=4 (ALL POPULATED) | total 153.6 therms
+```
+
+**Layer tally CLOSED (Entries 190→200):** 1 BWS token → 2 secret-naming drift → 3 auth API changed (#265) → 4 PDF dep missing + parser never validated (#275). **Four layers, each invisible until the one above it was fixed.**
+
+**Lessons (both cost real time this session):**
+1. **An integration blocked at step 1 hides every later step's bugs.** Estimating remaining work from the current error message systematically under-counts — "the blocker is fixed" is never "the feature works." Only an end-to-end run on real data tells you which layer you're on.
+2. **Code written from a UI rendering will not parse that UI's export.** The portal shows `20 CCFs`; the PDF extracts them lines apart. Never ship a parser that has not run against a real artifact — and prefer anchors the data itself validates (arithmetic) over anchors that merely look stable (labels).
+**Tags:** [pipeline] [debug] [docker] [config]
+**Environment:** homeserver (Unraid), `open-brain-utility-ingest` only (`282bec2e`→`70fa72e6`). SQLite-only writes (no prod Postgres). postgres/redis/core-api/workers untouched. Executed by Claude (Opus 4.8), user-directed ("take on #275 — fine with AGPL").
