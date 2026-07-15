@@ -13309,3 +13309,41 @@ AFTER:  DRIFT:  1 of 11                              -> 10/11 OK
 **Lesson:** the previous entry's lesson (a mock fixture agreeing with the code proves nothing) has a sibling here — **`verify-secrets.sh` only ever audited `.env.secrets`, so the `.env` half of the secret surface was never audited by anything at all.** A checker that inspects one of two files reports "1 drift" when the truth is "the stack won't boot."
 **Tags:** [security] [deploy] [decision]
 **Environment:** BWS writes = 4 additive secret creations (ai-work), performed in-container so values never egressed. Map tested against live BWS then reverted on the host. No prod restart, no service touched. Executed by Claude (Opus 4.8), user-directed ("tackle #278").
+
+---
+
+## Entry 204 — Credential-validation sweep: 4 dead integrations found, all reporting success (2026-07-15)  [debug] [pipeline] [security] [api]
+
+**Objective:** Troy asked to validate every email + utility login and file an issue per problem. Deliberately validated by **exercising each login**, not by reading config.
+
+**Result — 4 of 7 surfaces are dead, and every one of them reports success.**
+
+| Surface | Credentials | Pipeline | Issue |
+|---|---|---|---|
+| `troy.davis@hotmail.com` (MSAL) | ✅ silent refresh works | ✅ 20 classified/moved | — |
+| `bond@k4jda.net` (PrivateEmail) | ✅ IMAP **and** SMTP login | ✅ | — |
+| **Gmail** | ❌ `invalid_grant` | ❌ dead since **2026-04-21** | **#282** |
+| Gas South | ✅ | ✅ (Entries 198–200) | — |
+| **Cobb EMC (power)** | ✅ **SmartHub 200 + token** | ❌ **never worked** | **#286** |
+| **Cobb Water** | in BWS, unused | ❌ **401, never worked** | **#285** |
+| **Jetson T1 (LLM)** | ❌ 401 | ❌ dead since **~2026-07-01** | **#283** |
+
+**#283 is the find of the sweep, and it is fleet-wide — not an email bug.** Chasing `Jetson 401` lines in the email log led to `ai_audit_log`: **461 × `401 Invalid API Key`**, with `calls == errors` on **every day since ~07-01** (earlier days succeeded, which dates the change). Two independent callers never learned the Jetson had added auth: `llm-gateway.ts:276` hardcodes `apiKey:'local'` behind the comment *"Local endpoints ignore the key"* — **true when written, false since** — and `email-pipeline.py::classify_by_jetson` sends no header at all. Proved both directions from a container (key never echoed): **without key → 401, with BWS `dev/jetson/llm-api-key` → 200 `"OK"`**. `GET /v1/models` still answers **200 unauthenticated**, which is why the endpoint looks healthy to a casual probe. **Cost impact: none** — `cost_usd` is 0 and no paid chat model appears, so the documented `t1_jetson → t1_fast → t2_quality` fallback is **not** firing (worth understanding: if it ever starts, this is the $100-incident path). **A 100%-failing FREE tier is indistinguishable from an idle one** — that is why two weeks passed unnoticed.
+
+**#286 root cause is worth remembering:** the Dockerfile installs `electric-usage-downloader` from **`typ0/…` — an org that returns 404** — while `utility-config.yaml` has named the real repo (`tedpearson/…`, 51★, v2.4.1) all along. Wrong org **+** wrong version **+** wrong asset format (expects a `.tar.gz`; real assets are raw binaries) **+** a trailing `|| true` binding the whole `&&` chain ⇒ **a green build that ships no binary, for months.** Credentials were never the problem (SmartHub login returns a token). Endpoint taken from the tool's own `internal/app/api.go` (`/services/oauth/auth/v2`), not guessed — my first guess (`/services/oauth2/auth`) 404'd, which is exactly why you read the source.
+
+**#285:** `water_readings` is **empty since day one**. The docstring still claims *"API requires no authentication (confirmed via HAR analysis)"* — true in 2026-04, false now; Entry 047 already knew and the code was never updated.
+
+**THE PATTERN — the actual lesson of this whole session.** #275, #282, #285, #286 all **exit 0 / `status: ok` while doing nothing**:
+- gas → stored bill amounts with NULL therms
+- Gmail → one ERROR line; Hotmail's success carried the run
+- water → `{"status":"ok"}` on a 401
+- power → `{"status":"ok"}` with no binary installed
+
+Four integrations, dead for months, each reporting success. **A pipeline that cannot distinguish "did the work" from "ran without crashing" will hide its own failure indefinitely.** The fix is uniform and cheap: make a no-data outcome flip `status` to `"error"` (as `cmd_gas` now does, #275). Sibling finding: **#284** — ~213 benign 404s per email run from `cleanup_spam()`, which is precisely the noise floor that lets a real error pass unseen.
+
+**Method note (transferable):** every check was an *exercise*, not an inspection — a real Gmail refresh (not "the token file looks old"), a real IMAP+SMTP login, a real SmartHub POST, a real Jetson completion with and without the key. Four of these had config that *looked* fine.
+
+**Docs reconciled:** `OPEN_ITEMS.md` → **12 open**, verified against `gh issue list` (#278 closed → Recently-closed; #281–#286 added).
+**Tags:** [debug] [pipeline] [security] [api]
+**Environment:** Read-only validation across obvm (email cron host), homeserver containers, and live third-party endpoints. No credential values printed, committed, or placed in any issue. Executed by Claude (Opus 4.8), user-directed sweep.

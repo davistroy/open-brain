@@ -4,7 +4,7 @@
 
 GitHub issues are the single source of truth for all pending work. This file is a quick-reference summary only — close issues there, not here.
 
-Last reconciled: 2026-07-15 (verified against `gh issue list` — 7 open).
+Last reconciled: 2026-07-15 (verified against `gh issue list` — 12 open).
 
 ---
 
@@ -22,11 +22,16 @@ The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`
 
 ---
 
-## Open issues (7)
+## Open issues (12)
 
 | # | Title | Gate / urgency |
 |---|-------|---------------|
-| [#278](https://github.com/davistroy/open-brain/issues/278) | secrets-map.sh BWS names don't exist (11/14 required) — `load-secrets.sh` would exit 2, **DR path broken** | **New (2026-07-15), HIGH.** Prod is UNAFFECTED (the map is only read on reconcile) — but the documented "rebuild `.env.secrets` after a homeserver rebuild" runbook would write nothing. Confirmed by the repo's own `verify-secrets.sh`: `DRIFT: 11 of 14`. Never caught because `test-secrets-roundtrip.sh` mocks `bws` with the map's OWN names (self-consistent → cannot detect name drift) and no CI job checks real BWS. Needs BWS-project disambiguation (broad token spans 3 projects, D137). Entry 202 / A142. |
+| [#283](https://github.com/davistroy/open-brain/issues/283) | Jetson T1 tier 401s on 100% of calls since ~2026-07-01 | **New (2026-07-15), HIGH — actively degrading.** `llm-gateway.ts:276` hardcodes `apiKey:'local'` ("local endpoints ignore the key" — no longer true); `email-pipeline.py` sends none. 461 × `401 Invalid API Key` in `ai_audit_log`; the 6 classification tasks silently degrade. **No cost leak** (cost_usd 0 — the paid fallback isn't firing). Key exists + verified: BWS `dev/jetson/llm-api-key`. |
+| [#281](https://github.com/davistroy/open-brain/issues/281) | DR gap #2: `.env` is not automated — a rebuilt host cannot start the stack | **New (2026-07-15), HIGH.** `REDIS_PASSWORD` lives only in `.env`; Compose interpolates `${}` from `.env`, never `env_file:`, and `load-secrets.sh` writes only `.env.secrets`. Sibling of #278 (fixed): DR now writes *half* of what's needed. Recovery-only failure. |
+| [#282](https://github.com/davistroy/open-brain/issues/282) | Gmail OAuth dead since 2026-04-21 — `invalid_grant` | **New (2026-07-15).** No Gmail classified/captured in ~3 months; Hotmail masks it so the run still reports success. Almost certainly the OAuth app stuck in "Testing" (7-day refresh expiry, exactly what A31 predicted). Fix = publish the app to "In production", or move Gmail to an App Password over IMAP. **Owner action** (interactive consent). Supersedes OA-12. |
+| [#285](https://github.com/davistroy/open-brain/issues/285) | Cobb Water API returns 401 — auth never implemented | **New (2026-07-15).** `water_readings` has been **empty since day one**. The HAR-era "no authentication required" docstring is now false. Credentials are in BWS but nothing uses them. Fix = the #265 bundle playbook (no HAR needed). |
+| [#286](https://github.com/davistroy/open-brain/issues/286) | Power/Cobb EMC never worked — Dockerfile pulls from a nonexistent repo | **New (2026-07-15).** **Credentials are fine** (SmartHub login → HTTP 200, token). Dockerfile downloads `typ0/electric-usage-downloader` (**404 — org doesn't exist**; config has always said `tedpearson/`), wrong version (0.5.0 vs v2.4.1), wrong asset format, and a trailing `\|\| true` hides the failed download → green build, no binary. `cmd_power_summary` is still a stub. **Decide whether power ingestion is still wanted before investing.** |
+| [#284](https://github.com/davistroy/open-brain/issues/284) | ~213 spurious 404s per email run from Hotmail `cleanup_spam()` | **New (2026-07-15), LOW.** Benign (items already gone) but drowns real errors — the condition that let #275/#282 hide. MS auth itself is healthy. Fix = treat `404 ErrorItemNotFound` as success, like #275's `409`-is-terminal-success. |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile app deferred scope (PRs #172/#174) | When mobile becomes a priority |
 | [#73](https://github.com/davistroy/open-brain/issues/73)  | P33: Qdrant vector-search evaluation | Scale-gated — fires at ≥50K embeddings |
 | [#72](https://github.com/davistroy/open-brain/issues/72)  | P34: NVIDIA RTX PRO 2000 deployment | Hardware purchase decision |
@@ -42,6 +47,7 @@ The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`
 
 | # | Closed | Via |
 |---|--------|-----|
+| #278 | 2026-07-15 | secrets-map BWS names corrected + 4 secrets created from live values (PR #280). DR reconcile 11/14-missing → 1/11. Remaining drift row is #281, a different bug. Entry 203 |
 | #275 | 2026-07-15 | gas therms NULL — bill-PDF parser rewritten to anchor on the bill's arithmetic + PyMuPDF added to the sidecar image (PR #276). **Verified in prod: 4/4 bills, 153.6 therms.** Entry 200 |
 | #265 | 2026-07-15 | Gas South login 405/404 — auth repointed at the portal's dedicated auth host + required `ClientId` header (PR #273). Solved from the JS bundle, **no HAR needed**. Verified with real credentials. Entries 198-199 |
 | #200 | 2026-07-14 | Dashboard failure count — honest pipeline-status display, `derivePipelineStatus()` decouples health from stale failures (PR #271). Verified live |
