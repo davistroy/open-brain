@@ -64,6 +64,10 @@ services:
       retries: 5
     mem_limit: 8g
     cpus: '4'
+    # Must exceed the DSM segment a parallel HNSW build sizes from maintenance_work_mem
+    # (512MB, config/postgres/postgresql.conf); Docker's 64m default silently breaks
+    # pg_restore's CREATE INDEX → a restored DB with no HNSW index and no obvious error.
+    shm_size: 1gb
     networks:
       - open-brain
     restart: unless-stopped
