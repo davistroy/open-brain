@@ -1,0 +1,75 @@
+# Prometheus alert rules — outbound dependency health (LLM + embeddings)
+# Metric source: openbrain_outbound_requests_total{provider, operation, status_class}
+#   - core-api: scrape registry at core-api:3000/metrics
+#   - workers:  pushed to Pushgateway (piggybacked on container-health / pipeline-health)
+# Recorded via timeOutboundCall() at 4 sites: llm-gateway.ts (openai-compatible chat,
+# anthropic messages) and embedding.ts (embedding, embedding_batch).
+#
+# WHY THIS EXISTS (#289 / #283): the Jetson T1 tier returned 401 on 100% of calls for
+# two weeks and nobody noticed. Every other safeguard behaved correctly and none of
+# them could surface it:
+#   - the tier fallback deliberately does NOT fire on 401 (auth errors are not
+#     transient — see shouldAttemptFallback), which is what PREVENTED a silent
+#     escalation to paid Claude. Correct, but silent.
+#   - the budget alerts never fired, because a FREE tier failing costs $0.
+#   - ai_audit_log recorded all 461 errors — but nothing reads it for alerting.
+# A totally-failing free tier is indistinguishable from an idle one. This rule is
+# the missing watcher.
+#
+# WHY A RATIO, NOT A COUNT: it fires on sustained *total* failure regardless of call
+# volume, and an idle tier yields 0/0 (no series) rather than a false alarm. A raw
+# count would page on a burst of retries and stay quiet on a low-volume tier that is
+# 100% broken — exactly backwards for this failure mode.
+#
+# ALERT DELIVERY MODEL: no Alertmanager is configured (prometheus.yml has no
+# alerting: block). These rules surface in the Prometheus Alerts tab and Grafana
+# panels only — they do NOT dispatch notifications. Operational push notifications
+# come from application-layer code in workers (PushoverService). If this class of
+# outage needs to reach a phone, that belongs in a skill, not here.
+
+groups:
+  - name: open-brain-outbound
+    interval: 5m
+    rules:
+      - alert: OutboundProviderFailing
+        # >50% of calls to a provider/operation failing over 30m. Catches a
+        # misconfigured or dead dependency that costs nothing and therefore trips
+        # no budget alert.
+        expr: >
+          sum by (provider, operation) (rate(openbrain_outbound_requests_total{status_class=~"4xx|5xx|error"}[30m]))
+          /
+          sum by (provider, operation) (rate(openbrain_outbound_requests_total[30m]))
+          > 0.5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.provider }}/{{ $labels.operation }} failing {{ $value | humanizePercentage }} of calls"
+          description: >
+            More than half of outbound {{ $labels.operation }} calls to
+            {{ $labels.provider }} have failed for 30m. A free tier (openai_compat =
+            Jetson/Spark) can fail 100% at zero cost, so budget alerts will NOT catch
+            this. Check ai_audit_log for the error text, and remember /v1/models may
+            still answer 200 unauthenticated while completions 401 (#283).
+          runbook: "docs/runbooks/outbound-alert.md"
+
+      - alert: OutboundProviderTotallyFailing
+        # 100% failure with real traffic = the #283 signature. Separate, louder rule:
+        # a tier that has not served a single successful call is broken, not degraded.
+        expr: >
+          sum by (provider, operation) (rate(openbrain_outbound_requests_total{status_class=~"4xx|5xx|error"}[15m]))
+          /
+          sum by (provider, operation) (rate(openbrain_outbound_requests_total[15m]))
+          >= 1
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.provider }}/{{ $labels.operation }} — 100% of calls failing"
+          description: >
+            Every outbound {{ $labels.operation }} call to {{ $labels.provider }} has
+            failed for 15m — no successful call at all. This is the #283 signature
+            (Jetson 401 Invalid API Key on every request for two weeks). Verify the
+            tier's api_key_env in config/ai-routing.yaml resolves in the running
+            container, and that the key itself is still valid.
+          runbook: "docs/runbooks/outbound-alert.md"

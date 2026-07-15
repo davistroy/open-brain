@@ -13354,3 +13354,58 @@ RESULT: SUCCESS — T1 classification is alive
 
 **Tags:** [config] [pipeline] [security] [decision]
 **Environment:** homeserver (workers+core-api recreated; `.env.secrets` backed up) + obvm (0600 env file, crontab backed up, script backed up). postgres/redis untouched. No secret value printed, committed, or placed in an issue. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 206 — #289: the fallback is NOT broken — it saved money. I was wrong 3× getting there (2026-07-15)  [debug] [observability] [decision]
+
+**Objective:** Investigate #289 — "the documented `t1_jetson → t1_fast → t2_quality` fallback never fired for 461 T1 failures." Troy: "pick up #289 now."
+
+**VERDICT: #289's premise is WRONG. The fallback is working exactly as designed, and its refusal to fire is the reason there was no cost leak.** I filed that issue on a hypothesis and the code disagreed. Recording the three wrong turns, because the *method* failure is the transferable part.
+
+**Wrong turn 1 — the same-provider filter (my filed hypothesis).** #289 speculated `sameProviderChain = fullChain.filter(...)` silently emptied the chain. It does not: that filter lives ONLY in `resolveAgentClient` (the agent/tool_use path). Classification goes through `completeWithTierFallback`, a different path with its own gate.
+
+**Wrong turn 2 — "t1_jetson declares no fallback".** Asserted mid-investigation from `grep -A 14`. **False** — and false because *my own #283 comments* had pushed the field outside the window. Parsing the YAML settled it:
+| tier | provider | fallback (ACTUAL) |
+|---|---|---|
+| t0_local | ollama | t1_jetson |
+| **t1_jetson** | openai_compat | **t1_spark** |
+| t1_spark | openai_compat | t1_fast |
+| t1_fast | anthropic | t2_quality |
+The chain exists, is correctly wired, and is not filtered.
+
+**Wrong turn 3 — "`recordOutbound` has ZERO call sites; CLAUDE.md line 39 is FALSE."** I nearly wrote that into an issue. **The call sites exist** — they use the **`timeOutboundCall`** wrapper (which calls `recordOutbound` internally), so grepping the inner function name found nothing:
+```
+embedding.ts:152   timeOutboundCall('openai', 'embedding', …)
+embedding.ts:221   timeOutboundCall('openai', 'embedding_batch', …)
+llm-gateway.ts:512 timeOutboundCall(provider ?? 'openai', 'chat', …)
+llm-gateway.ts:740 timeOutboundCall('anthropic', 'chat', …)
+```
+**CLAUDE.md was right; I was wrong.** Three grep-window/name errors in one day (this + the stale-config near-miss in Entry 205). **`grep -A N` is not a substitute for parsing the artifact, and grepping an inner helper is not a substitute for finding its wrapper.**
+
+**THE ACTUAL ANSWER — `shouldAttemptFallback` (llm-gateway.ts:766), documented *"Only on transient server errors — not on client errors or budget issues"*:**
+```ts
+return /429|500|502|503|rate.limit|overloaded|timeout|ECONNREFUSED|ETIMEDOUT/i.test(msg)
+```
+**401 is deliberately absent.** An auth misconfiguration **fails fast instead of silently escalating to PAID Claude.** Had 401 matched, 461 calls × 2 weeks would have quietly re-routed to `t1_fast` (Haiku) — **precisely the 2026-04-15 $100-incident shape.** The config comment ("*If Jetson is down, fallback chain…*") describes an **outage** — `ECONNREFUSED`/`timeout`, which ARE matched. **Down → falls back. Misconfigured → fails loudly.** That distinction is correct and must not be "fixed". A second mechanism working correctly is what contained the first one's blast radius.
+
+**Why Prometheus showed nothing (also not a bug):** `openbrain_outbound_requests_total` has **no data points in 14 days**, while `openbrain_container_healthy` does — so the workers→Pushgateway→Prometheus path demonstrably works (proved live by triggering `container-health`: `job="open-brain"` metrics appeared immediately). The outbound metric is empty because **IA-M4 shipped in PR #244, deployed ~2026-07-14 — and the last LLM call was 2026-07-13.** The instrumentation is newer than the traffic. Not broken; just never yet exercised.
+
+**THE REAL GAP (narrow, and worth fixing): nothing alerts on it.** `grep -rn outbound config/prometheus/` → **no rule**. So even once the metric flows, a provider stuck at 100% 4xx pages nobody. That is the *entire* reason #283 lived two weeks: **a free tier failing totally is indistinguishable from an idle one** — cost stays $0, no fallback fires (correctly), and the one signal that could show it has no watcher. Note the delivery model (documented in budget.yml): **no Alertmanager** — Prometheus rules are Grafana/Alerts-tab visibility, while real notification is application-layer Pushover from workers skills.
+
+**Fix:** add `config/prometheus/alerts/outbound.yml` — a ratio alert on `status_class=~"4xx|5xx|error"` over total, per `{provider, operation}`. Ratio (not count) is the right shape: it fires on *sustained total failure* regardless of volume, and a zero-traffic idle tier yields `0/0` → no alert, so idleness stays quiet. `for:` long enough to ride out a transient blip.
+
+**Status:** ✅ **RESOLVED — #289 closed as WORKING AS DESIGNED; the real gap (no watcher) fixed with an alert rule.**
+
+**Shipped:** `config/prometheus/alerts/outbound.yml` (2 rules) + `docs/runbooks/outbound-alert.md`.
+- **`OutboundProviderFailing`** (warning): >50% of `{provider, operation}` calls failing over 30m.
+- **`OutboundProviderTotallyFailing`** (critical): **100% failing with real traffic** over 15m — the literal #283 signature (a tier that has not served ONE successful call is broken, not degraded).
+
+**Verified — and the CI gate alone was NOT enough.** `scripts/validate-alert-rules.sh` passed (9/9), but it falls back to `python3 yaml.safe_load()` when promtool is absent (which it is, in CI) → **that checks YAML syntax, not PromQL**. A semantically broken rule would have merged green. So both expressions were executed against the **live Prometheus** API: `status=success` for each. This is the same lesson as #275/#278 one more time — **a passing check that cannot test the thing you changed is not evidence.**
+
+**The runbook leads with the trap that cost two weeks:** `GET /v1/models` answers **200 unauthenticated** while `/chat/completions` 401s, so "the endpoint is up" proves nothing — it documents the real 3-link check (bind-mounted config → env var → an actual completion), and says **use `grep -c`, not `grep -A N`**, since a too-small window produced a wrong answer twice today.
+
+**Honest scope — what this does NOT do:** there is **no Alertmanager** in this deployment (documented in budget.yml), so these rules are **Grafana/Alerts-tab visibility only — they will not page anyone.** Every operational alert that actually reaches Troy's phone is application-layer Pushover from a workers skill. So this rule makes the failure *visible*, not *loud*. Recorded as a known gap in the runbook with the concrete next step (add a check to `pipeline-health`, which already owns the backup dead-man's switch — not wiring Alertmanager). Claiming otherwise would repeat the exact sin this entry is about.
+
+**Tags:** [debug] [observability] [decision]
+**Environment:** Read-only investigation across llm-gateway/config/Prometheus/Pushgateway; live PromQL validation. One prod side-effect: triggered `container-health` (a normal 15m job) to prove the push path. No deploy — the rules ship with the next config sync. Executed by Claude (Opus 4.8), user-directed.
