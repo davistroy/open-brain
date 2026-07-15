@@ -13331,4 +13331,26 @@ AFTER:  DRIFT:  1 of 11                              -> 10/11 OK
 
 **Rollback:** `git revert`; the gateway falls back to `'local'` when `api_key_env` is absent/unset, so reverting the config alone restores exact prior behaviour. No migration, no data. Prod impact limited to workers/core-api recreate.
 
-**Status:** IN PROGRESS — see result below.
+**Status:** ✅ **MERGED (#288 → `e61d023`) + DEPLOYED to BOTH callers. T1 classification is ALIVE — first success since ~2026-07-01.**
+
+**The proof that matters — a REAL Jetson classification on the VM**, running exactly as cron will (env sourced):
+```
+JETSON_API_KEY in env: yes
+classify_by_jetson -> ('Technology & Development', 0.95, 'jetson')
+RESULT: SUCCESS — T1 classification is alive
+```
+
+**Red-green before shipping:** restoring the old hardcoded `'local'` makes the `api_key_env` test **FAIL (×)**; the fix makes it pass. A test that cannot fail proves nothing — this repo has now been bitten by exactly that twice (#278's self-agreeing mock, #275's never-run parser), so the test was proven capable of failing before being trusted. shared **371/371**, workers+core-api tsc, ruff, secrets round-trip **7/7** (keyset derives from the map → the new REQUIRED entry flowed through automatically, which is the #278 fix paying off immediately).
+
+**Deploy — homeserver:** `.env.secrets` backed up → `JETSON_API_KEY` appended (0600; **Unraid has no python3**, so bash+jq, per the standing rule I initially forgot). Config gate: postgres/redis still binds. `pull` + `up -d --force-recreate --no-deps workers core-api` → workers `8294087c`→`1ab5946e`, core-api `a8d5420c`→`4d8ed7b8`, both healthy, 0 restarts. **`config/ai-routing.yaml` is BIND-MOUNTED into 5 services**, so the host copy needed `git checkout origin/main -- config/ai-routing.yaml` as **root** (as `claude` the fetch dies on `Permission denied` locking root-owned refs — it silently checked out the OLD file and I nearly shipped a stale config; caught only by re-grepping).
+
+**Three links verified independently in the DEPLOYED container** (not inferred): (1) container sees `api_key_env: JETSON_API_KEY` in the mounted config — my first check said NO, but that was a **`grep -A 8` window too small to reach the line**; the container's own `grep -c` says 1. Cross-checking beat a self-inflicted false alarm. (2) `JETSON_API_KEY` SET (64 chars). (3) workers→Jetson **WITH the env key → HTTP 200**.
+
+**VM (obvm) — decision recorded.** Troy delegated the choice; **I had presented two options without actually recommending one**, so the recommendation was made explicit first: **give the VM only `JETSON_API_KEY`, NOT a BWS token.** Rationale = least privilege: a BWS machine token there would unlock **all 96 secrets across 3 projects**, whereas this is **one low-value LAN key** (free GPU endpoint, no cost exposure). Installing bws would not even remove plaintext secrets — it swaps one plaintext key for a plaintext *bootstrap token* with a vastly larger blast radius. The VM already stores plaintext OAuth refresh tokens in `~/.email-pipeline/`, so this adds no new exposure class. Implemented as a **0600 `~/.email-pipeline/.env` sourced by cron** — the pattern the homeserver crons already use (CLAUDE.md: cron env is bare).
+
+**NEW FINDING — the VM's code is a hand-copied 3-MONTH-STALE subset.** `~/open-brain` on obvm is **not a git checkout** (`config/ scripts/ venv/`, no `.git`); `email-pipeline.py` was dated **2026-04-14** — 6 repo commits behind, **773 diff lines**. Before overwriting I checked the drift *direction*: the VM-only lines are all pre-ruff-format style (`import argparse, json, …` on one line), i.e. **the repo is strictly ahead, not diverged** — so no local logic would be lost. Configs are byte-identical (so A33's "sender rules accumulate locally" has NOT happened, and copying the config was unnecessary — I left it alone anyway). Backed up, copied the script, `py_compile` + `--help` OK. **Same family as financial-ingest's 2-month-old image (Entry 201): a service nobody deploys drifts silently.** Filed separately.
+
+**What could NOT be observed, honestly:** the deployed *gateway* making a real t1_jetson call. Triggering `email-classify` ran the skill but it classified **0 emails** (nothing new), so no T1 call occurred — and it independently re-confirmed **#282** (Gmail `invalid_grant` from the workers side too). The three links + red-green unit tests cover the path; the first live gateway call lands at the 05:00 cron. **A test capture did not work either** — `capture_classification` is skipped when `capture_type` is supplied, and the audit log shows T1's real consumer is **`email_classification` (3726 calls)**, not captures. Test capture `f5ba76b4` was deleted (HTTP 204).
+
+**Tags:** [config] [pipeline] [security] [decision]
+**Environment:** homeserver (workers+core-api recreated; `.env.secrets` backed up) + obvm (0600 env file, crontab backed up, script backed up). postgres/redis untouched. No secret value printed, committed, or placed in an issue. Executed by Claude (Opus 4.8), user-directed.
