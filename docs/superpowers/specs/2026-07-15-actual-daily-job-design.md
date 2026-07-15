@@ -58,9 +58,50 @@ Both directions work from one container. **Use the DNS name, never a hardcoded I
 **IP allocation:** `br0` declares the whole `/24` with **no `ip-range`**, so Docker's auto-IPAM could
 hand out an address that collides with a real DHCP client on the LAN. Every existing `br0` container
 therefore has a **hand-assigned static IP**. The sidecar follows that convention with a static address
-in the low static block (verified unclaimed: no ping response, ARP `INCOMPLETE`), well below the DHCP pool.
+in the low static block (verified unclaimed: no ping response, ARP `INCOMPLETE`), below the DHCP pool.
 
 `br0` is **not declared in this repo's compose** — it must be added as `external: true`.
+
+#### The static IP is written literally in `docker-compose.yml` — not `.env`-interpolated
+
+**Decision (D142).** The address is a plain literal in tracked compose, carrying a comment that records
+*why*, mirroring `config/ai-routing.yaml:93` (`# ... at 192.168.10.58 (STATIC IP, do not change)`).
+
+Rationale, on the axes that matter:
+
+- **Tech debt (decisive).** Interpolating from `.env` moves the allocation **out of the reviewable,
+  diffable surface** into untracked host-only state that nothing compares against. That is exactly the
+  debt class behind every fire this week — #292, #290, #278, Entry 201, A143 — each a second copy
+  nobody compared. Entry 207's own #292 recommendation is *"comparison is the fix"*; hiding this value
+  would be a fresh instance of the pattern.
+- **Maintainability.** "What IP does the sidecar have?" → read compose, one greppable place, and any
+  change surfaces in PR review. Interpolated, the answer requires SSH-ing the host to read a root-owned
+  `.env`, and a change leaves no trace.
+- **Stability.** An unset variable interpolates to **empty** — a fail-open startup mode. And `.env` is
+  the subject of **#281** (not automated → a rebuilt host can't start the stack); interpolation adds to
+  that pile for no gain.
+- **It buys no secrecy.** RFC1918, not routable from outside. The repo already publishes the Jetson at
+  `192.168.10.58` in **live operational config**, plus Gitea on `br0` at `192.168.10.9` and obvm at
+  `192.168.10.53`. Hiding one address while those are literals is not security — it is inconsistency,
+  which is its own debt: a future reader cannot tell which IPs are meant to be secret.
+
+**The Actual server's own address is still never written here** — the sidecar reaches it by DNS name
+`actualbudget`, and `ACTUAL_SERVER_URL` arrives via `.env.secrets` (§7). Those *are* covered by the
+data rule. This decision concerns only open-brain's own container address.
+
+#### The residual risk neither option fixes
+
+The real long-term threat is not disclosure — it is that **`br0` has no `ip-range`**, so nothing
+prevents the router leasing the sidecar's address to a new device later. It was verified *unclaimed
+today*, which is not the same as *reserved*.
+
+- **Prerequisite:** confirm the router's **DHCP pool floor** sits above the chosen address. Existing
+  statics occupy the low block and a LAN host observed a DHCP lease well above it, so the pool floor is
+  inferred — **not verified**. This is an operator check (§12, OPERATOR_ACTIONS).
+- **Root cause, deliberately not fixed:** `br0`'s missing `ip-range` is the actual defect. Correcting it
+  means recreating an **Unraid-managed network shared by nine containers across other projects**
+  (swag, jellyfin, Gitea, …) — real disruption, far outside this job's scope. The static IP is the
+  correct workaround; the compose comment is what stops it becoming a mystery in six months.
 
 ### 3.2 Image — a new one, deliberately
 
@@ -257,5 +298,5 @@ arrives, confirm the uncategorized count still equals transfers + investment int
 | 7 | Secrets lockstep: 3 entries (password, sync ID, server URL) |
 | 8 | `deploy/cron/unraid-ingest.cron`: the `0 6` line |
 | 9 | Unit tests (§10) |
-| 10 | `OPERATOR_ACTIONS.md`: dated entries — install cron as root; create `config/payee-rules.yaml` on host; add BWS secrets |
+| 10 | `OPERATOR_ACTIONS.md`: dated entries — install cron as root; create `config/payee-rules.yaml` on host; add BWS secrets; **confirm the router's DHCP pool floor sits above the sidecar's static IP** (§3.1) |
 | 11 | `docs/runbooks/actual-daily.md` |
