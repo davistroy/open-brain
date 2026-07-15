@@ -13080,3 +13080,51 @@ RETURNED: None
 **Lesson (generalizable):** reverse-engineering an SPA's API from a bundle must capture the **interceptor/header layer**, not just the URL + payload of the call site. The call site (`getAUP`) and the transport config (`headers:{ClientId}`) are adjacent in the source but easy to read past — and a missing required header presents as a *generic 400*, which reads like bad input rather than a missing header. Grep the call site's `headers`/`setHeaders`/interceptor **every time**, and prove it with a bogus-credential probe: "credentials were evaluated" (a real ErrorCode) is the signal that the contract is right, and it needs no real secret to obtain.
 **Tags:** [debug] [pipeline] [config] [api]
 **Environment:** ubuntu-vm, local working tree only. No deploy, no prod change. Live third-party probes were read-only/bogus-credential. Executed by Claude (Opus 4.8), recovering a crashed session.
+
+---
+
+## Entry 199 — #265 credentialed verification: deploy the auth fix to utility-ingest + live `--gas` run (2026-07-15)  [deploy] [pipeline] [debug] [api]
+
+**Objective:** Close the honest gap left by Entry 198 / PR #273. The Gas South auth *contract* is proven (bogus-cred probe → `30011` = credentials evaluated), but **real credentials have never been tried**. Run issue #265 step 3 — `utility-pipeline.py --gas --json-output` inside `open-brain-utility-ingest` with real BWS creds — and close #265 if a token is returned and billing is fetched. User-directed ("merge both and then run the credentialed verification").
+
+**Pre-state (recon, read-only, verified):**
+- PRs **#273 + #274 MERGED** (squash) → main `f662d4c` (`3402cf2` = the #265 fix). `build-images` for `f662d4c` **completed/success** → fresh `ingest-sidecar:latest` on ghcr.
+- **Rollback anchor:** `open-brain-utility-ingest` running image `sha256:0e23f95c07dd`, created 2026-07-14.
+- **`BWS_ACCESS_TOKEN=SET`** in the container (Entry 191's fix still holds) → a credentialed run is actually possible.
+- **On-disk repo `a1629e4`** (far behind main) with the documented `MM docker-compose.yml` manual deviations (D131 core-api `0.0.0.0`, ADR-0004). **Do NOT `git checkout origin/main -- docker-compose.yml`** — not needed here.
+- **Host config `gas:` section is STALE** — no `auth_url`, no `client_id`.
+
+**Two delivery paths, because this service is split (the key insight for this deploy):**
+- `scripts/utility-pipeline.py` → **BAKED into the image** at `/app/utility-pipeline.py` (`COPY scripts/utility-pipeline.py /app/`; note: `/app/`, NOT `/app/scripts/`). Needs image pull + recreate.
+- `config/utility/utility-config.yaml` → **BIND-MOUNTED** (`./config:/app/config:ro`) from the host repo, which **overrides** the image's baked `/app/config`. Needs a host-side git update. Updating only the image would leave the config stale.
+- Safety net: the new `_gas_south_login` defaults `auth_url`/`client_id` to the correct values via `gas_cfg.get(key, default)`, so a stale config alone would NOT break it — but the two must not drift, so update both.
+
+**Blast radius (deliberately small):** `cmd_gas` **does NOT post captures** — it only `INSERT`s into the container-local SQLite `gas_readings` (`utility_ingest_data:/data`) and commits. **No prod Postgres writes.** (Captures come from `--monthly-comparison`, a separate path, not run here.) `financial-ingest` shares the `ingest-sidecar:latest` image but is NOT recreated → it keeps running its current container.
+
+**Method:** (1) host: `git fetch origin` + `git checkout origin/main -- config/utility/utility-config.yaml` — **that ONE file only** (the rest of `./config` is bind-mounted for OTHER live services — ai-routing/pipeline/brain-views/prometheus/grafana — and must not move). (2) config gate: `sudo -n docker compose config -q` + confirm postgres/redis still render as **binds** (compose itself untouched → expect a no-op diff). (3) `sudo -n docker compose pull utility-ingest`. (4) `sudo -n docker compose up -d --force-recreate --no-deps utility-ingest` — **NO `--remove-orphans`** (observability is profile-gated). (5) `docker exec … python /app/utility-pipeline.py --gas --json-output`.
+
+**Hypothesis / success criteria:** auth returns an `AuthToken` (log: `Gas South login successful (token: ...)`) → billing history fetched → gas readings stored → `{"status":"ok", ...}` exit 0. **Falsifiable failure modes I'm explicitly watching for:** (a) `30011` again = real creds rejected → a credentials problem, NOT this fix, → BWS values are wrong/stale; (b) a **generic 400 with no ErrorCode** = contract still wrong (stale `client_id`/`auth_url`) — the exact case Entry 198's error handling was built to name; (c) auth succeeds but the **data** call 401/404s = `authtoken` header or `OASUrl()` drifted too (only the auth host was verified in Entry 198 — the data path is UNPROVEN against a real token).
+
+**Rollback:** re-pin the anchor: `docker tag`/`up -d --force-recreate --no-deps utility-ingest` on `sha256:0e23f95c07dd`; host config revert = `git checkout a1629e4 -- config/utility/utility-config.yaml`. postgres/redis/core-api/workers never touched (`--no-deps`) → zero data risk. SQLite `gas_readings` rows are the desired data; deletable if a bad parse lands.
+
+**Status:** ✅ **DEPLOYED & VERIFIED — #265 CLOSED. Auth works with REAL credentials.** But the run immediately exposed the NEXT masked layer (see below).
+
+**Deploy result:** host config surgically updated (`git checkout origin/main -- config/utility/utility-config.yaml`, that one file only — `git status config/` confirmed nothing else moved). Config gate: `compose config -q` VALID + **postgres/redis still render as raw binds** (`/mnt/user/appdata/open-brain/pgdata`, `/redis-data`) → landmine still disarmed. `pull` + `up -d --force-recreate --no-deps utility-ingest` → new image **`sha256:282bec2ebe37`** (anchor `sha256:0e23f95c07dd`), container Up, fix present in `/app/utility-pipeline.py`. Nothing else recreated.
+
+**The credentialed run — `docker exec … python /app/utility-pipeline.py --gas --json-output`, exit 0:**
+```
+[INFO]   Gas South auth: POST https://oas-1-auth-…/api/authenticate/aup
+[INFO]   Gas South login successful (token: b637eb86...)          <-- REAL TOKEN
+[INFO] Fetching billing history: account=<GAS_ACCOUNT_NUMBER>, lookback=3mo  <-- DATA CALL WORKED
+[WARNING] PyMuPDF (fitz) not installed — cannot parse gas bill PDFs.
+[INFO]   2026-07-06: $73.03, therms N/A     (also 06-04 $80.65, 05-05 $84.95, 04-03 $119.50)
+[INFO] Gas: 4 new readings stored, 0 already existed
+{"status": "ok", "captures_posted": [], "errors": [], "duration_ms": 21391}
+```
+**Hypothesis CONFIRMED on every point.** All three watched failure modes cleared: (a) no `30011` → **real creds are valid**; (b) no generic-400 → **contract correct**; (c) **the data call worked** — the `authtoken` header + `OASUrl()` path are proven against a real token, which Entry 198 explicitly could NOT prove. **#265's DoD ("a token is returned and billing is fetched") is fully met → CLOSED.** The 3-day-old "needs a HAR" premise never applied.
+
+**NEW FINDING — layer 4, and the same pattern all over again: `therms` are NULL.** SQLite `gas_readings` now holds 4 rows with `bill_amount` populated but **`ccfs`/`therm_factor`/`therms`/`rate_per_therm` ALL NULL (0 of 4 rows have therms)** — i.e. we get what the gas COST but not how much gas was USED, which is the actual point of the pipeline. **Root cause:** `docker/ingest-sidecar/Dockerfile:56` installs only `requests` + `PyYAML`, with the comment *"Kept minimal — pdfplumber etc. deliberately excluded until a script actually needs them."* A script now does: `_parse_gas_bill_pdf` does `import fitz` (PyMuPDF). It was never added because **the gas path has been unreachable behind layers 1–3 for its entire life**, so the missing dep could never surface. The PDFs download fine (4 s each) — only the parse is dead. Filed as a new issue. **Not fixed here: scope, plus PyMuPDF is AGPL-3.0** — a dependency-licensing call that belongs to Troy, not a drive-by.
+
+**Layer tally for this saga (Entries 190→199):** 1 BWS token missing → 2 secret-naming drift → 3 auth API changed (#265) → **4 PDF dep missing**. Each fix exposed the next. The generalizable lesson: **an integration blocked at step 1 hides every later step's bugs** — "fixed the blocker" is never the same as "the feature works," and only an end-to-end credentialed run can tell you which layer you're actually on. Estimating remaining work from the current error message systematically under-counts.
+**Tags:** [deploy] [pipeline] [debug] [api]
+**Environment:** homeserver (Unraid), `open-brain-utility-ingest` only (image `0e23f95c`→`282bec2e`). No prod Postgres writes (cmd_gas is SQLite-only). postgres/redis/core-api/workers untouched. Executed by Claude (Opus 4.8), user-directed.
