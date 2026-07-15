@@ -114,24 +114,30 @@ export BWS_ACCESS_TOKEN="mock-token-not-used"
 # This is the source of truth for what mock BWS exposes per test case.
 # -----------------------------------------------------------------------------
 KEYSET_FILE="${WORK_DIR}/bws-keyset.txt"
-cat > "${KEYSET_FILE}" <<'EOF'
-open-brain-postgres-password
-open-brain-redis-password
-open-brain-openai-api-key
-open-brain-mcp-api-key
-open-brain-admin-api-key
-open-brain-slack-bot-token
-open-brain-slack-app-token
-open-brain-slack-user-token
-open-brain-pushover-app-token
-open-brain-pushover-user-key
-dev/open-brain/gitea-token
-open-brain-cloudflare-tunnel-token
-open-brain-pushover-token
-open-brain-pushover-user
-OPENCLAW_DEEPGRAM_API_KEY
-OPENCLAW_ANTHROPIC_API_KEY
-EOF
+
+# Derive the mock's REQUIRED keyset FROM secrets-map.sh instead of duplicating it.
+#
+# This list used to be a hardcoded literal, which made it a second source of
+# truth that rots silently: #278 corrected 11 BWS names and every test here
+# broke, because the fixture still asserted the old ones.
+#
+# IMPORTANT — what this fixture can and cannot prove. Deriving the keyset means
+# the mock now agrees with the map BY CONSTRUCTION, so these tests verify the
+# MECHANISM (parse, write, 0600, hash sidecar, clobber rules) and never the
+# NAMES. They are structurally incapable of catching drift between the map and
+# the REAL Bitwarden store — which is exactly how #278 hid: a fully green suite
+# asserted nothing about the thing that was broken. Catching that needs a
+# recorded real-BWS key inventory (names only, no values), which is the
+# remaining #278 DoD item. Do not mistake this file's green for "DR works".
+# shellcheck source=lib/secrets-map.sh
+source "${REPO_ROOT}/scripts/lib/secrets-map.sh"
+{
+  printf '%s\n' "${!REQUIRED_SECRETS[@]}"
+  # Two optional keys the fixture exercises; the rest are intentionally absent
+  # so the "optional missing is silently skipped" path stays covered.
+  printf '%s\n' "OPENCLAW_DEEPGRAM_API_KEY" "OPENCLAW_ANTHROPIC_API_KEY"
+} > "${KEYSET_FILE}"
+
 export MOCK_BWS_KEYSET="${KEYSET_FILE}"
 
 # -----------------------------------------------------------------------------
