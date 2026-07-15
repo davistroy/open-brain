@@ -271,15 +271,36 @@ export class LLMGatewayService {
       if (cached) return cached
 
       const normalizedURL = tier.base_url.endsWith('/v1') ? tier.base_url : `${tier.base_url}/v1`
+
+      // Resolve the tier's key from the env var it names. Keys are never in
+      // config (public repo) — the tier only declares WHICH var holds it.
+      //
+      // `'local'` remains the fallback for genuinely keyless endpoints, but is
+      // no longer the default: it was hardcoded here behind "local endpoints
+      // ignore the key", which stopped being true when the Jetson added auth and
+      // 401'd 100% of T1 calls for two weeks without anyone noticing (#283). A
+      // free tier failing totally looks exactly like an idle one.
+      const apiKey = tier.api_key_env ? process.env[tier.api_key_env] : undefined
+      if (tier.api_key_env && !apiKey) {
+        logger.warn(
+          { tierKey, apiKeyEnv: tier.api_key_env },
+          `Tier '${tierKey}' declares api_key_env='${tier.api_key_env}' but it is unset — ` +
+            `requests will be sent unauthenticated and will fail if the endpoint requires a key`,
+        )
+      }
+
       const client = new OpenAI({
         baseURL: normalizedURL,
-        apiKey: 'local',  // Local endpoints ignore the key but SDK requires non-empty
+        apiKey: apiKey || 'local',  // SDK requires non-empty; 'local' = keyless endpoint
         timeout: tier.timeout_ms,
         maxRetries: 0,  // Fail fast — let the fallback chain handle retries
       })
 
       this.tierClientCache.set(tierKey, client)
-      logger.info({ tierKey, baseUrl: normalizedURL }, `Created cached client for tier '${tierKey}'`)
+      logger.info(
+        { tierKey, baseUrl: normalizedURL, authenticated: Boolean(apiKey) },
+        `Created cached client for tier '${tierKey}'`,
+      )
       return client
     }
 
