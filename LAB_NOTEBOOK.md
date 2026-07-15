@@ -13277,3 +13277,35 @@ DRIFT: 11 of 14 required secret(s) missing from BWS or .env.secrets.
 **Status:** ✅ **DOCUMENTED + FILED** (issue + A142 + OA note). Docs reconciled: `OPEN_ITEMS.md` (8→**6** open issues — verified against `gh issue list`; #265/#275/#200 moved to Recently-closed), `OPERATOR_ACTIONS.md` (OA-4(c) corrected to "merged but not live until 2026-07-15"), Decision Log (**D139** PyMuPDF/AGPL, **D140** in-sync=code-not-digests), Action Items (**A140** financial Pushover unexercised, **A141** 5 stale pip/docker Dependabot PRs, **A142** this).
 **Tags:** [security] [debug] [ci] [decision]
 **Environment:** Read-only investigation (BWS key NAMES only — no values printed; `verify-secrets.sh` is inspection-only). No code, prod, or BWS changes. Executed by Claude (Opus 4.8) during a user-directed docs reconcile.
+
+---
+
+## Entry 203 — #278 fix: BWS names corrected + 4 secrets created from live values; found a SECOND DR gap (`.env`) (2026-07-15)  [security] [deploy] [decision]
+
+**Objective:** Fix #278 — `secrets-map.sh`'s BWS names matched nothing, so `load-secrets.sh` would exit 2 and the documented DR rebuild would write nothing.
+
+**Investigation — grouping BWS by PROJECT is what made this tractable** (`bws secret list` + `bws project list`, names only): **ai-work** (68) holds open-brain's secrets, **litellm** (25), **personal** (3). Two things fell out immediately:
+1. **The `open-brain-*` prefix is NOT bureaucratic — it is load-bearing.** The machine token spans all 3 projects and lookups are by `.key` alone, so **bare names COLLIDE**: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY` each exist **twice** across projects, and `GITEA_TOKEN` exists **twice inside ai-work** (same value — benign today, but a rotation would update one and silently strand the other). A unique prefix is the only way to be certain you get open-brain's copy.
+2. **Remapping to a plausible existing name would have been WRONG.** litellm holds `slack-bot-token`, `CLOUDFLARE_TUNNEL_TOKEN`, `POSTGRES_PASSWORD` — those are a **different service's** credentials (litellm's own tunnel/DB). Name-similarity would have wired the wrong secret into prod. This is exactly why #278 said "not a drive-by."
+
+**Method — capture the LIVE values, don't guess.** `financial-ingest` uniquely has BOTH `BWS_ACCESS_TOKEN` (bws CLI) AND every `.env.secrets` value in its env, so the whole operation ran **inside one container**: values never touched a shell, a command line, or a transcript. Dry-run first; existence-checked (never overwrite); reported names + status only. The running container's env is the only *unambiguous* source of truth for what open-brain actually uses.
+
+**Created in BWS (ai-work), additive, none pre-existing:** `open-brain-postgres-password`, `open-brain-slack-bot-token`, `open-brain-slack-app-token`, `open-brain-cloudflare-tunnel-token`.
+**Remapped in `secrets-map.sh`** (BWS-name side only — the ENV-var side is what consumers read and MUST NOT move; avoids duplicating a live credential): `open-brain-pushover-app-token`→**`PUSHOVER_API_TOKEN`**, `open-brain-pushover-user-key`→**`PUSHOVER_USER_KEY`**, `dev/open-brain/gitea-token`→**`GITEA_TOKEN`** (safe only because those keys are unambiguous today — recorded in the header).
+**Demoted/removed from REQUIRED:** `SLACK_USER_TOKEN` → OPTIONAL (an `xoxp-` channel-cleanup token that is **not set in prod and not in BWS** — requiring it failed every reconcile for an *unconfigured* feature); `PUSHOVER_TOKEN`/`PUSHOVER_USER` **deleted** (legacy aliases that exist nowhere; `pushover-notify.sh` treats them as a *fallback*, never a requirement). Header count corrected **13→11** (the array had always held 14 — nobody had audited the block).
+
+**Result — measured with the repo's own read-only tool, not asserted:**
+```
+BEFORE: DRIFT: 11 of 14 required secret(s) missing   -> load-secrets.sh exits 2, writes NOTHING
+AFTER:  DRIFT:  1 of 11                              -> 10/11 OK
+```
+
+**THE REMAINING 1 IS A SECOND, INDEPENDENT DR GAP — `REDIS_PASSWORD` lives in `.env`, which NOTHING automates.** Compose interpolates `--requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}` and `REDIS_URL` **from `.env`** — and `${}` interpolation reads `.env`/the shell, **NOT `env_file:`**. Verified: `.env` = `{CLOUDFLARE_TUNNEL_TOKEN, GITEA_TOKEN, GRAFANA_ADMIN_PASSWORD, LOKI_URL, MORNING_BRIEF_SLACK_CHANNEL, POSTGRES_PASSWORD, REDIS_PASSWORD}`; `.env.secrets` (21 vars) has **no** `REDIS_PASSWORD`. `load-secrets.sh` writes **only `.env.secrets`** → after a real rebuild `.env` is absent → **`docker compose` fails hard on the `:?` guard and the ENTIRE STACK cannot start.** So fixing the map moves DR from "writes nothing" to "writes half of what's needed." Filed separately — it is a different defect than #278's invented names. (Also worth noting: `.env` holds 5 REAL secrets, which sits awkwardly with the CLAUDE.md rule *".env files: non-sensitive config and placeholders only."*)
+
+**Redis auth verified GOOD along the way** (the drift row could have implied otherwise): an unauthenticated `redis-cli PING` returns `NOAUTH Authentication required` — `requirepass` is genuinely enforced in prod.
+
+**Rollback:** `git revert` the map commit; the 4 new BWS secrets are additive and deletable by name (nothing was overwritten — existence-checked first). Host tree was restored after testing; the fix lands via PR, never by hand-editing the deploy tree.
+
+**Lesson:** the previous entry's lesson (a mock fixture agreeing with the code proves nothing) has a sibling here — **`verify-secrets.sh` only ever audited `.env.secrets`, so the `.env` half of the secret surface was never audited by anything at all.** A checker that inspects one of two files reports "1 drift" when the truth is "the stack won't boot."
+**Tags:** [security] [deploy] [decision]
+**Environment:** BWS writes = 4 additive secret creations (ai-work), performed in-container so values never egressed. Map tested against live BWS then reverted on the host. No prod restart, no service touched. Executed by Claude (Opus 4.8), user-directed ("tackle #278").
