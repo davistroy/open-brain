@@ -29,8 +29,20 @@ fi
 unset _bash_major
 
 # -----------------------------------------------------------------------------
-# REQUIRED secrets (13) — must be present in BWS or reconcile fails.
+# REQUIRED secrets (11) — must be present in BWS or reconcile fails.
 # Map: BWS_SECRET_NAME -> ENV_VAR_NAME
+#
+# The BWS-name column is NOT a convention — it is whatever the secret is
+# literally called in Bitwarden. Verify with `bws secret list`, never assume
+# (#278: 11 of 14 required names here were invented and matched nothing, so
+# load-secrets.sh would have exit-2'd on any real DR rebuild).
+#
+# Most open-brain secrets use the `open-brain-*` prefix, which is deliberate:
+# the machine token spans 3 projects and bare names COLLIDE across them
+# (ANTHROPIC_API_KEY/OPENAI_API_KEY/GOOGLE_API_KEY each exist twice). A
+# lookup is by `.key` alone, so a unique prefix is the only way to be sure
+# you get open-brain's copy. PUSHOVER_*/GITEA_TOKEN are mapped bare only
+# because those keys are unambiguous today.
 # -----------------------------------------------------------------------------
 declare -A REQUIRED_SECRETS=(
   ["open-brain-postgres-password"]="POSTGRES_PASSWORD"
@@ -40,13 +52,10 @@ declare -A REQUIRED_SECRETS=(
   ["open-brain-admin-api-key"]="ADMIN_API_KEY"
   ["open-brain-slack-bot-token"]="SLACK_BOT_TOKEN"
   ["open-brain-slack-app-token"]="SLACK_APP_TOKEN"
-  ["open-brain-slack-user-token"]="SLACK_USER_TOKEN"
-  ["open-brain-pushover-app-token"]="PUSHOVER_APP_TOKEN"
-  ["open-brain-pushover-user-key"]="PUSHOVER_USER_KEY"
-  ["dev/open-brain/gitea-token"]="GITEA_TOKEN"
+  ["PUSHOVER_API_TOKEN"]="PUSHOVER_APP_TOKEN"
+  ["PUSHOVER_USER_KEY"]="PUSHOVER_USER_KEY"
+  ["GITEA_TOKEN"]="GITEA_TOKEN"
   ["open-brain-cloudflare-tunnel-token"]="CLOUDFLARE_TUNNEL_TOKEN"
-  ["open-brain-pushover-token"]="PUSHOVER_TOKEN"
-  ["open-brain-pushover-user"]="PUSHOVER_USER"
 )
 
 # -----------------------------------------------------------------------------
@@ -55,6 +64,10 @@ declare -A REQUIRED_SECRETS=(
 # load-secrets.sh to also emit SMTP_PORT=$SMTP_PORT_DEFAULT (a non-secret).
 # -----------------------------------------------------------------------------
 declare -A OPTIONAL_SECRETS=(
+  # SLACK_USER_TOKEN: demoted from REQUIRED (#278). It is an xoxp- user token
+  # for Slack channel cleanup; it is NOT set in prod and does not exist in BWS,
+  # so requiring it made every reconcile fail for an unconfigured feature.
+  ["open-brain-slack-user-token"]="SLACK_USER_TOKEN"
   ["OPENCLAW_DEEPGRAM_API_KEY"]="DEEPGRAM_API_KEY"
   ["OPENCLAW_ANTHROPIC_API_KEY"]="ANTHROPIC_API_KEY"
   ["open-brain-smtp-host"]="SMTP_HOST"
