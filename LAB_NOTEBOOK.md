@@ -13185,3 +13185,51 @@ rows=4 with_therms=4 (ALL POPULATED) | total 153.6 therms
 2. **Code written from a UI rendering will not parse that UI's export.** The portal shows `20 CCFs`; the PDF extracts them lines apart. Never ship a parser that has not run against a real artifact — and prefer anchors the data itself validates (arithmetic) over anchors that merely look stable (labels).
 **Tags:** [pipeline] [debug] [docker] [config]
 **Environment:** homeserver (Unraid), `open-brain-utility-ingest` only (`282bec2e`→`70fa72e6`). SQLite-only writes (no prod Postgres). postgres/redis/core-api/workers untouched. Executed by Claude (Opus 4.8), user-directed ("take on #275 — fine with AGPL").
+
+---
+
+## Entry 201 — Full sync audit (local/github/prod) → found financial-ingest 2 MONTHS stale; #268 fix was never live (2026-07-15)  [deploy] [docker] [debug] [ci]
+
+**Objective:** Troy asked "are we in sync and on main in local, github, and production?" Audit all three rather than assume, then close every real gap.
+
+**Audit result — 3 gaps, one of them a genuine pre-existing find:**
+1. **Local:** on branch `docs/275-claude-md-learnings` (PR #277, the CLAUDE.md learning capture). Local `main` == `origin/main` == `62cbb07` — nothing diverged; just not checked out.
+2. **GitHub:** main `62cbb07` ✓; **PR #277 open**. (5 stale Dependabot PRs also open — pre-existing, unrelated.)
+3. **Production:** **`financial-ingest` is running an ingest-sidecar image built 2026-05-09 — over 2 months stale.**
+
+**How it hid (the mechanism worth remembering):** `financial-ingest` and `utility-ingest` **SHARE the `ingest-sidecar:latest` image**, but every recent deploy recreated only `utility-ingest` (Entries 199/200) — and Entry 197's full-fleet deploy listed 6 services, not this one. A shared-image service that is never named in a `--force-recreate --no-deps <svc…>` **silently keeps its old image forever**, no matter how many times the tag is rebuilt/pulled. It is idle (Plaid dropped, D138) so nothing exercised it.
+
+**The drift is NOT cosmetic — `scripts/financial-pipeline.py` has 5 commits since that image:** `c828956` (Phase 2 LAN perimeter/CS-1), `cb8fd3d` (Phase 5 schema/CS-5), `28b329e` (Phase 8 ingest edges/CS-8), **`93e963e` (#268 Pushover key names)**, `d620fd6` (#275 lib). **PROOF the #268 fix was never live** — greping the running container vs main:
+```
+stale container: user_key = get_bws_secret("pushover-user-key")   <- OLD lowercase-hyphen
+main:            user_key = get_bws_secret("PUSHOVER_USER_KEY")   <- #268 fix
+```
+`get_bws_secret()` **`sys.exit(1)`s on a missing key**, so that path would hard-exit if it ever ran. #268 was committed 2026-07-14 and marked done — **committed ≠ deployed.** (Same trap as #265 auto-closing on merge, Entry 199.)
+
+**Deliberately NOT touched — the other 11 services.** `git diff a330c3d..origin/main` (excluding docs) touches ONLY: `config/utility/utility-config.yaml` (bind-mounted, already updated), `docker/ingest-sidecar/*`, `scripts/utility-pipeline.py`, `scripts/lib/gas_bill_parse.py`, `.gitignore`. **No TypeScript service code changed since the last full-fleet deploy** → core-api/workers/web-next/etc. are **code-identical to main**. Their running image IDs differ from ghcr's newest `:latest` only because docs-only commits retrigger `build-images` and rebuilds are not bit-reproducible — that is **churn, not drift**. Mass-recreating them would buy new image IDs with identical code while violating the "never recreate what you don't need to" rule. **Sync means running main's CODE, not matching the newest digest.**
+
+**Method / ordering (matters):** recreate `financial-ingest` **BEFORE** merging PR #277 — merging retriggers `build-images`, which would make `:latest` newer than `70fa72e6` and land the two sidecars on *different* image IDs of the same tag (re-creating the very drift being fixed). #277 is docs-only and needs no deploy. Then: config gate → `pull` + `up -d --force-recreate --no-deps financial-ingest` (**NO `--remove-orphans`**) → verify the #268 marker flipped → merge #277 → local `switch main && pull`.
+
+**Hypothesis / success:** financial-ingest comes up on `70fa72e6` (same image utility-ingest runs), `grep PUSHOVER` shows the NEW uppercase names, container healthy 0 restarts, postgres/redis still binds and untouched. Then all three surfaces run main's code.
+
+**Rollback:** anchor `sha256:b4aac63b786e` — `up -d --force-recreate --no-deps financial-ingest` after re-pinning. Service is idle → blast radius ~nil. postgres/redis never touched (`--no-deps`).
+
+**Status:** ✅ **financial-ingest RESYNCED — #268 fix is NOW live for the first time.**
+
+**Deploy result:** config gate re-confirmed **postgres/redis still raw binds**; `pull` + `up -d --force-recreate --no-deps financial-ingest` (nothing else touched). Container **Up, 0 restarts**.
+- **image `b4aac63b786e` (2026-05-09) → `70fa72e6ae81`** — now **byte-identical to what `utility-ingest` runs**, which is the whole point: one shared tag, one image, no per-service divergence.
+- **#268 marker flipped — proof it went from never-live to live:**
+```
+BEFORE: user_key = get_bws_secret("pushover-user-key")   <- stale, would sys.exit(1)
+AFTER:  user_key = get_bws_secret("PUSHOVER_USER_KEY")   <- #268, correct
+        api_token = get_bws_secret("PUSHOVER_API_TOKEN")
+```
+Five commits' worth of `financial-pipeline.py` changes (Phase 2 / Phase 5 / Phase 8 / #268 / #275-lib) went live in one recreate.
+
+**Final sync state — all three surfaces on main's code:** local `main` = GitHub `main` = prod code. `financial-ingest` + `utility-ingest` both on `70fa72e6`; the other 11 services are code-identical to main (nothing affecting them changed since `a330c3d`) and were deliberately left running — see the "churn, not drift" reasoning above.
+
+**LESSON — a shared image tag is a per-service deploy trap, and it is now a CLAUDE.md rule.** `financial-ingest` + `utility-ingest` share `ingest-sidecar:latest`. Surgical `--force-recreate --no-deps <svc…>` is the CORRECT deploy pattern (it protects postgres/redis), but its blind spot is that **a service sharing an image with one you DID name keeps its old image indefinitely** — pulling the tag updates the *tag*, not the un-recreated container. So "we deployed the sidecar fix" was true of exactly one of the two consumers, for two months, and nothing surfaced it because the service is idle. **When recreating a service, grep compose for every OTHER service using the same `image:` and recreate them together (or consciously record why not).**
+
+**Second-order lesson (the recurring one this session):** **committed ≠ deployed.** #268 was merged 2026-07-14 and treated as done; it had never executed. Same shape as #265 auto-closing at merge before verification (Entry 199). The only proof a fix is live is **grepping the running container** — which is exactly how this was caught, and how the fix was confirmed.
+**Tags:** [deploy] [docker] [debug] [ci]
+**Environment:** homeserver (Unraid), `open-brain-financial-ingest` only (`b4aac63b`→`70fa72e6`). postgres/redis/core-api/workers untouched. Executed by Claude (Opus 4.8), user-directed sync audit.
