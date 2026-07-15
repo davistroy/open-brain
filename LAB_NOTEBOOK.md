@@ -13001,3 +13001,29 @@ The handoff premise ("financial-ingest is healthy & has the token; diff to find 
 
 **Tags:** [decision] [ci] [deploy] [database]
 **Environment:** ubuntu-vm + read-only SSH to homeserver. open-brain `main` (public). Executed by Claude (Opus 4.8) under ultracode, user-directed.
+
+## Entry 197 — Full-fleet prod deploy to latest: OA-9 batched window (non-root #244 images) + OA-15 + #200 web-next (2026-07-14)  [deploy] [docker] [security]
+
+**Objective:** Troy directed "get local, github, production all in sync on the latest." Local synced (main `a330c3d`); GitHub = main. Production had real drift: workers (07-14) + utility-ingest (07-14) current, but **core-api/slack-bot/voice-capture/web-next on 2026-07-12 (pre-#244, ROOT images)** and **voice-pipecat/file-ingestion on 2026-05-09**. Bring all six to current `:latest` (built from `a330c3d`) → lands the whole **PR #244 v5 hardening incl. the NON-ROOT image transition** (core-api/slack-bot/voice-capture/web-next `USER node`/1000) + **#200** (web-next dashboard). This IS the deferred **OA-9 batched window (deploy portion) + OA-15** (volume chown). Troy chose "Full fleet to latest now" over web-next-only.
+
+**Pre-deploy recon (read-only, verified):**
+- Rollback anchors (running image IDs): core-api `71381db9`, slack-bot `fb9d73a7`, voice-capture `bcc07d9b`, voice-pipecat `6fa50f70`, file-ingestion `a61e0706`, web-next `146b3f8c`.
+- **OA-15 volumes EXIST + are mounted:** `open-brain_admin_prewipe_backup` → core-api `/backup/pre-wipe`; `open-brain_voice_spool_data` → voice-capture `/data/voice-spool`. → chown both to `1000:1000` before recreate (non-root uid=node=1000 else can't write).
+- **Config gate PRE:** `docker compose config -q` OK; **postgres → `pgdata` bind, redis → `redis-data` bind** (drift landmine disarmed via override). slack-bot/web-next mount no writable named volume → no chown.
+- On-disk git `a1629e4`; running compose has the ADR-0004/D131 manual edits (documented lag). **Surgical Entry-189 pattern: use CURRENT on-disk compose, pull + `--force-recreate --no-deps`, do NOT adopt origin/main.** web-next healthcheck stays compose-defined `/dashboard` (new image doesn't require `/api/healthz`; that compose change isn't on the running file — fine, /dashboard renders).
+
+**Method:** (1) `docker run --rm -v open-brain_admin_prewipe_backup:/v alpine chown -R 1000:1000 /v` + same for `voice_spool_data` [OA-15]. (2) `docker compose pull core-api slack-bot voice-capture voice-pipecat file-ingestion web-next`. (3) `docker compose up -d --force-recreate --no-deps <same 6>` — **NO `--remove-orphans`** (observability profile-gated), postgres/redis/workers/utility-ingest/financial-ingest untouched. (4) Verify: all 6 healthy, core-api `/health`, #200 visible, config-diff POST still binds, watch for restart loops.
+
+**Hypothesis / success:** all 6 recreate healthy on `a330c3d` images; non-root core-api/voice-capture write their (now-1000-owned) volumes; postgres/redis stay bind + running; #200 shows on dashboard; no restart loops over a watch window. Closes **OA-9 (deploy portion) + OA-15**.
+
+**Rollback:** per-service — re-tag/pin the recorded pre-deploy image ID and `up -d --force-recreate --no-deps <svc>`. postgres/redis/observability never touched → zero data risk. financial-ingest (idle, Plaid dropped D138) + **OA-10 postgres `shm_size`** stay deferred (no postgres recreate).
+
+**Status:** ✅ COMPLETE & VERIFIED (2026-07-15 ~00:01 UTC). Results:
+- **OA-15 chown DONE** — `admin_prewipe_backup` + `voice_spool_data` → `1000:1000` (verified `stat`). Non-root core-api/voice-capture can now write them.
+- **All 6 recreated healthy, 0 restarts, new image IDs:** core-api `a8d5420c` (was `71381db9`), slack-bot `ca21411e`, voice-capture `567be176`, voice-pipecat `ae2331e8`, file-ingestion `fc5843af`, web-next `a1e1cb21`. **core-api came up `[healthy]`** → the non-root transition + OA-15 chown work (writes its 1000-owned volume).
+- **core-api `/health` fully green:** `{status:healthy, postgres:healthy 15ms, redis:healthy 6ms, llm:healthy 449ms}`.
+- **postgres/redis UNTOUCHED** (`--no-deps`), still `[healthy]` 0 restarts, config gate POST re-confirms **pgdata/redis-data BINDS**. Zero data risk. workers/utility-ingest already current (not recreated).
+- **#200 LIVE:** stats `pipeline_health.failed=2`; deployed dashboard HTML renders `color:var(--color-faded-red)">2<!-- --> failed</div>` + Pipeline status **"healthy"** (was permanently "degraded" pre-fix). Both #200 outcomes confirmed on the real running UI.
+- **Net:** production now fully on `a330c3d` `:latest` for all app services (all of PR #244 v5 hardening + the non-root images + #200 are LIVE). **Closes OA-9 (deploy portion) + OA-15.** Local `main` = GitHub `main` = `a330c3d`; production = same images → **local/github/prod in sync.** Deferred-as-planned: OA-10 postgres `shm_size` (no postgres recreate), financial-ingest (idle/Plaid-dropped), OA-9's remaining live-host verifications (WorkersMetricsAbsent alert test, backup/rehearsal spot-checks).
+**Tags:** [deploy] [docker] [security]
+**Environment:** homeserver (Unraid, root SSH) + ubuntu-vm. open-brain prod. Executed by Claude (Opus 4.8), user-directed "full fleet to latest."
