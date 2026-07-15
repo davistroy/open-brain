@@ -11,13 +11,26 @@
 # Related code: packages/workers/src/skills/pipeline-health.ts (capture flow check)
 #               packages/core-api/src/routes/metrics.ts (capturesTotal counter)
 #
-# ALERT DELIVERY MODEL: No Alertmanager is configured in this deployment
-# (prometheus.yml has no alerting: block). These rules surface in the Prometheus
-# Alerts tab and Grafana alert panels for manual observation only — they do NOT
-# automatically dispatch notifications (email, Slack, PagerDuty, etc.).
-# Operational push notifications are sent exclusively by application-layer code
-# in the workers container (PushoverService / pipeline-health.ts skill), at its
-# own thresholds and on its own schedule, independently of these rules.
+# ALERT DELIVERY MODEL (corrected 2026-07-15 — the previous note here was STALE).
+# Alertmanager IS configured and connected: the standalone observability stack
+# (ADR-0004) runs `observability-alertmanager`, and Prometheus reports it under
+# /api/v1/alertmanagers. It routes to Pushover — critical -> pushover-critical
+# (priority 1, repeat 1h), warning -> pushover-warning (priority 0, repeat 4h).
+# So these rules DO page.
+#
+# The old note ("...no alertmanager... manual observation only") was true of
+# open-brain's own bundled Prometheus and became false when observability was split
+# out; it was never updated. It is why a reader concluded these rules were
+# decorative (#289).
+#
+# BUT — RULES IN THIS DIRECTORY ARE NOT DEPLOYED FROM HERE. The running Prometheus
+# reads /mnt/user/appdata/observability/config/prometheus/alerts (that project's
+# own, non-git-managed dir). This repo's copies are advisory and CAN drift. Editing
+# a rule here does NOT change production until it is copied there and Prometheus is
+# reloaded. See #292.
+#
+# Application-layer Pushover from workers skills / clients still exists and is
+# independent of this path — some alerts intentionally have both.
 
 groups:
   - name: open-brain-capture-flow
