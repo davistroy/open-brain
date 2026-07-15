@@ -316,12 +316,32 @@ def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
 
 
 def _gas_south_login(cfg: dict[str, Any]) -> str | None:
-    """Login to Gas South portal and return authtoken UUID.
+    """Authenticate against the Gas South portal auth service; return the AuthToken.
 
-    Tries the known authentication endpoint. Returns None on failure.
+    The portal SPA authenticates on a DEDICATED auth host (`auth_url`, an Azure
+    App Service), which is SEPARATE from the data API host (`api_url`,
+    manage-api.gassouth.com). Flow (reverse-engineered from the portal bundle,
+    #265): POST `{auth_url}/api/authenticate/aup` with a `ClientId` header and
+    `{UserName, Password, startIdx, endIdx}` -> JSON `{AuthToken, Accounts, ...}`.
+    The returned `AuthToken` is then sent as the `authtoken` request header on the
+    manage-api data calls (see cmd_gas). Returns None on failure.
+
+    The `ClientId` header is REQUIRED: without it the host returns a generic HTTP
+    400 before it ever reads the credentials, which is indistinguishable from a
+    bad password. Errors arrive as HTTP 400 with `{ErrorCode, ErrorMessage}` —
+    NOT 401, and not a 200 carrying an error body.
+
+    Note the field casing: request uses `UserName`/`Password` (PascalCase); the
+    token comes back as `AuthToken` (PascalCase). The prior implementation POSTed
+    lowercase `{username,password}` to now-dead `/oas/api/*` endpoints — both the
+    host and the field names had changed.
     """
     gas_cfg = cfg.get("gas", {})
-    login_url = gas_cfg.get("login_url", "https://manage.gassouth.com")
+    auth_url = gas_cfg.get(
+        "auth_url",
+        "https://oas-1-auth-dehgctgqg2e9c8ee.eastus-01.azurewebsites.net",
+    ).rstrip("/")
+    client_id = gas_cfg.get("client_id", "GS-5E027899-FB73-47B2-8E23-AA0985EF4B82")
 
     # Credentials live as two SEPARATE Bitwarden secrets (the canonical scheme),
     # not a single JSON blob. Config keys override the defaults. get_bws_secret()
@@ -333,62 +353,69 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
         log.error("Gas South credentials missing username or password")
         return None
 
-    # Try the authentication endpoint
-    auth_endpoints = [
-        f"{login_url}/api/authorize",
-        "https://manage-api.gassouth.com/oas/api/authorize",
-        "https://manage-api.gassouth.com/oas/api/account/login",
-    ]
+    endpoint = f"{auth_url}/api/authenticate/aup"
+    payload = {
+        "UserName": username,
+        "Password": password,
+        "startIdx": "1",
+        "endIdx": "30",
+    }
 
-    session = requests.Session()
-    session.headers.update(
-        {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Origin": "https://manage.gassouth.com",
-            "Referer": "https://manage.gassouth.com/",
-        }
-    )
+    try:
+        log.info(f"  Gas South auth: POST {endpoint}")
+        resp = requests.post(
+            endpoint,
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "ClientId": client_id,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Origin": "https://manage.gassouth.com",
+                "Referer": "https://manage.gassouth.com/",
+            },
+            timeout=30,
+        )
+    except requests.exceptions.RequestException as e:
+        log.error(f"Gas South auth request failed: {e}")
+        return None
 
-    for endpoint in auth_endpoints:
-        try:
-            log.info(f"  Trying auth endpoint: {endpoint}")
-            resp = session.post(
-                endpoint,
-                json={"username": username, "password": password},
-                timeout=30,
+    try:
+        data = resp.json()
+    except (json.JSONDecodeError, ValueError):
+        log.error(f"Gas South auth: HTTP {resp.status_code}, non-JSON response: {resp.text[:200]}")
+        return None
+
+    if resp.status_code != 200:
+        # Rejections come back as 400 with an application error body. A bare
+        # `Bad Request` with no ErrorCode means the request was rejected before
+        # credential evaluation — usually a stale ClientId or changed contract,
+        # NOT a bad password.
+        code = data.get("ErrorCode")
+        message = data.get("ErrorMessage") or data.get("title")
+        if code:
+            log.error(f"Gas South auth rejected: {code} — {message}")
+        else:
+            log.error(
+                f"Gas South auth returned HTTP {resp.status_code} with no ErrorCode "
+                f"({message}) — the request was rejected before credentials were "
+                f"checked. Re-verify client_id/auth_url against the portal bundle (#265)."
             )
+        return None
 
-            if resp.status_code == 200:
-                data = resp.json()
-                # Token may be in various fields
-                token = (
-                    data.get("authtoken")
-                    or data.get("authToken")
-                    or data.get("token")
-                    or data.get("access_token")
-                )
-                if token:
-                    log.info(f"  Gas South login successful (token: {token[:8]}...)")
-                    return str(token)
-                # Check if the response itself is the token (UUID string)
-                if isinstance(data, str) and len(data) == 36 and "-" in data:
-                    log.info(f"  Gas South login successful (token: {data[:8]}...)")
-                    return data
-                log.debug(f"  200 response but no token found in: {json.dumps(data)[:200]}")
-            elif resp.status_code == 401:
-                log.debug(f"  {endpoint}: 401 Unauthorized")
-            else:
-                log.debug(f"  {endpoint}: {resp.status_code} — {resp.text[:200]}")
-        except requests.exceptions.RequestException as e:
-            log.debug(f"  {endpoint}: request failed — {e}")
-
-    log.error(
-        "Gas South login failed — all auth endpoints returned errors. "
-        "Check credentials in Bitwarden or update login URL."
+    # Portal returns PascalCase `AuthToken`; accept common variants defensively.
+    token = (
+        data.get("AuthToken") or data.get("authToken") or data.get("authtoken") or data.get("token")
     )
-    return None
+    if not token:
+        log.error(
+            f"Gas South auth: HTTP 200 but no AuthToken in response "
+            f"(keys={sorted(data)[:10] if isinstance(data, dict) else type(data).__name__})"
+        )
+        return None
+
+    log.info(f"  Gas South login successful (token: {str(token)[:8]}...)")
+    return str(token)
 
 
 def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:

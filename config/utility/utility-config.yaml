@@ -23,12 +23,22 @@ water:
 
 gas:
   provider: gas_south
-  api_url: https://manage-api.gassouth.com/oas/api
+  api_url: https://manage-api.gassouth.com/oas/api   # OASUrl() — data host (get-account-activity)
+  # Auth is a SEPARATE host from the data API (the portal SPA's AuthUrl()).
+  # Login: POST {auth_url}/api/authenticate/aup {UserName,Password,startIdx,endIdx} -> {AuthToken,...}.
+  # This is an Azure App Service default hostname — if login starts 404ing again,
+  # re-capture it from manage.gassouth.com's main-*.js bundle (grep `authUrl:`). (#265)
+  auth_url: https://oas-1-auth-dehgctgqg2e9c8ee.eastus-01.azurewebsites.net
+  # REQUIRED header on the auth call — without it the auth host returns a generic
+  # HTTP 400 BEFORE evaluating credentials (verified against the live endpoint).
+  # Public constant baked into the portal bundle (`ClientId:` in main-*.js), not a
+  # secret — it identifies the web client, not the user. Re-capture alongside auth_url.
+  client_id: GS-5E027899-FB73-47B2-8E23-AA0985EF4B82
   account_number: "<GAS_ACCOUNT_NUMBER>"
   # Two SEPARATE Bitwarden secrets (canonical), not a single JSON blob.
   bitwarden_username_key: GAS_SOUTH_USERNAME
   bitwarden_password_key: GAS_SOUTH_PASSWORD
-  login_url: https://manage.gassouth.com
+  login_url: https://manage.gassouth.com     # portal origin (Origin/Referer headers only)
   lookback_months: 3                        # how many months of billing history to fetch
   cron: "0 5 2 * *"                         # 2nd of month, 5 AM (same as water)
 
