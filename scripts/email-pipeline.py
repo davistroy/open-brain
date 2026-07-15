@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import re
 import sqlite3
 import subprocess
@@ -619,8 +620,21 @@ def classify_by_jetson(
     email: dict[str, Any],
     cfg: dict[str, Any],
 ) -> tuple[str, float, str] | None:
-    """T1: Jetson LLM classification. Returns (category, confidence, 'jetson')."""
+    """T1: Jetson LLM classification. Returns (category, confidence, 'jetson').
+
+    The Jetson requires a bearer token on /chat/completions (`JETSON_API_KEY`,
+    Bitwarden `dev/jetson/llm-api-key`). Note `/v1/models` is still served
+    unauthenticated, so the endpoint looks healthy to a casual probe while every
+    completion 401s — which is exactly how this went unnoticed for two weeks
+    (#283). Without the key every email silently falls through to unclassified.
+    """
     jcfg: dict[str, Any] = cfg.get("jetson", {})
+    api_key = os.environ.get("JETSON_API_KEY", "")
+    if not api_key:
+        log.warning(
+            "JETSON_API_KEY not set — Jetson classification will 401 and every email "
+            "will fall through to unclassified. Set it from Bitwarden dev/jetson/llm-api-key."
+        )
     cats = sorted(cfg["_categories"])
     prompt = (
         f"Classify this email into exactly one of these categories:\n{json.dumps(cats)}\n\n"
@@ -640,8 +654,15 @@ def classify_by_jetson(
                 "max_completion_tokens": jcfg.get("max_completion_tokens", 256),
                 "temperature": jcfg.get("temperature", 0.1),
             },
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
             timeout=jcfg.get("timeout", 90),
         )
+        if resp.status_code == 401:
+            log.error(
+                "Jetson 401 Invalid API Key — JETSON_API_KEY is missing or stale. "
+                "All classification is falling through to unclassified. (#283)"
+            )
+            return None
         if resp.status_code != 200:
             log.warning(f"Jetson {resp.status_code}: {resp.text[:200]}")
             return None

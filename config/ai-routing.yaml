@@ -97,6 +97,11 @@ model_tiers:
     provider: openai_compat
     model: "qwen3.5-4b"
     base_url: "http://192.168.10.58:8080/v1"
+    # The Jetson requires a bearer token on /chat/completions (note /v1/models is
+    # still open, so the endpoint LOOKS healthy unauthenticated). This names the env
+    # var holding the key — never the key itself; this file is in a public repo.
+    # Value: BWS `dev/jetson/llm-api-key` -> JETSON_API_KEY in .env.secrets. (#283)
+    api_key_env: JETSON_API_KEY
     max_completion_tokens: 256
     timeout_ms: 5000
     cost_per_1k_input: 0    # Free local GPU -- explicit 0 keeps budget accounting non-blind

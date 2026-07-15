@@ -96,6 +96,17 @@ export const ModelTierEntrySchema = z.object({
   provider: z.enum(['anthropic', 'litellm', 'ollama', 'openai', 'openai_compat', 'deepseek']),
   model: z.string(),
   base_url: z.string().optional(),
+  /**
+   * Name of the env var holding this tier's API key — NOT the key itself.
+   * `config/` is committed to a public repo, so a value must never appear here
+   * (all secrets live in Bitwarden; see CLAUDE.md).
+   *
+   * Omit for genuinely keyless endpoints (ollama, and Spark today). When set,
+   * the gateway sends the env var's value as the bearer token instead of the
+   * placeholder `'local'`. Introduced by #283: the Jetson added auth and the
+   * hardcoded `'local'` 401'd 100% of T1 calls for two weeks, silently.
+   */
+  api_key_env: z.string().optional(),
   max_completion_tokens: z.number(),
   timeout_ms: z.number(),
   fallback: z.string().nullable().default(null),
