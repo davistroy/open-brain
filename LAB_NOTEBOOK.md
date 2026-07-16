@@ -13562,3 +13562,22 @@ Worked from an **isolated git worktree** — a parallel session had checked the 
 
 **Tags:** [decision] [debug] [pipeline] [docker]
 **Environment:** ubuntu-vm + homeserver (read-only probes only). No deploy, no code changes. 3 Explore agents for investigation; conclusions only in main context. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 210 — Executing the 2026-07 backlog plan: Phase 3 gate + Phase 2 free wins + Phase 1 honest status (2026-07-15)  [deploy] [docker] [pipeline] [debug]
+
+**Objective:** begin executing `IMPLEMENTATION_PLAN-2026-07-backlog.md`. This session: **WI-3.1** (read-only DB query that gates #290/#282/#284), **WI-2.1** (recreate workers → revive the backup dead-man's switch, #294a), **WI-2.2** (stop clobbering `GITEA_TOKEN`), **WI-1.1/1.3** (honest failure reporting).
+
+**Hypotheses + success criteria:**
+- **WI-3.1:** if obvm's Python cron and the TS `email-classify` both run at `0 5`, `email_classifications` will show rows clustered at ONE hour, not two. **Success = a definite answer either way** (it decides whether #284/#282 get built or dropped). Read-only.
+- **WI-2.1:** the `/backup-latest` mount is already in compose (`:195,202`) and only absent from the RUNNING container. **Success =** `docker inspect open-brain-workers` shows `/backup-latest`, and `openbrain_backup_age_seconds` emits within one pipeline-health cycle (≤6h). Expect **no code change**.
+- **WI-2.2:** `env_file` already supplies `GITEA_TOKEN`; `environment:` overwrites it with `""`. **Success =** `docker compose config` no longer warns "Defaulting to a blank string" for `GITEA_TOKEN`.
+
+**Rollback plan:**
+- **WI-3.1:** N/A — read-only `SELECT`.
+- **WI-2.1:** `up -d --force-recreate --no-deps workers` against the previous image (workers has a **unique** image tag → no Entry 201 shared-tag risk). Worst case the container restarts; no data at stake (workers is stateless; queues live in Redis).
+- **WI-2.2 / WI-1.x:** `git revert` — all branch→PR, nothing merged without CI.
+- 🚨 **Every compose invocation MUST pass `-f docker-compose.override.yml`** (raw-bind pin; without it postgres/redis would render as named volumes). **Never `--remove-orphans`, never a bare `up -d`, never `compose down`.** Only `workers` is named.
+
+**Environment:** homeserver (Unraid), open-brain stack. Executing from an isolated git worktree (a parallel session owns the shared tree on `fix/postgres-shm-size-hnsw`). Executed by Claude (Opus 4.8), user-directed ("Go").
