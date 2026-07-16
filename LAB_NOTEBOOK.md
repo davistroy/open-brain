@@ -13625,3 +13625,31 @@ Doing the compose deploy now fixes one instance and teaches nothing — Entry 20
 
 **Tags:** [debug] [deploy] [docker] [observability] [decision]
 **Environment:** homeserver, read-only investigation (skills_log, Redis via parsed `REDIS_URL`, container inspect, Pushgateway scrape from a throwaway). No deploy, no writes. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 212 — Compose reconciliation: the config-diff gate caught a core-api port conflict BEFORE it shipped (2026-07-15)  [deploy] [docker] [decision]
+
+**Objective:** reconcile the deployed `docker-compose.yml` with `origin/main` (#302) and recreate **workers only**, to give it the `/backup-latest` mount that revives the backup dead-man's switch (#294). Continues Entries 210–211.
+
+**Two findings BEFORE acting, both of which changed the plan:**
+
+1. **The postgres recreate is ALREADY DONE — by the workstream that owns it.** `ShmSize=1073741824`, `/dev/shm` live = **1.0G**, container started **2026-07-15T20:52:54Z** — **30 seconds after** `docker-compose.override.yml` was modified at 16:52:24 ET. The homeserver session (CS-4/WI-4.2) applied `shm_size: 1gb` **via the override**, not the base compose, and recreated postgres. ⇒ **D147's "postgres recreate goes alone" is satisfied; I must NOT repeat it.** The riskiest operation in the system was already taken, correctly, by its owner. *Check what the other workstream already did before re-doing it.*
+2. **`OPERATOR_ACTIONS.md` does NOT exist on the host**, but main's compose mounts it `./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro`. **A bind whose source is missing becomes a DIRECTORY** — the `secret-rotation` skill would then read a directory as a file. ⇒ it must be checked out **together with** the compose, not after.
+
+**THE GATE PAID FOR ITSELF — a naive `git checkout origin/main -- docker-compose.yml` would have broken core-api.** Dry-rendered in a scratch dir (main's compose + the LIVE override + an **empty** `.env.secrets` — no secrets copied to /tmp):
+```
+core-api ports -> 3002:3000 | 3002:3000 | 3002:3000     <-- THREE binds on 3002
+```
+main's base declares the ADR-0002 dual bind (`127.0.0.1:3002:3000` + `${TAILSCALE_IP}:3002:3000`) and **the override APPENDS a third** (`3002:3000` = 0.0.0.0, which overlaps both) ⇒ **EADDRINUSE on core-api's next recreate.** Not today's recreate — a *latent* one, which is worse: it would have fired on someone else's unrelated deploy, far from the cause.
+
+**Why the override now carries D131:** the homeserver session moved the core-api port deviation into `docker-compose.override.yml` (host-specific: paperless-ai owns 3000). That is *better* placement than the sed — but it means the base must NOT also declare ports, or they append.
+
+**Resolution (dry-run PROVEN before applying):** checkout main's compose **+ OPERATOR_ACTIONS.md**, then the D131 sed collapses the base's dual bind to a single `3002:3000` — **identical to the override's entry, and compose DEDUPES identical port entries** (confirmed: the current live baseline renders exactly one, from precisely this base+override pair). Scratch render then asserts: core-api ports = **1**; postgres `shm_size` = 1 GiB; postgres/redis volumes = **bind**; workers `/backup-latest` = present.
+
+**Hypothesis / success criteria:** after `up -d --force-recreate --no-deps workers`, `docker inspect open-brain-workers` shows `/backup-latest`; workers healthy; **postgres/redis untouched**; `openbrain_backup_age_seconds` emits within one pipeline-health cycle (≤6h); `check-deploy-parity.sh` goes from exit 1 → exit 0.
+
+**Rollback plan:** the pre-change `docker-compose.yml` is backed up to `docker-compose.yml.bak-entry212-<ts>` on the host (the file is NOT recoverable from git — its `MM` state is a hand-applied approximation of ADR-0004 that exists nowhere else). Restore it and re-run `up -d --force-recreate --no-deps workers`. workers is **stateless** (queues live in Redis) and has a **unique image** ⇒ no Entry 201 shared-tag risk, no data at stake. **postgres/redis are NOT named in any command.** Every invocation passes `-f docker-compose.override.yml`; **no `--remove-orphans`, no bare `up -d`, no `compose down`.**
+
+**Tags:** [deploy] [docker] [decision]
+**Environment:** homeserver (Unraid). Scope: ONE file checkout + one sed + ONE service recreate (workers). Executed by Claude (Opus 4.8), user-directed ("Go").
