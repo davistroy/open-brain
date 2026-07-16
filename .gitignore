@@ -105,5 +105,9 @@ config/himalaya/config.toml
 # Instance-specific Actual Budget dev guide — contains personal financial data; keep local only
 docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md
 
+# actual-ingest T0 payee rules — real merchant names = a spending profile; host-only (#311).
+# The tracked config/payee-rules.example.yaml (synthetic payees) is the schema + fixture.
+config/payee-rules.yaml
+
 # Session handoff scratch — never commit
 HANDOFF.md

@@ -53,3 +53,9 @@
 # runs inside the workers container; these exec into open-brain-financial-ingest).
 0 7 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --balances >> /var/log/financial-balances.log 2>&1
 5 7 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --account-monitoring >> /var/log/financial-monitoring.log 2>&1
+
+# Actual Budget daily job (#311) — 6:00 AM local (America/New_York). runBankSync,
+# T0-categorize new uncategorized transactions, Pushover summary, one aggregated
+# capture. Node sidecar (not python). Same minute as financial-ingest is fine —
+# different container, and financial-ingest is idle post-D138. OA-18.
+0 6 * * * /usr/bin/docker exec open-brain-actual-ingest node /app/actual-daily.mjs >> /var/log/actual-ingest.log 2>&1
