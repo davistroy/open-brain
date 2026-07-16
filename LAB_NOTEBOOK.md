@@ -13957,3 +13957,12 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [pipeline] [config]
 **Environment:** laptop dev; workers 1217 + coverage + scheduler 100% lock green. No prod change (applies on next workers boot; schedules update in place). Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").
+
+---
+
+## Entry 225 — #71 (partial): fixed the temporal_weight verb inconsistency (2026-07-16)  [api] [search]
+
+**The concrete bug within the #71 tuning epic:** `GET /api/v1/search` defaulted `temporal_weight` to **0.0** (`routes/search.ts:17`) but `POST` defaulted to **0.1** (`schemas/search.ts:24`) — the same endpoint returning different rankings by HTTP verb for an omitted param. The shared contract (`shared/src/types/search.ts:9`) AND CLAUDE.md already document the default as **0.0 (cold start)**, so POST was the lone outlier. Aligned POST → 0.0; updated the test-lock (`search-routes.test.ts:499`, which pinned the 0.1 divergence) to 0.0. slack-bot passes `0.1` explicitly at both call sites → unaffected. Verified: search-routes 34 tests, core-api `tsc` clean. **#71 stays OPEN** — the two other WI-9.1 items (related-captures backend built-but-UI-missing; Hebbian boost hardcoded at `search.ts:328` rather than configurable) are larger and untouched. **Rollback:** repo-only; `git revert`.
+
+**Tags:** [api] [search]
+**Environment:** laptop dev. No prod change. Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").
