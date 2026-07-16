@@ -7,6 +7,19 @@ networks:
   # homeserver); see docs/adr/ADR-0004-observability-repoint.md.
   observability:
     external: true
+  # macvlan network (Unraid-managed). actual-ingest (#311) is dual-homed onto br0
+  # to reach the Actual server — a macvlan container the host itself cannot route
+  # to, so neither can a plain bridge container (spec §3.1).
+  #
+  # 🚨 MUST be external: true. Compose NEVER creates or removes an external
+  # network — which is the ONLY thing protecting the five UNOWNED br0 containers
+  # (AdGuard = LAN DNS, swag = all TLS, Gitea, …) from a `compose down` deleting
+  # br0 out from under them. NEVER declare br0 with ipam/gateway/mac_address, and
+  # NEVER `compose down` on a file that owns this network. (See homeserver plan
+  # correction #15 / WI-7.2.)
+  br0:
+    external: true
+    name: br0
 
 volumes:
   postgres_data:
@@ -16,6 +29,7 @@ volumes:
   utility_ingest_data:
   admin_prewipe_backup:
   voice_spool_data:   # INT-M4: durable dead-letter spool for voice transcripts
+  actual_ingest_data: # #311: Actual budget dataDir + last-run balance state (actual-ingest)
 
 # Shared Loki logging (PLT-H3 + PE-L5):
 #  - loki-url default = localhost (the Docker log driver runs in the DAEMON, which
@@ -560,5 +574,49 @@ services:
     mem_limit: 1500m
     networks:
       - open-brain
+    restart: unless-stopped
+    logging: *default_logging
+
+  # actual-ingest — Actual Budget daily ingestion (issue #311 / spec 2026-07-15).
+  # Its OWN image (NOT the shared ingest-sidecar tag — D140/Entry 201 trap).
+  # Dual-homed: br0 (macvlan) to reach the Actual server BY DNS NAME, open-brain
+  # (bridge) to POST captures to core-api. Host cron `0 6 * * *` runs one job
+  # (6am ET native — the homeserver TZ is America/New_York, so #295 does not apply):
+  #   docker exec open-brain-actual-ingest node /app/actual-daily.mjs
+  actual-ingest:
+    image: ghcr.io/davistroy/open-brain/actual-ingest:latest
+    build:
+      context: .
+      dockerfile: docker/actual-sidecar/Dockerfile
+    container_name: open-brain-actual-ingest
+    init: true   # reap signals for the idle `sleep infinity` PID 1
+    env_file:
+      - .env.secrets
+    environment:
+      # ACTUAL_PASSWORD / ACTUAL_SYNC_ID / ACTUAL_SERVER_URL / PUSHOVER_* arrive
+      # via .env.secrets (secrets lockstep: deploy/.env.secrets.template +
+      # scripts/lib/secrets-map.sh). The Actual server is reached by DNS NAME, so
+      # its address is never written here.
+      CORE_API_URL: http://core-api:3000
+      ACTUAL_RULES_PATH: /app/config/payee-rules.yaml
+      ACTUAL_DATA_DIR: /data/actual
+      ACTUAL_STATE_PATH: /data/state.json
+      TZ: America/New_York
+    volumes:
+      - actual_ingest_data:/data
+      - ./config:/app/config:ro   # host-only config/payee-rules.yaml, read-only
+    networks:
+      open-brain: {}
+      # STATIC IP (D142) — a LITERAL in tracked compose, deliberately: br0 declares
+      # the whole /24 with NO ip-range, so every br0 container is hand-assigned.
+      # 192.168.10.13 was verified unclaimed (no ping, ARP INCOMPLETE). The router
+      # DHCP pool floor MUST sit above it (OA-21) — "unclaimed today" ≠ "reserved".
+      # Mirrors config/ai-routing.yaml's "(STATIC IP, do not change)" convention.
+      br0:
+        ipv4_address: 192.168.10.13
+    depends_on:
+      core-api:
+        condition: service_healthy
+    mem_limit: 1g
     restart: unless-stopped
     logging: *default_logging

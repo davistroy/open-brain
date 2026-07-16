@@ -87,6 +87,17 @@ declare -A OPTIONAL_SECRETS=(
   # forwards it upstream; unset = pre-rollout warn-and-allow. BWS item creation
   # operator-deferred until the iOS Shortcut + clients are updated to send it.
   ["dev/open-brain/voice-capture-secret"]="VOICE_CAPTURE_SECRET"
+  # #311 actual-ingest — Actual Budget daily job (spec §7). OPTIONAL until the
+  # sidecar is deployed (OA-20), so current reconciles don't exit-2 for a secret
+  # that isn't in BWS yet. Consumer: docker/actual-sidecar (env_file: .env.secrets).
+  # ⚠️ OA-20 / #278: the BWS `.key` values below are PLACEHOLDERS — the Actual
+  # creds live in BWS project `ai-work` (item "Actual Budget — My Finances").
+  # VERIFY the real `.key` with `bws secret list` before the deploy; a wrong name
+  # here is silently skipped (OPTIONAL), so actual-ingest would start with an
+  # empty secret. Do NOT assume the names match this convention.
+  ["actual-budget-password"]="ACTUAL_PASSWORD"
+  ["actual-budget-sync-id"]="ACTUAL_SYNC_ID"
+  ["actual-budget-server-url"]="ACTUAL_SERVER_URL"
 )
 
 # Non-secret SMTP port default emitted alongside any SMTP_* present.

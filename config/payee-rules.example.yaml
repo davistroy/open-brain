@@ -1,0 +1,59 @@
+# actual-ingest — T0 payee rules (EXAMPLE / schema reference)
+# ---------------------------------------------------------------------------
+# The REAL file is `config/payee-rules.yaml`, which is GITIGNORED and lives ONLY
+# on the homeserver (OA-19). It contains real merchant names — a spending
+# profile, some directly identifying — so it must never be committed to this
+# PUBLIC repo. This example uses synthetic payees and doubles as the loader's
+# test fixture and the DR schema reference.
+#
+# Sited at the TOP LEVEL of config/ deliberately: scripts/backup.sh copies
+# `config/*.yaml` with a non-recursive glob (#299/A143), so a top-level file
+# rides the existing backup + encrypted-offsite path with zero backup.sh change.
+#
+# Semantics (spec §4, §5):
+#   - Ordered — FIRST MATCH WINS.
+#   - Exclusions are evaluated BEFORE any rule. A transfer-like or
+#     investment-internal payee is left UNCATEGORIZED (never categorized), which
+#     is the phantom-income invariant: card *payments* must not read as income
+#     and brokerage mechanics must not read as spending.
+#   - Matching is: payee.toLowerCase().includes(key). Keep keys lowercase.
+#   - A payee matching no rule and no exclusion is REPORTED, not guessed (D141) —
+#     the daily capture + Pushover list it so you can add a rule here.
+#   - Linking transfer PAIRS is out of scope (mis-linking is hard to undo).
+
+# Payees to leave uncategorized because they are transfers between your own
+# accounts (card payments, peer-to-peer, bank<->brokerage moves, checks).
+exclude_transfer:
+  - "acme card payment"
+  - "wayne bank transfer"
+  - "quickpay to self"
+  - "check #"
+
+# Payees to leave uncategorized because they are investment internals
+# (fund buys, contributions, dividends, opening/closing values).
+exclude_investment:
+  - "globex brokerage"
+  - "initech 401k"
+  - "vanguard buy"
+  - "dividend reinvest"
+
+# Category rules. `category` is an existing (or to-be-created) Actual category
+# name; `match` is a list of lowercase substrings tested against the payee.
+rules:
+  - category: Groceries
+    match:
+      - "umbrella foods"
+      - "initech market"
+      - "stark grocers"
+  - category: Fuel
+    match:
+      - "hooli gas"
+      - "cyberdyne fuel"
+  - category: Dining
+    match:
+      - "los pollos"
+      - "central perk"
+  - category: Utilities
+    match:
+      - "hooli power"
+      - "acme water"
