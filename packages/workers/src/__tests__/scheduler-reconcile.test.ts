@@ -1,151 +1,108 @@
 import { describe, it, expect, vi } from 'vitest'
-import type { RepeatableJob } from 'bullmq'
+import type { JobSchedulerJson } from 'bullmq'
 import { reconcileRepeatableJobs } from '../scheduler.js'
 
 /**
- * PE-M3 / IA-M5 / #217 — startup reconciliation of repeatable jobs.
+ * #217 — startup reconciliation of job schedulers. Fast unit coverage of the
+ * BRANCHING LOGIC (which ids survive, best-effort-on-error). The real-BullMQ
+ * CONTRACT (that a scheduler's key equals its id, and getRepeatableJobs never
+ * populates job.id) is pinned separately in
+ * integration/scheduler-repeat-identity.test.ts — because it can only be
+ * verified against real Redis.
  *
- * Cron schedule changes leave orphaned repeatable jobs firing forever because
- * BullMQ's legacy repeat key embeds name + pattern + tz + jobId: changing the
- * pattern mints a NEW key and orphans the OLD one. reconcileRepeatableJobs()
- * runs AFTER registration and removes every repeatable whose key does not match
- * a freshly-registered (name + jobId + pattern) identity.
+ * ## Why this file was rewritten (Entry 214)
  *
- * The core safety invariant under test: a currently-registered (live) schedule
- * is NEVER removed — only genuine orphans are.
+ * Its previous version mocked the legacy `getRepeatableJobs()` surface and, via
+ * a fixture defaulting `id: over.id ?? null`, let every case hand reconcile an
+ * `id` that BullMQ v5 NEVER sets. Reconcile compared `r.jobId === job.id`, so
+ * the mock's fake id made the tests pass while production deleted all 21
+ * schedules on every boot for two days. A mock that supplies the field under
+ * dispute cannot falsify a claim about that field. This version mocks the v5
+ * Job Scheduler surface and, deliberately, never invents an `id` — a
+ * scheduler's identity is its `key`.
  */
 
 // ---------------------------------------------------------------------------
-// Fixtures / helpers
+// Fixtures — model getJobSchedulers() faithfully: a live scheduler's `key` IS
+// the id passed to upsertJobScheduler(); a legacy `.add({ repeat })` orphan
+// surfaces under a hash `key`. We NEVER fake a field reconcile keys off of.
 // ---------------------------------------------------------------------------
 
-/** Build a RepeatableJob entry as getRepeatableJobs() would return it. */
-function repeatable(
-  over: Partial<RepeatableJob> & { key: string; name: string },
-): RepeatableJob {
-  return {
-    key: over.key,
-    name: over.name,
-    id: over.id ?? null,
-    endDate: over.endDate ?? null,
-    tz: over.tz ?? null,
-    pattern: over.pattern ?? null,
-    every: over.every ?? null,
-    next: over.next,
-  }
+function scheduler(over: { key: string; name: string; pattern?: string }): JobSchedulerJson {
+  return { key: over.key, name: over.name, pattern: over.pattern ?? '0 0 * * *' }
 }
 
-/** Mock queue exposing only the legacy repeatable surface reconcile needs. */
-function mockQueue(entries: RepeatableJob[]) {
-  const getRepeatableJobs = vi.fn().mockResolvedValue(entries)
-  const removeRepeatableByKey = vi.fn().mockResolvedValue(true)
-  return {
-    queue: { name: 'test-queue', getRepeatableJobs, removeRepeatableByKey },
-    getRepeatableJobs,
-    removeRepeatableByKey,
-  }
+function mockQueue(entries: JobSchedulerJson[]) {
+  const getJobSchedulers = vi.fn().mockResolvedValue(entries)
+  const removeJobScheduler = vi.fn().mockResolvedValue(true)
+  return { queue: { name: 'test-queue', getJobSchedulers, removeJobScheduler }, getJobSchedulers, removeJobScheduler }
 }
 
-// A representative live registration and its matching repeat-key entry.
-const LIVE_KEY = 'daily-connections:scheduled_daily-connections::::10 6 * * *'
-const liveEntry = repeatable({
-  key: LIVE_KEY,
-  name: 'daily-connections',
-  id: 'scheduled_daily-connections',
-  pattern: '10 6 * * *',
-})
-const liveRegistration = {
-  name: 'daily-connections',
-  jobId: 'scheduled_daily-connections',
-  pattern: '10 6 * * *',
-}
+// A representative live scheduler: key === its registered id.
+const liveEntry = scheduler({ key: 'scheduled_daily-connections', name: 'daily-connections', pattern: '10 6 * * *' })
+const liveRegistration = { id: 'scheduled_daily-connections', pattern: '10 6 * * *' }
 
 describe('reconcileRepeatableJobs (#217)', () => {
-  it('removes ONLY the orphan, never the freshly-registered key', async () => {
-    // Same name + jobId as the live job, but a STALE pattern — this is exactly
-    // the #217 orphan: a past cron change that left the old repeat key behind.
-    const ORPHAN_KEY = 'daily-connections:scheduled_daily-connections::::0 7 * * *'
-    const orphanEntry = repeatable({
-      key: ORPHAN_KEY,
-      name: 'daily-connections',
-      id: 'scheduled_daily-connections',
-      pattern: '0 7 * * *',
-    })
-
-    const m = mockQueue([liveEntry, orphanEntry])
+  it('removes ONLY the orphan, never the freshly-registered id', async () => {
+    // A renamed/removed job still scheduled from a past boot.
+    const orphan = scheduler({ key: 'scheduled_retired-skill', name: 'retired-skill', pattern: '0 0 * * *' })
+    const m = mockQueue([liveEntry, orphan])
 
     await reconcileRepeatableJobs(m.queue, [liveRegistration])
 
-    expect(m.removeRepeatableByKey).toHaveBeenCalledTimes(1)
-    expect(m.removeRepeatableByKey).toHaveBeenCalledWith(ORPHAN_KEY)
-    expect(m.removeRepeatableByKey).not.toHaveBeenCalledWith(LIVE_KEY)
+    expect(m.removeJobScheduler).toHaveBeenCalledTimes(1)
+    expect(m.removeJobScheduler).toHaveBeenCalledWith('scheduled_retired-skill')
+    expect(m.removeJobScheduler).not.toHaveBeenCalledWith('scheduled_daily-connections')
   })
 
-  it('removes nothing when every repeatable matches a registration', async () => {
-    const secondEntry = repeatable({
-      key: 'wiki-synthesis:scheduled_wiki-synthesis::::0 6 * * *',
-      name: 'wiki-synthesis',
-      id: 'scheduled_wiki-synthesis',
-      pattern: '0 6 * * *',
-    })
-
-    const m = mockQueue([liveEntry, secondEntry])
+  it('removes nothing when every scheduler id was registered', async () => {
+    const second = scheduler({ key: 'scheduled_wiki-synthesis', name: 'wiki-synthesis', pattern: '0 6 * * *' })
+    const m = mockQueue([liveEntry, second])
 
     await reconcileRepeatableJobs(m.queue, [
       liveRegistration,
-      { name: 'wiki-synthesis', jobId: 'scheduled_wiki-synthesis', pattern: '0 6 * * *' },
+      { id: 'scheduled_wiki-synthesis', pattern: '0 6 * * *' },
     ])
 
-    expect(m.removeRepeatableByKey).not.toHaveBeenCalled()
+    expect(m.removeJobScheduler).not.toHaveBeenCalled()
   })
 
-  it('removes an orphan whose name/jobId are unknown entirely', async () => {
-    const ghostKey = 'retired-skill:scheduled_retired-skill::::0 0 * * *'
-    const ghostEntry = repeatable({
-      key: ghostKey,
-      name: 'retired-skill',
-      id: 'scheduled_retired-skill',
-      pattern: '0 0 * * *',
-    })
-
-    const m = mockQueue([liveEntry, ghostEntry])
+  it('removes a LEGACY hash-keyed orphan (pre-migration .add({ repeat }))', async () => {
+    // getJobSchedulers() surfaces a legacy repeatable under a content-hash key,
+    // which can never equal a registered id — so it is reconciled away.
+    const legacy = scheduler({ key: '4d32e2bec56f5cbadab5e353a8040d6e', name: 'wiki-backup', pattern: '15 2 * * *' })
+    const m = mockQueue([liveEntry, legacy])
 
     await reconcileRepeatableJobs(m.queue, [liveRegistration])
 
-    expect(m.removeRepeatableByKey).toHaveBeenCalledTimes(1)
-    expect(m.removeRepeatableByKey).toHaveBeenCalledWith(ghostKey)
+    expect(m.removeJobScheduler).toHaveBeenCalledTimes(1)
+    expect(m.removeJobScheduler).toHaveBeenCalledWith('4d32e2bec56f5cbadab5e353a8040d6e')
   })
 
-  it('treats a tz-bearing entry as an orphan even if name/jobId/pattern match', async () => {
-    // Our registrations never set a tz, so a tz-bearing repeatable cannot be
-    // one of ours — it must be reconciled away.
-    const tzKey = 'daily-connections:scheduled_daily-connections:::America/New_York:10 6 * * *'
-    const tzEntry = repeatable({
-      key: tzKey,
-      name: 'daily-connections',
-      id: 'scheduled_daily-connections',
-      pattern: '10 6 * * *',
-      tz: 'America/New_York',
-    })
+  it('is best-effort: a getJobSchedulers failure never throws or removes', async () => {
+    const getJobSchedulers = vi.fn().mockRejectedValue(new Error('redis down'))
+    const removeJobScheduler = vi.fn().mockResolvedValue(true)
+    const queue = { name: 'test-queue', getJobSchedulers, removeJobScheduler }
 
-    const m = mockQueue([liveEntry, tzEntry])
+    await expect(reconcileRepeatableJobs(queue, [liveRegistration])).resolves.toBeUndefined()
 
-    await reconcileRepeatableJobs(m.queue, [liveRegistration])
-
-    expect(m.removeRepeatableByKey).toHaveBeenCalledTimes(1)
-    expect(m.removeRepeatableByKey).toHaveBeenCalledWith(tzKey)
-    expect(m.removeRepeatableByKey).not.toHaveBeenCalledWith(LIVE_KEY)
+    expect(removeJobScheduler).not.toHaveBeenCalled()
   })
 
-  it('is best-effort: a getRepeatableJobs failure never throws or removes', async () => {
-    const getRepeatableJobs = vi.fn().mockRejectedValue(new Error('redis down'))
-    const removeRepeatableByKey = vi.fn().mockResolvedValue(true)
-    const queue = { name: 'test-queue', getRepeatableJobs, removeRepeatableByKey }
+  it('continues past a removal failure (one bad scheduler must not block the rest)', async () => {
+    const orphanA = scheduler({ key: 'orphan-a', name: 'a' })
+    const orphanB = scheduler({ key: 'orphan-b', name: 'b' })
+    const getJobSchedulers = vi.fn().mockResolvedValue([orphanA, liveEntry, orphanB])
+    const removeJobScheduler = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('remove failed'))
+      .mockResolvedValue(true)
+    const queue = { name: 'test-queue', getJobSchedulers, removeJobScheduler }
 
-    await expect(
-      reconcileRepeatableJobs(queue, [liveRegistration]),
-    ).resolves.toBeUndefined()
+    await expect(reconcileRepeatableJobs(queue, [liveRegistration])).resolves.toBeUndefined()
 
-    expect(removeRepeatableByKey).not.toHaveBeenCalled()
+    // Both orphans attempted despite the first throwing; the live id untouched.
+    expect(removeJobScheduler).toHaveBeenCalledTimes(2)
+    expect(removeJobScheduler).not.toHaveBeenCalledWith('scheduled_daily-connections')
   })
 })
