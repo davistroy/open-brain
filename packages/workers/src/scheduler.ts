@@ -29,6 +29,16 @@ interface RegisteredScheduler {
 }
 
 /**
+ * All cron patterns below are interpreted in this timezone (#295). BullMQ defaults
+ * to UTC, so before this the homeserver (America/New_York) fired every job at its
+ * cron-hour UTC — e.g. morning-brief `30 6` fired at 02:30 ET, not 06:30. With the
+ * v5 upsertJobScheduler model the scheduler key is the stable job id (not a
+ * content hash), so setting tz updates each schedule IN PLACE on the next boot —
+ * no re-keyed orphans (that was a concern only under the old `.add({repeat})` API).
+ */
+const SCHEDULER_TIMEZONE = 'America/New_York'
+
+/**
  * Minimal queue surface needed by {@link reconcileRepeatableJobs}. Keeps the
  * function decoupled from Queue's DataType variance and trivially mockable.
  * Uses the v5 Job Scheduler API — `getJobSchedulers()` returns BOTH v5
@@ -110,6 +120,10 @@ export async function reconcileRepeatableJobs(
 /**
  * Registers repeatable BullMQ jobs on their respective queues.
  *
+ * ALL cron patterns are interpreted in America/New_York (`SCHEDULER_TIMEZONE`,
+ * #295) — the "6:00 AM" times below are Eastern, as intended. Before #295 BullMQ
+ * used UTC, so these fired ~4–5h early (morning-brief at 02:30 ET, not 06:30).
+ *
  * Jobs registered:
  * - daily-sweep: 3:00 AM daily (cron: 0 3 * * *) — re-queues stuck pipeline captures
  * - wiki-synthesis:           6:00 AM daily    (cron: 0 6 * * *)    — anchor (unchanged)
@@ -189,11 +203,11 @@ export async function registerScheduledJobs(
     const schedulable = queue as unknown as {
       upsertJobScheduler(
         schedulerId: string,
-        repeat: { pattern: string },
+        repeat: { pattern: string; tz: string },
         template: { name: string; data: DataType },
       ): Promise<unknown>
     }
-    await schedulable.upsertJobScheduler(jobId, { pattern }, { name, data })
+    await schedulable.upsertJobScheduler(jobId, { pattern, tz: SCHEDULER_TIMEZONE }, { name, data })
     const list = registeredByQueue.get(queue) ?? []
     list.push({ id: jobId, pattern })
     registeredByQueue.set(queue, list)
