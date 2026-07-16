@@ -4,7 +4,8 @@
 **Based on:** ultra-plan Phase 0–4 (LAB_NOTEBOOK Entry 208) · `docs/superpowers/specs/2026-07-15-actual-daily-job-design.md` · GitHub issues #71 #196 #281 #282 #284 #285 #286 #290 #292 #294 #295 #298 #299 #300
 **Sibling plan (coordinate, do not duplicate):** `~/dev/personal/homeserver/IMPLEMENTATION_PLAN_UPGRADES.md` — its **CS-4 owns open-brain PR #297**
 **Total phases:** 10
-**Status:** PENDING
+**Status:** IN PROGRESS — **Phase 1 COMPLETE**, Phase 2 partial (see below). CI green (22 pass). All shipped work is repo-only; **nothing deployed**.
+**Branch:** `feat/actual-daily-job` / PR #296
 
 > **DATA RULE.** The repo is **PUBLIC**. No balances, amounts, merchant/payee names, account names, the Actual sync ID, server host/URL, or credentials in this document. Financial specifics live only in the gitignored `docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md` + Bitwarden.
 
@@ -70,11 +71,12 @@ Phase 10 (operator)      ──► end, except blockers already surfaced
 
 ---
 
-## Phase 1 — Honest failure reporting 🔴 DO FIRST
+## Phase 1 — Honest failure reporting ✅ **COMPLETE 2026-07-15**
 
 *Gated on nothing. Fully CI-verifiable. Would have surfaced #284/#285/#286 three months ago.*
 
-### WI-1.1 — utility-pipeline: failures must set `status: error`
+### WI-1.1 — utility-pipeline: failures must set `status: error` ✅ **DONE** (`0b01c39`)
+> **8 tests written FIRST and watched fail RED against the old code** — the bug proven, not asserted: a water 401 really did report `status: ok`. Now green. 32 passed; ruff + pyright clean. Covers network failure, 401, non-200, unparseable JSON, unrecognised structure, and **received-rows-but-parsed-zero** (the one that would survive an auth fix and turn a loud 401 into a silent zero). Also corrected the stale "auth may NOW be required" comment — the API was never anonymous.
 - **Change:** `scripts/utility-pipeline.py` — append to `_JSON_ERRORS` on the water path (`cmd_water`, ~`:229`) and the power path (`cmd_power_summary`, ~`:656-671`). `cmd_gas:630` is the working template.
 - **Why:** `:1025` — `"status": "ok" if exit_code == 0 and not _JSON_ERRORS else "error"`. Water and power `return` without touching it, so **total failure reports success**.
 - **Acceptance:** a water 401 and an absent power binary each produce `status: "error"`.
@@ -87,7 +89,8 @@ Phase 10 (operator)      ──► end, except blockers already surfaced
 - ⚠️ **Sequencing:** if D144 retires obvm, this file dies with it. **Do WI-1.2 only if Phase 3 shows obvm survives**, OR port the lesson to the TS path instead. **Re-evaluate after Phase 3.**
 - **Verify:** ruff + pyright (no pytest exists for this file).
 
-### WI-1.3 — Dockerfile build smoke test
+### WI-1.3 — Dockerfile build smoke test ✅ **DONE** (`594a5e6`)
+> All three errors verified **live** before rewriting (org 404 · v2.4.1 not 0.5.0 · raw binaries not a tarball). Proven both directions by actually building: **OLD form + 404 → build exit 0 with NO BINARY**; **NEW form → exit 0, binary present (9,967,947 bytes), `--help` prints real usage**; **NEW form + bad version → exit 1, refuses to ship.**
 - **Change:** `docker/ingest-sidecar/Dockerfile` — fix the org (`typ0` 404s → `tedpearson`, 51★), the version (`0.5.0` → **v2.4.1**), the asset format (**raw binaries, not `.tar.gz`** — so `tar -xzf` must go), drop `|| true`, add `-f` to `curl`, and add `RUN electric-usage-downloader --help`.
 - **Why:** the Dockerfile self-documented `# TODO: unverified` and `# If the build fails here…` while `|| true` **structurally guaranteed it never would**. The smoke test is the Dockerfile equivalent of Entry 200's *"never ship a parser that hasn't run against a real artifact."*
 - 🚨 **Converts a silent no-op into a hard release gate** — a bad URL now fails `build-images.yml:114-124`, blocking **both** sidecars. Land deliberately.
@@ -119,12 +122,14 @@ Phase 10 (operator)      ──► end, except blockers already surfaced
 - **#302** — compose changes have no deploy path. **Hard prerequisite for WI-7.1 (#298) and WI-7.2 (actual-ingest)**: both are compose changes and would **silently never deploy**, exactly like #294's mount.
 - **#303** — `WorkersMetricsAbsent` can never fire: `absent()` on a **Pushgateway** metric, which retains the last value indefinitely, so a dead workers leaves it non-absent forever. Only `PushgatewayStale` (`push_time_seconds` age) can work. **OA-9b would have revealed this — it is still open, never run.**
 
-### WI-2.1b — Compose parity gate 🟢 zero risk, do NOW
+### WI-2.1b — Compose parity gate ✅ **DONE** (`d80f6ca`) — `scripts/check-deploy-parity.sh`
+> **Run against prod it reports DRIFT (exit 1)** and names what is missing: `shm_size` (#297), `BACKUP_LATEST_PATH` + the `/backup-latest` mount (#244 — **#294's root cause**), `OPERATOR_ACTIONS_PATH` + mount, the web-next healthcheck; plus a host-only `NEXT_PUBLIC_API_URL`. The D131 allowlist filters correctly. **Exits 2 — never 0 — when it cannot run** (unreachable host / bad ref / empty file), verified.
 - **Change:** compare the **rendered** repo compose against the **rendered deployed** compose (`docker compose config`, not raw text), allowlisting the two documented deviations: the **D131 core-api `3002:3000`** sed and the **raw-bind override** for postgres/redis.
 - **Why now, before any deploy:** Entry 207's own logic — *"Everything that drifted this week drifted because nothing compared the two copies. Comparison is the fix."* It would report *"deployed compose is 4 commits behind"* today, turning an invisible fact into a loud one. **It is a prerequisite for actual-ingest ever existing in prod**, not gold-plating.
 - **Read-only** — the deployed file is readable as `claude`. Zero deploy risk.
 
-### WI-2.2 — Stop clobbering `GITEA_TOKEN`
+### WI-2.2 — Stop clobbering `GITEA_TOKEN` ✅ **DONE** (`d506fd2`)
+> Proven empirically under `env -i`: **with** the interpolation line → `GITEA_TOKEN=""`; **without** it → the env_file value survives. Deleting the lines IS the fix. Both blank-string warnings gone.
 > ⚠️ **Also a compose change ⇒ it lands in the repo now but takes effect only at the Phase 7 reconciliation (#302).** Safe and correct to merge today; just don't record it as "fixed in prod" until the deployed compose moves. Same trap as WI-2.1 — *every* compose edit inherits it.
 - **Change:** delete `GITEA_TOKEN: ${GITEA_TOKEN}` at `docker-compose.yml:114` and `:169`.
 - **Why:** `env_file: .env.secrets` **already supplies it correctly**, then `environment:` overrides it with `""`. Proven empirically. Deleting the lines *is* the fix.
