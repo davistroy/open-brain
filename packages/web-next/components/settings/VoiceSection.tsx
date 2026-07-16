@@ -3,9 +3,10 @@
 /**
  * VoiceSection — Settings page voice status section.
  *
- * Read-only status display: shows Pipecat conversational voice integration
- * health (from configApi.integrations), Voice Capture (iOS Shortcut) status,
- * total session count, and active session count.
+ * Read-only status display: shows Voice Capture (iOS Shortcut) integration
+ * health (from configApi.integrations), total session count, and active
+ * session count. (The Pipecat conversational row was removed with the
+ * voice-pipecat service in #298/D143.)
  *
  * API surface:
  *   GET /api/v1/config/integrations        → { integrations: Integration[] }
@@ -19,8 +20,7 @@
  * - Card wrapper with `padded={false}`; rows in divide-y container.
  * - Client component required for data fetching.
  *
- * UX parity with packages/web/src/components/settings/VoiceSection.tsx:
- * - Pipecat (Conversational) integration row with connected/disconnected dot.
+ * Rows:
  * - Voice Capture (iOS Shortcut) row with active badge.
  * - Total Sessions count row.
  * - Active Sessions count row (highlighted when > 0).
@@ -119,16 +119,8 @@ function StatusRow({ label, children }: StatusRowProps) {
 }
 
 // ---------------------------------------------------------------------------
-// NotConfiguredBadge / ActiveBadge — inline status badges
+// ActiveBadge — inline status badge
 // ---------------------------------------------------------------------------
-
-function NotConfiguredBadge() {
-  return (
-    <span className="inline-flex items-center px-[6px] py-[1px] text-[10.5px] font-medium tracking-[0.02em] bg-cloud-light border border-cloud-dark text-text-small">
-      Not configured
-    </span>
-  );
-}
 
 function ActiveBadge() {
   return (
@@ -161,9 +153,6 @@ export function VoiceSection() {
 
   // ── Derive integration statuses ────────────────────────────────────────────
   const integrations = integrationsData?.integrations ?? [];
-  const pipecatIntegration = integrations.find(
-    (i) => i.name.toLowerCase().includes('pipecat') || i.name.toLowerCase().includes('voice'),
-  );
   const voiceCaptureIntegration = integrations.find(
     (i) => i.name === 'Voice Capture',
   );
@@ -181,7 +170,7 @@ export function VoiceSection() {
           Voice
         </span>
       }
-      description="Voice capture and conversational AI status — iOS Shortcut ingest and Pipecat session health."
+      description="Voice capture status — iOS Shortcut ingest → voice-capture → faster-whisper transcription."
       padded={false}
     >
       {/* ── Load error ────────────────────────────────────────────────────── */}
@@ -203,27 +192,12 @@ export function VoiceSection() {
           <SkeletonRow />
           <SkeletonRow />
           <SkeletonRow />
-          <SkeletonRow />
         </>
       )}
 
       {/* ── Status rows ──────────────────────────────────────────────────── */}
       {!isLoading && !integrationsError && (
         <div className="divide-y divide-cloud-light">
-          {/* Pipecat (Conversational) */}
-          <StatusRow label="Pipecat (Conversational)">
-            {pipecatIntegration ? (
-              <>
-                <StatusDot status={integrationStatusToDot(pipecatIntegration.status)} />
-                <span className="text-[11.5px] text-text-body-secondary font-mono">
-                  {integrationStatusLabel(pipecatIntegration.status)}
-                </span>
-              </>
-            ) : (
-              <NotConfiguredBadge />
-            )}
-          </StatusRow>
-
           {/* Voice Capture (iOS Shortcut) */}
           <StatusRow label="Voice Capture (iOS Shortcut)">
             {voiceCaptureIntegration ? (

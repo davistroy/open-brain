@@ -285,39 +285,6 @@ services:
     restart: unless-stopped
     logging: *default_logging
 
-  voice-pipecat:
-    image: ghcr.io/davistroy/open-brain/voice-pipecat:latest
-    build:
-      context: packages/voice-pipecat
-      dockerfile: Dockerfile
-    container_name: open-brain-voice-pipecat
-    env_file:
-      - .env.secrets
-    environment:
-      # DEEPGRAM_API_KEY: set in .env.secrets
-      # ANTHROPIC_API_KEY: set in .env.secrets
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
-      CORE_API_URL: http://core-api:3000
-    ports:
-      - "8765:8765"   # WebSocket for Pipecat audio streams
-      - "8766:8766"   # Health endpoint
-    volumes:
-      - ./config:/app/config:ro
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8766/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    mem_limit: 4g
-    networks:
-      - open-brain
-    restart: unless-stopped
-    logging: *default_logging
-
   # Ollama runs as standalone container — connected via scripts/post-compose-up.sh
   # ollama:
   #   image: ollama/ollama:latest
@@ -365,7 +332,7 @@ services:
     restart: unless-stopped
     logging: *default_logging
 
-  # --- Legacy voice services (kept for fallback until voice-pipecat is validated) ---
+  # --- Voice services: iOS Shortcut → voice-capture → faster-whisper batch transcription (the LIVE path) ---
 
   faster-whisper:
     image: fedirz/faster-whisper-server:0.5.0-cpu

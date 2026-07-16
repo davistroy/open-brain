@@ -1,6 +1,6 @@
 # ADR-0002: LAN Exposure Model — Bind Data Stores to Loopback, Dual-Bind core-api for Tailscale MCP
 
-**Status:** Accepted — **core-api exposure AMENDED 2026-06-30**; **voice-pipecat `:8765` risk-accepted 2026-07-12 (D135)** (see Amendments below; data-store binds + fail-closed creds + Redis auth stand as written and are deployed)
+**Status:** Accepted — **core-api exposure AMENDED 2026-06-30**; **voice-pipecat `:8765` risk-accepted 2026-07-12 (D135)** — MOOT (#298/D143): service removed 2026-07-16 (see Amendments below; data-store binds + fail-closed creds + Redis auth stand as written and are deployed)
 **Date:** 2026-06-15 (amended 2026-06-30)
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` remediation of arch-review v3 — findings SEC-02, SEC-08, SEC-11, PLT-L1, PLT-L3 (LAN-perimeter cluster, change set CS-1)
@@ -37,7 +37,7 @@ Concretely, in `docker-compose.yml`:
 | **core-api** | 3002 | `0.0.0.0` | ~~`127.0.0.1` **+ `${TAILSCALE_IP}`**~~ → **`0.0.0.0` (see Amendment 2026-06-30)** | OpenClaw MCP over Tailscale must survive; dual-bind superseded by a risk-acceptance |
 | web-next | 3003 | `0.0.0.0` | `0.0.0.0` (keep) | Troy's LAN browser access to the dashboard |
 | grafana | 3050 | `0.0.0.0` | `0.0.0.0` (keep) | Troy's LAN browser access to dashboards |
-| voice-pipecat | 8765 (ws) / 8766 (health) | `0.0.0.0` | `0.0.0.0` (keep — **risk-accepted, see Amendment 2026-07-12 / D135**) | WebSocket realtime-voice pipeline; zero auth. No production client connects to it (iOS Shortcut is HTTP→`:3001`, mobile is batch upload, streaming A81 never built, soak test P24 never run). Accepted, not remediated. |
+| voice-pipecat | 8765 (ws) / 8766 (health) — **MOOT (#298/D143)** | `0.0.0.0` | `0.0.0.0` (keep — **risk-accepted, see Amendment 2026-07-12 / D135**) | WebSocket realtime-voice pipeline; zero auth. No production client connects to it (iOS Shortcut is HTTP→`:3001`, mobile is batch upload, streaming A81 never built, soak test P24 never run). Accepted, not remediated. **MOOT (#298/D143): service removed 2026-07-16.** |
 
 Credentials fail closed: `POSTGRES_PASSWORD:?must be set` and `GRAFANA_ADMIN_PASSWORD:?must be set` (remove `:-openbrain_dev` / `:-admin` fallbacks). New `REDIS_PASSWORD` secret follows the P08 3-step lockstep (BWS → `.env.secrets.template` + `secrets-map.sh` → `REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379` consumers).
 
@@ -89,6 +89,8 @@ Rationale:
 **Net (Unraid):** data stores closed to the LAN; core-api LAN-reachable with sensitive endpoints auth-gated and the general API accepted-open under the single-user posture. The separate observability ports (loki/prometheus/pushgateway) remaining on `0.0.0.0` are a *deferred* item (the docker port-wedge needs a `systemctl restart docker` window), not part of this decision.
 
 ## Amendment (2026-07-12) — voice-pipecat `:8765`/`:8766` risk-accepted (D135, closes SEC-A1/A136)
+
+**SUPERSEDED by #298/D143 (2026-07-16): voice-pipecat removed; the risk-acceptance and its re-open triggers below are moot.**
 
 The 2026-07-09 architecture review (SEC-A1) flagged that `voice-pipecat` publishes `ws://0.0.0.0:8765` (+ `:8766` health) with **zero authentication** — any LAN socket could drive the paid Deepgram STT + Anthropic LLM pipeline (outside the OpenAI-only budget breaker) and inject captures. It was absent from the original exposure model above.
 

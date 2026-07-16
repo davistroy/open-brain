@@ -79,8 +79,6 @@ updates:
   - package-ecosystem: pip
     directories:
       - /
-      - /packages/voice-pipecat
-      - /packages/voice-pipecat/tests
       - /packages/file-ingestion
       - /docker/ingest-sidecar/tests
       - /scripts
@@ -109,7 +107,6 @@ updates:
     directories:
       - /
       - /packages/web-next
-      - /packages/voice-pipecat
       - /packages/file-ingestion
       - /docker/ingest-sidecar
     schedule:

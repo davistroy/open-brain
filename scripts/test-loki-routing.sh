@@ -27,7 +27,6 @@ SERVICES=(
   open-brain-core-api
   open-brain-workers
   open-brain-slack-bot
-  open-brain-voice-pipecat
   open-brain-file-ingestion
   open-brain-faster-whisper
   open-brain-voice-capture
