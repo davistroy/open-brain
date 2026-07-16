@@ -104,3 +104,6 @@ config/himalaya/config.toml
 
 # Instance-specific Actual Budget dev guide — contains personal financial data; keep local only
 docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md
+
+# Session handoff scratch — never commit
+HANDOFF.md

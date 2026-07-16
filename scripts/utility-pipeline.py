@@ -219,16 +219,22 @@ def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         )
     except requests.exceptions.RequestException as e:
         log.error(f"Water API request failed: {e}")
+        _JSON_ERRORS.append(f"water: API request failed: {e}")
         return
 
     if resp.status_code == 401:
+        # NOT "auth started being required" -- this API was NEVER anonymous. The
+        # "confirmed via HAR analysis" claim above predates the HAR doc by 8h, and
+        # that doc concluded the opposite: JWT via Azure B2C OIDC + MFA (#285).
         log.error(
-            "Water API returned 401 — authentication may now be required. "
-            "Implement session cookie from https://ccw-css.cobbcounty.org/ portal login."
+            "Water API returned 401 — this endpoint requires Azure B2C OIDC auth "
+            "(JWT bearer, ~15-min TTL). See docs/cobb-water-api-analysis.md; #285."
         )
+        _JSON_ERRORS.append("water: 401 — B2C OIDC auth not implemented (#285)")
         return
     if resp.status_code != 200:
         log.error(f"Water API returned {resp.status_code}: {resp.text[:300]}")
+        _JSON_ERRORS.append(f"water: API returned HTTP {resp.status_code}")
         return
 
     try:
@@ -236,6 +242,7 @@ def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     except (json.JSONDecodeError, ValueError) as e:
         log.error(f"Water API response is not valid JSON: {e}")
         log.debug(f"Raw response: {resp.text[:500]}")
+        _JSON_ERRORS.append(f"water: response is not valid JSON: {e}")
         return
 
     if not isinstance(readings, list):
@@ -247,6 +254,7 @@ def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
                     break
             else:
                 log.error(f"Unexpected response structure: {json.dumps(readings)[:300]}")
+                _JSON_ERRORS.append("water: unexpected response structure — no known list key")
                 return
 
     new_count = 0
@@ -301,6 +309,17 @@ def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
 
     conn.commit()
     log.info(f"Water: {new_count} new readings stored, {skip_count} already existed")
+
+    # A payload we clearly received but could not parse is an ERROR, not an idle run.
+    # #285's field guesses ("readDate"/"read"/...) match NOTHING in the real
+    # GetBilledUsageGraphData shape, so every row is skipped and this logs a clean
+    # "0 new readings stored". Authenticating without fixing the parser would turn a
+    # loud 401 into a silent zero -- Entry 200's lesson, verbatim.
+    if readings and new_count == 0 and skip_count == 0:
+        _JSON_ERRORS.append(
+            f"water: received {len(readings)} row(s) but parsed 0 — "
+            "response shape does not match the expected fields (#285)"
+        )
 
     # Calculate and log recent consumption deltas
     recent = conn.execute(
@@ -654,16 +673,22 @@ def cmd_power_summary(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     power_cfg.get("rate_kwh", 0.12)
 
     if not data_dir.exists():
-        log.info("Power data directory not found — electric-usage-downloader not configured yet.")
-        log.info(f"  Expected: {data_dir}")
-        log.info("  Install: download electric-usage-downloader from GitHub releases")
-        log.info("  Configure: create config.yaml with SmartHub credentials")
+        # Not "not configured yet" -- the Dockerfile's `|| true` meant the binary was
+        # never installed, and NOTHING invokes it anyway (#286). A power path that is
+        # configured but produces nothing is a failure, not an idle run.
+        log.error("Power data directory not found — electric-usage-downloader not producing data.")
+        log.error(f"  Expected: {data_dir}")
+        _JSON_ERRORS.append(
+            f"power: data directory {data_dir} missing — "
+            "electric-usage-downloader not installed/running (#286)"
+        )
         return
 
     # Look for CSV files
     csv_files = sorted(data_dir.glob("*.csv"))
     if not csv_files:
-        log.info(f"No CSV files in {data_dir} — power data not available yet")
+        log.error(f"No CSV files in {data_dir} — power data not available")
+        _JSON_ERRORS.append(f"power: no CSV files in {data_dir} (#286)")
         return
 
     log.info(f"Found {len(csv_files)} CSV files in {data_dir}")
