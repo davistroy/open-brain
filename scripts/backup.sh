@@ -86,21 +86,38 @@ echo "[2/6] Backing up config files..."
 CONFIG_DIR="${BACKUP_FILE}/config"
 mkdir -p "$CONFIG_DIR"
 
-# Config YAML files
-cp -a "${APP_DIR}/config/"*.yaml "$CONFIG_DIR/" 2>/dev/null || true
-cp -a "${APP_DIR}/config/"*.yml "$CONFIG_DIR/" 2>/dev/null || true
+# >>> config-copy-block  (extracted + run standalone by test-backup-secrets-redaction.sh;
+#     edit WITHIN the markers, never the marker lines — the test greps for them)
+# Config YAML — RECURSIVE (#299/A143). The old non-recursive glob (config/*.yaml)
+# silently omitted every config/ SUBDIR — prometheus/, financial/, utility/,
+# cloudflare/, grafana/ — AND the host-only config/payee-rules.yaml from every
+# backup, local and offsite, while still logging "Backing up config files". The
+# subdir structure is mirrored under CONFIG_DIR, and a real copy failure now
+# ABORTS the backup (set -e + the EXIT trap fires a FAILED Pushover) instead of
+# being swallowed by `|| true`. Only *.yaml/*.yml are copied — config/himalaya's
+# .toml (SMTP creds) and other non-YAML are intentionally NOT swept in.
+config_count=0
+if [ -d "${APP_DIR}/config" ]; then
+  while IFS= read -r -d '' _src; do
+    _rel="${_src#"${APP_DIR}"/config/}"
+    _dest="${CONFIG_DIR}/${_rel}"
+    mkdir -p "$(dirname "$_dest")"
+    cp -a "$_src" "$_dest"
+    config_count=$((config_count + 1))
+  done < <(find "${APP_DIR}/config" -type f \( -name '*.yaml' -o -name '*.yml' \) -print0)
+fi
 
-# Environment files — non-sensitive only. .env.secrets is EXCLUDED.
-# Post-restore: run scripts/load-secrets.sh (or bws secret get per
-# deploy/.env.secrets.template) to rebuild .env.secrets from Bitwarden.
-cp "${APP_DIR}/.env" "$CONFIG_DIR/dot-env" 2>/dev/null || true
-cp "${APP_DIR}/.env.example" "$CONFIG_DIR/dot-env-example" 2>/dev/null || true
+# Environment files — non-sensitive only. .env.secrets is EXCLUDED (never copied).
+# NOTE: .env still holds REDIS_PASSWORD until #281/D145 lands; the offsite leg is
+# an encrypted rclone crypt remote. Post-restore: scripts/load-secrets.sh rebuilds
+# .env.secrets from Bitwarden (deploy/.env.secrets.template).
+if [ -f "${APP_DIR}/.env" ];                        then cp -a "${APP_DIR}/.env"                        "$CONFIG_DIR/dot-env";         fi
+if [ -f "${APP_DIR}/.env.example" ];                then cp -a "${APP_DIR}/.env.example"                "$CONFIG_DIR/dot-env-example"; fi
+if [ -f "${APP_DIR}/docker-compose.yml" ];          then cp -a "${APP_DIR}/docker-compose.yml"          "$CONFIG_DIR/"; fi
+if [ -f "${APP_DIR}/docker-compose.override.yml" ]; then cp -a "${APP_DIR}/docker-compose.override.yml" "$CONFIG_DIR/"; fi
+# <<< config-copy-block
 
-# Docker compose
-cp "${APP_DIR}/docker-compose.yml" "$CONFIG_DIR/" 2>/dev/null || true
-cp "${APP_DIR}/docker-compose.override.yml" "$CONFIG_DIR/" 2>/dev/null || true
-
-echo "  Config files: $(ls "$CONFIG_DIR" | wc -l) files"
+echo "  Config files: ${config_count} YAML (recursive) + env/compose"
 
 # --- 3. Schema reference (for disaster recovery) ---
 echo "[3/6] Backing up schema reference..."
