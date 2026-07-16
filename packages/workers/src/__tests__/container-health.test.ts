@@ -2,11 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PushoverService } from '@open-brain/shared'
 import { ContainerHealthSkill, DEFAULT_ENDPOINTS } from '../skills/container-health.js'
 import type { ContainerEndpoint } from '../skills/container-health.js'
+import { pushBackupAgeGauge } from '../lib/backup-age.js'
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
 vi.mock('../lib/push-metrics.js', () => ({
   pushMetrics: vi.fn().mockResolvedValue(undefined),
   buildExposition: vi.fn().mockReturnValue(''),
+}))
+
+// #309: container-health re-pushes the backup-age gauge every run. Mock the
+// shared helper so the wiring is asserted without touching fs/Pushgateway.
+vi.mock('../lib/backup-age.js', () => ({
+  pushBackupAgeGauge: vi.fn().mockResolvedValue(1234),
 }))
 
 // ============================================================
@@ -275,6 +282,14 @@ describe('ContainerHealthSkill', () => {
       const insertCalls = db.insert.mock.calls
       expect(insertCalls.length).toBeGreaterThan(0)
     })
+  })
+})
+
+describe('backup-age gauge (#309)', () => {
+  it('re-pushes the backup-age gauge on every run', async () => {
+    const { skill } = makeSkill()
+    await skill.execute()
+    expect(pushBackupAgeGauge).toHaveBeenCalled()
   })
 })
 
