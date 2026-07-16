@@ -13896,3 +13896,18 @@ Bringing prod current is the riskiest op class (a postgres/redis-adjacent recrea
 
 **Tags:** [deploy] [docker] [decision]
 **Environment:** laptop dev; no prod change. Executed by Claude (Opus 4.8), user-directed ("go").
+
+---
+
+## Entry 221 — the actual-ingest image STILL couldn't build: `.dockerignore` hid `scripts/actual` (2026-07-16)  [docker] [debug] [deploy]
+
+**Caught by WATCHING the build, not assuming it.** Merging #318 wired `actual-ingest` into `build-images`; its first-ever build on main **FAILED**: `COPY scripts/actual/lib` → `"/scripts/actual/lib": not found`. Root cause: `.dockerignore` excludes all of `scripts/` and re-includes only specific paths (`financial-pipeline.py`, `utility-pipeline.py`, `scripts/lib/**`) — `scripts/actual/**` was never negated, so it's absent from the build context. **A second-order #311 defect**, invisible until the image actually built (there was no local build in #311 — the exact gap Entry 200's rule exists to close).
+
+**Fix:** negate exactly what the Dockerfile COPYs — `package.json`, `package-lock.json`, `actual-daily.mjs`, `lib/**` (NOT `test/` or `node_modules`, which stays excluded). **Then BUILT IT LOCALLY** (Entry 200's rule, applied this time): image builds; `/app/lib` has all 5 `.mjs`; `@actual-app/api` present; the entrypoint runs and exits 1 with `missing required env ACTUAL_SERVER_URL` — the wiring works.
+
+**Blast note:** the failed run pushed core-api…ingest-sidecar (steps before actual-ingest) but NOT web-next (after it) — a partial push. Since #299/#300/#302 changed zero app TS, the images are code-identical anyway (D140), but the run is RED + `notify-failure` fired. This hotfix re-greens main and rebuilds actual-ingest + web-next.
+
+**Lesson (again, sharper):** a Dockerfile `COPY` is only proven by an actual build; `.dockerignore` is a silent second gate that a Dockerfile read cannot reveal. Build every new image locally before wiring it into `build-images`.
+
+**Tags:** [docker] [debug] [deploy]
+**Environment:** laptop dev + local `docker build` (image `actual-ingest:localtest`, built + entrypoint-verified). Executed by Claude (Opus 4.8), user-directed ("go").
