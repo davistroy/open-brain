@@ -123,6 +123,24 @@ jobs:
           cache-from: type=gha,scope=ingest-sidecar
           cache-to: type=gha,mode=max,scope=ingest-sidecar
 
+      # ── actual-ingest ─────────────────────────────────────────────────────────
+      # #311 Actual Budget daily sidecar. Its OWN image (node:22-slim, glibc — NOT
+      # the shared python ingest-sidecar tag). Build context is repo root — the
+      # Dockerfile COPYs scripts/actual/ which is relative to root. Without this
+      # step actual-ingest:latest never exists in GHCR and the compose service can
+      # never be pulled (the #302 "referenced but never built" trap).
+      - name: Build and push actual-ingest
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/actual-sidecar/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/davistroy/open-brain/actual-ingest:sha-${{ steps.meta.outputs.sha }}
+            ghcr.io/davistroy/open-brain/actual-ingest:latest
+          cache-from: type=gha,scope=actual-ingest
+          cache-to: type=gha,mode=max,scope=actual-ingest
+
       # ── web-next ────────────────────────────────────────────────────────────
       # Build context is repo root — Next.js monorepo build requires pnpm workspace
       # root. API_URL is baked at build time for server-side next.config.ts rewrites.

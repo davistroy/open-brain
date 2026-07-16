@@ -1,0 +1,30 @@
+# Open Brain — Compose parity drift alarm (#302)  [Unraid host cron]
+#
+# WHY: `docker compose pull` ships IMAGE changes; it does NOT ship compose-file
+# changes. The deployed docker-compose.yml only moves when a human runs
+# `git checkout origin/main -- docker-compose.yml`, and nothing verified that it
+# had — so PR #244's /backup-latest mount (and thus the #294 dead-man's switch)
+# sat undeployed for a MONTH, silently. A deploy-time gate can't catch drift that
+# accumulates because nobody deploys. This scheduled check turns drift into a
+# Pushover. ("Comparison is the fix" — Entry 207 / D148.)
+#
+# INSTALL (root, once):
+#   sudo tee -a /boot/config/plugins/dynamix/custom.cron < deploy/cron/unraid-parity-check.cron
+#   sudo /usr/local/sbin/update_cron
+#   crontab -l | grep parity   # verify
+#
+# ROLLBACK: remove the line from custom.cron + `update_cron` again.
+#
+# NOTES:
+#   - Runs ON the homeserver, reading the DEPLOYED compose LOCALLY
+#     (PARITY_LOCAL_COMPOSE) — no self-SSH. Alternatively install on any box with
+#     `claude@homeserver.k4jda.net` SSH + the repo, and drop PARITY_LOCAL_COMPOSE.
+#   - Bare cron env → the line sources .env.secrets so Pushover creds (and, if the
+#     repo remote is authenticated, git) are present. Anonymous `git fetch` works
+#     while the repo is public.
+#   - Exit 0 = parity (silent). Exit 1 = drift (priority-1 Pushover). Exit 2 = the
+#     check itself could not run (also alarmed — a check that can't compare must
+#     not look like it passed; #303's lesson).
+
+# Daily at 05:15 local. Sits clear of the 03:00 backup and the 06:00 ingest cluster.
+15 5 * * * bash -c 'set -a; cd /mnt/user/appdata/open-brain && . ./.env.secrets 2>/dev/null; set +a; git fetch origin --quiet 2>/dev/null; PARITY_LOCAL_COMPOSE=/mnt/user/appdata/open-brain/docker-compose.yml bash scripts/check-deploy-parity-cron.sh' >> /var/log/open-brain-parity.log 2>&1

@@ -66,7 +66,11 @@ ALLOW_RE='^[<>][[:space:]]*-[[:space:]]*"(127\.0\.0\.1:3002:3000|\$\{TAILSCALE_I
 command -v git >/dev/null || die "git not found"
 git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repo"
 
-echo "== deploy parity: ${USER_}@${HOST}:${APP_DIR}/docker-compose.yml  vs  ${REF} =="
+if [ -n "${PARITY_LOCAL_COMPOSE:-}" ]; then
+  echo "== deploy parity: ${PARITY_LOCAL_COMPOSE} (local)  vs  ${REF} =="
+else
+  echo "== deploy parity: ${USER_}@${HOST}:${APP_DIR}/docker-compose.yml  vs  ${REF} =="
+fi
 
 git fetch --quiet origin 2>/dev/null || echo "  warn: git fetch failed; comparing against a possibly stale ${REF}" >&2
 
@@ -76,10 +80,17 @@ trap 'rm -f "$REPO_TMP" "$DEPLOY_TMP"' EXIT
 git show "${REF}:docker-compose.yml" > "$REPO_TMP" 2>/dev/null \
   || die "cannot read docker-compose.yml from ${REF}"
 
-# `ssh ... cat` — deliberately read-only. This script must never mutate the host.
-if ! ssh -i "$SSH_KEY" -o ConnectTimeout=20 -o BatchMode=yes "${USER_}@${HOST}" \
-      "cat ${APP_DIR}/docker-compose.yml" > "$DEPLOY_TMP" 2>/dev/null; then
-  die "cannot read the deployed compose over ssh (host down? key? path?)"
+# Read the DEPLOYED compose — read-only either way; this script must never mutate
+# the host. PARITY_LOCAL_COMPOSE lets the check run ON the deploy host itself (the
+# scheduled cron path) by reading the file locally, avoiding a self-SSH hop.
+if [ -n "${PARITY_LOCAL_COMPOSE:-}" ]; then
+  [ -r "$PARITY_LOCAL_COMPOSE" ] || die "PARITY_LOCAL_COMPOSE not readable: ${PARITY_LOCAL_COMPOSE}"
+  cp "$PARITY_LOCAL_COMPOSE" "$DEPLOY_TMP" || die "cannot read the deployed compose at ${PARITY_LOCAL_COMPOSE}"
+else
+  if ! ssh -i "$SSH_KEY" -o ConnectTimeout=20 -o BatchMode=yes "${USER_}@${HOST}" \
+        "cat ${APP_DIR}/docker-compose.yml" > "$DEPLOY_TMP" 2>/dev/null; then
+    die "cannot read the deployed compose over ssh (host down? key? path?)"
+  fi
 fi
 [ -s "$DEPLOY_TMP" ] || die "deployed compose came back EMPTY — refusing to report parity"
 
