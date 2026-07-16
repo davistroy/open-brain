@@ -13944,3 +13944,16 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [observability] [testing]
 **Environment:** laptop dev; workers test+coverage green. No prod change (effect is on the next workers recreate). Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").
+
+---
+
+## Entry 224 — #295: scheduled jobs now run in America/New_York, not UTC (2026-07-16)  [pipeline] [config]
+
+**Objective:** BullMQ defaults to UTC, so on the ET homeserver every repeatable fired ~4–5h early — morning-brief `30 6` fired at **02:30 ET**, not 06:30. **Rollback:** repo-only; `git revert`.
+
+**Fix:** one line at the single registration choke point — `upsertJobScheduler(id, { pattern, tz: 'America/New_York' }, …)` (const `SCHEDULER_TIMEZONE`). Verified against installed **BullMQ 5.70.4** that `upsertJobScheduler`'s repeat opts honor `tz` (`job-scheduler.js:78`). **Clean under the D149 model:** the scheduler key is the stable job id (not a content hash), so `tz` updates each schedule **in place** on the next boot — the WI-8.2 "re-keys every job" worry applied only to the old `.add({repeat})` API. Verified: scheduler-register/reconcile/slots 18 tests; full workers suite 1217 + coverage gate; **`scheduler.ts` held its 100/100/100/100 per-file lock**; `tsc` clean. Slot registry test unaffected (tz-agnostic — it checks minute/hour/dow).
+
+**⚠️ Flag for Troy (WI-8.2, NOT done here):** the fix moves the BullMQ morning cluster (wiki-synthesis `0 6`, daily-connections `10 6`, cost-analysis `20 6`, morning-brief `30 6`, capture-reminder `45 6`, budget-check `0 7`, drift-monitor `15 7`) from ~02:00–03:15 ET onto **06:00–07:15 ET — the same wall-clock as the HOST-cron ingest cluster** (financial `0 6`, utility `30 6`, actual-ingest `0 6`). Different schedulers (no shared slot registry), so it's a **resource-contention** question, not a correctness one — two LLM-heavy jobs (wiki-synthesis, morning-brief) now coincide with the ingest jobs. Mitigating: financial-ingest is idle (Plaid dropped, D138). **Decide whether to re-space the BullMQ morning cluster** (e.g. shift to 05:xx or 08:xx ET); I left the spacing as-is since re-spacing is a deliberate scheduling call, not part of the tz correctness fix.
+
+**Tags:** [pipeline] [config]
+**Environment:** laptop dev; workers 1217 + coverage + scheduler 100% lock green. No prod change (applies on next workers boot; schedules update in place). Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").
