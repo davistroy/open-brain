@@ -150,12 +150,27 @@
 | D138 | **Drop Plaid** for financial data — abandon the Plaid integration; financial pipeline to be re-sourced a different way (direction TBD) | 2026-07-14 | ACTIVE | Entry 196 | Plaid never provisioned (3 secrets absent). Troy is going a different direction. `financial-pipeline.py` `init_plaid()` path becomes dead once the replacement lands; the canonical `PLAID_*` config names (Entry 193) are now moot. "Provision 3 Plaid secrets" operator action is CANCELLED. |
 | D139 | **PyMuPDF (AGPL-3.0) accepted** as the gas-bill PDF parser dependency in the ingest-sidecar image, rather than rewriting `_parse_gas_bill_pdf` on an MIT/BSD library | 2026-07-15 | ✅ ACTIVE (deployed `70fa72e6`, #275/PR #276) | Entry 200 | pdfplumber/pypdf (MIT/BSD — avoids AGPL, but means rewriting the extraction AND re-validating it against real bills; the parser had never been validated even once, so this was the expensive option); leave therms NULL (rejected — usage IS the point of the pipeline; bill amounts alone are worthless for tracking consumption). Troy's call: AGPL is a non-issue for a self-hosted single-user deployment that distributes nothing. `ingest-repair.py` already imported `fitz`, so it was the established choice. |
 | D140 | **"In sync" means production runs main's CODE — not that image IDs match the newest `:latest`.** Recreate ONLY services whose SOURCE actually changed (`git diff <deployed-sha>..origin/main -- . ':!*.md' ':!docs'`); verify by hashing files inside the running container, not by comparing digests | 2026-07-15 | ACTIVE | Entry 201 | Mass-recreate every service to match the newest digest (rejected — docs-only commits retrigger `build-images` and rebuilds are not bit-reproducible, so running IDs drift from `:latest` continuously and harmlessly; recreating buys new IDs containing IDENTICAL code while adding real risk to a healthy fleet and violating the "never recreate what you don't need to" rule); pin every service to a `sha-*` tag instead of `:latest` (heavier release process — deferred, not rejected). |
+| D141 | **Unmatched payees are REPORTED, never guessed — the Actual daily job stays pure T0 (no LLM).** A payee matching no rule and no exclusion is left uncategorized and surfaced (count + names) in the Pushover + daily capture, prompting a rules edit. **Supersedes Entry 207's "new payees fall to T1 (Spark)" plan.** | 2026-07-15 | ACTIVE | Entry 208 / spec `2026-07-15-actual-daily-job-design.md` | T1/Spark classify new payees (Entry 207's plan — deferred, not rejected: a *wrong* category is worse than none (#275's lesson), it adds a network dep + failure mode to a job whose whole value is being free and deterministic, and reporting is strictly simpler. The interface stays open for Spark later); fallback everything unmatched to a `General` bucket (rejected — silently hides that the rules need updating, and `General` is indistinguishable from a real classification). Troy approved 2026-07-15. |
+| D142 | **The `actual-ingest` sidecar's static `br0` IP is a LITERAL in tracked `docker-compose.yml`, not a `.env` interpolation** — with a comment recording why, mirroring `config/ai-routing.yaml:93`'s `(STATIC IP, do not change)`. The Actual server's own address is still never written (DNS name + `ACTUAL_SERVER_URL` via `.env.secrets`); this covers only open-brain's own container address. | 2026-07-15 | ACTIVE | Entry 208 / spec `2026-07-15-actual-daily-job-design.md` | `${VAR}` interpolation from `.env` (**rejected on all three axes Troy named**: (1) *tech debt* — moves the allocation out of the reviewable/diffable surface into untracked host-only state nothing compares, i.e. a NEW instance of the exact class behind #292/#290/#278/Entry 201/A143, while Entry 207's own #292 rec is "comparison is the fix"; (2) *maintainability* — answering "what IP?" needs SSH to a root-owned `.env` and changes leave no trace vs. one greppable line reviewed in the PR; (3) *stability* — an unset var interpolates to **empty** = fail-open startup, and `.env` is already #281's unautomated-DR problem. Buys **zero** secrecy: RFC1918, and the repo already ships `192.168.10.58` in **live** `ai-routing.yaml` plus Gitea `br0` `.9` / obvm `.53` — hiding one address while those are literals is inconsistency, itself debt). **Residual risk neither option fixes:** `br0` has **no `ip-range`**, so the router could lease the address later — "unclaimed today" ≠ "reserved"; operator must confirm the DHCP pool floor. **Root cause deliberately NOT fixed:** br0's missing ip-range would require recreating an Unraid-managed network shared by 9 containers across other projects. |
+| D143 | **Remove `voice-pipecat` entirely** (#298; closes #54 + #57) — delete the service, the package, the Deepgram STT/TTS config, and the settings health readout. | 2026-07-15 | ACTIVE (owner decision) | Entry 208 / #298 | **The deciding fact is NOT "nothing connects" — it is that conversational voice was ALREADY designed around something else.** The recorded architecture (`memory/voice-conversation-interface.md`) is a **PWA voice page: client-side Web Speech API (STT) + SpeechSynthesis (TTS) + a new `/api/v1/chat`**, chosen explicitly as *free and instant, no Deepgram cost*. Pipecat is absent from that design ⇒ it is **superseded by a decision already made against it**, not merely idle. Corroborating: zero WebSocket clients repo-wide, port 8765 in exactly one non-doc file, no connection events in 12h+ of logs; `pipecat-ai>=0.0.60` is an **unbounded floor on a 0.0.x library** so every rebuild can pull an untested version into a service nobody uses; `DEEPGRAM_API_KEY` is provisioned on a **paid T3 path** while free self-hosted faster-whisper is the only live transcriber. **Removal makes D135 MOOT** — the open unauthenticated `0.0.0.0:8765` disappears rather than needing perpetual re-justification, and nothing enforced D135's own void condition. Alternatives: soak it first (#54 — rejected: a 2-week manual soak of a client-less service that would move STT onto a PAID path); keep it idle (rejected — pays maintenance/CVE/open-port tax for a capability the chosen design doesn't use); profile-gate it (already rejected at D135, and gating still keeps the package + deps). **Git-recoverable; the container was never the blocker — the client is.** Do NOT revoke `DEEPGRAM_API_KEY` here: `deepgram-sdk` also appears under `/scripts` (#250/#255). |
+| D144 | **Decommission obvm** — finish G-B.2/G-B.5 (open since 2026-04-17). Retire the hand-copied `email-pipeline.py`; consolidate email onto the TS `email-classify` path. **Sequence: prove parity FIRST, then retire.** | 2026-07-15 | ACTIVE (owner decision) | Entry 208 / #290 | **The deciding argument is not staleness — obvm is UNFIXABLE BY CONSTRUCTION.** No `.git`, no CI, no deploy path, no version reporting, and a hand-placed secret it can never rotate (no BWS token, correctly, per Entry 205 least-privilege). Every fix to #282/#284 reaches prod only if someone remembers to hand-copy a file — a sync script shrinks the *symptom* while entrenching the host. G-C.0's recommended replacement **already landed** (the sidecar pattern works); G-B.5's own terms say *"VM becomes optional."* Financial + utility migrated off; **email never migrated and never got disabled**, while `email-classify` (TS, BullMQ) runs at the **same `0 5` hour** — plausibly the worst of both worlds: two paths, the worse one winning. **Consequences:** #284 **DROPPED** (the Graph move-id bug dies with the host — instead check whether the TS path repeats it, which is worth more); #282 **shrinks to publishing the OAuth app**, which is required either way because the TS client shares the OAuth client and the same 7-day Testing-mode clock. Alternatives: sync via sparse checkout (rejected — automates a host slated for decommission); containerise email-pipeline (rejected — heavier, and inherits the shared-image trap of Entry 201). |
+| D145 | **Eliminate secret interpolation — `.env` holds NO secrets and becomes optional.** Every secret arrives via `env_file: .env.secrets`; where a command needs one (redis `--requirepass`), wrap in `sh -c`. | 2026-07-15 | ACTIVE (owner decision) | Entry 208 / #281 | **Makes CLAUDE.md's rule TRUE rather than amending it to match a broken reality.** The contradiction IS the defect: CLAUDE.md forbids secrets in `.env`, compose *requires* them there (interpolation reads `.env` only, never `env_file`), and `.env.example:122-123` excludes **exactly** the two vars that must be in `.env`. Rejected alternative — teach `load-secrets.sh` to write `.env` too: entrenches secrets in a second file, needs a second audit path, and keeps the `backup.sh:96` exposure. **Payoff:** the 3 remaining interpolated vars (`LOKI_URL`/`TAILSCALE_IP`/`STAGING_DIR`) all already have `:-` defaults ⇒ `.env` becomes optional; `verify-secrets.sh`'s `0 drift` finally means *"a rebuilt host boots"*; `backup.sh:96`'s "non-sensitive only" comment becomes accurate. **Note #281 ≠ #300:** #300 is a *process violation* (2-line fix); #281 is a **hole IN the rule** — the 3-step lockstep has no `.env` step. Do not merge them. |
+| D146 | **`faster-whisper → speaches` filed (#301) but OUT of scope** for the 2026-07 backlog — it is a **migration, not a fix**; own brainstorm | 2026-07-15 | ACTIVE (owner decision) | Entry 208 / #301 | Handed over by the homeserver audit's WI-7.3. Rejected inclusion: speaches honors `model` as a HuggingFace id (so the hardcoded `whisper-1` in `transcription.ts` **404s**), env vars rename, and it runs non-root so the cache mount target moves — real design questions, not a version bump. **Urgency downgraded:** "stalest attack surface (21 mo)" overstates it — faster-whisper is **loopback-only** (`127.0.0.1:10300`), not internet-facing. Bolting it onto a plan this size trades focus for risk. Sequence after #298. |
+| D147 | **PR #297 lands first; my compose work rebases onto it — and its postgres recreate goes ALONE**, not batched with app changes | 2026-07-15 | ACTIVE (owner decision) | Entry 208 / #297 | 4 lines vs two much larger diffs — rebasing the big onto the small is the cheap direction; it is a **DR bug** ("today's dump probably cannot be restored"), which outranks a new feature; and it is already committed+PR'd. **Not batching is D134's own principle** (*"isolated waves… each independently bisectable/revertible"*): a postgres recreate is the riskiest operation in the system — without `-f docker-compose.override.yml` the **DB comes up EMPTY** — so you want zero ambiguity about which change broke it. **Flagged upstream (not ours to fix): #297 ships half its own atomic pair** — `shm_size` without `max_parallel_maintenance_workers`, which the homeserver plan itself requires to ship together. |
+| D148 | **Comparison BEFORE reconciliation: build the compose parity gate FIRST, then do ONE deliberate compose-reconciliation window** (#302). Do NOT hand-deploy the stale compose now. | 2026-07-15 | ACTIVE (owner-approved) | Entry 211 / #302 | **Doing the deploy now fixes one instance and teaches nothing** — the drift resumes the next commit, because nothing compares the deployed compose to the repo. This is Entry 207's #292 reasoning applied verbatim: *"Everything that drifted this week drifted because nothing compared the two copies. Comparison is the fix; relocation is cosmetics."* **7th instance this week** (#278, #290, #292, #294, #299, Entry 201, #302). **The gate is NOT gold-plating — it is a hard prerequisite for the actual-ingest sidecar ever existing in prod** (a compose change that would silently never deploy, exactly like #294's mount). Gate = rendered repo compose vs rendered deployed compose (`docker compose config`, not raw text), allowlisting the two documented deviations (D131 core-api `3002:3000` sed; the raw-bind override). **Read-only, zero risk** — the deployed file is readable as `claude`. Alternatives: hand-deploy now (rejected — treats the symptom; it is what has been done every time and the drift always returns); automate a compose pull in the deploy runbook WITHOUT a gate (rejected — a sync step still permits drift *between* syncs with nothing reporting it, exactly the #292 option-2 argument). **Sequencing: gate → reconcile once → isolated recreates (postgres alone for #297, workers alone for the mount).** |
+| D149 | **Scheduler migrated to the v5 `upsertJobScheduler` Job Scheduler API (option B′), NOT the one-line fix (A)** — #304/#217. | 2026-07-16 | ✅ DONE (committed `4a21a20`, awaiting deploy) | Entry 214 / #304 | A (drop the `r.jobId === job.id` check, match name+pattern) was offered and is smaller/no-rekey — **rejected because production was ALREADY down, so B′'s one-time re-key costs nothing, and B′ makes identity REAL (`key` === the stable scheduler id) instead of a fuzzy name+pattern match that would drift again.** B′ also auto-handles cron changes (upsert replaces in place → no orphan) and cleans legacy hash-keyed orphans uniformly. Every v5 behaviour proven against real BullMQ 5.70.4 via 5 probe scripts before writing — incl. that `getRepeatableJobs()` returns `id:undefined` even with `jobId` inside `repeat`, which is why A's fuzzy match was the only *code* alternative and B′ the correct *architectural* one. Cost: re-keys every scheduler (moot now — all keys already deleted by the bug) and a real migration of register+reconcile+3 test files. **The bug shipped because the unit-test mock supplied the `id` field under dispute; pinned now by a real-Redis integration test (the #278/A146 blind-spot class).** |
 
 ## Action Items
 
 ### Open
 | # | Action | Created | Source | Priority |
 |---|--------|---------|--------|----------|
+| A147 | ~~**[#303] `WorkersMetricsAbsent` can NEVER fire~~ **❌ WRONG — #303 CLOSED as invalid 2026-07-15 (Entry 213). The alert FIRED for the whole outage (2611 samples ≈ 43.5h); Alertmanager received it; Pushover reports 0 failures. `absent()` is correct for the condition it targets, and the file's own comment says so 7 lines above the expression I judged. I asserted a runtime behaviour from a static read and never checked whether it had fired. Original text follows for the record:** ~~`WorkersMetricsAbsent` can NEVER fire — and a 40-HOUR silent scheduler outage proved it.** All BullMQ jobs dead 2026-07-13 23:15 → 2026-07-15 15:08 ET (incl. **morning-brief** and **pipeline-health**); self-healed only because the #283 deploy recreated workers. **Two safety nets, two different failures:** (1) `pipeline-health` was itself one of the dead jobs — *a watchdog on the scheduler it monitors cannot report that scheduler's death*; (2) `absent(openbrain_container_healthy{...})` **cannot fire** because **Pushgateway retains pushed metrics indefinitely** — a dead workers leaves the last value there forever. `PushgatewayStale` (`push_time_seconds` age) is the only one of the pair that works. **OA-9b would have caught this and is still OPEN.** Fix: replace `absent()` with a staleness check (or delete it as redundant), verify `PushgatewayStale` is deployed+routing (#292), and **execute OA-9b — prove the alarm rings.** | 2026-07-15 | Entry 211 | **HIGH — the alert for a dead scheduler cannot detect a dead scheduler** |
+| A148 | **[#302] Compose changes have NO deploy path — 7th copied-not-deployed instance this week.** `pull` ships images (`:latest`); the host's `docker-compose.yml` only moves when a human runs `git checkout origin/main -- docker-compose.yml`. **4 undeployed compose commits** (deployed HEAD `a1629e4`, 2026-06-16). **This is the real root cause of #294** — workers WAS recreated 07-15 14:46 and still has no `/backup-latest` mount because the deployed compose predates it, so *a recreate is a no-op*. **Landmine under #297/#298 and the actual-ingest sidecar** (would ship a service that never exists in prod). **D148: parity gate first, then one reconciliation window.** | 2026-07-15 | Entry 211 | **HIGH — blocks Phase 7; silently no-ops every future compose change** |
+| A145 | **`MORNING_BRIEF_SLACK_CHANNEL` is DEAD CONFIG — live today, no issue.** It is set in `.env`, but **`.env` is ONLY a compose-interpolation source and is never injected into a container** — `grep MORNING_BRIEF docker-compose.yml` returns **no match**. So `workers` sees `undefined`, `morning-brief.ts:414` resolves `''`, and Slack is **silently skipped**. `skill-execution.ts:260-262` documents the contract exactly (*"Unset env -> undefined -> the skill resolves '' and skips Slack with a warning"*). **The operator set it in a file that cannot deliver it.** Fix = deliver via `env_file`/`environment:`. Verify: `docker exec open-brain-workers printenv MORNING_BRIEF_SLACK_CHANNEL` (expect empty today) + `slackSent:false` in logs. | 2026-07-15 | Entry 208 | **MEDIUM — a feature you believe is on has been off for months** |
+| A146 | **`backup.sh:96` copies `.env` into the backup under the comment "Environment files — non-sensitive only"** — it holds live credentials, so this violates CLAUDE.md's *"MUST NEVER copy … any file with live credentials"* as literally written. Mitigated: the offsite leg is an rclone **crypt** remote (encrypted at rest); the local tree is plaintext. **Cuts both ways** — it also means `.env`'s raw material IS in every backup as `config/dot-env`, so #281 is recoverable by improvisation though **no runbook restores it**. **And the guard is self-defeating in the #278 way:** `test-backup-secrets-redaction.sh:58-61` builds its fixture `.env` as `NODE_ENV`/`LOG_LEVEL` only — **its own fixture encodes the assumption under dispute**, so it passes vacuously; its pattern (`:120`) also omits `REDIS_PASSWORD`. **Resolves naturally once D145 lands** (`.env` will hold no secrets) — but fix the fixture regardless. | 2026-07-15 | Entry 208 | MEDIUM |
+| A143 | **[#299]** **`scripts/backup.sh` silently omits every `config/` SUBDIRECTORY from all backups.** Lines 90-91 are `cp -a "${APP_DIR}/config/"*.yaml … 2>/dev/null \|\| true` — a **non-recursive** glob with errors swallowed, so `config/<subdir>/*.yaml` is in **no** backup, local or encrypted-offsite, while the log still says "Backing up config files". Real today: `config/prometheus/`, `config/grafana/`, `config/financial/`, `config/utility/`, `config/cloudflare/` are all unbacked. Fix = recurse (e.g. `cp -a --parents` / `find -exec` / `rsync -a --include='*/' --include='*.y*ml'`) + drop the blanket `2>/dev/null \|\| true` so a copy failure is visible. **The Actual daily job deliberately sites `payee-rules.yaml` at `config/` TOP LEVEL to dodge this** — the workaround does not fix the bug. | 2026-07-15 | Entry 208 | **HIGH — silent, recovery-only; the class of bug that is invisible until the day it matters (cf. A142)** |
+| A144 | **[#300]** **`INGEST_TRIGGER_SECRET` violates the 3-step secrets lockstep — DR would start both sidecars unauthenticated.** Referenced in 14 files (compose, Dockerfile, `trigger_server.py`, CI, workers, shared), but `grep -c` returns **0** in BOTH `scripts/lib/secrets-map.sh` and `deploy/.env.secrets.template` — while compose comments assert "set in .env.secrets". So `load-secrets.sh` never emits it: after a rebuild the sidecars start with an empty secret, log the startup warning, and **401 every HTTP trigger** — but **host cron keeps working** (it `docker exec`s, bypassing HTTP), so batch ingest looks healthy while dashboard-upload ingest is dead. Same family as A142 (#278). Add it through all 3 steps. (Compose comments also claim "HMAC" — `trigger_server.py:212-233` is a plain constant-time bearer-token compare; nothing is signed. Correct the comments too.) | 2026-07-15 | Entry 208 | MEDIUM — partial silent failure, DR-only trigger |
 | A142 | **[#278] DR PATH BROKEN — `secrets-map.sh` BWS names don't exist (11 of 14 required).** The map invents an `open-brain-*`/`dev/open-brain/*` convention BWS never used (real keys: `PUSHOVER_API_TOKEN`, `slack-bot-token`, `GITEA_TOKEN`, `CLOUDFLARE_TUNNEL_TOKEN`). `load-secrets.sh` matches BWS `.key`, so the P08 runbook ("single command to rebuild `.env.secrets` after a homeserver rebuild" — a CLAUDE.md rule) would **exit 2 and write nothing**. Confirmed by the repo's own `verify-secrets.sh --quiet`: `DRIFT: 11 of 14`. Prod is unaffected (map is only read on reconcile) — it fails ONLY under DR. **Blind spot:** `test-secrets-roundtrip.sh` mocks `bws` with the map's own names → self-consistent, structurally cannot catch name drift; and no CI job checks the map against real BWS. Fix needs BWS-project disambiguation (broad token spans 3 projects/96 secrets, D137) — not a drive-by. | 2026-07-15 | Entry 202 / #278 | **HIGH — recovery-only failure; invisible until the day it matters** |
 | A140 | **`financial-pipeline.py`'s Pushover path has NEVER executed in production.** `financial-ingest` ran a 2026-05-09 image until 2026-07-15 (Entry 201), so #268's key-name fix (`pushover-user-key` → `PUSHOVER_USER_KEY`) only went live today and is still **unexercised** — and `get_bws_secret()` `sys.exit(1)`s on a missing key, so a wrong name is fatal, not degraded. **Names VERIFIED CORRECT 2026-07-15 (Entry 202)** — BWS genuinely has `PUSHOVER_API_TOKEN` + `PUSHOVER_USER_KEY`, so both calls resolve. What remains: drive ONE real notification when the post-D138 financial replacement lands — the path has still never executed. | 2026-07-15 | Entry 201 / #268 | MEDIUM — service is idle (Plaid dropped D138), so nothing will surface it until then |
 | A141 | **5 Dependabot PRs open and unmerged** — pip: #258/#251 (numpy `>=1.26`→`>=2.5.1`), #255/#250 (deepgram-sdk `>=3.7,<4`→`>=7.4.0,<8`); docker: #246 (ingest-sidecar minor/patch group). These are the pip+docker ecosystems added in v5/P7-8, so they're the first crop and nobody has triaged them. deepgram 3→7 is a **major across 4 majors** and numpy 1→2 has real breaking changes; both need the OA-14 one-at-a-time treatment, not a batch merge. Note #246 touches the ingest-sidecar image that BOTH sidecars now share (D140/Entry 201). | 2026-07-15 | Entry 201 (noticed during sync audit) | MEDIUM — no known CVE pressure; deepgram is latent (prod transcription is self-hosted faster-whisper, per OA-11) |
@@ -13417,3 +13432,327 @@ I sourced that claim from budget.yml's own header, which says it verbatim. **Tha
 
 **Tags:** [debug] [observability] [decision]
 **Environment:** Read-only investigation across llm-gateway/config/Prometheus/Pushgateway; live PromQL validation. One prod side-effect: triggered `container-health` (a normal 15m job) to prove the push path. No deploy — the rules ship with the next config sync. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 207 — Session state: 3 infra findings (#294/#295 + a #292 recommendation) + Actual Budget categorization (2026-07-15)  [debug] [observability] [decision] [pipeline]
+
+> **DATA-HANDLING NOTE (read before extending this entry).** The repo is **PUBLIC**. Financial specifics — balances, amounts, merchant/payee names, account names, the Actual sync ID, server host, and credentials — are **deliberately absent here** and live only in the **gitignored** `docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md` + Bitwarden. This entry records **engineering decisions only**. Keep it that way.
+
+**Context:** Troy asked for (a) a long-term recommendation on #292, (b) confirmation that `BackupStale` is deployed, and (c) financial work on the Actual Budget instance.
+
+### #292 recommendation — parity gate first, migration later (option 3, then 1)
+**Recommended: add a deploy-time diff gate comparing this repo's `config/prometheus/alerts/` to the deployed dir, and only later consider collapsing to one home.** Reasoning:
+- **Option 2 (make deployment real) treats the symptom** — a sync step still permits drift *between* syncs, with nothing reporting it.
+- **Option 1 (move rules into the observability project) is architecturally "correct" under ADR-0004 but maximises debt HERE:** it separates each rule from the code emitting the metric it watches. Rename `openbrain_backup_age_seconds` and the rule breaks silently in a repo with no CI — **which is literally how #294 happened.**
+- **Option 3 matches the one mechanism in this codebase with a proven track record: the `init-schema` parity gate.** Everything that drifted this week (#278, #290, #292, Entry 201, #294) drifted because **nothing compared the two copies.** Comparison is the fix; relocation is cosmetics.
+- **Caveat stated honestly:** the deployed dir is root-owned on the homeserver, so this is a **deploy-time** gate, not GitHub-CI. Still strictly better than nothing.
+- **Sequencing matters: gate BEFORE reorganising.** Moving files while drift is undetectable is how you lose a rule silently.
+
+### #294 — `BackupStale` is NOT deployed. The dead-man's switch is entirely inert.
+Answering "is it deployed?" honestly required three checks, and the **first two answers were misleading**:
+1. `/api/v1/rules` **does** list `BackupStale` → looks deployed. **It is a DIFFERENT alert** — `host-resources.yml`, querying `appdata_backup_last_run_timestamp_seconds` (**Unraid's appdata plugin**). **A name collision.** I nearly reported "yes, deployed" on that basis; only reading the *query* revealed it.
+2. open-brain's `backup.yml` is repo-only, never copied to the deployed dir (#292).
+3. `openbrain_backup_age_seconds` has **zero data points in 14 days** — because **workers has no `/backup-latest` mount** (OA-9c, deferred). That single missing mount kills the gauge **AND** `sendBackupStaleAlert`, so the runbook's "**two independent delivery paths, by design**" share one point of failure and are **both** dead.
+**Backups themselves are fine** (OA-5 verified); this is a pure monitoring gap — but it is exactly the scenario (dead cron / wedged host, PLT-H4) the switch exists to catch. **Lesson: "the alert is loaded" is not "the alert works." Check the query, the metric, and the input.**
+
+### #295 — every scheduled job runs UTC, not Eastern. The "morning brief" fires at 02:30.
+Surfaced only because Troy asked for **6am *Eastern***. `scheduler.ts:201` passes `{ repeat: { pattern }, jobId }` — **no `tz`** — and the workers container has **no `TZ`** (other compose services DO set `America/New_York`). Proved from `skills_log`: wiki-synthesis 02:00, daily-connections 02:10, cost-analysis 02:20, **morning-brief 02:30**, capture-reminder 02:45 — all Eastern. Likely a **regression**: `scheduler-reconcile.test.ts:122` contains a repeat-key fixture `'…:::America/New_York:10 6 * * *'`, and BullMQ encodes tz **into the key** — so jobs once had a tz, its removal orphaned every key, and **#217's reconciliation dutifully finished the migration to UTC** (the live boot log shows exactly that shape for patterns that never changed). Slot-uniqueness (`scheduler-slots.test.ts`) is unaffected — UTC shifts everything equally. **Fix must pass `tz` at registration, and will re-key every job (one-time 4–5h shift) — land it deliberately.**
+
+### Actual Budget — categorization (task 1 of 3)
+**Design decisions (Troy-approved):**
+- **Category set proposed from real data, not guessed.** The existing 7 categories are coarse and the only pre-categorized rows were auto-created opening balances → **no owner convention existed to follow**, so the set was derived from the actual distinct payees. **11 new categories** under the **existing** groups (no new groups). *(Corrected in Entry 208 — this entry originally said "10"; the completed run created 11, verified from a fresh client.)*
+- **THE FINDING THAT MATTERS: transfers and investment internals must NOT be categorized.** **Zero** transactions were linked as transfers, so naive categorization would have invented **tens of thousands of dollars of phantom income** (credit-card *payments* read as income) and treated brokerage mechanics as spending. Both classes are **deliberately left uncategorized**; ~2/3 of rows are real spending/income and only those were touched. Genuine transfer *pairs* exist (equal-and-opposite across accounts) — linking them is separate, riskier work, **explicitly deferred** (mis-linking is harder to undo than a category).
+- **Cost tiering — T2 did the work, and the ARTIFACT is what matters.** Troy offered Spark/a cheap cloud LLM; **declined, with a better option**: the aggregated payee list was already in context, so **Claude Code (T2, free on the subscription)** classified it directly — no API spend, no round-trip, better judgment than a 4B model. The output is a **T0 payee→category rules table**: the daily job applies it **mechanically with no LLM**, and only genuinely-new payees fall to **T1 (Spark)**. This is the CLAUDE.md ladder applied exactly — *aggregate first, then one prompt* — and it makes the recurring job ~free.
+- **Backup before bulk write (the guide's own rule).** `api.exportBudget()` **does not exist in 26.7.0** (the integration doc claims it does — worth correcting). Substituted a **real** backup: tar of the server's data dir, **verified to contain the budget group sqlite**, not just `account.sqlite` — a backup that lacks the data is worse than none. Plus an **exact undo record**: the change only sets `category` where it was `null`, so the list of touched ids IS a complete reversal. Backup + undo live on the homeserver / scratchpad — **never the repo**.
+
+**Still open (tasks 2–3):** the daily 6am-ET job. **Constraints already proven:** workers **cannot reach** the Actual server (`Host is unreachable` — the macvlan gotcha), workers is **Alpine/musl** (`@actual-app/api` needs glibc `better-sqlite3` prebuilds), `0 6` is taken by wiki-synthesis, and cron is UTC (#295). ⇒ **this job cannot live in the workers container**; it needs a glibc sidecar on `br0` (the established ingest-sidecar shape) or obvm (rejected — #290's hand-copied pattern). Ingest target = **one aggregated daily capture** (Troy's choice); alert bar = **>$500 single tx OR >5% balance move**.
+**Tags:** [debug] [observability] [decision] [pipeline]
+**Environment:** Read-only infra investigation + one approved bulk write to the live Actual budget (backed up first). No financial specifics recorded here by design. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 208 — Actual write VERIFIED complete; daily-job design proven against live infra (2026-07-15)  [debug] [docker] [decision] [pipeline] [database]
+
+> **DATA-HANDLING NOTE.** Repo is **PUBLIC**. No balances, amounts, payee/merchant names, account names, sync ID, server host, or credentials here — they live only in gitignored `docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md` + Bitwarden. Engineering decisions only, same as Entry 207.
+
+**Objective:** (a) verify the in-flight bulk categorization left by the crashed/cleared session, (b) design the daily 6am-ET Actual job. **Rollback plan:** (a) read-only verification, nothing to roll back; the write's own undo record (303 ids, all `prevCategory=null`) + the server-data-dir tarball remain the reversal path. (b) design only — no system modification beyond one throwaway `--rm` probe container.
+
+### 1. The in-flight write — finished, verified from a FRESH client
+Found `apply.mjs` **still running** (PID 2339597, 14.5 min elapsed, state `Dl`, 0.4% CPU, no output, no undo file). **Diagnosed before touching it** rather than assuming hung: `/proc/<pid>/io` sampled 20s apart showed **+1,883 write syscalls / +3.7 MB**, main thread parked in `jbd2_log_wait_commit` (ext4 journal fsync) with `db.sqlite-journal` mtime current ⇒ **I/O-bound on Actual's per-write sync amplification (292 MB written for ~300 updates), not deadlocked.** Killing it would have been wrong. Waited; exited **0**.
+
+**Verified from a fresh client (not the job's self-report):** **316 categorized** (= 303 written + 13 pre-existing auto opening balances) · **138 uncategorized** = exactly the predicted **61 transfers + 77 investment internals**. **No payee fell through to `General`** — every one matched a rule or an exclusion. The phantom-income guard held.
+
+**Correction to Entry 207:** it recorded "10 new categories"; the run created **11**. Fixed in place.
+
+**Method note (self-inflicted, worth recording):** my own safety guard `pgrep -af apply.mjs` **false-positived on its own command line** and on the wrapper shell — nearly blocking a legitimate verify. `pgrep -af <script>` matches any process whose *argv* contains the string, including the `bash -c` that launched it. Same family as the `grep -A N` lesson: **matching a string is not identifying a process.**
+
+### 2. Daily-job constraints — three of four dissolved on contact with live infra
+The handoff carried four "proven, do not rediscover" constraints. Two were real, two were **category errors**:
+
+| Claim | Reality |
+|---|---|
+| workers can't reach Actual (macvlan) | **TRUE** — Actual is on `br0`, a real macvlan net |
+| workers is Alpine/musl vs glibc `better-sqlite3` | **TRUE** |
+| "`0 6` is taken" | **DOES NOT APPLY** — that's the **BullMQ slot registry** inside `workers`. Host cron is a *different scheduler*; the two don't share slots. Conflating them nearly cost a slot rename. |
+| "cron is UTC (#295)" | **DOES NOT APPLY** — #295 is about **BullMQ** (`scheduler.ts` passes no `tz`). The **homeserver's TZ is `America/New_York`**, so a host cron `0 6` fires at **6am Eastern natively.** The job sidesteps #295 rather than waiting on its fix. |
+
+**Lesson: a constraint is scoped to the mechanism that produced it.** "Cron is UTC" was true *of BullMQ* and got carried forward as if it were true of all scheduling.
+
+### 3. Proved the load-bearing assumption instead of designing on it
+The whole design rests on "a container on **both** `br0` and `open-brain` can reach Actual **and** core-api." Nothing had tested it. A throwaway `--rm` probe, dual-attached:
+- `eth0` (br0 macvlan) → reached Actual **by IP and by DNS name** ⇒ **no hardcoded IP needed**
+- `eth1` (open-brain bridge) → `core-api` `{"status":"healthy"}`
+
+**`br0` IPAM is a live hazard:** it declares the whole `/24` with **no `ip-range`**, so Docker auto-IPAM can hand out an address **colliding with a real DHCP client**. Every existing `br0` container has a hand-assigned static IP — the new sidecar must too (verified the target address unclaimed: no ping, ARP `INCOMPLETE`). `br0` is **absent from this repo's compose** → must be added `external: true`.
+
+**Also verified rather than trusted:** `api.runBankSync()` **exists** in 26.7.0 (`getAccountBalance` too) while `api.exportBudget()` is **`undefined`** — confirming the memory file and re-confirming that this library's docs lie about its surface.
+
+### 4. NEW FINDING — `backup.sh`'s config glob is non-recursive (latent, affects more than this job)
+`scripts/backup.sh:90-91` is `cp -a "${APP_DIR}/config/"*.yaml … 2>/dev/null || true` — **top level only, errors swallowed.** Anything at `config/<subdir>/*.yaml` is **silently omitted from every backup**, including the encrypted offsite copy. It only *looks* like `config/` is backed up. Discovered while siting the payee-rules file; **exploited as the fix** (put the file at `config/` top level → matches the existing glob → DR-survivable with **zero** backup.sh change). Filed as **A143** because the general bug outlives this job.
+
+### 5. NEW FINDING — the cron template is drifted from the host (#292's pattern, again)
+`deploy/cron/unraid-ingest.cron` contains **5** entries; the host's live `custom.cron` has **3** of them (+2 unrelated backup jobs). **`0 7 --balances` and `5 7 --account-monitoring` are in the repo but NOT installed.** So **editing that template schedules nothing** — the install is a manual root step. Consequence for this design: the new cron line gets a dated **OPERATOR_ACTIONS** entry, not just a commit. This is the **fifth** instance this week of *copied-but-never-deployed* (#278, #290, #292, Entry 201, #294) and further evidence for the Entry 207 recommendation: **a parity gate, because nothing compares the two copies.**
+
+**Second self-inflicted method note:** my first check for these crons returned **empty and I nearly reported "no crons installed"** — because I ran it as `claude` with `2>/dev/null`, which **swallowed a permission-denied** on root-owned `/etc/cron.d/root`. Re-run as root: 5 entries, `crond` healthy. **A silenced stderr turns "I can't read it" into "it isn't there."** Never `2>/dev/null` a check whose *absence of output* is the finding.
+
+### 6. Design decisions (spec: `docs/superpowers/specs/2026-07-15-actual-daily-job-design.md`)
+- **New `actual-ingest` sidecar, its own `node:22-slim` image** — NOT an extension of `ingest-sidecar` (that image is Python; and it is already shared by two services, the exact shape that let `financial-ingest` rot for 2 months — D140/Entry 201. A third consumer deepens the trap).
+- **Payee rules → `config/payee-rules.yaml`, gitignored, host-only** (Troy's call, after being shown the drift/DR tradeoff). Both weaknesses designed out: DR via the top-level glob (§4), drift via **exactly one copy** — the `.env.secrets` model, no laptop copy to diverge. Tracked `config/payee-rules.example.yaml` (synthetic payees) carries the schema + test fixture.
+- **Credentials via the 3-step secrets lockstep**, not `bws`-in-the-image: compose is tracked, so password/sync-ID/server-URL must arrive via `env_file`. (Noted while doing this: **`INGEST_TRIGGER_SECRET` violates that lockstep today** — 14 files reference it, `secrets-map.sh` and `.env.secrets.template` reference it **zero** times ⇒ a DR rebuild starts the sidecars with an empty secret and 401s every HTTP trigger while cron keeps working. Filed **A144**.)
+- **Unmatched payees are reported, never guessed → D141** (supersedes Entry 207's T1/Spark plan).
+- **`actual-pipeline` must be added to `BYPASS_CALLERS`** or the capture POST silently 429s.
+- The capture **may** contain amounts/payees: the data rule governs the **public repo**, not the private Postgres. That distinction is the point of the job.
+
+**Tags:** [debug] [docker] [decision] [pipeline] [database]
+**Environment:** ubuntu-vm + homeserver (Unraid). Read-only verification + design. One throwaway `--rm` probe container on `br0`+`open-brain` (removed; no persistent change). No deploy. Actual budget untouched beyond the previous session's approved, now-verified write. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 209 — Issue triage (18→14) + ultra-plan: three filed root causes were WRONG, one cited evidence that never existed (2026-07-15)  [decision] [debug] [pipeline] [docker]
+
+> **DATA-HANDLING NOTE.** Repo is **PUBLIC**. No financial specifics here — see Entry 207/208.
+
+**Objective:** evaluate every open GitHub issue, close what's dead, and ultra-plan the survivors + the actual-ingest spec. **Rollback:** analysis/docs only; no system modification. Plan: `IMPLEMENTATION_PLAN-2026-07-backlog.md` (does NOT replace the completed v5 `IMPLEMENTATION_PLAN.md`, which README/CHANGELOG/OPEN_ITEMS reference).
+
+### 1. Triage — 4 closed, 3 filed, 14 remain
+**Closed:** **#72** (RTX PRO 2000 — superseded: the **DGX Spark already serves Qwen3.6-35B as `t1_spark`**, free; a $549 card to run a 9B is moot). **#73** (Qdrant — **premise falsified, not untriggered**: it sized from "OneDrive 100K–1M+ embeddings"; reality is **11,296** — 9× below its own 100K trigger and ~45× below the ~500K pgvector ceiling it names. The growth drivers never materialised). **#54/#57** (pipecat soak + architecture decision — see D143).
+**Filed:** **#298** (remove voice-pipecat), **#299** (backup glob, A143), **#300** (trigger-secret lockstep, A144), **#301** (speaches, D146).
+
+### 2. THREE of four delegated issues had WRONG root causes. One had FABRICATED evidence.
+- **#285 — the citation predates the analysis by 8 hours.** `19ddf7f` (07:26) introduced `"API requires no authentication (confirmed via HAR analysis)"`; `437ac39` (15:34) *added* the HAR doc — which concluded the **opposite** (JWT via Azure B2C OIDC + MFA). **The API was NEVER anonymous**, so the issue's "it used to be true" premise is wrong and the fix is B2C OIDC, not a session cookie. Three more independent blockers it misses: `getMeterReadings` is **unattested** (never in the HAR; the 401 masks a probable 404 — real endpoint is `GetBilledUsageGraphData`); the parser's guessed fields **match nothing**, so even perfect auth stores **zero rows** (Entry 200 verbatim); units are **inverted** (per-period consumption, not cumulative). And **`--water` was never scheduled** — the cron comment already said *"Water is a no-op today — Cobb Water B2C OIDC is a separate backlog."*
+- **#284 — wrong function entirely.** Not `cleanup_spam()`: Graph `/move` **destroys the original and mints a NEW id**; `move_email` collapses the response to a bool and discards it, `record_email` persists the **dead** id, `detect_corrections` dereferences it → 404. ~30/day × 7-day window ≈ **213**, stable because the *window* is what's constant. **NOT cosmetic** — `record_correction` is unreachable, so **Hotmail correction detection has never once worked**, which retroactively explains why **A33's rule accumulation never happened**. (Gmail is unaffected: it relabels, so ids are stable — the asymmetry confirms the diagnosis.)
+- **#282 — wrong token store.** `gmail_token_cache` belongs to a **separate TS client**; the failing cron reads a file on obvm. And `:417-418` **swallows the refresh exception whole** — `invalid_grant` never reached the log, so three months of runs printed a message that couldn't say what was wrong; `main()` never sets a non-zero exit, so cron always saw success.
+- **#281 — names the wrong variable and the wrong cause.** `POSTGRES_PASSWORD` (`:53`) trips first, not `REDIS_PASSWORD` — and `REDIS_PASSWORD` **IS** mapped (`secrets-map.sh:49`) and **IS** restored, into `.env.secrets`, which interpolation **cannot read**. It's a **file-target mismatch**, not a missing mapping. That distinction is the whole fix.
+
+### 3. Two unifying defects (both now the plan's first phases)
+- **Pipelines: the failure and its invisibility shipped in the SAME commit.** Every broken path returns early without touching `_JSON_ERRORS` (utility) or without a non-zero exit (email) ⇒ total failure is indistinguishable from an idle run, `status: ok`. **The honest-status fix is cheap, CI-verifiable, gated on nothing — and would have surfaced #284/#285/#286 three months ago.** It is Phase 1.
+- **Infra: a config COPIED rather than DEPLOYED will drift, and nothing compares the copies.** Sixth instance this week (#278, #290, #292, #294, Entry 201, #299).
+
+### 4. New findings with no issue
+- **`MORNING_BRIEF_SLACK_CHANNEL` is dead config LIVE TODAY** → **A145**. Set in `.env`, which is only an interpolation source — it never reaches a container. Slack has been silently skipped for months.
+- **`GITEA_TOKEN` is CLOBBERED, not missing** — `env_file` supplies it correctly, then `environment: ${GITEA_TOKEN}` overwrites it with `""`. **Deleting `docker-compose.yml:114`/`:169` IS the fix.** Proven empirically.
+- **`cloudflared` has no `env_file:`** — its `:468` "set in .env.secrets" comment is **false**; post-DR the tunnel dies **with a warning, not an error**.
+- **`backup.sh:96` copies `.env`** labeled "non-sensitive only" → **A146**; and the redaction guard's **fixture encodes the false assumption** (#278's blind spot, 2nd occurrence).
+- **#294's fix is a RECREATE, not code** — the `/backup-latest` mount is already in compose (`:195,202`, PR #244); the running container has **no backup mount**. Committed ≠ deployed, again.
+- **#292 refinement:** the deployed alerts dir is **755**, so a read-only parity check **can** run as `claude` — Entry 207's "deploy-time only" is true for *writing*, not *reading*. Real drift: **three** repo-only files (`backup`, `slo`, **`workers-staleness`** — Entry 207 said two).
+- **#295 consequence nobody noted:** fixing tz moves the BullMQ morning cluster from 02:00–03:15 ET **onto 06:00–07:15 ET — atop the host-cron ingest cluster** and the new actual-ingest job. Two LLM-heavy jobs land on the ingest jobs they were 4h from.
+
+### 5. Cross-plan: the homeserver upgrade audit
+Troy pointed at `~/dev/personal/homeserver/IMPLEMENTATION_PLAN_UPGRADES.md`. Its **CS-4 owns PR #297**. Folded three findings back into it (commit `19cf411`): **#297 ships half its own atomic pair** (`shm_size` without `max_parallel_maintenance_workers`; verified live `source=default`); **WI-7.3 accepted → #301** with urgency downgraded (faster-whisper is **loopback-only**, not an internet exposure); and **open-brain will reference `br0` for the first time** — `external: true` is load-bearing because that plan found a compose *owning* br0 would let `compose down` delete it under **AdGuard (LAN DNS) + swag (all TLS)**. New standing rule: **never `compose down`**.
+
+### 6. Process
+Worked from an **isolated git worktree** — a parallel session had checked the shared tree onto `fix/postgres-shm-size-hnsw` and committed there. An edit script's **assertion failed instead of writing**, which is the only reason D143 didn't land on the wrong branch. **Guard your anchors; a silent `.replace()` on the wrong branch is a bad afternoon.**
+
+**Tags:** [decision] [debug] [pipeline] [docker]
+**Environment:** ubuntu-vm + homeserver (read-only probes only). No deploy, no code changes. 3 Explore agents for investigation; conclusions only in main context. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 210 — Executing the 2026-07 backlog plan: Phase 3 gate + Phase 2 free wins + Phase 1 honest status (2026-07-15)  [deploy] [docker] [pipeline] [debug]
+
+**Objective:** begin executing `IMPLEMENTATION_PLAN-2026-07-backlog.md`. This session: **WI-3.1** (read-only DB query that gates #290/#282/#284), **WI-2.1** (recreate workers → revive the backup dead-man's switch, #294a), **WI-2.2** (stop clobbering `GITEA_TOKEN`), **WI-1.1/1.3** (honest failure reporting).
+
+**Hypotheses + success criteria:**
+- **WI-3.1:** if obvm's Python cron and the TS `email-classify` both run at `0 5`, `email_classifications` will show rows clustered at ONE hour, not two. **Success = a definite answer either way** (it decides whether #284/#282 get built or dropped). Read-only.
+- **WI-2.1:** the `/backup-latest` mount is already in compose (`:195,202`) and only absent from the RUNNING container. **Success =** `docker inspect open-brain-workers` shows `/backup-latest`, and `openbrain_backup_age_seconds` emits within one pipeline-health cycle (≤6h). Expect **no code change**.
+- **WI-2.2:** `env_file` already supplies `GITEA_TOKEN`; `environment:` overwrites it with `""`. **Success =** `docker compose config` no longer warns "Defaulting to a blank string" for `GITEA_TOKEN`.
+
+**Rollback plan:**
+- **WI-3.1:** N/A — read-only `SELECT`.
+- **WI-2.1:** `up -d --force-recreate --no-deps workers` against the previous image (workers has a **unique** image tag → no Entry 201 shared-tag risk). Worst case the container restarts; no data at stake (workers is stateless; queues live in Redis).
+- **WI-2.2 / WI-1.x:** `git revert` — all branch→PR, nothing merged without CI.
+- 🚨 **Every compose invocation MUST pass `-f docker-compose.override.yml`** (raw-bind pin; without it postgres/redis would render as named volumes). **Never `--remove-orphans`, never a bare `up -d`, never `compose down`.** Only `workers` is named.
+
+**Environment:** homeserver (Unraid), open-brain stack. Executing from an isolated git worktree (a parallel session owns the shared tree on `fix/postgres-shm-size-hnsw`). Executed by Claude (Opus 4.8), user-directed ("Go").
+
+---
+
+## Entry 211 — 40-HOUR SILENT SCHEDULER OUTAGE + I made the "committed ≠ deployed" error while writing the rule about it (2026-07-15)  [debug] [deploy] [docker] [observability] [decision]
+
+**Objective:** execute plan Phase 2/3. **Outcome:** found a live 40h outage, disproved my own plan's WI-2.1, and found the systemic root cause of #294. **No system modification** — all read-only. Continues Entry 210.
+
+### 1. THE INCIDENT — every scheduled job was dead for ~40 hours, and nothing noticed
+`skills_log` is unambiguous: **all BullMQ scheduled jobs stopped after 2026-07-13 23:15 ET and did not run again until 2026-07-15 15:08 ET.** wiki-synthesis/cost-analysis/daily-connections/**morning-brief**/capture-reminder 07-13 02:00–02:45 · wiki-ingest/drift-monitor 03:15 · daily-sweep-skill 16:00 · **pipeline-health 20:00** · container-health (every 15m) 23:15. `email-classify` is the visible casualty — daily at 01:00 ET through 07-13, then **nothing on 07-14 or 07-15**.
+
+**It self-healed at 14:46 ET on 07-15** when the *previous session* recreated workers to deploy #283 (`created=2026-07-15T18:46:28Z`, `restarts=0`). Pure luck. **Nobody noticed; nothing alerted.**
+
+**Why both safety nets failed — two DIFFERENT reasons, and the second is a real bug:**
+1. **`pipeline-health` was itself one of the dead jobs.** *A watchdog on the same scheduler it monitors cannot report that scheduler's death.* This is the structural argument for #294's "independent path" — which is inert.
+2. **`WorkersMetricsAbsent` is STRUCTURALLY INCAPABLE of firing → #303.** `expr: absent(openbrain_container_healthy{job="open-brain"})`. **Pushgateway RETAINS pushed metrics indefinitely** — a dead workers leaves its last value sitting there forever, so `absent()` stays **false**. It can only fire if Pushgateway *itself* is wiped, which is exactly when workers is irrelevant. **`absent()` is the wrong operator for a push-based metric.** Its sibling `PushgatewayStale` (`time() - push_time_seconds > 1500`) is correct — `push_time_seconds` **ages**. **OA-9b ("test WorkersMetricsAbsent by briefly stopping workers") is still OPEN and would have revealed this immediately.** *An untested alert is a decoration.* This is PLT-H4 occurring while the switch designed to catch it was broken.
+
+### 2. I MADE THE ERROR I HAD JUST WRITTEN THE RULE ABOUT
+The plan's WI-2.1 said *"the `/backup-latest` mount is already in `docker-compose.yml:195,202`; the fix is a **recreate, not code**."* **Wrong.** I grepped the file **in my checkout**, not **on the host**.
+```
+/backup-latest landed in MAIN:    2026-07-13 (PR #244)
+workers container created:        2026-07-15T18:46:28Z   <-- it WAS recreated
+grep -c backup-latest <deployed>: 0                      <-- and STILL has no mount
+deployed compose HEAD:            a1629e4 (2026-06-16)   <-- ~1 month stale
+```
+**A recreate is a no-op.** I wrote "committed ≠ deployed" into the plan two hours before violating it. **Checking `docker-compose.yml` in your checkout tells you NOTHING about production — grep the host.**
+
+### 3. THE SYSTEMIC ROOT CAUSE → #302 (7th instance this week)
+**Compose changes have no deploy path.** `docker compose pull` + `--force-recreate` ships **images** (every service pins `:latest`), but `up` reads the **host's local `docker-compose.yml`** — which only moves when a human remembers `git checkout origin/main -- docker-compose.yml`. **Nothing does that on a schedule; nothing compares the copies.** `git log a1629e4..origin/main -- docker-compose.yml` = **4 undeployed commits** (`cd287d8` #244, `c4a7922` #231/ADR-0004, `8b3d0de` #228, `28b329e` #227).
+
+**This reframes the 07-14 "full-fleet deploy": it deployed the IMAGES and none of #244's COMPOSE changes.** And it is a **landmine under every remaining compose change** — #297 (`shm_size`), #298 (remove pipecat), and **the actual-ingest sidecar, which would ship a service that never exists in prod.** ⇒ **#302 is a hard prerequisite for Phase 7**, and **WI-2.2 (GITEA_TOKEN) inherits it too** — it lands in the repo but takes effect only at reconciliation.
+
+### 4. Decision: comparison BEFORE reconciliation (D148)
+Doing the compose deploy now fixes one instance and teaches nothing — Entry 207's own #292 reasoning applies verbatim: *"Everything that drifted this week drifted because nothing compared the two copies. Comparison is the fix; relocation is cosmetics."* ⇒ **parity gate first (rendered repo compose vs rendered deployed, allowlisting D131's sed + the raw-bind override), THEN one deliberate reconciliation window.**
+
+### 5. Method notes (three false negatives caught, all mine)
+- **`pgrep -af <script>` matched its own wrapper shell + my own command line** — matching a string ≠ identifying a process.
+- **`redis-cli -a $REDIS_PASSWORD` "returned 0 repeat keys" — because AUTH FAILED.** The var isn't set in the redis container; the password lives in `REDIS_URL`. **A silent auth failure and "nothing there" are indistinguishable.** Always assert `PING`→`PONG` before believing a count. *(Corroborates #281: redis takes `--requirepass` interpolated from `.env`.)*
+- **`--scan --pattern 'bull:*:repeat'` returned nothing** — the real keys are `bull:<q>:repeat:<hash>:<ts>`. **Twice in one session a pattern guess produced a false "nothing".** Enumerate first, match second.
+
+**Tags:** [debug] [deploy] [docker] [observability] [decision]
+**Environment:** homeserver, read-only investigation (skills_log, Redis via parsed `REDIS_URL`, container inspect, Pushgateway scrape from a throwaway). No deploy, no writes. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 212 — Compose reconciliation: the config-diff gate caught a core-api port conflict BEFORE it shipped (2026-07-15)  [deploy] [docker] [decision]
+
+**Objective:** reconcile the deployed `docker-compose.yml` with `origin/main` (#302) and recreate **workers only**, to give it the `/backup-latest` mount that revives the backup dead-man's switch (#294). Continues Entries 210–211.
+
+**Two findings BEFORE acting, both of which changed the plan:**
+
+1. **The postgres recreate is ALREADY DONE — by the workstream that owns it.** `ShmSize=1073741824`, `/dev/shm` live = **1.0G**, container started **2026-07-15T20:52:54Z** — **30 seconds after** `docker-compose.override.yml` was modified at 16:52:24 ET. The homeserver session (CS-4/WI-4.2) applied `shm_size: 1gb` **via the override**, not the base compose, and recreated postgres. ⇒ **D147's "postgres recreate goes alone" is satisfied; I must NOT repeat it.** The riskiest operation in the system was already taken, correctly, by its owner. *Check what the other workstream already did before re-doing it.*
+2. **`OPERATOR_ACTIONS.md` does NOT exist on the host**, but main's compose mounts it `./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro`. **A bind whose source is missing becomes a DIRECTORY** — the `secret-rotation` skill would then read a directory as a file. ⇒ it must be checked out **together with** the compose, not after.
+
+**THE GATE PAID FOR ITSELF — a naive `git checkout origin/main -- docker-compose.yml` would have broken core-api.** Dry-rendered in a scratch dir (main's compose + the LIVE override + an **empty** `.env.secrets` — no secrets copied to /tmp):
+```
+core-api ports -> 3002:3000 | 3002:3000 | 3002:3000     <-- THREE binds on 3002
+```
+main's base declares the ADR-0002 dual bind (`127.0.0.1:3002:3000` + `${TAILSCALE_IP}:3002:3000`) and **the override APPENDS a third** (`3002:3000` = 0.0.0.0, which overlaps both) ⇒ **EADDRINUSE on core-api's next recreate.** Not today's recreate — a *latent* one, which is worse: it would have fired on someone else's unrelated deploy, far from the cause.
+
+**Why the override now carries D131:** the homeserver session moved the core-api port deviation into `docker-compose.override.yml` (host-specific: paperless-ai owns 3000). That is *better* placement than the sed — but it means the base must NOT also declare ports, or they append.
+
+**Resolution (dry-run PROVEN before applying):** checkout main's compose **+ OPERATOR_ACTIONS.md**, then the D131 sed collapses the base's dual bind to a single `3002:3000` — **identical to the override's entry, and compose DEDUPES identical port entries** (confirmed: the current live baseline renders exactly one, from precisely this base+override pair). Scratch render then asserts: core-api ports = **1**; postgres `shm_size` = 1 GiB; postgres/redis volumes = **bind**; workers `/backup-latest` = present.
+
+**Hypothesis / success criteria:** after `up -d --force-recreate --no-deps workers`, `docker inspect open-brain-workers` shows `/backup-latest`; workers healthy; **postgres/redis untouched**; `openbrain_backup_age_seconds` emits within one pipeline-health cycle (≤6h); `check-deploy-parity.sh` goes from exit 1 → exit 0.
+
+**Rollback plan:** the pre-change `docker-compose.yml` is backed up to `docker-compose.yml.bak-entry212-<ts>` on the host (the file is NOT recoverable from git — its `MM` state is a hand-applied approximation of ADR-0004 that exists nowhere else). Restore it and re-run `up -d --force-recreate --no-deps workers`. workers is **stateless** (queues live in Redis) and has a **unique image** ⇒ no Entry 201 shared-tag risk, no data at stake. **postgres/redis are NOT named in any command.** Every invocation passes `-f docker-compose.override.yml`; **no `--remove-orphans`, no bare `up -d`, no `compose down`.**
+
+**Tags:** [deploy] [docker] [decision]
+**Environment:** homeserver (Unraid). Scope: ONE file checkout + one sed + ONE service recreate (workers). Executed by Claude (Opus 4.8), user-directed ("Go").
+
+### Entry 212 — RESULT: compose reconciled, workers recreated, the backup gauge is ALIVE
+
+**Executed 2026-07-15 ~22:09–22:12 ET. Success. Scope held: ONE file checkout + one sed + ONE service recreate.**
+
+**The two-gate procedure did its job.** The BEFORE→AFTER config diff was **23 lines and exactly the intended delta** — web-next (`NEXT_PUBLIC_API_URL` removed, healthcheck `/dashboard`→`/api/healthz`) and workers (`BACKUP_LATEST_PATH`, `OPERATOR_ACTIONS_PATH`, + two binds). **postgres, redis, ports and `shm_size` do not appear in the diff at all** — byte-identical before and after. That is the proof the landmine stayed disarmed, not a hope.
+
+**Verified after the recreate:**
+- workers `running`, **restarts=0**; **44 scheduler log lines, 0 errors** (repeatables re-registered)
+- `/mnt/user/backup/openbrain/latest -> /backup-latest ro=true` — **the mount is live**
+- `/app/OPERATOR_ACTIONS.md` **is a FILE, not a directory** — the pre-flight catch held
+- **postgres `StartedAt` 20:52:54 — UNCHANGED. redis 04:02:20 — UNCHANGED.**
+- **`check-deploy-parity.sh`: exit 1 (drift) → exit 0 ("only the allowlisted D131 deviation differs")**
+
+**#294's acceptance met on the metric, not on a proxy.** Triggered `pipeline-health` manually (`POST /api/v1/skills/:name/trigger`) rather than wait 6h — it ran at **22:11:33**, its first run since 07-13 20:00. Then:
+```
+openbrain_backup_age_seconds{instance="workers",job="open-brain"}  69007      # 19.2h — under the 26h threshold
+push_time_seconds{instance="workers",job="open-brain"}             1.78416e+09
+```
+Prometheus **is scraping it** (`/api/v1/query` returns the series). **33 `openbrain_*` metrics where there were 0** — so the "possibly broken push path" (break 3) was **never broken**: the earlier zero was the observability stack's **Pushgateway wipe** (no `--persistence.file`), and it repopulated on the first push. `push_time_seconds` now exists ⇒ **`PushgatewayStale` has data**, which matters because `WorkersMetricsAbsent` structurally cannot fire (#303).
+
+**#294 status — 2 of 3 breaks fixed; say so plainly:**
+| Break | State |
+|---|---|
+| 1. no `/backup-latest` mount → gauge + `sendBackupStaleAlert` dead | **FIXED** — mount live, gauge emitting, Prometheus scraping |
+| 3. push path possibly broken | **NOT BROKEN** — was the Pushgateway wipe; 33 metrics flow |
+| 2. the rule isn't deployed (#292) | **STILL OPEN** — `backup.yml` is **absent** from the deployed alerts dir (verified: 11 files there, no `backup.yml`) |
+**So the data exists and Prometheus sees it — but NOTHING EVALUATES IT YET.** A stale backup still would not page. **#294 stays OPEN.** Closing it here would be the exact "the alert is loaded ≠ the alert works" error the issue is about. It needs #292 (deploy the rule) + #303 (rename off the Unraid `BackupStale` collision).
+
+**Lesson — check what the other workstream already did.** I had planned a postgres recreate for #297. It was **already done** (`/dev/shm` 1.0G, container started 30s after the override changed). Re-doing it would have re-taken the system's riskiest operation for zero gain. **The parallel plan's owner had already executed its own work item.**
+
+**Lesson — a naive checkout would have broken core-api LATENTLY.** main's dual bind + the override's appended third = 3 publishes on 3002 ⇒ EADDRINUSE — but only on core-api's *next* recreate, i.e. during someone else's unrelated deploy, far from the cause. The dry-run in a scratch dir (with an **empty** `.env.secrets` — never copy secrets to /tmp) caught it for free.
+
+---
+
+## Entry 213 — CORRECTION to Entry 211: the alerts DID fire. #303 was wrong and is closed. (2026-07-15)  [debug] [observability] [decision]
+
+**Entry 211 and issue #303 asserted that `WorkersMetricsAbsent` "can never fire" and that "nothing alerted" during the 40-hour outage. BOTH ARE FALSE.** Correcting the permanent record — a wrong entry is worse than no entry.
+
+### The evidence that refutes me
+```
+count_over_time(ALERTS{alertname="WorkersMetricsAbsent",alertstate="firing"}[3d])  ->  2611 samples  (~43.5h at 1m — the WHOLE outage)
+count_over_time(ALERTS{alertname="PushgatewayStale",  alertstate="firing"}[3d])  ->   122 samples
+alertmanager_notifications_total{integration="pushover"}   3      failed_total{...} 0   (all reasons)
+absent(openbrain_container_healthy{job="open-brain"})      1      <- correctly firing RIGHT NOW
+```
+**The alert I called structurally incapable of firing fired continuously for the entire outage, Alertmanager received it, and Pushover reports zero delivery failures.**
+
+### Three compounding errors, all mine
+1. **I judged the expression without reading the comment 7 lines above it.** `workers-staleness.yml:76-82` already explains exactly why `absent()` is there: *"This is distinct from PushgatewayStale: absent() triggers when Pushgateway has no record of the metric at all — either workers never successfully pushed … or **Pushgateway was restarted and lost its in-memory state**."* The rules are **complementary BY DESIGN** — `PushgatewayStale` = metric *stale* (workers dead, value retained); `WorkersMetricsAbsent` = metric *absent* (Pushgateway wiped / never pushed / label drift). Together they cover both. **I read half a file and contradicted the other half.**
+2. **I never checked whether it had fired.** One `count_over_time(ALERTS[3d])` — the query I eventually ran — refutes the entire issue in ten seconds. **I asserted a RUNTIME behaviour from a STATIC read.**
+3. **My supporting evidence was backwards.** I cited the outage as proof the alert failed. The outage is proof it **worked**.
+
+### The lesson, and it is the sharpest of the day
+**I spent this session cataloguing *"the alert is loaded ≠ the alert works"* — and then claimed an alert did not work WITHOUT CHECKING WHETHER IT FIRED.** The same error, mirrored: #292/#294 trust a static read that something IS working; I trusted a static read that something ISN'T. **Both substitute reading for observing.** The discipline is not "distrust the config" — it is **"go look at the runtime,"** in both directions. Being the one who names a bias is no protection against it.
+
+**A fourth false negative, also mine:** Entry 209 recorded `workers-staleness.yml` as "repo-only, not deployed" — it has mtime **2026-07-01** and has been deployed for two weeks. That claim came from an `ls | head -12` that **truncated the listing**. (Running total today: `pgrep` matching its own wrapper; a redis "0 keys" that was AUTH FAILED; a `bull:*:repeat` pattern that never matched; and now a truncated `ls`. **Every one produced a confident, wrong conclusion, and every one was a tool-shaped artifact rather than a fact about the system.**)
+
+### What survives from Entry 211
+- **The 40-hour outage is REAL** — all BullMQ jobs dead 07-13 23:15 → 07-15 15:08 ET, self-healed by the #283 workers recreate. Unchanged.
+- **`pipeline-health` being one of the dead jobs remains a genuine structural point** — a watchdog on the scheduler it monitors cannot report that scheduler's death. **But it was NOT the only net**: the Prometheus→Alertmanager→Pushover path is external to workers, and it caught it. Entry 211's "both safety nets failed" is **WRONG on the second net**.
+- **#302 (compose has no deploy path) is UNAFFECTED** — independently verified and already fixed (Entry 212).
+
+### The one genuinely open question — for Troy, not for code
+The alerts fired ~43h at `severity: critical`, repeat 1h. **Did the Pushover notifications actually reach the phone?** If yes: the system worked, and the gap was human. If no: *that* is the real bug — a **delivery** question, not an alert-design one. **OA-9b still worth running once, but its expected outcome is now the opposite of what #303 claimed**: stopping workers should fire **PushgatewayStale**, not WorkersMetricsAbsent.
+
+**#303 CLOSED as invalid. No code change. Nothing there needed fixing.**
+
+**Tags:** [debug] [observability] [decision]
+**Environment:** read-only Prometheus/Alertmanager queries. Executed by Claude (Opus 4.8), user-directed.
+
+---
+
+## Entry 214 — ROOT CAUSE of the outage: reconciliation deleted every scheduled job on every boot. Fixed via v5 upsertJobScheduler (B′). (2026-07-16)  [debug] [pipeline] [decision]
+
+**The 40-hour outage (Entry 211) was not a one-off — it is ONGOING, and my own workers recreate (Entry 212) re-triggered it.** Found the root cause by taking the `WorkersMetricsAbsent` alert LITERALLY (Entry 213 established it was firing correctly) and asking "so IS workers pushing?" — it wasn't, and never had since 07-14.
+
+### The bug — a phantom `id` field on BOTH the write and the check
+`reconcileRepeatableJobs` (#217, shipped PR #244, deployed 07-14 = when jobs stopped) classifies a repeatable as live iff `name + pattern + jobId` match, then removes the rest. Proven from the live boot log: **21 `"removed":true` lines, ~30ms after the 21 `"registered"` lines** — it deleted exactly what it had just registered.
+
+Two halves, same false assumption:
+- **register:** `add(name, data, { repeat: { pattern }, jobId })` — v5 **ignores a top-level `jobId`** for repeatables.
+- **reconcile:** `r.jobId === job.id` — but `getRepeatableJobs()` returns **`job.id === undefined`, ALWAYS** (proven against real BullMQ 5.70.4 — it returns undefined even with `jobId` inside `repeat`). So `isLive` was never true, everything was an orphan, all 21 deleted. Every boot.
+
+Manual triggers still worked (they enqueue directly, bypassing the scheduler), which is exactly why the outage was invisible except to the alert.
+
+### Why the TEST didn't catch it — the third instance of one blind spot this week
+`scheduler-reconcile.test.ts`'s fixture built entries with `id: over.id ?? null` and every case **passed an `id` real BullMQ never sets**. A mock that supplies the field under dispute is structurally incapable of falsifying a claim about that field. Identical shape to **#278** (`test-secrets-roundtrip.sh` mocks `bws` with the map's own names) and **A146** (`test-backup-secrets-redaction.sh` fixture asserts the disputed claim). **Lesson: a contract about what an external system RETURNS can only be pinned by a test against that system.** Added `integration/scheduler-repeat-identity.test.ts` (real Redis) for exactly this; rewrote the unit test to never invent an `id`.
+
+### The fix — B′ (Troy's call): migrate to the v5 Job Scheduler API
+Chosen over the one-line A (drop the id check) deliberately: production was ALREADY down, so B′'s re-keying costs nothing, and it makes identity real instead of leaving a fuzzy name+pattern match. **Every v5 behaviour proven against real BullMQ before writing** (5 probe scripts): `upsertJobScheduler(id, {pattern}, {name,data})` → scheduler `key` IS the id; idempotent; a changed cron **replaces in place** (no orphan); `getJobSchedulers()` sees legacy hash-keyed orphans too; `removeJobScheduler(key)` removes both new and legacy uniformly. So reconcile shrinks to "remove any scheduler whose id wasn't registered this boot" — which also cleans the 3 April-2026 orphans (wiki-backup/db-backup/redis-snapshot) that were the only survivors in prod.
+
+**Verified:** workers 1206 unit tests pass, `scheduler.ts` 100/100/100/100 (per-file lock held), coverage gate exit 0, lint exit 0; integration 6/6 against real Redis. Commit `4a21a20`.
+
+### 🔴 PRODUCTION IS STILL DOWN — the fix is committed, NOT deployed
+Every scheduled job (morning-brief, wiki-synthesis, memory-consolidation, pipeline-health, container-health, email-classify, data-retention-prune…) is dead RIGHT NOW and has been since 07-14. Restoration requires: merge → `build-images` rebuilds the workers image → `--force-recreate --no-deps workers`. Until then the alert keeps (correctly) firing. **This is the highest-priority deploy.** The `email-classify` shadowing question (Entry 208/#290) is moot until this lands — the TS skill hasn't run on schedule for 2 days either.
+
+### Alert branding — the real human-factors bug (Troy's screenshot)
+Every infra Pushover arrives titled **"From Voice Capture"** (the Pushover app is named "Voice Capture"). ~40 critical sirens over 40 hours read as voice-memo noise. **The delivery worked flawlessly; the identification did not.** Worth renaming the Pushover app or splitting infra alerts to their own app. Filed as a follow-up.
+
+**Tags:** [debug] [pipeline] [decision]
+**Environment:** worktree dev + real-Redis integration (docker redis:7.4 on 6381) + 5 live BullMQ probe scripts. No prod change this entry (the Entry 212 recreate already happened). Executed by Claude (Opus 4.8), user-directed ("B′").

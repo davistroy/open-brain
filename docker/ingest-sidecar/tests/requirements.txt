@@ -1,3 +1,14 @@
 # Test-only deps for docker/ingest-sidecar/tests.
-# trigger_server.py itself is pure stdlib, so runtime requirements are empty.
+#
+# trigger_server.py and scripts/lib/gas_bill_parse.py are pure stdlib.
+#
+# test_utility_status.py imports scripts/utility-pipeline.py, which imports
+# `requests` and `yaml` at MODULE level — so these are needed to COLLECT that test
+# module, not merely to run it. (PyMuPDF is deliberately NOT here: utility-pipeline
+# imports `fitz` lazily inside the gas-bill function, so nothing needs it to import.)
+#
+# Versions pinned to match docker/ingest-sidecar/Dockerfile exactly, so the test
+# environment cannot drift from the image that actually runs this code.
 pytest>=8.0,<9.0
+requests==2.32.3
+PyYAML==6.0.2

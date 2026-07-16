@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq'
-import type { ConnectionOptions, RepeatableJob } from 'bullmq'
+import type { ConnectionOptions, JobSchedulerJson } from 'bullmq'
 import { logger } from '@open-brain/shared'
 import type { DailySweepJobData } from './jobs/daily-sweep.js'
 import { createBudgetCheckQueue } from './jobs/budget-check.js'
@@ -17,102 +17,91 @@ export interface ScheduledQueues {
 }
 
 /**
- * Identity of a freshly-registered repeatable job, captured at registration
- * time. Reconciliation matches live repeatables against these descriptors by
- * exact (name + jobId + pattern) — the same identity BullMQ embeds in the
- * repeat key — so it never removes a live schedule (GitHub #217).
+ * Identity of a freshly-registered job scheduler, captured at registration
+ * time. In BullMQ v5 a job scheduler's `key` IS its id (the value passed to
+ * upsertJobScheduler) — a stable, readable identity, not a content hash. So
+ * reconciliation just keeps schedulers whose id was registered this boot and
+ * removes the rest (GitHub #217).
  */
-interface RegisteredRepeat {
-  name: string
-  jobId: string
+interface RegisteredScheduler {
+  id: string
   pattern: string
 }
 
 /**
  * Minimal queue surface needed by {@link reconcileRepeatableJobs}. Keeps the
- * function decoupled from Queue's DataType variance and trivially mockable in
- * tests. The legacy getRepeatableJobs/removeRepeatableByKey API is used
- * deliberately to MATCH the .add({ repeat }) registration style — mixing the
- * newer JobScheduler API against legacy-registered repeatables is error-prone.
+ * function decoupled from Queue's DataType variance and trivially mockable.
+ * Uses the v5 Job Scheduler API — `getJobSchedulers()` returns BOTH v5
+ * schedulers (readable key) AND any legacy `.add({ repeat })` repeatables
+ * (hash key), and `removeJobScheduler(key)` removes either — so a single pass
+ * cleans both surfaces, including the April-era hash-keyed orphans.
  */
 interface ReconcilableQueue {
   readonly name: string
-  getRepeatableJobs(): Promise<RepeatableJob[]>
-  removeRepeatableByKey(key: string): Promise<boolean>
+  getJobSchedulers(): Promise<JobSchedulerJson[]>
+  removeJobScheduler(id: string): Promise<boolean>
 }
 
 /**
- * Removes orphaned repeatable jobs from a queue (GitHub #217).
+ * Removes orphaned job schedulers from a queue (GitHub #217).
  *
- * BullMQ's legacy repeatable API keys each repeat by name + pattern + tz +
- * jobId. Changing a job's cron leaves the OLD key behind — it keeps firing
- * forever because nothing reconciles it. This compares every repeatable
- * currently on the queue against the set just registered and removes any that
- * does not EXACTLY match a registration.
+ * ## Why this was rewritten (a 2-day production outage — Entries 211–214)
  *
- * MUST run AFTER registration so every live schedule is guaranteed present in
- * getRepeatableJobs(). Matching by exact registered identity — and collecting
- * the live keys in a first pass before removing anything in a second pass —
- * guarantees a currently-registered schedule is never removed.
+ * The previous version matched a live repeatable by `name + pattern + jobId`
+ * against `getRepeatableJobs()`. But **BullMQ v5's `getRepeatableJobs()` never
+ * populates `job.id`** (a fact only a real-Redis test surfaces — the unit
+ * mock's fixture defaulted it to `null` and let the author fake it). So
+ * `r.jobId === job.id` was ALWAYS false, every registration classified as an
+ * orphan, and this function deleted all 21 schedules ~30ms after they were
+ * registered, on every boot. Registration also passed `jobId` at the TOP LEVEL
+ * of `add()` opts, where v5 ignores it — the same phantom-`id` assumption on
+ * the write side.
+ *
+ * The fix uses the v5 model end to end: registration is `upsertJobScheduler(id,
+ * …)`, so the scheduler's `key` equals its stable id. A scheduler is live iff
+ * its `key` is in the registered id set — no pattern/tz/jobId fuzz. (A pattern
+ * change is handled by upsert itself, which replaces in place, so reconcile is
+ * only for schedulers whose id is no longer registered: renamed/removed jobs
+ * and legacy hash-keyed orphans.)
+ *
+ * MUST run AFTER registration so every live scheduler is present.
  *
  * @param queue       Queue to reconcile (any BullMQ Queue satisfies this).
- * @param registered  Descriptors of the repeatables just registered on `queue`.
+ * @param registered  Descriptors of the schedulers just registered on `queue`.
  */
 export async function reconcileRepeatableJobs(
   queue: ReconcilableQueue,
-  registered: RegisteredRepeat[],
+  registered: RegisteredScheduler[],
 ): Promise<void> {
-  let existing: RepeatableJob[]
+  let existing: JobSchedulerJson[]
   try {
-    existing = await queue.getRepeatableJobs()
+    existing = await queue.getJobSchedulers()
   } catch (err) {
     // Reconciliation is best-effort: a Redis hiccup here must not block worker
     // startup. Orphans firing is strictly less bad than workers not starting.
     logger.warn(
       { err, queue: queue.name },
-      '[scheduler] repeatable reconciliation skipped — getRepeatableJobs failed',
+      '[scheduler] scheduler reconciliation skipped — getJobSchedulers failed',
     )
     return
   }
 
-  // Pass 1 — collect the exact keys of live (freshly-registered) repeatables.
-  // A repeatable is live iff its full identity matches a current registration.
-  // None of our registrations set a tz or an `every` interval, so any entry
-  // carrying those cannot be one of ours.
-  const liveKeys = new Set<string>()
-  for (const job of existing) {
-    const isLive = registered.some(
-      (r) =>
-        r.name === job.name &&
-        r.pattern === job.pattern &&
-        r.jobId === job.id &&
-        job.tz == null &&
-        job.every == null,
-    )
-    if (isLive) liveKeys.add(job.key)
-  }
+  const liveIds = new Set(registered.map((r) => r.id))
 
-  // Pass 2 — remove every repeatable whose key is NOT a live key. These are
-  // orphans left by past schedule changes.
-  for (const job of existing) {
-    if (liveKeys.has(job.key)) continue
+  for (const sched of existing) {
+    // A live scheduler's key IS its registered id. Anything else is an orphan:
+    // a renamed/removed job, or a legacy hash-keyed `.add({ repeat })` entry.
+    if (liveIds.has(sched.key)) continue
     try {
-      const removed = await queue.removeRepeatableByKey(job.key)
+      const removed = await queue.removeJobScheduler(sched.key)
       logger.warn(
-        {
-          queue: queue.name,
-          key: job.key,
-          name: job.name,
-          pattern: job.pattern,
-          jobId: job.id,
-          removed,
-        },
-        '[scheduler] removed orphaned repeatable job (#217)',
+        { queue: queue.name, key: sched.key, name: sched.name, pattern: sched.pattern, removed },
+        '[scheduler] removed orphaned job scheduler (#217)',
       )
     } catch (err) {
       logger.warn(
-        { err, queue: queue.name, key: job.key },
-        '[scheduler] failed to remove orphaned repeatable job',
+        { err, queue: queue.name, key: sched.key },
+        '[scheduler] failed to remove orphaned job scheduler',
       )
     }
   }
@@ -146,16 +135,17 @@ export async function reconcileRepeatableJobs(
  *
  * - email-classify: 5:00 AM daily (cron: 0 5 * * *) — email classification pipeline
  *
- * jobId values are stable — BullMQ treats a repeat job with the same jobId as
- * an upsert, so calling this on every startup is safe.
+ * Each job's `jobId` is its stable v5 job-scheduler id: `upsertJobScheduler`
+ * with the same id is an idempotent upsert that replaces a changed cron in
+ * place, so calling this on every startup is safe and self-healing.
  *
- * After all registrations complete, orphaned repeatables left by past cron
- * changes (GitHub #217) are reconciled away per-queue via
- * {@link reconcileRepeatableJobs}: any repeatable that does not match a
- * freshly-registered (name + jobId + pattern) identity is removed. Because a
- * changed cron yields a different repeat key, the stale key is orphaned and
- * would otherwise fire forever; reconciliation runs AFTER registration and
- * matches by exact key so it can never remove a live schedule.
+ * After all registrations complete, orphaned schedulers (GitHub #217) are
+ * reconciled away per-queue via {@link reconcileRepeatableJobs}: any scheduler
+ * whose id was NOT registered this boot is removed — a renamed/removed job, or
+ * a legacy hash-keyed `.add({ repeat })` orphan from before this migration.
+ * A pattern change no longer orphans anything (upsert replaces in place), so
+ * reconciliation only handles genuine id-level removals. It runs AFTER
+ * registration so a live scheduler is always in the registered id set.
  *
  * @param connection  Redis ConnectionOptions (same pool as other workers)
  * @param cronOverride  Optional cron string override (applies to daily-sweep; for testing)
@@ -166,10 +156,10 @@ export async function registerScheduledJobs(
   cronOverride?: string,
   budgetCronOverride?: string,
 ): Promise<ScheduledQueues> {
-  // Per-queue registry of the repeatables registered below, keyed by the queue
-  // instance. Consumed after registration by reconcileRepeatableJobs() to
-  // detect and remove orphaned repeat keys (#217). Populated only by register().
-  const registeredByQueue = new Map<Queue<any, any, string>, RegisteredRepeat[]>()
+  // Per-queue registry of the job schedulers registered below, keyed by the
+  // queue instance. Consumed after registration by reconcileRepeatableJobs() to
+  // detect and remove orphaned schedulers (#217). Populated only by register().
+  const registeredByQueue = new Map<Queue<any, any, string>, RegisteredScheduler[]>()
 
   /**
    * Registers one repeatable job AND records its identity for reconciliation.
@@ -178,11 +168,16 @@ export async function registerScheduledJobs(
    * disagree with what was actually registered, so a live schedule can never
    * be misclassified as an orphan (the sole failure mode of the risk row).
    *
-   * The .add() call goes through a minimal structural type so a plain `string`
-   * job name typechecks — Queue.add's name param resolves to the generic
-   * conditional `ExtractNameType<DataType, string>`, which a bare `string` is
-   * not provably assignable to when DataType is unresolved. `data: DataType`
-   * keeps full call-site type-safety on the job payload.
+   * Registers via the v5 `upsertJobScheduler(id, { pattern }, { name, data })`:
+   * `jobId` becomes the scheduler id (a stable, readable key), `name`+`data`
+   * form the job template every fire is stamped from. The worker dispatches on
+   * `data.skillName`, so the template `name` is cosmetic — but kept for parity
+   * with the legacy job name. Upsert is idempotent and replaces a changed
+   * pattern in place, so calling this on every boot is safe and self-healing.
+   *
+   * The call goes through a minimal structural type so a plain `string` id and
+   * `DataType` template typecheck without importing BullMQ's `NameType`
+   * conditional; `data: DataType` keeps full call-site type-safety on the payload.
    */
   async function register<DataType>(
     queue: Queue<DataType>,
@@ -191,18 +186,21 @@ export async function registerScheduledJobs(
     pattern: string,
     jobId: string,
   ): Promise<void> {
-    const addable = queue as unknown as {
-      add(
-        name: string,
-        data: DataType,
-        opts: { repeat: { pattern: string }; jobId: string },
+    const schedulable = queue as unknown as {
+      upsertJobScheduler(
+        schedulerId: string,
+        repeat: { pattern: string },
+        template: { name: string; data: DataType },
       ): Promise<unknown>
     }
-    await addable.add(name, data, { repeat: { pattern }, jobId })
+    await schedulable.upsertJobScheduler(jobId, { pattern }, { name, data })
     const list = registeredByQueue.get(queue) ?? []
-    list.push({ name, jobId, pattern })
+    list.push({ id: jobId, pattern })
     registeredByQueue.set(queue, list)
-    logger.info({ cron: pattern }, `[scheduler] ${name} repeatable job registered`)
+    logger.info(
+      { cron: pattern, schedulerId: jobId },
+      `[scheduler] ${name} scheduler upserted`,
+    )
   }
 
   // --------------------------------------------------------

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { ConnectionOptions, RepeatableJob } from 'bullmq'
+import type { ConnectionOptions, JobSchedulerJson } from 'bullmq'
 
 /**
  * Executes registerScheduledJobs() end-to-end against a mocked bullmq Queue.
@@ -15,9 +15,9 @@ import type { ConnectionOptions, RepeatableJob } from 'bullmq'
  *
  * Only bullmq's Queue is mocked — no Redis, no db, no fetch. Queue instances
  * are captured by name in mockQueueInstances so assertions can target a
- * specific queue's .add()/.getRepeatableJobs()/.removeRepeatableByKey() mock
- * functions. mockRepeatablesByQueue lets a test seed what a given queue's
- * getRepeatableJobs() resolves to, for the orphan-reconciliation case.
+ * specific queue's .upsertJobScheduler()/.getJobSchedulers()/.removeJobScheduler()
+ * mock functions. mockSchedulersByQueue lets a test seed what a given queue's
+ * getJobSchedulers() resolves to, for the orphan-reconciliation case.
  */
 
 // ---------------------------------------------------------------------------
@@ -25,18 +25,19 @@ import type { ConnectionOptions, RepeatableJob } from 'bullmq'
 // hoisting rule (out-of-scope references must be prefixed with "mock").
 // ---------------------------------------------------------------------------
 let mockQueueInstances: Record<string, any> = {}
-let mockRepeatablesByQueue: Record<string, RepeatableJob[]> = {}
+let mockSchedulersByQueue: Record<string, JobSchedulerJson[]> = {}
 
 vi.mock('bullmq', () => ({
   Queue: vi.fn().mockImplementation((name: string, opts: unknown) => {
     const instance = {
       name,
       opts,
-      add: vi.fn().mockResolvedValue({ id: 'mock-job' }),
-      getRepeatableJobs: vi.fn(() =>
-        Promise.resolve(mockRepeatablesByQueue[name] ?? []),
-      ),
-      removeRepeatableByKey: vi.fn().mockResolvedValue(true),
+      // Registration uses upsertJobScheduler (v5); reconcile uses
+      // getJobSchedulers/removeJobScheduler. The legacy add/getRepeatableJobs
+      // are gone — the migration (Entry 214) does not touch them any more.
+      upsertJobScheduler: vi.fn().mockResolvedValue({ id: 'mock-job' }),
+      getJobSchedulers: vi.fn(() => Promise.resolve(mockSchedulersByQueue[name] ?? [])),
+      removeJobScheduler: vi.fn().mockResolvedValue(true),
     }
     mockQueueInstances[name] = instance
     return instance
@@ -47,34 +48,29 @@ import { registerScheduledJobs } from '../scheduler.js'
 
 const FAKE_CONNECTION = { host: 'test-redis', port: 6379 } as unknown as ConnectionOptions
 
-/** Build a RepeatableJob entry as getRepeatableJobs() would return it. */
-function repeatable(over: Partial<RepeatableJob> & { key: string; name: string }): RepeatableJob {
-  return {
-    key: over.key,
-    name: over.name,
-    id: over.id ?? null,
-    endDate: over.endDate ?? null,
-    tz: over.tz ?? null,
-    pattern: over.pattern ?? null,
-    every: over.every ?? null,
-    next: over.next,
-  }
+/** Build a scheduler entry as getJobSchedulers() would return it. */
+function jobScheduler(over: { key: string; name: string; pattern?: string }): JobSchedulerJson {
+  return { key: over.key, name: over.name, pattern: over.pattern ?? '0 0 * * *' }
 }
 
-/** Extracts { name, pattern, jobId } for every add() call on a mock queue. */
+/**
+ * Extracts { name, pattern, jobId } for every upsertJobScheduler() call.
+ * `upsertJobScheduler(schedulerId, { pattern }, { name, data })` — so
+ * schedulerId is the jobId, and the template carries the name.
+ */
 function addedJobs(queueName: string): Array<{ name: string; pattern: string; jobId: string }> {
   const instance = mockQueueInstances[queueName]
-  return instance.add.mock.calls.map((call: any[]) => ({
-    name: call[0],
-    pattern: call[2]?.repeat?.pattern,
-    jobId: call[2]?.jobId,
+  return instance.upsertJobScheduler.mock.calls.map((call: any[]) => ({
+    name: call[2]?.name,
+    pattern: call[1]?.pattern,
+    jobId: call[0],
   }))
 }
 
 describe('registerScheduledJobs — execution coverage', () => {
   beforeEach(() => {
     mockQueueInstances = {}
-    mockRepeatablesByQueue = {}
+    mockSchedulersByQueue = {}
     vi.clearAllMocks()
   })
 
@@ -196,38 +192,38 @@ describe('registerScheduledJobs — execution coverage', () => {
     )
   })
 
-  it('reconciles every queue after registration, removing an orphaned repeatable', async () => {
+  it('reconciles every queue after registration, removing an orphaned scheduler', async () => {
     // Seed prune-associations' live queue state with the freshly-registered
-    // entry (won't be touched) plus an orphan left by a past cron change —
-    // same name/jobId, stale pattern. This exercises reconcileRepeatableJobs()
-    // through the real registerScheduledJobs() call path (#217).
-    const liveEntry = repeatable({
-      key: 'prune-associations:prune-associations-recurring::::30 3 * * 0',
+    // scheduler (key === its id, won't be touched) plus an orphan whose id is no
+    // longer registered — a renamed job left behind. This exercises
+    // reconcileRepeatableJobs() through the real registerScheduledJobs() path (#217).
+    const liveEntry = jobScheduler({
+      key: 'prune-associations-recurring', // key IS the registered id in v5
       name: 'prune-associations',
-      id: 'prune-associations-recurring',
       pattern: '30 3 * * 0',
     })
-    const orphanKey = 'prune-associations:prune-associations-recurring::::0 3 * * 0'
-    const orphanEntry = repeatable({
+    const orphanKey = 'prune-associations-retired' // an id nobody registers any more
+    const orphanEntry = jobScheduler({
       key: orphanKey,
-      name: 'prune-associations',
-      id: 'prune-associations-recurring',
+      name: 'prune-associations-retired',
       pattern: '0 3 * * 0',
     })
-    mockRepeatablesByQueue['prune-associations'] = [liveEntry, orphanEntry]
+    mockSchedulersByQueue['prune-associations'] = [liveEntry, orphanEntry]
 
     await registerScheduledJobs(FAKE_CONNECTION)
 
     const pruneQueue = mockQueueInstances['prune-associations']
-    expect(pruneQueue.getRepeatableJobs).toHaveBeenCalledTimes(1)
-    expect(pruneQueue.removeRepeatableByKey).toHaveBeenCalledTimes(1)
-    expect(pruneQueue.removeRepeatableByKey).toHaveBeenCalledWith(orphanKey)
+    expect(pruneQueue.getJobSchedulers).toHaveBeenCalledTimes(1)
+    expect(pruneQueue.removeJobScheduler).toHaveBeenCalledTimes(1)
+    expect(pruneQueue.removeJobScheduler).toHaveBeenCalledWith(orphanKey)
+    // The live scheduler's id must NEVER be removed — the whole point of #217.
+    expect(pruneQueue.removeJobScheduler).not.toHaveBeenCalledWith('prune-associations-recurring')
 
-    // Every other queue is reconciled too (getRepeatableJobs default: []).
-    expect(mockQueueInstances['daily-sweep'].getRepeatableJobs).toHaveBeenCalledTimes(1)
-    expect(mockQueueInstances['budget-check'].getRepeatableJobs).toHaveBeenCalledTimes(1)
-    expect(mockQueueInstances['skill-execution'].getRepeatableJobs).toHaveBeenCalledTimes(1)
-    expect(mockQueueInstances['data-retention-prune'].getRepeatableJobs).toHaveBeenCalledTimes(1)
-    expect(mockQueueInstances['skill-execution'].removeRepeatableByKey).not.toHaveBeenCalled()
+    // Every other queue is reconciled too (getJobSchedulers default: []).
+    expect(mockQueueInstances['daily-sweep'].getJobSchedulers).toHaveBeenCalledTimes(1)
+    expect(mockQueueInstances['budget-check'].getJobSchedulers).toHaveBeenCalledTimes(1)
+    expect(mockQueueInstances['skill-execution'].getJobSchedulers).toHaveBeenCalledTimes(1)
+    expect(mockQueueInstances['data-retention-prune'].getJobSchedulers).toHaveBeenCalledTimes(1)
+    expect(mockQueueInstances['skill-execution'].removeJobScheduler).not.toHaveBeenCalled()
   })
 })

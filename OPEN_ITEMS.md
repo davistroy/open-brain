@@ -4,7 +4,7 @@
 
 GitHub issues are the single source of truth for all pending work. This file is a quick-reference summary only — close issues there, not here.
 
-Last reconciled: 2026-07-15 (verified against `gh issue list` — 7 open).
+Last reconciled: **2026-07-15 (late)** — verified against `gh issue list`: **15 open**. The previous "7 open" line was stale: it still listed **#278 as open** (closed 2026-07-15) and predated #281–#301.
 
 ---
 
@@ -22,17 +22,27 @@ The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`
 
 ---
 
-## Open issues (7)
+## Open issues (15)
+
+**Planned in [`IMPLEMENTATION_PLAN-2026-07-backlog.md`](IMPLEMENTATION_PLAN-2026-07-backlog.md)** (ultra-plan Phase 0–4, LAB_NOTEBOOK Entries 208–209). Phase order is by dependency + risk, not issue number.
 
 | # | Title | Gate / urgency |
 |---|-------|---------------|
-| [#278](https://github.com/davistroy/open-brain/issues/278) | secrets-map.sh BWS names don't exist (11/14 required) — `load-secrets.sh` would exit 2, **DR path broken** | **New (2026-07-15), HIGH.** Prod is UNAFFECTED (the map is only read on reconcile) — but the documented "rebuild `.env.secrets` after a homeserver rebuild" runbook would write nothing. Confirmed by the repo's own `verify-secrets.sh`: `DRIFT: 11 of 14`. Never caught because `test-secrets-roundtrip.sh` mocks `bws` with the map's OWN names (self-consistent → cannot detect name drift) and no CI job checks real BWS. Needs BWS-project disambiguation (broad token spans 3 projects, D137). Entry 202 / A142. |
-| [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile app deferred scope (PRs #172/#174) | When mobile becomes a priority |
-| [#73](https://github.com/davistroy/open-brain/issues/73)  | P33: Qdrant vector-search evaluation | Scale-gated — fires at ≥50K embeddings |
-| [#72](https://github.com/davistroy/open-brain/issues/72)  | P34: NVIDIA RTX PRO 2000 deployment | Hardware purchase decision |
-| [#71](https://github.com/davistroy/open-brain/issues/71)  | P23: Cognitive memory tuning | Data-gated |
-| [#57](https://github.com/davistroy/open-brain/issues/57)  | P25: Voice architecture decision | Blocked by #54 |
-| [#54](https://github.com/davistroy/open-brain/issues/54)  | P24: Pipecat voice soak test | Manual — needs 10+ real conversations |
+| [#299](https://github.com/davistroy/open-brain/issues/299) | `backup.sh` omits **every `config/` subdirectory** from all backups — non-recursive glob, errors swallowed | **HIGH — LIVE GAP.** `prometheus/`, `grafana/`, `financial/`, `utility/`, `cloudflare/` are in **no** backup, local or offsite, while the log says "Backing up config files". Recovery-only, invisible until it matters. Plan Phase 4. A143 / Entry 208 |
+| [#294](https://github.com/davistroy/open-brain/issues/294) | Backup dead-man's switch fully inert | **HIGH but CHEAP.** The `/backup-latest` mount is **already in compose** (`:195,202`) — workers was just never recreated. **Fix = a recreate, not code.** Plan Phase 2. Also needs the `BackupStale` **name collision** with Unraid's alert resolved (Phase 6) |
+| [#300](https://github.com/davistroy/open-brain/issues/300) | `INGEST_TRIGGER_SECRET` skips the 3-step lockstep | MEDIUM, DR-only. **2-line fix** (map + template). DR starts both sidecars unauthenticated → 401s every HTTP trigger **while cron keeps working and looks healthy**. Plan Phase 5. A144 |
+| [#281](https://github.com/davistroy/open-brain/issues/281) | `.env` not automated — a rebuilt host can't start the stack | **HIGH, DR-only.** ⚠️ Issue names the wrong var: **`POSTGRES_PASSWORD` trips first**, and `REDIS_PASSWORD` **is** mapped — it's a **file-target mismatch** (restored to `.env.secrets`, which interpolation can't read). Fix = **D145** (eliminate secret interpolation). **CI-verifiable today.** Plan Phase 5 |
+| [#290](https://github.com/davistroy/open-brain/issues/290) | obvm is a hand-copied, 3-month-stale tree with no `.git` | **Decision-gated → resolved: D144 = DECOMMISSION.** Gates #282. Prove parity first (Plan Phase 3). Finishes G-B.2/G-B.5, open since 2026-04-17 |
+| [#298](https://github.com/davistroy/open-brain/issues/298) | Remove `voice-pipecat` | **D143.** Zero clients repo-wide; superseded by the decided PWA voice architecture. Makes **D135 moot**. Plan Phase 7 |
+| [#292](https://github.com/davistroy/open-brain/issues/292) | Alert rules in this repo are **not deployed** | MEDIUM. Entry 207: **parity gate FIRST**, migrate later. Refinement: the deployed dir is **755** → a read-only check **can** run as `claude`. Plan Phase 6 |
+| [#295](https://github.com/davistroy/open-brain/issues/295) | All scheduled jobs run **UTC** — morning brief fires 02:30 ET | MEDIUM. ⚠️ Re-keys every job (4–5h shift) **and lands the BullMQ morning cluster on top of the host-cron ingest cluster**. Land deliberately. Plan Phase 8 |
+| [#285](https://github.com/davistroy/open-brain/issues/285) | Cobb Water 401 — `water_readings` empty since day one | **Operator-gated (B2C OIDC + MFA).** ⚠️ Issue's premise is wrong: the *"confirmed via HAR analysis"* citation **predates the analysis by 8h**, and the API was **never anonymous**. 3 more independent blockers. **Probe risks account lockout.** Plan Phase 1 (honest status) + 9 |
+| [#286](https://github.com/davistroy/open-brain/issues/286) | Cobb EMC never worked — Dockerfile pulls a 404 repo, `\|\| true` hides it | **Scoping decision needed — it's an unbuilt feature, not a bug.** Nothing invokes the binary; the CSV parser is unwritten; `data_dir` isn't a volume. Plan Phase 1 (Dockerfile + smoke test) + 9 |
+| [#282](https://github.com/davistroy/open-brain/issues/282) | Gmail OAuth dead since 2026-04-21 | **Operator-gated (Google Console).** ⚠️ Premise wrong: `gmail_token_cache` is a **different** client. **Reduced by D144 to: publish the OAuth app** — required either way, since the TS client shares the OAuth client + 7-day clock. Plan Phase 3/10 |
+| [#284](https://github.com/davistroy/open-brain/issues/284) | ~213 spurious 404s/run | **DROPPED by D144** — dies with obvm. ⚠️ Root cause was wrong (`detect_corrections`, not `cleanup_spam`) and it is **not cosmetic**: Hotmail correction detection **never worked**. Carry the lesson: does the **TS** path repeat the Graph move-id bug? |
+| [#301](https://github.com/davistroy/open-brain/issues/301) | faster-whisper → speaches migration | **OUT of scope (D146)** — a migration, not a fix; own brainstorm. Urgency downgraded: **loopback-only**, not internet-facing. After #298 |
+| [#71](https://github.com/davistroy/open-brain/issues/71)  | Cognitive memory tuning | Data-gated. ⚠️ Contains a real bug: **`temporal_weight` GET=0.0 vs POST=0.1**. Related-captures **backend is built and unused**. Plan Phase 9 |
+| [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile app deferred scope | When mobile becomes a priority. None of the 5 items exist; **EAS Build gates push**. OA-7 blocked on U3 |
 
 ---
 
@@ -42,6 +52,11 @@ The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`
 
 | # | Closed | Via |
 |---|--------|-----|
+| #54 | 2026-07-15 | Pipecat soak test — **obsolete**: a 2-week manual soak of a service with **zero clients** (`grep WebSocket(` → nothing repo-wide; port 8765 in one non-doc file), whose capability is superseded by the decided **PWA + Web Speech** architecture. Superseded by #298 / D143. Entry 209 |
+| #57 | 2026-07-15 | Voice architecture decision — **already answered by default**: voice-capture + faster-whisper is the only live path. Superseded by #298 / D143. Entry 209 |
+| #72 | 2026-07-15 | RTX PRO 2000 — **superseded by the DGX Spark**, which already serves Qwen3.6-35B as `t1_spark` (free). A $549 card for a 9B is moot; the one unmet claim (local embeddings) is contradicted by D42. Entry 209 |
+| #73 | 2026-07-15 | Qdrant evaluation — **premise falsified**, not untriggered. Sized from "OneDrive 100K–1M+ embeddings"; reality is **11,296** — 9× below its own trigger, ~45× below the pgvector ceiling it names. Entry 209 |
+| #278 | 2026-07-15 | secrets-map.sh invented BWS names — **verified fixed**: the map now carries the real names (`PUSHOVER_API_TOKEN`, `PUSHOVER_USER_KEY`, `GITEA_TOKEN`), `SLACK_USER_TOKEN` demoted to OPTIONAL, count comment reconciled to 12. **#281 is orthogonal** (file-target, not naming) and **#300 is a distinct process violation** — do not merge them. Entry 209 |
 | #275 | 2026-07-15 | gas therms NULL — bill-PDF parser rewritten to anchor on the bill's arithmetic + PyMuPDF added to the sidecar image (PR #276). **Verified in prod: 4/4 bills, 153.6 therms.** Entry 200 |
 | #265 | 2026-07-15 | Gas South login 405/404 — auth repointed at the portal's dedicated auth host + required `ClientId` header (PR #273). Solved from the JS bundle, **no HAR needed**. Verified with real credentials. Entries 198-199 |
 | #200 | 2026-07-14 | Dashboard failure count — honest pipeline-status display, `derivePipelineStatus()` decouples health from stale failures (PR #271). Verified live |
