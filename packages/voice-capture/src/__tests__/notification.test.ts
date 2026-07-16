@@ -82,7 +82,8 @@ describe('NotificationService', () => {
       const body = opts.body as string
       expect(body).toContain(`token=${TOKEN}`)
       expect(body).toContain(`user=${USER}`)
-      expect(body).toContain('title=Alert+title')
+      // Titles carry the shared PushoverService 'Open Brain' identity prefix (#312).
+      expect(new URLSearchParams(body).get('title')).toBe('Open Brain: Alert title')
       expect(body).toContain('message=Alert+body')
     })
 
@@ -157,7 +158,8 @@ describe('NotificationService', () => {
       })
 
       const [, opts] = mockFetch.mock.calls[0]
-      expect(opts.body).toContain('title=Voice+memo+captured')
+      // Prefixed with the shared 'Open Brain' identity (#312).
+      expect(new URLSearchParams(opts.body as string).get('title')).toBe('Open Brain: Voice memo captured')
     })
 
     it('includes captureType and brainView in the message body', async () => {

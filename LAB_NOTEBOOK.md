@@ -13802,3 +13802,28 @@ Built `scripts/check-alerts-parity.sh` (sibling to the compose parity gate) — 
 
 **Tags:** [deploy] [docker] [observability]
 **Environment:** homeserver. Executed by Claude (Opus 4.8), user-directed ("take the ingest-sidecar deploy and #292 now").
+
+---
+
+## Entry 217 — Filed #311/#312; hardened in-app Pushover titles with a centralized identity prefix (#312 code side) (2026-07-16)  [decision] [observability] [testing]
+
+**Objective:** file the two backlog items that were never GitHub issues, then take the code-side of the alert-branding fix. **Rollback:** repo-only branch work; `git revert`. No running-system change this entry (operator steps OA-25 + the deploy remain).
+
+### 1. Filed the two missing issues
+- **#311** — build the `actual-ingest` sidecar. Troy's ORIGINAL ask; design approved (spec `2026-07-15-actual-daily-job-design.md`, PR #296) but **never built**. The issue carries the full deliverable list, the §5 phantom-income invariant, and every landmine (br0 external, D142 static-IP literal, #302 deploy gate, serialize-with-#298).
+- **#312** — infra Pushover alerts are branded **"From Voice Capture"**. This is the human-factors root cause the 40h scheduler outage went unactioned (Entry 214): ~40 criticals delivered flawlessly but read as voice-memo noise.
+
+### 2. #312 code side — a centralized, idempotent title prefix (shipped, TDD)
+The banner "From Voice Capture" is the Pushover **application** name (console-registered, tied to the token) — **not settable per message.** The only per-message lever is the *title*. Audit of the ~28 in-app `pushover.send()` sites found the titles **inconsistent**: the criticals mostly self-identify ("Open Brain: Pipeline Health Alert", "Open Brain: <container> unhealthy") but the routine ones don't ("Daily Sweep", "Weekly Brief Ready", "Memory Consolidation", "Daily Connections", …).
+
+**Decision — one central prefix over churning 28 call sites.** `PushoverService.send()` now prepends a stable identity to every title, **idempotently**: default `Open Brain` (override `PUSHOVER_TITLE_PREFIX`, `''` disables); a title already starting with the prefix (case-insensitive) is left untouched. Rejected the per-call-site normalization (28 edits, drifts again the moment a new skill is added — the same class of drift behind this whole backlog). One source of truth; new senders inherit it. **Intended side effect:** voice-memo confirmations become "Open Brain: Voice memo captured" — reversible via `titlePrefix: ''`, kept for consistent product identity.
+
+**Blast radius, measured not assumed:** only tests that use the REAL `PushoverService` and inspect the *delivered* fetch body observe the prefix — skill tests inject a mock and spy on the caller's args (applied *inside* `send()`, after the spy). Grep confirmed exactly 3 such assertions (workers `pushover.test.ts:104`; voice-capture `notification.test.ts` ×2). All three updated to the new contract; 7 new dedicated prefix tests added (default, idempotent-exact, idempotent-bare-identity, case-insensitive, explicit config, env fallback, empty-disables). **TDD: watched 4 fail RED for "feature missing" before implementing.**
+
+**Verified green:** shared 371, voice-capture 112, workers full suite + **coverage gate exit 0**, core-api email-draft 16; `tsc --noEmit` clean on shared/voice-capture/workers/core-api. `@open-brain/shared` rebuilt so dependents resolve the new dist.
+
+### 3. What the code CAN'T fix — the banner (OA-25 + runbook)
+The title prefix hardens **path 1** (in-app `PushoverService`, single `PUSHOVER_APP_TOKEN`). The 40 outage sirens came from **path 2 — the external `observability` project's Alertmanager** (`pushover-critical`/`-warning` receivers), which this repo does not own. Both carry the same banner. Wrote `docs/runbooks/pushover-alert-branding.md` (Option A: rename the app in the console = 1 step, fixes both paths' banner, token unchanged; Option B: split an "Open Brain Infra" app + repoint the observability Alertmanager receivers) and filed **OA-25**. Recommended A.
+
+**Tags:** [decision] [observability] [testing]
+**Environment:** worktree/laptop dev; no prod change. Executed by Claude (Opus 4.8), user-directed ("Both 1 and 2").
