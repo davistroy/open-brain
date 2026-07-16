@@ -4,7 +4,8 @@
 #
 # Exposes a stdlib HTTP trigger on :8080 (trigger_server.py) for core-api's
 # ingest-process worker to dispatch POST /process over the internal Docker
-# network with HMAC auth (INGEST_TRIGGER_SECRET). Host cron also exec's into
+# network with a bearer-token auth (INGEST_TRIGGER_SECRET, constant-time compare
+# — NOT HMAC/signed). Host cron also exec's into
 # this container for scheduled batch runs:
 #   docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox
 
@@ -99,8 +100,9 @@ COPY scripts/utility-pipeline.py  /app/utility-pipeline.py
 # Shared Python helpers (capture_api, ingest_router when CS3 lands)
 COPY scripts/lib /app/lib
 COPY config /app/config
-# HTTP trigger server (stdlib) — core-api dispatches POST /process here via
-# INGEST_TRIGGER_SECRET HMAC. Serializes pipeline runs via fcntl file lock.
+# HTTP trigger server (stdlib) — core-api dispatches POST /process here with the
+# INGEST_TRIGGER_SECRET bearer token (constant-time compare, not HMAC/signed).
+# Serializes pipeline runs via fcntl file lock.
 COPY docker/ingest-sidecar/trigger_server.py /app/trigger_server.py
 
 # Directories the script writes to at runtime. Named volumes mount over these.

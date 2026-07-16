@@ -47,12 +47,15 @@ PUSHOVER_TOKEN=fake_pushover_token
 PUSHOVER_APP_TOKEN=fake_pushover_app
 PUSHOVER_USER_KEY=fake_pushover_user
 POSTGRES_PASSWORD=fake_pg_password
+REDIS_PASSWORD=fake_redis_password
 MCP_API_KEY=fake_mcp_key
 ADMIN_API_KEY=fake_admin_key
 GITEA_TOKEN=fake_gitea
 CLOUDFLARE_TUNNEL_TOKEN=fake_cf_tunnel
 DEEPGRAM_API_KEY=fake_deepgram
 SMTP_PASS=fake_smtp_pass
+VOICE_CAPTURE_SECRET=fake_voice_secret
+INGEST_TRIGGER_SECRET=fake_ingest_trigger_secret
 FAKE_SECRETS
 
 cat > "${FAKE_APP_DIR}/.env" << 'FAKE_ENV'
@@ -68,6 +71,10 @@ FAKE_EXAMPLE
 
 echo 'version: "3"' > "${FAKE_APP_DIR}/docker-compose.yml"
 echo 'log_level: info' > "${FAKE_APP_DIR}/config/app.yaml"
+# #299: a config SUBDIR file — the old non-recursive glob omitted these entirely.
+# The recursion assertion below proves it is now backed up.
+mkdir -p "${FAKE_APP_DIR}/config/prometheus/alerts"
+echo 'groups: []' > "${FAKE_APP_DIR}/config/prometheus/alerts/nested.yml"
 
 # --- Run backup.sh with overridden paths ---
 export APP_DIR="${FAKE_APP_DIR}"
@@ -95,10 +102,12 @@ export CONFIG_DIR="${BACKUP_FILE}/config"
 mkdir -p "$CONFIG_DIR"
 
 # Extract ONLY the config-copy commands from backup.sh section 2 and run them.
-# Using `sed -n` to pull lines 89–101 (the config-copy block).
-# Range updated from 74-86 → 89-101 after PLT-M5 added SCRIPT_DIR + source +
-# Pushover trap above the Setup section (15 new lines).
-sed -n '89,101p' "${SCRIPT_DIR}/backup.sh" | bash
+# Marker-based (not a hardcoded line range — that was brittle and had already
+# been re-based once; #299/A146). Everything between the `>>> config-copy-block`
+# and `<<< config-copy-block` sentinels is extracted and run standalone, so this
+# stays correct no matter how the surrounding script shifts.
+awk '/# >>> config-copy-block/{f=1;next} /# <<< config-copy-block/{f=0} f' \
+  "${SCRIPT_DIR}/backup.sh" | bash
 
 echo "---"
 echo ""
@@ -114,10 +123,19 @@ if [ ! -f "${CONFIG_DIR}/dot-env" ]; then
 fi
 echo "Sanity check passed: dot-env present in backup tree."
 
+# --- #299 regression: config SUBDIRS must be backed up recursively ---
+if [ ! -f "${CONFIG_DIR}/prometheus/alerts/nested.yml" ]; then
+  echo ""
+  echo "FAIL: config subdir file (prometheus/alerts/nested.yml) missing from the backup."
+  echo "The config copy is not recursive — #299 regression (subdirs silently omitted)."
+  exit 1
+fi
+echo "Recursion check passed: config subdir file present in backup tree."
+
 # --- Grep the backup output for secret variable names ---
 echo "Scanning backup tree for secret variable names..."
 
-SECRET_PATTERN='BWS_ACCESS_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY|SLACK_BOT_TOKEN|SLACK_APP_TOKEN|SLACK_USER_TOKEN|PUSHOVER_TOKEN|PUSHOVER_APP_TOKEN|PUSHOVER_USER_KEY|POSTGRES_PASSWORD|MCP_API_KEY|ADMIN_API_KEY|GITEA_TOKEN|CLOUDFLARE_TUNNEL_TOKEN|DEEPGRAM_API_KEY|SMTP_PASS'
+SECRET_PATTERN='BWS_ACCESS_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY|SLACK_BOT_TOKEN|SLACK_APP_TOKEN|SLACK_USER_TOKEN|PUSHOVER_TOKEN|PUSHOVER_APP_TOKEN|PUSHOVER_USER_KEY|POSTGRES_PASSWORD|REDIS_PASSWORD|MCP_API_KEY|ADMIN_API_KEY|GITEA_TOKEN|CLOUDFLARE_TUNNEL_TOKEN|DEEPGRAM_API_KEY|SMTP_PASS|VOICE_CAPTURE_SECRET|INGEST_TRIGGER_SECRET'
 
 MATCHES=$(grep -rl -E "${SECRET_PATTERN}" "${FAKE_BACKUP_ROOT}" 2>/dev/null || true)
 

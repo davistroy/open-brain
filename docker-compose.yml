@@ -516,7 +516,8 @@ services:
       - .env.secrets
     environment:
       # BWS_ACCESS_TOKEN set in .env.secrets — required for bws secret list
-      # INGEST_TRIGGER_SECRET set in .env.secrets — HMAC for core-api dispatch
+      # INGEST_TRIGGER_SECRET via .env.secrets — bearer token for core-api's
+      # ingest-process dispatch (constant-time compare; NOT HMAC/signed). #300
       INGEST_SOURCE: financial  # binds trigger_server.py to financial-pipeline.py
       FINANCIAL_INBOX_DIR: /inbox
       FINANCIAL_PIPE_DIR: /data
@@ -556,7 +557,8 @@ services:
     env_file:
       - .env.secrets
     environment:
-      # INGEST_TRIGGER_SECRET set in .env.secrets — HMAC for core-api dispatch
+      # INGEST_TRIGGER_SECRET via .env.secrets — bearer token for core-api's
+      # ingest-process dispatch (constant-time compare; NOT HMAC/signed). #300
       INGEST_SOURCE: utility  # binds trigger_server.py to utility-pipeline.py
       UTILITY_INBOX_DIR: /inbox
       UTILITY_PIPE_DIR: /data
