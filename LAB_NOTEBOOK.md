@@ -13653,3 +13653,35 @@ main's base declares the ADR-0002 dual bind (`127.0.0.1:3002:3000` + `${TAILSCAL
 
 **Tags:** [deploy] [docker] [decision]
 **Environment:** homeserver (Unraid). Scope: ONE file checkout + one sed + ONE service recreate (workers). Executed by Claude (Opus 4.8), user-directed ("Go").
+
+### Entry 212 — RESULT: compose reconciled, workers recreated, the backup gauge is ALIVE
+
+**Executed 2026-07-15 ~22:09–22:12 ET. Success. Scope held: ONE file checkout + one sed + ONE service recreate.**
+
+**The two-gate procedure did its job.** The BEFORE→AFTER config diff was **23 lines and exactly the intended delta** — web-next (`NEXT_PUBLIC_API_URL` removed, healthcheck `/dashboard`→`/api/healthz`) and workers (`BACKUP_LATEST_PATH`, `OPERATOR_ACTIONS_PATH`, + two binds). **postgres, redis, ports and `shm_size` do not appear in the diff at all** — byte-identical before and after. That is the proof the landmine stayed disarmed, not a hope.
+
+**Verified after the recreate:**
+- workers `running`, **restarts=0**; **44 scheduler log lines, 0 errors** (repeatables re-registered)
+- `/mnt/user/backup/openbrain/latest -> /backup-latest ro=true` — **the mount is live**
+- `/app/OPERATOR_ACTIONS.md` **is a FILE, not a directory** — the pre-flight catch held
+- **postgres `StartedAt` 20:52:54 — UNCHANGED. redis 04:02:20 — UNCHANGED.**
+- **`check-deploy-parity.sh`: exit 1 (drift) → exit 0 ("only the allowlisted D131 deviation differs")**
+
+**#294's acceptance met on the metric, not on a proxy.** Triggered `pipeline-health` manually (`POST /api/v1/skills/:name/trigger`) rather than wait 6h — it ran at **22:11:33**, its first run since 07-13 20:00. Then:
+```
+openbrain_backup_age_seconds{instance="workers",job="open-brain"}  69007      # 19.2h — under the 26h threshold
+push_time_seconds{instance="workers",job="open-brain"}             1.78416e+09
+```
+Prometheus **is scraping it** (`/api/v1/query` returns the series). **33 `openbrain_*` metrics where there were 0** — so the "possibly broken push path" (break 3) was **never broken**: the earlier zero was the observability stack's **Pushgateway wipe** (no `--persistence.file`), and it repopulated on the first push. `push_time_seconds` now exists ⇒ **`PushgatewayStale` has data**, which matters because `WorkersMetricsAbsent` structurally cannot fire (#303).
+
+**#294 status — 2 of 3 breaks fixed; say so plainly:**
+| Break | State |
+|---|---|
+| 1. no `/backup-latest` mount → gauge + `sendBackupStaleAlert` dead | **FIXED** — mount live, gauge emitting, Prometheus scraping |
+| 3. push path possibly broken | **NOT BROKEN** — was the Pushgateway wipe; 33 metrics flow |
+| 2. the rule isn't deployed (#292) | **STILL OPEN** — `backup.yml` is **absent** from the deployed alerts dir (verified: 11 files there, no `backup.yml`) |
+**So the data exists and Prometheus sees it — but NOTHING EVALUATES IT YET.** A stale backup still would not page. **#294 stays OPEN.** Closing it here would be the exact "the alert is loaded ≠ the alert works" error the issue is about. It needs #292 (deploy the rule) + #303 (rename off the Unraid `BackupStale` collision).
+
+**Lesson — check what the other workstream already did.** I had planned a postgres recreate for #297. It was **already done** (`/dev/shm` 1.0G, container started 30s after the override changed). Re-doing it would have re-taken the system's riskiest operation for zero gain. **The parallel plan's owner had already executed its own work item.**
+
+**Lesson — a naive checkout would have broken core-api LATENTLY.** main's dual bind + the override's appended third = 3 publishes on 3002 ⇒ EADDRINUSE — but only on core-api's *next* recreate, i.e. during someone else's unrelated deploy, far from the cause. The dry-run in a scratch dir (with an **empty** `.env.secrets` — never copy secrets to /tmp) caught it for free.
