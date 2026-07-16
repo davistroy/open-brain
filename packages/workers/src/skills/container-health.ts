@@ -5,6 +5,7 @@ import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import { pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
+import { pushBackupAgeGauge } from '../lib/backup-age.js'
 
 // ============================================================
 // Types
@@ -143,6 +144,13 @@ export class ContainerHealthSkill extends BaseSkill<ContainerHealthOptions, Cont
 
     // Step 2.5: Push container health metrics to Pushgateway
     await this.pushContainerMetrics(checks)
+
+    // Step 2.6: Re-push the backup-age gauge on this 15-min cadence (#309).
+    // Pushgateway has no persistence; after a restart the gauge would be ABSENT
+    // for up to 6h if only pipeline-health (every 6h) pushed it — and
+    // OpenBrainBackupStale cannot fire on an absent metric. Graceful/no-op if the
+    // /backup-latest mount is absent.
+    await pushBackupAgeGauge()
 
     // Step 3: Check for consecutive failures and send alerts
     const alertsSent: string[] = []

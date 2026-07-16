@@ -1,9 +1,9 @@
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
-import { stat } from 'node:fs/promises'
 import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
+import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
 import type { MetricLine } from '../lib/push-metrics.js'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
@@ -128,7 +128,6 @@ const DEFAULT_WAITING_THRESHOLD = 100
  * Default max age (93600s = 26h) mirrors config/prometheus/alerts/backup.yml
  * (backup.sh runs daily; 26h = one full day + a 2h grace margin).
  */
-const DEFAULT_BACKUP_MANIFEST_PATH = '/backup-latest/manifest.json'
 const DEFAULT_BACKUP_MAX_AGE_SECONDS = 93600
 
 // ============================================================
@@ -446,25 +445,13 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     const envMaxAge = process.env.BACKUP_MAX_AGE_SECONDS ? Number(process.env.BACKUP_MAX_AGE_SECONDS) : NaN
     const maxAgeSeconds = Number.isFinite(envMaxAge) && envMaxAge > 0 ? envMaxAge : DEFAULT_BACKUP_MAX_AGE_SECONDS
 
-    let mtimeMs: number
-    try {
-      const stats = await stat(manifestPath)
-      mtimeMs = stats.mtime.getTime()
-    } catch (err) {
-      logger.debug({ err, manifestPath }, '[pipeline-health] backup manifest unavailable — skipping backup-age check')
+    // Stat the manifest + push the openbrain_backup_age_seconds gauge (shared
+    // helper — container-health re-pushes it every 15m so it survives a
+    // Pushgateway restart, #309). Returns null when the manifest is absent.
+    const ageSeconds = await pushBackupAgeGauge(manifestPath)
+    if (ageSeconds === null) {
       return { ageSeconds: null, stale: false, maxAgeSeconds }
     }
-
-    const ageSeconds = Math.max(0, Math.floor((Date.now() - mtimeMs) / 1000))
-
-    await pushMetrics([
-      {
-        name: 'openbrain_backup_age_seconds',
-        value: ageSeconds,
-        help: "Seconds since the latest backup manifest (scripts/backup.sh) was last written",
-        type: 'gauge',
-      },
-    ])
 
     const stale = ageSeconds > maxAgeSeconds
     if (stale) {
