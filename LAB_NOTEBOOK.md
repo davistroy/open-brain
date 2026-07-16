@@ -13911,3 +13911,23 @@ Bringing prod current is the riskiest op class (a postgres/redis-adjacent recrea
 
 **Tags:** [docker] [debug] [deploy]
 **Environment:** laptop dev + local `docker build` (image `actual-ingest:localtest`, built + entrypoint-verified). Executed by Claude (Opus 4.8), user-directed ("go").
+
+---
+
+## Entry 222 — Removed voice-pipecat (#298 / D143) (2026-07-16)  [docker] [web] [decision]
+
+**Objective:** fully delete the client-less conversational-voice service (D143 — superseded by the decided PWA voice design; open unauthenticated `0.0.0.0:8765`; unbounded `pipecat-ai>=0.0.60` floor). **Rollback:** git-recoverable; `git revert`. No prod change (nothing connected to it — the deciding fact was the client, not the container).
+
+### Scope executed (mapped by an Explore agent first — ~18 active files)
+- **Deleted wholesale:** `packages/voice-pipecat/` (19 files, self-contained — nothing imports it), `config/voice.yaml` (100% pipecat — the LIVE faster-whisper path is env-configured, never read this file), `docs/ios-shortcut-pipecat.md`.
+- **Compose:** removed the service block + fixed the **inverted comment** (faster-whisper/voice-capture were mislabeled "legacy … kept for fallback until voice-pipecat is validated" — exactly backwards; they're the live path). **Verified: no stale `depends_on` targets it** (the Entry-143 hazard was clean) and `docker compose config -q` renders with **0** voice-pipecat refs.
+- **CI:** deleted the `voice-pipecat-test` job (ci.yml), the `build-and-push voice-pipecat` step (build-images.yml), and its `dependabot.yml` pip+docker dirs.
+- **Code:** dropped the `voice-pipecat` probe from `container-health` (else a permanently-missing container alarms) — 13 tests still green; removed the Pipecat status row + derivation from web-next `VoiceSection.tsx` (tsc clean); removed it from `pyproject.toml` (ruff/pyright) and `test-loki-routing.sh`'s expected-container list.
+- **Decision record MARKED MOOT, not deleted** (a reviewer should see it was decided then reversed): SECURITY.md §4, ADR-0002 (status line + port row + the 2026-07-12 amendment), CLAUDE.md's D135 bullet. Live docs (README, deploy.md, container-health-alert.md, PROVIDER_SETTINGS, TDD) updated for accuracy. `.env.secrets.template` comments re-pointed.
+- **KEPT `DEEPGRAM_API_KEY` / `deepgram-sdk`** — used independently by `scripts/deepgram-spike.py` (#250/#255), NOT voice-pipecat-only.
+
+### Deliberately OUT of scope → follow-up for Troy
+The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `services/voice-session.ts` + the `voice_sessions` table + web-next reads) was Pipecat's session store — now **orphaned** (Pipecat was its only writer) but **harmless** (the endpoints just return empty). Removing it is a bigger, separate decision (a DB table + routes + tests) and the decided **PWA voice design may reuse a session store**, so I left it. **Flag: decide whether to remove the orphaned voice-sessions feature or keep it for the PWA voice work.**
+
+**Tags:** [docker] [web] [decision]
+**Environment:** laptop dev; verified compose config -q / workers lint+test / web-next tsc. No prod change. Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").

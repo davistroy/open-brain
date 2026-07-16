@@ -59,7 +59,6 @@ const DEFAULT_CONSECUTIVE_FAILURE_THRESHOLD = 3
 export const DEFAULT_ENDPOINTS: ContainerEndpoint[] = [
   { name: 'core-api', url: 'http://core-api:3000/health' },
   { name: 'voice-capture', url: 'http://voice-capture:3001/health' },
-  { name: 'voice-pipecat', url: 'http://voice-pipecat:8766/health' },
   { name: 'file-ingestion', url: 'http://file-ingestion:8080/health' },
   { name: 'faster-whisper', url: 'http://faster-whisper:8000/health' },
   // workers (BullMQ) and slack-bot (Socket Mode) have no HTTP health endpoints

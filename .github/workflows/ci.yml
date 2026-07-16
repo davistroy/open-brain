@@ -138,30 +138,6 @@ jobs:
       - name: Run pytest
         run: python3 -m pytest docker/ingest-sidecar/tests/ -v --tb=short
 
-  voice-pipecat-test:
-    name: voice-pipecat tests (Python)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: packages/voice-pipecat/tests/requirements.txt
-
-      - name: Install test dependencies
-        run: pip install -r tests/requirements.txt
-        working-directory: packages/voice-pipecat
-
-      - name: Run pytest
-        run: python3 -m pytest tests/ -v --tb=short
-        working-directory: packages/voice-pipecat
-
   file-ingestion-test:
     name: file-ingestion tests (Python)
     runs-on: ubuntu-latest

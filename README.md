@@ -30,7 +30,6 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
 | `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.5.0-cpu | Speech-to-text (large-v3, CPU int8) |
 | `open-brain-web-next` | build: packages/web-next/Dockerfile | Next.js 16 + Cloudscape + React 19 + TanStack Query — sole UI package; canonical ingress at brain.troy-davis.com |
-| `open-brain-voice-pipecat` | build: packages/voice-pipecat | Pipecat realtime voice pipeline (VAD → Deepgram → Claude → TTS) |
 | `open-brain-file-ingestion` | build: packages/file-ingestion | FastAPI sidecar — extracts text from PDF/DOCX/XLSX/PPTX/etc. for the document pipeline |
 | `open-brain-financial-ingest` / `utility-ingest` | image: alpine + cron | Hourly Python pullers for financial + utility data; results POST'd to `/api/v1/captures` |
 | `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
@@ -48,7 +47,6 @@ packages/
   workers/         # BullMQ jobs, pipeline stages, skills
   slack-bot/       # Slack bot (@slack/bolt, Socket Mode)
   voice-capture/   # Voice ingestion HTTP server (iOS Shortcut → faster-whisper batch path)
-  voice-pipecat/   # Realtime voice pipeline (VAD → Deepgram → Claude → TTS)
   file-ingestion/  # FastAPI sidecar — text extraction for PDF/DOCX/XLSX/PPTX/etc.
   web-next/        # Next.js 16 + Cloudscape + React 19 + TanStack Query (sole UI package)
   mobile/          # Expo (React Native) mobile app — 11 screens
@@ -221,7 +219,7 @@ source ./scripts/load-secrets.sh
 docker compose up -d
 ```
 
-This starts all 13 containers (postgres, redis, core-api, workers, slack-bot, voice-pipecat, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — it is not started by `docker compose up -d` here. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+This starts all 12 containers (postgres, redis, core-api, workers, slack-bot, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — it is not started by `docker compose up -d` here. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
 
 ### 5. Verify
 

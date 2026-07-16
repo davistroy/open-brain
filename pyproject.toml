@@ -4,11 +4,9 @@ line-length = 100
 src = [
   "scripts",
   "docker/ingest-sidecar",
-  "packages/voice-pipecat/src",
   "packages/file-ingestion/src",
 ]
 extend-exclude = [
-  "packages/voice-pipecat/tests",
   "packages/file-ingestion/tests",
   "**/node_modules",
   ".venv",
@@ -27,7 +25,6 @@ ignore = ["E501"]
 [tool.pyright]
 include = [
   "docker/ingest-sidecar",
-  "packages/voice-pipecat/src",
   "packages/file-ingestion/src",
   "scripts",
 ]
