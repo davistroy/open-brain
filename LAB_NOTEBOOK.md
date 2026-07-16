@@ -13756,3 +13756,13 @@ Every infra Pushover arrives titled **"From Voice Capture"** (the Pushover app i
 
 **Tags:** [debug] [pipeline] [decision]
 **Environment:** worktree dev + real-Redis integration (docker redis:7.4 on 6381) + 5 live BullMQ probe scripts. No prod change this entry (the Entry 212 recreate already happened). Executed by Claude (Opus 4.8), user-directed ("B′").
+
+---
+
+## Entry 216 — Deploy ingest-sidecar (WI-1.1/WI-1.3) + #292 backup.yml (2026-07-16)  [deploy] [docker] [observability]
+
+**Objective:** (a) recreate BOTH ingest sidecars onto the new image (honest-status + electric-usage-downloader install); (b) deploy open-brain's `backup.yml` alert rule so #294's now-flowing gauge is actually EVALUATED. **Rollback:** (a) re-pull the prior `70fa72e6` tag is impossible (`:latest` moved) — but the sidecars are IDLE (financial=Plaid-dropped D138; utility=host-cron only, next run 06:00 ET) and hold no in-flight state, so a bad image = recreate from the previous image ID `70fa72e6ae81` which is still cached on the host (`docker inspect` confirmed). (b) `rm` the copied backup.yml + reload Prometheus — additive, trivially reversible.
+
+**Pre-verified IN the new image `2667b69c` before deploy:** electric-usage-downloader installed (9,967,947 B) + `--help: OK`; `utility-pipeline.py` has 11 `_JSON_ERRORS.append` sites (was 3 gas-only). **D140: recreate BOTH financial-ingest + utility-ingest together** (shared `ingest-sidecar:latest`).
+
+**Hypothesis:** both sidecars come up healthy on `2667b69c`; postgres/redis untouched; #292's backup.yml loads in Prometheus and evaluates `openbrain_backup_age_seconds` (currently ~19h < 26h → healthy, not firing).
