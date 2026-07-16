@@ -26,6 +26,14 @@ scripts/
 !scripts/utility-pipeline.py
 !scripts/lib/
 !scripts/lib/**
+# actual-ingest sidecar (#311) — re-include exactly what docker/actual-sidecar/
+# Dockerfile COPYs (NOT test/ or node_modules; node_modules stays excluded above).
+# Without these, `scripts/` above hides scripts/actual and the COPY fails at build.
+!scripts/actual/package.json
+!scripts/actual/package-lock.json
+!scripts/actual/actual-daily.mjs
+!scripts/actual/lib/
+!scripts/actual/lib/**
 
 # Test files (not needed in production image)
 **/__tests__/
