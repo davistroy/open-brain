@@ -107,7 +107,12 @@ services:
       OLLAMA_URL: http://ollama:11434/v1
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
-      GITEA_TOKEN: ${GITEA_TOKEN}
+      # GITEA_TOKEN comes from `env_file: .env.secrets` above — do NOT re-declare it.
+      # `environment:` OVERRIDES `env_file:`, and interpolation reads only the shell +
+      # `.env`, never `.env.secrets`. So `GITEA_TOKEN: ${GITEA_TOKEN}` CLOBBERED the
+      # correct value with "" whenever `.env` lacked it — i.e. after any DR rebuild,
+      # since load-secrets.sh writes `.env.secrets` and never `.env`. Proven: with the
+      # line -> GITEA_TOKEN=""; without it -> the env_file value survives. (#281)
       NODE_OPTIONS: "--max-old-space-size=1200"
       # Himalaya TOML config lives on the mounted config volume. Credentials live
       # inside the TOML file (gitignored; sourced from Bitwarden BOND_EMAIL_PASSWORD).
@@ -162,7 +167,12 @@ services:
       OPEN_BRAIN_API_URL: http://core-api:3000
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
-      GITEA_TOKEN: ${GITEA_TOKEN}
+      # GITEA_TOKEN comes from `env_file: .env.secrets` above — do NOT re-declare it.
+      # `environment:` OVERRIDES `env_file:`, and interpolation reads only the shell +
+      # `.env`, never `.env.secrets`. So `GITEA_TOKEN: ${GITEA_TOKEN}` CLOBBERED the
+      # correct value with "" whenever `.env` lacked it — i.e. after any DR rebuild,
+      # since load-secrets.sh writes `.env.secrets` and never `.env`. Proven: with the
+      # line -> GITEA_TOKEN=""; without it -> the env_file value survives. (#281)
       NODE_OPTIONS: "--max-old-space-size=1200"
       # wiki-ingest makes git commits from inside this container; env vars
       # override lack of ~/.gitconfig and identify the bot author (A61).
