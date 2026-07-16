@@ -87,6 +87,15 @@ declare -A OPTIONAL_SECRETS=(
   # forwards it upstream; unset = pre-rollout warn-and-allow. BWS item creation
   # operator-deferred until the iOS Shortcut + clients are updated to send it.
   ["dev/open-brain/voice-capture-secret"]="VOICE_CAPTURE_SECRET"
+  # #300 — shared bearer token core-api/workers use to authenticate to the ingest
+  # sidecars' /process HTTP trigger (constant-time compare, NOT HMAC). It was
+  # referenced in 14 files but in NEITHER the template NOR this map, so a DR
+  # rebuild's reconcile dropped it → both sidecars start unauthenticated and 401
+  # every HTTP trigger, while host cron (which docker-exec's, bypassing HTTP)
+  # keeps looking healthy. A generated shared secret like VOICE_CAPTURE_SECRET,
+  # so it is OPTIONAL + operator-deferred: create the BWS item (generate with
+  # `openssl rand -hex 32`) and it flows automatically thereafter (OA-26).
+  ["dev/open-brain/ingest-trigger-secret"]="INGEST_TRIGGER_SECRET"
   # #311 actual-ingest — Actual Budget daily job (spec §7). OPTIONAL until the
   # sidecar is deployed (OA-20), so current reconciles don't exit-2 for a secret
   # that isn't in BWS yet. Consumer: docker/actual-sidecar (env_file: .env.secrets).
