@@ -38,7 +38,15 @@ groups:
   - name: open-brain-backup
     interval: 5m
     rules:
-      - alert: BackupStale
+      - alert: OpenBrainBackupStale
+        # NAME: deliberately NOT "BackupStale" — the deployed observability stack
+        # already has a `BackupStale` in host-resources.yml (Unraid's appdata-plugin
+        # backup, querying appdata_backup_last_run_timestamp_seconds). Two rules with
+        # the same alertname in different groups both fire independently, but
+        # /api/v1/rules and a Pushover title "[CRITICAL] BackupStale" become
+        # ambiguous — that collision nearly produced a false "yes, it's deployed"
+        # (#294). This name is open-brain-specific and unambiguous.
+        #
         # Fires when the latest backup manifest has not been refreshed in
         # over 26 hours. backup.sh runs daily at 03:00; 26h gives one full
         # day plus a 2h grace margin for a delayed/retried cron run before
