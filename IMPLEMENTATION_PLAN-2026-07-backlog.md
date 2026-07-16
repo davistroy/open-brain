@@ -98,14 +98,34 @@ Phase 10 (operator)      ──► end, except blockers already surfaced
 
 ## Phase 2 — Free wins 🟢
 
-### WI-2.1 — Recreate workers → revive the backup dead-man's switch (#294a)
-- **Change:** **none.** The `/backup-latest` mount is already in `docker-compose.yml:195,202` (shipped PR #244); the **running container has no backup mount**. Committed ≠ deployed.
-- **Do:** `sudo -n docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --force-recreate --no-deps workers`
-- **Safe:** `workers` has a **unique image** — no Entry 201 trap.
-- **Acceptance:** `docker inspect open-brain-workers` shows `/backup-latest`; `openbrain_backup_age_seconds` emits within one pipeline-health cycle (6h); `sendBackupStaleAlert` becomes reachable.
-- **Live-host-only.**
+### WI-2.1 — ~~Recreate workers → revive the backup dead-man's switch (#294a)~~ 🔴 **WRONG — CORRECTED 2026-07-15 (Entry 211)**
+
+> **This work item was based on my own "committed ≠ deployed" error.** I wrote *"the mount is already in `docker-compose.yml:195,202`; the fix is a recreate, not code"* — but I grepped the file **in my checkout**, not **on the host**. Verified live:
+>
+> ```
+> /backup-latest landed in MAIN:    2026-07-13 (PR #244, cd287d8)
+> workers container created:        2026-07-15T18:46:28Z  <-- it WAS recreated (14:46 ET)
+> grep -c backup-latest <deployed>: 0                     <-- and STILL has no mount
+> deployed compose HEAD:            a1629e4 (2026-06-16)  <-- ~1 month stale
+> ```
+>
+> **A recreate is a NO-OP.** The container was recreated *after* the mount landed in main and still lacks it, because **the deployed compose file was never updated**. Root cause → **#302: compose changes have no deploy path** (`pull` ships images; the compose file only moves when a human runs `git checkout origin/main -- docker-compose.yml`).
+>
+> **WI-2.1 is therefore BLOCKED ON #302** and moves into the Phase 7 reconciliation window. It is not a free win.
+>
+> **Checking `docker-compose.yml` in your checkout tells you nothing about production.** Grep the host.
+
+### WI-2.1a — File the systemic root cause (done)
+- **#302** — compose changes have no deploy path. **Hard prerequisite for WI-7.1 (#298) and WI-7.2 (actual-ingest)**: both are compose changes and would **silently never deploy**, exactly like #294's mount.
+- **#303** — `WorkersMetricsAbsent` can never fire: `absent()` on a **Pushgateway** metric, which retains the last value indefinitely, so a dead workers leaves it non-absent forever. Only `PushgatewayStale` (`push_time_seconds` age) can work. **OA-9b would have revealed this — it is still open, never run.**
+
+### WI-2.1b — Compose parity gate 🟢 zero risk, do NOW
+- **Change:** compare the **rendered** repo compose against the **rendered deployed** compose (`docker compose config`, not raw text), allowlisting the two documented deviations: the **D131 core-api `3002:3000`** sed and the **raw-bind override** for postgres/redis.
+- **Why now, before any deploy:** Entry 207's own logic — *"Everything that drifted this week drifted because nothing compared the two copies. Comparison is the fix."* It would report *"deployed compose is 4 commits behind"* today, turning an invisible fact into a loud one. **It is a prerequisite for actual-ingest ever existing in prod**, not gold-plating.
+- **Read-only** — the deployed file is readable as `claude`. Zero deploy risk.
 
 ### WI-2.2 — Stop clobbering `GITEA_TOKEN`
+> ⚠️ **Also a compose change ⇒ it lands in the repo now but takes effect only at the Phase 7 reconciliation (#302).** Safe and correct to merge today; just don't record it as "fixed in prod" until the deployed compose moves. Same trap as WI-2.1 — *every* compose edit inherits it.
 - **Change:** delete `GITEA_TOKEN: ${GITEA_TOKEN}` at `docker-compose.yml:114` and `:169`.
 - **Why:** `env_file: .env.secrets` **already supplies it correctly**, then `environment:` overrides it with `""`. Proven empirically. Deleting the lines *is* the fix.
 - **Verify:** `docker compose config 2>&1 | grep "Defaulting to a blank string"` → no `GITEA_TOKEN`.
