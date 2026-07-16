@@ -21,7 +21,11 @@ export const searchSchema = z.object({
   brain_views: z.array(z.string()).optional(),
   start_date: z.string().datetime().optional(),
   end_date: z.string().datetime().optional(),
-  temporal_weight: z.number().min(0).max(1).default(0.1),
+  // #71: aligned to the GET default and the documented cold-start default (0.0).
+  // Previously 0.1, so POST and GET returned different rankings for the same
+  // omitted param. Callers wanting temporal decay pass it explicitly (slack-bot
+  // sends 0.1).
+  temporal_weight: z.number().min(0).max(1).default(0.0),
   search_mode: z.enum(SEARCH_MODES).default('hybrid'),
   fts_weight: z.number().min(0).max(1).default(0.5),
   vector_weight: z.number().min(0).max(1).default(0.5),
