@@ -88,6 +88,34 @@ jobs:
         run: npx vitest run
         working-directory: cloudflare/email-worker
 
+  actual-ingest-test:
+    name: actual-ingest tests (Actual Budget sidecar)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # #311: scripts/actual is a standalone npm project (its own package-lock.json)
+    # outside the pnpm workspace, mirroring cloudflare/email-worker. It holds the
+    # money-correctness logic — the §5 phantom-income invariant, classify order,
+    # per-item fault isolation — so it MUST be tested in CI.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          # Standalone npm job, no pnpm — see email-worker-test note.
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: scripts/actual
+
+      - name: Run tests
+        run: npx vitest run
+        working-directory: scripts/actual
+
   sidecar-test:
     name: Sidecar tests (Python)
     runs-on: ubuntu-latest
