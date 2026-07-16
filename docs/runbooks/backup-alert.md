@@ -1,6 +1,6 @@
 # Runbook: Backup Dead-Man's Switch Alert
 
-**Alert:** `BackupStale` (critical)
+**Alert:** `OpenBrainBackupStale` (critical) — deliberately NOT `BackupStale`, which is Unraid's appdata-plugin alert in the shared stack (avoids the #294 collision)
 **Metric:** `openbrain_backup_age_seconds` (pushed to Pushgateway by `pipeline-health` skill every 6h)
 **Rule file:** `config/prometheus/alerts/backup.yml`
 **Independent Pushover path:** `packages/workers/src/skills/pipeline-health.ts` (`sendBackupStaleAlert`) — fires directly from the app layer, not via Prometheus/Alertmanager (PLT-H2: shared-stack delivery is unproven)
@@ -11,7 +11,7 @@
 
 | Alert | Threshold | Severity |
 |-------|-----------|----------|
-| `BackupStale` | Latest backup manifest older than 26h (93600s), sustained 10+ minutes | critical |
+| `OpenBrainBackupStale` | Latest backup manifest older than 26h (93600s), sustained 10+ minutes | critical |
 
 **Why this exists:** all pre-7.4 backup alerting was push-on-failure from `scripts/backup.sh` / `scripts/offsite-backup.sh` / `scripts/restore-rehearsal.sh` themselves. A dead cron, an unreadable `.env.secrets` in cron context (bare cron env — see CLAUDE.md Unraid cron notes), or a wedged host produces **zero signal** in that model (PLT-H4). This is a dead-man's switch instead: it watches for the *absence* of a fresh backup rather than waiting for a script to report failure, so it also catches the case where the cron itself never ran.
 
@@ -116,7 +116,7 @@ Trigger a manual backup run (command above) — `latest` re-points and `openbrai
 
 ### False positive — mount not yet deployed (dev/CI or pre-OA-9 homeserver)
 
-If `openbrain_backup_age_seconds` is simply **absent** (not stale) because the `/backup-latest` ro-mount from 7.4 hasn't been deployed yet, this is expected — `pipeline-health` gracefully skips the check (logs at debug, no throw). No action needed until the compose window (OA-9) is deployed. This is NOT the same as `BackupStale` firing, which requires the metric to exist and exceed the threshold.
+If `openbrain_backup_age_seconds` is simply **absent** (not stale) because the `/backup-latest` ro-mount from 7.4 hasn't been deployed yet, this is expected — `pipeline-health` gracefully skips the check (logs at debug, no throw). No action needed until the compose window (OA-9) is deployed. This is NOT the same as `OpenBrainBackupStale` firing, which requires the metric to exist and exceed the threshold.
 
 ---
 
