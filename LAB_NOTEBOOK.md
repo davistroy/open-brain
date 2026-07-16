@@ -13759,6 +13759,28 @@ Every infra Pushover arrives titled **"From Voice Capture"** (the Pushover app i
 
 ---
 
+## Entry 215 — DEPLOYED: scheduler fix live, 2-day outage OVER (2026-07-16)  [deploy] [pipeline]
+
+**PR #296 merged (`5e932e4`) → `build-images` rebuilt workers → recreated workers only.** #304 closed.
+
+**The fix proven in the production boot log:** `21 schedulers upserted, 0 orphans removed` — vs the bug's `21 registered / 21 removed ~30ms later`.
+
+**End-to-end proof:** `container-health` (`*/15`), frozen at 15:08 for 2 days, **fired on schedule at the next :45 boundary**; `openbrain_container_healthy` back in Pushgateway; `absent()` → empty ⇒ `WorkersMetricsAbsent` resolves. Longer-cadence jobs registered, will fire at their next boundary.
+
+**Deploy safety (Entry 212's two-gate procedure + an image pull):**
+- CI ran `scheduler-repeat-identity.test.ts` (6 tests) green against **real Redis on GitHub's runner** before merge.
+- Config-diff gate: **0 rendered changes** — the recreate picked up the new IMAGE only. postgres `StartedAt` unchanged; redis unchanged; `captures` = 11,301.
+- **`check-deploy-parity.sh`: exit 1 → exit 0.**
+
+**Incidental finding:** the WI-2.2 `GITEA_TOKEN` compose change rendered to a **0-line delta** — because the homeserver's `.env` DOES carry `GITEA_TOKEN`, so `${GITEA_TOKEN}` resolved to the same value `.env.secrets` provides. Confirms the clobber is a **DR-only latent bug** (#281), not a live one — exactly as documented. The fix still correctly hardens DR; it just wasn't biting in prod because `.env` happened to have the value.
+
+**Still open (deliberately):** the ingest-sidecar image (WI-1.1 honest-status + WI-1.3 electric-usage-downloader) built clean in CI but is **not yet recreated** — it's a separate, non-urgent deploy (both financial-ingest + utility-ingest together, per D140/Entry 201). And **#292** (deploy `backup.yml`) remains the last piece for #294.
+
+**Tags:** [deploy] [pipeline]
+**Environment:** homeserver. Scope: 1 compose reconciliation + workers image pull + workers recreate. Executed by Claude (Opus 4.8), user-directed ("Merge it").
+
+---
+
 ## Entry 216 — Deploy ingest-sidecar (WI-1.1/WI-1.3) + #292 backup.yml (2026-07-16)  [deploy] [docker] [observability]
 
 **Objective:** (a) recreate BOTH ingest sidecars onto the new image (honest-status + electric-usage-downloader install); (b) deploy open-brain's `backup.yml` alert rule so #294's now-flowing gauge is actually EVALUATED. **Rollback:** (a) re-pull the prior `70fa72e6` tag is impossible (`:latest` moved) — but the sidecars are IDLE (financial=Plaid-dropped D138; utility=host-cron only, next run 06:00 ET) and hold no in-flight state, so a bad image = recreate from the previous image ID `70fa72e6ae81` which is still cached on the host (`docker inspect` confirmed). (b) `rm` the copied backup.yml + reload Prometheus — additive, trivially reversible.
