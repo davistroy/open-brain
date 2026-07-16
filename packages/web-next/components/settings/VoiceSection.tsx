@@ -119,16 +119,8 @@ function StatusRow({ label, children }: StatusRowProps) {
 }
 
 // ---------------------------------------------------------------------------
-// NotConfiguredBadge / ActiveBadge — inline status badges
+// ActiveBadge — inline status badge
 // ---------------------------------------------------------------------------
-
-function NotConfiguredBadge() {
-  return (
-    <span className="inline-flex items-center px-[6px] py-[1px] text-[10.5px] font-medium tracking-[0.02em] bg-cloud-light border border-cloud-dark text-text-small">
-      Not configured
-    </span>
-  );
-}
 
 function ActiveBadge() {
   return (
