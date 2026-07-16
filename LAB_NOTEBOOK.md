@@ -13759,6 +13759,28 @@ Every infra Pushover arrives titled **"From Voice Capture"** (the Pushover app i
 
 ---
 
+## Entry 215 — DEPLOYED: scheduler fix live, 2-day outage OVER (2026-07-16)  [deploy] [pipeline]
+
+**PR #296 merged (`5e932e4`) → `build-images` rebuilt workers → recreated workers only.** #304 closed.
+
+**The fix proven in the production boot log:** `21 schedulers upserted, 0 orphans removed` — vs the bug's `21 registered / 21 removed ~30ms later`.
+
+**End-to-end proof:** `container-health` (`*/15`), frozen at 15:08 for 2 days, **fired on schedule at the next :45 boundary**; `openbrain_container_healthy` back in Pushgateway; `absent()` → empty ⇒ `WorkersMetricsAbsent` resolves. Longer-cadence jobs registered, will fire at their next boundary.
+
+**Deploy safety (Entry 212's two-gate procedure + an image pull):**
+- CI ran `scheduler-repeat-identity.test.ts` (6 tests) green against **real Redis on GitHub's runner** before merge.
+- Config-diff gate: **0 rendered changes** — the recreate picked up the new IMAGE only. postgres `StartedAt` unchanged; redis unchanged; `captures` = 11,301.
+- **`check-deploy-parity.sh`: exit 1 → exit 0.**
+
+**Incidental finding:** the WI-2.2 `GITEA_TOKEN` compose change rendered to a **0-line delta** — because the homeserver's `.env` DOES carry `GITEA_TOKEN`, so `${GITEA_TOKEN}` resolved to the same value `.env.secrets` provides. Confirms the clobber is a **DR-only latent bug** (#281), not a live one — exactly as documented. The fix still correctly hardens DR; it just wasn't biting in prod because `.env` happened to have the value.
+
+**Still open (deliberately):** the ingest-sidecar image (WI-1.1 honest-status + WI-1.3 electric-usage-downloader) built clean in CI but is **not yet recreated** — it's a separate, non-urgent deploy (both financial-ingest + utility-ingest together, per D140/Entry 201). And **#292** (deploy `backup.yml`) remains the last piece for #294.
+
+**Tags:** [deploy] [pipeline]
+**Environment:** homeserver. Scope: 1 compose reconciliation + workers image pull + workers recreate. Executed by Claude (Opus 4.8), user-directed ("Merge it").
+
+---
+
 ## Entry 216 — Deploy ingest-sidecar (WI-1.1/WI-1.3) + #292 backup.yml (2026-07-16)  [deploy] [docker] [observability]
 
 **Objective:** (a) recreate BOTH ingest sidecars onto the new image (honest-status + electric-usage-downloader install); (b) deploy open-brain's `backup.yml` alert rule so #294's now-flowing gauge is actually EVALUATED. **Rollback:** (a) re-pull the prior `70fa72e6` tag is impossible (`:latest` moved) — but the sidecars are IDLE (financial=Plaid-dropped D138; utility=host-cron only, next run 06:00 ET) and hold no in-flight state, so a bad image = recreate from the previous image ID `70fa72e6ae81` which is still cached on the host (`docker inspect` confirmed). (b) `rm` the copied backup.yml + reload Prometheus — additive, trivially reversible.
@@ -13772,3 +13794,11 @@ Both financial-ingest + utility-ingest recreated onto `2667b69c` (from `70fa72e6
 
 ### Entry 216 (part b) — #292: parity gate built; deploying the 2 missing rules
 Built `scripts/check-alerts-parity.sh` (sibling to the compose parity gate) — **this realises my own Entry 207 #292 recommendation: comparison first.** It compares open-brain's `config/prometheus/alerts/*.yml` rule BODIES (comment-insensitive) vs the deployed observability dir. First run: **MISSING = backup.yml + slo.yml; 7 in-sync; 0 functional drift.** The 6 files that differ by raw bytes are **comment-only** (my #293 Alertmanager-correction blocks) — correctly reported in-sync. So #292's real functional gap is just those 2 files. Renamed backup.yml's alert **`BackupStale` → `OpenBrainBackupStale`** to end the Unraid `host-resources.yml` collision that nearly produced a false "yes, deployed" (#294). slo.yml's metric `openbrain_http_request_duration_seconds_bucket` verified present (84 buckets, core-api scraped) so its rules will produce real data. **Deploy plan:** merge → copy both files to the observability dir as root → `POST /-/reload` → verify + re-run the gate to exit 0.
+
+### Entry 216 RESULT (part b) — #292 DONE + #294 dead-man's switch PROVEN
+- **#292 CLOSED:** merged (#307, `6664a7e`), deployed `backup.yml` (renamed `OpenBrainBackupStale`) + `slo.yml` to the observability dir as root, `POST /-/reload`. **`check-alerts-parity.sh` now exit 0** (9 in-sync, 0 missing, 0 drifted). Both rules loaded in Prometheus; `ApiP99LatencySLOBreach` + the 3 SLO recording rules live too (metric `openbrain_http_request_duration_seconds_bucket` = 84 buckets, real data).
+- **#294 dead-man's switch PROVEN end-to-end:** triggered pipeline-health → `openbrain_backup_age_seconds` = **23303 s (6.5 h — a REAL value**, backup ran 03:00 ET / ~6.5h ago) → **`OpenBrainBackupStale` state=inactive, health=ok**, evaluating a real value, correctly not firing. Mount → gauge → rule → evaluation all live. Delivery path already proven (the WorkersMetricsAbsent/PushgatewayStale sirens Troy received are the same Alertmanager→Pushover path). The ONE thing not done: forcing an actual FIRE (would page Troy with a false critical — left as optional OA-9b).
+- **NEW FINDING (durability gap, follow-up not blocker): `openbrain_backup_age_seconds` is ABSENT for up to 6h after any Pushgateway restart.** Pushgateway has no `--persistence.file`; it restarted 04:30 UTC (observability upgrade) and wiped the gauge, which pipeline-health only re-pushes every 6h (next 18:00 UTC — hence the transient empty query I caught before triggering it manually). **A `> 93600` comparison on an ABSENT metric cannot fire** — so during that window OpenBrainBackupStale is blind. The COMPOUND failure (backup stale AND pipeline-health not pushing) is caught by `PushgatewayStale`, so it's not fully inert — but the durable fix is to push the backup gauge from `container-health` too (every 15m, not just pipeline-health's 6h) or add a companion `absent()` alert. Filed as a follow-up. (push-metrics uses POST/merge, so this is Pushgateway-restart wipe, NOT container-health clobbering — verified.)
+
+**Tags:** [deploy] [docker] [observability]
+**Environment:** homeserver. Executed by Claude (Opus 4.8), user-directed ("take the ingest-sidecar deploy and #292 now").
