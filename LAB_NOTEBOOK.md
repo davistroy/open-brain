@@ -13931,3 +13931,16 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [docker] [web] [decision]
 **Environment:** laptop dev; verified compose config -q / workers lint+test / web-next tsc. No prod change. Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").
+
+---
+
+## Entry 223 — #309: container-health re-pushes the backup-age gauge (closes the 6h blind window) (2026-07-16)  [observability] [testing]
+
+**Objective:** `openbrain_backup_age_seconds` was absent for up to 6h after any Pushgateway restart (no persistence) because only `pipeline-health` (every 6h) pushed it — and `OpenBrainBackupStale` can't fire on an ABSENT metric (Entry 216's durability finding). **Rollback:** repo-only; `git revert`.
+
+**Fix:** extracted the stat+push into a shared `packages/workers/src/lib/backup-age.ts` (`pushBackupAgeGauge()` — graceful, returns null when the mount is absent) and called it from **`container-health`** (every 15m), so the gauge is refreshed 24×/day instead of 4×. Refactored `pipeline-health.checkBackupAge()` to use the same helper (DRY; it keeps its stale-threshold + Pushover logic). Both call the same `pushMetrics`, so pipeline-health's dead-man's-switch tests pass unchanged through the helper.
+
+**TDD:** 3 helper tests (present→gauge+age, absent→null+no-push, future-mtime→clamp-to-0, each RED first) + a container-health wiring test (mock the helper, assert it's called per run). Verified: 3 target files 46 tests; **full workers suite 1217 tests + coverage gate green**; workers `tsc` clean (dropped the now-unused `stat` import). Purely additive to the metric cadence — no behavior change to the stale logic.
+
+**Tags:** [observability] [testing]
+**Environment:** laptop dev; workers test+coverage green. No prod change (effect is on the next workers recreate). Executed by Claude (Opus 4.8), user-directed ("tackle anything you can").
