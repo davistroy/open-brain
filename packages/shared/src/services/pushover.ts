@@ -32,7 +32,19 @@ export interface PushoverConfig {
   userKey?: string
   /** 'throw' = propagate errors (for BullMQ retry); 'swallow' = log and return (for non-critical notifications) */
   onError?: 'throw' | 'swallow'
+  /**
+   * Identity prefixed to every notification title so an alert is unmistakable
+   * regardless of the Pushover *application* name shown in the banner — that
+   * name ("From Voice Capture") is registered in the Pushover console and cannot
+   * be set per message (#312). Idempotent: a title already starting with the
+   * prefix (case-insensitive) is left unchanged. Resolution order:
+   * this option → `PUSHOVER_TITLE_PREFIX` env → `'Open Brain'` default.
+   * Pass an empty string to disable prefixing.
+   */
+  titlePrefix?: string
 }
+
+const DEFAULT_TITLE_PREFIX = 'Open Brain'
 
 /**
  * Sends push notifications via the Pushover HTTP API.
@@ -47,6 +59,7 @@ export class PushoverService {
   private appToken: string | undefined
   private userKey: string | undefined
   private errorMode: 'throw' | 'swallow'
+  private titlePrefix: string
 
   /**
    * Supports two call forms for backward compatibility:
@@ -59,13 +72,28 @@ export class PushoverService {
       this.appToken = configOrAppToken ?? process.env.PUSHOVER_APP_TOKEN
       this.userKey = legacyUserKey ?? process.env.PUSHOVER_USER_KEY
       this.errorMode = 'throw'
+      this.titlePrefix = process.env.PUSHOVER_TITLE_PREFIX ?? DEFAULT_TITLE_PREFIX
     } else {
       // Config-object form
       const config = configOrAppToken
       this.appToken = config?.appToken ?? process.env.PUSHOVER_APP_TOKEN
       this.userKey = config?.userKey ?? process.env.PUSHOVER_USER_KEY
       this.errorMode = config?.onError ?? 'throw'
+      this.titlePrefix = config?.titlePrefix ?? process.env.PUSHOVER_TITLE_PREFIX ?? DEFAULT_TITLE_PREFIX
     }
+  }
+
+  /**
+   * Prepend the app-identity prefix to a title, idempotently. A title already
+   * starting with the prefix (case-insensitive) — e.g. "Open Brain: Backup
+   * Stale" or the bare "Open Brain" — is returned unchanged. An empty prefix
+   * disables the behavior entirely.
+   */
+  private withIdentity(title: string): string {
+    const prefix = this.titlePrefix
+    if (!prefix) return title
+    if (title.toLowerCase().startsWith(prefix.toLowerCase())) return title
+    return `${prefix}: ${title}`
   }
 
   get isConfigured(): boolean {
@@ -83,7 +111,7 @@ export class PushoverService {
     const params: Record<string, string> = {
       token: this.appToken!,
       user: this.userKey!,
-      title: opts.title,
+      title: this.withIdentity(opts.title),
       message: opts.message,
       priority: String(priority),
     }

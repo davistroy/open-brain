@@ -32,6 +32,7 @@ describe('PushoverService', () => {
     vi.restoreAllMocks()
     delete process.env.PUSHOVER_APP_TOKEN
     delete process.env.PUSHOVER_USER_KEY
+    delete process.env.PUSHOVER_TITLE_PREFIX
   })
 
   describe('isConfigured', () => {
@@ -101,7 +102,9 @@ describe('PushoverService', () => {
       const params = new URLSearchParams(body)
       expect(params.get('token')).toBe('tok')
       expect(params.get('user')).toBe('usr')
-      expect(params.get('title')).toBe('Test title')
+      // Titles carry the default 'Open Brain' identity prefix (see the
+      // "title prefix / app identity" describe block for the full contract).
+      expect(params.get('title')).toBe('Open Brain: Test title')
       expect(params.get('message')).toBe('Test message')
       expect(params.get('priority')).toBe('1')
     })
@@ -175,6 +178,89 @@ describe('PushoverService', () => {
       // retry and expire should NOT be set for priority 1
       expect(params.get('retry')).toBeNull()
       expect(params.get('expire')).toBeNull()
+    })
+  })
+
+  describe('title prefix / app identity', () => {
+    // Motivation (#312): the Pushover *application* banner ("From Voice Capture")
+    // is registered in the console and cannot be set per message. Prefixing every
+    // title with a stable product identity makes an infra alert unmistakable even
+    // under the wrong banner. The prefix is idempotent so already-branded titles
+    // are left alone.
+    function sentTitle(mockFetch: ReturnType<typeof makeFetchOk>): string | null {
+      const body: string = mockFetch.mock.calls[0][1].body
+      return new URLSearchParams(body).get('title')
+    }
+
+    it("prepends the default 'Open Brain' identity to an unbranded title", async () => {
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService('tok', 'usr')
+      await svc.send({ title: 'Daily Sweep', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('Open Brain: Daily Sweep')
+    })
+
+    it("leaves a title already starting with 'Open Brain:' unchanged", async () => {
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService('tok', 'usr')
+      await svc.send({ title: 'Open Brain: Pipeline Health Alert', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('Open Brain: Pipeline Health Alert')
+    })
+
+    it("leaves the bare identity 'Open Brain' unchanged (no trailing separator added)", async () => {
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService('tok', 'usr')
+      await svc.send({ title: 'Open Brain', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('Open Brain')
+    })
+
+    it('idempotency is case-insensitive', async () => {
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService('tok', 'usr')
+      await svc.send({ title: 'open brain: already branded', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('open brain: already branded')
+    })
+
+    it('honors an explicit titlePrefix from the config object', async () => {
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService({ appToken: 'tok', userKey: 'usr', titlePrefix: 'Open Brain Infra' })
+      await svc.send({ title: 'Backup Stale', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('Open Brain Infra: Backup Stale')
+    })
+
+    it('falls back to PUSHOVER_TITLE_PREFIX env when no config prefix is set', async () => {
+      process.env.PUSHOVER_TITLE_PREFIX = 'OB'
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService('tok', 'usr')
+      await svc.send({ title: 'Cost Alert', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('OB: Cost Alert')
+    })
+
+    it('an empty-string titlePrefix disables prefixing entirely', async () => {
+      const mockFetch = makeFetchOk()
+      vi.stubGlobal('fetch', mockFetch)
+
+      const svc = new PushoverService({ appToken: 'tok', userKey: 'usr', titlePrefix: '' })
+      await svc.send({ title: 'Raw Title', message: 'M' })
+
+      expect(sentTitle(mockFetch)).toBe('Raw Title')
     })
   })
 
