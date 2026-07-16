@@ -45,6 +45,23 @@ These apply to every procedure in this runbook, not just the sections that call 
 4. **Always pair `--force-recreate` with `--no-deps`** for a targeted service restart — `--no-deps` is what keeps postgres/redis (and, by extension, the external observability network membership) untouched.
 5. **Any change to `docker-compose.yml`** — via `git pull`, `git checkout origin/main -- docker-compose.yml`, or a manual edit — must pass the config-diff gate below before the next `up`.
 
+### Parity pre-check (run FIRST, #302)
+
+Before anything else, answer **"is production even running this repo's compose?"** — because `docker compose pull` ships image changes but NOT compose-file changes, so the deployed `docker-compose.yml` silently drifts from `main` until a human runs `git checkout origin/main -- docker-compose.yml`. That drift is how PR #244's `/backup-latest` mount sat undeployed for a month (Entry 211).
+
+```bash
+# from any box with the repo + claude@homeserver SSH:
+bash scripts/check-deploy-parity.sh
+# or ON the homeserver (no self-SSH):
+PARITY_LOCAL_COMPOSE=/mnt/user/appdata/open-brain/docker-compose.yml bash scripts/check-deploy-parity.sh
+```
+
+- **exit 0** → in parity; proceed.
+- **exit 1** → DRIFT. Production is missing committed compose changes. Run the reconciliation the gate prints (adopt `origin/main`'s compose as root → re-apply the D131 sed → config-diff gate → `--force-recreate --no-deps` the affected services, one wave at a time). Do this **before** treating any compose-dependent change as deployed.
+- **exit 2** → the check could not run — do NOT assume parity.
+
+This runs automatically every day via `deploy/cron/unraid-parity-check.cron` (Pushover on drift), so between-deploy drift is loud rather than silent. The config-diff gate below is the *complementary* check: parity proves the file is current; config-diff proves a change did only what you intended.
+
 ### Config-diff gate
 
 Run before AND after any operation that could change `docker-compose.yml`'s rendered output:
