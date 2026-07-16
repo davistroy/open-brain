@@ -18,16 +18,15 @@
 | `open-brain-slack-bot` | `ghcr.io/davistroy/open-brain/slack-bot:latest` | — |
 | `open-brain-voice-capture` | `ghcr.io/davistroy/open-brain/voice-capture:latest` | `0.0.0.0:3001` |
 | `open-brain-web-next` | `ghcr.io/davistroy/open-brain/web-next:latest` | `0.0.0.0:3003` |
-| `open-brain-voice-pipecat` | `ghcr.io/davistroy/open-brain/voice-pipecat:latest` | `8765`, `8766` |
 | `open-brain-file-ingestion` | `ghcr.io/davistroy/open-brain/file-ingestion:latest` | `127.0.0.1:8080` |
 | `open-brain-financial-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
 | `open-brain-utility-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
 | `open-brain-faster-whisper` | `fedirz/faster-whisper-server:0.5.0-cpu` | `127.0.0.1:10300` |
 | `open-brain-cloudflared` | `cloudflare/cloudflared:2025.6.1` | — |
 
-**13 containers total**, all in this compose project.
+**12 containers total**, all in this compose project.
 
-**App images** (8 `ghcr.io/davistroy/open-brain/*` packages): core-api, workers, slack-bot, voice-capture, web-next, voice-pipecat, file-ingestion, ingest-sidecar (shared by financial-ingest and utility-ingest).
+**App images** (7 `ghcr.io/davistroy/open-brain/*` packages): core-api, workers, slack-bot, voice-capture, web-next, file-ingestion, ingest-sidecar (shared by financial-ingest and utility-ingest).
 
 > **The observability stack (Loki, Prometheus, Grafana, Pushgateway) is NOT part of this inventory or this compose project.** Since ADR-0004 (2026-07-01) it runs as a standalone `observability` compose project; this repo only joins that project's Docker network as a client. There is no local `--profile observability` anymore. See §7.
 
@@ -140,7 +139,7 @@ docker compose pull
 #    --no-deps: leaves postgres/redis/observability-network membership untouched
 docker compose up -d --force-recreate --no-deps \
   core-api workers slack-bot voice-capture web-next \
-  voice-pipecat file-ingestion financial-ingest utility-ingest \
+  file-ingestion financial-ingest utility-ingest \
   cloudflared faster-whisper
 
 # 7. Post-deploy verification (see §3)
@@ -167,7 +166,6 @@ open-brain-workers            ghcr.io/davistroy/open-brain/workers:latest
 open-brain-slack-bot          ghcr.io/davistroy/open-brain/slack-bot:latest
 open-brain-voice-capture      ghcr.io/davistroy/open-brain/voice-capture:latest
 open-brain-web-next           ghcr.io/davistroy/open-brain/web-next:latest
-open-brain-voice-pipecat      ghcr.io/davistroy/open-brain/voice-pipecat:latest
 open-brain-file-ingestion     ghcr.io/davistroy/open-brain/file-ingestion:latest
 open-brain-financial-ingest   ghcr.io/davistroy/open-brain/ingest-sidecar:latest
 open-brain-utility-ingest     ghcr.io/davistroy/open-brain/ingest-sidecar:latest
@@ -225,8 +223,8 @@ for svc in core-api workers slack-bot voice-capture web-next; do
 done
 ```
 
-Extend the `svc` list to cover any other GHCR-image service this deploy touched (`voice-pipecat`,
-`file-ingestion`; for `financial-ingest`/`utility-ingest`, both run the shared `ingest-sidecar`
+Extend the `svc` list to cover any other GHCR-image service this deploy touched
+(`file-ingestion`; for `financial-ingest`/`utility-ingest`, both run the shared `ingest-sidecar`
 image — substitute `ingest-sidecar` as the GHCR package name but check each container separately).
 
 Any `MISMATCH` means the running container is not what GHCR currently serves for `:latest` —
@@ -283,7 +281,7 @@ docker run --rm \
 docker compose pull
 docker compose up -d --force-recreate --no-deps \
   core-api workers slack-bot voice-capture web-next \
-  voice-pipecat file-ingestion financial-ingest utility-ingest
+  file-ingestion financial-ingest utility-ingest
 
 # 8. Verify (see §3)
 curl -sf http://localhost:3002/api/v1/captures?limit=1 | head -c 100
@@ -409,7 +407,7 @@ docker compose up -d --build core-api
 # Or rebuild all custom app services
 docker compose up -d --build \
   core-api workers slack-bot voice-capture web-next \
-  voice-pipecat file-ingestion financial-ingest utility-ingest
+  file-ingestion financial-ingest utility-ingest
 ```
 
 ---

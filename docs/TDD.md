@@ -3969,7 +3969,7 @@ services:
 open-brain (single network)
 ┌──────────────────────────────────────────────────────────────────┐
 │                                                                  │
-│  postgres      redis          faster-whisper   voice-pipecat     │
+│  postgres      redis          faster-whisper   voice-pipecat†    │
 │  core-api      slack-bot      workers          voice-capture     │
 │  web-next      file-ingestion financial-ingest utility-ingest    │
 │  cloudflared                                                     │
@@ -3977,10 +3977,12 @@ open-brain (single network)
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+**† `voice-pipecat` removed (#298/D143, 2026-07-16)** — the realtime conversational-voice service no longer exists; retained in this design diagram for historical record.
+
 Observability (Loki, Prometheus, Pushgateway, Grafana) is NOT on this network — it is a separate, standalone `observability` Docker Compose project (ADR-0004) that open-brain joins as a client over a shared external network; `core-api` is scraped at `core-api:3000/metrics` and `workers` push to `pushgateway:9091`.
 
 - Single `open-brain` network — no Supabase, no multi-network complexity
-- Host-exposed ports: `core-api` (:3002, dual-bound loopback + Tailscale), `web-next` (:3003), `voice-pipecat` (:8765/:8766); `postgres`/`redis` bind loopback-only. Observability ports (Loki/Prometheus/Pushgateway/Grafana) are owned by the external `observability` project, not this stack.
+- Host-exposed ports: `core-api` (:3002, dual-bound loopback + Tailscale), `web-next` (:3003), `voice-pipecat` (:8765/:8766) (removed #298/D143); `postgres`/`redis` bind loopback-only. Observability ports (Loki/Prometheus/Pushgateway/Grafana) are owned by the external `observability` project, not this stack.
 - MCP embedded in core-api at `/mcp` — no separate container; external access via LiteLLM gateway at `llm.troy-davis.com/mcp`
 - `cloudflared` routes `brain.troy-davis.com` → `web-next:3001` (Next.js proxies `/api/*` to core-api internally)
 - Observability (Loki, Prometheus, Pushgateway, Grafana) is a standalone `observability` Docker Compose project (ADR-0004), not a profile of this stack — it is never started, stopped, or affected by `docker compose` commands run against this repo, and `--remove-orphans` here cannot touch containers outside this project.

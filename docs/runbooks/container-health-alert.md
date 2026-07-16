@@ -23,7 +23,6 @@
 |-----------|-----------|-----------------|
 | `core-api` | `http://core-api:3000/health` | `{"status":"healthy"}` |
 | `voice-capture` | `http://voice-capture:3001/health` | `{"status":"healthy"}` |
-| `voice-pipecat` | `http://voice-pipecat:8766/health` | `{"status":"healthy"}` |
 | `file-ingestion` | `http://file-ingestion:8080/health` | `{"status":"healthy"}` |
 | `faster-whisper` | `http://faster-whisper:8000/health` | `{"status":"healthy"}` |
 
