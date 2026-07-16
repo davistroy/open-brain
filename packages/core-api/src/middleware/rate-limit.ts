@@ -53,6 +53,8 @@ const BYPASS_CALLERS = new Set([
   'internal:ingest-repair',
   // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
   'internal:newsletter-pipeline',
+  // #311 — Actual Budget daily-ingest sidecar (host-cron, posts one capture/day)
+  'internal:actual-pipeline',
 ])
 
 /** Sliding window entry: list of request timestamps within the current window */

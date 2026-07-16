@@ -13827,3 +13827,28 @@ The title prefix hardens **path 1** (in-app `PushoverService`, single `PUSHOVER_
 
 **Tags:** [decision] [observability] [testing]
 **Environment:** worktree/laptop dev; no prod change. Executed by Claude (Opus 4.8), user-directed ("Both 1 and 2").
+
+---
+
+## Entry 218 — BUILT the actual-ingest sidecar (#311) — Troy's original ask, from approved spec to tested code (2026-07-16)  [pipeline] [docker] [database] [testing]
+
+**Objective:** implement the approved `actual-ingest` design (spec `2026-07-15-actual-daily-job-design.md`) end-to-end in the repo — everything except the operator-gated deploy (OA-18…21). **Rollback:** repo-only branch (`feat/actual-ingest-sidecar`, stacked on the #312 branch so LAB stays linear); `git revert`. No running-system change.
+
+### What shipped (all 11 spec §12 deliverables + a CI job)
+A standalone Node project at `scripts/actual/` (own `package.json`/`package-lock.json`, outside the pnpm workspace — mirrors `cloudflare/email-worker`), its own `node:22-slim` image (NOT a third consumer of the shared `ingest-sidecar` tag — the D140/Entry 201 trap), dual-homed on `br0` (macvlan, static `.13`, external) + `open-brain` (bridge), host-cron-driven `0 6` (6am ET native → #295 moot).
+
+- **Libs (pure, unit-tested):** `rules.mjs` (load+validate; malformed **aborts** — §4.3/#275), `classify.mjs` (exclusions BEFORE rules; unmatched→null, reported not guessed — D141), `alerts.mjs` (>$500 tx, >5% balance move, first-run-no-baseline), `capture.mjs` (one date-stamped aggregated capture).
+- **Orchestration (`run-daily.mjs`, DI-tested):** I extracted the I/O orchestration behind injected deps so the money-correctness behaviors are unit-testable without a live Actual/core-api — the **§5 phantom-income invariant end-to-end** (a transfer/investment payee NEVER gets `updateTransaction`), only-uncategorized-and-matched categorizes, **per-item fault isolation** (one bad write collected + re-thrown at end, others still processed, capture still posted), **409 = terminal success**, sync-failure-continues-and-reports, Pushover-never-fatal, state persisted for next run. `actual-daily.mjs` is the thin wiring root (real `@actual-app/api` lifecycle, fetch, fs, env) — the accepted TDD composition-root boundary.
+- **Wiring:** compose service + **`br0` external** (never `compose down` a file that owns it — the AdGuard/swag landmine) + `actual_ingest_data` volume + **D142 static-IP literal** with a why-comment; `actual-pipeline` → `BYPASS_CALLERS` (else silent 429s); secrets lockstep (3 OPTIONAL entries in `.env.secrets.template` + `secrets-map.sh`, **placeholder BWS `.key`s loudly flagged for OA-20** — #278's lesson: never invent names); `config/payee-rules.example.yaml` (synthetic) + `.gitignore` for the host-only real file; the `0 6` cron line; runbook `docs/runbooks/actual-daily.md`.
+
+### TDD, honestly
+**46 tests, every one watched fail RED before implementing** (module-missing, then behavioral). 5 lib suites. `docker compose config -q` exits 0 (the external-br0 + static-IP render is accepted, verified locally with dummy env). core-api `tsc` clean after the bypass add. New **non-required** CI job `actual-ingest-test` (`npm ci` + `npx vitest run`, `package-manager-cache: false` — the setup-node-v6-outside-pnpm lesson) so the invariant is guarded in CI, not just locally.
+
+### Deliberately deferred to the operator (already registered)
+OA-18 (install cron as root — committing the template schedules nothing), OA-19 (create host-only `payee-rules.yaml`), OA-20 (add 3 BWS secrets + **verify real `.key`**), OA-21 (confirm DHCP floor > `.13`). And the deploy itself is a **compose change → the #302 reconciliation window**, not a bare recreate — a bare recreate would silently no-op exactly like #294's mount.
+
+### Decisions — no new D-numbers
+This build implements already-approved D141 (report unmatched, T0-only) + D142 (static IP literal). No re-litigation. The one fresh engineering choice — extracting `run-daily.mjs` for DI-testability rather than an untestable monolithic entrypoint — is a testing-design call, recorded here, not a project decision.
+
+**Tags:** [pipeline] [docker] [database] [testing]
+**Environment:** laptop dev; standalone `scripts/actual` npm project (@actual-app/api 25.12.0). No prod change. Executed by Claude (Opus 4.8), user-directed ("Both 1 and 2").
