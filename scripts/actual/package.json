@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@actual-app/api": "^25.7.1",
+    "@actual-app/api": "^26.7.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {
