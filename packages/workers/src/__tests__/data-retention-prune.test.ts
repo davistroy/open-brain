@@ -26,7 +26,6 @@ const EXPECTED_POLICY: RetentionPolicyEntry[] = [
   { table: 'skills_log',            column: 'created_at',   days: 60  },
   { table: 'container_health',      column: 'created_at',   days: 30  },
   { table: 'email_classifications', column: 'processed_at', days: 60  },
-  { table: 'voice_sessions',        column: 'created_at',   days: 90  },
 ]
 
 // ============================================================
@@ -74,8 +73,8 @@ describe('RETENTION_POLICY — admin_audit invariant (RC-4)', () => {
 // ============================================================
 
 describe('RETENTION_POLICY — content contract (RC-4)', () => {
-  it('contains exactly 8 entries', () => {
-    expect(RETENTION_POLICY).toHaveLength(8)
+  it('contains exactly 7 entries', () => {
+    expect(RETENTION_POLICY).toHaveLength(7)
   })
 
   it('includes pipeline_events with created_at and 90-day retention', () => {
@@ -128,11 +127,9 @@ describe('RETENTION_POLICY — content contract (RC-4)', () => {
     expect(entry?.days).toBe(60)
   })
 
-  it('includes voice_sessions with created_at and 90-day retention', () => {
-    const entry = RETENTION_POLICY.find(e => e.table === 'voice_sessions')
-    expect(entry).toBeDefined()
-    expect(entry?.column).toBe('created_at')
-    expect(entry?.days).toBe(90)
+  it('does NOT include voice_sessions — removed with the dead conversational-voice feature (#298/D143)', () => {
+    const tables = RETENTION_POLICY.map(e => e.table)
+    expect(tables).not.toContain('voice_sessions')
   })
 
   it('matches the full expected policy exactly (table/column/days)', () => {
