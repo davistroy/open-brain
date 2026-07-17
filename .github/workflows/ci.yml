@@ -54,6 +54,9 @@ jobs:
       - name: Secrets round-trip guard
         run: bash scripts/test-secrets-roundtrip.sh
 
+      - name: Pushover encoding guard
+        run: bash scripts/test-pushover-encoding.sh
+
   email-worker-test:
     name: email-worker tests (Cloudflare Worker)
     runs-on: ubuntu-latest
