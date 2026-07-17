@@ -48,6 +48,10 @@ from lib.capture_api import post_capture as _post_capture_unwrapped  # noqa: E40
 # (docker/ingest-sidecar/tests/test_gas_bill_parse.py) — see #275.
 from lib.gas_bill_parse import parse_gas_bill_text  # noqa: E402
 
+# Power interval CSV (electric-usage-downloader / SmartHub) -> daily kWh/cost.
+# Pure/stdlib + unit-tested (docker/ingest-sidecar/tests/test_power_csv_parse.py) — #286.
+from lib.power_csv_parse import merge_daily, parse_power_csv  # noqa: E402
+
 # CS3.9 --json-output support: wrap post_capture so the ingest sidecar
 # (docker/ingest-sidecar/trigger_server.py) can read a JSON summary as the
 # final stdout line. Passthrough when --json-output is not set.
@@ -202,8 +206,10 @@ def cmd_water(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
 
     water_cfg = cfg.get("water", {})
     api_url = water_cfg.get("api_url", "https://ccw-csswebapi.cobbcounty.org/api")
-    account_id = water_cfg.get("account_id", "<COBB_ACCOUNT_ID>")
-    service_id = water_cfg.get("service_id", "<SERVICE_ID>")
+    # Account-specific identifiers come from the host-only config (#286 leak fix —
+    # they were previously hardcoded here as defaults, in a PUBLIC repo).
+    account_id = water_cfg.get("account_id", "")
+    service_id = water_cfg.get("service_id", "")
 
     url = f"{api_url}/account/getMeterReadings?accountId={account_id}&serviceId={service_id}"
     log.info(f"Fetching readings: accountId={account_id}, serviceId={service_id}")
@@ -507,7 +513,8 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
 
     gas_cfg = cfg.get("gas", {})
     api_url = gas_cfg.get("api_url", "https://manage-api.gassouth.com/oas/api")
-    account_number = gas_cfg.get("account_number", "<GAS_ACCOUNT_NUMBER>")
+    # From host-only config (#286 leak fix — was hardcoded here in a public repo).
+    account_number = gas_cfg.get("account_number", "")
     lookback = gas_cfg.get("lookback_months", 3)
 
     # Step 1: Login
@@ -661,20 +668,25 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
 
 
 def cmd_power_summary(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
-    """--power-summary: Aggregate power data from electric-usage-downloader output.
+    """--power-summary: parse electric-usage-downloader CSVs into power_readings.
 
-    Reads CSV data from the Go tool's output directory. Aggregates daily/monthly
-    kWh totals. Full implementation pending the Go tool being configured and running.
+    Reads interval CSVs from the tool's output dir (``data_dir``), aggregates them
+    to daily kWh + cost (T0, via ``lib.power_csv_parse``), and idempotently upserts
+    one row per date into ``power_readings`` (ON CONFLICT so a re-download that
+    completes a partial day refreshes it). Following the gas path's #275 discipline,
+    a configured-but-empty run (missing dir / no CSVs / nothing parseable) is an
+    ERROR appended to ``_JSON_ERRORS`` — which flips the final JSON status to
+    "error" — never a silent "ok".
     """
     log.info("=== Power Summary (Cobb EMC) ===")
 
     power_cfg = cfg.get("power", {})
     data_dir = Path(os.path.expanduser(power_cfg.get("data_dir", "~/.electric-usage")))
-    power_cfg.get("rate_kwh", 0.12)
+    tz_name = power_cfg.get("timezone", "America/New_York")
 
     if not data_dir.exists():
         # Not "not configured yet" -- the Dockerfile's `|| true` meant the binary was
-        # never installed, and NOTHING invokes it anyway (#286). A power path that is
+        # never installed, and NOTHING invoked it (#286). A power path that is
         # configured but produces nothing is a failure, not an idle run.
         log.error("Power data directory not found — electric-usage-downloader not producing data.")
         log.error(f"  Expected: {data_dir}")
@@ -684,16 +696,64 @@ def cmd_power_summary(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         )
         return
 
-    # Look for CSV files
     csv_files = sorted(data_dir.glob("*.csv"))
     if not csv_files:
         log.error(f"No CSV files in {data_dir} — power data not available")
         _JSON_ERRORS.append(f"power: no CSV files in {data_dir} (#286)")
         return
 
-    log.info(f"Found {len(csv_files)} CSV files in {data_dir}")
-    log.info("Power CSV parsing will be implemented when the Go tool is running.")
-    # TODO: Parse CSV files, aggregate daily/monthly kWh, store in power_readings table
+    log.info(f"Found {len(csv_files)} CSV file(s) in {data_dir}")
+
+    # Parse + merge every CSV into a single per-date view.
+    daily: dict[str, dict[str, float]] = {}
+    parse_failures = 0
+    for csv_path in csv_files:
+        try:
+            text = csv_path.read_text()
+        except OSError as e:
+            log.error(f"  cannot read {csv_path.name}: {e}")
+            parse_failures += 1
+            continue
+        parsed = parse_power_csv(text, tz_name=tz_name)
+        if not parsed:
+            log.warning(f"  {csv_path.name}: no usable rows")
+            parse_failures += 1
+            continue
+        merge_daily(daily, parsed)
+
+    if not daily:
+        log.error(f"No parseable power rows across {len(csv_files)} CSV file(s) in {data_dir}")
+        _JSON_ERRORS.append(
+            f"power: {len(csv_files)} CSV file(s) present but 0 parseable rows in {data_dir} (#286)"
+        )
+        return
+
+    # Idempotent upsert: date is the PRIMARY KEY; refresh kwh/cost on re-download.
+    inserted = 0
+    refreshed = 0
+    for day_str in sorted(daily):
+        vals = daily[day_str]
+        existed = conn.execute("SELECT 1 FROM power_readings WHERE date = ?", (day_str,)).fetchone()
+        conn.execute(
+            "INSERT INTO power_readings (date, kwh, cost_estimate) VALUES (?, ?, ?) "
+            "ON CONFLICT(date) DO UPDATE SET kwh = excluded.kwh, "
+            "cost_estimate = excluded.cost_estimate",
+            (day_str, vals["kwh"], vals["cost_estimate"]),
+        )
+        if existed:
+            refreshed += 1
+        else:
+            inserted += 1
+            log.info(f"  {day_str}: {vals['kwh']:.3f} kWh, ${vals['cost_estimate']:.2f}")
+
+    conn.commit()
+    log.info(f"Power summary: {inserted} new day(s), {refreshed} refreshed")
+
+    # A file that yielded nothing is a partial failure — surface it (never silent).
+    if parse_failures:
+        _JSON_ERRORS.append(
+            f"power: {parse_failures} of {len(csv_files)} CSV file(s) had no usable rows (#286)"
+        )
 
 
 # ── Monthly Comparison ───────────────────────────────────────────────────────

@@ -1,22 +1,36 @@
-# electric-usage-downloader configuration template
-# Copy this to ~/.electric-usage-downloader/config.yaml on open-brain-vm
-# Then fill in username/password from Bitwarden (dev/open-brain/cobb-emc)
+# electric-usage-downloader configuration template (#286, Cobb EMC).
 #
-# Tool: https://github.com/tedpearson/electric-usage-downloader
-# Docs: see README in the GitHub repo for all config options
+# Tool: https://github.com/tedpearson/electric-usage-downloader — pinned v2.4.1 in
+#   docker/ingest-sidecar/Dockerfile. It reverse-engineers the NISC SmartHub API
+#   that Cobb EMC runs at cobbemc.smarthub.coop.
+#
+# ⚠️ SCHEMA (#286): the real tool uses FLAT keys under `smarthub`
+#   (api_url / username / password / account / service_location / timezone) plus a
+#   top-level `extract_days`. The previous template invented `smarthub.url` +
+#   nested `output.directory/format` — a schema that never matched the tool and was
+#   never run against it. This is now reconciled to the real keys.
+#
+# ⚠️ CREDENTIALS are FILL_FROM_BITWARDEN placeholders — NEVER commit real creds.
+#   Template them in at run time from the BWS secrets COBB_EMC_USERNAME /
+#   COBB_EMC_PASSWORD (declared in utility-config.yaml power.bitwarden_*_key). The
+#   `account` / `service_location` come from the SmartHub account — account-specific,
+#   so keep them in the host-only utility config, never in this tracked repo.
+#
+# 🔎 CSV OUTPUT vs InfluxDB — CONFIRM DURING THE PROBE (#286 step 5.1). The tool's
+#   primary sink is InfluxDB/VictoriaMetrics; cmd_power_summary consumes interval
+#   CSVs with columns StartUnixMillis,EndUnixMillis,WattHours,CostInCents,MeterName
+#   from `power.data_dir`. During the probe, confirm the pinned version writes that
+#   CSV. If it only writes InfluxDB, drop a manual SmartHub/Green Button CSV export
+#   (normalized to those columns) into data_dir instead — `lib.power_csv_parse` is
+#   the same either way.
 
-# SmartHub connection for Cobb EMC
 smarthub:
-  url: cobbemc.smarthub.coop
-  # Retrieve from Bitwarden: bws secret get <secret-id> | jq -r .value
-  # Or: bws secret list | grep cobb-emc
-  username: "FILL_FROM_BITWARDEN"          # SmartHub login email
-  password: "FILL_FROM_BITWARDEN"          # SmartHub login password
+  api_url: "https://cobbemc.smarthub.coop"
+  username: "FILL_FROM_BITWARDEN"         # BWS COBB_EMC_USERNAME (SmartHub login email)
+  password: "FILL_FROM_BITWARDEN"         # BWS COBB_EMC_PASSWORD
+  account: "FILL_FROM_SMARTHUB"           # SmartHub account number (host-only config)
+  service_location: "FILL_FROM_SMARTHUB"  # SmartHub service-location id (host-only)
+  timezone: "America/New_York"
 
-# Output settings
-output:
-  directory: ~/.electric-usage             # CSV files written here, one per day
-  format: csv                              # csv or json
-
-# Timezone for interpreting 15-minute interval timestamps
-timezone: America/New_York
+# How many days of interval data to pull on each run.
+extract_days: 7
