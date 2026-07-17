@@ -38,11 +38,14 @@ notify_pushover_mismatch() {
 
   # -sf: silent + fail on HTTP >= 400. --max-time keeps us from blocking
   # an interactive operator if Pushover (or the mock sink) hangs.
+  # --data-urlencode (not -d) for the text fields: message/title carry '%',
+  # '±', '&' etc.; a bare -d corrupts the x-www-form-urlencoded body and
+  # Pushover rejects the whole request with HTTP 400 (OA-16 / Entry 227).
   if ! curl -sf --max-time 10 -X POST "$url" \
-      -d "token=${token}" \
-      -d "user=${user}" \
-      -d "title=${title}" \
-      -d "message=${message}" \
+      --data-urlencode "token=${token}" \
+      --data-urlencode "user=${user}" \
+      --data-urlencode "title=${title}" \
+      --data-urlencode "message=${message}" \
       -d "priority=${priority}" >/dev/null 2>&1; then
     echo "WARN: Pushover POST to ${url} failed (curl exit $?)" >&2
     return 1
@@ -71,11 +74,12 @@ notify_pushover_rehearsal() {
     return 0
   fi
 
+  # --data-urlencode: see notify_pushover_mismatch above (OA-16 / Entry 227).
   curl -sf --max-time 10 -X POST "$url" \
-    -d "token=${token}" \
-    -d "user=${user}" \
-    -d "title=${title}" \
-    -d "message=${message}" \
+    --data-urlencode "token=${token}" \
+    --data-urlencode "user=${user}" \
+    --data-urlencode "title=${title}" \
+    --data-urlencode "message=${message}" \
     -d "priority=${priority}" >/dev/null 2>&1 || \
     echo "WARN: Pushover POST failed (curl exit $?)" >&2
   return 0
