@@ -48,7 +48,9 @@ const BYPASS_CALLERS = new Set([
   'internal:email-classify',
   'internal:email-compose-skill',
   'internal:batch-wiki-ingest',
-  'internal:email-pipeline',
+  // 'internal:email-pipeline' REMOVED (#290/D144): obvm's Python email-pipeline is
+  // decommissioned — the in-stack `email-classify` skill covers both providers
+  // (parity confirmed 2026-07-17). Nothing in the live stack emits this caller.
   'internal:ingest-onedrive',
   'internal:ingest-repair',
   // P21 — financial advisor newsletter assessment pipeline (open-brain-vm cron)
