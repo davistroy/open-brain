@@ -2,7 +2,7 @@
 # Memory ceiling: 1.5GB RSS (streaming extraction, no full-file buffering)
 
 # Web framework
-fastapi==0.139.0
+fastapi==0.139.2
 uvicorn[standard]==0.51.0
 
 # Document extraction
