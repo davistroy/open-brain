@@ -63,50 +63,61 @@ declare -A REQUIRED_SECRETS=(
 )
 
 # -----------------------------------------------------------------------------
-# OPTIONAL secrets (9) — written if present in BWS, silently skipped if not.
+# OPTIONAL secrets (13) — written if present in BWS, silently skipped if not.
 # SMTP_HOST/USER/PASS/FROM are interlocked: any one present causes
 # load-secrets.sh to also emit SMTP_PORT=$SMTP_PORT_DEFAULT (a non-secret).
+#
+# #340 (2026-07-17): every BWS-name below was AUDITED against a live
+# `bws secret list`. Four names were wrong — the real item existed under a
+# DIFFERENT name, so load-secrets.sh silently dropped it on every DR rebuild:
+# slack-user, mobile, and ingest-trigger were CORRECTED here; grafana was
+# REMOVED (vestigial). The 5 genuinely uncreated ones are grouped as
+# FORWARD-DECLARED at the end. The recorded real keyset lives in
+# scripts/lib/bws-key-inventory.txt and is asserted by test-secrets-roundtrip.sh
+# case 6.7 — the guard that finally catches this class (the #278 blind spot).
 # -----------------------------------------------------------------------------
 declare -A OPTIONAL_SECRETS=(
-  # SLACK_USER_TOKEN: demoted from REQUIRED (#278). It is an xoxp- user token
-  # for Slack channel cleanup; it is NOT set in prod and does not exist in BWS,
-  # so requiring it made every reconcile fail for an unconfigured feature.
-  ["open-brain-slack-user-token"]="SLACK_USER_TOKEN"
+  # --- present in BWS (real keys, verified 2026-07-17) ---
+  # SLACK_USER_TOKEN: demoted from REQUIRED (#278). An xoxp- user token for Slack
+  # channel cleanup. BWS key is `slack-user-token` (bare) — corrected from the
+  # wrong `open-brain-slack-user-token`, which matched nothing (#340).
+  ["slack-user-token"]="SLACK_USER_TOKEN"
   ["OPENCLAW_DEEPGRAM_API_KEY"]="DEEPGRAM_API_KEY"
   ["OPENCLAW_ANTHROPIC_API_KEY"]="ANTHROPIC_API_KEY"
+  # Consumer: core-api mobile Bearer auth (Phase 6.2 middleware + 6.4 client).
+  # BWS key is `MOBILE_API_KEY` (bare) — corrected from the wrong
+  # `dev/open-brain/mobile-api-key` (#340). The item exists; it was silently
+  # dropped on DR until this rename.
+  ["MOBILE_API_KEY"]="MOBILE_API_KEY"
+  # #300/OA-26 — shared bearer token core-api/workers present to the ingest
+  # sidecars' /process HTTP trigger (constant-time compare, NOT HMAC). Kept
+  # OPTIONAL so the host-cron docker-exec path works without it. BWS key is
+  # `open-brain-ingest-trigger-secret` — corrected from the wrong
+  # `dev/open-brain/ingest-trigger-secret` (#340). The item ALREADY EXISTS in
+  # BWS; OA-26's "create the BWS item" was in fact this map-name fix.
+  ["open-brain-ingest-trigger-secret"]="INGEST_TRIGGER_SECRET"
+  # #311 actual-ingest — Actual Budget daily job (spec §7). CONFIRMED PRESENT in
+  # BWS project `ai-work` (2026-07-17). Consumer: docker/actual-sidecar.
+  ["actual-budget-password"]="ACTUAL_PASSWORD"
+  ["actual-budget-sync-id"]="ACTUAL_SYNC_ID"
+  ["actual-budget-server-url"]="ACTUAL_SERVER_URL"
+
+  # --- FORWARD-DECLARED (uncreated): confirmed ABSENT in BWS 2026-07-17 ---
+  # These name features that aren't configured yet; they are correctly SKIPPED
+  # (OPTIONAL) today. When a feature is enabled, create the BWS item under the
+  # EXACT key below or load-secrets.sh silently drops it. They are listed in the
+  # guard's FORWARD_DECLARED allowlist (test-secrets-roundtrip.sh 6.7) so an
+  # absent item here is EXPECTED, not a #340 failure.
+  # NB: GRAFANA_ADMIN_PASSWORD was REMOVED entirely (#340/WI-5.5) — post-ADR-0004
+  # there is no grafana service in this repo (it belongs to the standalone
+  # `observability` project), so mapping it here only wrote dead config.
   ["open-brain-smtp-host"]="SMTP_HOST"
   ["open-brain-smtp-user"]="SMTP_USER"
   ["open-brain-smtp-pass"]="SMTP_PASS"
   ["open-brain-smtp-from"]="SMTP_FROM"
-  ["open-brain-grafana-admin-password"]="GRAFANA_ADMIN_PASSWORD"
-  # A119: BWS item creation operator-deferred until mobile testing begins.
-  # Consumer: core-api mobile Bearer auth (Phase 6.2 middleware + Phase 6.4 client).
-  ["dev/open-brain/mobile-api-key"]="MOBILE_API_KEY"
-  # INT-M5 (Phase 8.1): voice-capture Bearer auth. Optional/two-phase — when set,
-  # voice-capture enforces Bearer on POST /api/capture and the core-api proxy
-  # forwards it upstream; unset = pre-rollout warn-and-allow. BWS item creation
-  # operator-deferred until the iOS Shortcut + clients are updated to send it.
+  # INT-M5 (Phase 8.1): voice-capture Bearer auth. Two-phase — when set,
+  # voice-capture enforces Bearer on POST /api/capture; unset = warn-and-allow.
   ["dev/open-brain/voice-capture-secret"]="VOICE_CAPTURE_SECRET"
-  # #300 — shared bearer token core-api/workers use to authenticate to the ingest
-  # sidecars' /process HTTP trigger (constant-time compare, NOT HMAC). It was
-  # referenced in 14 files but in NEITHER the template NOR this map, so a DR
-  # rebuild's reconcile dropped it → both sidecars start unauthenticated and 401
-  # every HTTP trigger, while host cron (which docker-exec's, bypassing HTTP)
-  # keeps looking healthy. A generated shared secret like VOICE_CAPTURE_SECRET,
-  # so it is OPTIONAL + operator-deferred: create the BWS item (generate with
-  # `openssl rand -hex 32`) and it flows automatically thereafter (OA-26).
-  ["dev/open-brain/ingest-trigger-secret"]="INGEST_TRIGGER_SECRET"
-  # #311 actual-ingest — Actual Budget daily job (spec §7). OPTIONAL until the
-  # sidecar is deployed (OA-20), so current reconciles don't exit-2 for a secret
-  # that isn't in BWS yet. Consumer: docker/actual-sidecar (env_file: .env.secrets).
-  # ⚠️ OA-20 / #278: the BWS `.key` values below are PLACEHOLDERS — the Actual
-  # creds live in BWS project `ai-work` (item "Actual Budget — My Finances").
-  # VERIFY the real `.key` with `bws secret list` before the deploy; a wrong name
-  # here is silently skipped (OPTIONAL), so actual-ingest would start with an
-  # empty secret. Do NOT assume the names match this convention.
-  ["actual-budget-password"]="ACTUAL_PASSWORD"
-  ["actual-budget-sync-id"]="ACTUAL_SYNC_ID"
-  ["actual-budget-server-url"]="ACTUAL_SERVER_URL"
 )
 
 # Non-secret SMTP port default emitted alongside any SMTP_* present.

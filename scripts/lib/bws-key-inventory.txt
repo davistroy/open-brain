@@ -1,0 +1,47 @@
+# bws-key-inventory.txt — recorded real Bitwarden `.key` NAMES (never values).
+#
+# PURPOSE: the independent second source of truth that catches map-vs-BWS drift
+# (#340 / #278). Every REQUIRED secret and every OPTIONAL secret that ALREADY
+# EXISTS in BWS is listed here, recorded from a live `bws secret list` (keys
+# only). test-secrets-roundtrip.sh case 6.7 asserts that every REQUIRED map key
+# and every real OPTIONAL map key appears here — so a wrong BWS name in
+# secrets-map.sh (the #340 bug: real item under a different name → silently
+# dropped on DR) fails CI instead of hiding.
+#
+# DO NOT derive this file from secrets-map.sh. Deriving it defeats the entire
+# purpose (that is exactly the blind spot #278 hid in). This is a hand-recorded
+# snapshot of REALITY; the map is the thing being checked against it.
+#
+# MAINTENANCE (the 4th lockstep step): when a BWS secret is added or renamed,
+# update this file from `bws secret list -o json | jq -r '.[].key'` (keys only,
+# never values). FORWARD-DECLARED / uncreated optionals (SMTP*, voice-capture-
+# secret) are intentionally NOT listed here — they live in the FORWARD_DECLARED
+# allowlist inside test-secrets-roundtrip.sh until their BWS items are created.
+#
+# These names are already public in secrets-map.sh + .env.secrets.template; this
+# file only records which of them EXIST. It lists ONLY open-brain-referenced
+# keys — never a full cross-project `bws secret list` dump.
+#
+# Snapshot recorded: 2026-07-17 (#340).
+# --- REQUIRED (12) ---
+open-brain-postgres-password
+open-brain-redis-password
+open-brain-openai-api-key
+open-brain-mcp-api-key
+open-brain-admin-api-key
+open-brain-slack-bot-token
+open-brain-slack-app-token
+PUSHOVER_API_TOKEN
+PUSHOVER_USER_KEY
+GITEA_TOKEN
+open-brain-cloudflare-tunnel-token
+dev/jetson/llm-api-key
+# --- OPTIONAL, present in BWS (8) ---
+slack-user-token
+OPENCLAW_DEEPGRAM_API_KEY
+OPENCLAW_ANTHROPIC_API_KEY
+MOBILE_API_KEY
+open-brain-ingest-trigger-secret
+actual-budget-password
+actual-budget-sync-id
+actual-budget-server-url
