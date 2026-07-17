@@ -537,3 +537,102 @@ describe('GET /api/v1/stats', () => {
     expect(res.status).toBe(404)
   })
 })
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/captures/:id/related (#71 — spreading activation)
+// ---------------------------------------------------------------------------
+
+function makeMockSearchService(overrides: Record<string, unknown> = {}) {
+  return {
+    search: vi.fn(),
+    searchWithRelated: vi.fn(),
+    findRelatedCaptures: vi.fn(),
+    ...overrides,
+  }
+}
+
+describe('GET /api/v1/captures/:id/related', () => {
+  const ID = '44444444-4444-4444-4444-444444444444'
+  let captureService: ReturnType<typeof makeMockCaptureService>
+  let configService: ReturnType<typeof makeMockConfigService>
+  let searchService: ReturnType<typeof makeMockSearchService>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    captureService = makeMockCaptureService()
+    configService = makeMockConfigService()
+    searchService = makeMockSearchService()
+  })
+
+  it('returns 200 with related_results seeded from the capture id', async () => {
+    captureService.getById.mockResolvedValueOnce(makeCaptureRecord({ id: ID }))
+    const related = makeCaptureRecord({ id: '55555555-5555-5555-5555-555555555555' })
+    searchService.findRelatedCaptures.mockResolvedValueOnce([{ capture: related, score: 0.8, hopCount: 1 }])
+
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      searchService: searchService as any,
+    })
+    const res = await app.request(`/api/v1/captures/${ID}/related`)
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.related_results).toHaveLength(1)
+    expect(body.related_results[0].capture.id).toBe('55555555-5555-5555-5555-555555555555')
+    expect(body.related_results[0].hopCount).toBe(1)
+    expect(searchService.findRelatedCaptures).toHaveBeenCalledWith([ID], 10)
+  })
+
+  it('clamps the limit query param into [1, 50]', async () => {
+    captureService.getById.mockResolvedValue(makeCaptureRecord({ id: ID }))
+    searchService.findRelatedCaptures.mockResolvedValue([])
+
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      searchService: searchService as any,
+    })
+    await app.request(`/api/v1/captures/${ID}/related?limit=999`)
+    expect(searchService.findRelatedCaptures).toHaveBeenLastCalledWith([ID], 50)
+
+    await app.request(`/api/v1/captures/${ID}/related?limit=0`)
+    expect(searchService.findRelatedCaptures).toHaveBeenLastCalledWith([ID], 1)
+  })
+
+  it('returns 404 when the capture does not exist (before computing related)', async () => {
+    captureService.getById.mockRejectedValueOnce(new NotFoundError(`Capture not found: ${ID}`))
+
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      searchService: searchService as any,
+    })
+    const res = await app.request(`/api/v1/captures/${ID}/related`)
+
+    expect(res.status).toBe(404)
+    expect(searchService.findRelatedCaptures).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed :id with 400 before touching either service', async () => {
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+      searchService: searchService as any,
+    })
+    const res = await app.request('/api/v1/captures/not-a-uuid/related')
+
+    expect(res.status).toBe(400)
+    expect(captureService.getById).not.toHaveBeenCalled()
+    expect(searchService.findRelatedCaptures).not.toHaveBeenCalled()
+  })
+
+  it('is not registered when searchService is absent (404)', async () => {
+    const app = createApp({
+      captureService: captureService as any,
+      configService: configService as any,
+    })
+    const res = await app.request(`/api/v1/captures/${ID}/related`)
+    expect(res.status).toBe(404)
+  })
+})

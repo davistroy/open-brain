@@ -41,7 +41,7 @@ The remaining work is **operator-gated** and tracked in **[`OPERATOR_ACTIONS.md`
 | [#282](https://github.com/davistroy/open-brain/issues/282) | Gmail OAuth dead since 2026-04-21 | **Operator-gated (Google Console).** ⚠️ Premise wrong: `gmail_token_cache` is a **different** client. **Reduced by D144 to: publish the OAuth app** — required either way, since the TS client shares the OAuth client + 7-day clock. Plan Phase 3/10 |
 | [#284](https://github.com/davistroy/open-brain/issues/284) | ~213 spurious 404s/run | **DROPPED by D144** — dies with obvm. ⚠️ Root cause was wrong (`detect_corrections`, not `cleanup_spam`) and it is **not cosmetic**: Hotmail correction detection **never worked**. Carry the lesson: does the **TS** path repeat the Graph move-id bug? |
 | [#301](https://github.com/davistroy/open-brain/issues/301) | faster-whisper → speaches migration | **OUT of scope (D146)** — a migration, not a fix; own brainstorm. Urgency downgraded: **loopback-only**, not internet-facing. After #298 |
-| [#71](https://github.com/davistroy/open-brain/issues/71)  | Cognitive memory tuning | Data-gated. ⚠️ Contains a real bug: **`temporal_weight` GET=0.0 vs POST=0.1**. Related-captures **backend is built and unused**. Plan Phase 9 |
+| [#71](https://github.com/davistroy/open-brain/issues/71)  | Cognitive memory tuning | **temporal_weight GET/POST bug FIXED (#335, Entry 225).** Related-captures now **wired to CaptureDetail** via `GET /captures/:id/related` (Entry 234). Remaining (deferred): configurable Hebbian boost + `recentCaptureIds` activation. |
 | [#196](https://github.com/davistroy/open-brain/issues/196) | Mobile app deferred scope | When mobile becomes a priority. None of the 5 items exist; **EAS Build gates push**. OA-7 blocked on U3 |
 
 ---

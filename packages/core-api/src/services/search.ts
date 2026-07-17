@@ -25,6 +25,8 @@ export interface SearchResult {
   score: number
   ftsScore?: number
   vectorScore?: number
+  /** Only set by findRelatedCaptures: entity-graph hop distance (1 or 2) from the seed (#71). */
+  hopCount?: number
 }
 
 export interface SearchResponse {
@@ -424,6 +426,7 @@ export class SearchService {
       results.push({
         capture,
         score: finalScore,
+        hopCount: row.hop_count,
       })
     }
 

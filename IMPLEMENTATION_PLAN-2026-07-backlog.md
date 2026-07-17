@@ -271,9 +271,9 @@ Phase 10 (operator)      ──► end, except blockers already surfaced
 ## Phase 9 — Product & remaining pipeline 🟡 lowest value
 
 ### WI-9.1 — #71: fix the real bug first
-- **`temporal_weight` has two defaults.** `routes/search.ts:17` → `0.0` (GET); `schemas/search.ts:24` → `0.1` (POST); slack-bot passes `0.1`. **Same endpoint, different answer by verb.** Test-locked at `search-routes.test.ts:499`, so it's deliberate — but undocumented and surprising. **Pick one.**
-- **Related-captures backend is fully built and unused:** `searchWithRelated()` + `spreading_activation()` ship today; only the CaptureDetail UI is missing. Consumers exist (search page, MCP).
-- **Hebbian boost is hardcoded** at `search.ts:328-330` (`0.1`, max 10%) — not configurable. Tuning needs a code change; the issue assumes it's tunable.
+- ✅ **DONE — `temporal_weight` GET/POST divergence FIXED** (commit `fc5bafd` / PR #335, Entry 225): POST default aligned to `0.0` to match GET + the documented cold-start default. No longer a bug.
+- ✅ **DONE — Related-captures backend now surfaced in the UI** (Entry 234, `feat/71-related-captures`): new `GET /api/v1/captures/:id/related` seeds `findRelatedCaptures([id])`; web-next `RelatedCaptures` component renders it in the CaptureDetail sidebar with a graceful empty state (hop-2 is data-gated).
+- **Hebbian boost is hardcoded** at `search.ts:328-330` (`0.1`, max 10%) — not configurable, and `recentCaptureIds` is never populated so the read-side boost is dormant. **Deferred** (needs a UX decision on "recent captures" provenance) — flagged as a follow-up, not in this PR.
 
 ### WI-9.2 — #285 Cobb Water: honest status now, B2C later
 - **Phase 1 already fixed the silent-success half.** The rest is **operator-gated** and larger than the issue thinks:
