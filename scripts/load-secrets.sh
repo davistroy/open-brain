@@ -329,11 +329,26 @@ chmod 0600 "${TMP_ENV_SECRETS}"
   echo "# =============================================================="
   echo ""
   echo "# --- Required (${#REQUIRED_SECRETS[@]}) ---"
+  _pg_pw=""; _redis_pw=""
   for bws_name in "${!REQUIRED_SECRETS[@]}"; do
     env_name="${REQUIRED_SECRETS[$bws_name]}"
     value="$(lookup_bws "$bws_name")"
     echo "${env_name}=${value}"
+    case "$env_name" in
+      POSTGRES_PASSWORD) _pg_pw="$value" ;;
+      REDIS_PASSWORD)    _redis_pw="$value" ;;
+    esac
   done
+
+  # Synthesized connection URLs (#281/D145). Apps read POSTGRES_URL/REDIS_URL, never
+  # the raw password; synthesizing them HERE (into .env.secrets) means docker-compose
+  # no longer interpolates the password into the URL — which .env.secrets cannot feed —
+  # so a rebuilt host boots from load-secrets.sh alone. Passwords are hex per the
+  # template (URL-safe), the same assumption the old compose interpolation already made.
+  echo ""
+  echo "# --- Synthesized connection URLs (#281/D145) ---"
+  echo "POSTGRES_URL=postgresql://openbrain:${_pg_pw}@postgres:5432/openbrain"
+  echo "REDIS_URL=redis://:${_redis_pw}@redis:6379"
 
   if (( ${#PRESENT_OPTIONAL[@]} > 0 )); then
     echo ""

@@ -201,6 +201,37 @@ jobs:
       - name: Run alert rules validator
         run: bash scripts/validate-alert-rules.sh
 
+  validate-compose-dr:
+    name: Validate prod compose (DR — no secret interpolation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # #281/D145: proves a rebuilt host boots from load-secrets.sh alone. The PROD
+    # docker-compose.yml must not interpolate any SECRET from `.env`/shell — every
+    # secret arrives via `env_file: .env.secrets`. With an EMPTY `.env` and only a
+    # placeholder `.env.secrets`, `docker compose config` must emit ZERO "Defaulting
+    # to a blank string" warnings (each one is a secret that would be silently blank
+    # after a DR rebuild). No CI job validated the prod compose before — only the
+    # test compose. This reproduces #281 with no host and no BWS token.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Render prod compose with no secrets present
+        run: |
+          : > .env          # empty — nothing to interpolate from (the DR condition)
+          : > .env.secrets  # placeholder so `env_file:` resolves
+          out="$(docker compose -f docker-compose.yml config 2>&1 >/dev/null)" || {
+            echo "FAIL: docker compose config errored on the prod compose:"; echo "$out"; exit 1;
+          }
+          warnings="$(printf '%s\n' "$out" | grep -i 'defaulting to a blank string' || true)"
+          if [ -n "$warnings" ]; then
+            echo "FAIL: prod docker-compose.yml interpolates secrets from .env/shell (DR-unsafe, #281/D145):"
+            printf '%s\n' "$warnings"
+            echo "Move each to env_file: .env.secrets (see load-secrets.sh)."
+            exit 1
+          fi
+          echo "OK: prod compose renders + zero blank-string interpolation — a rebuilt host boots from .env.secrets alone."
+
   python-lint:
     name: Python lint & typecheck
     runs-on: ubuntu-latest

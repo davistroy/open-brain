@@ -14129,3 +14129,12 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [pipeline] [config]
 **Environment:** laptop/ubuntu-vm branch `feat/344-morning-brief-channel`. Repo-only; deploy = workers-only recreate (low risk, operator). Executed by Claude (Opus 4.8).
+
+## Entry 238 — #281/D145: eliminate secret interpolation from docker-compose.yml (CS-1 PR-B) (2026-07-17)  [deploy] [docker] [config]
+
+**Objective:** make a DR-rebuilt host boot from `load-secrets.sh` alone (#281/D145). Compose `${VAR}` interpolation resolves ONLY from the shell + `.env` at parse time, but `load-secrets.sh` writes secrets to `.env.secrets` (which `env_file` injects at RUNTIME) — so on a rebuilt host every secret consumed via `${...}` is silently blank (cloudflared's tunnel token especially: no `env_file`, bare `TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}`). **Success criteria:** every secret via `env_file: .env.secrets`; NO secret interpolated; `docker compose config` (empty `.env`) emits ZERO "Defaulting to a blank string"; redis still starts WITH auth and FAILS LOUD on empty password. **Rollback:** repo-only, `git revert`. *(Renumbered 236→238 at merge: main advanced to Entry 237 while this PR was held.)*
+
+**RESULT — implemented + verified (config + redis runtime), then MERGED with the deploy.** 8 files: `docker-compose.yml` (postgres/redis/cloudflared gain `env_file`; dropped the `POSTGRES_PASSWORD:?`/`REDIS_PASSWORD:?` + `TUNNEL_TOKEN` interpolations; redis `command` → `["sh","-c",…]` with `$$REDIS_PASSWORD` + a non-empty fail-loud guard + `exec`; healthcheck `$$`-escaped; removed the `POSTGRES_URL`/`REDIS_URL` `environment:` overrides); `load-secrets.sh` (synthesizes `POSTGRES_URL`/`REDIS_URL` into `.env.secrets`); `secrets-map.sh`/`.env.secrets.template`/`test-backup-secrets-redaction.sh`/`config/cloudflare/tunnel.yaml` (env var `CLOUDFLARE_TUNNEL_TOKEN` → `TUNNEL_TOKEN`; BWS key unchanged); `.github/workflows/ci.yml` (new `validate-compose-dr` gate). **Verification:** `docker compose config` → zero blank-string warnings; a real `redis:7.4-alpine` running the exact command enforces auth (`NOAUTH` without pw, `PONG` with) and fails loud on empty; roundtrip 8/8; redaction PASS; the `validate-compose-dr` CI job green. **Deploy:** recreates postgres/redis/cloudflared — see the deploy-session entry for the config-diff gate + binds verification.
+
+**Tags:** [deploy] [docker] [config]
+**Environment:** laptop/ubuntu-vm branch `feat/281-d145-kill-secret-interpolation`. Executed by Claude (Opus 4.8).
