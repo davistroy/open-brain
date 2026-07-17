@@ -13,10 +13,26 @@ gas:
   # password via Bitwarden: key "gas-south-password"
 
 power:
-  data_dir: "~/.electric-usage"
-  rate_kwh: 0.12
-  # SmartHub creds via Bitwarden; electric-usage-downloader reads its own ~/.electric-usage/config.yaml
+  # #286: electric-usage-downloader writes interval CSVs here; cmd_power_summary
+  # parses them into power_readings. Point at the PERSISTENT volume in-container
+  # (utility_ingest_data is mounted at /data) so CSVs survive `--force-recreate`.
+  data_dir: "/data/electric-usage"
+  # 15-minute intervals are bucketed into daily rows by this LOCAL timezone.
+  timezone: "America/New_York"
+  # Cobb EMC SmartHub creds live in Bitwarden as TWO separate secrets (the
+  # canonical split-key scheme, mirroring gas). The downloader BINARY reads them
+  # from its own templated config (electric-usage-downloader-config.yaml) at run
+  # time; cmd_power_summary itself only reads data_dir + timezone.
+  bitwarden_username_key: "COBB_EMC_USERNAME"
+  bitwarden_password_key: "COBB_EMC_PASSWORD"
 
 water:
-  # Cobb Water — out of scope, separate backlog item
+  # Cobb Water — out of scope (#285 closed won't-do: Azure B2C + MFA)
   skip: true
+
+# Month-over-month spike alert thresholds (percent). Consumed by
+# --monthly-comparison; power_mom_pct is emitted into the capture metadata (#286).
+alert_thresholds:
+  power_mom_pct: 20
+  gas_mom_pct: 20
+  water_mom_pct: 30
