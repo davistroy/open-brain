@@ -443,6 +443,73 @@ else
 fi
 
 # -----------------------------------------------------------------------------
+# Test 6.7 — Map-vs-real-BWS name guard (#340; closes the #278 blind spot).
+#
+# scripts/lib/bws-key-inventory.txt is an INDEPENDENT hand-recorded snapshot of
+# Bitwarden reality (real `.key` names, no values). This asserts that every
+# REQUIRED map key and every real OPTIONAL map key appears in it; FORWARD-DECLARED
+# (uncreated) optionals are allow-listed. A wrong BWS name in secrets-map.sh — the
+# #340 bug, where a real item exists under a DIFFERENT name and load-secrets.sh
+# silently drops it on DR — is neither in the inventory nor forward-declared, so
+# it FAILS here. The other cases (6.1-6.6) derive their keyset FROM the map and so
+# are structurally blind to this exact class (see the note at the top of the file).
+# -----------------------------------------------------------------------------
+echo ""
+echo "[6.7] secrets-map BWS names match the recorded real-BWS inventory (#340)"
+
+INVENTORY_FILE="${REPO_ROOT}/scripts/lib/bws-key-inventory.txt"
+
+# FORWARD-DECLARED: mapped OPTIONAL secrets whose BWS item is not created yet.
+# Keep in sync with the "FORWARD-DECLARED" group in scripts/lib/secrets-map.sh.
+declare -A FORWARD_DECLARED=(
+  ["open-brain-smtp-host"]=1
+  ["open-brain-smtp-user"]=1
+  ["open-brain-smtp-pass"]=1
+  ["open-brain-smtp-from"]=1
+  ["dev/open-brain/voice-capture-secret"]=1
+)
+
+if [[ ! -f "${INVENTORY_FILE}" ]]; then
+  fail "6.7: inventory file missing (${INVENTORY_FILE})"
+else
+  # Load the inventory (skip comments/blanks) into a set.
+  declare -A INVENTORY=()
+  while IFS= read -r _line; do
+    [[ -z "${_line}" || "${_line}" == \#* ]] && continue
+    INVENTORY["${_line}"]=1
+  done < "${INVENTORY_FILE}"
+
+  _errs=0
+  # (a) Every REQUIRED map key must be a real BWS key.
+  for k in "${!REQUIRED_SECRETS[@]}"; do
+    if [[ -z "${INVENTORY[$k]:-}" ]]; then
+      echo "    MISSING (required): '${k}' not in bws-key-inventory.txt"
+      _errs=$((_errs+1))
+    fi
+  done
+  # (b) Every OPTIONAL map key must be real OR forward-declared.
+  for k in "${!OPTIONAL_SECRETS[@]}"; do
+    if [[ -z "${INVENTORY[$k]:-}" && -z "${FORWARD_DECLARED[$k]:-}" ]]; then
+      echo "    WRONG NAME (optional): '${k}' is neither in the inventory nor forward-declared (#340 class)"
+      _errs=$((_errs+1))
+    fi
+  done
+  # (c) Every inventory entry must still be referenced by the map (catch stale inventory).
+  for k in "${!INVENTORY[@]}"; do
+    if [[ -z "${REQUIRED_SECRETS[$k]:-}" && -z "${OPTIONAL_SECRETS[$k]:-}" ]]; then
+      echo "    STALE inventory: '${k}' is listed but no longer mapped in secrets-map.sh"
+      _errs=$((_errs+1))
+    fi
+  done
+
+  if (( _errs > 0 )); then
+    fail "6.7: ${_errs} map/inventory mismatch(es) — see above"
+  else
+    ok "6.7: all map BWS names match the recorded inventory or are forward-declared"
+  fi
+fi
+
+# -----------------------------------------------------------------------------
 # Summary
 # -----------------------------------------------------------------------------
 echo ""
