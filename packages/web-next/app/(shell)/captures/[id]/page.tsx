@@ -6,6 +6,7 @@ import { CaptureHeader } from '@/components/capture/CaptureHeader';
 import { AiSummary } from '@/components/capture/AiSummary';
 import { TranscriptView } from '@/components/capture/TranscriptView';
 import { ExtractionsSidebar } from '@/components/capture/ExtractionsSidebar';
+import { RelatedCaptures } from '@/components/capture/RelatedCaptures';
 import { capturesApi, entitiesApi, commitmentsApi, HttpError } from '@/lib/api-client';
 
 /**
@@ -33,9 +34,10 @@ export default async function CaptureDetailPage({
   }
 
   // Non-critical: entities linked to this capture + open commitments for capture
-  const [entitiesResult, commitmentsResult] = await Promise.allSettled([
+  const [entitiesResult, commitmentsResult, relatedResult] = await Promise.allSettled([
     entitiesApi.list({ limit: 50 }),
     commitmentsApi.list({ limit: 20 }),
+    capturesApi.related(id, { limit: 8 }),
   ]);
 
   // Filter entities to those mentioned in this capture (by name match in content)
@@ -49,6 +51,9 @@ export default async function CaptureDetailPage({
   const allCommitments =
     commitmentsResult.status === 'fulfilled' ? commitmentsResult.value.items : [];
   const captureCommitments = allCommitments.filter((c) => c.capture_id === id);
+
+  const relatedCaptures =
+    relatedResult.status === 'fulfilled' ? relatedResult.value : [];
 
   // Breadcrumb date: format created_at as "APR 21, 2026"
   const captureDate = capture.created_at
@@ -78,12 +83,13 @@ export default async function CaptureDetailPage({
         </div>
 
         {/* Right sidebar — entities, decisions, commitments */}
-        <aside>
+        <aside className="flex flex-col gap-5">
           <ExtractionsSidebar
             entities={captureEntities}
             commitments={captureCommitments}
             captureContent={capture.content ?? ''}
           />
+          <RelatedCaptures related={relatedCaptures} />
         </aside>
       </div>
     </>

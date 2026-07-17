@@ -136,6 +136,17 @@ export interface SearchResult {
   score: number;
 }
 
+/**
+ * Item in `GET /api/v1/captures/:id/related` — a related capture found via
+ * spreading activation over the entity graph (#71), with its hop distance.
+ */
+export interface RelatedCapture {
+  capture: Capture;
+  score: number;
+  /** Entity-graph hop distance (1 or 2) from the seed capture. */
+  hopCount?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Entity types — mirrors GET /api/v1/entities item shape
 // ---------------------------------------------------------------------------
