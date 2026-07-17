@@ -14000,3 +14000,22 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [debug] [backup] [testing]
 **Environment:** homeserver (live repro + host hot-patch) + laptop dev (test+fix, branch → PR). Executed by Claude (Opus 4.8), operator-directed (TROY_ACTIONS A2).
+
+---
+
+## Entry 228 — TROY_ACTIONS Part B prerequisites (B1/B2/B3) done + a live actual-ingest deploy blocker caught (2026-07-16)  [deploy] [config] [integration] [debug]
+
+**Objective:** complete the actual-ingest (#311) deploy prerequisites so the sidecar can go live. **Rollback:** BWS secrets deletable (`bws secret delete`); `.env.secrets` backed up pre-edit; `payee-rules.yaml` is host-only + regenerable; api-pin fix is repo-only (`git revert`).
+
+**B3 ✓** — DHCP pool floor is **.101** (Troy), well above the br0 static **.13** — no collision.
+
+**B1 ✓ (secrets) — but NOT via `load-secrets.sh`.** Created 3 BWS secrets in project `ai-work` under the loader's exact keys: `actual-budget-password` (copied from the existing `Actual Budget — My Finances` BWS secret), `actual-budget-sync-id`, `actual-budget-server-url` = **`http://192.168.10.12:5006`** (the Actual server's macvlan IP — the br0 sidecar reaches it directly; the *host* cannot, confirming macvlan isolation). Then **surgically appended** the 3 `ACTUAL_*` vars to the host `.env.secrets` (backed up first, sha256 sidecar created) instead of a full `load-secrets.sh` reconcile — because a map-vs-BWS check found **9 of 26 mapped secrets have wrong BWS key names** (SMTP×4, slack-user-token, grafana-admin, and the `dev/open-brain/` vs `open-brain-` prefix mismatch on mobile/voice/trigger), so a full reconcile would have written a BROKEN `.env.secrets`. **That map drift is a live DR gap (#278 class) — a rebuilt host's `load-secrets.sh` silently drops those 9. Flag for a follow-up.**
+
+**B2 ✓ (payee-rules) — derived from Troy's REAL categorizations, read-only.** Ran a one-off `dump-actual.mjs` in a `node:20` container sharing actualbudget's netns (`--network container:actualbudget`, serverURL `127.0.0.1:5006`, secrets via `-e` from `.env.secrets` so no value hit a command line), per the developer guide's recipe. Pulled accounts/payees/categories/transactions, took each payee's **dominant existing category**, and generated a loader-valid `config/payee-rules.yaml` (host-only, gitignored): **15 categories, 142 payees, 14 transfer excludes (from `payee.transfer_acct`), 0 investment excludes.** `exclude_investment=0` because the off-budget heuristic matched no accounts — SAFE (unmatched payees are only *reported*, never categorized; the §5 phantom-income invariant holds), refine from the first run's report. Needs Troy's review (his taxonomy).
+
+**⚠️ DEPLOY BLOCKER CAUGHT LIVE (a #311 bug) — the whole reason to run before shipping.** The sidecar pins `@actual-app/api ^25.7.1`, but the Actual **server is 26.7.0**. The dump with 25.7.1 failed `out-of-sync-migrations` on `downloadBudget` (the older API can't open the newer budget); with **26.7.0 it worked cleanly**. actual-ingest would have failed identically on its first run. **Fix:** bumped `scripts/actual/package.json` → `@actual-app/api ^26.7.0` + regenerated `package-lock.json`; 46 sidecar unit tests still green (they mock the api, so version-agnostic — and the live dump validated the real API surface against 26.7.0). **actual-ingest deploy is now gated on this PR merging → `build-images` rebuilding `actual-ingest:latest` with 26.7.0.**
+
+**Security note:** while probing the VM's `bws` access I accidentally expanded `BWS_ACCESS_TOKEN` to stdout — but it turned out to be a **stale/dead token** (`invalid_client`); the WORKING token (sourced from `~/.config/claude-env.sh`) was never exposed. Leak is harmless; noted for hygiene.
+
+**Tags:** [deploy] [config] [integration] [debug]
+**Environment:** homeserver (BWS via VM token, netns dump container, host `.env.secrets` + `payee-rules.yaml`) + laptop dev (api-pin fix, branch → PR). Executed by Claude (Opus 4.8), operator-directed (TROY_ACTIONS Part B).
