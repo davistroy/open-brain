@@ -14036,3 +14036,14 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [deploy] [docker]
 **Environment:** homeserver (root). Executed by Claude (Opus 4.8), operator-directed ("proceed").
+
+---
+
+## Entry 230 — actual-ingest (#311) STARTED + validated live + daily/parity crons installed (2026-07-16)  [deploy] [pipeline] [integration]
+
+**Objective:** bring up the actual-ingest sidecar now that its blocker-fixed image (#338, `@actual-app/api 26.7.0`) rebuilt, and wire its automation. Troy: "trust + start, do the two cron installs." **Rollback:** `docker stop/rm open-brain-actual-ingest` + `docker compose ... rm`; remove the 2 cron lines from `custom.cron` (backed up `custom.cron.bak-20260716`) + `update_cron`.
+
+**RESULT — SUCCESS, #311 IS LIVE.** `up -d --no-deps actual-ingest` pulled the 26.7.0 image, created `actual_ingest_data`, started the idle (`sleep infinity`) container **dual-homed br0=192.168.10.13 + open-brain=172.27.0.2** (payee-rules mounted, node v22). postgres/redis `StartedAt` UNCHANGED. **The manual first run (`docker exec … node actual-daily.mjs`) exited 0:** `categorized 2 group(s), 8 unmatched, 0 excluded, sync_failed=false` — connected to Actual on 26.7.0 (proving the api-pin fix), categorized per the derived rules, posted ONE aggregated daily-summary capture (`captures` **11301 → 11302**), Pushover sent. The 8 unmatched are new payees to add rules for (the D141 report-don't-guess loop). **Crons installed** into `/boot/config/plugins/dynamix/custom.cron` + merged to `/etc/cron.d/root` (verified THERE, not `crontab -l` — the Unraid gotcha): **OA-18** actual-daily `0 6` ET, **OA-27** parity-drift `15 5` ET (test-run → exit 0, "parity OK — no alert", fires Pushover only on real drift). **Part B (#302 reconciliation window) COMPLETE: B1/B2/B3 done, blocker fixed, safe-half deployed + in parity, actual-ingest live + automated.** Remaining polish: refine payee-rules from the 8 unmatched; the `secrets-map.sh` 9-key drift (DR gap) still open.
+
+**Tags:** [deploy] [pipeline] [integration]
+**Environment:** homeserver (root). Executed by Claude (Opus 4.8), operator-directed ("trust + start").
