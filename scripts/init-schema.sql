@@ -879,25 +879,6 @@ CREATE TABLE public.triggers (
 
 
 --
--- Name: voice_sessions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.voice_sessions (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    session_key character varying(64) NOT NULL,
-    started_at timestamp with time zone DEFAULT now() NOT NULL,
-    ended_at timestamp with time zone,
-    duration_seconds integer,
-    turn_count integer DEFAULT 0,
-    transcript jsonb DEFAULT '[]'::jsonb,
-    summary text,
-    captures_created uuid[] DEFAULT '{}'::uuid[],
-    metadata jsonb DEFAULT '{}'::jsonb,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: activity_feed activity_feed_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1127,22 +1108,6 @@ ALTER TABLE ONLY public.skills_log
 
 ALTER TABLE ONLY public.triggers
     ADD CONSTRAINT triggers_pkey PRIMARY KEY (id);
-
-
---
--- Name: voice_sessions voice_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.voice_sessions
-    ADD CONSTRAINT voice_sessions_pkey PRIMARY KEY (id);
-
-
---
--- Name: voice_sessions voice_sessions_session_key_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.voice_sessions
-    ADD CONSTRAINT voice_sessions_session_key_key UNIQUE (session_key);
 
 
 --
@@ -1710,13 +1675,6 @@ CREATE INDEX triggers_enabled_idx ON public.triggers USING btree (enabled);
 --
 
 CREATE UNIQUE INDEX triggers_name_idx ON public.triggers USING btree (name);
-
-
---
--- Name: voice_sessions_started_at_desc_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX voice_sessions_started_at_desc_idx ON public.voice_sessions USING btree (started_at DESC);
 
 
 --
