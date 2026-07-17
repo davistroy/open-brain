@@ -14047,3 +14047,18 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [deploy] [pipeline] [integration]
 **Environment:** homeserver (root). Executed by Claude (Opus 4.8), operator-directed ("trust + start").
+
+---
+
+## Entry 231 — #290: in-stack email-classify Gmail re-consent — obvm now retireable (2026-07-16)  [integration] [pipeline] [debug]
+
+**Objective:** TROY_ACTIONS Part D / #290 — prove the in-stack `email-classify` skill reached parity with obvm's `email-pipeline.py` so obvm (D144/#284) can be decommissioned. **Rollback:** `app_settings.gmail_token_cache` is in postgres (backed up); the prior value was the dead 04-21 token anyway.
+
+**Parity query finding (the confounder + the real gap):** `email_classifications` (written by the IN-STACK skill, workers `0 5`) has 7173 rows but stopped **2026-07-13 05:00** — because the 40-hour scheduler outage (07-14, fixed THIS session) killed the skill. Split by provider: **hotmail 7101 rows** (19–108/day, folder-moving — fully operational, resumes at the next `0 5`), **gmail only 72 rows, last 2026-04-21** — dead on the *exact* date obvm's Gmail died, because (OA-12) the in-stack `gmail-client` shares the same OAuth client but a **separate token** (`app_settings.gmail_token_cache`, NOT obvm's file). A1 re-consented obvm's token, not this one.
+
+**Fix — reused the durable refresh token, zero extra consent dance.** Since both share one OAuth client + account + scope (`gmail.modify`), a refresh_token is interchangeable. Read the durable refresh_token minted for obvm today (A1), wrapped it as a `google-auth-library` `Credentials` (`{refresh_token, scope, token_type:'Bearer', expiry_date:1}` — past expiry forces a refresh on first use), and UPSERTed it into `app_settings.gmail_token_cache` (SQL via stdin — the token never hit a command line or this notebook). **Verified LIVE (not assumed):** replicated exactly what `authenticate()` does — POST `grant_type=refresh_token` to Google with the stored client creds + refresh_token → **Google minted an access_token** (gmail.modify, expires_in 3599s). So the in-stack skill WILL authenticate Gmail.
+
+**Result:** the in-stack `email-classify` skill now covers **both** providers again (hotmail resumes post-scheduler-fix; gmail re-consented + durable). **obvm's email-pipeline is fully redundant → retireable.** Remaining to close #290/#284/D144: confirm the **07-17 05:00** run produces both hotmail + gmail rows (parity in practice), then disable obvm's email cron, drop `email-pipeline` from `BYPASS_CALLERS`, decommission the VM.
+
+**Tags:** [integration] [pipeline] [debug]
+**Environment:** obvm (durable token source) → homeserver postgres (`app_settings` write + live refresh verify), orchestrated from the VM. Executed by Claude (Opus 4.8), operator-directed ("do the in-stack Gmail re-consent now").
