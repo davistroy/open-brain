@@ -4,7 +4,7 @@
  * Exports: `capturesApi`, `CapturesListParams`, `CreateCapturePayload`
  */
 
-import type { Capture, CaptureType, CaptureSource, BrainView } from '../types'
+import type { Capture, CaptureType, CaptureSource, BrainView, RelatedCapture } from '../types'
 import { request, buildQueryString } from './core'
 import type { ListEnvelope } from './core'
 
@@ -48,5 +48,14 @@ export const capturesApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     })
+  },
+
+  /** GET /api/v1/captures/:id/related — related captures via spreading activation (#71).
+   *  API returns `{ related_results: [...] }`; we unwrap to the array. */
+  related: (id: string, params: { limit?: number } = {}): Promise<RelatedCapture[]> => {
+    const qs = buildQueryString(params)
+    return request<{ related_results: RelatedCapture[] }>(
+      `/captures/${encodeURIComponent(id)}/related${qs}`,
+    ).then(r => r.related_results ?? [])
   },
 }

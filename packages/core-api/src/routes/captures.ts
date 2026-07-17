@@ -8,6 +8,7 @@ import {
   listCapturesSchema,
 } from '../schemas/capture.js'
 import type { PipelineService } from '../services/pipeline.js'
+import type { SearchService } from '../services/search.js'
 import { parseUUIDParam } from '../lib/validation.js'
 
 export function registerCaptureRoutes(
@@ -15,6 +16,7 @@ export function registerCaptureRoutes(
   captureService: CaptureService,
   configService: ConfigService,
   pipelineService?: PipelineService,
+  searchService?: SearchService,
 ): void {
   // POST /api/v1/captures — create a new capture
   app.post('/api/v1/captures', zValidator('json', createCaptureSchema), async (c) => {
@@ -72,6 +74,22 @@ export function registerCaptureRoutes(
     const capture = await captureService.getById(id)
     return c.json(capture)
   })
+
+  // GET /api/v1/captures/:id/related — related captures via spreading activation (#71).
+  // Seeds directly from this capture (not a query's top hits). Returns { related_results }
+  // where each item carries capture, score, and hopCount (entity-graph distance).
+  if (searchService) {
+    const search = searchService
+    app.get('/api/v1/captures/:id/related', async (c) => {
+      const id = parseUUIDParam(c.req.param('id'))
+      const limitRaw = Number.parseInt(c.req.query('limit') ?? '', 10)
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 10
+      // 404 for an unknown capture (mirrors GET /:id) before computing related.
+      await captureService.getById(id)
+      const related = await search.findRelatedCaptures([id], limit)
+      return c.json({ related_results: related })
+    })
+  }
 
   // PATCH /api/v1/captures/:id — update tags/brain_view/metadata
   app.patch('/api/v1/captures/:id', zValidator('json', updateCaptureSchema), async (c) => {
