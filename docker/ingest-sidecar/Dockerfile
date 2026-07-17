@@ -9,7 +9,7 @@
 # this container for scheduled batch runs:
 #   docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates tzdata unzip \
