@@ -14120,3 +14120,12 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [pipeline] [testing]
 **Environment:** laptop/ubuntu-vm branch `feat/286-cobb-power-parser`. Repo-only; deploy + probe + leak-scrub are operator-gated. Executed by Claude (Opus 4.8).
+
+## Entry 237 — #344: fix the silently-disabled morning-brief Slack post (2026-07-17)  [pipeline] [config]
+
+**Objective:** the morning brief's Slack post has been silently skipped for months (A145) because `MORNING_BRIEF_SLACK_CHANNEL` was set ONLY in `.env` — which is a compose interpolation source that never reaches a container. `workers` saw `undefined`, `morning-brief.ts:414` resolved `''`, no post. This is a LIVE functional bug (surfaced during the ultra-plan backlog cross-check, WI-5.4). **Hypothesis / success criteria:** deliver the channel via the workers `environment:` block (it's a non-secret config value); `docker compose config` renders it; deploy = a workers-only recreate. **Decision (Troy):** hardcode the historical DM channel `D0AR39RNG4E` (the value the stale built `dist/main.js` carried as a fallback — where the brief used to post) rather than a `.env`-interpolated value, so it works immediately on the next recreate. **Rollback:** repo-only, `git revert`.
+
+**RESULT — DONE, verified.** Added `MORNING_BRIEF_SLACK_CHANNEL: "D0AR39RNG4E"` to the `workers` `environment:` in `docker-compose.yml` (with a comment explaining the `.env`-doesn't-reach-the-container root cause). Updated CLAUDE.md's A145 note to "FIXED". **Verification:** `docker compose config` renders `MORNING_BRIEF_SLACK_CHANNEL: D0AR39RNG4E` in the workers service; compose valid (`config -q` exit 0). It's a hardcoded literal (not interpolation), so it's independent of the #281/D145 DR gate. **Operator hand-off:** a **workers-only recreate** (`up -d --force-recreate --no-deps workers`) activates it — no stateful window needed; can ship ahead of the D145 deploy. Then confirm `slackSent: true` in the next morning-brief run. **NB:** the channel ID `D0AR39RNG4E` is a Slack DM id (non-secret) now in the public repo, per Troy's choice.
+
+**Tags:** [pipeline] [config]
+**Environment:** laptop/ubuntu-vm branch `feat/344-morning-brief-channel`. Repo-only; deploy = workers-only recreate (low risk, operator). Executed by Claude (Opus 4.8).

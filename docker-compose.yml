@@ -183,6 +183,11 @@ services:
       OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
       OPEN_BRAIN_API_URL: http://core-api:3000
+      # Morning-brief Slack destination (#344). Previously set ONLY in `.env`, which is
+      # a compose interpolation source and never reaches the container — so workers saw
+      # undefined, morning-brief.ts resolved '', and the brief's Slack post was silently
+      # skipped for months (A145). It is a non-secret config value, delivered here.
+      MORNING_BRIEF_SLACK_CHANNEL: "D0AR39RNG4E"
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       # GITEA_TOKEN comes from `env_file: .env.secrets` above — do NOT re-declare it.
