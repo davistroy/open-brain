@@ -4,7 +4,8 @@
 #   brain.troy-davis.com — primary (Next.js 16 Cloudscape UI, web-next:3001)
 #
 # HTTPS terminates at Cloudflare; tunnel carries plain HTTP internally.
-# Tunnel identity comes from CLOUDFLARE_TUNNEL_TOKEN env var (from Bitwarden).
+# Tunnel identity comes from the TUNNEL_TOKEN env var (from Bitwarden; #281/D145 —
+# renamed from CLOUDFLARE_TUNNEL_TOKEN, delivered via env_file: .env.secrets).
 # This file controls ingress routing only — no credentials stored here.
 #
 # MCP access: Claude Desktop connects to https://llm.troy-davis.com/mcp

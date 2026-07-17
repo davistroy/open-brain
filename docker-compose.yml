@@ -61,10 +61,15 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: open-brain-postgres
+    env_file:
+      - .env.secrets
     environment:
       POSTGRES_DB: openbrain
       POSTGRES_USER: openbrain
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — see deploy/.env.secrets.template}
+      # POSTGRES_PASSWORD arrives via env_file: .env.secrets (#281/D145) — no longer
+      # interpolated (which .env.secrets can't feed), so a rebuilt host boots from
+      # load-secrets.sh alone. The postgres image fails loudly on a FRESH init if it is
+      # empty; on an existing data dir it is ignored (password already in the DB).
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -94,11 +99,18 @@ services:
       - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
+    env_file:
+      - .env.secrets
     # requirepass (SEC-08) + bounded memory with noeviction (PE-M3): BullMQ enqueue
     # must fail loudly under back-pressure, never silently evict job state.
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set — see deploy/.env.secrets.template} --maxmemory 400mb --maxmemory-policy noeviction
+    # #281/D145: REDIS_PASSWORD arrives via env_file (not interpolation, which
+    # .env.secrets can't feed). The `sh -c` wrapper lets the CONTAINER shell expand
+    # $$REDIS_PASSWORD ($$ → literal $, so compose does not interpolate at parse time);
+    # the non-empty guard preserves the fail-loud behavior the old `:?` gave — redis
+    # must never start without auth. `exec` keeps redis as PID 1 for signal handling.
+    command: ["sh", "-c", "test -n \"$$REDIS_PASSWORD\" || { echo 'FATAL: REDIS_PASSWORD is empty, refusing to start redis without auth (#281/D145)' >&2; exit 1; }; exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\" --maxmemory 400mb --maxmemory-policy noeviction"]
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -119,8 +131,10 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3000"
-      POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # POSTGRES_URL + REDIS_URL arrive via env_file: .env.secrets (synthesized by
+      # load-secrets.sh, #281/D145) — NOT interpolated here (which .env.secrets can't
+      # feed) and NOT re-declared as `environment:` (which would OVERRIDE the env_file
+      # value — the GITEA_TOKEN clobber described above).
       OPENAI_BASE_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
@@ -177,8 +191,10 @@ services:
       - .env.secrets
     environment:
       NODE_ENV: production
-      POSTGRES_URL: postgresql://openbrain:${POSTGRES_PASSWORD}@postgres:5432/openbrain
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # POSTGRES_URL + REDIS_URL arrive via env_file: .env.secrets (synthesized by
+      # load-secrets.sh, #281/D145) — NOT interpolated here (which .env.secrets can't
+      # feed) and NOT re-declared as `environment:` (which would OVERRIDE the env_file
+      # value — the GITEA_TOKEN clobber described above).
       OPENAI_BASE_URL: https://api.openai.com/v1
       OLLAMA_URL: http://ollama:11434/v1
       CORE_API_URL: http://core-api:3000
@@ -261,7 +277,8 @@ services:
     environment:
       NODE_ENV: production
       CORE_API_URL: http://core-api:3000
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # REDIS_URL arrives via env_file: .env.secrets (synthesized by load-secrets.sh,
+      # #281/D145) — not interpolated, not re-declared here (would override env_file).
       OPENAI_BASE_URL: https://api.openai.com/v1
       NODE_OPTIONS: "--max-old-space-size=1200"
       # SLACK_BOT_TOKEN: set in .env.secrets   (xoxb-...)
@@ -454,10 +471,12 @@ services:
     # cloudflared image is distroless (no shell for CMD-SHELL); tunnel liveness is
     # covered by the external synthetic monitor (health.troy-davis.com).
     command: tunnel --no-autoupdate --metrics 127.0.0.1:2000 --config /etc/cloudflared/tunnel.yaml run
-    environment:
-      # CLOUDFLARE_TUNNEL_TOKEN: set in .env.secrets
-      # Retrieve from Bitwarden before starting: bws secret get <open-brain-cloudflare-tunnel-token>
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      # #281/D145: cloudflared is DISTROLESS (no shell for sh -c), so the token must
+      # arrive as an env var via env_file — not interpolated (which .env.secrets can't
+      # feed). load-secrets.sh writes TUNNEL_TOKEN directly (secrets-map.sh maps
+      # open-brain-cloudflare-tunnel-token -> TUNNEL_TOKEN); nothing else reads it.
+      - .env.secrets
     volumes:
       - ./config/cloudflare/tunnel.yaml:/etc/cloudflared/tunnel.yaml:ro
     depends_on:

@@ -55,7 +55,10 @@ declare -A REQUIRED_SECRETS=(
   ["PUSHOVER_API_TOKEN"]="PUSHOVER_APP_TOKEN"
   ["PUSHOVER_USER_KEY"]="PUSHOVER_USER_KEY"
   ["GITEA_TOKEN"]="GITEA_TOKEN"
-  ["open-brain-cloudflare-tunnel-token"]="CLOUDFLARE_TUNNEL_TOKEN"
+  # #281/D145: env var is TUNNEL_TOKEN (renamed from CLOUDFLARE_TUNNEL_TOKEN) — the
+  # cloudflared container reads TUNNEL_TOKEN directly via env_file (distroless, no shell
+  # for interpolation); nothing in code references the old name. BWS key is unchanged.
+  ["open-brain-cloudflare-tunnel-token"]="TUNNEL_TOKEN"
   # REQUIRED, not optional: the secret exists in BWS, and its absence silently
   # kills the whole T1 tier (#283 — 401 on 100% of calls for two weeks, unnoticed
   # because a totally-failing FREE tier looks identical to an idle one).
