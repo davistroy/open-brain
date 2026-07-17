@@ -24,7 +24,6 @@ import { BriefsService } from './services/briefs.js'
 import { ActivityFeedService } from './services/activity-feed.js'
 import { EmailDraftService } from './services/email-draft.js'
 import { EmailComposeAssistService } from './services/email-compose-assist.js'
-import { VoiceSessionService } from './services/voice-session.js'
 import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
 import { ACCESS_STATS_JOB_OPTIONS } from './lib/access-stats-options.js'
@@ -153,10 +152,6 @@ if (himalayaService.isConfigured) {
   logger.info('HIMALAYA_CONFIG not set — outbound email disabled (drafts still work)')
 }
 
-// Voice session service — manages Pipecat voice conversation sessions
-const voiceSessionService = new VoiceSessionService(db)
-voiceSessionService.setActivityFeedService(activityFeedService)
-
 // Wiki service — optional, requires WIKI_REPO_URL and WIKI_LOCAL_PATH env vars
 let wikiService: WikiService | undefined
 let wikiIngestQueue: Queue | undefined
@@ -230,7 +225,6 @@ const app = createApp({
   activityFeedService,
   emailDraftService,
   emailComposeAssistService,
-  voiceSessionService,
   briefsService,
   metricsRedis, // P11b — Composio quota gauge refresh
   ttsDeps,      // CS5 M3 item 4.1 — brief TTS audio cache

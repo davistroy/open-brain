@@ -7,7 +7,6 @@ import {
   Search,
   Clock,
   Upload,
-  Mic,
   Mail,
   Users,
   BookOpenText,
@@ -49,7 +48,6 @@ const SECTIONS: NavSection[] = [
     title: 'Capture',
     items: [
       { id: 'ingest', href: '/ingest', icon: Upload, label: 'Ingest' },
-      { id: 'voice',  href: '/voice',  icon: Mic,    label: 'Voice capture' },
       { id: 'email',  href: '/email',  icon: Mail,   label: 'Email bridge', count: 12 },
     ],
   },

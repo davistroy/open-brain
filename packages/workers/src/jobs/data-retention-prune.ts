@@ -36,10 +36,9 @@ export const RETENTION_POLICY: readonly RetentionPolicyEntry[] = [
   // Columns verified against scripts/init-schema.sql before adding:
   //   container_health:      created_at (:572)  — row-insert timestamp
   //   email_classifications: processed_at (:591) — no created_at column exists
-  //   voice_sessions:        created_at (:896)  — row-insert timestamp
+  // (voice_sessions removed with the dead conversational-voice feature — #298/D143.)
   { table: 'container_health',       column: 'created_at',   days: 30  },
   { table: 'email_classifications',  column: 'processed_at', days: 60  },
-  { table: 'voice_sessions',         column: 'created_at',   days: 90  },
 ] as const
 
 // admin_audit deliberately excluded — see module header.

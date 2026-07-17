@@ -4,39 +4,33 @@
  * VoiceSection — Settings page voice status section.
  *
  * Read-only status display: shows Voice Capture (iOS Shortcut) integration
- * health (from configApi.integrations), total session count, and active
- * session count. (The Pipecat conversational row was removed with the
- * voice-pipecat service in #298/D143.)
+ * health (from configApi.integrations). The Pipecat conversational
+ * voice_sessions rows (Total/Active session counts) were removed with the
+ * dead voice_sessions feature in #298/D143 — only the iOS voice-CAPTURE
+ * integration-health row remains.
  *
  * API surface:
- *   GET /api/v1/config/integrations        → { integrations: Integration[] }
- *   GET /api/v1/voice/sessions?limit=1     → { items, total, limit, offset }
- *   GET /api/v1/voice/sessions/active      → { items: VoiceSession[] }
+ *   GET /api/v1/config/integrations → { integrations: Integration[] }
  *
  * Patterns follow TriggersSection exemplar:
  * - TanStack Query useQuery; no mutations (read-only status section).
  * - Error UI: inline alert div with status-error CSS vars.
- * - Loading UI: skeleton pulse rows (same shape as real rows).
- * - Card wrapper with `padded={false}`; rows in divide-y container.
+ * - Loading UI: skeleton pulse row (same shape as the real row).
+ * - Card wrapper with `padded={false}`; row in divide-y container.
  * - Client component required for data fetching.
  *
  * Rows:
- * - Voice Capture (iOS Shortcut) row with active badge.
- * - Total Sessions count row.
- * - Active Sessions count row (highlighted when > 0).
+ * - Voice Capture (iOS Shortcut) integration-health row with active badge.
  *
  * web-next adaptation:
  * - Integrations use the web-next Integration type (status: 'healthy'|'degraded'|'error'|'unknown').
  *   Status dot: 'healthy' → green, 'degraded' → warning, 'error' → red, 'unknown' → neutral.
- * - Voice stats fetched independently via voiceSessionApi (not passed as props).
- * - active() endpoint returns { items: VoiceSession[] } (not { sessions: [] }).
  */
 
 import { Mic, TriangleAlert } from 'lucide-react';
 import { Card } from '@/components/design-system/Card';
 import { StatusDot } from '@/components/design-system/StatusDot';
 import { useIntegrations } from '@/lib/api/config.hooks';
-import { useVoiceSessions, useActiveVoiceSessions } from '@/lib/api/voice.hooks';
 import type { Integration } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -138,28 +132,16 @@ export function VoiceSection() {
   // ── Fetch integrations ─────────────────────────────────────────────────────
   const {
     data: integrationsData,
-    isLoading: integrationsLoading,
+    isLoading,
     isError: integrationsError,
     error: integrationsErr,
   } = useIntegrations();
-
-  // ── Fetch total session count (limit=1; we only need the total) ────────────
-  const { data: sessionsListData, isLoading: sessionsListLoading } = useVoiceSessions({ limit: 1 });
-
-  // ── Fetch active sessions ──────────────────────────────────────────────────
-  const { data: activeData, isLoading: activeLoading } = useActiveVoiceSessions();
-
-  const isLoading = integrationsLoading || sessionsListLoading || activeLoading;
 
   // ── Derive integration statuses ────────────────────────────────────────────
   const integrations = integrationsData?.integrations ?? [];
   const voiceCaptureIntegration = integrations.find(
     (i) => i.name === 'Voice Capture',
   );
-
-  // ── Derive session stats ───────────────────────────────────────────────────
-  const totalSessions = sessionsListData?.total ?? null;
-  const activeSessions = activeData?.items.length ?? 0;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -187,13 +169,7 @@ export function VoiceSection() {
       )}
 
       {/* ── Loading skeleton ─────────────────────────────────────────────── */}
-      {isLoading && !integrationsError && (
-        <>
-          <SkeletonRow />
-          <SkeletonRow />
-          <SkeletonRow />
-        </>
-      )}
+      {isLoading && !integrationsError && <SkeletonRow />}
 
       {/* ── Status rows ──────────────────────────────────────────────────── */}
       {!isLoading && !integrationsError && (
@@ -210,27 +186,6 @@ export function VoiceSection() {
             ) : (
               <ActiveBadge />
             )}
-          </StatusRow>
-
-          {/* Total Sessions */}
-          <StatusRow label="Total Sessions">
-            <span className="font-mono text-[12px] text-text-body">
-              {totalSessions !== null ? totalSessions.toLocaleString() : '—'}
-            </span>
-          </StatusRow>
-
-          {/* Active Sessions */}
-          <StatusRow label="Active Sessions">
-            <span
-              className={[
-                'font-mono text-[12px]',
-                activeSessions > 0
-                  ? 'text-[var(--color-book-cloth)]'
-                  : 'text-text-body',
-              ].join(' ')}
-            >
-              {activeSessions}
-            </span>
           </StatusRow>
         </div>
       )}

@@ -27,7 +27,6 @@ import { registerActivityRoutes } from './routes/activity.js'
 import { registerMcpActivityRoutes } from './routes/mcp-activity.js'
 import { registerConfigRoutes } from './routes/config.js'
 import { registerEmailRoutes } from './routes/email.js'
-import { registerVoiceSessionRoutes } from './routes/voice-sessions.js'
 import { registerMetricsRoute, metricsMiddleware } from './routes/metrics.js'
 import type { MetricsRedisClient } from './routes/metrics.js'
 import { registerIngestRoutes } from './routes/ingest.js'
@@ -50,7 +49,6 @@ import type { WikiService } from './services/wiki.js'
 import type { ActivityFeedService } from './services/activity-feed.js'
 import type { EmailDraftService } from './services/email-draft.js'
 import type { EmailComposeAssistService } from './services/email-compose-assist.js'
-import type { VoiceSessionService } from './services/voice-session.js'
 import type { BriefsService } from './services/briefs.js'
 
 interface AppDependencies {
@@ -86,8 +84,6 @@ interface AppDependencies {
   emailDraftService?: EmailDraftService
   /** Email-compose AI-assist service — optional, enables POST /api/v1/email/compose-draft */
   emailComposeAssistService?: EmailComposeAssistService
-  /** Voice session service — required for voice conversation session endpoints */
-  voiceSessionService?: VoiceSessionService
   /** Briefs service — required for GET/POST/PATCH /api/v1/briefs endpoints (CS2 M2) */
   briefsService?: BriefsService
   /** TTS dependencies — required for POST /api/v1/briefs/:id/audio (CS5 M3 item 4.1) */
@@ -106,7 +102,7 @@ interface AppDependencies {
 
 export function createApp(deps: AppDependencies = {}): Hono {
   const app = new Hono()
-  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, voiceSessionService, ingestProcessQueue, accessStatsQueue, metricsRedis, briefsService, ttsDeps } = deps
+  const { configService, captureService, searchService, pipelineService, db, redisConnection, skillQueue, triggerService, entityService, betService, sessionService, documentPipelineQueue, llmGateway, systemHealthService, wikiService, activityFeedService, emailDraftService, emailComposeAssistService, ingestProcessQueue, accessStatsQueue, metricsRedis, briefsService, ttsDeps } = deps
 
   // Rate limiter instances (in-memory, no persistence needed for single-user)
   const defaultLimiter = new RateLimiter(RATE_LIMIT_TIERS.default)
@@ -253,11 +249,6 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // Email drafts API
   if (emailDraftService) {
     registerEmailRoutes(app, emailDraftService, emailComposeAssistService)
-  }
-
-  // Voice session API
-  if (voiceSessionService) {
-    registerVoiceSessionRoutes(app, voiceSessionService)
   }
 
   // MCP activity log API (read-only, requires db)
