@@ -9,7 +9,7 @@
 # this container for scheduled batch runs:
 #   docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates tzdata unzip \
@@ -82,9 +82,14 @@ RUN ARCH="$(uname -m)" && case "$ARCH" in \
 # missing for the entire life of the gas path — unnoticed because auth was
 # broken upstream, so the parse never ran and therms silently stored as NULL
 # (#275). AGPL-3.0, accepted for this self-hosted single-user deployment.
+# PyYAML 6.0.3 / requests 2.34.2 (not 6.0.2 / 2.32.3): 6.0.2 has NO cp314 wheel,
+# so on python:3.14 it source-builds (works via the pure-Python fallback, but a
+# prod image should not depend on an sdist fallback). 6.0.3 ships a clean cp314
+# wheel. These now match docker/ingest-sidecar/tests/requirements.txt exactly.
+# PyMuPDF 1.28.0's cp310-abi3 wheel already covers 3.14. (Verified in-image, Entry 241.)
 RUN pip install --no-cache-dir \
-      requests==2.32.3 \
-      PyYAML==6.0.2 \
+      requests==2.34.2 \
+      PyYAML==6.0.3 \
       PyMuPDF==1.28.0
 
 # Defaults for in-container paths. Overrideable via compose environment.
