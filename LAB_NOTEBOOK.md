@@ -14187,3 +14187,18 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [docker] [testing] [decision]
 **Environment:** local Docker 29.6.1 on the VM (python:3.14.6-slim throwaway containers). No homeserver change in this entry (deploy is the next step). Executed by Claude (Opus 4.8).
+
+## Entry 242 — DEPLOY: ingest images to python:3.14 in prod (#354) (2026-07-17)  [deploy] [docker]
+
+**Objective:** deploy #354 (python:3.14 ingest-sidecar + file-ingestion) to the homeserver. Plan/rollback pre-recorded in Entry 241 + OA-34. **Rollback:** `git revert #354` + rebuild + re-pull, or pin the prior `:sha-*` image tags; postgres/redis NEVER touched (image-only recreate). **DB invariant: captures = 11306 before and after.**
+
+**RESULT — DEPLOYED + VERIFIED, DB intact.**
+- **Sequence:** #354 merged (main `8e7b100`; Dependabot auto-closed #321) → watched the `build-images` run rebuild+push `ingest-sidecar:latest` + `file-ingestion:latest` GREEN → host deploy.
+- **Read-only gate (host, root via Tailscale SSH):** `docker compose config -q` OK; **postgres → bind** `/mnt/user/appdata/open-brain/pgdata`, **redis → bind** `redis-data` (data-safe); the 3 target services render the correct GHCR `:latest`; captures baseline **11306**.
+- **Pull:** new IDs confirmed — ingest-sidecar `a34c53c`→`7c34dc2`, file-ingestion `fc5843a`→`498dce7`.
+- **Recreate:** `docker compose up -d --force-recreate --no-deps utility-ingest financial-ingest file-ingestion` (NO `--remove-orphans`, no `down`).
+- **Verify:** all 3 now **Python 3.14.6** (was 3.12.13 / 3.11.15); utility-ingest imports **fitz 1.28.0 | yaml 6.0.3 | requests 2.34.2**; the DEPLOYED `lib.gas_bill_parse` + `lib.power_csv_parse` load+run in-container on 3.14; file-ingestion `/health` = healthy; **captures 11306 (unchanged)**; **all 13 containers healthy** (postgres/redis untouched, Up 7h).
+- **No compose change** — image-only deploy; the OA-32 stateful-trio drift is unaffected (postgres/redis/cloudflared not touched).
+
+**Tags:** [deploy] [docker]
+**Environment:** homeserver (Unraid), all 13 open-brain containers healthy post-deploy. Executed by Claude (Opus 4.8) over Tailscale SSH.
