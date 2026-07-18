@@ -1,10 +1,12 @@
 # Open Brain File Ingestion Service
-# Python 3.11 slim — FastAPI content extraction for Office/document formats
+# Python 3.14 slim — FastAPI content extraction for Office/document formats
 #
 # Memory limit guidance: 1.5GB (set via mem_limit in docker-compose.yml)
 # Single uvicorn worker, streaming extraction to stay within budget.
+# All requirements (incl. compiled uvloop/httptools/watchfiles/Pillow/pydantic-core/
+# xxhash/lxml/cryptography) resolve to cp314 wheels — verified in-image, Entry 241.
 
-FROM python:3.11-slim AS base
+FROM python:3.14-slim AS base
 
 # Minimal system deps (pdfplumber needs no native libs beyond what slim provides)
 RUN apt-get update && apt-get install -y --no-install-recommends \

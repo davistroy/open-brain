@@ -14170,3 +14170,20 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [config] [testing] [decision]
 **Environment:** GitHub (davistroy account); no homeserver change. Executed by Claude (Opus 4.8).
+
+## Entry 241 — OA-34: verify the ingest images on Python 3.14 in-image, then land it clean (supersedes #321) (2026-07-17)  [docker] [testing] [decision]
+
+**Objective:** discharge OA-34 — prove PyMuPDF + the gas/power parsers actually run INSIDE a Python 3.14 image before merging #321 (`python:3.11/3.12-slim`→`python:3.14-slim` on the two ingest Dockerfiles). **Rollback plan:** branch→PR (git-revertable); no prod change in this step. **Why in-image:** the CI `sidecar-test` job installs ONLY the test requirements (NO PyMuPDF — it's a lazy import) and runs on the CI runner's Python, so #321's green CI proves neither PyMuPDF-on-3.14 nor the parsers-on-3.14. This is exactly the OA-34 gap.
+
+**Method — real `python:3.14-slim` containers, repo bind-mounted, mirroring the CI invocations:**
+- **PyMuPDF 1.28.0 is FINE on 3.14.** It ships a **`cp310-abi3`** wheel (stable ABI → covers 3.10 *and every later* CPython incl. 3.14). `import fitz` OK; a fitz smoke test using the EXACT API `utility-pipeline.py` calls (`fitz.open()` + `page.get_text()`) extracted text correctly.
+- **All 42 ingest-sidecar tests pass on 3.14** (`gas_bill_parse`, `power_csv_parse`, `trigger_server`, `utility_status`), run exactly as CI does (`python3 -m pytest docker/ingest-sidecar/tests/`).
+- **All 26 file-ingestion tests pass on 3.14.** Its whole `requirements.txt` — including the compiled `uvloop`/`httptools`/`watchfiles`/`Pillow`/`pydantic-core`/`xxhash`/`lxml`/`cryptography` — resolves to **cp314 wheels**, zero source builds, zero errors. (First run 26 `OSError`s = the `:ro` mount; the tests generate fixtures at collection via `create_fixtures.py`. A writable copy → 26 passed. Environmental, not a 3.14 defect.)
+- **THE ONE WRINKLE — `PyYAML==6.0.2` has NO cp314 wheel** (`--only-binary=:all:` fails; only `6.0.3` exists). The sidecar Dockerfile pins 6.0.2, so on 3.14 pip **source-builds** it (`Building wheel for PyYAML … done` — the pure-Python fallback needs no compiler, which is WHY #321's CI is green). It works, but a prod image relying on an sdist fallback is avoidable fragility. The sidecar test-reqs already use `PyYAML==6.0.3` + `requests==2.34.2`, so the Dockerfile also drifts from its own tests (whose comment falsely claims "pinned to match the Dockerfile exactly").
+
+**DECISION: land an INTEGRATED PR (supersede #321), don't merge #321 raw.** New branch bumps BOTH Dockerfiles' base to `python:3.14-slim` AND, in `docker/ingest-sidecar/Dockerfile`, `PyYAML==6.0.2`→`6.0.3` + `requests==2.32.3`→`2.34.2` (clean cp314 wheels + kills the Dockerfile-vs-tests skew, making that comment true). Close #321 as superseded. **Deploy mechanics** (verified): both images are built+pushed to GHCR `:latest` by `build-images.yml` and referenced `:latest` in compose → deploy = surgical `pull` + `up -d --force-recreate --no-deps utility-ingest financial-ingest file-ingestion` (data-safe; postgres/redis untouched; no `.dockerignore` gate since no new COPY sources).
+
+**Lesson:** an abi3 wheel (PyMuPDF) sails onto a new Python; a version-specific wheel (PyYAML 6.0.2 = `cp3XX`) does NOT — a base-image bump silently converts such a pin into a source build. When bumping a Python base image, `pip install --only-binary=:all: <exact pins>` in the new base is the one command that surfaces every pin lacking a wheel; green CI hides it because pip's source-fallback succeeds.
+
+**Tags:** [docker] [testing] [decision]
+**Environment:** local Docker 29.6.1 on the VM (python:3.14.6-slim throwaway containers). No homeserver change in this entry (deploy is the next step). Executed by Claude (Opus 4.8).
