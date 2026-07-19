@@ -111,3 +111,5 @@ config/payee-rules.yaml
 
 # Session handoff scratch — never commit
 HANDOFF.md
+TASKS.md
+tasks.json
