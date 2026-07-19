@@ -14224,3 +14224,18 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [decision]
 **Environment:** local (VM); GitHub issues via `gh`. Executed by Claude (Opus 4.8).
+
+## Entry 246 — CS-5/WI-5.0: resolve speaches env-vars + response shape (2026-07-18)  [config] [debug]
+
+**Objective:** WI-5.0 (GATES 5.1) — before writing the #301 speaches compose swap, confirm the exact env-var names, the model-alias mechanism for our `model=whisper-1` request, and the `verbose_json` response shape. Read-only investigation (speaches.ai docs + DeepWiki); no system change.
+
+**Findings (authoritative):**
+- **App contract (`transcription.ts`):** POSTs `file` + `model=whisper-1` + `response_format=verbose_json`; consumes `text` (hard) + `language?`/`duration?`/`segments[]?{start,end,text}` — ALL defaulted (`en`/`0`/`[]`) except `text`. So a shape mismatch DEGRADES (empty segments), never crashes. Line 5 default `WHISPER_URL` port is `10300` (a latent bug — only correct because compose sets `WHISPER_URL=…:8000`; WI-5.1 fixes it to 8000).
+- **Env renames:** `WHISPER__DEVICE`→**`WHISPER__INFERENCE_DEVICE`** (default `auto`); `WHISPER__COMPUTE_TYPE` unchanged (`int8`). **`WHISPER__MODEL` REMOVED** — speaches loads per-request via aliases; pre-warm with **`PRELOAD_MODELS`** (JSON array of HF ids). Bind: `UVICORN_HOST`/`UVICORN_PORT` (8000).
+- **`model_aliases.json` fixed path `/home/ubuntu/speaches/model_aliases.json`** (no env override), loaded once at startup. Map `{"whisper-1":"Systran/faster-whisper-large-v3"}` → `model=whisper-1` resolves, app-code untouched (D153).
+- **Image `ghcr.io/speaches-ai/speaches:latest-cpu`** (multi-arch, port 8000, ~1.2 GB); HF cache `/home/ubuntu/.cache/huggingface/hub`; **runs non-root as `ubuntu`** (→ U3). Default STT-model **TTL 300 s** unload-after-idle (may cold-load large-v3 on the first post-idle request; PRELOAD only warms at startup).
+
+**Decision (judgment):** the live throwaway-container `verbose_json` check is DEFERRED to the WI-5.2 deploy (drive a real transcription) rather than blocking 5.1 — justified by graceful degradation + low urgency of the migration. Plan Unknowns register updated: U1 RESOLVED, U2 ~resolved (live check at deploy), U3 clarified (non-root `ubuntu`). WI-5.1 is now ready to write once Troy greenlights CS-5.
+
+**Rollback:** N/A (read-only). **Tags:** [config] [debug]
+**Environment:** local (VM); web docs research. Executed by Claude (Opus 4.8).
