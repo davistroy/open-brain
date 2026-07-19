@@ -102,14 +102,21 @@ CS-1 (trivial, restores alert trust) → CS-2 (stop the live leak) → CS-3 (pow
 
 Single consumer: `voice-capture/transcription.ts`. speaches is OpenAI-compatible (same `/v1/audio/transcriptions`, port 8000, `/health`). Keep the service **named `faster-whisper`** to avoid churning the `container-health` probe + test.
 
-### WI-5.0 (pre-work, resolve unknowns — GATES 5.1)
+### WI-5.0 (pre-work, resolve unknowns — GATES 5.1) — ✅ RESOLVED 2026-07-18 (docs research, Entry 246)
 - Pull the current speaches settings schema → confirm the exact env var names (WHISPER__* replacements: model / inference device / compute type).
 - Confirm the `verbose_json` response shape returns `language`, `duration`, and `segments[]{start,end,text}` (else `transcription.ts:54-66` degrades silently). Verify against a live speaches response (throwaway container).
 - **Acceptance:** documented env var names + confirmed response shape.
 
-### WI-5.1 (code PR) — swap image + alias mount + port fix
-- `docker-compose.yml:359-381`: image → `ghcr.io/speaches-ai/speaches:latest-cpu`; rename env vars per WI-5.0; move the `whisper_model_cache` mount to speaches' non-root cache path (`/home/ubuntu/.cache/huggingface/hub`); optionally `PRELOAD_MODELS`.
-- Mount a new `config/whisper/model_aliases.json` mapping `"whisper-1": "Systran/faster-whisper-large-v3"` → **`transcription.ts` unchanged** (avoids app-code churn).
+**Findings (authoritative — speaches.ai docs + DeepWiki):**
+- **Env var renames:** `WHISPER__DEVICE` → **`WHISPER__INFERENCE_DEVICE`** (default `auto`); `WHISPER__COMPUTE_TYPE` **unchanged** (keep `int8`). **`WHISPER__MODEL` is GONE** — speaches has NO "default model" env var; it loads models lazily *per request* (resolved through `model_aliases.json`) and pre-warms via **`PRELOAD_MODELS`** (a JSON array of HF ids). Server bind: `UVICORN_HOST` (`0.0.0.0`) / `UVICORN_PORT` (`8000`).
+- **Model TTL:** STT models **unload after 300 s idle** by default → on this low-traffic CPU path the first post-idle request cold-loads large-v3 (seconds). Pin resident if the 2-min transcription timeout is at risk (env var name for TTL not yet confirmed; `PRELOAD_MODELS` only warms at *startup*, not after an unload).
+- **`model_aliases.json` path is FIXED at `/home/ubuntu/speaches/model_aliases.json`** (no env override) — the mount target must be exactly this. Loaded once at startup; restart to change. Docs use `whisper-1` as the example alias → our `model=whisper-1` POST resolves once the file maps it.
+- **Image `ghcr.io/speaches-ai/speaches:latest-cpu`** — multi-arch (amd64/arm64), listens on **8000**, ~1.2 GB. HF cache: **`/home/ubuntu/.cache/huggingface/hub`** (named volume `hf-hub-cache`); container runs **non-root as `ubuntu`** (→ U3).
+- **verbose_json shape:** speaches is OpenAI-compatible + faster-whisper-based → returns `text` + `language` + `duration` + `segments[]{id,start,end,text,…}`. `transcription.ts:61-66` already defaults every field except `text` (language→`en`, duration→`0`, segments→`[]`), so a shape mismatch **degrades (empty segments), never crashes**. **Residual:** the live throwaway-container check is DEFERRED to WI-5.2 deploy (drive a real transcription) rather than blocking 5.1 — justified by the graceful defaults + low urgency. Spin a `latest-cpu` container first if a pre-merge live check is wanted.
+
+### WI-5.1 (code PR) — swap image + alias mount + port fix  *(env vars/paths now pinned by WI-5.0)*
+- `docker-compose.yml` faster-whisper block: image → `ghcr.io/speaches-ai/speaches:latest-cpu`. Env: `WHISPER__DEVICE`→`WHISPER__INFERENCE_DEVICE: cpu`; keep `WHISPER__COMPUTE_TYPE: int8`; **remove `WHISPER__MODEL`**; add `PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'`. Point the model cache volume at **`/home/ubuntu/.cache/huggingface/hub`** (a NEW named volume — old `whisper_model_cache` at `/root/.cache/...` won't be reused → ~3 GB re-download on first boot). Consider pinning the model-TTL to keep large-v3 resident (confirm the exact TTL env var at build time).
+- Mount `config/whisper/model_aliases.json` (new) to the FIXED path **`/home/ubuntu/speaches/model_aliases.json:ro`**, contents `{"whisper-1": "Systran/faster-whisper-large-v3"}` → **`transcription.ts` unchanged** (avoids app-code churn).
 - Fix `transcription.ts:5` default port `10300` → `8000` (latent bug; only worked via compose `WHISPER_URL`).
 - Keep service name `faster-whisper` → `container-health.ts:64` + test unchanged.
 - **Acceptance:** container healthy; a real audio POST to `/v1/audio/transcriptions` with `model=whisper-1` returns `verbose_json` with text+segments; `transcription.test.ts` green.
@@ -135,9 +142,9 @@ Single consumer: `voice-capture/transcription.ts`. speaches is OpenAI-compatible
 
 | # | Unknown | Severity | Affects | Resolution |
 |---|---|---|---|---|
-| U1 | speaches exact env var names | Med | CS-5 | WI-5.0 — pull settings schema |
-| U2 | speaches `verbose_json` field shape | Med | CS-5 | WI-5.0 — live response check |
-| U3 | speaches non-root volume UID perms on Unraid | Low | CS-5 | verify on deploy; chown if needed |
+| U1 | speaches exact env var names | Med | CS-5 | ✅ RESOLVED (WI-5.0): `WHISPER__INFERENCE_DEVICE`, `WHISPER__COMPUTE_TYPE` (kept), drop `WHISPER__MODEL`, add `PRELOAD_MODELS`; aliases at fixed `/home/ubuntu/speaches/model_aliases.json` |
+| U2 | speaches `verbose_json` field shape | Med | CS-5 | ~RESOLVED (WI-5.0): OpenAI-compatible → `text`/`language`/`duration`/`segments[]`; `transcription.ts` defaults all but `text` (degrades, no crash). Live check deferred to WI-5.2 deploy |
+| U3 | speaches non-root volume UID perms on Unraid | Low | CS-5 | Container runs non-root as `ubuntu`; new `hf-hub-cache` vol at `/home/ubuntu/.cache/huggingface/hub` — verify on deploy; chown if needed |
 
 ## Scope boundaries
 
