@@ -28,7 +28,7 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 | `open-brain-workers` | build: target=workers | BullMQ workers — embed, classify, extract entities, triggers, skills |
 | `open-brain-slack-bot` | build: target=slack-bot | @slack/bolt Socket Mode — capture + query + commands |
 | `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
-| `open-brain-faster-whisper` | fedirz/faster-whisper-server:0.5.0-cpu | Speech-to-text (large-v3, CPU int8) |
+| `open-brain-faster-whisper` | ghcr.io/speaches-ai/speaches:latest-cpu | Speech-to-text (large-v3, CPU int8; #301) |
 | `open-brain-web-next` | build: packages/web-next/Dockerfile | Next.js 16 + Cloudscape + React 19 + TanStack Query — sole UI package; canonical ingress at brain.troy-davis.com |
 | `open-brain-file-ingestion` | build: packages/file-ingestion | FastAPI sidecar — extracts text from PDF/DOCX/XLSX/PPTX/etc. for the document pipeline |
 | `open-brain-financial-ingest` / `utility-ingest` | image: alpine + cron | Hourly Python pullers for financial + utility data; results POST'd to `/api/v1/captures` |

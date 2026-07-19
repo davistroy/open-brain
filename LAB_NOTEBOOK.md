@@ -14235,3 +14235,20 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [debug]
 **Environment:** local (VM); branch `docs/286-power-summary-drop-stub` → PR. Executed by Claude (Opus 4.8).
+
+## Entry 247 — CS-5/WI-5.1: migrate faster-whisper → speaches (2026-07-18)  [config] [deploy] [decision]
+
+**Objective:** #301/D153 — swap the STT service from `fedirz/faster-whisper-server:0.5.0-cpu` to its OpenAI-compatible successor **speaches** (`ghcr.io/speaches-ai/speaches:latest-cpu`), keeping the compose service NAME `faster-whisper` so `WHISPER_URL` consumers + `container-health.ts:64` probe are untouched. Facts pinned by WI-5.0 (Entry 246) + verified against speaches' own `compose.yaml`/`compose.cpu.yaml`.
+
+**Changes (this PR, branch `feat/301-migrate-speaches`):**
+- `docker-compose.yml` faster-whisper: image swap; env `WHISPER__DEVICE`→`WHISPER__INFERENCE_DEVICE: cpu`, keep `WHISPER__COMPUTE_TYPE: int8`, **drop `WHISPER__MODEL`**, add `PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'`. New named volume `hf_hub_cache:/home/ubuntu/.cache/huggingface/hub` (old `whisper_model_cache` retained for rollback, NOT reused → ~3 GB re-download first boot). Bind-mount `config/whisper/model_aliases.json` → FIXED `/home/ubuntu/speaches/model_aliases.json:ro`. Healthcheck → speaches' known-good `curl --fail http://127.0.0.1:8000/health` (its image ships curl; 127.0.0.1 per house rule); `start_period` 120s→**300s** (first-boot model download).
+- New `config/whisper/model_aliases.json` = `{"whisper-1":"Systran/faster-whisper-large-v3"}` → our `model=whisper-1` POST resolves, `transcription.ts` UNCHANGED except the latent default-port fix.
+- `transcription.ts:5` default `…:10300`→`…:8000` (latent bug; prod always sets `WHISPER_URL` so never hit).
+- Doc accuracy: `README.md` + `docs/runbooks/deploy.md` image name (left archived/ADR/TDD historical refs + the unchanged `10300` host-port refs).
+
+**Hypothesis / success criteria:** voice-capture `test` 112/112 + `lint` (tsc) clean + compose YAML parses (all ✅). ON DEPLOY (WI-5.2): container healthy on `/health`, a real iOS-Shortcut capture transcribes via whisper-1→alias→large-v3, `verbose_json` returns text+segments. speaches `verbose_json` is OpenAI-compatible and `transcription.ts` defaults every field but `text`, so a shape mismatch degrades (empty segments), never crashes — live check happens at deploy.
+
+**Merge vs deploy:** merging lands this on `main` ONLY; the running stack is unaffected until the operator `pull` + `up -d --force-recreate --no-deps faster-whisper` (WI-5.2). No auto-deploy from main.
+
+**Rollback:** revert PR → 0.5.0 image + `whisper_model_cache` (retained) + port 10300 default; `--force-recreate`. **Tags:** [config] [deploy] [decision]
+**Environment:** local (VM); branch `feat/301-migrate-speaches` → PR. Executed by Claude (Opus 4.8).
