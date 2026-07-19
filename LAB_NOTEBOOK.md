@@ -14225,6 +14225,17 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 **Tags:** [decision]
 **Environment:** local (VM); GitHub issues via `gh`. Executed by Claude (Opus 4.8).
 
+## Entry 245 — CS-3/WI-3.1: drop stale "(stub)" markers from utility-pipeline.py power-summary (2026-07-18)  [debug]
+
+**Objective:** WI-3.1 — `--power-summary` is fully implemented (`cmd_power_summary:670`, wired at `:1095`) but its docstring/help still said "(stub)". The plan named only `:15`; investigation found THREE stale markers (`:15` usage docstring, `:667` section header, `:1059` argparse help). Fixed all three per the no-band-aids standard — fixing one while two others still read "stub" would be inconsistent. Section header rebuilt to 79 visual cols to match the file's other `# ── … ──` headers. Doc-only; no behavior change.
+
+**Result:** `grep -i stub scripts/utility-pipeline.py` → none; `py_compile` clean; `test_power_csv_parse.py` 10/10 pass. Rollback: revert PR.
+
+(Note: separate branch from PR #357/Entry 244 — this session's marker + Entry 244 live on the held CS-2 branch; expect a trivial LAB_NOTEBOOK append-conflict at whichever merges second.)
+
+**Tags:** [debug]
+**Environment:** local (VM); branch `docs/286-power-summary-drop-stub` → PR. Executed by Claude (Opus 4.8).
+
 ## Entry 246 — CS-5/WI-5.0: resolve speaches env-vars + response shape (2026-07-18)  [config] [debug]
 
 **Objective:** WI-5.0 (GATES 5.1) — before writing the #301 speaches compose swap, confirm the exact env-var names, the model-alias mechanism for our `model=whisper-1` request, and the `verbose_json` response shape. Read-only investigation (speaches.ai docs + DeepWiki); no system change.
@@ -14239,3 +14250,20 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Rollback:** N/A (read-only). **Tags:** [config] [debug]
 **Environment:** local (VM); web docs research. Executed by Claude (Opus 4.8).
+
+## Entry 247 — CS-5/WI-5.1: migrate faster-whisper → speaches (2026-07-18)  [config] [deploy] [decision]
+
+**Objective:** #301/D153 — swap the STT service from `fedirz/faster-whisper-server:0.5.0-cpu` to its OpenAI-compatible successor **speaches** (`ghcr.io/speaches-ai/speaches:latest-cpu`), keeping the compose service NAME `faster-whisper` so `WHISPER_URL` consumers + `container-health.ts:64` probe are untouched. Facts pinned by WI-5.0 (Entry 246) + verified against speaches' own `compose.yaml`/`compose.cpu.yaml`.
+
+**Changes (this PR, branch `feat/301-migrate-speaches`):**
+- `docker-compose.yml` faster-whisper: image swap; env `WHISPER__DEVICE`→`WHISPER__INFERENCE_DEVICE: cpu`, keep `WHISPER__COMPUTE_TYPE: int8`, **drop `WHISPER__MODEL`**, add `PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'`. New named volume `hf_hub_cache:/home/ubuntu/.cache/huggingface/hub` (old `whisper_model_cache` retained for rollback, NOT reused → ~3 GB re-download first boot). Bind-mount `config/whisper/model_aliases.json` → FIXED `/home/ubuntu/speaches/model_aliases.json:ro`. Healthcheck → speaches' known-good `curl --fail http://127.0.0.1:8000/health` (its image ships curl; 127.0.0.1 per house rule); `start_period` 120s→**300s** (first-boot model download).
+- New `config/whisper/model_aliases.json` = `{"whisper-1":"Systran/faster-whisper-large-v3"}` → our `model=whisper-1` POST resolves, `transcription.ts` UNCHANGED except the latent default-port fix.
+- `transcription.ts:5` default `…:10300`→`…:8000` (latent bug; prod always sets `WHISPER_URL` so never hit).
+- Doc accuracy: `README.md` + `docs/runbooks/deploy.md` image name (left archived/ADR/TDD historical refs + the unchanged `10300` host-port refs).
+
+**Hypothesis / success criteria:** voice-capture `test` 112/112 + `lint` (tsc) clean + compose YAML parses (all ✅). ON DEPLOY (WI-5.2): container healthy on `/health`, a real iOS-Shortcut capture transcribes via whisper-1→alias→large-v3, `verbose_json` returns text+segments. speaches `verbose_json` is OpenAI-compatible and `transcription.ts` defaults every field but `text`, so a shape mismatch degrades (empty segments), never crashes — live check happens at deploy.
+
+**Merge vs deploy:** merging lands this on `main` ONLY; the running stack is unaffected until the operator `pull` + `up -d --force-recreate --no-deps faster-whisper` (WI-5.2). No auto-deploy from main.
+
+**Rollback:** revert PR → 0.5.0 image + `whisper_model_cache` (retained) + port 10300 default; `--force-recreate`. **Tags:** [config] [deploy] [decision]
+**Environment:** local (VM); branch `feat/301-migrate-speaches` → PR. Executed by Claude (Opus 4.8).

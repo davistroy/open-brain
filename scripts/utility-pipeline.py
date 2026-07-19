@@ -12,7 +12,7 @@ comparison captures to the Open Brain API. Runs via cron on open-brain-vm.
 Usage:
     python utility-pipeline.py --water              # fetch water meter readings
     python utility-pipeline.py --gas                # fetch gas billing + parse PDFs
-    python utility-pipeline.py --power-summary      # aggregate power CSV data (stub)
+    python utility-pipeline.py --power-summary      # aggregate power CSV data
     python utility-pipeline.py --monthly-comparison  # unified utility synthesis
     python utility-pipeline.py --status             # pipeline stats
 
@@ -664,7 +664,7 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         )
 
 
-# ── Power (Cobb EMC — stub) ─────────────────────────────────────────────────
+# ── Power (Cobb EMC) ─────────────────────────────────────────────────────────
 
 
 def cmd_power_summary(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
@@ -1056,7 +1056,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Utility Pipeline for Open Brain")
     ap.add_argument("--water", action="store_true", help="Fetch water meter readings (Cobb County)")
     ap.add_argument("--gas", action="store_true", help="Fetch gas billing + parse PDFs (Gas South)")
-    ap.add_argument("--power-summary", action="store_true", help="Aggregate power CSV data (stub)")
+    ap.add_argument("--power-summary", action="store_true", help="Aggregate power CSV data")
     ap.add_argument(
         "--monthly-comparison", action="store_true", help="Unified utility synthesis + capture"
     )

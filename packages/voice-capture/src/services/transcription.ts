@@ -2,7 +2,7 @@ import { createLogger } from '@open-brain/shared'
 
 const logger = createLogger('voice-transcription')
 
-const WHISPER_URL = process.env.WHISPER_URL ?? 'http://faster-whisper:10300'
+const WHISPER_URL = process.env.WHISPER_URL ?? 'http://faster-whisper:8000'
 const TRANSCRIPTION_TIMEOUT_MS = 120_000 // 2 minutes — large-v3 CPU can be slow
 
 export interface TranscriptionResult {
