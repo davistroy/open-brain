@@ -21,7 +21,7 @@
 | `open-brain-file-ingestion` | `ghcr.io/davistroy/open-brain/file-ingestion:latest` | `127.0.0.1:8080` |
 | `open-brain-financial-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
 | `open-brain-utility-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
-| `open-brain-faster-whisper` | `fedirz/faster-whisper-server:0.5.0-cpu` | `127.0.0.1:10300` |
+| `open-brain-faster-whisper` | `ghcr.io/speaches-ai/speaches:latest-cpu` | `127.0.0.1:10300` |
 | `open-brain-cloudflared` | `cloudflare/cloudflared:2025.6.1` | — |
 
 **12 containers total**, all in this compose project.
