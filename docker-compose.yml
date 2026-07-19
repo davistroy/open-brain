@@ -24,7 +24,8 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  whisper_model_cache:
+  whisper_model_cache:  # #301: retained for rollback to the pre-speaches image
+  hf_hub_cache:         # #301: speaches HF hub cache at /home/ubuntu/.cache/huggingface/hub
   financial_ingest_data:
   utility_ingest_data:
   admin_prewipe_backup:
@@ -357,22 +358,32 @@ services:
   # --- Voice services: iOS Shortcut → voice-capture → faster-whisper batch transcription (the LIVE path) ---
 
   faster-whisper:
-    image: fedirz/faster-whisper-server:0.5.0-cpu
+    # #301/D153: migrated fedirz/faster-whisper-server -> speaches (its OpenAI-compatible
+    # successor: same /v1/audio/transcriptions + /health on :8000). Service NAME kept as
+    # `faster-whisper` so WHISPER_URL consumers + container-health probe stay unchanged.
+    # speaches loads models per-request (no WHISPER__MODEL) — model=whisper-1 resolves via
+    # the model_aliases.json mount; PRELOAD_MODELS warms large-v3 at startup.
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
     container_name: open-brain-faster-whisper
     environment:
-      WHISPER__MODEL: large-v3
-      WHISPER__DEVICE: cpu
+      WHISPER__INFERENCE_DEVICE: cpu
       WHISPER__COMPUTE_TYPE: int8
+      PRELOAD_MODELS: '["Systran/faster-whisper-large-v3"]'
     ports:
       - "127.0.0.1:10300:8000"
     volumes:
-      - whisper_model_cache:/root/.cache/huggingface
+      # New named volume at speaches' non-root HF cache path (container runs as `ubuntu`).
+      # The old whisper_model_cache (/root/.cache) is intentionally NOT reused -> ~3 GB
+      # re-download of large-v3 on first boot; the old volume is retained for rollback.
+      - hf_hub_cache:/home/ubuntu/.cache/huggingface/hub
+      - ./config/whisper/model_aliases.json:/home/ubuntu/speaches/model_aliases.json:ro
     healthcheck:
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      # speaches' own known-good check (its image ships curl); 127.0.0.1 per house rule.
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 300s  # first boot downloads ~3 GB large-v3 before /health is ready
     mem_limit: 8g
     cpus: '4'
     networks:
