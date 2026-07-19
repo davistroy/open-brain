@@ -109,6 +109,10 @@ docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md
 # The tracked config/payee-rules.example.yaml (synthetic payees) is the schema + fixture.
 config/payee-rules.yaml
 
+# utility-pipeline config — real utility ACCOUNT NUMBERS = financial data; host-only (#286).
+# The tracked config/utility/utility-config.example.yaml (placeholders) is the schema + fixture.
+config/utility/utility-config.yaml
+
 # Session handoff scratch — never commit
 HANDOFF.md
 TASKS.md

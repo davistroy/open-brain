@@ -14224,3 +14224,20 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Tags:** [decision]
 **Environment:** local (VM); GitHub issues via `gh`. Executed by Claude (Opus 4.8).
+
+--- New session: 2026-07-18 — execute IMPLEMENTATION_PLAN-2026-07-top5.md (Troy chose: CS-2 leak PR first; no operator steps yet) ---
+
+## Entry 244 — CS-2/WI-2.1: untrack + gitignore the utility-config leak (2026-07-18)  [decision] [config] [git]
+
+**Objective:** Stop the LIVE public leak. `config/utility/utility-config.yaml` is git-TRACKED in this PUBLIC repo and carries real utility ACCOUNT NUMBERS at HEAD (lines 18, 37); its own `.example` FALSELY claims the real file is already gitignored. Execute WI-2.1 — the code half of CS-2 / D151: `git rm --cached` the file, add it to `.gitignore` (mirror the `payee-rules.yaml` host-only precedent at `.gitignore:108-110`), and correct the false/now-true `.example` header.
+
+**Hypothesis / success criteria:** after the change — `git ls-files config/utility/utility-config.yaml` → empty; `git check-ignore config/utility/utility-config.yaml` → matches; `.example` still carries only placeholders (`<from bitwarden>`) and its gitignore note is now TRUE. The homeserver's host-only real config is UNTOUCHED by this PR — it's a bind-mounted host file (`scripts/utility-pipeline.py:102` reads `UTILITY_CONFIG_DIR=/app/config/utility/utility-config.yaml` via the `./config` mount), not this VM checkout.
+
+**Scope of THIS change (WI-2.1 ONLY):** 3 edits — untrack via `git rm --cached`; `.gitignore` add with explanatory comment; `.example` header clarify. NO history rewrite here — the account-ID strings already in HISTORY are purged separately by OA-30 (operator `git filter-repo` + `git bundle` backup + force-push, D151). IDs are already public (accepted per D151).
+
+**Coupling / operator guard (WI-2.2, why merge is HELD):** merging makes the next homeserver `git checkout origin/main`/reset DELETE the host-only config → `utility-ingest` can't read it → gas ingest breaks. So the homeserver copy MUST be backed up BEFORE any deploy pulls this (operator step WI-2.2 / OA-30). Therefore: PR opened but HELD for merge until Troy confirms the host backup.
+
+**Rollback:** revert the PR (host file untouched — host-only, not in this VM checkout). Pre-scrub history is preserved separately by OA-30's `git bundle --all` before force-push.
+
+**Tags:** [decision] [config] [git]
+**Environment:** local (VM); branch → PR via `gh`. Executed by Claude (Opus 4.8).

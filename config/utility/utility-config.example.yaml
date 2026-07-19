@@ -1,6 +1,7 @@
-# Example utility-pipeline configuration.
-# Real file `utility-config.yaml` is gitignored; populated on homeserver
-# with credentials + capture_api block.
+# Example utility-pipeline configuration (schema + fixture — safe to commit; placeholders only).
+# The real `utility-config.yaml` is gitignored (#286): it holds real utility ACCOUNT NUMBERS
+# (financial data, and this repo is PUBLIC) and lives host-only on the homeserver, populated
+# with credentials + the capture_api block.
 
 capture_api:
   url: "https://brain.troy-davis.com/api/v1/captures"   # sidecar overrides via CAPTURE_API_URL env
