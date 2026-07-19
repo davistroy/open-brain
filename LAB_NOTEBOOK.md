@@ -14225,6 +14225,17 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 **Tags:** [decision]
 **Environment:** local (VM); GitHub issues via `gh`. Executed by Claude (Opus 4.8).
 
+## Entry 245 — CS-3/WI-3.1: drop stale "(stub)" markers from utility-pipeline.py power-summary (2026-07-18)  [debug]
+
+**Objective:** WI-3.1 — `--power-summary` is fully implemented (`cmd_power_summary:670`, wired at `:1095`) but its docstring/help still said "(stub)". The plan named only `:15`; investigation found THREE stale markers (`:15` usage docstring, `:667` section header, `:1059` argparse help). Fixed all three per the no-band-aids standard — fixing one while two others still read "stub" would be inconsistent. Section header rebuilt to 79 visual cols to match the file's other `# ── … ──` headers. Doc-only; no behavior change.
+
+**Result:** `grep -i stub scripts/utility-pipeline.py` → none; `py_compile` clean; `test_power_csv_parse.py` 10/10 pass. Rollback: revert PR.
+
+(Note: separate branch from PR #357/Entry 244 — this session's marker + Entry 244 live on the held CS-2 branch; expect a trivial LAB_NOTEBOOK append-conflict at whichever merges second.)
+
+**Tags:** [debug]
+**Environment:** local (VM); branch `docs/286-power-summary-drop-stub` → PR. Executed by Claude (Opus 4.8).
+
 ## Entry 247 — CS-5/WI-5.1: migrate faster-whisper → speaches (2026-07-18)  [config] [deploy] [decision]
 
 **Objective:** #301/D153 — swap the STT service from `fedirz/faster-whisper-server:0.5.0-cpu` to its OpenAI-compatible successor **speaches** (`ghcr.io/speaches-ai/speaches:latest-cpu`), keeping the compose service NAME `faster-whisper` so `WHISPER_URL` consumers + `container-health.ts:64` probe are untouched. Facts pinned by WI-5.0 (Entry 246) + verified against speaches' own `compose.yaml`/`compose.cpu.yaml`.
