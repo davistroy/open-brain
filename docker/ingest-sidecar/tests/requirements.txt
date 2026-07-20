@@ -9,6 +9,6 @@
 #
 # Versions pinned to match docker/ingest-sidecar/Dockerfile exactly, so the test
 # environment cannot drift from the image that actually runs this code.
-pytest>=8.0,<9.0
+pytest>=9.1.1,<10.0
 requests==2.34.2
 PyYAML==6.0.3
