@@ -764,12 +764,20 @@ export class LLMGatewayService {
    * Used by completeWithTierFallback to decide whether to hop tiers.
    */
   private shouldAttemptFallback(err: unknown, _clientUsed: AIClientType): boolean {
-    if (err instanceof Error) {
-      const msg = err.message
-      // Check for common transient error patterns
-      return /429|500|502|503|rate.limit|overloaded|timeout|ECONNREFUSED|ETIMEDOUT/i.test(msg)
-    }
-    return false
+    if (!(err instanceof Error)) return false
+    // OpenAI/Anthropic SDK connectivity failures surface as FRIENDLY messages
+    // ("Request timed out.", "Connection error.") whose text contains neither
+    // "timeout" nor "ETIMEDOUT"/"ECONNREFUSED" — matching only those tokens
+    // silently disabled the fallback chain for every real Jetson/Spark outage
+    // (Entry 249). Gate on the SDK error NAME and HTTP status too, and match
+    // both "timeout" and "timed out". Stays scoped to transient/connectivity
+    // errors — 400/401 client errors still do NOT fall back.
+    if (/APIConnection|Timeout/i.test(err.name)) return true
+    const status = (err as { status?: number }).status
+    if (typeof status === 'number' && (status === 429 || status >= 500)) return true
+    return /429|50\d|rate.?limit|overloaded|timed?\s*out|timeout|connection error|ECONN|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang ?up|fetch failed/i.test(
+      err.message,
+    )
   }
 
   // ---------------------------------------------------------------------------

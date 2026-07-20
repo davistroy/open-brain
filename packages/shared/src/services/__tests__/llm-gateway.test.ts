@@ -398,3 +398,59 @@ describe('estimateTierCostUsd (via recordAgentCompletion)', () => {
     expect(Number(row.cost_usd)).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// shouldAttemptFallback() — transient-error classification (Entry 249)
+//
+// Regression guard for the dead-fallback bug: the OpenAI SDK surfaces
+// connectivity failures as friendly messages ("Request timed out.",
+// "Connection error.") whose text matched none of the old regex tokens, so a
+// Jetson outage threw at t1_jetson instead of degrading to t1_spark.
+// ---------------------------------------------------------------------------
+
+describe('LLMGatewayService.shouldAttemptFallback', () => {
+  function shouldFallback(err: unknown): boolean {
+    const gateway = new LLMGatewayService(
+      makeConfigService({}, {}),
+      makeDb().db,
+      makeTemplateCache(),
+      makeAnthropicClient(),
+      null,
+      null,
+    ) as unknown as { shouldAttemptFallback(e: unknown, c: string): boolean }
+    return gateway.shouldAttemptFallback(err, 'openai_compat')
+  }
+
+  it('falls back on the OpenAI SDK timeout message "Request timed out."', () => {
+    expect(shouldFallback(new Error('Request timed out.'))).toBe(true)
+  })
+
+  it('falls back on the OpenAI SDK connection-refused message "Connection error."', () => {
+    expect(shouldFallback(new Error('Connection error.'))).toBe(true)
+  })
+
+  it('falls back when the error NAME is an SDK connection/timeout class', () => {
+    const timeoutErr = Object.assign(new Error('Request timed out.'), { name: 'APIConnectionTimeoutError' })
+    const connErr = Object.assign(new Error('Connection error.'), { name: 'APIConnectionError' })
+    expect(shouldFallback(timeoutErr)).toBe(true)
+    expect(shouldFallback(connErr)).toBe(true)
+  })
+
+  it('falls back on a retryable HTTP status (429 / 5xx) even without a matching message', () => {
+    expect(shouldFallback(Object.assign(new Error('Too Many Requests'), { status: 429 }))).toBe(true)
+    expect(shouldFallback(Object.assign(new Error('Bad Gateway'), { status: 502 }))).toBe(true)
+  })
+
+  it('still falls back on the original transient patterns (no regression)', () => {
+    expect(shouldFallback(new Error('request timeout'))).toBe(true)
+    expect(shouldFallback(new Error('connect ETIMEDOUT 192.168.10.58:8080'))).toBe(true)
+    expect(shouldFallback(new Error('503 Service Unavailable'))).toBe(true)
+    expect(shouldFallback(new Error('model is overloaded'))).toBe(true)
+  })
+
+  it('does NOT fall back on non-transient client errors (400/401) or non-Error values', () => {
+    expect(shouldFallback(Object.assign(new Error('Bad request: invalid model'), { status: 400 }))).toBe(false)
+    expect(shouldFallback(Object.assign(new Error('Unauthorized'), { status: 401 }))).toBe(false)
+    expect(shouldFallback('not an error object')).toBe(false)
+  })
+})

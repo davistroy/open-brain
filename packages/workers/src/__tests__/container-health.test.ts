@@ -302,4 +302,9 @@ describe('DEFAULT_ENDPOINTS', () => {
     const faster = DEFAULT_ENDPOINTS.find(ep => ep.name === 'faster-whisper')
     expect(faster).toEqual({ name: 'faster-whisper', url: 'http://faster-whisper:8000/health' })
   })
+
+  it('probes the external Jetson LLM endpoint (Entry 249 — outage was silent for days)', () => {
+    const jetson = DEFAULT_ENDPOINTS.find(ep => ep.name === 'jetson-llm')
+    expect(jetson).toEqual({ name: 'jetson-llm', url: 'http://192.168.10.58:8080/health' })
+  })
 })
