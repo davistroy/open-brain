@@ -204,7 +204,9 @@ services:
       # a compose interpolation source and never reaches the container — so workers saw
       # undefined, morning-brief.ts resolved '', and the brief's Slack post was silently
       # skipped for months (A145). It is a non-secret config value, delivered here.
-      MORNING_BRIEF_SLACK_CHANNEL: "D0AR39RNG4E"
+      # Value = the real bot<->Troy DM channel (conversations.open, Entry 248). The prior
+      # "D0AR39RNG4E" was a stale test-fixture id that returned channel_not_found every day.
+      MORNING_BRIEF_SLACK_CHANNEL: "D0AKD047W21"
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       # GITEA_TOKEN comes from `env_file: .env.secrets` above — do NOT re-declare it.
