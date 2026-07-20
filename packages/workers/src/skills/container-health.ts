@@ -62,6 +62,13 @@ export const DEFAULT_ENDPOINTS: ContainerEndpoint[] = [
   { name: 'voice-capture', url: 'http://voice-capture:3001/health' },
   { name: 'file-ingestion', url: 'http://file-ingestion:8080/health' },
   { name: 'faster-whisper', url: 'http://faster-whisper:8000/health' },
+  // jetson-llm: the EXTERNAL t1_jetson tier (llama.cpp on the Jetson) — NOT a
+  // compose container, but the default LLM tier for classification tasks. A
+  // silent Jetson outage degraded email classification for days with no alert
+  // (Entry 248/249), so probe it here (workers can reach the LAN IP). Keep in
+  // sync with ai-routing.yaml model_tiers.t1_jetson.base_url (currently
+  // http://192.168.10.58:8080/v1); /health is llama.cpp's own, unauthenticated.
+  { name: 'jetson-llm', url: 'http://192.168.10.58:8080/health' },
   // workers (BullMQ) and slack-bot (Socket Mode) have no HTTP health endpoints
   // web-next (Next.js) health checked via external Cloudflare tunnel instead
 ]
