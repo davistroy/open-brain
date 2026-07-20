@@ -14267,3 +14267,30 @@ The **`voice_sessions` REST feature** (core-api `routes/voice-sessions.ts` + `se
 
 **Rollback:** revert PR → 0.5.0 image + `whisper_model_cache` (retained) + port 10300 default; `--force-recreate`. **Tags:** [config] [deploy] [decision]
 **Environment:** local (VM); branch `feat/301-migrate-speaches` → PR. Executed by Claude (Opus 4.8).
+
+## Entry 248 — Prod health inspection: 2 real issues found + fixed (2026-07-20)  [debug] [deploy] [slack] [config]
+
+**Context:** Troy asked to inspect the running app. All 13 containers healthy, tunnel up, 11,317 captures (data intact). Two real issues (root-caused via systematic-debugging), plus benign noise (redis errors all at 00:04 = nightly appdata-backup reconnect).
+
+### Issue 1 — Jetson `t1_jetson` LLM unreachable → email classification failing
+**Symptom:** workers WARN ×10/12h `LLM email classification failed … tier 't1_jetson' (openai_compat): Request timed out`.
+**Root cause (CONFIRMED):** the Jetson `llama-server` (llama.cpp, Qwen3.5-4B, `myscript.service`) is HEALTHY — bound `0.0.0.0:8080` (`/proc/net/tcp` `00000000:1F90`), `curl localhost:8080/health`=200. But **UFW (active, default deny-in) allows only `lo`, `tailscale0`, and `22/tcp from 192.168.10.0/24` — NO rule for 8080.** So the workers container (on homeserver `192.168.10.3`) reaching the Jetson LAN IP `192.168.10.58:8080` is dropped → timeout. NOT a crashed server; a missing firewall rule (SSH got a LAN rule, 8080 never did).
+**Objective/Hypothesis:** add `ufw allow from 192.168.10.0/24 to any port 8080 proto tcp` (mirrors the existing SSH rule; ufw persists across reboots) → homeserver `curl 192.168.10.58:8080/v1/models` returns 200 and email classification stops timing out.
+**Rollback:** `ssh claude@jetson 'sudo ufw delete allow from 192.168.10.0/24 to any port 8080 proto tcp'`.
+
+### Issue 2 — morning-brief Slack post fails every weekday (channel_not_found)
+**Symptom:** 06:30 weekday `Slack API error: channel_not_found` channel=`D0AR39RNG4E` → brief not delivered.
+**Root cause (CONFIRMED):** `docker-compose.yml:206` `MORNING_BRIEF_SLACK_CHANNEL: "D0AR39RNG4E"` — added by #344 believing it was "the historical DM channel," but it's the value from a stale `dist` fallback that equals the **test fixture** in `morning-brief.test.ts`. Slack `conversations.info(D0AR39RNG4E)`=`channel_not_found`. The real bot↔Troy DM is **`D0AKD047W21`** (`conversations.open(U0AJ4R29CF4)`=already_open). `SlackMessenger`→`chat.postMessage(channel=…)` passes it verbatim.
+**Objective/Hypothesis:** set `MORNING_BRIEF_SLACK_CHANNEL=D0AKD047W21` (repo PR + surgical host sed) → workers recreate → a test DM to `D0AKD047W21` returns `ok:true`; next 06:30 posts.
+**Rollback:** revert to `D0AR39RNG4E` (repo) / sed back on host.
+
+### Follow-up (SCOPED SEPARATELY) — Jetson robustness (Troy: "no further jetson problems")
+The UFW fix restores the path but the deeper reliability gaps remain: (a) **`email_classification: t1_jetson` has no working fallback** — a Jetson outage fails outright instead of degrading to Spark/paid; (b) **no monitoring/alert** for Jetson-endpoint reachability (this was silent); (c) Jetson **memory pressure** (llama-server 4.5G of a 6.2G cap). To be investigated + planned before code.
+
+**Tags:** [debug] [deploy] [slack] [config]
+**Environment:** homeserver + jetson (SSH); branch `fix/prod-morning-brief-channel-and-jetson-note` → PR. Executed by Claude (Opus 4.8).
+
+**RESULT — both fixed + VERIFIED (2026-07-20):**
+- **Issue 1:** `ssh claude@jetson 'sudo ufw allow from 192.168.10.0/24 to any port 8080 proto tcp'` → rule added (`8080/tcp ALLOW 192.168.10.0/24`, alongside the SSH rule; ufw-persistent). Verified: homeserver host → `192.168.10.58:8080/v1/models` = **200 (0.8ms)**; **workers container** → same = **200 (0.015s)**, returns `qwen3.5-4b`. `t1_jetson` reachable again.
+- **Issue 2:** host `sed` `docker-compose.yml` `D0AR39RNG4E`→`D0AKD047W21` (1 occurrence), `compose config -q` OK, `up -d --force-recreate --no-deps workers`. Verified: workers env=`D0AKD047W21`; workers `Up (healthy)`, 0 errors post-recreate; a live `chat.postMessage` test DM returned **`ok=true channel=D0AKD047W21`**. Next 06:30 weekday post will deliver. Repo PR matches the deployed host value.
+- **Robustness follow-up (Troy: "no further jetson problems") — SCOPED, code NOT yet written:** (a) app-side fallback for `t1_jetson` tasks, (b) Jetson-endpoint health probe + alert, (c) Jetson memory/crash hardening. Investigation + plan next.
