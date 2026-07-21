@@ -204,7 +204,7 @@ Go to **Cloudflare Dashboard** (dash.cloudflare.com) → your account → **Zero
 On the next screen (connector install), **ignore the install steps** — cloudflared runs in Docker. Copy the tunnel token — the long base64 string in the `--token` argument:
 
 ```
-eyJhIjoiMGU5ZjI3...very long...
+<your-cloudflare-tunnel-token>very long...
 ```
 
 Click **Next**.
@@ -221,16 +221,16 @@ On homeserver, update both files:
 
 ```bash
 # /mnt/user/appdata/open-brain/.env.secrets
-CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiMGU5ZjI3...
+CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 
 # /mnt/user/appdata/open-brain/.env  (change from "placeholder")
-CLOUDFLARE_TUNNEL_TOKEN=eyJhIjoiMGU5ZjI3...
+CLOUDFLARE_TUNNEL_TOKEN=<your-cloudflare-tunnel-token>
 ```
 
 Store in Bitwarden:
 
 ```bash
-~/bin/bws.exe secret create CLOUDFLARE_TUNNEL_TOKEN "eyJhIjoiMGU5ZjI3..." --project-id <ai-work-project-id>
+~/bin/bws.exe secret create CLOUDFLARE_TUNNEL_TOKEN "<your-cloudflare-tunnel-token>" --project-id <ai-work-project-id>
 ```
 
 ### 4. Start cloudflared

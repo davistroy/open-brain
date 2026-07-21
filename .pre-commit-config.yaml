@@ -1,0 +1,18 @@
+# Pre-commit hooks for Open Brain.
+#
+# Primary purpose (CS-2 / SEC-001 remediation): catch a secret or a personal/utility
+# identifier BEFORE it is committed to this PUBLIC repo. The gitleaks hook scans the
+# staged diff (`gitleaks protect --staged`) against .gitleaks.toml.
+#
+# One-time setup on each dev machine:
+#   pipx install pre-commit   # or: pip install --user pre-commit
+#   pre-commit install         # installs the git commit hook
+#
+# The CI "Secret scan (gitleaks)" job is the backstop for anyone who has not run
+# `pre-commit install` locally.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

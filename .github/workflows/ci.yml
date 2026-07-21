@@ -7,6 +7,22 @@ on:
     branches: [main]
 
 jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      # Scans the current tree (`gitleaks dir`), NOT full history — history still
+      # contains the pre-scrub CS-2 identifiers until the OA-30 filter-repo rewrite,
+      # so a history scan would false-fail. This gate catches any NEW secret or
+      # utility/PII identifier reintroduced into a committed file.
+      - name: Run gitleaks (working tree)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" -w /repo \
+            ghcr.io/gitleaks/gitleaks:latest \
+            dir . --no-banner --redact --config .gitleaks.toml --exit-code 1
+
   build-and-test:
     runs-on: ubuntu-latest
 

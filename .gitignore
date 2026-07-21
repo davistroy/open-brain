@@ -109,6 +109,13 @@ docs/ACTUAL_BUDGET_DEVELOPER_GUIDE.md
 # The tracked config/payee-rules.example.yaml (synthetic payees) is the schema + fixture.
 config/payee-rules.yaml
 
+# Utility pipeline config — real gas/water account & service identifiers; host-only (CS-2/SEC-001).
+# The tracked config/utility/utility-config.example.yaml (placeholders) is the schema + fixture.
+config/utility/utility-config.yaml
+
+# Architecture-review output — a detailed weakness/DR map; keep LOCAL, never publish to the public repo.
+arch-review/
+
 # Session handoff scratch — never commit
 HANDOFF.md
 TASKS.md

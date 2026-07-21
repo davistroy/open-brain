@@ -316,7 +316,7 @@ API: `GET https://ccw-csswebapi.cobbcounty.org/api/account/getMeterReadings?acco
 - [ ] Monthly consumption calculated as delta between readings
 
 **Notes:**
-Account ID `<COBB_ACCOUNT_ID>`, Service ID `<SERVICE_ID>` are hardcoded in config (Troy's account). The API showed readings: Mar 220, Feb 210, Jan 203 TGAL — monthly consumption is the delta (~10 TGAL/month).
+Account ID `<COBB_ACCOUNT_ID>`, Service ID `<SERVICE_ID>` are hardcoded in config (the owner's account). The API returns cumulative TGAL meter readings per month; monthly consumption is the delta between successive readings.
 
 ---
 
@@ -346,7 +346,7 @@ Auth: `authtoken` header (UUID from login flow)
 - [ ] Data stored in SQLite with all fields
 
 **Notes:**
-From Troy's March 2026 bill: 66 CCFs × 1.034 = 68.24 therms at $0.65/therm. Account number: <GAS_ACCOUNT_NUMBER>. Token likely expires after hours — script re-authenticates on each run.
+Gas bills express usage as `CCFs × therm-factor = therms` at a per-therm rate (e.g. `<N> CCFs × 1.034 = <N> therms`). Account number: <GAS_ACCOUNT_NUMBER>. Token likely expires after hours — script re-authenticates on each run.
 
 ---
 

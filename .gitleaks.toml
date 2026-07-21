@@ -1,0 +1,53 @@
+# gitleaks config for Open Brain (CS-2 / SEC-001 remediation)
+#
+# The public repo holds a personal knowledge system with financial/utility data.
+# The leak that motivated this config (real gas/water account + service + entity
+# identifiers committed across 5 files) had NO automated prevention — enforcement
+# was .gitignore + operator discipline only. This adds:
+#   - gitleaks' built-in secret rules (API keys, tokens, private keys, etc.)
+#   - format-based tripwires for the distinctive utility identifier shapes
+#     (we do NOT embed the real values here — that would re-introduce the leak)
+#
+# Run locally:   gitleaks dir . --config .gitleaks.toml
+# Pre-commit:    installed via .pre-commit-config.yaml (scans staged changes)
+# CI:            the "Secret scan (gitleaks)" job in .github/workflows/ci.yml
+#
+# NOTE: plain numeric account numbers (e.g. a 9-10 digit water/gas account) cannot
+# be pattern-matched without unacceptable false positives. The primary control for
+# those is keeping config/utility/utility-config.yaml gitignored (its .example holds
+# only placeholders). These rules catch the DISTINCTIVE prefixed formats + all the
+# generic secret classes gitleaks ships with.
+
+title = "Open Brain gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "utility-service-id"
+description = "Cobb Water service ID format (S0 + 6 digits)"
+regex = '''\bS0\d{6}\b'''
+tags = ["utility", "pii"]
+
+[[rules]]
+id = "utility-entity-id"
+description = "Utility registered-entity / customer-party ID format (AP + 7 digits)"
+regex = '''\bAP\d{7}\b'''
+tags = ["utility", "pii"]
+
+[allowlist]
+description = "Placeholders, example configs, test fixtures, and redaction markers are not secrets"
+paths = [
+  '''config/utility/utility-config\.example\.yaml''',
+  '''\.gitleaks\.toml''',
+  # Test fixtures conventionally hardcode fake keys/secrets/tokens.
+  '''.*/__tests__/.*''',
+  '''.*\.test\.ts''',
+]
+regexes = [
+  '''<[a-zA-Z0-9_-]+>''',              # placeholders: <SERVICE_ID>, <your-cloudflare-tunnel-token>, <JWT>
+  '''\[REDACTED-[A-Z-]+\]''',          # arch-review redaction markers
+  '''Bearer (JWT_TOKEN|<[a-z-]+>)''',  # doc curl examples with placeholder bearer tokens
+  '''ACCOUNT_ID|SERVICE_ID|REG_ENT_ID|JWT_TOKEN''', # doc API-example placeholders
+  '''\.env\.secrets\.bak''',           # a backup FILENAME, not a secret
+]
