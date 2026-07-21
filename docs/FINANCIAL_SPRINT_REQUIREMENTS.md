@@ -56,7 +56,7 @@ Build the financial awareness layer for Open Brain: automated ingestion of finan
 ### Gas South — Natural Gas (therms)
 
 **Access method:** REST API at `manage-api.gassouth.com`
-- **Billing history:** `GET /oas/api/account/get-account-activity?accountNumber=2585622233&lookBackMonths=24`
+- **Billing history:** `GET /oas/api/account/get-account-activity?accountNumber=<GAS_ACCOUNT_NUMBER>&lookBackMonths=24`
   - Returns: bill dates, amounts, payment history, bill segment details
   - Auth: `authtoken` header (UUID, from portal login)
 - **Usage (therms):** NOT in the API response directly. Available in:
@@ -68,12 +68,12 @@ Build the financial awareness layer for Open Brain: automated ingestion of finan
 ### Cobb County Water — Water (TGAL)
 
 **Access method:** REST API at `ccw-csswebapi.cobbcounty.org`
-- **Meter readings:** `GET /api/account/getMeterReadings?accountId=100101623&serviceId=S0228354`
+- **Meter readings:** `GET /api/account/getMeterReadings?accountId=<COBB_ACCOUNT_ID>&serviceId=<SERVICE_ID>`
   - Returns: JSON array of monthly readings with date, quantity (TGAL), meter serial, read type
   - Auth: Possibly unauthenticated (no auth headers in HAR capture) — needs verification from VM
-- **Account info:** `GET /api/account/getSortedServices?accountId=100101623`
-**Account ID:** AP0037554 / 100101623
-**Service ID:** S0228354
+- **Account info:** `GET /api/account/getSortedServices?accountId=<COBB_ACCOUNT_ID>`
+**Account ID:** <ENTITY_ID> / <COBB_ACCOUNT_ID>
+**Service ID:** <SERVICE_ID>
 **Automation:** Likely fully automated (test auth-free access first)
 
 ---

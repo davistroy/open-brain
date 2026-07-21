@@ -301,7 +301,7 @@ Install the open-source `electric-usage-downloader` Go tool on the VM. Configure
 **Description:**
 Call the Cobb County Water REST API discovered via HAR analysis. The endpoint returns clean JSON meter readings (date, TGAL quantity). Test auth-free access first; if 401, implement session cookie automation.
 
-API: `GET https://ccw-csswebapi.cobbcounty.org/api/account/getMeterReadings?accountId=100101623&serviceId=S0228354`
+API: `GET https://ccw-csswebapi.cobbcounty.org/api/account/getMeterReadings?accountId=<COBB_ACCOUNT_ID>&serviceId=<SERVICE_ID>`
 
 **Tasks:**
 1. [ ] Create `scripts/utility-pipeline.py` with CLI subcommands: `--water`, `--gas`, `--power-summary`, `--monthly-comparison`
@@ -316,7 +316,7 @@ API: `GET https://ccw-csswebapi.cobbcounty.org/api/account/getMeterReadings?acco
 - [ ] Monthly consumption calculated as delta between readings
 
 **Notes:**
-Account ID `100101623`, Service ID `S0228354` are hardcoded in config (Troy's account). The API showed readings: Mar 220, Feb 210, Jan 203 TGAL — monthly consumption is the delta (~10 TGAL/month).
+Account ID `<COBB_ACCOUNT_ID>`, Service ID `<SERVICE_ID>` are hardcoded in config (the owner's account). The API returns cumulative TGAL meter readings per month; monthly consumption is the delta between successive readings.
 
 ---
 
@@ -329,7 +329,7 @@ Account ID `100101623`, Service ID `S0228354` are hardcoded in config (Troy's ac
 **Description:**
 Login to Gas South portal to obtain authtoken, call billing history API, download bill PDF for therms data. The API provides bill amounts and dates, but therms (CCFs × factor) are only in the bill PDF.
 
-API: `GET https://manage-api.gassouth.com/oas/api/account/get-account-activity?accountNumber=2585622233&lookBackMonths=3`
+API: `GET https://manage-api.gassouth.com/oas/api/account/get-account-activity?accountNumber=<GAS_ACCOUNT_NUMBER>&lookBackMonths=3`
 Auth: `authtoken` header (UUID from login flow)
 
 **Tasks:**
@@ -346,7 +346,7 @@ Auth: `authtoken` header (UUID from login flow)
 - [ ] Data stored in SQLite with all fields
 
 **Notes:**
-From Troy's March 2026 bill: 66 CCFs × 1.034 = 68.24 therms at $0.65/therm. Account number: 2585622233. Token likely expires after hours — script re-authenticates on each run.
+Gas bills express usage as `CCFs × therm-factor = therms` at a per-therm rate (e.g. `<N> CCFs × 1.034 = <N> therms`). Account number: <GAS_ACCOUNT_NUMBER>. Token likely expires after hours — script re-authenticates on each run.
 
 ---
 

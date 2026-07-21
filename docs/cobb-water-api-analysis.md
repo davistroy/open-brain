@@ -83,7 +83,7 @@ This returns a JWT (RS256-signed, issued by `https://css.itineris.net/`).
 {
   "nameid": "<user-uuid>",
   "UserId": "<user-uuid>",
-  "RegisteredEntities": "[{\"EntityId\":\"AP0037554\",\"EntityType\":\"AccountParty\"}]",
+  "RegisteredEntities": "[{\"EntityId\":\"<ENTITY_ID>\",\"EntityType\":\"AccountParty\"}]",
   "ImpersonatedByUserWithUserId": "00000000-0000-0000-0000-000000000000",
   "nbf": 1776361385,
   "exp": 1776362285,
@@ -109,10 +109,10 @@ These are needed for all API calls:
 
 | ID | Value (Troy's account) | Description |
 |----|----------------------|-------------|
-| accountId | `100101623` | Water utility account number |
-| regEntId | `AP0037554` | Registered entity (account party) ID |
+| accountId | `<COBB_ACCOUNT_ID>` | Water utility account number |
+| regEntId | `<ENTITY_ID>` | Registered entity (account party) ID |
 | regEntType | `AccountParty` | Entity type |
-| serviceId | `S0228354` | Water service ID |
+| serviceId | `<SERVICE_ID>` | Water service ID |
 | userId | `bcb53fef-ac4c-4eff-baa2-a549a5b6e0d4` | B2C user UUID |
 
 ---
@@ -137,8 +137,8 @@ Referer: https://ccw-css.cobbcounty.org/
 
 ```
 GET /api/account/GetBilledUsageGraphData
-    ?accountId=100101623
-    &serviceId=S0228354
+    ?accountId=<COBB_ACCOUNT_ID>
+    &serviceId=<SERVICE_ID>
     &includeWeatherOverlay=false
     &getEstimatedProjected=false
     &neighborhoodComparison=false
@@ -152,7 +152,7 @@ GET /api/account/GetBilledUsageGraphData
   "billedAmountCurrency": "USD",
   "totalBilledAmount": 676.17,
   "status": "Completed",
-  "serviceId": "S0228354",
+  "serviceId": "<SERVICE_ID>",
   "consumptionUnits": ["TGAL"],
   "periodFromDate": "2025-04-09T12:00:00",
   "summary": [
@@ -226,9 +226,9 @@ curl -s 'https://ccw-csswebapi.cobbcounty.org/api/registeredentity/getsummarydat
 ```
 
 **Key response fields:**
-- `[0].id` — registered entity ID (e.g., "AP0037554")
-- `[0].accountsData[0].id` — account ID (e.g., "100101623")
-- `[0].accountsData[0].serviceTypes[0].firstServiceId` — service ID (e.g., "S0228354")
+- `[0].id` — registered entity ID (e.g., "<ENTITY_ID>")
+- `[0].accountsData[0].id` — account ID (e.g., "<COBB_ACCOUNT_ID>")
+- `[0].accountsData[0].serviceTypes[0].firstServiceId` — service ID (e.g., "<SERVICE_ID>")
 - `[0].accountsData[0].premisesAddress` — full address object
 - `[0].accountsData[0].status` — "Active"
 
@@ -246,7 +246,7 @@ curl -s 'https://ccw-csswebapi.cobbcounty.org/api/registeredentity/GetAccountsWi
 **Response:**
 ```json
 [{
-  "accountId": "100101623",
+  "accountId": "<COBB_ACCOUNT_ID>",
   "dueBalance": 63.29,
   "pastDueBalance": 0.0,
   "lastPaymentSettleAmount": 44.75,
@@ -271,7 +271,7 @@ curl -s 'https://ccw-csswebapi.cobbcounty.org/api/account/getSortedServices?acco
 **Response:**
 ```json
 [{
-  "serviceId": "S0228354",
+  "serviceId": "<SERVICE_ID>",
   "serviceType": "WATER",
   "serviceTypeDescription": "Water Service",
   "meterSerialNumber": "16109146",
