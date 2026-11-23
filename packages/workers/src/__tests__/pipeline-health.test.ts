@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Mock } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
+import { ALL_MONITORED_QUEUES, WORKER_QUEUES } from '@open-brain/shared'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
 import { alertStateKey, type AlertState } from '../lib/alert-state.js'
 import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
@@ -202,11 +203,11 @@ describe('PipelineHealthSkill', () => {
       expect(result.alertSent).toBe(false)
     })
 
-    it('returns queue stats for all 8 known queues', async () => {
+    it('returns queue stats for every monitored queue (registry)', async () => {
       const { skill } = makeSkill({ failures: [] })
       const result = await skill.execute()
 
-      expect(result.queues.length).toBe(8)
+      expect(result.queues.length).toBe(ALL_MONITORED_QUEUES.length)
       const names = result.queues.map(q => q.name)
       expect(names).toContain('capture-pipeline')
       expect(names).toContain('embed-capture')
@@ -433,7 +434,7 @@ describe('PipelineHealthSkill', () => {
       const result = await skill.execute()
 
       // Other queues should still be present
-      expect(result.queues.length).toBe(8)
+      expect(result.queues.length).toBe(ALL_MONITORED_QUEUES.length)
       const embedStats = result.queues.find(q => q.name === 'embed-capture')
       expect(embedStats).toBeDefined()
     })
@@ -472,12 +473,12 @@ describe('PipelineHealthSkill', () => {
   // ----------------------------------------------------------
 
   describe('stalledByQueue in result', () => {
-    it('returns stalledByQueue array covering all 8 queue names', async () => {
+    it('returns stalledByQueue array covering every worker queue', async () => {
       const { skill } = makeSkill({ failures: [] })
       const result = await skill.execute()
 
       expect(Array.isArray(result.stalledByQueue)).toBe(true)
-      expect(result.stalledByQueue.length).toBe(8)
+      expect(result.stalledByQueue.length).toBe(WORKER_QUEUES.length)
       const queueNames = result.stalledByQueue.map(s => s.queueName)
       expect(queueNames).toContain('capture-pipeline')
       expect(queueNames).toContain('skill-execution')

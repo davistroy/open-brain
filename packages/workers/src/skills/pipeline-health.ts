@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database, PipelineEventStage } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, WORKER_QUEUES, ALL_MONITORED_QUEUES } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
 import { legacyPushEnabled } from '../lib/alert-state.js'
@@ -103,20 +103,8 @@ export type QueueFactory = (name: string) => QueueHandle
 // Constants
 // ============================================================
 
-/**
- * All BullMQ queue names in the Open Brain stack.
- * Keep in sync with packages/workers/src/queues/index.ts.
- */
-export const ALL_QUEUE_NAMES = [
-  'capture-pipeline',
-  'embed-capture',
-  'check-triggers',
-  'extract-entities',
-  'skill-execution',
-  'notification',
-  'access-stats',
-  'daily-sweep',
-] as const
+const WORKER_QUEUE_SET: ReadonlySet<string> = new Set(WORKER_QUEUES)
+const isWorkerQueue = (name: string): boolean => WORKER_QUEUE_SET.has(name)
 
 const DEFAULT_FAILURE_LOOKBACK_MINUTES = 60
 const DEFAULT_FAILED_THRESHOLD = 5
@@ -343,7 +331,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   private async queryQueueStats(): Promise<QueueStats[]> {
     const results: QueueStats[] = []
 
-    for (const queueName of ALL_QUEUE_NAMES) {
+    for (const queueName of ALL_MONITORED_QUEUES) {
       const queue = this.queueFactory(queueName)
       try {
         const counts = await queue.getJobCounts(
@@ -357,7 +345,9 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
           name: queueName,
           waiting: counts.waiting ?? 0,
           active: counts.active ?? 0,
-          failed: counts.failed ?? 0,
+          // Failure counts read WORKER_QUEUES only: a producer-only queue has no
+          // consumer, so a failed count there is not a pipeline failure signal.
+          failed: isWorkerQueue(queueName) ? (counts.failed ?? 0) : 0,
           delayed: counts.delayed ?? 0,
           paused: counts.paused ?? 0,
         })
@@ -401,7 +391,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   private async queryStalledJobs(): Promise<StalledStats[]> {
     const results: StalledStats[] = []
 
-    for (const queueName of ALL_QUEUE_NAMES) {
+    for (const queueName of WORKER_QUEUES) {
       const queue = this.queueFactory(queueName)
       try {
         const count = await queue.getJobCountByTypes('stalled')

@@ -766,7 +766,7 @@ describe('admin routes — comprehensive (Phase 3.2)', () => {
       const body = await res.json()
       expect(body.message).toMatch(/Bull Board requires a Redis/)
       expect(body.queues).toEqual(
-        expect.arrayContaining(['capture-pipeline', 'skill-execution', 'notification']),
+        expect.arrayContaining(['capture-pipeline', 'skill-execution', 'embed-capture', 'ingest-root']),
       )
     })
 

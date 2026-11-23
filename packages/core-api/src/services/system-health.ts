@@ -16,7 +16,7 @@ import type { ConnectionOptions } from 'bullmq'
 import { Redis } from 'ioredis'
 import { sql } from 'drizzle-orm'
 import type { Database, WikiRepoStatus } from '@open-brain/shared'
-import { logger } from '@open-brain/shared'
+import { logger, ALL_MONITORED_QUEUES } from '@open-brain/shared'
 
 /** Minimal interface for wiki status reporting. Satisfied by both WikiService and WikiGitService. */
 interface WikiStatusProvider {
@@ -141,20 +141,10 @@ export const REDIS_MEM_WARNING = 0.80   // 80%
 export const REDIS_MEM_CRITICAL = 0.95  // 95%
 
 // ---------------------------------------------------------------------------
-// Queue names monitored (same list as pipeline-health skill)
+// Queue names monitored: the shared registry (SE7-11)
 // ---------------------------------------------------------------------------
 
-export const MONITORED_QUEUES = [
-  'capture-pipeline',
-  'embed-capture',
-  'extract-entities',
-  'check-triggers',
-  'skill-execution',
-  'document-pipeline',
-  'daily-sweep',
-  'ingest-root',
-  'wiki-ingest',
-] as const
+export const MONITORED_QUEUES = ALL_MONITORED_QUEUES
 
 // ---------------------------------------------------------------------------
 // Service

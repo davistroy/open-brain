@@ -554,8 +554,8 @@ Five report skills each send their own Pushover (`drift-monitor.ts:212`, `wiki-l
 
 ---
 
-#### 2.6 One queue registry
-**Status: PENDING**
+#### 2.6 One queue registry ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** SE7-11
 **Depends On:** 2.2
