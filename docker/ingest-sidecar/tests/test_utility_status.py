@@ -606,7 +606,7 @@ def test_post_heartbeat_url_headers_body(monkeypatch):
         cfg, "gas", False, ["boom"], {"latest_bill_date": "2026-01-15"}, "utility-pipeline"
     )
     assert ok is True
-    assert seen["url"] == "http://core-api:3000/api/v1/internal/heartbeat/gas"
+    assert seen["url"] == "http://core-api:3000/api/v1/internal/heartbeat/gas"  # gitleaks:allow
     assert seen["headers"]["X-Open-Brain-Caller"] == "utility-pipeline"
     assert seen["json"] == {
         "ok": False,
