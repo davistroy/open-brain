@@ -947,6 +947,18 @@ describe('DriftMonitorSkill', () => {
   // ----------------------------------------------------------
 
   describe('notification configuration', () => {
+    it('ALERT_LEGACY_PUSH=false: sends no Pushover and still writes the skills_log row', async () => {
+      vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+      try {
+        const { skill, pushover, db } = makeSkill()
+        await skill.execute()
+        expect(pushover.send).not.toHaveBeenCalled()
+        expect(db.insert).toHaveBeenCalled()
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+
     it('skips Pushover if not configured', async () => {
       const { skill, pushover } = makeSkill({ pushoverConfigured: false })
       await skill.execute()

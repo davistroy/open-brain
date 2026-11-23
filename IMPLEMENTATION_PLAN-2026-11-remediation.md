@@ -515,8 +515,8 @@ The JSDoc block in `scheduler.ts` and the slot registry in `CLAUDE.md` change in
 
 ---
 
-#### 2.5 Informational pushes move into the digest
-**Status: PENDING**
+#### 2.5 Informational pushes move into the digest ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-027, GitHub issue #312
 **Depends On:** 2.4

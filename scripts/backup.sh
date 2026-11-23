@@ -279,10 +279,7 @@ echo "  Redis RDB: ${REDIS_SIZE}"
 echo "  Total backup storage: ${TOTAL_SIZE}"
 echo "  Timestamp: ${TIMESTAMP}"
 
-# --- Completion notification (PLT-M5) ---
-# Mark success so the EXIT trap skips the failure alert, then send a
-# priority-0 (normal, no alert sound) confirmation.
+# --- Completion (item 2.5) ---
+# Mark success so the EXIT trap skips the failure alert. No success push: the
+# daily ops digest reports backup age. The failure trap still pushes.
 BACKUP_STATUS="success"
-PUSHOVER_TITLE="Open Brain: backup complete" \
-  PUSHOVER_PRIORITY=0 \
-  notify_pushover_mismatch "Daily backup finished — DB ${DB_SIZE}, wiki ${WIKI_SIZE}, Redis ${REDIS_SIZE}, total ${TOTAL_SIZE}" || true

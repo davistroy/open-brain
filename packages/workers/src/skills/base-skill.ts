@@ -2,7 +2,7 @@ import { skills_log, logger, PushoverService, meetsAutonomyLevel } from '@open-b
 import type { Database, AutonomyLevel } from '@open-brain/shared'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import { requireCoreApiUrl } from '../lib/require-core-api-url.js'
-import { raiseAlert as raiseAlertWithState } from '../lib/alert-state.js'
+import { raiseAlert as raiseAlertWithState, legacyPushEnabled } from '../lib/alert-state.js'
 import type { RaiseAlertArgs, RaiseAlertResult } from '../lib/alert-state.js'
 
 // Module-level autonomy cache (5-minute TTL, matches slack-bot pattern)
@@ -173,6 +173,19 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
       logger.warn({ err, skillName: this.skillName }, 'Pushover send failed')
       return false
     }
+  }
+
+  /**
+   * Informational push (a report, not an alert). Pushes only while
+   * `legacyPushEnabled()` is true; otherwise the daily ops digest carries the
+   * report (it reads the skill's `skills_log` row) and this returns `false`.
+   */
+  protected async sendInfo(title: string, message: string, priority?: number): Promise<boolean> {
+    if (!legacyPushEnabled()) {
+      logger.debug({ skillName: this.skillName, title }, 'sendInfo suppressed (ALERT_LEGACY_PUSH=false); digest carries it')
+      return false
+    }
+    return this.sendNotification(title, message, priority)
   }
 
   // ──────────────────────────────────────────────────────────────

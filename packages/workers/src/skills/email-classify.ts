@@ -194,7 +194,7 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
       }
       lines.push(`Duration: ${this.formatDuration(durationMs)}`)
 
-      await this.sendNotification(title, lines.join('\n'))
+      await this.sendInfo(title, lines.join('\n'))
     }
 
     logger.info(
