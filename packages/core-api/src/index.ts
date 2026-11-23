@@ -108,7 +108,7 @@ const searchService = new SearchService(db, embeddingService, hnswEfSearch)
 const triggerService = new TriggerService(db, embeddingService)
 const entityResolutionService = new EntityResolutionService(db)
 const entityService = new EntityService(db, entityResolutionService)
-const betService = new BetService(db)
+const betService = new BetService(db, captureService)
 
 const anthropicClient = createAnthropicClient({ maxRetries: 2 })
 const ollamaClient = createOllamaClient()

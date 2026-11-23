@@ -5,6 +5,11 @@ import { PushoverService } from '../services/pushover.js'
 import type { EmailProvider, EmailMessage, EmailFolder } from '@open-brain/shared'
 import { EmailClassifier } from '@open-brain/shared'
 import type { EmailRules } from '@open-brain/shared'
+import { recordHeartbeat } from '../lib/heartbeat.js'
+
+vi.mock('../lib/heartbeat.js', () => ({
+  recordHeartbeat: vi.fn().mockResolvedValue(null),
+}))
 
 // ============================================================
 // Test fixtures
@@ -438,6 +443,95 @@ describe('EmailClassifySkill', () => {
     expect(result.hotmail.classified).toBe(0)
     // Gmail: processed normally
     expect(result.gmail.classified).toBe(1)
+  })
+
+  // ────────────────────────────────────────────────────────────
+  // Heartbeats + auth-failure alerts (item 3.5)
+  // ────────────────────────────────────────────────────────────
+
+  describe('heartbeats and auth alerts', () => {
+    beforeEach(() => {
+      vi.mocked(recordHeartbeat).mockClear()
+    })
+
+    function heartbeatFor(source: string) {
+      const call = vi.mocked(recordHeartbeat).mock.calls.find((c) => c[1] === source)
+      return call?.[2]
+    }
+
+    it('rejects when every configured provider fails', async () => {
+      const { skill } = makeSkill({ hotmailAuth: false, gmailAuth: false })
+      await expect(skill.execute({ providers: ['hotmail', 'gmail'] })).rejects.toThrow(/all configured providers failed/i)
+      expect(heartbeatFor('email:hotmail')).toMatchObject({ ok: false })
+      expect(heartbeatFor('email:gmail')).toMatchObject({ ok: false })
+    })
+
+    it('rejects when the only configured provider fails', async () => {
+      const { skill } = makeSkill({ noGmail: true, hotmailAuth: false })
+      await expect(skill.execute()).rejects.toThrow(/all configured providers failed/i)
+    })
+
+    it('one provider failing auth: run completes, alert raised once, that heartbeat ok:false', async () => {
+      const { skill } = makeSkill({ hotmailAuth: false })
+      const raise = vi.spyOn(skill as any, 'raiseAlert').mockResolvedValue({ action: 'notify', sent: true })
+
+      const result = await skill.execute({ providers: ['hotmail', 'gmail'] })
+
+      expect(result.gmail.classified).toBe(1)
+      const bad = raise.mock.calls.filter((c) => (c[0] as any).bad === true)
+      expect(bad).toHaveLength(1)
+      expect(bad[0][0]).toMatchObject({ key: 'source-stale:email:hotmail', severity: 'warning', bad: true })
+      expect(heartbeatFor('email:hotmail')).toMatchObject({ ok: false })
+      expect(heartbeatFor('email:gmail')).toMatchObject({ ok: true })
+      // the healthy provider is reported clear so an open alert can resolve
+      expect(raise.mock.calls.some((c) => (c[0] as any).key === 'source-stale:email:gmail' && (c[0] as any).bad === false)).toBe(true)
+    })
+
+    it('a provider that throws during authenticate (Hotmail non-interactive) counts as an auth failure', async () => {
+      const { skill, hotmailClient } = makeSkill()
+      ;(hotmailClient!.authenticate as any).mockRejectedValue(new Error('Hotmail authentication failed: interactive sign-in is disabled'))
+      const raise = vi.spyOn(skill as any, 'raiseAlert').mockResolvedValue({ action: 'notify', sent: true })
+
+      await skill.execute({ providers: ['hotmail', 'gmail'] })
+
+      expect(raise.mock.calls.filter((c) => (c[0] as any).bad === true)).toHaveLength(1)
+      expect(heartbeatFor('email:hotmail')).toMatchObject({ ok: false, errors: [expect.stringContaining('authentication failed')] })
+    })
+
+    it('adds authFailed:<provider> to the logged output summary', async () => {
+      const { skill } = makeSkill({ hotmailAuth: false })
+      const logSpy = vi.spyOn(skill as any, 'logResult').mockResolvedValue(undefined)
+      await skill.execute({ providers: ['hotmail', 'gmail'] })
+      expect(logSpy.mock.calls[0][2]).toContain('authFailed:hotmail')
+    })
+
+    it('no mail: heartbeats ok:true and no alert', async () => {
+      const { skill } = makeSkill({ hotmailEmails: [], gmailEmails: [] })
+      const raise = vi.spyOn(skill as any, 'raiseAlert').mockResolvedValue({ action: 'none', sent: false })
+
+      await skill.execute({ providers: ['hotmail', 'gmail'] })
+
+      expect(heartbeatFor('email:hotmail')).toMatchObject({ ok: true })
+      expect(heartbeatFor('email:gmail')).toMatchObject({ ok: true })
+      expect(raise.mock.calls.filter((c) => (c[0] as any).bad === true)).toHaveLength(0)
+    })
+
+    it('a non-auth provider failure writes ok:false but raises no auth alert', async () => {
+      const { skill, gmailClient } = makeSkill()
+      ;(gmailClient!.fetchInbox as any).mockRejectedValue(new Error('graph 500'))
+      const raise = vi.spyOn(skill as any, 'raiseAlert').mockResolvedValue({ action: 'none', sent: false })
+
+      await skill.execute({ providers: ['hotmail', 'gmail'] })
+
+      expect(heartbeatFor('email:gmail')).toMatchObject({ ok: false })
+      expect(raise.mock.calls.filter((c) => (c[0] as any).bad === true)).toHaveLength(0)
+    })
+
+    it('dry runs write no heartbeats', async () => {
+      const { skill } = makeSkill()
+      await skill.execute({ dryRun: true })
+      expect(recordHeartbeat).not.toHaveBeenCalled()
+    })
   })
 
   // ────────────────────────────────────────────────────────────

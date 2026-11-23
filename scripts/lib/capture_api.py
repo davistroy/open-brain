@@ -16,6 +16,7 @@ file keeps the external URL for VM deployments.
 
 import logging
 import os
+import re
 
 import requests
 
@@ -85,3 +86,54 @@ def post_capture(
     except requests.exceptions.RequestException as e:
         log.warning(f"Brain unreachable: {e}")
         return False
+
+
+def get_api_base(cfg: dict) -> str:
+    """Core-api base URL (no trailing slash), derived from the capture URL.
+
+    Uses the same resolution as ``get_capture_api_config`` and strips the
+    trailing ``/api/v1/captures`` (or ``/captures``) so the heartbeat route
+    follows wherever captures go (internal container URL in the sidecar).
+    """
+    url, _ = get_capture_api_config(cfg)
+    return re.sub(r"(/api/v1)?/captures/?$", "", url).rstrip("/")
+
+
+def post_heartbeat(
+    cfg: dict,
+    source: str,
+    ok: bool,
+    errors: list[str] | None = None,
+    meta: dict | None = None,
+    caller: str | None = None,
+) -> bool:
+    """POST a run heartbeat to ``/api/v1/internal/heartbeat/<source>``.
+
+    Returns True on 200. Never raises: a failed post is logged and returns
+    False so the caller's own exit status is not masked.
+    """
+    _, default_caller = get_capture_api_config(cfg)
+    url = f"{get_api_base(cfg)}/api/v1/internal/heartbeat/{source}"
+    body: dict = {"ok": ok}
+    if errors:
+        body["errors"] = errors
+    if meta:
+        body["meta"] = meta
+    try:
+        resp = requests.post(
+            url,
+            json=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Open-Brain-Caller": caller or default_caller,
+            },
+            timeout=10,
+            allow_redirects=False,
+        )
+    except requests.exceptions.RequestException as e:
+        log.warning(f"Heartbeat POST for {source} failed: {e}")
+        return False
+    if resp.status_code == 200:
+        return True
+    log.warning(f"Heartbeat POST for {source} returned {resp.status_code}: {resp.text[:200]}")
+    return False

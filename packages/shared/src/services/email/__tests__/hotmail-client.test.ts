@@ -106,11 +106,29 @@ describe('HotmailClient', () => {
       )
     })
 
-    it('falls back to device code when no cached accounts', async () => {
+    it('does NOT start the device-code flow by default (scheduled run)', async () => {
       mockGetAllAccounts.mockResolvedValue([])
       mockAcquireTokenByDeviceCode.mockResolvedValue({ accessToken: 'device-token' })
 
       const client = createClient(dbMock.db, vi.fn())
+      await expect(client.authenticate()).rejects.toThrow(/authentication failed/i)
+      expect(mockAcquireTokenByDeviceCode).not.toHaveBeenCalled()
+    })
+
+    it('does NOT start the device-code flow when the silent refresh throws (default)', async () => {
+      mockAcquireTokenSilent.mockRejectedValue(new Error('interaction_required'))
+      mockAcquireTokenByDeviceCode.mockResolvedValue({ accessToken: 'device-token' })
+
+      const client = createClient(dbMock.db, vi.fn())
+      await expect(client.authenticate()).rejects.toThrow(/authentication failed/i)
+      expect(mockAcquireTokenByDeviceCode).not.toHaveBeenCalled()
+    })
+
+    it('falls back to device code when no cached accounts and allowInteractive is set', async () => {
+      mockGetAllAccounts.mockResolvedValue([])
+      mockAcquireTokenByDeviceCode.mockResolvedValue({ accessToken: 'device-token' })
+
+      const client = new HotmailClient({ db: dbMock.db, fetchFn: vi.fn(), allowInteractive: true })
       const result = await client.authenticate()
 
       expect(result).toBe(true)
@@ -121,7 +139,7 @@ describe('HotmailClient', () => {
       mockGetAllAccounts.mockResolvedValue([])
       mockAcquireTokenByDeviceCode.mockRejectedValue(new Error('cancelled'))
 
-      const client = createClient(dbMock.db, vi.fn())
+      const client = new HotmailClient({ db: dbMock.db, fetchFn: vi.fn(), allowInteractive: true })
       const result = await client.authenticate()
 
       expect(result).toBe(false)
@@ -131,7 +149,7 @@ describe('HotmailClient', () => {
       mockAcquireTokenSilent.mockResolvedValue({ error: 'interaction_required' })
       mockAcquireTokenByDeviceCode.mockRejectedValue(new Error('cancelled'))
 
-      const client = createClient(dbMock.db, vi.fn())
+      const client = new HotmailClient({ db: dbMock.db, fetchFn: vi.fn(), allowInteractive: true })
       const result = await client.authenticate()
 
       expect(result).toBe(false)
@@ -512,7 +530,7 @@ describe('HotmailClient', () => {
       mockAcquireTokenByDeviceCode.mockResolvedValue({ accessToken: 'device-token' })
       mockSerialize.mockReturnValue('{"serialized":"after-device-code"}')
 
-      const client = createClient(dbMock.db, vi.fn())
+      const client = new HotmailClient({ db: dbMock.db, fetchFn: vi.fn(), allowInteractive: true })
       await client.authenticate()
 
       expect(mockAcquireTokenByDeviceCode).toHaveBeenCalled()

@@ -106,6 +106,24 @@ COPY --from=builder /app/packages/workers/dist ./packages/workers/dist
 RUN wget -qO- https://github.com/pimalaya/himalaya/releases/download/v1.2.0/himalaya.x86_64-linux.tgz \
     | tar xz -C /usr/local/bin himalaya \
     && chmod +x /usr/local/bin/himalaya
+# Bitwarden Secrets Manager CLI (bws) 2.1.0 — used by secret-rotation (`bws secret list`).
+# Native musl build. bws 1.0.0 (the ingest-sidecar pin) ships no musl asset, and its gnu
+# build fails on Alpine even with gcompat (`__res_init: symbol not found`), so the workers
+# stage pins a newer release that publishes musl zips. Release: bitwarden/sdk-sm tag bws-v2.1.0.
+# Checksums: https://github.com/bitwarden/sdk-sm/releases/download/bws-v2.1.0/bws-sha256-checksums-2.1.0.txt
+ARG BWS_VERSION=2.1.0
+ARG BWS_SHA256_X86_64=f59ee150e42b82128d437087e9bac920053c6bfddcb960d20ce9386e5ac9bba6
+ARG BWS_SHA256_AARCH64=eb0f1ae61d1c3b74244d2841233276e05c77e8be4da197ed90fc6248387005e1
+RUN case "$(uname -m)" in \
+      x86_64)  BWS_ARCH=x86_64;  BWS_SHA256="${BWS_SHA256_X86_64}" ;; \
+      aarch64) BWS_ARCH=aarch64; BWS_SHA256="${BWS_SHA256_AARCH64}" ;; \
+      *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac \
+    && wget -qO /tmp/bws.zip "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${BWS_VERSION}/bws-${BWS_ARCH}-unknown-linux-musl-${BWS_VERSION}.zip" \
+    && echo "${BWS_SHA256}  /tmp/bws.zip" | sha256sum -c - \
+    && unzip -o /tmp/bws.zip bws -d /usr/local/bin \
+    && chmod +x /usr/local/bin/bws \
+    && rm -f /tmp/bws.zip
 ENV NODE_ENV=production
 CMD ["node", "packages/workers/dist/main.js"]
 

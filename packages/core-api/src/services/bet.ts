@@ -1,7 +1,8 @@
 import { eq, and, lte, sql } from 'drizzle-orm'
 import { bets, captures } from '@open-brain/shared'
-import { NotFoundError, contentHash } from '@open-brain/shared'
+import { ConflictError, NotFoundError, contentHash } from '@open-brain/shared'
 import type { Database } from '@open-brain/shared'
+import { CaptureService } from './capture.js'
 
 // ============================================================
 // Types
@@ -67,10 +68,18 @@ export interface BetListResult {
  * getExpiring()  — Bets due within N days that are still pending.
  *
  * On resolution, a brain entry is auto-captured (capture_type: 'reflection') so that
- * bet outcomes are searchable via the normal capture pipeline.
+ * bet outcomes are searchable via the normal capture pipeline. The capture is created
+ * through CaptureService, so it is enqueued like any other capture; a bare insert left
+ * it `pending` with no job, which tripped the critical `embed-stall` alert ~2 h later.
+ * Production passes the pipeline-wired CaptureService; the default (no pipeline)
+ * inserts without enqueueing and exists only for callers that have no queue.
  */
 export class BetService {
-  constructor(private db: Database) {}
+  private captureService: CaptureService
+
+  constructor(private db: Database, captureService?: CaptureService) {
+    this.captureService = captureService ?? new CaptureService(db)
+  }
 
   // --------------------------------------------------------------------------
   // create — insert a new open bet
@@ -246,21 +255,26 @@ export class BetService {
       return
     }
 
-    await this.db.insert(captures).values({
-      content,
-      content_hash: hash,
-      capture_type: 'reflection',
-      brain_view: 'personal',
-      source: 'system',
-      source_metadata: {
-        bet_id: bet.id,
-        bet_resolution: resolution.resolution,
-        session_id: bet.session_id,
-      },
-      tags: ['bet', 'prediction', resolution.resolution],
-      pipeline_status: 'pending',
-      pre_extracted: null,
-      captured_at: new Date(),
-    })
+    // Same path as POST /api/v1/captures: insert + pipeline enqueue.
+    try {
+      await this.captureService.create({
+        content,
+        capture_type: 'reflection',
+        brain_view: 'personal',
+        source: 'system',
+        metadata: {
+          source_metadata: {
+            bet_id: bet.id,
+            bet_resolution: resolution.resolution,
+            session_id: bet.session_id,
+          },
+          tags: ['bet', 'prediction', resolution.resolution],
+        },
+      })
+    } catch (err) {
+      // A concurrent resolve() stored the same content first: already captured.
+      if (err instanceof ConflictError) return
+      throw err
+    }
   }
 }

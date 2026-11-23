@@ -25,6 +25,7 @@ import type { Database, LLMGatewayService, EmailProvider, EmailMessage } from '@
 import { EmailClassifier } from '@open-brain/shared'
 import type { EmailRules, ClassificationResult } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
+import { recordHeartbeat } from '../lib/heartbeat.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import {
   isProcessed,
@@ -80,6 +81,9 @@ export interface EmailClassifySkillOpts extends BaseSkillOpts {
 // Helpers
 // ============================================================
 
+/** Marks an authentication failure so the skill can alert on it. */
+class ProviderAuthError extends Error {}
+
 function emptyStats(): ProviderStats {
   return { classified: 0, moved: 0, needsReview: 0, skipped: 0, errors: 0 }
 }
@@ -124,6 +128,8 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
     const hotmailStats = emptyStats()
     const gmailStats = emptyStats()
     let totalCorrections = 0
+    // Per-provider outcome for heartbeats, alerts and the all-failed check.
+    const outcomes = new Map<ProviderName, { ok: boolean; authFailed: boolean; error?: string }>()
 
     // Process each requested provider
     for (const providerName of providers) {
@@ -144,13 +150,45 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
           dryRun,
         )
         totalCorrections += corrections
+        outcomes.set(providerName, { ok: true, authFailed: false })
       } catch (err) {
         logger.error(
           { err, provider: providerName },
           '[email-classify] provider failed — continuing with next',
         )
+        outcomes.set(providerName, {
+          ok: false,
+          authFailed: err instanceof ProviderAuthError || /authentication/i.test(String((err as Error)?.message ?? '')),
+          error: String((err as Error)?.message ?? err),
+        })
       }
     }
+
+    // Heartbeats + auth alerts (item 3.5). A dry run is a manual probe, not a scheduled run.
+    if (!dryRun) {
+      for (const [name, o] of outcomes) {
+        await recordHeartbeat(this.db, `email:${name}`, o.ok ? { ok: true } : { ok: false, errors: [o.error ?? 'provider failed'] })
+        if (o.authFailed) {
+          await this.raiseAlert({
+            key: `source-stale:email:${name}`,
+            severity: 'warning',
+            bad: true,
+            title: `Email Auth Failed: ${name}`,
+            message: `${name} authentication failed: ${o.error ?? 'unknown error'}. Re-consent is needed.`,
+          })
+        } else if (o.ok) {
+          await this.raiseAlert({
+            key: `source-stale:email:${name}`,
+            severity: 'warning',
+            bad: false,
+            title: `Email Auth Failed: ${name}`,
+            message: `${name} authenticated and ran.`,
+          })
+        }
+      }
+    }
+    const authFailedNames = [...outcomes].filter(([, o]) => o.authFailed).map(([n]) => n)
+    const allFailed = outcomes.size > 0 && [...outcomes.values()].every((o) => !o.ok)
 
     // Generate and post daily summary
     let summaryPosted = false
@@ -173,8 +211,15 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
     await this.logResult(
       result,
       `providers:${providers.join(',')} sinceHours:${sinceHours} dryRun:${dryRun}`,
-      `classified:${totalClassified} moved:${totalMoved} corrections:${totalCorrections} summary:${summaryPosted}`,
+      `classified:${totalClassified} moved:${totalMoved} corrections:${totalCorrections} summary:${summaryPosted}` +
+        authFailedNames.map((n) => ` authFailed:${n}`).join(''),
     )
+
+    // Every configured provider failed: fail the BullMQ job (item 3.5).
+    if (allFailed) {
+      const detail = [...outcomes].map(([n, o]) => `${n}: ${o.error}`).join('; ')
+      throw new Error(`[email-classify] all configured providers failed — ${detail}`)
+    }
 
     // Send Pushover notification
     if (totalClassified > 0 || totalCorrections > 0) {
@@ -228,7 +273,7 @@ export class EmailClassifySkill extends BaseSkill<EmailClassifyOptions, EmailCla
     const authenticated = await client.authenticate()
     if (!authenticated) {
       logger.error({ provider: providerName }, '[email-classify] authentication failed — skipping provider')
-      throw new Error(`${providerName} authentication failed`)
+      throw new ProviderAuthError(`${providerName} authentication failed`)
     }
 
     // Step 2: Fetch inbox

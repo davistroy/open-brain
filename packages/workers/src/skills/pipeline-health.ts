@@ -4,12 +4,20 @@ import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger, WORKER_QUEUES, ALL_MONITORED_QUEUES } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
+import { ensureHeartbeatBaseline } from '../lib/heartbeat.js'
 import { legacyPushEnabled, alertStateEnabled, queueAlertKey } from '../lib/alert-state.js'
 import type { MetricLine } from '../lib/push-metrics.js'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import {
   queryRecentFailures as queryRecentFailuresFromDb,
+  queryEmbedStall as queryEmbedStallFromDb,
+  queryStuckCaptures as queryStuckCapturesFromDb,
+  queryPipelineSuccessShare as queryPipelineSuccessShareFromDb,
+  querySourceFreshness as querySourceFreshnessFromDb,
+  EXPECTED_HEARTBEAT_SOURCES,
+  type EmbedStallStats,
+  type SourceFreshnessResult,
   checkCaptureFlow as checkCaptureFlowFromDb,
   wasCaptureFlowAlertSentRecently as wasCaptureFlowAlertSentRecentlyFromDb,
 } from './pipeline-health-query.js'
@@ -32,6 +40,8 @@ export interface QueueStats {
    * counted: alert-state path off, not a worker queue, or the scan failed.
    */
   recentFailed: number | null
+  /** Failed jobs that finished in the last 24 h (the `openbrain_queue_failed_24h` gauge). Null when not counted. */
+  failed24h: number | null
 }
 
 export interface RecentFailure {
@@ -65,6 +75,14 @@ export interface PipelineHealthResult extends BaseResult {
    */
   backupAgeSeconds: number | null
   alertSent: boolean
+  /** Live captures with no embedding for more than 2 h (excluding `failed`); null when the query failed. */
+  embedStalled: number | null
+  /** Sources whose heartbeat is stale (item 3.3); null when freshness was not observed. */
+  staleSources: string[] | null
+  /** `source:ageDays` for voice/slack/email captures idle over 7 d. Listed, never alerted. */
+  quietCaptureSources: string[]
+  /** Live captures at a sweepable status for more than 24 h; null when the query failed. */
+  stuckCaptures: number | null
 }
 
 export interface PipelineHealthOptions {
@@ -97,8 +115,13 @@ export interface PipelineHealthOptions {
 export interface QueueHandle {
   getJobCounts(...types: string[]): Promise<Record<string, number>>
   getJobCountByTypes(...types: string[]): Promise<number>
-  /** BullMQ `Queue.getJobs`: for `failed`, newest first (sorted set scored by finish time). */
-  getJobs(types: string[], start?: number, end?: number, asc?: boolean): Promise<Array<{ finishedOn?: number } | undefined>>
+  /**
+   * Failed jobs that finished at or after `sinceMs` (epoch ms): `ZCOUNT
+   * bull:<queue>:failed <sinceMs> +inf`. BullMQ scores the failed set by the
+   * finish timestamp (moveToFinished-14.lua: `ZADD targetSet timestamp jobId`),
+   * so this is an O(log n) count with no job payloads read.
+   */
+  countFailedSince(sinceMs: number): Promise<number>
   close(): Promise<void>
 }
 
@@ -137,9 +160,10 @@ export const LEGACY_MONITORED_QUEUES = [
 
 /** Recent-failure window: the pipeline-health interval (scheduler cron `0 0,6,12,18 * * *`). */
 const RECENT_FAILED_WINDOW_MS = 6 * 3_600_000
-/** Failed-job scan page size and bound (newest jobs only; the count saturates at the bound). */
-const RECENT_FAILED_PAGE = 100
-const RECENT_FAILED_SCAN_MAX = 1000
+/** Window of the `openbrain_queue_failed_24h` gauge. */
+const FAILED_GAUGE_WINDOW_MS = 24 * 3_600_000
+/** A live capture without an embedding for longer than this raises `embed-stall`. */
+const EMBED_STALL_HOURS = 2
 
 const DEFAULT_FAILURE_LOOKBACK_MINUTES = 60
 const DEFAULT_FAILED_THRESHOLD = 5
@@ -163,7 +187,18 @@ const DEFAULT_BACKUP_MAX_AGE_SECONDS = 93600
  * Used in production; tests inject a mock factory instead.
  */
 export function makeRealQueueFactory(connection: ConnectionOptions): QueueFactory {
-  return (name: string) => new Queue(name, { connection }) as unknown as QueueHandle
+  return (name: string): QueueHandle => {
+    const queue = new Queue(name, { connection })
+    return {
+      getJobCounts: (...types: string[]) => queue.getJobCounts(...(types as Parameters<Queue['getJobCounts']>)),
+      getJobCountByTypes: (...types: string[]) => queue.getJobCountByTypes(...(types as Parameters<Queue['getJobCountByTypes']>)),
+      countFailedSince: async (sinceMs: number) => {
+        const client = await queue.client
+        return client.zcount(queue.toKey('failed'), sinceMs, '+inf')
+      },
+      close: () => queue.close(),
+    }
+  }
 }
 
 // ============================================================
@@ -260,7 +295,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // also counts each worker queue's failures in the last 6 h.
     const queues = await this.queryQueueStats(ALL_MONITORED_QUEUES, {
       failedForWorkerQueuesOnly: true,
-      recentFailedSinceMs: stateOn ? startMs - RECENT_FAILED_WINDOW_MS : null,
+      countRecent: true,
     })
 
     // Step 2: Query recent pipeline_events failures
@@ -286,8 +321,24 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       }
     }
 
+    // Step 3.55 (item 3.1): capture-level observations. Each is null when its
+    // query failed (not observed: no alert change, no gauge).
+    const embedStall = await queryEmbedStallFromDb(this.db, EMBED_STALL_HOURS)
+    const stuckCaptures = await queryStuckCapturesFromDb(this.db)
+    const successShare7d = await queryPipelineSuccessShareFromDb(this.db, 7)
+
+    // Step 3.56 (item 3.3): per-source heartbeats. Baseline first, so a source
+    // with no record starts its clock now and raises nothing on this run.
+    // Skipped with the alert-state switch off (rollback path): no app_settings access.
+    const sourceFreshness = stateOn ? await this.observeSourceFreshness(new Date()) : null
+
     // Step 3.6: Push queue metrics to Pushgateway
-    await this.pushQueueMetrics(queues)
+    await this.pushQueueMetrics(queues, {
+      stuck: stuckCaptures,
+      unembedded: embedStall?.unembedded ?? null,
+      successShare7d,
+      sourceFreshness,
+    })
 
     // Step 3.7: Backup dead-man's switch — stat manifest, emit age gauge,
     // and (independently) alert if stale (7.4 / PE-H4 / RC-12 / SA-13 / A131).
@@ -308,7 +359,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     const queueConditions = stateOn ? buildQueueConditions(queues, stalledByQueue, thresholds) : []
     const stateQueuesBad = queueConditions.some(c => c.bad)
 
-    const healthy = !shouldAlert && !stateQueuesBad && recentFailures.length === 0 && !backupCheck.stale
+    const embedStalled = embedStall?.stalled ?? null
+    const healthy =
+      !shouldAlert && !stateQueuesBad && recentFailures.length === 0 && !backupCheck.stale && !(embedStalled !== null && embedStalled > 0) &&
+      !(sourceFreshness?.sources.some(f => f.stale) ?? false)
 
     let alertSent = false
     if (shouldAlert && legacyPush) {
@@ -338,6 +392,8 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       backupCheck,
       queueConditions,
       captureFlowObserved,
+      embedStall,
+      sourceFreshness,
     })
     alertSent = alertSent || stateAlertSent
 
@@ -353,6 +409,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       backupStale: backupCheck.stale,
       backupAgeSeconds: backupCheck.ageSeconds,
       alertSent,
+      embedStalled,
+      staleSources: sourceFreshness ? sourceFreshness.sources.filter(s => s.stale).map(s => s.source) : null,
+      stuckCaptures,
+      quietCaptureSources: sourceFreshness ? sourceFreshness.captureSources.filter(c => c.quiet).map(c => `${c.source}:${c.ageDays}d`) : [],
       durationMs,
     }
 
@@ -377,11 +437,11 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    *
    * `failedForWorkerQueuesOnly`: the registry read counts failures for
    * WORKER_QUEUES only; the legacy read (f341ca6) counts them for every queue.
-   * `recentFailedSinceMs`: when set, also count failed jobs finished since then.
+   * `countRecent`: also count failed jobs finished in the last 6 h and 24 h (ZCOUNT).
    */
   private async queryQueueStats(
     queueNames: readonly string[],
-    opts: { failedForWorkerQueuesOnly: boolean; recentFailedSinceMs: number | null },
+    opts: { failedForWorkerQueuesOnly: boolean; countRecent: boolean },
   ): Promise<QueueStats[]> {
     const results: QueueStats[] = []
 
@@ -398,8 +458,13 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
         // Failure counts read WORKER_QUEUES only: a producer-only queue has no
         // consumer, so a failed count there is not a pipeline failure signal.
         const countsFailures = !opts.failedForWorkerQueuesOnly || isWorkerQueue(queueName)
-        const recentFailed = countsFailures && opts.recentFailedSinceMs !== null
-          ? await this.countRecentFailed(queue, queueName, opts.recentFailedSinceMs)
+        const now = Date.now()
+        const countRecent = countsFailures && opts.countRecent
+        const recentFailed = countRecent
+          ? await this.countFailedSince(queue, queueName, now - RECENT_FAILED_WINDOW_MS)
+          : null
+        const failed24h = countRecent
+          ? await this.countFailedSince(queue, queueName, now - FAILED_GAUGE_WINDOW_MS)
           : null
         results.push({
           name: queueName,
@@ -409,6 +474,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
           delayed: counts.delayed ?? 0,
           paused: counts.paused ?? 0,
           recentFailed,
+          failed24h,
         })
         logger.debug({ queueName, counts }, '[pipeline-health] queue stats fetched')
       } catch (err) {
@@ -421,6 +487,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
           delayed: 0,
           paused: 0,
           recentFailed: null,
+          failed24h: null,
         })
       } finally {
         await queue.close().catch(() => {})
@@ -431,31 +498,16 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   }
 
   /**
-   * Failed jobs of one queue that finished at or after `sinceMs`. BullMQ keeps
-   * the failed set as a sorted set scored by finish time and `getJobs` returns
-   * it newest first, so the scan pages from the newest job and stops at the
-   * first page that reaches past the window. Bounded to the newest
-   * RECENT_FAILED_SCAN_MAX jobs (the count saturates there, far above any
-   * threshold). Returns null when the scan fails: the condition is then not
-   * observed and its alert is held, not falsely resolved.
+   * Failed jobs of one queue that finished at or after `sinceMs`, via one
+   * `ZCOUNT` on the failed set (scored by finish time). Returns null when the
+   * count fails: the condition is then not observed and its alert is held, not
+   * falsely resolved.
    */
-  private async countRecentFailed(queue: QueueHandle, queueName: string, sinceMs: number): Promise<number | null> {
-    let count = 0
+  private async countFailedSince(queue: QueueHandle, queueName: string, sinceMs: number): Promise<number | null> {
     try {
-      for (let start = 0; start < RECENT_FAILED_SCAN_MAX; start += RECENT_FAILED_PAGE) {
-        const jobs = await queue.getJobs(['failed'], start, start + RECENT_FAILED_PAGE - 1)
-        let reachedOlder = false
-        for (const job of jobs) {
-          const finishedOn = job?.finishedOn
-          if (finishedOn === undefined) continue
-          if (finishedOn >= sinceMs) count++
-          else reachedOlder = true
-        }
-        if (reachedOlder || jobs.length < RECENT_FAILED_PAGE) break
-      }
-      return count
+      return await queue.countFailedSince(sinceMs)
     } catch (err) {
-      logger.warn({ queueName, err }, '[pipeline-health] failed-job scan failed — queue failure alert held this run')
+      logger.warn({ queueName, err }, '[pipeline-health] failed-job count failed — queue failure alert held this run')
       return null
     }
   }
@@ -471,7 +523,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   }> {
     const stats = await this.queryQueueStats(LEGACY_MONITORED_QUEUES, {
       failedForWorkerQueuesOnly: false,
-      recentFailedSinceMs: null,
+      countRecent: false,
     })
     const stalled = await this.queryStalledJobs(LEGACY_MONITORED_QUEUES)
     return {
@@ -531,7 +583,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    * Metrics: openbrain_queue_waiting, openbrain_queue_active, openbrain_queue_failed,
    * openbrain_queue_delayed per queue. Failures are silently caught.
    */
-  private async pushQueueMetrics(queues: QueueStats[]): Promise<void> {
+  private async pushQueueMetrics(
+    queues: QueueStats[],
+    capture: { stuck: number | null; unembedded: number | null; successShare7d: number | null; sourceFreshness: SourceFreshnessResult | null },
+  ): Promise<void> {
     const metrics: MetricLine[] = []
 
     for (const q of queues) {
@@ -541,9 +596,46 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
         { name: 'openbrain_queue_failed', value: q.failed, labels: { queue: q.name }, help: 'Number of failed jobs per queue', type: 'gauge' },
         { name: 'openbrain_queue_delayed', value: q.delayed, labels: { queue: q.name }, help: 'Number of delayed jobs per queue', type: 'gauge' },
       )
+      if (q.failed24h !== null) {
+        metrics.push({
+          name: 'openbrain_queue_failed_24h', value: q.failed24h, labels: { queue: q.name },
+          help: 'Jobs that failed in the last 24 hours per queue', type: 'gauge',
+        })
+      }
+    }
+
+    if (capture.stuck !== null) {
+      metrics.push({ name: 'openbrain_captures_stuck', value: capture.stuck, help: 'Live captures at a sweepable status for more than 24 hours', type: 'gauge' })
+    }
+    if (capture.unembedded !== null) {
+      metrics.push({ name: 'openbrain_captures_unembedded', value: capture.unembedded, help: 'Live captures with no embedding', type: 'gauge' })
+    }
+    if (capture.successShare7d !== null) {
+      metrics.push({ name: 'openbrain_pipeline_success_share_7d', value: capture.successShare7d, help: 'Share of captures from the last 7 days that reached complete', type: 'gauge' })
+    }
+
+    for (const f of capture.sourceFreshness?.sources ?? []) {
+      if (f.ageSeconds === null) continue
+      metrics.push({
+        name: 'openbrain_source_last_success_seconds', value: f.ageSeconds, labels: { source: f.source },
+        help: 'Seconds since the source last reported a successful run', type: 'gauge',
+      })
     }
 
     await pushMetrics(metrics)
+  }
+
+  /**
+   * Item 3.3: write baselines for expected sources that have no heartbeat, then
+   * read freshness. Never throws; null = not observed (open alerts are held).
+   */
+  private async observeSourceFreshness(now: Date): Promise<SourceFreshnessResult | null> {
+    try {
+      await ensureHeartbeatBaseline(this.db, EXPECTED_HEARTBEAT_SOURCES, now)
+    } catch (err) {
+      logger.warn({ err }, '[pipeline-health] heartbeat baseline failed')
+    }
+    return querySourceFreshnessFromDb(this.db, now)
   }
 
   // ----------------------------------------------------------
@@ -689,6 +781,8 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     backupCheck: { ageSeconds: number | null; stale: boolean; maxAgeSeconds: number }
     queueConditions: QueueCondition[]
     captureFlowObserved: boolean | null
+    embedStall: EmbedStallStats | null
+    sourceFreshness: SourceFreshnessResult | null
   }): Promise<boolean> {
     let sent = false
 
@@ -707,6 +801,31 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
 
     for (const c of p.queueConditions) {
       const r = await this.raiseAlert({ key: c.key, severity: 'warning', bad: c.bad, title: c.title, message: c.message })
+      sent = sent || r.sent
+    }
+
+    if (p.embedStall !== null) {
+      const e = p.embedStall
+      const bad = e.stalled > 0
+      const r = await this.raiseAlert({
+        key: 'embed-stall',
+        severity: 'critical',
+        bad,
+        title: 'Embeddings Stalled',
+        message: bad ? embedStallMessage(e) : 'No captures are waiting on an embedding for more than 2 hours.',
+      })
+      sent = sent || r.sent
+    }
+
+    // One alert per source (item 3.3). Sources are observed or absent, never guessed.
+    for (const f of p.sourceFreshness?.sources ?? []) {
+      const r = await this.raiseAlert({
+        key: `source-stale:${f.source}`,
+        severity: 'warning',
+        bad: f.stale,
+        title: `Source Stale: ${f.source}`,
+        message: f.stale ? `${f.source}: ${f.reason}.` : `${f.source}: last success ${f.lastSuccessAt ?? 'unknown'}.`,
+      })
       sent = sent || r.sent
     }
 
@@ -744,6 +863,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       `captureFlowStale:${result.captureFlowStale}`,
       `backupStale:${result.backupStale}`,
       `backupAgeSeconds:${result.backupAgeSeconds ?? 'n/a'}`,
+      `embedStalled:${result.embedStalled ?? 'n/a'}`,
+      `stuckCaptures:${result.stuckCaptures ?? 'n/a'}`,
+      `staleSources:${result.staleSources === null ? 'n/a' : result.staleSources.length > 0 ? result.staleSources.join(',') : 'none'}`,
+      ...(result.quietCaptureSources.length > 0 ? [`quietSources:${result.quietCaptureSources.join(',')}`] : []),
       `alert:${result.alertSent}`,
     ].join(' | ')
 
@@ -783,12 +906,11 @@ function buildQueueConditions(queues: QueueStats[], stalled: StalledStats[], t: 
   const out: QueueCondition[] = []
   for (const q of queues) {
     if (q.recentFailed !== null) {
-      const n = q.recentFailed >= RECENT_FAILED_SCAN_MAX ? `${RECENT_FAILED_SCAN_MAX}+` : String(q.recentFailed)
       out.push({
         key: queueAlertKey('failed', q.name),
         bad: q.recentFailed >= t.failedThreshold,
         title: `Queue Failures: ${q.name}`,
-        message: `${q.name}: ${n} failed jobs in the last ${windowHours} h (threshold: ${t.failedThreshold}).`,
+        message: `${q.name}: ${q.recentFailed} failed jobs in the last ${windowHours} h (threshold: ${t.failedThreshold}).`,
       })
     }
     out.push({
@@ -814,6 +936,15 @@ function buildQueueConditions(queues: QueueStats[], stalled: StalledStats[], t: 
 // ============================================================
 
 const CAPTURE_FLOW_STALE_LINE = 'No captures received in the last 6 hours (during active hours)'
+
+function embedStallMessage(e: EmbedStallStats): string {
+  const oldest = e.oldestStalledAt ? `oldest created ${e.oldestStalledAt.toISOString()}` : 'oldest unknown'
+  const last = e.newestEmbeddedAt ? `last embedding activity ${e.newestEmbeddedAt.toISOString()}` : 'no embedding activity found'
+  return (
+    `${e.stalled} live capture(s) have had no embedding for more than ${EMBED_STALL_HOURS} h (${oldest}; ${last}).\n` +
+    'Check the OpenAI key and credits, then the embed-capture queue. See docs/runbooks/pipeline-alert.md.'
+  )
+}
 
 function backupAgeLine(ageSeconds: number, maxAgeSeconds: number): string {
   const ageHours = (ageSeconds / 3600).toFixed(1)

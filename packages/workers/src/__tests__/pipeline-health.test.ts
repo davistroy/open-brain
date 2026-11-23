@@ -42,7 +42,7 @@ function makeMockQueueHandle(counts: {
   delayed?: number
   paused?: number
   stalled?: number
-  /** Retained failed jobs, newest first (BullMQ `getJobs(['failed'])` order). */
+  /** Retained failed jobs; `countFailedSince` counts those finished at or after the cutoff (ZCOUNT on the failed set). */
   failedJobs?: Array<{ finishedOn?: number }>
 } = {}): QueueHandle {
   const failedJobs = counts.failedJobs ?? []
@@ -55,8 +55,8 @@ function makeMockQueueHandle(counts: {
       paused: counts.paused ?? 0,
     }),
     getJobCountByTypes: vi.fn().mockResolvedValue(counts.stalled ?? 0),
-    getJobs: vi.fn().mockImplementation(async (_types: string[], start = 0, end = -1) =>
-      failedJobs.slice(start, end === -1 ? undefined : end + 1)),
+    countFailedSince: vi.fn().mockImplementation(async (sinceMs: number) =>
+      failedJobs.filter(j => j.finishedOn !== undefined && j.finishedOn >= sinceMs).length),
     close: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -69,7 +69,7 @@ function makeBrokenQueueHandle(): QueueHandle {
   return {
     getJobCounts: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
     getJobCountByTypes: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
-    getJobs: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
+    countFailedSince: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
     close: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -732,6 +732,9 @@ function makeStatefulDb(opts: {
   captureCount?: string
   initial?: Record<string, AlertState>
   failStateReads?: boolean
+  embed?: { stalled: number; unembedded: number; newest?: string | null; oldest?: string | null } | 'throw'
+  stuck?: number
+  share?: { complete: number; total: number }
 } = {}) {
   const store = new Map<string, unknown>(
     Object.entries(opts.initial ?? {}).map(([k, v]) => [alertStateKey(k), v]),
@@ -751,6 +754,16 @@ function makeStatefulDb(opts: {
       return { rows: v === undefined ? [] : [{ value: v }] }
     }
     if (text.includes('FROM pipeline_events')) return { rows: [] }
+    if (text.includes('AS stalled')) {
+      if (opts.embed === 'throw') throw new Error('db down')
+      const e = opts.embed ?? { stalled: 0, unembedded: 0 }
+      return { rows: [{ stalled: String(e.stalled), unembedded: String(e.unembedded), oldest_stalled_at: e.oldest ?? null, newest_embedded_at: e.newest ?? null }] }
+    }
+    if (text.includes('AS stuck')) return { rows: [{ stuck: String(opts.stuck ?? 0) }] }
+    if (text.includes('AS complete_count')) {
+      const sh = opts.share ?? { complete: 0, total: 0 }
+      return { rows: [{ complete_count: String(sh.complete), total_count: String(sh.total) }] }
+    }
     if (text.includes('FROM captures')) return { rows: [{ count: opts.captureCount ?? '10' }] }
     if (text.includes('FROM skills_log')) return { rows: [{ count: '0' }] }
     throw new Error(`unexpected SQL in test: ${text}`)
@@ -897,7 +910,7 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     await makeSkillWith(db, pushover, { 'embed-capture': { stalled: 2 } }).execute()
 
     expect(sentCalls(pushover).map(c => c.title).sort()).toEqual(['Backup Stale', 'Capture Flow Stale', 'Queue Stalled: embed-capture'])
-    expect([...store.keys()].sort()).toEqual([
+    expect([...store.keys()].filter(k => k.startsWith('alert_state:')).sort()).toEqual([
       'alert_state:backup-stale',
       'alert_state:capture-flow',
       'alert_state:queue-stalled:embed-capture',
@@ -959,31 +972,32 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     }).execute({ failedThreshold: 5 })
 
     expect(sentCalls(pushover)).toEqual([])
-    expect([...store.keys()]).toEqual([])
+    expect([...store.keys()].filter(k => k.startsWith('alert_state:'))).toEqual([])
   })
 
-  it('F1: the recent-failure scan reads at most the 1,000 newest failed jobs and stops at the first page past the window', async () => {
+  it('F1: failures are counted with one O(log n) count per window (6 h alert, 24 h gauge), no job scan', async () => {
     vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
     const { db, store } = makeStatefulDb()
     const pushover = makePushoverService()
-    const ranges: Record<string, Array<[number, number]>> = {}
+    const calls: Record<string, number[]> = {}
     const jobsByQueue: Record<string, Array<{ finishedOn: number }>> = {
       'ingest-root': failedJobs(5000, 60_000),
       'wiki-ingest': failedJobs(300, 48 * 3600_000),
     }
     const factory: QueueFactory = (name) => {
       const handle = makeMockQueueFactory()(name)
-      handle.getJobs = vi.fn().mockImplementation(async (_t: string[], start: number, end: number) => {
-        ;(ranges[name] ??= []).push([start, end])
-        return (jobsByQueue[name] ?? []).slice(start, end + 1)
+      handle.countFailedSince = vi.fn().mockImplementation(async (since: number) => {
+        ;(calls[name] ??= []).push(since)
+        return (jobsByQueue[name] ?? []).filter(j => j.finishedOn >= since).length
       })
       return handle
     }
 
     await new PipelineHealthSkill({ db: db as never, queueFactory: factory, pushover }).execute({ failedThreshold: 5 })
 
-    expect(Math.max(...ranges['ingest-root'].map(([, end]) => end))).toBeLessThanOrEqual(999)
-    expect(ranges['wiki-ingest']).toHaveLength(1)
+    expect(calls['ingest-root']).toHaveLength(2)
+    expect(Math.round((Date.now() - calls['ingest-root'][0]) / 3600_000)).toBe(6)
+    expect(Math.round((Date.now() - calls['ingest-root'][1]) / 3600_000)).toBe(24)
     expect(store.get('alert_state:queue-failed:ingest-root')).toMatchObject({ status: 'bad' })
     expect(store.has('alert_state:queue-failed:wiki-ingest')).toBe(false)
   })
@@ -994,7 +1008,7 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     const pushover = makePushoverService()
     const factory: QueueFactory = (name) => {
       const handle = makeMockQueueFactory()(name)
-      if (name === 'ingest-root') handle.getJobs = vi.fn().mockRejectedValue(new Error('Redis timeout'))
+      if (name === 'ingest-root') handle.countFailedSince = vi.fn().mockRejectedValue(new Error('Redis timeout'))
       return handle
     }
 
@@ -1033,7 +1047,7 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
 
     expect(sentCalls(pushover)).toEqual([])
     expect(store.get('alert_state:capture-flow')).toEqual(open)
-    expect(queries.some(q => q.includes('FROM captures'))).toBe(false)
+    expect(queries.some(q => q.includes('FROM captures') && q.includes('as count'))).toBe(false) // capture-flow COUNT query not run
   })
 
   it('absent backup manifest: the backup condition is not observed, so an open alert is held', async () => {
@@ -1062,5 +1076,201 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
 
     expect(sentCalls(pushover)).toEqual([expect.objectContaining({ title: 'Backup Stale', priority: 1 })])
     expect(result.alertSent).toBe(true)
+  })
+})
+
+// ============================================================
+// Item 3.1: failures that can clear, embed-stall, stuck captures, gauges
+// ============================================================
+
+describe('PipelineHealthSkill — item 3.1 (24 h failures, embed-stall, gauges)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 23, 12, 0, 0))
+    mockStat.mockReset()
+    mockStat.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+    ;(pushMetrics as unknown as Mock).mockClear()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+  })
+
+  const jobs = (count: number, ageMs: number) => Array.from({ length: count }, () => ({ finishedOn: Date.now() - ageMs }))
+
+  function skillFor(db: unknown, pushover: PushoverService, overrides: Parameters<typeof makeMockQueueFactory>[0] = {}) {
+    return new PipelineHealthSkill({
+      db: db as import('@open-brain/shared').Database,
+      queueFactory: makeMockQueueFactory(overrides),
+      pushover,
+    })
+  }
+
+  function pushedMetrics(): MetricLine[] {
+    return ((pushMetrics as unknown as Mock).mock.calls as [MetricLine[]][]).flatMap(c => c[0])
+  }
+
+  it('354 retained failures that all finished more than 24 h ago: healthy, no alert, 24 h gauge is 0', async () => {
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    const result = await skillFor(db, pushover, {
+      'ingest-root': { failed: 354, failedJobs: jobs(354, 48 * 3600_000) },
+    }).execute({ failedThreshold: 5 })
+
+    expect(result.healthy).toBe(true)
+    expect(sentCalls(pushover)).toEqual([])
+    expect([...store.keys()].filter(k => k.startsWith('alert_state:'))).toEqual([])
+    const g = pushedMetrics().find(m => m.name === 'openbrain_queue_failed_24h' && m.labels?.queue === 'ingest-root')
+    expect(g?.value).toBe(0)
+    // the retained total keeps its own gauge
+    expect(pushedMetrics().find(m => m.name === 'openbrain_queue_failed' && m.labels?.queue === 'ingest-root')?.value).toBe(354)
+  })
+
+  it('5 failures in the window raise the queue key once, then "resolved" on the next clear run', async () => {
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    const failedAt11 = jobs(5, 3600_000)
+    await skillFor(db, pushover, { 'embed-capture': { failed: 5, failedJobs: failedAt11 } }).execute({ failedThreshold: 5 })
+    expect(sentCalls(pushover)).toEqual([expect.objectContaining({ title: 'Queue Failures: embed-capture', priority: 0 })])
+
+    // next run: the same 5 jobs are now older than the window
+    vi.setSystemTime(new Date(2026, 10, 23, 20, 0, 0))
+    await skillFor(db, pushover, { 'embed-capture': { failed: 5, failedJobs: failedAt11 } }).execute({ failedThreshold: 5 })
+    expect(sentCalls(pushover)).toHaveLength(2)
+    expect(sentCalls(pushover)[1]).toMatchObject({ title: 'Resolved: Queue Failures: embed-capture', priority: -1 })
+    expect(store.get('alert_state:queue-failed:embed-capture')).toMatchObject({ status: 'ok' })
+  })
+
+  it('gauges: failed_24h per worker queue counts only the last 24 h', async () => {
+    const { db } = makeStatefulDb()
+    await skillFor(db, makePushoverService(), {
+      'embed-capture': { failed: 9, failedJobs: [...jobs(2, 3600_000), ...jobs(3, 10 * 3600_000), ...jobs(4, 30 * 3600_000)] },
+    }).execute()
+    const g = pushedMetrics().find(m => m.name === 'openbrain_queue_failed_24h' && m.labels?.queue === 'embed-capture')
+    expect(g?.value).toBe(5)
+  })
+
+  it('embed-stall: a capture unembedded for 3 h fires one critical alert, silent on the next run, resolved after', async () => {
+    const { db, store } = makeStatefulDb({ embed: { stalled: 1, unembedded: 1, oldest: '2026-11-23T09:00:00.000Z', newest: '2026-11-23T08:00:00.000Z' } })
+    const pushover = makePushoverService()
+    const skill = skillFor(db, pushover)
+
+    const r1 = await skill.execute()
+    expect(sentCalls(pushover)).toEqual([expect.objectContaining({ title: 'Embeddings Stalled', priority: 1 })])
+    expect(sentCalls(pushover)[0].message).toContain('1 ')
+    expect(r1.embedStalled).toBe(1)
+    expect(r1.healthy).toBe(false)
+
+    vi.setSystemTime(new Date(2026, 10, 23, 18, 0, 0))
+    await skill.execute()
+    expect(sentCalls(pushover)).toHaveLength(1)
+
+    vi.setSystemTime(new Date(2026, 10, 24, 0, 0, 0))
+    const { db: db2 } = makeStatefulDb({ initial: { 'embed-stall': store.get('alert_state:embed-stall') as AlertState } })
+    await skillFor(db2, pushover).execute()
+    expect(sentCalls(pushover)[1]).toMatchObject({ title: 'Resolved: Embeddings Stalled', priority: -1 })
+  })
+
+  it('embed-stall: today\'s state (2 deliberately failed captures, nothing stalled) does not fire', async () => {
+    const { db, store } = makeStatefulDb({ embed: { stalled: 0, unembedded: 2 } })
+    const pushover = makePushoverService()
+
+    const r = await skillFor(db, pushover).execute()
+
+    expect(sentCalls(pushover)).toEqual([])
+    expect(r.embedStalled).toBe(0)
+    expect(store.has('alert_state:embed-stall')).toBe(false)
+  })
+
+  it('embed-stall: a failed query is not observed, so an open alert is held', async () => {
+    const open: AlertState = { status: 'bad', since: '2026-11-22T12:00:00.000Z', last_notified_at: '2026-11-22T12:00:00.000Z', level: 1, receipt: null, acked_at: null }
+    const { db, store } = makeStatefulDb({ embed: 'throw', initial: { 'embed-stall': open } })
+    const pushover = makePushoverService()
+
+    await skillFor(db, pushover).execute()
+
+    expect(sentCalls(pushover)).toEqual([])
+    expect(store.get('alert_state:embed-stall')).toEqual(open)
+  })
+
+  it('stuck captures, unembedded and success share are pushed as gauges and summarised', async () => {
+    const { db } = makeStatefulDb({ embed: { stalled: 0, unembedded: 2 }, stuck: 4, share: { complete: 97, total: 100 } })
+    const pushover = makePushoverService()
+
+    const r = await skillFor(db, pushover).execute()
+
+    const val = (n: string) => pushedMetrics().find(m => m.name === n)?.value
+    expect(val('openbrain_captures_stuck')).toBe(4)
+    expect(val('openbrain_captures_unembedded')).toBe(2)
+    expect(val('openbrain_pipeline_success_share_7d')).toBeCloseTo(0.97)
+    expect(r.stuckCaptures).toBe(4)
+    expect(sentCalls(pushover)).toEqual([]) // stuck captures are a gauge, not a page
+  })
+
+  it('backup-stale fires through its own key and call, independent of the queue alert', async () => {
+    mockStat.mockResolvedValue({ mtime: new Date(Date.now() - 30 * 3600_000) } as never)
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    await skillFor(db, pushover, { 'embed-capture': { failed: 6, failedJobs: jobs(6, 3600_000) } }).execute({ failedThreshold: 5 })
+
+    expect(sentCalls(pushover).map(c => c.title).sort()).toEqual(['Backup Stale', 'Queue Failures: embed-capture'])
+    expect(store.get('alert_state:backup-stale')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:queue-failed:embed-capture')).toMatchObject({ status: 'bad' })
+  })
+})
+
+describe('pipeline-health-query — item 3.1 SQL', () => {
+  const dialect = new PgDialect()
+  function capture(rows: unknown[]) {
+    const seen: Array<{ sql: string; params: unknown[] }> = []
+    const db = {
+      execute: vi.fn().mockImplementation(async (q: SQL) => {
+        const r = dialect.sqlToQuery(q)
+        seen.push({ sql: r.sql, params: r.params })
+        return { rows }
+      }),
+    }
+    return { db: db as unknown as import('@open-brain/shared').Database, seen }
+  }
+
+  it('queryEmbedStall: live, unembedded, older than 2 h, not failed/deleted', async () => {
+    const { queryEmbedStall } = await import('../skills/pipeline-health-query.js')
+    const { db, seen } = capture([{ stalled: '3', unembedded: '5', oldest_stalled_at: null, newest_embedded_at: '2026-11-23T08:00:00Z' }])
+    const r = await queryEmbedStall(db, 2)
+    expect(r).toMatchObject({ stalled: 3, unembedded: 5 })
+    expect(r?.newestEmbeddedAt).toBeInstanceOf(Date)
+    expect(seen[0].sql).toContain('embedding IS NULL')
+    expect(seen[0].sql).toContain('deleted_at IS NULL')
+    expect(seen[0].sql).toContain("'failed'")
+  })
+
+  it('queryEmbedStall: returns null when the query fails or the row is malformed', async () => {
+    const { queryEmbedStall } = await import('../skills/pipeline-health-query.js')
+    const bad = { execute: vi.fn().mockRejectedValue(new Error('x')) } as unknown as import('@open-brain/shared').Database
+    expect(await queryEmbedStall(bad, 2)).toBeNull()
+    const { db } = capture([{ count: '1' }])
+    expect(await queryEmbedStall(db, 2)).toBeNull()
+  })
+
+  it('queryStuckCaptures binds exactly SWEEPABLE_STATUSES and excludes deleted rows', async () => {
+    const { queryStuckCaptures } = await import('../skills/pipeline-health-query.js')
+    const { SWEEPABLE_STATUSES } = await import('../lib/sweepable-statuses.js')
+    const { db, seen } = capture([{ stuck: '4' }])
+    expect(await queryStuckCaptures(db)).toBe(4)
+    expect(seen[0].sql).toContain('deleted_at IS NULL')
+    for (const st of SWEEPABLE_STATUSES) expect(seen[0].params).toContain(st)
+    expect(await queryStuckCaptures({ execute: vi.fn().mockRejectedValue(new Error('x')) } as never)).toBeNull()
+  })
+
+  it('queryPipelineSuccessShare: complete share over the window, null when empty or on error', async () => {
+    const { queryPipelineSuccessShare } = await import('../skills/pipeline-health-query.js')
+    expect(await queryPipelineSuccessShare(capture([{ complete_count: '95', total_count: '100' }]).db, 7)).toBeCloseTo(0.95)
+    expect(await queryPipelineSuccessShare(capture([{ complete_count: '0', total_count: '0' }]).db, 7)).toBeNull()
+    expect(await queryPipelineSuccessShare({ execute: vi.fn().mockRejectedValue(new Error('x')) } as never, 7)).toBeNull()
   })
 })

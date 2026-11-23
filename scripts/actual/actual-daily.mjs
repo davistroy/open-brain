@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import * as actual from '@actual-app/api'
 import { runDaily } from './lib/run-daily.mjs'
+import { postHeartbeat, reportOutcome } from './lib/heartbeat.mjs'
 
 const env = process.env
 const SERVER_URL = requireEnv('ACTUAL_SERVER_URL')
@@ -77,14 +78,14 @@ async function postCapture(capture) {
   return { ok: res.ok, status: res.status }
 }
 
-async function sendPushover(title, message) {
+async function sendPushover(title, message, priority = 0) {
   const token = env.PUSHOVER_APP_TOKEN
   const user = env.PUSHOVER_USER_KEY
   if (!token || !user) {
     logger.warn('Pushover not configured — skipping notification')
     return
   }
-  const body = new URLSearchParams({ token, user, title, message, priority: '0' })
+  const body = new URLSearchParams({ token, user, title, message, priority: String(priority) })
   const res = await fetch('https://api.pushover.net/1/messages.json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -144,12 +145,30 @@ async function main() {
         `${result.unmatchedPayees.length} unmatched, ` +
         `${result.excluded.transfer + result.excluded.investment} excluded, sync_failed=${result.syncFailed}`,
     )
+    return result
   } finally {
     await actual.shutdown()
   }
 }
 
-main().catch((err) => {
-  logger.error(`run failed: ${err.stack ?? err.message}`)
-  process.exit(1)
-})
+const heartbeat = (args) => postHeartbeat({ coreApiUrl: CORE_API_URL, ...args })
+
+main()
+  .then((result) =>
+    reportOutcome({
+      ok: true,
+      meta: {
+        categorizedGroups: result.categorized.length,
+        unmatched: result.unmatchedPayees.length,
+        syncFailed: result.syncFailed,
+      },
+      postHeartbeat: heartbeat,
+      sendPushover,
+      logger,
+    }),
+  )
+  .catch(async (err) => {
+    logger.error(`run failed: ${err.stack ?? err.message}`)
+    await reportOutcome({ ok: false, error: err, postHeartbeat: heartbeat, sendPushover, logger })
+    process.exit(1)
+  })

@@ -4,3 +4,5 @@ export * from './autonomy.js'
 
 export * from './prompt-builder.js'
 export * from './brief-renderer.js'
+export * from './operator-actions.js'
+export * from './heartbeat.js'

@@ -94,7 +94,7 @@ acceptable since these are agent tool calls, not interactive user requests.
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | Capture throughput | ≥ 1 capture per 6-hour window (active hours) | `openbrain_captures_per_6h` recording rule |
-| Pipeline success rate | ≥ 95% of captures reach `complete` status | Manual query — no automated alert |
+| Pipeline success rate | ≥ 95% of captures reach `complete` status | `openbrain_pipeline_success_share_7d` gauge (pushed by `pipeline-health` every 6 h: share of live captures from the last 7 days, older than 2 h, at `complete`); no alert on the share itself. `embed-stall` (critical) pages when a capture waits more than 2 h for an embedding |
 
 **What exists today:** The `CaptureFlowStale` alert in `capture-flow.yml` fires when
 `increase(openbrain_captures_total[6h]) == 0`. This is a coarse availability proxy,
@@ -115,7 +115,7 @@ and in `slo.yml` targeting < 5 minutes (300 s) for the full ingest pipeline
 (classify → extract → embed → complete).
 
 Until that histogram exists, the ingest SLO is monitored via:
-- `openbrain_queue_waiting` / `openbrain_queue_failed` alerts (pipeline.yml)
+- `openbrain_queue_waiting` / `openbrain_queue_failed_24h` alerts (pipeline.yml), `openbrain_captures_stuck`, `openbrain_captures_unembedded`
 - `openbrain_captures_per_6h` (capture-flow.yml)
 - Manual periodic query: `SELECT pipeline_status, COUNT(*) FROM captures GROUP BY 1`
 

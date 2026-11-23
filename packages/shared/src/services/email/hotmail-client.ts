@@ -85,6 +85,13 @@ export interface HotmailClientOptions {
   graphBase?: string
   /** Inject custom fetch for testing. */
   fetchFn?: typeof globalThis.fetch
+  /**
+   * Allow the interactive device-code flow when the silent refresh fails.
+   * Default false: a scheduled (headless) run throws an authentication error
+   * instead of blocking on a prompt nobody sees. Set only for a manual
+   * re-consent run (`input.interactiveAuth: true`).
+   */
+  allowInteractive?: boolean
 }
 
 export class HotmailClient implements EmailProvider {
@@ -94,9 +101,11 @@ export class HotmailClient implements EmailProvider {
   private accessToken: string | null = null
   private graphBase: string
   private fetchFn: typeof globalThis.fetch
+  private allowInteractive: boolean
 
   constructor(opts: HotmailClientOptions) {
     this.db = opts.db
+    this.allowInteractive = opts.allowInteractive ?? false
     this.graphBase = opts.graphBase ?? GRAPH_BASE
     this.fetchFn = opts.fetchFn ?? globalThis.fetch.bind(globalThis)
 
@@ -147,9 +156,17 @@ export class HotmailClient implements EmailProvider {
           log.info({ username: accounts[0].username }, 'Hotmail: cached auth')
           return true
         }
-      } catch {
-        log.debug('Silent token acquisition failed, falling back to device code')
+      } catch (err) {
+        log.warn({ err }, this.allowInteractive
+          ? 'Hotmail: silent token refresh failed — falling back to device code'
+          : 'Hotmail: silent token refresh failed')
       }
+    }
+
+    if (!this.allowInteractive) {
+      throw new Error(
+        'Hotmail authentication failed: silent token refresh failed and interactive sign-in is disabled for scheduled runs',
+      )
     }
 
     // Device code flow (interactive — requires user action)

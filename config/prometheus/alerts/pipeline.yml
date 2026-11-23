@@ -1,7 +1,10 @@
 # Prometheus alert rules — BullMQ pipeline health
 # Metric source: Pushgateway (job=open-brain, instance=workers)
 # Metrics pushed by pipeline-health skill (every 6h): openbrain_queue_waiting,
-# openbrain_queue_failed, openbrain_queue_active, openbrain_queue_delayed.
+# openbrain_queue_failed (retained total, informational), openbrain_queue_failed_24h
+# (jobs that finished as failed in the last 24 h; this is what alerts),
+# openbrain_queue_active, openbrain_queue_delayed, openbrain_captures_stuck,
+# openbrain_captures_unembedded, openbrain_pipeline_success_share_7d.
 #
 # Notification path: pipeline-health skill sends Pushover when waitingThreshold > 100
 # and on stalled jobs. These Prometheus rules add the "sustained for >5 minutes" gate
@@ -51,16 +54,18 @@ groups:
           runbook: "docs/runbooks/pipeline-alert.md"
 
       - alert: QueueFailedJobsHigh
-        # Fires when accumulated failed jobs in a queue exceeds 5.
-        # Failed jobs remain in the queue until manually resolved (BullMQ behavior).
-        expr: openbrain_queue_failed{job="open-brain"} > 5
+        # Fires when more than 5 jobs in a queue failed within the last 24 hours.
+        # Reads the 24 h gauge, NOT the retained total (openbrain_queue_failed): flow
+        # queues keep failed jobs forever, so the total never returns below 5 and the
+        # alert could not clear. The gauge falls as old failures age out of the window.
+        expr: openbrain_queue_failed_24h{job="open-brain"} > 5
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "Queue {{ $labels.queue }} has {{ $value }} failed jobs"
+          summary: "Queue {{ $labels.queue }} had {{ $value }} failed jobs in the last 24 h"
           description: >
-            Accumulated failed jobs in {{ $labels.queue }} exceeds threshold.
+            Jobs in {{ $labels.queue }} failed more than 5 times in the last 24 hours.
             Jobs will be retried by the daily-sweep stale-capture re-queuer (03:00)
             but high failure counts indicate a systematic issue.
             Check workers logs via Grafana/Loki: {container_name="open-brain-workers-1"}.
