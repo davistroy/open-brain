@@ -14591,3 +14591,13 @@ The UFW fix restores the path but the deeper reliability gaps remain: (a) **`ema
 - `Final: minor (deferred):` an unreachable Redis or wrong password hangs the script (BullMQ retries forever); add a `PING` with a 10 s timeout before the loop.
 - `Final: minor (deferred):` an orphan `ingest-root` hash (`unknown` state) is left in place for the 2 April captures; harmless while `complete` is terminal; remove `unknown` roots too.
 - `Final: minor (deferred):` `REDIS_URL` parsing differs from `workers/src/main.ts` (decode + db index); a malformed `%` or a bad `BULLMQ_MODULE` exits 1, the same code as "a capture errored". Also: the harness does not itself prove `skipMetasUpdate` (its own queues had already written the same meta).
+**RESULT — 1.6 complete:** PR #403 squash-merged → `main` = `ae27416` (2026-11-23), the first `main` commit since 2026-07-20. On that commit: `CI` success, `Build and Push Images` success, `CodeQL` success. Owner decision on the plan files: Option A (committed). U6 resolved. Nothing deployed (new `:latest` images go live at item 5.5). **Phase 1 complete.**
+
+## Entry 257 — Remediation Phase 2: alert core (items 2.1–2.6) (2026-11-23)  [pipeline] [config] [decision]
+
+**Authorisation (Troy, 2026-11-23):** "Start phase 2."
+**Objective:** build the alert core of ADR-0005 in code: Pushover limits + receipts and an alert-state store (2.1), `raiseAlert` + migration of the operational alerts (2.2), escalation + acknowledgement (2.3), a daily ops digest (2.4), informational pushes moved into the digest (2.5), one queue registry (2.6).
+**Hypothesis / success criteria:** each item lands with its tests; the Phase 2 DoD in the plan passes (`pnpm -r test` with coverage floors, `pnpm -r lint`, plus the plan's per-phase checks); a fresh review finds no Critical/Important issue. Executed with `/implement-plan` (one sub-agent per item, tier from the plan), stopped at the Phase 2 boundary.
+**Rollback:** repo-only until a deploy: revert the branch / do not merge. Any migration is applied only at a later deploy step (no host change in this entry).
+**Tags:** [pipeline] [config] [decision]
+**Environment:** VM only (branch `feat/2026-11-remediation-phase2`). Executed by Claude (Opus 5.5) as orchestrator.
