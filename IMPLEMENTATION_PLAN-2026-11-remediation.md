@@ -221,7 +221,7 @@ HOST — operator-gated. The work happens on the Spark host, outside this reposi
 ---
 
 #### 1.4 Remove the always-failing cron flag and the dead cron lines
-**Status: PENDING**
+**Status: COMPLETE (2026-11-23, LAB_NOTEBOOK Entry 256; first run without the flag = 2026-11-24 06:30)**
 **Model Tier: sonnet**
 **Requirement Refs:** SE7-07 (cron part), SE7-15 (cron part)
 **Depends On:** 1.3

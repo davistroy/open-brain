@@ -35,24 +35,16 @@
 # processed/.
 0 6 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --process-inbox >> /var/log/financial-ingest.log 2>&1
 
-# Utility gas + power — daily at 6:30 AM. Gas South billing fetch + Cobb EMC
-# power-summary (reads CSVs produced by electric-usage-downloader — that tool
-# is itself scheduled separately via the sidecar's own cron entry if/when
-# it's wired; for now --power-summary is a no-op if no CSVs present).
-30 6 * * * /usr/bin/docker exec open-brain-utility-ingest python /app/utility-pipeline.py --gas --power-summary >> /var/log/utility-ingest.log 2>&1
+# Utility gas — daily at 6:30 AM. Gas South billing fetch.
+# The Cobb EMC power summary (--power-summary) is off: power ingestion is not
+# built (OA-22, issue #286), and the flag logged an error on every run. Add the
+# flag back when issue #286 ships.
+30 6 * * * /usr/bin/docker exec open-brain-utility-ingest python /app/utility-pipeline.py --gas >> /var/log/utility-ingest.log 2>&1
 
 # Utility monthly comparison — 2nd of each month at 2 AM. Aggregates the
 # prior month's water/gas/power data and posts a single synthesized capture.
 # (Water is a no-op today — Cobb Water B2C OIDC is a separate backlog.)
 0 2 2 * * /usr/bin/docker exec open-brain-utility-ingest python /app/utility-pipeline.py --monthly-comparison >> /var/log/utility-monthly.log 2>&1
-
-# Financial daily balance snapshot + account monitoring — 7:00 AM and 7:05 AM daily.
-# Run in sequence: --balances first (writes daily_balances rows), then --account-monitoring
-# (reads those rows). Separate cron entries ensure correct ordering via the 5-minute gap.
-# These are host-level cron jobs — no collision with BullMQ scheduler slots (0 7 budget-check
-# runs inside the workers container; these exec into open-brain-financial-ingest).
-0 7 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --balances >> /var/log/financial-balances.log 2>&1
-5 7 * * * /usr/bin/docker exec open-brain-financial-ingest python /app/financial-pipeline.py --account-monitoring >> /var/log/financial-monitoring.log 2>&1
 
 # Actual Budget daily job (#311) — 6:00 AM local (America/New_York). runBankSync,
 # T0-categorize new uncategorized transactions, Pushover summary, one aggregated
