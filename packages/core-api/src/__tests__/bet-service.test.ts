@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BetService } from '../services/bet.js'
+import { CaptureService } from '../services/capture.js'
+import type { PipelineService } from '../services/pipeline.js'
 import type { Database } from '@open-brain/shared'
 
 // ---------------------------------------------------------------------------
@@ -288,7 +290,9 @@ describe('BetService.resolve', () => {
         }),
       }),
       insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
+        values: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: 'capture-new', content: 'x' }]),
+        }),
       }),
     } as unknown as Database
   }
@@ -396,6 +400,101 @@ describe('BetService.resolve', () => {
     await expect(service.resolve('bet-uuid-1', { resolution: 'incorrect' })).rejects.toThrow(
       'already resolved',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// BetService.resolve — the resolution capture enters the pipeline (Phase 3 F5)
+// ---------------------------------------------------------------------------
+
+describe('BetService.resolve pipeline enqueue', () => {
+  /** getById → bet; every later select (bet dedup, capture dedup) → no match; insert returns the row. */
+  function makeDbWithReturningInsert(newCaptureId: string) {
+    let selectCallCount = 0
+    const values = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: newCaptureId, content: 'x', capture_type: 'reflection', brain_view: 'personal', source: 'system' }]),
+    })
+    const db = {
+      select: vi.fn().mockImplementation(() => {
+        selectCallCount++
+        const rows = selectCallCount === 1 ? [SAMPLE_BET] : []
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(rows) }),
+          }),
+        }
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([{ ...SAMPLE_BET, resolution: 'correct' }]),
+          }),
+        }),
+      }),
+      insert: vi.fn().mockReturnValue({ values }),
+    } as unknown as Database
+    return { db, values }
+  }
+
+  it('enqueues exactly one pipeline job for the new resolution capture', async () => {
+    const { db } = makeDbWithReturningInsert('capture-new-1')
+    const pipelineService = { enqueue: vi.fn().mockResolvedValue(undefined) }
+    const captureService = new CaptureService(db, pipelineService as unknown as PipelineService)
+    const service = new BetService(db, captureService)
+
+    await service.resolve('bet-uuid-1', { resolution: 'correct', evidence: 'On target' })
+
+    expect(pipelineService.enqueue).toHaveBeenCalledTimes(1)
+    expect(pipelineService.enqueue).toHaveBeenCalledWith('capture-new-1')
+  })
+
+  it('stores the capture through the capture service (source system, reflection, bet tags)', async () => {
+    const { db, values } = makeDbWithReturningInsert('capture-new-2')
+    const pipelineService = { enqueue: vi.fn().mockResolvedValue(undefined) }
+    const service = new BetService(db, new CaptureService(db, pipelineService as unknown as PipelineService))
+
+    await service.resolve('bet-uuid-1', { resolution: 'incorrect' })
+
+    expect(values).toHaveBeenCalledTimes(1)
+    const row = values.mock.calls[0][0]
+    expect(row).toMatchObject({
+      capture_type: 'reflection',
+      brain_view: 'personal',
+      source: 'system',
+      pipeline_status: 'pending',
+      tags: ['bet', 'prediction', 'incorrect'],
+    })
+    expect(row.source_metadata).toMatchObject({ bet_id: 'bet-uuid-1', bet_resolution: 'incorrect' })
+  })
+
+  it('does not enqueue when a capture with the same content already exists', async () => {
+    let selectCallCount = 0
+    const db = {
+      select: vi.fn().mockImplementation(() => {
+        selectCallCount++
+        const rows = selectCallCount === 1 ? [SAMPLE_BET] : [{ id: 'existing-capture' }]
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({ limit: vi.fn().mockResolvedValue(rows) }),
+          }),
+        }
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([{ ...SAMPLE_BET, resolution: 'correct' }]),
+          }),
+        }),
+      }),
+      insert: vi.fn(),
+    } as unknown as Database
+    const pipelineService = { enqueue: vi.fn().mockResolvedValue(undefined) }
+    const service = new BetService(db, new CaptureService(db, pipelineService as unknown as PipelineService))
+
+    await service.resolve('bet-uuid-1', { resolution: 'correct' })
+
+    expect(db.insert).not.toHaveBeenCalled()
+    expect(pipelineService.enqueue).not.toHaveBeenCalled()
   })
 })
 

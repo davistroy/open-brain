@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { PushoverService } from '@open-brain/shared'
+import { PushoverService, logger } from '@open-brain/shared'
 import { SecretRotationSkill } from '../skills/secret-rotation.js'
 import type { BwsSecret } from '../skills/secret-rotation.js'
 
@@ -428,6 +428,97 @@ describe('SecretRotationSkill', () => {
 
       expect(result).not.toHaveProperty('operatorActions')
       expect(pushover.send).not.toHaveBeenCalled()
+    })
+  })
+
+  // ============================================================
+  // Phase 3 review fixes: no secret fragments (F3), no silent "all fresh" (F4)
+  // ============================================================
+
+  /** Everything the skill emitted: alerts, heartbeats, skills_log rows, pushes, logs, result. */
+  function emitted(
+    db: ReturnType<typeof makeMockDb>,
+    pushover: PushoverService,
+    logSpies: Array<ReturnType<typeof vi.spyOn>>,
+    result: unknown,
+  ): string {
+    const rows = db.insert.mock.results.map((r) => (r.value as { values: ReturnType<typeof vi.fn> }).values.mock.calls)
+    const withErrors = (_k: string, v: unknown) =>
+      v instanceof Error ? { ...v, name: v.name, message: v.message, stack: v.stack } : v
+    return JSON.stringify(
+      [
+        mocks.raiseAlert.mock.calls.map((c) => c[1]),
+        mocks.recordHeartbeat.mock.calls.map((c) => c.slice(1)),
+        rows,
+        (pushover.send as ReturnType<typeof vi.fn>).mock.calls,
+        logSpies.map((spy) => spy.mock.calls),
+        result,
+      ],
+      withErrors,
+    )
+  }
+
+  function spyLogger() {
+    return [
+      vi.spyOn(logger, 'info'),
+      vi.spyOn(logger, 'warn'),
+      vi.spyOn(logger, 'error'),
+      vi.spyOn(logger, 'debug'),
+    ]
+  }
+
+  describe('unparseable bws output never leaks secret fragments (F3)', () => {
+    it('keeps a secret value from invalid-JSON stdout out of every alert, heartbeat, log and result', async () => {
+      // Unquoted value: V8's JSON.parse message quotes the text around the bad token.
+      const stdout = '[{"id":"a","key":"k","value":sk-FAKE-SECRET-VALUE-9f8e7d,"revisionDate":"2026-03-02T10:00:00Z"}]'
+      const execFn = vi.fn().mockResolvedValue({ stdout, stderr: '' })
+      const { skill, db, pushover } = makeSkill({ execFn })
+      const logSpies = spyLogger()
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.error).toBe('bws secret list returned unparseable output')
+      const all = emitted(db, pushover, logSpies, result)
+      expect(all).not.toContain('sk-FAKE')
+      expect(all).not.toContain('9f8e7d')
+      expect(mocks.recordHeartbeat).toHaveBeenCalledWith(
+        expect.anything(),
+        'secret-rotation',
+        { ok: false, errors: ['bws secret list returned unparseable output'] },
+      )
+      // Only the size of stdout is logged.
+      expect(logSpies.some((spy) => spy.mock.calls.some((c) => (c[0] as Record<string, unknown>)?.stdoutLength === stdout.length))).toBe(true)
+    })
+  })
+
+  describe('entries without a parseable revisionDate (F4)', () => {
+    it.each([
+      ['renamed field', { id: 'a', key: 'renamed-field-secret', revision_date: '2026-03-02T10:00:00Z', creationDate: '2025-01-01T00:00:00Z' }],
+      ['unparseable date', { id: 'b', key: 'garbage-date-secret', revisionDate: 'not-a-date', creationDate: '2025-01-01T00:00:00Z' }],
+    ])('%s: run is a parse failure, not "all fresh"', async (_label, entry) => {
+      const stdout = JSON.stringify([FRESH_SECRET, entry])
+      const execFn = vi.fn().mockResolvedValue({ stdout, stderr: '' })
+      const { skill } = makeSkill({ execFn })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.error).toBe('bws secret list returned entries without a parseable revisionDate')
+      expect(result.totalSecrets).toBe(0)
+      expect(result.freshSecrets).toBe(0)
+      const bad = mocks.raiseAlert.mock.calls.filter((c) => c[1].bad === true)
+      expect(bad).toHaveLength(1)
+      expect(bad[0][1]).toMatchObject({ key: 'secret-check-unavailable', bad: true })
+      expect(mocks.raiseAlert.mock.calls.filter((c) => c[1].bad === false)).toHaveLength(0)
+      expect(mocks.recordHeartbeat).toHaveBeenCalledTimes(1)
+      expect(mocks.recordHeartbeat).toHaveBeenCalledWith(
+        expect.anything(),
+        'secret-rotation',
+        { ok: false, errors: ['bws secret list returned entries without a parseable revisionDate'] },
+      )
+      // Fixed text: no key names or date values from the entries.
+      const sinks = JSON.stringify([mocks.raiseAlert.mock.calls, mocks.recordHeartbeat.mock.calls.map((c) => c.slice(1)), result])
+      expect(sinks).not.toContain(entry.key)
+      expect(sinks).not.toContain('not-a-date')
     })
   })
 })

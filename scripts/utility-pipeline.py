@@ -59,6 +59,11 @@ from lib.power_csv_parse import merge_daily, parse_power_csv  # noqa: E402
 _JSON_OUTPUT_MODE = False
 _JSON_CAPTURES_POSTED: list[str] = []
 _JSON_ERRORS: list[str] = []
+# Bill dates whose PDF failed to parse AGAIN on a re-fetch of an existing
+# NULL-therms row. Reported in the gas heartbeat `meta`, not in `_JSON_ERRORS`:
+# the first miss already failed its own run (#275), and repeating that error
+# every day would keep `source-stale:gas` red forever on one bad bill.
+_GAS_UNPARSED_BILLS: list[str] = []
 
 
 def _post_capture_raw(
@@ -513,6 +518,23 @@ def _parse_gas_bill_pdf(pdf_content: bytes) -> dict[str, Any]:
     return result
 
 
+# A NULL-therms bill is re-fetched only while its bill date is this recent.
+GAS_REFETCH_WINDOW_DAYS = 45
+
+
+def _within_gas_refetch_window(bill_date: str) -> bool:
+    """True when `bill_date` (YYYY-MM-DD) is within the last GAS_REFETCH_WINDOW_DAYS.
+
+    An unparseable date counts as recent: re-fetching is the safe default, and
+    a repeat miss is reported in the heartbeat meta, not as a run failure.
+    """
+    try:
+        billed = date.fromisoformat(bill_date)
+    except (TypeError, ValueError):
+        return True
+    return (datetime.now(UTC).date() - billed).days <= GAS_REFETCH_WINDOW_DAYS
+
+
 def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     """--gas: Fetch Gas South billing history and parse bill PDFs for therms.
 
@@ -615,13 +637,18 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         except (ValueError, TypeError):
             bill_amount = 0.0
 
-        # Skip only if already stored WITH usage. A row with NULL therms is a
-        # prior parse miss (#275) and must be fetched and parsed again.
+        # Skip a bill already stored WITH usage. A row with NULL therms is a
+        # prior parse miss (#275): fetch and parse it again, but only while the
+        # bill is recent (GAS_REFETCH_WINDOW_DAYS) — an old unparseable bill is
+        # left alone rather than re-downloaded every day forever.
         existing = conn.execute(
-            "SELECT 1 FROM gas_readings WHERE date = ? AND therms IS NOT NULL",
+            "SELECT therms FROM gas_readings WHERE date = ?",
             (activity_date,),
         ).fetchone()
-        if existing:
+        is_refetch = existing is not None
+        if existing is not None and (
+            existing[0] is not None or not _within_gas_refetch_window(activity_date)
+        ):
             skip_count += 1
             continue
 
@@ -668,12 +695,20 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         log.info(f"  {activity_date}: ${bill_amount:.2f}{therms_str}")
 
         # Usage is the point of this pipeline — a reading with only a dollar
-        # amount is a failure, not a success. Surfacing it in the JSON summary
-        # flips `status` to "error" so the sidecar/cron cannot report a clean run
-        # while silently storing NULL therms, which is exactly how #275 hid.
+        # amount is a failure, not a success. The FIRST miss for a bill goes to
+        # the JSON summary, flipping `status` to "error" and the exit code to 1,
+        # so the sidecar/cron cannot report a clean run while silently storing
+        # NULL therms, which is exactly how #275 hid. A REPEAT miss (re-fetch of
+        # a row that already has NULL therms) is reported in the heartbeat meta
+        # instead: that failure was already raised, and raising it again every
+        # day would keep `source-stale:gas` red with no way to clear it.
         if therms_val is None:
             no_usage_count += 1
-            _JSON_ERRORS.append(f"gas bill {activity_date}: no usage parsed from PDF")
+            if is_refetch:
+                _GAS_UNPARSED_BILLS.append(activity_date)
+                log.warning(f"  {activity_date}: still no usage parsed on re-fetch (#275)")
+            else:
+                _JSON_ERRORS.append(f"gas bill {activity_date}: no usage parsed from PDF")
 
     conn.commit()
     log.info(f"Gas: {new_count} new readings stored, {skip_count} already existed")
@@ -1084,14 +1119,19 @@ def _latest_gas_bill_date(conn: sqlite3.Connection) -> str | None:
 def _report_gas_heartbeat(cfg: dict[str, Any], latest_bill_date: str | None) -> None:
     """Post the `gas` heartbeat. `ok` is true only when no error was recorded.
 
-    Meta carries a bill date only — never an account identifier or an amount.
-    A failed post is recorded as an error but never raises, so it cannot mask
-    the run's own result.
+    Meta carries bill dates only — never an account identifier or an amount:
+    `latest_bill_date`, and `unparsed_bills` (dates whose PDF failed to parse
+    again on re-fetch). A failed post is recorded as an error but never raises,
+    so it cannot mask the run's own result.
     """
     errors = list(_JSON_ERRORS)
-    meta = {"latest_bill_date": latest_bill_date} if latest_bill_date else None
+    meta: dict[str, Any] = {}
+    if latest_bill_date:
+        meta["latest_bill_date"] = latest_bill_date
+    if _GAS_UNPARSED_BILLS:
+        meta["unparsed_bills"] = sorted(set(_GAS_UNPARSED_BILLS))[:10]
     posted = post_heartbeat(
-        cfg, "gas", not errors, errors[:5] or None, meta, caller="utility-pipeline"
+        cfg, "gas", not errors, errors[:5] or None, meta or None, caller="utility-pipeline"
     )
     if not posted:
         _JSON_ERRORS.append("gas heartbeat post failed")

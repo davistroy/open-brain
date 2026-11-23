@@ -31,6 +31,7 @@ import importlib.util
 import sqlite3
 import sys
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -55,8 +56,10 @@ _SPEC.loader.exec_module(up)
 def _clear_errors() -> Iterator[None]:
     """`_JSON_ERRORS` is module-global — isolate every test from its neighbours."""
     up._JSON_ERRORS.clear()
+    up._GAS_UNPARSED_BILLS.clear()
     yield
     up._JSON_ERRORS.clear()
+    up._GAS_UNPARSED_BILLS.clear()
 
 
 @pytest.fixture
@@ -357,21 +360,50 @@ def test_gas_login_missing_credentials_records_error(monkeypatch):
     assert len(up._JSON_ERRORS) == 1
 
 
+def _days_ago(n: int) -> str:
+    return (datetime.now(UTC).date() - timedelta(days=n)).isoformat()
+
+
+def _activity(bill_date: str) -> list[dict[str, Any]]:
+    return [{**_ACTIVITY[0], "ActivityDate": f"{bill_date}T00:00:00"}]
+
+
+class _PdfResp(_Resp):
+    content = b"x" * 200
+
+
+def _gas_api(monkeypatch, activities, therms):
+    """Billing API returns `activities`; every PDF parses to `therms`."""
+    calls: list[str] = []
+
+    def _get(url, *a, **k):
+        calls.append(url)
+        if url.endswith("bill.pdf"):
+            return _PdfResp(200)
+        return _Resp(200, payload=activities)
+
+    monkeypatch.setattr(up.requests, "get", _get)
+    monkeypatch.setattr(
+        up,
+        "_parse_gas_bill_pdf",
+        lambda b: {"ccfs": None, "therm_factor": None, "therms": therms, "rate_per_therm": None},
+    )
+    return calls
+
+
 def test_gas_null_therms_row_is_fetched_again(monkeypatch, gas_conn):
+    recent = _days_ago(10)
     gas_conn.execute(
-        "INSERT INTO gas_readings (date, bill_amount, therms) VALUES ('2026-01-15', 1.0, NULL)"
+        "INSERT INTO gas_readings (date, bill_amount, therms) VALUES (?, 1.0, NULL)", (recent,)
     )
     _logged_in(monkeypatch)
     calls: list[str] = []
-
-    class _PdfResp(_Resp):
-        content = b"x" * 200
 
     def _get2(url, *a, **k):
         calls.append(url)
         if url.endswith("bill.pdf"):
             return _PdfResp(200)
-        return _Resp(200, payload=_ACTIVITY)
+        return _Resp(200, payload=_activity(recent))
 
     monkeypatch.setattr(up.requests, "get", _get2)
     monkeypatch.setattr(
@@ -384,6 +416,56 @@ def test_gas_null_therms_row_is_fetched_again(monkeypatch, gas_conn):
     assert any(u.endswith("bill.pdf") for u in calls), "NULL-therms row must be re-fetched"
     row = gas_conn.execute("SELECT therms, bill_amount FROM gas_readings").fetchall()
     assert row == [(10.0, 12.5)], "row updated in place, not duplicated"
+
+
+def test_gas_first_miss_for_a_new_bill_is_an_error(monkeypatch, gas_conn):
+    """#275 rule: a bill seen for the first time with no usage fails that run."""
+    _logged_in(monkeypatch)
+    bill = _days_ago(5)
+    _gas_api(monkeypatch, _activity(bill), therms=None)
+    up.cmd_gas(GAS_CFG, gas_conn)
+    assert [f"gas bill {bill}: no usage parsed from PDF"] == up._JSON_ERRORS
+    assert up._GAS_UNPARSED_BILLS == []
+
+
+def test_gas_repeat_miss_on_null_therms_row_goes_to_meta_not_errors(monkeypatch, gas_conn):
+    """F1: one unparseable bill must not keep every later run (and source-stale:gas) red."""
+    bill = _days_ago(10)
+    gas_conn.execute(
+        "INSERT INTO gas_readings (date, bill_amount, therms) VALUES (?, 1.0, NULL)", (bill,)
+    )
+    _logged_in(monkeypatch)
+    calls = _gas_api(monkeypatch, _activity(bill), therms=None)
+    up.cmd_gas(GAS_CFG, gas_conn)
+    assert any(u.endswith("bill.pdf") for u in calls), "recent NULL-therms bill is re-fetched"
+    assert up._JSON_ERRORS == []
+    assert [bill] == up._GAS_UNPARSED_BILLS
+    assert _status() == "ok"
+
+
+def test_gas_null_therms_row_older_than_45_days_is_not_refetched(monkeypatch, gas_conn):
+    old = _days_ago(46)
+    gas_conn.execute(
+        "INSERT INTO gas_readings (date, bill_amount, therms) VALUES (?, 1.0, NULL)", (old,)
+    )
+    _logged_in(monkeypatch)
+    calls = _gas_api(monkeypatch, _activity(old), therms=None)
+    up.cmd_gas(GAS_CFG, gas_conn)
+    assert not any(u.endswith("bill.pdf") for u in calls), "old NULL-therms bill is left alone"
+    assert up._JSON_ERRORS == []
+    assert up._GAS_UNPARSED_BILLS == []
+
+
+def test_gas_null_therms_row_at_45_days_is_still_refetched(monkeypatch, gas_conn):
+    edge = _days_ago(45)
+    gas_conn.execute(
+        "INSERT INTO gas_readings (date, bill_amount, therms) VALUES (?, 1.0, NULL)", (edge,)
+    )
+    _logged_in(monkeypatch)
+    calls = _gas_api(monkeypatch, _activity(edge), therms=12.0)
+    up.cmd_gas(GAS_CFG, gas_conn)
+    assert any(u.endswith("bill.pdf") for u in calls)
+    assert gas_conn.execute("SELECT therms FROM gas_readings").fetchall() == [(12.0,)]
 
 
 def test_gas_row_with_therms_is_skipped(monkeypatch, gas_conn):
@@ -469,6 +551,18 @@ def test_main_heartbeat_meta_has_latest_bill_date_only(monkeypatch, tmp_path):
 
     _, beats = _run_main(monkeypatch, tmp_path, ["--gas"], _ok)
     assert beats[0]["meta"] == {"latest_bill_date": "2026-01-15"}
+
+
+def test_main_heartbeat_meta_reports_unparsed_bills_and_stays_ok(monkeypatch, tmp_path):
+    """F1: a repeat parse miss is visible in the heartbeat but does not fail the run."""
+
+    def _repeat_miss(cfg, conn):
+        up._GAS_UNPARSED_BILLS.append("2026-11-01")
+
+    code, beats = _run_main(monkeypatch, tmp_path, ["--gas"], _repeat_miss)
+    assert code == 0
+    assert beats[0]["ok"] is True
+    assert beats[0]["meta"] == {"unparsed_bills": ["2026-11-01"]}
 
 
 def test_main_heartbeat_failure_records_error_and_exits_1(monkeypatch, tmp_path):

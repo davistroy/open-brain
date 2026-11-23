@@ -67,6 +67,13 @@ const DEFAULT_BWS_BINARY = 'bws'
 const MAX_REPORT_CHARS = 280
 const MAX_LISTED_SECRETS = 5
 const MS_PER_DAY = 1000 * 60 * 60 * 24
+/**
+ * Fixed error texts for bad `bws` output. stdout holds secret VALUES, and a
+ * JSON.parse error message quotes part of it, so neither the parse message nor
+ * any stdout content may reach an alert, heartbeat, skills_log row or log line.
+ */
+const UNPARSEABLE_OUTPUT_ERROR = 'bws secret list returned unparseable output'
+const MISSING_REVISION_DATE_ERROR = 'bws secret list returned entries without a parseable revisionDate'
 
 // ============================================================
 // SecretRotationSkill
@@ -89,6 +96,8 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24
  * - Never logs, stores, or returns secret values — only key names and dates
  * - Injectable execFn for testability
  * - Non-fatal: CLI or parse failures degrade to an error result (never throw).
+ *   Parse failures (invalid JSON, an entry without a parseable revisionDate)
+ *   carry fixed text only — never the parse message or any stdout content.
  * - skills_log entry written on both success and failure
  */
 export interface SecretRotationSkillOpts extends BaseSkillOpts {
@@ -235,7 +244,14 @@ export class SecretRotationSkill extends BaseSkill<SecretRotationOptions, Secret
       timeout: 30_000,
     })
 
-    const parsed = JSON.parse(stdout)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(stdout)
+    } catch {
+      // The parse error quotes stdout (secret values): drop it, record the size only.
+      logger.error({ stdoutLength: stdout.length }, '[secret-rotation] bws secret list output is not valid JSON')
+      throw new Error(UNPARSEABLE_OUTPUT_ERROR)
+    }
 
     // bws secret list returns an array of secret objects
     if (!Array.isArray(parsed)) {
@@ -243,7 +259,7 @@ export class SecretRotationSkill extends BaseSkill<SecretRotationOptions, Secret
     }
 
     // Map to our interface, keeping only safe fields (no values)
-    return parsed.map((s: Record<string, unknown>) => ({
+    const secrets: BwsSecret[] = parsed.map((s: Record<string, unknown>) => ({
       id: String(s.id ?? ''),
       key: String(s.key ?? ''),
       organizationId: s.organizationId != null ? String(s.organizationId) : undefined,
@@ -251,6 +267,20 @@ export class SecretRotationSkill extends BaseSkill<SecretRotationOptions, Secret
       revisionDate: String(s.revisionDate ?? ''),
       creationDate: String(s.creationDate ?? ''),
     }))
+
+    // A missing or unparseable revisionDate would compute an age of NaN and count
+    // as fresh, so a renamed field (e.g. a bws 2.x change) would report "0 stale"
+    // with ok:true. Treat it as unreadable output instead.
+    const undated = secrets.filter((s) => !Number.isFinite(Date.parse(s.revisionDate))).length
+    if (undated > 0) {
+      logger.error(
+        { entries: secrets.length, withoutRevisionDate: undated },
+        '[secret-rotation] bws secret list entries lack a parseable revisionDate',
+      )
+      throw new Error(MISSING_REVISION_DATE_ERROR)
+    }
+
+    return secrets
   }
 
   // ----------------------------------------------------------

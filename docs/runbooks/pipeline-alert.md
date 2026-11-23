@@ -23,7 +23,11 @@ Raised when `captures` holds a live row with `embedding IS NULL`, created more t
 
 1. Check the provider: `docker logs open-brain-workers --since 1h | grep -i embed`. A `401`/`429`/`insufficient_quota` means the key or credits.
 2. Check the queue: `LLEN bull:embed-capture:wait`, `ZCARD bull:embed-capture:failed`.
-3. After fixing the cause, the daily sweep (03:00) re-queues stranded captures; to recover sooner run the re-embed script from `docs/runbooks/` (item 1.2) and watch `openbrain_captures_unembedded` fall.
+3. After fixing the cause, re-drive the stranded embeds by hand. The 03:00 sweep and `POST /api/v1/captures/:id/retry` do **not** recover them: flow jobs keep fixed IDs (`embed_<id>`, `ingest-root_<id>`) and stay retained after failing, so a re-add returns the old job and changes nothing (fixed only by plan Part 2, Phase 9, retained job IDs). Use `scripts/redrive-stranded-embeds.mjs` (embed-only; it never touches the paid enrichment queues), run inside `open-brain-workers` outside 03:00–03:30 — see the header of the script for the `docker cp` / `docker exec … --ids-file` commands:
+   1. Pull a fresh list of stranded capture IDs from the DB (live, `embedding IS NULL`, older than 2 h, not `failed`/`deleted`).
+   2. `--dry-run` first, then `--limit 10`, then all. Pull a fresh ID list from the DB before each pass.
+   3. The embed handler skips captures at `failed`; find out why a row is `failed` before resetting it.
+   4. Watch `openbrain_captures_unembedded` fall. See the "Captures stranded without an embedding" rule in `CLAUDE.md` (Entry 256).
 4. The alert clears on the next `pipeline-health` run (every 6 h) once nothing is stalled.
 
 `openbrain_captures_stuck` (captures at `pending`/`processing`/`extracted` for more than 24 h) is a gauge for the dashboard and the daily digest; it does not page.
