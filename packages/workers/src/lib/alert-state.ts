@@ -63,6 +63,29 @@ export function alertStateKey(key: string): string {
   return `${ALERT_STATE_PREFIX}${key}`
 }
 
+/**
+ * Per-queue alert conditions raised by `pipeline-health`. Each queue and
+ * condition has its own key (`queue-failed:<queue>`, ...), so one queue's open
+ * alert never masks a new problem in another queue.
+ */
+export type QueueAlertKind = 'failed' | 'backlog' | 'stalled'
+
+const QUEUE_ALERT_LABELS: Record<QueueAlertKind, string> = {
+  failed: 'queue failures',
+  backlog: 'queue backlog',
+  stalled: 'stalled jobs',
+}
+
+export function queueAlertKey(kind: QueueAlertKind, queue: string): string {
+  return `queue-${kind}:${queue}`
+}
+
+/** Human-readable name of an alert key: `queue-failed:ingest-root` -> `ingest-root queue failures`; other keys unchanged. */
+export function describeAlertKey(key: string): string {
+  const m = /^queue-(failed|backlog|stalled):(.+)$/.exec(key)
+  return m ? `${m[2]} ${QUEUE_ALERT_LABELS[m[1] as QueueAlertKind]}` : key
+}
+
 function isAlertState(v: unknown): v is AlertState {
   if (!v || typeof v !== 'object') return false
   const o = v as Record<string, unknown>

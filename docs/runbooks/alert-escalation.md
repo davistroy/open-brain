@@ -33,7 +33,7 @@ Acknowledging does not close the alert. Only the condition clearing does (the "R
 
 ## The two switches
 
-Both are in the `workers` `environment:` block and default on.
+Both are literal values in the `workers` `environment:` block of `docker-compose.yml` (`ALERT_STATE_ENABLED: "true"`, `ALERT_LEGACY_PUSH: "true"`); the code also treats an unset switch as on. Do not set them in `.env`: `.env` only feeds compose interpolation and is never injected into the container (A145), so a value there does nothing.
 
 - `ALERT_STATE_ENABLED=false`: `raiseAlert` does nothing (no read, no write, no send) and the legacy direct pushes run as before. This is the rollback.
 - `ALERT_LEGACY_PUSH=false`: the legacy direct pushes stop and only `raiseAlert` sends. Set it one week after the first deploy (item 5.5). Ignored while `ALERT_STATE_ENABLED=false`.
@@ -44,4 +44,5 @@ Both are in the `workers` `environment:` block and default on.
 - Force a re-notify: delete the row. The next run treats the alert as new and sends once.
 - Force an early or repeated escalation test: set `value` `since` to a time more than 24 h ago and `level` to 0.
 - Missing Slack message: check `SLACK_BOT_TOKEN` and `MORNING_BRIEF_SLACK_CHANNEL` in the `workers` container. Missing email: check `HIMALAYA_CONFIG` and `WEEKLY_BRIEF_EMAIL`. Each logs `escalation skipped` at warn.
-- Roll back: set `ALERT_STATE_ENABLED=false` and recreate `workers` (`up -d --force-recreate --no-deps workers`). State rows stay in `app_settings`, unused.
+- Roll back: on the host, edit `/mnt/user/appdata/open-brain/docker-compose.yml` and change the workers line to `ALERT_STATE_ENABLED: "false"`, then recreate only `workers`: `sudo -n docker compose up -d --force-recreate --no-deps workers`. Verify with `docker exec open-brain-workers printenv ALERT_STATE_ENABLED` (expect `false`). A later `git checkout origin/main -- docker-compose.yml` restores `"true"`, so re-apply the edit after any compose sync. State rows stay in `app_settings`, unused; the daily digest and the morning-brief footer stop listing them while the switch is off.
+- Stop the legacy pushes (item 5.5): the same edit with `ALERT_LEGACY_PUSH: "false"` and the same recreate.

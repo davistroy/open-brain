@@ -3,7 +3,7 @@ import type { Mock } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { ALL_MONITORED_QUEUES, WORKER_QUEUES } from '@open-brain/shared'
-import { PipelineHealthSkill } from '../skills/pipeline-health.js'
+import { PipelineHealthSkill, LEGACY_MONITORED_QUEUES } from '../skills/pipeline-health.js'
 import { alertStateKey, type AlertState } from '../lib/alert-state.js'
 import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
 import { PushoverService } from '../services/pushover.js'
@@ -42,7 +42,10 @@ function makeMockQueueHandle(counts: {
   delayed?: number
   paused?: number
   stalled?: number
+  /** Retained failed jobs, newest first (BullMQ `getJobs(['failed'])` order). */
+  failedJobs?: Array<{ finishedOn?: number }>
 } = {}): QueueHandle {
+  const failedJobs = counts.failedJobs ?? []
   return {
     getJobCounts: vi.fn().mockResolvedValue({
       waiting: counts.waiting ?? 0,
@@ -52,6 +55,8 @@ function makeMockQueueHandle(counts: {
       paused: counts.paused ?? 0,
     }),
     getJobCountByTypes: vi.fn().mockResolvedValue(counts.stalled ?? 0),
+    getJobs: vi.fn().mockImplementation(async (_types: string[], start = 0, end = -1) =>
+      failedJobs.slice(start, end === -1 ? undefined : end + 1)),
     close: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -64,6 +69,7 @@ function makeBrokenQueueHandle(): QueueHandle {
   return {
     getJobCounts: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
     getJobCountByTypes: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
+    getJobs: vi.fn().mockRejectedValue(new Error('Redis ECONNREFUSED')),
     close: vi.fn().mockResolvedValue(undefined),
   }
 }
@@ -81,6 +87,7 @@ function makeMockQueueFactory(overrides: Record<string, {
   delayed?: number
   paused?: number
   stalled?: number
+  failedJobs?: Array<{ finishedOn?: number }>
   broken?: boolean
 }> = {}): QueueFactory {
   return (name: string) => {
@@ -546,6 +553,43 @@ describe('PipelineHealthSkill', () => {
       })
     })
 
+    it('F2: the legacy queue list is pinned to the f341ca6 set', () => {
+      // `git show f341ca6:packages/workers/src/skills/pipeline-health.ts` ALL_QUEUE_NAMES
+      expect([...LEGACY_MONITORED_QUEUES]).toEqual([
+        'capture-pipeline',
+        'embed-capture',
+        'check-triggers',
+        'extract-entities',
+        'skill-execution',
+        'notification',
+        'access-stats',
+        'daily-sweep',
+      ])
+    })
+
+    it('F2: queues outside the f341ca6 list never trigger a legacy push', async () => {
+      const { skill, pushover } = makeSkill({
+        failures: [],
+        queueOverrides: {
+          'ingest-root': { failed: 50 },
+          'wiki-ingest': { waiting: 500 },
+          'extract-commitments': { stalled: 3 },
+        },
+      })
+      const result = await skill.execute({ failedThreshold: 5, waitingThreshold: 100 })
+
+      expect(pushover.send).not.toHaveBeenCalled()
+      expect(result.healthy).toBe(true)
+    })
+
+    it('F2: the legacy path still reads `notification` failed jobs, as at f341ca6', async () => {
+      const { skill, pushover } = makeSkill({ failures: [], queueOverrides: { notification: { failed: 7 } } })
+      await skill.execute({ failedThreshold: 5 })
+
+      expect(pushover.send).toHaveBeenCalledOnce()
+      expect((pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0].message).toContain('Failed jobs (>5): notification=7')
+    })
+
     it('backup-stale text is unchanged', async () => {
       mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - 30 * 60 * 60 * 1000) } as never)
       const { skill, pushover } = makeSkill({ failures: [] })
@@ -776,10 +820,11 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     const { db, store } = makeStatefulDb()
     const pushover = makePushoverService()
 
-    await makeSkillWith(db, pushover, { 'embed-capture': { failed: 8 } }).execute({ failedThreshold: 5 })
+    await makeSkillWith(db, pushover, { 'embed-capture': { failed: 8, failedJobs: failedJobs(8, 3600_000) } })
+      .execute({ failedThreshold: 5 })
 
-    expect(sentCalls(pushover).map(c => c.title)).toEqual(['Open Brain: Pipeline Health Alert', 'Pipeline Queues'])
-    expect(store.get('alert_state:pipeline-queues')).toMatchObject({ status: 'bad' })
+    expect(sentCalls(pushover).map(c => c.title)).toEqual(['Open Brain: Pipeline Health Alert', 'Queue Failures: embed-capture'])
+    expect(store.get('alert_state:queue-failed:embed-capture')).toMatchObject({ status: 'bad' })
   })
 
   it('ALERT_LEGACY_PUSH=false: stale backup on two runs sends once, then a priority -1 "resolved" on recovery', async () => {
@@ -825,7 +870,7 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
 
   // ---------------- independent keys ----------------
 
-  it('queues failing while the backup is fresh writes pipeline-queues and leaves backup-stale unchanged', async () => {
+  it('a queue backlog while the backup is fresh writes queue-backlog:<queue> and leaves backup-stale unchanged', async () => {
     vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
     freshBackup()
     const backupOk: AlertState = {
@@ -836,14 +881,14 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
 
     await makeSkillWith(db, pushover, { 'capture-pipeline': { waiting: 500 } }).execute({ waitingThreshold: 100 })
 
-    expect(store.get('alert_state:pipeline-queues')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:queue-backlog:capture-pipeline')).toMatchObject({ status: 'bad' })
     expect(store.get('alert_state:backup-stale')).toEqual(backupOk)
     expect(sentCalls(pushover)).toHaveLength(1)
-    expect(sentCalls(pushover)[0]).toMatchObject({ title: 'Pipeline Queues', priority: 0 })
-    expect(sentCalls(pushover)[0].message).toContain('capture-pipeline=500')
+    expect(sentCalls(pushover)[0]).toMatchObject({ title: 'Queue Backlog: capture-pipeline', priority: 0 })
+    expect(sentCalls(pushover)[0].message).toContain('capture-pipeline: 500 waiting jobs')
   })
 
-  it('backup, queues and capture flow are three separate alerts', async () => {
+  it('backup, a stalled queue and capture flow are three separate alerts', async () => {
     vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
     staleBackup()
     const { db, store } = makeStatefulDb({ captureCount: '0' })
@@ -851,28 +896,112 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
 
     await makeSkillWith(db, pushover, { 'embed-capture': { stalled: 2 } }).execute()
 
-    expect(sentCalls(pushover).map(c => c.title).sort()).toEqual(['Backup Stale', 'Capture Flow Stale', 'Pipeline Queues'])
+    expect(sentCalls(pushover).map(c => c.title).sort()).toEqual(['Backup Stale', 'Capture Flow Stale', 'Queue Stalled: embed-capture'])
     expect([...store.keys()].sort()).toEqual([
       'alert_state:backup-stale',
       'alert_state:capture-flow',
-      'alert_state:pipeline-queues',
+      'alert_state:queue-stalled:embed-capture',
     ])
   })
 
-  it('queues returning to normal sends "Resolved: Pipeline Queues" at priority -1', async () => {
+  it('a queue returning to normal sends "Resolved: Queue Backlog: <queue>" at priority -1', async () => {
     vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
     const open: AlertState = {
       status: 'bad', since: '2026-11-22T12:00:00.000Z', last_notified_at: '2026-11-22T12:00:00.000Z', level: 0, receipt: null, acked_at: null,
     }
-    const { db, store } = makeStatefulDb({ initial: { 'pipeline-queues': open } })
+    const { db, store } = makeStatefulDb({ initial: { 'queue-backlog:capture-pipeline': open } })
     const pushover = makePushoverService()
 
     await makeSkillWith(db, pushover).execute()
 
     expect(sentCalls(pushover)).toEqual([
-      expect.objectContaining({ title: 'Resolved: Pipeline Queues', priority: -1 }),
+      expect.objectContaining({ title: 'Resolved: Queue Backlog: capture-pipeline', priority: -1 }),
     ])
-    expect(store.get('alert_state:pipeline-queues')).toMatchObject({ status: 'ok' })
+    expect(store.get('alert_state:queue-backlog:capture-pipeline')).toMatchObject({ status: 'ok' })
+  })
+
+  // ---------------- per-queue keys + recent failures (review F1) ----------------
+
+  /** `count` failed jobs that finished `ageMs` ago (newest-first order is preserved by equal times). */
+  function failedJobs(count: number, ageMs: number) {
+    return Array.from({ length: count }, () => ({ finishedOn: Date.now() - ageMs }))
+  }
+  const OPEN_SINCE_YESTERDAY: AlertState = {
+    status: 'bad', since: '2026-11-22T12:00:00.000Z', last_notified_at: '2026-11-22T12:00:00.000Z', level: 0, receipt: null, acked_at: null,
+  }
+
+  it('F1: one alert key per queue: a new failure burst in a second queue fires while the first queue\'s alert is open', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb({ initial: { 'queue-failed:ingest-root': OPEN_SINCE_YESTERDAY } })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover, {
+      'ingest-root': { failed: 9, failedJobs: failedJobs(9, 3600_000) },
+      'embed-capture': { failed: 6, failedJobs: failedJobs(6, 3600_000) },
+    }).execute({ failedThreshold: 5 })
+
+    expect(sentCalls(pushover)).toEqual([expect.objectContaining({ title: 'Queue Failures: embed-capture', priority: 0 })])
+    expect(sentCalls(pushover)[0].message).toContain('embed-capture: 6 failed jobs in the last 6 h')
+    expect(store.get('alert_state:queue-failed:embed-capture')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:queue-failed:ingest-root')).toEqual(OPEN_SINCE_YESTERDAY) // held, not re-sent
+  })
+
+  it('F1: counts failed jobs that finished in the last 6 h, not the retained failed total', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover, {
+      // retained flow-queue failures from two days ago: not a current failure signal
+      'ingest-root': { failed: 500, failedJobs: failedJobs(500, 48 * 3600_000) },
+      // 3 recent + 5 from 7 h ago: below the threshold of 5 inside the window
+      'extract-commitments': { failed: 8, failedJobs: [...failedJobs(3, 3600_000), ...failedJobs(5, 7 * 3600_000)] },
+    }).execute({ failedThreshold: 5 })
+
+    expect(sentCalls(pushover)).toEqual([])
+    expect([...store.keys()]).toEqual([])
+  })
+
+  it('F1: the recent-failure scan reads at most the 1,000 newest failed jobs and stops at the first page past the window', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+    const ranges: Record<string, Array<[number, number]>> = {}
+    const jobsByQueue: Record<string, Array<{ finishedOn: number }>> = {
+      'ingest-root': failedJobs(5000, 60_000),
+      'wiki-ingest': failedJobs(300, 48 * 3600_000),
+    }
+    const factory: QueueFactory = (name) => {
+      const handle = makeMockQueueFactory()(name)
+      handle.getJobs = vi.fn().mockImplementation(async (_t: string[], start: number, end: number) => {
+        ;(ranges[name] ??= []).push([start, end])
+        return (jobsByQueue[name] ?? []).slice(start, end + 1)
+      })
+      return handle
+    }
+
+    await new PipelineHealthSkill({ db: db as never, queueFactory: factory, pushover }).execute({ failedThreshold: 5 })
+
+    expect(Math.max(...ranges['ingest-root'].map(([, end]) => end))).toBeLessThanOrEqual(999)
+    expect(ranges['wiki-ingest']).toHaveLength(1)
+    expect(store.get('alert_state:queue-failed:ingest-root')).toMatchObject({ status: 'bad' })
+    expect(store.has('alert_state:queue-failed:wiki-ingest')).toBe(false)
+  })
+
+  it('F1: a failed-job scan error holds that queue\'s open failure alert (no false "resolved")', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb({ initial: { 'queue-failed:ingest-root': OPEN_SINCE_YESTERDAY } })
+    const pushover = makePushoverService()
+    const factory: QueueFactory = (name) => {
+      const handle = makeMockQueueFactory()(name)
+      if (name === 'ingest-root') handle.getJobs = vi.fn().mockRejectedValue(new Error('Redis timeout'))
+      return handle
+    }
+
+    await new PipelineHealthSkill({ db: db as never, queueFactory: factory, pushover }).execute()
+
+    expect(sentCalls(pushover)).toEqual([])
+    expect(store.get('alert_state:queue-failed:ingest-root')).toEqual(OPEN_SINCE_YESTERDAY)
   })
 
   // ---------------- capture flow ----------------

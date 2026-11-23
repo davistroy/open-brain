@@ -22,13 +22,20 @@ function alertRow(key: string, hoursOpen: number, over: Partial<AlertState> = {}
 }
 
 /** db.execute mock: alert-state rows + skills_log rows (rendered through the real dialect). */
-function makeDb(alerts: ReturnType<typeof alertRow>[], reports: Array<{ skill_name: string; output_summary: string }>) {
+function makeDb(
+  alerts: ReturnType<typeof alertRow>[],
+  reports: Array<{ skill_name: string; output_summary: string }>,
+  opts: { failAlertRead?: boolean } = {},
+) {
   const dialect = new PgDialect()
   const queries: Array<{ text: string; params: unknown[] }> = []
   const execute = vi.fn().mockImplementation(async (q: SQL) => {
     const { sql: text, params } = dialect.sqlToQuery(q)
     queries.push({ text, params })
-    if (text.includes('FROM app_settings')) return { rows: alerts }
+    if (text.includes('FROM app_settings')) {
+      if (opts.failAlertRead) throw new Error('app_settings read failed')
+      return { rows: alerts }
+    }
     if (text.includes('FROM skills_log')) return { rows: reports }
     if (text.includes('INSERT INTO')) return { rows: [] }
     throw new Error(`unexpected SQL: ${text}`)
@@ -89,6 +96,46 @@ describe('buildOpsDigest', () => {
     expect(d.pushText).toMatch(/more in Slack/)
   })
 
+  it('F1: lists per-queue alert keys readably', async () => {
+    const { db } = makeDb(
+      [alertRow('queue-failed:ingest-root', 3), alertRow('queue-backlog:capture-pipeline', 50), alertRow('queue-stalled:embed-capture', 1)],
+      [],
+    )
+    const d = await buildOpsDigest(db, NOW, { backupManifestPath: '/nonexistent/manifest.json' })
+    const lines = d.pushText.split('\n')
+    expect(lines).toContain('- capture-pipeline queue backlog: open 2 d')
+    expect(lines).toContain('- ingest-root queue failures: open 3 h')
+    expect(lines).toContain('- embed-capture stalled jobs: open 1 h')
+    expect(d.openAlerts.map((a) => a.key)).toContain('queue-failed:ingest-root') // raw key kept
+  })
+
+  it('F2: ALERT_STATE_ENABLED=false shows no alert block and does not read alert_state rows', async () => {
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+    try {
+      const { db, queries } = makeDb([alertRow('backup-stale', 30 * 24)], FIVE_REPORTS.slice(0, 1))
+      const d = await buildOpsDigest(db, NOW, { backupManifestPath: '/nonexistent/manifest.json' })
+      expect(d.openAlerts).toEqual([])
+      expect(d.fullText).not.toContain('backup-stale')
+      expect(d.fullText).not.toMatch(/Open alerts/)
+      expect(d.fullText).toContain('drift-monitor')
+      expect(queries.some((q) => q.text.includes('FROM app_settings'))).toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('F4: an alert-state read failure adds one "alert state unavailable" line and keeps the report lines', async () => {
+    const { db } = makeDb([], FIVE_REPORTS, { failAlertRead: true })
+    const d = await buildOpsDigest(db, NOW, { backupManifestPath: '/nonexistent/manifest.json' })
+    expect(d.alertStateUnavailable).toBe(true)
+    expect(d.isEmpty).toBe(false)
+    expect(d.infoLines).toHaveLength(5)
+    const lines = d.pushText.split('\n')
+    expect(lines[0]).toBe('Alert state unavailable')
+    expect(d.pushText).toContain('drift-monitor')
+    expect(d.fullText).toContain('Alert state unavailable')
+  })
+
   it('reports backup age from the manifest mtime', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ops-digest-'))
     try {
@@ -144,6 +191,18 @@ describe('OpsDigestSkill', () => {
     expect(r.sent).toBe(true)
     expect(r.slackSent).toBe(true)
     expect(r.openAlerts).toBe(2)
+    expect(r.infoLines).toBe(5)
+  })
+
+  it('F4: still sends the report lines when the alert-state read throws', async () => {
+    const { db } = makeDb([], FIVE_REPORTS, { failAlertRead: true })
+    const r = await mk(db).execute({ now: NOW })
+    expect(send).toHaveBeenCalledTimes(1)
+    const msg = send.mock.calls[0][0].message
+    expect(msg).toContain('Alert state unavailable')
+    expect(msg).toContain('drift-monitor')
+    expect(slackSend).toHaveBeenCalledWith({ channel: 'D-TEST', text: expect.stringContaining('wiki-lint') })
+    expect(r.sent).toBe(true)
     expect(r.infoLines).toBe(5)
   })
 

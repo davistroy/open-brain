@@ -4,7 +4,7 @@ import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger, WORKER_QUEUES, ALL_MONITORED_QUEUES } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
-import { legacyPushEnabled } from '../lib/alert-state.js'
+import { legacyPushEnabled, alertStateEnabled, queueAlertKey } from '../lib/alert-state.js'
 import type { MetricLine } from '../lib/push-metrics.js'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
@@ -25,6 +25,13 @@ export interface QueueStats {
   failed: number
   delayed: number
   paused: number
+  /**
+   * Failed jobs that finished in the last RECENT_FAILED_WINDOW_MS (6 h, the
+   * pipeline-health interval). The alert-state path alerts on this, not on
+   * `failed` (the retained total: flow jobs are kept forever). Null when not
+   * counted: alert-state path off, not a worker queue, or the scan failed.
+   */
+  recentFailed: number | null
 }
 
 export interface RecentFailure {
@@ -90,6 +97,8 @@ export interface PipelineHealthOptions {
 export interface QueueHandle {
   getJobCounts(...types: string[]): Promise<Record<string, number>>
   getJobCountByTypes(...types: string[]): Promise<number>
+  /** BullMQ `Queue.getJobs`: for `failed`, newest first (sorted set scored by finish time). */
+  getJobs(types: string[], start?: number, end?: number, asc?: boolean): Promise<Array<{ finishedOn?: number } | undefined>>
   close(): Promise<void>
 }
 
@@ -105,6 +114,32 @@ export type QueueFactory = (name: string) => QueueHandle
 
 const WORKER_QUEUE_SET: ReadonlySet<string> = new Set(WORKER_QUEUES)
 const isWorkerQueue = (name: string): boolean => WORKER_QUEUE_SET.has(name)
+
+/**
+ * The queue list of the LEGACY direct push, frozen at commit f341ca6
+ * (`ALL_QUEUE_NAMES` there). The legacy path reads only these queues, with the
+ * f341ca6 semantics (retained failed count for every listed queue), so the
+ * rollback (ALERT_STATE_ENABLED=false) and the parallel week push exactly as
+ * before and never on a queue that f341ca6 did not read (e.g. the retained
+ * failures of the `ingest-root` flow queue). The alert-state path uses the
+ * shared registry (ALL_MONITORED_QUEUES). Delete with the legacy path.
+ */
+export const LEGACY_MONITORED_QUEUES = [
+  'capture-pipeline',
+  'embed-capture',
+  'check-triggers',
+  'extract-entities',
+  'skill-execution',
+  'notification',
+  'access-stats',
+  'daily-sweep',
+] as const
+
+/** Recent-failure window: the pipeline-health interval (scheduler cron `0 0,6,12,18 * * *`). */
+const RECENT_FAILED_WINDOW_MS = 6 * 3_600_000
+/** Failed-job scan page size and bound (newest jobs only; the count saturates at the bound). */
+const RECENT_FAILED_PAGE = 100
+const RECENT_FAILED_SCAN_MAX = 1000
 
 const DEFAULT_FAILURE_LOOKBACK_MINUTES = 60
 const DEFAULT_FAILED_THRESHOLD = 5
@@ -146,6 +181,9 @@ export function makeRealQueueFactory(connection: ConnectionOptions): QueueFactor
  *   if stalled state is not available)
  * - Alert fires if: failed queue count > threshold, waiting > threshold,
  *   or any stalled jobs detected (alertOnStalled: true)
+ * - Legacy direct push: LEGACY_MONITORED_QUEUES (f341ca6), retained failed
+ *   count. Alert-state path: the registry, one key per queue and condition,
+ *   failed = jobs finished in the last 6 h.
  * - skills_log entry written on both success and failure
  * - Non-fatal: Redis/DB failures return degraded result, logs warning
  * - QueueFactory injected for testability — tests supply mock queues
@@ -215,17 +253,23 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
 
     logger.info({ failureLookbackMinutes, failedThreshold, waitingThreshold }, '[pipeline-health] starting execution')
 
-    // Step 1: Query BullMQ queue stats
-    const queues = await this.queryQueueStats()
+    const legacyPush = legacyPushEnabled()
+    const stateOn = alertStateEnabled()
+
+    // Step 1: Query BullMQ queue stats for the registry. The alert-state path
+    // also counts each worker queue's failures in the last 6 h.
+    const queues = await this.queryQueueStats(ALL_MONITORED_QUEUES, {
+      failedForWorkerQueuesOnly: true,
+      recentFailedSinceMs: stateOn ? startMs - RECENT_FAILED_WINDOW_MS : null,
+    })
 
     // Step 2: Query recent pipeline_events failures
     const recentFailures = await this.queryRecentFailures(failureLookbackMinutes)
 
     // Step 3: Check for stalled jobs
-    const stalledByQueue = await this.queryStalledJobs()
+    const stalledByQueue = await this.queryStalledJobs(WORKER_QUEUES)
 
     // Step 3.5: Check capture flow (skip during quiet hours)
-    const legacyPush = legacyPushEnabled()
     let captureFlowStale = false
     // Raw observation for the alert-state path; null = not observed (quiet hours).
     let captureFlowObserved: boolean | null = null
@@ -249,21 +293,29 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // and (independently) alert if stale (7.4 / PE-H4 / RC-12 / SA-13 / A131).
     const backupCheck = await this.checkBackupAge()
 
-    // Step 4: Evaluate thresholds
-    const failedQueues = queues.filter(q => q.failed >= failedThreshold)
-    const backloggedQueues = queues.filter(q => q.waiting >= waitingThreshold)
-    const stalledQueues = alertOnStalled ? stalledByQueue.filter(s => s.stalledCount > 0) : []
+    // Step 4a: Evaluate thresholds for the legacy direct push — the exact
+    // f341ca6 queue list and semantics (LEGACY_MONITORED_QUEUES).
+    const thresholds = { failedThreshold, waitingThreshold, alertOnStalled }
+    const legacy = legacyPush
+      ? await this.evaluateLegacyQueues(thresholds)
+      : { failedQueues: [], backloggedQueues: [], stalledQueues: [] }
+    const legacyQueuesBad =
+      legacy.failedQueues.length > 0 || legacy.backloggedQueues.length > 0 || legacy.stalledQueues.length > 0
+    const shouldAlert = legacyQueuesBad || captureFlowStale
 
-    const shouldAlert = failedQueues.length > 0 || backloggedQueues.length > 0 || stalledQueues.length > 0 || captureFlowStale
+    // Step 4b: Alert-state queue conditions — one key per queue and kind, with
+    // failures counted over the last 6 h only.
+    const queueConditions = stateOn ? buildQueueConditions(queues, stalledByQueue, thresholds) : []
+    const stateQueuesBad = queueConditions.some(c => c.bad)
 
-    const healthy = !shouldAlert && recentFailures.length === 0 && !backupCheck.stale
+    const healthy = !shouldAlert && !stateQueuesBad && recentFailures.length === 0 && !backupCheck.stale
 
     let alertSent = false
     if (shouldAlert && legacyPush) {
       alertSent = await this.sendAlert({
-        failedQueues,
-        backloggedQueues,
-        stalledQueues,
+        failedQueues: legacy.failedQueues,
+        backloggedQueues: legacy.backloggedQueues,
+        stalledQueues: legacy.stalledQueues,
         recentFailures,
         captureFlowStale,
         failedThreshold,
@@ -280,17 +332,12 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       alertSent = alertSent || backupAlertSent
     }
 
-    // ADR-0005 alert-state path (no-op when ALERT_STATE_ENABLED=false): three
+    // ADR-0005 alert-state path (no-op when ALERT_STATE_ENABLED=false):
     // independent alerts that fire on change and stay silent while they hold.
     const stateAlertSent = await this.raiseStateAlerts({
       backupCheck,
-      failedQueues,
-      backloggedQueues,
-      stalledQueues,
-      recentFailures,
+      queueConditions,
       captureFlowObserved,
-      failedThreshold,
-      waitingThreshold,
     })
     alertSent = alertSent || stateAlertSent
 
@@ -324,14 +371,21 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   // ----------------------------------------------------------
 
   /**
-   * Query job counts for each known queue.
+   * Query job counts for each named queue.
    * Creates a transient queue handle per queue (read-only, no worker registered).
    * Handles connection errors gracefully by returning zeroed stats for that queue.
+   *
+   * `failedForWorkerQueuesOnly`: the registry read counts failures for
+   * WORKER_QUEUES only; the legacy read (f341ca6) counts them for every queue.
+   * `recentFailedSinceMs`: when set, also count failed jobs finished since then.
    */
-  private async queryQueueStats(): Promise<QueueStats[]> {
+  private async queryQueueStats(
+    queueNames: readonly string[],
+    opts: { failedForWorkerQueuesOnly: boolean; recentFailedSinceMs: number | null },
+  ): Promise<QueueStats[]> {
     const results: QueueStats[] = []
 
-    for (const queueName of ALL_MONITORED_QUEUES) {
+    for (const queueName of queueNames) {
       const queue = this.queueFactory(queueName)
       try {
         const counts = await queue.getJobCounts(
@@ -341,15 +395,20 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
           'delayed',
           'paused',
         )
+        // Failure counts read WORKER_QUEUES only: a producer-only queue has no
+        // consumer, so a failed count there is not a pipeline failure signal.
+        const countsFailures = !opts.failedForWorkerQueuesOnly || isWorkerQueue(queueName)
+        const recentFailed = countsFailures && opts.recentFailedSinceMs !== null
+          ? await this.countRecentFailed(queue, queueName, opts.recentFailedSinceMs)
+          : null
         results.push({
           name: queueName,
           waiting: counts.waiting ?? 0,
           active: counts.active ?? 0,
-          // Failure counts read WORKER_QUEUES only: a producer-only queue has no
-          // consumer, so a failed count there is not a pipeline failure signal.
-          failed: isWorkerQueue(queueName) ? (counts.failed ?? 0) : 0,
+          failed: countsFailures ? (counts.failed ?? 0) : 0,
           delayed: counts.delayed ?? 0,
           paused: counts.paused ?? 0,
+          recentFailed,
         })
         logger.debug({ queueName, counts }, '[pipeline-health] queue stats fetched')
       } catch (err) {
@@ -361,6 +420,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
           failed: 0,
           delayed: 0,
           paused: 0,
+          recentFailed: null,
         })
       } finally {
         await queue.close().catch(() => {})
@@ -368,6 +428,57 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     }
 
     return results
+  }
+
+  /**
+   * Failed jobs of one queue that finished at or after `sinceMs`. BullMQ keeps
+   * the failed set as a sorted set scored by finish time and `getJobs` returns
+   * it newest first, so the scan pages from the newest job and stops at the
+   * first page that reaches past the window. Bounded to the newest
+   * RECENT_FAILED_SCAN_MAX jobs (the count saturates there, far above any
+   * threshold). Returns null when the scan fails: the condition is then not
+   * observed and its alert is held, not falsely resolved.
+   */
+  private async countRecentFailed(queue: QueueHandle, queueName: string, sinceMs: number): Promise<number | null> {
+    let count = 0
+    try {
+      for (let start = 0; start < RECENT_FAILED_SCAN_MAX; start += RECENT_FAILED_PAGE) {
+        const jobs = await queue.getJobs(['failed'], start, start + RECENT_FAILED_PAGE - 1)
+        let reachedOlder = false
+        for (const job of jobs) {
+          const finishedOn = job?.finishedOn
+          if (finishedOn === undefined) continue
+          if (finishedOn >= sinceMs) count++
+          else reachedOlder = true
+        }
+        if (reachedOlder || jobs.length < RECENT_FAILED_PAGE) break
+      }
+      return count
+    } catch (err) {
+      logger.warn({ queueName, err }, '[pipeline-health] failed-job scan failed — queue failure alert held this run')
+      return null
+    }
+  }
+
+  /**
+   * Legacy direct-push evaluation: LEGACY_MONITORED_QUEUES with the f341ca6
+   * semantics (retained failed count, stalled count per listed queue).
+   */
+  private async evaluateLegacyQueues(t: QueueThresholds): Promise<{
+    failedQueues: QueueStats[]
+    backloggedQueues: QueueStats[]
+    stalledQueues: StalledStats[]
+  }> {
+    const stats = await this.queryQueueStats(LEGACY_MONITORED_QUEUES, {
+      failedForWorkerQueuesOnly: false,
+      recentFailedSinceMs: null,
+    })
+    const stalled = await this.queryStalledJobs(LEGACY_MONITORED_QUEUES)
+    return {
+      failedQueues: stats.filter(q => q.failed >= t.failedThreshold),
+      backloggedQueues: stats.filter(q => q.waiting >= t.waitingThreshold),
+      stalledQueues: t.alertOnStalled ? stalled.filter(s => s.stalledCount > 0) : [],
+    }
   }
 
   // ----------------------------------------------------------
@@ -388,10 +499,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    * BullMQ marks a job as stalled when the worker does not send a keepalive
    * within the lock duration. getJobCountByTypes('stalled') queries this count.
    */
-  private async queryStalledJobs(): Promise<StalledStats[]> {
+  private async queryStalledJobs(queueNames: readonly string[]): Promise<StalledStats[]> {
     const results: StalledStats[] = []
 
-    for (const queueName of WORKER_QUEUES) {
+    for (const queueName of queueNames) {
       const queue = this.queueFactory(queueName)
       try {
         const count = await queue.getJobCountByTypes('stalled')
@@ -568,20 +679,16 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
 
   /**
    * ADR-0005 path: one `raiseAlert` per condition, each with its own state key,
-   * so a backup alert and a queue alert never mask each other. A condition that
-   * was not observed this run (absent backup manifest; capture flow in quiet
-   * hours) is not reported, so an open alert is held instead of falsely
-   * resolved. Returns true when any message was delivered.
+   * so a backup alert, one queue's alert and another queue's alert never mask
+   * each other. A condition that was not observed this run (absent backup
+   * manifest; capture flow in quiet hours; a failed-job scan error) is not
+   * reported, so an open alert is held instead of falsely resolved. Returns
+   * true when any message was delivered.
    */
   private async raiseStateAlerts(p: {
     backupCheck: { ageSeconds: number | null; stale: boolean; maxAgeSeconds: number }
-    failedQueues: QueueStats[]
-    backloggedQueues: QueueStats[]
-    stalledQueues: StalledStats[]
-    recentFailures: RecentFailure[]
+    queueConditions: QueueCondition[]
     captureFlowObserved: boolean | null
-    failedThreshold: number
-    waitingThreshold: number
   }): Promise<boolean> {
     let sent = false
 
@@ -598,17 +705,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       sent = sent || r.sent
     }
 
-    const queuesBad = p.failedQueues.length > 0 || p.backloggedQueues.length > 0 || p.stalledQueues.length > 0
-    const queues = await this.raiseAlert({
-      key: 'pipeline-queues',
-      severity: 'warning',
-      bad: queuesBad,
-      title: 'Pipeline Queues',
-      message: queuesBad
-        ? queueProblemLines(p).join('\n')
-        : 'All monitored queues are within thresholds.',
-    })
-    sent = sent || queues.sent
+    for (const c of p.queueConditions) {
+      const r = await this.raiseAlert({ key: c.key, severity: 'warning', bad: c.bad, title: c.title, message: c.message })
+      sent = sent || r.sent
+    }
 
     if (p.captureFlowObserved !== null) {
       const r = await this.raiseAlert({
@@ -653,6 +753,60 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       outputSummary,
     )
   }
+}
+
+// ============================================================
+// Alert-state queue conditions (one key per queue and kind)
+// ============================================================
+
+interface QueueThresholds {
+  failedThreshold: number
+  waitingThreshold: number
+  alertOnStalled: boolean
+}
+
+interface QueueCondition {
+  key: string
+  bad: boolean
+  title: string
+  message: string
+}
+
+/**
+ * `queue-failed:<q>` (failures finished in the last 6 h, worker queues, only
+ * when counted), `queue-backlog:<q>` (waiting, every registry queue) and
+ * `queue-stalled:<q>` (worker queues). Threshold semantics match the legacy
+ * path: failed/waiting `>=` threshold, stalled `> 0` when alertOnStalled.
+ */
+function buildQueueConditions(queues: QueueStats[], stalled: StalledStats[], t: QueueThresholds): QueueCondition[] {
+  const windowHours = RECENT_FAILED_WINDOW_MS / 3_600_000
+  const out: QueueCondition[] = []
+  for (const q of queues) {
+    if (q.recentFailed !== null) {
+      const n = q.recentFailed >= RECENT_FAILED_SCAN_MAX ? `${RECENT_FAILED_SCAN_MAX}+` : String(q.recentFailed)
+      out.push({
+        key: queueAlertKey('failed', q.name),
+        bad: q.recentFailed >= t.failedThreshold,
+        title: `Queue Failures: ${q.name}`,
+        message: `${q.name}: ${n} failed jobs in the last ${windowHours} h (threshold: ${t.failedThreshold}).`,
+      })
+    }
+    out.push({
+      key: queueAlertKey('backlog', q.name),
+      bad: q.waiting >= t.waitingThreshold,
+      title: `Queue Backlog: ${q.name}`,
+      message: `${q.name}: ${q.waiting} waiting jobs (threshold: ${t.waitingThreshold}).`,
+    })
+  }
+  for (const s of stalled) {
+    out.push({
+      key: queueAlertKey('stalled', s.queueName),
+      bad: t.alertOnStalled && s.stalledCount > 0,
+      title: `Queue Stalled: ${s.queueName}`,
+      message: `${s.queueName}: ${s.stalledCount} stalled jobs.`,
+    })
+  }
+  return out
 }
 
 // ============================================================

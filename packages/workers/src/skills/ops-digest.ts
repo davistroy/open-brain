@@ -4,7 +4,8 @@ import type { Database, PushoverService } from '@open-brain/shared'
 import { logger, SlackMessenger } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
-import { listOpenAlerts } from '../lib/alert-state.js'
+import { listOpenAlerts, alertStateEnabled, describeAlertKey } from '../lib/alert-state.js'
+import type { OpenAlert } from '../lib/alert-state.js'
 import { DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
 
 // ============================================================
@@ -21,6 +22,12 @@ import { DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
 // (ALERT_LEGACY_PUSH=false) and the digest keeps reading the rows they
 // already write, so a new report source needs only an entry in
 // DIGEST_INFO_SOURCES.
+//
+// The alert block is read only while ALERT_STATE_ENABLED is on: with the
+// switch off nothing updates `alert_state:*`, so those rows are frozen at
+// their last value and would list stale alerts forever. A failed alert-state
+// read is fail-soft: one "Alert state unavailable" line, and the report lines
+// are still sent.
 
 /** Skills whose newest `skills_log.output_summary` (last 24 h) becomes one digest line. */
 export const DIGEST_INFO_SOURCES = [
@@ -50,9 +57,11 @@ export interface DigestAlert {
 
 export interface OpsDigest {
   openAlerts: DigestAlert[]
+  /** True when the alert-state read failed; the digest says so in one line. */
+  alertStateUnavailable: boolean
   infoLines: string[]
   backupAgeSeconds: number | null
-  /** True when there is no open alert and no report line: nothing to send. */
+  /** True when there is no open alert, no alert-state error and no report line: nothing to send. */
   isEmpty: boolean
   /** Pushover text: every alert line first, <= PUSH_CAP characters. */
   pushText: string
@@ -79,7 +88,7 @@ function alertLine(a: DigestAlert): string {
   const tags = [a.level === 2 ? 'escalated 7d' : a.level === 1 ? 'escalated 24h' : '', a.acked ? 'acked' : '']
     .filter(Boolean)
     .join(', ')
-  return clip(`- ${a.key}: open ${fmtAge(a.ageMs)}${tags ? ` (${tags})` : ''}`, ALERT_LINE_MAX)
+  return clip(`- ${describeAlertKey(a.key)}: open ${fmtAge(a.ageMs)}${tags ? ` (${tags})` : ''}`, ALERT_LINE_MAX)
 }
 
 async function readBackupAgeSeconds(now: Date, manifestPath: string): Promise<number | null> {
@@ -113,8 +122,22 @@ async function readInfoLines(db: Database, now: Date): Promise<string[]> {
   }
 }
 
+/**
+ * Open alerts, or [] while ALERT_STATE_ENABLED=false (frozen rows are not
+ * read). Never throws: a read error returns `unavailable: true`.
+ */
+async function readOpenAlerts(db: Database): Promise<{ open: OpenAlert[]; unavailable: boolean }> {
+  if (!alertStateEnabled()) return { open: [], unavailable: false }
+  try {
+    return { open: await listOpenAlerts(db), unavailable: false }
+  } catch (err) {
+    logger.warn({ err }, '[ops-digest] alert-state read failed — continuing without the alert list')
+    return { open: [], unavailable: true }
+  }
+}
+
 export async function buildOpsDigest(db: Database, now: Date, opts: BuildOpsDigestOpts = {}): Promise<OpsDigest> {
-  const open = await listOpenAlerts(db)
+  const { open, unavailable: alertStateUnavailable } = await readOpenAlerts(db)
   const openAlerts: DigestAlert[] = open
     .map((o) => ({
       key: o.key,
@@ -127,11 +150,13 @@ export async function buildOpsDigest(db: Database, now: Date, opts: BuildOpsDige
   const manifestPath = opts.backupManifestPath ?? process.env.BACKUP_LATEST_PATH ?? DEFAULT_BACKUP_MANIFEST_PATH
   const backupAgeSeconds = await readBackupAgeSeconds(now, manifestPath)
 
-  const isEmpty = openAlerts.length === 0 && infoLines.length === 0
+  const isEmpty = openAlerts.length === 0 && infoLines.length === 0 && !alertStateUnavailable
   const backupLine =
     backupAgeSeconds === null ? 'Backup: age unknown' : `Backup: ${fmtAge(backupAgeSeconds * 1000)} old`
 
-  const alertBlock = openAlerts.length > 0 ? [`Open alerts (${openAlerts.length}):`, ...openAlerts.map(alertLine)] : []
+  const alertBlock = alertStateUnavailable
+    ? ['Alert state unavailable']
+    : openAlerts.length > 0 ? [`Open alerts (${openAlerts.length}):`, ...openAlerts.map(alertLine)] : []
   const reportBlock = infoLines.length > 0 ? ['Reports:', ...infoLines] : []
   const fullText = [...alertBlock, ...reportBlock, backupLine].join('\n')
 
@@ -149,7 +174,7 @@ export async function buildOpsDigest(db: Database, now: Date, opts: BuildOpsDige
   let pushText = push.join('\n')
   if (pushText.length > PUSH_CAP) pushText = pushText.slice(0, PUSH_CAP) // only if alerts alone overflow
 
-  return { openAlerts, infoLines, backupAgeSeconds, isEmpty, pushText, fullText }
+  return { openAlerts, alertStateUnavailable, infoLines, backupAgeSeconds, isEmpty, pushText, fullText }
 }
 
 export interface OpsDigestOptions {

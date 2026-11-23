@@ -5,6 +5,7 @@ import type { Redis } from 'ioredis'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import { buildOpsDigest } from './ops-digest.js'
+import { alertStateEnabled } from '../lib/alert-state.js'
 
 // ============================================================
 // Types
@@ -604,9 +605,11 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
 
   /**
    * "OPEN ALERTS (n): a, b" footer, or '' when none are open. A builder error
-   * logs at warn and leaves the brief unchanged.
+   * logs at warn and leaves the brief unchanged. No footer while
+   * ALERT_STATE_ENABLED=false: the `alert_state:*` rows are frozen then.
    */
   private async buildOpsFooter(now: Date): Promise<string> {
+    if (!alertStateEnabled()) return ''
     try {
       const { openAlerts } = await buildOpsDigest(this.db, now)
       if (openAlerts.length === 0) return ''
