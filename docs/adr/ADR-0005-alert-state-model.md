@@ -1,6 +1,6 @@
 # ADR-0005: Alerts Carry State — Fire on Change, Digest the Rest, Escalate What Stays Open
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-23, remediation item 2.2)
 **Date:** 2026-11-22
 **Deciders:** Troy Davis (single-user system owner)
 **Driven by:** `/ultra-plan` remediation of arch-review v7 — findings SA7-05, PLT-027, PE-013, SE7-11, SA7-10, PLT-020 (change set Phase 2)
@@ -34,9 +34,24 @@ Alert state lives in the application, in Postgres, and every alert goes through 
 5. **One daily digest.** One message per day lists open alerts with their ages first, then one line per info source. Nothing is sent when there is nothing to report.
 6. **Escalation for what stays open.** An unresolved critical alert escalates to Pushover priority 2 (repeats until acknowledged) plus a Slack direct message at 24 hours, and to email plus a daily priority-2 message at 7 days. Acknowledging the Pushover receipt snoozes escalation for 7 days; the digest keeps listing the alert.
 7. **Counting that can clear.** Queue failures are counted over a rolling 24 hours, across a queue-name registry shared by `workers` and `core-api` and checked by a test against every `new Worker(...)`.
-8. **A watchdog outside `workers`.** The Cloudflare synthetic monitor reads a core-api heartbeat endpoint and alerts when the `workers` heartbeat is older than 45 minutes.
+8. **A watchdog outside `workers`.** The Cloudflare synthetic monitor reads a core-api heartbeat endpoint and alerts when the `workers` heartbeat is older than 45 minutes. This point ships in Part 2 of the remediation plan (Phase 14, item 14.4), not in Phase 2.
 
-A feature flag (`ALERT_STATE_ENABLED`) restores the previous direct-push behavior. For the first week after deploy both paths run, so a defect in the new path cannot silence a real alert.
+### Rollout switches
+
+Two environment switches in the `workers` `environment:` block control the rollout. Both default to on.
+
+| Switch | Effect when `false` | When to set it |
+|---|---|---|
+| `ALERT_STATE_ENABLED` | `raiseAlert` returns without reading or writing state and sends nothing; the legacy direct pushes run exactly as before. This is the rollback switch. | Only to roll back. |
+| `ALERT_LEGACY_PUSH` | The legacy direct pushes stop; only `raiseAlert` sends. Ignored while `ALERT_STATE_ENABLED=false`, so the rollback can never silence both paths. | One week after the first deploy (remediation item 5.5 records the dated operator action). |
+
+`legacyPushEnabled()` is true when `ALERT_STATE_ENABLED=false` or when `ALERT_LEGACY_PUSH` is not `false`. For the first week after deploy both paths run, so a defect in the new path cannot silence a real alert.
+
+### Implementation rulings (item 2.2)
+
+- **Unobserved is not clear.** A caller skips `raiseAlert` for a condition it did not observe on this run, instead of passing `bad: false`. `pipeline-health` skips `capture-flow` during quiet hours (00:00–07:00) and `backup-stale` when the manifest cannot be read. Passing `bad: false` there would send a false "Resolved" and then re-notify at the next observed run. `budget-check` skips both budget keys when no spend source answers.
+- **A send that failed is retried.** `raiseAlert` writes the state after the send. When the send fails (or Pushover is not configured) the state records `status: bad` with `last_notified_at: null`, and `nextAction` returns `notify` for such a state on the next run. A failed send never becomes a permanent silence. A failed "Resolved" send still closes the alert: the note is priority −1 and the condition is clear.
+- **Keys.** `backup-stale` (critical), one warning key per queue and condition — `queue-failed:<queue>` (failed jobs that finished in the last 6 h, not the retained failed total, which flow queues keep forever), `queue-backlog:<queue>` (waiting), `queue-stalled:<queue>` — so one queue's open alert never masks a new failure in another (final review F1; this replaced a single `pipeline-queues` key), `capture-flow` (warning), `budget-soft` (warning, bad while spend ≥ the soft limit), `budget-hard` (critical, bad while spend ≥ the hard limit). Each condition has its own key, so one alert never masks another.
 
 ## Alternatives Considered
 

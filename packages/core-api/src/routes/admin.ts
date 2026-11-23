@@ -10,6 +10,7 @@ import type { Context } from 'hono'
 import type { ConfigService, Database } from '@open-brain/shared'
 import {
   logger,
+  ALL_MONITORED_QUEUES,
   AppError,
   ConfigError,
   ResetForbiddenError,
@@ -21,16 +22,10 @@ import { SlackChannelService } from '../services/slack-channel.js'
 import { AdminService, DEFAULT_SPAWN_PG_DUMP } from '../services/admin.service.js'
 
 /**
- * Queue names that Bull Board registers for monitoring.
- * Must match the queue names defined in @open-brain/workers queues/*.
+ * Queue names Bull Board registers and the clear endpoint accepts.
+ * Single registry in @open-brain/shared (SE7-11).
  */
-const QUEUE_NAMES = [
-  'capture-pipeline',
-  'skill-execution',
-  'notification',
-  'access-stats',
-  'daily-sweep',
-] as const
+const QUEUE_NAMES = ALL_MONITORED_QUEUES
 
 /** Job states that can be cleared via POST /queues/:name/clear */
 const CLEARABLE_STATES = ['failed', 'completed', 'delayed'] as const

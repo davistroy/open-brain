@@ -79,7 +79,7 @@ describe('POST /queues/:name/clear', () => {
   })
 
   it('accepts custom state in request body', async () => {
-    const res = await app.request('/api/v1/admin/queues/notification/clear', {
+    const res = await app.request('/api/v1/admin/queues/access-stats/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ state: 'completed' }),
@@ -164,7 +164,9 @@ describe('POST /queues/:name/clear', () => {
     const queueNames = [
       'capture-pipeline',
       'skill-execution',
-      'notification',
+      'embed-capture',
+      'ingest-root',
+      'wiki-lint',
       'access-stats',
       'daily-sweep',
     ]
@@ -261,6 +263,36 @@ describe('POST /queues/:name/clear — SEC-04 origin guard', () => {
         error_detail: 'origin_check_failed',
       }),
     )
+  })
+
+  it('clears embed-capture from an allowlisted origin and writes queue_clear_executed', async () => {
+    process.env.NODE_ENV = 'production'
+    mockClean.mockResolvedValue(['job-a'])
+    const mockWriteAuditRow = vi.fn().mockResolvedValue('audit-embed-id')
+    const a = await buildQueueApp({ writeAuditRow: mockWriteAuditRow })
+
+    const res = await a.request('/api/v1/admin/queues/embed-capture/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Origin': 'https://brain.troy-davis.com' },
+      body: JSON.stringify({ state: 'failed' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).queue).toBe('embed-capture')
+    expect(mockClean).toHaveBeenCalledOnce()
+    expect(mockWriteAuditRow).toHaveBeenCalledWith(
+      expect.objectContaining({ event_type: 'queue_clear_executed', outcome: 'success' }),
+    )
+  })
+
+  it('rejects the removed notification queue name (404)', async () => {
+    const a = await buildQueueApp({ writeAuditRow: vi.fn().mockResolvedValue('x') })
+    const res = await a.request('/api/v1/admin/queues/notification/clear', {
+      method: 'POST',
+      headers: { 'Origin': 'https://brain.troy-davis.com' },
+    })
+    expect(res.status).toBe(404)
+    expect(mockClean).not.toHaveBeenCalled()
   })
 
   it('blocks request with no origin header in production (403, queue not cleared)', async () => {

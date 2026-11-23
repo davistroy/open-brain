@@ -661,12 +661,7 @@ export class MemoryConsolidationSkill extends LLMSkill<MemoryConsolidationOption
     }
 
     try {
-      await this.pushover.send({
-        title: 'Memory Consolidation',
-        message: lines.join('\n'),
-        priority: 0,
-      })
-      return true
+      return await this.sendInfo('Memory Consolidation', lines.join('\n'), 0)
     } catch {
       return false
     }

@@ -196,7 +196,7 @@ export class WikiLintSkill extends BaseSkill<void, WikiLintResult> {
     if (summary) {
       pushoverLines.push('', summary)
     }
-    const notificationSent = await this.sendNotification(
+    const notificationSent = await this.sendInfo(
       'Wiki Lint Report',
       pushoverLines.join('\n'),
       issuesFound > 0 ? 0 : -1,

@@ -209,12 +209,11 @@ export class DriftMonitorSkill extends LLMSkill<DriftMonitorOptions, DriftMonito
     ]
 
     try {
-      await this.pushover.send({
-        title: `Drift Monitor: ${output.overall_health.replace(/_/g, ' ')}`,
-        message: lines.join('\n'),
-        priority: priority as 0 | 1,
-      })
-      return true
+      return await this.sendInfo(
+        `Drift Monitor: ${output.overall_health.replace(/_/g, ' ')}`,
+        lines.join('\n'),
+        priority,
+      )
     } catch {
       // Pushover delivery is non-fatal
       return false

@@ -305,12 +305,7 @@ export class CaptureDedupSweepSkill extends BaseSkill<CaptureDedupSweepOptions, 
     }
 
     try {
-      await this.pushover.send({
-        title: 'Open Brain: Duplicate Captures Found',
-        message: lines.join('\n'),
-        priority: 0,
-      })
-      return true
+      return await this.sendInfo('Open Brain: Duplicate Captures Found', lines.join('\n'), 0)
     } catch (err) {
       logger.warn({ err }, '[capture-dedup-sweep] Pushover notification failed')
       return false

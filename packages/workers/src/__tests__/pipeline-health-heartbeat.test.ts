@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
@@ -15,6 +15,7 @@ function makeMockQueueFactory() {
   return (name: string) => ({
     getJobCounts: vi.fn().mockResolvedValue({ waiting: 0, active: 0, failed: 0, delayed: 0, paused: 0 }),
     getJobCountByTypes: vi.fn().mockResolvedValue(0),
+    getJobs: vi.fn().mockResolvedValue([]),
     close: vi.fn().mockResolvedValue(undefined),
   })
 }
@@ -40,8 +41,15 @@ function makeMockDb(captureCount: string = '5', recentAlertCount: string = '0') 
 // ============================================================
 
 describe('PipelineHealthSkill — heartbeat (capture flow)', () => {
+  // Pins the legacy capture-flow push and its 24h skills_log suppression, so the
+  // alert-state path (ADR-0005) is off here; pipeline-health.test.ts covers it.
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   it('executes without errors with mock queues', async () => {

@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { logger, PushoverService } from '@open-brain/shared'
+import { raiseAlert, legacyPushEnabled } from '../lib/alert-state.js'
 
 // ============================================================
 // Types
@@ -18,7 +19,7 @@ export interface BudgetCheckResult {
   monthlySpend: number
   /** Source of spend data — 'llm_spend' | 'local' | 'combined' */
   spendSource: string
-  /** Whether an alert was sent */
+  /** Whether an alert was sent (legacy push or alert-state message) */
   alertSent: boolean
   /** Threshold that was crossed (if any) */
   thresholdCrossed: 'soft' | 'hard' | null
@@ -124,19 +125,40 @@ export async function processBudgetCheckJob(
   // --------------------------------------------------------
   let alertSent = false
   let thresholdCrossed: 'soft' | 'hard' | null = null
+  const legacyPush = legacyPushEnabled()
 
   if (monthlySpend >= hardLimit) {
     thresholdCrossed = 'hard'
-    alertSent = await sendBudgetAlert(pushover, monthlySpend, hardLimit, 'hard', spendSource)
+    if (legacyPush) alertSent = await sendBudgetAlert(pushover, monthlySpend, hardLimit, 'hard', spendSource)
   } else if (monthlySpend >= softLimit) {
     thresholdCrossed = 'soft'
-    alertSent = await sendBudgetAlert(pushover, monthlySpend, softLimit, 'soft', spendSource)
+    if (legacyPush) alertSent = await sendBudgetAlert(pushover, monthlySpend, softLimit, 'soft', spendSource)
   } else {
     logger.info(
       { monthlySpend, softLimit, hardLimit },
       '[budget-check] spend under soft limit — no alert needed',
     )
   }
+
+  // ADR-0005 alert-state path (no-op when ALERT_STATE_ENABLED=false). Two keys,
+  // each true while its threshold is met: crossing soft then hard sends one
+  // warning then one critical; a new month resolves both. Thresholds unchanged.
+  const spendLine = `AI spend is $${monthlySpend.toFixed(2)} this month (source: ${spendSource}).`
+  const hard = await raiseAlert({ db, pushover }, {
+    key: 'budget-hard',
+    severity: 'critical',
+    bad: monthlySpend >= hardLimit,
+    title: 'AI Budget Hard Limit Reached',
+    message: `${spendLine} Hard limit: $${hardLimit}.`,
+  })
+  const soft = await raiseAlert({ db, pushover }, {
+    key: 'budget-soft',
+    severity: 'warning',
+    bad: monthlySpend >= softLimit,
+    title: 'AI Budget Soft Limit Reached',
+    message: `${spendLine} Soft limit: $${softLimit}; hard limit: $${hardLimit}.`,
+  })
+  alertSent = alertSent || hard.sent || soft.sent
 
   logger.info(
     { monthlySpend, spendSource, thresholdCrossed, alertSent },

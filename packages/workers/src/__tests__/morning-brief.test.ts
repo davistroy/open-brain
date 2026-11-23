@@ -279,6 +279,43 @@ describe('MorningBriefSkill', () => {
     expect(call.message).toContain('REFERENCE CALENDARS:')
   })
 
+  it('appends an ops footer naming the open alerts (item 2.4)', async () => {
+    const { skill, db, pushover } = makeSkill()
+    const since = new Date(FIXED_NOW.getTime() - 3_600_000).toISOString()
+    // 5th execute call = listOpenAlerts (after the four standard capture queries)
+    db.execute.mockResolvedValueOnce({
+      rows: [{ key: 'alert_state:backup-stale', value: { status: 'bad', since, last_notified_at: since, level: 0, receipt: null, acked_at: null } }],
+    })
+    await skill.execute({ now: FIXED_NOW })
+    const call = vi.mocked(pushover.send).mock.calls[0][0]
+    expect(call.message).toContain('OPEN ALERTS (1): backup-stale')
+  })
+
+  it('F2: ALERT_STATE_ENABLED=false appends no OPEN ALERTS footer (frozen alert_state rows are not read)', async () => {
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+    try {
+      const { skill, db, pushover } = makeSkill()
+      const since = new Date(FIXED_NOW.getTime() - 30 * 24 * 3_600_000).toISOString()
+      // Same 5th-call row as the footer test above: with the switch off it must not surface.
+      db.execute.mockResolvedValueOnce({
+        rows: [{ key: 'alert_state:backup-stale', value: { status: 'bad', since, last_notified_at: since, level: 0, receipt: null, acked_at: null } }],
+      })
+      await skill.execute({ now: FIXED_NOW })
+      const call = vi.mocked(pushover.send).mock.calls[0][0]
+      expect(call.message).not.toContain('OPEN ALERTS')
+      expect(db.execute).toHaveBeenCalledTimes(5) // email counts + the four capture queries; no alert read
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('leaves the brief unchanged when the ops footer builder fails (item 2.4)', async () => {
+    const { skill, pushover } = makeSkill() // 5th execute call returns undefined -> builder throws -> warn
+    const result = await skill.execute({ now: FIXED_NOW })
+    expect(result.notificationSent).toBe(true)
+    expect(vi.mocked(pushover.send).mock.calls[0][0].message).not.toContain('OPEN ALERTS')
+  })
+
   it('sends notification even when only reference calendars have content', async () => {
     const { skill, pushover } = makeSkill({
       yesterday: [],

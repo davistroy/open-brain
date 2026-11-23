@@ -207,6 +207,13 @@ services:
       # Value = the real bot<->Troy DM channel (conversations.open, Entry 248). The prior
       # "D0AR39RNG4E" was a stale test-fixture id that returned channel_not_found every day.
       MORNING_BRIEF_SLACK_CHANNEL: "D0AKD047W21"
+      # ADR-0005 alert-state rollout switches (docs/runbooks/alert-escalation.md).
+      # Literal values, never `${...}` and never `.env`: `.env` only feeds compose
+      # interpolation and is not injected into the container (A145), so a switch
+      # set there is dead config. Roll back by editing these values on the host
+      # and `up -d --force-recreate --no-deps workers`.
+      ALERT_STATE_ENABLED: "true"
+      ALERT_LEGACY_PUSH: "true"
       WIKI_REPO_URL: http://Gitea:3000/davistroy/open-brain-wiki.git
       WIKI_LOCAL_PATH: /tmp/open-brain-wiki
       # GITEA_TOKEN comes from `env_file: .env.secrets` above — do NOT re-declare it.

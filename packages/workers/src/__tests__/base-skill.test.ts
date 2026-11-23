@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { BaseSkill } from '../skills/base-skill.js'
 import { LLMSkill } from '../skills/llm-skill.js'
 import { PushoverService } from '../services/pushover.js'
@@ -51,6 +53,10 @@ class ConcreteSkill extends BaseSkill<TestInput, TestResult> {
     priority?: number,
   ): Promise<boolean> {
     return this.sendNotification(title, message, priority)
+  }
+
+  async testSendInfo(title: string, message: string, priority?: number): Promise<boolean> {
+    return this.sendInfo(title, message, priority)
   }
 
   testFormatDuration(ms: number): string {
@@ -403,4 +409,53 @@ describe('LLMSkill', () => {
 
     expect(skill.getCoreApiUrl()).toBe('http://custom:9000')
   })
+})
+
+// ============================================================
+// sendInfo() — informational push, gated by legacyPushEnabled() (item 2.5)
+// ============================================================
+
+describe('sendInfo()', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('pushes with ALERT_LEGACY_PUSH unset', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', '')
+    const { skill, pushover } = makeSkill()
+
+    const sent = await skill.testSendInfo('Title', 'Message', 1)
+
+    expect(sent).toBe(true)
+    expect(pushover.send).toHaveBeenCalledWith({ title: 'Title', message: 'Message', priority: 1 })
+  })
+
+  it('sends nothing and returns false with ALERT_LEGACY_PUSH=false', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { skill, pushover } = makeSkill()
+
+    const sent = await skill.testSendInfo('Title', 'Message')
+
+    expect(sent).toBe(false)
+    expect(pushover.send).not.toHaveBeenCalled()
+  })
+
+  it('still pushes with ALERT_LEGACY_PUSH=false while ALERT_STATE_ENABLED=false (rollback)', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+    const { skill, pushover } = makeSkill()
+
+    expect(await skill.testSendInfo('Title', 'Message')).toBe(true)
+    expect(pushover.send).toHaveBeenCalledOnce()
+  })
+})
+
+describe('report skills never push directly (item 2.5)', () => {
+  const files = ['drift-monitor', 'wiki-lint', 'email-classify', 'capture-dedup-sweep', 'memory-consolidation']
+  for (const f of files) {
+    it(`${f}.ts has no this.pushover.send( or this.sendNotification( call`, () => {
+      const src = readFileSync(fileURLToPath(new URL(`../skills/${f}.ts`, import.meta.url)), 'utf8')
+      expect(src).not.toMatch(/this\.pushover\.send\(|this\.sendNotification\(/)
+    })
+  }
 })

@@ -4,6 +4,8 @@ import type { SlackBlock, BriefSource } from '@open-brain/shared'
 import type { Redis } from 'ioredis'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
+import { buildOpsDigest } from './ops-digest.js'
+import { alertStateEnabled } from '../lib/alert-state.js'
 
 // ============================================================
 // Types
@@ -461,7 +463,10 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
     const todayItems = extractTodayItems(eveningCaptures, now)
 
     // Format notification message
-    const message = this.formatMessage(schedule, referenceCalendar, emailTriage, yesterdayThread, openLoops, people, todayItems)
+    const baseMessage = this.formatMessage(schedule, referenceCalendar, emailTriage, yesterdayThread, openLoops, people, todayItems)
+    // Ops footer (ADR-0005, item 2.4): count + names of open alerts. Never blocks the brief.
+    const opsFooter = baseMessage.length > 0 ? await this.buildOpsFooter(now) : ''
+    const message = opsFooter ? `${baseMessage}\n\n${opsFooter}` : baseMessage
     const title = this.formatTitle(now)
 
     // Send Pushover notification
@@ -489,6 +494,7 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
     if (message.length > 0 && this.slack.isConfigured && this.slackChannelId) {
       try {
         const blocks = this.formatSlackBlocks(title, schedule, referenceCalendar, emailTriage, yesterdayThread, openLoops, people, todayItems)
+        if (opsFooter) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: opsFooter } })
         slackSent = await this.slack.sendMessage({
           channel: this.slackChannelId,
           text: message, // plain-text fallback for notifications
@@ -595,6 +601,23 @@ export class MorningBriefSkill extends BaseSkill<MorningBriefOptions, MorningBri
     const month = now.toLocaleString('en-US', { month: 'long' })
     const day = now.getDate()
     return `Morning Brief \u2014 ${month} ${day}`
+  }
+
+  /**
+   * "OPEN ALERTS (n): a, b" footer, or '' when none are open. A builder error
+   * logs at warn and leaves the brief unchanged. No footer while
+   * ALERT_STATE_ENABLED=false: the `alert_state:*` rows are frozen then.
+   */
+  private async buildOpsFooter(now: Date): Promise<string> {
+    if (!alertStateEnabled()) return ''
+    try {
+      const { openAlerts } = await buildOpsDigest(this.db, now)
+      if (openAlerts.length === 0) return ''
+      return `OPEN ALERTS (${openAlerts.length}): ${openAlerts.map((a) => a.key).join(', ')}`
+    } catch (err) {
+      logger.warn({ err }, '[morning-brief] ops footer failed — brief unchanged')
+      return ''
+    }
   }
 
   private formatMessage(

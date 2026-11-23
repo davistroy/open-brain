@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { processBudgetCheckJob } from '../jobs/budget-check.js'
 import type { BudgetCheckJobData } from '../jobs/budget-check.js'
 import { PushoverService } from '../services/pushover.js'
+import { alertStateKey, type AlertState } from '../lib/alert-state.js'
 
 // ============================================================
 // Mock fetch globally
@@ -57,8 +60,16 @@ const LITELLM_TOTAL_COST_RESPONSE = { total_cost: 18.50 }
 // ============================================================
 
 describe('processBudgetCheckJob', () => {
+  // This suite pins the legacy direct-push behavior (as at f341ca6) with the
+  // alert-state path off. The ADR-0005 path and the switch matrix are covered
+  // in the "alert state" suite at the end of the file.
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
     delete process.env.OPENAI_API_KEY
     delete process.env.LLM_SPEND_API_KEY
     delete process.env.LLM_SPEND_URL
@@ -620,5 +631,167 @@ describe('processBudgetCheckJob', () => {
       const { message } = sendSpy.mock.calls[0][0]
       expect(message).toContain('combined') // both sources available
     })
+  })
+})
+
+// ============================================================
+// ADR-0005 alert state (item 2.2): budget-soft / budget-hard
+// ============================================================
+
+/** db mock: in-memory alert-state store + the ai_audit_log spend query (no local tokens). */
+function makeStatefulDb(opts: { initial?: Record<string, AlertState>; failStateReads?: boolean } = {}) {
+  const store = new Map<string, unknown>(
+    Object.entries(opts.initial ?? {}).map(([k, v]) => [alertStateKey(k), v]),
+  )
+  const dialect = new PgDialect()
+  const queries: string[] = []
+  const execute = vi.fn().mockImplementation(async (q: SQL) => {
+    const { sql: text, params } = dialect.sqlToQuery(q)
+    queries.push(text)
+    if (text.includes('INSERT INTO app_settings')) {
+      store.set(params[0] as string, JSON.parse(params[1] as string))
+      return { rows: [] }
+    }
+    if (text.includes('FROM app_settings')) {
+      if (opts.failStateReads) throw new Error('db down')
+      const v = store.get(params[0] as string)
+      return { rows: v === undefined ? [] : [{ value: v }] }
+    }
+    if (text.includes('FROM ai_audit_log')) return { rows: [{ total_tokens: null, call_count: '0' }] }
+    throw new Error(`unexpected SQL in test: ${text}`)
+  })
+  return { db: { execute }, store, queries }
+}
+
+const OPEN: AlertState = {
+  status: 'bad',
+  since: '2026-11-20T07:00:00.000Z',
+  last_notified_at: '2026-11-20T07:00:00.000Z',
+  level: 0,
+  receipt: null,
+  acked_at: null,
+}
+
+describe('processBudgetCheckJob — alert state (ADR-0005)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    delete process.env.LLM_SPEND_URL
+    delete process.env.LLM_SPEND_API_KEY
+    delete process.env.BUDGET_SOFT_LIMIT
+    delete process.env.BUDGET_HARD_LIMIT
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  })
+
+  async function runWithSpend(spend: number, db: unknown, pushover: PushoverService) {
+    vi.stubGlobal('fetch', makeLiteLLMFetch({ total_cost: spend }))
+    return processBudgetCheckJob(JOB_DATA, db as never, pushover, {
+      llmSpendUrl: 'https://llm.test.local',
+      spendApiKey: 'test-key',
+      softLimit: 30,
+      hardLimit: 50,
+    })
+  }
+
+  function makePushover() {
+    const pushover = new PushoverService('tok', 'usr')
+    const sendSpy = vi.spyOn(pushover, 'send').mockResolvedValue(undefined)
+    return { pushover, sendSpy }
+  }
+
+  it('both switches on (default): soft limit sends the legacy push AND the budget-soft alert', async () => {
+    const { db, store } = makeStatefulDb()
+    const { pushover, sendSpy } = makePushover()
+
+    const result = await runWithSpend(31.5, db, pushover)
+
+    expect(sendSpy.mock.calls.map(c => c[0].title)).toEqual([
+      'AI Budget Alert — Soft Limit Reached',
+      'AI Budget Soft Limit Reached',
+    ])
+    expect(result.alertSent).toBe(true)
+    expect(store.get('alert_state:budget-soft')).toMatchObject({ status: 'bad' })
+  })
+
+  it('ALERT_LEGACY_PUSH=false: soft limit sends once (priority 0), none on the next day, "resolved" when spend drops', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb()
+    const { pushover, sendSpy } = makePushover()
+
+    const first = await runWithSpend(31.5, db, pushover)
+    expect(sendSpy).toHaveBeenCalledOnce()
+    expect(sendSpy.mock.calls[0][0]).toMatchObject({ title: 'AI Budget Soft Limit Reached', priority: 0 })
+    expect(sendSpy.mock.calls[0][0].message).toContain('$31.50')
+    expect(first.alertSent).toBe(true)
+    expect(first.thresholdCrossed).toBe('soft')
+
+    const second = await runWithSpend(33, db, pushover)
+    expect(sendSpy).toHaveBeenCalledOnce()
+    expect(second.alertSent).toBe(false)
+    expect(second.thresholdCrossed).toBe('soft')
+
+    await runWithSpend(2, db, pushover) // new month
+    expect(sendSpy).toHaveBeenCalledTimes(2)
+    expect(sendSpy.mock.calls[1][0]).toMatchObject({ title: 'Resolved: AI Budget Soft Limit Reached', priority: -1 })
+    expect(store.get('alert_state:budget-soft')).toMatchObject({ status: 'ok' })
+  })
+
+  it('ALERT_LEGACY_PUSH=false: hard limit with the soft alert already open sends one critical (priority 1)', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb({ initial: { 'budget-soft': OPEN } })
+    const { pushover, sendSpy } = makePushover()
+
+    const result = await runWithSpend(51, db, pushover)
+
+    expect(sendSpy).toHaveBeenCalledOnce()
+    expect(sendSpy.mock.calls[0][0]).toMatchObject({ title: 'AI Budget Hard Limit Reached', priority: 1 })
+    expect(result.thresholdCrossed).toBe('hard')
+    expect(store.get('alert_state:budget-hard')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:budget-soft')).toEqual(OPEN)
+  })
+
+  it('ALERT_STATE_ENABLED=false: legacy push only, no alert-state read or write', async () => {
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false') // ignored while the state path is off
+    const { db, store, queries } = makeStatefulDb()
+    const { pushover, sendSpy } = makePushover()
+
+    await runWithSpend(55, db, pushover)
+
+    expect(sendSpy).toHaveBeenCalledOnce()
+    expect(sendSpy.mock.calls[0][0]).toMatchObject({ title: 'AI Budget Warning — Hard Limit Approaching', priority: 1 })
+    expect(queries.some(q => q.includes('app_settings'))).toBe(false)
+    expect(store.size).toBe(0)
+  })
+
+  it('fail open: an alert-state read error still sends the budget alert', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db } = makeStatefulDb({ failStateReads: true })
+    const { pushover, sendSpy } = makePushover()
+
+    const result = await runWithSpend(51, db, pushover)
+
+    expect(sendSpy.mock.calls.map(c => c[0].title).sort()).toEqual([
+      'AI Budget Hard Limit Reached',
+      'AI Budget Soft Limit Reached',
+    ])
+    expect(result.alertSent).toBe(true)
+  })
+
+  it('no spend data: no alert-state call, so an open alert is held', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const store = new Map<string, unknown>([[alertStateKey('budget-soft'), OPEN]])
+    const db = { execute: vi.fn().mockRejectedValue(new Error('DB connection error')) }
+    const { pushover, sendSpy } = makePushover()
+
+    const result = await processBudgetCheckJob(JOB_DATA, db as never, pushover, { softLimit: 30, hardLimit: 50 })
+
+    expect(result.spendSource).toBe('none')
+    expect(sendSpy).not.toHaveBeenCalled()
+    expect(db.execute).toHaveBeenCalledTimes(1) // the ai_audit_log query only
+    expect(store.get(alertStateKey('budget-soft'))).toEqual(OPEN)
   })
 })

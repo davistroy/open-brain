@@ -31,6 +31,7 @@ All scheduled skills run via the `skill-execution` BullMQ queue. The worker uses
 | `memory-consolidation` | `packages/workers/src/skills/memory-consolidation.ts` | `0 4 * * 0` (4 AM Sundays) | N | 1 (documented singleton — destructive) | `assist` |
 | `monthly-reflection` | `packages/workers/src/skills/monthly-reflection.ts` | `0 9 1 * *` (9 AM 1st of month) | **Y** | 1 | `assist` |
 | `morning-brief` | `packages/workers/src/skills/morning-brief.ts` | `30 6 * * 1-5` (6:30 AM weekdays) | **Y** | 1 | `observe` |
+| `ops-digest` | `packages/workers/src/skills/ops-digest.ts` | `30 7 * * *` (7:30 AM daily) | N | 1 | — |
 | `pipeline-health` | `packages/workers/src/skills/pipeline-health.ts` | `0 */6 * * *` (every 6 hours) | N | 1 | — |
 | `refine-brief` | `packages/workers/src/skills/refine-brief.ts` | on-demand (`POST /api/v1/briefs/:id/refine`) | **Y** | 1 | — (reactive, user-initiated) |
 | `secret-rotation` | `packages/workers/src/skills/secret-rotation.ts` | `0 10 1 * *` (10 AM 1st of month) | N | 1 | — |
@@ -80,6 +81,7 @@ These are pipeline-stage workers, NOT BaseSkill subclasses. They process individ
 | `budget-check` | `budget-check` | `0 7 * * *` (7 AM daily) |
 | `daily-sweep` | `daily-sweep` | `0 3 * * *` (3 AM daily) — re-queues stuck captures |
 | `prune-associations` | `prune-associations` | `30 3 * * 0` (3:30 AM Sundays) |
+| `ops-digest` (skill-execution) | `skill-execution` | `30 7 * * *` (7:30 AM daily) — open alerts + report lines + backup age |
 
 ---
 

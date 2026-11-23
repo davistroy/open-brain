@@ -2,6 +2,8 @@ import { skills_log, logger, PushoverService, meetsAutonomyLevel } from '@open-b
 import type { Database, AutonomyLevel } from '@open-brain/shared'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import { requireCoreApiUrl } from '../lib/require-core-api-url.js'
+import { raiseAlert as raiseAlertWithState, legacyPushEnabled } from '../lib/alert-state.js'
+import type { RaiseAlertArgs, RaiseAlertResult } from '../lib/alert-state.js'
 
 // Module-level autonomy cache (5-minute TTL, matches slack-bot pattern)
 let _autonomyCache: { level: AutonomyLevel; fetchedAt: number } | null = null
@@ -42,6 +44,7 @@ export function _resetBaseSkillAutonomyCacheForTest(): void {
  * - `db` and `pushover` via constructor
  * - `logResult()` — writes to `skills_log` table (all 27 skills do this)
  * - `sendNotification()` — Pushover with error handling (20/27 skills)
+ * - `raiseAlert()` — stateful operational alert (ADR-0005): fires on change only
  * - `formatDuration()` / `truncate()` — common formatting utilities
  *
  * Subclasses implement `run(input)` with their domain logic.
@@ -170,6 +173,32 @@ export abstract class BaseSkill<TInput, TResult extends BaseResult> {
       logger.warn({ err, skillName: this.skillName }, 'Pushover send failed')
       return false
     }
+  }
+
+  /**
+   * Informational push (a report, not an alert). Pushes only while
+   * `legacyPushEnabled()` is true; otherwise the daily ops digest carries the
+   * report (it reads the skill's `skills_log` row) and this returns `false`.
+   */
+  protected async sendInfo(title: string, message: string, priority?: number): Promise<boolean> {
+    if (!legacyPushEnabled()) {
+      logger.debug({ skillName: this.skillName, title }, 'sendInfo suppressed (ALERT_LEGACY_PUSH=false); digest carries it')
+      return false
+    }
+    return this.sendNotification(title, message, priority)
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // Shared: stateful operational alert (ADR-0005)
+  // ──────────────────────────────────────────────────────────────
+
+  /**
+   * Reports an operational condition through the alert-state store: sends on
+   * ok -> bad, sends "Resolved" on bad -> ok, silent while the condition holds.
+   * No-op when `ALERT_STATE_ENABLED=false`. Never throws (fails open).
+   */
+  protected raiseAlert(args: RaiseAlertArgs): Promise<RaiseAlertResult> {
+    return raiseAlertWithState({ db: this.db, pushover: this.pushover }, args)
   }
 
   // ──────────────────────────────────────────────────────────────

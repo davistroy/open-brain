@@ -133,6 +133,7 @@ export async function reconcileRepeatableJobs(
  * - capture-reminder-morning: 6:45 AM weekdays (cron: 45 6 * * 1-5) — morning Pushover nudge (P07: spread from 7:05)
  * - budget-check:             7:00 AM daily    (cron: 0 7 * * *)    — monthly AI spend vs thresholds (P07: spread from 8:00)
  * - drift-monitor:            7:15 AM daily    (cron: 15 7 * * *)   — brain-view classification drift (P07: spread from 8:15)
+ * - ops-digest:               7:30 AM daily    (cron: 30 7 * * *)   — one Pushover + Slack DM: open alerts, report lines, backup age
  * - pipeline-health: every 6 hours (cron: 0 0,6,12,18 * * *) — checks pipeline + capture flow health
  * - daily-sweep-skill: 8:00 PM daily (cron: 0 20 * * *) — LLM-powered evening summary
  * - capture-reminder-evening: 9:00 PM daily (cron: 0 21 * * *) — evening Pushover nudge with capture count
@@ -280,6 +281,20 @@ export async function registerScheduledJobs(
     { skillName: 'drift-monitor', input: {} },
     driftCron,
     'scheduled_drift-monitor',
+  )
+
+  // --------------------------------------------------------
+  // Ops digest (7:30 AM daily) — ADR-0005. After drift-monitor (15 7) so its
+  // report row is in skills_log; T0 only, no LLM.
+  // --------------------------------------------------------
+  const opsDigestCron = '30 7 * * *'
+
+  await register(
+    skillExecutionQueue,
+    'ops-digest',
+    { skillName: 'ops-digest', input: {} },
+    opsDigestCron,
+    'scheduled_ops-digest',
   )
 
   // --------------------------------------------------------
