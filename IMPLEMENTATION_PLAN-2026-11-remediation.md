@@ -398,8 +398,8 @@ The `alert_state:*` keys are written through the database layer (`db.execute`) a
 
 ---
 
-#### 2.2 `raiseAlert` and migration of the operational alerts
-**Status: PENDING**
+#### 2.2 `raiseAlert` and migration of the operational alerts ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: opus**
 **Requirement Refs:** SA7-05, PLT-027
 **Depends On:** 2.1

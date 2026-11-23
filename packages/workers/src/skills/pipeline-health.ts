@@ -4,6 +4,7 @@ import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
+import { legacyPushEnabled } from '../lib/alert-state.js'
 import type { MetricLine } from '../lib/push-metrics.js'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
@@ -236,13 +237,18 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     const stalledByQueue = await this.queryStalledJobs()
 
     // Step 3.5: Check capture flow (skip during quiet hours)
+    const legacyPush = legacyPushEnabled()
     let captureFlowStale = false
+    // Raw observation for the alert-state path; null = not observed (quiet hours).
+    let captureFlowObserved: boolean | null = null
     const hour = new Date().getHours()
     const isQuietHours = hour >= 0 && hour < 7  // midnight-7am
     if (!isQuietHours) {
       captureFlowStale = await this.checkCaptureFlow(6)  // 6 hours threshold
-      // Suppress repeated capture-flow alerts — only alert once per 24 hours
-      if (captureFlowStale && await this.wasCaptureFlowAlertSentRecently(24)) {
+      captureFlowObserved = captureFlowStale
+      // Suppress repeated capture-flow alerts — only alert once per 24 hours.
+      // Legacy-path dedup only: the alert-state path dedups on its own state.
+      if (captureFlowStale && legacyPush && await this.wasCaptureFlowAlertSentRecently(24)) {
         logger.info('[pipeline-health] capture flow stale but alert already sent in last 24h — suppressing')
         captureFlowStale = false
       }
@@ -265,7 +271,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     const healthy = !shouldAlert && recentFailures.length === 0 && !backupCheck.stale
 
     let alertSent = false
-    if (shouldAlert) {
+    if (shouldAlert && legacyPush) {
       alertSent = await this.sendAlert({
         failedQueues,
         backloggedQueues,
@@ -281,10 +287,24 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // it fires on its own condition and must not be folded into the generic
     // queue/capture-flow message (this is the PLT-H2 redundancy path; the
     // Prometheus BackupStale rule's delivery via the shared stack is unproven).
-    if (backupCheck.stale && backupCheck.ageSeconds !== null) {
+    if (legacyPush && backupCheck.stale && backupCheck.ageSeconds !== null) {
       const backupAlertSent = await this.sendBackupStaleAlert(backupCheck.ageSeconds, backupCheck.maxAgeSeconds)
       alertSent = alertSent || backupAlertSent
     }
+
+    // ADR-0005 alert-state path (no-op when ALERT_STATE_ENABLED=false): three
+    // independent alerts that fire on change and stay silent while they hold.
+    const stateAlertSent = await this.raiseStateAlerts({
+      backupCheck,
+      failedQueues,
+      backloggedQueues,
+      stalledQueues,
+      recentFailures,
+      captureFlowObserved,
+      failedThreshold,
+      waitingThreshold,
+    })
+    alertSent = alertSent || stateAlertSent
 
     const durationMs = Date.now() - startMs
 
@@ -504,43 +524,10 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       return false
     }
 
-    const lines: string[] = ['Pipeline Health Alert']
-
-    if (params.failedQueues.length > 0) {
-      lines.push(
-        `Failed jobs (>${params.failedThreshold}): ` +
-        params.failedQueues.map(q => `${q.name}=${q.failed}`).join(', '),
-      )
-    }
-
-    if (params.backloggedQueues.length > 0) {
-      lines.push(
-        `Backlogged (>${params.waitingThreshold}): ` +
-        params.backloggedQueues.map(q => `${q.name}=${q.waiting}`).join(', '),
-      )
-    }
-
-    if (params.stalledQueues.length > 0) {
-      lines.push(
-        `Stalled jobs: ` +
-        params.stalledQueues.map(s => `${s.queueName}=${s.stalledCount}`).join(', '),
-      )
-    }
-
-    if (params.recentFailures.length > 0) {
-      // Summarize failure stages
-      const stageCounts = new Map<string, number>()
-      for (const f of params.recentFailures) {
-        stageCounts.set(f.stage, (stageCounts.get(f.stage) ?? 0) + 1)
-      }
-      const stageSummary = Array.from(stageCounts.entries())
-        .map(([stage, count]) => `${stage}:${count}`)
-        .join(', ')
-      lines.push(`Recent failures: ${params.recentFailures.length} (${stageSummary})`)
-    }
+    const lines: string[] = ['Pipeline Health Alert', ...queueProblemLines(params)]
 
     if (params.captureFlowStale) {
-      lines.push('No captures received in the last 6 hours (during active hours)')
+      lines.push(CAPTURE_FLOW_STALE_LINE)
     }
 
     const message = lines.join('\n')
@@ -573,12 +560,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       return false
     }
 
-    const ageHours = (ageSeconds / 3600).toFixed(1)
-    const maxAgeHours = (maxAgeSeconds / 3600).toFixed(1)
-    const message =
-      `Backup manifest is ${ageHours}h old (threshold: ${maxAgeHours}h).\n` +
-      'Check the offsite-backup/restore-rehearsal cron logs and .env.secrets ' +
-      'readability in cron context. See docs/runbooks/backup-alert.md.'
+    const message = backupStaleMessage(ageSeconds, maxAgeSeconds)
 
     try {
       await this.pushover.send({
@@ -592,6 +574,64 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       logger.warn({ err }, '[pipeline-health] backup-stale Pushover alert failed — continuing')
       return false
     }
+  }
+
+  /**
+   * ADR-0005 path: one `raiseAlert` per condition, each with its own state key,
+   * so a backup alert and a queue alert never mask each other. A condition that
+   * was not observed this run (absent backup manifest; capture flow in quiet
+   * hours) is not reported, so an open alert is held instead of falsely
+   * resolved. Returns true when any message was delivered.
+   */
+  private async raiseStateAlerts(p: {
+    backupCheck: { ageSeconds: number | null; stale: boolean; maxAgeSeconds: number }
+    failedQueues: QueueStats[]
+    backloggedQueues: QueueStats[]
+    stalledQueues: StalledStats[]
+    recentFailures: RecentFailure[]
+    captureFlowObserved: boolean | null
+    failedThreshold: number
+    waitingThreshold: number
+  }): Promise<boolean> {
+    let sent = false
+
+    if (p.backupCheck.ageSeconds !== null) {
+      const r = await this.raiseAlert({
+        key: 'backup-stale',
+        severity: 'critical',
+        bad: p.backupCheck.stale,
+        title: 'Backup Stale',
+        message: p.backupCheck.stale
+          ? backupStaleMessage(p.backupCheck.ageSeconds, p.backupCheck.maxAgeSeconds)
+          : backupAgeLine(p.backupCheck.ageSeconds, p.backupCheck.maxAgeSeconds),
+      })
+      sent = sent || r.sent
+    }
+
+    const queuesBad = p.failedQueues.length > 0 || p.backloggedQueues.length > 0 || p.stalledQueues.length > 0
+    const queues = await this.raiseAlert({
+      key: 'pipeline-queues',
+      severity: 'warning',
+      bad: queuesBad,
+      title: 'Pipeline Queues',
+      message: queuesBad
+        ? queueProblemLines(p).join('\n')
+        : 'All monitored queues are within thresholds.',
+    })
+    sent = sent || queues.sent
+
+    if (p.captureFlowObserved !== null) {
+      const r = await this.raiseAlert({
+        key: 'capture-flow',
+        severity: 'warning',
+        bad: p.captureFlowObserved,
+        title: 'Capture Flow Stale',
+        message: p.captureFlowObserved ? CAPTURE_FLOW_STALE_LINE : 'Captures received in the last 6 hours.',
+      })
+      sent = sent || r.sent
+    }
+
+    return sent
   }
 
   // ----------------------------------------------------------
@@ -623,6 +663,73 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       outputSummary,
     )
   }
+}
+
+// ============================================================
+// Message builders (shared by the legacy pushes and the alert-state path)
+// ============================================================
+
+const CAPTURE_FLOW_STALE_LINE = 'No captures received in the last 6 hours (during active hours)'
+
+function backupAgeLine(ageSeconds: number, maxAgeSeconds: number): string {
+  const ageHours = (ageSeconds / 3600).toFixed(1)
+  const maxAgeHours = (maxAgeSeconds / 3600).toFixed(1)
+  return `Backup manifest is ${ageHours}h old (threshold: ${maxAgeHours}h).`
+}
+
+function backupStaleMessage(ageSeconds: number, maxAgeSeconds: number): string {
+  return (
+    `${backupAgeLine(ageSeconds, maxAgeSeconds)}\n` +
+    'Check the offsite-backup/restore-rehearsal cron logs and .env.secrets ' +
+    'readability in cron context. See docs/runbooks/backup-alert.md.'
+  )
+}
+
+/** Failed / backlogged / stalled queue lines plus the recent-failure stage summary. */
+function queueProblemLines(params: {
+  failedQueues: QueueStats[]
+  backloggedQueues: QueueStats[]
+  stalledQueues: StalledStats[]
+  recentFailures: RecentFailure[]
+  failedThreshold: number
+  waitingThreshold: number
+}): string[] {
+  const lines: string[] = []
+
+  if (params.failedQueues.length > 0) {
+    lines.push(
+      `Failed jobs (>${params.failedThreshold}): ` +
+      params.failedQueues.map(q => `${q.name}=${q.failed}`).join(', '),
+    )
+  }
+
+  if (params.backloggedQueues.length > 0) {
+    lines.push(
+      `Backlogged (>${params.waitingThreshold}): ` +
+      params.backloggedQueues.map(q => `${q.name}=${q.waiting}`).join(', '),
+    )
+  }
+
+  if (params.stalledQueues.length > 0) {
+    lines.push(
+      `Stalled jobs: ` +
+      params.stalledQueues.map(s => `${s.queueName}=${s.stalledCount}`).join(', '),
+    )
+  }
+
+  if (params.recentFailures.length > 0) {
+    // Summarize failure stages
+    const stageCounts = new Map<string, number>()
+    for (const f of params.recentFailures) {
+      stageCounts.set(f.stage, (stageCounts.get(f.stage) ?? 0) + 1)
+    }
+    const stageSummary = Array.from(stageCounts.entries())
+      .map(([stage, count]) => `${stage}:${count}`)
+      .join(', ')
+    lines.push(`Recent failures: ${params.recentFailures.length} (${stageSummary})`)
+  }
+
+  return lines
 }
 
 // ============================================================

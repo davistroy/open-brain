@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { Mock } from 'vitest'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
+import { alertStateKey, type AlertState } from '../lib/alert-state.js'
 import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
 import { PushoverService } from '../services/pushover.js'
 import { pushMetrics } from '../lib/push-metrics.js'
@@ -173,8 +176,17 @@ function makeSkill(opts: {
 // ============================================================
 
 describe('PipelineHealthSkill', () => {
+  // This suite pins the legacy direct-push behavior (as at f341ca6): it runs
+  // with the alert-state path off, so every assertion below proves that
+  // ALERT_STATE_ENABLED=false pushes exactly as before. The ADR-0005 path and
+  // the switch matrix are covered in the "alert state" suite at the end.
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   // ----------------------------------------------------------
@@ -505,6 +517,52 @@ describe('PipelineHealthSkill', () => {
   })
 
   // ----------------------------------------------------------
+  // Legacy message text is byte-identical to f341ca6
+  // ----------------------------------------------------------
+
+  describe('execute — legacy message text (as at f341ca6)', () => {
+    it('queue alert text is unchanged', async () => {
+      const { skill, pushover } = makeSkill({
+        failures: SAMPLE_FAILURES,
+        queueOverrides: {
+          'capture-pipeline': { failed: 10, waiting: 200 },
+          'embed-capture': { stalled: 2 },
+        },
+      })
+      await skill.execute({ failedThreshold: 5, waitingThreshold: 100, alertOnStalled: true })
+
+      expect(pushover.send).toHaveBeenCalledOnce()
+      expect((pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
+        title: 'Open Brain: Pipeline Health Alert',
+        message: [
+          'Pipeline Health Alert',
+          'Failed jobs (>5): capture-pipeline=10',
+          'Backlogged (>100): capture-pipeline=200',
+          'Stalled jobs: embed-capture=2',
+          'Recent failures: 3 (embed:2, classify:1)',
+        ].join('\n'),
+        priority: 1,
+      })
+    })
+
+    it('backup-stale text is unchanged', async () => {
+      mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - 30 * 60 * 60 * 1000) } as never)
+      const { skill, pushover } = makeSkill({ failures: [] })
+      await skill.execute()
+
+      expect(pushover.send).toHaveBeenCalledOnce()
+      expect((pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]).toEqual({
+        title: 'Open Brain: Backup Stale',
+        message:
+          'Backup manifest is 30.0h old (threshold: 26.0h).\n' +
+          'Check the offsite-backup/restore-rehearsal cron logs and .env.secrets ' +
+          'readability in cron context. See docs/runbooks/backup-alert.md.',
+        priority: 1,
+      })
+    })
+  })
+
+  // ----------------------------------------------------------
   // Backup dead-man's switch (7.4 / PE-H4 / RC-12 / SA-13 / A131)
   // ----------------------------------------------------------
 
@@ -612,5 +670,267 @@ describe('PipelineHealthSkill', () => {
       expect(result.alertSent).toBe(false)
       expect(pushover.send).not.toHaveBeenCalled()
     })
+  })
+})
+
+// ============================================================
+// ADR-0005 alert state (item 2.2): switch matrix, fire-on-change, fail-open
+// ============================================================
+
+const THIRTY_HOURS_MS = 30 * 60 * 60 * 1000
+
+/**
+ * db mock that renders the real drizzle SQL and routes on it: an in-memory
+ * `app_settings` alert-state store plus the pipeline-health read queries.
+ */
+function makeStatefulDb(opts: {
+  captureCount?: string
+  initial?: Record<string, AlertState>
+  failStateReads?: boolean
+} = {}) {
+  const store = new Map<string, unknown>(
+    Object.entries(opts.initial ?? {}).map(([k, v]) => [alertStateKey(k), v]),
+  )
+  const dialect = new PgDialect()
+  const queries: string[] = []
+  const execute = vi.fn().mockImplementation(async (q: SQL) => {
+    const { sql: text, params } = dialect.sqlToQuery(q)
+    queries.push(text)
+    if (text.includes('INSERT INTO app_settings')) {
+      store.set(params[0] as string, JSON.parse(params[1] as string))
+      return { rows: [] }
+    }
+    if (text.includes('FROM app_settings')) {
+      if (opts.failStateReads) throw new Error('db down')
+      const v = store.get(params[0] as string)
+      return { rows: v === undefined ? [] : [{ value: v }] }
+    }
+    if (text.includes('FROM pipeline_events')) return { rows: [] }
+    if (text.includes('FROM captures')) return { rows: [{ count: opts.captureCount ?? '10' }] }
+    if (text.includes('FROM skills_log')) return { rows: [{ count: '0' }] }
+    throw new Error(`unexpected SQL in test: ${text}`)
+  })
+  const db = {
+    execute,
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: 'mock-log-id' }]) }),
+    }),
+  }
+  return { db, store, queries }
+}
+
+type SendArgs = { title: string; message: string; priority?: number }
+
+function sentCalls(pushover: PushoverService): SendArgs[] {
+  return (pushover.send as unknown as Mock).mock.calls.map(c => c[0] as SendArgs)
+}
+
+describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    // Fake only Date: local noon keeps the capture-flow check inside active hours.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 23, 12, 0, 0))
+    mockStat.mockReset()
+    mockStat.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+    mockStat.mockReset()
+    mockStat.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+  })
+
+  function staleBackup() {
+    mockStat.mockResolvedValue({ mtime: new Date(Date.now() - THIRTY_HOURS_MS) } as never)
+  }
+  function freshBackup() {
+    mockStat.mockResolvedValue({ mtime: new Date(Date.now() - 2 * 3600_000) } as never)
+  }
+
+  function makeSkillWith(db: unknown, pushover: PushoverService, queueOverrides: Parameters<typeof makeMockQueueFactory>[0] = {}) {
+    return new PipelineHealthSkill({
+      db: db as import('@open-brain/shared').Database,
+      queueFactory: makeMockQueueFactory(queueOverrides),
+      pushover,
+    })
+  }
+
+  // ---------------- switch matrix ----------------
+
+  it('both switches on (default): a stale backup sends the legacy push AND the stateful alert', async () => {
+    staleBackup()
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    const result = await makeSkillWith(db, pushover).execute()
+
+    expect(sentCalls(pushover).map(c => c.title)).toEqual(['Open Brain: Backup Stale', 'Backup Stale'])
+    expect(result.alertSent).toBe(true)
+    expect(store.get('alert_state:backup-stale')).toMatchObject({ status: 'bad' })
+  })
+
+  it('both switches on (default): failed queues send the legacy push AND the stateful alert', async () => {
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover, { 'embed-capture': { failed: 8 } }).execute({ failedThreshold: 5 })
+
+    expect(sentCalls(pushover).map(c => c.title)).toEqual(['Open Brain: Pipeline Health Alert', 'Pipeline Queues'])
+    expect(store.get('alert_state:pipeline-queues')).toMatchObject({ status: 'bad' })
+  })
+
+  it('ALERT_LEGACY_PUSH=false: stale backup on two runs sends once, then a priority -1 "resolved" on recovery', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+    const skill = makeSkillWith(db, pushover)
+
+    staleBackup()
+    const first = await skill.execute()
+    expect(sentCalls(pushover)).toHaveLength(1)
+    expect(sentCalls(pushover)[0]).toMatchObject({ title: 'Backup Stale', priority: 1 })
+    expect(sentCalls(pushover)[0].message).toContain('backup-alert.md')
+    expect(first.alertSent).toBe(true)
+
+    vi.setSystemTime(new Date(2026, 10, 23, 18, 0, 0))
+    const second = await skill.execute()
+    expect(sentCalls(pushover)).toHaveLength(1) // none on the second bad run
+    expect(second.alertSent).toBe(false)
+    expect(second.backupStale).toBe(true)
+
+    vi.setSystemTime(new Date(2026, 10, 24, 12, 0, 0))
+    freshBackup()
+    await skill.execute()
+    expect(sentCalls(pushover)).toHaveLength(2)
+    expect(sentCalls(pushover)[1]).toMatchObject({ title: 'Resolved: Backup Stale', priority: -1 })
+    expect(store.get('alert_state:backup-stale')).toMatchObject({ status: 'ok' })
+  })
+
+  it('ALERT_STATE_ENABLED=false: legacy pushes only, no alert-state read or write', async () => {
+    vi.stubEnv('ALERT_STATE_ENABLED', 'false')
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false') // ignored while the state path is off
+    staleBackup()
+    const { db, store, queries } = makeStatefulDb({ captureCount: '0' })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover, { 'embed-capture': { failed: 8 } }).execute({ failedThreshold: 5 })
+
+    expect(sentCalls(pushover).map(c => c.title)).toEqual(['Open Brain: Pipeline Health Alert', 'Open Brain: Backup Stale'])
+    expect(queries.some(q => q.includes('app_settings'))).toBe(false)
+    expect(store.size).toBe(0)
+  })
+
+  // ---------------- independent keys ----------------
+
+  it('queues failing while the backup is fresh writes pipeline-queues and leaves backup-stale unchanged', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    freshBackup()
+    const backupOk: AlertState = {
+      status: 'ok', since: '2026-11-01T00:00:00.000Z', last_notified_at: null, level: 0, receipt: null, acked_at: null,
+    }
+    const { db, store } = makeStatefulDb({ initial: { 'backup-stale': backupOk } })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover, { 'capture-pipeline': { waiting: 500 } }).execute({ waitingThreshold: 100 })
+
+    expect(store.get('alert_state:pipeline-queues')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:backup-stale')).toEqual(backupOk)
+    expect(sentCalls(pushover)).toHaveLength(1)
+    expect(sentCalls(pushover)[0]).toMatchObject({ title: 'Pipeline Queues', priority: 0 })
+    expect(sentCalls(pushover)[0].message).toContain('capture-pipeline=500')
+  })
+
+  it('backup, queues and capture flow are three separate alerts', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    staleBackup()
+    const { db, store } = makeStatefulDb({ captureCount: '0' })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover, { 'embed-capture': { stalled: 2 } }).execute()
+
+    expect(sentCalls(pushover).map(c => c.title).sort()).toEqual(['Backup Stale', 'Capture Flow Stale', 'Pipeline Queues'])
+    expect([...store.keys()].sort()).toEqual([
+      'alert_state:backup-stale',
+      'alert_state:capture-flow',
+      'alert_state:pipeline-queues',
+    ])
+  })
+
+  it('queues returning to normal sends "Resolved: Pipeline Queues" at priority -1', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const open: AlertState = {
+      status: 'bad', since: '2026-11-22T12:00:00.000Z', last_notified_at: '2026-11-22T12:00:00.000Z', level: 0, receipt: null, acked_at: null,
+    }
+    const { db, store } = makeStatefulDb({ initial: { 'pipeline-queues': open } })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover).execute()
+
+    expect(sentCalls(pushover)).toEqual([
+      expect.objectContaining({ title: 'Resolved: Pipeline Queues', priority: -1 }),
+    ])
+    expect(store.get('alert_state:pipeline-queues')).toMatchObject({ status: 'ok' })
+  })
+
+  // ---------------- capture flow ----------------
+
+  it('capture flow stale (active hours) sends one warning; legacy 24h suppression query is not run', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const { db, queries } = makeStatefulDb({ captureCount: '0' })
+    const pushover = makePushoverService()
+
+    const result = await makeSkillWith(db, pushover).execute()
+
+    expect(sentCalls(pushover)).toEqual([
+      expect.objectContaining({ title: 'Capture Flow Stale', priority: 0 }),
+    ])
+    expect(result.captureFlowStale).toBe(true)
+    expect(queries.some(q => q.includes('FROM skills_log'))).toBe(false)
+  })
+
+  it('quiet hours: the capture-flow condition is not observed, so an open alert is held (no false "resolved")', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    vi.setSystemTime(new Date(2026, 10, 23, 3, 0, 0))
+    const open: AlertState = {
+      status: 'bad', since: '2026-11-22T18:00:00.000Z', last_notified_at: '2026-11-22T18:00:00.000Z', level: 0, receipt: null, acked_at: null,
+    }
+    const { db, store, queries } = makeStatefulDb({ initial: { 'capture-flow': open } })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover).execute()
+
+    expect(sentCalls(pushover)).toEqual([])
+    expect(store.get('alert_state:capture-flow')).toEqual(open)
+    expect(queries.some(q => q.includes('FROM captures'))).toBe(false)
+  })
+
+  it('absent backup manifest: the backup condition is not observed, so an open alert is held', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    const open: AlertState = {
+      status: 'bad', since: '2026-11-22T12:00:00.000Z', last_notified_at: '2026-11-22T12:00:00.000Z', level: 0, receipt: null, acked_at: null,
+    }
+    const { db, store } = makeStatefulDb({ initial: { 'backup-stale': open } })
+    const pushover = makePushoverService()
+
+    await makeSkillWith(db, pushover).execute() // mockStat rejects: manifest absent
+
+    expect(sentCalls(pushover)).toEqual([])
+    expect(store.get('alert_state:backup-stale')).toEqual(open)
+  })
+
+  // ---------------- fail open ----------------
+
+  it('fail open: an alert-state read error still sends the backup-stale alert', async () => {
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    staleBackup()
+    const { db } = makeStatefulDb({ failStateReads: true })
+    const pushover = makePushoverService()
+
+    const result = await makeSkillWith(db, pushover).execute()
+
+    expect(sentCalls(pushover)).toEqual([expect.objectContaining({ title: 'Backup Stale', priority: 1 })])
+    expect(result.alertSent).toBe(true)
   })
 })
