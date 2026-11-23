@@ -14631,3 +14631,15 @@ Orchestrator check after 2.6: removing `'embed-capture'` from `WORKER_QUEUES` tu
 - `Final: minor (deferred):` core-api now holds 18 Bull Board `Queue` connections (was 5); system-health opens 18 connections per call (was 9).
 - **Ordering note for Phase 4/5:** item 2.5 removed the backup success push, so item 4.2 (backup mount that follows the newest backup) must land before any `workers` recreate from `main`.
 **Phase 2 complete** (branch `feat/2026-11-remediation-phase2`; items 2.1–2.6 + fix pass).
+
+**Phase 2 merged:** PR #404 squash-merged → `main` = `e29f5dc` (Troy: "A"). On that commit: CI, CodeQL, Build and Push Images all success. Nothing deployed (item 5.5).
+
+## Entry 258 — Remediation Phase 3: pipeline, source, and tier watchers (items 3.1–3.6) (2026-11-23)  [pipeline] [config] [docker]
+
+**Authorisation (Troy, 2026-11-23):** "do 1 for me and then start phase 3". Item "1" = OA-25 (rename the Pushover app "Voice Capture" → "Open Brain"): **not done by Claude** — Pushover has no API to rename an application; it needs the owner's web-dashboard login. Steps given to Troy; OA-25 stays OPEN until he confirms.
+**Objective:** watchers that can return to green and that cover every source: pipeline-health 24 h failure counts + an embed-stall alert (3.1), one tolerant operator-action parser feeding the digest (3.2), per-source heartbeats with an internal route and a freshness reader (3.3), the gas pipeline and the Actual + email runs reporting failures (3.4, 3.5), and a `secret-rotation` that can run because `bws` is in the workers image (3.6).
+**Hypothesis / success criteria:** every item lands with tests; the Phase 3 DoD passes (`pnpm -r test` with coverage floors, `pnpm -r lint`, ruff + pyright, integration, sidecar pytest, Actual sidecar tests, alert-rule validation, the watcher test files, and a local `docker build --target workers` whose image runs `bws --version`); a fresh review finds no open Critical/Important issue.
+**Rulings up front:** (1) Phase 3 text names the single `pipeline-queues` alert key; Phase 2 replaced it with per-queue keys `queue-failed|backlog|stalled:<queue>` — 3.1 builds on the per-queue keys. (2) Items run one at a time in this working tree, except 3.4 (Python only) alongside 3.5.
+**Rollback:** repo-only until a deploy (item 5.5): do not merge / revert the branch. No host change in this entry.
+**Tags:** [pipeline] [config] [docker]
+**Environment:** VM only (branch `feat/2026-11-remediation-phase3`). Executed by Claude (Opus 5.5) as orchestrator.
