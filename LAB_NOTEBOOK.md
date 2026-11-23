@@ -169,6 +169,11 @@
 ### Open
 | # | Action | Created | Source | Priority |
 |---|--------|---------|--------|----------|
+| A155 | **Track the postgres/redis raw-bind pin** (override template + compose-render assertion in CI) and remove the bare `up -d` instructions from README / closeout doc / loki-setup (arch-review v7 PLT-001). | 2026-11-22 | Entry 252 | HIGH |
+| A154 | **Write `BRIEF.md` + operating-mode decision** — maintenance mode built for unattended running, or kill criteria. Last human capture 2026-06-19; ~300 backup-stale alerts went unactioned (arch-review v7 RC7-03 / SA7-05). | 2026-11-22 | Entry 252 | HIGH |
+| A153 | **⏳ BRANCHES + TAG DONE 2026-11-23 (Entry 255, Troy: "Option 1"): all 20 leak-bearing branches + the tag are deleted from GitHub (0 names from the leak list still live). STILL OPEN: `refs/pull/*` + cached SHAs (GitHub Support GC), public GHCR `ingest-sidecar` images, the key literal in `main` history, identifier rotation.** Earlier — PARTIAL 2026-11-22 (Entry 253):** 16 of 20 leak-bearing branches deleted; 4 branches + 1 tag held (docs-only content not on `main`) pending Troy. Original: **Finish the v6 leak containment outside `main`** + rotate the key found in history. Detail is local-only (`arch-review/`, gitignored). | 2026-11-22 | Entry 252 | CRITICAL |
+| A152 | **⏳ Credits restored 2026-11-22 (test embed = 200); re-embed of the 359 still OPEN.** Original: **OpenAI credits exhausted since ≈2026-08-01** → add credits, re-embed the 359 stranded captures (sweep/retry no-op against the retained `embed_<captureId>` job), then fix the recovery path (SE7-01 / PE-012). | 2026-11-22 | Entry 252 | CRITICAL |
+| A151 | **✅ CRON + OFFSITE VERIFIED 2026-11-23 (Entry 255): the 03:00 run wrote `daily/2026-11-23` as root; the 03:45 offsite run holds 12 objects / 333 MiB. Remaining work is in the remediation plan: backup-age assertion in `restore-rehearsal.sh`, Redis leg (PLT-023).** Earlier — MOSTLY DONE 2026-11-22 (Entry 253):** manual backup verified + `0 3 * * *` line in persistent `custom.cron` + tracked `deploy/cron/unraid-backup.cron`. **Remaining:** confirm the 11-23 03:00 cron run and a non-zero 03:45 offsite object count; add a backup-age assertion to `restore-rehearsal.sh`; fix the Redis leg (PLT-023). Original: **🚨 No DB backup since 2026-09-07; offsite remote empty.** Run `scripts/backup.sh`, add the `0 3 * * *` line to the persistent `custom.cron`, confirm the next offsite run shows objects; add a backup-age assertion to `restore-rehearsal.sh`. | 2026-11-22 | Entry 252 | CRITICAL |
 | A150 | **✅ MOSTLY DONE 2026-07-20 (Troy: "go on everything except 3") — see Entry 251 RESULT.** (1) **OA-30 history scrub DONE** — #375 merged (`d3617d0`), `git filter-repo --replace-text` purged all 4 IDs from all 633 commits (verified 0 blobs pre-push), force-pushed `main`→`1de6818`, protection restored exactly. (2) **Host DONE** — `git fetch` updated host origin/main (no reset — host has 47 deviations); host `utility-config.yaml` untouched + present + backed up. (3) **⚠️ STILL OPEN (Troy's call, deferred):** rotate the gas/water account identifiers with the providers — a force-push does NOT purge GitHub's `refs/pull/*`/cached SHAs, so rotation (+ optional GitHub Support GC) is the only complete fix. | 2026-07-20 | Entry 251 | **MED — only identifier rotation remains (owner action w/ providers)** |
 | A149 | **file-ingestion ships TEST deps in its runtime image.** `packages/file-ingestion/Dockerfile` does `COPY requirements.txt` + `pip install -r requirements.txt`, and that file's "Testing" block (`pytest`, `httpx`) is thus baked into the production image. Harmless but bloaty, and it means a broken test-dep bump can turn `build-images` RED (exactly the #367 failure mode). Fix = split dev deps into `requirements-dev.txt` that CI installs but the Dockerfile does NOT. Separate change (touches Dockerfile + ci.yml `file-ingestion` job). | 2026-07-20 | Entry 250 | LOW — cosmetic bloat + a latent build-images fragility |
 | A147 | ~~**[#303] `WorkersMetricsAbsent` can NEVER fire~~ **❌ WRONG — #303 CLOSED as invalid 2026-07-15 (Entry 213). The alert FIRED for the whole outage (2611 samples ≈ 43.5h); Alertmanager received it; Pushover reports 0 failures. `absent()` is correct for the condition it targets, and the file's own comment says so 7 lines above the expression I judged. I asserted a runtime behaviour from a static read and never checked whether it had fired. Original text follows for the record:** ~~`WorkersMetricsAbsent` can NEVER fire — and a 40-HOUR silent scheduler outage proved it.** All BullMQ jobs dead 2026-07-13 23:15 → 2026-07-15 15:08 ET (incl. **morning-brief** and **pipeline-health**); self-healed only because the #283 deploy recreated workers. **Two safety nets, two different failures:** (1) `pipeline-health` was itself one of the dead jobs — *a watchdog on the scheduler it monitors cannot report that scheduler's death*; (2) `absent(openbrain_container_healthy{...})` **cannot fire** because **Pushgateway retains pushed metrics indefinitely** — a dead workers leaves the last value there forever. `PushgatewayStale` (`push_time_seconds` age) is the only one of the pair that works. **OA-9b would have caught this and is still OPEN.** Fix: replace `absent()` with a staleness check (or delete it as redundant), verify `PushgatewayStale` is deployed+routing (#292), and **execute OA-9b — prove the alarm rings.** | 2026-07-15 | Entry 211 | **HIGH — the alert for a dead scheduler cannot detect a dead scheduler** |
@@ -14371,3 +14376,169 @@ The UFW fix restores the path but the deeper reliability gaps remain: (a) **`ema
 - **Rollback insurance kept:** `~/open-brain-prerewrite-backup-20260720/` (305-ref `--mirror` clone + `original-protection.json`).
 - **Two lessons:** (a) `git reset --hard origin/main` after an untrack **deletes** the now-untracked working-tree file (my VM lost its `utility-config.yaml` + `arch-review/` copies in the checkout→reset oscillation; restored from host scp + the durable external arch-review copy) — realign via selective ops, and NEVER `reset --hard` a host repo with local deviations. (b) A GitHub force-push does **not** purge `refs/pull/*` + cached-SHA blobs — **identifier rotation (deferred item 3) + optional GitHub Support GC are the only complete fix.**
 - **NOT done (Troy's deferred item 3):** rotate the gas/water account identifiers with the providers.
+
+--- New session: 2026-11-22 — first session after a 4-month gap; architecture review v7 ---
+
+## Entry 252 — Architecture review v7 (9-agent) + read-only live verification (2026-11-22)  [arch-review] [debug] [database] [decision]
+
+**Objective:** re-run `/arch-review` against the whole repo after 4 dormant months (`main` unchanged at `f341ca6` since 2026-07-20) and establish (a) which v6 findings were remediated and (b) what decayed while the system ran unattended.
+**Hypothesis:** v6 clusters ②–⑤ are unstarted; dormancy added dependency and operational decay. Success = 9 domain findings files + an executive summary with every live-state claim either verified on the host or marked unverified.
+**Rollback:** N/A — review is read-only. Output is local-only under gitignored `arch-review/` (durable copy outside the repo, `open-brain-arch-review/v7-2026-11-22/`). **No tracked file changed except this entry. Nothing on the host was modified.**
+
+**Method:** 9 domain agents in parallel (no production access), then Review Lead read-only checks on the homeserver: `docker ps`/`inspect`, the persistent cron file, the backup tree, `/var/log/open-brain-*.log`, `SELECT`-only psql, and one unauthenticated `GET` per public path.
+
+**RESULT:** 197 findings as filed (C:1 H:37 M:75 L:66 +18 requires-investigation); 4 effective Criticals after live verification. **Recommendation: NO-GO as it runs today; three fixes return it to CONDITIONAL GO.** No v6 finding was closed by a code change other than the partial leak fix.
+
+**Verified live (read-only):**
+- **Backups stopped 2026-09-07.** `latest -> daily/2026-09-07`; host uptime 75d 16h ⇒ the host rebooted that evening. `scripts/backup.sh` is **not** in `/boot/config/plugins/dynamix/custom.cron` (the ingest, rehearsal, offsite, actual and parity lines are) — the backup line did not survive the reboot. **CLAUDE.md's own cron inventory ("ingest ×3, restore-rehearsal, offsite-backup") never listed it.** Root cause of where it was installed before: not determined.
+- **Offsite remote is empty.** `offsite-backup.sh` logs `Total objects: 0` then `Offsite backup complete` daily — the 2-day `--max-age` copy finds nothing and the 30-day prune removed the rest. Exit 0 throughout.
+- **Restore rehearsal passes on the stale dump** every Sunday incl. today (`captures: actual=11481`; prod = 11,714). It has no freshness assertion.
+- **The backup dead-man's switch works and was ignored.** `pipeline-health`: `backupStale:true, backupAgeSeconds:6580484`, priority-1 Pushover "Open Brain: Backup Stale" for 76 days. (Three agents showed `main`'s symlink mount at `docker-compose.yml:254` freezes at container start; the host mounts the parent directory, which is why it works live — a latent regression on the next deploy from `main`.)
+- **OpenAI account out of credits since ≈2026-08-01.** Every failed `embed` event in the last 90 days (1,379) = `429 You have no credits remaining`. Last capture with an embedding: 2026-07-31. **359 captures have no embedding and are excluded from hybrid search.** Agents proved by execution that the sweep, `stale-captures`, and `POST /captures/:id/retry` no-op against the retained `embed_<captureId>` BullMQ job — adding credits alone will not recover them.
+- **Spark tier down:** 100% of `spark-llm` calls timed out in November; nothing probes Spark. Paid Anthropic fallback ≈ $0.44–0.61/month.
+- **Parity cron (OA-27) installed but broken since at least 2026-09-08:** `ERROR: not inside a git repo` daily.
+- **`secret-rotation` cannot run:** `error: spawn bws ENOENT`, `total:0`, `alert:false` (Oct + Nov).
+- **Healthy:** all containers up; postgres/redis on raw binds + host override present; both HNSW indexes valid; pgvector 0.8.5; retention ran today on all 7 tables; Gmail + Hotmail classification both producing rows today (an agent's "Gmail likely dead" inference was **disproved** — the lesson from A147 again: do not assert runtime state from a static read); Cloudflare Access returns 302 on `/`, `/api/v1/captures`, `/mcp`.
+- **Usage fact:** last human capture = voice 2026-06-19, Slack 2026-03-31. Since July only automated sources (`api`, `email`) have written captures.
+- **One v6 Critical is re-opened** (containment incomplete outside `main`; a second item found in history). Details are deliberately local-only in `arch-review/` — this repo is public.
+
+**Findings by execution worth keeping here:** filtered vector search under-returns at current scale (`ef_search × selectivity`; fix `SET LOCAL hnsw.iterative_scan = relaxed_order`, available on 0.8.5); budget hard stop exempts the paid Anthropic client and blocks free tiers (`llm-gateway.ts:678`); `memory-consolidation` fails at seven `::uuid[]` sites and **a partial fix makes it destructive** — fix all seven + the watermark together; the multi-service e2e has been failing behind `continue-on-error` on a real defect (`core-api/src/routes/ingest.ts:134`, write stream with no `error` handler); the documented restore runbook restores zero rows when run verbatim; monthly audit posts "0 Dependabot alerts" while 273 are open.
+
+**Decision needed (not taken):** operating mode — maintenance mode designed for unattended running, or kill criteria + shutdown of the internet-facing parts. No `BRIEF.md` exists.
+
+**Action items raised:** A151 restore backups + persistent cron + verify offsite refill; A152 add OpenAI credits + re-embed stranded captures + fix the recovery path; A153 finish the v6 containment (local-only detail); A154 write `BRIEF.md` / operating-mode decision; A155 track the volume-pin template.
+
+**Tags:** [arch-review] [debug] [database] [decision]
+**Environment:** VM (review) + homeserver (read-only). Containers affected: none. Executed by Claude (Fable 5.2).
+**Duration:** ≈75 min.
+
+## Entry 253 — Restore the DB backup + persistent backup cron; delete stale leak-bearing refs (2026-11-22)  [deploy] [database] [config] [decision]
+
+**Authorisation (Troy, 2026-11-22):** "credits added, Backups: Option 1, delete the 20 old branches and tag if main is up to date." Covers A151 and the branch/tag part of A153.
+
+**Part A — backup (A151).**
+- **Objective:** end the 76-day backup gap and make the backup job survive a host reboot.
+- **Root cause (established before acting):** `backup.sh` ran from the **`claude` user's crontab**. Evidence: every directory under `/mnt/user/backup/openbrain/daily` is owned by `claude` (root-run jobs would write root-owned files); `crontab -l` as `claude` now prints `no crontab for claude`; no `backup.sh` line exists in `/etc/cron.d/root`, any `/boot/config/plugins/dynamix/*.cron`, or `/boot/config/go`. Unraid keeps user crontabs in RAM, so the 2026-09-07 reboot erased it. The offsite, rehearsal, ingest, actual and parity lines survived because they are in the persistent `custom.cron`.
+- **Hypothesis / success criteria:** (1) a manual `bash scripts/backup.sh` writes `daily/2026-11-22/` with a dump ≥ the 2026-09-07 size and a manifest `captures` count equal to the live count; (2) `latest` points at it; (3) `pg_restore --list` reads the dump; (4) after appending the line + `update_cron`, `/etc/cron.d/root` contains a `0 3 * * *` `backup.sh` line; (5) the 2026-11-23 03:45 offsite log shows a non-zero object count (verify next session).
+- **Rollback:** the manual backup only adds files (delete `daily/2026-11-22` and re-point `latest` to undo). `custom.cron` is copied to `custom.cron.bak-20261122` before the edit; restore = copy back + `/usr/local/sbin/update_cron`.
+- Host `scripts/backup.sh` and `scripts/lib/pushover-notify.sh` are byte-identical to `main` (md5 checked) — no script change is deployed by this entry.
+
+**Part B — stale refs (A153, partial).**
+- **Objective:** remove the 20 live GitHub branches and the tag whose tip trees still carry the pre-scrub identifiers.
+- **Gate (Troy's condition "if main is up to date"):** per branch, delete only when its work is already in `main` (its PR is MERGED, or its tip tree adds nothing to `main`). Anything else is reported, not deleted.
+- **Rollback:** every ref is preserved locally before deletion (verify each SHA exists in the pre-rewrite mirror `~/open-brain-prerewrite-backup-20260720/` or bundle it); restore = `git push origin <sha>:refs/heads/<name>`.
+- **Out of scope here (not authorised):** GitHub Support GC of `refs/pull/*`/cached SHAs, GHCR package visibility, key rotation, re-embedding the stranded captures.
+
+**Tags:** [deploy] [database] [config] [decision]
+**Environment:** homeserver (host cron + backup tree; no container recreated), GitHub (branch/tag refs). Executed by Claude (Fable 5.2). Results logged below as each step lands.
+
+**RESULT — Part A (backup) DONE + VERIFIED (2026-11-22 12:17–12:25 EST):**
+- `bash scripts/backup.sh` as `claude` (in the `docker` group; `.env.secrets` sourced) → **exit 0**, `daily/2026-11-22/` written, promoted to weekly (Sunday), `latest -> daily/2026-11-22`. Dump 113,213,115 bytes (2026-09-07: 113,446,369 — smaller because retention pruned event tables; `db_size_bytes` 491.5 MB).
+- Manifest `captures: 11714` = the live count read earlier today (11,714). `entities: 44313`, `entity_links: 81937`, `schema_migrations: 37`.
+- `pg_restore --list` reads the archive: 136 TABLE DATA/INDEX/FK/TRIGGER entries, including `TABLE DATA public captures` and `INDEX captures_embedding_hnsw_idx`.
+- The `workers` container sees the new manifest timestamp through its mount, so the dead-man's switch clears at the next 6-hourly `pipeline-health` run.
+- **Known gap, unchanged:** step 5 printed `WARNING: Redis BGSAVE did not complete within 60s — skipping RDB copy` (`Redis RDB: 0`). This is arch-review v7 PLT-023 / DA7-13: the script calls `redis-cli` without the password. Not fixed here.
+- **Cron:** `custom.cron` copied to `custom.cron.bak-20261122`, then appended (as `root`) `0 3 * * * cd /mnt/user/appdata/open-brain && bash -c 'set -a; . ./.env.secrets 2>/dev/null; set +a; bash scripts/backup.sh' >> /var/log/open-brain-backup.log 2>&1`; `/usr/local/sbin/update_cron`; **`/etc/cron.d/root` line 20 now carries it** (8 open-brain lines live). The job now runs as `root` (previous runs were `claude`) — new backup dirs will be root-owned; the prune, the offsite copy, the rehearsal and the read-only `workers` mount are unaffected.
+- **Tracked definition added:** `deploy/cron/unraid-backup.cron` (new file, uncommitted). CLAUDE.md cron bullet updated with the "never a user crontab" rule.
+- **Not yet verified (needs the clock):** the 2026-11-23 03:00 cron-run backup and the 03:45 offsite run showing a non-zero object count.
+
+**RESULT — Part B (refs) PARTIAL: 16 of 20 branches deleted; 4 branches + the tag HELD for Troy.**
+- Gate applied per branch. **15** have a MERGED PR whose head SHA equals the branch tip. **1** (`feat/mobile-app`) has one commit after its merged head, and `git cherry` shows that commit's patch is already in `main`. All 16 tip SHAs verified present in the pre-rewrite mirror and equal to the live remote tip, then `git push origin --delete …` → 16 × `[deleted]`. Live branches 41 → 25. Restore list: `~/open-brain-prerewrite-backup-20260720/deleted-refs-20261122.tsv`.
+- **HELD — the condition "main is up to date" is not met** (each carries docs-only content that is not on `main`; all are in the local mirror):
+  - `feat/2026-05-09-remediation` — 8 doc commits after its three merged PRs (notebook result notes, open-items notes, a "plan COMPLETE" marker).
+  - `codex/post-remediation-phase-2-docs` — 2 doc commits from 2026-05-06, never opened as a PR (143 added lines, 4 on `main`).
+  - `docs/reconcile-credential-sweep` — PR #287, closed on 2026-07-17 as superseded/stale; its "Entry 204" never reached `main`.
+  - `fix/286-untrack-utility-config-leak` — PR #357, replaced by #375; its "Entry 244" never reached `main`.
+  - tag `pre-web-sunset-2026-05` — a rollback snapshot of the pre-deletion web UI; its commit is not an ancestor of `main` by design.
+- **Still open under A153:** `refs/pull/*` and cached pre-rewrite SHAs (GitHub Support), GHCR package visibility, key rotation.
+
+**Side verification — OpenAI credits:** one `text-embedding-3-large` request from inside `open-brain-core-api` returned **HTTP 200, 768 dims**. No capture has arrived since the top-up, so no pipeline `embed` event exists yet. **359 captures remain without an embedding** — recovery needs the retained `embed_<captureId>` jobs cleared first (A152, not authorised in this entry).
+
+**Duration:** ≈20 min.
+
+## Entry 254 — ultra-plan: sequenced remediation of arch-review v7 (function / performance / stable operations) (2026-11-22)  [decision] [arch-review]
+
+**Objective:** turn the v7 findings that affect functionality, performance, or stable operations into one sequenced plan (owner's filter: security-hardening, governance, licensing, and document-style findings are out of scope and listed separately).
+**Method:** `/ultra-plan` Phases 0–4. Six read-only agents re-verified the in-scope findings against `f341ca6` by cluster; the Review Lead added read-only host facts. **Rollback:** N/A — analysis only; no code, no host change.
+**Output (local-only, gitignored):** `arch-review/reports/remediation-analysis-2026-11-22.md` + `arch-review/plan-investigation/01…06-*.md`. Two decision records drafted as **Proposed**: `docs/adr/ADR-0005-alert-state-model.md`, `docs/adr/ADR-0006-deployed-state-identity.md`.
+
+**RESULT:** 110 in-scope findings → **60 work items in 9 phases** (Phase 0 = the three fixes already done in Entry 253). Order: 1 stabilize live (re-embed the 359, confirm backup/offsite) → 2 alerts with state → 3 deploy foundation + host tree reconcile + first clean deploy → 4 backup/restore hardening → 5 stateful window (0037, postgres, redis, cloudflared, speech-to-text) → 6 capture pipeline · 7 search and memory · 8 LLM gateway · 9 patch pipeline and CI (6–9 independent).
+
+**Things the investigation corrected (do not re-derive):**
+- **Capture re-drive:** "suffix job IDs", "remove the whole flow tree", and "mark `failed` on exhaustion" are all unsafe (duplicate commitments + paid wiki-ingest per sweep; orphaned enrichment children re-attach and the new root waits forever; `failed` is not sweepable). Safe fix = remove only the retained root + embed jobs, re-add an embed-only flow.
+- **Memory consolidation:** 8 raw `::uuid[]` interpolations on 7 lines, AND `repointAssociations` fails on shared neighbours ("ON CONFLICT … cannot affect row a second time"), AND the watermark is keyed on `created_at`. Ship the whole fix with a real-database test or leave it alone.
+- **Budget:** six threshold copies (config $20/$35 is the truth), not three.
+- **Dependabot root failures:** `strict-peer-dependencies` + an Expo peer mismatch in `packages/mobile`; exact `pnpm.overrides` cap three packages below their fixed versions.
+- **Restore:** `PGOPTIONS='-c max_parallel_maintenance_workers=0'` makes a restore correct with any `/dev/shm`; the Postgres recreate is not a precondition for restore work.
+- **Parity cron:** git "dubious ownership" (root in a `claude`-owned tree) reported as "not inside a git repo"; host git 2.51.1 honours `-c safe.directory`. OA-27 was never actually working.
+- **Host facts (md5, today):** the operations scripts on the host equal `main`; only `docker-compose.yml` and `utility-pipeline.py` differ; the host tree lacks `0037_drop_voice_sessions.sql` and `config/whisper/`. `open-brain-core-api` has no inbox mount → web upload is dead in production. `triggers` has 0 rows. The 2 unembedded captures not at `extracted` are at `failed`.
+- **New defects (in no finding):** offsite has never held config files (`cp -a` keeps old mtimes vs `--max-age 2d`); a dead tier costs a 120 s timeout per call; the public path cuts at 30 s while inner hops allow 120–180 s; `deploy.md:140-143` "normal deploy" recreates two stateful services; `pgdata/` and `redis-data/` sit un-gitignored inside the working tree; `docker compose config` output inlines secrets.
+
+**Time-boxed:** dated test fixtures expire 2026-12-31; GitHub likely disables scheduled workflows ≈2026-12-23 without a merge to `main`; hardcoded `tts-1` has a reported vendor shutdown of 2027-01-06 (unverified).
+
+**Decision needed (not taken):** approve the plan → generate the formal implementation plan file. The 4 held leak-bearing branches + 1 tag (Entry 253) are still awaiting an answer.
+
+**Tags:** [decision] [arch-review]
+**Environment:** VM (analysis) + homeserver (read-only md5/inspect checks). Executed by Claude (Fable 5.2).
+**Duration:** ≈45 min.
+
+**RESULT — formal plan generated (2026-11-22, Troy: "proceed"):** two plan files in the repo root (untracked), in the `/implement-plan` format:
+- `IMPLEMENTATION_PLAN-2026-11-remediation.md` — Part 1, Phases 1–8, 41 work items (stabilize → alert core → watchers → deploy foundation ×2 → backup/restore ×2 → stateful window).
+- `IMPLEMENTATION_PLAN-2026-11-remediation-part2.md` — Part 2, Phases 9–16, 40 work items (capture pipeline, small paths, search and memory, gateway core, budget follow-through, edges, patch pipeline, mechanical hardening).
+- 60 analysis items became 81 plan items: the plan tool allows 8 phases per file, 6 items per phase, 8 files per item, and its fingerprint needs unique numeric IDs (`1.5a`/`1.5b` would both parse as `1.5`). Nothing added or dropped — verified: all 137 finding and operator-action IDs from the analysis appear in a plan file; every item has a traceability row; no duplicate IDs; 8 Definition-of-Done blocks per file.
+- Run with `/personal-plugin:implement-plan --input IMPLEMENTATION_PLAN-2026-11-remediation.md` from a feature branch with a clean tree (the runner refuses a dirty tree — today's uncommitted files go in first, plan item 1.6).
+- **Before `LAB_NOTEBOOK.md` is committed:** Entry 253 names the five held refs; settle that decision first.
+
+---
+
+## Entry 255 — Delete the 5 held leak-bearing refs; confirm the first cron backup + offsite refill (2026-11-23)  [config] [database] [decision]
+
+**Objective:** (1) Troy chose "Option 1" on 2026-11-23: delete the 4 branches + 1 tag that Entry 253 held, so that no branch or tag on the public repository carries the utility account IDs. (2) Read-only: confirm the first scheduled run of the persistent backup cron (03:00) and of the offsite copy (03:45) — the open half of A151 and plan item 1.1.
+
+**Hypothesis:** after one `git push origin --delete` of the 5 refs, `git ls-remote origin` returns none of them; live heads go 25 → 21 and tags 2 → 1. No pull request closes as a side effect. `main` and its branch protection are untouched.
+
+**Pre-checks (all done before the delete):**
+- `gh` active account = `davistroy`.
+- 0 open pull requests on the 4 branch heads; no GitHub release uses the tag.
+- All 6 objects (4 branch tips, the tag object, the tagged commit) are present in the pre-rewrite mirror (`~/open-brain-prerewrite-backup-20260720/open-brain-mirror.git`) under the same ref names; 7,796 objects reachable from them.
+- Restore list written to `~/open-brain-prerewrite-backup-20260720/deleted-refs-20261123.tsv`. The SHAs stay out of this notebook on purpose (public repository; a SHA is still fetchable until GitHub garbage-collects it).
+
+**Rollback:** from the mirror, `git --git-dir=<mirror> push origin <sha>:refs/heads/<name>` (tag: `<tag-sha>:refs/tags/<name>`), SHAs from the restore list.
+
+**Not covered (still open under A153):** `refs/pull/*` and cached SHAs on GitHub (needs a GitHub Support garbage collection), the public GHCR `ingest-sidecar` images, the key literal in `main` history, and rotation of the identifiers.
+
+**Tags:** [config] [database] [decision]
+**Environment:** VM (git push to GitHub) + homeserver (read-only log and directory reads). Executed by Claude (Fable 5.2).
+
+**RESULT — Part 1 (refs) DONE, 2026-11-23 08:12 EST:**
+- One push deleted `codex/post-remediation-phase-2-docs`, `docs/reconcile-credential-sweep`, `feat/2026-05-09-remediation`, `fix/286-untrack-utility-config-leak`, and tag `pre-web-sunset-2026-05`.
+- Verify: `git ls-remote origin` for the 5 names → 0 lines. Live heads 25 → 21. Tags 1 → 0 (the pre-check count of "2" was the tag line plus its peeled `^{}` line — the hypothesis "2 → 1" misread that). `main` unchanged at `f341ca6`.
+- Cross-check: 0 names from yesterday's leak list (`leak-bearing-refs-20261122.tsv`, 20 branches + the tag) are still live on GitHub.
+- Local: deleted the local tag (a later `git push --tags` would have published it again); `git fetch --prune` removed the stale remote-tracking refs. Two local branches of the same names remain on the VM only (`docs/reconcile-credential-sweep`, `fix/286-untrack-utility-config-leak`) — never push them.
+- The guard in Entry 254 ("settle the five held refs before `LAB_NOTEBOOK.md` is committed") is satisfied.
+
+**RESULT — Part 2 (backup + offsite, read-only) PASS:**
+- Backup cron: `daily/2026-11-23` written 03:00–03:01, owner `root` (the tell-tale for the persistent cron, versus `claude` for the lost user crontab). `latest` → `daily/2026-11-23`. Dump 113,231,143 bytes; manifest `captures` = 11,714. Log: "Backup complete", prune ran (14 daily kept).
+- Offsite: the 03:45 run reports `Total objects: 12`, `333.117 MiB` — the first non-zero count after 0 objects on 11-20, 11-21, and 11-22.
+- `grep -c open-brain /etc/cron.d/root` = 8 (matches the CLAUDE.md count).
+- Still broken, as known: `Redis RDB: 0` (plan item 6.4); the manifest reports `git_sha: unknown`; offsite carries no config files (the `--max-age 2d` vs `cp -a` mtime defect, plan Phase 7).
+
+**Duration:** ≈15 min.
+
+--- New session: 2026-11-23 — remediation plan Phase 1 (Troy: "Option A. Start phase 1") ---
+
+## Entry 256 — Remediation Phase 1: land the records (1.6), re-embed the 359 stranded captures (1.2) (2026-11-23)  [deploy] [database] [embedding] [pipeline] [debug]
+
+**Authorisation (Troy, 2026-11-23):** "Option A. Start phase 1." Option A = commit both remediation plan files into the public repository.
+
+**Item 1.1 (confirm backup + offsite):** satisfied by Entry 255 Part 2 (read-only, this morning): `daily/2026-11-23` written 03:00 by root, manifest `captures` = 11,714; offsite `Total objects: 12`, 333.117 MiB. Tasks 5 (count `/config/` objects on the remote) and 6 (`backupStale` in the newest `pipeline-health` row) are read later in this entry.
+
+**Item 1.6 part 1 (commit the records) — objective:** a clean working tree on a feature branch, so the plan runner can start. **Hypothesis:** one commit on `feat/2026-11-remediation-phase1` holds `LAB_NOTEBOOK.md`, `CLAUDE.md`, `deploy/cron/unraid-backup.cron`, both ADRs, and both plan files; `git status -s` is empty after it (only gitignored `arch-review/` remains on disk). **Rollback:** `git reset --soft HEAD~1` (local only; nothing is pushed until Troy asks). Pre-check done: no leak SHA, key, sync ID, or financial value in the 7 files (grep for 40/64-hex strings, `MCP_API_KEY=`, `sync id`; the only hex hits are pre-existing committed lines).
+
+**Item 1.2 (re-embed) — objective:** every capture with `embedding IS NULL AND deleted_at IS NULL` gets an embedding, so hybrid search finds captures made after 2026-08-01.
+**Hypothesis / success criteria:** (1) the inventory shows 357 `extracted` + 2 `failed`; (2) `--dry-run` prints one decision per capture and changes no Redis key; (3) `--limit 10` → those 10 reach `complete` with a non-null embedding; (4) the full run → the unembedded count is 0; (5) no `extract-entities_`, `extract-commitments_`, or `wiki-ingest_` job is added or removed (paid per item); (6) cost ≈ 359 embedding calls ≈ $0.20.
+**Rollback:** embeddings are additive (no row loses data). The status reset of the 2 `failed` rows reverses with `UPDATE captures SET pipeline_status='failed' WHERE id IN (<the 2 recorded IDs>)`. Removed BullMQ jobs are retained-history records of failed attempts only (their capture rows are untouched). Backup: `daily/2026-11-23` (Entry 255).
+**Window:** run outside 03:00–03:30 (the 03:00 sweep adds a full flow for any capture at `extracted`, which re-runs paid enrichment).
+
+**Tags:** [deploy] [database] [embedding] [pipeline] [debug]
+**Environment:** VM (repo work, git) + homeserver (`open-brain-workers`, `open-brain-postgres`, Redis via the workers container). Executed by Claude (Opus 5.5), Troy present.
