@@ -126,7 +126,7 @@ Items 4.1–4.4 are repo-only and may run alongside Phases 2–3; item 4.5 needs
 ### Work Items
 
 #### 1.1 Confirm the cron backup and the offsite refill
-**Status: PENDING**
+**Status: COMPLETE (2026-11-23, LAB_NOTEBOOK Entries 255–256)**
 **Model Tier: sonnet**
 **Requirement Refs:** LIVE-1 (L1, L2), DA7-08
 **Files Affected:**
@@ -156,7 +156,7 @@ HOST — operator-gated. Run in a session with the owner present; an unattended 
 ---
 
 #### 1.2 Re-embed the 359 stranded captures
-**Status: PENDING**
+**Status: COMPLETE (2026-11-23, LAB_NOTEBOOK Entry 256 — 357 re-embedded; the 2 `failed` document captures excluded by ruling)**
 **Model Tier: opus**
 **Requirement Refs:** LIVE-2 (L5), SE7-01, PE-012, DA7-19
 **Depends On:** 1.1
@@ -2047,7 +2047,7 @@ Every phase is Sequential. The pairs below share no file, or share the files nam
 | ID | Unknown | Severity | Affects | Resolution Strategy | Status |
 |----|---------|----------|---------|---------------------|--------|
 | U1 | The full contents of the host tree's 72 dirty paths and of the host override | High | Phase 5, Item 5.5; Phase 8, Items 8.2, 8.3 | The root-only snapshot of item 5.5; classify each path as "matches `main`", "host-only by design", or "drift" before the checkout | Open |
-| U2 | Whether the offsite remote refills on 2026-11-23, and whether config files have ever reached the remote | High | Phase 1, Item 1.1; Phase 7, Item 7.1 | Read the offsite log after 03:45; list the remote with `rclone lsf` | Open |
+| U2 | Whether the offsite remote refills on 2026-11-23, and whether config files have ever reached the remote | High | Phase 1, Item 1.1; Phase 7, Item 7.1 | Read the offsite log after 03:45; list the remote with `rclone lsf` | Resolved 2026-11-23 (Entries 255–256): refilled — 12 objects / 333 MiB; `/config/` objects on the remote = 0 (expected until items 6.4 and 7.1) |
 | U3 | Whether a musl build of `bws` exists for the pinned version | Medium | Phase 3, Item 3.6 | The `docker build --target workers` command of item 3.6 | Open |
 | U4 | Whether the Spark tier can be restored, and by when | Medium | Phase 1, Item 1.3; Phase 4, Item 4.5 | Owner check on the Spark host. The circuit breaker of Part 2 (item 12.3) removes the dependence on the answer. | Open |
 | U5 | Vendor dates and versions: the `cloudflared` support window and a tested `speaches` tag | Medium | Phase 5, Item 5.4; Phase 8, Items 8.3, 8.4 | Read each vendor page at implementation time; none was verified offline. The `tts-1` date, the dated model default, and the edge request limit affect Part 2. | Open |
