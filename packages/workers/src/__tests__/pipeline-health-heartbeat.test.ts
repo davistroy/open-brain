@@ -15,7 +15,7 @@ function makeMockQueueFactory() {
   return (name: string) => ({
     getJobCounts: vi.fn().mockResolvedValue({ waiting: 0, active: 0, failed: 0, delayed: 0, paused: 0 }),
     getJobCountByTypes: vi.fn().mockResolvedValue(0),
-    getJobs: vi.fn().mockResolvedValue([]),
+    countFailedSince: vi.fn().mockResolvedValue(0),
     close: vi.fn().mockResolvedValue(undefined),
   })
 }

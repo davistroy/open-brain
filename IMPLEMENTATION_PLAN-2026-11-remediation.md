@@ -645,8 +645,8 @@ core-api does not import from `@open-brain/workers` (project rule), so the regis
 
 ### Work Items
 
-#### 3.1 `pipeline-health` that can return to green
-**Status: PENDING**
+#### 3.1 `pipeline-health` that can return to green ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** PE-013, SA7-11, PE-012 (stuck-capture alert)
 **Depends On:** 2.2, 2.6 (cross-phase; Phase 2)
