@@ -1,0 +1,40 @@
+# Open Brain — Daily database backup cron entry (Unraid host)
+#
+# INSTALLED 2026-11-22 (LAB_NOTEBOOK Entry 253, arch-review v7). Kept for reference/rebuild.
+#
+# WHY THIS FILE EXISTS: until 2026-11-22 this job had NO tracked definition. It ran
+#   from the `claude` USER crontab. Unraid keeps user crontabs in RAM
+#   (/var/spool/cron), so the 2026-09-07 host reboot erased it. No backup ran for
+#   76 days; the offsite remote drained to 0 objects (its 30-day prune kept
+#   running); the weekly restore rehearsal kept passing against the stale dump.
+#   The only persistent cron location on Unraid is the file below.
+#   NEVER install an Open Brain job with `crontab -e`.
+#
+# INSTALL (once, after a homeserver rebuild):
+#   1. SSH to homeserver as `root` (/boot/config is root-only).
+#   2. Append the cron line below (with a comment) to:
+#        /boot/config/plugins/dynamix/custom.cron
+#   3. Reload cron: /usr/local/sbin/update_cron
+#   4. Verify: grep 'scripts/backup.sh' /etc/cron.d/root
+#   5. Run it once by hand and confirm a new daily dir + `latest` link:
+#        cd /mnt/user/appdata/open-brain && bash scripts/backup.sh
+#        readlink /mnt/user/backup/openbrain/latest
+#
+# SCHEDULE: daily 03:00 — the offsite copy (03:45) and the Sunday restore
+#   rehearsal (05:30) both read what this job writes. The Unraid appdata backup
+#   cold-stops containers at 00:00 and is finished well before 03:00.
+#
+# ROLLBACK:
+#   sed -i '/scripts\/backup.sh/d' /boot/config/plugins/dynamix/custom.cron
+#   /usr/local/sbin/update_cron
+#
+# LOGS: /var/log/open-brain-backup.log (RAM — cleared at reboot)
+#
+# PUSHOVER: success (priority 0) and failure (priority 1) via
+#   scripts/lib/pushover-notify.sh — the cron line sources .env.secrets (set -a)
+#   for PUSHOVER_APP_TOKEN/USER_KEY.
+#
+# AFTER ANY HOST REBOOT: confirm all Open Brain lines are live:
+#   grep -c open-brain /etc/cron.d/root
+
+0 3 * * * cd /mnt/user/appdata/open-brain && bash -c 'set -a; . ./.env.secrets 2>/dev/null; set +a; bash scripts/backup.sh' >> /var/log/open-brain-backup.log 2>&1
