@@ -14542,3 +14542,12 @@ The UFW fix restores the path but the deeper reliability gaps remain: (a) **`ema
 
 **Tags:** [deploy] [database] [embedding] [pipeline] [debug]
 **Environment:** VM (repo work, git) + homeserver (`open-brain-workers`, `open-brain-postgres`, Redis via the workers container). Executed by Claude (Opus 5.5), Troy present.
+
+**RESULT — 1.6 part 1:** commit `c9c4572` on `feat/2026-11-remediation-phase1` (7 files); `git status -s` empty after it. Not pushed.
+
+**RESULT — 1.2 repo work (tasks 1–3):** `scripts/redrive-stranded-embeds.mjs` written; `node --check` exit 0. Proved against a throwaway `redis:7-alpine` + the repo's own `bullmq@5.70.4` (26/26 checks): real flows with a failed embed child + failed root (the stranded shape), a live flow, a completed flow, a `prioritized` standalone job, and no job at all. `--dry-run` leaves every Redis key byte-identical (DUMP compare); `--limit 1` touches only the first ID; the re-added job has no parent, `attempts: 5`, `backoff: custom`; the enrichment queues are byte-identical before and after; a worker completes the re-driven job and no root reappears. Invalid UUID line or a missing `--ids-file` → exit 2.
+**Rulings (deviations from the plan text):**
+- `prioritized` counts as in flight. BullMQ v5 puts any job with a priority in `prioritized`, not `waiting`; the plan's list missed it. Cost if wrong: a few captures skipped and left for the next run.
+- Skip the capture when `ingest-root_<id>` is in flight (not only when the embed job is). A live flow owns that capture. Cost if wrong: same as above.
+- `skipMetasUpdate: true` on both queues: a BullMQ `Queue` writes the queue `meta` hash at start-up, which would break "dry run changes no Redis key".
+- Known consequence, accepted by the plan: `link-entities` and `check-triggers` run inline in `ingest-root`, so they do not run for re-driven captures (`triggers` has 0 rows; the general re-drive fix is Part 2, Phase 9).
