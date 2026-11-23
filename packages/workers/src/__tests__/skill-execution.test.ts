@@ -83,6 +83,9 @@ vi.mock('@open-brain/shared', () => ({
   loadEmailRules: sharedMocks.loadEmailRules,
 }))
 
+const heartbeatMocks = vi.hoisted(() => ({ recordHeartbeat: vi.fn().mockResolvedValue(null) }))
+vi.mock('../lib/heartbeat.js', () => ({ recordHeartbeat: heartbeatMocks.recordHeartbeat }))
+
 vi.mock('bullmq', () => {
   class UnrecoverableError extends Error {
     constructor(message?: string) {
@@ -327,6 +330,36 @@ describe('skill-execution — LLM synthesis skills', () => {
       expect.objectContaining({ skillName: 'memory-consolidation', totalMerged: 1 }),
       '[skill-execution] memory-consolidation complete',
     )
+  })
+
+  it('records a memory-consolidation heartbeat: ok when no cluster errored', async () => {
+    const { processor, db } = build()
+    skillMocks.memoryConsolidation.execute.mockResolvedValueOnce({ totalMerged: 1, totalSkipped: 0, totalErrors: 0, clusterResults: [], durationMs: 1 })
+    await processor(fakeJob('memory-consolidation'))
+    expect(heartbeatMocks.recordHeartbeat).toHaveBeenCalledWith(db, 'memory-consolidation', { ok: true, errors: [] })
+  })
+
+  it('records ok=false with the cluster errors when a cluster failed', async () => {
+    const { processor, db } = build()
+    skillMocks.memoryConsolidation.execute.mockResolvedValueOnce({
+      totalMerged: 0, totalSkipped: 0, totalErrors: 1, clusterResults: [{ error: 'boom' }, {}], durationMs: 1,
+    })
+    await processor(fakeJob('memory-consolidation'))
+    expect(heartbeatMocks.recordHeartbeat).toHaveBeenCalledWith(db, 'memory-consolidation', { ok: false, errors: ['boom'] })
+  })
+
+  it('records no heartbeat for a gated memory-consolidation run', async () => {
+    const { processor } = build()
+    skillMocks.memoryConsolidation.execute.mockResolvedValueOnce({ status: 'gated', durationMs: 0 })
+    await processor(fakeJob('memory-consolidation'))
+    expect(heartbeatMocks.recordHeartbeat).not.toHaveBeenCalled()
+  })
+
+  it('records ok=false and rethrows when memory-consolidation throws', async () => {
+    const { processor, db } = build()
+    skillMocks.memoryConsolidation.execute.mockRejectedValueOnce(new Error('sql broke'))
+    await expect(processor(fakeJob('memory-consolidation'))).rejects.toThrow('sql broke')
+    expect(heartbeatMocks.recordHeartbeat).toHaveBeenCalledWith(db, 'memory-consolidation', { ok: false, errors: ['sql broke'] })
   })
 
   it('dispatches email-compose when instruction is present', async () => {

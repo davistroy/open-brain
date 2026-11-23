@@ -910,7 +910,7 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     await makeSkillWith(db, pushover, { 'embed-capture': { stalled: 2 } }).execute()
 
     expect(sentCalls(pushover).map(c => c.title).sort()).toEqual(['Backup Stale', 'Capture Flow Stale', 'Queue Stalled: embed-capture'])
-    expect([...store.keys()].sort()).toEqual([
+    expect([...store.keys()].filter(k => k.startsWith('alert_state:')).sort()).toEqual([
       'alert_state:backup-stale',
       'alert_state:capture-flow',
       'alert_state:queue-stalled:embed-capture',
@@ -972,7 +972,7 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     }).execute({ failedThreshold: 5 })
 
     expect(sentCalls(pushover)).toEqual([])
-    expect([...store.keys()]).toEqual([])
+    expect([...store.keys()].filter(k => k.startsWith('alert_state:'))).toEqual([])
   })
 
   it('F1: failures are counted with one O(log n) count per window (6 h alert, 24 h gauge), no job scan', async () => {
@@ -1122,7 +1122,7 @@ describe('PipelineHealthSkill — item 3.1 (24 h failures, embed-stall, gauges)'
 
     expect(result.healthy).toBe(true)
     expect(sentCalls(pushover)).toEqual([])
-    expect([...store.keys()]).toEqual([])
+    expect([...store.keys()].filter(k => k.startsWith('alert_state:'))).toEqual([])
     const g = pushedMetrics().find(m => m.name === 'openbrain_queue_failed_24h' && m.labels?.queue === 'ingest-root')
     expect(g?.value).toBe(0)
     // the retained total keeps its own gauge

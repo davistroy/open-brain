@@ -35,6 +35,7 @@ import { registerInsurancePoliciesRoutes } from './routes/insurance-policies.js'
 import { registerBriefRoutes } from './routes/briefs.js'
 import type { TtsDeps } from './routes/briefs.js'
 import { registerCommitmentRoutes } from './routes/commitments.js'
+import { registerHeartbeatRoutes } from './routes/heartbeat.js'
 import { mountMcpServer } from './mcp/server.js'
 import type { CaptureService } from './services/capture.js'
 import type { SearchService } from './services/search.js'
@@ -283,6 +284,12 @@ export function createApp(deps: AppDependencies = {}): Hono {
   // PATCH /api/v1/commitments/:id, POST /api/v1/commitments
   if (db) {
     registerCommitmentRoutes(app, db)
+  }
+
+  // Internal heartbeat intake — host-cron sidecars (gas, actual) report last-success.
+  // POST /api/v1/internal/heartbeat/:source; callers utility-pipeline / actual-pipeline only.
+  if (db) {
+    registerHeartbeatRoutes(app, db)
   }
 
   // Voice captures proxy — forwards multipart uploads to internal voice-capture service.

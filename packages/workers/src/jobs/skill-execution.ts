@@ -34,6 +34,7 @@ import { EmailClassifySkill } from '../skills/email-classify.js'
 import { RefineBriefSkill } from '../skills/refine-brief.js'
 import { EntityBriefSkill } from '../skills/entity-brief.js'
 import { HotmailClient, GmailClient, EmailClassifier, loadEmailRules } from '@open-brain/shared'
+import { recordHeartbeat } from '../lib/heartbeat.js'
 import path from 'node:path'
 
 /**
@@ -182,15 +183,30 @@ export function createSkillExecutionWorker(
         }
 
         case 'memory-consolidation': {
-          const result = await runSkill(
-            MemoryConsolidationSkill,
-            { db, llmGateway: opts.llmGateway },
-            {
-              similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
-              minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
-              maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,
-            },
-          )
+          let result
+          try {
+            result = await runSkill(
+              MemoryConsolidationSkill,
+              { db, llmGateway: opts.llmGateway },
+              {
+                similarityThreshold: typeof input?.similarityThreshold === 'number' ? input.similarityThreshold : undefined,
+                minClusterSize: typeof input?.minClusterSize === 'number' ? input.minClusterSize : undefined,
+                maxClusters: typeof input?.maxClusters === 'number' ? input.maxClusters : undefined,
+              },
+            )
+          } catch (err) {
+            // A throw is a failed run: record it so source freshness alerts now, not after the 8 d window.
+            await recordHeartbeat(db, 'memory-consolidation', {
+              ok: false,
+              errors: [err instanceof Error ? err.message : String(err)],
+            })
+            throw err
+          }
+          // A gated run did no work: it is neither a success nor a failure, so no heartbeat.
+          if (result.status !== 'gated') {
+            const errors = (result.clusterResults ?? []).flatMap(r => (r.error ? [String(r.error)] : []))
+            await recordHeartbeat(db, 'memory-consolidation', { ok: result.totalErrors === 0, errors })
+          }
           logger.info(
             { skillName, totalMerged: result.totalMerged, totalSkipped: result.totalSkipped, totalErrors: result.totalErrors, durationMs: result.durationMs },
             '[skill-execution] memory-consolidation complete',

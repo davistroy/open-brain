@@ -726,8 +726,8 @@ The digest prints the operator-action line on every run, so an overdue row is re
 
 ---
 
-#### 3.3 Per-source heartbeats: store, internal route, reader
-**Status: PENDING**
+#### 3.3 Per-source heartbeats: store, internal route, reader ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** INT-001, QA-012 (canary), SA7-07
 **Depends On:** 3.2

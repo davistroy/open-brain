@@ -4,6 +4,7 @@ import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger, WORKER_QUEUES, ALL_MONITORED_QUEUES } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
 import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
+import { ensureHeartbeatBaseline } from '../lib/heartbeat.js'
 import { legacyPushEnabled, alertStateEnabled, queueAlertKey } from '../lib/alert-state.js'
 import type { MetricLine } from '../lib/push-metrics.js'
 import { BaseSkill } from './base-skill.js'
@@ -13,7 +14,10 @@ import {
   queryEmbedStall as queryEmbedStallFromDb,
   queryStuckCaptures as queryStuckCapturesFromDb,
   queryPipelineSuccessShare as queryPipelineSuccessShareFromDb,
+  querySourceFreshness as querySourceFreshnessFromDb,
+  EXPECTED_HEARTBEAT_SOURCES,
   type EmbedStallStats,
+  type SourceFreshnessResult,
   checkCaptureFlow as checkCaptureFlowFromDb,
   wasCaptureFlowAlertSentRecently as wasCaptureFlowAlertSentRecentlyFromDb,
 } from './pipeline-health-query.js'
@@ -73,6 +77,10 @@ export interface PipelineHealthResult extends BaseResult {
   alertSent: boolean
   /** Live captures with no embedding for more than 2 h (excluding `failed`); null when the query failed. */
   embedStalled: number | null
+  /** Sources whose heartbeat is stale (item 3.3); null when freshness was not observed. */
+  staleSources: string[] | null
+  /** `source:ageDays` for voice/slack/email captures idle over 7 d. Listed, never alerted. */
+  quietCaptureSources: string[]
   /** Live captures at a sweepable status for more than 24 h; null when the query failed. */
   stuckCaptures: number | null
 }
@@ -319,11 +327,17 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     const stuckCaptures = await queryStuckCapturesFromDb(this.db)
     const successShare7d = await queryPipelineSuccessShareFromDb(this.db, 7)
 
+    // Step 3.56 (item 3.3): per-source heartbeats. Baseline first, so a source
+    // with no record starts its clock now and raises nothing on this run.
+    // Skipped with the alert-state switch off (rollback path): no app_settings access.
+    const sourceFreshness = stateOn ? await this.observeSourceFreshness(new Date()) : null
+
     // Step 3.6: Push queue metrics to Pushgateway
     await this.pushQueueMetrics(queues, {
       stuck: stuckCaptures,
       unembedded: embedStall?.unembedded ?? null,
       successShare7d,
+      sourceFreshness,
     })
 
     // Step 3.7: Backup dead-man's switch — stat manifest, emit age gauge,
@@ -347,7 +361,8 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
 
     const embedStalled = embedStall?.stalled ?? null
     const healthy =
-      !shouldAlert && !stateQueuesBad && recentFailures.length === 0 && !backupCheck.stale && !(embedStalled !== null && embedStalled > 0)
+      !shouldAlert && !stateQueuesBad && recentFailures.length === 0 && !backupCheck.stale && !(embedStalled !== null && embedStalled > 0) &&
+      !(sourceFreshness?.sources.some(f => f.stale) ?? false)
 
     let alertSent = false
     if (shouldAlert && legacyPush) {
@@ -378,6 +393,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       queueConditions,
       captureFlowObserved,
       embedStall,
+      sourceFreshness,
     })
     alertSent = alertSent || stateAlertSent
 
@@ -394,7 +410,9 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       backupAgeSeconds: backupCheck.ageSeconds,
       alertSent,
       embedStalled,
+      staleSources: sourceFreshness ? sourceFreshness.sources.filter(s => s.stale).map(s => s.source) : null,
       stuckCaptures,
+      quietCaptureSources: sourceFreshness ? sourceFreshness.captureSources.filter(c => c.quiet).map(c => `${c.source}:${c.ageDays}d`) : [],
       durationMs,
     }
 
@@ -567,7 +585,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    */
   private async pushQueueMetrics(
     queues: QueueStats[],
-    capture: { stuck: number | null; unembedded: number | null; successShare7d: number | null },
+    capture: { stuck: number | null; unembedded: number | null; successShare7d: number | null; sourceFreshness: SourceFreshnessResult | null },
   ): Promise<void> {
     const metrics: MetricLine[] = []
 
@@ -596,7 +614,28 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       metrics.push({ name: 'openbrain_pipeline_success_share_7d', value: capture.successShare7d, help: 'Share of captures from the last 7 days that reached complete', type: 'gauge' })
     }
 
+    for (const f of capture.sourceFreshness?.sources ?? []) {
+      if (f.ageSeconds === null) continue
+      metrics.push({
+        name: 'openbrain_source_last_success_seconds', value: f.ageSeconds, labels: { source: f.source },
+        help: 'Seconds since the source last reported a successful run', type: 'gauge',
+      })
+    }
+
     await pushMetrics(metrics)
+  }
+
+  /**
+   * Item 3.3: write baselines for expected sources that have no heartbeat, then
+   * read freshness. Never throws; null = not observed (open alerts are held).
+   */
+  private async observeSourceFreshness(now: Date): Promise<SourceFreshnessResult | null> {
+    try {
+      await ensureHeartbeatBaseline(this.db, EXPECTED_HEARTBEAT_SOURCES, now)
+    } catch (err) {
+      logger.warn({ err }, '[pipeline-health] heartbeat baseline failed')
+    }
+    return querySourceFreshnessFromDb(this.db, now)
   }
 
   // ----------------------------------------------------------
@@ -743,6 +782,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     queueConditions: QueueCondition[]
     captureFlowObserved: boolean | null
     embedStall: EmbedStallStats | null
+    sourceFreshness: SourceFreshnessResult | null
   }): Promise<boolean> {
     let sent = false
 
@@ -773,6 +813,18 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
         bad,
         title: 'Embeddings Stalled',
         message: bad ? embedStallMessage(e) : 'No captures are waiting on an embedding for more than 2 hours.',
+      })
+      sent = sent || r.sent
+    }
+
+    // One alert per source (item 3.3). Sources are observed or absent, never guessed.
+    for (const f of p.sourceFreshness?.sources ?? []) {
+      const r = await this.raiseAlert({
+        key: `source-stale:${f.source}`,
+        severity: 'warning',
+        bad: f.stale,
+        title: `Source Stale: ${f.source}`,
+        message: f.stale ? `${f.source}: ${f.reason}.` : `${f.source}: last success ${f.lastSuccessAt ?? 'unknown'}.`,
       })
       sent = sent || r.sent
     }
@@ -813,6 +865,8 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       `backupAgeSeconds:${result.backupAgeSeconds ?? 'n/a'}`,
       `embedStalled:${result.embedStalled ?? 'n/a'}`,
       `stuckCaptures:${result.stuckCaptures ?? 'n/a'}`,
+      `staleSources:${result.staleSources === null ? 'n/a' : result.staleSources.length > 0 ? result.staleSources.join(',') : 'none'}`,
+      ...(result.quietCaptureSources.length > 0 ? [`quietSources:${result.quietCaptureSources.join(',')}`] : []),
       `alert:${result.alertSent}`,
     ].join(' | ')
 
