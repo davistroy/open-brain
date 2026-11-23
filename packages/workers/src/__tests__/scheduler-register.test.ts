@@ -135,16 +135,17 @@ describe('registerScheduledJobs — execution coverage', () => {
     ])
   })
 
-  it('registers all 17 skill-execution repeatables with their documented crons and jobIds', async () => {
+  it('registers all 18 skill-execution repeatables with their documented crons and jobIds', async () => {
     await registerScheduledJobs(FAKE_CONNECTION)
 
     const jobs = addedJobs('skill-execution')
-    expect(jobs).toHaveLength(17)
+    expect(jobs).toHaveLength(18)
 
     expect(jobs).toEqual(
       expect.arrayContaining([
         { name: 'daily-connections', pattern: '10 6 * * *', jobId: 'scheduled_daily-connections' },
         { name: 'drift-monitor', pattern: '15 7 * * *', jobId: 'scheduled_drift-monitor' },
+        { name: 'ops-digest', pattern: '30 7 * * *', jobId: 'scheduled_ops-digest' },
         { name: 'pipeline-health', pattern: '0 */6 * * *', jobId: 'scheduled_pipeline-health' },
         {
           name: 'daily-sweep-skill',

@@ -16,6 +16,7 @@ import { DailyConnectionsSkill } from '../skills/daily-connections.js'
 import { WikiIngestSkill } from '../skills/wiki-ingest.js'
 import { WeeklyBriefSkill } from '../skills/weekly-brief.js'
 import { DriftMonitorSkill } from '../skills/drift-monitor.js'
+import { OpsDigestSkill } from '../skills/ops-digest.js'
 import { DailySweepSkill } from '../skills/daily-sweep-skill.js'
 import { MemoryConsolidationSkill } from '../skills/memory-consolidation.js'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
@@ -151,6 +152,15 @@ export function createSkillExecutionWorker(
           logger.info(
             { skillName, driftItemCount: result.output.drift_items.length, overallHealth: result.output.overall_health, notificationSent: result.notificationSent, durationMs: result.durationMs },
             '[skill-execution] drift-monitor complete',
+          )
+          break
+        }
+
+        case 'ops-digest': {
+          const result = await runSkill(OpsDigestSkill, { db, pushover: opts.pushover }, {})
+          logger.info(
+            { skillName, openAlerts: result.openAlerts, infoLines: result.infoLines, sent: result.sent, slackSent: result.slackSent, durationMs: result.durationMs },
+            '[skill-execution] ops-digest complete',
           )
           break
         }
