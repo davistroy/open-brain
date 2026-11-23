@@ -847,8 +847,8 @@ The trigger server maps the return code to a status (`trigger_server.py:376`), s
 
 ---
 
-#### 3.6 Secret-age check that can run
-**Status: PENDING**
+#### 3.6 Secret-age check that can run ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** SEC-008 (functional part), SA7-07, PLT-026, SA7-10 (local parser removal)
 **Depends On:** 3.2, 3.3
@@ -2048,7 +2048,7 @@ Every phase is Sequential. The pairs below share no file, or share the files nam
 |----|---------|----------|---------|---------------------|--------|
 | U1 | The full contents of the host tree's 72 dirty paths and of the host override | High | Phase 5, Item 5.5; Phase 8, Items 8.2, 8.3 | The root-only snapshot of item 5.5; classify each path as "matches `main`", "host-only by design", or "drift" before the checkout | Open |
 | U2 | Whether the offsite remote refills on 2026-11-23, and whether config files have ever reached the remote | High | Phase 1, Item 1.1; Phase 7, Item 7.1 | Read the offsite log after 03:45; list the remote with `rclone lsf` | Resolved 2026-11-23 (Entries 255–256): refilled — 12 objects / 333 MiB; `/config/` objects on the remote = 0 (expected until items 6.4 and 7.1) |
-| U3 | Whether a musl build of `bws` exists for the pinned version | Medium | Phase 3, Item 3.6 | The `docker build --target workers` command of item 3.6 | Open |
+| U3 | Whether a musl build of `bws` exists for the pinned version | Medium | Phase 3, Item 3.6 | The `docker build --target workers` command of item 3.6 | Resolved 2026-11-23 (Entry 258): no musl asset for 1.0.0 (404); gcompat fallback fails at runtime; pinned bws 2.1.0 native musl |
 | U4 | Whether the Spark tier can be restored, and by when | Medium | Phase 1, Item 1.3; Phase 4, Item 4.5 | Owner check on the Spark host. The circuit breaker of Part 2 (item 12.3) removes the dependence on the answer. | Accepted 2026-11-23 (Entry 256): Spark offline since ≈2026-08-05; OA-36 OPEN, due 2026-12-31 |
 | U5 | Vendor dates and versions: the `cloudflared` support window and a tested `speaches` tag | Medium | Phase 5, Item 5.4; Phase 8, Items 8.3, 8.4 | Read each vendor page at implementation time; none was verified offline. The `tts-1` date, the dated model default, and the edge request limit affect Part 2. | Open |
 | U6 | Whether GitHub disables the scheduled workflows on about 2026-12-23, and whether re-enabling resets the timer | Medium | Phase 1, Item 1.6 | The merge of item 1.6 resets the clock regardless | Resolved 2026-11-23: merge `ae27416` reset the clock |

@@ -1,7 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PushoverService } from '@open-brain/shared'
-import { SecretRotationSkill, parseOperatorActions } from '../skills/secret-rotation.js'
+import { SecretRotationSkill } from '../skills/secret-rotation.js'
 import type { BwsSecret } from '../skills/secret-rotation.js'
+
+const mocks = vi.hoisted(() => ({
+  recordHeartbeat: vi.fn(),
+  raiseAlert: vi.fn(),
+}))
+vi.mock('../lib/heartbeat.js', () => ({ recordHeartbeat: mocks.recordHeartbeat }))
+vi.mock('../lib/alert-state.js', () => ({
+  raiseAlert: mocks.raiseAlert,
+  legacyPushEnabled: () => true,
+}))
 
 // ============================================================
 // Mock helpers
@@ -80,44 +90,18 @@ function makeSkill(opts: {
   secrets?: BwsSecret[]
   execFn?: ReturnType<typeof vi.fn>
   pushoverConfigured?: boolean
-  readFileFn?: ReturnType<typeof vi.fn>
 } = {}) {
   const db = makeMockDb()
   const pushover = makePushover(opts.pushoverConfigured ?? true)
   const execFn = opts.execFn ?? makeMockExec(opts.secrets ?? [])
-  // Default: OPERATOR_ACTIONS.md absent (ENOENT) so the RC-19 check skips
-  // deterministically and never depends on the ambient filesystem.
-  const readFileFn = opts.readFileFn ?? vi.fn().mockRejectedValue(new Error('ENOENT: no such file'))
 
   const skill = new SecretRotationSkill({
     db: db as unknown as import('@open-brain/shared').Database,
     pushover,
     execFn: execFn as any,
-    readFileFn: readFileFn as any,
   })
 
-  return { skill, db, pushover, execFn, readFileFn }
-}
-
-/** Build an OPERATOR_ACTIONS.md fixture with the given Open-Actions rows. */
-function makeRegister(rows: Array<{ id: string; action: string; due: string; status: string }>): string {
-  const body = rows
-    .map((r) => `| ${r.id} | ${r.action} | ${r.due} | Troy | Plan | ${r.status} |`)
-    .join('\n')
-  return `# Operator Actions — Dated Register
-
-## Open Actions
-
-| ID | Action | Due | Owner | Source | Status |
-|----|--------|-----|-------|--------|--------|
-${body}
-
-## Completed Actions
-
-| ID | Action | Completed | Source |
-|----|--------|-----------|--------|
-| OA-DONE | already done thing | 2020-01-01 | Plan |
-`
+  return { skill, db, pushover, execFn }
 }
 
 // ============================================================
@@ -127,6 +111,8 @@ ${body}
 describe('SecretRotationSkill', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    mocks.recordHeartbeat.mockReset().mockResolvedValue(null)
+    mocks.raiseAlert.mockReset().mockResolvedValue({ action: 'notify', sent: true })
   })
 
   describe('age calculation', () => {
@@ -244,8 +230,7 @@ describe('SecretRotationSkill', () => {
 
       const call = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0]
       expect(call.message).toContain('dev/open-brain/slack-bot-token')
-      expect(call.message).toContain('days')
-      expect(call.message).toContain('Rotate these keys')
+      expect(call.message).toContain('(99d)')
       // Should NOT contain any secret values
       expect(call.message).not.toContain('sk-')
       expect(call.message).not.toContain('xoxb-')
@@ -378,137 +363,71 @@ describe('SecretRotationSkill', () => {
   })
 
   // ============================================================
-  // RC-19: operator-action reminders
+  // Item 3.6: unavailable check raises, heartbeat, bounded summary
   // ============================================================
 
-  describe('operator actions (RC-19)', () => {
-    it('flags an overdue action and sends a priority-1 Pushover', async () => {
-      const readFileFn = vi.fn().mockResolvedValue(
-        makeRegister([{ id: 'OA-1', action: 'Deploy migration 0036', due: '2026-03-01', status: 'OPEN' }]),
-      )
-      const { skill, pushover } = makeSkill({ secrets: [FRESH_SECRET], readFileFn })
-
-      const result = await skill.execute({ now: NOW }) // NOW = 2026-04-01, so 2026-03-01 is overdue
-
-      expect(result.operatorActions.checked).toBe(true)
-      expect(result.operatorActions.overdue.map((a) => a.id)).toEqual(['OA-1'])
-      expect(result.operatorActions.alertSent).toBe(true)
-      expect(pushover.send).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Open Brain: Operator Actions Due', priority: 1 }),
-      )
-      const call = (pushover.send as ReturnType<typeof vi.fn>).mock.calls.find(
-        (c) => c[0].title === 'Open Brain: Operator Actions Due',
-      )!
-      expect(call[0].message).toContain('OVERDUE')
-      expect(call[0].message).toContain('OA-1')
-    })
-
-    it('flags an approaching (within 7 days) action at priority 0', async () => {
-      const readFileFn = vi.fn().mockResolvedValue(
-        makeRegister([{ id: 'OA-2', action: 'Flip repo private', due: '2026-04-05', status: 'OPEN' }]),
-      )
-      const { skill, pushover } = makeSkill({ secrets: [], readFileFn })
-
-      const result = await skill.execute({ now: NOW, approachingDays: 7 }) // 2026-04-05 is 4 days out
-
-      expect(result.operatorActions.approaching.map((a) => a.id)).toEqual(['OA-2'])
-      expect(result.operatorActions.overdue).toHaveLength(0)
-      expect(pushover.send).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Open Brain: Operator Actions Due', priority: 0 }),
-      )
-    })
-
-    it('does not flag a far-future action', async () => {
-      const readFileFn = vi.fn().mockResolvedValue(
-        makeRegister([{ id: 'OA-3', action: 'Quarterly review', due: '2026-09-30', status: 'OPEN' }]),
-      )
-      const { skill, pushover } = makeSkill({ secrets: [], readFileFn })
+  describe('check unavailable (3.6)', () => {
+    it('raises secret-check-unavailable once and writes heartbeat ok:false when bws fails', async () => {
+      const { skill } = makeSkill({ execFn: makeFailingExec('spawn bws ENOENT') })
 
       const result = await skill.execute({ now: NOW })
 
-      expect(result.operatorActions.overdue).toHaveLength(0)
-      expect(result.operatorActions.approaching).toHaveLength(0)
-      expect(result.operatorActions.alertSent).toBe(false)
+      expect(result.error).toContain('spawn bws ENOENT')
+      const bad = mocks.raiseAlert.mock.calls.filter((c) => c[1].bad === true)
+      expect(bad).toHaveLength(1)
+      expect(bad[0][1]).toMatchObject({ key: 'secret-check-unavailable', severity: 'warning', bad: true })
+      expect(mocks.recordHeartbeat).toHaveBeenCalledTimes(1)
+      expect(mocks.recordHeartbeat).toHaveBeenCalledWith(
+        expect.anything(),
+        'secret-rotation',
+        expect.objectContaining({ ok: false, errors: [expect.stringContaining('spawn bws ENOENT')] }),
+      )
+    })
+
+    it('writes heartbeat ok:true with meta.totalSecrets and clears the alert on success', async () => {
+      const { skill } = makeSkill({ secrets: [FRESH_SECRET, STALE_SECRET] })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.totalSecrets).toBeGreaterThan(0)
+      expect(mocks.recordHeartbeat).toHaveBeenCalledWith(
+        expect.anything(),
+        'secret-rotation',
+        expect.objectContaining({ ok: true, meta: expect.objectContaining({ totalSecrets: 2 }) }),
+      )
+      expect(mocks.raiseAlert).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ key: 'secret-check-unavailable', bad: false }),
+      )
+    })
+
+    it('keeps a bounded summary under 300 characters with 40 stale secrets', async () => {
+      const many: BwsSecret[] = Array.from({ length: 40 }, (_, i) => ({
+        id: `id-${i}`,
+        key: `dev/open-brain/some-rather-long-secret-name-number-${i}`,
+        revisionDate: `2025-01-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`,
+        creationDate: '2024-01-01T00:00:00Z',
+      }))
+      const { skill, pushover } = makeSkill({ secrets: many })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result.staleSecrets).toHaveLength(40)
+      const msg = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0].message as string
+      expect(msg.length).toBeLessThan(300)
+      expect(msg).toContain('40')
+      // 5 oldest only
+      expect(msg).toContain('number-0')
+      expect(msg).not.toContain('number-39')
+    })
+
+    it('reads no operator-action register and sends no operator-action push', async () => {
+      const { skill, pushover } = makeSkill({ secrets: [FRESH_SECRET] })
+
+      const result = await skill.execute({ now: NOW })
+
+      expect(result).not.toHaveProperty('operatorActions')
       expect(pushover.send).not.toHaveBeenCalled()
-    })
-
-    it('skips DONE and BLOCKED rows even if their Due is overdue', async () => {
-      const readFileFn = vi.fn().mockResolvedValue(
-        makeRegister([
-          { id: 'OA-4', action: 'done thing', due: '2026-01-01', status: 'DONE 2026-01-02' },
-          { id: 'OA-5', action: 'blocked thing', due: '2026-01-01', status: 'BLOCKED (waiting on vendor)' },
-        ]),
-      )
-      const { skill, pushover } = makeSkill({ secrets: [], readFileFn })
-
-      const result = await skill.execute({ now: NOW })
-
-      expect(result.operatorActions.overdue).toHaveLength(0)
-      expect(pushover.send).not.toHaveBeenCalled()
-    })
-
-    it('never flags an undated ("next restart window") Due', async () => {
-      const readFileFn = vi.fn().mockResolvedValue(
-        makeRegister([{ id: 'OA-6', action: 'add shm_size', due: 'next restart window', status: 'OPEN' }]),
-      )
-      const { skill } = makeSkill({ secrets: [], readFileFn })
-
-      const result = await skill.execute({ now: NOW })
-
-      expect(result.operatorActions.overdue).toHaveLength(0)
-      expect(result.operatorActions.approaching).toHaveLength(0)
-    })
-
-    it('completes gracefully when OPERATOR_ACTIONS.md is absent', async () => {
-      const readFileFn = vi.fn().mockRejectedValue(new Error('ENOENT: no such file'))
-      const { skill, pushover } = makeSkill({ secrets: [FRESH_SECRET], readFileFn })
-
-      const result = await skill.execute({ now: NOW })
-
-      expect(result.operatorActions.checked).toBe(false)
-      expect(result.operatorActions.alertSent).toBe(false)
-      expect(result.totalSecrets).toBe(1) // secret check still ran
-      expect(result.error).toBeUndefined()
-      expect(pushover.send).not.toHaveBeenCalled()
-    })
-
-    it('checks operator actions even when the bws query fails', async () => {
-      const readFileFn = vi.fn().mockResolvedValue(
-        makeRegister([{ id: 'OA-7', action: 'overdue thing', due: '2026-03-01', status: 'OPEN' }]),
-      )
-      const execFn = makeFailingExec('bws: command not found')
-      const { skill, pushover } = makeSkill({ execFn, readFileFn })
-
-      const result = await skill.execute({ now: NOW })
-
-      expect(result.error).toContain('bws: command not found')
-      expect(result.operatorActions.overdue.map((a) => a.id)).toEqual(['OA-7'])
-      expect(pushover.send).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Open Brain: Operator Actions Due' }),
-      )
-    })
-
-    describe('parseOperatorActions', () => {
-      it('parses Open-Actions rows and ignores the Completed table', () => {
-        const md = makeRegister([
-          { id: 'OA-1', action: 'first', due: '2026-05-01', status: 'OPEN' },
-          { id: 'OA-2', action: 'second', due: '2026-06-01', status: 'IN PROGRESS' },
-        ])
-        const rows = parseOperatorActions(md)
-
-        expect(rows.map((r) => r.id)).toEqual(['OA-1', 'OA-2'])
-        expect(rows[0].dueDate?.toISOString()).toBe('2026-05-01T00:00:00.000Z')
-        expect(rows.every((r) => r.owner === 'Troy')).toBe(true)
-      })
-
-      it('returns [] when there is no Open Actions section', () => {
-        expect(parseOperatorActions('# Nothing here\n\nsome prose')).toEqual([])
-      })
-
-      it('sets dueDate null for non-date Due cells', () => {
-        const md = makeRegister([{ id: 'OA-X', action: 'x', due: 'next restart window', status: 'OPEN' }])
-        expect(parseOperatorActions(md)[0].dueDate).toBeNull()
-      })
     })
   })
 })
