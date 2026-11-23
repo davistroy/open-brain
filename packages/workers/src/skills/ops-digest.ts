@@ -1,7 +1,8 @@
 import { stat } from 'node:fs/promises'
 import { sql } from 'drizzle-orm'
 import type { Database, PushoverService } from '@open-brain/shared'
-import { logger, SlackMessenger } from '@open-brain/shared'
+import { logger, SlackMessenger, loadOperatorActions, parseOperatorActions, summarizeOperatorActions } from '@open-brain/shared'
+import type { LoadOperatorActionsOpts } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import { listOpenAlerts, alertStateEnabled, describeAlertKey } from '../lib/alert-state.js'
@@ -70,6 +71,8 @@ export interface OpsDigest {
 }
 
 export interface BuildOpsDigestOpts {
+  /** Register source overrides (tests). Default: GitHub raw, then `OPERATOR_ACTIONS_PATH` or `/app/OPERATOR_ACTIONS.md`. */
+  operatorActions?: Partial<LoadOperatorActionsOpts>
   /** Latest-backup manifest path. Default `BACKUP_LATEST_PATH` or `/backup-latest/manifest.json`. */
   backupManifestPath?: string
 }
@@ -136,6 +139,34 @@ async function readOpenAlerts(db: Database): Promise<{ open: OpenAlert[]; unavai
   }
 }
 
+/**
+ * The operator-action line (item 3.2): `ops: M overdue; oldest: <3 IDs>` (+
+ * `; N parse error(s)`), `ops: register unreadable` when both sources fail,
+ * or null when nothing is overdue and every status parses. Never throws.
+ */
+async function readOperatorActionLine(
+  now: Date,
+  opts: Partial<LoadOperatorActionsOpts> = {},
+): Promise<{ line: string | null; noteworthy: boolean }> {
+  try {
+    const md = await loadOperatorActions({
+      fallbackPath: process.env.OPERATOR_ACTIONS_PATH ?? '/app/OPERATOR_ACTIONS.md',
+      ...opts,
+    })
+    const s = summarizeOperatorActions(parseOperatorActions(md), now)
+    const errs = s.parseErrors.length
+    if (s.overdue === 0 && errs === 0) return { line: null, noteworthy: false }
+    const parts = [`ops: ${s.overdue} overdue`]
+    if (s.oldest.length > 0) parts[0] += `; oldest: ${s.oldest.map((a) => a.id).join(', ')}`
+    if (errs > 0) parts.push(`${errs} parse error${errs === 1 ? '' : 's'}`)
+    return { line: parts.join('; '), noteworthy: true }
+  } catch (err) {
+    logger.warn({ err }, '[ops-digest] operator-action register unreadable — continuing without it')
+    // Unreadable alone does not trigger a send, but rides along on any digest that is sent.
+    return { line: 'ops: register unreadable', noteworthy: false }
+  }
+}
+
 export async function buildOpsDigest(db: Database, now: Date, opts: BuildOpsDigestOpts = {}): Promise<OpsDigest> {
   const { open, unavailable: alertStateUnavailable } = await readOpenAlerts(db)
   const openAlerts: DigestAlert[] = open
@@ -150,13 +181,16 @@ export async function buildOpsDigest(db: Database, now: Date, opts: BuildOpsDige
   const manifestPath = opts.backupManifestPath ?? process.env.BACKUP_LATEST_PATH ?? DEFAULT_BACKUP_MANIFEST_PATH
   const backupAgeSeconds = await readBackupAgeSeconds(now, manifestPath)
 
-  const isEmpty = openAlerts.length === 0 && infoLines.length === 0 && !alertStateUnavailable
+  const ops = await readOperatorActionLine(now, opts.operatorActions)
+
+  const isEmpty = openAlerts.length === 0 && infoLines.length === 0 && !alertStateUnavailable && !ops.noteworthy
   const backupLine =
     backupAgeSeconds === null ? 'Backup: age unknown' : `Backup: ${fmtAge(backupAgeSeconds * 1000)} old`
 
-  const alertBlock = alertStateUnavailable
+  const alertBlock: string[] = alertStateUnavailable
     ? ['Alert state unavailable']
     : openAlerts.length > 0 ? [`Open alerts (${openAlerts.length}):`, ...openAlerts.map(alertLine)] : []
+  if (ops.line) alertBlock.push(ops.line)
   const reportBlock = infoLines.length > 0 ? ['Reports:', ...infoLines] : []
   const fullText = [...alertBlock, ...reportBlock, backupLine].join('\n')
 

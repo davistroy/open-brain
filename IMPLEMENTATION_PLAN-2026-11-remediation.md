@@ -687,8 +687,8 @@ Item 1.2 is complete on the host before this item deploys; otherwise `embed-stal
 
 ---
 
-#### 3.2 Operator-action reminder: one tolerant parser, enforced vocabulary
-**Status: PENDING**
+#### 3.2 Operator-action reminder: one tolerant parser, enforced vocabulary ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-10, PLT-020, RC7-02 (parser)
 **Depends On:** 3.1 (cross-phase: 2.4)

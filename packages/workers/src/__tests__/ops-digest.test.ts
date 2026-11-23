@@ -11,6 +11,14 @@ import { alertStateKey, type AlertState } from '../lib/alert-state.js'
 import { buildOpsDigest, OpsDigestSkill, DIGEST_INFO_SOURCES, PUSH_CAP } from '../skills/ops-digest.js'
 
 const NOW = new Date('2026-11-23T12:30:00Z')
+
+// No test may reach GitHub: every fetch fails unless a test passes its own register.
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network disabled in tests')))
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 const HOUR = 3_600_000
 
 function alertRow(key: string, hoursOpen: number, over: Partial<AlertState> = {}) {
@@ -150,6 +158,73 @@ describe('buildOpsDigest', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('operator-action line (item 3.2)', () => {
+  const MANIFEST = { backupManifestPath: '/nonexistent/manifest.json' }
+  const row = (id: string, due: string, status: string) => `| ${id} | act | ${due} | Troy | src | ${status} |`
+  const register = (rows: string[]) =>
+    `## Open Actions\n\n| ID | Action | Due | Owner | Source | Status |\n|----|----|----|----|----|----|\n${rows.join('\n')}\n\n## Completed Actions\n`
+  const okFetch = (md: string) => vi.fn().mockResolvedValue({ ok: true, text: async () => md })
+
+  it('12 overdue rows -> one line with the count and the 3 oldest IDs', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => row(`OA-${i + 1}`, `2026-0${(i % 9) + 1}-15`, 'OPEN'))
+    const { db } = makeDb([], [])
+    const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: okFetch(register(rows)), fallbackPath: '/nonexistent' } })
+    const lines = d.fullText.split('\n').filter((l) => l.startsWith('ops:'))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^ops: 12 overdue; oldest: OA-(1|10), OA-(1|10|2|11), OA-(1|10|2|11)$/)
+    expect(d.isEmpty).toBe(false)
+  })
+
+  it('no overdue row -> no operator-action line', async () => {
+    const { db } = makeDb([], FIVE_REPORTS.slice(0, 1))
+    const md = register([row('OA-1', '2026-12-31', 'OPEN'), row('OA-2', '2026-01-01', 'DONE 2026-02-01')])
+    const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: okFetch(md), fallbackPath: '/nonexistent' } })
+    expect(d.fullText).not.toContain('ops:')
+  })
+
+  it('a failed fetch reads the mounted register', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ops-reg-'))
+    try {
+      const f = join(dir, 'OPERATOR_ACTIONS.md')
+      writeFileSync(f, register([row('OA-5', '2026-06-01', 'OPEN')]))
+      const { db } = makeDb([], [])
+      const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: vi.fn().mockRejectedValue(new Error('down')), fallbackPath: f } })
+      expect(d.fullText).toContain('ops: 1 overdue; oldest: OA-5')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('both sources failing -> "ops: register unreadable", digest still built', async () => {
+    const { db } = makeDb([], FIVE_REPORTS.slice(0, 1))
+    const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: vi.fn().mockRejectedValue(new Error('down')), fallbackPath: '/nonexistent' } })
+    expect(d.fullText).toContain('ops: register unreadable')
+    expect(d.fullText).toContain('drift-monitor')
+  })
+
+  it('parse errors add a count to the line and make the digest non-empty', async () => {
+    const { db } = makeDb([], [])
+    const md = register([row('OA-1', '2026-06-01', 'OPEN'), row('OA-2', '2026-06-01', 'PARTIAL')])
+    const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: okFetch(md), fallbackPath: '/nonexistent' } })
+    expect(d.fullText).toContain('ops: 1 overdue; oldest: OA-1; 1 parse error')
+  })
+
+  it('parse errors alone (nothing overdue) still print a line', async () => {
+    const { db } = makeDb([], [])
+    const md = register([row('OA-2', '2026-12-31', 'PARTIAL')])
+    const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: okFetch(md), fallbackPath: '/nonexistent' } })
+    expect(d.fullText).toContain('ops: 0 overdue; 1 parse error')
+    expect(d.isEmpty).toBe(false)
+  })
+
+  it('a thrown parser failure never aborts the digest', async () => {
+    const { db } = makeDb([], FIVE_REPORTS.slice(0, 1))
+    const bad = vi.fn().mockResolvedValue({ ok: true, text: async () => { throw new Error('body') } })
+    const d = await buildOpsDigest(db, NOW, { ...MANIFEST, operatorActions: { fetchFn: bad, fallbackPath: '/nonexistent' } })
+    expect(d.fullText).toContain('ops: register unreadable')
   })
 })
 
