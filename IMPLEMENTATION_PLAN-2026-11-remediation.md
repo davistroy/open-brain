@@ -768,8 +768,8 @@ The `heartbeat:*` keys are written through the database layer and are not added 
 
 ---
 
-#### 3.4 Gas pipeline reports its failures
-**Status: PENDING**
+#### 3.4 Gas pipeline reports its failures ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** SE7-07, INT-001
 **Depends On:** 3.3
@@ -804,8 +804,8 @@ The trigger server maps the return code to a status (`trigger_server.py:376`), s
 
 ---
 
-#### 3.5 Actual and email runs report their failures
-**Status: PENDING**
+#### 3.5 Actual and email runs report their failures ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** SE7-17, SE7-08, INT-010, DA7-11 (alert part)
 **Depends On:** 3.3

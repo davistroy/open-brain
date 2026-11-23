@@ -759,7 +759,7 @@ describe('skill-execution — email-classify', () => {
     await processor(fakeJob('email-classify', { providers: ['hotmail', 'gmail'], sinceHours: 24, dryRun: false }))
 
     expect(sharedMocks.loadEmailRules).toHaveBeenCalled()
-    expect(sharedMocks.HotmailClient).toHaveBeenCalledWith({ db })
+    expect(sharedMocks.HotmailClient).toHaveBeenCalledWith({ db, allowInteractive: false })
     expect(sharedMocks.GmailClient).toHaveBeenCalledWith({ db })
     expect(sharedMocks.EmailClassifier).toHaveBeenCalledWith({ rules: [] }, opts.llmGateway)
     expect(skillMocks.emailClassify.execute).toHaveBeenCalledWith({
@@ -771,6 +771,17 @@ describe('skill-execution — email-classify', () => {
       expect.objectContaining({ skillName: 'email-classify', hotmailClassified: 3, gmailClassified: 2 }),
       '[skill-execution] email-classify complete',
     )
+  })
+
+  it('enables the interactive Hotmail flow only for a manual trigger with interactiveAuth: true', async () => {
+    const { processor, db } = build()
+    skillMocks.emailClassify.execute.mockResolvedValue({
+      hotmail: { classified: 0 }, gmail: { classified: 0 }, corrections: 0, summaryPosted: false, durationMs: 1,
+    })
+    await processor(fakeJob('email-classify', { interactiveAuth: true }))
+    expect(sharedMocks.HotmailClient).toHaveBeenLastCalledWith({ db, allowInteractive: true })
+    await processor(fakeJob('email-classify', { interactiveAuth: 'yes' }))
+    expect(sharedMocks.HotmailClient).toHaveBeenLastCalledWith({ db, allowInteractive: false })
   })
 
   it('passes null llmGateway to EmailClassifier when llmGateway is not configured', async () => {

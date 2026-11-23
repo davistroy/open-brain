@@ -559,7 +559,7 @@ export function createSkillExecutionWorker(
           const rulesPath = path.join(configDir, 'email-categories.yaml')
           const rules = loadEmailRules(rulesPath)
 
-          const hotmailClient = new HotmailClient({ db })
+          const hotmailClient = new HotmailClient({ db, allowInteractive: input?.interactiveAuth === true })
           const gmailClient = new GmailClient({ db })
           const classifier = new EmailClassifier(rules, opts.llmGateway ?? null)
 

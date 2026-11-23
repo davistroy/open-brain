@@ -43,6 +43,7 @@ import yaml
 # financial-pipeline.py — resolves against scripts/lib/ in both Docker and
 # local invocations.
 from lib.capture_api import post_capture as _post_capture_unwrapped  # noqa: E402
+from lib.capture_api import post_heartbeat  # noqa: E402
 
 # Gas bill text -> usage numbers. Pure/stdlib-only and unit-tested separately
 # (docker/ingest-sidecar/tests/test_gas_bill_parse.py) — see #275.
@@ -70,11 +71,12 @@ def _post_capture_raw(
     ok = _post_capture_unwrapped(
         cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
     )
-    if _JSON_OUTPUT_MODE:
-        if ok:
+    if ok:
+        if _JSON_OUTPUT_MODE:
             _JSON_CAPTURES_POSTED.append(content[:80])
-        else:
-            _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
+    else:
+        # Recorded in every mode: the exit code and heartbeat depend on it.
+        _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
     return ok
 
 
@@ -380,6 +382,7 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
 
     if not username or not password:
         log.error("Gas South credentials missing username or password")
+        _JSON_ERRORS.append("gas login: credentials missing username or password")
         return None
 
     endpoint = f"{auth_url}/api/authenticate/aup"
@@ -407,12 +410,14 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
         )
     except requests.exceptions.RequestException as e:
         log.error(f"Gas South auth request failed: {e}")
+        _JSON_ERRORS.append(f"gas login: request failed: {type(e).__name__}")
         return None
 
     try:
         data = resp.json()
     except (json.JSONDecodeError, ValueError):
         log.error(f"Gas South auth: HTTP {resp.status_code}, non-JSON response: {resp.text[:200]}")
+        _JSON_ERRORS.append(f"gas login: HTTP {resp.status_code}, non-JSON response")
         return None
 
     if resp.status_code != 200:
@@ -424,11 +429,15 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
         message = data.get("ErrorMessage") or data.get("title")
         if code:
             log.error(f"Gas South auth rejected: {code} — {message}")
+            _JSON_ERRORS.append(f"gas login rejected: {code}")
         else:
             log.error(
                 f"Gas South auth returned HTTP {resp.status_code} with no ErrorCode "
                 f"({message}) — the request was rejected before credentials were "
                 f"checked. Re-verify client_id/auth_url against the portal bundle (#265)."
+            )
+            _JSON_ERRORS.append(
+                f"gas login: HTTP {resp.status_code} with no ErrorCode (contract changed?)"
             )
         return None
 
@@ -441,6 +450,7 @@ def _gas_south_login(cfg: dict[str, Any]) -> str | None:
             f"Gas South auth: HTTP 200 but no AuthToken in response "
             f"(keys={sorted(data)[:10] if isinstance(data, dict) else type(data).__name__})"
         )
+        _JSON_ERRORS.append("gas login: HTTP 200 but no AuthToken in response")
         return None
 
     log.info(f"  Gas South login successful (token: {str(token)[:8]}...)")
@@ -520,7 +530,7 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
     # Step 1: Login
     token = _gas_south_login(cfg)
     if not token:
-        return
+        return  # _gas_south_login already recorded the specific failure
 
     # Step 2: Fetch billing history
     activity_url = (
@@ -543,19 +553,23 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         )
     except requests.exceptions.RequestException as e:
         log.error(f"Gas South billing API failed: {e}")
+        _JSON_ERRORS.append(f"gas billing API request failed: {type(e).__name__}")
         return
 
     if resp.status_code == 401:
         log.error("Gas South billing API returned 401 — token may be expired or invalid")
+        _JSON_ERRORS.append("gas billing API returned 401")
         return
     if resp.status_code != 200:
         log.error(f"Gas South billing API returned {resp.status_code}: {resp.text[:300]}")
+        _JSON_ERRORS.append(f"gas billing API returned HTTP {resp.status_code}")
         return
 
     try:
         activities = resp.json()
     except (json.JSONDecodeError, ValueError) as e:
         log.error(f"Gas South response is not valid JSON: {e}")
+        _JSON_ERRORS.append("gas billing response is not valid JSON")
         return
 
     if not isinstance(activities, list) and isinstance(activities, dict):
@@ -565,6 +579,7 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
                 break
         else:
             log.error(f"Unexpected response structure: {json.dumps(activities)[:300]}")
+            _JSON_ERRORS.append("gas billing response has unexpected structure")
             return
 
     new_count = 0
@@ -600,9 +615,11 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         except (ValueError, TypeError):
             bill_amount = 0.0
 
-        # Skip if already stored
+        # Skip only if already stored WITH usage. A row with NULL therms is a
+        # prior parse miss (#275) and must be fetched and parsed again.
         existing = conn.execute(
-            "SELECT 1 FROM gas_readings WHERE date = ?", (activity_date,)
+            "SELECT 1 FROM gas_readings WHERE date = ? AND therms IS NOT NULL",
+            (activity_date,),
         ).fetchone()
         if existing:
             skip_count += 1
@@ -632,7 +649,10 @@ def cmd_gas(cfg: dict[str, Any], conn: sqlite3.Connection) -> None:
         # Store reading
         conn.execute(
             "INSERT INTO gas_readings (date, bill_amount, ccfs, therm_factor, therms, rate_per_therm) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(date) DO UPDATE SET bill_amount = excluded.bill_amount, "
+            "ccfs = excluded.ccfs, therm_factor = excluded.therm_factor, "
+            "therms = excluded.therms, rate_per_therm = excluded.rate_per_therm",
             (
                 activity_date,
                 bill_amount,
@@ -1052,6 +1072,31 @@ def show_status(conn: sqlite3.Connection):
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
+def _latest_gas_bill_date(conn: sqlite3.Connection) -> str | None:
+    """Newest stored gas bill date, or None (table missing or empty)."""
+    try:
+        row = conn.execute("SELECT MAX(date) FROM gas_readings").fetchone()
+    except sqlite3.Error:
+        return None
+    return row[0] if row and row[0] else None
+
+
+def _report_gas_heartbeat(cfg: dict[str, Any], latest_bill_date: str | None) -> None:
+    """Post the `gas` heartbeat. `ok` is true only when no error was recorded.
+
+    Meta carries a bill date only — never an account identifier or an amount.
+    A failed post is recorded as an error but never raises, so it cannot mask
+    the run's own result.
+    """
+    errors = list(_JSON_ERRORS)
+    meta = {"latest_bill_date": latest_bill_date} if latest_bill_date else None
+    posted = post_heartbeat(
+        cfg, "gas", not errors, errors[:5] or None, meta, caller="utility-pipeline"
+    )
+    if not posted:
+        _JSON_ERRORS.append("gas heartbeat post failed")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Utility Pipeline for Open Brain")
     ap.add_argument("--water", action="store_true", help="Fetch water meter readings (Cobb County)")
@@ -1078,6 +1123,8 @@ def main() -> None:
     _json_t0 = time.monotonic()
 
     exit_code = 0
+    cfg_for_heartbeat: dict[str, Any] = {}
+    latest_bill_date: str | None = None
     try:
         conn = init_db()
 
@@ -1087,6 +1134,7 @@ def main() -> None:
             return
 
         cfg = load_config()
+        cfg_for_heartbeat = cfg
 
         if args.water:
             cmd_water(cfg, conn)
@@ -1097,12 +1145,19 @@ def main() -> None:
         if args.monthly_comparison:
             cmd_monthly_comparison(cfg, conn)
 
+        if args.gas:
+            latest_bill_date = _latest_gas_bill_date(conn)
         conn.close()
     except SystemExit:
         raise
     except Exception as e:  # noqa: BLE001
         log.exception("utility-pipeline: unhandled error")
         _JSON_ERRORS.append(f"unhandled: {e}")
+        exit_code = 1
+
+    if args.gas:
+        _report_gas_heartbeat(cfg_for_heartbeat, latest_bill_date)
+    if _JSON_ERRORS:
         exit_code = 1
 
     if _JSON_OUTPUT_MODE:
