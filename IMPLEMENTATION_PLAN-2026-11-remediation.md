@@ -251,7 +251,7 @@ HOST — operator-gated. Tasks 2–4 run on the host. The owner is present; an u
 ---
 
 #### 1.5 Defuse the dated test fixtures
-**Status: PENDING**
+**Status: COMPLETE — no change needed (2026-11-23, LAB_NOTEBOOK Entry 256: every suite passes under a 2027-01-15 clock; QA-018 premise false)**
 **Model Tier: sonnet**
 **Requirement Refs:** QA-018
 **Depends On:** 1.4
@@ -339,7 +339,7 @@ Ships in ONE pull request with item 1.5. The weekly `schedule` trigger for `ci.y
 | Tests | `pnpm -r test` | Exit code 0 (coverage thresholds for core-api and workers enforced) |
 | Lint and types | `pnpm -r lint` | Exit code 0 |
 | Re-drive script syntax | `node --check scripts/redrive-stranded-embeds.mjs` | Exit code 0 |
-| No dated fixture left | `! grep -rn '2026-12-31' packages/*/src` | Exit code 0 |
+| No dated fixture breaks | Ruling 2026-11-23 (LAB_NOTEBOOK Entry 256): every suite passes under a 2027-01-15 clock; the literals stay | Recorded in Entry 256 |
 | Cron template clean | `! grep -E -e '^[^#]*--power-summary' -e '^[^#]*--balances' -e '^[^#]*--account-monitoring' deploy/cron/unraid-ingest.cron` | Exit code 0 |
 
 <!-- END DOD -->
