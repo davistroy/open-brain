@@ -362,8 +362,8 @@ Ships in ONE pull request with item 1.5. The weekly `schedule` trigger for `ci.y
 
 ### Work Items
 
-#### 2.1 Pushover limits and receipts; alert-state store
-**Status: PENDING**
+#### 2.1 Pushover limits and receipts; alert-state store ✅ Completed 2026-11-23
+**Status: COMPLETE 2026-11-23**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-05, PLT-027, PLT-020 (message length)
 **Files Affected:**

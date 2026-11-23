@@ -46,6 +46,42 @@ export interface PushoverConfig {
 
 const DEFAULT_TITLE_PREFIX = 'Open Brain'
 
+/** Pushover API limits: message 1,024 characters, title 250 characters. */
+export const PUSHOVER_MAX_MESSAGE_CHARS = 1024
+export const PUSHOVER_MAX_TITLE_CHARS = 250
+
+/** Result of an emergency-priority (2) send: the receipt used to poll acknowledgement. */
+export interface PushoverSendResult {
+  receipt: string
+}
+
+/** Result of `getReceipt()`. `acknowledgedAt` is an ISO timestamp or null. */
+export interface PushoverReceiptStatus {
+  acknowledged: boolean
+  acknowledgedAt: string | null
+  expired: boolean
+}
+
+/**
+ * Cap `text` at `max` characters. A truncated value ends with `…(+N)`, N being
+ * the number of removed characters, and the whole result is exactly `max` long.
+ * Counts code points so a surrogate pair is never split.
+ */
+export function truncateWithCount(text: string, max: number): string {
+  const chars = Array.from(text)
+  if (chars.length <= max) return text
+  // The suffix length depends on the digits of N, which depends on the kept length: iterate to a fixed point.
+  let keep = max
+  for (let i = 0; i < 6; i++) {
+    const suffix = `…(+${chars.length - keep})`
+    const next = Math.max(0, max - Array.from(suffix).length)
+    if (next === keep) break
+    keep = next
+  }
+  const suffix = `…(+${chars.length - keep})`
+  return chars.slice(0, keep).join('') + suffix
+}
+
 /**
  * Sends push notifications via the Pushover HTTP API.
  *
@@ -100,10 +136,15 @@ export class PushoverService {
     return Boolean(this.appToken && this.userKey)
   }
 
-  async send(opts: PushoverSendOptions): Promise<void> {
+  /**
+   * Send a notification. Messages over 1,024 characters and titles over 250 are
+   * truncated with a `…(+N)` suffix (Pushover rejects them otherwise). Returns
+   * `{ receipt }` for priority 2 (when Pushover supplies one); `undefined` otherwise.
+   */
+  async send(opts: PushoverSendOptions): Promise<PushoverSendResult | undefined> {
     if (!this.isConfigured) {
       logger.debug('credentials not configured — skipping notification')
-      return
+      return undefined
     }
 
     const priority = opts.priority ?? -1
@@ -111,8 +152,8 @@ export class PushoverService {
     const params: Record<string, string> = {
       token: this.appToken!,
       user: this.userKey!,
-      title: this.withIdentity(opts.title),
-      message: opts.message,
+      title: truncateWithCount(this.withIdentity(opts.title), PUSHOVER_MAX_TITLE_CHARS),
+      message: truncateWithCount(opts.message, PUSHOVER_MAX_MESSAGE_CHARS),
       priority: String(priority),
     }
 
@@ -142,13 +183,49 @@ export class PushoverService {
         const msg = `Pushover API error ${res.status}: ${errorText}`
         logger.warn({ status: res.status, title: opts.title }, msg)
         if (this.errorMode === 'throw') throw new Error(msg)
-        return
+        return undefined
       }
 
       logger.info({ title: opts.title, priority }, 'notification sent')
+
+      if (priority !== 2) return undefined
+      try {
+        const json = (await res.json()) as { receipt?: unknown }
+        return typeof json.receipt === 'string' && json.receipt ? { receipt: json.receipt } : undefined
+      } catch {
+        logger.warn({ title: opts.title }, 'priority-2 notification sent but response had no parseable receipt')
+        return undefined
+      }
     } catch (err) {
       if (this.errorMode === 'throw') throw err
       logger.warn({ err }, 'notification error (non-fatal)')
+      return undefined
+    }
+  }
+
+  /**
+   * Look up the acknowledgement state of a priority-2 receipt. Returns null when
+   * credentials are not configured. Throws on HTTP/network failure regardless of
+   * `onError` — the caller decides whether a failed lookup matters.
+   */
+  async getReceipt(receipt: string): Promise<PushoverReceiptStatus | null> {
+    if (!this.isConfigured) return null
+    const url = `https://api.pushover.net/1/receipts/${encodeURIComponent(receipt)}.json?token=${encodeURIComponent(this.appToken!)}`
+    const res = await fetch(url, { signal: AbortSignal.timeout(PUSHOVER_TIMEOUT_MS) })
+    if (!res.ok) {
+      throw new Error(`Pushover receipt API error ${res.status}`)
+    }
+    const json = (await res.json()) as {
+      acknowledged?: number
+      acknowledged_at?: number
+      expired?: number
+    }
+    const acknowledged = json.acknowledged === 1
+    const at = json.acknowledged_at
+    return {
+      acknowledged,
+      acknowledgedAt: acknowledged && typeof at === 'number' && at > 0 ? new Date(at * 1000).toISOString() : null,
+      expired: json.expired === 1,
     }
   }
 }
