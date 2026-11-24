@@ -83,6 +83,10 @@ redis_data/
 # the .env backup taken before it sets IMAGE_TAG, and its temp files (removed on exit;
 # ignored in case a kill -9 leaves one).
 /DEPLOYED.json
+# Unraid's FUSE layer (shfs) keeps a replaced-but-still-open file as .fuse_hidden*.
+# A deploy that changes scripts/deploy.sh while it runs leaves one in scripts/, and the
+# clean-tree check then refuses the deploy (Entry 260, 2026-11-24).
+.fuse_hidden*
 /.env.bak-*
 /.env.tmp.*
 /.DEPLOYED.json.*
