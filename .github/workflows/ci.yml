@@ -281,6 +281,7 @@ jobs:
           fi
           grep -q TAILSCALE_IP err.txt || { echo "FAIL: the error does not name TAILSCALE_IP"; cat err.txt; exit 1; }
           bash scripts/test-compose-host-binds.sh
+          bash scripts/test-compose-identity.sh
 
   python-lint:
     name: Python lint & typecheck

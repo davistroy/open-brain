@@ -1,3 +1,8 @@
+# Project name pinned (item 5.1): equals the old directory-derived name, so the
+# volume and network prefixes (open-brain_open-brain) do not change, and a checkout
+# in a directory with another name still targets the same containers.
+name: open-brain
+
 networks:
   open-brain:
     driver: bridge
@@ -143,7 +148,7 @@ services:
     logging: *default_logging
 
   core-api:
-    image: ghcr.io/davistroy/open-brain/core-api:latest
+    image: ghcr.io/davistroy/open-brain/core-api:${IMAGE_TAG:-latest}
     build:
       context: .
       target: core-api
@@ -211,7 +216,7 @@ services:
     logging: *default_logging
 
   workers:
-    image: ghcr.io/davistroy/open-brain/workers:latest
+    image: ghcr.io/davistroy/open-brain/workers:${IMAGE_TAG:-latest}
     build:
       context: .
       target: workers
@@ -329,7 +334,7 @@ services:
     logging: *default_logging
 
   slack-bot:
-    image: ghcr.io/davistroy/open-brain/slack-bot:latest
+    image: ghcr.io/davistroy/open-brain/slack-bot:${IMAGE_TAG:-latest}
     build:
       context: .
       target: slack-bot
@@ -389,7 +394,7 @@ services:
   #   restart: unless-stopped
 
   file-ingestion:
-    image: ghcr.io/davistroy/open-brain/file-ingestion:latest
+    image: ghcr.io/davistroy/open-brain/file-ingestion:${IMAGE_TAG:-latest}
     build:
       context: packages/file-ingestion
       dockerfile: Dockerfile
@@ -463,7 +468,7 @@ services:
     logging: *default_logging
 
   voice-capture:
-    image: ghcr.io/davistroy/open-brain/voice-capture:latest
+    image: ghcr.io/davistroy/open-brain/voice-capture:${IMAGE_TAG:-latest}
     build:
       context: .
       target: voice-capture
@@ -514,7 +519,7 @@ services:
     logging: *default_logging
 
   web-next:
-    image: ghcr.io/davistroy/open-brain/web-next:latest
+    image: ghcr.io/davistroy/open-brain/web-next:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: packages/web-next/Dockerfile
@@ -598,7 +603,7 @@ services:
   # Replaces the per-script deployment on open-brain-vm (G-C.0 decision: Python
   # sidecar on homeserver, not TS rewrite).
   financial-ingest:
-    image: ghcr.io/davistroy/open-brain/ingest-sidecar:latest
+    image: ghcr.io/davistroy/open-brain/ingest-sidecar:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/ingest-sidecar/Dockerfile
@@ -657,7 +662,7 @@ services:
   # config + inbox. Handles utility-pipeline.py (gas, power, water summaries).
   # Build block is duplicated so either service can rebuild the shared image.
   utility-ingest:
-    image: ghcr.io/davistroy/open-brain/ingest-sidecar:latest
+    image: ghcr.io/davistroy/open-brain/ingest-sidecar:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/ingest-sidecar/Dockerfile
@@ -711,7 +716,7 @@ services:
   # (6am ET native — the homeserver TZ is America/New_York, so #295 does not apply):
   #   docker exec open-brain-actual-ingest node /app/actual-daily.mjs
   actual-ingest:
-    image: ghcr.io/davistroy/open-brain/actual-ingest:latest
+    image: ghcr.io/davistroy/open-brain/actual-ingest:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/actual-sidecar/Dockerfile

@@ -73,6 +73,12 @@ docker-compose.override.yml
 docker/data/
 postgres_data/
 redis_data/
+# Live host data + inbox dirs inside the working tree (item 5.1). Never `git clean`
+# or `git stash -u` on the host: pgdata/ and redis-data/ hold the live databases.
+/pgdata/
+/redis-data/
+/financial-inbox/
+/utility-inbox/
 
 # ============================================================
 # Claude Code / local tooling
