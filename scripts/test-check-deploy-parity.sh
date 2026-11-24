@@ -51,7 +51,7 @@ ALERTS="$T/alerts"; mkdir -p "$ALERTS"; cp "$WORK/config/prometheus/alerts/a.yml
 DEPLOYED="$T/docker-compose.yml"; cp "$WORK/docker-compose.yml" "$DEPLOYED"
 
 # stub docker: per-service hash/label/image files under $T/stub
-STUB="$T/stub"; mkdir -p "$STUB/bin" "$STUB/hash" "$STUB/label" "$STUB/image"
+STUB="$T/stub"; mkdir -p "$STUB/bin" "$STUB/hash" "$STUB/label" "$STUB/image" "$STUB/up" "$STUB/uprc"
 cat > "$STUB/bin/docker" <<'STUBEOF'
 #!/usr/bin/env bash
 S="${STUB_DIR:?}"
@@ -59,6 +59,10 @@ echo "$*" >> "$S/calls.log"
 case "$*" in
   *"config --services"*) printf 'a\nb\n'; exit 0 ;;
   *"config --hash "*) svc="${@: -1}"; [ -r "$S/hash/$svc" ] || exit 1; echo "$svc $(cat "$S/hash/$svc")"; exit 0 ;;
+  *" up "*)
+    case "$*" in *"--dry-run"*) ;; *) echo "REAL UP: $*" >> "$S/real-up.log"; exit 99 ;; esac
+    svc="${@: -1}"; [ -e "$S/uprc/$svc" ] && { cat "$S/up/$svc" 2>/dev/null; exit "$(cat "$S/uprc/$svc")"; }
+    [ -r "$S/up/$svc" ] && { cat "$S/up/$svc"; exit 0; }; exit 1 ;;
   inspect*)
     name="${@: -1}"; svc="${name#open-brain-}"
     case "$*" in
@@ -103,20 +107,60 @@ cp "$WORK/docker-compose.yml" "$DEPLOYED"
 run PARITY_LAYERS=bogus
 check "unknown layer is exit 2" 2 "$RC"
 
-echo "== layer 2: hash =="
+echo "== layer 2: hash (compose's own up --dry-run verdict) =="
+P=" DRY-RUN MODE -  Container open-brain-"
+printf '%s\n' "${P}a  Running" > "$STUB/up/a"; printf '%s\n' "${P}b  Running" > "$STUB/up/b"
+: > "$STUB/calls.log"
 run PARITY_LAYERS=hash
-check "hashes equal" 0 "$RC"
-setsvc b h2 OLD
+check "both services Running" 0 "$RC"; hasnt "no STALE" '^STALE'
+# a config-hash label that mismatches must NOT matter any more (Compose 2.40.3 never matches)
+setsvc a h1 WRONGLABEL; setsvc b h2 WRONGLABEL
 run PARITY_LAYERS=hash
-check "label differs" 1 "$RC"; has "STALE b printed" '^STALE b$'; hasnt "a is not stale" '^STALE a$'
+check "mismatching config-hash labels are ignored" 0 "$RC"; hasnt "no STALE from labels" '^STALE'
+setsvc a h1 h1; setsvc b h2 h2
+printf '%s\n' "${P}b  Recreate" "${P}b  Recreated" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "Recreate line" 1 "$RC"; has "STALE b printed" '^STALE b$'; hasnt "a is not stale" '^STALE a$'
 hasnt "no rendered config in output" "CANARY_SECRET"
-if grep -qE 'config( |$)' "$STUB/calls.log" && grep -E 'compose.* config' "$STUB/calls.log" | grep -vqE -- '--(services|hash)'; then
-  bad "script requested an unflagged 'compose config' render"; else ok "only 'config --services/--hash' were invoked"; fi
-setsvc b h2 h2
-rm "$STUB/label/b"
+printf '%s\n' "${P}b  Recreate" "${P}b  Error response from daemon: No such image: x/y:1" > "$STUB/up/b"
 run PARITY_LAYERS=hash
-check "container not running" 1 "$RC"; has "NOTRUNNING b" '^NOTRUNNING b$'
-setsvc b h2 h2
+check "Recreate + missing-image Error is still STALE" 1 "$RC"; has "STALE b (unpulled image)" '^STALE b$'
+hasnt "error text not echoed" 'No such image'
+printf '%s\n' "${P}b  Created" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "Created, no existing container" 1 "$RC"; has "NOTRUNNING b" '^NOTRUNNING b$'
+printf '%s\n' "${P}b  Create" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "Create, no existing container" 1 "$RC"; has "NOTRUNNING b (Create)" '^NOTRUNNING b$'
+printf '%s\n' "something unrecognisable CANARY_SECRET_VALUE=hunter2" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "garbage output cannot be checked" 2 "$RC"; has "service named" "ERROR: .* b( |$)"
+hasnt "garbage not echoed" 'CANARY_SECRET|unrecognisable'; hasnt "no STALE for garbage" '^STALE'
+rm "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "dry-run produced nothing (command failed)" 2 "$RC"
+printf '%s\n' "${P}b  Running" > "$STUB/up/b"; echo 1 > "$STUB/uprc/b"
+run PARITY_LAYERS=hash
+check "dry-run exit nonzero with a Running line is still read" 0 "$RC"
+printf '%s\n' "${P}b  Recreate" "boom" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "dry-run exit nonzero with a Recreate line is STALE" 1 "$RC"; has "STALE b on nonzero rc" '^STALE b$'
+rm -f "$STUB/uprc/b"
+printf '%s\n' " DRY-RUN MODE -  Container open-brain-b-extra  Recreate" "${P}b  Running" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+check "a different service's Recreate line (b-extra) is not b's" 0 "$RC"
+printf '%s\n' "${P}b  Running" > "$STUB/up/b"
+run PARITY_LAYERS=hash
+[ ! -e "$STUB/real-up.log" ] && ok "never ran 'up' without --dry-run" || bad "real up ran: $(cat "$STUB/real-up.log")"
+UPCALLS="$(grep -E ' up ' "$STUB/calls.log")"
+[ -n "$UPCALLS" ] && ok "up --dry-run was invoked" || bad "no up call recorded"
+printf '%s\n' "$UPCALLS" | grep -vq -- '--dry-run' && bad "an up call lacks --dry-run" || ok "every up call has --dry-run"
+printf '%s\n' "$UPCALLS" | grep -vq -- '--no-deps' && bad "an up call lacks --no-deps" || ok "every up call has --no-deps"
+printf '%s\n' "$UPCALLS" | grep -vq -- '--pull never' && bad "an up call lacks --pull never" || ok "every up call passes --pull never"
+printf '%s\n' "$UPCALLS" | grep -oE -- '--pull [a-z]+' | grep -vqx -- '--pull never' && bad "a --pull other than never" || ok "no --pull other than never"
+printf '%s\n' "$UPCALLS" | grep -qE -- '--(force-recreate|remove-orphans)' && bad "forbidden up flag" || ok "no --force-recreate/--remove-orphans"
+if grep -E 'compose.* config' "$STUB/calls.log" | grep -vqE -- '--services'; then
+  bad "script requested a 'compose config' other than --services"; else ok "only 'config --services' was invoked (no --hash, no render)"; fi
 echo sha256:old > "$STUB/image/utility-ingest"
 run PARITY_LAYERS=hash
 check "ingest sidecars on different images" 1 "$RC"; has "IMAGE line" '^IMAGE '

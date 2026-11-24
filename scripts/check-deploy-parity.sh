@@ -37,9 +37,16 @@
 # PARITY_LAYERS (comma list; default file,hash,tree,alerts in local mode, file in ssh
 # mode) selects what runs:
 #   file    compose file TEXT vs REF (the original check; allowlist = D131 port line)
-#   hash    per service: `docker compose config --hash <svc>` vs the running container's
-#           com.docker.compose.config-hash label  ->  `STALE <svc>`; plus the two
-#           ingest sidecars must run the SAME image ID (shared-image trap, Entry 201)
+#   hash    per service: Compose's OWN recreate decision, `docker compose up --dry-run -d
+#           --no-deps --pull never <svc>` (changes nothing). "Container open-brain-<svc>
+#           Recreate" -> `STALE <svc>`; "Running" -> current; "Create(d)" with no existing
+#           container -> `NOTRUNNING <svc>`; no recognisable line -> exit 2 ("could not
+#           check"). Output is captured, never printed. Plus the two ingest sidecars must
+#           run the SAME image ID (shared-image trap, Entry 201).
+#           NOT `config --hash` vs the container's com.docker.compose.config-hash label:
+#           on Docker Compose 2.40.3 these never match for a freshly recreated container
+#           (label f145c35a... vs hash 6ea63114..., under every invocation; verified live
+#           2026-11-24), so every service read STALE. Compose's dry-run is its own answer.
 #   tree    `git diff REF -- config scripts packages/shared/drizzle` + `git status`,
 #           minus deploy/host-only-allowlist.txt  ->  `TREE <path>`; and, when
 #           DEPLOYED.json exists, `git diff --stat <its images_commit>..REF` minus
@@ -185,23 +192,26 @@ dc() {
 
 layer_hash() {
   command -v docker >/dev/null || { echo "ERROR: docker not found (hash layer)" >&2; cannot; return; }
-  local services svc want have stale=0 n=0 out
+  local services svc out stale=0 n=0
   # Output of `config` is never echoed: it inlines env_file values.
   if ! services="$(dc config --services 2>/dev/null)" || [ -z "$services" ]; then
     echo "ERROR: 'docker compose config --services' failed (is .env.secrets present?)" >&2; cannot; return
   fi
   for svc in $services; do
     n=$((n + 1))
-    if ! out="$(dc config --hash "$svc" 2>/dev/null)"; then
-      echo "ERROR: 'docker compose config --hash ${svc}' failed" >&2; cannot; continue
-    fi
-    want="$(printf '%s\n' "$out" | awk 'NF{print $NF; exit}')"
-    have="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "open-brain-${svc}" 2>/dev/null)"
-    case "$have" in ''|'<no value>') echo "NOTRUNNING ${svc}"; drift; continue ;; esac
-    if [ -z "$want" ]; then
-      echo "ERROR: empty config hash for ${svc}" >&2; cannot
-    elif [ "$want" != "$have" ]; then
+    # Compose's own recreate decision, dry-run (creates/stops/pulls nothing). Output is
+    # captured and NEVER printed: it can carry error text. Exit status is ignored on
+    # purpose — a stale service whose new image is not pulled prints "Recreate" and then
+    # an Error line (and may exit non-zero); the verdict is the state word.
+    out="$(dc up --dry-run -d --no-deps --pull never "$svc" 2>&1 </dev/null)"
+    if printf '%s\n' "$out" | grep -qE "Container open-brain-${svc}[[:space:]]+Recreate"; then
       echo "STALE ${svc}"; stale=$((stale + 1)); drift
+    elif printf '%s\n' "$out" | grep -qE "Container open-brain-${svc}[[:space:]]+Running"; then
+      :
+    elif printf '%s\n' "$out" | grep -qE "Container open-brain-${svc}[[:space:]]+Create(d)?([[:space:]]|$)"; then
+      echo "NOTRUNNING ${svc}"; drift
+    else
+      echo "ERROR: could not determine whether ${svc} is current ('up --dry-run' gave no recognisable state)" >&2; cannot
     fi
   done
   # Two services share ingest-sidecar:latest — recreating one leaves the other on the old image.
