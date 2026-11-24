@@ -381,7 +381,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // it fires on its own condition and must not be folded into the generic
     // queue/capture-flow message (this is the PLT-H2 redundancy path; the
     // Prometheus BackupStale rule's delivery via the shared stack is unproven).
-    if (legacyPush && backupCheck.stale && backupCheck.ageSeconds !== null) {
+    if (legacyPush && backupCheck.stale) {
       const backupAlertSent = await this.sendBackupStaleAlert(backupCheck.ageSeconds, backupCheck.maxAgeSeconds)
       alertSent = alertSent || backupAlertSent
     }
@@ -663,6 +663,17 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // Pushgateway restart, #309). Returns null when the manifest is absent.
     const ageSeconds = await pushBackupAgeGauge(manifestPath)
     if (ageSeconds === null) {
+      // Fail closed in production (item 4.2): with BACKUP_MANIFEST_REQUIRED=true an
+      // unreadable manifest is itself the failure — a missing mount, a bad
+      // permission or a broken symlink must not look like "no news is good news".
+      // Unset/false keeps the local-dev and CI skip (and the f341ca6 behaviour).
+      if (process.env.BACKUP_MANIFEST_REQUIRED === 'true') {
+        logger.warn(
+          { manifestPath },
+          '[pipeline-health] backup manifest unreadable and BACKUP_MANIFEST_REQUIRED=true — treating as stale',
+        )
+        return { ageSeconds: null, stale: true, maxAgeSeconds }
+      }
       return { ageSeconds: null, stale: false, maxAgeSeconds }
     }
 
@@ -747,7 +758,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    *
    * Returns true if sent successfully, false if Pushover not configured or send failed.
    */
-  private async sendBackupStaleAlert(ageSeconds: number, maxAgeSeconds: number): Promise<boolean> {
+  private async sendBackupStaleAlert(ageSeconds: number | null, maxAgeSeconds: number): Promise<boolean> {
     if (!this.pushover.isConfigured) {
       logger.debug("[pipeline-health] Pushover not configured — skipping backup-stale alert")
       return false
@@ -786,7 +797,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   }): Promise<boolean> {
     let sent = false
 
-    if (p.backupCheck.ageSeconds !== null) {
+    if (p.backupCheck.ageSeconds !== null || p.backupCheck.stale) {
       const r = await this.raiseAlert({
         key: 'backup-stale',
         severity: 'critical',
@@ -794,7 +805,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
         title: 'Backup Stale',
         message: p.backupCheck.stale
           ? backupStaleMessage(p.backupCheck.ageSeconds, p.backupCheck.maxAgeSeconds)
-          : backupAgeLine(p.backupCheck.ageSeconds, p.backupCheck.maxAgeSeconds),
+          : backupAgeLine(p.backupCheck.ageSeconds ?? 0, p.backupCheck.maxAgeSeconds),
       })
       sent = sent || r.sent
     }
@@ -952,9 +963,14 @@ function backupAgeLine(ageSeconds: number, maxAgeSeconds: number): string {
   return `Backup manifest is ${ageHours}h old (threshold: ${maxAgeHours}h).`
 }
 
-function backupStaleMessage(ageSeconds: number, maxAgeSeconds: number): string {
+function backupStaleMessage(ageSeconds: number | null, maxAgeSeconds: number): string {
+  const first =
+    ageSeconds === null
+      ? 'Alert: backup manifest unreadable. The file is missing or cannot be read from the workers container ' +
+        '(BACKUP_MANIFEST_REQUIRED=true).'
+      : backupAgeLine(ageSeconds, maxAgeSeconds)
   return (
-    `${backupAgeLine(ageSeconds, maxAgeSeconds)}\n` +
+    `${first}\n` +
     'Check the offsite-backup/restore-rehearsal cron logs and .env.secrets ' +
     'readability in cron context. See docs/runbooks/backup-alert.md.'
   )

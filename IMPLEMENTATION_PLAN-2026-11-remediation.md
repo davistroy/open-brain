@@ -984,8 +984,8 @@ Host git is 2.51.1 and honours `-c safe.directory`; do not chown the tree. The s
 
 ---
 
-#### 4.2 Backup mount that follows the newest backup
-**Status: PENDING**
+#### 4.2 Backup mount that follows the newest backup ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-02, PLT-015, DA7-02
 **Depends On:** 4.1

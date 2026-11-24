@@ -249,16 +249,25 @@ services:
       # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM: set in .env.secrets to enable
       # Backup dead-man's switch (7.4/PE-H4/RC-12/SA-13/A131) — pipeline-health
       # stats this path's mtime every 6h and pushes openbrain_backup_age_seconds.
-      # Deferred to the next workers recreate (batched compose window, OA-9) —
-      # inert until then; pipeline-health gracefully skips when the mount is absent.
-      BACKUP_LATEST_PATH: /backup-latest/manifest.json
+      # The path runs through the `latest` symlink, which resolves on every stat
+      # because the PARENT directory is mounted (item 4.2).
+      BACKUP_LATEST_PATH: /mnt/user/backup/openbrain/latest/manifest.json
+      # Fail closed: an unreadable manifest is reported as a stale backup.
+      BACKUP_MANIFEST_REQUIRED: "true"
     volumes:
       - ./config:/app/config:ro
       - ./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro  # RC-19 dated register for secret-rotation reminders
-      # ro-mount of the host backup 'latest' symlink target — see BACKUP_LATEST_PATH above.
-      # Host path is Unraid-specific (scripts/backup.sh BACKUP_ROOT default); absent in
-      # local dev/CI, which is fine — pipeline-health treats a missing mount as "skip".
-      - /mnt/user/backup/openbrain/latest:/backup-latest:ro
+      # Mount the backup PARENT directory at its own absolute path. A bind of the
+      # `latest` symlink freezes on the backup of the day the container started
+      # (Docker resolves it once); the parent mount lets the absolute symlink target
+      # resolve inside the container at read time. create_host_path:false makes a
+      # missing host directory fail the start instead of creating an empty one.
+      - type: bind
+        source: /mnt/user/backup/openbrain
+        target: /mnt/user/backup/openbrain
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       postgres:
         condition: service_healthy

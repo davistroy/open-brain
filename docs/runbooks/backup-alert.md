@@ -23,6 +23,19 @@ If you only ever see the Prometheus alert and never a Pushover notification for 
 
 ---
 
+## Mount and configuration (item 4.2)
+
+The `workers` service bind-mounts the host directory `/mnt/user/backup/openbrain` (the PARENT of the `latest` symlink) read-only at the SAME absolute path, with `create_host_path: false`. Docker resolves a bind of a symlink once, at container start, so mounting `latest` itself freezes on the backup of that day; the parent mount lets the absolute symlink target resolve on every `stat`, so the alert follows the 03:00 backup without a restart. A missing host directory fails the container start instead of creating an empty one.
+
+| Variable | Production value | Meaning |
+|----------|------------------|---------|
+| `BACKUP_LATEST_PATH` | `/mnt/user/backup/openbrain/latest/manifest.json` | File whose mtime is the backup age |
+| `BACKUP_MANIFEST_REQUIRED` | `"true"` | Fail closed: an unreadable manifest counts as a stale backup |
+
+**"Backup manifest unreadable" alert.** With `BACKUP_MANIFEST_REQUIRED=true`, a manifest that is missing or unreadable raises the same `Backup Stale` alert, with the text "backup manifest unreadable" instead of an age. Causes: the mount is absent from the container, `latest` points at a removed directory, or permissions changed. Check `docker exec open-brain-workers ls -l /mnt/user/backup/openbrain/latest/` and `readlink` the symlink on the host. Unset or `false` (local dev, CI) skips the check when the file is absent.
+
+---
+
 ## Diagnosis
 
 ### 1. Check the backup manifest age directly (homeserver)
