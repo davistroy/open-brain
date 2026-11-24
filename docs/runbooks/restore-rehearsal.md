@@ -188,8 +188,15 @@ bash scripts/load-secrets.sh --force
 # 8. Verify secrets loaded
 bash scripts/verify-secrets.sh
 
-# 9. Bring up the full stack
-docker compose up -d
+# 9. Bring up the rest of the stack, by name (never a bare `up -d`). Postgres is already up.
+docker compose up -d redis
+docker compose up -d cloudflared
+#    Application services: through scripts/deploy.sh, which needs postgres and redis running
+#    (as root; `bash scripts/deploy.sh <sha> --dry-run …` first):
+bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next \
+  file-ingestion financial-ingest utility-ingest actual-ingest
+#    faster-whisper is not in deploy.sh's normal set; start it by name:
+docker compose up -d faster-whisper
 
 # 10. Verify health
 curl -s http://localhost:3002/api/v1/captures?limit=1

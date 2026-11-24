@@ -22,17 +22,17 @@ Single `open-brain` Docker network. All services defined in `docker-compose.yml`
 
 | Container | Image / Build | Purpose |
 |-----------|---------------|---------|
-| `open-brain-postgres` | pgvector/pgvector:pg16 | Postgres 16 + pgvector (vector(768) schema) |
-| `open-brain-redis` | redis:7-alpine | BullMQ job queue backing store |
+| `open-brain-postgres` | pgvector/pgvector:pg16@sha256:1d5335… (digest-pinned) | Postgres 16 + pgvector (vector(768) schema) |
+| `open-brain-redis` | redis:7.4-alpine | BullMQ job queue backing store |
 | `open-brain-core-api` | build: target=core-api | Hono API — capture CRUD, search, MCP, governance, entities |
 | `open-brain-workers` | build: target=workers | BullMQ workers — embed, classify, extract entities, triggers, skills |
 | `open-brain-slack-bot` | build: target=slack-bot | @slack/bolt Socket Mode — capture + query + commands |
 | `open-brain-voice-capture` | build: target=voice-capture | HTTP endpoint for iOS Shortcut; proxies to faster-whisper |
-| `open-brain-faster-whisper` | ghcr.io/speaches-ai/speaches:latest-cpu | Speech-to-text (large-v3, CPU int8; #301) |
+| `open-brain-faster-whisper` | ghcr.io/speaches-ai/speaches:0.8.3-cpu | Speech-to-text (large-v3, CPU int8; #301) |
 | `open-brain-web-next` | build: packages/web-next/Dockerfile | Next.js 16 + Cloudscape + React 19 + TanStack Query — sole UI package; canonical ingress at brain.troy-davis.com |
 | `open-brain-file-ingestion` | build: packages/file-ingestion | FastAPI sidecar — extracts text from PDF/DOCX/XLSX/PPTX/etc. for the document pipeline |
 | `open-brain-financial-ingest` / `utility-ingest` | image: alpine + cron | Hourly Python pullers for financial + utility data; results POST'd to `/api/v1/captures` |
-| `open-brain-cloudflared` | cloudflare/cloudflared:latest | Cloudflare Tunnel — exposes brain.troy-davis.com |
+| `open-brain-cloudflared` | cloudflare/cloudflared:2026.11.2 | Cloudflare Tunnel — exposes brain.troy-davis.com |
 
 **Observability (external, ADR-0004):** Loki, Prometheus, Pushgateway, and Grafana are NOT part of this compose project. They run as a standalone `observability` Docker Compose project that open-brain joins as a client over a shared external network: the shared Prometheus scrapes `core-api:3000/metrics`, and `workers` push to `pushgateway:9091`. Deploying/operating that stack is out of scope for this repo.
 
@@ -60,11 +60,12 @@ config/
   postgres/        # postgresql.conf
 scripts/
   load-secrets.sh         # Bitwarden Secrets Manager integration
-  migrate.sh              # Drizzle migration runner
+  migrate-manual.sh       # Migration runner (schema_migrations ledger)
+  deploy.sh               # Deploy one commit to named application services
   e2e-phase1.sh           # End-to-end smoke test
   e2e-full.sh             # Full end-to-end test suite
   regression-test.mjs     # Comprehensive regression suite (91 tests)
-  monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
+  monthly-maintenance.sh  # Monthly maintenance: read-only checks, logs, health, Slack report
 docs/
   PRD.md           # Product requirements (v0.7)
   TDD.md           # Technical design (v0.7)
@@ -207,21 +208,37 @@ Secrets are never stored in `.env` files. Load them into a `.env.secrets` file t
 source ./scripts/load-secrets.sh
 ```
 
-### 3. Run database migrations
+### 3. Start the stateful services (once, by hand)
+
+`scripts/deploy.sh` never starts postgres, redis or cloudflared, and its config gate refuses to run until postgres and redis are running (it compares their bind mounts with the render). On a fresh install, start them yourself, once, by name:
 
 ```bash
-./scripts/migrate.sh
+docker compose up -d postgres redis
+docker compose up -d cloudflared
 ```
 
-### 4. Start the full stack
+Never a bare `docker compose up -d` (no service list) on the host.
+
+### 4. Run database migrations
 
 ```bash
-docker compose up -d
+bash scripts/migrate-manual.sh --status   # applied vs pending
+bash scripts/migrate-manual.sh            # apply pending migrations
 ```
 
-This starts all 12 containers (postgres, redis, core-api, workers, slack-bot, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — it is not started by `docker compose up -d` here. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+On a fresh database, load the snapshot first, then record it in the ledger. See "No auto-migration on startup" in `CLAUDE.md`.
 
-### 5. Verify
+### 5. Deploy the application services
+
+```bash
+bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest
+```
+
+`scripts/deploy.sh` recreates the named application services only. It refuses postgres, redis, and cloudflared (step 3 started them). See `docs/runbooks/deploy.md`.
+
+The stack has 13 containers (postgres, redis, core-api, workers, slack-bot, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest, actual-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — this stack does not start it. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+
+### 6. Verify
 
 ```bash
 # Core API health
@@ -237,7 +254,7 @@ open http://localhost:5173
 open http://localhost:3002/api/v1/admin/queues
 ```
 
-### 6. Connect Claude (MCP)
+### 7. Connect Claude (MCP)
 
 Add to your Claude MCP config:
 
@@ -256,7 +273,7 @@ Add to your Claude MCP config:
 
 ### Cloudflare Tunnel (remote access)
 
-Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, then set `CLOUDFLARE_TUNNEL_TOKEN` in Bitwarden. The `cloudflared` container starts automatically with the stack.
+Configure `config/cloudflare/tunnel.yaml` with your tunnel ID and credentials, then set `CLOUDFLARE_TUNNEL_TOKEN` in Bitwarden. Start the `cloudflared` container by name (step 3); `scripts/deploy.sh` never starts or recreates it.
 
 ---
 

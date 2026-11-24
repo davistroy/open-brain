@@ -73,6 +73,19 @@ docker-compose.override.yml
 docker/data/
 postgres_data/
 redis_data/
+# Live host data + inbox dirs inside the working tree (item 5.1). Never `git clean`
+# or `git stash -u` on the host: pgdata/ and redis-data/ hold the live databases.
+/pgdata/
+/redis-data/
+/financial-inbox/
+/utility-inbox/
+# Written on the host by scripts/deploy.sh (item 5.2): the deployed-state manifest, and
+# the .env backup taken before it sets IMAGE_TAG, and its temp files (removed on exit;
+# ignored in case a kill -9 leaves one).
+/DEPLOYED.json
+/.env.bak-*
+/.env.tmp.*
+/.DEPLOYED.json.*
 
 # ============================================================
 # Claude Code / local tooling

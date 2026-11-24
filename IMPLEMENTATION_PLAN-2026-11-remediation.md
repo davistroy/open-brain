@@ -1173,8 +1173,8 @@ Docker does not restart a container on an unhealthy check, so each healthcheck r
 
 ### Work Items
 
-#### 5.1 Images and compose name their commit
-**Status: PENDING**
+#### 5.1 Images and compose name their commit ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-03, PLT-005, RC7-12
 **Files Affected:**
@@ -1206,8 +1206,8 @@ The build workflow already pushes a `sha-<short>` tag per image (`git rev-parse 
 
 ---
 
-#### 5.2 `scripts/deploy.sh`, `scripts/preflight.sh`, and `DEPLOYED.json`
-**Status: PENDING**
+#### 5.2 `scripts/deploy.sh`, `scripts/preflight.sh`, and `DEPLOYED.json` ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: opus**
 **Requirement Refs:** SA7-03, PLT-005, RC7-12, PLT-008, INT-019
 **Depends On:** 5.1 (cross-phase: 4.1, 4.3)
@@ -1291,8 +1291,8 @@ Deleting `scripts/migrate.sh` and correcting `README.md:207-222` belong to this 
 
 ---
 
-#### 5.4 Pin the floating images; cap the container logs
-**Status: PENDING**
+#### 5.4 Pin the floating images; cap the container logs ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-029, INT-015, PLT-021, PLT-024
 **Depends On:** 5.3
@@ -1317,7 +1317,7 @@ Four third-party image references float or age: `ghcr.io/speaches-ai/speaches:la
 - [ ] WHEN the compose file renders THEN no third-party image reference SHALL use `latest` or a tag without a version
 - [ ] WHEN a service is recreated THEN its logging options SHALL hold `max-size: 50m` and `max-file: 2`
 - [ ] `touch .env.secrets && TAILSCALE_IP=100.64.0.1 docker compose -f docker-compose.yml config --images | grep -E 'cloudflared|speaches|pgvector'` shows three pinned references
-- [ ] `touch .env.secrets && TAILSCALE_IP=100.64.0.1 docker compose -f docker-compose.yml config | grep -c max-size` prints 13
+- [ ] `touch .env.secrets && jq -e '[.services[] | select(.logging.options["max-size"]=="50m" and .logging.options["max-file"]=="2")] | length == 13' <(TAILSCALE_IP=100.64.0.1 docker compose -f docker-compose.yml config --format json)` exits 0 (amended 2026-11-24: a plain `grep -c max-size` of the render prints 14, because the top-level `x-logging` anchor also renders)
 - [ ] `! grep -n 'rclone/rclone:latest' scripts/offsite-backup.sh docs/runbooks/offsite-backup.md` exits 0
 
 **Notes:**
@@ -1339,15 +1339,15 @@ The host tree sits at commit `a1629e4` (2026-06-16), no longer an ancestor of `m
 
 **Tasks:**
 1. [ ] Preconditions: Phases 2, 3, 4 and items 5.1–5.4 are merged; `build-images.yml` is green for the commit `<sha>`; a backup dated today exists and `pg_restore --list` reads the dump; the offsite object count is above 0 (item 1.1).
-2. [ ] Snapshot, as `root`, into `/mnt/user/backup/openbrain/host-snapshot-<date>/` with mode 0600: the output of `git -c safe.directory=/mnt/user/appdata/open-brain status --porcelain --ignored`, the output of `git diff`, and a tar of `docker-compose.override.yml`, `.env`, the host-only config files, and `/boot/config/plugins/dynamix/custom.cron`. Record the image ID of all 13 containers (`docker inspect --format '{{.Name}} {{.Image}}'`), the `StartedAt` of `open-brain-postgres` and `open-brain-redis`, and `SELECT count(*) FROM captures`.
+2. [ ] Snapshot, as `root`, into `/mnt/user/appdata/open-brain-config-backup/host-snapshot-<date>/` (directory mode 0700, files 0600; amended 2026-11-24: outside `/mnt/user/backup/openbrain`, which `workers` mounts and the offsite job copies): the output of `git -c safe.directory=/mnt/user/appdata/open-brain status --porcelain --ignored`, the output of `git diff --binary`, a tar of every untracked non-ignored file (`git ls-files -o --exclude-standard`, minus `pgdata/`, `redis-data/` and the inboxes — `checkout -f` overwrites an untracked file whose path the target tracks), and a tar of `docker-compose.override.yml`, `.env`, `config/utility/utility-config.yaml`, `config/payee-rules.yaml`, and `/boot/config/plugins/dynamix/custom.cron`. Record the image ID of all 13 containers (`docker inspect --format '{{.Name}} {{.Image}}'`), the `StartedAt` of `open-brain-postgres` and `open-brain-redis`, and `SELECT count(*) FROM captures`.
 3. [ ] Classify each of the 72 paths (unknown U1): "matches `main`", "host-only by design" (present in `deploy/host-only-allowlist.txt`), or "drift". The owner decides each "drift" path before the checkout: keep (add to the allowlist or commit to `main`) or discard. The diff of `docker-compose.yml` shows whether the core-api port line still carries the single `3002:3000` bind (D131); the owner confirms that no LAN client depends on that bind before the checkout removes the line.
 4. [ ] Back up `.env`, then add `TAILSCALE_IP=<the address the host binds today>` to `.env`.
-5. [ ] As `root`: `git -c safe.directory=/mnt/user/appdata/open-brain fetch origin`, then `git -c safe.directory=/mnt/user/appdata/open-brain checkout -f --detach <sha>`.
-6. [ ] Run `bash scripts/preflight.sh`, then `bash scripts/deploy.sh <sha> --dry-run core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`. The gate shows `postgres` and `redis` as binds whose sources equal the live mounts.
-7. [ ] Run the same `deploy.sh` command without `--dry-run`. Go from task 5 to this task without a pause: `./config` is bind-mounted live into 7 services.
+5. [ ] **Checks BEFORE the checkout (amended 2026-11-24, Phase 5 review I2: any refusal after a hand checkout leaves 7 services reading the new `./config` on old images, and the script has no earlier commit to return to).** As `root`: `git -c safe.directory=/mnt/user/appdata/open-brain fetch origin`; run the target's preflight without checking out: `git -c safe.directory=/mnt/user/appdata/open-brain show <sha>:scripts/preflight.sh | PREFLIGHT_REPO_DIR=/mnt/user/appdata/open-brain bash -s -- --ref <sha>` (read the script's usage first; it must exit 0); `docker manifest inspect ghcr.io/davistroy/open-brain/<image>:sha-<first 7 chars>` for all 8 images; task 3's classification is complete, so the post-checkout clean-tree check holds no surprise. Any failure here: stop, nothing has changed.
+6. [ ] As `root`: `git -c safe.directory=/mnt/user/appdata/open-brain checkout -f --detach <sha>`. **Then at once restore `config/utility/utility-config.yaml` (and any other once-tracked host-only file) from the task-2 tar** — the move from `a1629e4` deletes it (Phase 5 review I1: tracked at `a1629e4`, gitignored since; gas would break silently). Copy `config/prometheus/alerts/container-health.yml` (and every other changed rule file) into the observability project's rule directory and reload Prometheus now, before `workers` is recreated (Phase 4 hand-off: else the offline `spark-llm` probe pages hourly). Run `bash scripts/preflight.sh` (exit 0), then `bash scripts/deploy.sh <sha> --dry-run core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`. The gate shows `postgres` and `redis` as binds whose sources equal the live mounts. If anything fails from here, use the manual rollback in Notes — `deploy.sh` has no earlier deploy to return to.
+7. [ ] Run the same `deploy.sh` command without `--dry-run`. Go from task 6 to this task without a pause: `./config` is bind-mounted live into 7 services.
 8. [ ] Verify: the nine containers are healthy; `docker exec open-brain-workers cat /mnt/user/backup/openbrain/latest/manifest.json` shows today's date; the revision label of `open-brain-core-api` equals `jq -r .commit DEPLOYED.json`; `docker exec open-brain-workers grep -c 'alert_state:' /app/packages/workers/dist/main.js` prints 1 or more; `scripts/check-deploy-parity.sh` lists exactly `postgres`, `redis`, `cloudflared`, and `faster-whisper` as stale.
 9. [ ] Trigger `secret-rotation` once (`curl -s -X POST http://127.0.0.1:3002/api/v1/skills/secret-rotation/trigger`) and read `totalSecrets` above 0 from the newest `secret-rotation` row of `skills_log`.
-10. [ ] Copy the changed alert rule files to the rule directory of the observability project as `root` and reload Prometheus; `bash scripts/check-alerts-parity.sh` then reports every rule in sync.
+10. [ ] Confirm the rule copy of task 6: `bash scripts/check-alerts-parity.sh` reports every rule in sync. Then, because root now did all git work in the tree (fetch, checkout), record in `LAB_NOTEBOOK.md` that from this deploy on only `root` runs git in `/mnt/user/appdata/open-brain` (root-owned objects in `.git` break git as `claude`; Phase 4 review M-3, Phase 5 review M4).
 11. [ ] `OPERATOR_ACTIONS.md`: add a dated row, due 7 days after this deploy: set `ALERT_LEGACY_PUSH: "false"` in the workers `environment:` block and deploy. Log every command and result in `LAB_NOTEBOOK.md`, and mark U1 resolved.
 
 **Acceptance Criteria:**
@@ -1360,7 +1360,7 @@ The host tree sits at commit `a1629e4` (2026-06-16), no longer an ancestor of `m
 - [ ] `env -i HOME=/root PATH=/usr/bin:/bin:/usr/sbin bash -c 'cd /mnt/user/appdata/open-brain && PARITY_LOCAL_COMPOSE=$PWD/docker-compose.yml bash scripts/check-deploy-parity.sh'; echo $?` prints 0 or 1
 
 **Notes:**
-HOST — operator-gated. Run in a session with the owner present; an unattended agent does not execute this item. Backup first: the daily backup of task 1 and the root-only snapshot of task 2, taken before the checkout. Rollback: `git checkout -f --detach a1629e4`, re-apply the saved `git diff` and the tar from the snapshot, retag each recorded image ID as `:latest` (`docker tag <id> <repository>:latest`), and recreate the nine services with `up -d --force-recreate --no-deps` and no pull. Run no `docker image prune` until Phase 8 closes. Never run `git clean`, `git stash -u`, or `git pull`, and never rename the host directory: `pgdata/` and `redis-data/` live inside the working tree. Never run a bare `up -d`, `--remove-orphans`, or `compose down`; `deploy.sh` names every service. Never write rendered `docker compose config` output to a file or a log. The host has no `python3` and no `psql`. Every service's config hash changes in this deploy (logging caps, binds, healthchecks); the four services left stale are the ones Phase 8 recreates. The approved analysis shows a raw `up -d` for the application wave; this item routes the wave through `scripts/deploy.sh`, which exists by then and writes `DEPLOYED.json`.
+HOST — operator-gated. Run in a session with the owner present; an unattended agent does not execute this item. The nightly Unraid appdata backup (00:00 ET) restarts Postgres every night, so take the task-2 `StartedAt` reading and the post-deploy reading in the same day, after 00:10 ET. Backup first: the daily backup of task 1 and the root-only snapshot of task 2, taken before the checkout. Rollback: `git checkout -f --detach a1629e4`, re-apply the saved `git diff` and the tar from the snapshot, retag each recorded image ID as `:latest` (`docker tag <id> <repository>:latest`), and recreate the nine services with `up -d --force-recreate --no-deps` and no pull. Run no `docker image prune` until Phase 8 closes. Never run `git clean`, `git stash -u`, or `git pull`, and never rename the host directory: `pgdata/` and `redis-data/` live inside the working tree. Never run a bare `up -d`, `--remove-orphans`, or `compose down`; `deploy.sh` names every service. Never write rendered `docker compose config` output to a file or a log. The host has no `python3` and no `psql`. Every service's config hash changes in this deploy (logging caps, binds, healthchecks); the four services left stale are the ones Phase 8 recreates. The approved analysis shows a raw `up -d` for the application wave; this item routes the wave through `scripts/deploy.sh`, which exists by then and writes `DEPLOYED.json`.
 
 ---
 

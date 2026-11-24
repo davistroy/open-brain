@@ -23,7 +23,7 @@ Failure sends a priority-1 Pushover alert (`scripts/lib/pushover-notify.sh`).
 | Underlying remote | `gdrive:Backups/open-brain-crypt` (Google Drive, 2 TB plan) |
 | Crypt password | BWS secret `open-brain-rclone-crypt-password` (ai-work project) |
 | Crypt salt (password2) | BWS secret `open-brain-rclone-crypt-salt` (ai-work project) |
-| rclone runtime | Dockerized `rclone/rclone:latest` (no host rclone install) |
+| rclone runtime | Dockerized `rclone/rclone:1.76.0` (no host rclone install) |
 | Config backup | `rclone.conf.bak-2026-06-11` alongside the live conf |
 
 **The crypt password/salt exist in exactly two places:** the obscured values in
@@ -36,8 +36,8 @@ re-seeding the remote.
 ```bash
 PW=$(bws secret get <id-of-open-brain-rclone-crypt-password> | jq -r .value)
 SALT=$(bws secret get <id-of-open-brain-rclone-crypt-salt> | jq -r .value)
-OPW=$(docker run --rm rclone/rclone:latest obscure "$PW")
-OSALT=$(docker run --rm rclone/rclone:latest obscure "$SALT")
+OPW=$(docker run --rm rclone/rclone:1.76.0 obscure "$PW")
+OSALT=$(docker run --rm rclone/rclone:1.76.0 obscure "$SALT")
 cat >> /mnt/user/appdata/rclone-onedrive/config/rclone.conf <<EOF
 
 [open-brain-offsite]
@@ -59,7 +59,7 @@ rclone-onedrive/rclone-gdrive sync setup.)
    docker run --rm \
      -v /mnt/user/appdata/rclone-onedrive/config:/config/rclone \
      -v /mnt/user/restore:/restore \
-     rclone/rclone:latest copy open-brain-offsite:daily /restore/daily \
+     rclone/rclone:1.76.0 copy open-brain-offsite:daily /restore/daily \
      --config /config/rclone/rclone.conf
    ls /mnt/user/restore/daily   # pick newest <date> dir
    ```
@@ -74,7 +74,7 @@ rclone-onedrive/rclone-gdrive sync setup.)
 grep offsite-backup /etc/cron.d/root                  # cron installed
 tail -20 /var/log/open-brain-offsite-backup.log       # last run
 docker run --rm -v /mnt/user/appdata/rclone-onedrive/config:/config/rclone \
-  rclone/rclone:latest lsd open-brain-offsite: --config /config/rclone/rclone.conf
+  rclone/rclone:1.76.0 lsd open-brain-offsite: --config /config/rclone/rclone.conf
 ```
 
 A `canary/ob-canary.txt` file from the 2026-06-11 install verifies decryption

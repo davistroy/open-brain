@@ -19,7 +19,7 @@
 #   OFFSITE_REMOTE    default: open-brain-offsite:
 #   OFFSITE_MAX_AGE   default: 2d   ("off" = full seed copy of the whole tree)
 #   OFFSITE_RETAIN    default: 30d  (remote files older than this are pruned)
-#   RCLONE_IMAGE      default: rclone/rclone:latest
+#   RCLONE_IMAGE      default: rclone/rclone:1.76.0
 #   PUSHOVER_API_URL  see scripts/lib/pushover-notify.sh (mock-able)
 #
 # Exit codes:
@@ -34,7 +34,7 @@ RCLONE_CONF_DIR="${RCLONE_CONF_DIR:-/mnt/user/appdata/rclone-onedrive/config}"
 OFFSITE_REMOTE="${OFFSITE_REMOTE:-open-brain-offsite:}"
 OFFSITE_MAX_AGE="${OFFSITE_MAX_AGE:-2d}"
 OFFSITE_RETAIN="${OFFSITE_RETAIN:-30d}"
-RCLONE_IMAGE="${RCLONE_IMAGE:-rclone/rclone:latest}"
+RCLONE_IMAGE="${RCLONE_IMAGE:-rclone/rclone:1.76.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/pushover-notify.sh

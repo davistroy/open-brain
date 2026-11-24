@@ -3,6 +3,8 @@ name: Build and Push Images
 on:
   push:
     branches: [main]
+  # Manual rebuild of the images for the current commit (item 5.1).
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -28,7 +30,14 @@ jobs:
 
       - name: Extract short SHA
         id: meta
-        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        # First 7 chars of the full SHA, never `git rev-parse --short`: git lengthens the
+        # short form in a bigger repo, and scripts/deploy.sh must compute the same tag.
+        # `latest` gates the :latest tag on every build step below: only a build of main
+        # moves :latest. A workflow_dispatch from a branch pushes sha-* (and the revision
+        # label) only, so it can never replace the image a plain `compose pull` fetches.
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF" = refs/heads/main ]; then echo "latest=true" >> "$GITHUB_OUTPUT"; else echo "latest=false" >> "$GITHUB_OUTPUT"; fi
 
       # ── core-api ────────────────────────────────────────────────────────────
       - name: Build and push core-api
@@ -39,7 +48,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/core-api:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/core-api:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/core-api:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=core-api
           cache-to: type=gha,mode=max,scope=core-api
 
@@ -52,7 +63,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/workers:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/workers:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/workers:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=workers
           cache-to: type=gha,mode=max,scope=workers
 
@@ -65,7 +78,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/slack-bot:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/slack-bot:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/slack-bot:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=slack-bot
           cache-to: type=gha,mode=max,scope=slack-bot
 
@@ -78,7 +93,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/voice-capture:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/voice-capture:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/voice-capture:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=voice-capture
           cache-to: type=gha,mode=max,scope=voice-capture
 
@@ -91,7 +108,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/file-ingestion:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/file-ingestion:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/file-ingestion:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=file-ingestion
           cache-to: type=gha,mode=max,scope=file-ingestion
 
@@ -106,7 +125,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/ingest-sidecar:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/ingest-sidecar:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/ingest-sidecar:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=ingest-sidecar
           cache-to: type=gha,mode=max,scope=ingest-sidecar
 
@@ -124,7 +145,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/actual-ingest:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/actual-ingest:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/actual-ingest:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=actual-ingest
           cache-to: type=gha,mode=max,scope=actual-ingest
 
@@ -139,7 +162,9 @@ jobs:
           push: true
           tags: |
             ghcr.io/davistroy/open-brain/web-next:sha-${{ steps.meta.outputs.sha }}
-            ghcr.io/davistroy/open-brain/web-next:latest
+            ${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/web-next:latest' || '' }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             API_URL=http://core-api:3000
           cache-from: type=gha,scope=web-next

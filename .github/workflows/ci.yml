@@ -76,6 +76,9 @@ jobs:
       - name: Deploy parity harness
         run: bash scripts/test-check-deploy-parity.sh
 
+      - name: Deploy script harness
+        run: bash scripts/test-deploy.sh
+
   email-worker-test:
     name: email-worker tests (Cloudflare Worker)
     runs-on: ubuntu-latest
@@ -281,6 +284,7 @@ jobs:
           fi
           grep -q TAILSCALE_IP err.txt || { echo "FAIL: the error does not name TAILSCALE_IP"; cat err.txt; exit 1; }
           bash scripts/test-compose-host-binds.sh
+          bash scripts/test-compose-identity.sh
 
   python-lint:
     name: Python lint & typecheck

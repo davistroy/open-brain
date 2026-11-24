@@ -125,7 +125,8 @@ echo sha256:same > "$STUB/image/utility-ingest"
 echo "== layer 3: tree =="
 run PARITY_LAYERS=tree
 check "clean tree" 0 "$RC"
-touch "$WORK/.env" "$WORK/.env.secrets" "$WORK/docker-compose.override.yml" "$WORK/DEPLOYED.json"
+touch "$WORK/.env" "$WORK/.env.secrets" "$WORK/docker-compose.override.yml"
+git -C "$WORK" rev-parse HEAD | jq -R '{commit: .}' > "$WORK/DEPLOYED.json"
 run PARITY_LAYERS=tree
 check "allowlisted host-only files are ignored" 0 "$RC"
 echo '# edited' >> "$WORK/scripts/x.sh"
@@ -135,6 +136,50 @@ check "modified script + stray config" 1 "$RC"
 has "TREE scripts/x.sh" '^TREE scripts/x.sh$'; has "TREE config/stray.yaml" '^TREE config/stray.yaml$'
 hasnt "allowlisted .env not listed" '^TREE \.env'
 git -C "$WORK" checkout -q -- scripts/x.sh; rm "$WORK/config/stray.yaml"
+
+echo "== layer 3: UNDEPLOYED (DEPLOYED.json vs REF) =="
+run PARITY_LAYERS=tree
+check "DEPLOYED.json at REF" 0 "$RC"; hasnt "no UNDEPLOYED at REF" '^UNDEPLOYED'
+DEP0="$(git -C "$WORK" rev-parse HEAD)"
+echo 'echo two' > "$WORK/scripts/x.sh"; git -C "$WORK" commit -qam "script change"; git -C "$WORK" push -q origin main
+run PARITY_LAYERS=tree
+check "a code change newer than DEPLOYED.json" 1 "$RC"
+has "UNDEPLOYED line names the deployed commit" "^UNDEPLOYED ${DEP0:0:12}\\.\\.origin/main: 1 file"
+hasnt "no TREE finding for it" '^TREE '
+git -C "$WORK" rev-parse HEAD | jq -R '{commit: .}' > "$WORK/DEPLOYED.json"
+mkdir -p "$WORK/docs"; echo note > "$WORK/docs/n.txt"; echo readme > "$WORK/README.md"
+git -C "$WORK" add docs README.md; git -C "$WORK" commit -qm "docs only"; git -C "$WORK" push -q origin main
+run PARITY_LAYERS=tree
+check "docs/ and *.md changes are not UNDEPLOYED" 0 "$RC"
+run PARITY_LAYERS=tree PARITY_REF="$DEP0"
+check "PARITY_REF selects the comparison target (deploy.sh passes <sha>)" 1 "$RC"; has "UNDEPLOYED against the given ref" "^UNDEPLOYED .*\\.\\.${DEP0}"
+echo "== layer 3: UNDEPLOYED compares images_commit (item 5.2 fix pass) =="
+H="$(git -C "$WORK" rev-parse HEAD)"
+# what deploy.sh --tree-only writes after moving the tree onto new code: commit = the tree,
+# images_commit = the last commit whose images were deployed
+jq -n --arg c "$H" --arg i "$DEP0" '{commit:$c, mode:"tree-only", images_commit:$i}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "tree-only onto new code: still UNDEPLOYED" 1 "$RC"
+has "UNDEPLOYED names images_commit" "^UNDEPLOYED ${DEP0:0:12}\\.\\.origin/main: 1 file"
+jq -n --arg c "$H" '{commit:$c, mode:"tree-only", images_commit:null}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "images_commit null: UNDEPLOYED" 1 "$RC"; has "UNDEPLOYED with a reason" '^UNDEPLOYED .*images_commit'
+jq -n --arg c "$DEP0" --arg i "$H" '{commit:$c, images_commit:$i}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "images_commit at REF wins over an older commit field" 0 "$RC"
+jq -n --arg c "$H" '{commit:$c}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "old DEPLOYED.json without images_commit falls back to commit" 0 "$RC"
+echo '{"commit":"1111111111111111111111111111111111111111"}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "deployed commit not in the repository" 1 "$RC"; has "says history rewritten" '^UNDEPLOYED 111111111111 .*not in this repository'
+echo 'not json' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "unreadable DEPLOYED.json cannot be checked" 2 "$RC"
+rm "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "no DEPLOYED.json: no UNDEPLOYED finding" 0 "$RC"
+git -C "$WORK" rev-parse HEAD | jq -R '{commit: .}' > "$WORK/DEPLOYED.json"
 
 echo "== layer 4: alerts =="
 run PARITY_LAYERS=alerts
