@@ -14676,3 +14676,13 @@ Orchestrator mutation check after 3.3: disabling the route's caller allowlist tu
 
 **Phase 3 merged:** PR #405 squash-merged → `main` = `5c89b98` (Troy: "A"). On that commit: CI, CodeQL, Build and Push Images all success. Nothing deployed (item 5.5).
 **OA-25 DONE (2026-11-24):** Troy renamed the Pushover application to "Open Brain". He saw only one app (no "Voice Capture"); I confirmed it is the right one by token prefix — every open-brain container (`workers`, `core-api`, `voice-capture`, `utility-ingest`, `actual-ingest`) uses the same `PUSHOVER_APP_TOKEN` (prefix shown to Troy only, never recorded). Notification banners now read "Open Brain". GitHub issue #312 (Pushover branding) can close.
+
+## Entry 259 — Remediation Phase 4: deploy foundation — compose, probes, drift (items 4.1–4.5) (2026-11-24)  [docker] [config] [deploy]
+
+**Authorisation (Troy, 2026-11-24):** "start phase 4".
+**Objective:** a drift check that runs as root and compares four layers (4.1); a backup mount that follows the newest backup and fails closed (4.2); the postgres/redis raw-bind pin tracked in the base compose, so a fresh `up` can no longer start on empty named volumes (4.3); host binds that fail closed and a required `TAILSCALE_IP` (4.4); probes for every local LLM tier and the data stores plus sidecar healthchecks (4.5).
+**Hypothesis / success criteria:** every item lands with tests; the Phase 4 DoD passes, incl. `docker compose config` renders showing postgres/redis as binds with `create_host_path: false`, every bind fail-closed, `TAILSCALE_IP` required, and a healthcheck on every service; a fresh review finds no open Critical/Important issue.
+**Scope guard:** repo work only. **No host change and no container recreate in this phase.** Hand-offs recorded for later: item 5.5 must set `TAILSCALE_IP` in the host `.env` (backup first) before any host compose command; items 8.2/8.3 must remove the host override's short-syntax postgres/redis entries before each recreate; expect one `container:spark-llm` warning after deploy while OA-36 is open.
+**Rollback:** do not merge / revert the branch. No host state touched.
+**Tags:** [docker] [config] [deploy]
+**Environment:** VM only (branch `feat/2026-11-remediation-phase4`); local `docker compose config` renders. Executed by Claude (Opus 5.5) as orchestrator.
