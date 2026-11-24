@@ -128,10 +128,12 @@ stop_after_checkout() { err "$*"; return_hint >&2; exit 1; }
 # ── config gate ────────────────────────────────────────────────────────────────
 # Render held in memory. Asserts: the 13 known services; postgres and redis render only
 # binds; every bind source equals the running container's mount for the same target
-# (postgres/redis must be running); every bind source exists. Prints, per service,
-# whether `config --hash` differs from the running container's label.
+# (postgres/redis must be running); every bind source exists. (No per-service "config
+# hash vs container label" line: on Compose 2.40.3 `config --hash` never equals the
+# label, so it misled — verified 2026-11-24. check-deploy-parity.sh layer hash uses
+# `up --dry-run` instead.)
 gate() {
-  local render got s fails=0 binds mounts t src rsrc want have
+  local render got s fails=0 binds mounts t src rsrc
   if ! render="$(dc config --format json 2>/dev/null)" || [ -z "$render" ]; then
     err "config gate: 'docker compose config' failed for ${SHA:0:12}"; return 1
   fi
@@ -178,15 +180,6 @@ gate() {
         say "  ${s}: bind ${src} -> ${t} (= running mount)"
       fi
     done <<< "$binds"
-  done
-  say "  config hash vs running container:"
-  for s in $ALL13; do
-    want="$(dc config --hash "$s" 2>/dev/null | awk 'NF { print $NF; exit }')"
-    have="$(docker inspect -f '{{index .Config.Labels "com.docker.compose.config-hash"}}' "open-brain-${s}" 2>/dev/null)"
-    case "$have" in
-      ''|'<no value>') say "    ${s}: not running" ;;
-      *) if [ "$want" = "$have" ]; then say "    ${s}: unchanged"; else say "    ${s}: CHANGES"; fi ;;
-    esac
   done
   [ "$fails" -eq 0 ] || { err "config gate: ${fails} problem(s)"; return 1; }
   say "  config gate: OK"
