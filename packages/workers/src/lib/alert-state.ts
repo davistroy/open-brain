@@ -80,8 +80,19 @@ export function queueAlertKey(kind: QueueAlertKind, queue: string): string {
   return `queue-${kind}:${queue}`
 }
 
-/** Human-readable name of an alert key: `queue-failed:ingest-root` -> `ingest-root queue failures`; other keys unchanged. */
+/** Alert key of a `container-health` probe (`container:postgres`, `container:spark-llm`). */
+export function containerAlertKey(name: string): string {
+  return `container:${name}`
+}
+
+/**
+ * Human-readable name of an alert key: `queue-failed:ingest-root` ->
+ * `ingest-root queue failures`, `container:spark-llm` -> `spark-llm unhealthy`;
+ * other keys unchanged.
+ */
 export function describeAlertKey(key: string): string {
+  const c = /^container:(.+)$/.exec(key)
+  if (c) return `${c[1]} unhealthy`
   const m = /^queue-(failed|backlog|stalled):(.+)$/.exec(key)
   return m ? `${m[2]} ${QUEUE_ALERT_LABELS[m[1] as QueueAlertKind]}` : key
 }
@@ -335,6 +346,25 @@ async function checkAcknowledgement(pushover: PushoverService, key: string, stat
 }
 
 /**
+ * In-process mirror of the last known state per alert key. Alert state lives in
+ * Postgres, so when Postgres is the thing that is down, `readAlertState` throws
+ * and the write fails too: without a mirror every run would see "no state", send
+ * ok -> bad again (every 15 min for container-health) and never send "Resolved".
+ * Updated on every successful read and every computed new state (even when the DB
+ * write fails); consulted only when a read throws. An empty mirror (fresh
+ * process) keeps the fail-open "notify" behaviour. Lost on restart by design.
+ * An entry whose write failed is `persisted: false`: when the database returns it
+ * knows nothing of that state, so the mirror wins over a successful read until
+ * the next write lands (else the "Resolved" for an outage-time alert is lost).
+ */
+const stateMirror = new Map<string, { state: AlertState; persisted: boolean }>()
+
+/** Clear the in-process state mirror. Test hook. */
+export function resetAlertStateMirror(): void {
+  stateMirror.clear()
+}
+
+/**
  * Report an operational condition (ADR-0005). Sends on ok -> bad (priority 1
  * for `critical`, 0 for `warning`), sends "Resolved: <title>" at priority -1 on
  * bad -> ok, and sends nothing while the condition holds. The new state is
@@ -348,7 +378,8 @@ async function checkAcknowledgement(pushover: PushoverService, key: string, stat
  * send and their failures are logged, never thrown; a failed Pushover send
  * leaves the level unchanged so the next run retries the whole step.
  *
- * Fail open: a state read error is logged at warn and treated as "no state",
+ * Fail open: a state read error is logged at warn and the in-process mirror
+ * (last known state) is used instead — with an empty mirror it is "no state",
  * so a bad condition is sent as ok -> bad; a write error is logged at warn and
  * cannot undo the send. Never throws.
  */
@@ -363,8 +394,18 @@ export async function raiseAlert(deps: RaiseAlertDeps, args: RaiseAlertArgs): Pr
   let state: AlertState | null = null
   try {
     state = await readAlertState(db, key)
+    const pending = stateMirror.get(key)
+    if (pending && !pending.persisted) state = pending.state
+    else if (state) stateMirror.set(key, { state, persisted: true })
+    else stateMirror.delete(key)
   } catch (err) {
-    logger.warn({ err, key }, '[alert-state] state read failed — failing open (treating as ok)')
+    state = stateMirror.get(key)?.state ?? null
+    logger.warn(
+      { err, key, mirrored: state !== null },
+      state
+        ? '[alert-state] state read failed — using the in-process mirror'
+        : '[alert-state] state read failed — failing open (treating as ok)',
+    )
   }
 
   // Poll the receipt of an open alert that has one and no acknowledgement yet.
@@ -377,8 +418,10 @@ export async function raiseAlert(deps: RaiseAlertDeps, args: RaiseAlertArgs): Pr
   const action = nextAction(state, { bad, severity, now })
   if (action === 'none') {
     if (ackedState) {
+      stateMirror.set(key, { state: ackedState, persisted: false })
       try {
         await writeAlertState(db, key, ackedState)
+        stateMirror.set(key, { state: ackedState, persisted: true })
       } catch (err) {
         logger.warn({ err, key }, '[alert-state] state write failed — acknowledgement not stored')
       }
@@ -436,8 +479,13 @@ export async function raiseAlert(deps: RaiseAlertDeps, args: RaiseAlertArgs): Pr
 
   logger.info({ key, severity, action, sent }, `[alert-state] ${action} ${key}`)
 
+  const persist = action === 'notify' || action === 'resolve' || sent || ackedState
+  if (persist) stateMirror.set(key, { state: next, persisted: false })
   try {
-    if (action === 'notify' || action === 'resolve' || sent || ackedState) await writeAlertState(db, key, next)
+    if (persist) {
+      await writeAlertState(db, key, next)
+      stateMirror.set(key, { state: next, persisted: true })
+    }
   } catch (err) {
     logger.warn({ err, key, action }, '[alert-state] state write failed — the send already happened')
   }

@@ -21,9 +21,10 @@ networks:
     external: true
     name: br0
 
+# Postgres and Redis data are NOT named volumes: they are long-syntax binds on the
+# services below (item 4.3). Never re-add postgres_data / redis_data here — a named
+# volume is an empty database on a rebuilt host that still passes its healthcheck.
 volumes:
-  postgres_data:
-  redis_data:
   whisper_model_cache:  # #301: retained for rollback to the pre-speaches image
   hf_hub_cache:         # #301: speaches HF hub cache at /home/ubuntu/.cache/huggingface/hub
   financial_ingest_data:
@@ -74,8 +75,23 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./config/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+      # The live data directory, bound fail-closed (item 4.3; ADR-0004 landmine). Long
+      # syntax with create_host_path:false: a missing source makes Docker refuse to
+      # start instead of creating an empty directory that initdb would fill with a
+      # fresh, empty database. Short syntax turns create_host_path back on — never use
+      # it here or in an override. Default = the homeserver's live path;
+      # OPENBRAIN_DATA_DIR moves it (see .env.example,
+      # deploy/docker-compose.override.yml.template). CI: scripts/test-compose-data-binds.sh.
+      - type: bind
+        source: ${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/pgdata
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/postgres/postgresql.conf
+        target: /etc/postgresql/postgresql.conf
+        bind:
+          create_host_path: false
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openbrain -d openbrain"]
@@ -99,7 +115,12 @@ services:
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
-      - redis_data:/data
+      # Live AOF/RDB directory, bound fail-closed like postgres above (item 4.3).
+      - type: bind
+        source: ${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/redis-data
+        target: /data
+        bind:
+          create_host_path: false
     env_file:
       - .env.secrets
     # requirepass (SEC-08) + bounded memory with noeviction (PE-M3): BullMQ enqueue
@@ -157,11 +178,18 @@ services:
       # VOICE_CAPTURE_SECRET: set in .env.secrets (INT-M5 — forwarded as Bearer to voice-capture by the /api/v1/voice-captures proxy)
     ports:
       # Dual-bind (ADR-0002): loopback for host + Tailscale IP for OpenClaw MCP
-      # (bond.k4jda.net → 100.101.61.122:3002/mcp). NOT 0.0.0.0 — closes the LAN.
+      # (bond.k4jda.net → $TAILSCALE_IP:3002/mcp). NOT 0.0.0.0 — closes the LAN.
+      # TAILSCALE_IP is REQUIRED (item 4.4): no fallback, a host without it fails at the
+      # first compose command instead of binding a stale address. Set it in .env.
       - "127.0.0.1:3002:3000"
-      - "${TAILSCALE_IP:-100.101.61.122}:3002:3000"
+      - "${TAILSCALE_IP:?set TAILSCALE_IP in .env}:3002:3000"
     volumes:
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
       - admin_prewipe_backup:/backup/pre-wipe
     depends_on:
       postgres:
@@ -249,16 +277,35 @@ services:
       # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM: set in .env.secrets to enable
       # Backup dead-man's switch (7.4/PE-H4/RC-12/SA-13/A131) — pipeline-health
       # stats this path's mtime every 6h and pushes openbrain_backup_age_seconds.
-      # Deferred to the next workers recreate (batched compose window, OA-9) —
-      # inert until then; pipeline-health gracefully skips when the mount is absent.
-      BACKUP_LATEST_PATH: /backup-latest/manifest.json
+      # The path runs through the `latest` symlink, which resolves on every stat
+      # because the PARENT directory is mounted (item 4.2).
+      BACKUP_LATEST_PATH: /mnt/user/backup/openbrain/latest/manifest.json
+      # Fail closed: an unreadable manifest is reported as a stale backup.
+      BACKUP_MANIFEST_REQUIRED: "true"
     volumes:
-      - ./config:/app/config:ro
-      - ./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro  # RC-19 dated register for secret-rotation reminders
-      # ro-mount of the host backup 'latest' symlink target — see BACKUP_LATEST_PATH above.
-      # Host path is Unraid-specific (scripts/backup.sh BACKUP_ROOT default); absent in
-      # local dev/CI, which is fine — pipeline-health treats a missing mount as "skip".
-      - /mnt/user/backup/openbrain/latest:/backup-latest:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind  # RC-19 dated register for secret-rotation reminders
+        source: ./OPERATOR_ACTIONS.md
+        target: /app/OPERATOR_ACTIONS.md
+        read_only: true
+        bind:
+          create_host_path: false
+      # Mount the backup PARENT directory at its own absolute path. A bind of the
+      # `latest` symlink freezes on the backup of the day the container started
+      # (Docker resolves it once); the parent mount lets the absolute symlink target
+      # resolve inside the container at read time. create_host_path:false makes a
+      # missing host directory fail the start instead of creating an empty one.
+      - type: bind
+        source: /mnt/user/backup/openbrain
+        target: /mnt/user/backup/openbrain
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       postgres:
         condition: service_healthy
@@ -300,7 +347,12 @@ services:
       # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
       # OPENAI_API_KEY: set in .env.secrets
     volumes:
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -348,7 +400,12 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ${STAGING_DIR:-/mnt/user/openbrain/staging}:/data/staging:ro
+      - type: bind
+        source: ${STAGING_DIR:-/mnt/user/openbrain/staging}
+        target: /data/staging
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -385,7 +442,12 @@ services:
       # The old whisper_model_cache (/root/.cache) is intentionally NOT reused -> ~3 GB
       # re-download of large-v3 on first boot; the old volume is retained for rollback.
       - hf_hub_cache:/home/ubuntu/.cache/huggingface/hub
-      - ./config/whisper/model_aliases.json:/home/ubuntu/speaches/model_aliases.json:ro
+      - type: bind
+        source: ./config/whisper/model_aliases.json
+        target: /home/ubuntu/speaches/model_aliases.json
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       # speaches' own known-good check (its image ships curl); 127.0.0.1 per house rule.
       test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
@@ -426,7 +488,12 @@ services:
     volumes:
       # SE-13: brain-views.yaml is read for brain_view validation (lightweight,
       # like slack-bot). Read-only — voice-capture never writes config.
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
       # INT-M4: durable spool for dead-lettered transcripts (survives restart).
       - voice_spool_data:/data/voice-spool
     depends_on:
@@ -492,9 +559,11 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2025.6.1
     container_name: open-brain-cloudflared
-    # --metrics exposes /ready + /metrics (PLT-H2/M6). No CMD healthcheck: the
-    # cloudflared image is distroless (no shell for CMD-SHELL); tunnel liveness is
-    # covered by the external synthetic monitor (health.troy-davis.com).
+    # --metrics exposes /ready + /metrics (PLT-H2/M6). The image is distroless (no
+    # shell), so the healthcheck is exec-form: `cloudflared tunnel ready` queries
+    # that metrics endpoint and exits non-zero until the tunnel has a connection.
+    # State only: Docker never restarts on unhealthy; the external synthetic monitor
+    # (health.troy-davis.com) still covers end-to-end reachability.
     command: tunnel --no-autoupdate --metrics 127.0.0.1:2000 --config /etc/cloudflared/tunnel.yaml run
     env_file:
       # #281/D145: cloudflared is DISTROLESS (no shell for sh -c), so the token must
@@ -502,8 +571,19 @@ services:
       # feed). load-secrets.sh writes TUNNEL_TOKEN directly (secrets-map.sh maps
       # open-brain-cloudflare-tunnel-token -> TUNNEL_TOKEN); nothing else reads it.
       - .env.secrets
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     volumes:
-      - ./config/cloudflare/tunnel.yaml:/etc/cloudflared/tunnel.yaml:ro
+      - type: bind
+        source: ./config/cloudflare/tunnel.yaml
+        target: /etc/cloudflared/tunnel.yaml
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -542,14 +622,31 @@ services:
     volumes:
       # Host inbox — drop CSVs here and they'll be processed on next cron run.
       # Matches backup-path convention under /mnt/user/appdata on Unraid host.
-      - /mnt/user/appdata/open-brain/financial-inbox:/inbox
+      - type: bind
+        source: /mnt/user/appdata/open-brain/financial-inbox
+        target: /inbox
+        bind:
+          create_host_path: false
       # SQLite DB + any future sidecar state
       - financial_ingest_data:/data
       # Config (plaid-config.yaml, merchants.yaml) read-only
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
+    # Liveness only (item 4.5): the container is an idle cron target, so this
+    # reports "the interpreter runs" and never restarts it (no autoheal label).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     mem_limit: 1500m
     networks:
       - open-brain
@@ -578,12 +675,29 @@ services:
       CAPTURE_API_CALLER: utility-pipeline
       TZ: America/New_York
     volumes:
-      - /mnt/user/appdata/open-brain/utility-inbox:/inbox
+      - type: bind
+        source: /mnt/user/appdata/open-brain/utility-inbox
+        target: /inbox
+        bind:
+          create_host_path: false
       - utility_ingest_data:/data
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
+    # Liveness only (item 4.5): the container is an idle cron target, so this
+    # reports "the interpreter runs" and never restarts it (no autoheal label).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     mem_limit: 1500m
     networks:
       - open-brain
@@ -617,7 +731,12 @@ services:
       TZ: America/New_York
     volumes:
       - actual_ingest_data:/data
-      - ./config:/app/config:ro   # host-only config/payee-rules.yaml, read-only
+      - type: bind  # host-only config/payee-rules.yaml, read-only
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       open-brain: {}
       # STATIC IP (D142) — a LITERAL in tracked compose, deliberately: br0 declares
@@ -630,6 +749,14 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    # Liveness only (item 4.5): the container is an idle cron target, so this
+    # reports "the interpreter runs" and never restarts it (no autoheal label).
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     mem_limit: 1g
     restart: unless-stopped
     logging: *default_logging

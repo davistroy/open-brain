@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import { PipelineHealthSkill } from '../skills/pipeline-health.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
 vi.mock('../lib/push-metrics.js', () => ({

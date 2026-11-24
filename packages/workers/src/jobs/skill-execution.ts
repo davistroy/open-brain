@@ -299,7 +299,7 @@ export function createSkillExecutionWorker(
         }
 
         case 'container-health': {
-          const result = await runSkill(ContainerHealthSkill, { db }, {
+          const result = await runSkill(ContainerHealthSkill, { db, configService: opts.configService, redisConnection: connection }, {
             consecutiveFailureThreshold: typeof input?.consecutiveFailureThreshold === 'number' ? input.consecutiveFailureThreshold : undefined,
           })
           logger.info(

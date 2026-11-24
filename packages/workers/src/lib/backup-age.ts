@@ -3,9 +3,10 @@ import { logger } from '@open-brain/shared'
 import { pushMetrics } from './push-metrics.js'
 
 /**
- * Default location of the latest-backup manifest — the `${BACKUP_ROOT}/latest`
- * symlink target, bind-mounted read-only into the workers container at
- * `/backup-latest` (docker-compose.yml workers volumes).
+ * Fallback manifest path for local runs only. Production sets `BACKUP_LATEST_PATH`
+ * (docker-compose.yml `workers`) to `/mnt/user/backup/openbrain/latest/manifest.json`
+ * and bind-mounts the PARENT directory at the same absolute path, so the `latest`
+ * symlink is resolved on every `stat` and follows the newest backup without a restart.
  */
 export const DEFAULT_BACKUP_MANIFEST_PATH = '/backup-latest/manifest.json'
 

@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { BaseSkill } from '../skills/base-skill.js'
 import { LLMSkill } from '../skills/llm-skill.js'
 import { PushoverService } from '../services/pushover.js'
 import type { BaseResult, BaseSkillOpts, LLMSkillOpts } from '../skills/types.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // ============================================================
 // Concrete test subclasses

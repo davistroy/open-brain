@@ -147,6 +147,11 @@ ssh -i ~/.ssh/id_claude_code claude@homeserver.k4jda.net
 # 2. Navigate to app directory
 cd /mnt/user/appdata/open-brain
 
+# 2b. Create .env with the host's Tailscale address BEFORE any compose command.
+#     TAILSCALE_IP is required (docker-compose.yml fails closed without it) and is not
+#     restored by load-secrets.sh, which only writes .env.secrets.
+echo 'TAILSCALE_IP=<this host Tailscale address>' > .env
+
 # 3. Bring up only Postgres (do not start the full stack yet)
 docker compose up -d postgres
 # Wait for healthy:

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import type { Mock } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
@@ -9,6 +10,8 @@ import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
 import { PushoverService } from '../services/pushover.js'
 import { pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
 vi.mock('../lib/push-metrics.js', () => ({
@@ -686,6 +689,58 @@ describe('PipelineHealthSkill', () => {
       expect(backupMetrics).toBeUndefined()
     })
 
+    describe('BACKUP_MANIFEST_REQUIRED (fail closed, item 4.2)', () => {
+      afterEach(() => {
+        vi.unstubAllEnvs()
+      })
+
+      it('required and manifest unreadable: stale, no age, legacy push says "unreadable", no gauge', async () => {
+        vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'true')
+        mockStat.mockRejectedValueOnce(new Error('EACCES: permission denied'))
+
+        const { skill, pushover } = makeSkill({ failures: [] })
+        const result = await skill.execute()
+
+        expect(result.backupStale).toBe(true)
+        expect(result.backupAgeSeconds).toBeNull()
+        expect(result.healthy).toBe(false)
+        expect(result.alertSent).toBe(true)
+        expect(pushover.send).toHaveBeenCalledWith(
+          expect.objectContaining({ title: 'Open Brain: Backup Stale', priority: 1 }),
+        )
+        const msg = (pushover.send as ReturnType<typeof vi.fn>).mock.calls[0][0].message as string
+        expect(msg).toContain('backup manifest unreadable')
+        expect(msg).toContain('backup-alert.md')
+        expect(findBackupMetricCall()).toBeUndefined()
+      })
+
+      it('not required (unset) and manifest absent: not stale', async () => {
+        mockStat.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'))
+        const { skill, pushover } = makeSkill({ failures: [] })
+        const result = await skill.execute()
+        expect(result.backupStale).toBe(false)
+        expect(pushover.send).not.toHaveBeenCalled()
+      })
+
+      it('BACKUP_MANIFEST_REQUIRED=false and manifest absent: not stale', async () => {
+        vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'false')
+        mockStat.mockRejectedValueOnce(new Error('ENOENT: no such file or directory'))
+        const { skill } = makeSkill({ failures: [] })
+        const result = await skill.execute()
+        expect(result.backupStale).toBe(false)
+      })
+
+      it('required and manifest fresh: not stale', async () => {
+        vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'true')
+        mockStat.mockResolvedValueOnce({ mtime: new Date(Date.now() - 5_000) } as never)
+        const { skill, pushover } = makeSkill({ failures: [] })
+        const result = await skill.execute()
+        expect(result.backupStale).toBe(false)
+        expect(result.backupAgeSeconds).toBeLessThan(60)
+        expect(pushover.send).not.toHaveBeenCalled()
+      })
+    })
+
     it('respects BACKUP_MAX_AGE_SECONDS override', async () => {
       const previous = process.env.BACKUP_MAX_AGE_SECONDS
       process.env.BACKUP_MAX_AGE_SECONDS = '60' // 1 minute — trivially exceeded
@@ -827,6 +882,20 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
     expect(sentCalls(pushover).map(c => c.title)).toEqual(['Open Brain: Backup Stale', 'Backup Stale'])
     expect(result.alertSent).toBe(true)
     expect(store.get('alert_state:backup-stale')).toMatchObject({ status: 'bad' })
+  })
+
+  it('required and unreadable manifest: the stateful backup-stale alert is raised with the unreadable text', async () => {
+    vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'true')
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+
+    const result = await makeSkillWith(db, pushover).execute()
+
+    expect(result.backupStale).toBe(true)
+    expect(store.get('alert_state:backup-stale')).toMatchObject({ status: 'bad' })
+    const titles = sentCalls(pushover).map(c => c.title)
+    expect(titles).toEqual(['Open Brain: Backup Stale', 'Backup Stale'])
+    expect(sentCalls(pushover)[1].message).toContain('backup manifest unreadable')
   })
 
   it('both switches on (default): failed queues send the legacy push AND the stateful alert', async () => {

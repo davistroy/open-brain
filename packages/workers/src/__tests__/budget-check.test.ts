@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import { processBudgetCheckJob } from '../jobs/budget-check.js'
 import type { BudgetCheckJobData } from '../jobs/budget-check.js'
 import { PushoverService } from '../services/pushover.js'
 import { alertStateKey, type AlertState } from '../lib/alert-state.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // ============================================================
 // Mock fetch globally

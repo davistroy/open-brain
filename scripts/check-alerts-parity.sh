@@ -26,6 +26,12 @@
 #   0  every open-brain rule is deployed with an identical body
 #   1  a rule is missing or functionally drifted
 #   2  could not perform the check (never a false pass — the #303 lesson)
+#
+# ── Local mode (Phase 4 / item 4.1) ────────────────────────────────────────────
+# ALERTS_LOCAL_DIR=<deployed dir> runs ON the host as root: no ssh, and the repo side is
+# read from `git show ${ALERTS_REF:-origin/main}:config/prometheus/alerts/<file>` (the
+# host working tree may lag main) instead of the working tree. Findings print as
+# `ALERT MISSING <file>` / `ALERT DRIFTED <file>` (names only, never rule text).
 set -uo pipefail
 
 HOST="${ALERTS_HOST:-homeserver.k4jda.net}"
@@ -37,10 +43,38 @@ die() { echo "ERROR: $*" >&2; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${SCRIPT_DIR}/../config/prometheus/alerts"
-[ -d "$REPO_DIR" ] || die "repo alerts dir not found: $REPO_DIR"
 
 # Rule body only: drop comments + blank lines so a comment-only diff is not drift.
 strip() { grep -vE '^[[:space:]]*(#|$)'; }
+
+if [ -n "${ALERTS_LOCAL_DIR:-}" ]; then
+  GIT_DIR_="$(cd "${ALERTS_REPO_DIR:-$SCRIPT_DIR/..}" 2>/dev/null && pwd -P)" || die "repo dir not accessible"
+  AREF="${ALERTS_REF:-origin/main}"
+  ag() { git -C "$GIT_DIR_" -c safe.directory="$GIT_DIR_" "$@"; }
+  [ -d "$ALERTS_LOCAL_DIR" ] || die "deployed alerts dir not found: ${ALERTS_LOCAL_DIR}"
+  echo "== alert parity (local): ${AREF}:config/prometheus/alerts/  vs  ${ALERTS_LOCAL_DIR} =="
+  files="$(ag ls-tree --name-only "${AREF}" config/prometheus/alerts/ 2>&1)" \
+    || die "cannot list rules on ${AREF}: ${files}"
+  missing=0 drifted=0 insync=0
+  for path in $files; do
+    case "$path" in *.yml) ;; *) continue ;; esac
+    b="$(basename "$path")"
+    want="$(ag show "${AREF}:${path}" 2>&1)" || die "cannot read ${path} from ${AREF}"
+    if [ ! -r "${ALERTS_LOCAL_DIR}/${b}" ]; then
+      echo "ALERT MISSING ${b}"; missing=$((missing + 1)); continue
+    fi
+    if [ "$(printf '%s\n' "$want" | strip | sha256sum)" = "$(strip < "${ALERTS_LOCAL_DIR}/${b}" | sha256sum)" ]; then
+      insync=$((insync + 1))
+    else
+      echo "ALERT DRIFTED ${b}"; drifted=$((drifted + 1))
+    fi
+  done
+  echo "  in-sync: ${insync}   missing: ${missing}   drifted: ${drifted}"
+  [ $((missing + drifted)) -eq 0 ] && exit 0
+  exit 1
+fi
+
+[ -d "$REPO_DIR" ] || die "repo alerts dir not found: $REPO_DIR"
 
 echo "== alert parity: config/prometheus/alerts/  vs  ${USER_}@${HOST}:${DEPLOYED_DIR} =="
 

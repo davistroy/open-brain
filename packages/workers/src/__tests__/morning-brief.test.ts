@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import {
   MorningBriefSkill,
   truncateToSnippet,
@@ -9,6 +10,8 @@ import {
 } from '../skills/morning-brief.js'
 import type { MorningBriefResult, EmailTriageItem, CalendarEvent } from '../skills/morning-brief.js'
 import { PushoverService } from '../services/pushover.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // ============================================================
 // Fixtures

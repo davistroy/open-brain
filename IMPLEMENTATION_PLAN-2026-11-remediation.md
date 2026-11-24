@@ -941,8 +941,8 @@ Unknown U3 (whether a musl build of `bws` 1.0.0 exists) is answered by task 2; t
 
 ### Work Items
 
-#### 4.1 Drift check that runs as root and covers four layers
-**Status: PENDING**
+#### 4.1 Drift check that runs as root and covers four layers ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-09, PLT-022, PLT-006, PLT-013, OA-27
 **Files Affected:**
@@ -984,8 +984,8 @@ Host git is 2.51.1 and honours `-c safe.directory`; do not chown the tree. The s
 
 ---
 
-#### 4.2 Backup mount that follows the newest backup
-**Status: PENDING**
+#### 4.2 Backup mount that follows the newest backup ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-02, PLT-015, DA7-02
 **Depends On:** 4.1
@@ -1018,8 +1018,8 @@ The container path equals the host path so that the absolute symlink target reso
 
 ---
 
-#### 4.3 Track the database volume pin
-**Status: PENDING**
+#### 4.3 Track the database volume pin ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: opus**
 **Requirement Refs:** PLT-001, DA7-05, SA7-04
 **Depends On:** 4.2
@@ -1051,8 +1051,8 @@ The base change alters the rendered config of `postgres` and `redis`, so the dri
 
 ---
 
-#### 4.4 Host bindings fail closed
-**Status: PENDING**
+#### 4.4 Host bindings fail closed ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-17, PLT-014
 **Depends On:** 4.3
@@ -1083,8 +1083,8 @@ The host `.env` must define `TAILSCALE_IP` before the host adopts this compose f
 
 ---
 
-#### 4.5 Probe every local tier and the data stores; healthchecks on the sidecars
-**Status: PENDING**
+#### 4.5 Probe every local tier and the data stores; healthchecks on the sidecars ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** L6, INT-011 (probe part), PLT-011
 **Depends On:** 4.4 (cross-phase: 2.2)

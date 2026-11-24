@@ -19,12 +19,14 @@
 #   - Runs ON the homeserver, reading the DEPLOYED compose LOCALLY
 #     (PARITY_LOCAL_COMPOSE) — no self-SSH. Alternatively install on any box with
 #     `claude@homeserver.k4jda.net` SSH + the repo, and drop PARITY_LOCAL_COMPOSE.
-#   - Bare cron env → the line sources .env.secrets so Pushover creds (and, if the
-#     repo remote is authenticated, git) are present. Anonymous `git fetch` works
-#     while the repo is public.
-#   - Exit 0 = parity (silent). Exit 1 = drift (priority-1 Pushover). Exit 2 = the
-#     check itself could not run (also alarmed — a check that can't compare must
-#     not look like it passed; #303's lesson).
+#   - Bare cron env → the line sources .env.secrets so Pushover creds are present.
+#   - The check fetches for itself, through `git -c safe.directory=<repo>`: it runs as
+#     root in a claude-owned tree, which plain git refuses ("dubious ownership"). Do not
+#     chown the tree. Anonymous fetch works while the repo is public.
+#   - Four layers (file, config hash, working tree, alert rules); see check-deploy-parity.sh.
+#   - Exit 0 = parity. Exit 1 = drift. Exit 2 = a layer could not run (never a pass).
+#     The wrapper notifies when the result fingerprint changes and again every 7 days
+#     (state: /var/log/open-brain-parity.state — RAM on Unraid, so a reboot re-notifies once).
 
 # Daily at 05:15 local. Sits clear of the 03:00 backup and the 06:00 ingest cluster.
-15 5 * * * bash -c 'set -a; cd /mnt/user/appdata/open-brain && . ./.env.secrets 2>/dev/null; set +a; git fetch origin --quiet 2>/dev/null; PARITY_LOCAL_COMPOSE=/mnt/user/appdata/open-brain/docker-compose.yml bash scripts/check-deploy-parity-cron.sh' >> /var/log/open-brain-parity.log 2>&1
+15 5 * * * bash -c 'set -a; cd /mnt/user/appdata/open-brain && . ./.env.secrets 2>/dev/null; set +a; PARITY_LOCAL_COMPOSE=/mnt/user/appdata/open-brain/docker-compose.yml bash scripts/check-deploy-parity-cron.sh' >> /var/log/open-brain-parity.log 2>&1

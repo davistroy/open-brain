@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import { EmailClassifySkill } from '../skills/email-classify.js'
 import type { EmailClassifyOptions, EmailClassifySkillOpts } from '../skills/email-classify.js'
 import { PushoverService } from '../services/pushover.js'
@@ -6,6 +7,8 @@ import type { EmailProvider, EmailMessage, EmailFolder } from '@open-brain/share
 import { EmailClassifier } from '@open-brain/shared'
 import type { EmailRules } from '@open-brain/shared'
 import { recordHeartbeat } from '../lib/heartbeat.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 vi.mock('../lib/heartbeat.js', () => ({
   recordHeartbeat: vi.fn().mockResolvedValue(null),
