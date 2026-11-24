@@ -80,8 +80,19 @@ export function queueAlertKey(kind: QueueAlertKind, queue: string): string {
   return `queue-${kind}:${queue}`
 }
 
-/** Human-readable name of an alert key: `queue-failed:ingest-root` -> `ingest-root queue failures`; other keys unchanged. */
+/** Alert key of a `container-health` probe (`container:postgres`, `container:spark-llm`). */
+export function containerAlertKey(name: string): string {
+  return `container:${name}`
+}
+
+/**
+ * Human-readable name of an alert key: `queue-failed:ingest-root` ->
+ * `ingest-root queue failures`, `container:spark-llm` -> `spark-llm unhealthy`;
+ * other keys unchanged.
+ */
 export function describeAlertKey(key: string): string {
+  const c = /^container:(.+)$/.exec(key)
+  if (c) return `${c[1]} unhealthy`
   const m = /^queue-(failed|backlog|stalled):(.+)$/.exec(key)
   return m ? `${m[2]} ${QUEUE_ALERT_LABELS[m[1] as QueueAlertKind]}` : key
 }

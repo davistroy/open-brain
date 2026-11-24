@@ -10,6 +10,13 @@
 #   - ContainerDown: fires after 5 minutes of unhealthy state
 #   - ContainerRestartLoop: fires immediately on rapid health state changes
 #
+# EXTERNAL LLM TIERS (`*-llm`: jetson-llm, spark-llm, ...) are EXCLUDED from both
+# rules below. They are not compose containers, one of them can be offline for
+# months (Spark, since August), and ContainerDown would page CRITICAL every hour
+# (1h repeat) for as long as it stays at 0. Those probes alert ONLY through the
+# application's stateful `raiseAlert` (key `container:<name>-llm`, severity
+# `warning`): once on the first bad run, "Resolved" on recovery.
+#
 # OOM kill detection: Docker OOM kills cause container restart → health check fails →
 # openbrain_container_healthy drops to 0. `changes()` over 10m captures the 0→1→0
 # oscillation pattern without requiring Docker stats API access.
@@ -46,7 +53,7 @@ groups:
         # Fires when a container's health check has returned unhealthy for >5 minutes.
         # The container-health skill checks every 15 minutes; 5 minutes ensures we alert
         # on the first check failure (not requiring consecutive checks).
-        expr: openbrain_container_healthy{job="open-brain"} == 0
+        expr: openbrain_container_healthy{job="open-brain", container!~".+-llm"} == 0
         for: 5m
         labels:
           severity: critical
@@ -63,7 +70,7 @@ groups:
         # Fires when a container's health state changes more than 3 times in 10 minutes.
         # This catches crash-loop behavior (OOM kill → restart → healthy → OOM → restart).
         # Each 0→1 or 1→0 transition counts as one change; >3 = at least 2 full cycles.
-        expr: changes(openbrain_container_healthy{job="open-brain"}[10m]) > 3
+        expr: changes(openbrain_container_healthy{job="open-brain", container!~".+-llm"}[10m]) > 3
         for: 0m
         labels:
           severity: warning

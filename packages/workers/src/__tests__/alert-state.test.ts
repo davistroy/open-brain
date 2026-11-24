@@ -7,6 +7,7 @@ import {
   writeAlertState,
   listOpenAlerts,
   alertStateKey,
+  describeAlertKey,
   raiseAlert,
   alertStateEnabled,
   legacyPushEnabled,
@@ -49,6 +50,17 @@ describe('nextAction', () => {
   ]
   it.each(cases)('%s', (_n, state, bad, severity, expected) => {
     expect(nextAction(state, { bad, severity, now: NOW })).toBe(expected)
+  })
+})
+
+describe('describeAlertKey', () => {
+  it('renders container:<name> readably for the ops digest', () => {
+    expect(describeAlertKey('container:spark-llm')).toBe('spark-llm unhealthy')
+    expect(describeAlertKey('container:postgres')).toBe('postgres unhealthy')
+  })
+  it('keeps queue keys and unknown keys as before', () => {
+    expect(describeAlertKey('queue-failed:ingest-root')).toBe('ingest-root queue failures')
+    expect(describeAlertKey('backup-stale')).toBe('backup-stale')
   })
 })
 

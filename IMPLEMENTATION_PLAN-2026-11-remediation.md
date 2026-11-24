@@ -1083,8 +1083,8 @@ The host `.env` must define `TAILSCALE_IP` before the host adopts this compose f
 
 ---
 
-#### 4.5 Probe every local tier and the data stores; healthchecks on the sidecars
-**Status: PENDING**
+#### 4.5 Probe every local tier and the data stores; healthchecks on the sidecars ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** L6, INT-011 (probe part), PLT-011
 **Depends On:** 4.4 (cross-phase: 2.2)

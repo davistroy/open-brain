@@ -453,7 +453,7 @@ describe('skill-execution — simple skills', () => {
   })
 
   it('dispatches container-health with consecutiveFailureThreshold', async () => {
-    const { processor } = build()
+    const { processor, db, connection } = build()
     skillMocks.containerHealth.execute.mockResolvedValueOnce({
       healthyCount: 10,
       unhealthyCount: 1,
@@ -463,6 +463,9 @@ describe('skill-execution — simple skills', () => {
 
     await processor(fakeJob('container-health', { consecutiveFailureThreshold: 3 }))
 
+    expect(skillMocks.containerHealth.ctor).toHaveBeenCalledWith(
+      expect.objectContaining({ db, configService: expect.anything(), redisConnection: connection }),
+    )
     expect(skillMocks.containerHealth.execute).toHaveBeenCalledWith({ consecutiveFailureThreshold: 3 })
     expect(sharedMocks.logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ skillName: 'container-health', unhealthyCount: 1 }),
