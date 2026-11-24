@@ -79,6 +79,10 @@ redis_data/
 /redis-data/
 /financial-inbox/
 /utility-inbox/
+# Written on the host by scripts/deploy.sh (item 5.2): the deployed-state manifest, and
+# the .env backup taken before it sets IMAGE_TAG.
+/DEPLOYED.json
+/.env.bak-*
 
 # ============================================================
 # Claude Code / local tooling

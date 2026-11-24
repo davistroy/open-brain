@@ -76,6 +76,9 @@ jobs:
       - name: Deploy parity harness
         run: bash scripts/test-check-deploy-parity.sh
 
+      - name: Deploy script harness
+        run: bash scripts/test-deploy.sh
+
   email-worker-test:
     name: email-worker tests (Cloudflare Worker)
     runs-on: ubuntu-latest

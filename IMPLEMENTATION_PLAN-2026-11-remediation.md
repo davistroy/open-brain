@@ -1173,8 +1173,8 @@ Docker does not restart a container on an unhealthy check, so each healthcheck r
 
 ### Work Items
 
-#### 5.1 Images and compose name their commit
-**Status: PENDING**
+#### 5.1 Images and compose name their commit ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-03, PLT-005, RC7-12
 **Files Affected:**

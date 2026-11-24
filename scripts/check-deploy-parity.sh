@@ -41,7 +41,9 @@
 #           com.docker.compose.config-hash label  ->  `STALE <svc>`; plus the two
 #           ingest sidecars must run the SAME image ID (shared-image trap, Entry 201)
 #   tree    `git diff REF -- config scripts packages/shared/drizzle` + `git status`,
-#           minus deploy/host-only-allowlist.txt  ->  `TREE <path>`
+#           minus deploy/host-only-allowlist.txt  ->  `TREE <path>`; and, when
+#           DEPLOYED.json exists, `git diff --stat <its commit>..REF` minus docs/*.md
+#           non-empty  ->  `UNDEPLOYED` (merged but never deployed; item 5.2)
 #   alerts  check-alerts-parity.sh in local mode (rule bodies vs the deployed dir)
 # Output is hashes, service names and paths ONLY. `docker compose config` inlines
 # env_file values, so this script never prints a rendered config.
@@ -245,6 +247,36 @@ layer_tree() {
   else
     echo "  tree: OK — working tree matches ${REF} apart from the host-only allowlist."
   fi
+  layer_undeployed
+}
+
+# Part of layer 3 (item 5.2): DEPLOYED.json names the commit scripts/deploy.sh last
+# deployed. Code or config that changed between it and REF (docs and *.md excluded) was
+# merged but never deployed -> `UNDEPLOYED`. No DEPLOYED.json = nothing to compare yet.
+# deploy.sh runs this layer with PARITY_REF=<target> and treats UNDEPLOYED as expected.
+layer_undeployed() {
+  local f="${REPO_DIR}/DEPLOYED.json" dep stat files
+  [ -f "$f" ] || return 0
+  if ! dep="$(jq -r '.commit // empty' "$f" 2>/dev/null)" || [ -z "$dep" ]; then
+    echo "ERROR: ${f} has no readable .commit" >&2; cannot; return
+  fi
+  if ! g cat-file -e "${dep}^{commit}" 2>/dev/null; then
+    echo "UNDEPLOYED ${dep:0:12} (the deployed commit is not in this repository; history rewritten?)"
+    drift; return
+  fi
+  # stderr kept apart: a git warning on a successful diff is not a changed file.
+  local gerr; gerr="$(mktemp)"
+  if ! stat="$(g diff --stat "${dep}..${REF}" -- . ':!*.md' ':!docs' 2>"$gerr")"; then
+    echo "ERROR: git diff ${dep:0:12}..${REF} failed: $(cat "$gerr")" >&2; rm -f "$gerr"; cannot; return
+  fi
+  rm -f "$gerr"
+  if [ -n "$stat" ]; then
+    files="$(g diff --name-only "${dep}..${REF}" -- . ':!*.md' ':!docs' 2>/dev/null | grep -c .)"
+    echo "UNDEPLOYED ${dep:0:12}..${REF}: ${files} file(s) changed since the last deploy (DEPLOYED.json)"
+    drift
+  else
+    echo "  tree: deployed commit ${dep:0:12} carries every non-doc change in ${REF}."
+  fi
 }
 
 # ── Layer 4: alert rules (local mode of check-alerts-parity.sh) ────────────────
@@ -280,5 +312,6 @@ echo "       one at a time, after a same-hour backup — NO -f flag (plain 'dock
 echo "       host override), NEVER a bare 'up -d', NEVER --remove-orphans, NEVER 'down'."
 echo "    4. STALE <svc> = running container predates the rendered config; recreate that service"
 echo "       only (--no-deps). TREE <path> = host edit not on the allowlist: commit it or revert it."
+echo "       UNDEPLOYED = merged code/config newer than DEPLOYED.json: scripts/deploy.sh <sha> <services>."
 echo "    5. ALERT <file> = copy the rule file into the observability alerts dir as root, then reload."
 exit "$RC"
