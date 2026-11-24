@@ -6,6 +6,8 @@
 #   - the render still holds the same 13 services
 #   - every build step labels its image with org.opencontainers.image.revision
 #   - the data and inbox directories are gitignored
+#   - (5.4) no third-party image floats; cloudflared/speaches/pgvector pinned; every
+#     service's logging options cap the file at 50m x 2; rclone pinned in script + runbook
 # Renders only; prints service names, image references and counts, never a full render.
 # shellcheck disable=SC2015,SC2016
 set -uo pipefail
@@ -41,6 +43,28 @@ n_other="$(render IMAGE_TAG=sha-abc1234 | jq -r '.services[].image | select(star
 echo "== services =="
 got="$(render | jq -r '.services | keys[]' | sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$got" = "$EXPECTED_SERVICES" ] && ok "the same 13 services" || bad "service set changed: $got"
+
+echo "== image pins (5.4) =="
+imgs="$(render | jq -r '.services[].image | select(startswith("ghcr.io/davistroy/open-brain/") | not)' | sort -u)"
+floating="$(printf '%s\n' "$imgs" | grep -E ':latest($|-)|:latest$|^[^:@]+$' || true)"
+[ -z "$floating" ] && ok "no third-party image uses latest or an untagged reference" || bad "floating image(s): $floating"
+# a bare major-only tag (pg16, 7) is allowed only with a digest
+major="$(printf '%s\n' "$imgs" | grep -vE '@sha256:[0-9a-f]{64}$' | grep -E ':[a-z]*[0-9]+(-[a-z]+)?$' || true)"
+[ -z "$major" ] && ok "no major-only tag without a digest" || bad "major-only tag without digest: $major"
+printf '%s\n' "$imgs" | grep -qx 'cloudflare/cloudflared:2026.11.2' && ok "cloudflared pinned to 2026.11.2" || bad "cloudflared pin missing"
+printf '%s\n' "$imgs" | grep -qx 'ghcr.io/speaches-ai/speaches:0.8.3-cpu' && ok "speaches pinned to 0.8.3-cpu" || bad "speaches pin missing"
+printf '%s\n' "$imgs" | grep -qx 'pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb' && ok "pgvector pinned to the live digest" || bad "pgvector digest pin missing"
+printf '%s\n' "$imgs" | grep -qx 'redis:7.4-alpine' && ok "redis on 7.4-alpine" || bad "redis is not 7.4-alpine"
+grep -q 'image: redis:7.4-alpine' "${TEST_COMPOSE_FILE:-$REPO/docker-compose.test.yml}" && ok "test compose redis is 7.4-alpine" || bad "test compose redis is not 7.4-alpine"
+
+echo "== log cap (5.4) =="
+n_cap="$(render | jq '[.services[].logging.options | select(."max-size" == "50m" and ."max-file" == "2")] | length')"
+[ "$n_cap" = 13 ] && ok "13 services log with max-size 50m, max-file 2" || bad "$n_cap of 13 services carry the log cap"
+
+echo "== rclone pin (5.4) =="
+for f in scripts/offsite-backup.sh docs/runbooks/offsite-backup.md; do
+  if grep -q 'rclone/rclone:latest' "$REPO/$f" || grep -E '(^|[^/])rclone/rclone([^:/.]|$)' "$REPO/$f" >/dev/null; then bad "$f floats rclone"; else grep -q 'rclone/rclone:1.76.0' "$REPO/$f" && ok "$f pins rclone 1.76.0" || bad "$f has no rclone pin"; fi
+done
 
 echo "== build labels =="
 steps="$(grep -c 'uses: docker/build-push-action' "$WORKFLOW")"

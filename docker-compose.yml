@@ -44,6 +44,10 @@ volumes:
 #    ADR-0002, so localhost IS daemon-reachable). Homeserver .env LOKI_URL must
 #    also be localhost (not the old external hostname — Loki is loopback-only now).
 #  - mode: non-blocking so a slow/down Loki never back-pressures container stdout.
+#  - max-size/max-file (item 5.4) cap the driver's LOCAL JSON log file, which keeps
+#    `docker logs` working. The loki driver accepts both (grafana/loki
+#    clients/cmd/docker-driver/config.go validateDriverOpt; docs send-data/docker-driver/
+#    configuration.md); without them the file grows unbounded (default max-size -1).
 x-logging: &default_logging
   driver: loki
   options:
@@ -54,6 +58,8 @@ x-logging: &default_logging
     loki-timeout: "2s"
     mode: "non-blocking"
     max-buffer-size: "4m"
+    max-size: "50m"
+    max-file: "2"
     loki-pipeline-stages: |
       - json:
           expressions:
@@ -66,7 +72,10 @@ x-logging: &default_logging
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    # Pinned to the digest the live container runs (pgvector 0.8.5, image built
+    # 2026-07-08) so a recreate cannot change the extension version (item 5.4). The
+    # readable tag stays in front; Docker resolves by digest.
+    image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
     container_name: open-brain-postgres
     env_file:
       - .env.secrets
@@ -434,7 +443,12 @@ services:
     # `faster-whisper` so WHISPER_URL consumers + container-health probe stay unchanged.
     # speaches loads models per-request (no WHISPER__MODEL) — model=whisper-1 resolves via
     # the model_aliases.json mount; PRELOAD_MODELS warms large-v3 at startup.
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    # Pinned to 0.8.3-cpu = the same digest as the former latest-cpu
+    # (sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8), so
+    # behaviour is unchanged (item 5.4). 0.8.3 does NOT implement PRELOAD_MODELS (added
+    # in 0.9.0-rc.3): the model downloads on the first request; item 8.4 warms it.
+    # The env var below stays for the upgrade.
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
     container_name: open-brain-faster-whisper
     environment:
       WHISPER__INFERENCE_DEVICE: cpu
@@ -562,7 +576,11 @@ services:
     logging: *default_logging
 
   cloudflared:
-    image: cloudflare/cloudflared:2025.6.1
+    # 2026.11.2 (released 2026-11-23; Cloudflare supports versions within one year of
+    # the newest release). `tunnel ready` is present in this tag and exits 1 when
+    # nothing listens, so the healthcheck below stays valid. 2026.5.x added startup
+    # connectivity prechecks: item 8.3 watches the first boot.
+    image: cloudflare/cloudflared:2026.11.2
     container_name: open-brain-cloudflared
     # --metrics exposes /ready + /metrics (PLT-H2/M6). The image is distroless (no
     # shell), so the healthcheck is exec-form: `cloudflared tunnel ready` queries

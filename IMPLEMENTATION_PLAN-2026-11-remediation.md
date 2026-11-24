@@ -1291,8 +1291,8 @@ Deleting `scripts/migrate.sh` and correcting `README.md:207-222` belong to this 
 
 ---
 
-#### 5.4 Pin the floating images; cap the container logs
-**Status: PENDING**
+#### 5.4 Pin the floating images; cap the container logs ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-029, INT-015, PLT-021, PLT-024
 **Depends On:** 5.3
@@ -1317,7 +1317,7 @@ Four third-party image references float or age: `ghcr.io/speaches-ai/speaches:la
 - [ ] WHEN the compose file renders THEN no third-party image reference SHALL use `latest` or a tag without a version
 - [ ] WHEN a service is recreated THEN its logging options SHALL hold `max-size: 50m` and `max-file: 2`
 - [ ] `touch .env.secrets && TAILSCALE_IP=100.64.0.1 docker compose -f docker-compose.yml config --images | grep -E 'cloudflared|speaches|pgvector'` shows three pinned references
-- [ ] `touch .env.secrets && TAILSCALE_IP=100.64.0.1 docker compose -f docker-compose.yml config | grep -c max-size` prints 13
+- [ ] `touch .env.secrets && jq -e '[.services[] | select(.logging.options["max-size"]=="50m" and .logging.options["max-file"]=="2")] | length == 13' <(TAILSCALE_IP=100.64.0.1 docker compose -f docker-compose.yml config --format json)` exits 0 (amended 2026-11-24: a plain `grep -c max-size` of the render prints 14, because the top-level `x-logging` anchor also renders)
 - [ ] `! grep -n 'rclone/rclone:latest' scripts/offsite-backup.sh docs/runbooks/offsite-backup.md` exits 0
 
 **Notes:**
