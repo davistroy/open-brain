@@ -1206,8 +1206,8 @@ The build workflow already pushes a `sha-<short>` tag per image (`git rev-parse 
 
 ---
 
-#### 5.2 `scripts/deploy.sh`, `scripts/preflight.sh`, and `DEPLOYED.json`
-**Status: PENDING**
+#### 5.2 `scripts/deploy.sh`, `scripts/preflight.sh`, and `DEPLOYED.json` ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: opus**
 **Requirement Refs:** SA7-03, PLT-005, RC7-12, PLT-008, INT-019
 **Depends On:** 5.1 (cross-phase: 4.1, 4.3)

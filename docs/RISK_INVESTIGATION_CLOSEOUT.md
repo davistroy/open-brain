@@ -103,7 +103,9 @@ urBackup provides local/LAN snapshot coverage; the rclone crypt offsite provides
 
 ### Finding
 
-`docker-compose.yml` uses `profiles:` on **four services**, all tagged `observability`:
+> **SUPERSEDED by ADR-0004 (2026-07-01).** The observability services and their `profiles:` were deleted from `docker-compose.yml`; the stack is a standalone compose project. The `--profile observability` and `COMPOSE_PROFILES` advice below is obsolete. Never pass `--remove-orphans` (see `docs/runbooks/deploy.md`, safety rule 3).
+
+`docker-compose.yml` used `profiles:` on **four services**, all tagged `observability`:
 
 | Service | Container | Profile |
 |---------|-----------|---------|

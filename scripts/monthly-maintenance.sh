@@ -19,7 +19,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-cd "$PROJECT_DIR"
+cd "$PROJECT_DIR" || exit 1
 
 # ── Configuration ────────────────────────────────────────────────────────────
 CORE_API_URL="http://localhost:3002"
@@ -53,30 +53,21 @@ echo " Date: $DATE"
 echo "========================================"
 
 # ============================================================================
-# 1. Docker: pull fresh base images and rebuild
+# 1. Docker: container status (read-only)
+#    This script never pulls, builds, or recreates containers. Deploys go through
+#    scripts/deploy.sh (docs/runbooks/deploy.md).
 # ============================================================================
-echo -e "\n--- 1. Docker pull & rebuild ---"
+echo -e "\n--- 1. Container status ---"
 
-PULL_OUTPUT=$(docker compose pull 2>&1)
-UPDATED=$(echo "$PULL_OUTPUT" | grep -c "Pull complete" || true)
-echo "  Pulled images ($UPDATED layers updated)"
-
-BUILD_OUTPUT=$(docker compose build --no-cache 2>&1)
-BUILD_OK=$?
-if [[ $BUILD_OK -eq 0 ]]; then
-  record pass "✅" "Docker rebuild successful"
-  detail "Docker: rebuilt all images with fresh base layers ($UPDATED layers pulled)"
+UNHEALTHY=$(docker ps --filter "name=open-brain-" --filter "health=unhealthy" --format '{{.Names}}' 2>&1 || true)
+if [[ -z "$UNHEALTHY" ]]; then
+  record pass "✅" "No unhealthy open-brain containers"
+  detail "Docker: no unhealthy containers"
 else
-  record fail "❌" "Docker rebuild failed"
-  detail "Docker build error: $(echo "$BUILD_OUTPUT" | tail -3)"
+  record fail "❌" "Unhealthy containers: $(echo "$UNHEALTHY" | tr '\n' ' ')"
+  detail "Docker: unhealthy — $(echo "$UNHEALTHY" | tr '\n' ' ')"
 fi
 
-# Restart containers
-docker compose up -d 2>&1
-echo "  Containers restarted"
-
-# Wait for health
-sleep 15
 
 # ============================================================================
 # 2. Dependency check (report only, no update)

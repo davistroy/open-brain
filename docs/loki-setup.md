@@ -1,5 +1,7 @@
 # Loki Log Aggregation Setup
 
+> **Superseded in part (ADR-0004, 2026-07-01).** Loki, Prometheus, Grafana, and Pushgateway run in a standalone `observability` compose project, not in this one. The deployment script and the standalone-container notes below describe the older layout. Current procedure: `docs/runbooks/observability.md`. The log-driver `logging:` section in this project's `docker-compose.yml` still applies.
+
 Loki provides centralized, searchable log aggregation for all Open Brain containers. Logs flow from Docker containers through the Loki log driver into Loki, and are queryable via Grafana Explore.
 
 ## Architecture
@@ -42,8 +44,10 @@ services:
 Apply to every service that should send logs to Loki (core-api, workers, slack-bot, voice-capture, web, etc.). Then restart:
 
 ```bash
-docker compose down && docker compose up -d
+docker compose up -d --force-recreate --no-deps core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest
 ```
+
+Never run `docker compose down` or a bare `up -d` here. Use `scripts/deploy.sh` for a deploy (`docs/runbooks/deploy.md`). Name only the services whose `logging:` block changed.
 
 ### Alternative: Daemon-level log driver
 

@@ -21,12 +21,17 @@
 | `open-brain-file-ingestion` | `ghcr.io/davistroy/open-brain/file-ingestion:latest` | `127.0.0.1:8080` |
 | `open-brain-financial-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
 | `open-brain-utility-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
+| `open-brain-actual-ingest` | `ghcr.io/davistroy/open-brain/actual-ingest:latest` | — (br0) |
 | `open-brain-faster-whisper` | `ghcr.io/speaches-ai/speaches:latest-cpu` | `127.0.0.1:10300` |
 | `open-brain-cloudflared` | `cloudflare/cloudflared:2025.6.1` | — |
 
-**12 containers total**, all in this compose project.
+**13 containers total**, all in this compose project.
 
-**App images** (7 `ghcr.io/davistroy/open-brain/*` packages): core-api, workers, slack-bot, voice-capture, web-next, file-ingestion, ingest-sidecar (shared by financial-ingest and utility-ingest).
+**App images** (8 `ghcr.io/davistroy/open-brain/*` packages): core-api, workers, slack-bot, voice-capture, web-next, file-ingestion, ingest-sidecar (shared by financial-ingest and utility-ingest), actual-ingest.
+
+**The nine application services** are `core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`. The normal deploy touches only these. `financial-ingest` and `utility-ingest` share one image, so `scripts/deploy.sh` requires both together.
+
+**Not in the normal deploy:** `postgres`, `redis`, `cloudflared` (stateful; `scripts/deploy.sh` refuses them) and `faster-whisper`. These are recreated only in the Phase 8 window of the 2026-11 remediation plan, by hand, one at a time.
 
 > **The observability stack (Loki, Prometheus, Grafana, Pushgateway) is NOT part of this inventory or this compose project.** Since ADR-0004 (2026-07-01) it runs as a standalone `observability` compose project; this repo only joins that project's Docker network as a client. There is no local `--profile observability` anymore. See §7.
 
@@ -42,7 +47,8 @@ These apply to every procedure in this runbook, not just the sections that call 
 2. **Never run `docker compose up -d` with no service list.** Always name the services you intend to touch.
 3. **Never pass `--remove-orphans`.** It removes any container this compose render doesn't currently declare, including infrastructure this repo doesn't own.
 4. **Always pair `--force-recreate` with `--no-deps`** for a targeted service restart — `--no-deps` is what keeps postgres/redis (and, by extension, the external observability network membership) untouched.
-5. **Any change to `docker-compose.yml`** — via `git pull`, `git checkout origin/main -- docker-compose.yml`, or a manual edit — must pass the config-diff gate below before the next `up`.
+5. **Move the host tree only through `scripts/deploy.sh`.** It checks out one commit, runs the drift check and the config gate, and records the result. Do not run `git pull`, `git checkout origin/main -- <file>`, or edit `docker-compose.yml` by hand on the host.
+6. **Never write the rendered compose config to a file.** `docker compose config` inlines `env_file` values (secrets). Hold it in a shell variable and print only the fields you check.
 
 ### Parity pre-check (run FIRST, #302)
 
@@ -56,27 +62,27 @@ PARITY_LOCAL_COMPOSE=/mnt/user/appdata/open-brain/docker-compose.yml bash script
 ```
 
 - **exit 0** → in parity; proceed.
-- **exit 1** → DRIFT. Production is missing committed compose changes. Run the reconciliation the gate prints (adopt `origin/main`'s compose as root → re-apply the D131 sed → config-diff gate → `--force-recreate --no-deps` the affected services, one wave at a time). Do this **before** treating any compose-dependent change as deployed.
+- **exit 1** → DRIFT. Production is missing committed compose changes. Run `bash scripts/deploy.sh <sha> --tree-only` to move the tree to the commit under the gates, then deploy the affected services (§2). Do this **before** treating any compose-dependent change as deployed.
 - **exit 2** → the check could not run — do NOT assume parity.
 
-This runs automatically every day via `deploy/cron/unraid-parity-check.cron` (Pushover on drift), so between-deploy drift is loud rather than silent. The config-diff gate below is the *complementary* check: parity proves the file is current; config-diff proves a change did only what you intended.
+This runs automatically every day via `deploy/cron/unraid-parity-check.cron` (Pushover on drift), so between-deploy drift is loud rather than silent. The config gate below is the *complementary* check: parity proves the file is current; the gate proves postgres and redis still render as binds.
 
-### Config-diff gate
+### Config gate
 
-Run before AND after any operation that could change `docker-compose.yml`'s rendered output:
+`scripts/deploy.sh` runs the config gate for you, once on the target commit's compose (read from git) and once after the checkout. It refuses to continue unless:
+
+- all 13 services render, and no unknown service appears;
+- `postgres` and `redis` render as raw binds only (a named volume means an empty database);
+- each bind source exists on the host and equals the mount of the running container.
+
+If you must check by hand, hold the render in a variable and print mount types only:
 
 ```bash
-docker compose config --format json | jq -S . > /tmp/compose-before.json
-# ... git pull / git checkout / manual edit ...
-docker compose config --format json | jq -S . > /tmp/compose-after.json
-diff /tmp/compose-before.json /tmp/compose-after.json
+cfg=$(docker compose config --format json)
+echo "$cfg" | jq -r '.services | to_entries[] | select(.key=="postgres" or .key=="redis") | .key as $s | .value.volumes[]? | "\($s) \(.type) \(.target)"'
 ```
 
-- **Diff empty** → proceed normally.
-- **Diff non-empty** → confirm every change is expected, AND confirm both of these still hold in the "after" render:
-  - `postgres` renders a **bind** mount at `/var/lib/postgresql/data` sourced from `/mnt/user/appdata/open-brain/pgdata` (`"type": "bind"`, not `"type": "volume"`)
-  - `redis` renders a **bind** mount at `/data` sourced from `/mnt/user/appdata/open-brain/redis-data`
-- **Either check fails, or you can't explain the diff** → **STOP.** Nothing has been recreated yet — nothing is at risk. Investigate `docker-compose.override.yml` before running `up` (see rule 1: never regenerate it with `cat >`; if it's genuinely missing or wrong, restore it from the last known-good copy, don't rewrite it from memory).
+Expect `postgres bind /var/lib/postgresql/data` and `redis bind /data`. Any `volume` type means STOP: nothing has been recreated yet, so nothing is at risk. Check `docker-compose.override.yml` (rule 1). Do not rewrite it from memory.
 
 ---
 
@@ -91,7 +97,7 @@ Required once per homeserver Docker daemon. Images are published as private pack
 3. Set scope: **Repository permissions — Packages: Read**
 4. Copy the token value
 
-**Store in Bitwarden and configure Docker on homeserver:**
+**Store in Bitwarden and configure Docker on homeserver.** The `bws` steps below depend on item 7.4: `bws` is not installed on the Unraid host today. Until 7.4 lands, run the `bws` lines from a machine that has it and paste only the login into the host.
 
 ```bash
 ssh root@homeserver.k4jda.net
@@ -111,39 +117,28 @@ The same `CR_PAT` is reused for the GHCR digest-verification checks in §3 and �
 
 ## 2. Normal deploy flow
 
-Every merge to `main` triggers `.github/workflows/build-images.yml`, which pushes fresh `:latest` **and** `:sha-<7-char-SHA>` images to GHCR. Deploy sequence:
+Every merge to `main` triggers `.github/workflows/build-images.yml`, which pushes `:latest` **and** `:sha-<7-char-SHA>` images to GHCR. Deploy by commit SHA:
 
 ```bash
 ssh root@homeserver.k4jda.net
 cd /mnt/user/appdata/open-brain
 
-# 1. Record rollback anchors BEFORE pulling anything — see §5a.
-#    This is what makes §5's rollback exact-digest-pinned instead of a post-hoc guess.
+# 1. Rehearse. Runs every read-only gate, prints the plan, changes nothing.
+bash scripts/deploy.sh <sha> --dry-run core-api workers slack-bot voice-capture web-next \
+  file-ingestion financial-ingest utility-ingest actual-ingest
 
-# 2. Config-diff gate, part 1 — capture compose render before the pull (see safety rules above)
-docker compose config --format json | jq -S . > /tmp/compose-before.json
-
-# 3. Pull latest compose file + scripts
-git pull origin main
-
-# 4. Config-diff gate, part 2 — diff after; if non-empty, verify postgres/redis still render
-#    as raw binds before continuing (see safety rules above). If they don't — STOP.
-docker compose config --format json | jq -S . > /tmp/compose-after.json
-diff /tmp/compose-before.json /tmp/compose-after.json
-
-# 5. Pull updated GHCR app images
-docker compose pull
-
-# 6. Restart each app service with the new image
-#    --force-recreate: picks up new image even if compose config unchanged
-#    --no-deps: leaves postgres/redis/observability-network membership untouched
-docker compose up -d --force-recreate --no-deps \
-  core-api workers slack-bot voice-capture web-next \
-  file-ingestion financial-ingest utility-ingest \
-  cloudflared faster-whisper
-
-# 7. Post-deploy verification (see §3)
+# 2. Deploy. Same command without --dry-run.
+bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next \
+  file-ingestion financial-ingest utility-ingest actual-ingest
 ```
+
+Name only the services whose code changed. Find them with `git diff <last-deployed-sha>..<sha> --stat -- . ':!*.md' ':!docs'`. Keep `financial-ingest` and `utility-ingest` together: they share `ingest-sidecar`, and a service that shares an image with one you named keeps its old image otherwise.
+
+What `scripts/deploy.sh` does, in order: checks its arguments (it refuses the stateful services); runs `scripts/preflight.sh`; refuses a dirty tree; checks that each image tag exists; runs the config gate; checks out `<sha>`; runs the drift check; pulls the named services at `sha-<7>`; runs `up -d --force-recreate --no-deps <services>`; pins `IMAGE_TAG` in `.env`; waits for health and compares each image's revision label with `<sha>`; writes `DEPLOYED.json` and one line in `deploy-log.jsonl`. Read the header of `scripts/deploy.sh` for options (`--tree-only`, `--allow-unlabeled`, `--marker`).
+
+To prove a fix is live, add a marker: `--marker core-api=/app/dist/<file>:<string>`. Pick a string from the diff.
+
+Then verify (§3).
 
 ---
 
@@ -155,20 +150,21 @@ docker compose up -d --force-recreate --no-deps \
 # All containers and their status
 docker compose ps
 
-# App image references (expect ghcr.io/davistroy/open-brain/*:latest)
+# App image references (expect ghcr.io/davistroy/open-brain/*:sha-<7>)
 docker ps --format "table {{.Names}}\t{{.Image}}" | grep open-brain
 ```
 
-Expected image rows:
+`DEPLOYED.json` in the repo root names the commit that runs. Expected image rows (tag is the deployed `sha-<7>`):
 ```
-open-brain-core-api           ghcr.io/davistroy/open-brain/core-api:latest
-open-brain-workers            ghcr.io/davistroy/open-brain/workers:latest
-open-brain-slack-bot          ghcr.io/davistroy/open-brain/slack-bot:latest
-open-brain-voice-capture      ghcr.io/davistroy/open-brain/voice-capture:latest
-open-brain-web-next           ghcr.io/davistroy/open-brain/web-next:latest
-open-brain-file-ingestion     ghcr.io/davistroy/open-brain/file-ingestion:latest
-open-brain-financial-ingest   ghcr.io/davistroy/open-brain/ingest-sidecar:latest
-open-brain-utility-ingest     ghcr.io/davistroy/open-brain/ingest-sidecar:latest
+open-brain-core-api           ghcr.io/davistroy/open-brain/core-api:sha-<7>
+open-brain-workers            ghcr.io/davistroy/open-brain/workers:sha-<7>
+open-brain-slack-bot          ghcr.io/davistroy/open-brain/slack-bot:sha-<7>
+open-brain-voice-capture      ghcr.io/davistroy/open-brain/voice-capture:sha-<7>
+open-brain-web-next           ghcr.io/davistroy/open-brain/web-next:sha-<7>
+open-brain-file-ingestion     ghcr.io/davistroy/open-brain/file-ingestion:sha-<7>
+open-brain-financial-ingest   ghcr.io/davistroy/open-brain/ingest-sidecar:sha-<7>
+open-brain-utility-ingest     ghcr.io/davistroy/open-brain/ingest-sidecar:sha-<7>
+open-brain-actual-ingest      ghcr.io/davistroy/open-brain/actual-ingest:sha-<7>
 ```
 
 ### Deep health check
@@ -198,6 +194,10 @@ curl -sf https://brain.troy-davis.com/api/v1/captures?limit=1 | head -c 100
 
 ### GHCR digest verification
 
+`scripts/deploy.sh` already compares each image's revision label with the commit. This extra check
+compares manifest digests. **It depends on item 7.4:** `bws` is not installed on the Unraid host, so
+run the `bws` line from a machine that has it until 7.4 lands.
+
 Confirms the freshly recreated containers are actually running the image GHCR currently
 publishes for `:latest` — not a stale local cache or a registry propagation lag. Uses direct
 manifest-digest comparison (not build-timestamp inference — see §5 for why that matters).
@@ -224,43 +224,36 @@ done
 ```
 
 Extend the `svc` list to cover any other GHCR-image service this deploy touched
-(`file-ingestion`; for `financial-ingest`/`utility-ingest`, both run the shared `ingest-sidecar`
-image — substitute `ingest-sidecar` as the GHCR package name but check each container separately).
+(`file-ingestion`, `actual-ingest`; for `financial-ingest`/`utility-ingest`, both run the shared
+`ingest-sidecar` image — substitute `ingest-sidecar` as the GHCR package name but check each
+container separately). The check compares against `:latest`; if `main` moved after your deploy,
+compare against `manifests/sha-<7>` instead.
 
-Any `MISMATCH` means the running container is not what GHCR currently serves for `:latest` —
-re-run `docker compose pull <svc> && docker compose up -d --force-recreate --no-deps <svc>` and
-re-check before declaring the deploy done.
+Any `MISMATCH` means the running container is not the image you meant to deploy. Re-run
+`bash scripts/deploy.sh <sha> <svc>` and re-check before declaring the deploy done.
 
 ---
 
 ## 4. Deploy with a pending schema migration
 
-When a PR includes a new SQL migration (`packages/shared/drizzle/0NNN_*.sql`), apply the migration
+When a PR includes a new SQL migration (`packages/shared/drizzle/0NNN_*.sql` or `scripts/0NNN_*.sql`), apply it
 **before** restarting app images. The homeserver has **no `psql` client** and postgres publishes
-`127.0.0.1:5432` only, so migrations run inside a throwaway `pgvector/pgvector:pg16` container
-rather than directly on the host.
+`127.0.0.1:5432` only, so migrations run inside a throwaway `pgvector/pgvector:pg16` container.
+The ledger is the `schema_migrations` table; `scripts/migrate-manual.sh` reads and writes it.
 
 ```bash
 ssh root@homeserver.k4jda.net
 cd /mnt/user/appdata/open-brain
 
-# 1. Config-diff gate, part 1 (see safety rules above)
-docker compose config --format json | jq -S . > /tmp/compose-before.json
+# 1. Move the tree to the new commit and run every gate. Recreates nothing.
+bash scripts/deploy.sh <sha> --tree-only
 
-# 2. Pull latest git (includes the new migration file + any compose changes)
-git pull origin main
-
-# 3. Config-diff gate, part 2 — non-empty diff? Verify postgres/redis still render as raw
-#    binds before continuing. If they don't — STOP, do not run `up`.
-docker compose config --format json | jq -S . > /tmp/compose-after.json
-diff /tmp/compose-before.json /tmp/compose-after.json
-
-# 4. Source secrets, get POSTGRES_URL from a running container. Keep this in-session only —
+# 2. Source secrets, get POSTGRES_URL from a running container. Keep this in-session only —
 #    `migrate-manual.sh --status` prints the password UNMASKED in its "target:" line.
 . .env.secrets
 POSTGRES_URL=$(docker exec open-brain-core-api printenv POSTGRES_URL)
 
-# 5. Check migration status via a throwaway pgvector container (host has no psql client)
+# 3. Check migration status (applied vs pending)
 docker run --rm \
   --network open-brain_open-brain \
   -v /mnt/user/appdata/open-brain:/app -w /app \
@@ -268,8 +261,8 @@ docker run --rm \
   pgvector/pgvector:pg16 \
   bash scripts/migrate-manual.sh --status
 
-# 6. Apply pending migrations (same throwaway-container pattern; ON_ERROR_STOP=1 rolls back a
-#    failed migration cleanly — no ledger row, no half-built objects)
+# 4. Apply pending migrations (ON_ERROR_STOP=1 rolls back a failed migration cleanly —
+#    no ledger row, no half-built objects)
 docker run --rm \
   --network open-brain_open-brain \
   -v /mnt/user/appdata/open-brain:/app -w /app \
@@ -277,21 +270,17 @@ docker run --rm \
   pgvector/pgvector:pg16 \
   bash scripts/migrate-manual.sh
 
-# 7. Record rollback anchors (§5a), then pull images and restart app services
-docker compose pull
-docker compose up -d --force-recreate --no-deps \
-  core-api workers slack-bot voice-capture web-next \
-  file-ingestion financial-ingest utility-ingest
+# 5. Deploy the application services (§2)
+bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next \
+  file-ingestion financial-ingest utility-ingest actual-ingest
 
-# 8. Verify (see §3)
+# 6. Verify (see §3)
 curl -sf http://localhost:3002/api/v1/captures?limit=1 | head -c 100
 ```
 
-**Order is mandatory:** config-diff gate, then migrations, then images. **Never**: bare
-`docker compose up -d` (no service list — would recreate postgres/redis against the base compose's
-named volumes if the override ever fails to render), `--remove-orphans`, or
+**Order is mandatory:** tree and gates, then migrations, then images. **Never**: bare
+`docker compose up -d` (no service list), `--remove-orphans`, or
 `docker exec ... psql < migration.sql` directly (bypasses the `schema_migrations` ledger).
-`--status` reads that ledger to show applied vs pending.
 
 **After Postgres volume recreation** (disaster recovery — a different scenario from a routine
 migration): see `docs/runbooks/restore-rehearsal.md` for the init-schema + baseline + apply
@@ -301,93 +290,37 @@ sequence.
 
 ## 5. Rollback
 
-Two parts. **5a** records rollback anchors — do this **before every deploy** (§2 step 1, §4
-step 7's predecessor). **5b** uses those anchors to roll a service back if a deploy fails smoke
-testing or crash-loops.
+A rollback is a deploy of the previous commit. `scripts/deploy.sh` writes every deploy to
+`DEPLOYED.json` (current) and `${BACKUP_ROOT}/deploy-log.jsonl` (history, one line per deploy).
+The previous commit is the one before the last line in that log.
 
-**Neither procedure touches `docker-compose.override.yml`.** That file exists solely to pin
-postgres/redis to their live raw-bind data directories (ADR-0004) and the core-api host port
-(D131) — see safety rule 1. Rollback here works entirely through image tags/digests.
+**Neither procedure touches `docker-compose.override.yml`.** That file only pins postgres/redis to
+their live raw-bind data directories (ADR-0004) — see safety rule 1.
 
-### 5a. Record rollback anchors (before every deploy)
-
-CI pushes two tags per build: `:latest` and `:sha-<7-char-SHA>`. Before pulling anything, capture
-the **exact digest** of what's currently running for each app service — the digest, not the sha-
-tag (a tag can be repointed by a future push; a digest cannot):
+### 5a. Find the previous commit
 
 ```bash
-ts=$(date -u +%Y%m%dT%H%M%SZ)
-anchor_file="/mnt/user/appdata/open-brain/backups/deploy-anchors/${ts}.txt"
-mkdir -p "$(dirname "$anchor_file")"
-
-for svc in core-api workers slack-bot voice-capture web-next; do
-  digest=$(docker inspect "open-brain-${svc}" --format '{{index .RepoDigests 0}}')
-  echo "${svc} ${digest}" | tee -a "$anchor_file"
-done
-```
-
-This writes lines like:
-```
-core-api ghcr.io/davistroy/open-brain/core-api@sha256:5a82b398a5c06c6b8cbb5c0b8fefb70c960bc7693dbbd79b49e3c0daa0fb7d56
-```
-
-That digest is ground truth — read directly from the currently-running container, not inferred
-from a build timestamp or a guessed commit. (2026-07-12, LAB_NOTEBOOK Entry 183: a
-timestamp-based guess at which `:sha-` tag was running for `slack-bot` was **wrong**; only a
-direct GHCR manifest-digest comparison caught it. Recording the digest proactively, every deploy,
-removes the need to ever guess again.)
-
-Extend the `svc` list to cover any other GHCR-image service this deploy will touch. If
-`RepoDigests` is empty for a service (can happen after a local `--build`, §6), fall back to the
-local image ID — `docker inspect "open-brain-${svc}" --format '{{.Image}}'` — which still lets
-you `docker tag` back to that exact image, just without a registry digest to cross-check.
-
-### 5b. Roll back a service to its recorded anchor
-
-If the post-deploy smoke test (§3) or the crash-loop watch fails:
-
-```bash
-ssh root@homeserver.k4jda.net
 cd /mnt/user/appdata/open-brain
-
-SVC=core-api
-DIGEST="ghcr.io/davistroy/open-brain/core-api@sha256:5a82b398a5c06c6b8cbb5c0b8fefb70c960bc7693dbbd79b49e3c0daa0fb7d56"  # from the anchor file
-
-# 1. Pull the exact prior image by digest — not by tag, no guessing which sha- tag it was
-docker pull "$DIGEST"
-
-# 2. Point the local :latest tag at it. This is the ONLY thing that changes — no compose
-#    file is touched, and docker-compose.override.yml is never read or written here.
-docker tag "$DIGEST" "ghcr.io/davistroy/open-brain/${SVC}:latest"
-
-# 3. Recreate just that service
-docker compose up -d --force-recreate --no-deps "$SVC"
-
-# 4. Confirm the rollback took
-docker inspect "open-brain-${SVC}" --format '{{index .RepoDigests 0}}'
-# Expect this to equal $DIGEST
+cat DEPLOYED.json
+tail -n 3 /mnt/user/backup/openbrain/deploy-log.jsonl
 ```
 
-Repeat per affected service. **Never** use `docker compose pull` for a rollback — it re-pulls
-`:latest`, which is whatever `main` currently publishes (the broken build), not the prior image.
+If the log is missing, take the commit from `git log --oneline` and the merged-PR history. Do not
+guess from build timestamps (LAB_NOTEBOOK Entry 183: a timestamp guess named the wrong tag).
+Confirm the tag exists: `docker manifest inspect ghcr.io/davistroy/open-brain/<svc>:sha-<7>`.
 
-**If you didn't have an anchor recorded** (5a was skipped) — do NOT guess from build timestamps
-(Entry 183 proved that wrong once already). Instead, query GHCR directly for the digest of the
-specific `:sha-<SHA>` tag you believe was previously deployed (cross-reference the merged-PR
-history / `git log`), and treat it as unverified until the digest comparison confirms it:
+### 5b. Roll back
 
 ```bash
-TOKEN=$(curl -s -u "davistroy:${CR_PAT}" \
-  "https://ghcr.io/token?scope=repository:davistroy/open-brain/${SVC}:pull" | jq -r .token)
-curl -s -H "Authorization: Bearer ${TOKEN}" \
-  -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
-  -D - -o /dev/null \
-  "https://ghcr.io/v2/davistroy/open-brain/${SVC}/manifests/sha-<SHA>" \
-  | grep -i '^docker-content-digest:'
+bash scripts/deploy.sh <previous-sha> core-api    # name each service that failed
 ```
 
-Only proceed to `docker tag`/`up -d` once the digest is confirmed via this lookup — never trust a
-tag guess derived from commit timestamps alone.
+Add `--allow-unlabeled` only when `<previous-sha>` was built before images carried the
+`org.opencontainers.image.revision` label (item 5.1). A rollback past a migration needs the
+reverse migration first; read the migration's header and `docs/runbooks/restore-rehearsal.md`.
+
+**Never** use `docker compose pull` for a rollback: it re-pulls `:latest`, which is whatever `main`
+currently publishes (the broken build).
 
 ---
 
@@ -402,12 +335,12 @@ cd /mnt/user/appdata/open-brain
 git log --oneline -5
 
 # Build a single service from source
-docker compose up -d --build core-api
+docker compose up -d --build --no-deps core-api
 
-# Or rebuild all custom app services
-docker compose up -d --build \
+# Or rebuild all custom app services (never name postgres, redis, or cloudflared)
+docker compose up -d --build --no-deps \
   core-api workers slack-bot voice-capture web-next \
-  file-ingestion financial-ingest utility-ingest
+  file-ingestion financial-ingest utility-ingest actual-ingest
 ```
 
 ---
@@ -429,7 +362,7 @@ To bring up, restart, or inspect the observability containers themselves, see
 runbook's deploy flow.
 
 **One thing this repo IS responsible for:** the external `observability` network must already
-exist before `core-api`/`workers` are (re)created, or `docker compose up` fails with a
+exist before `core-api`/`workers` are (re)created, or a recreate fails with a
 "network not found" error. It does on the homeserver by construction (the observability project
 creates it); this only matters when standing up a fresh host.
 

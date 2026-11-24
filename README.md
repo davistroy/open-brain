@@ -60,11 +60,12 @@ config/
   postgres/        # postgresql.conf
 scripts/
   load-secrets.sh         # Bitwarden Secrets Manager integration
-  migrate.sh              # Drizzle migration runner
+  migrate-manual.sh       # Migration runner (schema_migrations ledger)
+  deploy.sh               # Deploy one commit to named application services
   e2e-phase1.sh           # End-to-end smoke test
   e2e-full.sh             # Full end-to-end test suite
   regression-test.mjs     # Comprehensive regression suite (91 tests)
-  monthly-maintenance.sh  # Monthly maintenance: docker rebuild, logs, health, Slack report
+  monthly-maintenance.sh  # Monthly maintenance: read-only checks, logs, health, Slack report
 docs/
   PRD.md           # Product requirements (v0.7)
   TDD.md           # Technical design (v0.7)
@@ -210,16 +211,21 @@ source ./scripts/load-secrets.sh
 ### 3. Run database migrations
 
 ```bash
-./scripts/migrate.sh
+bash scripts/migrate-manual.sh --status   # applied vs pending
+bash scripts/migrate-manual.sh            # apply pending migrations
 ```
+
+On a fresh database, load the snapshot first, then record it in the ledger. See "No auto-migration on startup" in `CLAUDE.md`.
 
 ### 4. Start the full stack
 
 ```bash
-docker compose up -d
+bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest
 ```
 
-This starts all 12 containers (postgres, redis, core-api, workers, slack-bot, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — it is not started by `docker compose up -d` here. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
+`scripts/deploy.sh` recreates the named application services only. It refuses postgres, redis, and cloudflared. Never run a bare `docker compose up -d` on the host. See `docs/runbooks/deploy.md`.
+
+The stack has 13 containers (postgres, redis, core-api, workers, slack-bot, file-ingestion, faster-whisper, voice-capture, web-next, cloudflared, financial-ingest, utility-ingest, actual-ingest). Observability (Loki, Prometheus, Pushgateway, Grafana) is a separate, external `observability` Docker Compose project (ADR-0004) that this stack joins as a client — this stack does not start it. First run downloads the faster-whisper `large-v3` model (~3GB); allow 2–5 minutes before the voice-capture service becomes healthy.
 
 ### 5. Verify
 
