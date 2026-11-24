@@ -38,14 +38,16 @@ mkdir -p "$WORK/scripts" "$WORK/deploy" "$WORK/config/whisper"
 printf 'services:\n  core-api:\n    image: x\n' > "$WORK/docker-compose.yml"
 printf '{}\n' > "$WORK/config/whisper/model_aliases.json"
 echo 'a: 1' > "$WORK/config/x.yaml"
-printf '/DEPLOYED.json\n/.env.bak-*\n' > "$WORK/.gitignore"
-printf '# host-only\ndocker-compose.override.yml\n.env\n.env.secrets\nDEPLOYED.json\n' > "$WORK/deploy/host-only-allowlist.txt"
+printf '/DEPLOYED.json\n/.env.bak-*\n/.env.tmp.*\n/.DEPLOYED.json.*\nconfig/payee-rules.yaml\nconfig/utility/utility-config.yaml\nconfig/new-host.yaml\n' > "$WORK/.gitignore"
+printf '# host-only\ndocker-compose.override.yml\n.env\n.env.secrets\nconfig/payee-rules.yaml\nconfig/utility/utility-config.yaml\nDEPLOYED.json\n' > "$WORK/deploy/host-only-allowlist.txt"
 for f in deploy.sh preflight.sh check-deploy-parity.sh; do
   [ -f "$SCRIPT_DIR/$f" ] && cp "$SCRIPT_DIR/$f" "$WORK/scripts/$f"
 done
 git -C "$WORK" add -A; git -C "$WORK" commit -qm c1
 C1="$(git -C "$WORK" rev-parse HEAD)"
 echo 'a: 2' > "$WORK/config/x.yaml"
+# C2's allowlist names one more host-only config file: preflight --ref C2 must require it.
+echo 'config/new-host.yaml' >> "$WORK/deploy/host-only-allowlist.txt"
 git -C "$WORK" commit -qam c2
 C2="$(git -C "$WORK" rev-parse HEAD)"
 git -C "$WORK" remote add origin "$ORIGIN"; git -C "$WORK" push -q origin main
@@ -60,6 +62,10 @@ ENV_ORIG="$T/env.orig"
 printf 'TAILSCALE_IP=100.64.0.1\n# keep me\nOTHER_SETTING="a b=c"\nLOKI_URL=http://localhost:3100/x\n' > "$ENV_ORIG"
 cp "$ENV_ORIG" "$WORK/.env"; chmod 600 "$WORK/.env"
 : > "$WORK/.env.secrets"
+# Host-only config files (gitignored, allowlisted). Their content is a canary: never printed.
+HOSTCFG="config/payee-rules.yaml config/utility/utility-config.yaml config/new-host.yaml"
+mk_hostcfg() { local f; mkdir -p "$WORK/config/utility"; for f in $HOSTCFG; do echo 'payee: PAYEE-CANARY' > "$WORK/$f"; done; }
+mk_hostcfg
 
 # ── stub docker ────────────────────────────────────────────────────────────────
 STUB="$T/stub"; mkdir -p "$STUB/bin" "$STUB/net" "$STUB/health" "$STUB/rev"
@@ -118,7 +124,9 @@ case "$*" in
     [ -e "$S/gone/$svc" ] && { echo "Error: No such object: $last" >&2; exit 1; }
     case "$*" in
       *".Mounts"*) jq -c --arg s "$svc" '[.services[$s].volumes[]? | select(.type=="bind") | {Type:"bind",Source:.source,Destination:.target}]' "$S/running.json"; exit 0 ;;
-      *"State"*) if [ -r "$S/health/$svc" ]; then cat "$S/health/$svc"; else echo healthy; fi; exit 0 ;;
+      *"State"*) q="$S/healthseq/$svc"   # one state per call; the last line repeats
+                 if [ -s "$q" ]; then head -1 "$q"; [ "$(wc -l < "$q")" -gt 1 ] && sed -i 1d "$q"; exit 0; fi
+                 if [ -r "$S/health/$svc" ]; then cat "$S/health/$svc"; else echo healthy; fi; exit 0 ;;
       *"image.revision"*) if [ -r "$S/rev/$svc" ]; then cat "$S/rev/$svc"; else cat "$S/rev-default"; fi; exit 0 ;;
       *"config-hash"*) echo "old-$svc"; exit 0 ;;
       *".Config.Image"*) echo "configured/$svc"; exit 0 ;;
@@ -131,7 +139,7 @@ chmod +x "$STUB/bin/docker"
 export STUB_DIR="$STUB" PATH="$STUB/bin:$PATH"
 
 reset_stub() {
-  rm -rf "$STUB/net" "$STUB/health" "$STUB/rev" "$STUB/gone"; mkdir -p "$STUB/net" "$STUB/health" "$STUB/rev" "$STUB/gone"
+  rm -rf "$STUB/net" "$STUB/health" "$STUB/healthseq" "$STUB/rev" "$STUB/gone"; mkdir -p "$STUB/net" "$STUB/health" "$STUB/healthseq" "$STUB/rev" "$STUB/gone"
   rm -f "$STUB/calls.log" "$STUB/missing-manifests" "$STUB/fail-"* "$STUB/marker-missing"
   mkrender > "$STUB/render.json"; cp "$STUB/render.json" "$STUB/running.json"
   printf 'ID NAME ENABLED\nabc loki:latest true\n' > "$STUB/plugins"
@@ -141,15 +149,31 @@ reset_stub() {
 reset_fixture() {
   git -C "$WORK" -c safe.directory="$WORK" checkout -q -f main
   git -C "$WORK" reset -q --hard "$C1"
-  rm -f "$WORK/DEPLOYED.json" "$WORK"/.env.bak-* "$BACKUP/deploy-log.jsonl" "$WORK/stray.txt"
+  rm -f "$WORK/DEPLOYED.json" "$WORK"/.env.bak-* "$WORK"/.env.tmp.* "$WORK"/.DEPLOYED.json.* "$BACKUP/deploy-log.jsonl" "$WORK/stray.txt"
   cp "$ENV_ORIG" "$WORK/.env"; chmod 600 "$WORK/.env"; : > "$WORK/.env.secrets"
+  rm -rf "$WORK/config/payee-rules.yaml" "$WORK/config/utility/utility-config.yaml" "$WORK/config/new-host.yaml"; mk_hostcfg
   reset_stub
 }
 deploy() { # deploy <args...>  — as a non-root caller with the test-only override
-  OUT="$(env DEPLOY_ALLOW_NONROOT=1 BACKUP_ROOT="$BACKUP" DEPLOY_HEALTH_TIMEOUT=2 DEPLOY_HEALTH_INTERVAL=1 \
+  OUT="$(env DEPLOY_ALLOW_NONROOT=1 BACKUP_ROOT="$BACKUP" DEPLOY_HEALTH_TIMEOUT=2 DEPLOY_HEALTH_INTERVAL=1 DEPLOY_HEALTH_SETTLE=0 \
          GIT_TEST_ASSUME_DIFFERENT_OWNER=1 ${DEPLOY_ENV:-} bash "$WORK/scripts/deploy.sh" "$@" 2>&1)"; RC=$?
 }
-preflight() { OUT="$(env PREFLIGHT_REPO_DIR="$WORK" bash "$WORK/scripts/preflight.sh" 2>&1)"; RC=$?; }
+preflight() { OUT="$(env PREFLIGHT_REPO_DIR="$WORK" bash "$WORK/scripts/preflight.sh" "$@" 2>&1)"; RC=$?; }
+parity_tree() { # the real drift check, tree layer, against <ref>
+  OUT="$(env PARITY_REPO_DIR="$WORK" PARITY_LOCAL_COMPOSE="$WORK/docker-compose.yml" PARITY_REF="$1" PARITY_LAYERS=tree \
+         bash "$WORK/scripts/check-deploy-parity.sh" 2>&1)"; RC=$?; }
+# An `mv` that kills deploy.sh (its parent) when it is about to rename onto *$KILL_MV_ON:
+# the run dies between mktemp and mv.
+REAL_MV="$(command -v mv)"; export REAL_MV
+mkdir -p "$T/killmv"
+cat > "$T/killmv/mv" <<'MVEOF'
+#!/usr/bin/env bash
+case "${*: -1}" in *"${KILL_MV_ON:-//none//}") kill -TERM "$PPID"; sleep 1; exit 1 ;; esac
+exec "$REAL_MV" "$@"
+MVEOF
+chmod +x "$T/killmv/mv"
+no_tmp() { local left="" f; for f in "$WORK"/.env.tmp.* "$WORK"/.DEPLOYED.json.*; do [ -e "$f" ] && left="${left} ${f##*/}"; done
+  [ -z "$left" ] && ok "$1: no temp file left" || bad "$1: temp file(s) left: $left"; }
 head_is() { [ "$(git -C "$WORK" -c safe.directory="$WORK" rev-parse HEAD)" = "$1" ]; }
 state_changing='compose.* (pull|up)( |$)'
 
@@ -176,6 +200,8 @@ check "refuses utility-ingest without financial-ingest" 1 "$RC"
 head_is "$C1" && ok "tree unchanged (ingest pair)" || bad "tree moved (ingest pair)"
 reset_fixture; deploy "$C2" core-api --no-such-flag
 check "refuses an unknown option" 1 "$RC"
+reset_fixture; deploy "$C2" core-api --allow-unlabeled
+check "--allow-unlabeled no longer exists (a pre-5.1 rollback is manual)" 1 "$RC"; has "says unknown option" 'unknown option: --allow-unlabeled'
 if [ "$(id -u)" != 0 ]; then
   reset_fixture
   OUT="$(env BACKUP_ROOT="$BACKUP" bash "$WORK/scripts/deploy.sh" "$C2" core-api 2>&1)"; RC=$?
@@ -258,7 +284,7 @@ has "dry-run shows the bind gate result" 'postgres.*bind'
 no_canary "dry-run"
 
 echo "== --tree-only =="
-reset_fixture; echo '{"commit":"old","cloudflare_workers":{"email-worker":"v9"}}' > "$WORK/DEPLOYED.json"
+reset_fixture; echo '{"commit":"old","images_commit":"'"$C1"'","cloudflare_workers":{"email-worker":"v9"}}' > "$WORK/DEPLOYED.json"
 deploy "$C2" --tree-only
 check "--tree-only succeeds" 0 "$RC"
 head_is "$C2" && ok "tree-only: checked out the commit" || bad "tree-only: HEAD is not the target"
@@ -269,7 +295,17 @@ calls_hasnt "tree-only: no pull/up" "$state_changing"
 cmp -s "$WORK/.env" "$ENV_ORIG" && ok "tree-only: .env (IMAGE_TAG) untouched" || bad "tree-only: .env changed"
 [ "$(jq -r .image_tag "$WORK/DEPLOYED.json")" = latest ] && ok "tree-only: image_tag records what compose renders (latest)" || bad "tree-only: image_tag=$(jq -r .image_tag "$WORK/DEPLOYED.json")"
 [ "$(wc -l < "$BACKUP/deploy-log.jsonl" 2>/dev/null)" = 1 ] && ok "tree-only: one log line" || bad "tree-only: log lines"
+[ "$(jq -r .images_commit "$WORK/DEPLOYED.json")" = "$C1" ] && ok "tree-only: images_commit copied from the previous DEPLOYED.json" || bad "tree-only: images_commit=$(jq -r .images_commit "$WORK/DEPLOYED.json")"
 no_canary "tree-only"
+parity_tree "$C2"
+check "after tree-only on new code, the drift check still reports it" 1 "$RC"
+has "UNDEPLOYED names the images commit, not the tree commit" "^UNDEPLOYED ${C1:0:12}\\.\\.${C2}"
+reset_fixture
+deploy "$C2" --tree-only
+check "--tree-only with no previous DEPLOYED.json" 0 "$RC"
+jq -e 'has("images_commit") and .images_commit == null' "$WORK/DEPLOYED.json" >/dev/null && ok "tree-only, no previous record: images_commit is null" || bad "tree-only first record: $(jq -c . "$WORK/DEPLOYED.json")"
+parity_tree "$C2"
+check "images_commit null: the drift check reports UNDEPLOYED" 1 "$RC"; has "UNDEPLOYED line" '^UNDEPLOYED '
 
 echo "== full run =="
 reset_fixture; echo '{"commit":"'"$C1"'","cloudflare_workers":{"email-worker":"v9"}}' > "$WORK/DEPLOYED.json"
@@ -300,6 +336,7 @@ hasnt "never prints other .env lines" 'OTHER_SETTING|keep me|100\.64\.0\.1'
 D="$WORK/DEPLOYED.json"
 [ "$(jq -r .commit "$D")" = "$C2" ] && ok "DEPLOYED.json commit" || bad "DEPLOYED.json commit"
 [ "$(jq -r .image_tag "$D")" = "$TAG2" ] && ok "DEPLOYED.json image_tag" || bad "DEPLOYED.json image_tag"
+[ "$(jq -r .images_commit "$D")" = "$C2" ] && ok "DEPLOYED.json images_commit = the deployed commit" || bad "DEPLOYED.json images_commit=$(jq -r .images_commit "$D")"
 [ "$(jq -r '.containers | length' "$D")" = 13 ] && ok "DEPLOYED.json has 13 containers" || bad "DEPLOYED.json containers: $(jq -c '.containers|keys' "$D")"
 [ "$(jq -r '[.containers[] | select(.image_id != null and .repo_digest != null)] | length' "$D")" = 13 ] && ok "13 image IDs + repo digests" || bad "image ids/digests incomplete"
 [ "$(jq -r .schema_ledger_max "$D")" = 0037 ] && ok "DEPLOYED.json schema_ledger_max" || bad "ledger max: $(jq -r .schema_ledger_max "$D")"
@@ -317,6 +354,8 @@ echo "== verify failures =="
 reset_fixture; echo unhealthy > "$STUB/health/workers"
 deploy "$C2" core-api workers
 check "an unhealthy container fails the deploy" 1 "$RC"; has "names the unhealthy service" 'workers'
+has "no DEPLOYED.json: says there is no scripted rollback" 'no scripted rollback: see runbook §5 manual rollback'
+hasnt "no DEPLOYED.json: suggests no rollback command" 'Roll back: scripts/deploy.sh'
 [ ! -e "$WORK/DEPLOYED.json" ] && ok "unhealthy: no DEPLOYED.json" || bad "unhealthy: DEPLOYED.json written"
 [ ! -e "$BACKUP/deploy-log.jsonl" ] && ok "unhealthy: no log line" || bad "unhealthy: log written"
 reset_fixture; echo "$C1" > "$STUB/rev/core-api"
@@ -325,13 +364,47 @@ check "a wrong revision label fails the deploy" 1 "$RC"; has "names the label" '
 [ ! -e "$WORK/DEPLOYED.json" ] && ok "wrong label: no DEPLOYED.json" || bad "wrong label: DEPLOYED.json written"
 reset_fixture; : > "$STUB/rev/core-api"
 deploy "$C2" core-api
-check "a missing label fails without --allow-unlabeled" 1 "$RC"; has "suggests --allow-unlabeled" 'allow-unlabeled'
-reset_fixture; : > "$STUB/rev/core-api"
-deploy "$C2" core-api --allow-unlabeled
-check "--allow-unlabeled skips the label check" 0 "$RC"
-reset_fixture; echo unhealthy > "$STUB/health/core-api"
-deploy "$C2" core-api --allow-unlabeled
-check "--allow-unlabeled still requires health" 1 "$RC"
+check "a missing label fails the deploy" 1 "$RC"; has "points to the manual rollback" 'runbook'
+hasnt "does not suggest the removed flag" 'allow-unlabeled'
+echo "== verify settles =="
+reset_fixture; printf 'healthy\nrestarting\n' > "$STUB/healthseq/workers"
+deploy "$C2" core-api workers
+check "healthy, then not healthy after the settle: fails" 1 "$RC"; has "names the service that fell over" 'workers.*(settle|no longer)'
+[ ! -e "$WORK/DEPLOYED.json" ] && ok "settle failure: no DEPLOYED.json" || bad "settle failure: DEPLOYED.json written"
+reset_fixture; printf 'starting\nhealthy\n' > "$STUB/healthseq/workers"
+deploy "$C2" core-api workers
+check "starting, then healthy and still healthy after the settle: succeeds" 0 "$RC"
+echo "== rollback hints =="
+reset_fixture; echo '{"commit":"'"$C1"'","images_commit":"'"$C1"'"}' > "$WORK/DEPLOYED.json"; echo unhealthy > "$STUB/health/workers"
+deploy "$C2" core-api workers
+check "verify failure with a previous deploy" 1 "$RC"
+has "rollback names DEPLOYED.json's images_commit" "Roll back: scripts/deploy.sh ${C1} core-api workers"
+reset_fixture; echo '{"commit":"'"$C2"'","images_commit":"'"$C2"'"}' > "$WORK/DEPLOYED.json"; echo unhealthy > "$STUB/health/workers"
+deploy "$C2" core-api workers
+check "verify failure when images_commit is the target" 1 "$RC"
+has "images_commit = target: no scripted rollback" 'no scripted rollback: see runbook §5 manual rollback'
+hasnt "images_commit = target: no rollback command" 'Roll back: scripts/deploy.sh'
+reset_fixture; echo '{"commit":"'"$C1"'","images_commit":"'"$C1"'"}' > "$WORK/DEPLOYED.json"; touch "$STUB/fail-up"
+deploy "$C2" core-api
+check "a failed recreate" 1 "$RC"; has "failed recreate: rollback names images_commit" "Roll back: scripts/deploy.sh ${C1} core-api"
+reset_fixture; git -C "$WORK" -c safe.directory="$WORK" checkout -q --detach "$C2"; touch "$STUB/fail-pull"
+deploy "$C2" core-api
+check "a failed pull with the tree already at the target" 1 "$RC"
+has "PREV = target: says there is no previous commit" 'no previous commit'
+has "PREV = target: points to the runbook" 'docs/runbooks/deploy.md'
+hasnt "PREV = target: no checkout back to the same commit" "checkout --detach ${C2}"
+echo "== temp files =="
+reset_fixture
+DEPLOY_ENV="PATH=$T/killmv:$PATH KILL_MV_ON=/.env" deploy "$C2" core-api
+[ "$RC" != 0 ] && ok "killed while replacing .env (rc=$RC)" || bad "kill before the .env rename did not stop the run"
+no_tmp "killed before the .env rename"
+cmp -s "$WORK/.env" "$ENV_ORIG" && ok "killed before the .env rename: .env unchanged" || bad ".env changed"
+reset_fixture
+DEPLOY_ENV="PATH=$T/killmv:$PATH KILL_MV_ON=/DEPLOYED.json" deploy "$C2" --tree-only
+[ "$RC" != 0 ] && ok "killed while writing DEPLOYED.json (rc=$RC)" || bad "kill before the DEPLOYED.json rename did not stop the run"
+no_tmp "killed before the DEPLOYED.json rename"
+reset_fixture; deploy "$C2" core-api
+check "a normal run" 0 "$RC"; no_tmp "normal run"
 reset_fixture; touch "$STUB/marker-missing"
 deploy "$C2" core-api --marker core-api=/app/x.js:needle
 check "a missing marker fails the deploy" 1 "$RC"
@@ -369,6 +442,30 @@ has "lists the missing bind source" "MISSING.*$T/no/such/dir"
 has "lists model_aliases.json not a regular file" 'MISSING.*model_aliases\.json'
 no_canary "preflight (missing)"
 rmdir "$WORK/config/whisper/model_aliases.json"
+echo "== preflight: host-only config files =="
+reset_fixture; rm "$WORK/config/utility/utility-config.yaml"
+preflight
+check "preflight: missing host-only config file exits 1" 1 "$RC"; has "lists utility-config.yaml" 'MISSING.*config/utility/utility-config\.yaml'
+reset_fixture; : > "$WORK/config/payee-rules.yaml"
+preflight
+check "preflight: empty host-only config file exits 1" 1 "$RC"; has "lists the empty payee-rules.yaml" 'MISSING.*config/payee-rules\.yaml'
+reset_fixture; rm "$WORK/config/payee-rules.yaml"; mkdir "$WORK/config/payee-rules.yaml"
+preflight
+check "preflight: a directory in place of a host-only config file exits 1" 1 "$RC"; has "lists the payee-rules.yaml directory" 'MISSING.*config/payee-rules\.yaml'
+reset_fixture
+preflight
+check "preflight: host-only config files present" 0 "$RC"; has "reports them" 'ok:.*config/utility/utility-config\.yaml'
+hasnt "never prints a host-only file's content" 'PAYEE-CANARY'
+reset_fixture; rm "$WORK/config/new-host.yaml"
+preflight
+check "preflight (tree's allowlist): new-host.yaml not required" 0 "$RC"
+preflight --ref "$C2"
+check "preflight --ref C2 reads C2's allowlist and requires new-host.yaml" 1 "$RC"; has "lists new-host.yaml" 'MISSING.*config/new-host\.yaml'
+reset_fixture; rm "$WORK/config/utility/utility-config.yaml"
+deploy "$C2" core-api
+check "deploy stops when a host-only config file is missing" 1 "$RC"; has "names it" 'config/utility/utility-config\.yaml'
+head_is "$C1" && ok "missing host-only config: stopped before checkout" || bad "missing host-only config: tree moved"
+hasnt "deploy never prints a host-only file's content" 'PAYEE-CANARY'
 reset_fixture; : > "$STUB/plugins"
 deploy "$C2" core-api
 check "deploy stops when preflight fails" 1 "$RC"

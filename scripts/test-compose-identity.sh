@@ -72,6 +72,18 @@ labels="$(grep -c 'org.opencontainers.image.revision=${{ github.sha }}' "$WORKFL
 [ "$steps" -ge 8 ] && [ "$labels" = "$steps" ] && ok "all $steps build steps set the revision label" || bad "$labels of $steps build steps set the revision label"
 grep -q '^  workflow_dispatch:' "$WORKFLOW" && ok "build workflow has workflow_dispatch" || bad "build workflow has no workflow_dispatch"
 grep -q 'sha=${GITHUB_SHA::7}' "$WORKFLOW" && ok "sha tag = first 7 chars of the full SHA" || bad "sha tag is not GITHUB_SHA::7"
+# :latest moves only on main: a workflow_dispatch from a branch pushes sha-* only.
+grep -qE "if \[ \"\\\$GITHUB_REF\" = refs/heads/main \]; then echo \"latest=true\"" "$WORKFLOW" && ok "meta step sets latest=true only for refs/heads/main" || bad "meta step has no refs/heads/main condition for latest"
+n_cond=0
+for img in core-api workers slack-bot voice-capture file-ingestion ingest-sidecar actual-ingest web-next; do
+  if grep -qF "\${{ steps.meta.outputs.latest == 'true' && 'ghcr.io/davistroy/open-brain/${img}:latest' || '' }}" "$WORKFLOW"; then n_cond=$((n_cond + 1))
+  else bad "${img}: :latest is not conditional on main"; fi
+done
+[ "$n_cond" = 8 ] && [ "$n_cond" = "$steps" ] && ok "all 8 build steps push :latest only on main" || bad "$n_cond of $steps build steps condition :latest"
+bare="$(grep -cE '^[[:space:]]+ghcr\.io/davistroy/open-brain/[a-z-]+:latest[[:space:]]*$' "$WORKFLOW")"
+[ "$bare" = 0 ] && ok "no unconditional :latest tag" || bad "$bare unconditional :latest tag line(s)"
+n_sha="$(grep -cE '^[[:space:]]+ghcr\.io/davistroy/open-brain/[a-z-]+:sha-\$\{\{ steps\.meta\.outputs\.sha \}\}$' "$WORKFLOW")"
+[ "$n_sha" = "$steps" ] && ok "every build step still pushes the sha- tag" || bad "$n_sha of $steps build steps push the sha- tag"
 
 echo "== gitignore =="
 for d in pgdata/ redis-data/ financial-inbox/ utility-inbox/; do

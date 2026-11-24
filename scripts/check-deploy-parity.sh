@@ -42,8 +42,8 @@
 #           ingest sidecars must run the SAME image ID (shared-image trap, Entry 201)
 #   tree    `git diff REF -- config scripts packages/shared/drizzle` + `git status`,
 #           minus deploy/host-only-allowlist.txt  ->  `TREE <path>`; and, when
-#           DEPLOYED.json exists, `git diff --stat <its commit>..REF` minus docs/*.md
-#           non-empty  ->  `UNDEPLOYED` (merged but never deployed; item 5.2)
+#           DEPLOYED.json exists, `git diff --stat <its images_commit>..REF` minus
+#           docs/*.md non-empty  ->  `UNDEPLOYED` (merged but never deployed; item 5.2)
 #   alerts  check-alerts-parity.sh in local mode (rule bodies vs the deployed dir)
 # Output is hashes, service names and paths ONLY. `docker compose config` inlines
 # env_file values, so this script never prints a rendered config.
@@ -254,11 +254,28 @@ layer_tree() {
 # deployed. Code or config that changed between it and REF (docs and *.md excluded) was
 # merged but never deployed -> `UNDEPLOYED`. No DEPLOYED.json = nothing to compare yet.
 # deploy.sh runs this layer with PARITY_REF=<target> and treats UNDEPLOYED as expected.
+#
+# The comparison point is `images_commit` — the commit whose images last went live — not
+# `commit`, which `--tree-only` moves without recreating anything (so a tree-only run onto
+# new code would otherwise hide that code). An old DEPLOYED.json without the field falls
+# back to `commit`; `images_commit: null` (only tree-only runs so far) is UNDEPLOYED.
 layer_undeployed() {
-  local f="${REPO_DIR}/DEPLOYED.json" dep stat files
+  local f="${REPO_DIR}/DEPLOYED.json" dep stat files kind
   [ -f "$f" ] || return 0
-  if ! dep="$(jq -r '.commit // empty' "$f" 2>/dev/null)" || [ -z "$dep" ]; then
-    echo "ERROR: ${f} has no readable .commit" >&2; cannot; return
+  if ! kind="$(jq -r 'if has("images_commit") then (if .images_commit == null then "null" else "images" end) else "commit" end' "$f" 2>/dev/null)"; then
+    echo "ERROR: ${f} is not readable JSON" >&2; cannot; return
+  fi
+  if [ "$kind" = null ]; then
+    echo "UNDEPLOYED none..${REF}: DEPLOYED.json images_commit is null (no deploy has recreated containers from images yet)"
+    drift; return
+  fi
+  if [ "$kind" = images ]; then
+    dep="$(jq -r '.images_commit // empty' "$f" 2>/dev/null)"
+  else
+    dep="$(jq -r '.commit // empty' "$f" 2>/dev/null)"
+  fi
+  if [ -z "$dep" ]; then
+    echo "ERROR: ${f} has no readable .images_commit or .commit" >&2; cannot; return
   fi
   if ! g cat-file -e "${dep}^{commit}" 2>/dev/null; then
     echo "UNDEPLOYED ${dep:0:12} (the deployed commit is not in this repository; history rewritten?)"

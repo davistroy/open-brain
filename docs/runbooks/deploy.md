@@ -11,7 +11,7 @@
 
 | Container | Image | Port(s) |
 |-----------|-------|---------|
-| `open-brain-postgres` | `pgvector/pgvector:pg16` | `127.0.0.1:5432` |
+| `open-brain-postgres` | `pgvector/pgvector:pg16@sha256:1d5335…` (digest-pinned) | `127.0.0.1:5432` |
 | `open-brain-redis` | `redis:7.4-alpine` | `127.0.0.1:6380` |
 | `open-brain-core-api` | `ghcr.io/davistroy/open-brain/core-api:latest` | `127.0.0.1:3002`, `<tailscale-ip>:3002` |
 | `open-brain-workers` | `ghcr.io/davistroy/open-brain/workers:latest` | — |
@@ -22,8 +22,8 @@
 | `open-brain-financial-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
 | `open-brain-utility-ingest` | `ghcr.io/davistroy/open-brain/ingest-sidecar:latest` | — |
 | `open-brain-actual-ingest` | `ghcr.io/davistroy/open-brain/actual-ingest:latest` | — (br0) |
-| `open-brain-faster-whisper` | `ghcr.io/speaches-ai/speaches:latest-cpu` | `127.0.0.1:10300` |
-| `open-brain-cloudflared` | `cloudflare/cloudflared:2025.6.1` | — |
+| `open-brain-faster-whisper` | `ghcr.io/speaches-ai/speaches:0.8.3-cpu` | `127.0.0.1:10300` |
+| `open-brain-cloudflared` | `cloudflare/cloudflared:2026.11.2` | — |
 
 **13 containers total**, all in this compose project.
 
@@ -117,7 +117,7 @@ The same `CR_PAT` is reused for the GHCR digest-verification checks in §3 and �
 
 ## 2. Normal deploy flow
 
-Every merge to `main` triggers `.github/workflows/build-images.yml`, which pushes `:latest` **and** `:sha-<7-char-SHA>` images to GHCR. Deploy by commit SHA:
+Every merge to `main` triggers `.github/workflows/build-images.yml`, which pushes `:latest` **and** `:sha-<7-char-SHA>` images to GHCR. A manual `workflow_dispatch` run pushes `:sha-<7>` for the commit it builds; it moves `:latest` only when run on `main`. Deploy by commit SHA:
 
 ```bash
 ssh root@homeserver.k4jda.net
@@ -134,7 +134,7 @@ bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next \
 
 Name only the services whose code changed. Find them with `git diff <last-deployed-sha>..<sha> --stat -- . ':!*.md' ':!docs'`. Keep `financial-ingest` and `utility-ingest` together: they share `ingest-sidecar`, and a service that shares an image with one you named keeps its old image otherwise.
 
-What `scripts/deploy.sh` does, in order: checks its arguments (it refuses the stateful services); runs `scripts/preflight.sh`; refuses a dirty tree; checks that each image tag exists; runs the config gate; checks out `<sha>`; runs the drift check; pulls the named services at `sha-<7>`; runs `up -d --force-recreate --no-deps <services>`; pins `IMAGE_TAG` in `.env`; waits for health and compares each image's revision label with `<sha>`; writes `DEPLOYED.json` and one line in `deploy-log.jsonl`. Read the header of `scripts/deploy.sh` for options (`--tree-only`, `--allow-unlabeled`, `--marker`).
+What `scripts/deploy.sh` does, in order: checks its arguments (it refuses the stateful services); runs `scripts/preflight.sh`; refuses a dirty tree; checks that each image tag exists; runs the config gate; checks out `<sha>`; runs the drift check; pulls the named services at `sha-<7>`; runs `up -d --force-recreate --no-deps <services>`; pins `IMAGE_TAG` in `.env`; waits for health and compares each image's revision label with `<sha>`; writes `DEPLOYED.json` and one line in `deploy-log.jsonl`. Read the header of `scripts/deploy.sh` for options (`--tree-only`, `--marker`). After the containers report healthy, it checks them again after `DEPLOY_HEALTH_SETTLE` seconds (default 20) and fails a container that fell over in between.
 
 To prove a fix is live, add a marker: `--marker core-api=/app/dist/<file>:<string>`. Pick a string from the diff.
 
@@ -315,18 +315,48 @@ Confirm the tag exists: `docker manifest inspect ghcr.io/davistroy/open-brain/<s
 bash scripts/deploy.sh <previous-sha> core-api    # name each service that failed
 ```
 
-Add `--allow-unlabeled` only when `<previous-sha>` was built before images carried the
-`org.opencontainers.image.revision` label (item 5.1). A rollback past a migration needs the
-reverse migration first; read the migration's header and `docs/runbooks/restore-rehearsal.md`.
+When a verify or recreate fails, `scripts/deploy.sh` prints this command with the commit from
+`DEPLOYED.json`'s `images_commit` (the last commit whose images went live). When there is none, or
+it equals the commit that just failed, it prints "no scripted rollback" instead: use §5c. A
+rollback past a migration needs the reverse migration first; read the migration's header and
+`docs/runbooks/restore-rehearsal.md`.
 
-**Never** use `docker compose pull` for a rollback: it re-pulls `:latest`, which is whatever `main`
-currently publishes (the broken build).
+**Never** roll back with a bare `docker compose pull` or `up`. Compose reads `IMAGE_TAG` from
+`.env`, which still names the commit that just failed, so a bare `pull` fetches that broken
+build again. `scripts/deploy.sh` exports the rollback commit's tag and rewrites `.env`.
+
+### 5c. Manual rollback (a commit before item 5.1, or no record)
+
+`scripts/deploy.sh` cannot deploy a commit from before item 5.1: its compose has no `${IMAGE_TAG}`
+and its images carry no revision label, so the script refuses it at the image-tag check. Roll
+back to one by hand, using the image IDs recorded before the change (`DEPLOYED.json`
+`containers.<svc>.image_id`, the deploy log, or a `docker inspect` snapshot) — the images must
+still be in the local image store:
+
+```bash
+cd /mnt/user/appdata/open-brain
+cp -p .env .env.bak-$(date -u +%Y%m%dT%H%M%SZ)
+sed -i '/^IMAGE_TAG=/d' .env        # IMAGE_TAG unset: compose renders :latest again
+# Only if the tree must move too (it is the riskiest step; snapshot first):
+#   git -c safe.directory=$PWD checkout --detach <previous-sha>
+
+# Per service: point :latest back at the recorded image ID. NO pull — a pull would
+# replace :latest with whatever main publishes now.
+docker tag <image_id> ghcr.io/davistroy/open-brain/<package>:latest
+env -u IMAGE_TAG docker compose up -d --force-recreate --no-deps <services>
+```
+
+`DEPLOYED.json` no longer matches what runs until the next `scripts/deploy.sh`. Record the
+rollback in `LAB_NOTEBOOK.md`.
 
 ---
 
 ## 6. Emergency local build fallback
 
-If GHCR is unreachable or a pushed image is broken:
+If GHCR is unreachable or a pushed image is broken, build on the host. `.env` holds
+`IMAGE_TAG=sha-<7>`, so a build without an explicit tag would write the local image over the
+registry's `sha-<7>` tag and hide that it is not the published image. Give it its own tag, on
+both commands, and name the services:
 
 ```bash
 ssh root@homeserver.k4jda.net
@@ -334,14 +364,27 @@ cd /mnt/user/appdata/open-brain
 
 git log --oneline -5
 
-# Build a single service from source
-docker compose up -d --build --no-deps core-api
+LT=local-$(date -u +%Y%m%d)
 
-# Or rebuild all custom app services (never name postgres, redis, or cloudflared)
-docker compose up -d --build --no-deps \
+# One service
+IMAGE_TAG=$LT docker compose build core-api
+IMAGE_TAG=$LT docker compose up -d --force-recreate --no-deps core-api
+
+# Or all application services (never name postgres, redis, or cloudflared). Keep
+# financial-ingest and utility-ingest together: they share the ingest-sidecar image.
+IMAGE_TAG=$LT docker compose build \
+  core-api workers slack-bot voice-capture web-next \
+  file-ingestion financial-ingest utility-ingest actual-ingest
+IMAGE_TAG=$LT docker compose up -d --force-recreate --no-deps \
   core-api workers slack-bot voice-capture web-next \
   file-ingestion financial-ingest utility-ingest actual-ingest
 ```
+
+After this, **`DEPLOYED.json` no longer matches what runs**, and `.env` still names the old
+`sha-<7>`: any later compose command without `IMAGE_TAG=$LT` renders the registry image again,
+and the daily drift check reports the rebuilt services as stale. Both stay wrong until the next
+`scripts/deploy.sh` run, which is the way back to a recorded state once GHCR works. Record the
+local build in `LAB_NOTEBOOK.md`.
 
 ---
 

@@ -12,6 +12,10 @@
 #     Docker refuse a missing source instead of creating an empty one)
 #   - config/whisper/model_aliases.json is a regular file (a missing source bound as a
 #     file turns into a directory and speaches fails)
+#   - every file entry under config/ in deploy/host-only-allowlist.txt (REF's copy with
+#     --ref) is a regular, non-empty file — today config/payee-rules.yaml and
+#     config/utility/utility-config.yaml. Gitignored, so a checkout can delete them unseen.
+#     Their contents are never read or printed.
 #   - `bws` on PATH — WARNING only until item 7.4 installs it on the host
 #
 # --ref <commit>: check the compose of that commit instead of the working tree's,
@@ -33,7 +37,7 @@ REF=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --ref) REF="${2:-}"; shift 2 || { echo "ERROR: --ref needs a commit" >&2; exit 1; } ;;
-    -h|--help) sed -n '2,25p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "ERROR: unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -101,6 +105,26 @@ if [ "$AT_REF" = 0 ] && [ "$(g cat-file -t "${REF}:config/whisper/model_aliases.
   okay "config/whisper/model_aliases.json (provided by the checkout)"
 elif [ -f "$MA" ]; then okay "config/whisper/model_aliases.json is a regular file"
 else miss "config/whisper/model_aliases.json is not a regular file (missing, or a directory Docker created)"; fi
+
+# Host-only config files: every file entry under config/ in deploy/host-only-allowlist.txt
+# (read from REF like deploy.sh does, else from the tree) must be a regular, non-empty file.
+# They are gitignored, so a checkout from a commit that still tracked one (utility-config.yaml
+# before the leak scrub) deletes it and nothing else notices. Contents are never read.
+if [ -n "$REF" ]; then
+  ALLOW="$(g show "${REF}:deploy/host-only-allowlist.txt" 2>/dev/null)" || ALLOW="$(cat "$REPO/deploy/host-only-allowlist.txt" 2>/dev/null)" || ALLOW=""
+else
+  ALLOW="$(cat "$REPO/deploy/host-only-allowlist.txt" 2>/dev/null)" || ALLOW=""
+fi
+if [ -z "$ALLOW" ]; then
+  miss "deploy/host-only-allowlist.txt (on neither ${REF:+${REF:0:12} nor }the tree)"
+else
+  while IFS= read -r p; do
+    if [ -f "$REPO/$p" ] && [ -s "$REPO/$p" ]; then okay "host-only config file ${p}"
+    else miss "host-only config file ${p} (missing, empty or not a regular file; restore it from the backup)"; fi
+  done < <(printf '%s\n' "$ALLOW" | awk '{ sub(/[[:space:]]*#.*/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, "") }
+                                         /^config\/[^[:space:]]*[^\/]$/ { print }')
+fi
+unset ALLOW
 
 # Bind sources: from the render, held in memory only.
 if command -v docker >/dev/null; then

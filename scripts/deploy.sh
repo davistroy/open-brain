@@ -9,14 +9,18 @@
 #   --dry-run          run every read-only gate, print the plan, change nothing
 #                      (tree, .env, DEPLOYED.json, the deploy log, containers).
 #   --tree-only        move the tree to <sha>, run every gate, write DEPLOYED.json;
-#                      recreate nothing and leave .env's IMAGE_TAG alone.
-#   --allow-unlabeled  skip ONLY the org.opencontainers.image.revision label check — for a
-#                      rollback to a commit built before the label existed (item 5.1).
+#                      recreate nothing and leave .env's IMAGE_TAG alone. DEPLOYED.json
+#                      keeps the previous images_commit, so the drift check still reports
+#                      the code this run did not deploy.
 #   --marker <svc>=<path>:<string>
 #                      after the recreate, grep <string> in <path> inside open-brain-<svc>
 #                      (repeatable). Proof that the fix is live, not merely merged.
 #
 # Step order (every refusal comes before the first change):
+# A commit from before item 5.1 (no ${IMAGE_TAG} in its compose, no revision label) cannot
+# be deployed by this script: step 6 refuses it. Rolling back to one is manual — see
+# docs/runbooks/deploy.md §5.
+#
 #   1. arguments: unknown / stateful (postgres, redis, cloudflared) services, half of the
 #      ingest pair, an empty list without --tree-only        -> refuse
 #   2. root (DEPLOY_ALLOW_NONROOT=1 is a TEST-ONLY override)    -> refuse
@@ -35,8 +39,10 @@
 #  11. docker compose pull <services>                 (IMAGE_TAG=sha-xxxxxxx exported)
 #  12. docker compose up -d --force-recreate --no-deps <services>
 #  13. .env: back up, then set exactly one IMAGE_TAG=sha-xxxxxxx line (atomic)
-#  14. verify: healthy within DEPLOY_HEALTH_TIMEOUT, revision label == <sha>, markers
-#  15. record: DEPLOYED.json (atomic) + one line in ${BACKUP_ROOT}/deploy-log.jsonl
+#  14. verify: healthy within DEPLOY_HEALTH_TIMEOUT and still healthy DEPLOY_HEALTH_SETTLE
+#      seconds later, revision label == <sha>, markers
+#  15. record: DEPLOYED.json (atomic; images_commit = <sha>) + one line in
+#      ${BACKUP_ROOT}/deploy-log.jsonl
 #
 # Never: git clean / stash / pull, `compose down`, a bare `up -d`, --remove-orphans. The
 # rendered compose is held in shell variables only — it inlines env_file values — and
@@ -47,8 +53,9 @@
 # root runs this in a tree owned by `claude`.
 #
 # Environment: BACKUP_ROOT (default /mnt/user/backup/openbrain), DEPLOY_HEALTH_TIMEOUT
-# (seconds, default 180), DEPLOY_HEALTH_INTERVAL (default 5), DEPLOY_REPO_DIR (default
-# the script's repo). TEST-ONLY: DEPLOY_ALLOW_NONROOT=1, DEPLOY_PARITY_SCRIPT=<path>.
+# (seconds, default 180), DEPLOY_HEALTH_INTERVAL (default 5), DEPLOY_HEALTH_SETTLE (seconds
+# a healthy container must stay healthy, default 20), DEPLOY_REPO_DIR (default the script's
+# repo). TEST-ONLY: DEPLOY_ALLOW_NONROOT=1, DEPLOY_PARITY_SCRIPT=<path>.
 #
 # Exit: 0 deployed (or dry-run plan printed), 1 refused or failed.
 set -uo pipefail
@@ -64,7 +71,16 @@ step() { echo; echo "== $* =="; }
 err()  { echo "ERROR: $*" >&2; }
 in_list() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-usage() { sed -n '2,24p' "${BASH_SOURCE[0]}"; }
+usage() { sed -n '2,60p' "${BASH_SOURCE[0]}"; }
+
+# Temp files (.env.tmp.*, .DEPLOYED.json.*) are registered here and removed on ANY exit,
+# including a signal between mktemp and mv. This is the script's only trap; add other exit
+# work to cleanup() rather than setting a second EXIT trap (it would replace this one).
+TMPFILES=()
+# shellcheck disable=SC2317  # runs from the EXIT trap
+cleanup() { [ "${#TMPFILES[@]}" -eq 0 ] || rm -f -- "${TMPFILES[@]}"; }
+trap cleanup EXIT
+trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 
 # git with an explicit safe.directory (root in a claude-owned tree).
 g() { git -C "$REPO" -c safe.directory="$REPO" "$@"; }
@@ -90,8 +106,22 @@ env_image_tag() {
 }
 
 return_hint() {
+  if [ "$PREV" = "$SHA" ]; then
+    say "  The tree was already at ${SHA:0:12} before this run: there is no previous commit to"
+    say "  return it to. See the manual rollback in docs/runbooks/deploy.md §5."
+    return
+  fi
   say "  The tree is now at ${SHA:0:12} (it was at ${PREV:0:12}). To return it:"
   say "    cd ${REPO} && git -c safe.directory=${REPO} checkout --detach ${PREV}"
+}
+# After containers were recreated: the images to go back to are the ones DEPLOYED.json
+# (still the previous record — it is written only after verify) says went live last.
+rollback_hint() {
+  if [ -n "$PREV_IMAGES" ] && [ "$PREV_IMAGES" != "$SHA" ]; then
+    say "  Roll back: scripts/deploy.sh ${PREV_IMAGES} ${list}  (DEPLOYED.json images_commit; needs that commit's sha-* images)"
+  else
+    say "  no scripted rollback: see runbook §5 manual rollback (docs/runbooks/deploy.md)"
+  fi
 }
 stop_after_checkout() { err "$*"; return_hint >&2; exit 1; }
 
@@ -198,6 +228,7 @@ set_env_tag() {
   bak="$REPO/.env.bak-$(date -u +%Y%m%dT%H%M%SZ)"
   cp -p "$f" "$bak" || { err "cannot back up .env"; return 1; }
   tmp="$(mktemp "$REPO/.env.tmp.XXXXXX")" || { err "cannot create a temp file next to .env"; return 1; }
+  TMPFILES+=("$tmp")
   if ! awk -v t="$TAG" '
         /^IMAGE_TAG=/ { if (!d) { print "IMAGE_TAG=" t; d = 1 } next }
         { print }
@@ -212,7 +243,7 @@ set_env_tag() {
 
 # ── verify ─────────────────────────────────────────────────────────────────────
 verify() {
-  local timeout="${DEPLOY_HEALTH_TIMEOUT:-180}" interval="${DEPLOY_HEALTH_INTERVAL:-5}"
+  local timeout="${DEPLOY_HEALTH_TIMEOUT:-180}" interval="${DEPLOY_HEALTH_INTERVAL:-5}" settle="${DEPLOY_HEALTH_SETTLE:-20}"
   local start=$SECONDS s st pending fails=0 img rev m svc rest path str n
   pending="${SERVICES[*]}"
   while :; do
@@ -232,14 +263,27 @@ verify() {
     fi
     sleep "$interval"
   done
+  # Settle: a container that crashes right after its first healthcheck passes (a restart
+  # loop) must not count as deployed. Check every service again after a short wait.
+  if [ "$fails" -eq 0 ]; then
+    sleep "$settle"
+    for s in "${SERVICES[@]}"; do
+      st="$(docker inspect -f "$HEALTH_FMT" "open-brain-${s}" 2>/dev/null)" || st=missing
+      case "$st" in
+        healthy|running) ;;
+        *) err "verify: open-brain-${s} was healthy but is no longer running+healthy after a ${settle}s settle (state: ${st:-missing})"
+           fails=$((fails + 1)) ;;
+      esac
+    done
+    [ "$fails" -eq 0 ] && say "  still healthy after a ${settle}s settle"
+  fi
   for s in "${SERVICES[@]}"; do
     img="$(printf '%s' "$RENDER_TARGET" | jq -r --arg s "$s" '.services[$s].image // ""')"
     case "$img" in "$OWN_PREFIX"*) ;; *) say "  ${s}: third-party image, no revision label"; continue ;; esac
-    if [ "$ALLOW_UNLABELED" = 1 ]; then say "  ${s}: revision label not checked (--allow-unlabeled)"; continue; fi
     rev="$(docker inspect -f "$REV_FMT" "open-brain-${s}" 2>/dev/null)"
     case "$rev" in
       "$SHA") say "  ${s}: revision ${SHA:0:12}" ;;
-      ''|'<no value>') err "verify: open-brain-${s} has no org.opencontainers.image.revision label (a commit built before item 5.1? re-run with --allow-unlabeled)"; fails=$((fails + 1)) ;;
+      ''|'<no value>') err "verify: open-brain-${s} has no org.opencontainers.image.revision label (a commit built before item 5.1? its rollback is manual: docs/runbooks/deploy.md §5)"; fails=$((fails + 1)) ;;
       *) err "verify: open-brain-${s} revision label ${rev:0:12} != ${SHA:0:12}"; fails=$((fails + 1)) ;;
     esac
   done
@@ -254,7 +298,10 @@ verify() {
 
 # ── record ─────────────────────────────────────────────────────────────────────
 record() {
-  local mode="$1" image_tag="$2" s id cfg dig containers='{}' ledger cf doc tmp now recreated
+  local mode="$1" image_tag="$2" s id cfg dig containers='{}' ledger cf doc tmp now recreated images
+  # images_commit: the commit whose images went live. A full deploy sets it to <sha>;
+  # --tree-only recreates nothing, so it copies the previous value (null if none).
+  if [ "$mode" = full ]; then images="$SHA"; else images="$PREV_IMAGES"; fi
   for s in $ALL13; do
     id="$(docker inspect -f '{{.Image}}' "open-brain-${s}" 2>/dev/null)" || id=""
     cfg="$(docker inspect -f '{{.Config.Image}}' "open-brain-${s}" 2>/dev/null)" || cfg=""
@@ -272,10 +319,13 @@ record() {
   recreated="$(printf '%s\n' "${SERVICES[@]+"${SERVICES[@]}"}" | jq -R . | jq -sc 'map(select(. != ""))')"
   doc="$(jq -n --arg commit "$SHA" --arg tag "$image_tag" --arg at "$now" --arg mode "$mode" --arg prev "$PREV" \
     --argjson rec "$recreated" --argjson containers "$containers" --arg ledger "$ledger" --argjson cf "$cf" \
-    '{commit: $commit, image_tag: $tag, deployed_at: $at, mode: $mode, previous_commit: $prev,
+    --arg images "$images" \
+    '{commit: $commit, images_commit: (if $images == "" then null else $images end),
+      image_tag: $tag, deployed_at: $at, mode: $mode, previous_commit: $prev,
       services_recreated: $rec, schema_ledger_max: (if $ledger == "" then null else $ledger end),
       containers: $containers, cloudflare_workers: $cf}')" || { err "cannot build DEPLOYED.json"; return 1; }
   tmp="$(mktemp "$REPO/.DEPLOYED.json.XXXXXX")" || { err "cannot create a temp file for DEPLOYED.json"; return 1; }
+  TMPFILES+=("$tmp")
   if ! printf '%s\n' "$doc" > "$tmp" || ! chmod 644 "$tmp" || ! mv -f "$tmp" "$REPO/DEPLOYED.json"; then
     rm -f "$tmp"; err "cannot write DEPLOYED.json"; return 1
   fi
@@ -294,14 +344,13 @@ record() {
 
 main() {
   local arg
-  SHA_ARG="" DRY=0 TREE_ONLY=0 ALLOW_UNLABELED=0
+  SHA_ARG="" DRY=0 TREE_ONLY=0
   SERVICES=() MARKERS=()
   while [ $# -gt 0 ]; do
     arg="$1"
     case "$arg" in
       --dry-run) DRY=1 ;;
       --tree-only) TREE_ONLY=1 ;;
-      --allow-unlabeled) ALLOW_UNLABELED=1 ;;
       --marker) [ $# -ge 2 ] || { err "--marker needs <svc>=<path>:<string>"; return 1; }
                 MARKERS+=("$2"); shift ;;
       --marker=*) MARKERS+=("${arg#--marker=}") ;;
@@ -366,6 +415,12 @@ main() {
   [ "$DRY" = 1 ] && say "  DRY RUN: nothing will change"
   if [ -f "$REPO/DEPLOYED.json" ] && ! jq -e . "$REPO/DEPLOYED.json" >/dev/null 2>&1; then
     err "DEPLOYED.json is not valid JSON; fix it by hand (its cloudflare_workers field must be preserved)"; return 1
+  fi
+  # The commit whose images run now (old records without the field: their commit, if that
+  # was a full deploy). Empty = unknown: no scripted rollback, and tree-only records null.
+  PREV_IMAGES=""
+  if [ -f "$REPO/DEPLOYED.json" ]; then
+    PREV_IMAGES="$(jq -r 'if has("images_commit") then (.images_commit // "") elif .mode == "full" then (.commit // "") else "" end' "$REPO/DEPLOYED.json")"
   fi
 
   # 4. preflight
@@ -468,7 +523,7 @@ main() {
   step "recreate"
   if ! dc up -d --force-recreate --no-deps "${SERVICES[@]}"; then
     err "docker compose up failed — some containers may have been recreated"
-    say "  Roll back: scripts/deploy.sh ${PREV} ${list}  (needs that commit's sha-* images)" >&2
+    rollback_hint >&2
     stop_after_checkout "recreate failed"
   fi
 
@@ -480,7 +535,7 @@ main() {
   step "verify"
   if ! verify; then
     err "verify failed; DEPLOYED.json NOT written (the containers were recreated)"
-    say "  Roll back: scripts/deploy.sh ${PREV} ${list}  (needs that commit's sha-* images; add --allow-unlabeled for a pre-label commit)" >&2
+    rollback_hint >&2
     return_hint >&2
     return 1
   fi

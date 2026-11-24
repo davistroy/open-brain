@@ -153,6 +153,23 @@ run PARITY_LAYERS=tree
 check "docs/ and *.md changes are not UNDEPLOYED" 0 "$RC"
 run PARITY_LAYERS=tree PARITY_REF="$DEP0"
 check "PARITY_REF selects the comparison target (deploy.sh passes <sha>)" 1 "$RC"; has "UNDEPLOYED against the given ref" "^UNDEPLOYED .*\\.\\.${DEP0}"
+echo "== layer 3: UNDEPLOYED compares images_commit (item 5.2 fix pass) =="
+H="$(git -C "$WORK" rev-parse HEAD)"
+# what deploy.sh --tree-only writes after moving the tree onto new code: commit = the tree,
+# images_commit = the last commit whose images were deployed
+jq -n --arg c "$H" --arg i "$DEP0" '{commit:$c, mode:"tree-only", images_commit:$i}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "tree-only onto new code: still UNDEPLOYED" 1 "$RC"
+has "UNDEPLOYED names images_commit" "^UNDEPLOYED ${DEP0:0:12}\\.\\.origin/main: 1 file"
+jq -n --arg c "$H" '{commit:$c, mode:"tree-only", images_commit:null}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "images_commit null: UNDEPLOYED" 1 "$RC"; has "UNDEPLOYED with a reason" '^UNDEPLOYED .*images_commit'
+jq -n --arg c "$DEP0" --arg i "$H" '{commit:$c, images_commit:$i}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "images_commit at REF wins over an older commit field" 0 "$RC"
+jq -n --arg c "$H" '{commit:$c}' > "$WORK/DEPLOYED.json"
+run PARITY_LAYERS=tree
+check "old DEPLOYED.json without images_commit falls back to commit" 0 "$RC"
 echo '{"commit":"1111111111111111111111111111111111111111"}' > "$WORK/DEPLOYED.json"
 run PARITY_LAYERS=tree
 check "deployed commit not in the repository" 1 "$RC"; has "says history rewritten" '^UNDEPLOYED 111111111111 .*not in this repository'
