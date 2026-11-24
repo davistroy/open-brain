@@ -14,6 +14,12 @@ PARITY="${SCRIPT_DIR}/check-deploy-parity.sh"
 CRON="${SCRIPT_DIR}/check-deploy-parity-cron.sh"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
+# Isolate git from the caller's global/system config. CI runners (actions/checkout)
+# set `safe.directory = *` globally, which makes plain git trust every tree and turns
+# the different-owner precondition into a false FAIL — and would let the script pass
+# without its own `-c safe.directory`. An empty config is what a root cron sees.
+: > "$T/gitconfig"
+export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_NOSYSTEM=1
 
 PASS=0 FAIL=0
 ok()   { PASS=$((PASS + 1)); echo "  PASS: $1"; }
