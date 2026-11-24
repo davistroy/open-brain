@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import { PushoverService } from '@open-brain/shared'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
@@ -11,6 +12,8 @@ import {
 } from '../skills/container-health.js'
 import type { ContainerEndpoint } from '../skills/container-health.js'
 import { pushBackupAgeGauge } from '../lib/backup-age.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
 vi.mock('../lib/push-metrics.js', () => ({
@@ -530,6 +533,18 @@ describe('item 4.5 — alerts through raiseAlert', () => {
     const pg = sentTitles(pushover).filter(c => c.title.includes('postgres'))
     expect(pg).toHaveLength(1)
     expect(pg[0].priority).toBe(1)
+
+    // The in-process alert mirror keeps the open state while every DB call fails:
+    // run 4 sends no second postgres push.
+    await skill.execute()
+    expect(sentTitles(pushover).filter(c => c.title.includes('postgres'))).toHaveLength(1)
+
+    // Recovery with the database still unreachable-for-state: "Resolved" is sent once.
+    sdb.ctl.failAll = false
+    sdb.state.clear() // the DB came back empty; only the mirror knows the alert was open
+    await skill.execute()
+    const resolved = sentTitles(pushover).filter(c => c.title.startsWith('Resolved:') && c.title.includes('postgres'))
+    expect(resolved).toHaveLength(1)
   })
 
   it('a Redis PING failure for 3 runs raises container:redis as critical', async () => {

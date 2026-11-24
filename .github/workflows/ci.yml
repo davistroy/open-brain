@@ -251,7 +251,7 @@ jobs:
             echo "Move each to env_file: .env.secrets (see load-secrets.sh)."
             exit 1
           fi
-          echo "OK: prod compose renders + zero blank-string interpolation — a rebuilt host boots from .env.secrets alone."
+          echo "OK: prod compose renders + zero blank-string interpolation — no SECRET is read from .env. A rebuilt host still needs .env with TAILSCALE_IP (an address, not a secret) before any compose command."
 
       - name: Postgres and Redis data render as fail-closed binds (no override)
         # Item 4.3 (PLT-001/DA7-05/SA7-04): the data-directory pin lives in the BASE

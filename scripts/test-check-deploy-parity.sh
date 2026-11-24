@@ -153,6 +153,7 @@ cat > "$T/check-stub.sh" <<'CEOF'
 #!/usr/bin/env bash
 cat "$STUB_OUT"; exit "$(cat "$STUB_RC")"
 CEOF
+export PUSHOVER_APP_TOKEN=test-token PUSHOVER_USER_KEY=test-user   # wrapper refuses to "send" without creds
 export NOTIFY_LOG="$T/notify.log" STUB_OUT="$T/out.txt" STUB_RC="$T/rc.txt"
 export PARITY_NOTIFY_LIB="$T/notify-stub.sh" PARITY_CHECK_SCRIPT="$T/check-stub.sh" PARITY_STATE_FILE="$T/parity.state"
 : > "$NOTIFY_LOG"
@@ -187,6 +188,63 @@ rm -f "$PARITY_STATE_FILE"; wrap $((T0 + 41 * D)) 0
 [ "$(sent)" = 6 ] && ok "no state + parity: silent" || bad "first-run parity (sent=$(sent))"
 rm -f "$PARITY_STATE_FILE"; wrap $((T0 + 42 * D)) 1 "STALE a"
 [ "$(sent)" = 7 ] && ok "lost state file (reboot): notifies once" || bad "lost state (sent=$(sent))"
+
+echo "== cron wrapper: failed sends are not recorded as delivered =="
+cat > "$T/notify-fail-stub.sh" <<'NEOF'
+notify_pushover_mismatch() { echo "ATTEMPT $PUSHOVER_TITLE" >> "$NOTIFY_LOG"; [ -z "${NOTIFY_FAIL:-}" ]; }
+NEOF
+: > "$NOTIFY_LOG"; rm -f "$PARITY_STATE_FILE"
+wrapf() { # wrapf <now> <rc> <finding lines...> — failing/ok notify stub per NOTIFY_FAIL
+  local now="$1" rc="$2"; shift 2
+  printf '%s\n' "chatter $now" "$@" > "$STUB_OUT"; echo "$rc" > "$STUB_RC"
+  OUT="$(PARITY_NOTIFY_LIB="$T/notify-fail-stub.sh" PARITY_NOW="$now" bash "$CRON" 2>&1)"; RC=$?
+}
+attempts() { grep -c ATTEMPT "$NOTIFY_LOG" || true; }
+NOTIFY_FAIL=1 wrapf 5000000 1 "STALE a"
+check "failed send still passes the exit code through" 1 "$RC"
+[ ! -e "$PARITY_STATE_FILE" ] && ok "failed send writes no state" || bad "failed send wrote state: $(cat "$PARITY_STATE_FILE")"
+has "failed send is reported" 'ERROR: .*(notif|send)'
+wrapf 5000100 1 "STALE a"
+[ "$(attempts)" = 2 ] && ok "next run retries after a failed send" || bad "no retry (attempts=$(attempts))"
+[ -e "$PARITY_STATE_FILE" ] && ok "successful retry records state" || bad "retry wrote no state"
+wrapf 5000200 1 "STALE a"
+[ "$(attempts)" = 2 ] && ok "after a delivered send, same fingerprint is silent" || bad "re-notified (attempts=$(attempts))"
+# failed send for a CHANGED fingerprint keeps the old state (so the change is retried)
+BEFORE="$(cat "$PARITY_STATE_FILE")"
+NOTIFY_FAIL=1 wrapf 5000300 1 "STALE b"
+[ "$(cat "$PARITY_STATE_FILE")" = "$BEFORE" ] && ok "failed send of a changed fingerprint leaves state unchanged" || bad "state changed on failed send"
+wrapf 5000400 1 "STALE b"
+[ "$(attempts)" = 4 ] && ok "changed fingerprint retried on next run" || bad "changed fp not retried (attempts=$(attempts))"
+
+echo "== cron wrapper: missing Pushover credentials = failed send =="
+rm -f "$PARITY_STATE_FILE"
+printf 'chatter\nSTALE a\n' > "$STUB_OUT"; echo 1 > "$STUB_RC"
+OUT="$(env -u PUSHOVER_APP_TOKEN -u PUSHOVER_USER_KEY -u PUSHOVER_TOKEN -u PUSHOVER_USER \
+  PARITY_NOTIFY_LIB="${SCRIPT_DIR}/lib/pushover-notify.sh" PARITY_NOW=6000000 bash "$CRON" 2>&1)"; RC=$?
+check "missing creds still passes the exit code through" 1 "$RC"
+has "missing creds is an ERROR line" 'ERROR: .*credentials'
+[ ! -e "$PARITY_STATE_FILE" ] && ok "missing creds writes no state" || bad "missing creds wrote state"
+
+echo "== layer 3: git warnings on stderr are not paths =="
+cat > "$STUB/bin/git" <<'GEOF'
+#!/usr/bin/env bash
+[ -n "${GIT_WARN:-}" ] && echo "warning: LF will be replaced by CRLF" >&2
+exec "${REAL_GIT:?}" "$@"
+GEOF
+chmod +x "$STUB/bin/git"
+REAL_GIT="$(command -v git)"; export REAL_GIT
+run GIT_WARN=1 PARITY_LAYERS=tree
+check "git stderr warning on a successful command" 0 "$RC"
+hasnt "no TREE warning finding" '^TREE warning'
+cat > "$STUB/bin/git" <<'GEOF'
+#!/usr/bin/env bash
+case "$*" in *"status --porcelain"*) echo "fatal: boom" >&2; exit 128 ;; esac
+exec "${REAL_GIT:?}" "$@"
+GEOF
+run PARITY_LAYERS=tree
+check "a failing git status in the tree layer exits 2" 2 "$RC"
+has "git's error is shown" 'fatal: boom'
+rm -f "$STUB/bin/git"
 
 echo
 echo "check-deploy-parity harness: ${PASS} passed, ${FAIL} failed"

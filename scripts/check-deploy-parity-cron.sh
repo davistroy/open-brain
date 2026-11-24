@@ -66,28 +66,38 @@ elif [ -n "$PREV_RC" ] && [ "$PREV_RC" != "0" ]; then
 fi
 
 SUMMARY="$(printf '%s\n' "$FINDINGS" | head -8 | tr '\n' ';')"
+# send <title> <priority> <message>: 0 only if the notification was actually delivered.
+# pushover-notify.sh returns 0 on missing credentials (its contract for other callers),
+# so the wrapper checks them itself — a silent skip must not look like a delivery.
+send() {
+  if [ -z "${PUSHOVER_APP_TOKEN:-${PUSHOVER_TOKEN:-}}" ] || [ -z "${PUSHOVER_USER_KEY:-${PUSHOVER_USER:-}}" ]; then
+    echo "ERROR: Pushover credentials missing - parity alert NOT delivered; will retry next run" >&2
+    return 1
+  fi
+  PUSHOVER_TITLE="$1" PUSHOVER_PRIORITY="$2" notify_pushover_mismatch "$3"
+}
+# State advances only on a delivered send, so a failed one is retried next run
+# instead of going silent for RENOTIFY_SECS.
+STATE_SHA="$SHA" STATE_RC="$RC"
 if [ "$NOTIFY" = 1 ]; then
   case "$RC" in
-    0)
-      PUSHOVER_TITLE="Open Brain: compose parity restored" PUSHOVER_PRIORITY=0 \
-        notify_pushover_mismatch "Deploy parity check is clean again (all layers)." || true
-      ;;
-    1)
-      PUSHOVER_TITLE="Open Brain: deploy DRIFT" PUSHOVER_PRIORITY=1 \
-        notify_pushover_mismatch "Production is NOT running main (#302). Findings: ${SUMMARY} See /var/log/open-brain-parity.log." || true
-      ;;
-    *)
-      PUSHOVER_TITLE="Open Brain: deploy parity check could NOT run" PUSHOVER_PRIORITY=1 \
-        notify_pushover_mismatch "check-deploy-parity.sh exited ${RC} - a layer could not compare. Do NOT assume parity. ${SUMMARY}" || true
-      ;;
+    0) send "Open Brain: compose parity restored" 0 "Deploy parity check is clean again (all layers)." ;;
+    1) send "Open Brain: deploy DRIFT" 1 "Production is NOT running main (#302). Findings: ${SUMMARY} See /var/log/open-brain-parity.log." ;;
+    *) send "Open Brain: deploy parity check could NOT run" 1 "check-deploy-parity.sh exited ${RC} - a layer could not compare. Do NOT assume parity. ${SUMMARY}" ;;
   esac
-  echo "  notified (rc=${RC})."
-  STATE_T="$NOW"
+  SEND_RC=$?
+  if [ "$SEND_RC" -eq 0 ]; then
+    echo "  notified (rc=${RC})."
+    STATE_T="$NOW"
+  else
+    echo "ERROR: parity notification failed (rc=${RC}); state left unchanged so the next run retries." >&2
+    exit "$RC"
+  fi
 else
   echo "  no notification (rc=${RC}, fingerprint unchanged or parity steady)."
   STATE_T="${PREV_T:-$NOW}"
 fi
-if ! printf '%s %s %s\n' "$SHA" "$RC" "$STATE_T" > "$STATE_FILE" 2>/dev/null; then
+if ! printf '%s %s %s\n' "$STATE_SHA" "$STATE_RC" "$STATE_T" > "$STATE_FILE" 2>/dev/null; then
   echo "WARN: cannot write ${STATE_FILE}; the next run will notify again" >&2
 fi
 

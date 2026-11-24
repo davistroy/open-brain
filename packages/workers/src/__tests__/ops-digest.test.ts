@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import type { MockInstance } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
@@ -9,6 +10,8 @@ import { PushoverService } from '../services/pushover.js'
 import type { SlackMessenger } from '@open-brain/shared'
 import { alertStateKey, type AlertState } from '../lib/alert-state.js'
 import { buildOpsDigest, OpsDigestSkill, DIGEST_INFO_SOURCES, PUSH_CAP } from '../skills/ops-digest.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 const NOW = new Date('2026-11-23T12:30:00Z')
 

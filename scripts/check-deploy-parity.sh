@@ -215,7 +215,7 @@ layer_hash() {
 
 # ── Layer 3: working tree vs REF, minus the host-only allowlist ────────────────
 layer_tree() {
-  local allow_tmp paths err
+  local allow_tmp paths gerr
   allow_tmp="$(mktemp)"
   if ! g show "${REF}:deploy/host-only-allowlist.txt" > "$allow_tmp" 2>/dev/null; then
     if ! cp "${REPO_DIR}/deploy/host-only-allowlist.txt" "$allow_tmp" 2>/dev/null; then
@@ -223,11 +223,13 @@ layer_tree() {
       echo "ERROR: deploy/host-only-allowlist.txt is on neither ${REF} nor the working tree" >&2; cannot; return
     fi
   fi
+  gerr="$(mktemp)"
   if ! paths="$( { g diff --name-only "$REF" -- config scripts packages/shared/drizzle || exit 1
-                   g status --porcelain || exit 1; } 2>&1 )"; then
-    rm -f "$allow_tmp"
-    echo "ERROR: git diff/status failed: ${paths}" >&2; cannot; return
+                   g status --porcelain || exit 1; } 2>"$gerr" )"; then
+    echo "ERROR: git diff/status failed: $(cat "$gerr")" >&2
+    rm -f "$allow_tmp" "$gerr"; cannot; return
   fi
+  rm -f "$gerr"
   # diff lines are bare paths; status lines are "XY path" (rename: "a -> b").
   paths="$(printf '%s\n' "$paths" | awk '
     /^(.[A-Z? !]|[A-Z?!][A-Z ]) / { sub(/^.. /, ""); sub(/.* -> /, "") }

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { resetAlertStateMirror } from '../lib/alert-state.js'
 import type { Mock } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
@@ -9,6 +10,8 @@ import type { QueueHandle, QueueFactory } from '../skills/pipeline-health.js'
 import { PushoverService } from '../services/pushover.js'
 import { pushMetrics } from '../lib/push-metrics.js'
 import type { MetricLine } from '../lib/push-metrics.js'
+
+beforeEach(() => resetAlertStateMirror())
 
 // Mock pushMetrics to prevent real HTTP calls to Pushgateway during tests
 vi.mock('../lib/push-metrics.js', () => ({

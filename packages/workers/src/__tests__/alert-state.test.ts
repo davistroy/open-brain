@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import {
@@ -9,6 +9,7 @@ import {
   alertStateKey,
   describeAlertKey,
   raiseAlert,
+  resetAlertStateMirror,
   alertStateEnabled,
   legacyPushEnabled,
   type AlertState,
@@ -21,6 +22,8 @@ import { BaseSkill } from '../skills/base-skill.js'
 import type { BaseSkillOpts } from '../skills/types.js'
 
 const NOW = new Date('2026-11-23T12:00:00Z')
+
+beforeEach(() => resetAlertStateMirror())
 
 const badState: AlertState = {
   status: 'bad',
@@ -308,6 +311,35 @@ describe('raiseAlert', () => {
     const db = { execute: vi.fn().mockRejectedValue(new Error('db down')) }
     const { svc, send } = makePushover()
     const res = await raiseAlert({ db: db as never, pushover: svc, now: NOW }, { ...ALERT, bad: false })
+    expect(res).toEqual({ action: 'none', sent: false })
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('in-process mirror: with the database down on every call, one notify, then silence, then "Resolved"', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined)
+    const db = { execute: vi.fn().mockRejectedValue(new Error('db down')) }
+    const { svc, send } = makePushover()
+    const deps = { db: db as never, pushover: svc, now: NOW }
+    const first = await raiseAlert(deps, { ...ALERT, bad: true })
+    expect(first).toEqual({ action: 'notify', sent: true })
+    const second = await raiseAlert(deps, { ...ALERT, bad: true })
+    expect(second).toEqual({ action: 'none', sent: false })
+    expect(send).toHaveBeenCalledTimes(1)
+    const third = await raiseAlert(deps, { ...ALERT, bad: false })
+    expect(third).toEqual({ action: 'resolve', sent: true })
+    expect(send).toHaveBeenCalledTimes(2)
+    expect((send.mock.calls[1][0] as { title: string }).title).toMatch(/^Resolved:/)
+    const fourth = await raiseAlert(deps, { ...ALERT, bad: false })
+    expect(fourth.action).toBe('none')
+  })
+
+  it('in-process mirror: a successful read refreshes it, so a later outage uses the last known state', async () => {
+    vi.spyOn(logger, 'warn').mockImplementation(() => undefined)
+    const { svc, send } = makePushover()
+    const up = { execute: vi.fn().mockResolvedValue({ rows: [{ value: badState }] }) }
+    await raiseAlert({ db: up as never, pushover: svc, now: NOW }, { ...ALERT, bad: true })
+    const down = { execute: vi.fn().mockRejectedValue(new Error('db down')) }
+    const res = await raiseAlert({ db: down as never, pushover: svc, now: NOW }, { ...ALERT, bad: true })
     expect(res).toEqual({ action: 'none', sent: false })
     expect(send).not.toHaveBeenCalled()
   })
