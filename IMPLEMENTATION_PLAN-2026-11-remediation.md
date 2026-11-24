@@ -941,8 +941,8 @@ Unknown U3 (whether a musl build of `bws` 1.0.0 exists) is answered by task 2; t
 
 ### Work Items
 
-#### 4.1 Drift check that runs as root and covers four layers
-**Status: PENDING**
+#### 4.1 Drift check that runs as root and covers four layers ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-09, PLT-022, PLT-006, PLT-013, OA-27
 **Files Affected:**

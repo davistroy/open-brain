@@ -1,0 +1,13 @@
+# Host-only paths: files that exist only on the Unraid host and are NOT in git.
+# scripts/check-deploy-parity.sh (layer 3, "tree") ignores exactly these when it
+# compares the host working tree against origin/main. One repo-relative path per line;
+# a directory entry covers everything below it. '#' starts a comment.
+# Keep this SHORT: every entry is a place the host knowingly differs from main.
+# Never add a path to silence a finding — commit the file or delete it instead.
+docker-compose.override.yml
+.env
+.env.secrets
+.env.secrets.sha256
+config/payee-rules.yaml
+config/utility/utility-config.yaml
+DEPLOYED.json

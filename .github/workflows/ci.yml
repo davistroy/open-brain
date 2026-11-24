@@ -73,6 +73,9 @@ jobs:
       - name: Pushover encoding guard
         run: bash scripts/test-pushover-encoding.sh
 
+      - name: Deploy parity harness
+        run: bash scripts/test-check-deploy-parity.sh
+
   email-worker-test:
     name: email-worker tests (Cloudflare Worker)
     runs-on: ubuntu-latest
