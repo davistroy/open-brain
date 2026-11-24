@@ -1051,8 +1051,8 @@ The base change alters the rendered config of `postgres` and `redis`, so the dri
 
 ---
 
-#### 4.4 Host bindings fail closed
-**Status: PENDING**
+#### 4.4 Host bindings fail closed ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** SA7-17, PLT-014
 **Depends On:** 4.3

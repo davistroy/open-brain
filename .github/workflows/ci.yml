@@ -236,6 +236,8 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Render prod compose with no secrets present
+        env:
+          TAILSCALE_IP: 100.64.0.1   # required (item 4.4) — an address, not a secret
         run: |
           : > .env          # empty — nothing to interpolate from (the DR condition)
           : > .env.secrets  # placeholder so `env_file:` resolves
@@ -262,6 +264,23 @@ jobs:
         run: |
           test ! -e docker-compose.override.yml
           bash scripts/test-compose-data-binds.sh
+
+      - name: Host bindings fail closed (binds + required TAILSCALE_IP)
+        # Item 4.4 (SA7-17/PLT-014): every bind has create_host_path false (a missing host
+        # path refuses to start instead of mounting an empty directory), and an empty
+        # TAILSCALE_IP fails the render naming the variable. Renders are never printed.
+        env:
+          TAILSCALE_IP: 100.64.0.1
+        run: |
+          : > .env.secrets
+          docker compose -f docker-compose.yml config --format json \
+            | jq -e 'all(.services[].volumes[]?; .type != "bind" or .bind.create_host_path == false)' >/dev/null \
+            || { echo "FAIL: a bind mount still creates a missing host path"; exit 1; }
+          if TAILSCALE_IP= docker compose -f docker-compose.yml config -q 2>err.txt; then
+            echo "FAIL: render succeeded with an empty TAILSCALE_IP"; exit 1
+          fi
+          grep -q TAILSCALE_IP err.txt || { echo "FAIL: the error does not name TAILSCALE_IP"; cat err.txt; exit 1; }
+          bash scripts/test-compose-host-binds.sh
 
   python-lint:
     name: Python lint & typecheck

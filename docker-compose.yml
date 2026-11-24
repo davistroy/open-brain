@@ -178,11 +178,18 @@ services:
       # VOICE_CAPTURE_SECRET: set in .env.secrets (INT-M5 — forwarded as Bearer to voice-capture by the /api/v1/voice-captures proxy)
     ports:
       # Dual-bind (ADR-0002): loopback for host + Tailscale IP for OpenClaw MCP
-      # (bond.k4jda.net → 100.101.61.122:3002/mcp). NOT 0.0.0.0 — closes the LAN.
+      # (bond.k4jda.net → $TAILSCALE_IP:3002/mcp). NOT 0.0.0.0 — closes the LAN.
+      # TAILSCALE_IP is REQUIRED (item 4.4): no fallback, a host without it fails at the
+      # first compose command instead of binding a stale address. Set it in .env.
       - "127.0.0.1:3002:3000"
-      - "${TAILSCALE_IP:-100.101.61.122}:3002:3000"
+      - "${TAILSCALE_IP:?set TAILSCALE_IP in .env}:3002:3000"
     volumes:
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
       - admin_prewipe_backup:/backup/pre-wipe
     depends_on:
       postgres:
@@ -276,8 +283,18 @@ services:
       # Fail closed: an unreadable manifest is reported as a stale backup.
       BACKUP_MANIFEST_REQUIRED: "true"
     volumes:
-      - ./config:/app/config:ro
-      - ./OPERATOR_ACTIONS.md:/app/OPERATOR_ACTIONS.md:ro  # RC-19 dated register for secret-rotation reminders
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind  # RC-19 dated register for secret-rotation reminders
+        source: ./OPERATOR_ACTIONS.md
+        target: /app/OPERATOR_ACTIONS.md
+        read_only: true
+        bind:
+          create_host_path: false
       # Mount the backup PARENT directory at its own absolute path. A bind of the
       # `latest` symlink freezes on the backup of the day the container started
       # (Docker resolves it once); the parent mount lets the absolute symlink target
@@ -330,7 +347,12 @@ services:
       # SLACK_APP_TOKEN: set in .env.secrets   (xapp-...)
       # OPENAI_API_KEY: set in .env.secrets
     volumes:
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -378,7 +400,12 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - ${STAGING_DIR:-/mnt/user/openbrain/staging}:/data/staging:ro
+      - type: bind
+        source: ${STAGING_DIR:-/mnt/user/openbrain/staging}
+        target: /data/staging
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -415,7 +442,12 @@ services:
       # The old whisper_model_cache (/root/.cache) is intentionally NOT reused -> ~3 GB
       # re-download of large-v3 on first boot; the old volume is retained for rollback.
       - hf_hub_cache:/home/ubuntu/.cache/huggingface/hub
-      - ./config/whisper/model_aliases.json:/home/ubuntu/speaches/model_aliases.json:ro
+      - type: bind
+        source: ./config/whisper/model_aliases.json
+        target: /home/ubuntu/speaches/model_aliases.json
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       # speaches' own known-good check (its image ships curl); 127.0.0.1 per house rule.
       test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
@@ -456,7 +488,12 @@ services:
     volumes:
       # SE-13: brain-views.yaml is read for brain_view validation (lightweight,
       # like slack-bot). Read-only — voice-capture never writes config.
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
       # INT-M4: durable spool for dead-lettered transcripts (survives restart).
       - voice_spool_data:/data/voice-spool
     depends_on:
@@ -533,7 +570,12 @@ services:
       # open-brain-cloudflare-tunnel-token -> TUNNEL_TOKEN); nothing else reads it.
       - .env.secrets
     volumes:
-      - ./config/cloudflare/tunnel.yaml:/etc/cloudflared/tunnel.yaml:ro
+      - type: bind
+        source: ./config/cloudflare/tunnel.yaml
+        target: /etc/cloudflared/tunnel.yaml
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -572,11 +614,20 @@ services:
     volumes:
       # Host inbox — drop CSVs here and they'll be processed on next cron run.
       # Matches backup-path convention under /mnt/user/appdata on Unraid host.
-      - /mnt/user/appdata/open-brain/financial-inbox:/inbox
+      - type: bind
+        source: /mnt/user/appdata/open-brain/financial-inbox
+        target: /inbox
+        bind:
+          create_host_path: false
       # SQLite DB + any future sidecar state
       - financial_ingest_data:/data
       # Config (plaid-config.yaml, merchants.yaml) read-only
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -608,9 +659,18 @@ services:
       CAPTURE_API_CALLER: utility-pipeline
       TZ: America/New_York
     volumes:
-      - /mnt/user/appdata/open-brain/utility-inbox:/inbox
+      - type: bind
+        source: /mnt/user/appdata/open-brain/utility-inbox
+        target: /inbox
+        bind:
+          create_host_path: false
       - utility_ingest_data:/data
-      - ./config:/app/config:ro
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       core-api:
         condition: service_healthy
@@ -647,7 +707,12 @@ services:
       TZ: America/New_York
     volumes:
       - actual_ingest_data:/data
-      - ./config:/app/config:ro   # host-only config/payee-rules.yaml, read-only
+      - type: bind  # host-only config/payee-rules.yaml, read-only
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       open-brain: {}
       # STATIC IP (D142) — a LITERAL in tracked compose, deliberately: br0 declares
