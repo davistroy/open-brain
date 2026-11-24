@@ -21,9 +21,10 @@ networks:
     external: true
     name: br0
 
+# Postgres and Redis data are NOT named volumes: they are long-syntax binds on the
+# services below (item 4.3). Never re-add postgres_data / redis_data here — a named
+# volume is an empty database on a rebuilt host that still passes its healthcheck.
 volumes:
-  postgres_data:
-  redis_data:
   whisper_model_cache:  # #301: retained for rollback to the pre-speaches image
   hf_hub_cache:         # #301: speaches HF hub cache at /home/ubuntu/.cache/huggingface/hub
   financial_ingest_data:
@@ -74,8 +75,23 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./config/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+      # The live data directory, bound fail-closed (item 4.3; ADR-0004 landmine). Long
+      # syntax with create_host_path:false: a missing source makes Docker refuse to
+      # start instead of creating an empty directory that initdb would fill with a
+      # fresh, empty database. Short syntax turns create_host_path back on — never use
+      # it here or in an override. Default = the homeserver's live path;
+      # OPENBRAIN_DATA_DIR moves it (see .env.example,
+      # deploy/docker-compose.override.yml.template). CI: scripts/test-compose-data-binds.sh.
+      - type: bind
+        source: ${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/pgdata
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config/postgres/postgresql.conf
+        target: /etc/postgresql/postgresql.conf
+        bind:
+          create_host_path: false
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openbrain -d openbrain"]
@@ -99,7 +115,12 @@ services:
     ports:
       - "127.0.0.1:6380:6379"
     volumes:
-      - redis_data:/data
+      # Live AOF/RDB directory, bound fail-closed like postgres above (item 4.3).
+      - type: bind
+        source: ${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/redis-data
+        target: /data
+        bind:
+          create_host_path: false
     env_file:
       - .env.secrets
     # requirepass (SEC-08) + bounded memory with noeviction (PE-M3): BullMQ enqueue

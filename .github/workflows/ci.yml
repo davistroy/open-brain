@@ -251,6 +251,18 @@ jobs:
           fi
           echo "OK: prod compose renders + zero blank-string interpolation — a rebuilt host boots from .env.secrets alone."
 
+      - name: Postgres and Redis data render as fail-closed binds (no override)
+        # Item 4.3 (PLT-001/DA7-05/SA7-04): the data-directory pin lives in the BASE
+        # compose, not only in the host's gitignored override (ADR-0004 landmine). Fails
+        # when either data mount becomes a named volume or short syntax (create_host_path
+        # back on), leaves the live host path, or when the tracked override template
+        # drifts. Renders with no override file present; never prints a render.
+        env:
+          TAILSCALE_IP: 100.64.0.1
+        run: |
+          test ! -e docker-compose.override.yml
+          bash scripts/test-compose-data-binds.sh
+
   python-lint:
     name: Python lint & typecheck
     runs-on: ubuntu-latest

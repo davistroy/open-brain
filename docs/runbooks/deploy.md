@@ -38,7 +38,7 @@
 
 These apply to every procedure in this runbook, not just the sections that call them out explicitly:
 
-1. **Never overwrite or delete `docker-compose.override.yml`.** It is host-only, gitignored, **production state** — it pins postgres/redis to their live raw-bind data directories (`/mnt/user/appdata/open-brain/pgdata`, `/mnt/user/appdata/open-brain/redis-data`, ADR-0004) plus the core-api host port (D131). A `cat > ... <<EOF` or `rm` against this file drops those pins; the next `up` that recreates postgres/redis would attach them to the base compose file's **empty named volumes** instead of the live data. (This runbook's own §5 did exactly that until 2026-07-12 — see LAB_NOTEBOOK Entry 182/183, PLT-C1/A134.)
+1. **Never overwrite or delete `docker-compose.override.yml`** except as items 8.2/8.3 of the 2026-11 remediation plan direct. It is host-only, gitignored, **production state** — it pins postgres/redis to their live raw-bind data directories (`/mnt/user/appdata/open-brain/pgdata`, `/mnt/user/appdata/open-brain/redis-data`, ADR-0004) in short syntax; it holds no core-api port (removed 2026-07-17, Entry 239). Until the host runs a `docker-compose.yml` from `main` at or after item 4.3, the host's base file still declares **empty named volumes**, so a `cat > ... <<EOF` or `rm` against the override would attach postgres/redis to them on the next recreate. (This runbook's own §5 did exactly that until 2026-07-12 — see LAB_NOTEBOOK Entry 182/183, PLT-C1/A134.) From item 4.3 on, `main` binds the same paths itself, fail-closed (`create_host_path: false`); the override's short syntax turns `create_host_path` back on, so each entry is removed — after a backup copy, immediately before its service's planned recreate (postgres in 8.2, redis in 8.3) — and the file is then deleted. Template and rules: `deploy/docker-compose.override.yml.template`.
 2. **Never run `docker compose up -d` with no service list.** Always name the services you intend to touch.
 3. **Never pass `--remove-orphans`.** It removes any container this compose render doesn't currently declare, including infrastructure this repo doesn't own.
 4. **Always pair `--force-recreate` with `--no-deps`** for a targeted service restart — `--no-deps` is what keeps postgres/redis (and, by extension, the external observability network membership) untouched.
@@ -439,16 +439,18 @@ creates it); this only matters when standing up a fresh host.
 
 - `.env.secrets` is **root-owned** (chmod 600). All `docker compose` commands run as root.
 - Deploy path: `/mnt/user/appdata/open-brain/`
-- **The live database is NOT on the `postgres_data` named volume declared in `docker-compose.yml`.**
-  Since ADR-0004, postgres and redis run on **raw bind mounts** —
-  `/mnt/user/appdata/open-brain/pgdata:/var/lib/postgresql/data` and
-  `/mnt/user/appdata/open-brain/redis-data:/data` — pinned in the host-only, gitignored
-  `docker-compose.override.yml`. The named volumes in the base compose file exist only so the
-  repo stays portable for other deployments; on THIS host they're dead weight, not where the data
-  lives. **Never delete or truncate the override file** (safety rule 1) — doing so drops back to
-  the named-volume declaration, and the next `up` that recreates postgres/redis would attach to an
-  **empty** volume (the bind-mounted data on disk is untouched, just detached). Never recreate
-  postgres/redis with a bare, no-service-list `up -d` either (safety rule 2). See
+- **The live database is on raw bind mounts, not named volumes.** Since ADR-0004, postgres and
+  redis run on `/mnt/user/appdata/open-brain/pgdata:/var/lib/postgresql/data` and
+  `/mnt/user/appdata/open-brain/redis-data:/data`. Since remediation item 4.3, `main`'s
+  `docker-compose.yml` declares exactly these binds itself
+  (`${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/{pgdata,redis-data}`, long syntax,
+  `create_host_path: false`): a missing data directory makes Docker refuse to start the
+  service instead of creating an empty one. Before item 4.3 the base file declared named
+  volumes and only the host-only `docker-compose.override.yml` kept the data attached — and the
+  host tree keeps that older base file until item 5.5, so the override stays in place until items
+  8.2/8.3 remove its entries (safety rule 1). CI (`scripts/test-compose-data-binds.sh`, job
+  `validate-compose-dr`) fails any change back to a named volume or short syntax. Never recreate
+  postgres/redis with a bare, no-service-list `up -d` (safety rule 2). See
   `docs/adr/ADR-0004-observability-repoint.md` for the full history and
   `docs/runbooks/restore-rehearsal.md` for DR recovery.
 - Cron entries on Unraid persist in `/boot/config/plugins/dynamix/custom.cron` (not

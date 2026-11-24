@@ -1,0 +1,61 @@
+# deploy/docker-compose.override.yml.template — host override for the Postgres and
+# Redis DATA directories ONLY (remediation item 4.3; ADR-0004).
+#
+# NORMALLY NOT NEEDED. Since item 4.3 the base docker-compose.yml binds both data
+# directories itself, fail-closed:
+#     ${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/pgdata     -> /var/lib/postgresql/data
+#     ${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/redis-data -> /data
+# A host whose data lives under one parent directory with those two leaf names sets
+# OPENBRAIN_DATA_DIR in .env (or uses the default) and needs NO override file.
+#
+# A host needs this override only when OPENBRAIN_DATA_DIR cannot express its data
+# path: the two directories sit under different parents or carry other names. Then:
+#   1. cp deploy/docker-compose.override.yml.template docker-compose.override.yml
+#   2. Replace both /CHANGE_ME/... sources with the real absolute paths. An unedited
+#      copy fails closed: Docker refuses to start a container whose bind source is
+#      missing (create_host_path: false), so nothing starts on an empty directory.
+#   3. Render gate before any `up` (prints volume fields only — never print or save a
+#      full render, it inlines .env.secrets values):
+#        docker compose config --format json \
+#          | jq -c '[.services.postgres.volumes[], .services.redis.volumes[]]
+#                   | map({type, source, target, chp: .bind.create_host_path})'
+#      Every entry must show "type":"bind" and "chp":false, with the real sources.
+#
+# Rules for this file:
+#   - LONG syntax only, with bind.create_host_path: false. A short-syntax entry
+#     (`- /path:/var/lib/postgresql/data`) replaces the base bind for the same target
+#     and turns create_host_path back ON: a missing source becomes a fresh, empty
+#     directory and Postgres initializes an empty database that passes its healthcheck.
+#   - Compose merges service `volumes:` by container target (an entry here REPLACES the
+#     base entry for that target), but merges `ports:` by APPEND. Never put `ports:`
+#     here (Entry 239: an override port stacked on the base binds → EADDRINUSE and a
+#     LAN-exposed core-api).
+#   - Data binds only. Nothing else belongs in a host override; anything host-specific
+#     that is not a secret goes in .env, and secrets go in .env.secrets.
+#   - Never delete or rewrite a live override without a backup copy; an empty override
+#     file can fail the render — delete the file instead of emptying it.
+#   - scripts/test-compose-data-binds.sh renders base + this template in CI and fails if
+#     it drifts to short syntax, appends instead of replacing, or touches anything else.
+#
+# Homeserver transition (2026-11): the live host override still carries the ADR-0004
+# SHORT-syntax entries for these two targets. Keep them until the host runs a compose
+# file from main at or after item 4.3 (item 5.5) — the host's older compose still
+# declares named volumes, and the override is what keeps the live data attached. Then
+# remove the postgres entry immediately before the Postgres recreate (item 8.2), the
+# redis entry immediately before the Redis recreate (item 8.3), and delete the file
+# once it holds no entry. The base binds render the same live paths by default.
+services:
+  postgres:
+    volumes:
+      - type: bind
+        source: /CHANGE_ME/open-brain/pgdata
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+  redis:
+    volumes:
+      - type: bind
+        source: /CHANGE_ME/open-brain/redis-data
+        target: /data
+        bind:
+          create_host_path: false

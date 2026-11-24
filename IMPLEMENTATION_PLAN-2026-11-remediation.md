@@ -1018,8 +1018,8 @@ The container path equals the host path so that the absolute symlink target reso
 
 ---
 
-#### 4.3 Track the database volume pin
-**Status: PENDING**
+#### 4.3 Track the database volume pin ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24**
 **Model Tier: opus**
 **Requirement Refs:** PLT-001, DA7-05, SA7-04
 **Depends On:** 4.2

@@ -82,9 +82,11 @@ g() { git -C "$REPO_DIR" -c safe.directory="$REPO_DIR" "$@"; }
 #         while the host runs a single "3002:3000", re-applied by `sed` after every
 #         `git checkout origin/main -- docker-compose.yml` (Entry 179).
 #
-# NOTE: postgres/redis raw-bind volumes are NOT a deviation of this file — they live in
-# the host's gitignored docker-compose.override.yml (ADR-0004), which this check does
-# not read. That is correct: the override is host-specific by design.
+# NOTE: postgres/redis data binds are NOT a deviation of this file. Since item 4.3 main
+# binds them itself (${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/{pgdata,redis-data},
+# create_host_path:false). The host's gitignored docker-compose.override.yml still pins
+# the same paths in short syntax until items 8.2/8.3 remove each entry; layer 1 does
+# not read the override, and layer 2 sees its effect through the rendered config hash.
 ALLOW_RE='^[<>][[:space:]]*-[[:space:]]*"(127\.0\.0\.1:3002:3000|\$\{TAILSCALE_IP:-[0-9.]+\}:3002:3000|\$\{TAILSCALE_IP:\?[^}]*\}:3002:3000|3002:3000)"'
 
 command -v git >/dev/null || die "git not found"

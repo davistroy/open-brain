@@ -68,3 +68,15 @@ Four coupled sub-decisions:
 **Verification:** config-diff shows only the intended delta; `docker compose config -q` exits 0; postgres/redis render as binds; `docker inspect` shows core-api + workers on both `open-brain_open-brain` and `observability`; Prometheus `open-brain-core-api` target UP; `WorkersMetricsAbsent` inactive after the next ~15-min push; Loki still receiving `{compose_project="open-brain"}`; postgres/redis **row counts unchanged** across the deploy.
 
 **Rollback:** CS-B — revert the PR (compose-only, no code/image change). CS-C — restore the backed-up appdata `docker-compose.yml` + `docker-compose.override.yml` and `up -d --force-recreate --no-deps core-api workers`. Because postgres/redis are never recreated, their data is never at risk; the config-diff gate makes the deploy abortable before any container is touched.
+
+---
+
+## Amendment (2026-11-24) — the data binds move into `main` (remediation item 4.3)
+
+Decision point 2 is **superseded in part**. Four dormant months showed that a pin held only in a gitignored host file is a pin a rebuilt host does not have: without the override, every render of `main` started Postgres and Redis on empty named volumes. Since item 4.3 (arch-review v7 findings PLT-001, DA7-05, SA7-04), `main`'s `docker-compose.yml` binds both data directories itself, in long syntax with `bind.create_host_path: false`, at `${OPENBRAIN_DATA_DIR:-/mnt/user/appdata/open-brain}/pgdata` and `.../redis-data`. The named volumes `postgres_data` and `redis_data` are gone.
+
+- **Why the earlier objection no longer holds.** Alternative 1 was rejected for hard-coding a host path and for still rendering `Type=volume`. The amendment renders `Type=bind` (matching the running containers), and the path is a variable whose default is the homeserver's path; another host sets `OPENBRAIN_DATA_DIR` or uses `deploy/docker-compose.override.yml.template`.
+- **Fail-closed, not merely pinned.** A missing source makes Docker refuse to start the container. The short-syntax override of this ADR turns `create_host_path` back on, so items 8.2 and 8.3 remove each override entry immediately before the planned recreate of its service, and then delete the file.
+- **Enforced.** CI job `validate-compose-dr` runs `scripts/test-compose-data-binds.sh`, which fails on a named volume, on short syntax, on a moved default path, or on a template that appends instead of replacing.
+
+The merge-semantics risk above was confirmed on Compose v5.5.1: an override entry replaces the base entry for the same target.
