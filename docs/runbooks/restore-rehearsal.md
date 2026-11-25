@@ -176,6 +176,8 @@ Each step is one command. Run them in order, as root, from the app directory.
    `bash scripts/verify-secrets.sh --target-dir /mnt/user/appdata/open-brain --quiet`.
    The load writes the exported token into the new file as its one `BWS_ACCESS_TOKEN=` line
    (the sidecars need it); `--no-persist-bootstrap` leaves it out. The token never prints.
+   A `BWS_ACCESS_TOKEN=` line already in `.env.secrets` wins over the exported token, even
+   with `--force`; to rotate the token, edit that line in the file (or delete it and re-run).
    If `bws` is missing on the host, run the same load on a machine that has `bws` with a
    scratch `--target-dir`, then copy the file over with
    `scp <dir>/.env.secrets root@homeserver.k4jda.net:/mnt/user/appdata/open-brain/`.

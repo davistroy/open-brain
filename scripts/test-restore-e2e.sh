@@ -22,7 +22,7 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${E2E_PG_IMAGE:-pgvector/pgvector:pg16}"
-DB_CONTAINER="open-brain-postgres"            # backup.sh DB_CONTAINER (hard-coded there)
+DB_CONTAINER="open-brain-postgres"            # backup.sh DB_CONTAINER default (passed explicitly below)
 REHEARSAL_CONTAINER="open-brain-rehearsal-e2e-pg"
 PG_PASSWORD="e2e-throwaway"
 SHARED_BUFFERS="${E2E_SHARED_BUFFERS:-256MB}"
@@ -38,6 +38,13 @@ for c in "$DB_CONTAINER" "$REHEARSAL_CONTAINER"; do
     exit 2
   fi
 done
+# backup.sh execs into open-brain-redis, -core-api, -workers and the sidecars BY NAME; on a box
+# that runs any of them this test would touch a container it did not create.
+existing="$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep '^open-brain-' || true)"
+if [[ -n "$existing" ]]; then
+  echo "REFUSED: open-brain-* containers exist here (${existing//$'\n'/ }); run this test on a box without them." >&2
+  exit 2
+fi
 
 SCRATCH="$(mktemp -d)"
 CREATED_DB=0
@@ -123,15 +130,21 @@ mkdir -p "$BACKUP_ROOT"
 # BACKUP_LOCK_FILE: backup.sh takes a flock; /var/lock is not writable by a CI user.
 # CUSTOM_CRON_SRC: point at a missing file (warn-and-continue) instead of the host's.
 # Redis/wiki/sidecar containers do not exist here; those legs warn and continue.
-BACKUP_ROOT="$BACKUP_ROOT" APP_DIR="$REPO_ROOT" \
+BACKUP_ROOT="$BACKUP_ROOT" APP_DIR="$REPO_ROOT" DB_CONTAINER="$DB_CONTAINER" \
   BACKUP_LOCK_FILE="${SCRATCH}/backup.lock" \
   CUSTOM_CRON_SRC="${SCRATCH}/no-custom.cron" \
   REDIS_WAIT_SECS=2 \
-  bash "${REPO_ROOT}/scripts/backup.sh" || die "scripts/backup.sh failed (exit $?)"
+  bash "${REPO_ROOT}/scripts/backup.sh" > "${SCRATCH}/backup.log" 2>&1
+backup_rc=$?
+cat "${SCRATCH}/backup.log"
+[[ "$backup_rc" -eq 0 ]] || die "scripts/backup.sh failed (exit ${backup_rc})"
+# No redis runs here: the redis leg must warn and continue, never pick another container.
+grep -q 'no Redis container found' "${SCRATCH}/backup.log" || die "backup.sh did not report the missing Redis container"
 [[ -s "${BACKUP_ROOT}/latest/openbrain.pgdump" ]] || die "backup produced no openbrain.pgdump"
 [[ -s "${BACKUP_ROOT}/latest/manifest.json" ]] || die "backup produced no manifest.json"
 jq -e '.objects.indexes > 0 and (.tables.captures | tonumber) >= 5000' "${BACKUP_ROOT}/latest/manifest.json" >/dev/null \
   || die "manifest.json lacks object counts or the seeded captures count"
+[[ "$(jq -r .redis_rdb "${BACKUP_ROOT}/latest/manifest.json")" == failed ]] || die "manifest redis_rdb is not 'failed' with no Redis container"
 echo "  manifest: $(jq -c '{git_sha, captures: .tables.captures, objects}' "${BACKUP_ROOT}/latest/manifest.json")"
 
 step "real scripts/restore-rehearsal.sh"

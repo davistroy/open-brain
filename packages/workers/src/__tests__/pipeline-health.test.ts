@@ -1394,6 +1394,47 @@ describe('PipelineHealthSkill — job freshness markers (item 7.3)', () => {
     mockStat.mockRejectedValue(new Error('ENOENT: no such file or directory'))
   })
 
+  /** offsite-backup.sh: `date +%Y-%m-%dT%H:%M:%S%z` in the host zone, e.g. `2026-11-25T03:45:12-0500`. */
+  const shellOffsite = (agoMs: number, offsetMin = -300) => {
+    const local = new Date(NOW.getTime() - agoMs + offsetMin * 60_000)
+    const p = (n: number) => String(n).padStart(2, '0')
+    const sign = offsetMin < 0 ? '-' : '+'
+    const off = Math.abs(offsetMin)
+    return `${local.getUTCFullYear()}-${p(local.getUTCMonth() + 1)}-${p(local.getUTCDate())}T` +
+      `${p(local.getUTCHours())}:${p(local.getUTCMinutes())}:${p(local.getUTCSeconds())}` +
+      `${sign}${p(Math.floor(off / 60))}${p(off % 60)}\n`
+  }
+  /** restore-rehearsal.sh: `date -u +%Y-%m-%dT%H:%M:%SZ` (no milliseconds). */
+  const shellRehearsal = (agoMs: number) =>
+    new Date(NOW.getTime() - agoMs).toISOString().replace(/\.\d{3}Z$/, 'Z') + '\n'
+
+  it('shell-format markers, fresh: offsite 46 h in -0500, rehearsal 7 d in Z — no alert', async () => {
+    // 46 h is fresh only if the -0500 offset is honoured (read as UTC it would be 51 h).
+    const offsite = shellOffsite(46 * HOUR)
+    expect(offsite).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}-0500\n$/)
+    const rehearsal = shellRehearsal(7 * 24 * HOUR)
+    expect(rehearsal).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\n$/)
+    markers({ offsite, rehearsal })
+    const { skill, store, pushover } = run()
+    const result = await skill.execute()
+    expect(sentCalls(pushover)).toEqual([])
+    expect(result.staleJobMarkers).toEqual([])
+    expect((store.get('alert_state:offsite-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+    expect((store.get('alert_state:rehearsal-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+  })
+
+  it('shell-format markers, stale: offsite 50 h in +0500, rehearsal 9 d in Z — both raised', async () => {
+    // 50 h is stale only if the +0500 offset is honoured (read as UTC it would be 45 h).
+    const offsite = shellOffsite(50 * HOUR, 300)
+    expect(offsite).toMatch(/\+0500\n$/)
+    markers({ offsite, rehearsal: shellRehearsal(9 * 24 * HOUR) })
+    const { skill, store } = run()
+    const result = await skill.execute()
+    expect([...(result.staleJobMarkers)].sort()).toEqual(['offsite-stale', 'rehearsal-stale'])
+    expect(store.get('alert_state:offsite-stale')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:rehearsal-stale')).toMatchObject({ status: 'bad' })
+  })
+
   it('fresh markers: no alert, neither key is bad', async () => {
     markers({ offsite: iso(2 * HOUR), rehearsal: iso(3 * 24 * HOUR) })
     const { skill, store, pushover } = run()

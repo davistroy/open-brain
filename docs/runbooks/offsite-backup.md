@@ -29,12 +29,20 @@ passes `--exclude 'canary/**'`, so `canary/ob-canary.txt` is never deleted.
    prune is skipped, the run exits 1, and a Pushover alert is sent. Without
    this guard an age-based prune drains the remote to empty once the local
    backup stops (2026-09 incident: 0 objects, every run logged "complete").
-2. **Result check, after the copy.** `rclone lsf -R --max-age 48h --include
-   '*/openbrain.pgdump' open-brain-offsite:daily` must return a file. An empty
-   listing exits 1 and skips the prune.
+2. **Result check, after the copy.** `rclone lsf -R --files-only --max-age 48h
+   --include '*/openbrain.pgdump' open-brain-offsite:daily` must return a file.
+   An empty listing exits 1 and skips the prune. `--files-only` is required:
+   rclone applies filters and `--max-age` to files only, so without it every
+   dated directory is listed and the check can never fail.
 
 On success the script writes the timestamp to
 `${BACKUP_ROOT}/.offsite-last-success` (read by the freshness alert, item 7.3).
+
+**Host order when shipping item 7.3:** run one offsite backup by hand (the
+seeding run below) so `.offsite-last-success` exists BEFORE deploying the new
+`workers` image. Production sets `BACKUP_MANIFEST_REQUIRED=true`, so a missing
+marker counts as stale and raises a critical `offsite-stale` alert on the first
+pipeline-health run.
 
 Seeding run: `OFFSITE_MAX_AGE=off` copies the whole tree once (config files
 whose mtime predates the 2-day window); the next normal run is back to `2d`.

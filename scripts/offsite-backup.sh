@@ -107,7 +107,9 @@ elif [ $(( now_epoch - newest_epoch )) -gt "$max_age_s" ]; then
   fail 1 "newest local dump is $(( (now_epoch - newest_epoch) / 3600 ))h old (> ${OFFSITE_SOURCE_MAX_AGE_HOURS}h) — prune skipped"
 fi
 
-fresh_listing=$(run_rclone lsf -R --max-age "${OFFSITE_SOURCE_MAX_AGE_HOURS}h" --include '*/openbrain.pgdump' "${OFFSITE_REMOTE}daily") \
+# --files-only is load-bearing: filters and --max-age apply to files only, so
+# without it lsf -R lists every dated directory and the listing is never empty.
+fresh_listing=$(run_rclone lsf -R --files-only --max-age "${OFFSITE_SOURCE_MAX_AGE_HOURS}h" --include '*/openbrain.pgdump' "${OFFSITE_REMOTE}daily") \
   || fail 1 "could not list ${OFFSITE_REMOTE}daily after the copy — prune skipped"
 [ -n "$fresh_listing" ] || fail 1 "no openbrain.pgdump newer than ${OFFSITE_SOURCE_MAX_AGE_HOURS}h on ${OFFSITE_REMOTE}daily after the copy — prune skipped"
 

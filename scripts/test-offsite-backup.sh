@@ -24,6 +24,13 @@ cat > "$WORK/stub-rclone.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >> "$RCLONE_LOG"
 if [ "$1" = "lsf" ]; then
+  # Real rclone (1.76.0, verified on a local tree): filters and --max-age apply to
+  # files only, so `lsf -R` without --files-only lists every dated directory even
+  # when no file matches. Mirror that, so a check missing --files-only goes RED.
+  case " $* " in
+    *" --files-only "*) ;;
+    *) printf '2026-11-10/\n2026-11-24/\n' ;;
+  esac
   [ -f "$STUB_LSF_OUT" ] && cat "$STUB_LSF_OUT"
 fi
 exit 0
@@ -78,7 +85,9 @@ check "no prune call" bash -c '! grep -Eq "^(delete|deletefile|purge|rmdirs) " "
 echo "case 2: empty remote listing -> exit 1"
 run_case emptyremote 1 ""
 check "exit code is 1" test "$RC" -eq 1
-check "lsf was called with the freshness filter" grep -Eq "^lsf -R --max-age 48h --include \*/openbrain.pgdump .*daily" "$RCLONE_LOG"
+check "lsf was called with the freshness filter" grep -Eq "^lsf -R .*--max-age 48h --include \*/openbrain.pgdump .*daily" "$RCLONE_LOG"
+check "lsf lists files only (dirs would make the check always pass)" grep -Eq "^lsf .*--files-only" "$RCLONE_LOG"
+check "no prune on an empty remote" bash -c '! grep -Eq "^(delete|deletefile|purge|rmdirs) " "$1"' _ "$RCLONE_LOG"
 check "no success marker" test ! -e "$BACKUP_ROOT_T/.offsite-last-success"
 check "failure notification sent" grep -q 'curl' "$CURL_LOG"
 

@@ -1621,7 +1621,7 @@ Ships in ONE pull request with item 6.3. `.env.secrets` is never copied. `custom
 ### Work Items
 
 #### 7.1 Offsite copy that cannot empty itself
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25 (repo; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-08; defect "config files never reached the offsite copy" (investigation 01, NEW-1)
 **Files Affected:**
@@ -1657,7 +1657,7 @@ The `touch` step that makes config files visible to `--max-age` is in item 6.4. 
 ---
 
 #### 7.2 CI runs a real backup and a real restore
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25**
 **Model Tier: sonnet**
 **Requirement Refs:** QA-003, PLT-004
 **Depends On:** 7.1
@@ -1689,7 +1689,7 @@ A seed that is too small never plans a parallel HNSW build, and the regression s
 ---
 
 #### 7.3 One cron installer; job freshness markers
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25 (repo; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-007, QA-003
 **Depends On:** 7.2
@@ -1731,7 +1731,7 @@ The slots stay: backup 03:00, offsite 03:45, parity 05:15, rehearsal Sunday 05:3
 ---
 
 #### 7.4 Secrets can be rebuilt on a fresh host
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25 (repo; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-002, PLT-003, SA7-04, OA-33
 **Depends On:** 7.3

@@ -16,6 +16,10 @@
 #   E  object query returns 3 of 4 counts: manifest objects = null, manifest still valid JSON
 #   F  lock held by a running backup (item 7.3): second run exits 0 with a message before any
 #      dump, creates no daily dir, calls no docker, sends no "backup FAILED" push
+#   G  lock file cannot be opened: message, "backup FAILED" push, exit 1, no dump
+#   H  no Redis container: warns and continues; never runs redis-cli in another container
+#   I  no Postgres container: exits 1; never dumps the rehearsal postgres
+#   J  DB_CONTAINER / REDIS_CONTAINER overrides are honoured
 #
 # Usage: bash scripts/test-backup.sh      Exit 0 = all pass, 1 = failure.
 # Secrets policy: prints variable NAMES and file names only.
@@ -48,10 +52,18 @@ case "${1:-}" in
   inspect)
     name="${*: -1}"
     [[ "$name" == open-brain-* ]] || exit 1
+    for a in ${FAKE_ABSENT:-}; do [[ "$name" == "$a" ]] && exit 1; done
     if [[ "$*" == *'{{.Image}}'* ]]; then echo "sha256:fakeimage-${name}"; fi
     exit 0 ;;
   ps)
-    printf '%s\n' open-brain-postgres open-brain-redis open-brain-core-api open-brain-utility-ingest
+    # Real docker: several name= filters are OR-ed, each an unanchored regex on the name.
+    list="${FAKE_PS_LIST:-open-brain-postgres open-brain-redis open-brain-core-api open-brain-utility-ingest}"
+    pats=(); prev=""
+    for a in "$@"; do [[ "$prev" == --filter && "$a" == name=* ]] && pats+=("${a#name=}"); prev="$a"; done
+    for n in $list; do
+      if [[ ${#pats[@]} -eq 0 ]]; then echo "$n"; continue; fi
+      for p in "${pats[@]}"; do if [[ "$n" =~ $p ]]; then echo "$n"; break; fi; done
+    done
     exit 0 ;;
   cp)
     src="$2"; dst="$3"
@@ -273,6 +285,48 @@ check "F: lock released: a run after the holder exits completes" bash -c "
   cd '$WORK' && env PATH='${BIN}:${PATH}' APP_DIR='$APP' BACKUP_ROOT='$BKP' CUSTOM_CRON_SRC='$WORK/custom.cron' \
     REDIS_PASSWORD='$FAKE_PW' REDIS_WAIT_SECS=5 BACKUP_LOCK_FILE='$WORK/F.lock' FAKE_DIR='$FAKE_DIR' \
     bash '${SCRIPT_DIR}/backup.sh' >'$WORK/F2.log' 2>&1 && test -s '$DAY/manifest.json'"
+
+# ---------------- Case G: the lock file cannot be opened ----------------
+echo "[G] unopenable lock file: message, failure push, exit 1"
+new_case G
+run_backup BACKUP_LOCK_FILE="${WORK}/no-such-dir/backup.lock" \
+  PUSHOVER_APP_TOKEN=t PUSHOVER_USER_KEY=u PUSHOVER_API_URL=http://127.0.0.1:9/x
+check "G: exits 1" test "$RUN_RC" -eq 1
+check "G: says the lock file could not be opened" grep -q 'cannot open lock file' "${WORK}/G.log"
+check "G: failure push sent" grep -q 'backup FAILED' "$FAKE_DIR/curl.log"
+check "G: no daily dir created" test ! -e "$DAY"
+check "G: no docker call made" test ! -s "$FAKE_DIR/docker-calls.log"
+
+# ---------------- Case H: no Redis container ----------------
+echo "[H] Redis absent: warn and continue, never treat another container as Redis"
+new_case H
+run_backup FAKE_ABSENT=open-brain-redis \
+  FAKE_PS_LIST="open-brain-postgres open-brain-rehearsal-pg open-brain-core-api open-brain-utility-ingest"
+check "H: backup.sh exits 0" test "$RUN_RC" -eq 0
+check "H: manifest redis_rdb=failed" test "$(jq -r .redis_rdb "$DAY/manifest.json")" = failed
+check "H: warns that no Redis container was found" grep -q 'no Redis container' "${WORK}/H.log"
+check "H: no redis-cli call against any other container" \
+  bash -c "! grep -E '^exec -e REDISCLI_AUTH ' '$FAKE_DIR/docker-calls.log' | grep -q ."
+check "H: latest moved" test "$(readlink "$BKP/latest")" = "$DAY"
+
+# ---------------- Case I: no Postgres container ----------------
+echo "[I] Postgres absent: fail, never dump the rehearsal container"
+new_case I
+run_backup FAKE_ABSENT=open-brain-postgres \
+  FAKE_PS_LIST="open-brain-rehearsal-pg open-brain-redis open-brain-core-api"
+check "I: backup.sh exits 1" test "$RUN_RC" -eq 1
+check "I: says it cannot find the Postgres container" grep -q 'Cannot find Postgres container' "${WORK}/I.log"
+check "I: no pg_dump from the rehearsal container" bash -c "! grep -q 'open-brain-rehearsal-pg pg_dump' '$FAKE_DIR/docker-calls.log'"
+
+# ---------------- Case J: container-name overrides ----------------
+echo "[J] DB_CONTAINER / REDIS_CONTAINER overrides"
+new_case J
+mkdir -p "$FAKE_DIR/c/open-brain-redis-alt/data"; echo FAKERDB > "$FAKE_DIR/c/open-brain-redis-alt/data/dump.rdb"
+run_backup DB_CONTAINER=open-brain-pg-alt REDIS_CONTAINER=open-brain-redis-alt
+check "J: backup.sh exits 0" test "$RUN_RC" -eq 0
+check "J: pg_dump ran in DB_CONTAINER" grep -q '^exec open-brain-pg-alt pg_dump' "$FAKE_DIR/docker-calls.log"
+check "J: redis-cli ran in REDIS_CONTAINER" grep -q '^exec -e REDISCLI_AUTH open-brain-redis-alt ' "$FAKE_DIR/docker-calls.log"
+check "J: manifest redis_rdb=present" test "$(jq -r .redis_rdb "$DAY/manifest.json")" = present
 
 echo ""
 echo "=== test-backup: ${PASS} passed, ${FAILN} failed ==="

@@ -67,6 +67,11 @@ jobs:
       - name: Secrets redaction guard
         run: bash scripts/test-backup-secrets-redaction.sh
 
+      - name: Backup harness
+        # fake docker + real WAL SQLite; needs python3 (stdlib sqlite3), jq, flock, tar, git —
+        # all preinstalled on ubuntu-latest
+        run: bash scripts/test-backup.sh
+
       - name: Secrets round-trip guard
         run: bash scripts/test-secrets-roundtrip.sh
 

@@ -15,6 +15,11 @@
 #   E  verify failure: a reload that does not merge the lines makes --apply exit 1
 #   F  an absent custom.cron is created; a failed reload exits 1
 #   G  --apply as a non-root user without the test override exits 2 (skipped when run as root)
+#   H  verify fails when a managed line appears TWICE in the merged table
+#   I  /mnt/user/appdata/open-brain-config-backup lines are kept; dropped lines with no
+#      identical template line are listed under "REMOVED, NOT REPLACED" (dry run + apply)
+#   J  malformed markers (begin only, end only, end before begin, two pairs) are refused
+#   K  non-root dry run on a read-only dir works; an unreadable table exits 2 with a message
 #
 # Usage: bash scripts/test-install-crons.sh      Exit 0 = all pass, 1 = failure.
 
@@ -151,6 +156,72 @@ else
   env -u INSTALL_CRONS_ALLOW_NONROOT bash "$INSTALLER" --apply >/dev/null 2>&1; RC=$?
   check "G: non-root --apply exits 2" test "$RC" -eq 2
   check "G: nothing written" cmp -s "$CUSTOM_CRON" "${D}/orig"
+fi
+
+# ---------------- H ----------------
+echo "[H] verify demands each line exactly once"
+cat > "${WORK}/update-cron-dup" <<'SH'
+#!/bin/sh
+echo x >> "$STUB_CALLS"
+cp "$CUSTOM_CRON" "$CRON_VERIFY_FILE"
+grep 'scripts/backup.sh' "$CUSTOM_CRON" >> "$CRON_VERIFY_FILE"
+SH
+chmod +x "${WORK}/update-cron-dup"
+new_case H; write_fixture "$CUSTOM_CRON"
+UPDATE_CRON_CMD="${WORK}/update-cron-dup" inst --apply
+check "H: a managed line present twice in the merged table exits non-zero" test "$RC" -ne 0
+check "H: names the duplicate" grep -q 'more than once' "${D}/err.log"
+
+# ---------------- I ----------------
+echo "[I] path match is anchored; dropped lines without a template twin are listed"
+CFGBAK='0 1 * * * tar czf /mnt/user/appdata/open-brain-config-backup/nightly.tgz /etc/hosts'
+new_case I; write_fixture "$CUSTOM_CRON"; echo "$CFGBAK" >> "$CUSTOM_CRON"
+inst
+check "I: dry run exits 0" test "$RC" -eq 0
+check "I: dry run lists the REMOVED, NOT REPLACED heading" grep -q 'REMOVED, NOT REPLACED' "${D}/out.log"
+check "I: the old backup line (no identical template line) is listed under it" \
+  bash -c "sed -n '/REMOVED, NOT REPLACED/,\$p' \"\$1\" | grep -qF 'cd /mnt/user/appdata/open-brain && bash scripts/backup.sh'" _ "${D}/out.log"
+check "I: the financial-ingest line (identical template line) is not listed" \
+  bash -c "! sed -n '/REMOVED, NOT REPLACED/,/^---/p' \"\$1\" | grep -qF 'financial-pipeline.py'" _ "${D}/out.log"
+inst --apply
+check "I: apply exits 0" test "$RC" -eq 0
+check "I: open-brain-config-backup line kept" grep -qxF -- "$CFGBAK" "$CUSTOM_CRON"
+check "I: apply output lists REMOVED, NOT REPLACED too" grep -q 'REMOVED, NOT REPLACED' "${D}/out.log"
+
+# ---------------- J ----------------
+echo "[J] malformed markers are refused"
+for variant in begin-only end-only end-then-begin two-pairs; do
+  new_case "J-${variant}"; write_fixture "$CUSTOM_CRON"
+  case "$variant" in
+    begin-only)     printf '# >>> open-brain managed\n0 9 * * * /keep/me\n' >> "$CUSTOM_CRON" ;;
+    end-only)       printf '# <<< open-brain managed\n' >> "$CUSTOM_CRON" ;;
+    end-then-begin) printf '# <<< open-brain managed\n# >>> open-brain managed\n' >> "$CUSTOM_CRON" ;;
+    two-pairs)      printf '# >>> open-brain managed\n# <<< open-brain managed\n# >>> open-brain managed\n# <<< open-brain managed\n' >> "$CUSTOM_CRON" ;;
+  esac
+  cp "$CUSTOM_CRON" "${D}/orig"
+  inst --apply
+  check "J ${variant}: exits non-zero" test "$RC" -ne 0
+  check "J ${variant}: nothing written" cmp -s "$CUSTOM_CRON" "${D}/orig"
+  check "J ${variant}: no backup, no reload" test "$(nbak)" -eq 0 -a ! -s "$STUB_CALLS"
+  check "J ${variant}: says why" grep -q 'marker' "${D}/err.log"
+done
+
+# ---------------- K ----------------
+echo "[K] dry run needs no write access; unreadable table gives a clear message"
+if [[ "$(id -u)" -eq 0 ]]; then
+  echo "  skip - running as root"
+else
+  new_case K; write_fixture "$CUSTOM_CRON"; cp "$CUSTOM_CRON" "${D}/orig"
+  chmod 0444 "$CUSTOM_CRON"; chmod 0555 "$D"
+  env -u INSTALL_CRONS_ALLOW_NONROOT bash "$INSTALLER" > "${WORK}/K.out" 2> "${WORK}/K.err"; RC=$?
+  check "K: non-root dry run on a read-only dir exits 0" test "$RC" -eq 0
+  check "K: and prints the diff" grep -q '^+# >>> open-brain managed' "${WORK}/K.out"
+  chmod 0755 "$D"; chmod 0000 "$CUSTOM_CRON"
+  env -u INSTALL_CRONS_ALLOW_NONROOT bash "$INSTALLER" > "${WORK}/K.out" 2> "${WORK}/K.err"; RC=$?
+  check "K: unreadable custom.cron exits 2" test "$RC" -eq 2
+  check "K: clear message (cannot read, run as root)" grep -q 'cannot read .*root' "${WORK}/K.err"
+  check "K: no raw cp error" bash -c '! grep -q "^cp:" "$1"' _ "${WORK}/K.err"
+  chmod 0644 "$CUSTOM_CRON"
 fi
 
 echo ""
