@@ -14738,3 +14738,13 @@ Orchestrator mutation check after 3.3: disabling the route's caller allowlist tu
 **Post-deploy watch — new alert path live:** `container-health` now probes postgres, redis, jetson-llm, spark-llm + the 4 containers (7 healthy, `spark-llm` down — OA-36). Runs 23:45/00:00 UTC silent; **run 3 (00:15 UTC) raised `container:spark-llm` once as `warning`** (`[alert-state] notify … sent:true`; state `bad` since 00:15:10Z); **run 4 (00:30 UTC) sent nothing**; the legacy path sent nothing for spark (pinned names). Matches the 4.5 acceptance on the live system.
 **Item 5.5 RESULT: COMPLETE.** Prod runs `d00ed25` (nine app services, labels verified, `DEPLOYED.json`); postgres/redis untouched (StartedAt unchanged); captures 11,722 unchanged; parity lists exactly the 4 Phase 8 services as stale; alert rules in sync; OA-37/OA-38 dated. Open hand-offs: item 7.3 reinstalls the parity cron line (old `git fetch`); item 8.3 deletes the override's redis `ports:` with its block; item 8.4 warms the speaches model (no `PRELOAD_MODELS` in 0.8.3); OA-38 secret rotation; the 05:15 parity notice repeats weekly until Phase 8.
 **Phase 5 status: COMPLETE** (5.1–5.4 #407 `69a77b0`; 5.5 + fixes #408 `d00ed25`, #409 `677dfdb`). **Duration:** ≈5 h (2026-11-24).
+
+## Entry 261 — Remediation Phase 6: the restore path (items 6.1–6.4) (2026-11-25)  [database] [deploy] [config]
+
+**Authorisation (Troy, 2026-11-25):** "start Phase 6".
+**Objective:** atomic migrations with the ledger row in the same transaction (6.1); one `restore_into` function used by a new `scripts/restore.sh` and by the rehearsal, plus a checklist runbook (6.2); a rehearsal that fails on a stale dump, a missing object, a count mismatch, or a wrong ledger version (6.3); a backup that holds Redis, the sidecar SQLite and state files, the host cron table, the host tree state, and object counts in the manifest (6.4).
+**Hypothesis / success criteria:** the Phase 6 DoD table passes (`test-migrate-manual.sh`, `test-restore.sh`, `test-restore-rehearsal.sh`, the shell guards, schema parity, `pnpm -r test`/`lint`); a fresh review finds no open Critical/Important issue.
+**Scope guard:** repo work only on `feat/2026-11-remediation-phase6` (from `d6717b0`). Test harnesses use throwaway local containers. No host change, no container recreate. The host steps (6.3 task 9, 6.4 task 9, and `deploy.sh <sha> --tree-only`) run after the merge, in a separate session with Troy's OK.
+**Rollback:** do not merge, or revert the PR. No production state changes in this phase's repo work.
+**Tags:** [database] [deploy] [config]
+**Environment:** VM (local Docker for scratch `pgvector/pgvector:pg16` containers). Orchestrator: Claude (Opus 5.5); one sub-agent per item, sequential.
