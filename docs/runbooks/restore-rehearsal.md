@@ -11,12 +11,18 @@
 ## What the rehearsal does
 
 1. Locates the most recent daily backup via `${BACKUP_ROOT}/latest` symlink (default: `/mnt/user/backup/openbrain/latest`)
-2. Reads expected row counts from `manifest.json` in the backup directory
-3. Spins up an ephemeral `pgvector/pgvector:pg16` container (`open-brain-rehearsal-pg`)
-4. Copies the dump file into the container and runs `pg_restore --exit-on-error`
-5. Validates actual row counts vs. manifest values (±10% tolerance; 0-row manifest entries skipped)
-6. Tears down the ephemeral container (`--rm` flag — no persistent state)
-7. Sends Pushover notification: pass = priority 0 (normal), fail = priority 1 (high)
+2. Reads `manifest.json` and **fails (exit 1) when `manifest.timestamp` or the dump's modification time is older than `REHEARSAL_MAX_AGE_HOURS` (default 36)**: a rehearsal of a stale dump proves nothing
+3. Spins up an ephemeral `pgvector/pgvector:pg16` container (`open-brain-rehearsal-pg`) running the production `config/postgres/postgresql.conf` and Docker's default 64 MB `/dev/shm`
+4. Restores through `restore_into` (`scripts/lib/restore-core.sh`, the same function a real recovery uses): TCP readiness (`pg_isready -h 127.0.0.1`), empty-database check, `pg_restore --exit-on-error` with `max_parallel_maintenance_workers=0`
+5. Asserts, and fails on any miss:
+   - row counts: each table within the larger of 1% or 20 rows of the manifest (`ROW_COUNT_TOLERANCE`, `ROW_COUNT_MIN_ABS`); tables with 0 rows are counted too; a failed count query is a failure
+   - object counts (indexes, foreign keys, triggers, public functions) equal the manifest key `objects`, counted by `scripts/lib/db-objects.sh`; an older manifest without `objects` logs a warning and skips only these
+   - `max(schema_migrations.version)` equals the manifest's `objects.ledger_max`
+   - no row of `pg_index` has `indisvalid = false`
+   - every name in `scripts/lib/dr-required-objects.txt` exists (the HNSW and tsvector indexes, `hybrid_search`, `spreading_activation`, `fts_only_search`, `vector_search`)
+6. Tears down the ephemeral container
+7. On PASS writes the time to `${BACKUP_ROOT}/.rehearsal-last-success` and logs `indexes N/N fk N/N triggers N/N functions N/N ledger <version>` (restored/manifest)
+8. Sends Pushover notification: pass = priority 0 (normal), fail = priority 1 (high)
 
 A pass notification every Sunday is the expected steady state. A fail notification requires immediate investigation — it means last Sunday's backup could not be restored cleanly.
 
@@ -26,8 +32,8 @@ A pass notification every Sunday is the expected steady state. A fail notificati
 
 | Exit code | Meaning | Pushover priority |
 |-----------|---------|-------------------|
-| 0 | Restore successful, all row counts within ±10% | 0 — normal |
-| 1 | Restore failed — `pg_restore` error OR row count mismatch | 1 — high |
+| 0 | Restore successful; every row-count, object, ledger, and required-object assertion held | 0 — normal |
+| 1 | Stale backup (older than 36 h), `pg_restore` error, or a failed assertion (rows, objects, ledger, invalid index, required object) | 1 — high |
 | 2 | Precondition failure — no backup found, manifest missing, container failed to start | 1 — high |
 
 ---
@@ -46,7 +52,7 @@ The log output is structured — look for the `REHEARSAL RESULT: FAIL` line and 
 ### 2. Identify the exit code
 
 ```
-=== REHEARSAL RESULT: FAIL (exit 1) ===   # pg_restore error or row count mismatch
+=== REHEARSAL RESULT: FAIL (exit 1) ===   # stale backup, restore error, or a failed assertion
 === REHEARSAL RESULT: FAIL (exit 2) ===   # precondition failure
 ```
 
@@ -81,6 +87,10 @@ Docker daemon may have been busy or the `pgvector/pgvector:pg16` image is not pu
 docker pull pgvector/pgvector:pg16
 ```
 
+#### Exit 1 — stale backup
+
+The log says `STALE BACKUP`. `backup.sh` did not produce a new dump in the last 36 hours (check its cron line in `/boot/config/plugins/dynamix/custom.cron` and `tail -100 /tmp/open-brain-backup.log`). Fix the backup first; rerunning the rehearsal does not help.
+
 #### Exit 1 — pg_restore error
 
 ```bash
@@ -102,6 +112,10 @@ Common causes:
   REHEARSAL_DRY_RUN=false bash scripts/restore-rehearsal.sh  # then inspect log
   ```
 
+#### Exit 1 — object, ledger, or required-object failure
+
+The lines `FAIL  indexes|fk|triggers|functions|ledger|required object …` name the assertion. A restored count lower than the manifest, or a missing required object, means the restore dropped objects: run the restore by hand (below) and read the `pg_restore` output. A ledger mismatch means the dump and the manifest were taken at different times or the ledger table did not restore.
+
 #### Exit 1 — Row count mismatch
 
 ```bash
@@ -121,7 +135,7 @@ grep -E "FAIL  |PASS  " /var/log/open-brain-restore-rehearsal.log | tail -30
   docker stop ob-rehearsal-debug
   ```
 
-- **Single table out of tolerance**: normal churn (captures, skills_log, ai_audit_log grow between 03:00 backup and 05:30 check). If the actual count significantly exceeds manifest — this is the expected direction (new data written after backup). If actual is dramatically *lower*, the restore may have partially failed. Check pg_restore output for errors on that table.
+- **Single table out of tolerance** (more than max(1%, 20 rows) from the manifest): `backup.sh` counts rows after the dump snapshot, so a busy table can drift a little (captures, skills_log, ai_audit_log grow between 03:00 backup and 05:30 check). If the actual count significantly exceeds manifest — this is the expected direction (new data written after backup). If actual is dramatically *lower*, the restore may have partially failed. Check pg_restore output for errors on that table.
 
 ---
 

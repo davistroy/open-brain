@@ -1,0 +1,9 @@
+# Objects that MUST exist after a restore (scripts/restore-rehearsal.sh, item 6.3).
+# One name per line; lines starting with # and blank lines are ignored.
+# A name matches an index/relation name or a function name in schema public.
+captures_embedding_hnsw_idx
+captures_content_tsvector_idx
+hybrid_search
+spreading_activation
+fts_only_search
+vector_search
