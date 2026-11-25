@@ -108,19 +108,16 @@ Common causes:
 grep -E "FAIL  |PASS  " /var/log/open-brain-restore-rehearsal.log | tail -30
 ```
 
-- **All tables show `actual=0` when `manifest > 0`**: blank restore. `pg_restore` silently completed without writing data. Likely cause: `--exit-on-error` was bypassed or schema errors caused the data section to be skipped. Re-run manually with `-v` (verbose):
+- **All tables show `actual=0` when `manifest > 0`**: blank restore. `pg_restore` silently completed without writing data. Likely cause: `--exit-on-error` was bypassed or schema errors caused the data section to be skipped. Re-run the restore by hand into a debug container; `scripts/restore.sh` prints the first lines of any `pg_restore` error:
   ```bash
-  # Spin up container manually for investigation
+  # Debug container; scripts/restore.sh restores through restore_into (scripts/lib/restore-core.sh)
   docker run --rm -d --name ob-rehearsal-debug \
     -e POSTGRES_PASSWORD=rehearsal \
     -e POSTGRES_USER=openbrain \
     -e POSTGRES_DB=openbrain \
     pgvector/pgvector:pg16
 
-  docker exec ob-rehearsal-debug psql -U openbrain -d openbrain -c "CREATE EXTENSION IF NOT EXISTS vector;"
-  docker cp /mnt/user/backup/openbrain/latest/openbrain.pgdump ob-rehearsal-debug:/tmp/restore.pgdump
-  docker exec ob-rehearsal-debug pg_restore -U openbrain -d openbrain \
-    --no-owner --no-privileges --exit-on-error -v /tmp/restore.pgdump 2>&1 | tail -50
+  bash scripts/restore.sh --backup-dir /mnt/user/backup/openbrain/latest --target ob-rehearsal-debug
   docker stop ob-rehearsal-debug
   ```
 
@@ -130,84 +127,75 @@ grep -E "FAIL  |PASS  " /var/log/open-brain-restore-rehearsal.log | tail -30
 
 ## Manual restore (actual DR)
 
-Use this procedure only in a real disaster recovery scenario — not for rehearsal diagnostics.
+Use this procedure only in a real disaster recovery, not for rehearsal diagnostics.
 
-### Prerequisites
+**Targets:** RPO 24 hours (the nightly 03:00 dump; anything written after it is lost).
+RTO one working day, from a bare Unraid host with Docker to a serving stack.
 
-1. Fresh homeserver or repaired Postgres volume
-2. Latest backup directory: `/mnt/user/backup/openbrain/latest/`
-3. Bitwarden Secrets Manager accessible (`BWS_ACCESS_TOKEN` env var set)
+**What you need:** a host with Docker and the Unraid `br0` network; the backup directory
+(local `/mnt/user/backup/openbrain/latest/`, or pulled from the offsite remote with
+`docs/runbooks/offsite-backup.md` "Restore procedure", steps 1–2); the Bitwarden access
+token; the commit to deploy (the backup's `DEPLOYED.json` once item 6.4 copies it; until
+then the newest `main`).
 
-### Steps
+**Model:** the dump is a complete snapshot, the `schema_migrations` ledger included. It
+restores into an EMPTY database. Never apply a schema file or migrations before it:
+`scripts/restore.sh` refuses a database that already holds a table. The restore runs with
+`max_parallel_maintenance_workers=0`, so every index and constraint is rebuilt whatever the
+`/dev/shm` size of the container.
 
-```bash
-# 1. SSH to homeserver
-ssh -i ~/.ssh/id_claude_code claude@homeserver.k4jda.net
+Each step is one command. Run them in order, as root, from the app directory.
 
-# 2. Navigate to app directory
-cd /mnt/user/appdata/open-brain
+1. Open a root shell on the host: `ssh root@homeserver.k4jda.net`
+2. Get the tree (skip when it exists): `git clone https://github.com/davistroy/open-brain.git /mnt/user/appdata/open-brain`
+3. `cd /mnt/user/appdata/open-brain`
+4. Name the backup for the following steps: `B=/mnt/user/backup/openbrain/latest`
+5. Rebuild `.env.secrets` from Bitwarden (item 7.4 installs `bws` on the host):
+   `BWS_ACCESS_TOKEN=<token> bash scripts/load-secrets.sh --target-dir /mnt/user/appdata/open-brain`.
+   Until item 7.4, `bws` is not on the host: run the same command on a machine that has
+   `bws` with a scratch `--target-dir`, then copy the file over with
+   `scp <dir>/.env.secrets root@homeserver.k4jda.net:/mnt/user/appdata/open-brain/`.
+6. Restore `.env` (holds `TAILSCALE_IP`, which compose requires): `install -m 600 "$B/config/dot-env" .env`
+7. Restore the gitignored payee rules: `cp -a "$B/config/payee-rules.yaml" config/`
+8. Restore the gitignored utility config: `cp -a "$B/config/utility/utility-config.yaml" config/utility/`
+9. Create EMPTY data directories (the binds use `create_host_path: false`; move a damaged
+   old `pgdata` aside first): `mkdir pgdata redis-data`
+10. Confirm the data stores render as binds (prints `true`; nothing is written to a file):
+    `docker compose config --format json | jq -e '[.services.postgres.volumes[], .services.redis.volumes[]] | all(.type == "bind" and .bind.create_host_path == false) and any(.target == "/var/lib/postgresql/data" and .source == "/mnt/user/appdata/open-brain/pgdata")'`.
+    Do not restore `docker-compose.override.yml` from the backup: the base compose binds
+    the data directories itself, and an override entry with short syntax turns
+    `create_host_path` back on (this check then prints `false`).
+11. List missing prerequisites (Loki plugin, `observability`/`br0` networks, bind sources): `bash scripts/preflight.sh`.
+    Fix every `MISSING` line and run it again until it exits 0.
+12. Start Postgres alone, with no `-f` flag: `docker compose up -d postgres`
+13. Restore the dump and apply any migration newer than it (waits for Postgres over TCP,
+    refuses a non-empty database, prints table/index/constraint counts):
+    `bash scripts/restore.sh --backup-dir "$B" --apply-pending`
+14. Restore the sidecar state and host files (item 6.4 adds them to the backup:
+    `sidecars/`, `custom.cron`, `DEPLOYED.json`; follow the steps item 6.4 adds here).
+    Until then the backup holds none of them: the sidecars start with empty state.
+15. Start Redis: `docker compose up -d redis`
+16. Install the host crons: `bash scripts/install-crons.sh` (item 7.3). Until then: append
+    each line of `deploy/cron/*.cron` to `/boot/config/plugins/dynamix/custom.cron`, run
+    `/usr/local/sbin/update_cron`, and check that `grep -c open-brain /etc/cron.d/root`
+    equals the count in `CLAUDE.md`. Never use `crontab -e`.
+17. Deploy the application services, dry run first: `bash scripts/deploy.sh <sha> --dry-run core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`
+18. Deploy them: `bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`
+19. Start the tunnel: `docker compose up -d cloudflared`
+20. Start transcription: `docker compose up -d faster-whisper`
+21. Check secrets against Bitwarden: `bash scripts/verify-secrets.sh --target-dir /mnt/user/appdata/open-brain` (needs `bws`; item 7.4)
+22. Check the API answers through the tunnel: `curl -s https://brain.troy-davis.com/api/v1/captures?limit=1`
 
-# 2b. Create .env with the host's Tailscale address BEFORE any compose command.
-#     TAILSCALE_IP is required (docker-compose.yml fails closed without it) and is not
-#     restored by load-secrets.sh, which only writes .env.secrets.
-echo 'TAILSCALE_IP=<this host Tailscale address>' > .env
-
-# 3. Bring up only Postgres (do not start the full stack yet)
-docker compose up -d postgres
-# Wait for healthy:
-docker ps | grep postgres
-
-# 4. Apply schema from the backup (init-schema + all Drizzle migrations)
-#    The pg_restore will create tables, but you need the schema first if starting fresh.
-#    The backup includes schema.sql for reference:
-#    cat /mnt/user/backup/openbrain/latest/schema.sql | head -20
-#
-#    Apply the canonical migration sequence (not schema.sql — it's for reference only):
-docker exec -i open-brain-postgres psql -U openbrain -d openbrain < scripts/init-schema.sql
-for f in packages/shared/drizzle/0*.sql; do
-  echo "Applying $f..."
-  docker exec -i open-brain-postgres psql -U openbrain -d openbrain < "$f"
-done
-
-# 5. Restore from pg_dump
-docker cp /mnt/user/backup/openbrain/latest/openbrain.pgdump open-brain-postgres:/tmp/restore.pgdump
-docker exec open-brain-postgres pg_restore \
-  -U openbrain -d openbrain \
-  --no-owner --no-privileges \
-  --exit-on-error \
-  /tmp/restore.pgdump
-
-# 6. Verify row counts
-docker exec open-brain-postgres psql -U openbrain -d openbrain -c \
-  "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY relname;"
-
-# 7. Restore secrets from Bitwarden
-export BWS_ACCESS_TOKEN="<your-token>"
-bash scripts/load-secrets.sh --force
-
-# 8. Verify secrets loaded
-bash scripts/verify-secrets.sh
-
-# 9. Bring up the rest of the stack, by name (never a bare `up -d`). Postgres is already up.
-docker compose up -d redis
-docker compose up -d cloudflared
-#    Application services: through scripts/deploy.sh, which needs postgres and redis running
-#    (as root; `bash scripts/deploy.sh <sha> --dry-run …` first):
-bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next \
-  file-ingestion financial-ingest utility-ingest actual-ingest
-#    faster-whisper is not in deploy.sh's normal set; start it by name:
-docker compose up -d faster-whisper
-
-# 10. Verify health
-curl -s http://localhost:3002/api/v1/captures?limit=1
-```
+Never run a bare `up` with no service name, `--remove-orphans`, or `compose down`
+(`docs/runbooks/deploy.md`, safety rules).
 
 ### After restore
 
-- Run `bash scripts/verify-secrets.sh` to confirm all required secrets are present.
-- Check `docker compose ps` — all containers should be healthy within 60s.
-- Send a test capture via voice or Slack to verify end-to-end pipeline is functional.
-- Update `LAB_NOTEBOOK.md` with the restore event and any issues encountered.
+- Compare the table/index/constraint counts that step 13 printed with the manifest (step 13
+  prints the manifest's `objects` once item 6.4 records them).
+- `docker compose ps`: every container healthy within a few minutes.
+- Send a test capture via voice or Slack to verify the pipeline end to end.
+- Update `LAB_NOTEBOOK.md` with the restore event and any issue met.
 
 ---
 
@@ -243,6 +231,7 @@ rm -rf /tmp/ob-rehearsal-test /tmp/ob-rehearsal-latest /tmp/corrupt-test.pgdump
 ## Related
 
 - `scripts/backup.sh` — creates the backup this rehearsal validates
+- `scripts/restore.sh` + `scripts/lib/restore-core.sh` — the restore used by a real recovery (`restore_into`)
 - `scripts/load-secrets.sh` — restores secrets from Bitwarden after a real DR event
 - `scripts/verify-secrets.sh` — audits secrets after load-secrets.sh runs
 - `docs/runbooks/pipeline-alert.md` — if restore succeeds but pipeline is stuck post-DR

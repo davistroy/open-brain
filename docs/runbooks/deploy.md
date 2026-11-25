@@ -283,8 +283,10 @@ curl -sf http://localhost:3002/api/v1/captures?limit=1 | head -c 100
 `docker exec ... psql < migration.sql` directly (bypasses the `schema_migrations` ledger).
 
 **After Postgres volume recreation** (disaster recovery — a different scenario from a routine
-migration): see `docs/runbooks/restore-rehearsal.md` for the init-schema + baseline + apply
-sequence.
+migration): follow the manual-restore checklist in `docs/runbooks/restore-rehearsal.md`
+("Manual restore (actual DR)"). `scripts/restore.sh --apply-pending` restores the dump into the
+empty database and then applies the migrations newer than its ledger; no schema file is
+applied first.
 
 ---
 
@@ -451,5 +453,5 @@ creates it); this only matters when standing up a fresh host.
 | Pushgateway | `http://localhost:9091` |
 | Observability runbook | `docs/runbooks/observability.md` |
 | Observability re-point ADR | `docs/adr/ADR-0004-observability-repoint.md` |
-| DR restore runbook | `docs/runbooks/restore-rehearsal.md` |
+| DR restore runbook | `docs/runbooks/restore-rehearsal.md` ("Manual restore"), script `scripts/restore.sh` |
 | Offsite backup runbook | `docs/runbooks/offsite-backup.md` |
