@@ -27,6 +27,11 @@
 
 set -uo pipefail
 
+# GUARD: never let a real Bitwarden token reach this harness. Overwrite whatever the
+# caller's environment holds with a fake value before anything runs; every case below
+# reads/writes only this fake.
+export BWS_ACCESS_TOKEN="fake-test-token-not-real"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
@@ -421,7 +426,7 @@ fi
 echo ""
 echo "[6.6] Bootstrap BWS_ACCESS_TOKEN line preserved across --force rewrite (OA-4b)"
 reset_app_dir
-run_capture 6.6a bash "${REPO_ROOT}/scripts/load-secrets.sh" --target-dir "${APP_DIR}"
+run_capture 6.6a bash "${REPO_ROOT}/scripts/load-secrets.sh" --no-persist-bootstrap --target-dir "${APP_DIR}"
 if (( RC != 0 )); then
   fail "6.6a: initial write exited ${RC} (expected 0)"
 fi
@@ -507,6 +512,57 @@ else
   else
     ok "6.7: all map BWS names match the recorded inventory or are forward-declared"
   fi
+fi
+
+# -----------------------------------------------------------------------------
+# Test 6.8 — Fresh-file bootstrap token (item 7.4, OA-33). A rebuilt host has no prior
+# .env.secrets to preserve a token from, so load-secrets.sh writes BWS_ACCESS_TOKEN from
+# the environment. Only FAKE tokens are used (guard at the top of this file).
+# -----------------------------------------------------------------------------
+echo ""
+echo "[6.8] Fresh-file bootstrap token: written once; --no-persist-bootstrap omits; existing preserved"
+FRESH_TOKEN="fake-test-token-8-fresh"
+reset_app_dir
+BWS_ACCESS_TOKEN="${FRESH_TOKEN}" run_capture 6.8a bash "${REPO_ROOT}/scripts/load-secrets.sh" --target-dir "${APP_DIR}"
+n=$(grep -cE '^BWS_ACCESS_TOKEN=.' "${APP_DIR}/.env.secrets" 2>/dev/null || true)
+if (( RC != 0 )); then
+  fail "6.8a: fresh write exited ${RC} (expected 0)"
+elif (( n != 1 )) || ! grep -qx "BWS_ACCESS_TOKEN=${FRESH_TOKEN}" "${APP_DIR}/.env.secrets"; then
+  fail "6.8a: expected exactly one BWS_ACCESS_TOKEN=<env token> line, found ${n}"
+elif grep -q "${FRESH_TOKEN}" "${OUT_FILE}"; then
+  fail "6.8a: token value leaked into load-secrets output"
+else
+  mode="$(stat -c '%a' "${APP_DIR}/.env.secrets")"
+  if [[ "$mode" != "600" ]]; then
+    fail "6.8a: mode ${mode} (expected 600)"
+  else
+    ok "6.8a: fresh file holds exactly one bootstrap token line, mode 600, no echo"
+  fi
+fi
+
+reset_app_dir
+BWS_ACCESS_TOKEN="${FRESH_TOKEN}" run_capture 6.8b bash "${REPO_ROOT}/scripts/load-secrets.sh" --no-persist-bootstrap --target-dir "${APP_DIR}"
+n=$(grep -cE '^BWS_ACCESS_TOKEN=' "${APP_DIR}/.env.secrets" 2>/dev/null || true)
+if (( RC != 0 )); then
+  fail "6.8b: --no-persist-bootstrap exited ${RC} (expected 0)"
+elif (( n != 0 )) || grep -q "${FRESH_TOKEN}" "${APP_DIR}/.env.secrets"; then
+  fail "6.8b: --no-persist-bootstrap still wrote a token (${n} lines)"
+else
+  ok "6.8b: --no-persist-bootstrap writes no BWS_ACCESS_TOKEN line"
+fi
+
+# Existing token wins over the environment, across --force, exactly once.
+reset_app_dir
+BWS_ACCESS_TOKEN="${FRESH_TOKEN}" run_capture 6.8c1 bash "${REPO_ROOT}/scripts/load-secrets.sh" --no-persist-bootstrap --target-dir "${APP_DIR}"
+printf 'BWS_ACCESS_TOKEN=%s\n' "existing-fake-token-8" >> "${APP_DIR}/.env.secrets"
+BWS_ACCESS_TOKEN="${FRESH_TOKEN}" run_capture 6.8c2 bash "${REPO_ROOT}/scripts/load-secrets.sh" --force --target-dir "${APP_DIR}"
+n=$(grep -cE '^BWS_ACCESS_TOKEN=' "${APP_DIR}/.env.secrets" 2>/dev/null || true)
+if (( RC != 0 )); then
+  fail "6.8c: --force exited ${RC} (expected 0)"
+elif (( n != 1 )) || ! grep -qx "BWS_ACCESS_TOKEN=existing-fake-token-8" "${APP_DIR}/.env.secrets"; then
+  fail "6.8c: existing token not preserved exactly once over the env token (${n} lines)"
+else
+  ok "6.8c: existing token preserved across --force; env token not duplicated"
 fi
 
 # -----------------------------------------------------------------------------

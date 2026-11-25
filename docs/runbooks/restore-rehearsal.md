@@ -170,10 +170,14 @@ Each step is one command. Run them in order, as root, from the app directory.
    `S=$(jq -r .commit "$B/DEPLOYED.json") && git -c safe.directory="$PWD" checkout --detach "$S"`.
    Without `DEPLOYED.json`: `S=$(sed -n 's/^HEAD: //p' "$B/host-tree.txt")`, check it out the
    same way, and pass `--allow-ref "$S"` to step 14. Steps 18–19 deploy the same `$S`.
-6. Rebuild `.env.secrets` from Bitwarden (item 7.4 installs `bws` on the host):
-   `BWS_ACCESS_TOKEN=<token> bash scripts/load-secrets.sh --target-dir /mnt/user/appdata/open-brain`.
-   Until item 7.4, `bws` is not on the host: run the same command on a machine that has
-   `bws` with a scratch `--target-dir`, then copy the file over with
+6. Rebuild `.env.secrets` from Bitwarden (`bws` is installed on the host by item 7.4):
+   `export BWS_ACCESS_TOKEN=<token>`, then
+   `bash scripts/load-secrets.sh --target-dir /mnt/user/appdata/open-brain`, then
+   `bash scripts/verify-secrets.sh --target-dir /mnt/user/appdata/open-brain --quiet`.
+   The load writes the exported token into the new file as its one `BWS_ACCESS_TOKEN=` line
+   (the sidecars need it); `--no-persist-bootstrap` leaves it out. The token never prints.
+   If `bws` is missing on the host, run the same load on a machine that has `bws` with a
+   scratch `--target-dir`, then copy the file over with
    `scp <dir>/.env.secrets root@homeserver.k4jda.net:/mnt/user/appdata/open-brain/`.
 7. Restore `.env` (holds `TAILSCALE_IP`, which compose requires): `install -m 600 "$B/config/dot-env" .env`
 8. Restore the gitignored payee rules: `cp -a "$B/config/payee-rules.yaml" config/`
