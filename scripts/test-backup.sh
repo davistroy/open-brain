@@ -14,6 +14,8 @@
 #   C  absent DB files + unreadable custom.cron: warnings, backup completes, latest moves
 #   D  positive control: a secret name planted in sidecars/ IS caught by the scan
 #   E  object query returns 3 of 4 counts: manifest objects = null, manifest still valid JSON
+#   F  lock held by a running backup (item 7.3): second run exits 0 with a message before any
+#      dump, creates no daily dir, calls no docker, sends no "backup FAILED" push
 #
 # Usage: bash scripts/test-backup.sh      Exit 0 = all pass, 1 = failure.
 # Secrets policy: prints variable NAMES and file names only.
@@ -142,7 +144,7 @@ run_backup() { # run_backup <extra env...> ; returns backup.sh exit code, log in
   RUN_START=$(date +%s)
   env -u PUSHOVER_APP_TOKEN -u PUSHOVER_USER_KEY -u PUSHOVER_TOKEN -u PUSHOVER_USER \
     PATH="${BIN}:${PATH}" APP_DIR="$APP" BACKUP_ROOT="$BKP" CUSTOM_CRON_SRC="${CUSTOM_CRON_SRC:-$WORK/custom.cron}" \
-    REDIS_PASSWORD="$FAKE_PW" REDIS_WAIT_SECS=5 "$@" \
+    REDIS_PASSWORD="$FAKE_PW" REDIS_WAIT_SECS=5 BACKUP_LOCK_FILE="${WORK}/${CASE}.lock" "$@" \
     bash "${SCRIPT_DIR}/backup.sh" > "${WORK}/${CASE}.log" 2>&1
   RUN_RC=$?
   RUN_END=$(date +%s)
@@ -252,6 +254,25 @@ check "E: backup.sh exits 0" test "$RUN_RC" -eq 0
 check "E: manifest is valid JSON" bash -c "jq -e . '$DAY/manifest.json' >/dev/null 2>&1"
 check "E: manifest objects is null" test "$(jq -c '.objects' "$DAY/manifest.json" 2>/dev/null)" = null
 check "E: warns that object counts are unavailable" grep -q 'object counts unavailable' "${WORK}/E.log"
+
+# ---------------- Case F: a second backup while one runs ----------------
+echo "[F] held lock: the second run exits before any dump"
+new_case F
+: > "${WORK}/F.lock"
+bash -c 'exec 8>"$1"; flock 8; exec sleep 30' _ "${WORK}/F.lock" &
+HOLDER=$!
+sleep 0.5
+run_backup
+kill "$HOLDER" 2>/dev/null; wait "$HOLDER" 2>/dev/null
+check "F: second run exits 0 (a held lock is not a failed backup)" test "$RUN_RC" -eq 0
+check "F: says another backup is running" grep -qi 'already running' "${WORK}/F.log"
+check "F: no daily dir created" test ! -e "$DAY"
+check "F: no docker call made" test ! -s "$FAKE_DIR/docker-calls.log"
+check "F: no failure push sent" test ! -e "$FAKE_DIR/curl.log"
+check "F: lock released: a run after the holder exits completes" bash -c "
+  cd '$WORK' && env PATH='${BIN}:${PATH}' APP_DIR='$APP' BACKUP_ROOT='$BKP' CUSTOM_CRON_SRC='$WORK/custom.cron' \
+    REDIS_PASSWORD='$FAKE_PW' REDIS_WAIT_SECS=5 BACKUP_LOCK_FILE='$WORK/F.lock' FAKE_DIR='$FAKE_DIR' \
+    bash '${SCRIPT_DIR}/backup.sh' >'$WORK/F2.log' 2>&1 && test -s '$DAY/manifest.json'"
 
 echo ""
 echo "=== test-backup: ${PASS} passed, ${FAILN} failed ==="

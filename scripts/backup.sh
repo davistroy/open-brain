@@ -6,7 +6,8 @@
 # Retention: 14 daily + 4 weekly (Sundays) + 3 monthly (1st of month)
 #
 # Usage: bash /mnt/user/appdata/open-brain/scripts/backup.sh
-# Cron:  0 3 * * * cd /mnt/user/appdata/open-brain && bash scripts/backup.sh >> /var/log/open-brain-backup.log 2>&1
+# Cron:  0 3 * * * cd /mnt/user/appdata/open-brain && bash -c 'set -a; . ./.env.secrets 2>/dev/null; set +a; bash scripts/backup.sh' >> /var/log/open-brain-backup.log 2>&1
+#        (installed by scripts/install-crons.sh --apply; the line sources .env.secrets so Pushover works)
 # Log:   /var/log/open-brain-backup.log
 # Notifications: Pushover on success (priority 0) and failure (priority 1)
 
@@ -29,6 +30,17 @@ WIKI_REPO_URL="${WIKI_REPO_URL:-http://Gitea:3000/davistroy/open-brain-wiki.git}
 DAILY_RETENTION=14
 WEEKLY_RETENTION=4    # Sundays
 MONTHLY_RETENTION=3   # 1st of month
+
+# --- Single-instance lock (item 7.3) ---
+# Two runs would write the same daily dir and move `latest` under each other. The second
+# run exits 0 BEFORE the failure trap is installed (a held lock is not a failed backup)
+# and before any dump. Descriptor 9 holds the lock until this process exits.
+BACKUP_LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/open-brain-backup.lock}"
+exec 9>"$BACKUP_LOCK_FILE"
+if ! flock -n 9; then
+  echo "=== Open Brain Backup: another backup is already running (lock ${BACKUP_LOCK_FILE}) — exiting without a dump ==="
+  exit 0
+fi
 
 # --- Setup ---
 DATE=$(date +%Y-%m-%d)

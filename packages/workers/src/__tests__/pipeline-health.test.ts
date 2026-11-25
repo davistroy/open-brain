@@ -26,8 +26,11 @@ vi.mock('../lib/push-metrics.js', () => ({
 // configure this mock at all. Individual tests override with
 // mockResolvedValueOnce/mockRejectedValueOnce.
 const mockStat = vi.fn().mockRejectedValue(new Error('ENOENT: no such file or directory'))
+// `readFile` serves the offsite/rehearsal last-success markers (item 7.3). Default: ENOENT.
+const mockReadFile = vi.fn().mockRejectedValue(new Error('ENOENT: no such file or directory'))
 vi.mock('node:fs/promises', () => ({
   stat: (...args: unknown[]) => mockStat(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
 }))
 
 // ============================================================
@@ -886,6 +889,8 @@ describe('PipelineHealthSkill — alert state (ADR-0005)', () => {
 
   it('required and unreadable manifest: the stateful backup-stale alert is raised with the unreadable text', async () => {
     vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'true')
+    // Fresh job markers (item 7.3), so only the manifest condition is under test here.
+    mockReadFile.mockResolvedValue(new Date(Date.now() - 3600_000).toISOString())
     const { db, store } = makeStatefulDb()
     const pushover = makePushoverService()
 
@@ -1341,5 +1346,156 @@ describe('pipeline-health-query — item 3.1 SQL', () => {
     expect(await queryPipelineSuccessShare(capture([{ complete_count: '95', total_count: '100' }]).db, 7)).toBeCloseTo(0.95)
     expect(await queryPipelineSuccessShare(capture([{ complete_count: '0', total_count: '0' }]).db, 7)).toBeNull()
     expect(await queryPipelineSuccessShare({ execute: vi.fn().mockRejectedValue(new Error('x')) } as never, 7)).toBeNull()
+  })
+})
+
+describe('PipelineHealthSkill — job freshness markers (item 7.3)', () => {
+  const NOW = new Date(2026, 10, 23, 12, 0, 0)
+  const HOUR = 3600_000
+  const iso = (agoMs: number) => new Date(NOW.getTime() - agoMs).toISOString() + '\n'
+
+  /** Serve marker contents by file name; anything else (and unset names) is ENOENT. */
+  function markers(m: { offsite?: string; rehearsal?: string }) {
+    mockReadFile.mockImplementation(async (p: unknown) => {
+      const path = String(p)
+      if (path === '/bk/.offsite-last-success' && m.offsite !== undefined) return m.offsite
+      if (path === '/bk/.rehearsal-last-success' && m.rehearsal !== undefined) return m.rehearsal
+      throw new Error('ENOENT: no such file or directory')
+    })
+  }
+  function run() {
+    const { db, store } = makeStatefulDb()
+    const pushover = makePushoverService()
+    const skill = new PipelineHealthSkill({
+      db: db as unknown as import('@open-brain/shared').Database,
+      queueFactory: makeMockQueueFactory({}),
+      pushover,
+    })
+    return { skill, store, pushover }
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    vi.stubEnv('ALERT_LEGACY_PUSH', 'false')
+    vi.stubEnv('BACKUP_LATEST_PATH', '/bk/latest/manifest.json')
+    mockStat.mockReset()
+    mockStat.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+    mockReadFile.mockReset()
+    mockReadFile.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+    mockReadFile.mockReset()
+    mockReadFile.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+    mockStat.mockReset()
+    mockStat.mockRejectedValue(new Error('ENOENT: no such file or directory'))
+  })
+
+  it('fresh markers: no alert, neither key is bad', async () => {
+    markers({ offsite: iso(2 * HOUR), rehearsal: iso(3 * 24 * HOUR) })
+    const { skill, store, pushover } = run()
+    await skill.execute()
+    expect(sentCalls(pushover)).toEqual([])
+    expect((store.get('alert_state:offsite-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+    expect((store.get('alert_state:rehearsal-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+  })
+
+  it('offsite marker older than 48 h: raises offsite-stale (critical) once', async () => {
+    markers({ offsite: iso(49 * HOUR), rehearsal: iso(HOUR) })
+    const { skill, store, pushover } = run()
+    await skill.execute()
+    await skill.execute()
+    const calls = sentCalls(pushover)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].priority).toBe(1) // critical: priority 1 on first send; 2 only after 24 h open
+    expect(store.get('alert_state:offsite-stale')).toMatchObject({ status: 'bad' })
+    expect((store.get('alert_state:rehearsal-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+  })
+
+  it('offsite marker 47 h old is still fresh', async () => {
+    markers({ offsite: iso(47 * HOUR), rehearsal: iso(HOUR) })
+    const { skill, store } = run()
+    await skill.execute()
+    expect((store.get('alert_state:offsite-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+  })
+
+  it('rehearsal marker older than 8 days: raises rehearsal-stale (warning), not offsite', async () => {
+    markers({ offsite: iso(HOUR), rehearsal: iso(9 * 24 * HOUR) })
+    const { skill, store, pushover } = run()
+    await skill.execute()
+    expect(store.get('alert_state:rehearsal-stale')).toMatchObject({ status: 'bad' })
+    expect((store.get('alert_state:offsite-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+    expect(sentCalls(pushover)).toHaveLength(1)
+    expect(sentCalls(pushover)[0].priority).toBe(0)
+  })
+
+  it('rehearsal marker 7 days old is still fresh', async () => {
+    markers({ offsite: iso(HOUR), rehearsal: iso(7 * 24 * HOUR) })
+    const { skill, store } = run()
+    await skill.execute()
+    expect((store.get('alert_state:rehearsal-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+  })
+
+  it('missing markers, BACKUP_MANIFEST_REQUIRED unset: skipped, nothing recorded', async () => {
+    markers({})
+    const { skill, store, pushover } = run()
+    await skill.execute()
+    expect(sentCalls(pushover)).toEqual([])
+    expect(store.has('alert_state:offsite-stale')).toBe(false)
+    expect(store.has('alert_state:rehearsal-stale')).toBe(false)
+  })
+
+  it('missing markers, BACKUP_MANIFEST_REQUIRED=false: skipped', async () => {
+    vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'false')
+    markers({})
+    const { skill, store } = run()
+    await skill.execute()
+    expect(store.has('alert_state:offsite-stale')).toBe(false)
+  })
+
+  it('missing markers, BACKUP_MANIFEST_REQUIRED=true: both stale', async () => {
+    vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'true')
+    markers({})
+    const { skill, store, pushover } = run()
+    await skill.execute()
+    expect(store.get('alert_state:offsite-stale')).toMatchObject({ status: 'bad' })
+    expect(store.get('alert_state:rehearsal-stale')).toMatchObject({ status: 'bad' })
+    // (the manifest is also unreadable here, so backup-stale makes a third)
+    const titles = sentCalls(pushover).map(c => c.title)
+    expect(titles).toContain('Offsite Backup Stale')
+    expect(titles).toContain('Restore Rehearsal Stale')
+  })
+
+  it('an unparseable marker counts as missing', async () => {
+    vi.stubEnv('BACKUP_MANIFEST_REQUIRED', 'true')
+    markers({ offsite: 'garbage', rehearsal: iso(HOUR) })
+    const { skill, store } = run()
+    await skill.execute()
+    expect(store.get('alert_state:offsite-stale')).toMatchObject({ status: 'bad' })
+  })
+
+  it('BACKUP_ROOT overrides the root derived from BACKUP_LATEST_PATH', async () => {
+    vi.stubEnv('BACKUP_ROOT', '/other')
+    mockReadFile.mockImplementation(async (p: unknown) => {
+      if (String(p) === '/other/.offsite-last-success') return iso(HOUR)
+      if (String(p) === '/other/.rehearsal-last-success') return iso(HOUR)
+      throw new Error('ENOENT')
+    })
+    const { skill, store } = run()
+    await skill.execute()
+    expect((store.get('alert_state:offsite-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
+  })
+
+  it('a marker recovers: stale then fresh resolves the alert', async () => {
+    markers({ offsite: iso(60 * HOUR), rehearsal: iso(HOUR) })
+    const { skill, store } = run()
+    await skill.execute()
+    expect(store.get('alert_state:offsite-stale')).toMatchObject({ status: 'bad' })
+    markers({ offsite: iso(HOUR), rehearsal: iso(HOUR) })
+    await skill.execute()
+    expect((store.get('alert_state:offsite-stale') as { status?: string } | undefined)?.status ?? 'ok').toBe('ok')
   })
 })

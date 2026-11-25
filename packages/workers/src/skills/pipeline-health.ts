@@ -3,6 +3,8 @@ import type { ConnectionOptions } from 'bullmq'
 import type { Database, PipelineEventStage } from '@open-brain/shared'
 import { logger, WORKER_QUEUES, ALL_MONITORED_QUEUES } from '@open-brain/shared'
 import { pushMetrics } from '../lib/push-metrics.js'
+import { readFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import { pushBackupAgeGauge, DEFAULT_BACKUP_MANIFEST_PATH } from '../lib/backup-age.js'
 import { ensureHeartbeatBaseline } from '../lib/heartbeat.js'
 import { legacyPushEnabled, alertStateEnabled, queueAlertKey } from '../lib/alert-state.js'
@@ -68,6 +70,8 @@ export interface PipelineHealthResult extends BaseResult {
    * Always false when the manifest is absent/unreadable (graceful skip).
    */
   backupStale: boolean
+  /** Keys (`offsite-stale` / `rehearsal-stale`) whose last-success marker is stale or (when required) missing. */
+  staleJobMarkers: string[]
   /**
    * Seconds since the latest backup manifest was written, or null when the
    * manifest could not be stat'd (mount absent in dev/CI, or not yet deployed
@@ -177,6 +181,28 @@ const DEFAULT_WAITING_THRESHOLD = 100
  * (backup.sh runs daily; 26h = one full day + a 2h grace margin).
  */
 const DEFAULT_BACKUP_MAX_AGE_SECONDS = 93600
+
+/**
+ * Job freshness markers (item 7.3). `offsite-backup.sh` (daily 03:45) and
+ * `restore-rehearsal.sh` (Sunday 05:30) write the time of their last SUCCESS to
+ * `${backup root}/.offsite-last-success` / `.rehearsal-last-success`. Limits give each
+ * job one missed run plus a margin: offsite 48 h, rehearsal 8 days.
+ */
+const OFFSITE_MARKER = '.offsite-last-success'
+const REHEARSAL_MARKER = '.rehearsal-last-success'
+const OFFSITE_MAX_AGE_SECONDS = 48 * 3600
+const REHEARSAL_MAX_AGE_SECONDS = 8 * 24 * 3600
+
+interface JobMarkerCheck {
+  key: 'offsite-stale' | 'rehearsal-stale'
+  title: string
+  severity: 'critical' | 'warning'
+  label: string
+  /** Seconds since the last success, or null when the marker is missing/unreadable. */
+  ageSeconds: number | null
+  maxAgeSeconds: number
+  stale: boolean
+}
 
 // ============================================================
 // Production queue factory
@@ -344,6 +370,9 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // and (independently) alert if stale (7.4 / PE-H4 / RC-12 / SA-13 / A131).
     const backupCheck = await this.checkBackupAge()
 
+    // Step 3.75 (item 7.3): offsite + rehearsal last-success markers.
+    const jobMarkers = stateOn ? await this.checkJobMarkers() : []
+
     // Step 4a: Evaluate thresholds for the legacy direct push — the exact
     // f341ca6 queue list and semantics (LEGACY_MONITORED_QUEUES).
     const thresholds = { failedThreshold, waitingThreshold, alertOnStalled }
@@ -390,6 +419,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
     // independent alerts that fire on change and stay silent while they hold.
     const stateAlertSent = await this.raiseStateAlerts({
       backupCheck,
+      jobMarkers,
       queueConditions,
       captureFlowObserved,
       embedStall,
@@ -407,6 +437,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
       stalledByQueue,
       captureFlowStale,
       backupStale: backupCheck.stale,
+      staleJobMarkers: jobMarkers.filter(m => m.stale).map(m => m.key),
       backupAgeSeconds: backupCheck.ageSeconds,
       alertSent,
       embedStalled,
@@ -689,6 +720,49 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
   }
 
   // ----------------------------------------------------------
+  // Private: offsite / rehearsal last-success markers (item 7.3)
+  // ----------------------------------------------------------
+
+  /**
+   * Read the two last-success markers through the backup mount. The root is
+   * `BACKUP_ROOT` when set, else the grandparent of `BACKUP_LATEST_PATH`
+   * (`<root>/latest/manifest.json`): production mounts `<root>` at its own absolute
+   * path and already sets `BACKUP_LATEST_PATH`, so no new compose variable is needed
+   * and the markers can never be read from a different directory than the manifest.
+   *
+   * A missing/unparseable marker is a failure only with `BACKUP_MANIFEST_REQUIRED=true`
+   * (same fail-closed rule as the manifest); otherwise the check is skipped and the
+   * alert is neither raised nor resolved. Never throws.
+   */
+  private async checkJobMarkers(): Promise<JobMarkerCheck[]> {
+    const manifestPath = process.env.BACKUP_LATEST_PATH ?? DEFAULT_BACKUP_MANIFEST_PATH
+    const root = process.env.BACKUP_ROOT || dirname(dirname(manifestPath))
+    const required = process.env.BACKUP_MANIFEST_REQUIRED === 'true'
+    const specs: Array<Omit<JobMarkerCheck, 'ageSeconds' | 'stale'> & { file: string }> = [
+      { key: 'offsite-stale', title: 'Offsite Backup Stale', severity: 'critical', label: 'offsite backup', file: OFFSITE_MARKER, maxAgeSeconds: OFFSITE_MAX_AGE_SECONDS },
+      { key: 'rehearsal-stale', title: 'Restore Rehearsal Stale', severity: 'warning', label: 'restore rehearsal', file: REHEARSAL_MARKER, maxAgeSeconds: REHEARSAL_MAX_AGE_SECONDS },
+    ]
+    const out: JobMarkerCheck[] = []
+    for (const { file, ...spec } of specs) {
+      const path = `${root.replace(/\/+$/, '')}/${file}`
+      let ageSeconds: number | null = null
+      try {
+        const ms = Date.parse((await readFile(path, 'utf8')).trim())
+        if (Number.isFinite(ms)) ageSeconds = Math.max(0, Math.floor((Date.now() - ms) / 1000))
+      } catch (err) {
+        logger.debug({ err, path }, '[pipeline-health] job marker unreadable')
+      }
+      if (ageSeconds === null) {
+        if (!required) continue // not observed: skip, hold any open alert
+        out.push({ ...spec, ageSeconds: null, stale: true })
+      } else {
+        out.push({ ...spec, ageSeconds, stale: ageSeconds > spec.maxAgeSeconds })
+      }
+    }
+    return out
+  }
+
+  // ----------------------------------------------------------
   // Private: capture flow check (delegated to query file)
   // ----------------------------------------------------------
 
@@ -790,6 +864,7 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
    */
   private async raiseStateAlerts(p: {
     backupCheck: { ageSeconds: number | null; stale: boolean; maxAgeSeconds: number }
+    jobMarkers: JobMarkerCheck[]
     queueConditions: QueueCondition[]
     captureFlowObserved: boolean | null
     embedStall: EmbedStallStats | null
@@ -806,6 +881,17 @@ export class PipelineHealthSkill extends BaseSkill<PipelineHealthOptions, Pipeli
         message: p.backupCheck.stale
           ? backupStaleMessage(p.backupCheck.ageSeconds, p.backupCheck.maxAgeSeconds)
           : backupAgeLine(p.backupCheck.ageSeconds ?? 0, p.backupCheck.maxAgeSeconds),
+      })
+      sent = sent || r.sent
+    }
+
+    for (const m of p.jobMarkers) {
+      const r = await this.raiseAlert({
+        key: m.key,
+        severity: m.severity,
+        bad: m.stale,
+        title: m.title,
+        message: jobMarkerMessage(m),
       })
       sent = sent || r.sent
     }
@@ -961,6 +1047,17 @@ function backupAgeLine(ageSeconds: number, maxAgeSeconds: number): string {
   const ageHours = (ageSeconds / 3600).toFixed(1)
   const maxAgeHours = (maxAgeSeconds / 3600).toFixed(1)
   return `Backup manifest is ${ageHours}h old (threshold: ${maxAgeHours}h).`
+}
+
+function jobMarkerMessage(m: JobMarkerCheck): string {
+  if (m.ageSeconds === null) {
+    return `Alert: ${m.label} last-success marker is missing or unreadable (BACKUP_MANIFEST_REQUIRED=true). See docs/runbooks/backup-alert.md.`
+  }
+  const hours = Math.floor(m.ageSeconds / 3600)
+  const limit = Math.floor(m.maxAgeSeconds / 3600)
+  return m.stale
+    ? `Alert: last successful ${m.label} was ${hours}h ago (limit ${limit}h). Check its cron log and .env.secrets readability in cron context. See docs/runbooks/backup-alert.md.`
+    : `Last successful ${m.label} was ${hours}h ago (limit ${limit}h).`
 }
 
 function backupStaleMessage(ageSeconds: number | null, maxAgeSeconds: number): string {
