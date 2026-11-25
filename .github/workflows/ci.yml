@@ -79,6 +79,15 @@ jobs:
       - name: Deploy script harness
         run: bash scripts/test-deploy.sh
 
+      - name: Restore rehearsal harness
+        run: bash scripts/test-restore-rehearsal.sh
+
+      - name: Offsite backup harness
+        run: bash scripts/test-offsite-backup.sh
+
+      - name: Install-crons harness
+        run: bash scripts/test-install-crons.sh
+
   email-worker-test:
     name: email-worker tests (Cloudflare Worker)
     runs-on: ubuntu-latest
@@ -210,6 +219,24 @@ jobs:
         # Item 6.1: each migration + its ledger row run in one transaction; a failed
         # file leaves no objects and no ledger row. Throwaway pgvector container.
         run: bash scripts/test-migrate-manual.sh
+
+  dr-restore-e2e:
+    name: DR backup + restore (real, 64 MB /dev/shm)
+    # Item 7.2: the real scripts/backup.sh on a seeded database, then the real
+    # scripts/restore-rehearsal.sh on its output, in containers with the production
+    # postgresql.conf and Docker's default 64 MB /dev/shm. Fails if restore_into loses
+    # PGOPTIONS='-c max_parallel_maintenance_workers=0' (the HNSW index would not restore).
+    # Runs on every push/PR (no path filter), so a change to backup.sh,
+    # restore-rehearsal.sh or lib/restore-core.sh always runs it.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Real backup and restore
+        run: bash scripts/test-restore-e2e.sh
 
   validate-alert-rules:
     name: Validate Prometheus alert rules
