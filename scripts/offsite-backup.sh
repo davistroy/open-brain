@@ -18,13 +18,21 @@
 #   RCLONE_CONF_DIR   default: /mnt/user/appdata/rclone-onedrive/config
 #   OFFSITE_REMOTE    default: open-brain-offsite:
 #   OFFSITE_MAX_AGE   default: 2d   ("off" = full seed copy of the whole tree)
-#   OFFSITE_RETAIN    default: 30d  (remote files older than this are pruned)
+#   OFFSITE_RETAIN_DAILY   default: 30d   (remote daily/ files older than this are pruned)
+#   OFFSITE_RETAIN_WEEKLY  default: 35d
+#   OFFSITE_RETAIN_MONTHLY default: 100d
+#   OFFSITE_SOURCE_MAX_AGE_HOURS default: 48 (newest local daily dump older than
+#                     this = stale source: prune skipped, exit 1; the same window
+#                     is the remote-freshness check after the copy)
+#   RCLONE_CMD        default: unset (production = pinned rclone image via docker).
+#                     Test hook: a command that stands in for rclone.
 #   RCLONE_IMAGE      default: rclone/rclone:1.76.0
 #   PUSHOVER_API_URL  see scripts/lib/pushover-notify.sh (mock-able)
 #
 # Exit codes:
-#   0 — copy + prune succeeded
-#   1 — rclone copy failed (Pushover priority-1 alert sent)
+#   0 — copy + prune succeeded; ${BACKUP_ROOT}/.offsite-last-success written
+#   1 — rclone copy failed, local source stale (prune skipped), or no fresh dump
+#       on the remote after the copy (Pushover priority-1 alert sent)
 #   2 — precondition failure (backup root or rclone config missing)
 
 set -uo pipefail
@@ -33,7 +41,11 @@ BACKUP_ROOT="${BACKUP_ROOT:-/mnt/user/backup/openbrain}"
 RCLONE_CONF_DIR="${RCLONE_CONF_DIR:-/mnt/user/appdata/rclone-onedrive/config}"
 OFFSITE_REMOTE="${OFFSITE_REMOTE:-open-brain-offsite:}"
 OFFSITE_MAX_AGE="${OFFSITE_MAX_AGE:-2d}"
-OFFSITE_RETAIN="${OFFSITE_RETAIN:-30d}"
+OFFSITE_RETAIN_DAILY="${OFFSITE_RETAIN_DAILY:-30d}"
+OFFSITE_RETAIN_WEEKLY="${OFFSITE_RETAIN_WEEKLY:-35d}"
+OFFSITE_RETAIN_MONTHLY="${OFFSITE_RETAIN_MONTHLY:-100d}"
+OFFSITE_SOURCE_MAX_AGE_HOURS="${OFFSITE_SOURCE_MAX_AGE_HOURS:-48}"
+RCLONE_CMD="${RCLONE_CMD:-}"
 RCLONE_IMAGE="${RCLONE_IMAGE:-rclone/rclone:1.76.0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,28 +69,69 @@ fail() {
 [ -f "${RCLONE_CONF_DIR}/rclone.conf" ] || fail 2 "rclone config not found in ${RCLONE_CONF_DIR}"
 
 run_rclone() {
+  if [ -n "$RCLONE_CMD" ]; then
+    # Test hook: stub rclone, no docker.
+    # shellcheck disable=SC2086
+    $RCLONE_CMD "$@" --config "${RCLONE_CONF_DIR}/rclone.conf"
+    return
+  fi
   docker run --rm \
     -v "${RCLONE_CONF_DIR}:/config/rclone" \
     -v "${BACKUP_ROOT}:/backup:ro" \
     "$RCLONE_IMAGE" "$@" --config /config/rclone/rclone.conf
 }
 
+# Source path as the rclone process sees it (container mount vs. host path).
+if [ -n "$RCLONE_CMD" ]; then SRC="$BACKUP_ROOT"; else SRC=/backup; fi
+
 # --- 1. Copy new backup files to the crypt remote ---
-echo "[1/3] Copying ${BACKUP_ROOT} -> ${OFFSITE_REMOTE} (max-age ${OFFSITE_MAX_AGE})..."
-if ! run_rclone copy /backup "$OFFSITE_REMOTE" --max-age "$OFFSITE_MAX_AGE" --transfers 2 --stats-one-line --stats 30s; then
+echo "[1/4] Copying ${BACKUP_ROOT} -> ${OFFSITE_REMOTE} (max-age ${OFFSITE_MAX_AGE})..."
+if ! run_rclone copy "$SRC" "$OFFSITE_REMOTE" --max-age "$OFFSITE_MAX_AGE" --transfers 2 --stats-one-line --stats 30s; then
   fail 1 "rclone copy to ${OFFSITE_REMOTE} failed — see /var/log/open-brain-offsite-backup.log"
 fi
 
-# --- 2. Prune remote files outside the retention window ---
-echo "[2/3] Pruning ${OFFSITE_REMOTE} files older than ${OFFSITE_RETAIN}..."
-if ! run_rclone delete "$OFFSITE_REMOTE" --min-age "$OFFSITE_RETAIN"; then
-  # Prune failure is non-fatal (next run retries) but worth a warning line.
-  echo "WARN: remote prune failed — retention window will catch up on the next run" >&2
+# --- 2. Guards: never prune on a stale source; the remote must hold a fresh dump ---
+# A prune is age-based, so when the local backup stops, pruning would drain the
+# remote to empty while every run still "succeeded" (2026-09 incident).
+newest_epoch=0
+for f in "${BACKUP_ROOT}"/daily/*/openbrain.pgdump; do
+  [ -f "$f" ] || continue
+  m=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+  [ "$m" -gt "$newest_epoch" ] && newest_epoch="$m"
+done
+now_epoch=$(date +%s)
+max_age_s=$(( OFFSITE_SOURCE_MAX_AGE_HOURS * 3600 ))
+if [ "$newest_epoch" -eq 0 ]; then
+  fail 1 "no local daily/*/openbrain.pgdump under ${BACKUP_ROOT} — prune skipped"
+elif [ $(( now_epoch - newest_epoch )) -gt "$max_age_s" ]; then
+  fail 1 "newest local dump is $(( (now_epoch - newest_epoch) / 3600 ))h old (> ${OFFSITE_SOURCE_MAX_AGE_HOURS}h) — prune skipped"
 fi
-run_rclone rmdirs "$OFFSITE_REMOTE" --leave-root || true
 
-# --- 3. Report ---
-echo "[3/3] Remote usage:"
+# --files-only is load-bearing: filters and --max-age apply to files only, so
+# without it lsf -R lists every dated directory and the listing is never empty.
+fresh_listing=$(run_rclone lsf -R --files-only --max-age "${OFFSITE_SOURCE_MAX_AGE_HOURS}h" --include '*/openbrain.pgdump' "${OFFSITE_REMOTE}daily") \
+  || fail 1 "could not list ${OFFSITE_REMOTE}daily after the copy — prune skipped"
+[ -n "$fresh_listing" ] || fail 1 "no openbrain.pgdump newer than ${OFFSITE_SOURCE_MAX_AGE_HOURS}h on ${OFFSITE_REMOTE}daily after the copy — prune skipped"
+
+# --- 3. Prune per tier (canary/** is never pruned) ---
+prune_tier() {
+  local tier="$1" retain="$2"
+  echo "[2/4] Pruning ${OFFSITE_REMOTE}${tier} files older than ${retain}..."
+  if ! run_rclone delete "${OFFSITE_REMOTE}${tier}" --min-age "$retain" --exclude 'canary/**'; then
+    # Prune failure is non-fatal (next run retries) but worth a warning line.
+    echo "WARN: ${tier} prune failed — retention window will catch up on the next run" >&2
+  fi
+  run_rclone rmdirs "${OFFSITE_REMOTE}${tier}" --leave-root || true
+}
+prune_tier daily   "$OFFSITE_RETAIN_DAILY"
+prune_tier weekly  "$OFFSITE_RETAIN_WEEKLY"
+prune_tier monthly "$OFFSITE_RETAIN_MONTHLY"
+
+# --- 4. Report ---
+echo "[4/4] Remote usage:"
 run_rclone size "$OFFSITE_REMOTE" || true
+
+date +%Y-%m-%dT%H:%M:%S%z > "${BACKUP_ROOT}/.offsite-last-success" \
+  || echo "WARN: could not write ${BACKUP_ROOT}/.offsite-last-success" >&2
 
 echo "=== Offsite backup complete: $(date +%Y-%m-%dT%H:%M:%S%z) ==="

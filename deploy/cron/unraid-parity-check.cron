@@ -8,12 +8,12 @@
 # accumulates because nobody deploys. This scheduled check turns drift into a
 # Pushover. ("Comparison is the fix" — Entry 207 / D148.)
 #
-# INSTALL (root, once):
-#   sudo tee -a /boot/config/plugins/dynamix/custom.cron < deploy/cron/unraid-parity-check.cron
-#   sudo /usr/local/sbin/update_cron
-#   crontab -l | grep parity   # verify
+# INSTALL: installed by `scripts/install-crons.sh --apply`, run as root on the homeserver.
+#   Run it without --apply first to see the diff. Verify with grep on /etc/cron.d/root
+#   (NOT `crontab -l`):  grep parity /etc/cron.d/root
 #
-# ROLLBACK: remove the line from custom.cron + `update_cron` again.
+# ROLLBACK: copy the custom.cron.bak-<timestamp> the installer left beside custom.cron back
+#   over custom.cron, then run /usr/local/sbin/update_cron.
 #
 # NOTES:
 #   - Runs ON the homeserver, reading the DEPLOYED compose LOCALLY

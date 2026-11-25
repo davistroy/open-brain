@@ -8,10 +8,48 @@
 
 Copies `/mnt/user/backup/openbrain` (written by `backup.sh` at 03:00) to the
 rclone **crypt** remote `open-brain-offsite:` — encrypted file contents *and*
-names on Google Drive under `gdrive:Backups/open-brain-crypt`. Remote files
-older than 30 days are pruned (TDD §16 design). Steady state: a rolling
-~30-day window of daily backups offsite; weekly/monthly deep history remains
-local-only.
+names on Google Drive under `gdrive:Backups/open-brain-crypt`. The copy uses
+`rclone copy --max-age 2d` (never `sync`: a local wipe must not delete remote
+files). Remote files are then pruned **per tier**:
+
+| Tier | Remote retention | Local retention |
+|------|------------------|-----------------|
+| `daily/` | 30 days | 14 |
+| `weekly/` | 35 days | 4 |
+| `monthly/` | 100 days | 3 |
+
+The remote windows are longer than the local ones on purpose. Every prune
+passes `--exclude 'canary/**'`, so `canary/ob-canary.txt` is never deleted.
+
+## Freshness checks (the script exits 1 on either)
+
+1. **Source check, before the prune.** The newest local
+   `daily/*/openbrain.pgdump` must be younger than
+   `OFFSITE_SOURCE_MAX_AGE_HOURS` (default 48). Older, or none at all: the
+   prune is skipped, the run exits 1, and a Pushover alert is sent. Without
+   this guard an age-based prune drains the remote to empty once the local
+   backup stops (2026-09 incident: 0 objects, every run logged "complete").
+2. **Result check, after the copy.** `rclone lsf -R --files-only --max-age 48h
+   --include '*/openbrain.pgdump' open-brain-offsite:daily` must return a file.
+   An empty listing exits 1 and skips the prune. `--files-only` is required:
+   rclone applies filters and `--max-age` to files only, so without it every
+   dated directory is listed and the check can never fail.
+
+On success the script writes the timestamp to
+`${BACKUP_ROOT}/.offsite-last-success` (read by the freshness alert, item 7.3).
+
+**Host order when shipping item 7.3:** run one offsite backup by hand (the
+seeding run below) so `.offsite-last-success` exists BEFORE deploying the new
+`workers` image. Production sets `BACKUP_MANIFEST_REQUIRED=true`, so a missing
+marker counts as stale and raises a critical `offsite-stale` alert on the first
+pipeline-health run.
+
+Seeding run: `OFFSITE_MAX_AGE=off` copies the whole tree once (config files
+whose mtime predates the 2-day window); the next normal run is back to `2d`.
+Do not leave `off` set while the prune is age-based, or files are re-uploaded
+and deleted in a loop.
+
+Test: `bash scripts/test-offsite-backup.sh` (stub `RCLONE_CMD`, no network).
 
 Failure sends a priority-1 Pushover alert (`scripts/lib/pushover-notify.sh`).
 

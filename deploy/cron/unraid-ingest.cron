@@ -1,20 +1,18 @@
 # Open Brain — Ingest sidecar cron entries (Unraid host)
 #
-# INSTALL (post-merge, once):
-#   1. SSH to homeserver as `claude` (has passwordless sudo for cron operations).
-#   2. Append these lines to the Unraid system crontab:
-#        sudo tee -a /boot/config/plugins/dynamix/custom.cron < deploy/cron/unraid-ingest.cron
-#      Unraid reads /boot/config/plugins/dynamix/*.cron on boot and merges them
-#      into the live crontab (same persistence path as the existing
-#      scripts/backup.sh entry).
-#   3. Reload cron so the lines take effect without a reboot:
-#        sudo /usr/local/sbin/update_cron
-#   4. Verify:
-#        crontab -l | grep ingest
+# INSTALL: installed by `scripts/install-crons.sh --apply`, run as root on the homeserver
+#   (/boot/config is root-only). The installer writes every cron line of every
+#   deploy/cron/*.cron template into the managed block of
+#   /boot/config/plugins/dynamix/custom.cron, reloads cron and checks each line.
+#   Run it without --apply first to see the diff.
+#   Verify with grep on /etc/cron.d/root (NOT `crontab -l` — Unraid merges custom.cron into
+#   /etc/cron.d/root):
+#        grep -E 'financial-ingest|utility-ingest|actual-ingest' /etc/cron.d/root
 #
 # ROLLBACK:
-#   Remove the three lines from /boot/config/plugins/dynamix/custom.cron and
-#   run update_cron again.
+#   cp /boot/config/plugins/dynamix/custom.cron.bak-<timestamp> \
+#      /boot/config/plugins/dynamix/custom.cron && /usr/local/sbin/update_cron
+#   (the installer leaves that backup beside custom.cron on every change)
 #
 # LOGS:
 #   /var/log/financial-ingest.log and /var/log/utility-ingest*.log rotate

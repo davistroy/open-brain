@@ -13,6 +13,13 @@
 #   bash scripts/load-secrets.sh --verify-hash     # check sha256 sidecar (no writes)
 #   bash scripts/load-secrets.sh --rehash-only     # regenerate .sha256 only
 #   bash scripts/load-secrets.sh --target-dir DIR  # default: $APP_DIR or cwd
+#   bash scripts/load-secrets.sh --no-persist-bootstrap  # do NOT write BWS_ACCESS_TOKEN
+#
+# Bootstrap token: BWS_ACCESS_TOKEN authenticates the bws CLI itself and is not a BWS
+# secret. A token already in an existing .env.secrets is preserved across --force.
+# Otherwise (fresh host) the token from the environment is written into the new file
+# (exactly one BWS_ACCESS_TOKEN= line; the sidecars need it). Pass
+# --no-persist-bootstrap to keep it out of the file. The value is never printed.
 #
 # Env overrides:
 #   BWS_BIN               override path to bws binary (default ~/bin/bws.exe then PATH lookup)
@@ -49,6 +56,7 @@ source "${SCRIPT_DIR}/lib/pushover-notify.sh"
 # -----------------------------------------------------------------------------
 MODE="reconcile"   # reconcile | dry-run | verify-hash | rehash-only
 FORCE="false"
+PERSIST_BOOTSTRAP="true"
 TARGET_DIR="${APP_DIR:-$(pwd)}"
 
 while [[ $# -gt 0 ]]; do
@@ -57,10 +65,11 @@ while [[ $# -gt 0 ]]; do
     --verify-hash)  MODE="verify-hash"; shift ;;
     --rehash-only)  MODE="rehash-only"; shift ;;
     --force)        FORCE="true"; shift ;;
+    --no-persist-bootstrap) PERSIST_BOOTSTRAP="false"; shift ;;
     --target-dir)   TARGET_DIR="$2"; shift 2 ;;
     --target-dir=*) TARGET_DIR="${1#*=}"; shift ;;
     -h|--help)
-      sed -n '1,40p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '1,48p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -316,6 +325,13 @@ PRESERVED_BOOTSTRAP_TOKEN=""
 if [[ -f "${ENV_SECRETS_FILE}" ]]; then
   PRESERVED_BOOTSTRAP_TOKEN="$(grep -m1 '^BWS_ACCESS_TOKEN=' "${ENV_SECRETS_FILE}" 2>/dev/null || true)"
 fi
+BOOTSTRAP_NOTE="preserved from prior file"
+if [[ -z "${PRESERVED_BOOTSTRAP_TOKEN}" && "${PERSIST_BOOTSTRAP}" == "true" && -n "${BWS_ACCESS_TOKEN:-}" ]]; then
+  # Fresh host (item 7.4 / OA-33): no prior file to preserve from, so persist the
+  # token the operator exported. Never echoed; written only into the 0600 tmp file.
+  PRESERVED_BOOTSTRAP_TOKEN="BWS_ACCESS_TOKEN=${BWS_ACCESS_TOKEN}"
+  BOOTSTRAP_NOTE="from environment at load time"
+fi
 TMP_ENV_SECRETS="$(mktemp -p "${TARGET_DIR}" .env.secrets.tmp.XXXXXX)"
 chmod 0600 "${TMP_ENV_SECRETS}"
 
@@ -378,7 +394,7 @@ chmod 0600 "${TMP_ENV_SECRETS}"
 
   if [[ -n "${PRESERVED_BOOTSTRAP_TOKEN}" ]]; then
     echo ""
-    echo "# --- Bootstrap token (preserved from prior file; NOT in BWS, OA-4b) ---"
+    echo "# --- Bootstrap token (${BOOTSTRAP_NOTE}; NOT in BWS, OA-4b) ---"
     echo "${PRESERVED_BOOTSTRAP_TOKEN}"
   fi
 } > "${TMP_ENV_SECRETS}"

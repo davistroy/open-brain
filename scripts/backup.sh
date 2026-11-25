@@ -6,7 +6,8 @@
 # Retention: 14 daily + 4 weekly (Sundays) + 3 monthly (1st of month)
 #
 # Usage: bash /mnt/user/appdata/open-brain/scripts/backup.sh
-# Cron:  0 3 * * * cd /mnt/user/appdata/open-brain && bash scripts/backup.sh >> /var/log/open-brain-backup.log 2>&1
+# Cron:  0 3 * * * cd /mnt/user/appdata/open-brain && bash -c 'set -a; . ./.env.secrets 2>/dev/null; set +a; bash scripts/backup.sh' >> /var/log/open-brain-backup.log 2>&1
+#        (installed by scripts/install-crons.sh --apply; the line sources .env.secrets so Pushover works)
 # Log:   /var/log/open-brain-backup.log
 # Notifications: Pushover on success (priority 0) and failure (priority 1)
 
@@ -20,8 +21,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/pushover-notify.sh"
 # shellcheck source=lib/db-objects.sh
 source "${SCRIPT_DIR}/lib/db-objects.sh"
-DB_CONTAINER="open-brain-postgres"
-REDIS_CONTAINER="open-brain-redis"
+# Exact container names (overridable). There is NO name-based discovery: a `docker ps`
+# name filter is an unanchored, OR-ed match that picked the rehearsal postgres as the DB,
+# or the postgres container as "redis".
+DB_CONTAINER="${DB_CONTAINER:-open-brain-postgres}"
+REDIS_CONTAINER="${REDIS_CONTAINER:-open-brain-redis}"
 DB_USER="openbrain"
 DB_NAME="openbrain"
 CUSTOM_CRON_SRC="${CUSTOM_CRON_SRC:-/boot/config/plugins/dynamix/custom.cron}"
@@ -29,6 +33,23 @@ WIKI_REPO_URL="${WIKI_REPO_URL:-http://Gitea:3000/davistroy/open-brain-wiki.git}
 DAILY_RETENTION=14
 WEEKLY_RETENTION=4    # Sundays
 MONTHLY_RETENTION=3   # 1st of month
+
+# --- Single-instance lock (item 7.3) ---
+# Two runs would write the same daily dir and move `latest` under each other. The second
+# run exits 0 BEFORE the failure trap is installed (a held lock is not a failed backup)
+# and before any dump. Descriptor 9 holds the lock until this process exits.
+BACKUP_LOCK_FILE="${BACKUP_LOCK_FILE:-/var/lock/open-brain-backup.lock}"
+if ! exec 9>"$BACKUP_LOCK_FILE"; then
+  # Before the trap: push here, or a missing lock dir would fail every night in silence.
+  echo "ERROR: cannot open lock file ${BACKUP_LOCK_FILE} — no backup taken" >&2
+  PUSHOVER_TITLE="Open Brain: backup FAILED" \
+    notify_pushover_mismatch "Daily backup did not start: cannot open lock file ${BACKUP_LOCK_FILE} ($(date +%H:%M))" || true
+  exit 1
+fi
+if ! flock -n 9; then
+  echo "=== Open Brain Backup: another backup is already running (lock ${BACKUP_LOCK_FILE}) — exiting without a dump ==="
+  exit 0
+fi
 
 # --- Setup ---
 DATE=$(date +%Y-%m-%d)
@@ -63,15 +84,10 @@ echo "=== Open Brain Backup: ${TIMESTAMP} ==="
 echo "[1/6] Dumping Postgres database..."
 DB_DUMP="${BACKUP_FILE}/openbrain.pgdump"
 
-# Try the expected container name first, fall back to discovery
 CONTAINER="${DB_CONTAINER}"
 if ! docker inspect "$CONTAINER" &>/dev/null; then
-    CONTAINER=$(docker ps --filter "name=open-brain" --filter "name=postgres" --format '{{.Names}}' | head -1)
-    if [ -z "$CONTAINER" ]; then
-        echo "ERROR: Cannot find Postgres container" >&2
-        exit 1
-    fi
-    echo "  (discovered container: ${CONTAINER})"
+    echo "ERROR: Cannot find Postgres container ${CONTAINER} (set DB_CONTAINER to override)" >&2
+    exit 1
 fi
 
 docker exec "$CONTAINER" pg_dump \
@@ -170,9 +186,7 @@ REDIS_SIZE="0"
 REDIS_STATUS="failed"
 
 REDIS_C="${REDIS_CONTAINER}"
-if ! docker inspect "$REDIS_C" &>/dev/null; then
-    REDIS_C=$(docker ps --filter "name=open-brain" --filter "name=redis" --format '{{.Names}}' | head -1 || true)
-fi
+docker inspect "$REDIS_C" &>/dev/null || REDIS_C=""
 
 # redis_cli <args...> — the password reaches the container by NAME only (-e NAME), so it
 # never appears in a process list or a log. The in-container fallback to REDIS_PASSWORD
@@ -217,7 +231,7 @@ snapshot_redis() {
 if [ -n "$REDIS_C" ]; then
     if snapshot_redis; then REDIS_STATUS="present"; fi
 else
-    echo "  WARNING: no Redis container found — skipping Redis snapshot"
+    echo "  WARNING: no Redis container found (${REDIS_CONTAINER}; set REDIS_CONTAINER to override) — skipping Redis snapshot"
 fi
 [ "$REDIS_STATUS" = "present" ] || echo "  WARNING: redis_rdb: failed — the backup continues without a Redis snapshot"
 
