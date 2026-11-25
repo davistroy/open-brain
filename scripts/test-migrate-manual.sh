@@ -9,7 +9,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="${REPO_ROOT}/scripts/migrate-manual.sh"
 IMAGE="pgvector/pgvector:pg16"
 CONTAINER="ob-migrate-test-$$"
-DB_USER="mig"; DB_NAME="mig"; DB_PASS="mig"   # throwaway test credentials
+DB_USER="mig"; DB_NAME="mig"; DB_PASS="fakePw7Qx9zz"   # throwaway test credentials (distinctive: grepped for)
 TMP="$(mktemp -d)"
 FAILS=0
 
@@ -101,6 +101,30 @@ check "baseline records ledger row" "1" "$(q "SELECT count(*) FROM schema_migrat
 check "baseline does not run the file" "" "$(q "SELECT to_regclass('t_base')")"
 out="$(bash "$SCRIPT" --dry-run 2>&1)"
 [[ "$out" == *"nothing"* || "$out" == *"up to date"* ]] && pass "dry-run after baseline: none pending" || fail "dry-run after baseline: none pending"
+
+# --- Case 7: the password is never printed (--status, --dry-run, apply) -------
+out="$(bash "$SCRIPT" --status 2>&1; bash "$SCRIPT" --dry-run 2>&1; bash "$SCRIPT" 2>&1)"
+[[ "$out" != *"${DB_PASS}"* ]] && pass "password absent from all output" || fail "password absent from all output"
+[[ "$out" == *"${DB_USER}:***@"* ]] && pass "status prints the masked URL (user:***@)" || fail "status prints the masked URL (user:***@)"
+
+# --- Case 8: the password never reaches a psql argv (visible in ps) ------------
+REAL_PSQL="$(command -v psql)"
+mkdir -p "${TMP}/bin"
+cat > "${TMP}/bin/psql" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${TMP}/psql-argv.log"
+exec "${REAL_PSQL}" "\$@"
+SH
+chmod +x "${TMP}/bin/psql"
+: > "${TMP}/psql-argv.log"
+cat > "${MIGRATIONS_DIR}/0005_argv.sql" <<'SQL'
+CREATE TABLE t_argv (id int);
+SQL
+PATH="${TMP}/bin:${PATH}" bash "$SCRIPT" --status >/dev/null 2>&1
+PATH="${TMP}/bin:${PATH}" bash "$SCRIPT" >/dev/null 2>&1
+check "apply through the shim still works" "t_argv" "$(q "SELECT to_regclass('t_argv')")"
+[[ -s "${TMP}/psql-argv.log" ]] && pass "psql shim was called" || fail "psql shim was called"
+if grep -q -- "${DB_PASS}" "${TMP}/psql-argv.log"; then fail "password absent from psql argv"; else pass "password absent from psql argv"; fi
 
 echo
 if (( FAILS == 0 )); then echo "test-migrate-manual: ALL PASSED"; exit 0; fi

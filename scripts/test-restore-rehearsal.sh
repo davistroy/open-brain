@@ -20,6 +20,8 @@
 #   TC-12: manifest without `objects`                                    — warning + exit 0
 #   TC-13: object count mismatch (index / fk / trigger / function)       — expect exit 1 each
 #   TC-14: ledger mismatch, invalid index                                — expect exit 1 each
+#   TC-15: REHEARSAL_CONTAINER without "rehearsal" in its name -> exit 2, no docker call
+#   TC-16: manifest objects: null -> warning + exit 0
 #   TC-8:  Pushover mock: pass path sends pass, fail path sends fail
 #   TC-R:  REAL container end to end (skipped without docker): restore a seeded dump
 #          -> exit 0 + `indexes N/N ...` line; manifest claiming one more index -> exit 1
@@ -232,6 +234,32 @@ run_test "TC-14a: ledger max differs -> fail" 1 \
 run_test "TC-14b: an invalid index -> fail" 1 \
   "BACKUP_ROOT=${GOOD_ROOT}" "REHEARSAL_DRY_RUN=true" "REHEARSAL_DRY_INVALID_INDEXES=1" "${NOPUSH[@]}"
 
+# TC-15: a REHEARSAL_CONTAINER without "rehearsal" in its name is refused before any
+# docker call (the script runs `docker rm -f` on that name). Real mode, so the guard is
+# proven to run before the docker steps; docker is shadowed by a fake that records calls.
+FAKE_BIN="${WORK_DIR}/fakebin"; mkdir -p "${FAKE_BIN}"
+printf '#!/bin/sh\necho "docker $*" >> "%s/docker-calls.log"\nexit 1\n' "${WORK_DIR}" > "${FAKE_BIN}/docker"
+chmod +x "${FAKE_BIN}/docker"
+: > "${WORK_DIR}/docker-calls.log"
+for name in open-brain-postgres open-brain-core-api; do
+  run_test "TC-15: REHEARSAL_CONTAINER=${name} refused (exit 2)" 2 \
+    "PATH=${FAKE_BIN}:${PATH}" "BACKUP_ROOT=${GOOD_ROOT}" "REHEARSAL_CONTAINER=${name}" "${NOPUSH[@]}"
+done
+if [[ ! -s "${WORK_DIR}/docker-calls.log" ]]; then
+  echo "  PASS  TC-15b: no docker call for a refused name"; PASS_COUNT=$((PASS_COUNT + 1))
+else
+  echo "  FAIL  TC-15b: docker was called: $(head -1 "${WORK_DIR}/docker-calls.log")"; FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# TC-16: manifest `objects: null` (backup.sh could not count) -> treated as "no objects"
+NULL_OBJECTS_ROOT="${WORK_DIR}/null_objects"; mk_backup "${NULL_OBJECTS_ROOT}" "${NOW_TS}" "null"
+out=$(env "BACKUP_ROOT=${NULL_OBJECTS_ROOT}" REHEARSAL_DRY_RUN=true "${NOPUSH[@]}" bash "${REHEARSAL_SCRIPT}" 2>&1); rc=$?
+if [[ ${rc} -eq 0 && "${out}" == *"no 'objects' key"* ]]; then
+  echo "  PASS  TC-16: objects: null -> warning + exit 0"; PASS_COUNT=$((PASS_COUNT + 1))
+else
+  echo "  FAIL  TC-16: expected warning + exit 0, got exit ${rc}"; FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
 # ---------------------------------------------------------------------------
 # TC-8: Pushover notification path — verify curl is invoked with correct status.
 # Start a minimal mock HTTP server (python3) that writes POST body to a temp
@@ -360,6 +388,11 @@ CREATE FUNCTION hybrid_search() RETURNS int LANGUAGE sql AS 'SELECT 1';
 CREATE FUNCTION spreading_activation() RETURNS int LANGUAGE sql AS 'SELECT 1';
 CREATE FUNCTION fts_only_search() RETURNS int LANGUAGE sql AS 'SELECT 1';
 CREATE FUNCTION vector_search() RETURNS int LANGUAGE sql AS 'SELECT 1';
+-- LAST (it changes where unqualified CREATEs land): a schema named after the user comes
+-- FIRST in search_path ("$user", public), so an unqualified count of "captures" would
+-- read this empty table instead of public.captures.
+CREATE SCHEMA openbrain;
+CREATE TABLE openbrain.captures (id int);
 SQL
     REAL_ROOT="${WORK_DIR}/real"; REAL_DIR="${REAL_ROOT}/daily/fixture"; mkdir -p "${REAL_DIR}"
     docker exec "${REAL_SRC}" pg_dump -U openbrain -d openbrain --format=custom --no-owner --no-privileges \

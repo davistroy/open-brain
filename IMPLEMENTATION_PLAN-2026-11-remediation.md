@@ -1251,7 +1251,7 @@ Both scripts use `bash`, `jq`, `sed`, and `awk` only; the Unraid host has no `py
 ---
 
 #### 5.3 Remove the scripts and instructions that destroy data
-**Status: PENDING**
+**Status: COMPLETE 2026-11-24**
 **Model Tier: sonnet**
 **Requirement Refs:** PLT-016, PLT-028, PLT-012, SA7-12 (operational parts)
 **Depends On:** 5.2
@@ -1421,7 +1421,7 @@ HOST — operator-gated. Run in a session with the owner present; an unattended 
 ### Work Items
 
 #### 6.1 Atomic migrations
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-12
 **Files Affected:**
@@ -1454,7 +1454,7 @@ No migration in `packages/shared/drizzle` contains `BEGIN` or `CONCURRENTLY` tod
 ---
 
 #### 6.2 One restore script used by the rehearsal and by a real recovery
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25**
 **Model Tier: opus**
 **Requirement Refs:** DA7-03, PLT-017, RC7-11 (recovery part), PLT-010
 **Depends On:** 6.1
@@ -1491,7 +1491,7 @@ The restore session sets `PGOPTIONS='-c max_parallel_maintenance_workers=0'`, so
 ---
 
 #### 6.3 A rehearsal that fails when it should
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25 (repo; host task 9 pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-04, DA7-09, PLT-004, QA-003
 **Depends On:** 6.2
@@ -1530,7 +1530,7 @@ Ships in ONE pull request with item 6.4: the assertions read the manifest key `o
 ---
 
 #### 6.4 The backup holds everything a rebuild needs
-**Status: PENDING**
+**Status: COMPLETE 2026-11-25 (repo; host task 9 pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-07, PLT-031, PLT-030, DA7-13, PLT-023
 **Depends On:** 6.3

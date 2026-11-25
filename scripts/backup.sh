@@ -249,11 +249,15 @@ src.close()' "$db" "$tmp" >/dev/null 2>&1 || { echo "  WARNING: sqlite backup of
 }
 
 # tar_from_container <container> <path> <archive-name>
+# The archive is <archive-name>.tar; its member keeps the BASENAME of <path> (state.json,
+# voice-spool/...), so extracting it into the parent directory in the container
+# (`docker cp - <c>:/data < x.tar`, or `tar -xf x.tar -C /data`) restores the original path.
 tar_from_container() {
-    local c="$1" path="$2" name="$3" stage
+    local c="$1" path="$2" name="$3" stage member
+    member="$(basename "$path")"
     stage=$(mktemp -d) || return 1
-    if docker cp "${c}:${path}" "${stage}/${name}" >/dev/null 2>&1 \
-        && tar -C "$stage" -cf "${SIDECAR_DIR}/${name}.tar" "$name"; then
+    if docker cp "${c}:${path}" "${stage}/${member}" >/dev/null 2>&1 \
+        && tar -C "$stage" -cf "${SIDECAR_DIR}/${name}.tar" "$member"; then
         echo "  ${name}.tar: $(du -h "${SIDECAR_DIR}/${name}.tar" | cut -f1)"
         rm -rf "$stage"
     else
@@ -300,6 +304,7 @@ TABLE_COUNTS=$(docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -
         query_to_xml(format('SELECT count(*) AS c FROM %I.%I', schemaname, relname), false, true, '')
     ))[1]::text
     FROM pg_stat_user_tables
+    WHERE schemaname = 'public'
     ORDER BY relname
 ")
 

@@ -13,6 +13,7 @@
 #   B  Redis NOAUTH: redis_rdb=failed, no redis.rdb, backup still completes and moves latest
 #   C  absent DB files + unreadable custom.cron: warnings, backup completes, latest moves
 #   D  positive control: a secret name planted in sidecars/ IS caught by the scan
+#   E  object query returns 3 of 4 counts: manifest objects = null, manifest still valid JSON
 #
 # Usage: bash scripts/test-backup.sh      Exit 0 = all pass, 1 = failure.
 # Secrets policy: prints variable NAMES and file names only.
@@ -68,11 +69,13 @@ case "${1:-}" in
       psql)
         q="${*: -1}"
         case "$q" in
-          *pg_indexes*) echo "5 2 1 3" ;;
+          *pg_indexes*) if [[ "${FAKE_OBJECTS_SHORT:-}" == 1 ]]; then echo "5 2 1"; else echo "5 2 1 3"; fi ;;
           *to_regclass*) echo t ;;
           *"max(version)"*) echo "0042_fake.sql" ;;
           *pg_database_size*) echo 12345 ;;
-          *query_to_xml*) printf 'captures:3\nentities:1\n' ;;
+          *query_to_xml*) printf 'captures:3\nentities:1\n'
+                          # a table of another schema, unless the query keeps schema public only
+                          [[ "$q" == *"schemaname = 'public'"* ]] || printf 'other_schema_tbl:9\n' ;;
           *) exit 1 ;;
         esac; exit 0 ;;
       test) shift; flag="$1"; p="$2"; [[ -e "$r$p" ]] && exit 0; exit 1 ;;
@@ -188,6 +191,13 @@ done
 check "A: SQLite snapshots pass integrity_check and hold the rows" test "$integ_ok" -eq 1
 check "A: actual-state.tar + voice-spool.tar exist" test -s "$DAY/sidecars/actual-state.tar" -a -s "$DAY/sidecars/voice-spool.tar"
 check "A: voice-spool.tar holds the spooled file" bash -c "tar -tf '$DAY/sidecars/voice-spool.tar' | grep -q 'a.json'"
+# Members keep the container basenames, so `tar -xf <x>.tar -C /data` (or `docker cp - <c>:/data`)
+# lands them at the paths the sidecars read.
+check "A: actual-state.tar member list is exactly state.json" \
+  test "$(tar -tf "$DAY/sidecars/actual-state.tar" | sort | tr '\n' ' ')" = "state.json "
+check "A: voice-spool.tar member list is voice-spool/ + voice-spool/a.json" \
+  test "$(tar -tf "$DAY/sidecars/voice-spool.tar" | sort | tr '\n' ' ')" = "voice-spool/ voice-spool/a.json "
+check "A: manifest tables hold schema public only" test "$(jq -r '.tables | keys | join(",")' "$M")" = "captures,entities"
 check "A: custom.cron copied" test -s "$DAY/custom.cron"
 check "A: DEPLOYED.json copied" test -s "$DAY/DEPLOYED.json"
 check "A: host-tree.txt has HEAD and the untracked file" bash -c "grep -q '^HEAD: [0-9a-f]\{40\}' '$DAY/host-tree.txt' && grep -q 'stray.txt' '$DAY/host-tree.txt'"
@@ -222,7 +232,7 @@ check "C: warns about the missing database" grep -q 'financial.db not found' "${
 check "C: warns about custom.cron" grep -q 'custom.cron not backed up' "${WORK}/C.log"
 check "C: surviving utility.db still snapshotted" test -s "$DAY/sidecars/utility.db"
 check "C: no custom.cron in the backup" test ! -e "$DAY/custom.cron"
-check "C: manifest is valid JSON" jq -e . "$DAY/manifest.json" >/dev/null
+check "C: manifest is valid JSON" bash -c "jq -e . '$DAY/manifest.json' >/dev/null 2>&1"
 
 # ---------------- Case D: positive control ----------------
 echo "[D] scan catches a planted secret name"
@@ -233,6 +243,15 @@ check "D: scan flags a secret name planted in sidecars/" test -n "$(scan_new_cop
 rm -f "$DAY/sidecars/planted.txt"
 echo 'REDIS_PASSWORD=planted' > "$DAY/custom.cron"
 check "D: scan flags a secret name planted in custom.cron" test -n "$(scan_new_copies "$DAY")"
+
+# ---------------- Case E: object query returns a short row ----------------
+echo "[E] db_objects_json gets 3 of 4 counts"
+new_case E
+run_backup FAKE_OBJECTS_SHORT=1
+check "E: backup.sh exits 0" test "$RUN_RC" -eq 0
+check "E: manifest is valid JSON" bash -c "jq -e . '$DAY/manifest.json' >/dev/null 2>&1"
+check "E: manifest objects is null" test "$(jq -c '.objects' "$DAY/manifest.json" 2>/dev/null)" = null
+check "E: warns that object counts are unavailable" grep -q 'object counts unavailable' "${WORK}/E.log"
 
 echo ""
 echo "=== test-backup: ${PASS} passed, ${FAILN} failed ==="

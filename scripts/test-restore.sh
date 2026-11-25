@@ -16,6 +16,9 @@
 #   Case 3: --apply-pending runs migrate-manual.sh from a throwaway container on a
 #           scratch network (ledger pre-filled, so nothing is applied); URL never printed.
 #   Case 4: restore_into / restore.sh argument checks (missing dump -> 2, bad flag -> 2).
+#   Case 5: --apply-pending refuses (exit 2, nothing restored) unless the repo HEAD equals
+#           DEPLOYED.json's commit, or --allow-ref <sha> = HEAD when DEPLOYED.json is absent.
+#   Case 6: --apply-pending refuses a POSTGRES_URL whose host is not the target.
 #
 # Requires: docker. No psql on the host needed. Exit 0 = all pass, 1 = any failure.
 set -uo pipefail
@@ -110,6 +113,17 @@ mkdir -p "${TMP}/backup"
 docker exec "$C" pg_dump -U openbrain -d src --format=custom --compress=6 --no-owner --no-privileges \
   > "${TMP}/backup/openbrain.pgdump" || { echo "FAIL: pg_dump of source"; exit 1; }
 echo '{"timestamp":"test","tables":{"items":7000,"parent":10}}' > "${TMP}/backup/manifest.json"
+# --apply-pending runs migrations from THIS tree, so the backup must name its HEAD as deployed.
+HEAD_SHA="$(git -c safe.directory="${REPO_ROOT}" -C "${REPO_ROOT}" rev-parse HEAD)"
+printf '{\n  "commit": "%s",\n  "previous_commit": "%s"\n}\n' "$HEAD_SHA" "0000000000000000000000000000000000000000" \
+  > "${TMP}/backup/DEPLOYED.json"
+# The same backup without DEPLOYED.json, and one whose DEPLOYED.json names another commit.
+mkdir -p "${TMP}/nodeployed" "${TMP}/otherdeployed"
+cp "${TMP}/backup/openbrain.pgdump" "${TMP}/backup/manifest.json" "${TMP}/nodeployed/"
+cp "${TMP}/backup/openbrain.pgdump" "${TMP}/backup/manifest.json" "${TMP}/otherdeployed/"
+echo '{"commit": "1111111111111111111111111111111111111111"}' > "${TMP}/otherdeployed/DEPLOYED.json"
+# The migrate step uses the local image (the script's default is digest-pinned).
+export RESTORE_MIGRATE_IMAGE="$IMAGE"
 
 # Object-name inventories (extension members excluded).
 declare -A INV
@@ -187,6 +201,34 @@ check "case 4: --apply-pending on a non-default target without POSTGRES_URL refu
 check "case 4: ... and restores nothing" "0" "$(q ob6 "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
 if bash "$RESTORE" --help | grep -q -- '--apply-pending'; then pass "case 4: --help documents --apply-pending"
 else fail "case 4: --help documents --apply-pending"; fi
+
+# --- Case 5: --apply-pending only from the deployed tree (refusals restore nothing) --
+# apply_case <name> <expected rc> <backup dir> <url host> [extra args...]
+apply_case() {
+  local name="$1" want="$2" dir="$3" host="$4"; shift 4
+  local db="ob$((RANDOM % 90000 + 10000))"
+  q src "CREATE DATABASE ${db}" >/dev/null
+  out="$(POSTGRES_URL="postgresql://openbrain:restoretest@${host}:5432/${db}" RESTORE_NETWORK="$NET" \
+    RESTORE_DB_NAME="$db" bash "$RESTORE" --backup-dir "$dir" --target "$C" --apply-pending "$@" 2>&1)"; rc=$?
+  check "${name} (exit ${want})" "$want" "$rc"
+  if [[ "$want" != 0 ]]; then
+    check "${name}: nothing restored" "0" "$(q "$db" "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
+  fi
+  if [[ "$out" != *restoretest* ]]; then pass "${name}: password never printed"; else fail "${name}: password never printed"; fi
+}
+apply_case "case 5a: no DEPLOYED.json -> refused" 2 "${TMP}/nodeployed" "$C"
+if [[ "$out" == *--allow-ref* ]]; then pass "case 5a: refusal names --allow-ref"; else fail "case 5a: refusal names --allow-ref"; fi
+apply_case "case 5b: DEPLOYED.json names another commit -> refused" 2 "${TMP}/otherdeployed" "$C"
+apply_case "case 5c: no DEPLOYED.json, --allow-ref <wrong sha> -> refused" 2 "${TMP}/nodeployed" "$C" \
+  --allow-ref 1111111111111111111111111111111111111111
+apply_case "case 5d: no DEPLOYED.json, --allow-ref HEAD -> restored + migrated" 0 "${TMP}/nodeployed" "$C" \
+  --allow-ref "$HEAD_SHA"
+
+# --- Case 6: the migration URL must point at the restored target ---------------
+# An exported production URL (host postgres / open-brain-postgres) with a scratch target.
+apply_case "case 6a: URL host open-brain-postgres, other target -> refused" 2 "${TMP}/backup" open-brain-postgres
+apply_case "case 6b: URL host postgres, other target -> refused" 2 "${TMP}/backup" postgres
+apply_case "case 6c: URL host = target -> accepted" 0 "${TMP}/backup" "$C"
 
 echo
 if (( FAILS == 0 )); then echo "test-restore: ALL PASSED"; exit 0; fi

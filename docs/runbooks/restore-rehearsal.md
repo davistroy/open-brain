@@ -149,7 +149,9 @@ RTO one working day, from a bare Unraid host with Docker to a serving stack.
 **What you need:** a host with Docker and the Unraid `br0` network; the backup directory
 (local `/mnt/user/backup/openbrain/latest/`, or pulled from the offsite remote with
 `docs/runbooks/offsite-backup.md` "Restore procedure", steps 1–2); the Bitwarden access
-token; the commit to deploy (the backup's `DEPLOYED.json`; the newest `main` when the file is absent).
+token; the commit that was deployed (the backup's `DEPLOYED.json`; when the file is absent,
+the `HEAD:` line of the backup's `host-tree.txt`). Never use the newest `main` instead:
+it can carry migrations that were merged but never deployed.
 
 **Model:** the dump is a complete snapshot, the `schema_migrations` ledger included. It
 restores into an EMPTY database. Never apply a schema file or migrations before it:
@@ -163,58 +165,70 @@ Each step is one command. Run them in order, as root, from the app directory.
 2. Get the tree (skip when it exists): `git clone https://github.com/davistroy/open-brain.git /mnt/user/appdata/open-brain`
 3. `cd /mnt/user/appdata/open-brain`
 4. Name the backup for the following steps: `B=/mnt/user/backup/openbrain/latest`
-5. Rebuild `.env.secrets` from Bitwarden (item 7.4 installs `bws` on the host):
+5. Check out the deployed commit BEFORE anything else reads the tree (step 14 applies the
+   migrations of this tree and refuses any other commit):
+   `S=$(jq -r .commit "$B/DEPLOYED.json") && git -c safe.directory="$PWD" checkout --detach "$S"`.
+   Without `DEPLOYED.json`: `S=$(sed -n 's/^HEAD: //p' "$B/host-tree.txt")`, check it out the
+   same way, and pass `--allow-ref "$S"` to step 14. Steps 18–19 deploy the same `$S`.
+6. Rebuild `.env.secrets` from Bitwarden (item 7.4 installs `bws` on the host):
    `BWS_ACCESS_TOKEN=<token> bash scripts/load-secrets.sh --target-dir /mnt/user/appdata/open-brain`.
    Until item 7.4, `bws` is not on the host: run the same command on a machine that has
    `bws` with a scratch `--target-dir`, then copy the file over with
    `scp <dir>/.env.secrets root@homeserver.k4jda.net:/mnt/user/appdata/open-brain/`.
-6. Restore `.env` (holds `TAILSCALE_IP`, which compose requires): `install -m 600 "$B/config/dot-env" .env`
-7. Restore the gitignored payee rules: `cp -a "$B/config/payee-rules.yaml" config/`
-8. Restore the gitignored utility config: `cp -a "$B/config/utility/utility-config.yaml" config/utility/`
-9. Create EMPTY data directories (the binds use `create_host_path: false`; move a damaged
-   old `pgdata` aside first): `mkdir pgdata redis-data`
-10. Confirm the data stores render as binds (prints `true`; nothing is written to a file):
+7. Restore `.env` (holds `TAILSCALE_IP`, which compose requires): `install -m 600 "$B/config/dot-env" .env`
+8. Restore the gitignored payee rules: `cp -a "$B/config/payee-rules.yaml" config/`
+9. Restore the gitignored utility config: `cp -a "$B/config/utility/utility-config.yaml" config/utility/`
+10. Create EMPTY data directories (the binds use `create_host_path: false`; move a damaged
+    old `pgdata` aside first): `mkdir pgdata redis-data`
+11. Confirm the data stores render as binds (prints `true`; nothing is written to a file):
     `docker compose config --format json | jq -e '[.services.postgres.volumes[], .services.redis.volumes[]] | all(.type == "bind" and .bind.create_host_path == false) and any(.target == "/var/lib/postgresql/data" and .source == "/mnt/user/appdata/open-brain/pgdata")'`.
     Do not restore `docker-compose.override.yml` from the backup: the base compose binds
     the data directories itself, and an override entry with short syntax turns
     `create_host_path` back on (this check then prints `false`).
-11. List missing prerequisites (Loki plugin, `observability`/`br0` networks, bind sources): `bash scripts/preflight.sh`.
+12. List missing prerequisites (Loki plugin, `observability`/`br0` networks, bind sources): `bash scripts/preflight.sh`.
     Fix every `MISSING` line and run it again until it exits 0.
-12. Start Postgres alone, with no `-f` flag: `docker compose up -d postgres`
-13. Restore the dump and apply any migration newer than it (waits for Postgres over TCP,
-    refuses a non-empty database, prints table/index/constraint counts):
+13. Start Postgres alone, with no `-f` flag: `docker compose up -d postgres`
+14. Restore the dump and apply any migration newer than it (refuses unless the tree is at
+    `DEPLOYED.json`'s commit, or at `--allow-ref`; refuses a `POSTGRES_URL` whose host is not
+    `postgres`/`open-brain-postgres`; waits for Postgres over TCP; refuses a non-empty
+    database; prints table/index/constraint counts). Every refusal happens before the restore:
     `bash scripts/restore.sh --backup-dir "$B" --apply-pending`
-14. Restore the sidecar state and host files. The backup holds `sidecars/` (`financial.db`,
-    `utility.db`, `actual-state.tar`, `voice-spool.tar`), `custom.cron`, `host-tree.txt`
-    (the host tree's `HEAD` and uncommitted files), `DEPLOYED.json`, and `redis.rdb`.
-    A file missing from `sidecars/` means that step warned in the backup log; that sidecar
-    starts with empty state. Each sidecar volume is created by its first `up`, so stage the
-    files with throwaway containers, before the sidecars start in step 18 (the volume names
-    carry the compose project prefix; `docker volume ls | grep ingest_data` shows them):
-    - SQLite: `for n in financial utility; do docker run --rm -v open-brain_${n}_ingest_data:/data -v "$B/sidecars":/src:ro alpine cp /src/$n.db /data/$n.db; done`
-    - Actual state: `docker run --rm -v open-brain_actual_ingest_data:/data -v "$B/sidecars":/src:ro alpine tar -xf /src/actual-state.tar -C /data`
-    - Voice spool: `docker run --rm -v open-brain_voice_spool_data:/data -v "$B/sidecars":/src:ro alpine sh -c 'mkdir -p /data && tar -xf /src/voice-spool.tar -C /data'`
-    - Check one snapshot: `python3 -c "import sqlite3;print(sqlite3.connect('$B/sidecars/utility.db').execute('pragma integrity_check').fetchone())"` prints `('ok',)`.
-    - Host files: `cp "$B/custom.cron" /tmp/custom.cron.backup` (compare with step 16; do not paste it over a newer table), `cat "$B/host-tree.txt"` (the commit and local changes to reproduce), and `cat "$B/DEPLOYED.json"` (the commit to pass to step 17).
-15. Start Redis: `docker compose up -d redis`
-16. Install the host crons: `bash scripts/install-crons.sh` (item 7.3). Until then: append
+15. Read the host files of the backup: `cp "$B/custom.cron" /tmp/custom.cron.backup` (compare
+    with step 17; do not paste it over a newer table), `cat "$B/host-tree.txt"` (the commit and
+    local changes to reproduce), `cat "$B/DEPLOYED.json"` (the commit of steps 5 and 18). The
+    backup also holds `redis.rdb` and `sidecars/` (`financial.db`, `utility.db`,
+    `actual-state.tar`, `voice-spool.tar`; restored in step 20). A file missing from
+    `sidecars/` means that step warned in the backup log; that sidecar starts with empty state.
+16. Start Redis: `docker compose up -d redis`
+17. Install the host crons: `bash scripts/install-crons.sh` (item 7.3). Until then: append
     each line of `deploy/cron/*.cron` to `/boot/config/plugins/dynamix/custom.cron`, run
     `/usr/local/sbin/update_cron`, and check that `grep -c open-brain /etc/cron.d/root`
     equals the count in `CLAUDE.md`. Never use `crontab -e`.
-17. Deploy the application services, dry run first: `bash scripts/deploy.sh <sha> --dry-run core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`
-18. Deploy them: `bash scripts/deploy.sh <sha> core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`
-19. Start the tunnel: `docker compose up -d cloudflared`
-20. Start transcription: `docker compose up -d faster-whisper`
-21. Check secrets against Bitwarden: `bash scripts/verify-secrets.sh --target-dir /mnt/user/appdata/open-brain` (needs `bws`; item 7.4)
-22. Check the API answers through the tunnel: `curl -s https://brain.troy-davis.com/api/v1/captures?limit=1`
+18. Deploy the application services, dry run first: `bash scripts/deploy.sh "$S" --dry-run core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`
+19. Deploy them: `bash scripts/deploy.sh "$S" core-api workers slack-bot voice-capture web-next file-ingestion financial-ingest utility-ingest actual-ingest`
+20. Restore the sidecar state into the volumes the deploy just created, right away (before
+    the next ingest cron run). `docker cp` writes into the compose-created volume of the
+    running container, so no volume name is guessed; the sidecars are idle between cron runs.
+    Each `.tar` holds the container's own basenames (`state.json`, `voice-spool/…`), so
+    `docker cp -` extracts it into `/data` at the path the sidecar reads.
+    - SQLite: `for n in financial utility; do docker exec open-brain-$n-ingest rm -f /data/$n.db-wal /data/$n.db-shm && docker cp "$B/sidecars/$n.db" open-brain-$n-ingest:/data/$n.db; done`
+    - Check one snapshot inside its sidecar (the host has no `python3`; prints `('ok',)`):
+      `docker exec open-brain-utility-ingest python -c "import sqlite3;print(sqlite3.connect('/data/utility.db').execute('pragma integrity_check').fetchone())"`
+    - Actual state (lands at `/data/state.json`): `docker cp - open-brain-actual-ingest:/data < "$B/sidecars/actual-state.tar"`
+    - Voice spool (lands in `/data/voice-spool/`; voice-capture runs as `node`, and copied files
+      arrive owned by root): `docker cp - open-brain-voice-capture:/data < "$B/sidecars/voice-spool.tar" && docker exec -u 0 open-brain-voice-capture chown -R node:node /data/voice-spool`
+21. Start the tunnel: `docker compose up -d cloudflared`
+22. Start transcription: `docker compose up -d faster-whisper`
+23. Check secrets against Bitwarden: `bash scripts/verify-secrets.sh --target-dir /mnt/user/appdata/open-brain` (needs `bws`; item 7.4)
+24. Check the API answers through the tunnel: `curl -s https://brain.troy-davis.com/api/v1/captures?limit=1`
 
 Never run a bare `up` with no service name, `--remove-orphans`, or `compose down`
 (`docs/runbooks/deploy.md`, safety rules).
 
 ### After restore
 
-- Compare the table/index/constraint counts that step 13 printed with the manifest (step 13
-  prints them; the manifest holds them under `objects`).
+- Compare the table/index/constraint counts that step 14 printed with the manifest (the
+  manifest holds them under `objects`).
 - `docker compose ps`: every container healthy within a few minutes.
 - Send a test capture via voice or Slack to verify the pipeline end to end.
 - Update `LAB_NOTEBOOK.md` with the restore event and any issue met.

@@ -14,7 +14,7 @@
 #
 # Env overrides (test-harness friendly — same pattern as backup.sh):
 #   BACKUP_ROOT          default: /mnt/user/backup/openbrain
-#   REHEARSAL_CONTAINER  default: open-brain-rehearsal-pg
+#   REHEARSAL_CONTAINER  default: open-brain-rehearsal-pg (must contain "rehearsal", else exit 2)
 #   PUSHOVER_API_URL     default: https://api.pushover.net/1/messages.json (mock-able)
 #   ROW_COUNT_TOLERANCE  default: 0.01  (1% of the manifest count ...)
 #   ROW_COUNT_MIN_ABS    default: 20    (... or this many rows, whichever is larger)
@@ -59,6 +59,16 @@ source "${SCRIPT_DIR}/lib/db-objects.sh"
 TIMESTAMP=$(date +%Y-%m-%dT%H:%M:%S%z)
 echo "=== Open Brain DR Restore Rehearsal: ${TIMESTAMP} ==="
 
+# The script runs `docker rm -f "${REHEARSAL_CONTAINER}"`: a name without "rehearsal"
+# (open-brain-postgres, say) is refused before any docker call.
+if [[ "${REHEARSAL_CONTAINER}" != *rehearsal* ]]; then
+  echo "=== REHEARSAL RESULT: FAIL (exit 2) ===" >&2
+  echo "  REFUSED: REHEARSAL_CONTAINER='${REHEARSAL_CONTAINER}' does not contain 'rehearsal'." >&2
+  echo "  The rehearsal force-removes that container; it must never name a production one." >&2
+  notify_pushover_rehearsal "fail" "DR rehearsal refused: REHEARSAL_CONTAINER '${REHEARSAL_CONTAINER}' lacks 'rehearsal'" || true
+  exit 2
+fi
+
 # ---------------------------------------------------------------------------
 # Helper: emit result and send Pushover, then exit with given code.
 # Usage: finish <exit_code> <status_word> <message>
@@ -91,8 +101,8 @@ teardown_container() {
   docker stop "${REHEARSAL_CONTAINER}" >/dev/null 2>&1 || true
   # --rm removes the container asynchronously after the stop; wait so a follow-up run
   # with the same name never races the removal.
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  local _i
+  for _i in 1 2 3 4 5 6 7 8 9 10; do
     docker inspect "${REHEARSAL_CONTAINER}" >/dev/null 2>&1 || return 0
     sleep 1
   done
@@ -285,7 +295,7 @@ while IFS=' ' read -r table manifest_count; do
     fi
   else
     if ! actual_count=$(docker exec "${REHEARSAL_CONTAINER}" psql -X -v ON_ERROR_STOP=1 \
-        -U openbrain -d openbrain -tAq -c "SELECT COUNT(*) FROM \"${table}\";" 2>&1) \
+        -U openbrain -d openbrain -tAq -c "SELECT COUNT(*) FROM public.\"${table}\";" 2>&1) \
         || [[ ! "${actual_count}" =~ ^[0-9]+$ ]]; then
       add_fail "${table}: count query FAILED (${actual_count:0:120})"
       continue

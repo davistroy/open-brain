@@ -30,7 +30,8 @@
 #   --dry-run           print what apply mode WOULD run; make no changes.
 #
 # ENV:
-#   POSTGRES_URL    target DB (default: dev localhost).
+#   POSTGRES_URL    target DB (default: dev localhost). Its password is moved to
+#                   PGPASSWORD; psql gets the URL without it, and every printed URL is masked.
 #   MIGRATIONS_DIR  directory of 0*.sql files (default: packages/shared/drizzle).
 #
 # Requires: psql on PATH.
@@ -41,8 +42,23 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRIZZLE_DIR="${MIGRATIONS_DIR:-${REPO_ROOT}/packages/shared/drizzle}"
 POSTGRES_URL="${POSTGRES_URL:-postgresql://openbrain:openbrain_dev@localhost:5432/openbrain}"
 
+# The password never reaches a psql argv (visible in `ps`) or the output: it moves to
+# PGPASSWORD (percent-decoded, as libpq would) and psql gets the URL without it.
+# mask_url prints a URL with its password replaced by ***.
+mask_url() { printf '%s\n' "$1" | sed -E 's#(://[^:/@]+):[^@]*@#\1:***@#'; }
+_url_pw="$(printf '%s\n' "${POSTGRES_URL}" | sed -nE 's#^[A-Za-z][A-Za-z0-9+.-]*://[^:/@]+:([^@]*)@.*#\1#p')"
+if [[ -n "${_url_pw}" ]]; then
+  _url_pw="${_url_pw//\\/\\\\}"                 # keep literal backslashes literal for %b
+  PGPASSWORD="$(printf '%b' "${_url_pw//%/\\x}")"
+  export PGPASSWORD
+  PSQL_URL="$(printf '%s\n' "${POSTGRES_URL}" | sed -E 's#(://[^:/@]+):[^@]*@#\1@#')"
+else
+  PSQL_URL="${POSTGRES_URL}"
+fi
+unset _url_pw
+
 # psql invocation as an array (no eval — robust against quotes inside SQL).
-PSQL=(psql "${POSTGRES_URL}" -v ON_ERROR_STOP=1)
+PSQL=(psql "${PSQL_URL}" -v ON_ERROR_STOP=1)
 run_psql() { "${PSQL[@]}" -q "$@"; }
 query()    { "${PSQL[@]}" -tAq -c "$1"; }
 
@@ -86,7 +102,7 @@ ensure_ledger
 
 case "${MODE}" in
   status)
-    echo "Migration ledger status (target: ${POSTGRES_URL%%@*}@***):"
+    echo "Migration ledger status (target: $(mask_url "${POSTGRES_URL}")):"
     for f in $(migration_files); do
       v="$(version_of "$f")"
       if [[ "$(is_recorded "$v")" == "1" ]]; then

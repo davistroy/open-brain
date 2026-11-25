@@ -13,7 +13,8 @@
 #   triggers      pg_trigger NOT tgisinternal, on tables of schema public
 #   functions     pg_proc of schema public, excluding extension members (pg_depend deptype 'e')
 #   ledger_max    max(schema_migrations.version); "" when the table is absent or empty
-# Returns non-zero (prints nothing) when a query fails. Uses `docker exec … psql` only.
+# Returns non-zero (prints nothing) when a query fails or any count is missing/non-numeric
+# (backup.sh then records `objects: null`). Uses `docker exec … psql` only.
 
 _db_objects_psql() {
   docker exec "$1" psql -X -v ON_ERROR_STOP=1 -U "$2" -d "$3" -tAq -c "$4"
@@ -38,9 +39,14 @@ db_objects_json() {
   if [[ "$has" == "t" ]]; then
     ledger="$(_db_objects_psql "$container" "$user" "$db" "SELECT coalesce(max(version), '') FROM public.schema_migrations")" || return 1
   fi
-  local idx fk trg fn
-  read -r idx fk trg fn <<<"$counts"
-  [[ "$idx$fk$trg$fn" =~ ^[0-9]+$ ]] || return 1
+  local idx fk trg fn extra v
+  read -r idx fk trg fn extra <<<"$counts"
+  # Each field on its own: a check on the concatenation passes with a field missing and
+  # prints invalid JSON. Exactly four numbers, or nothing.
+  [[ -z "$extra" ]] || return 1
+  for v in "$idx" "$fk" "$trg" "$fn"; do
+    [[ "$v" =~ ^[0-9]+$ ]] || return 1
+  done
   # Versions are migration file names (no quote/backslash); strip them defensively anyway.
   ledger="${ledger//[\"\\]/}"
   printf '{"indexes": %s, "foreign_keys": %s, "triggers": %s, "functions": %s, "ledger_max": "%s"}\n' \
