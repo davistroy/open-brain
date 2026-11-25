@@ -149,8 +149,7 @@ RTO one working day, from a bare Unraid host with Docker to a serving stack.
 **What you need:** a host with Docker and the Unraid `br0` network; the backup directory
 (local `/mnt/user/backup/openbrain/latest/`, or pulled from the offsite remote with
 `docs/runbooks/offsite-backup.md` "Restore procedure", steps 1–2); the Bitwarden access
-token; the commit to deploy (the backup's `DEPLOYED.json` once item 6.4 copies it; until
-then the newest `main`).
+token; the commit to deploy (the backup's `DEPLOYED.json`; the newest `main` when the file is absent).
 
 **Model:** the dump is a complete snapshot, the `schema_migrations` ledger included. It
 restores into an EMPTY database. Never apply a schema file or migrations before it:
@@ -185,9 +184,18 @@ Each step is one command. Run them in order, as root, from the app directory.
 13. Restore the dump and apply any migration newer than it (waits for Postgres over TCP,
     refuses a non-empty database, prints table/index/constraint counts):
     `bash scripts/restore.sh --backup-dir "$B" --apply-pending`
-14. Restore the sidecar state and host files (item 6.4 adds them to the backup:
-    `sidecars/`, `custom.cron`, `DEPLOYED.json`; follow the steps item 6.4 adds here).
-    Until then the backup holds none of them: the sidecars start with empty state.
+14. Restore the sidecar state and host files. The backup holds `sidecars/` (`financial.db`,
+    `utility.db`, `actual-state.tar`, `voice-spool.tar`), `custom.cron`, `host-tree.txt`
+    (the host tree's `HEAD` and uncommitted files), `DEPLOYED.json`, and `redis.rdb`.
+    A file missing from `sidecars/` means that step warned in the backup log; that sidecar
+    starts with empty state. Each sidecar volume is created by its first `up`, so stage the
+    files with throwaway containers, before the sidecars start in step 18 (the volume names
+    carry the compose project prefix; `docker volume ls | grep ingest_data` shows them):
+    - SQLite: `for n in financial utility; do docker run --rm -v open-brain_${n}_ingest_data:/data -v "$B/sidecars":/src:ro alpine cp /src/$n.db /data/$n.db; done`
+    - Actual state: `docker run --rm -v open-brain_actual_ingest_data:/data -v "$B/sidecars":/src:ro alpine tar -xf /src/actual-state.tar -C /data`
+    - Voice spool: `docker run --rm -v open-brain_voice_spool_data:/data -v "$B/sidecars":/src:ro alpine sh -c 'mkdir -p /data && tar -xf /src/voice-spool.tar -C /data'`
+    - Check one snapshot: `python3 -c "import sqlite3;print(sqlite3.connect('$B/sidecars/utility.db').execute('pragma integrity_check').fetchone())"` prints `('ok',)`.
+    - Host files: `cp "$B/custom.cron" /tmp/custom.cron.backup` (compare with step 16; do not paste it over a newer table), `cat "$B/host-tree.txt"` (the commit and local changes to reproduce), and `cat "$B/DEPLOYED.json"` (the commit to pass to step 17).
 15. Start Redis: `docker compose up -d redis`
 16. Install the host crons: `bash scripts/install-crons.sh` (item 7.3). Until then: append
     each line of `deploy/cron/*.cron` to `/boot/config/plugins/dynamix/custom.cron`, run
@@ -206,7 +214,7 @@ Never run a bare `up` with no service name, `--remove-orphans`, or `compose down
 ### After restore
 
 - Compare the table/index/constraint counts that step 13 printed with the manifest (step 13
-  prints the manifest's `objects` once item 6.4 records them).
+  prints them; the manifest holds them under `objects`).
 - `docker compose ps`: every container healthy within a few minutes.
 - Send a test capture via voice or Slack to verify the pipeline end to end.
 - Update `LAB_NOTEBOOK.md` with the restore event and any issue met.

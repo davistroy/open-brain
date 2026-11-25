@@ -153,6 +153,15 @@ echo ""
 echo "PASS: Zero secret variable-name matches in backup tree."
 echo "  Backup location: ${FAKE_BACKUP_ROOT}"
 echo "  Pattern checked: ${SECRET_PATTERN}"
+# --- Item 6.4: the NEW copies (custom.cron, host-tree.txt, sidecars/) ---
+# Full backup.sh run against a fake docker (scripts/test-backup.sh); it scans those
+# three paths for the same secret variable names and proves the scan catches a plant.
+echo "Running the full-run backup test (new host/sidecar copies)..."
+if ! bash "${SCRIPT_DIR}/test-backup.sh"; then
+  echo "FAIL: scripts/test-backup.sh failed (see output above)."
+  exit 1
+fi
+
 echo ""
 echo "=== test-backup-secrets-redaction: PASSED ==="
 exit 0
