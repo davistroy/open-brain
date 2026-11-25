@@ -1491,7 +1491,7 @@ The restore session sets `PGOPTIONS='-c max_parallel_maintenance_workers=0'`, so
 ---
 
 #### 6.3 A rehearsal that fails when it should
-**Status: COMPLETE 2026-11-25 (repo; host task 9 pending)**
+**Status: COMPLETE 2026-11-25 (repo + host, Entry 262)**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-04, DA7-09, PLT-004, QA-003
 **Depends On:** 6.2
@@ -1530,7 +1530,7 @@ Ships in ONE pull request with item 6.4: the assertions read the manifest key `o
 ---
 
 #### 6.4 The backup holds everything a rebuild needs
-**Status: COMPLETE 2026-11-25 (repo; host task 9 pending)**
+**Status: COMPLETE 2026-11-25 (repo + host, Entry 262)**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-07, PLT-031, PLT-030, DA7-13, PLT-023
 **Depends On:** 6.3
