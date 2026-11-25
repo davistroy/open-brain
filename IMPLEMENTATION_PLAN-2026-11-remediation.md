@@ -1325,8 +1325,8 @@ Each pin takes effect at that service's next recreate: the application services 
 
 ---
 
-#### 5.5 Reconcile the host tree and run the first clean deploy
-**Status: PENDING**
+#### 5.5 Reconcile the host tree and run the first clean deploy ✅ Completed 2026-11-24
+**Status: COMPLETE 2026-11-24 (deployed 69a77b0, then d00ed25; LAB_NOTEBOOK Entry 260)**
 **Model Tier: opus**
 **Requirement Refs:** SA7-03, PLT-005
 **Depends On:** 5.1, 5.2, 5.3, 5.4
