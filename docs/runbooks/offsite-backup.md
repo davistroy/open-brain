@@ -63,10 +63,10 @@ rclone-onedrive/rclone-gdrive sync setup.)
      --config /config/rclone/rclone.conf
    ls /mnt/user/restore/daily   # pick newest <date> dir
    ```
-3. Follow the standard restore path: recreate Postgres, `pg_restore` the dump,
-   validate row counts against `manifest.json` (same logic as
-   `scripts/restore-rehearsal.sh`), rebuild `.env.secrets` via
-   `scripts/load-secrets.sh`.
+3. Follow the manual-restore checklist in `docs/runbooks/restore-rehearsal.md`
+   ("Manual restore (actual DR)"), with `B=/mnt/user/restore/daily/<date>` in its step 4.
+   The checklist rebuilds `.env.secrets`, restores the dump with `scripts/restore.sh`
+   (empty database, no schema applied first), and deploys through `scripts/deploy.sh`.
 
 ## Verify it is working
 

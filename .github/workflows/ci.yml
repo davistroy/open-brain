@@ -206,6 +206,11 @@ jobs:
         # Fix on failure: `bash scripts/regenerate-init-schema.sh` and commit the result.
         run: bash scripts/validate-init-schema.sh
 
+      - name: Test migrate-manual.sh (atomic migrations)
+        # Item 6.1: each migration + its ledger row run in one transaction; a failed
+        # file leaves no objects and no ledger row. Throwaway pgvector container.
+        run: bash scripts/test-migrate-manual.sh
+
   validate-alert-rules:
     name: Validate Prometheus alert rules
     runs-on: ubuntu-latest
