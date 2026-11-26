@@ -542,6 +542,14 @@ jobs:
           CI: 'true'
         run: pnpm --filter @open-brain/web-next test:e2e
 
+      - name: Print Playwright page snapshots on failure
+        if: failure()
+        run: |
+          for f in packages/web-next/test-results/*/error-context.md; do
+            [ -f "$f" ] || continue
+            echo "===== $f"; head -c 6000 "$f"; echo
+          done
+
       - name: Dump full-stack logs on failure
         if: always()
         run: docker compose -f docker-compose.test.yml --profile fullstack logs --no-color
