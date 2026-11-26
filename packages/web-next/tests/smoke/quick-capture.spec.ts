@@ -77,10 +77,10 @@ test.describe('QuickCapture smoke test', () => {
     // ------------------------------------------------------------------
     await page.goto(DASHBOARD_URL)
 
-    // The page header contains the text "Dashboard" in the breadcrumb.
-    // This is the lightest assertion that the shell + dashboard page
-    // rendered without a 500 or redirect.
-    await expect(page.getByText('Dashboard', { exact: false })).toBeVisible({ timeout: 10_000 })
+    // No redirect (e.g. to /onboarding), and the dashboard page body rendered.
+    // "Dashboard" alone also matches the side-nav link (strict-mode violation).
+    await expect(page).toHaveURL(/\/dashboard$/)
+    await expect(page.getByText('Recent activity', { exact: false })).toBeVisible({ timeout: 10_000 })
 
     // ------------------------------------------------------------------
     // Step 2: Locate the QuickCapture textarea and fill it
@@ -133,7 +133,7 @@ test.describe('QuickCapture smoke test', () => {
     // Timeout: 5s — SSE delivery + refetch is typically <500ms on localhost.
     // ------------------------------------------------------------------
     await expect(
-      page.getByText(uniqueContent, { exact: false }),
+      page.getByText(uniqueContent, { exact: false }).first(),
     ).toBeVisible({ timeout: 5_000 })
 
     // ------------------------------------------------------------------
@@ -144,7 +144,7 @@ test.describe('QuickCapture smoke test', () => {
     // We match a substring (first 60 chars) since the full UUID content
     // is 38 + prefix chars and truncation applies at 60.
     const expectedPrefix = uniqueContent.slice(0, 59) // stay inside truncation boundary
-    const captureRow = page.getByText(expectedPrefix, { exact: false })
+    const captureRow = page.getByText(expectedPrefix, { exact: false }).first()
     await expect(captureRow).toBeVisible()
   })
 })
