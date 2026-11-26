@@ -17,7 +17,7 @@ import { PipelineService } from './services/pipeline.js'
 import { LLMGatewayService } from '@open-brain/shared'
 import { GovernanceEngine } from './services/governance-engine.js'
 import { SkillConfigService, initSkillConfigSingleton } from './services/skill-config.js'
-import { logger } from '@open-brain/shared'
+import { logger, attachErrorListeners, installUnhandledRejectionHandler } from '@open-brain/shared'
 import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
 import { BriefsService } from './services/briefs.js'
@@ -235,6 +235,20 @@ const port = Number(process.env.PORT ?? 3000)
 pgNotify.start(postgresUrl).catch((err) => {
   logger.warn({ err }, 'pg-notify failed to start — SSE events unavailable')
 })
+
+installUnhandledRejectionHandler(logger)
+attachErrorListeners(
+  [
+    capturePipelineQueue,
+    skillQueue,
+    documentPipelineQueue,
+    ingestProcessQueue,
+    accessStatsQueue,
+    ...(wikiIngestQueue ? [wikiIngestQueue] : []),
+    ...(wikiLintQueue ? [wikiLintQueue] : []),
+  ],
+  logger,
+)
 
 const server = serve({ fetch: app.fetch, port }, () => {
   logger.info({ port }, 'Core API listening')

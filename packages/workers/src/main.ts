@@ -27,7 +27,7 @@ import { registerScheduledJobs } from './scheduler.js'
 import { SpendTracker } from './lib/spend-tracker.js'
 import { IngestDedup } from './lib/ingest-dedup.js'
 import { requireCoreApiUrl } from './lib/require-core-api-url.js'
-import { logger, TemplateCache, PushoverService, WikiGitService } from '@open-brain/shared'
+import { logger, TemplateCache, PushoverService, WikiGitService, attachErrorListeners, installUnhandledRejectionHandler } from '@open-brain/shared'
 import { FlowProducer } from 'bullmq'
 import type { Worker } from 'bullmq'
 
@@ -41,6 +41,8 @@ function parseRedisUrl(url: string) {
 }
 
 async function main() {
+  installUnhandledRejectionHandler(logger)
+
   const postgresUrl = process.env.POSTGRES_URL
   if (!postgresUrl) throw new Error('POSTGRES_URL is required')
 
@@ -259,6 +261,12 @@ async function main() {
   // Scheduled jobs
   const scheduledQueues = await registerScheduledJobs(connection)
   logger.info('Scheduled jobs registered')
+
+  // Route BullMQ connection errors through pino (default is console.error, outside the log)
+  attachErrorListeners(
+    [...workers, ...Object.values(queues), ...Object.values(scheduledQueues), flowProducer],
+    logger,
+  )
 
   // Graceful shutdown
   let shuttingDown = false
