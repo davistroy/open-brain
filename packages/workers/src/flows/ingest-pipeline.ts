@@ -1,4 +1,28 @@
-import type { FlowJob } from 'bullmq'
+import type { FlowJob, FlowQueuesOpts } from 'bullmq'
+
+/**
+ * Retention for flow jobs (item 9.3, PE-004).
+ *
+ * `FlowProducer.add` ignores each Queue's `defaultJobOptions`: for flow nodes
+ * BullMQ reads defaults only from the `queuesOptions` argument. Without this map
+ * every completed/failed flow job is retained forever (Redis runs noeviction).
+ * Pass it as `flowProducer.add(flow, { queuesOptions: INGEST_FLOW_QUEUES_OPTIONS })`
+ * on EVERY flow add. Age-based (never `removeOnFail: true`) so failures stay
+ * inspectable for 14 days.
+ */
+const FLOW_RETENTION = {
+  defaultJobOptions: {
+    removeOnComplete: { age: 604_800 }, // 7 days
+    removeOnFail: { age: 1_209_600 }, // 14 days
+  },
+}
+export const INGEST_FLOW_QUEUES_OPTIONS: FlowQueuesOpts = {
+  'ingest-root': FLOW_RETENTION,
+  'embed-capture': FLOW_RETENTION,
+  'extract-entities': FLOW_RETENTION,
+  'extract-commitments': FLOW_RETENTION,
+  'wiki-ingest': FLOW_RETENTION,
+}
 
 /**
  * Build a BullMQ FlowProducer DAG definition for the capture ingestion pipeline.

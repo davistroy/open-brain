@@ -7,7 +7,7 @@ import { captures, pipeline_events } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
-import { buildIngestFlow } from '../flows/ingest-pipeline.js'
+import { buildIngestFlow, INGEST_FLOW_QUEUES_OPTIONS } from '../flows/ingest-pipeline.js'
 import { getFlowState, redriveCapture } from '../flows/redrive.js'
 import type { FlowState, RedriveOptions, RedriveResult } from '../flows/redrive.js'
 import type { IngestDedup } from '../lib/ingest-dedup.js'
@@ -214,7 +214,7 @@ export async function processIngestionJob(
       log.info({ flowState, result }, '[ingestion] re-drive of retained flow')
     } else {
       const flow = buildIngestFlow(captureId, { includeWikiIngest, traceId })
-      await flowProducer.add(flow)
+      await flowProducer.add(flow, { queuesOptions: INGEST_FLOW_QUEUES_OPTIONS })
       log.info({ includeWikiIngest }, '[ingestion] FlowProducer DAG enqueued (embed + extract + ingest-root)')
     }
   } catch (err) {

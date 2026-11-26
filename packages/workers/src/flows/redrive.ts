@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq'
 import type { ConnectionOptions, FlowProducer, Job } from 'bullmq'
 import { logger } from '@open-brain/shared'
-import { buildIngestFlow, INGEST_ROOT_QUEUE_NAME } from './ingest-pipeline.js'
+import { buildIngestFlow, INGEST_FLOW_QUEUES_OPTIONS, INGEST_ROOT_QUEUE_NAME } from './ingest-pipeline.js'
 
 /**
  * Embed re-drive for the capture ingestion flow (item 9.1, SE7-01 / PE-012).
@@ -199,7 +199,9 @@ export async function redriveCapture(
   }
 
   if (opts.stage === 'embed') {
-    await flowProducer.add(buildIngestFlow(captureId, { embedOnly: true, traceId: opts.traceId }))
+    await flowProducer.add(buildIngestFlow(captureId, { embedOnly: true, traceId: opts.traceId }), {
+      queuesOptions: INGEST_FLOW_QUEUES_OPTIONS,
+    })
     log.info({ removed }, '[redrive] embed-only flow added')
     return { action: 'redriven', stage: 'embed', removed }
   }
@@ -212,6 +214,7 @@ export async function redriveCapture(
 
   await flowProducer.add(
     buildIngestFlow(captureId, { includeWikiIngest: opts.includeWikiIngest, traceId: opts.traceId }),
+    { queuesOptions: INGEST_FLOW_QUEUES_OPTIONS },
   )
   log.info({ removed }, '[redrive] full flow added')
   return { action: 'redriven', stage: 'all', removed }

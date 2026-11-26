@@ -12,6 +12,8 @@
  *   (d) stage 'all' → each enrichment processor runs exactly once more (2)
  *   (e) processIngestionJob itself re-drives a capture with a failed flow
  *   (f) a successful embed clears captures.pipeline_error
+ *   (g) flow retention (item 9.3): `queuesOptions` prunes completed flow jobs by age
+ *   (h) the production flow adds (redrive stages) carry the 7d/14d retention
  *
  * A unique BullMQ prefix keeps these queues apart from every other suite.
  *
@@ -26,7 +28,7 @@ import type { ConnectionOptions, Job } from 'bullmq'
 import { eq } from 'drizzle-orm'
 import { captures } from '@open-brain/shared'
 import type { EmbeddingService } from '@open-brain/shared'
-import { buildIngestFlow } from '../../flows/ingest-pipeline.js'
+import { buildIngestFlow, INGEST_FLOW_QUEUES_OPTIONS } from '../../flows/ingest-pipeline.js'
 import { closeRedriveQueues, getFlowState, redriveCapture } from '../../flows/redrive.js'
 import type { RedriveDeps } from '../../flows/redrive.js'
 import { processIngestionJob } from '../../jobs/ingestion-worker.js'
@@ -73,12 +75,16 @@ async function waitFor(cond: () => Promise<boolean> | boolean, label: string, ti
 }
 
 const inspectQueues = new Map<QName, Queue>()
-async function stateOf(q: QName, jobId: string): Promise<string> {
+function inspectQueue(q: QName): Queue {
   let queue = inspectQueues.get(q)
   if (!queue) {
     queue = new Queue(q, { connection, prefix: PREFIX })
     inspectQueues.set(q, queue)
   }
+  return queue
+}
+async function stateOf(q: QName, jobId: string): Promise<string> {
+  const queue = inspectQueue(q)
   const job = await queue.getJob(jobId)
   return job ? job.getState() : 'missing'
 }
@@ -326,5 +332,55 @@ describe('processIngestionJob — re-drive wiring against real Redis + Postgres'
       [captureId],
     )
     expect(rows[0]).toEqual({ pipeline_status: 'complete', pipeline_error: null })
+  })
+})
+
+// ── Item 9.3: flow-job retention ─────────────────────────────────────────────
+// FlowProducer.add ignores Queue defaultJobOptions; retention comes only from
+// the `queuesOptions` argument. These cases use their own capture ids, so they
+// do not interact with (a)-(f) beyond sharing the stub workers.
+describe('flow job retention — real Redis (item 9.3)', () => {
+  // The production map with the completed-job age shortened to 1 second.
+  const ONE_SECOND_RETENTION = Object.fromEntries(
+    Object.entries(INGEST_FLOW_QUEUES_OPTIONS).map(([q, o]) => [
+      q,
+      { defaultJobOptions: { ...o!.defaultJobOptions, removeOnComplete: { age: 1 } } },
+    ]),
+  )
+
+  it('(g) with queuesOptions, a completed embed job older than the age is pruned when another job completes', async () => {
+    const first = randomUUID()
+    const second = randomUUID()
+    await flowProducer.add(buildIngestFlow(first), { queuesOptions: ONE_SECOND_RETENTION })
+    await waitFor(async () => (await stateOf('embed-capture', `embed_${first}`)) === 'completed', 'first embed completed')
+    const completedKey = `${PREFIX}:embed-capture:completed`
+    const redis = await inspectQueue('embed-capture').client
+    expect(await redis.zscore(completedKey, `embed_${first}`)).not.toBeNull()
+
+    await new Promise(r => setTimeout(r, 1_500)) // past the 1 s age
+
+    // BullMQ prunes on the NEXT completion in that queue.
+    await flowProducer.add(buildIngestFlow(second), { queuesOptions: ONE_SECOND_RETENTION })
+    await waitFor(async () => (await stateOf('embed-capture', `embed_${second}`)) === 'completed', 'second embed completed')
+
+    await waitFor(async () => (await redis.zscore(completedKey, `embed_${first}`)) === null, 'first embed pruned')
+    expect(await stateOf('embed-capture', `embed_${first}`)).toBe('missing')
+  })
+
+  it('(h) redriveCapture adds flows whose jobs carry removeOnComplete 7d / removeOnFail 14d (every stage)', async () => {
+    for (const stage of ['embed', 'all'] as const) {
+      const captureId = randomUUID()
+      const result = await redriveCapture(deps, captureId, { stage, includeWikiIngest: true })
+      expect(result.action).toBe('redriven')
+      await waitFor(async () => (await rootState(captureId)) === 'completed', `${stage} root completed`)
+      const queuesChecked: QName[] =
+        stage === 'embed' ? ['ingest-root', 'embed-capture'] : [...QUEUES]
+      for (const q of queuesChecked) {
+        const id = q === 'ingest-root' ? `ingest-root_${captureId}` : `${q === 'embed-capture' ? 'embed' : q}_${captureId}`
+        const job = await inspectQueue(q).getJob(id)
+        expect(job?.opts.removeOnComplete, `${stage}/${q}`).toEqual({ age: 604_800 })
+        expect(job?.opts.removeOnFail, `${stage}/${q}`).toEqual({ age: 1_209_600 })
+      }
+    }
   })
 })
