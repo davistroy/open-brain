@@ -193,6 +193,9 @@ export async function processEmbedCaptureJob(
     .set({
       pipeline_status: 'complete',
       pipeline_completed_at: new Date(),
+      // Clear the error left by an earlier failed attempt (item 9.1): a capture
+      // that recovered through a re-drive must not keep reporting that error.
+      pipeline_error: null,
       updated_at: new Date(),
     })
     .where(eq(captures.id, captureId))

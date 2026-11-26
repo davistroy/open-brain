@@ -8,6 +8,8 @@ import { logger } from '@open-brain/shared'
 import { PIPELINE_BACKOFF_DELAYS_MS } from '../queues/capture-pipeline.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 import { buildIngestFlow } from '../flows/ingest-pipeline.js'
+import { getFlowState, redriveCapture } from '../flows/redrive.js'
+import type { FlowState, RedriveOptions, RedriveResult } from '../flows/redrive.js'
 import type { IngestDedup } from '../lib/ingest-dedup.js'
 
 /**
@@ -52,6 +54,23 @@ async function recordStageEvent(
 }
 
 /**
+ * Re-drive hooks injected into processIngestionJob (item 9.1). Bound to a
+ * connection + FlowProducer by createIngestionWorker; tests pass stubs.
+ */
+export interface IngestRedrive {
+  getFlowState: (captureId: string) => Promise<FlowState>
+  redriveCapture: (captureId: string, opts: RedriveOptions) => Promise<RedriveResult>
+}
+
+/** Build the real re-drive hooks for a connection + FlowProducer. */
+export function createIngestRedrive(connection: ConnectionOptions, flowProducer: FlowProducer): IngestRedrive {
+  return {
+    getFlowState: (captureId) => getFlowState(connection, captureId),
+    redriveCapture: (captureId, opts) => redriveCapture({ connection, flowProducer }, captureId, opts),
+  }
+}
+
+/**
  * Core pipeline job handler.
  *
  * Phase 6.1 scope: advances a capture from 'pending' → 'processing' →
@@ -62,6 +81,15 @@ async function recordStageEvent(
  * in Phase 6.2. This worker establishes the structural pattern for all
  * subsequent stage workers.
  *
+ * Re-drive (item 9.1): flow jobs carry FIXED ids, so a retained failed
+ * `embed_<id>` / `ingest-root_<id>` blocks a plain re-add. Before any status
+ * update the handler asks `redrive.getFlowState`:
+ *   - 'in-flight' → log and return; the capture is not touched.
+ *   - 'none', status ≠ 'extracted', no `stage: 'all'` → first run: add the
+ *     full flow as before.
+ *   - anything else → once the status reaches 'extracted', call
+ *     `redrive.redriveCapture` (embed-only, or full with `stage: 'all'`).
+ *
  * Failures:
  * - Capture not found → UnrecoverableError (no retry — data will never appear)
  * - DB errors during status update → throw (triggers BullMQ patient backoff)
@@ -71,6 +99,7 @@ export async function processIngestionJob(
   db: Database,
   flowProducer: FlowProducer,
   ingestDedup?: IngestDedup,
+  redrive?: IngestRedrive,
 ): Promise<void> {
   const { captureId, forceRetry } = data
 
@@ -114,12 +143,23 @@ export async function processIngestionJob(
   const traceId = (sourceMeta?.trace_id as string | undefined) ?? data.traceId
   const log = traceId ? logger.child({ captureId, traceId }) : logger.child({ captureId })
 
+  // ── Retained flow state (item 9.1) — before any status update ─────────────
+  const flowState: FlowState = redrive ? await redrive.getFlowState(captureId) : 'none'
+  if (flowState === 'in-flight') {
+    log.info('[ingestion] flow already in flight — leaving capture untouched')
+    return
+  }
+  const useRedrive =
+    flowState !== 'none' || capture.pipeline_status === 'extracted' || data.stage === 'all'
+
   // ── Content hash dedup ────────────────────────────────────────────────────
   // Check Redis for recent duplicates (5-min TTL). This catches iOS Shortcut
   // retries and rapid double-submits before they enter the pipeline.
   // The DB unique index on content_hash is the permanent dedup — this is a
   // fast-path optimization to avoid wasted pipeline work.
-  if (ingestDedup && capture.content_hash) {
+  // forceRetry (retry route) skips it: the key is <hash>:<captureId> with a
+  // 5-min TTL, so a retry inside that window would be dropped as a duplicate.
+  if (ingestDedup && capture.content_hash && !forceRetry) {
     const isDup = await ingestDedup.isDuplicate(capture.content_hash, captureId)
     if (isDup) {
       logger.info(
@@ -165,9 +205,18 @@ export async function processIngestionJob(
 
     // Enqueue downstream pipeline via FlowProducer DAG
     const includeWikiIngest = !!process.env.WIKI_REPO_URL
-    const flow = buildIngestFlow(captureId, { includeWikiIngest, traceId })
-    await flowProducer.add(flow)
-    log.info({ includeWikiIngest }, '[ingestion] FlowProducer DAG enqueued (embed + extract + ingest-root)')
+    if (useRedrive && redrive) {
+      const result = await redrive.redriveCapture(captureId, {
+        stage: data.stage === 'all' ? 'all' : 'embed',
+        includeWikiIngest,
+        traceId,
+      })
+      log.info({ flowState, result }, '[ingestion] re-drive of retained flow')
+    } else {
+      const flow = buildIngestFlow(captureId, { includeWikiIngest, traceId })
+      await flowProducer.add(flow)
+      log.info({ includeWikiIngest }, '[ingestion] FlowProducer DAG enqueued (embed + extract + ingest-root)')
+    }
   } catch (err) {
     const extractDurationMs = Date.now() - extractStart
     const errMsg = err instanceof Error ? err.message : String(err)
@@ -208,10 +257,11 @@ export function createIngestionWorker(
   flowProducer: FlowProducer,
   ingestDedup?: IngestDedup,
 ): Worker<CapturePipelineJobData> {
+  const redrive = createIngestRedrive(connection, flowProducer)
   const worker = new Worker<CapturePipelineJobData>(
     'capture-pipeline',
     async (job) => {
-      await processIngestionJob(job.data, db, flowProducer, ingestDedup)
+      await processIngestionJob(job.data, db, flowProducer, ingestDedup, redrive)
     },
     {
       connection,

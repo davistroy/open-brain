@@ -36,25 +36,54 @@ import type { FlowJob } from 'bullmq'
  *   - extract-commitments: enrichment only, no status change
  *   - wiki-ingest: enrichment only, no status change
  *
+ * Embed-only variant (opts.embedOnly, used by flows/redrive.ts):
+ *
+ *   ingest-root (parent)
+ *   +-- embed-capture (child -- critical, failParentOnFailure: true)
+ *
+ * The enrichment children are left out on purpose: a re-drive after a failed
+ * embed must not re-run extract-entities / extract-commitments / wiki-ingest
+ * (paid and, for commitments, not idempotent). includeWikiIngest is ignored.
+ *
  * @param captureId - UUID of the capture to process
  * @param opts - Optional flags to control which children are included
  * @param opts.includeWikiIngest - When true, adds wiki-ingest as a non-critical child
  * @param opts.traceId - Pipeline trace ID (UUID v4) for cross-stage correlation
+ * @param opts.embedOnly - When true, returns the root job and the embed child only
  * @returns FlowJob tree definition for FlowProducer.add()
  */
-export function buildIngestFlow(captureId: string, opts?: { includeWikiIngest?: boolean; traceId?: string }): FlowJob {
-  const children: FlowJob[] = [
-    {
-      name: 'embed',
-      queueName: 'embed-capture',
-      data: { captureId, traceId: opts?.traceId },
-      opts: {
-        jobId: `embed_${captureId}`,
-        failParentOnFailure: true,
-        attempts: 5,
-        backoff: { type: 'custom' },
-      },
+export function buildIngestFlow(
+  captureId: string,
+  opts?: { includeWikiIngest?: boolean; traceId?: string; embedOnly?: boolean },
+): FlowJob {
+  const embedChild: FlowJob = {
+    name: 'embed',
+    queueName: 'embed-capture',
+    data: { captureId, traceId: opts?.traceId },
+    opts: {
+      jobId: `embed_${captureId}`,
+      failParentOnFailure: true,
+      attempts: 5,
+      backoff: { type: 'custom' },
     },
+  }
+
+  const root = (children: FlowJob[]): FlowJob => ({
+    name: 'ingest-root',
+    queueName: 'ingest-root',
+    data: { captureId, traceId: opts?.traceId },
+    opts: {
+      jobId: `ingest-root_${captureId}`,
+    },
+    children,
+  })
+
+  if (opts?.embedOnly) {
+    return root([embedChild])
+  }
+
+  const children: FlowJob[] = [
+    embedChild,
     {
       name: 'extract-entities',
       queueName: 'extract-entities',
@@ -93,15 +122,7 @@ export function buildIngestFlow(captureId: string, opts?: { includeWikiIngest?: 
     })
   }
 
-  return {
-    name: 'ingest-root',
-    queueName: 'ingest-root',
-    data: { captureId, traceId: opts?.traceId },
-    opts: {
-      jobId: `ingest-root_${captureId}`,
-    },
-    children,
-  }
+  return root(children)
 }
 
 /**

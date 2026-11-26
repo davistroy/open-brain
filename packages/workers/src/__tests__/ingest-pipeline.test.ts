@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { buildIngestFlow, INGEST_ROOT_QUEUE_NAME } from '../flows/ingest-pipeline.js'
+import type { FlowState } from '../flows/redrive.js'
+import { processIngestionJob } from '../jobs/ingestion-worker.js'
+import type { IngestDedup } from '../lib/ingest-dedup.js'
 import type { FlowJob } from 'bullmq'
 
 describe('buildIngestFlow', () => {
@@ -163,5 +166,185 @@ describe('buildIngestFlow with wiki-ingest', () => {
     const flow = buildIngestFlow(captureId, { includeWikiIngest: true, traceId })
     const wikiChild = flow.children!.find(c => c.queueName === 'wiki-ingest')!
     expect(wikiChild.data).toEqual({ captureId, traceId })
+  })
+})
+
+describe('buildIngestFlow with embedOnly (re-drive, item 9.1)', () => {
+  const captureId = 'cap-embed-only'
+
+  it('returns the root job and the embed child only', () => {
+    const flow = buildIngestFlow(captureId, { embedOnly: true, traceId: 'trace-eo' })
+    expect(flow.name).toBe('ingest-root')
+    expect(flow.queueName).toBe(INGEST_ROOT_QUEUE_NAME)
+    expect(flow.opts?.jobId).toBe(`ingest-root_${captureId}`)
+    expect(flow.data).toEqual({ captureId, traceId: 'trace-eo' })
+    expect(flow.children).toHaveLength(1)
+
+    const [embed] = flow.children!
+    expect(embed.queueName).toBe('embed-capture')
+    expect(embed.opts?.jobId).toBe(`embed_${captureId}`)
+    expect(embed.opts?.failParentOnFailure).toBe(true)
+    expect(embed.data).toEqual({ captureId, traceId: 'trace-eo' })
+  })
+
+  it('ignores includeWikiIngest — no enrichment child is ever included', () => {
+    const flow = buildIngestFlow(captureId, { embedOnly: true, includeWikiIngest: true })
+    expect(flow.children!.map(c => c.queueName)).toEqual(['embed-capture'])
+  })
+
+  it('embedOnly: false keeps the full DAG', () => {
+    const flow = buildIngestFlow(captureId, { embedOnly: false })
+    expect(flow.children).toHaveLength(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// processIngestionJob — re-drive routing + forceRetry dedup bypass (item 9.1)
+// ---------------------------------------------------------------------------
+
+function makeIngestDb(capture: Record<string, unknown> | undefined) {
+  const updateWhere = vi.fn().mockResolvedValue(undefined)
+  const updateSet = vi.fn().mockReturnValue({ where: updateWhere })
+  return {
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockResolvedValue(capture ? [capture] : []),
+        }),
+      }),
+    }),
+    insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
+    update: vi.fn().mockReturnValue({ set: updateSet }),
+  }
+}
+
+function makeCaptureRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'cap-r',
+    content_hash: 'hash-r',
+    pipeline_status: 'pending',
+    pipeline_attempts: 0,
+    source_metadata: null,
+    ...overrides,
+  }
+}
+
+function makeRedrive(state: FlowState) {
+  return {
+    getFlowState: vi.fn().mockResolvedValue(state),
+    redriveCapture: vi.fn().mockResolvedValue({ action: 'redriven', stage: 'embed', removed: [] }),
+  }
+}
+
+describe('processIngestionJob — re-drive routing', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('in-flight flow: returns without touching the capture or adding a flow', async () => {
+    const db = makeIngestDb(makeCaptureRow())
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const redrive = makeRedrive('in-flight')
+
+    await processIngestionJob({ captureId: 'cap-r' }, db as never, flowProducer as never, undefined, redrive)
+
+    expect(redrive.getFlowState).toHaveBeenCalledWith('cap-r')
+    expect(db.update).not.toHaveBeenCalled()
+    expect(db.insert).not.toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
+    expect(redrive.redriveCapture).not.toHaveBeenCalled()
+  })
+
+  it('no retained flow, status pending: adds the full flow as before', async () => {
+    const db = makeIngestDb(makeCaptureRow())
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const redrive = makeRedrive('none')
+
+    await processIngestionJob({ captureId: 'cap-r' }, db as never, flowProducer as never, undefined, redrive)
+
+    expect(flowProducer.add).toHaveBeenCalledTimes(1)
+    expect(flowProducer.add.mock.calls[0][0].children).toHaveLength(3)
+    expect(redrive.redriveCapture).not.toHaveBeenCalled()
+  })
+
+  it('finished flow: re-drives the embed only (no stage)', async () => {
+    const db = makeIngestDb(makeCaptureRow({ pipeline_status: 'processing', source_metadata: { trace_id: 't-1' } }))
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const redrive = makeRedrive('finished')
+
+    await processIngestionJob({ captureId: 'cap-r' }, db as never, flowProducer as never, undefined, redrive)
+
+    expect(flowProducer.add).not.toHaveBeenCalled()
+    expect(redrive.redriveCapture).toHaveBeenCalledWith('cap-r', {
+      stage: 'embed',
+      includeWikiIngest: !!process.env.WIKI_REPO_URL,
+      traceId: 't-1',
+    })
+  })
+
+  it("status 'extracted' with no retained flow: re-drives instead of a full add", async () => {
+    const db = makeIngestDb(makeCaptureRow({ pipeline_status: 'extracted' }))
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const redrive = makeRedrive('none')
+
+    await processIngestionJob({ captureId: 'cap-r' }, db as never, flowProducer as never, undefined, redrive)
+
+    expect(flowProducer.add).not.toHaveBeenCalled()
+    expect(redrive.redriveCapture).toHaveBeenCalledWith('cap-r', expect.objectContaining({ stage: 'embed' }))
+  })
+
+  it("stage 'all': re-drives with stage 'all' even with no retained flow", async () => {
+    const db = makeIngestDb(makeCaptureRow())
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const redrive = makeRedrive('none')
+
+    await processIngestionJob(
+      { captureId: 'cap-r', stage: 'all' },
+      db as never,
+      flowProducer as never,
+      undefined,
+      redrive,
+    )
+
+    expect(flowProducer.add).not.toHaveBeenCalled()
+    expect(redrive.redriveCapture).toHaveBeenCalledWith('cap-r', expect.objectContaining({ stage: 'all' }))
+  })
+
+  it('no redrive hooks injected: behaves as before (full flow add)', async () => {
+    const db = makeIngestDb(makeCaptureRow({ pipeline_status: 'extracted' }))
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+
+    await processIngestionJob({ captureId: 'cap-r' }, db as never, flowProducer as never)
+
+    expect(flowProducer.add).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('processIngestionJob — forceRetry skips the 5-minute dedup window', () => {
+  it('a duplicate hash is dropped without forceRetry', async () => {
+    const db = makeIngestDb(makeCaptureRow())
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const dedup = { isDuplicate: vi.fn().mockResolvedValue(true) } as unknown as IngestDedup
+
+    await processIngestionJob({ captureId: 'cap-r' }, db as never, flowProducer as never, dedup)
+
+    expect(dedup.isDuplicate).toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
+  })
+
+  it('forceRetry: the dedup check is not consulted and the pipeline runs', async () => {
+    const db = makeIngestDb(makeCaptureRow({ pipeline_status: 'failed' }))
+    const flowProducer = { add: vi.fn().mockResolvedValue(undefined) }
+    const dedup = { isDuplicate: vi.fn().mockResolvedValue(true) } as unknown as IngestDedup
+
+    await processIngestionJob(
+      { captureId: 'cap-r', forceRetry: true },
+      db as never,
+      flowProducer as never,
+      dedup,
+    )
+
+    expect(dedup.isDuplicate).not.toHaveBeenCalled()
+    expect(flowProducer.add).toHaveBeenCalledTimes(1)
   })
 })
