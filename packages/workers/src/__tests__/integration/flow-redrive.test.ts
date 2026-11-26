@@ -10,10 +10,16 @@
  *   (b) re-drive while the embed is delayed → nothing is added, `skipped`
  *   (c) failed enrichment child + embed-only re-drive → new root `completed`
  *   (d) stage 'all' → each enrichment processor runs exactly once more (2)
+ *   (d2) an enrichment child in flight → the flow is in flight, `skipped`
+ *   (i) two concurrent stage 'all' re-drives → per-capture lock, one `skipped`
+ *       (locked), each enrichment processor runs exactly once more
+ *   (l) a failing flow add after the removal → warn + rethrow, lock released
+ *   (j) root `waiting-children` with a missing / unknown embed → finished, re-driven
  *   (e) processIngestionJob itself re-drives a capture with a failed flow
  *   (f) a successful embed clears captures.pipeline_error
+ *   (k) stage 'all' on a `complete` capture re-runs embed + enrichment
  *   (g) flow retention (item 9.3): `queuesOptions` prunes completed flow jobs by age
- *   (h) the production flow adds (redrive stages) carry the 7d/14d retention
+ *   (h) the production flow adds (redrive stages) carry the 7d/14d + 5000 retention
  *
  * A unique BullMQ prefix keeps these queues apart from every other suite.
  *
@@ -21,12 +27,12 @@
  *        --config vitest.config.integration.ts src/__tests__/integration/flow-redrive.test.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { FlowProducer, Queue, Worker, UnrecoverableError } from 'bullmq'
 import type { ConnectionOptions, Job } from 'bullmq'
 import { eq } from 'drizzle-orm'
-import { captures } from '@open-brain/shared'
+import { captures, logger } from '@open-brain/shared'
 import type { EmbeddingService } from '@open-brain/shared'
 import { buildIngestFlow, INGEST_FLOW_QUEUES_OPTIONS } from '../../flows/ingest-pipeline.js'
 import { closeRedriveQueues, getFlowState, redriveCapture } from '../../flows/redrive.js'
@@ -263,7 +269,8 @@ describe('redriveCapture — real Redis', () => {
     const commitments = new Queue('extract-commitments', { connection, prefix: PREFIX })
     await commitments.remove(`extract-commitments_${captureId}`)
     await commitments.add('extract-commitments', { captureId }, { jobId: `extract-commitments_${captureId}`, delay: 60_000 })
-    expect(await getFlowState(connection, captureId, PREFIX)).toBe('finished')
+    // An enrichment child in flight makes the whole flow in flight (review fix 3).
+    expect(await getFlowState(connection, captureId, PREFIX)).toBe('in-flight')
 
     const result = await redriveCapture(deps, captureId, { stage: 'all', includeWikiIngest: false })
     expect(result).toEqual({ action: 'skipped', reason: 'in-flight' })
@@ -272,6 +279,107 @@ describe('redriveCapture — real Redis', () => {
     expect(count('extract-entities', captureId)).toBe(1)
     await commitments.close()
   })
+
+  it("(i) two concurrent stage 'all' re-drives: one is skipped (locked), each enrichment child runs exactly once more", async () => {
+    const captureId = randomUUID()
+    await runFirstFlow(captureId, 'completed')
+    await waitFor(() => count('ingest-root', captureId) === 1, 'first root ran')
+
+    const results = await Promise.all([
+      redriveCapture(deps, captureId, { stage: 'all', includeWikiIngest: true }),
+      redriveCapture(deps, captureId, { stage: 'all', includeWikiIngest: true }),
+    ])
+    const actions = results.map(r => r.action).sort()
+    expect(actions).toEqual(['redriven', 'skipped'])
+    expect(results.find(r => r.action === 'skipped')).toEqual({ action: 'skipped', reason: 'locked' })
+
+    await waitFor(() => count('ingest-root', captureId) === 2, 'second root run')
+    await waitFor(async () => (await rootState(captureId)) === 'completed', 'new root completed')
+    await new Promise(r => setTimeout(r, 500)) // room for any duplicate run to show up
+    expect(count('embed-capture', captureId)).toBe(2)
+    expect(count('extract-entities', captureId)).toBe(2)
+    expect(count('extract-commitments', captureId)).toBe(2)
+    expect(count('wiki-ingest', captureId)).toBe(2)
+    expect(count('ingest-root', captureId)).toBe(2)
+
+    // The lock is released: a later re-drive is not refused as locked.
+    const later = await redriveCapture(deps, captureId, { stage: 'embed', includeWikiIngest: false })
+    expect(later.action).toBe('redriven')
+    await waitFor(async () => (await rootState(captureId)) === 'completed', 'third root completed')
+  })
+
+  it('(l) a failing flow add after the removal logs a warn with the captureId, rethrows and releases the lock', async () => {
+    const captureId = randomUUID()
+    modes['embed-capture'] = 'fail'
+    await runFirstFlow(captureId, 'failed', false)
+    modes['embed-capture'] = 'ok'
+
+    const warn = vi.fn()
+    const childSpy = vi.spyOn(logger, 'child').mockReturnValue({
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+      debug: vi.fn(),
+    } as unknown as ReturnType<typeof logger.child>)
+    const brokenProducer = { add: vi.fn().mockRejectedValue(new Error('redis down')) } as unknown as FlowProducer
+    try {
+      await expect(
+        redriveCapture({ ...deps, flowProducer: brokenProducer }, captureId, { stage: 'embed', includeWikiIngest: false }),
+      ).rejects.toThrow('redis down')
+    } finally {
+      childSpy.mockRestore()
+    }
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ captureId }), expect.any(String))
+
+    // Lock released: the next re-drive goes ahead (the root/embed are already gone → 'none').
+    const next = await redriveCapture(deps, captureId, { stage: 'embed', includeWikiIngest: false })
+    expect(next).toMatchObject({ action: 'redriven', stage: 'embed' })
+    await waitFor(async () => (await rootState(captureId)) === 'completed', 'new root completed')
+  })
+
+  /**
+   * Orphan shape: the root waits in `waiting-children` but its embed job is
+   * gone (`missing`) or sits in no state list (`unknown`). Nothing will ever
+   * move the root, so the flow must count as finished and be re-driven.
+   */
+  async function buildOrphan(captureId: string, how: 'missing' | 'unknown'): Promise<void> {
+    modes['embed-capture'] = 'retry'
+    await flowProducer.add(buildIngestFlow(captureId))
+    await waitFor(
+      async () => (await stateOf('embed-capture', `embed_${captureId}`)) === 'delayed',
+      'embed delayed',
+    )
+    await waitFor(async () => {
+      for (const q of ['extract-entities', 'extract-commitments'] as const) {
+        if ((await stateOf(q, `${q}_${captureId}`)) !== 'completed') return false
+      }
+      return true
+    }, 'enrichment completed')
+    const redis = await inspectQueue('embed-capture').client
+    const embedJobId = `embed_${captureId}`
+    await redis.zrem(`${PREFIX}:embed-capture:delayed`, embedJobId)
+    if (how === 'missing') await redis.del(`${PREFIX}:embed-capture:${embedJobId}`)
+    expect(await stateOf('embed-capture', embedJobId)).toBe(how)
+    expect(await rootState(captureId)).toBe('waiting-children')
+    modes['embed-capture'] = 'ok'
+  }
+
+  for (const how of ['missing', 'unknown'] as const) {
+    it(`(j-${how}) root waiting-children with a ${how} embed counts as finished and is re-driven`, async () => {
+      const captureId = randomUUID()
+      await buildOrphan(captureId, how)
+
+      expect(await getFlowState(connection, captureId, PREFIX)).toBe('finished')
+      const result = await redriveCapture(deps, captureId, { stage: 'embed', includeWikiIngest: false })
+      expect(result).toMatchObject({ action: 'redriven', stage: 'embed' })
+      expect(result.action === 'redriven' && result.removed).toContain(`ingest-root_${captureId}`)
+
+      await waitFor(async () => (await rootState(captureId)) === 'completed', 'new root completed')
+      expect(count('embed-capture', captureId)).toBe(2)
+      expect(count('extract-entities', captureId)).toBe(1)
+      expect(count('extract-commitments', captureId)).toBe(1)
+    })
+  }
 })
 
 describe('processIngestionJob — re-drive wiring against real Redis + Postgres', () => {
@@ -333,6 +441,32 @@ describe('processIngestionJob — re-drive wiring against real Redis + Postgres'
     )
     expect(rows[0]).toEqual({ pipeline_status: 'complete', pipeline_error: null })
   })
+
+  it("(k) stage 'all' on a complete capture re-runs embed and enrichment; without stage it returns early", async () => {
+    const capture = await createTestCapture({ pipeline_status: 'pending' })
+    const captureId = capture.id as string
+    const db = getTestDb()
+
+    // Embed succeeded, an enrichment child failed (removeDependencyOnFailure).
+    modes['extract-commitments'] = 'fail'
+    await processIngestionJob({ captureId }, db, flowProducer, undefined, hooks())
+    await waitFor(async () => (await rootState(captureId)) === 'completed', 'root completed')
+    await getTestPool().query(`UPDATE captures SET pipeline_status = 'complete' WHERE id = $1`, [captureId])
+    modes['extract-commitments'] = 'ok'
+
+    // No stage: 'complete' is terminal — nothing is added.
+    await processIngestionJob({ captureId }, db, flowProducer, undefined, hooks())
+    await new Promise(r => setTimeout(r, 300))
+    expect(count('embed-capture', captureId)).toBe(1)
+    expect(count('extract-commitments', captureId)).toBe(1)
+
+    // stage 'all' (retry route sends forceRetry too): the full flow runs again.
+    await processIngestionJob({ captureId, forceRetry: true, stage: 'all' }, db, flowProducer, undefined, hooks())
+    await waitFor(() => count('ingest-root', captureId) === 2, 'second root run')
+    expect(count('embed-capture', captureId)).toBe(2)
+    expect(count('extract-entities', captureId)).toBe(2)
+    expect(count('extract-commitments', captureId)).toBe(2)
+  })
 })
 
 // ── Item 9.3: flow-job retention ─────────────────────────────────────────────
@@ -378,8 +512,8 @@ describe('flow job retention — real Redis (item 9.3)', () => {
       for (const q of queuesChecked) {
         const id = q === 'ingest-root' ? `ingest-root_${captureId}` : `${q === 'embed-capture' ? 'embed' : q}_${captureId}`
         const job = await inspectQueue(q).getJob(id)
-        expect(job?.opts.removeOnComplete, `${stage}/${q}`).toEqual({ age: 604_800 })
-        expect(job?.opts.removeOnFail, `${stage}/${q}`).toEqual({ age: 1_209_600 })
+        expect(job?.opts.removeOnComplete, `${stage}/${q}`).toEqual({ age: 604_800, count: 5_000 })
+        expect(job?.opts.removeOnFail, `${stage}/${q}`).toEqual({ age: 1_209_600, count: 5_000 })
       }
     }
   })

@@ -84,7 +84,8 @@ export function createIngestRedrive(connection: ConnectionOptions, flowProducer:
  * Re-drive (item 9.1): flow jobs carry FIXED ids, so a retained failed
  * `embed_<id>` / `ingest-root_<id>` blocks a plain re-add. Before any status
  * update the handler asks `redrive.getFlowState`:
- *   - 'in-flight' → log and return; the capture is not touched.
+ *   - 'in-flight' → warn and return; the capture is not touched.
+ *   - `stage: 'all'` also re-drives a 'complete' capture (see isTerminal).
  *   - 'none', status ≠ 'extracted', no `stage: 'all'` → first run: add the
  *     full flow as before.
  *   - anything else → once the status reaches 'extracted', call
@@ -127,9 +128,12 @@ export async function processIngestionJob(
 
   // Skip if already terminal — daily sweep may re-enqueue completed captures.
   // forceRetry (from POST /api/v1/captures/:id/retry) bypasses the 'failed'
-  // guard only; 'complete' and 'deleted' remain terminal unconditionally.
+  // guard only. `stage: 'all'` (retry route ?stage=all) bypasses the
+  // 'complete' guard only: embed succeeded but an enrichment child failed
+  // (removeDependencyOnFailure), so the capture is 'complete' and the full
+  // re-drive is exactly what was asked for. 'deleted' is always terminal.
   const isTerminal =
-    capture.pipeline_status === 'complete' ||
+    (capture.pipeline_status === 'complete' && data.stage !== 'all') ||
     capture.pipeline_status === 'deleted' ||
     (capture.pipeline_status === 'failed' && !forceRetry)
 
@@ -146,7 +150,7 @@ export async function processIngestionJob(
   // ── Retained flow state (item 9.1) — before any status update ─────────────
   const flowState: FlowState = redrive ? await redrive.getFlowState(captureId) : 'none'
   if (flowState === 'in-flight') {
-    log.info('[ingestion] flow already in flight — leaving capture untouched')
+    log.warn('[ingestion] flow already in flight — leaving capture untouched')
     return
   }
   const useRedrive =

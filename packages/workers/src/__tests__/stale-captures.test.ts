@@ -221,22 +221,29 @@ describe('StaleCapturesSkill', () => {
     })
 
     it('calls queue.add for each stale capture with a per-day sweep job ID', async () => {
-      const { skill, queue } = makeSkill()
-      const day = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+      // Fixed clock (as daily-sweep.test.ts): the day comes from the skill's
+      // own `new Date()`, never from a second clock read in the test.
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-11-26T23:59:59.900Z'))
+      try {
+        const { skill, queue } = makeSkill()
 
-      await skill.execute()
+        await skill.execute()
 
-      expect(queue.add).toHaveBeenCalledTimes(2)
-      expect(queue.add).toHaveBeenCalledWith(
-        'ingest',
-        { captureId: STALE_PENDING.id },
-        { jobId: `sweep_${STALE_PENDING.id}_${day}` },
-      )
-      expect(queue.add).toHaveBeenCalledWith(
-        'ingest',
-        { captureId: STALE_PROCESSING.id },
-        { jobId: `sweep_${STALE_PROCESSING.id}_${day}` },
-      )
+        expect(queue.add).toHaveBeenCalledTimes(2)
+        expect(queue.add).toHaveBeenCalledWith(
+          'ingest',
+          { captureId: STALE_PENDING.id },
+          { jobId: `sweep_${STALE_PENDING.id}_20261126` },
+        )
+        expect(queue.add).toHaveBeenCalledWith(
+          'ingest',
+          { captureId: STALE_PROCESSING.id },
+          { jobId: `sweep_${STALE_PROCESSING.id}_20261126` },
+        )
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('sends Pushover notification on successful re-queue', async () => {

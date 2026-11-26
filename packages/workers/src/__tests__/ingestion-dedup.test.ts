@@ -245,3 +245,77 @@ describe('processIngestionJob — forceRetry', () => {
     expect(flowProducer.add).not.toHaveBeenCalled()
   })
 })
+
+// ============================================================
+// Review fix 2 — stage 'all' on a complete capture re-drives
+// ============================================================
+
+describe("processIngestionJob — stage 'all' on terminal captures", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function makeRedrive() {
+    return {
+      getFlowState: vi.fn().mockResolvedValue('finished'),
+      redriveCapture: vi.fn().mockResolvedValue({ action: 'redriven', stage: 'all', removed: [] }),
+    }
+  }
+
+  it("re-drives a complete capture with stage 'all' (full flow: embed + enrichment)", async () => {
+    const db = makeDb(makeCapture({ pipeline_status: 'complete' }))
+    const flowProducer = makeFlowProducer()
+    const redrive = makeRedrive()
+
+    await processIngestionJob(
+      { captureId: 'cap-1', forceRetry: true, stage: 'all' },
+      db as never,
+      flowProducer as never,
+      undefined,
+      redrive,
+    )
+
+    expect(redrive.redriveCapture).toHaveBeenCalledWith('cap-1', expect.objectContaining({ stage: 'all' }))
+  })
+
+  it('still returns early on a complete capture without a stage', async () => {
+    const db = makeDb(makeCapture({ pipeline_status: 'complete' }))
+    const flowProducer = makeFlowProducer()
+    const redrive = makeRedrive()
+
+    await processIngestionJob({ captureId: 'cap-1', forceRetry: true }, db as never, flowProducer as never, undefined, redrive)
+
+    expect(redrive.getFlowState).not.toHaveBeenCalled()
+    expect(redrive.redriveCapture).not.toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
+    expect(db.update).not.toHaveBeenCalled()
+  })
+
+  it("keeps 'deleted' terminal even with stage 'all'", async () => {
+    const db = makeDb(makeCapture({ pipeline_status: 'deleted' }))
+    const flowProducer = makeFlowProducer()
+    const redrive = makeRedrive()
+
+    await processIngestionJob(
+      { captureId: 'cap-1', forceRetry: true, stage: 'all' },
+      db as never,
+      flowProducer as never,
+      undefined,
+      redrive,
+    )
+
+    expect(redrive.redriveCapture).not.toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
+  })
+
+  it("keeps 'failed' terminal without forceRetry even with stage 'all'", async () => {
+    const db = makeDb(makeCapture({ pipeline_status: 'failed' }))
+    const flowProducer = makeFlowProducer()
+    const redrive = makeRedrive()
+
+    await processIngestionJob({ captureId: 'cap-1', stage: 'all' }, db as never, flowProducer as never, undefined, redrive)
+
+    expect(redrive.redriveCapture).not.toHaveBeenCalled()
+    expect(flowProducer.add).not.toHaveBeenCalled()
+  })
+})

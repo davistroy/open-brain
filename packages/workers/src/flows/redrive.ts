@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { Queue } from 'bullmq'
 import type { ConnectionOptions, FlowProducer, Job } from 'bullmq'
-import { logger } from '@open-brain/shared'
+import { attachErrorListeners, logger } from '@open-brain/shared'
 import { buildIngestFlow, INGEST_FLOW_QUEUES_OPTIONS, INGEST_ROOT_QUEUE_NAME } from './ingest-pipeline.js'
 
 /**
@@ -14,19 +15,29 @@ import { buildIngestFlow, INGEST_FLOW_QUEUES_OPTIONS, INGEST_ROOT_QUEUE_NAME } f
  *   capture and nothing runs.
  *
  * WHAT IT DOES
- *   - In flight (root or embed waiting / active / delayed / prioritized /
- *     waiting-children): add nothing, return `skipped`.
+ *   - Per-capture lock: lookup → remove → add runs under a Redis lock
+ *     (`<prefix>:redrive-lock:<captureId>`, SET NX PX 120000, released by a
+ *     token compare-and-delete). A second concurrent call (ingestion worker
+ *     concurrency 2; a double retry; sweep + retry) returns `skipped` (reason
+ *     `locked`) and adds nothing, so it can never delete the first call's fresh
+ *     jobs and run the paid enrichment twice.
+ *   - In flight: add nothing, return `skipped` (reason `in-flight`, logged at
+ *     warn). The flow is in flight when the embed or an enrichment child is
+ *     itself waiting / active / delayed / prioritized / waiting-children, or
+ *     the root is waiting / active / delayed / prioritized. A root in
+ *     `waiting-children` alone does NOT count: when its embed is missing,
+ *     `unknown` or failed and no child is in flight, nothing will ever move it
+ *     (an orphan), so the flow is `finished` and the root is removed.
  *   - stage 'embed' (default): remove ONLY the retained root (removeChildren:
  *     false) and the embed job, then add an embed-only flow (root + embed).
  *     The enrichment children (`extract-entities`, `extract-commitments`,
  *     `wiki-ingest`) are left untouched, so enrichment never re-runs — those
  *     are paid / non-idempotent (commitments insert with no dedup).
- *   - stage 'all': additionally look up each enrichment child by its fixed id in
- *     its own queue, skip when any is in flight, remove each finished one BY ID,
- *     then add the full flow. Never `removeChildren` — a child that failed with
- *     removeDependencyOnFailure is recorded nowhere on the parent, so a tree
- *     removal misses it and on re-add it re-attaches to the new root, which then
- *     waits forever.
+ *   - stage 'all': additionally remove each finished enrichment child BY ID in
+ *     its own queue, then add the full flow. Never `removeChildren` — a child
+ *     that failed with removeDependencyOnFailure is recorded nowhere on the
+ *     parent, so a tree removal misses it and on re-add it re-attaches to the
+ *     new root, which then waits forever.
  *
  * A job whose state is `unknown` (hash present, in no state list — e.g. an old
  * "job stalled more than allowable limit" orphan) also blocks re-adds, so it is
@@ -49,13 +60,19 @@ export interface RedriveDeps {
 }
 
 export type RedriveResult =
-  | { action: 'skipped'; reason: 'in-flight' }
+  | { action: 'skipped'; reason: 'in-flight' | 'locked' }
   | { action: 'redriven'; stage: 'embed' | 'all'; removed: string[] }
 
 const EMBED_QUEUE_NAME = 'embed-capture'
 const ENRICHMENT_QUEUE_NAMES = ['extract-entities', 'extract-commitments', 'wiki-ingest'] as const
 
 const IN_FLIGHT_STATES = new Set<string>(['waiting', 'active', 'delayed', 'prioritized', 'waiting-children'])
+
+/** Lock TTL — long enough for lookup → remove → add, short enough to self-heal after a crash. */
+const REDRIVE_LOCK_TTL_MS = 120_000
+
+/** Delete the lock only when it still holds our token (never another caller's lock). */
+const RELEASE_LOCK_LUA = `if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end`
 
 type QueueName = typeof INGEST_ROOT_QUEUE_NAME | typeof EMBED_QUEUE_NAME | (typeof ENRICHMENT_QUEUE_NAMES)[number]
 
@@ -81,6 +98,8 @@ function getQueue(connection: ConnectionOptions, name: QueueName, prefix?: strin
   let queue = byName.get(name)
   if (!queue) {
     queue = new Queue(name, { connection, ...(prefix ? { prefix } : {}) })
+    // Route connection errors through pino (BullMQ's default is console.error).
+    attachErrorListeners([queue], logger)
     byName.set(name, queue)
   }
   return queue
@@ -125,36 +144,46 @@ function embedId(captureId: string): string {
   return `embed_${captureId}`
 }
 
-function summarize(jobs: Array<FoundJob | null>): FlowState {
-  const present = jobs.filter((j): j is FoundJob => j !== null)
-  if (present.length === 0) return 'none'
-  if (present.some(j => IN_FLIGHT_STATES.has(j.state))) return 'in-flight'
+interface FlowJobs {
+  root: FoundJob | null
+  embed: FoundJob | null
+  enrichment: FoundJob[]
+}
+
+function summarize({ root, embed, enrichment }: FlowJobs): FlowState {
+  if (!root && !embed && enrichment.length === 0) return 'none'
+  // The children are what runs; a root in waiting-children only waits on them.
+  if (embed && IN_FLIGHT_STATES.has(embed.state)) return 'in-flight'
+  if (enrichment.some(j => IN_FLIGHT_STATES.has(j.state))) return 'in-flight'
+  if (root && root.state !== 'waiting-children' && IN_FLIGHT_STATES.has(root.state)) return 'in-flight'
   return 'finished'
 }
 
-async function lookupRootAndEmbed(
-  connection: ConnectionOptions,
-  captureId: string,
-  prefix?: string,
-): Promise<[FoundJob | null, FoundJob | null]> {
-  return Promise.all([
+async function lookupFlow(connection: ConnectionOptions, captureId: string, prefix?: string): Promise<FlowJobs> {
+  const [root, embed, ...children] = await Promise.all([
     lookup(connection, INGEST_ROOT_QUEUE_NAME, rootId(captureId), prefix),
     lookup(connection, EMBED_QUEUE_NAME, embedId(captureId), prefix),
+    ...ENRICHMENT_QUEUE_NAMES.map(q => lookup(connection, q, `${q}_${captureId}`, prefix)),
   ])
+  return { root, embed, enrichment: children.filter((j): j is FoundJob => j !== null) }
 }
 
 /**
- * State of the retained ingest flow for a capture, from its root and embed jobs.
- *   'none'      — neither `ingest-root_<id>` nor `embed_<id>` exists
- *   'in-flight' — either is waiting / active / delayed / prioritized / waiting-children
- *   'finished'  — at least one exists and none is in flight (completed / failed / unknown)
+ * State of the retained ingest flow for a capture, from its root, embed and
+ * enrichment jobs (see `summarize` and the module comment):
+ *   'none'      — none of the five fixed-id jobs exists
+ *   'in-flight' — the embed or an enrichment child is waiting / active / delayed /
+ *                 prioritized / waiting-children, or the root is waiting / active /
+ *                 delayed / prioritized
+ *   'finished'  — otherwise (completed / failed / unknown jobs, or an orphaned
+ *                 root in waiting-children)
  */
 export async function getFlowState(
   connection: ConnectionOptions,
   captureId: string,
   prefix?: string,
 ): Promise<FlowState> {
-  return summarize(await lookupRootAndEmbed(connection, captureId, prefix))
+  return summarize(await lookupFlow(connection, captureId, prefix))
 }
 
 /**
@@ -167,21 +196,45 @@ export async function redriveCapture(
   captureId: string,
   opts: RedriveOptions,
 ): Promise<RedriveResult> {
-  const { connection, flowProducer, prefix } = deps
+  const { connection, prefix } = deps
   const log = logger.child({ captureId, traceId: opts.traceId, stage: opts.stage })
 
-  const [root, embed] = await lookupRootAndEmbed(connection, captureId, prefix)
-
-  const enrichment: FoundJob[] = []
-  if (opts.stage === 'all') {
-    const found = await Promise.all(
-      ENRICHMENT_QUEUE_NAMES.map(q => lookup(connection, q, `${q}_${captureId}`, prefix)),
-    )
-    for (const f of found) if (f) enrichment.push(f)
+  const redis = await getQueue(connection, EMBED_QUEUE_NAME, prefix).client
+  const lockKey = `${prefix ?? 'bull'}:redrive-lock:${captureId}`
+  const token = randomUUID()
+  const acquired = await redis.set(lockKey, token, 'PX', REDRIVE_LOCK_TTL_MS, 'NX')
+  if (acquired !== 'OK') {
+    log.warn('[redrive] another re-drive holds the lock — skipped')
+    return { action: 'skipped', reason: 'locked' }
   }
 
-  if (summarize([root, embed, ...enrichment]) === 'in-flight') {
-    log.info('[redrive] in flight')
+  try {
+    return await redriveLocked(deps, captureId, opts, log)
+  } finally {
+    await redis.eval(RELEASE_LOCK_LUA, 1, lockKey, token).catch((err: unknown) => {
+      // The TTL frees it anyway; never mask the re-drive's own outcome.
+      log.warn({ err }, '[redrive] lock release failed — expires with its TTL')
+    })
+  }
+}
+
+async function redriveLocked(
+  deps: RedriveDeps,
+  captureId: string,
+  opts: RedriveOptions,
+  log: Pick<typeof logger, 'info' | 'warn'>,
+): Promise<RedriveResult> {
+  const { connection, flowProducer, prefix } = deps
+  const flow = await lookupFlow(connection, captureId, prefix)
+  const { root, embed, enrichment } = flow
+
+  if (summarize(flow) === 'in-flight') {
+    log.warn(
+      {
+        jobs: [root, embed, ...enrichment].filter((j): j is FoundJob => j !== null).map(j => `${j.id}:${j.state}`),
+      },
+      '[redrive] flow in flight — skipped',
+    )
     return { action: 'skipped', reason: 'in-flight' }
   }
 
@@ -198,24 +251,26 @@ export async function redriveCapture(
     removed.push(embed.id)
   }
 
-  if (opts.stage === 'embed') {
-    await flowProducer.add(buildIngestFlow(captureId, { embedOnly: true, traceId: opts.traceId }), {
-      queuesOptions: INGEST_FLOW_QUEUES_OPTIONS,
-    })
-    log.info({ removed }, '[redrive] embed-only flow added')
-    return { action: 'redriven', stage: 'embed', removed }
-  }
-
   // stage 'all' — remove each finished enrichment child by id, in its own queue.
-  for (const child of enrichment) {
-    await getQueue(connection, child.queue, prefix).remove(child.id, { removeChildren: false })
-    removed.push(child.id)
+  if (opts.stage === 'all') {
+    for (const child of enrichment) {
+      await getQueue(connection, child.queue, prefix).remove(child.id, { removeChildren: false })
+      removed.push(child.id)
+    }
   }
 
-  await flowProducer.add(
-    buildIngestFlow(captureId, { includeWikiIngest: opts.includeWikiIngest, traceId: opts.traceId }),
-    { queuesOptions: INGEST_FLOW_QUEUES_OPTIONS },
-  )
-  log.info({ removed }, '[redrive] full flow added')
-  return { action: 'redriven', stage: 'all', removed }
+  const ingestFlow =
+    opts.stage === 'embed'
+      ? buildIngestFlow(captureId, { embedOnly: true, traceId: opts.traceId })
+      : buildIngestFlow(captureId, { includeWikiIngest: opts.includeWikiIngest, traceId: opts.traceId })
+  try {
+    await flowProducer.add(ingestFlow, { queuesOptions: INGEST_FLOW_QUEUES_OPTIONS })
+  } catch (err) {
+    // The retained jobs are already gone: the next sweep / retry sees 'none'
+    // (or only enrichment children) and adds the flow again.
+    log.warn({ captureId, err, removed }, '[redrive] flow add failed after removal')
+    throw err
+  }
+  log.info({ removed }, opts.stage === 'embed' ? '[redrive] embed-only flow added' : '[redrive] full flow added')
+  return { action: 'redriven', stage: opts.stage, removed }
 }

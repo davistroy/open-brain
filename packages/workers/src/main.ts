@@ -8,6 +8,7 @@ import { Redis } from 'ioredis'
 import { createDb, ConfigService, createAnthropicClient, createOllamaClient, createOpenAIClient, LLMGatewayService } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
+import { closeRedriveQueues } from './flows/redrive.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
 import { createCheckTriggersWorker } from './jobs/check-triggers.js'
 import { createExtractEntitiesWorker } from './jobs/extract-entities.js'
@@ -280,9 +281,11 @@ async function main() {
       ...Object.values(scheduledQueues).map(q => q.close()),
     ])
     if (flowProducer) await flowProducer.close().catch(() => {})
+    // Queue handles the ingestion worker's re-drive opened (cached per connection).
+    await closeRedriveQueues(connection).catch(() => {})
     await dedupRedis.quit().catch(() => {})
     await composioMeterRedis.quit().catch(() => {})
-    logger.info('All workers, queues, flow producer, dedup Redis, and composio meter Redis closed')
+    logger.info('All workers, queues, flow producer, re-drive queues, dedup Redis, and composio meter Redis closed')
     await pool.end()
     logger.info('Postgres pool closed')
     process.exit(0)

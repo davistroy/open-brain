@@ -8,12 +8,13 @@ import type { FlowJob, FlowQueuesOpts } from 'bullmq'
  * every completed/failed flow job is retained forever (Redis runs noeviction).
  * Pass it as `flowProducer.add(flow, { queuesOptions: INGEST_FLOW_QUEUES_OPTIONS })`
  * on EVERY flow add. Age-based (never `removeOnFail: true`) so failures stay
- * inspectable for 14 days.
+ * inspectable for 14 days, plus a count cap of 5000 per queue so a burst (a
+ * bulk import) cannot grow Redis without bound inside the age window.
  */
 const FLOW_RETENTION = {
   defaultJobOptions: {
-    removeOnComplete: { age: 604_800 }, // 7 days
-    removeOnFail: { age: 1_209_600 }, // 14 days
+    removeOnComplete: { age: 604_800, count: 5_000 }, // 7 days, at most 5000
+    removeOnFail: { age: 1_209_600, count: 5_000 }, // 14 days, at most 5000
   },
 }
 export const INGEST_FLOW_QUEUES_OPTIONS: FlowQueuesOpts = {

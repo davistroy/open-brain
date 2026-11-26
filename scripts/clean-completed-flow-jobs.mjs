@@ -42,9 +42,15 @@ for (const name of QUEUES) {
     if (dryRun) {
       console.log(name, JSON.stringify(await queue.getJobCounts()))
     } else {
-      // grace 0 ms, up to 100000 jobs per call, completed set only.
-      const removed = await queue.clean(0, 100000, 'completed')
-      console.log(name, `removed ${removed.length} completed`)
+      // grace 0 ms, up to 100000 jobs per call, completed set only. Loop until a
+      // call removes nothing: one call stops at its limit, the backlog can be larger.
+      let total = 0
+      for (;;) {
+        const removed = await queue.clean(0, 100000, 'completed')
+        total += removed.length
+        if (removed.length === 0) break
+      }
+      console.log(name, `removed ${total} completed`)
     }
   } finally {
     await queue.close()
