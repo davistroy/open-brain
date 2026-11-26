@@ -45,7 +45,7 @@ import yaml
 # directly), so `from lib.capture_api import …` resolves in both cases.
 # `strip_upload_prefix`: uploads land as `<uploadId>-<name>` (item 9.4) — route
 # on the original name.
-from lib.capture_api import post_capture as _post_capture_raw  # noqa: E402
+from lib.capture_api import post_capture_with_id as _post_capture_raw  # noqa: E402
 from lib.inbox_names import strip_upload_prefix  # noqa: E402
 
 # CS3.9 --json-output support: wrap _post_capture to track results so the
@@ -64,14 +64,16 @@ def _post_capture(
     capture_type: str = "observation",
     brain_view: str = "personal",
 ) -> bool:
-    ok = _post_capture_raw(
+    ok, capture_id = _post_capture_raw(
         cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
     )
     if _JSON_OUTPUT_MODE:
         if ok:
-            # Content preview is a stable, human-readable id — the helper
-            # does not return the capture UUID.
-            _JSON_CAPTURES_POSTED.append(content[:80])
+            # workers validate captures_posted as UUIDs — report the created id only.
+            if capture_id:
+                _JSON_CAPTURES_POSTED.append(capture_id)
+            else:
+                log.warning("capture posted but core-api returned no id: %s", content[:80])
         else:
             _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
     return ok
