@@ -453,7 +453,10 @@ jobs:
 
   full-stack-e2e:
     name: Full-stack e2e (ingest + web smoke)
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest is 26.04, and Playwright 1.59 cannot install chromium
+    # there ("does not support chromium on ubuntu26.04-x64"). Unpin after a
+    # Playwright upgrade that supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Heavy (builds core-api + workers images): run on PRs and main pushes only,
     # not every feature-branch push. Keeps CI minutes sane for a non-required job.
