@@ -1,8 +1,9 @@
 import type { Hono } from 'hono'
 import { Pool } from 'pg'
+import { sql } from 'drizzle-orm'
 import { Redis } from 'ioredis'
 import { readFileSync } from 'node:fs'
-import { logger } from '@open-brain/shared'
+import { logger, type Database } from '@open-brain/shared'
 
 // Read version at startup — works in Docker where npm_package_version is unset.
 // tsup bundles into dist/index.js, so ../package.json reaches packages/core-api/package.json.
@@ -36,9 +37,29 @@ interface HealthResponse {
   }
 }
 
-async function checkPostgres(url: string): Promise<ServiceCheck> {
+const POSTGRES_PROBE_TIMEOUT_MS = 3000
+
+async function checkPostgres(url: string, db?: Database): Promise<ServiceCheck> {
   const start = Date.now()
-  const pool = new Pool({ connectionString: url, max: 1, connectionTimeoutMillis: 3000 })
+  if (db) {
+    // Probe through the main pool — no new Pool per request. Bounded so a saturated pool reports unhealthy.
+    let timer: NodeJS.Timeout | undefined
+    try {
+      await Promise.race([
+        db.execute(sql`SELECT 1`),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('postgres health probe timed out')), POSTGRES_PROBE_TIMEOUT_MS)
+        }),
+      ])
+      return { status: 'healthy', latency_ms: Date.now() - start }
+    } catch (err) {
+      logger.warn({ err }, 'Postgres health check failed')
+      return { status: 'unhealthy', error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+  const pool = new Pool({ connectionString: url, max: 1, connectionTimeoutMillis: POSTGRES_PROBE_TIMEOUT_MS })
   try {
     await pool.query('SELECT 1')
     return { status: 'healthy', latency_ms: Date.now() - start }
@@ -87,13 +108,13 @@ async function checkLLMProvider(baseUrl: string): Promise<ServiceCheck> {
   }
 }
 
-async function buildHealthResponse(): Promise<HealthResponse> {
+async function buildHealthResponse(db?: Database): Promise<HealthResponse> {
   const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
   const openaiBaseUrl = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
 
   const [postgres, redis, llm] = await Promise.all([
-    checkPostgres(postgresUrl),
+    checkPostgres(postgresUrl, db),
     checkRedis(redisUrl),
     checkLLMProvider(openaiBaseUrl),
   ])
@@ -109,16 +130,16 @@ async function buildHealthResponse(): Promise<HealthResponse> {
   }
 }
 
-export function registerHealthRoutes(app: Hono): void {
+export function registerHealthRoutes(app: Hono, db?: Database): void {
   // Docker-internal healthcheck endpoint
   app.get('/health', async (c) => {
-    const response = await buildHealthResponse()
+    const response = await buildHealthResponse(db)
     return c.json(response, response.status === 'unhealthy' ? 503 : 200)
   })
 
   // Versioned alias — used by the web UI Settings page
   app.get('/api/v1/health', async (c) => {
-    const response = await buildHealthResponse()
+    const response = await buildHealthResponse(db)
     return c.json(response, response.status === 'unhealthy' ? 503 : 200)
   })
 }

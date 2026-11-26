@@ -48,7 +48,7 @@ initSkillConfigSingleton(skillConfigService)
 
 // Initialize DB
 const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
-const { db, pool } = createDb(postgresUrl)
+const { db, pool } = createDb(postgresUrl, { statementTimeoutMs: 60_000 })
 
 // Redis connection for Bull Board queue monitoring and BullMQ queues
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'

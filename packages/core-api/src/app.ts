@@ -170,7 +170,7 @@ export function createApp(deps: AppDependencies = {}): Hono {
   app.use('/api/v1/stats/*', requireMobileAuthIfMobileCaller)
 
   // Routes (health, events, metrics are outside /api/v1, intentionally not rate-limited)
-  registerHealthRoutes(app)
+  registerHealthRoutes(app, db)
   registerEventsRoutes(app)
   registerMetricsRoute(app, db, metricsRedis)
 
