@@ -12,8 +12,8 @@
  * Run:
  *   pnpm --filter @open-brain/web-next test:e2e
  *
- * The test fails gracefully with a clear SKIP message if core-api is
- * unreachable, rather than timing out or emitting cryptic assertion errors.
+ * If core-api is unreachable the test skips locally with a clear message, and
+ * fails when CI=true (the CI job always starts the stack).
  */
 
 import { test, expect, type Page } from '@playwright/test'
@@ -46,17 +46,20 @@ async function isCoreApiReachable(page: Page): Promise<boolean> {
 test.describe('QuickCapture smoke test', () => {
   test('submits a capture and it appears in Recent activity', async ({ page }) => {
     // ------------------------------------------------------------------
-    // Pre-flight: skip gracefully if core-api is unreachable.
-    // This lets the test suite pass in CI environments that don't spin
-    // up the full stack; it signals clearly why the test was skipped.
+    // Pre-flight: when core-api is unreachable, skip locally (no stack
+    // running) but FAIL under CI, where the full stack is always started.
     // ------------------------------------------------------------------
     const reachable = await isCoreApiReachable(page)
     if (!reachable) {
-      test.skip(true, [
+      const reason = [
         'core-api is unreachable at localhost:3002.',
         'Start the backend stack before running E2E tests:',
         '  docker compose up -d postgres redis core-api',
-      ].join(' '))
+      ].join(' ')
+      if (process.env.CI === 'true') {
+        throw new Error(reason)
+      }
+      test.skip(true, reason)
       return
     }
 

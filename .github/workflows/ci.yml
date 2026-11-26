@@ -323,6 +323,23 @@ jobs:
           bash scripts/test-compose-host-binds.sh
           bash scripts/test-compose-identity.sh
 
+      - name: core-api inbox binds match the sidecar inboxes
+        # Item 9.4: an upload must land where a sidecar's --process-inbox reads.
+        # Each core-api inbox bind source must equal the /inbox bind source of the
+        # matching sidecar. Render is never printed.
+        env:
+          TAILSCALE_IP: 100.64.0.1
+        run: |
+          : > .env.secrets
+          docker compose -f docker-compose.yml config --format json | jq -e '
+            def src(svc; tgt): [.services[svc].volumes[]? | select(.type == "bind" and .target == tgt) | .source];
+            (src("core-api"; "/app/inbox-volumes/financial")) as $cf
+            | (src("financial-ingest"; "/inbox")) as $sf
+            | (src("core-api"; "/app/inbox-volumes/utility")) as $cu
+            | (src("utility-ingest"; "/inbox")) as $su
+            | ($cf | length) == 1 and $cf == $sf and ($cu | length) == 1 and $cu == $su
+          ' >/dev/null || { echo "FAIL: core-api inbox binds do not match the sidecar /inbox binds"; exit 1; }
+
   python-lint:
     name: Python lint & typecheck
     runs-on: ubuntu-latest
@@ -445,13 +462,9 @@ jobs:
     # (compose `fullstack` profile) against the ephemeral test DB/Redis and runs
     # the gated INGEST_E2E suite + the Playwright web smoke.
     #
-    # The e2e + smoke STEPS are `continue-on-error` while the happy-path fixture
-    # proves out in CI: the ingest e2e's positive test drives a real capture only
-    # if the pre-seeded AMEX inbox parses end-to-end through the financial
-    # pipeline; its negative test (reject upload with no file) exercises real
-    # core-api unconditionally. Infra steps (build / schema / up) are NOT
-    # continue-on-error, so a genuinely broken stack still surfaces red here.
-    # Promote to a required check once the job is reliably green.
+    # The ingest e2e and web smoke steps FAIL the job: a broken upload path or a
+    # smoke failure must surface red here (item 9.4). Required-check promotion
+    # follows three consecutive green runs on main (owner task).
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -501,7 +514,7 @@ jobs:
         # sidecar -> file_uploads='parsed' path end to end.
         run: |
           docker compose -f docker-compose.test.yml exec -T test-sidecar \
-            sh -c 'mkdir -p /inbox-root/financial && cat > /inbox-root/financial/activity.csv' <<'CSV'
+            sh -c 'mkdir -p /inbox-root/financial && chown -R 1000:1000 /inbox-root && cat > /inbox-root/financial/activity.csv' <<'CSV'
           Date,Description,Amount
           04/17/2026,COFFEE SHOP DOWNTOWN,12.34
           04/16/2026,GROCERY MART,56.78
@@ -509,7 +522,6 @@ jobs:
           CSV
 
       - name: Run ingest e2e (INGEST_E2E=1) against real core-api + workers
-        continue-on-error: true
         env:
           INGEST_E2E: '1'
           CORE_API_URL: http://localhost:3002
@@ -522,14 +534,12 @@ jobs:
           src/__tests__/integration/ingest-e2e.test.ts
 
       - name: Install Playwright chromium
-        continue-on-error: true
         run: pnpm --filter @open-brain/web-next exec playwright install --with-deps chromium
 
-      - name: Run web smoke (Playwright, self-skips without live stack)
-        continue-on-error: true
+      - name: Run web smoke (Playwright; fails if the stack is unreachable)
         env:
           # Next dev server rewrites /api -> API_URL; point it at the published
-          # test core-api. The smoke self-skips gracefully if it's unreachable.
+          # test core-api. The smoke fails under CI=true if it's unreachable.
           API_URL: http://localhost:3002
           CI: 'true'
         run: pnpm --filter @open-brain/web-next test:e2e

@@ -205,6 +205,19 @@ services:
         bind:
           create_host_path: false
       - admin_prewipe_backup:/backup/pre-wipe
+      # Upload landing zones (item 9.4): the SAME host inbox dirs the sidecars mount
+      # at /inbox, so POST /api/v1/ingest/upload writes where --process-inbox reads.
+      # Host dirs must be owned by uid 1000 (core-api runs as `node`).
+      - type: bind
+        source: /mnt/user/appdata/open-brain/financial-inbox
+        target: /app/inbox-volumes/financial
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /mnt/user/appdata/open-brain/utility-inbox
+        target: /app/inbox-volumes/utility
+        bind:
+          create_host_path: false
     depends_on:
       postgres:
         condition: service_healthy

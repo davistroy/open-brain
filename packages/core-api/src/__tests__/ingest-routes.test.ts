@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Writable } from 'node:stream'
+import { createWriteStream } from 'node:fs'
+import { unlink } from 'node:fs/promises'
 
 // ---------------------------------------------------------------------------
 // Phase 3.3 — Ingest route unit tests
@@ -58,6 +60,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   return {
     ...orig,
     mkdir: vi.fn().mockResolvedValue(undefined),
+    unlink: vi.fn().mockResolvedValue(undefined),
   }
 })
 
@@ -393,6 +396,63 @@ describe('POST /api/v1/ingest/upload', () => {
     })
 
     expect(res.status).toBe(201)
+  })
+  it('returns 500 INGEST_WRITE_FAILED and removes the partial file when the file stream emits EACCES', async () => {
+    vi.mocked(createWriteStream).mockImplementationOnce((() => {
+      // Open failure, as createWriteStream reports EACCES: the stream errors
+      // during construct, with no write in flight.
+      const sink = new Writable({
+        construct(cb) {
+          cb(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }))
+        },
+        write(_c, _e, cb) { cb() },
+      })
+      return sink
+    }) as any)
+    const db = makeMockDb()
+    const app = createApp({ db: db as any, ingestProcessQueue: makeMockIngestProcessQueue() as any })
+
+    const res = await app.request('/api/v1/ingest/upload', {
+      method: 'POST',
+      headers: { 'X-Open-Brain-Caller': 'integration-test' },
+      body: makeFormData(),
+    })
+
+    expect(res.status).toBe(500)
+    const body = await res.json() as any
+    expect(body.error?.code ?? body.code).toBe('INGEST_WRITE_FAILED')
+    expect(unlink).toHaveBeenCalledWith(
+      expect.stringContaining('/app/inbox-volumes/financial/'),
+    )
+    expect(db.insert).not.toHaveBeenCalled()
+  })
+
+  it('rejects an upload over the size limit with a validation error and removes the partial file', async () => {
+    const chunk = new Uint8Array(1024 * 1024)
+    let sent = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent++ >= 101) { controller.close(); return }
+        controller.enqueue(chunk)
+      },
+    })
+    const db = makeMockDb()
+    const app = createApp({ db: db as any, ingestProcessQueue: makeMockIngestProcessQueue() as any })
+
+    const res = await app.request('/api/v1/ingest/upload?filename=activity.csv', {
+      method: 'POST',
+      headers: { 'X-Open-Brain-Caller': 'integration-test', 'Content-Type': 'application/octet-stream' },
+      body: stream,
+      duplex: 'half',
+    } as RequestInit)
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as any
+    expect(JSON.stringify(body)).toContain('exceeds maximum size')
+    expect(unlink).toHaveBeenCalledWith(
+      expect.stringContaining('/app/inbox-volumes/financial/'),
+    )
+    expect(db.insert).not.toHaveBeenCalled()
   })
 })
 
