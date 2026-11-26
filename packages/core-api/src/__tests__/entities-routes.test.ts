@@ -435,6 +435,19 @@ describe('POST /api/v1/entities/:id/brief — job payload', () => {
     expect(opts.jobId).toMatch(new RegExp(`^entity_brief_${SAMPLE_ENTITY.id}_\\d+$`))
   })
 
+  it('runs the manual entity-brief once (attempts: 1 overrides the queue default)', async () => {
+    const entityService = makeEntityService()
+    const skillQueue = makeSkillQueue()
+    const app = buildApp(entityService, { skillQueue })
+
+    await testJson(app, `/api/v1/entities/${SAMPLE_ENTITY.id}/brief`, {
+      method: 'POST',
+    })
+
+    const opts = (skillQueue.add as ReturnType<typeof vi.fn>).mock.calls[0][2] as any
+    expect(opts).toMatchObject({ priority: 2, attempts: 1 })
+  })
+
   it('returns 202 with job_id from queue', async () => {
     const entityService = makeEntityService()
     const skillQueue = makeSkillQueue('the-job-id')

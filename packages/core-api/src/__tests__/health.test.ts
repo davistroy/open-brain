@@ -79,4 +79,53 @@ describe('health endpoint', () => {
     expect(body.status).toBe('unhealthy')
     expect(body.services.postgres.status).toBe('unhealthy')
   })
+
+  it('probes through the injected db and creates no new Pool', async () => {
+    const { Pool } = await import('pg')
+    const { registerHealthRoutes } = await import('../routes/health.js')
+    const db = { execute: vi.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }) }
+    const app = new Hono()
+    registerHealthRoutes(app, db as any)
+
+    const res = await app.request('/health')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.services.postgres.status).toBe('healthy')
+    expect(db.execute).toHaveBeenCalledTimes(1)
+    expect(Pool).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 when the injected db query fails', async () => {
+    const { Pool } = await import('pg')
+    const { registerHealthRoutes } = await import('../routes/health.js')
+    const db = { execute: vi.fn().mockRejectedValue(new Error('pool exhausted')) }
+    const app = new Hono()
+    registerHealthRoutes(app, db as any)
+
+    const res = await app.request('/health')
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.services.postgres.status).toBe('unhealthy')
+    expect(body.services.postgres.error).toContain('pool exhausted')
+    expect(Pool).not.toHaveBeenCalled()
+  })
+
+  it('bounds the injected db probe to 3 seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      const { registerHealthRoutes } = await import('../routes/health.js')
+      const db = { execute: vi.fn().mockReturnValue(new Promise(() => {})) }
+      const app = new Hono()
+      registerHealthRoutes(app, db as any)
+
+      const pending = app.request('/health')
+      await vi.advanceTimersByTimeAsync(3100)
+      const res = await pending
+      expect(res.status).toBe(503)
+      const body = await res.json()
+      expect(body.services.postgres.error).toContain('timed out')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

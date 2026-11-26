@@ -46,11 +46,28 @@ def post_capture(
     capture_type: str = "observation",
     brain_view: str = "personal",
 ) -> bool:
+    """POST a capture; True on 200/201. See :func:`post_capture_with_id`."""
+    ok, _ = post_capture_with_id(
+        cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
+    )
+    return ok
+
+
+def post_capture_with_id(
+    cfg: dict,
+    content: str,
+    source_metadata: dict,
+    capture_type: str = "observation",
+    brain_view: str = "personal",
+) -> tuple[bool, str | None]:
     """POST a capture with the nested-metadata envelope core-api expects.
 
-    Returns True on 200/201. Logs 3xx redirects distinctly so
-    Cloudflare-Access traps are visible (unauthenticated POSTs to the
-    public URL get 302'd to the login page).
+    Returns ``(ok, capture_id)``: ok is True on 200/201, and capture_id is the
+    ``id`` core-api returns (``None`` when the body has none). The ingest
+    sidecar must report these UUIDs in ``captures_posted`` — workers validate
+    that list as UUIDs. Logs 3xx redirects distinctly so Cloudflare-Access traps
+    are visible (unauthenticated POSTs to the public URL get 302'd to the login
+    page).
     """
     url, caller = get_capture_api_config(cfg)
     try:
@@ -72,20 +89,25 @@ def post_capture(
         )
         if resp.status_code in (200, 201):
             log.info(f"Capture posted: {content[:60]}...")
-            return True
+            try:
+                body = resp.json()
+            except ValueError:
+                body = None
+            capture_id = body.get("id") if isinstance(body, dict) else None
+            return True, capture_id if isinstance(capture_id, str) and capture_id else None
         elif resp.status_code in (301, 302, 303, 307, 308):
             loc = resp.headers.get("Location", "")[:120]
             log.warning(
                 f"Brain POST {resp.status_code} redirect to {loc} — likely "
                 f"Cloudflare Access; set CAPTURE_API_URL to an internal URL"
             )
-            return False
+            return False, None
         else:
             log.warning(f"Brain POST {resp.status_code}: {resp.text[:200]}")
-            return False
+            return False, None
     except requests.exceptions.RequestException as e:
         log.warning(f"Brain unreachable: {e}")
-        return False
+        return False, None
 
 
 def get_api_base(cfg: dict) -> str:

@@ -354,7 +354,8 @@ describe('POST /api/v1/intelligence/:skill/trigger', () => {
         skillName: 'daily-connections',
         input: expect.objectContaining({ windowDays: 14 }),
       }),
-      expect.objectContaining({ priority: 2 }),
+      // Manual trigger runs once — overrides the queue's attempts: 3 default.
+      expect.objectContaining({ priority: 2, attempts: 1 }),
     )
   })
 

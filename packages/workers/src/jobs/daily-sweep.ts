@@ -1,11 +1,23 @@
 import { Worker, Queue } from 'bullmq'
-import { sql, and, inArray, lt } from 'drizzle-orm'
+import { and, inArray, isNull, lt } from 'drizzle-orm'
 import type { ConnectionOptions } from 'bullmq'
 import type { Database } from '@open-brain/shared'
 import { captures } from '@open-brain/shared'
 import { logger } from '@open-brain/shared'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
 import { SWEEPABLE_STATUSES } from '../lib/sweepable-statuses.js'
+
+/**
+ * Per-day sweep job ID: `sweep_<captureId>_<yyyymmdd>` (UTC date of the run).
+ * BullMQ drops an add whose job ID is still retained, so a fixed ID (the old
+ * jobId = captureId) made every sweep after the first a silent no-op. A
+ * per-day ID lets each night's sweep through while still deduplicating a
+ * double-fired sweep within the same day.
+ */
+export function sweepJobId(captureId: string, date: Date): string {
+  const yyyymmdd = date.toISOString().slice(0, 10).replace(/-/g, '')
+  return `sweep_${captureId}_${yyyymmdd}`
+}
 
 export interface DailySweepJobData {
   triggeredAt: string // ISO 8601 — informational
@@ -19,8 +31,9 @@ export interface DailySweepJobData {
  * initial 5-attempt / 2h-total retry window) and re-enqueues them as fresh
  * capture-pipeline jobs.
  *
- * Re-enqueue uses jobId = captureId so BullMQ deduplicates — if a capture
- * is already queued, adding it again with the same jobId is a no-op.
+ * Re-enqueue uses jobId = sweepJobId(captureId, today) — one job per capture
+ * per UTC day. Soft-deleted captures are never swept. The ingestion worker
+ * re-drives the embed (flows/redrive.ts) for a capture whose flow was retained.
  */
 export async function processDailySweepJob(
   data: DailySweepJobData,
@@ -40,6 +53,7 @@ export async function processDailySweepJob(
       and(
         inArray(captures.pipeline_status, [...SWEEPABLE_STATUSES]),
         lt(captures.created_at, oneHourAgo),
+        isNull(captures.deleted_at),
       ),
     )
 
@@ -50,14 +64,15 @@ export async function processDailySweepJob(
 
   logger.info({ count: stuckCaptures.length }, '[daily-sweep] re-enqueuing stuck captures')
 
+  const now = new Date()
   let requeued = 0
   for (const { id } of stuckCaptures) {
     try {
-      // jobId = captureId for idempotency — BullMQ ignores duplicate job IDs
+      // per-day jobId: a retained job from an earlier day must not drop this add
       await capturePipelineQueue.add(
         'ingest',
         { captureId: id },
-        { jobId: id },
+        { jobId: sweepJobId(id, now) },
       )
       requeued++
     } catch (err) {

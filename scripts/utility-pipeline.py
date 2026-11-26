@@ -42,7 +42,7 @@ import yaml
 # Shared capture-API helper (CS2.1/CS2.3). Same import strategy as
 # financial-pipeline.py — resolves against scripts/lib/ in both Docker and
 # local invocations.
-from lib.capture_api import post_capture as _post_capture_unwrapped  # noqa: E402
+from lib.capture_api import post_capture_with_id as _post_capture_unwrapped  # noqa: E402
 from lib.capture_api import post_heartbeat  # noqa: E402
 
 # Gas bill text -> usage numbers. Pure/stdlib-only and unit-tested separately
@@ -73,12 +73,13 @@ def _post_capture_raw(
     capture_type: str = "observation",
     brain_view: str = "personal",
 ) -> bool:
-    ok = _post_capture_unwrapped(
+    ok, capture_id = _post_capture_unwrapped(
         cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
     )
     if ok:
-        if _JSON_OUTPUT_MODE:
-            _JSON_CAPTURES_POSTED.append(content[:80])
+        # workers validate captures_posted as UUIDs — report the created id only.
+        if _JSON_OUTPUT_MODE and capture_id:
+            _JSON_CAPTURES_POSTED.append(capture_id)
     else:
         # Recorded in every mode: the exit code and heartbeat depend on it.
         _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")

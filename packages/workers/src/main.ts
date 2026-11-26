@@ -8,6 +8,7 @@ import { Redis } from 'ioredis'
 import { createDb, ConfigService, createAnthropicClient, createOllamaClient, createOpenAIClient, LLMGatewayService } from '@open-brain/shared'
 import { createAllQueues } from './queues/index.js'
 import { createIngestionWorker } from './jobs/ingestion-worker.js'
+import { closeRedriveQueues } from './flows/redrive.js'
 import { createEmbedCaptureWorker } from './jobs/embed-capture.js'
 import { createCheckTriggersWorker } from './jobs/check-triggers.js'
 import { createExtractEntitiesWorker } from './jobs/extract-entities.js'
@@ -27,7 +28,7 @@ import { registerScheduledJobs } from './scheduler.js'
 import { SpendTracker } from './lib/spend-tracker.js'
 import { IngestDedup } from './lib/ingest-dedup.js'
 import { requireCoreApiUrl } from './lib/require-core-api-url.js'
-import { logger, TemplateCache, PushoverService, WikiGitService } from '@open-brain/shared'
+import { logger, TemplateCache, PushoverService, WikiGitService, attachErrorListeners, installUnhandledRejectionHandler } from '@open-brain/shared'
 import { FlowProducer } from 'bullmq'
 import type { Worker } from 'bullmq'
 
@@ -41,6 +42,8 @@ function parseRedisUrl(url: string) {
 }
 
 async function main() {
+  installUnhandledRejectionHandler(logger)
+
   const postgresUrl = process.env.POSTGRES_URL
   if (!postgresUrl) throw new Error('POSTGRES_URL is required')
 
@@ -260,6 +263,12 @@ async function main() {
   const scheduledQueues = await registerScheduledJobs(connection)
   logger.info('Scheduled jobs registered')
 
+  // Route BullMQ connection errors through pino (default is console.error, outside the log)
+  attachErrorListeners(
+    [...workers, ...Object.values(queues), ...Object.values(scheduledQueues), flowProducer],
+    logger,
+  )
+
   // Graceful shutdown
   let shuttingDown = false
   const shutdown = async (signal: string) => {
@@ -272,9 +281,11 @@ async function main() {
       ...Object.values(scheduledQueues).map(q => q.close()),
     ])
     if (flowProducer) await flowProducer.close().catch(() => {})
+    // Queue handles the ingestion worker's re-drive opened (cached per connection).
+    await closeRedriveQueues(connection).catch(() => {})
     await dedupRedis.quit().catch(() => {})
     await composioMeterRedis.quit().catch(() => {})
-    logger.info('All workers, queues, flow producer, dedup Redis, and composio meter Redis closed')
+    logger.info('All workers, queues, flow producer, re-drive queues, dedup Redis, and composio meter Redis closed')
     await pool.end()
     logger.info('Postgres pool closed')
     process.exit(0)

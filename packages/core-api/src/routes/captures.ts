@@ -131,16 +131,21 @@ export function registerCaptureRoutes(
       throw new ConfigError('Pipeline service not configured')
     }
 
-    // Parse optional ?stage= query param (reserved for future per-stage retry)
-    const stage = c.req.query('stage')
+    // Optional ?stage=all re-runs enrichment too; absent = embed-only re-drive.
+    // Any other value is rejected (enrichment calls a paid tier per capture).
+    const stageParam = c.req.query('stage')
+    if (stageParam !== undefined && stageParam !== 'all') {
+      throw new ValidationError(`Invalid stage: ${stageParam}. Only "all" is accepted`)
+    }
+    const stage = stageParam === 'all' ? 'all' : undefined
 
-    await pipelineService.enqueue(id, 'default', true)
+    await pipelineService.enqueue(id, 'default', true, stage)
 
     return c.json({
       id: capture.id,
       pipeline_status: capture.pipeline_status,
       retried_at: new Date().toISOString(),
-      ...(stage ? { stage } : {}),
+      redrive: stage === 'all' ? 'all' : 'embed',
     })
   })
 }

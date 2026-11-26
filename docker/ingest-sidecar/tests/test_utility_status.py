@@ -487,7 +487,7 @@ def test_gas_row_with_therms_is_skipped(monkeypatch, gas_conn):
 
 def test_post_capture_failure_recorded_without_json_output(monkeypatch):
     monkeypatch.setattr(up, "_JSON_OUTPUT_MODE", False)
-    monkeypatch.setattr(up, "_post_capture_unwrapped", lambda *a, **k: False)
+    monkeypatch.setattr(up, "_post_capture_unwrapped", lambda *a, **k: (False, None))
     assert up._post_capture_raw({}, "content", {}) is False
     assert up._JSON_ERRORS
 

@@ -17,7 +17,7 @@ import { PipelineService } from './services/pipeline.js'
 import { LLMGatewayService } from '@open-brain/shared'
 import { GovernanceEngine } from './services/governance-engine.js'
 import { SkillConfigService, initSkillConfigSingleton } from './services/skill-config.js'
-import { logger } from '@open-brain/shared'
+import { logger, attachErrorListeners, installUnhandledRejectionHandler } from '@open-brain/shared'
 import { SystemHealthService } from './services/system-health.js'
 import { WikiService } from './services/wiki.js'
 import { BriefsService } from './services/briefs.js'
@@ -27,6 +27,13 @@ import { EmailComposeAssistService } from './services/email-compose-assist.js'
 import { HimalayaService, PushoverService } from '@open-brain/shared'
 import { pgNotify } from './lib/pg-notify.js'
 import { ACCESS_STATS_JOB_OPTIONS } from './lib/access-stats-options.js'
+import {
+  CAPTURE_PIPELINE_JOB_OPTIONS,
+  SKILL_EXECUTION_JOB_OPTIONS,
+  DOCUMENT_PIPELINE_JOB_OPTIONS,
+  INGEST_PROCESS_JOB_OPTIONS,
+  WIKI_INGEST_JOB_OPTIONS,
+} from './lib/queue-job-options.js'
 
 // Load config
 const configDir = join(process.cwd(), 'config')
@@ -41,7 +48,7 @@ initSkillConfigSingleton(skillConfigService)
 
 // Initialize DB
 const postgresUrl = process.env.POSTGRES_URL ?? 'postgresql://openbrain:openbrain_dev@localhost:5432/openbrain'
-const { db, pool } = createDb(postgresUrl)
+const { db, pool } = createDb(postgresUrl, { statementTimeoutMs: 60_000 })
 
 // Redis connection for Bull Board queue monitoring and BullMQ queues
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
@@ -86,12 +93,12 @@ const promptsDir = join(configDir, 'prompts')
 const templateCache = new TemplateCache(promptsDir)
 
 // BullMQ queues
-const capturePipelineQueue = new Queue('capture-pipeline', { connection: redisConnection })
-const skillQueue = new Queue('skill-execution', { connection: redisConnection })
-const documentPipelineQueue = new Queue('document-pipeline', { connection: redisConnection })
+const capturePipelineQueue = new Queue('capture-pipeline', { connection: redisConnection, defaultJobOptions: CAPTURE_PIPELINE_JOB_OPTIONS })
+const skillQueue = new Queue('skill-execution', { connection: redisConnection, defaultJobOptions: SKILL_EXECUTION_JOB_OPTIONS })
+const documentPipelineQueue = new Queue('document-pipeline', { connection: redisConnection, defaultJobOptions: DOCUMENT_PIPELINE_JOB_OPTIONS })
 // CS3.4/CS3.5 — ingest-process queue drives the batch-ingest pipeline for
 // uploaded files (CSVs, PDFs, images) from the web UI and sidecars.
-const ingestProcessQueue = new Queue('ingest-process', { connection: redisConnection })
+const ingestProcessQueue = new Queue('ingest-process', { connection: redisConnection, defaultJobOptions: INGEST_PROCESS_JOB_OPTIONS })
 // P06 — access-stats queue fires after every search to update Hebbian co-access associations
 // DA-M3: defaultJobOptions mirrors workers-side consumer so retention is applied at add-time.
 const accessStatsQueue = new Queue<{ captureIds: string[]; accessedAt: string }>(
@@ -159,7 +166,7 @@ let wikiLintQueue: Queue | undefined
 const wikiRepoUrl = process.env.WIKI_REPO_URL
 const wikiLocalPath = process.env.WIKI_LOCAL_PATH
 if (wikiRepoUrl && wikiLocalPath) {
-  wikiIngestQueue = new Queue('wiki-ingest', { connection: redisConnection })
+  wikiIngestQueue = new Queue('wiki-ingest', { connection: redisConnection, defaultJobOptions: WIKI_INGEST_JOB_OPTIONS })
   wikiLintQueue = new Queue('wiki-lint', { connection: redisConnection })
   wikiService = new WikiService({
     repoUrl: wikiRepoUrl,
@@ -235,6 +242,20 @@ const port = Number(process.env.PORT ?? 3000)
 pgNotify.start(postgresUrl).catch((err) => {
   logger.warn({ err }, 'pg-notify failed to start — SSE events unavailable')
 })
+
+installUnhandledRejectionHandler(logger)
+attachErrorListeners(
+  [
+    capturePipelineQueue,
+    skillQueue,
+    documentPipelineQueue,
+    ingestProcessQueue,
+    accessStatsQueue,
+    ...(wikiIngestQueue ? [wikiIngestQueue] : []),
+    ...(wikiLintQueue ? [wikiLintQueue] : []),
+  ],
+  logger,
+)
 
 const server = serve({ fetch: app.fetch, port }, () => {
   logger.info({ port }, 'Core API listening')

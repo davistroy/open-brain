@@ -14,6 +14,12 @@ export interface CapturePipelineJobData {
    * 'complete' and 'deleted' remain terminal regardless of this flag.
    */
   forceRetry?: boolean
+  /**
+   * When 'all', a re-drive of an already-run flow (flows/redrive.ts) also
+   * removes the finished enrichment children and re-runs them. Absent = the
+   * re-drive re-runs the embed only. Set by the retry route with ?stage=all.
+   */
+  stage?: 'all'
 }
 
 /**

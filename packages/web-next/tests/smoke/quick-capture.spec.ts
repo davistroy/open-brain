@@ -12,8 +12,8 @@
  * Run:
  *   pnpm --filter @open-brain/web-next test:e2e
  *
- * The test fails gracefully with a clear SKIP message if core-api is
- * unreachable, rather than timing out or emitting cryptic assertion errors.
+ * If core-api is unreachable the test skips locally with a clear message, and
+ * fails when CI=true (the CI job always starts the stack).
  */
 
 import { test, expect, type Page } from '@playwright/test'
@@ -46,29 +46,41 @@ async function isCoreApiReachable(page: Page): Promise<boolean> {
 test.describe('QuickCapture smoke test', () => {
   test('submits a capture and it appears in Recent activity', async ({ page }) => {
     // ------------------------------------------------------------------
-    // Pre-flight: skip gracefully if core-api is unreachable.
-    // This lets the test suite pass in CI environments that don't spin
-    // up the full stack; it signals clearly why the test was skipped.
+    // Pre-flight: when core-api is unreachable, skip locally (no stack
+    // running) but FAIL under CI, where the full stack is always started.
     // ------------------------------------------------------------------
     const reachable = await isCoreApiReachable(page)
     if (!reachable) {
-      test.skip(true, [
+      const reason = [
         'core-api is unreachable at localhost:3002.',
         'Start the backend stack before running E2E tests:',
         '  docker compose up -d postgres redis core-api',
-      ].join(' '))
+      ].join(' ')
+      if (process.env.CI === 'true') {
+        throw new Error(reason)
+      }
+      test.skip(true, reason)
       return
     }
+
+    // A fresh database has no `onboarding_completed` setting, so the shell
+    // layout redirects every route to /onboarding. Mark it done first (what the
+    // wizard's last step writes) so the dashboard renders.
+    const onboarding = await page.request.put(
+      'http://localhost:3002/api/v1/settings/onboarding_completed',
+      { data: { value: true }, headers: { 'X-Open-Brain-Caller': 'integration-test' } },
+    )
+    expect(onboarding.ok()).toBe(true)
 
     // ------------------------------------------------------------------
     // Step 1: Navigate to dashboard — verify it renders
     // ------------------------------------------------------------------
     await page.goto(DASHBOARD_URL)
 
-    // The page header contains the text "Dashboard" in the breadcrumb.
-    // This is the lightest assertion that the shell + dashboard page
-    // rendered without a 500 or redirect.
-    await expect(page.getByText('Dashboard', { exact: false })).toBeVisible({ timeout: 10_000 })
+    // No redirect (e.g. to /onboarding), and the dashboard page body rendered.
+    // "Dashboard" alone also matches the side-nav link (strict-mode violation).
+    await expect(page).toHaveURL(/\/dashboard$/)
+    await expect(page.getByText('Recent activity', { exact: false })).toBeVisible({ timeout: 10_000 })
 
     // ------------------------------------------------------------------
     // Step 2: Locate the QuickCapture textarea and fill it
@@ -121,7 +133,7 @@ test.describe('QuickCapture smoke test', () => {
     // Timeout: 5s — SSE delivery + refetch is typically <500ms on localhost.
     // ------------------------------------------------------------------
     await expect(
-      page.getByText(uniqueContent, { exact: false }),
+      page.getByText(uniqueContent, { exact: false }).first(),
     ).toBeVisible({ timeout: 5_000 })
 
     // ------------------------------------------------------------------
@@ -132,7 +144,7 @@ test.describe('QuickCapture smoke test', () => {
     // We match a substring (first 60 chars) since the full UUID content
     // is 38 + prefix chars and truncation applies at 60.
     const expectedPrefix = uniqueContent.slice(0, 59) // stay inside truncation boundary
-    const captureRow = page.getByText(expectedPrefix, { exact: false })
+    const captureRow = page.getByText(expectedPrefix, { exact: false }).first()
     await expect(captureRow).toBeVisible()
   })
 })

@@ -43,7 +43,10 @@ import yaml
 # Shared capture-API helper (CS2.1/CS2.2). Works both in Docker (`/app/lib/`
 # after COPY) and locally (`scripts/` is sys.path[0] when running the script
 # directly), so `from lib.capture_api import …` resolves in both cases.
-from lib.capture_api import post_capture as _post_capture_raw  # noqa: E402
+# `strip_upload_prefix`: uploads land as `<uploadId>-<name>` (item 9.4) — route
+# on the original name.
+from lib.capture_api import post_capture_with_id as _post_capture_raw  # noqa: E402
+from lib.inbox_names import strip_upload_prefix  # noqa: E402
 
 # CS3.9 --json-output support: wrap _post_capture to track results so the
 # ingest sidecar (docker/ingest-sidecar/trigger_server.py) can parse a JSON
@@ -61,14 +64,16 @@ def _post_capture(
     capture_type: str = "observation",
     brain_view: str = "personal",
 ) -> bool:
-    ok = _post_capture_raw(
+    ok, capture_id = _post_capture_raw(
         cfg, content, source_metadata, capture_type=capture_type, brain_view=brain_view
     )
     if _JSON_OUTPUT_MODE:
         if ok:
-            # Content preview is a stable, human-readable id — the helper
-            # does not return the capture UUID.
-            _JSON_CAPTURES_POSTED.append(content[:80])
+            # workers validate captures_posted as UUIDs — report the created id only.
+            if capture_id:
+                _JSON_CAPTURES_POSTED.append(capture_id)
+            else:
+                log.warning("capture posted but core-api returned no id: %s", content[:80])
         else:
             _JSON_ERRORS.append(f"post_capture failed: {content[:80]}")
     return ok
@@ -2194,7 +2199,7 @@ def _parse_chase_csv(filepath: Path) -> dict | None:
     if not rows:
         return None
 
-    m = re.match(r"chase(\d+)_", filepath.name, re.IGNORECASE)
+    m = re.match(r"chase(\d+)_", strip_upload_prefix(filepath.name), re.IGNORECASE)
     account_mask = m.group(1) if m else "unknown"
 
     txns = []
@@ -2240,7 +2245,7 @@ def _parse_truist_csv(filepath: Path) -> dict | None:
     if not rows:
         return None
 
-    m = re.match(r"acct_(\d+)_", filepath.name, re.IGNORECASE)
+    m = re.match(r"acct_(\d+)_", strip_upload_prefix(filepath.name), re.IGNORECASE)
     account_mask = m.group(1) if m else "unknown"
 
     txns = []
@@ -2288,12 +2293,13 @@ def _parse_schwab_csv(filepath: Path) -> dict | None:
     if not rows:
         return None
 
-    m = re.match(r"(.+?)_XXX(\d+)_Transactions", filepath.name, re.IGNORECASE)
+    logical_name = strip_upload_prefix(filepath.name)
+    m = re.match(r"(.+?)_XXX(\d+)_Transactions", logical_name, re.IGNORECASE)
     if m:
         account_type = m.group(1)
         account_mask = f"{account_type}-{m.group(2)}"
     else:
-        account_mask = filepath.stem
+        account_mask = Path(logical_name).stem
 
     txns = []
     for row in rows:
@@ -2700,9 +2706,13 @@ def _route_bank_csv(filepath: Path) -> tuple[str, dict] | None:
 
     Returns (source, result_dict) on success, or None if no parser matched.
     Tried in specificity order; filename matching is case-insensitive.
+
+    Matching uses the ORIGINAL export name: a core-api upload lands as
+    ``<uploadId>-<name>`` (item 9.4), so the UUID prefix is stripped first.
+    The parser still receives ``filepath`` (the real on-disk file).
     """
     name = filepath.name
-    lower = name.lower()
+    lower = strip_upload_prefix(name).lower()
 
     # Amex: exact filename (the only "activity.csv" we expect is Amex)
     if lower == "activity.csv":

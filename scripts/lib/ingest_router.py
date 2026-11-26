@@ -60,6 +60,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:  # imported as a package module (`lib.ingest_router` / `scripts.lib.ingest_router`)
+    from .inbox_names import strip_upload_prefix
+except ImportError:  # pragma: no cover — run as a bare script from scripts/lib
+    from inbox_names import strip_upload_prefix  # type: ignore[no-redef]
+
 try:
     import yaml  # PyYAML
 except ImportError as _yaml_exc:  # pragma: no cover — hard dep
@@ -225,7 +230,8 @@ def route_for_filename(
     if not filename:
         return None
 
-    basename = os.path.basename(filename).lower()
+    # A core-api upload lands as `<uploadId>-<name>` (item 9.4) — match the original name.
+    basename = strip_upload_prefix(os.path.basename(filename)).lower()
     routes = load_routes(config_path).get("routes") or {}
     if not isinstance(routes, dict):
         return None

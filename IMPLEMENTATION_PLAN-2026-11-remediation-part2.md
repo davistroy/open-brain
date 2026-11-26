@@ -108,7 +108,7 @@ All three dates come from vendor pages that were not re-read for this plan. Each
 ### Work Items
 
 #### 9.1 Sweep and retry that re-run the embed
-**Status: PENDING**
+**Status: COMPLETE 2026-11-26 (repo, Entry 266; host steps pending)**
 **Model Tier: opus**
 **Requirement Refs:** SE7-01, PE-012 (investigation 03, item CAP-1)
 **Files Affected:**
@@ -158,7 +158,7 @@ Three approaches from the review reports are rejected as unsafe. Suffixing child
 ---
 
 #### 9.2 Sweep and retry route reach the re-drive
-**Status: PENDING**
+**Status: COMPLETE 2026-11-26 (repo, Entry 266; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** SE7-01, PE-012 (investigation 03, item CAP-1 and disagreement 7)
 **Depends On:** 9.1
@@ -200,7 +200,7 @@ This item holds the part of item 9.1 that did not fit in eight files: item 9.1 i
 ---
 
 #### 9.3 Job retention for flow jobs and core-api queues
-**Status: PENDING**
+**Status: COMPLETE 2026-11-26 (repo, Entry 266; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** PE-004 (investigation 03, item CAP-2)
 **Depends On:** 9.1, 9.2
@@ -245,7 +245,7 @@ Cross-plan prerequisite: Part 1 item 2.6 (the queue registry) and Part 1 item 3.
 ---
 
 #### 9.4 Uploads cannot crash the API and land where a sidecar reads
-**Status: PENDING**
+**Status: COMPLETE 2026-11-26 (repo, Entry 266; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** QA-001, SE7-24, SE7-28 (stream half), QA-005 (investigation 03, items UPL-1 and UPL-2)
 **Files Affected:**
@@ -289,7 +289,7 @@ Merge the stream fix before the mount reaches the host: with the mount and wrong
 ---
 
 #### 9.5 Error listeners and a rejection handler
-**Status: PENDING**
+**Status: COMPLETE 2026-11-26 (repo, Entry 266; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** SE7-22 (investigation 03, item PROC-1)
 **Files Affected:**
@@ -324,7 +324,7 @@ The restart policy and the crash-exit behaviour are unchanged: the handler logs 
 ---
 
 #### 9.6 Database pool safety
-**Status: PENDING**
+**Status: COMPLETE 2026-11-26 (repo, Entry 266; host steps pending)**
 **Model Tier: sonnet**
 **Requirement Refs:** DA7-20, PE-016 (investigation 03, item DB-1)
 **Files Affected:**

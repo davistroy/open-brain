@@ -127,6 +127,23 @@ describe('PipelineService', () => {
     })
   })
 
+  describe('enqueue() stage', () => {
+    it('includes stage in the job data when given', async () => {
+      await service.enqueue('cap-1', 'default', true, 'all')
+
+      const [, data] = mockQueue.add.mock.calls[0]
+      expect(data.stage).toBe('all')
+      expect(data.forceRetry).toBe(true)
+    })
+
+    it('omits stage from the job data when not given', async () => {
+      await service.enqueue('cap-1', 'default', true)
+
+      const [, data] = mockQueue.add.mock.calls[0]
+      expect('stage' in data).toBe(false)
+    })
+  })
+
   describe('getHealth()', () => {
     it('returns queue depth counters', async () => {
       const health = await service.getHealth()
@@ -294,7 +311,8 @@ describe('POST /api/v1/captures/:id/retry', () => {
     const body = await res.json() as Record<string, unknown>
     expect(body.id).toBe('cap-pipeline-1')
     expect(body.retried_at).toBeDefined()
-    expect(pipelineService.enqueue).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444', 'default', true)
+    expect(pipelineService.enqueue).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444', 'default', true, undefined)
+    expect(body.redrive).toBe('embed')
   })
 
   it('returns 404 when capture does not exist', async () => {
@@ -327,22 +345,36 @@ describe('POST /api/v1/captures/:id/retry', () => {
     expect(res.status).toBe(503)
   })
 
-  it('includes stage param in response when provided', async () => {
-    const record = makeCaptureRecord({ pipeline_status: 'failed' })
-    const captureService = makeMockCaptureService(record)
+  it('?stage=all passes stage to enqueue and reports redrive all', async () => {
+    const captureService = makeMockCaptureService(makeCaptureRecord({ pipeline_status: 'failed' }))
     const pipelineService = makeMockPipelineService()
-    const configService = makeMockConfigService()
-
     const app = createApp({
       captureService: captureService as any,
       pipelineService: pipelineService as any,
-      configService: configService as any,
+      configService: makeMockConfigService() as any,
     })
 
-    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444/retry?stage=embed', { method: 'POST' })
+    const res = await app.request('/api/v1/captures/44444444-4444-4444-4444-444444444444/retry?stage=all', { method: 'POST' })
     expect(res.status).toBe(200)
 
     const body = await res.json() as Record<string, unknown>
-    expect(body.stage).toBe('embed')
+    expect(body.redrive).toBe('all')
+    expect(pipelineService.enqueue).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444', 'default', true, 'all')
+  })
+
+  it('rejects any stage other than all with 400 and enqueues nothing', async () => {
+    const captureService = makeMockCaptureService(makeCaptureRecord({ pipeline_status: 'failed' }))
+    const pipelineService = makeMockPipelineService()
+    const app = createApp({
+      captureService: captureService as any,
+      pipelineService: pipelineService as any,
+      configService: makeMockConfigService() as any,
+    })
+
+    for (const stage of ['bogus', 'embed']) {
+      const res = await app.request(`/api/v1/captures/44444444-4444-4444-4444-444444444444/retry?stage=${stage}`, { method: 'POST' })
+      expect(res.status).toBe(400)
+    }
+    expect(pipelineService.enqueue).not.toHaveBeenCalled()
   })
 })

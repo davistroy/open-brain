@@ -139,6 +139,9 @@ export function registerIntelligenceRoutes(
       },
       {
         priority: 2,
+        // Manual trigger runs ONCE: the skill queue's defaultJobOptions retry 3x,
+        // which could re-run a side-effecting skill after it already acted (9.3).
+        attempts: 1,
         jobId: `manual_${skill}_${Date.now()}`,
       },
     )

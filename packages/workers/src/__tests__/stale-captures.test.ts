@@ -171,6 +171,15 @@ describe('StaleCapturesSkill', () => {
       expect(params).toContain('extracted')
     })
 
+    it('excludes soft-deleted captures (deleted_at IS NULL)', async () => {
+      const { skill, db } = makeSkill({ staleRows: [] })
+
+      await skill.execute()
+
+      const query = new PgDialect().sqlToQuery(db.execute.mock.calls[0][0])
+      expect(query.sql).toMatch(/deleted_at IS NULL/i)
+    })
+
     it("does not query 'received' — a pipeline_events stage, not a capture status", async () => {
       const { skill, db } = makeSkill({ staleRows: [] })
 
@@ -211,22 +220,30 @@ describe('StaleCapturesSkill', () => {
       expect(result.staleCaptures[1].pipeline_status).toBe('processing')
     })
 
-    it('calls queue.add for each stale capture with captureId as jobId (idempotency)', async () => {
-      const { skill, queue } = makeSkill()
+    it('calls queue.add for each stale capture with a per-day sweep job ID', async () => {
+      // Fixed clock (as daily-sweep.test.ts): the day comes from the skill's
+      // own `new Date()`, never from a second clock read in the test.
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-11-26T23:59:59.900Z'))
+      try {
+        const { skill, queue } = makeSkill()
 
-      await skill.execute()
+        await skill.execute()
 
-      expect(queue.add).toHaveBeenCalledTimes(2)
-      expect(queue.add).toHaveBeenCalledWith(
-        'ingest',
-        { captureId: STALE_PENDING.id },
-        { jobId: STALE_PENDING.id },
-      )
-      expect(queue.add).toHaveBeenCalledWith(
-        'ingest',
-        { captureId: STALE_PROCESSING.id },
-        { jobId: STALE_PROCESSING.id },
-      )
+        expect(queue.add).toHaveBeenCalledTimes(2)
+        expect(queue.add).toHaveBeenCalledWith(
+          'ingest',
+          { captureId: STALE_PENDING.id },
+          { jobId: `sweep_${STALE_PENDING.id}_20261126` },
+        )
+        expect(queue.add).toHaveBeenCalledWith(
+          'ingest',
+          { captureId: STALE_PROCESSING.id },
+          { jobId: `sweep_${STALE_PROCESSING.id}_20261126` },
+        )
+      } finally {
+        vi.useRealTimers()
+      }
     })
 
     it('sends Pushover notification on successful re-queue', async () => {
