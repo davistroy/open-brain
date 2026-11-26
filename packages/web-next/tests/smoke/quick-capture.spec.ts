@@ -63,6 +63,15 @@ test.describe('QuickCapture smoke test', () => {
       return
     }
 
+    // A fresh database has no `onboarding_completed` setting, so the shell
+    // layout redirects every route to /onboarding. Mark it done first (what the
+    // wizard's last step writes) so the dashboard renders.
+    const onboarding = await page.request.put(
+      'http://localhost:3002/api/v1/settings/onboarding_completed',
+      { data: { value: true }, headers: { 'X-Open-Brain-Caller': 'integration-test' } },
+    )
+    expect(onboarding.ok()).toBe(true)
+
     // ------------------------------------------------------------------
     // Step 1: Navigate to dashboard — verify it renders
     // ------------------------------------------------------------------
