@@ -171,6 +171,15 @@ describe('StaleCapturesSkill', () => {
       expect(params).toContain('extracted')
     })
 
+    it('excludes soft-deleted captures (deleted_at IS NULL)', async () => {
+      const { skill, db } = makeSkill({ staleRows: [] })
+
+      await skill.execute()
+
+      const query = new PgDialect().sqlToQuery(db.execute.mock.calls[0][0])
+      expect(query.sql).toMatch(/deleted_at IS NULL/i)
+    })
+
     it("does not query 'received' — a pipeline_events stage, not a capture status", async () => {
       const { skill, db } = makeSkill({ staleRows: [] })
 
@@ -211,8 +220,9 @@ describe('StaleCapturesSkill', () => {
       expect(result.staleCaptures[1].pipeline_status).toBe('processing')
     })
 
-    it('calls queue.add for each stale capture with captureId as jobId (idempotency)', async () => {
+    it('calls queue.add for each stale capture with a per-day sweep job ID', async () => {
       const { skill, queue } = makeSkill()
+      const day = new Date().toISOString().slice(0, 10).replace(/-/g, '')
 
       await skill.execute()
 
@@ -220,12 +230,12 @@ describe('StaleCapturesSkill', () => {
       expect(queue.add).toHaveBeenCalledWith(
         'ingest',
         { captureId: STALE_PENDING.id },
-        { jobId: STALE_PENDING.id },
+        { jobId: `sweep_${STALE_PENDING.id}_${day}` },
       )
       expect(queue.add).toHaveBeenCalledWith(
         'ingest',
         { captureId: STALE_PROCESSING.id },
-        { jobId: STALE_PROCESSING.id },
+        { jobId: `sweep_${STALE_PROCESSING.id}_${day}` },
       )
     })
 

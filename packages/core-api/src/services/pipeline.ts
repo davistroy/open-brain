@@ -14,6 +14,8 @@ interface CapturePipelineJobData {
    * 'failed' captures.  Must match CapturePipelineJobData in @open-brain/workers.
    */
   forceRetry?: boolean
+  /** 'all' re-runs enrichment too on a re-drive; absent = embed only. */
+  stage?: 'all'
 }
 
 export interface PipelineQueueHealth {
@@ -51,17 +53,18 @@ export class PipelineService {
    * @param captureId   UUID of the capture to process
    * @param pipelineName  Pipeline to use (default: 'default')
    * @param forceRetry  If true, bypass BullMQ dedup (for explicit retry)
+   * @param stage  'all' also re-runs the enrichment stages; absent = embed only
    */
-  async enqueue(captureId: string, pipelineName = 'default', forceRetry = false): Promise<void> {
+  async enqueue(captureId: string, pipelineName = 'default', forceRetry = false, stage?: 'all'): Promise<void> {
     const jobId = forceRetry
       ? `pipeline_${captureId}_retry_${Date.now()}`
       : `pipeline_${captureId}`
     await this.queue.add(
       'capture-pipeline',
-      { captureId, pipelineName, ...(forceRetry ? { forceRetry: true } : {}) },
+      { captureId, pipelineName, ...(forceRetry ? { forceRetry: true } : {}), ...(stage ? { stage } : {}) },
       { jobId },
     )
-    logger.info({ captureId, pipelineName, forceRetry }, '[pipeline] job enqueued')
+    logger.info({ captureId, pipelineName, forceRetry, stage }, '[pipeline] job enqueued')
   }
 
   /**

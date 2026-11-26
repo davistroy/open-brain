@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { processDailySweepJob } from '../jobs/daily-sweep.js'
+import { processDailySweepJob, sweepJobId } from '../jobs/daily-sweep.js'
 import type { DailySweepJobData } from '../jobs/daily-sweep.js'
 
 // ============================================================
@@ -95,23 +95,43 @@ describe('processDailySweepJob', () => {
   // Re-enqueue behavior
   // ----------------------------------------------------------
 
-  it('re-enqueues each stuck capture with jobId = captureId for dedup', async () => {
-    const db = makeMockDb([STUCK_PENDING, STUCK_EXTRACTED])
-    const queue = makeMockQueue()
+  it('re-enqueues each stuck capture with a per-day job ID sweep_<id>_<yyyymmdd>', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-11-26T03:00:00Z'))
+    try {
+      const db = makeMockDb([STUCK_PENDING, STUCK_EXTRACTED])
+      const queue = makeMockQueue()
 
-    await processDailySweepJob(JOB_DATA, db as any, queue as any)
+      await processDailySweepJob(JOB_DATA, db as any, queue as any)
 
-    expect(queue.add).toHaveBeenCalledTimes(2)
-    expect(queue.add).toHaveBeenCalledWith(
-      'ingest',
-      { captureId: STUCK_PENDING.id },
-      { jobId: STUCK_PENDING.id },
-    )
-    expect(queue.add).toHaveBeenCalledWith(
-      'ingest',
-      { captureId: STUCK_EXTRACTED.id },
-      { jobId: STUCK_EXTRACTED.id },
-    )
+      expect(queue.add).toHaveBeenCalledTimes(2)
+      expect(queue.add).toHaveBeenCalledWith(
+        'ingest',
+        { captureId: STUCK_PENDING.id },
+        { jobId: `sweep_${STUCK_PENDING.id}_20261126` },
+      )
+      expect(queue.add).toHaveBeenCalledWith(
+        'ingest',
+        { captureId: STUCK_EXTRACTED.id },
+        { jobId: `sweep_${STUCK_EXTRACTED.id}_20261126` },
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('sweepJobId uses the UTC date of the run', () => {
+    expect(sweepJobId('abc', new Date('2026-11-26T23:59:59Z'))).toBe('sweep_abc_20261126')
+    expect(sweepJobId('abc', new Date('2026-12-01T00:00:00Z'))).toBe('sweep_abc_20261201')
+  })
+
+  it('excludes soft-deleted captures (deleted_at IS NULL in the WHERE)', async () => {
+    const db = makeMockDb([])
+
+    await processDailySweepJob(JOB_DATA, db as any, makeMockQueue() as any)
+
+    const q = new PgDialect().sqlToQuery(db._where.mock.calls[0][0])
+    expect(q.sql).toMatch(/"deleted_at" is null/i)
   })
 
   it('continues re-enqueuing remaining captures when one enqueue fails', async () => {

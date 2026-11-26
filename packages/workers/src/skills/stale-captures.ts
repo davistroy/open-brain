@@ -5,6 +5,7 @@ import { logger } from '@open-brain/shared'
 import { BaseSkill } from './base-skill.js'
 import type { BaseResult, BaseSkillOpts } from './types.js'
 import type { CapturePipelineJobData } from '../queues/capture-pipeline.js'
+import { sweepJobId } from '../jobs/daily-sweep.js'
 import { SWEEPABLE_STATUSES } from '../lib/sweepable-statuses.js'
 
 // ============================================================
@@ -105,16 +106,17 @@ export class StaleCapturesSkill extends BaseSkill<StaleCapturesOptions, StaleCap
     }
 
     // Step 2: Re-enqueue stuck captures
+    const now = new Date()
     let requeued = 0
     let failed = 0
 
     for (const capture of staleCaptures) {
       try {
-        // jobId = captureId ensures BullMQ deduplicates — if already queued, no-op
+        // per-day jobId — same as the nightly sweep
         await this.capturePipelineQueue.add(
           'ingest',
           { captureId: capture.id },
-          { jobId: capture.id },
+          { jobId: sweepJobId(capture.id, now) },
         )
         requeued++
         logger.debug({ captureId: capture.id, age_minutes: capture.age_minutes }, '[stale-captures] re-enqueued')
@@ -166,6 +168,7 @@ export class StaleCapturesSkill extends BaseSkill<StaleCapturesOptions, StaleCap
       FROM captures
       WHERE pipeline_status IN (${sql.join(SWEEPABLE_STATUSES.map((s) => sql`${s}`), sql`, `)})
         AND created_at < ${threshold.toISOString()}::timestamptz
+        AND deleted_at IS NULL
       ORDER BY created_at ASC
     `)
 
