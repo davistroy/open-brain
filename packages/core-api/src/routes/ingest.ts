@@ -1,5 +1,5 @@
 import { join, extname } from 'node:path'
-import { mkdir, unlink } from 'node:fs/promises'
+import { mkdir, rename, unlink } from 'node:fs/promises'
 import { createWriteStream } from 'node:fs'
 import { pipeline as streamPipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
@@ -324,16 +324,23 @@ export function registerIngestRoutes(
     // ── Stream body to disk under /ingest-root/<source>/<uuid>-<name> ────
     const root = getIngestVolumeRoot()
     const subdir = join(root, sourceType)
-    await mkdir(subdir, { recursive: true })
     const destName = `${uploadId}-${filename}`
     const destPath = join(subdir, destName)
+    // Stream to `<dest>.part` and rename into place once the write completes:
+    // the sidecars' --process-inbox lists only *.csv / *.pdf, so a half-written
+    // upload is never visible to them (review fix 9.4-2).
+    const partPath = `${destPath}.part`
 
     let bytesWritten: number
     try {
-      bytesWritten = await streamBodyToFile(fileBytesSource!, destPath, MAX_UPLOAD_BYTES)
+      // Inside the try: an unwritable inbox dir (EACCES) is the same failure
+      // class as an unwritable file → INGEST_WRITE_FAILED (review fix 9.4-3).
+      await mkdir(subdir, { recursive: true })
+      bytesWritten = await streamBodyToFile(fileBytesSource!, partPath, MAX_UPLOAD_BYTES)
+      await rename(partPath, destPath)
     } catch (err) {
-      // Never leave a partial file where a sidecar's --process-inbox would read it.
-      await unlink(destPath).catch(() => {})
+      // Never leave a partial file in the inbox.
+      await unlink(partPath).catch(() => {})
       if (err instanceof AppError) throw err
       const msg = err instanceof Error ? err.message : String(err)
       logger.error({ uploadId, err: msg, destPath }, '[ingest] failed to write upload to disk')

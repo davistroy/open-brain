@@ -59,13 +59,32 @@ const UPLOAD_POLL_INTERVAL_MS = 500
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Build a stub 2-line CSV (header + 1 data row) suitable for a financial parser. */
+/** Build a stub CSV the sidecar's AMEX parser genuinely parses (fake values only). */
 function stubFinancialCsv(): string {
-  // Match a shape the local router recognises as financial (AMEX "activity.csv"):
-  //   Date,Description,Amount
-  // The test does NOT depend on any particular parser — it only needs the sidecar
-  // to accept the payload and emit a successful /process response.
-  return 'Date,Description,Amount\n2026-04-17,TEST INGEST E2E,-12.34\n'
+  // AMEX "activity.csv" shape: Date,Description,Amount with MM/DD/YYYY dates
+  // (`_parse_mdy` rejects ISO dates, and an unparseable file posts no capture).
+  // The upload lands as `<uploadId>-activity.csv`; the sidecar router strips that
+  // prefix (scripts/lib/inbox_names.py), so THIS file must produce the capture —
+  // CI no longer pre-seeds a bare activity.csv that would mask a routing miss.
+  return [
+    'Date,Description,Amount',
+    '04/17/2026,TEST INGEST E2E ONE,12.34',
+    '04/16/2026,TEST INGEST E2E TWO,56.78',
+    '',
+  ].join('\n')
+}
+
+/** GET a capture's source_metadata (the sidecar records the inbox file name there). */
+async function fetchCaptureSourceFile(captureId: string): Promise<unknown> {
+  const res = await fetch(`${CORE_API_URL}/api/v1/captures/${captureId}`, {
+    headers: { 'X-Open-Brain-Caller': 'integration-test' },
+  })
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '<unreadable>')
+    throw new Error(`capture fetch failed: ${res.status} ${res.statusText} — ${bodyText}`)
+  }
+  const body = (await res.json()) as { source_metadata?: { source_file?: unknown } | null }
+  return body.source_metadata?.source_file
 }
 
 /**
@@ -160,6 +179,12 @@ describe.skipIf(!E2E_ENABLED)('ingest end-to-end (INGEST_E2E=1)', () => {
     expect(terminal.error_message).toBeNull()
     // Sidecar should have reported at least one capture UUID back to core-api.
     expect(terminal.capture_ids.length).toBeGreaterThan(0)
+    // ...and every one of them must come from THE UPLOADED FILE, not from some
+    // other file sitting in the inbox: the financial pipeline records the on-disk
+    // name (`<uploadId>-activity.csv`) as source_metadata.source_file.
+    for (const captureId of terminal.capture_ids) {
+      expect(await fetchCaptureSourceFile(captureId)).toBe(`${upload_id}-activity.csv`)
+    }
     // The row must still be tagged with the source that matches the sidecar
     // binding — guards the PR #93 "each sidecar bound to its INGEST_SOURCE"
     // regression from silently regressing to a default/fallback value.

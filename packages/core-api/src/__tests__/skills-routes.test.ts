@@ -259,6 +259,10 @@ describe('POST /api/v1/skills/:name/trigger', () => {
       }),
       expect.objectContaining({
         priority: 2,
+        // A manual trigger runs ONCE: the queue's defaultJobOptions retry 3x,
+        // which could re-run a side-effecting skill (email-compose,
+        // memory-consolidation) after it already acted (review fix 9.3).
+        attempts: 1,
       }),
     )
   })

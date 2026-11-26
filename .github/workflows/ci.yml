@@ -506,20 +506,15 @@ jobs:
       - name: Build + start full stack (core-api + workers + sidecar)
         run: docker compose -f docker-compose.test.yml --profile fullstack up -d --wait --build
 
-      - name: Pre-seed a valid AMEX inbox file for the ingest pipeline
-        # The e2e upload lands as <uuid>-activity.csv (won't match the exact
-        # `activity.csv` bank-router rule, and its ISO date won't parse). This
-        # seed gives the financial pipeline one genuinely parseable file so the
-        # /process run posts >=1 capture — proving the upload -> worker ->
-        # sidecar -> file_uploads='parsed' path end to end.
+      - name: Make the shared inbox volume writable by the non-root core-api
+        # core-api runs as uid 1000 (`USER node`) and writes uploads into
+        # /inbox-root/financial; the fresh named volume is root-owned. No file is
+        # pre-seeded: the e2e asserts that the UPLOADED `<uuid>-activity.csv`
+        # itself produces the capture (item 9.4 review — a bare seed masked a
+        # sidecar routing miss on the UUID prefix).
         run: |
           docker compose -f docker-compose.test.yml exec -T test-sidecar \
-            sh -c 'mkdir -p /inbox-root/financial && chown -R 1000:1000 /inbox-root && cat > /inbox-root/financial/activity.csv' <<'CSV'
-          Date,Description,Amount
-          04/17/2026,COFFEE SHOP DOWNTOWN,12.34
-          04/16/2026,GROCERY MART,56.78
-          04/15/2026,STATEMENT PAYMENT,-100.00
-          CSV
+            sh -c 'mkdir -p /inbox-root/financial && chown -R 1000:1000 /inbox-root'
 
       - name: Run ingest e2e (INGEST_E2E=1) against real core-api + workers
         env:

@@ -171,8 +171,10 @@ describe('BriefsService.refine', () => {
 
     expect(out).toEqual({ job_id: 'job-42', status: 'queued' })
     expect(add).toHaveBeenCalledTimes(1)
-    const [jobName, jobData] = add.mock.calls[0]
+    const [jobName, jobData, jobOpts] = add.mock.calls[0]
     expect(jobName).toBe('refine-brief')
+    // User-initiated refine runs once — overrides the queue's attempts: 3 default.
+    expect(jobOpts).toMatchObject({ priority: 2, attempts: 1 })
     expect(jobData).toMatchObject({
       skillName: 'refine-brief',
       input: { source_brief_id: 'brief-1', option: 'Shorter' },
